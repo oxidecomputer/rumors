@@ -561,8 +561,9 @@ def CharterLocal (p : Party) (σ : Strategy) : Prop :=
 
 /-- A successful push's only history effect is the flush receipt on the
 pushing machine (every success arm of `firePush` builds through its
-`push` constructor). -/
-private theorem firePush_hist {sk : Skel} {C : Nat} {q : Party} {h : Nat}
+`push` constructor). Public: the K-variant's history attribution
+(Mux/SigmaStarK.lean) reuses it through the shared push arm. -/
+theorem firePush_hist {sk : Skel} {C : Nat} {q : Party} {h : Nat}
     {s s' : MState} (hstep : firePush sk C q h s = some s') :
     s'.hist = recordObs s.hist q (.pushed h) := by
   rw [firePush] at hstep
@@ -603,8 +604,10 @@ private theorem firePush_hist {sk : Skel} {C : Nat} {q : Party} {h : Nat}
 
 /-- One muxed step's history effect, arm-generic: unchanged histories
 except one machine's appended observation — an `.act` filed under its
-own `actionParty`, or a non-`.act` receipt. -/
-private theorem apply_hist_cases {sk : Skel} {ax : AxMode} {C : Nat}
+own `actionParty`, or a non-`.act` receipt. Public: the K-variant's
+base and push arms are shared definitionally, so its history
+attribution (Mux/SigmaStarK.lean) delegates here. -/
+theorem apply_hist_cases {sk : Skel} {ax : AxMode} {C : Nat}
     {σI σR : Strategy} {ma : MAction} {s₀ s₁ : MState}
     (hstep : apply sk ax C σI σR ma s₀ = some s₁) (p : Party) :
     s₁.hist p = s₀.hist p

@@ -649,8 +649,9 @@ private theorem RecvLedger.recv_assemble {s : MState} {b : State}
       exact hrl.mem p h hne
 
 /-- A non-`.act` observation preserves the receive ledger whenever the
-wire consumer counts are framed (push and deliver arms). -/
-private theorem RecvLedger.obs_assemble {s s' : MState} {q₀ : Party}
+wire consumer counts are framed (push and deliver arms). Public: the
+K-variant's deliver arm re-assembles through it. -/
+theorem RecvLedger.obs_assemble {s s' : MState} {q₀ : Party}
     {o : MObs} (hrl : RecvLedger sk s) (hno : ∀ a, o ≠ .act a)
     (hb : ∀ q g, Chan.wire q g ∈ allChans sk →
       recvdOf sk s'.base (Chan.wire q g)
@@ -749,9 +750,10 @@ private theorem RecvLedger.recv_internal_assemble {s : MState} {b : State}
 
 /-- Every enabled base action preserves the receive ledger: the 23-arm
 dispatch, reusing the Steps decomposition. -/
-theorem recvLedger_base (hwf : sk.wellFormed = true) {a : Action}
+theorem recvLedger_base {B : Chan → Nat} (hwf : sk.wellFormed = true)
+    {a : Action}
     {s s' : MState} (hstep : applyBase sk .impl a s = some s')
-    (hm : SInv sk s) (hrl : RecvLedger sk s) : RecvLedger sk s' := by
+    (hm : SInvB B sk s) (hrl : RecvLedger sk s) : RecvLedger sk s' := by
   obtain ⟨hnf, b, hb, hs'⟩ := applyBase_inv hstep
   have hL := hm.mux.invl
   subst hs'
@@ -933,9 +935,10 @@ theorem recvLedger_base (hwf : sk.wellFormed = true) {a : Action}
 /-- A push preserves the receive ledger: the flush receipt is not a
 receive record, and the fire's cursor effect never touches a consumer
 count. -/
-theorem recvLedger_push (hwf : sk.wellFormed = true) {C : Nat}
+theorem recvLedger_push {B : Chan → Nat} (hwf : sk.wellFormed = true)
+    {C : Nat}
     {q : Party} {h₀ : Nat} {s s' : MState}
-    (hstep : firePush sk C q h₀ s = some s') (hm : SInv sk s)
+    (hstep : firePush sk C q h₀ s = some s') (hm : SInvB B sk s)
     (hrl : RecvLedger sk s) : RecvLedger sk s' := by
   have hL := hm.mux.invl
   rw [firePush] at hstep
@@ -1002,10 +1005,11 @@ theorem recvLedger_push (hwf : sk.wellFormed = true) {C : Nat}
       next => cases hstep
 
 /-- Every muxed step preserves the receive ledger. -/
-theorem recvLedger_step (hwf : sk.wellFormed = true) {C : Nat}
+theorem recvLedger_step {B : Chan → Nat} (hwf : sk.wellFormed = true)
+    {C : Nat}
     {σI σR : Strategy} {ma : MAction} {s s' : MState}
     (hstep : apply sk .impl C σI σR ma s = some s')
-    (hm : SInv sk s) (hrl : RecvLedger sk s) : RecvLedger sk s' := by
+    (hm : SInvB B sk s) (hrl : RecvLedger sk s) : RecvLedger sk s' := by
   cases ma with
   | base a => exact recvLedger_base hwf hstep hm hrl
   | push q =>
@@ -2786,10 +2790,10 @@ keystone's (`hfifo`, `harr`) plus the receive ledger's
 (`hrecv` — recorded receives never outrun the base consumer counts,
 which grounds the C-own evidence arm) and the membership walls that
 replace `evUniv` lookups for count-grounded events. -/
-theorem keystoneA (hwf : sk.wellFormed = true)
+theorem keystoneA {B : Chan → Nat} (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
     {C : Nat} {σI σR : Strategy} {s : MState}
-    (hm : MuxInv sk s)
+    (hm : MuxInvB B sk s)
     (hstuck : mstuck sk .impl C σI σR s = true)
     (p : Party) (tr : List MObs)
     (hfifo : ∀ h, pushedCount tr h ≤ deliveredCount (s.hist p.other) h)

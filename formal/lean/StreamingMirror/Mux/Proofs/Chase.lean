@@ -60,11 +60,18 @@ Pipes-empty is a hypothesis, not a consequence: under an arbitrary
 strategy, stuck states with buried frames exist (the wedge jam), and
 there the τ-least unperformed event can be an undeliverable receive.
 T4's Step 1 discharges it via the keystone; T5's oracle proof supplies
-its own drain argument. -/
-theorem chase (hwf : sk.wellFormed = true)
+its own drain argument.
+
+The ground facts are consumed at ANY occupancy bound (`MuxInvB B`):
+the drained flow argument never reads the `chan ≤ cap` half — jammed
+sends and starving receives are refuted through conservation and the
+τ-cover alone — so the chase serves the K-parked compositions (whose
+wire cells legally exceed cap 1) exactly as it serves the record
+harness. -/
+theorem chase {B : Chan → Nat} (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
     {C : Nat} {σI σR : Strategy} {s : MState}
-    (hm : MuxInv sk s)
+    (hm : MuxInvB B sk s)
     (hpI : s.pipe .I = []) (hpR : s.pipe .R = [])
     (hstuck : mstuck sk .impl C σI σR s = true)
     (hnt : mterminal sk s = false) :
@@ -79,7 +86,7 @@ theorem chase (hwf : sk.wellFormed = true)
           performed sk s.base g)
       ∧ (f, a) ∈ pends sk s.base ∧ PendOkE sk s.base f a
       ∧ holdsWire sk p hh s.base = true := by
-  have hi : InvP sk .impl s.base := hm.invP hpI hpR
+  have hiw : InvPW sk .impl s.base := hm.invPW hpI hpR
   have hL : InvL sk .impl s.base := hm.invl
   have hioh := mstuck_ioh (sk := sk) hstuck
   have hroh := mstuck_roh (sk := sk) hL hstuck
@@ -113,7 +120,7 @@ theorem chase (hwf : sk.wellFormed = true)
         List.append_eq_nil_iff, List.append_eq_nil_iff,
         List.append_eq_nil_iff, List.append_eq_nil_iff] at hnil
       obtain ⟨⟨⟨⟨⟨⟨hio0, hro0⟩, hwk0⟩, hab0⟩, hasm0⟩, hrr0⟩, hfin0⟩ := hnil
-      have hcan := Sched.progress_of_inv sk hwf hm0 hi.weak hterm
+      have hcan := Sched.progress_of_inv sk hwf hm0 hiw hterm
       rw [Model.canStep, List.any_eq_true] at hcan
       obtain ⟨a, hmem, hsome'⟩ := hcan
       have hnf : isWireFire s.base a = false := by
@@ -179,7 +186,7 @@ theorem chase (hwf : sk.wellFormed = true)
         obtain ⟨fa', hfam', hτle⟩ := Sched.pends_coverE sk hwf hm0 hL
           hioh hroh hwkh hg hgnp
         exact Nat.le_trans (hfmin fa' hfam') hτle
-      have hflow := hi.flow c hok.chan_mem
+      have hflow := hm.flow_drained hpI hpR c hok.chan_mem
       have hfnp : ¬ performed sk s.base ((c, b, n) : Ev) :=
         Sched.pend_not_performedE sk hok
       cases b with
@@ -268,10 +275,10 @@ theorem chase (hwf : sk.wellFormed = true)
 /-- The chase's strategy-facing corollary: the withheld push is fully
 enabled — hand committed, pipe room free — and the stuck strategy has
 provably declined it. -/
-theorem chase_withheld (hwf : sk.wellFormed = true)
+theorem chase_withheld {B : Chan → Nat} (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
     {C : Nat} {σI σR : Strategy} {s : MState}
-    (hm : MuxInv sk s) (hC : 1 ≤ C)
+    (hm : MuxInvB B sk s) (hC : 1 ≤ C)
     (hpI : s.pipe .I = []) (hpR : s.pipe .R = [])
     (hstuck : mstuck sk .impl C σI σR s = true)
     (hnt : mterminal sk s = false) :
@@ -311,7 +318,8 @@ theorem mstuck_deliver_blocked {C : Nat} {σI σR : Strategy}
   simp [apply, hp, h0] at hdis
 
 /-- Pipe entries are wire frames of their own pipe's party. -/
-theorem MuxInv.pipe_mem_wire {s : MState} (hm : MuxInv sk s) {p : Party}
+theorem MuxInvB.pipe_mem_wire {B : Chan → Nat} {s : MState}
+    (hm : MuxInvB B sk s) {p : Party}
     {c : Chan} (hc : c ∈ s.pipe p) : ∃ hh, c = Chan.wire p hh := by
   rw [hm.hist_pipe p] at hc
   obtain ⟨hh, -, rfl⟩ := List.exists_of_mem_map hc
