@@ -1046,4 +1046,893 @@ theorem recvLedger_reachable (hwf : sk.wellFormed = true) {C : Nat}
   | step ma hr' hstep ih =>
       exact recvLedger_step hwf hstep (sinv_reachable hwf hr') ih
 
+-- ======================================================== the census
+-- The announced BFS census (`levelA`) against the true level slices:
+-- a known prefix whose members carry known kinds, exact when complete.
+
+/-- A record hit names an announced id carrying the true record. -/
+theorem rec?_some_inv {p : Party} {tr : List MObs} {u : Nat} {sc : Scope}
+    (h : (aviewOf sk p tr).rec? u = some sc) :
+    sc = sk.scope u ∧ u ∈ announcedIds sk p tr := by
+  rw [rec?_aviewOf] at h
+  by_cases hmem : u ∈ announcedIds sk p tr
+  · rw [if_pos hmem] at h
+    injection h with h
+    exact ⟨h.symm, hmem⟩
+  · rw [if_neg hmem] at h
+    cases h
+
+/-- A flatMap over a `take` prefix is a prefix of the flatMap. -/
+private theorem flatMap_take_prefix {α β : Type _} (f : α → List β)
+    (l : List α) (m : Nat) :
+    (l.take m).flatMap f <+: l.flatMap f := by
+  conv => rhs; rw [← List.take_append_drop m l]
+  rw [List.flatMap_append]
+  exact ⟨(l.drop m).flatMap f, rfl⟩
+
+/-- Prefixes lift through `flatMap`. -/
+private theorem prefix_flatMap {α β : Type _} (f : α → List β)
+    {l₁ l₂ : List α} (h : l₁ <+: l₂) :
+    l₁.flatMap f <+: l₂.flatMap f := by
+  obtain ⟨t, rfl⟩ := h
+  rw [List.flatMap_append]
+  exact ⟨t.flatMap f, rfl⟩
+
+/-- The collect pass of `levelA`, characterized: over a list of real,
+kind-known scopes it emits the kid lists of a prefix — cut at the first
+dispute whose record is missing — with the flag reporting totality, and
+every dispute in the emitted prefix announced. -/
+private theorem collect_spec (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} :
+    ∀ l : List Nat,
+      (∀ u ∈ l, u < sk.scopes.length
+        ∧ (aviewOf sk p tr).kind? u = some ((sk.scope u).kind)) →
+      ∃ m, m ≤ l.length
+        ∧ (levelA.collect (aviewOf sk p tr) l).1
+            = (l.take m).flatMap (fun u => (sk.scope u).kids)
+        ∧ ((levelA.collect (aviewOf sk p tr) l).2 = true → m = l.length)
+        ∧ (∀ u ∈ l.take m, (sk.scope u).kind = Kind.D →
+            u ∈ announcedIds sk p tr) := by
+  intro l
+  induction l with
+  | nil =>
+      intro _
+      exact ⟨0, by omega, rfl, fun _ => rfl, fun u hu => absurd hu
+        (by simp)⟩
+  | cons sid rest ih =>
+      intro hl
+      obtain ⟨hreal, hkind⟩ := hl sid (List.mem_cons_self ..)
+      rw [levelA.collect]
+      by_cases hD : (sk.scope sid).kind = Kind.D
+      · rw [if_pos (by rw [hkind, hD]; rfl)]
+        cases hrec : (aviewOf sk p tr).rec? sid with
+        | none =>
+            refine ⟨0, by omega, by simp, ?_, fun u hu => absurd hu
+              (by simp)⟩
+            intro hcomp
+            simp at hcomp
+        | some sc =>
+            obtain ⟨rfl, hann⟩ := rec?_some_inv hrec
+            obtain ⟨m, hm, hitems, hcomp, hDs⟩ := ih
+              (fun u hu => hl u (List.mem_cons_of_mem _ hu))
+            refine ⟨m + 1, by simpa using hm, ?_, ?_, ?_⟩
+            · show (sk.scope sid).kids
+                  ++ (levelA.collect (aviewOf sk p tr) rest).1 = _
+              rw [hitems, List.take_succ_cons, List.flatMap_cons]
+            · intro hc
+              have : (levelA.collect (aviewOf sk p tr) rest).2
+                  = true := hc
+              rw [List.length_cons, hcomp this]
+            · intro u hu hDu
+              rw [List.take_succ_cons] at hu
+              rcases List.mem_cons.mp hu with rfl | hu'
+              · exact hann
+              · exact hDs u hu' hDu
+      · rw [if_neg (by rw [hkind]; simp; intro hc; exact hD hc)]
+        obtain ⟨m, hm, hitems, hcomp, hDs⟩ := ih
+          (fun u hu => hl u (List.mem_cons_of_mem _ hu))
+        have hkids : (sk.scope sid).kids = [] :=
+          (wf_scope_nonD hwf hreal hD).1
+        refine ⟨m + 1, by simpa using hm, ?_, ?_, ?_⟩
+        · rw [hitems, List.take_succ_cons, List.flatMap_cons, hkids,
+            List.nil_append]
+        · intro hc
+          rw [List.length_cons, hcomp hc]
+        · intro u hu hDu
+          rw [List.take_succ_cons] at hu
+          rcases List.mem_cons.mp hu with rfl | hu'
+          · exact absurd hDu hD
+          · exact hDs u hu' hDu
+
+/-- The announced census: at every depth, a prefix of the true level
+slice whose members carry their true kinds — the whole slice when the
+completeness flag is up. -/
+theorem levelA_spec (hwf : sk.wellFormed = true) (p : Party)
+    (tr : List MObs) :
+    ∀ steps, steps ≤ sk.rootH →
+      ((levelA (aviewOf sk p tr) steps).1
+          <+: sk.scopesAt (sk.rootH - steps))
+      ∧ (∀ u ∈ (levelA (aviewOf sk p tr) steps).1,
+          (aviewOf sk p tr).kind? u = some ((sk.scope u).kind))
+      ∧ ((levelA (aviewOf sk p tr) steps).2 = true →
+          (levelA (aviewOf sk p tr) steps).1
+            = sk.scopesAt (sk.rootH - steps)) := by
+  intro steps
+  induction steps with
+  | zero =>
+      intro _
+      have hroot : sk.scopesAt (sk.rootH - 0) = [0] := by
+        rw [show sk.rootH - 0 = sk.rootH from rfl,
+          Sched.wf_root_stage hwf]
+      refine ⟨?_, ?_, ?_⟩
+      · rw [hroot]
+        exact List.prefix_refl _
+      · intro u hu
+        have hu' : u ∈ [(0 : Nat)] := hu
+        rw [List.mem_singleton] at hu'
+        subst hu'
+        show (aviewOf sk p tr).kind? 0 = _
+        rw [AView.kind?, if_pos (show ((0 : Nat) == 0) = true from rfl),
+          wf_root_kind hwf]
+      · intro _
+        rw [hroot]
+        rfl
+  | succ steps ih =>
+      intro hle
+      obtain ⟨hpre, hkinds, hcomp⟩ := ih (by omega)
+      have hreal : ∀ u ∈ (levelA (aviewOf sk p tr) steps).1,
+          u < sk.scopes.length
+            ∧ (aviewOf sk p tr).kind? u = some ((sk.scope u).kind) := by
+        intro u hu
+        exact ⟨(mem_scopesAt (hpre.sublist.mem hu)).1, hkinds u hu⟩
+      obtain ⟨m, hm, hitems, hflag, hDs⟩ :=
+        collect_spec hwf (levelA (aviewOf sk p tr) steps).1 hreal
+      have hbfs := wf_bfs_aligned hwf
+        (show sk.rootH - (steps + 1) < sk.rootH from by omega)
+      have hbfs' : (sk.scopesAt (sk.rootH - steps)).flatMap
+          (fun s => (sk.scope s).kids)
+          = sk.scopesAt (sk.rootH - (steps + 1)) := by
+        rw [show sk.rootH - (steps + 1) + 1 = sk.rootH - steps from by
+          omega] at hbfs
+        exact hbfs
+      have hshape : levelA (aviewOf sk p tr) (steps + 1)
+          = ((levelA.collect (aviewOf sk p tr)
+              (levelA (aviewOf sk p tr) steps).1).1,
+             (levelA (aviewOf sk p tr) steps).2
+              && (levelA.collect (aviewOf sk p tr)
+                  (levelA (aviewOf sk p tr) steps).1).2) := by
+        rw [levelA]
+      refine ⟨?_, ?_, ?_⟩
+      · rw [hshape]
+        show (levelA.collect _ _).1 <+: _
+        rw [hitems, ← hbfs']
+        exact (flatMap_take_prefix _ _ m).trans
+          (prefix_flatMap _ hpre)
+      · intro v hv
+        rw [hshape] at hv
+        have hv' : v ∈ ((levelA (aviewOf sk p tr) steps).1.take m).flatMap
+            (fun u => (sk.scope u).kids) := by
+          rw [← hitems]
+          exact hv
+        obtain ⟨u, hu, hvk⟩ := List.mem_flatMap.mp hv'
+        have humem := (List.take_prefix m _).sublist.mem hu
+        have hureal := (hreal u humem).1
+        by_cases hD : (sk.scope u).kind = Kind.D
+        · exact kind?_aviewOf_of_kid hwf (hDs u hu hD) hvk
+        · rw [(wf_scope_nonD hwf hureal hD).1] at hvk
+          cases hvk
+      · intro hc
+        rw [hshape] at hc ⊢
+        have hc' : (levelA (aviewOf sk p tr) steps).2 = true
+            ∧ (levelA.collect (aviewOf sk p tr)
+                (levelA (aviewOf sk p tr) steps).1).2 = true := by
+          simpa using hc
+        show (levelA.collect _ _).1 = _
+        rw [hitems, hflag hc'.2, List.take_length, ← hbfs',
+          hcomp hc'.1]
+
+-- =============================================== the walk transcription
+-- The announced walk layouts against the true `.impl` traces: block by
+-- block, chunk by chunk, the layout is a literal prefix, exact (with
+-- the prefix-sum counters advanced) while every consulted record is
+-- announced.
+
+/-- Filtering positions equals filtering values. -/
+private theorem length_filter_range_getD (p' : Nat → Bool) :
+    ∀ l : List Nat,
+      ((List.range l.length).filter fun i => p' (l.getD i 0)).length
+        = (l.filter p').length := by
+  intro l
+  induction l with
+  | nil => rfl
+  | cons a l ih =>
+      rw [List.length_cons, List.range_succ_eq_map, List.filter_cons]
+      have hmap : (((List.range l.length).map (· + 1)).filter
+          fun i => p' ((a :: l).getD i 0))
+          = ((List.range l.length).filter
+              fun i => p' (l.getD i 0)).map (· + 1) := by
+        rw [List.filter_map]
+        congr 1
+      by_cases hpa : p' a = true
+      · rw [if_pos (by simpa using hpa), List.length_cons, hmap,
+          List.length_map, ih, List.filter_cons, if_pos hpa,
+          List.length_cons]
+      · rw [if_neg (by simpa using hpa), hmap, List.length_map, ih,
+          List.filter_cons, if_neg (by simpa using hpa)]
+
+/-- The chunk loop of `peerBlockA`, characterized: from child `i` with
+the prefix-sum counters, the emitted events are a prefix of the true
+remaining chunks, exact with the counters advanced to the block end
+when the loop completes. -/
+private theorem chunksA_spec (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} (q : Party) {h k : Nat}
+    (h0 : h ≠ 0) (hk : k < sk.stageLen h)
+    (hann : sk.stageScope h k ∈ announcedIds sk p tr)
+    (wires : Nat) :
+    ∀ (fuel i w d qacc : Nat),
+      i ≤ (sk.scope (sk.stageScope h k)).kids.length →
+      (sk.scope (sk.stageScope h k)).kids.length - i < fuel →
+      w = sk.wiresBefore h k + i →
+      d = sk.dsBefore h k
+        + ((List.range i).filter
+            (sk.childIsD h (sk.stageScope h k))).length →
+      qacc = sk.qsBefore h k
+        + ((List.range i).map
+            (sk.qCount h (sk.stageScope h k))).sum →
+      (peerBlockA.chunks (aviewOf sk p tr) q h wires
+          (sk.scope (sk.stageScope h k))
+          (sk.scope (sk.stageScope h k)).kids.length
+          i w d qacc fuel).1
+        <+: (List.range' i
+              ((sk.scope (sk.stageScope h k)).kids.length - i)).flatMap
+            (Sched.childChunk sk (q, h) k)
+      ∧ ((peerBlockA.chunks (aviewOf sk p tr) q h wires
+            (sk.scope (sk.stageScope h k))
+            (sk.scope (sk.stageScope h k)).kids.length
+            i w d qacc fuel).2.2 = true →
+          (peerBlockA.chunks (aviewOf sk p tr) q h wires
+              (sk.scope (sk.stageScope h k))
+              (sk.scope (sk.stageScope h k)).kids.length
+              i w d qacc fuel).1
+            = (List.range' i
+                ((sk.scope (sk.stageScope h k)).kids.length - i)).flatMap
+                (Sched.childChunk sk (q, h) k)
+          ∧ (peerBlockA.chunks (aviewOf sk p tr) q h wires
+              (sk.scope (sk.stageScope h k))
+              (sk.scope (sk.stageScope h k)).kids.length
+              i w d qacc fuel).2.1
+            = (sk.wiresBefore h (k + 1), sk.dsBefore h (k + 1),
+               sk.qsBefore h (k + 1))) := by
+  have hureal : sk.stageScope h k < sk.scopes.length :=
+    stageScope_lt_scopes sk hk
+  have hn : sk.nChildren h (sk.stageScope h k)
+      = (sk.scope (sk.stageScope h k)).kids.length := by
+    unfold Skel.nChildren
+    rw [if_neg (by simpa using h0)]
+  intro fuel
+  induction fuel with
+  | zero =>
+      intro i w d qacc hi hfuel
+      omega
+  | succ fuel ih =>
+      intro i w d qacc hi hfuel hw hd hq
+      by_cases hin : i = (sk.scope (sk.stageScope h k)).kids.length
+      · -- past the last child: the loop closes the block
+        have hnone : (sk.scope (sk.stageScope h k)).kids[i]? = none := by
+          rw [hin]
+          exact List.getElem?_eq_none (Nat.le_refl _)
+        have hstep : peerBlockA.chunks (aviewOf sk p tr) q h wires
+            (sk.scope (sk.stageScope h k))
+            (sk.scope (sk.stageScope h k)).kids.length
+            i w d qacc (fuel + 1)
+            = ([], (w, d, qacc), true) := by
+          rw [peerBlockA.chunks]
+          simp only [hnone]
+          rw [if_neg (by simpa using h0)]
+        rw [hstep, hin]
+        simp only [Nat.sub_self, List.range'_zero, List.flatMap_nil]
+        refine ⟨List.prefix_refl _, fun _ => ?_⟩
+        refine ⟨by simp, ?_⟩
+        show (w, d, qacc) = _
+        have hdof : sk.dOf h (sk.stageScope h k)
+            = ((List.range
+                (sk.scope (sk.stageScope h k)).kids.length).filter
+                  (sk.childIsD h (sk.stageScope h k))).length := by
+          unfold Skel.dOf Skel.dCount
+          rw [if_neg (by simpa using h0),
+            ← length_filter_range_getD
+              (fun v => (sk.scope v).kind == Kind.D)]
+          congr 1
+          refine (List.filter_congr ?_).symm
+          intro i' hi'
+          rw [List.mem_range] at hi'
+          unfold Skel.childIsD
+          rw [if_neg (by simpa using h0),
+            List.getElem?_eq_getElem hi',
+            List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hi']
+          rfl
+        have hqof : sk.qOf h (sk.stageScope h k)
+            = ((List.range
+                (sk.scope (sk.stageScope h k)).kids.length).map
+                  (sk.qCount h (sk.stageScope h k))).sum := by
+          unfold Skel.qOf
+          rw [hn, foldl_add_eq_sum, Nat.zero_add]
+        rw [hw, hd, hq, Sched.wiresBefore_succ sk hk,
+          Sched.dsBefore_succ sk hk, Sched.qsBefore_succ sk hk, hn,
+          hdof, hqof, hin]
+      · -- a live child: transcribe its chunk and recurse
+        have hilt : i < (sk.scope (sk.stageScope h k)).kids.length := by
+          omega
+        have hget : (sk.scope (sk.stageScope h k)).kids[i]?
+            = some ((sk.scope (sk.stageScope h k)).kids[i]) :=
+          List.getElem?_eq_getElem hilt
+        have hvmem : (sk.scope (sk.stageScope h k)).kids[i]
+            ∈ (sk.scope (sk.stageScope h k)).kids :=
+          List.getElem_mem hilt
+        have hkind := kind?_aviewOf_of_kid (p := p) (tr := tr) hwf hann
+          hvmem
+        have hD : sk.childIsD h (sk.stageScope h k) i
+            = ((sk.scope ((sk.scope (sk.stageScope h k)).kids[i])).kind
+                == Kind.D) := by
+          unfold Skel.childIsD
+          rw [if_neg (by simpa using h0), hget]
+        have hrange : List.range' i
+            ((sk.scope (sk.stageScope h k)).kids.length - i)
+            = i :: List.range' (i + 1)
+                ((sk.scope (sk.stageScope h k)).kids.length - (i + 1)) := by
+          rw [show (sk.scope (sk.stageScope h k)).kids.length - i
+            = ((sk.scope (sk.stageScope h k)).kids.length - (i + 1)) + 1
+            from by omega]
+          rfl
+        have hdrank : ((List.range (i + 1)).filter
+            (sk.childIsD h (sk.stageScope h k))).length
+            = ((List.range i).filter
+                (sk.childIsD h (sk.stageScope h k))).length
+              + (if sk.childIsD h (sk.stageScope h k) i then 1 else 0) := by
+          rw [List.range_succ, List.filter_append, List.length_append]
+          congr 1
+          by_cases hDi : sk.childIsD h (sk.stageScope h k) i = true
+          · rw [List.filter_cons, if_pos hDi, if_pos hDi]
+            rfl
+          · rw [List.filter_cons,
+              if_neg (by simpa using hDi),
+              if_neg (by simpa using hDi)]
+            rfl
+        have hqsum : ((List.range (i + 1)).map
+            (sk.qCount h (sk.stageScope h k))).sum
+            = ((List.range i).map
+                (sk.qCount h (sk.stageScope h k))).sum
+              + sk.qCount h (sk.stageScope h k) i := by
+          rw [List.range_succ, List.map_append, List.sum_append]
+          rfl
+        cases hkindv : (sk.scope
+            ((sk.scope (sk.stageScope h k)).kids[i])).kind with
+        | R =>
+            -- an R child: bare wire, no bookkeeping
+            have hDi : sk.childIsD h (sk.stageScope h k) i = false := by
+              rw [hD, hkindv]
+              rfl
+            have hchunk : Sched.childChunk sk (q, h) k i
+                = [(wireOut (q, h), true, sk.wiresBefore h k + i)] := by
+              unfold Sched.childChunk
+              rw [if_neg (by simp [hDi])]
+            have hq0 : sk.qCount h (sk.stageScope h k) i = 0 := by
+              unfold Skel.qCount
+              rw [if_pos (by simp [hDi])]
+            obtain ⟨hpre', hcomp'⟩ := ih (i + 1) (w + 1) d qacc
+              (by omega) (by omega) (by omega)
+              (by rw [hd, hdrank, hDi]; simp)
+              (by rw [hq, hqsum, hq0]; omega)
+            rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h wires
+                (sk.scope (sk.stageScope h k))
+                (sk.scope (sk.stageScope h k)).kids.length
+                (i + 1) (w + 1) d qacc fuel with ⟨evs, cnts, ok⟩
+            rw [hcall] at hpre' hcomp'
+            have hstep : peerBlockA.chunks (aviewOf sk p tr) q h wires
+                (sk.scope (sk.stageScope h k))
+                (sk.scope (sk.stageScope h k)).kids.length
+                i w d qacc (fuel + 1)
+                = ((Chan.wire q h, true, w) :: evs, cnts, ok) := by
+              simp only [peerBlockA.chunks]
+              rw [if_neg (by simpa using h0)]
+              simp only [hget, hkind, hkindv, hcall]
+            rw [hstep, hrange, List.flatMap_cons, hchunk]
+            constructor
+            · show (Chan.wire q h, true, w) :: evs <+: _
+              rw [← hw]
+              show ((Chan.wire q h, true, w) : Ev) :: evs
+                <+: ((Chan.wire q h, true, w) : Ev) :: _
+              obtain ⟨t, ht⟩ := hpre'
+              refine ⟨t, ?_⟩
+              rw [List.cons_append, show evs ++ t
+                = List.flatMap (Sched.childChunk sk (q, h) k)
+                    (List.range' (i + 1)
+                      ((sk.scope (sk.stageScope h k)).kids.length
+                        - (i + 1))) from ht]
+              rfl
+            · intro hok
+              obtain ⟨heq, hcnts⟩ := hcomp' hok
+              have heq' : evs = List.flatMap
+                  (Sched.childChunk sk (q, h) k)
+                  (List.range' (i + 1)
+                    ((sk.scope (sk.stageScope h k)).kids.length
+                      - (i + 1))) := heq
+              refine ⟨?_, hcnts⟩
+              show (Chan.wire q h, true, w) :: evs = _
+              rw [heq', hw]
+              rfl
+        | D =>
+            -- a D child: wire, then its resolution and query train
+            have hDi : sk.childIsD h (sk.stageScope h k) i = true := by
+              rw [hD, hkindv]
+              rfl
+            have hchunk : Sched.childChunk sk (q, h) k i
+                = (wireOut (q, h), true, sk.wiresBefore h k + i)
+                  :: (lowerOut (q, h), true, sk.dsBefore h k
+                      + ((List.range i).filter
+                          (fun i' => sk.childIsD h
+                            (sk.stageScope h k) i')).length)
+                  :: ((List.range
+                        (sk.qCount h (sk.stageScope h k) i)).map
+                      fun t => (askedOut (q, h), true,
+                        sk.qsBefore h k
+                          + ((List.range i).map
+                              (fun i' => sk.qCount h
+                                (sk.stageScope h k) i')).sum + t)) := by
+              unfold Sched.childChunk
+              rw [if_pos hDi]
+            cases hrecv : (aviewOf sk p tr).rec?
+                ((sk.scope (sk.stageScope h k)).kids[i]) with
+            | none =>
+                -- the kid record is missing: cut after the wire
+                have hstep : peerBlockA.chunks (aviewOf sk p tr) q h wires
+                    (sk.scope (sk.stageScope h k))
+                    (sk.scope (sk.stageScope h k)).kids.length
+                    i w d qacc (fuel + 1)
+                    = ([(Chan.wire q h, true, w)],
+                       (w + 1, d, qacc), false) := by
+                  simp only [peerBlockA.chunks]
+                  rw [if_neg (by simpa using h0)]
+                  simp only [hget, hkind, hkindv, qCountA, hrecv,
+                    Option.map]
+                rw [hstep, hrange, List.flatMap_cons]
+                constructor
+                · rw [hchunk]
+                  refine List.IsPrefix.trans ?_ (List.prefix_append _ _)
+                  rw [← hw]
+                  exact ⟨(lowerOut (q, h), true, _) :: _, rfl⟩
+                · intro hok
+                  cases hok
+            | some sc' =>
+                obtain ⟨hsc', hann'⟩ := rec?_some_inv hrecv
+                have hheight : (sk.scope
+                    ((sk.scope (sk.stageScope h k)).kids[i])).height
+                    = h := by
+                  have hkf := (Sched.wf_kid_facts hwf hureal _ hvmem).2
+                  have hsh := Sched.stageScope_height sk
+                    (h := h) (k := k) hk
+                  omega
+                have hqc : sk.qCount h (sk.stageScope h k) i
+                    = (if (h == 1) = true then
+                        (sk.scope ((sk.scope
+                          (sk.stageScope h k)).kids[i])).leafReqs
+                      else (sk.scope ((sk.scope
+                          (sk.stageScope h k)).kids[i])).kids.length) := by
+                  unfold Skel.qCount
+                  rw [if_neg (by simp [hDi])]
+                  simp only [hget, hheight]
+                obtain ⟨hpre', hcomp'⟩ := ih (i + 1) (w + 1) (d + 1)
+                  (qacc + sk.qCount h (sk.stageScope h k) i)
+                  (by omega) (by omega) (by omega)
+                  (by rw [hd, hdrank, hDi, if_pos rfl]; omega)
+                  (by rw [hq, hqsum]; omega)
+                rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h
+                    wires (sk.scope (sk.stageScope h k))
+                    (sk.scope (sk.stageScope h k)).kids.length
+                    (i + 1) (w + 1) (d + 1)
+                    (qacc + sk.qCount h (sk.stageScope h k) i)
+                    fuel with ⟨evs, cnts, ok⟩
+                rw [hcall] at hpre' hcomp'
+                have hstep : peerBlockA.chunks (aviewOf sk p tr) q h wires
+                    (sk.scope (sk.stageScope h k))
+                    (sk.scope (sk.stageScope h k)).kids.length
+                    i w d qacc (fuel + 1)
+                    = ((Chan.wire q h, true, w)
+                        :: (Chan.lower q h, true, d)
+                        :: ((List.range (sk.qCount h
+                              (sk.stageScope h k) i)).map fun t =>
+                            (askedOut (q, h), true, qacc + t))
+                        ++ evs,
+                       cnts, ok) := by
+                  simp only [peerBlockA.chunks]
+                  rw [if_neg (by simpa using h0)]
+                  simp only [hget, hkind, hkindv, qCountA, hrecv,
+                    Option.map, hsc', ← hqc, hcall]
+                have hheads : ((Chan.wire q h, true, w) : Ev)
+                      :: (Chan.lower q h, true, d)
+                      :: ((List.range (sk.qCount h
+                            (sk.stageScope h k) i)).map fun t =>
+                          (askedOut (q, h), true, qacc + t))
+                    = Sched.childChunk sk (q, h) k i := by
+                  rw [hchunk, hw, hd]
+                  show _ = ((wireOut (q, h) : Chan), true, _) :: _
+                  rw [show (wireOut (q, h) : Chan) = Chan.wire q h
+                    from rfl,
+                    show (lowerOut (q, h) : Chan) = Chan.lower q h
+                    from rfl]
+                  congr 2
+                  refine List.map_congr_left fun t _ => ?_
+                  rw [hq]
+                rw [hstep, hrange, List.flatMap_cons]
+                have hsplit : ((Chan.wire q h, true, w) : Ev)
+                      :: (Chan.lower q h, true, d)
+                      :: ((List.range (sk.qCount h
+                            (sk.stageScope h k) i)).map fun t =>
+                          (askedOut (q, h), true, qacc + t))
+                      ++ evs
+                    = Sched.childChunk sk (q, h) k i ++ evs := by
+                  rw [← hheads]
+                constructor
+                · rw [hsplit]
+                  obtain ⟨t, ht⟩ := hpre'
+                  exact ⟨t, by rw [List.append_assoc, ht]⟩
+                · intro hok
+                  obtain ⟨heq, hcnts⟩ := hcomp' hok
+                  have heq' : evs = List.flatMap
+                      (Sched.childChunk sk (q, h) k)
+                      (List.range' (i + 1)
+                        ((sk.scope (sk.stageScope h k)).kids.length
+                          - (i + 1))) := heq
+                  refine ⟨?_, hcnts⟩
+                  rw [hsplit, heq']
+
+
+/-- A flatMap of singletons is a map. -/
+private theorem flatMap_singleton {α β : Type _} (g : α → β)
+    (l : List α) : l.flatMap (fun a => [g a]) = l.map g := by
+  induction l with
+  | nil => rfl
+  | cons a l ih => rw [List.flatMap_cons, List.map_cons, ih]; rfl
+
+/-- The leaf stage owes no queries. -/
+private theorem qOf_zero (u : Nat) : sk.qOf 0 u = 0 := by
+  unfold Skel.qOf
+  have hz : ∀ i, sk.qCount 0 u i = 0 := by
+    intro i
+    unfold Skel.qCount Skel.childIsD
+    rw [if_pos (by simp)]
+  induction List.range (sk.nChildren 0 u) with
+  | nil => rfl
+  | cons a l ih =>
+      rw [List.foldl_cons, hz a]
+      exact ih
+
+/-- One announced block against its true block: a prefix of
+`scopeBlockE`, exact — with the counters advanced one scope — when the
+layout saw every record it needed. -/
+private theorem peerBlockA_spec (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} (q : Party) {h k : Nat}
+    (hh : h < sk.rootH) (hk : k < sk.stageLen h) :
+    (peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+        (sk.wiresBefore h k) (sk.dsBefore h k) (sk.qsBefore h k)).1
+      <+: Sched.scopeBlockE sk (q, h) k
+    ∧ ((peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+          (sk.wiresBefore h k) (sk.dsBefore h k) (sk.qsBefore h k)).2.2
+        = true →
+        (peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+            (sk.wiresBefore h k) (sk.dsBefore h k)
+            (sk.qsBefore h k)).1
+          = Sched.scopeBlockE sk (q, h) k
+        ∧ (peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+            (sk.wiresBefore h k) (sk.dsBefore h k)
+            (sk.qsBefore h k)).2.1
+          = (sk.wiresBefore h (k + 1), sk.dsBefore h (k + 1),
+             sk.qsBefore h (k + 1))) := by
+  have hpro : Sched.scopeBlockE sk (q, h) k
+      = (Chan.wire q.other (h + 1), false, k)
+        :: (Chan.asked q h, false, k)
+        :: Sched.scopeSendsE sk (q, h) k := rfl
+  cases hrec : (aviewOf sk p tr).rec? (sk.stageScope h k) with
+  | none =>
+      have hstep : peerBlockA (aviewOf sk p tr) q h k
+          (sk.stageScope h k) (sk.wiresBefore h k) (sk.dsBefore h k)
+          (sk.qsBefore h k)
+          = ([(Chan.wire q.other (h + 1), false, k),
+              (Chan.asked q h, false, k)],
+             (sk.wiresBefore h k, sk.dsBefore h k, sk.qsBefore h k),
+             false) := by
+        simp only [peerBlockA, hrec]
+      rw [hstep, hpro]
+      refine ⟨⟨Sched.scopeSendsE sk (q, h) k, rfl⟩, ?_⟩
+      intro hok
+      cases hok
+  | some sc =>
+      obtain ⟨hsc, hann⟩ := rec?_some_inv hrec
+      by_cases h0 : h = 0
+      · -- the leaf stage: one supply wire per request, never disputed
+        subst h0
+        have hkids : (sk.scope (sk.stageScope 0 k)).kids = [] := by
+          have hht := Sched.stageScope_height sk (h := 0) (k := k) hk
+          have hreal := stageScope_lt_scopes sk hk
+          unfold Skel.wellFormed at hwf
+          simp only [Bool.and_eq_true, List.all_eq_true,
+            decide_eq_true_eq] at hwf
+          have hper := (hwf.1.1.1.1.1.2 (sk.stageScope 0 k)
+            (List.mem_range.mpr hreal)).1.1.2
+          rw [Bool.or_eq_true] at hper
+          rcases hper with hne | hemp
+          · exfalso
+            simp only [bne_iff_ne, ne_eq] at hne
+            omega
+          · simpa using hemp
+        have hz : ((0 : Nat) == 0) = true := rfl
+        have hn : (if ((0 : Nat) == 0) = true then sc.leafReqs
+            else sc.kids.length) = sc.leafReqs := by
+          rw [if_pos hz]
+        have hchunks : peerBlockA.chunks (aviewOf sk p tr) q 0
+            (sk.wiresBefore 0 k) sc
+            (if ((0 : Nat) == 0) = true then sc.leafReqs
+              else sc.kids.length)
+            0 (sk.wiresBefore 0 k) (sk.dsBefore 0 k) (sk.qsBefore 0 k)
+            (sc.kids.length + 1)
+            = ((List.range sc.leafReqs).map fun j =>
+                ((Chan.wire q 0 : Chan), true, sk.wiresBefore 0 k + j),
+               (sk.wiresBefore 0 k + sc.leafReqs, sk.dsBefore 0 k,
+                sk.qsBefore 0 k), true) := by
+          simp only [peerBlockA.chunks, hn]
+          rw [if_pos hz]
+        have hstep : peerBlockA (aviewOf sk p tr) q 0 k
+            (sk.stageScope 0 k) (sk.wiresBefore 0 k) (sk.dsBefore 0 k)
+            (sk.qsBefore 0 k)
+            = ((Chan.wire q.other 1, false, k)
+                :: (Chan.asked q 0, false, k)
+                :: ((List.range sc.leafReqs).map fun j =>
+                    ((Chan.wire q 0 : Chan), true, sk.wiresBefore 0 k + j))
+                ++ [(Chan.upper q 0, true, k)],
+               (sk.wiresBefore 0 k + sc.leafReqs, sk.dsBefore 0 k,
+                sk.qsBefore 0 k), true) := by
+          simp only [peerBlockA, hrec, hchunks]
+          rfl
+        have hnc : sk.nChildren 0 (sk.stageScope 0 k) = sc.leafReqs := by
+          unfold Skel.nChildren
+          rw [if_pos hz, ← hsc]
+        have hcc : ∀ i, Sched.childChunk sk (q, 0) k i
+            = [((Chan.wire q 0 : Chan), true,
+                sk.wiresBefore 0 k + i)] := by
+          intro i
+          unfold Sched.childChunk
+          rw [if_neg (by unfold Skel.childIsD; simp)]
+          rfl
+        have hsred : Sched.scopeSendsE sk (q, 0) k
+            = ((List.range (sk.nChildren 0 (sk.stageScope 0 k))).map
+                (Sched.childChunk sk (q, 0) k)).flatten
+              ++ [(Chan.upper q 0, true, k)] := rfl
+        have htrue : Sched.scopeBlockE sk (q, 0) k
+            = (Chan.wire q.other 1, false, k)
+              :: (Chan.asked q 0, false, k)
+              :: ((List.range sc.leafReqs).map fun j =>
+                  ((Chan.wire q 0 : Chan), true, sk.wiresBefore 0 k + j))
+              ++ [(Chan.upper q 0, true, k)] := by
+          rw [hpro, hsred, hnc, List.map_congr_left
+            (fun i _ => hcc i), ← List.flatMap_def,
+            flatMap_singleton (fun i =>
+              ((Chan.wire q 0 : Chan), true, sk.wiresBefore 0 k + i))]
+          rfl
+        rw [hstep, htrue]
+        refine ⟨List.prefix_refl _, fun _ => ⟨rfl, ?_⟩⟩
+        show (sk.wiresBefore 0 k + sc.leafReqs, sk.dsBefore 0 k,
+          sk.qsBefore 0 k) = _
+        have hdz : sk.dOf 0 (sk.stageScope 0 k) = 0 := by
+          unfold Skel.dOf
+          rw [if_pos hz]
+        rw [Sched.wiresBefore_succ sk hk, Sched.dsBefore_succ sk hk,
+          Sched.qsBefore_succ sk hk, hnc, hdz, qOf_zero]
+        simp
+      · -- an interior stage: the chunk loop transcribes
+        obtain ⟨hpre, hcomp⟩ := chunksA_spec hwf q h0 hk hann
+          (sk.wiresBefore h k)
+          ((sk.scope (sk.stageScope h k)).kids.length + 1) 0
+          (sk.wiresBefore h k) (sk.dsBefore h k) (sk.qsBefore h k)
+          (by omega) (by omega) (by omega) (by simp)
+          (by simp)
+        have hn' : (if (h == 0) = true then
+              (sk.scope (sk.stageScope h k)).leafReqs
+            else (sk.scope (sk.stageScope h k)).kids.length)
+            = (sk.scope (sk.stageScope h k)).kids.length := by
+          rw [if_neg (by simpa using h0)]
+        rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h
+            (sk.wiresBefore h k) (sk.scope (sk.stageScope h k))
+            (sk.scope (sk.stageScope h k)).kids.length
+            0 (sk.wiresBefore h k) (sk.dsBefore h k) (sk.qsBefore h k)
+            ((sk.scope (sk.stageScope h k)).kids.length + 1)
+            with ⟨evs, cnts, ok⟩
+        rw [hcall] at hpre hcomp
+        have hflat : (List.range' 0
+            ((sk.scope (sk.stageScope h k)).kids.length - 0)).flatMap
+              (Sched.childChunk sk (q, h) k)
+            = ((List.range ((sk.scope (sk.stageScope h k)).kids.length)).map
+                (Sched.childChunk sk (q, h) k)).flatten := by
+          rw [← List.flatMap_def, Nat.sub_zero, List.range_eq_range']
+        have hsred2 : Sched.scopeSendsE sk (q, h) k
+            = ((List.range (sk.nChildren h (sk.stageScope h k))).map
+                (Sched.childChunk sk (q, h) k)).flatten
+              ++ [(Chan.upper q h, true, k)] := rfl
+        have hn2 : sk.nChildren h (sk.stageScope h k)
+            = (sk.scope (sk.stageScope h k)).kids.length := by
+          unfold Skel.nChildren
+          rw [if_neg (by simpa using h0)]
+        have hsends : Sched.scopeSendsE sk (q, h) k
+            = ((List.range ((sk.scope (sk.stageScope h k)).kids.length)).map
+                (Sched.childChunk sk (q, h) k)).flatten
+              ++ [(Chan.upper q h, true, k)] := by
+          rw [hsred2, hn2]
+        cases ok with
+        | true =>
+            obtain ⟨heq, hcnts⟩ := hcomp rfl
+            have heq' : evs = (List.range' 0
+                ((sk.scope (sk.stageScope h k)).kids.length - 0)).flatMap
+                  (Sched.childChunk sk (q, h) k) := heq
+            have hstep : peerBlockA (aviewOf sk p tr) q h k
+                (sk.stageScope h k) (sk.wiresBefore h k)
+                (sk.dsBefore h k) (sk.qsBefore h k)
+                = ((Chan.wire q.other (h + 1), false, k)
+                    :: (Chan.asked q h, false, k)
+                    :: evs ++ [(Chan.upper q h, true, k)],
+                   cnts, true) := by
+              simp only [peerBlockA, hrec, hsc, hn', hcall]
+              rfl
+            rw [hstep, hpro, hsends]
+            have hcnts' : cnts = (sk.wiresBefore h (k + 1),
+                sk.dsBefore h (k + 1), sk.qsBefore h (k + 1)) := hcnts
+            refine ⟨?_, fun _ => ⟨?_, hcnts'⟩⟩
+            · rw [heq', hflat]
+              exact List.prefix_refl _
+            · rw [heq', hflat]
+              rfl
+        | false =>
+            have hstep : peerBlockA (aviewOf sk p tr) q h k
+                (sk.stageScope h k) (sk.wiresBefore h k)
+                (sk.dsBefore h k) (sk.qsBefore h k)
+                = ((Chan.wire q.other (h + 1), false, k)
+                    :: (Chan.asked q h, false, k)
+                    :: evs ++ [],
+                   cnts, false) := by
+              simp only [peerBlockA, hrec, hsc, hn', hcall]
+              rfl
+            rw [hstep, hpro, hsends]
+            refine ⟨?_, fun hok => by cases hok⟩
+            obtain ⟨t, ht⟩ := hpre
+            refine ⟨t ++ [(Chan.upper q h, true, k)], ?_⟩
+            show ((Chan.wire q.other (h + 1), false, k)
+              :: (Chan.asked q h, false, k) :: (evs ++ [])) ++ _ = _
+            rw [List.append_nil]
+            show (Chan.wire q.other (h + 1), false, k)
+              :: (Chan.asked q h, false, k) :: (evs ++ (t
+                ++ [(Chan.upper q h, true, k)])) = _
+            rw [← List.append_assoc, ht, hflat]
+
+/-- The announced walk layout from block `k` onward is a prefix of the
+true remaining blocks, provided the announced items name the true
+stage scopes. -/
+private theorem goA_spec (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} {h : Nat} (hh : h < sk.rootH) :
+    ∀ (is : List Nat) (k : Nat),
+      (∀ j, j < is.length → is.getD j 0 = sk.stageScope h (k + j)) →
+      k + is.length ≤ sk.stageLen h →
+      peerWalkTraceA.go (aviewOf sk p tr) h p.other is k
+          (sk.wiresBefore h k) (sk.dsBefore h k) (sk.qsBefore h k)
+        <+: (List.range' k (sk.stageLen h - k)).flatMap
+            (Sched.scopeBlockE sk (p.other, h)) := by
+  intro is
+  induction is with
+  | nil =>
+      intro k _ _
+      show ([] : List Ev) <+: _
+      exact List.nil_prefix
+  | cons u rest ih =>
+      intro k hjs hlen
+      have hu : u = sk.stageScope h k := by
+        have := hjs 0 (by simp)
+        simpa using this
+      have hk : k < sk.stageLen h := by
+        have := hlen
+        simp only [List.length_cons] at this
+        omega
+      obtain ⟨hpre, hcomp⟩ := peerBlockA_spec hwf p.other hh hk
+        (p := p) (tr := tr)
+      have hrange : List.range' k (sk.stageLen h - k)
+          = k :: List.range' (k + 1) (sk.stageLen h - (k + 1)) := by
+        rw [show sk.stageLen h - k = (sk.stageLen h - (k + 1)) + 1
+          from by omega]
+        rfl
+      rcases hcall : peerBlockA (aviewOf sk p tr) p.other h k
+          (sk.stageScope h k) (sk.wiresBefore h k) (sk.dsBefore h k)
+          (sk.qsBefore h k) with ⟨evs, cnts, ok⟩
+      rw [hcall] at hpre hcomp
+      rw [hrange, List.flatMap_cons]
+      cases ok with
+      | false =>
+          have hstep : peerWalkTraceA.go (aviewOf sk p tr) h p.other
+              (u :: rest) k (sk.wiresBefore h k) (sk.dsBefore h k)
+              (sk.qsBefore h k) = evs := by
+            simp [peerWalkTraceA.go, hu, hcall]
+          rw [hstep]
+          exact hpre.trans (List.prefix_append _ _)
+      | true =>
+          obtain ⟨heq, hcnts⟩ := hcomp rfl
+          have heq' : evs = Sched.scopeBlockE sk (p.other, h) k := heq
+          have hcnts' : cnts = (sk.wiresBefore h (k + 1),
+              sk.dsBefore h (k + 1), sk.qsBefore h (k + 1)) := hcnts
+          subst hcnts'
+          have hstep : peerWalkTraceA.go (aviewOf sk p tr) h p.other
+              (u :: rest) k (sk.wiresBefore h k) (sk.dsBefore h k)
+              (sk.qsBefore h k)
+              = evs ++ peerWalkTraceA.go (aviewOf sk p tr) h p.other
+                  rest (k + 1) (sk.wiresBefore h (k + 1))
+                  (sk.dsBefore h (k + 1)) (sk.qsBefore h (k + 1)) := by
+            simp [peerWalkTraceA.go, hu, hcall]
+          rw [hstep, heq']
+          have hrec := ih (k + 1)
+            (fun j hj => by
+              have := hjs (j + 1) (by simpa using Nat.succ_lt_succ hj)
+              simpa [Nat.add_assoc, Nat.add_comm 1 j,
+                Nat.add_left_comm] using this)
+            (by simp only [List.length_cons] at hlen; omega)
+          obtain ⟨t, ht⟩ := hrec
+          exact ⟨t, by rw [List.append_assoc, ht]⟩
+
+/-- The announced walk trace is a prefix of the true `.impl` walk
+trace (the module-doc claim of Mux/Causal.lean, walk family). -/
+theorem peerWalkTraceA_prefix (hwf : sk.wellFormed = true)
+    (p : Party) (tr : List MObs) {h : Nat} (hh : h < sk.rootH) :
+    peerWalkTraceA (aviewOf sk p tr) h
+      <+: Sched.walkEventsE sk (p.other, h) := by
+  have hitems : (stageScopesA (aviewOf sk p tr) h).1
+      <+: sk.stageScopes h := by
+    unfold stageScopesA
+    by_cases htop : (h + 1 == (aviewOf sk p tr).rootH) = true
+    · rw [if_pos htop]
+      have htop' : h + 1 = sk.rootH := beq_iff_eq.mp htop
+      show [0] <+: _
+      unfold Skel.stageScopes
+      rw [htop', Sched.wf_root_stage hwf]
+      exact List.prefix_refl _
+    · rw [if_neg htop,
+        if_neg (show ¬ ((aviewOf sk p tr).rootH < h + 1) from by
+          have hne : h + 1 ≠ sk.rootH := fun hc =>
+            htop (beq_iff_eq.mpr hc)
+          show ¬ (sk.rootH < h + 1)
+          omega)]
+      have hsteps : sk.rootH - ((aviewOf sk p tr).rootH - (h + 1))
+          = h + 1 := by
+        show sk.rootH - (sk.rootH - (h + 1)) = h + 1
+        omega
+      have := (levelA_spec hwf p tr ((aviewOf sk p tr).rootH - (h + 1))
+        (by show sk.rootH - (h + 1) ≤ sk.rootH; omega)).1
+      rw [hsteps] at this
+      exact this
+  have hlen := hitems.length_le
+  have hjs : ∀ j, j < (stageScopesA (aviewOf sk p tr) h).1.length →
+      (stageScopesA (aviewOf sk p tr) h).1.getD j 0
+        = sk.stageScope h j := by
+    intro j hj
+    obtain ⟨t, ht⟩ := hitems
+    unfold Skel.stageScope
+    rw [← ht, List.getD_eq_getElem?_getD, List.getD_eq_getElem?_getD,
+      List.getElem?_append_left hj]
+  show peerWalkTraceA.go (aviewOf sk p tr) h p.other
+      (stageScopesA (aviewOf sk p tr) h).1 0 0 0 0 <+: _
+  have hstageLen : sk.stageLen h = (sk.stageScopes h).length := rfl
+  have hgo := goA_spec (p := p) (tr := tr) hwf hh
+    (stageScopesA (aviewOf sk p tr) h).1 0
+    (fun j hj => by rw [Nat.zero_add]; exact hjs j hj)
+    (by rw [hstageLen]; omega)
+  unfold Sched.walkEventsE
+  rw [List.range_eq_range']
+  have h0w : sk.wiresBefore h 0 = 0 := rfl
+  have h0d : sk.dsBefore h 0 = 0 := rfl
+  have h0q : sk.qsBefore h 0 = 0 := rfl
+  rw [h0w, h0d, h0q, Nat.sub_zero] at hgo
+  exact hgo
+
 end StreamingMirror.Mux
