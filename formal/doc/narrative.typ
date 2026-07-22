@@ -1,6 +1,8 @@
 // The development narrative — companion to exposition.typ.
-// Written by Claude (Fable 5), first person, 2026-07-19.
-// Source of record for the campaign's history; see §14 for provenance.
+// Part one written by Claude (Fable 5), first person, 2026-07-19.
+// Part two written by Claude (Mythos 5), first person, 2026-07-22.
+// Source of record for the campaigns' history; the closing section
+// ("Sources and provenance") records the evidentiary basis of each part.
 
 #set page(paper: "us-letter", margin: (x: 1.1in, y: 1in), numbering: "1")
 #set text(font: "New Computer Modern", size: 10.5pt)
@@ -31,7 +33,8 @@
   #text(size: 9pt, fill: luma(100))[
     Companion to #raw("formal/doc/exposition.typ") — that document explains
     _what_ is true; this one records _how_ we came to know it. \
-    2026-07-19 · covering 2026-07-14 through 2026-07-19
+    Part one, 2026-07-19 · covering 2026-07-14 through 2026-07-19 \
+    Part two, 2026-07-22 · covering 2026-07-21 through 2026-07-22
   ]
 ]
 
@@ -752,10 +755,338 @@ otherwise, with no memory of any of it — can know not just what is true,
 but how it came to be known, and at what cost, and which of the walls are
 load-bearing.
 
+= Part two: the mux conjectures
+
+Two days after part one was written, Finch opened a second campaign with
+a question the first one had left at the door. The deadlock-freedom
+theorems assume independent channels; the deployed remote transport had
+once muxed all seventeen wire streams over a single pipe and empirically
+deadlocked, and the fix — the Link abstraction, a transport contract
+demanding genuinely independent streams — was engineering, not theorem.
+Finch conjectured the deadlock was fundamental: _no_ deterministic
+mux over a single bounded channel whose send order is a pure function of
+local information (own tree plus observed trace) can be deadlock-free
+for all trees (C1); and an oracular send order computable from both
+sides' dispute skeletons _exists_ but is necessarily unrealizable
+locally (C2). _"I would be surprised to find that I am wrong about
+either of these things, but I would enjoy being surprised."_ #lived
+Both conjectures ended somewhere neither of us predicted, and the
+campaign that settled them ran thirty-some hours, produced ten kernel
+theorems, found and killed a recurring soundness bug in its own new
+invariants, reversed its own adjudication twice, and ended with the Link
+abstraction scheduled for removal — on the strength of a theorem that
+says the deadlock it was built to prevent cannot occur for the
+implementation that replaces it. This part records how, in the order it
+happened. I coordinated the whole campaign, so nearly everything here is
+#lived; the durable record is `MUX-PROGRESS.md` (the design of record,
+whose findings ledger and log this part compresses), the adjudication
+and audit files beside it, and the session transcripts.
+
+== The charter, and the audit finding waiting at the door
+
+Finch's first sharpening set the campaign's character: the message set
+is _frozen_. No control frames, no credits — "it's already clear that
+flow-control credits would resolve this issue"; the question is whether
+such augmentations are _necessary_, "or whether it is surprisingly (but
+delightfully) possible to achieve this merely via altering the local
+send-order scheduling based on existing information afforded by the
+protocol." #lived The campaign charter (`MUX-PROGRESS.md` §1) was
+committed before any technical work, at Finch's direction — the
+scratchpad-to-repo correction came within the first hour, and every
+phase after it wrote its findings into the committed record as it went.
+
+The first finding arrived before the first theorem was even attempted.
+Finch had described the base artifact as proving the protocol "deadlock
+free and terminating"; auditing that sentence against the artifact
+found that _termination was not a kernel theorem_ — the ρ-decrease
+argument was prose in `MODEL.md` §7, checked executably per instance,
+never proven in general. Recorded as `AUDIT-NOTES.md` A1, and resolved
+four stages later the right way: by minting the theorem
+(`rho_decreases`, `maximal_run_terminal`) rather than softening the
+prose. A standing side-channel — anything found _along the way_
+suggesting misalignment between stated theorems and the Rust — was
+Finch's second process directive, and the audit file collected twelve
+entries by campaign's end. #lived
+
+== The maps, the hinge, and the trichotomy
+
+Phase 1 (four parallel readers over the Lean artifact, the model docs,
+the deadlock design doc, and the Rust on both branches) returned the
+fact that shaped everything: _the only cross-party channels are the
+seventeen wire streams_ — everything else is intra-party plumbing — and
+the repo already contained an informal argument for C1 (design doc §5D:
+the peer's demand order is a function of the peer's tree, and flushed
+bytes cannot be reordered) _for the shipped eager mux_. The hinge
+question fell out of reading those side by side: §5D never considered a
+scheduler that strategically _withholds_. If the receiver's consumption
+order is causally computable at the sender — every discriminating
+choice announced in its own reactions before the sender must commit —
+then a "demand-lockstep" strategy that pushes only proven-demanded
+frames and otherwise idles might be live at capacity one. #lived
+
+The adjudication panel (five analysts, two cross-examiners, a
+synthesis judge — and, in the campaign's most consequential decision, a
+_calibrated executable probe_: a Python transcription of `Model.lean`
+that passed twenty-one calibration gates against the kernel-checked
+controls before any mux experiment ran) returned a trichotomy in place
+of Finch's dichotomy: #lived
+
+- Every _work-conserving_ scheduler — one that must push when the pipe
+  has room — deadlocks, on the empirically known wedge shape, at every
+  capacity tested. The right to idle, not frame choice, is the whole
+  frontier. C1's spirit: true.
+- The idling strategy σ\* survived every probe sweep. C1's letter:
+  false, conditionally — the panel named two conditions, one a proof
+  repair (the "Keystone" lemma's delivery case was broken as drafted;
+  the cross-examiner repaired it by hand), one an evidence gap that
+  became stage 0.
+- The oracle exists (C2 true), and the campaign's third finding was
+  already legible: the panel located the oracle in the base artifact's
+  own schedule τ — though it drew the projection _backwards_, of which
+  more below.
+
+The evidence gap deserves its sentence: the probe's σ\* had been
+accidentally _omniscient_ (reading global state), so the locality half
+of C1's refutation had zero executable evidence. The panel made the
+causal re-run a blocking gate — if a structurally-blinded σ\* wedged
+anywhere, C1 flipped back to true with that skeleton as the fooling
+wedge. It did not wedge: 4,970 runs, 497 skeletons, zero stalls, with
+causality enforced by a faulting view object the strategy could not
+cheat past. Two smaller reversals rode along: the receive-projection
+"static oracle" the panel had recommended _jammed_ (an 11-scope
+counterexample — the executable tier refuting the paper tier before any
+Lean was written), and the "slot-peek" observation ruling the panel had
+called load-bearing turned out not to be (the no-peek variant survived
+3,470 runs). #lived
+
+== The build wave, and the reversal of the projections
+
+Eight worktree tracks built the suite. The parts worth the record:
+
+_The wedge theorem's elegance._ `wc_impossibility` needed no fooling
+argument and no pigeonhole: on the wedge skeleton, the protocol's own
+ledgers funnel every work-conserving scheduler down a corridor where
+each decision point offers exactly one legal push — so the theorem
+quantifies over all strategies, omniscient included, by replaying one
+forced run. Capacity-universality came the same way the base
+campaign's had: the jam mechanism is capacity-blind (one-slot demux
+occupation plus FIFO burial), so anchors at C ∈ {1,2,3} plus one
+"no hands" certificate covered every C ≥ 4 with no induction. #lived
+
+_The executable tier catching the panel twice._ The `muxprobe` gate
+(track C) independently rediscovered the static-oracle jam the stage-0
+probe had found; then track E, building T5, landed the kernel reversal:
+the _send_ projection of τ — a fixed, non-adaptive list — is live at
+capacity one, and it is the receive projection that jams. The panel had
+the two projections exactly backwards. The corrected insight earned its
+place in the exposition: feasibility is inherited from the witness
+execution (the send order is the order a real execution produced), and
+the "oracle" Finch conjectured had existed all along as the send log of
+the deadlock-freedom proof's own witness schedule. Recognition, not
+construction. #lived
+
+_The bug that would not die._ Track F, closing T4's coverage induction
+(the campaign's one genuinely new induction — closed by stage-indexing
+the closure by τ, which dissolved the anticipated saturation lemma),
+found the landed `MuxInv` interface _unsatisfiable at reachable states_:
+a phantom-channel `Nat`-truncation alias (`wire I 0` colliding with a
+walk's consumer count). Track E found the same bug independently the
+same day. Track G then reproduced it a third time in the elastic twin
+(`EMuxInv`), and the phase-4 review caught the fourth instance. Four
+independent mintings of the same trap ended it the only way that
+works: a phase-5 source fix (`RealWire`, a guarded accessor with the
+mandate in its docstring, plus a kernel-checked characterization of the
+trap itself). #lived
+
+_Capacity monotonicity, nearly free._ The audit had quarantined the
+folklore claim "wider channels can't hurt" (A7: consumed by nothing,
+[derived] only) — and it promptly ambushed the elastic theorem's plan,
+whose "parked states project to base-reachable states" premise was
+false exactly because multi-parked states violate base capacity. The
+repair discovered the base progress lemma never consumed the capacity
+half of its invariant at all (`InvPW`), which then made T10 — deadlock
+freedom at every pointwise-widened capacity vector, the theorem that
+covers the deployed 65,536-scope windows — nearly free. A7 resolved by
+theorem, as A1 had. #lived
+
+== The locality finding, the payload discovery, and the inversion
+
+Phase 4's review ladder (the house protocol: surface, operational,
+interaction, assumption rounds, each briefed with the previous rounds'
+negative space) confirmed nine findings, and the deepest one reshaped
+the campaign's final theorems. F3: the locality encoding (`LocalEq`)
+was _finer_ than the charter's "own full tree" — it baked
+peer-determined labels into the view, so a strategy could read facts it
+had not been told and still count as local. Finch's ruling set both the
+fix and the campaign's closing method: locality means _information in
+the causal past of that party at any decision point_ — and, on the
+proposed remedies, that a Rust proptest of locality is _nonsensical_ (a
+Rust function cannot be handed the remote skeleton; any such test is
+vacuous), so the witness must be local _by construction_. And the
+governing criterion, verbatim into the record: theorem statements must
+output claims entirely accurate to intent; messy proofs are fine,
+inaccurate claims are not. #lived
+
+Building the by-construction witness (σ\*-causal, over an announced
+view reconstructed from own structure plus observed frames) surfaced
+the campaign's most satisfying single finding. The guard audit found
+exactly one ingredient that is neither view-derivable nor derivable
+from the payload-erased traces: the peer-determined merge labels. They
+ride _frame contents_ — and the erased-trace surrogate provably
+starves. The model's payload erasure had been sound for the protocol
+machines (which are handed the skeleton) but had silently deleted the
+labels from the _observation_ channel; the announcements the whole
+campaign leaned on were never in the message pattern; they were in the
+messages. Three grains, two of them wrong in opposite directions
+(labels-in-view: too early, a causality violation; labels-never:
+starvation; labels-at-arrival: exactly right) — which is also why my
+own confident claim that the charter grain implied the legacy one
+_a fortiori_ was refuted: the grains are incomparable, and the
+correction is on the record twice, once in my own words. #lived
+
+The residue then inverted, pleasingly: where T4's refutation had
+liveness proven and locality hypothesized, the causal witness had
+locality proven definitionally and _liveness_ as the one open conjunct.
+Closing it took two tracks (the announced-prefix property — every
+announced trace is a literal prefix of its true trace — a new
+`RecvLedger` ground fact, the causal keystone, and finally the minting
+ladder, ~4,500 lines, which also corrected the inherited plan's
+receive-based phrasing: under drained pipes, announcement is a fact
+about _sends_). `c1_charter_false` went unconditional on 2026-07-22.
+One agent hung mid-climb and was resumed; one was killed by a harness
+accident and relaunched; the liveness diagnostic that matters — a
+transcript's _entry count_, not its modification time — went into the
+supervision lore the hard way. #lived
+
+== Reviews, the stop rule, and T8's spec-first method
+
+The phase-4 repairs landed by proof where the plan had allowed retreat:
+the overstated nonlocality docstrings got a genuine
+consistency-certified pin; "completes" got a mux-tier termination
+measure; the work-conserving classes got kernel inhabitants (closing a
+classic satisfiable-empty exposure). Round 5's eight findings were all
+one genre — merge-seam staleness, tracks merged after the doc sweep —
+and produced the campaign's last process artifact, the merge-seam
+checklist. Round 6, a checker-of-the-checker with a pre-committed stop
+rule, found only consider-grade items and closed the adversarial
+review formally. #lived
+
+T8 — the window-generalized theorem, the one the single-socket
+implementation actually rests on — was built under a new discipline
+that Finch's faithfulness ruling made inevitable: its English statement
+was fixed _before_ the build (`T8-SPEC.md`), clause by clause, each
+clause carrying its own audit rule naming the weakenings that would
+gut it (single-K, concrete-scheduler-only, omniscient-closure,
+progress-only). The landed theorem's crosswalk graded every clause
+EXACT, with zero amendments; the strategy-class quantification means
+the shipped priority ladder is a proven _instance_, and the hard
+conjunct had already been paid for — the causal coverage theorem _is_
+T8's inference-progress half. The suite closed: T1 through T8 and T10,
+every statement on the three standard axioms, the audit surface
+(`Mux/Statement.lean`) restating each claim inline with proofs by
+citation, so drift fails the build. #lived
+
+== The design consequence
+
+The campaign's engineering output ran concurrently with its proofs, at
+Finch's explicit direction ("we want to assume the verification will
+work and implement the algorithm we just realized can possibly work"):
+a single-socket design document and a code-grounded executable plan on
+the `single-connection` branch, written from the perspective of
+_undoing_ the Link abstraction — the transport returns to one
+read/write channel, windows are advertised in the greeting, the sender
+is gated by inferred consumption, and any window-obeying frame order is
+valid (ordering demoted from correctness to latency tuning; the
+scheduler cannot be wrong, only slow). Two ideas of Finch's collapsed
+the design's cost: eager conversion of arriving frames into logical
+replies is a _custody_ change, not a semantics change — and the
+Backend was already the streaming sink, so the receiver half of the
+refactor shrank to widening one queue. The latency analysis priced the
+whole space (the K-dial law, probe-exact at 54/54: pacing K+1 frames
+per round trip, parity with multi-link at K ≥ P\*+1), and the honest
+final trade is recorded in the design doc: what multi-link still buys
+is byte-granularity interleaving and loss isolation — physics, not
+information, not liveness, not round trips. #lived
+
+== The second errata ledger
+
+Part two's mistakes, same contract as §13; each caught by the
+campaign's own machinery. #lived
+
+1. The panel's adjudication had τ's projections backwards (receive
+   recommended, send refuted) — corrected first executably (P2), then
+   at kernel tier (track E). Superseded-markers preserve both layers.
+2. The panel's Keystone lemma was unsound as drafted (the delivery
+   case); repaired in cross-examination — the phase-2 process working
+   as designed, adversarial verification inside the panel itself.
+3. The probe's σ\* was accidentally omniscient — the single most
+   dangerous gap, because 2,150 green runs _looked_ like locality
+   evidence. Caught by the cross-examiner; became stage 0's blocking
+   gate.
+4. My a-fortiori claim (charter locality ⊆ legacy locality) — wrong,
+   refuted by the causal track's guard audit; the grains are
+   incomparable. Corrected to Finch on the record.
+5. "Liveness is feedback, not knowledge" — my synthesis of the static-
+   oracle jam, retracted when the send projection proved live; the
+   truth is "liveness is the right order, and a right order needs
+   either inference or the witness execution."
+6. The phantom-channel alias, minted independently four times
+   (`MuxInv` twice, `EMuxInv`, and the review's catch); ended by a
+   source fix, not a fourth patch.
+7. The coverage plan's receive-based minting phrasing — wrong on
+   slot-parked frames; corrected to the send-based form by the track
+   that closed it.
+8. Two agents lost to infrastructure (one hang, one harness
+   accident); one worktree ledger commit briefly truncated
+   `MUX-PROGRESS.md` (caught in-merge, amended). Supervision lore:
+   entry counts, not modification times; two samples, not one.
+9. The merge-seam genre: six of round 5's eight findings were
+   staleness introduced by merging tracks after the doc sweep. The
+   checklist exists so this class is mechanical next time.
+
+== What the second campaign adds
+
+Part one closed by observing that the gate caught every modeling error
+and the kernel caught none — that the two-tier discipline was the
+story. Part two sharpens it: _the executable tier out-caught the paper
+tier every single time they disagreed_ — the projections, the no-peek
+ruling, the pacing law (both circulating sketches wrong; the harness
+exact), the odd-width ceiling. The kernel then froze what the probes
+found. Probe first, prove second, pin forever remains the method, and
+this campaign added its complement: _fix the English first_. The
+statement-faithfulness ruling — claims accurate to intent, proofs as
+messy as needed — became executable process in `T8-SPEC.md`, and the
+theorem built against a pre-committed specification graded EXACT on
+every clause, first try. The deepest results were again
+re-descriptions: that the announcements were in the payloads all
+along; that credits carry computation and timing, not information;
+that the oracle was the proof's own witness schedule, waiting to be
+recognized; and that the impossibility Finch correctly sensed was
+never about muxing — it was about the refusal to idle. Both
+conjectures were settled where neither of us predicted, which is to
+say: Finch asked to be surprised, and the machine obliged — twice,
+in opposite directions, with kernel receipts.
+
 = Sources and provenance of this document
 
-Primary sources, mined 2026-07-19 with Finch's explicit authorization for
-the transcript material: the session transcripts under
+*Part two* (2026-07-22, written by the campaign coordinator): the
+primary sources are the coordinator's own session (every adjudication
+exchange with Finch quoted or paraphrased above appears there verbatim),
+the fork and track reports received in that session, and the durable
+record committed as the campaign ran: `MUX-PROGRESS.md` (charter,
+resolution with superseded-markers, findings ledger, log — the single
+best secondary source), `MUX-ADJUDICATION.md` and the phase-2 panel
+briefs under `mux-notes-phase2/` (including `STAGE0-GATES.md` and the
+graduated probe reference `causal-reference.py`), `AUDIT-NOTES.md`
+(A1–A12), `MUX-STATEMENT-AUDIT.md`, `T8-SPEC.md` with its landed
+crosswalk, `MUX-LATENCY.md`, the design documents on the
+`single-connection` branch (`design/single-socket.md` and its
+executable plan), and the git logs of the campaign worktrees. Every
+part-two claim is #lived or #artifact by those sources; part two, like
+part one, needed no #recon.
+
+*Part one:* primary sources, mined 2026-07-19 with Finch's explicit
+authorization for the transcript material: the session transcripts under
 `~/.claude/projects/` for the Quint/transcription era (including the
 original plan invocation and the TLA+→Quint reversal in Finch's own
 words), the Lean-campaign era, and my own session (whose earlier portions
