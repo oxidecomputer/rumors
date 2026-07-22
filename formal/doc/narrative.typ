@@ -546,13 +546,13 @@ in a named "Assumed, not proven" section. #lived
 
 = The second climb: `d6` and the systematic refunds
 
-The re-target needed a new ledger (`d6`, the epilogue placement — the
-order the model's specification had documented from the start), a new
-mode
-(`AxMode.impl`), and a re-derivation of the schedule-side machinery for
-the encoder's order, since the weave itself violates d6 — the two corners'
-guards genuinely contradict (the pillar now carries `d5 = false ∨ d6 =
-false`; they are never asserted together). The d5 theorems kept their
+The re-target needed three things. A new ledger: `d6`, the epilogue
+placement — the order the model's specification had documented from
+the start. A new mode, `AxMode.impl`. And a re-derivation of the
+schedule-side machinery for the encoder's order, since the weave
+itself violates d6: the two corners' guards genuinely contradict (the
+pillar now carries `d5 = false ∨ d6 = false`; they are never asserted
+together). The d5 theorems kept their
 content under explicit `_d5` names; the flagship names were reserved.
 #lived
 
@@ -969,11 +969,11 @@ the campaign's final theorems. F3: the locality encoding (`LocalEq`)
 was _finer_ than the charter's "own full tree" — it baked
 peer-determined labels into the view, so a strategy could read facts it
 had not been told and still count as local. Finch's ruling set both the
-fix and the campaign's closing method: locality means _information in
-the causal past of that party at any decision point_ — and, on the
-proposed remedies, that a Rust proptest of locality is _nonsensical_ (a
-Rust function cannot be handed the remote skeleton; any such test is
-vacuous), so the witness must be local _by construction_. And the
+fix and the campaign's closing method. Locality means _information in
+the causal past of that party at any decision point_. And, on the
+proposed remedies: a Rust proptest of locality is _nonsensical_ — a
+Rust function cannot be handed the remote skeleton, so any such test
+is vacuous — which means the witness must be local _by construction_. And the
 governing criterion, verbatim into the record: theorem statements must
 output claims entirely accurate to intent; messy proofs are fine,
 inaccurate claims are not. #lived
@@ -1027,12 +1027,11 @@ review formally. #lived
 
 T8 — the window-generalized theorem, the one the single-socket
 implementation actually rests on — was built under a new discipline
-that Finch's faithfulness ruling made inevitable: its English statement
-was fixed _before_ the build, as a committed specification page,
-clause by clause, each clause carrying its own audit rule naming the
-weakenings that would
-gut it (single-K, concrete-scheduler-only, omniscient-closure,
-progress-only). The landed theorem's crosswalk graded every clause
+that Finch's faithfulness ruling made inevitable. Its English
+statement was fixed _before_ the build, as a committed specification
+page, clause by clause. Each clause carried its own audit rule, naming
+the weakenings that would gut it: single-K, concrete-scheduler-only,
+omniscient-closure, progress-only. The landed theorem's crosswalk graded every clause
 EXACT, with zero amendments; the strategy-class quantification means
 the shipped priority ladder is a proven _instance_, and the hard
 conjunct had already been paid for — the causal coverage theorem _is_
