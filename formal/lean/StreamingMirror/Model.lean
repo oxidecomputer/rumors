@@ -9,7 +9,8 @@ step relation is the image of `apply`. `#eval`/`decide` re-pin this model
 to the Quint validation matrix, and the negative-control witnesses are
 `decide`-checked replays of concrete action lists.
 
-Correspondences with the Quint spec (full table in formal/README.md):
+Correspondences with the Quint spec (the Rust↔axiom mapping both sides
+transcribe is formal/MODEL.md §10's cross-reference table):
 `chKind`/`chChild` become `Option Oblig`; the stringly channel tuples
 become the `Chan` inductive (`("asked","I",-1)` becomes
 `Chan.leafRequests`); the committed-choice semantics — commit to an

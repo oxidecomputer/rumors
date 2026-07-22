@@ -4,8 +4,8 @@ Status: PLAN (2026-07-21, chartered by Finch). No code exists; this
 document is the deliverable. Sequencing is first-class and §6 states
 it: the single-R/W transport refactor (design/single-socket-plan.md)
 lands before this work begins, and tier (d) is hard-blocked on it.
-Companions: formal/README.md (the assumption/theorem interface this
-mechanizes — its correspondence table), formal/lean/Muxprobe.lean and
+Companions: formal/MODEL.md §6 (the assumption/theorem interface this
+mechanizes) and §10 (its correspondence table), formal/lean/Muxprobe.lean and
 EventDag.lean (the two existing
 executables whose patterns it copies — tracecheck is the third
 sibling).
@@ -17,7 +17,7 @@ Epistemic key as in PROGRESS.md: **[proven]** kernel-checked;
 ## 1. Purpose: the correspondence table becomes a per-trace fact
 
 The artifact's trust bridge between Rust and Lean is a hand-maintained
-table (formal/README.md:23–31): each `Trace::assert_valid` check
+table (formal/MODEL.md §10): each `Trace::assert_valid` check
 (materialized/progress.rs:62–95 — seven checks: wire ledger, dependent
 ledger, lower ledger, sibling contiguity, wire contiguity, radix
 order, parent placement) is asserted to correspond to a model axiom
@@ -74,7 +74,7 @@ does not smuggle back in. The validator never claims kernel authority;
 no statement of record may cite a tracecheck run. Its value is
 narrower and different: the evidence tier and the proof tier **share
 source text**, so they cannot drift apart silently. Today the Rust
-tests and the Lean theorems are aligned by the README table; after
+tests and the Lean theorems are aligned by the correspondence table; after
 tracecheck they are aligned by the Lean elaborator.
 
 The compiler-fidelity residue — "does the compiled binary compute what
@@ -110,8 +110,8 @@ Verdict format (stable, greppable):
 where `<detail>` on failure names the first violated guard in the
 axioms' vocabulary and the offending position, e.g.
 `d6: parent resolution departed with wire unsent, scope=0a3f, pos=214`
-— the vocabulary a person needs to open Model.lean and the README
-table at the right row.
+— the vocabulary a person needs to open Model.lean and the
+correspondence table at the right row.
 
 ### 3.2 The serialization format
 
@@ -156,7 +156,7 @@ height) — computable because the decoded skeleton fixes BFS order:
 | `ParentResolution{pending}` | asker parent-summary fire (the d6 subject) | yes |
 
 "1:1 by construction" is not luck: `assert_valid`'s ledgers were built
-to mirror the axioms (the README table's whole point), so the event
+to mirror the axioms (the correspondence table's whole point), so the event
 vocabulary was co-designed with the model's action alphabet. The codec
 is thin because the correspondence it encodes was engineered to be
 thin. [derived — the exact per-arm mapping is stage-0 spike work; any

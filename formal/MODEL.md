@@ -518,6 +518,8 @@ proof.
 | lower ledger (progress.rs:60-62, 79-86) | Axiom D2 guard |
 | sibling-contiguity check (progress.rs, added 2026-07-15) | Axiom D3 guard |
 | wire-contiguity check (progress.rs, added 2026-07-16) | Axiom D4 guard |
+| epilogue-placement check (`Trace::assert_parent_last`, progress.rs, added with finding #7's resolution, 2026-07-18) | Axiom D6 guard (mode `AxMode.impl`) |
+| `Trace::assert_parent_early` (deliberately unwired, `should_panic`-pinned: the weave's parent-early corner, design/parent-placement.md) | Axiom D5 guard (mode `AxMode.full`) |
 | radix-order check (progress.rs, added 2026-07-15) | per-channel in-order program structure (§5.3) |
 | `yield_resolve_query!` (materialized.rs:104-144) | the honest linearization (one refinement of the poset) |
 | `outgoing_responses` doc (queues.rs:38-42) | `wire` cap 1 + pump hand |
@@ -529,4 +531,5 @@ proof.
 | session completion (`join!` resolution, streaming.rs:61) | `Terminal` |
 
 Instance-to-witness mapping, expected outcomes, and the N1–N4 control
-predictions live in `formal/README.md` next to the runner that checks them.
+predictions live in `formal/quint/README.md` next to the runner that
+checks them.

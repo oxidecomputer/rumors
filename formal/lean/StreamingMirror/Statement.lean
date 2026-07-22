@@ -65,8 +65,9 @@ three standard axioms only (`propext`, `Classical.choice`,
   awaiting a bounded send) under arbitrary cross-process
   interleaving. This is the irreducible core; it is trusted not by
   inspection alone but by cross-pinning (the Phase A matrix runs to
-  completion inside Lean: `Pin.positives_complete`), by the
-  adversarial transcription review (formal/README.md, Phase C), and
+  completion inside Lean: `Pin.positives_complete`), by the six-lane
+  adversarial transcription review run during the Phase C build (the
+  review records live in git history), and
   by the must-fail regression `Pin.phantom_walk_rejected`;
 - `Model.Reachable`, `Model.stuck`, `Model.terminal`, `Model.canStep`
   (Model.lean, a few lines each) — reachability is init plus closure
@@ -92,8 +93,8 @@ tied to them by checks at both ends (branch `parent-first`,
   model's guard). The `d5` corner deliberately has NO Rust check:
   `Trace::assert_parent_early` exists unwired, with a `should_panic`
   pin documenting that the real encoder violates parent-early — the
-  design-space record, not a gap. The row-by-row mapping is the table
-  in formal/README.md.
+  design-space record, not a gap. The row-by-row mapping is the
+  cross-reference table in formal/MODEL.md §10.
 - **Margin 0 ⇐ configuration.** The capacity hypothesis is discharged
   by the shipping constant `FAN = 256` (`materialized/work/queues.rs`,
   the assembler channel's capacity) against the radix bound
@@ -135,8 +136,12 @@ tied to them by checks at both ends (branch `parent-first`,
   HARDER to prove — the enumeration cannot silently weaken the claim.
 - `terminal` is the definition that could weaken the claim if it held
   too early. The Phase A pins check conservation (all channels drained)
-  at terminal executably; a planned corollary of `inv_reachable` makes
-  that a theorem (see formal/README.md, Phase C).
+  at terminal executably; the `inv_reachable` corollary that would make
+  that a theorem (terminal closes every flow equation at occupancy
+  zero) remains open. The landed termination theorems
+  (Proofs/Termination.lean: every run from `init` is ρ-bounded, and
+  every maximal run ends `terminal`) prove the neighboring claim, not
+  this one.
 
 # Non-vacuity
 

@@ -7,7 +7,8 @@ the Quint original — by checking it along whole executions — before any
 proof effort is spent on it. The proof stack (init, per-action
 preservation, progress) builds on this definition.
 
-Transcription rules carried from the Phase B CTI (see formal/README.md):
+Transcription rules carried from the Phase B CTI — Apalache's first
+consecution counterexample, which falsified a "strengthened" W shadow:
 mirror the guards EXACTLY (W does not order queries after wires — the
 wire ledger never constrains dependent work), and every fired fact gets
 its own shadow lemma (`ax.w → resDone ⊆ wireDone`, at walks and at the
