@@ -515,11 +515,16 @@ its behavior, and — where one exists — the sharp part.
   custody* is byte-unbounded: a peer operating entirely within its
   advertised window can legally park K whole-subtree provisions per
   stream — storage churn for data that never links if the session
-  aborts. Not a liveness issue, not a RAM issue; it is the one
-  resource an adversarial peer can lean on, bounded only by backend
-  storage and handle-drop reclamation. The byte-budget variant (§3.2)
-  is the mitigation, deferred (§7) with its scope now precise: a
-  policy for hostile deployments, not a correctness need.
+  aborts. Not a liveness issue, not a RAM issue; it is a
+  resource-accounting note for conforming peers: parked custody is
+  byte-unbounded per reply, bounded only by backend storage and
+  handle-drop reclamation, so wide windows convert divergence into
+  storage churn. The byte-budget variant (§3.2) is the control,
+  deferred (§7) with its scope now precise: a sizing policy for
+  storage-constrained deployments, not a correctness need. (Hostile
+  peers are off-model per AGENTS.md: transport is pre-authenticated,
+  and an authorized peer holds write authority over the set — no
+  argument here rests on adversary economics.)
 - **Two windows exist; conflating them is the pathology** [derived].
   The transport's buffer (socket send/receive space — the formal
   model's pipe capacity C) and the logical window K are different
@@ -778,8 +783,8 @@ Link carries production traffic until stage L.
   Gated on V, including soak. Risk: low mechanically; irreversible
   externally — hence last, behind everything.
 - **Deferred, recorded:** the byte-budget variant (§3.2; motivation
-  sharpened by §3.4's storage edge — hostile-deployment policy, not a
-  correctness need); a
+  sharpened by §3.4's storage edge — a sizing policy for
+  storage-constrained deployments, not a correctness need); a
   loss-coupling measurement against a QUIC single-stream baseline (§6
   is [derived]; a number would be better); ladder tuning under
   measurement (§3.3 makes it safety-free, so it never gates a stage);

@@ -9,7 +9,7 @@ reaches a stuck non-terminal state.
 The adversary schedules endpoints and withholds R→I deliveries so that
 every strategy consultation happens at a state whose enabled-push set
 is a SINGLETON; work-conservation forces the push; the strategies are
-never meaningfully consulted (prove-c1 §4.3, verified step-by-step by
+never meaningfully consulted (verified step-by-step by
 attack-prove §1.3, adopted by MUX-ADJUDICATION §1.2). Mechanized as a
 σ-free executor:
 

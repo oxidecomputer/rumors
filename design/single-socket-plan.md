@@ -420,7 +420,7 @@ unstalls.
 
 | Item | Trigger to revisit |
 |---|---|
-| Byte-budget window dial (§5A's states 170..=203, reserved) | a deployment where 17·K·2 MB worst-case parked RAM is unaffordable, or hostile-peer storage lean observed (§3.4d) |
+| Byte-budget window dial (§5A's states 170..=203, reserved) | a deployment where 17·K·2 MB worst-case parked RAM is unaffordable, or §3.4d's storage-churn accounting binds in practice |
 | Ladder tuning | measurement after M1; safety-free, never gates |
 | Epoch counter fate | L.3, Finch |
 | Loss-coupling measurement vs QUIC single-stream | when a lossy-network deployment materializes; §6 is [derived] only |

@@ -4,7 +4,8 @@ in bounded form, the shipped-mux strategy, and the kernel-decided smoke
 run (MUX-ADJUDICATION.md §3, T0).
 
 `wedge` is the committed Rust regression shape in skeleton terms
-(prove-c1 §4.2's family at the Rust trigger point; the probe's
+(the forced-run family at the Rust trigger point, adjudicated at
+MUX-ADJUDICATION §1.2; the probe's
 `regression_shape(provisions := 6, rootH := 6)`): the root disputes its
 FIRST radix child — a chain descending disputed levels to a leaf
 request — and takes six whole-subtree provisions behind it on the same

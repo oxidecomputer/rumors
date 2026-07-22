@@ -1,5 +1,15 @@
 # The mux conjectures: design of record
 
+**Status (2026-07-22): CAMPAIGN CLOSED.** All six phases of §3 are
+complete; the suite stands at T1–T8 + T10, kernel-checked; both
+conjectures are settled at the charter grain; adversarial review closed
+by the pre-committed stop rule (§4, round-6 entry). This document is
+the campaign's ledger and reads as history. Live follow-on charters:
+§3b (latency conjectures), §3c (tracecheck), §3e (T11). The audit
+surface is `lean/StreamingMirror/Mux/Statement.lean`; the readable
+accounts are `doc/exposition.typ` (by argument) and `doc/narrative.typ`
+(by discovery).
+
 Target: settle, building on the deadlock-freedom artifact (README.md,
 MODEL.md, PROGRESS.md), whether the streaming mirror protocol *needs*
 flow-control credits or true channel independence to avoid deadlock over
@@ -186,7 +196,7 @@ at the bottom") against what actually landed where; and the root
 manifest (formal/lean/StreamingMirror.lean) importing every new
 module.
 
-## 2. The mux model [open — to be fixed by the adjudication phase]
+## 2. The mux model [as chartered; fixed by adjudication — MUX-ADJUDICATION §2 is the model of record]
 
 Replace the independent per-channel transport with, per direction, a
 single bounded FIFO pipe of capacity C. Working definitions, each a

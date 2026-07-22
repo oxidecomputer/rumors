@@ -1,5 +1,8 @@
 # Cross-examination: the pro-C1 brief (prove-c1.md)
 
+**Frozen record (2026-07-22 estate audit):** kept deliberately — the cross-examination that strengthened the wedge theorem (its F-findings are cited from the proofs). Claims herein carry the epistemic status they had when written; where later work superseded one, the supersession lives in MUX-PROGRESS §4 or an in-place marker, and this file is otherwise not updated.
+
+
 Role: adversarial cross-examiner of
 `scratchpad/adjudication/prove-c1.md`, armed with `refute-c1.md`,
 `probe.md`, and the probe's three minimized traces. Required reading

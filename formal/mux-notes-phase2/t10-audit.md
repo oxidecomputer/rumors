@@ -1,5 +1,8 @@
 # T10 scoping audit: capacity monotonicity (MUX-PROGRESS §3.4b)
 
+**Frozen record (2026-07-22 estate audit):** kept deliberately — the scoping audit warranting AUDIT-NOTES A7's resolution route. Claims herein carry the epistemic status they had when written; where later work superseded one, the supersession lives in MUX-PROGRESS §4 or an in-place marker, and this file is otherwise not updated.
+
+
 Role: T10, the capacity-monotonicity track. This document is the
 charter-mandated Phase A deliverable — the classification of every
 capacity mention on the progress path, the route decision, and its cost

@@ -1,5 +1,8 @@
 # Refuting C1: σ* (demand-lockstep) and its deadlock-freedom argument
 
+**Frozen record (2026-07-22 estate audit):** kept deliberately — the σ* formulation of record that the Lean closures transcribe (Chase/Closure.lean, Causal.lean cite it by section). Claims herein carry the epistemic status they had when written; where later work superseded one, the supersession lives in MUX-PROGRESS §4 or an in-place marker, and this file is otherwise not updated.
+
+
 Panel role: refute-C1. Assigned deliverable of the phase-2 adjudication
 (MUX-PROGRESS.md §3, §5 log entry 2026-07-21).
 

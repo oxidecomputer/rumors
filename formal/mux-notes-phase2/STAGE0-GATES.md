@@ -1,5 +1,8 @@
 # STAGE 0 — pre-Lean probe gates P1–P4 (mux-conjectures phase 3)
 
+**Frozen record (2026-07-22 estate audit):** kept deliberately — stage 0's evidence record (the causal σ* sweep, P2's π-eligibility refutation, P4's no-peek reversal). Claims herein carry the epistemic status they had when written; where later work superseded one, the supersession lives in MUX-PROGRESS §4 or an in-place marker, and this file is otherwise not updated.
+
+
 Stage-0 agent, 2026-07-21. Code: `../probe/` (`causal.py`, `oracle.py`,
 `families.py`, `wedgecheck.py`, `stage0.py` added; `model.py`/`mux.py`
 untouched; `python3 selftest.py` re-run: **21/21 calibration gates pass**).

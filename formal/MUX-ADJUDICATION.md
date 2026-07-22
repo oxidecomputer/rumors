@@ -9,6 +9,17 @@ full. Epistemic key as in PROGRESS.md: **[proven]** kernel-checked in-repo;
 gates); **[derived]** paper argument; **[open]** known unknown. Where the
 panel disagreed, the ruling is argued, not counted.
 
+**Frozen record (marker added 2026-07-22).** This document is the
+phase-2 ruling as issued, kept verbatim with its errors and their
+in-place supersession markers — the wrong projection call in §1.3 is
+part of the record. Of the input briefs it cites: refute-c1, oracle-c2,
+attack-prove, attack-refute remain alongside this file as frozen
+records; prove-c1, model-fixer, probe, and the synthesis duplicate were
+consigned to git history — MUX-PROGRESS §5's 2026-07-22 estate entry
+names the last commit at which the full set was present. Every adopted
+decision from the consigned briefs is restated in this document where
+it is cited.
+
 ---
 
 ## 1. Verdicts

@@ -1,5 +1,8 @@
 # Adjudication lens: the C2 oracle, its capacity, and the per-party knowledge layer
 
+**Frozen record (2026-07-22 estate audit):** kept deliberately — the view-projection ground truth viewEnc transcribes; carries its §3.3 REFUTED marker in place. Claims herein carry the epistemic status they had when written; where later work superseded one, the supersession lives in MUX-PROGRESS §4 or an in-place marker, and this file is otherwise not updated.
+
+
 Panel role: settle C2's positive half and its relationship to C1; define the
 per-party knowledge formalization both conjectures need. Epistemic key as in
 PROGRESS.md / MUX-PROGRESS.md: **[proven]** kernel-checked in the repo;

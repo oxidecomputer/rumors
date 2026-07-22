@@ -57,7 +57,7 @@ obligation).
 
 `MuxDeadlockFree` fixes the strategies and leaves the endpoint
 interleaving fully adversarial, exactly as the base `DeadlockFree`
-(model-fixer decision 7, adopted by MUX-ADJUDICATION §2.2). Idling is not
+(MUX-ADJUDICATION §2.2's adopted endpoint-adversary decision). Idling is not
 a move: a strategy that returns `none` while nothing else is enabled
 leaves the state `mstuck` — an idler carries a real liveness obligation
 (the M3 posture).
@@ -150,7 +150,7 @@ def wireHeight : Chan → Nat
 
 /-- The wire stream heights party `p` produces: the opening wire
 (`wire p rootH` — the openings route through the mux, old-mux faithful,
-MUX-ADJUDICATION §2.2 / model-fixer decision 6) plus one stream per
+MUX-ADJUDICATION §2.2's adopted opening-route decision) plus one stream per
 p-side walk stage. -/
 def wireHeights (sk : Skel) (p : Party) : List Nat :=
   sk.rootH :: sk.walkKeys.filterMap fun pk =>
