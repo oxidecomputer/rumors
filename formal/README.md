@@ -13,20 +13,24 @@ the base proof's own witness schedule).
 
 The documentation of record is the Lean. Start here:
 
-- **The claims** — [`lean/StreamingMirror/Statement.lean`] (campaign one)
-  and [`lean/StreamingMirror/Mux/Statement.lean`] (campaign two): every
+- **The claims** — [`lean/StreamingMirror/Statement.lean`](lean/StreamingMirror/Statement.lean) (campaign one)
+  and [`lean/StreamingMirror/Mux/Statement.lean`](lean/StreamingMirror/Mux/Statement.lean) (campaign two): every
   statement of record restated inline and kernel-re-certified on every
-  build. [`lean/StreamingMirror/Mux/Charters.lean`] holds the two
+  build. [`lean/StreamingMirror/Mux/Charters.lean`](lean/StreamingMirror/Mux/Charters.lean) holds the two
   planned follow-ons.
-- **The human story** — [`doc/exposition.typ`] (by argument) and
-  [`doc/narrative.typ`] (by discovery, errata and all); both
+- **The human story** — [`doc/exposition.typ`](doc/exposition.typ) (by argument) and
+  [`doc/narrative.typ`](doc/narrative.typ) (by discovery, errata and all); both
   self-contained.
-- **The models and proofs** — [`MODEL.md`] (the protocol model),
-  [`PROGRESS.md`] and [`PLAN.md`] (campaign one's records), the maps of the proofs
-  ([`lean/StreamingMirror/Proofs/Map.lean`], [`Mux/Proofs/Map.lean`]).
-- **Running the checks** — [`check.sh`], `lake build`,
+- **The models and proofs** — [`MODEL.md`](MODEL.md) (the protocol model),
+  [`PROGRESS.md`](PROGRESS.md) and [`PLAN.md`](PLAN.md) (campaign one's records), the maps of the proofs
+  ([`lean/StreamingMirror/Proofs/Map.lean`](lean/StreamingMirror/Proofs/Map.lean), [`Mux/Proofs/Map.lean`](lean/StreamingMirror/Mux/Proofs/Map.lean)).
+- **Running the checks** — [`check.sh`](quint/check.sh), `lake build`,
   `lake exe eventdag`, plus `lake exe muxprobe` / `just muxprobe`
-  (the mux campaign's golden-pinned executable matrix).
+  (the mux campaign's golden-pinned executable matrix). The Quint
+  tier's manual is [`quint/README.md`](quint/README.md); exhaustive
+  model checking was never achieved there — the deadlock-freedom
+  claims rest on the kernel-checked Lean artifact (full statement in
+  the manual).
 
 Archaeology: the mux campaign's full coordination record (ledger,
 adjudication, audit notes, statement audit, spec, panel briefs) was
