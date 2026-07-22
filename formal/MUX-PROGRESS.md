@@ -236,7 +236,12 @@ Known modeling cruxes:
 ## 3. Campaign plan
 
 Phases, each a coordinator-driven workflow; the coordinator keeps proof
-work out of its own context and distills results here:
+work out of its own context and distills results here. **[ALL PHASES
+COMPLETE, 2026-07-22: understand and adjudicate (phase-2 ruling of
+record, MUX-ADJUDICATION.md), formalize (T1–T8 + T10, review closed by
+the round-6 stop rule), legibility (Mux/Statement.lean, the §4 phase-5
+entry), and document (doc/narrative.typ part two; doc/exposition.typ
+act two). The follow-on charters §3b/§3c remain open by design.]**
 
 1. **Understand [in progress].** Parallel readers map the Lean artifact
    (model, theorems, reusable machinery), MODEL.md/PROGRESS.md (channel
@@ -1000,6 +1005,33 @@ consider-grade observations remain — so, per the pre-committed stop
 rule (round-5 synthesis §3, Finch's criterion), the review is CLOSED
 and phase 5 proceeds on the queue.
 
+### 2026-07-22 — Phase 6 (document) complete: the campaign is closed
+
+Both Typst documents landed per the §3 item-6 directives, compile-
+verified (typst 0.15.0). `doc/narrative.typ` gained part two — the mux
+campaign's history, first person, discovery-ordered, provenance-tagged
+in the part-one register: the charter and the A1 audit finding, the
+hinge, the trichotomy adjudication and its conditions, stage 0's
+reversals, the build wave (the wedge's forced run; the projections
+reversed at kernel tier; the four-times-minted phantom alias; InvPW
+and T10), the locality finding and the payload discovery, the residue
+inversion and the coverage campaign, the reviews and the pre-committed
+stop rule, T8's spec-first crosswalk, the design consequence, a
+second errata ledger (nine entries), and closing reflections; the
+sources section extended for part two. `doc/exposition.typ` was
+restructured into two acts: act one preserved (the two-disciplines
+result); act two organized around the resolved trichotomy as its
+spine — the question, the mux model, the three answers in logical
+order (with the payload-locality build-up and its thesis sentence as
+the σ\*-causal chapter's centerpiece, and the C2 chapter written as
+recognition, not construction), the window dial (T8 and the K-dial
+law at its honest tier), the engineering consequence, an act-two
+trust ledger, and an act-two reader's map — every theorem cited by
+its `Mux/Statement.lean` name, every result placed where the argument
+wants it rather than where it was found. With this entry the campaign
+plan's phases are complete; open items are exactly the §3b/§3c
+follow-on charters and the residue ledger recorded at review close.
+
 ### 2026-07-22 — Phase 5 (legibility) complete: the audit surface minted, the accumulated queue drained
 
 Per §3 item 5, governed by the phase-4 statement-faithfulness
@@ -1106,6 +1138,13 @@ realized marker.
 
 ## 5. Log
 
+- **2026-07-22** Phase 6 (document) complete: narrative part two and
+  exposition act two landed, compile-verified; the campaign plan's
+  phases are all complete (§3 header, §4 entry). The campaign closes
+  with T1–T8 + T10 kernel-checked, both conjectures settled at the
+  charter grain, review closed by the round-6 stop rule, and the
+  follow-on charters (§3b latency conjectures, §3c tracecheck) open
+  by design.
 - **2026-07-22** T8 merged into the mainline by phase 5 (see the §4
   phase-5 entry's closing note): suite complete T1–T8 + T10, seam
   swept, Statement.lean's T8 section filled, build green at 279 jobs.
