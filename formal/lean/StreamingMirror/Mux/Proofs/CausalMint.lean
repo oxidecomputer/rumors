@@ -3942,4 +3942,281 @@ theorem peer_internal_of_flatten (hwf : sk.wellFormed = true)
         rw [hc]
         rfl
 
+
+/-- Own pushed frames are announced-universe members. -/
+private theorem mem_evUnivA_own_push {p : Party} {tr : List MObs}
+    {g n : Nat} (hgm : g ∈ wireHeights sk p)
+    (hn : n < pushedCount tr g) :
+    ((Chan.wire p g, true, n) : Ev) ∈ evUnivA (aviewOf sk p tr) tr := by
+  unfold evUnivA
+  refine List.mem_append.mpr (.inl (List.mem_append.mpr (.inl
+    (List.mem_append.mpr (.inl ?_)))))
+  refine List.mem_flatMap.mpr ⟨g, ?_, ?_⟩
+  · rw [show (aviewOf sk p tr).party = p from rfl, wireHeightsA_aviewOf]
+    exact hgm
+  · exact List.mem_map.mpr ⟨n, List.mem_range.mpr hn, rfl⟩
+
+/-- Delivered peer frames are announced-universe members. -/
+private theorem mem_evUnivA_peer_send {p : Party} {tr : List MObs}
+    {g n : Nat} (hgm : g ∈ wireHeights sk p.other)
+    (hn : n < deliveredCount tr g) :
+    ((Chan.wire p.other g, true, n) : Ev)
+      ∈ evUnivA (aviewOf sk p tr) tr := by
+  unfold evUnivA
+  refine List.mem_append.mpr (.inl (List.mem_append.mpr (.inl
+    (List.mem_append.mpr (.inr ?_)))))
+  refine List.mem_flatMap.mpr ⟨g, ?_, ?_⟩
+  · rw [show (aviewOf sk p tr).party = p from rfl, wireHeightsA_aviewOf]
+    exact hgm
+  · exact List.mem_map.mpr ⟨n, List.mem_range.mpr hn, rfl⟩
+
+-- =============================== Step 4: the causal coverage induction
+
+/-- The first occurrence splits off the `takeWhile` prefix (private
+copy of SigmaStarLive's device). -/
+private theorem dropWhile_first' {l : List Ev} {e : Ev} (he : e ∈ l) :
+    ∃ rest, l.dropWhile (fun x => !(x == e)) = e :: rest := by
+  induction l with
+  | nil => cases he
+  | cons a t ih =>
+      by_cases hae : a = e
+      · subst hae
+        exact ⟨t, by simp⟩
+      · rw [List.dropWhile_cons, if_pos (by simp [hae])]
+        rcases List.mem_cons.mp he with rfl | het
+        · exact absurd rfl hae
+        · exact ih het
+
+/-- Causal coverage (refute-c1 §2.4 over the ANNOUNCED closure): at the
+stuck drained wall, every announced-laid event scheduled below the wall
+enters the causal closure by its own τ stage — wire-send E1/E2
+predecessors are grounded against the drained counts, internal
+predecessors are announced-laid by the minting lemmas and recurse, and
+the E3 past is the announced trace itself, τ-below by trace order.
+
+The bound `k` drives the strong induction; instantiate `k := N`. -/
+theorem causal_closure_coverage {s : MState} {N : Nat} (W : Wall sk s N)
+    (p : Party) :
+    ∀ (k : Nat), ∀ e ∈ scheduleE sk, evIdx e (scheduleE sk) < N →
+      evIdx e (scheduleE sk) < k →
+      e ∈ (announcedProcs (aviewOf sk p (s.hist p))).flatten →
+      e ∈ closureNA (aviewOf sk p (s.hist p)) (s.hist p)
+          (evUnivA (aviewOf sk p (s.hist p)) (s.hist p))
+          (announcedProcs (aviewOf sk p (s.hist p)))
+          (evIdx e (scheduleE sk) + 1) := by
+  intro k
+  induction k with
+  | zero =>
+      intro e _ _ hk
+      omega
+  | succ k ih =>
+      intro e he hN hk hfl
+      have hu : e ∈ evUnivA (aviewOf sk p (s.hist p)) (s.hist p) := by
+        unfold evUnivA
+        exact List.mem_append.mpr (.inr hfl)
+      obtain ⟨c, b, n⟩ := e
+      by_cases hpw : (isWire c && b) = true
+      · -- a wire send: grounded against the drained counts
+        rw [Bool.and_eq_true] at hpw
+        obtain ⟨hw, rfl⟩ := hpw
+        obtain ⟨q, g, rfl⟩ := isWire_eq hw
+        have hch : Chan.wire q g ∈ allChans sk :=
+          evUniv_wire_mem W.wf (mem_evUniv_of_mem_scheduleE he)
+        have hsent := W.sent_of_below he hN
+        have hg : groundedA (aviewOf sk p (s.hist p)) (s.hist p)
+            (Chan.wire q g, true, n) = true := by
+          refine groundedA_of_push ?_
+          rw [groundedPush]
+          simp only [isWire, wireParty, wireHeight, Bool.true_and]
+          by_cases hqp : q = p
+          · subst hqp
+            rw [if_pos (show (q == (aviewOf sk q
+              (s.hist q)).party) = true from by
+                show (q == q) = true
+                simp)]
+            have hpe := W.drained_pushed q g hch
+            exact decide_eq_true (by omega)
+          · have hqo : q = p.other := by
+              cases q <;> cases p <;>
+                first
+                  | rfl
+                  | (exact absurd rfl hqp)
+                  | (exfalso; exact hqp rfl)
+            subst hqo
+            rw [if_neg (by
+              intro hcon
+              exact hqp (beq_iff_eq.mp hcon))]
+            have hdel := W.drained_delivered p.other g hch
+            rw [Party.other_other] at hdel
+            exact decide_eq_true (by omega)
+        have h0 : ((Chan.wire q g, true, n) : Ev)
+            ∈ closureNA (aviewOf sk p (s.hist p)) (s.hist p)
+              (evUnivA (aviewOf sk p (s.hist p)) (s.hist p))
+              (announcedProcs (aviewOf sk p (s.hist p))) 0 :=
+          List.mem_filter.mpr ⟨hu, hg⟩
+        exact closureNA_le (Nat.zero_le _) _ h0
+      · -- a non-push event: I-step against the τ-stage below
+        have hstep : istepOkA (aviewOf sk p (s.hist p))
+            (announcedProcs (aviewOf sk p (s.hist p)))
+            (closureNA (aviewOf sk p (s.hist p)) (s.hist p)
+              (evUnivA (aviewOf sk p (s.hist p)) (s.hist p))
+              (announcedProcs (aviewOf sk p (s.hist p)))
+              (evIdx ((c, b, n) : Ev) (scheduleE sk)))
+            (c, b, n) = true := by
+          rw [istepOkA]
+          simp only [Bool.and_eq_true]
+          refine ⟨⟨⟨by simp [hpw], ?_⟩, ?_⟩, ?_⟩
+          · -- E1: the receive's send is τ-below or grounded
+            cases b with
+            | true => simp
+            | false =>
+                rw [Bool.false_or]
+                obtain ⟨hsm, hτs⟩ := tau_e1 W.wf he
+                refine (List.contains_iff_mem ..).mpr ?_
+                by_cases hwc : isWire c = true
+                · -- a wire send: grounded evidence with delivered
+                  -- membership in the announced universe
+                  obtain ⟨q, g, rfl⟩ := isWire_eq hwc
+                  have hch : Chan.wire q g ∈ allChans sk :=
+                    evUniv_wire_mem W.wf
+                      (mem_evUniv_of_mem_scheduleE hsm)
+                  have hsent := W.sent_of_below hsm (by omega)
+                  have hgm : g ∈ wireHeights sk q :=
+                    wireHeights_of_allChans hch
+                  have hg : groundedA (aviewOf sk p (s.hist p))
+                      (s.hist p) (Chan.wire q g, true, n) = true := by
+                    refine groundedA_of_push ?_
+                    rw [groundedPush]
+                    simp only [isWire, wireParty, wireHeight,
+                      Bool.true_and]
+                    by_cases hqp : q = p
+                    · subst hqp
+                      rw [if_pos (show (q == (aviewOf sk q
+                        (s.hist q)).party) = true from by
+                          show (q == q) = true
+                          simp)]
+                      have hpe := W.drained_pushed q g hch
+                      exact decide_eq_true (by omega)
+                    · have hqo : q = p.other := by
+                        cases q <;> cases p <;>
+                          first
+                            | rfl
+                            | (exact absurd rfl hqp)
+                            | (exfalso; exact hqp rfl)
+                      subst hqo
+                      rw [if_neg (by
+                        intro hcon
+                        exact hqp (beq_iff_eq.mp hcon))]
+                      have hdel := W.drained_delivered p.other g hch
+                      rw [Party.other_other] at hdel
+                      exact decide_eq_true (by omega)
+                  have husend : ((Chan.wire q g, true, n) : Ev)
+                      ∈ evUnivA (aviewOf sk p (s.hist p))
+                        (s.hist p) := by
+                    by_cases hqp : q = p
+                    · subst hqp
+                      refine mem_evUnivA_own_push hgm ?_
+                      have hpe := W.drained_pushed q g hch
+                      omega
+                    · have hqo : q = p.other := by
+                        cases q <;> cases p <;>
+                          first
+                            | rfl
+                            | (exact absurd rfl hqp)
+                            | (exfalso; exact hqp rfl)
+                      subst hqo
+                      refine mem_evUnivA_peer_send hgm ?_
+                      have hdel := W.drained_delivered p.other g hch
+                      rw [Party.other_other] at hdel
+                      omega
+                  have h0 : ((Chan.wire q g, true, n) : Ev)
+                      ∈ closureNA (aviewOf sk p (s.hist p)) (s.hist p)
+                        (evUnivA (aviewOf sk p (s.hist p)) (s.hist p))
+                        (announcedProcs (aviewOf sk p (s.hist p))) 0 :=
+                    List.mem_filter.mpr ⟨husend, hg⟩
+                  exact closureNA_le (Nat.zero_le _) _ h0
+                · -- an internal send: announced-laid, recurse
+                  have hchan := peer_internal_of_flatten W.wf W.m0 p
+                    (s.hist p) hfl (by simpa using hwc)
+                  have hflS := flatten_of_sched W p hsm (by omega)
+                    hchan
+                  have hin := ih _ hsm (by omega) (by omega) hflS
+                  exact closureNA_le (by omega) _ hin
+          · -- E2: the send's cap-window receive is τ-below
+            cases b with
+            | false => simp
+            | true =>
+                have hwc : isWire c = false := by
+                  cases hcw : isWire c with
+                  | false => rfl
+                  | true =>
+                      exfalso
+                      rw [Bool.and_eq_true] at hpw
+                      exact hpw ⟨hcw, rfl⟩
+                rw [capA_aviewOf]
+                by_cases hcap : n < sk.cap c
+                · simp [hcap]
+                · obtain ⟨hrm, hτr⟩ := tau_e2 W.wf he (by omega)
+                  rw [Bool.or_eq_true]
+                  refine Or.inr ((List.contains_iff_mem ..).mpr ?_)
+                  have hchan := peer_internal_of_flatten W.wf W.m0 p
+                    (s.hist p) hfl hwc
+                  have hflR := flatten_of_sched W p hrm (by omega)
+                    hchan
+                  have hin := ih _ hrm (by omega) (by omega) hflR
+                  exact closureNA_le (by omega) _ hin
+          · -- E3: the announced trace past is τ-below, elementwise
+            rw [List.all_eq_true]
+            intro T hT
+            rw [Bool.or_eq_true]
+            by_cases heT : ((c, b, n) : Ev) ∈ T
+            · refine Or.inr ?_
+              rw [List.all_eq_true]
+              intro x hx
+              obtain ⟨T', hT', hpre⟩ := announcedProcs_prefix W.wf p
+                (s.hist p) T hT
+              have hxT : x ∈ T :=
+                (List.takeWhile_prefix _).sublist.mem hx
+              have hxfl : x ∈ (announcedProcs (aviewOf sk p
+                  (s.hist p))).flatten :=
+                List.mem_flatten.mpr ⟨T, hT, hxT⟩
+              have hxm : x ∈ scheduleE sk :=
+                (Sched.trace_sublistE sk W.wf W.m0 hT').mem
+                  (hpre.sublist.mem hxT)
+              -- x precedes e in the true trace
+              obtain ⟨tail, htail⟩ := dropWhile_first' heT
+              have hpair : ([x, ((c, b, n) : Ev)] : List Ev).Sublist
+                  T := by
+                have hsplit := List.takeWhile_append_dropWhile
+                  (p := fun y => !(y == ((c, b, n) : Ev))) (l := T)
+                rw [htail] at hsplit
+                rw [← hsplit]
+                have h1 : ([x] : List Ev).Sublist
+                    (T.takeWhile (fun y => !(y == ((c, b, n) : Ev)))) :=
+                  List.singleton_sublist.mpr hx
+                have h2 : ([((c, b, n) : Ev)] : List Ev).Sublist
+                    (((c, b, n) : Ev) :: tail) :=
+                  List.singleton_sublist.mpr (List.mem_cons_self ..)
+                exact List.Sublist.append h1 h2
+              have hτx : evIdx x (scheduleE sk)
+                  < evIdx ((c, b, n) : Ev) (scheduleE sk) :=
+                tau_lt_of_trace_pair W.wf W.m0 hT'
+                  (hpair.trans hpre.sublist)
+              have hin := ih _ hxm (by omega) (by omega) hxfl
+              refine (List.contains_iff_mem ..).mpr ?_
+              exact closureNA_le (by omega) _ hin
+            · refine Or.inl ?_
+              rw [Bool.not_eq_true']
+              cases hcont : T.contains ((c, b, n) : Ev) with
+              | false => rfl
+              | true =>
+                  exact absurd ((List.contains_iff_mem ..).mp hcont)
+                    heT
+        show ((c, b, n) : Ev) ∈ closureStepA (aviewOf sk p (s.hist p))
+          (s.hist p) (evUnivA (aviewOf sk p (s.hist p)) (s.hist p))
+          (announcedProcs (aviewOf sk p (s.hist p))) _
+        refine List.mem_filter.mpr ⟨hu, ?_⟩
+        rw [Bool.or_eq_true, Bool.or_eq_true]
+        exact Or.inr hstep
+
 end StreamingMirror.Mux
