@@ -196,13 +196,14 @@ grains are INCOMPARABLE, not nested — `LocalEq` pairs may differ in
 announced content (answerer-side R children and `leafReqs` of
 announced scopes are `viewEnc`-erased yet frame-announced), while
 announced-view pairs may differ in unannounced view structure, so the
-a-fortiori transfer fails in BOTH directions [derived; the
-per-direction witness pins are phase-5 queue — Proofs/C1.lean's
-module doc is the finding of record]. In particular refutations do
-NOT transfer: the T9 witnesses differ only in `leafReqs`, which
-`AView.recs` carries, so `oracle_not_localStrategy` says nothing
-about `CharterLocal`. This definition stays as the landed controls'
-vocabulary. -/
+a-fortiori transfer fails in BOTH directions — kernel-pinned at
+relation and class strength in Mux/Proofs/Grains.lean;
+Proofs/C1.lean's module doc is the finding of record. In particular
+refutations do NOT transfer: the T9 witnesses differ only in
+`leafReqs`, which `AView.recs` carries, so `oracle_not_localStrategy`
+says nothing about `CharterLocal` — the oracle's charter-grain
+nonlocality has its own pin (`oracle_not_charterLocal`, Grains.lean).
+This definition stays as the landed controls' vocabulary. -/
 def LocalEq (p : Party) (sk sk' : Skel) : Bool :=
   sk.rootH == sk'.rootH && sk.fan == sk'.fan &&
   sk.capLevel == sk'.capLevel &&
@@ -223,8 +224,9 @@ the necessity corollary T6 is a statement about this one hypothesis.
 Grain caveat: this class is INCOMPARABLE to the charter-grain
 `CharterLocal` (Mux/Causal.lean) — neither memberships nor
 refutations transfer in either direction (Proofs/C1.lean's module doc
-records why), so every claim through this definition is about THIS
-grain only. -/
+records why; Mux/Proofs/Grains.lean pins both directions in the
+kernel), so every claim through this definition is about THIS grain
+only. -/
 def LocalStrategy (p : Party) (σ : Strategy) : Prop :=
   ∀ (sk sk' : Skel) (tr : List MObs), LocalEq p sk sk' = true →
     Consistent p sk tr → Consistent p sk' tr →

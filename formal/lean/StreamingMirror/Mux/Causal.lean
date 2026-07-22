@@ -1,9 +1,10 @@
 /-
 σ*-causal: the charter-grain local demand-lockstep strategy — the Lean
-twin of the stage-0 probe's faulting view (causal-reference.py, the
-AUTHORITATIVE reference), discharging the definitional half of the
-σ*-locality residue (MUX-PROGRESS §4, "The locality residue adjudicated
-by Finch"; F3 ruling: claims of record bind the charter grain).
+counterpart of the stage-0 probe's faulting view (causal-reference.py;
+counterpart, not twin — see the probe-relationship section below),
+discharging the definitional half of the σ*-locality residue
+(MUX-PROGRESS §4, "The locality residue adjudicated by Finch"; F3
+ruling: claims of record bind the charter grain).
 
 # The grain (Finch's F3 ruling, phase 4)
 
@@ -17,9 +18,10 @@ ANNOUNCED by the frames that have arrived (refute-c1 §1.2's two minting
 rules; bridge axiom B5: frames are decoded at delivery, so an arrived
 frame's decoded record is trace information even though the
 payload-erased `MObs` does not carry it syntactically). `aviewOf` below
-is exactly that announced view — the probe's `KnownSkel`, whose t = 0
-state is the bare parameters. `CharterLocal` (invariance across equal
-announced views at `.impl`-consistent observations) is the locality
+is exactly that announced view — the probe `KnownSkel`'s Lean
+counterpart, whose t = 0 state is the bare parameters. `CharterLocal`
+(invariance across equal announced views at `.impl`-consistent
+observations) is the locality
 class of record; note it is INCOMPARABLE to the legacy class, not
 finer: `LocalEq` pairs may differ in announced content (answerer-side
 R children, `leafReqs` of announced scopes), and announced-view pairs
@@ -62,6 +64,22 @@ true traces, which is what the deferred containment lemma wants.
 positional slot-E2 window, the announced family for the E3 past. The
 F6 membership discipline and the no-cross-stream-pipe-edges shape are
 inherited verbatim.
+
+# The probe relationship: counterpart, not twin
+
+`sigmaStarCausal` is not extensionally the probe's strategy; two
+divergence axes separate them, in opposite directions. (i) `groundedA`
+grounds the party's own performed wire receives (`ownRecvCount`, read
+off its own `.act` stream), where causal-reference.py implements the
+strategy as a function of pushes and arrivals only — the divergence
+STAGE0-GATES.md names as a live risk. (ii) The Python fixpoint derives
+through simulated own-side events, so its closure can prove strictly
+more on own-endpoint structure than `inevitableA`. Both directions are
+conservative for the claims of record — the liveness of THIS object is
+kernel-proven end to end and rests on the probe nowhere — but P1's
+4,970/4,970 terminal runs validated the Python counterpart, not this
+definition; every P1 citation in this file reads with that
+qualification.
 
 # AxMode binding
 
@@ -521,9 +539,10 @@ def causalCore (av : AView) (tr : List MObs) : Option Nat :=
   (wireHeightsA av av.party).find? fun h =>
     committedInHist av.rootH tr h && demandedA av tr h
 
-/-- σ*-causal: demand-lockstep over the announced sub-skeleton. The
-single skeleton read is `aviewOf sk p tr` — the parameters plus the
-announced records — so charter-grain locality is definitional
+/-- σ*-causal: demand-lockstep over the announced sub-skeleton — the
+strategy of record behind `c1_charter_false`. The single skeleton read
+is `aviewOf sk p tr` — the parameters plus the announced records — so
+charter-grain locality is definitional
 (`sigmaStarCausal_charterLocal`). The machine identifies itself from
 its own history exactly as σ* does. -/
 def sigmaStarCausal : Strategy := fun sk tr =>
@@ -544,13 +563,29 @@ def ConsistentImpl (p : Party) (sk : Skel) (tr : List MObs) : Prop :=
   ∃ (C : Nat) (σI σR : Strategy) (s : MState),
     MReachable sk .impl C σI σR s ∧ s.hist p = tr
 
+/-- A kernel-checked `.impl` replay certifies shipping-interface
+consistency: if `obsOf` computes the trace, some `.impl`-reachable
+state carries it — `Consistent.of_obsOf` with the mode pinned, the
+glue the charter-grain controls (Mux/Proofs/Grains.lean) use. -/
+theorem ConsistentImpl.of_obsOf (C : Nat) (σI σR : Strategy)
+    (acts : List MAction) {p : Party} {sk : Skel} {tr : List MObs}
+    (h : obsOf sk .impl C σI σR acts p = some tr) :
+    ConsistentImpl p sk tr := by
+  rw [obsOf] at h
+  cases hm : mrun sk .impl C σI σR (init sk) acts with
+  | none => rw [hm] at h; cases h
+  | some s =>
+      rw [hm] at h
+      injection h with h
+      exact ⟨C, σI, σR, s, mrun_reachable hm, h⟩
+
 /-- σ is charter-grain local for party `p`: invariant across skeletons
 whose ANNOUNCED VIEWS agree at the observation, on every history both
 skeletons can realize at the shipping interface.
 
 This is Finch's F3 grain — "information in the causal past of that
-party at the decision point": the announced view (`aviewOf`, the
-probe's `KnownSkel`) is precisely what the arrived frames have
+party at the decision point": the announced view (`aviewOf`, the probe
+`KnownSkel`'s counterpart) is precisely what the arrived frames have
 determined, with the session parameters as its t = 0 state. It is
 deliberately NOT the legacy `LocalStrategy` (Mux/Strategy.lean), whose
 `viewEnc` grain encodes peer-determined merge labels a party cannot

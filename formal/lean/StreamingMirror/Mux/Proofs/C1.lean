@@ -20,14 +20,18 @@ therefore THE literal conjecture of record; `C1Statement` (the legacy
 grain) is retained as an internal artifact for its landed consumers.
 
 NOTE the two grains are INCOMPARABLE, not nested — the a-fortiori
-transfer fails in BOTH directions [derived: argued from the two
-erasures below; the per-direction kernel witness pins are phase-5
-queue, not yet landed]. `LocalEq` pairs may differ in
+transfer fails in BOTH directions, kernel-pinned at relation and class
+strength in Mux/Proofs/Grains.lean. `LocalEq` pairs may differ in
 announced content (answerer-side R children and `leafReqs` of announced
-scopes are `viewEnc`-erased yet frame-announced), so a charter-local
-strategy need not be legacy-local; announced-view pairs may differ in
-unannounced view structure, so a legacy-local strategy need not be
-charter-local. Each statement carries its own refutation witness.
+scopes are `viewEnc`-erased yet frame-announced):
+`legacyEq_announced_differ` pins the erasure, and `announcedLeafProbe`
+is a charter-local strategy that is not legacy-local. Announced-view
+pairs may differ in unannounced view structure:
+`announcedEq_legacy_differ` pins the erasure, and `viewProbe` is a
+legacy-local strategy that is not charter-local. Neither memberships
+nor refutations transfer; each statement carries its own refutation
+witness, and the oracle's nonlocality is pinned at each grain
+separately (`oracle_not_localStrategy`, `oracle_not_charterLocal`).
 
 # The refutation ledger
 
@@ -45,9 +49,11 @@ charter-local. Each statement carries its own refutation witness.
   with the causal coverage induction and the closure's saturation).
   The theorem is exactly T8's "inference progress" conjunct, now
   available to the window-sliding argument as a lemma. The probe and
-  wedge anchors (4,970/4,970 terminal causal runs, STAGE0-GATES.md P1;
-  `wedge_sigmaStarCausal_completes`) stand behind it as executable
-  witnesses rather than as the claim's support.
+  wedge anchors (STAGE0-GATES.md P1's 4,970/4,970 terminal runs —
+  which validated the strategy's Python counterpart; Mux/Causal.lean's
+  module doc names the divergence axes — and
+  `wedge_sigmaStarCausal_completes`, on this object) stand behind it
+  as executable witnesses rather than as the claim's support.
 - `C1Statement` (legacy grain, internal): refutation
   `c1_literal_false`, carrying σ*'s legacy locality as its named
   hypothesis exactly as landed at stage 3 — `wireHeights`,
