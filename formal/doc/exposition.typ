@@ -424,15 +424,15 @@ what a reader should trust:
   the Lean kernel, down to the three standard axioms.
   #kernel
 - The *executable tier*: `lake exe eventdag` re-implements the
-  schedules and the model _independently_ and, on every gated commit,
-  cross-checks the two on 300 randomized skeletons plus a pinned
-  regression suite: transcription equality of the proof-side schedule
-  definitions against the imperative model, replay of the witness
-  schedules to session completion under both modes, adversarial drain
-  assertions (the margin-0 `.impl` drains must complete — margin 0 is
-  the capacity discipline defined at @floor — and the sub-margin traps
-  must still reproduce), and a boundary matrix around the capacity law
-  of @floor. #gate
+  schedules and the model _independently_, and on every gated commit
+  it cross-checks the two on 300 randomized skeletons plus a pinned
+  regression suite. The checks: transcription equality of the
+  proof-side schedule definitions against the imperative model; replay
+  of the witness schedules to session completion under both modes;
+  adversarial drain assertions (the margin-0 `.impl` drains must
+  complete — margin 0 is the capacity discipline of @floor — and the
+  sub-margin traps must still reproduce); and a boundary matrix around
+  the capacity law of @floor. #gate
 
 The kernel tier makes the theorems unimpeachable _given the
 definitions_. The executable tier is the answer to the question every
@@ -749,11 +749,11 @@ at (a wire, a resolution, a query, a parent summary). A window is the
 arithmetic fact about the counts above and below that makes the next
 send admissible. (These proof-side windows are unrelated to act two's
 flow-control windows; the collision is historical.) Receives are the
-easy half: the schedule places every receive after its matching send
-(the message edge), and positional pairing plus a per-channel
-numbering theorem (on every channel-side, the family's events carry
-sequence numbers $0, 1, 2, dots$ in order — `Sched/Numbering.lean`)
-turns "the datum is present" into an inequality between two counts.
+easy half. The schedule places every receive after its matching send
+— the message edge. Positional pairing, plus a per-channel numbering
+theorem (`Sched/Numbering.lean`: on every channel-side, the family's
+events carry sequence numbers $0, 1, 2, dots$ in order), then turns
+"the datum is present" into an inequality between two counts.
 Sends into capacity-1 channels between walks are similar: the previous
 occupant's receive sits between any two same-channel sends in the
 schedule, by construction.
@@ -883,14 +883,14 @@ The complete trust ledger of the artifact:
   step enumeration could only make deadlock-freedom _harder_ to
   prove, not easier (`Statement.lean`, "Conservativity notes").
 + *Executable, gate-pinned* #gate — that the Lean definitions
-  transcribe the specified machine: schedule-definition equality
-  against an independent implementation, witness replay to completion
-  under both modes, adversarial drain assertions at and below the
-  margin, the capacity boundary matrix, and the
-  conjecture that `schedulable` coincides with acyclicity of the event
-  DAG (the dependency graph over all sends and receives; the narrative
-  defines it) checked in both directions, per 300-seed sweep on every
-  def-touching commit.
+  transcribe the specified machine. The evidence: schedule-definition
+  equality against an independent implementation; witness replay to
+  completion under both modes; adversarial drain assertions at and
+  below the margin; the capacity boundary matrix; and the conjecture
+  that `schedulable` coincides with acyclicity of the event DAG (the
+  dependency graph over all sends and receives; the narrative defines
+  it), checked in both directions. All of it runs as a 300-seed sweep
+  on every def-touching commit.
 + *Assumed, named* #assumed — exactly two items.
   _Capacity monotonicity_: the theorems fix walk channels at
   capacity 1 and the assembler at `capLevel`; production only widens
@@ -934,9 +934,9 @@ For the reader who wants to go deeper, in reading order:
 The theorems of act one carry a premise so structural it is easy to
 read past: the wire streams between the two parties are
 _independent_ — a full or slow stream never prevents another from
-delivering. (One stream per comparison stage: the walk steps down two
-heights at a time, so a depth-32 trie has sixteen interior stages,
-plus one stream for the leaf level — seventeen.) The deployed system honors that premise with the `Link`
+delivering. (One stream per comparison stage. The walk steps down two heights at
+a time, so a depth-32 trie has sixteen interior stages; the leaf level
+adds one more stream — seventeen.) The deployed system honors that premise with the `Link`
 transport contract: a remote connection must supply genuinely
 non-interfering streams (QUIC streams, HTTP/2 streams, separate TCP
 connections). The contract exists because its absence had already been paid for.
@@ -1186,19 +1186,20 @@ stream, derived instead of transmitted.
 = The window dial <window>
 
 The theorem any single-channel implementation would actually rest on
-generalizes answer two from lockstep to windows. Each receiver advertises, per direction,
-a parking depth $K$; each sender may run $K$ frames past _inferred_
-consumption per stream. Two facts make this the deployable point in
-the design space:
+generalizes answer two from lockstep to windows. Each receiver
+advertises, per direction, a parking depth $K$; each sender may run
+$K$ frames past _inferred_ consumption per stream. Two facts make this
+the deployable point in the design space:
 
 - *Liveness is order-free within the discipline*
-  (`sigmaStarK_deadlock_free`, `sigmaStarK_completes` #kernel): for
-  every skeleton in the class, every capacity, every pair of advertised
-  depths $K_I, K_R >= 1$ (independent — unequal peers interoperate),
-  _every_ strategy pair in the window-disciplined class — any scheduler
-  that pushes _some_ licensed frame when one exists — is deadlock-free
-  and completes in bounded steps. The class quantification is the
-  point: the shipped scheduler's priority ladder is a proven _instance_
+  (`sigmaStarK_deadlock_free`, `sigmaStarK_completes` #kernel). The
+  quantifiers: every skeleton in the class, every capacity, every pair
+  of advertised depths $K_I, K_R >= 1$ — independent, so unequal peers
+  interoperate — and _every_ strategy pair in the window-disciplined
+  class, meaning any scheduler that pushes _some_ licensed frame when
+  one exists. All of them are deadlock-free and complete in bounded
+  steps. The class quantification is the point. The shipped
+  scheduler's priority ladder is a proven _instance_
   (`sigmaLadderK_windowDisciplined`), and frame ordering is thereby
   demoted from a correctness concern to a latency heuristic. You
   cannot pick a wrong order, only a slow one.
@@ -1234,11 +1235,11 @@ method.
 Begin with a framing this act has so far let the reader supply
 incorrectly: the product here is the _library_. `rumormill`, the
 demonstration gossip daemon built on it, is exactly that — a
-demonstration; the surface a user of `rumors` actually holds
-is the `Link` transport contract, and the library _requires_
-independent streams while shipping none — the user discharges the
-requirement with whatever their environment already tunes best (QUIC
-streams, HTTP/2 streams, separate TCP connections). Every consequence
+demonstration. The surface a user of `rumors` actually holds is the
+`Link` transport contract. The library _requires_ independent streams
+while shipping none; the user discharges the requirement with whatever
+their environment already tunes best (QUIC streams, HTTP/2 streams,
+separate TCP connections). Every consequence
 below is a statement about what that contract should require, not
 about any deployment.
 
@@ -1248,14 +1249,14 @@ price list reads differently than the original deadlock suggested:
 - The production deadlock was never about capacity, muxing, or missing
   information. It was about _eagerness_ — a scheduler denied the right
   to idle (@answer-wc) — against bounded per-stream parking.
-- Liveness over one channel needs either elasticity (unbounded
-  parking; proven as `elastic_deadlock_free` #kernel — and parking is
-  cheaper than it sounds: the receiver can decode each frame on
-  arrival and stream a provision's payload straight into its tree
-  store, which was that data's destination anyway, so a parked reply
-  costs a small descriptor rather than buffered bytes), or
-  inference-gated sending at any window (@window). Neither needs a
-  wire byte the protocol doesn't already send.
+- Liveness over one channel needs either elasticity or
+  inference-gated sending at any window (@window). Elasticity means
+  unbounded parking, proven as `elastic_deadlock_free` #kernel — and
+  parking is cheaper than it sounds. The receiver can decode each
+  frame on arrival and stream a provision's payload straight into its
+  tree store, which was that data's destination anyway; a parked reply
+  then costs a small descriptor, not buffered bytes. Neither route
+  needs a wire byte the protocol doesn't already send.
 - Round-trip parity with independent channels is reached at the
   default window #gate. What independent channels still buy is
   physics: per-stream loss isolation and packet-granularity
@@ -1298,14 +1299,14 @@ implement, and chose the tuned implementation of that same mechanism.
 
 The single-socket design — maintained, with its code-grounded
 executable plan, on the `single-connection` branch — is thereby the
-_contingency of record_, not a successor: finished,
-shelved, theorem-backed, serving exactly the library user whose
-environment cannot supply multi-stream transports — window depths ride
-the _greeting_ (the session's opening handshake), the sender's engine
-is the inference of @answer-sigma at the window of @window,
-over-window arrival is a conformance violation that attributes
-cleanly to the sending side's bug, and any window-obeying frame order
-is valid. Its final
+_contingency of record_, not a successor. It is finished, shelved,
+and theorem-backed, serving exactly the library user whose environment
+cannot supply multi-stream transports. Window depths ride the
+_greeting_ (the session's opening handshake). The sender's engine is
+the inference of @answer-sigma at the window of @window. Over-window
+arrival is a conformance violation that attributes cleanly to the
+sending side's bug. And any window-obeying frame order is valid. Its
+final
 stage — removing `Link` — sits behind a gate now expected never to
 fire, and that is the design working as intended.
 
@@ -1329,21 +1330,22 @@ The trust ledger, act two:
   (the idler, the unbounded-slot completion, the static-oracle jam,
   the evidence-only starvation, the locality-grain pins) — each on
   the three standard axioms; no `sorry`, no `native_decide`.
-+ *Executable, gate-pinned* #gate — `lake exe muxprobe` (the mux twin
-  of act one's gate: a 300-plus-row golden matrix over pinned and
-  randomized skeletons, strategies, capacities, and window depths,
-  with commit-singularity scans and provenance pins), the stage-0
-  causal sweep — stage 0 was the build plan's one blocking gate —
-  with 4,970 runs under a structurally-blinded strategy, and the timed
-  harness behind the latency law.
-+ *Assumed, named* #assumed — the model boundary: message-denominated
-  capacity (a "reply" is byte-unbounded; byte-level liveness
-  additionally needs the byte pacing the design documents specify —
-  impossibility results transfer to bytes a fortiori, positive
-  results do not; every positive statement's docstring carries the
-  pointer), and the bridge premises tying model to Rust (the trace
-  validator's ledgers, the wedge realizability test, and B5 — which
-  the payload finding of @answer-sigma promotes to constitutive).
++ *Executable, gate-pinned* #gate — three instruments. `lake exe
+  muxprobe`, the mux twin of act one's gate: a 300-plus-row golden
+  matrix over pinned and randomized skeletons, strategies, capacities,
+  and window depths, with scans asserting every commit decision along
+  the matrix was forced rather than chosen. The stage-0 causal sweep —
+  stage 0 was the build plan's one blocking gate — with 4,970 runs
+  under a structurally-blinded strategy. And the timed harness behind
+  the latency law.
++ *Assumed, named* #assumed — the model boundary. First,
+  message-denominated capacity: a "reply" is byte-unbounded, and
+  byte-level liveness additionally needs byte pacing. Impossibility
+  results transfer to bytes a fortiori; positive results do not; every
+  positive statement's docstring carries the caveat. Second, the
+  bridge premises tying model to Rust: the trace validator's ledgers,
+  the wedge realizability test, and B5 — which the payload finding of
+  @answer-sigma promotes to constitutive.
   A chartered trace validator — Rust proptests replaying their
   traces through the compiled Lean definitions — exists as a plan to
   shrink this category mechanically.
