@@ -97,9 +97,14 @@ impossible for the single-connection implementation as designed — at
 every capacity, every window pairing, and every frame ordering the
 implementation could choose — over exactly the class of
 synchronizations the protocol itself is proven to perform. This is the
-fully-quantified validity statement for the transport the single-socket
-plan builds back to, and the merge gate its §3 reconciliation table
-points at.
+fully-quantified validity statement for the single-socket design — 
+which, per the product conclusion of record (2026-07-22, exposition
+@consequence and MUX-PROGRESS §3e), stands as the library's
+CONTINGENCY of record rather than a successor to the `Link` contract:
+the theorem guarantees the contingency, and the `Link` requirement
+remains the product surface. The single-socket plan's §3
+reconciliation table pointed here as its merge gate; that gate is
+satisfied.
 
 ## Landed (2026-07-22): the audit crosswalk
 

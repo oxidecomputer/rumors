@@ -773,10 +773,11 @@ either of these things, but I would enjoy being surprised."_ #lived
 Both conjectures ended somewhere neither of us predicted, and the
 campaign that settled them ran thirty-some hours, produced ten kernel
 theorems, found and killed a recurring soundness bug in its own new
-invariants, reversed its own adjudication twice, and ended with the Link
-abstraction scheduled for removal — on the strength of a theorem that
-says the deadlock it was built to prevent cannot occur for the
-implementation that replaces it. This part records how, in the order it
+invariants, reversed its own adjudication twice, and ended somewhere
+stranger than either conjecture: with a theorem saying the deadlock
+the Link abstraction was built to prevent cannot occur even without
+it — and with Link standing anyway, as the better product decision,
+for reasons the coda records. This part tells how, in the order it
 happened. I coordinated the whole campaign, so nearly everything here is
 #lived; the durable record is `MUX-PROGRESS.md` (the design of record,
 whose findings ledger and log this part compresses), the adjudication
@@ -1066,6 +1067,51 @@ never about muxing — it was about the refusal to idle. Both
 conjectures were settled where neither of us predicted, which is to
 say: Finch asked to be surprised, and the machine obliged — twice,
 in opposite directions, with kernel receipts.
+
+== Coda: the closing question, and the product answer
+
+After the push, Finch asked the question the whole suite had been
+circling: have we established what the mechanism _must be_ for any
+non-deadlocking locally causal scheduler? Their suspicion: any such
+scheduler must track the trace, infer each receiver buffer's
+occupancy, and impose conservative backpressure on itself, per
+outbound stream — the shape of σ\*ₖ — so that every muxed approach is
+forced to re-implement per-stream windowing from application-level
+signals. #lived
+
+The honest answer was: bracketed, not established. Every kernel result
+points at that mechanism — withholding is necessary, informed
+withholding is necessary, the information must come from frame
+contents, must be announcement-inferred, and the inferred window
+discipline suffices — but "points at" is not "forces." The necessity
+itself is a derived claim, and it was chartered spec-first as T11, the
+forced-window theorem (`MUX-PROGRESS.md` §3e): every charter-local,
+deadlock-free-on-the-class strategy is license-bounded at every
+reachable observation. The fooling argument the campaign never needed
+for C1 would finally get its use, one level up. #artifact
+
+Two clarifications from Finch then reframed the engineering ending.
+First: the _library_ is the product — `rumormill` is a demo — so the
+product surface is the `Link` contract, and the honest posture is
+_require, don't ship_: the library demands independent streams and
+lets the environment supply its best-tuned implementation. Second, the
+conclusion of record: given that any correct single-channel scheduler
+effectively rebuilds per-stream windowing anyway, the choice was never
+windowing versus not, but whose implementation — a bespoke inference
+engine, session-fatal at its window boundary and tuned by nobody,
+against transports with decades of tuning and the two properties
+inference cannot recover. The `Link` architecture stands, now
+theorem-backed rather than merely chosen; the single-socket design
+becomes the contingency of record, finished and shelved, its
+Link-removal gate expected never to fire — which is the design working
+as intended. #lived
+
+So the campaign ends where it began, one level deeper. Finch's
+impossibility instinct was right after all — not about
+deadlock-freedom, where the local scheduler won, but about mechanism:
+there was never any escape from flow control, only the choice of who
+implements it. We chose the implementation with the decades. The
+theorems are why we know that was a choice, and not a surrender.
 
 = Sources and provenance of this document
 
