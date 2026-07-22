@@ -117,13 +117,14 @@
     one (`oracle_deadlock_free`): the send projection of the
     deadlock-freedom proof's own witness schedule. #kernel
   #v(2pt)
-  The generalization any single-channel implementation would rest
-  on: at any advertised
-  per-direction window depths, _any_ window-obeying frame order is
-  deadlock-free and completes (`sigmaStarK_deadlock_free`,
-  `sigmaStarK_completes` — the specification was fixed in English
-  before the theorem was built; `T8-SPEC.md` carries the clause-by-
-  clause crosswalk, every clause EXACT). #kernel
+  One theorem generalizes all of this to the point an implementation
+  would build on. At any advertised per-direction window depths, _any_
+  window-obeying frame order is deadlock-free and completes
+  (`sigmaStarK_deadlock_free`, `sigmaStarK_completes`). Its
+  specification was fixed in English before the theorem was built —
+  `T8-SPEC.md`, named for the campaign's numbering of its theorem
+  targets — and the landed statement matches it clause for clause.
+  #kernel
 ]
 
 #v(6pt)
@@ -156,7 +157,7 @@ The document has two acts. Act one is the result above: the
 protocol over its intended transport — independent bounded channels —
 under two send disciplines. Act two removes the transport
 assumption and asks the question the first act leaves standing: the
-theorems assume the seventeen cross-party streams cannot block one
+theorems assume the cross-party wire streams cannot block one
 another; the deployed system once muxed them over a single pipe and
 deadlocked; _is that deadlock fundamental?_ The answer reorganized
 itself, under proof, into the trichotomy of the second box — and into
@@ -249,8 +250,10 @@ child lands in one of three classes:
 The two parties play alternating roles by level — for a given scope,
 one party is the _asker_ (it sent the query that opened the scope) and
 the other the _answerer_ — and the roles flip at each level of descent.
-Both parties materialize their own copy of every reconciled subtree, so
-both run the full pipeline; the two sides are duals.
+Because the roles alternate, each party's walk stages sit at every
+other height; that is why the pipeline's stages step down two heights
+at a time. Both parties materialize their own copy of every reconciled
+subtree, so both run the full pipeline; the two sides are duals.
 
 == The pipeline: processes and channels
 
@@ -377,10 +380,12 @@ definition):
 / d1: a resolution precedes its dependent queries.
 / d2: a parent summary follows all its disputed children's
   resolutions.
-/ d3: sibling contiguity — child $i$'s dependent work precedes child
-  $i+1$'s resolution.
-/ d4: wire contiguity — no wire departs over an earlier sibling's
-  unresolved or unqueried debt.
+/ d3: sibling contiguity — a disputed child's _dependent work_ (its
+  resolution and all of its queries) is published before the next
+  child's resolution.
+/ d4: wire contiguity — a child's wire message is not sent while any
+  earlier disputed sibling is still unresolved or still owes queries;
+  wires may not outrun the dependent work of the children before them.
 / d5: *parent-early* — once every disputed child is resolved, the
   parent summary precedes any further wire or query of the scope.
 / d6: *parent-last* — the parent summary is its scope's final send.
@@ -407,9 +412,9 @@ describes two theorems rather than one.
 The artifact is verified at two tiers, and the distinction matters for
 what a reader should trust:
 
-- The *kernel tier*: every theorem in the Lean development —
-  938-odd lemmas across 38 proof modules, roughly 36,000 lines —
-  is checked by the Lean kernel, down to the three standard axioms.
+- The *kernel tier*: every theorem in the Lean development — 48
+  files and just under 40,000 lines at act one's close — is checked by
+  the Lean kernel, down to the three standard axioms.
   #kernel
 - The *executable tier*: `lake exe eventdag` re-implements the
   schedules and the model _independently_ and, on every gated commit,
@@ -531,11 +536,21 @@ Two properties of this floor made the theorem-design decision for us:
 + *One more unit of slack ends the case analysis.* At margin 0 —
   capacity at least the dispute count itself, $C >= N$, which is the
   shipping configuration (`FAN = 256 >=` children per scope
-  $>=$ disputes per scope) — level-channel sends _never park at all_,
-  because a level channel's occupancy is bounded by the pending count
-  of the single in-flight parent resolution above it. The borrowed
-  slots, and their sensitivity to implementation details at the
-  channel's two ends, exit the argument entirely.
+  $>=$ disputes per scope) — level-channel sends _never park at all_.
+  The inequality doing the work deserves its own paragraph. A
+  resolution's _pending count_ is the number of its disputed children
+  whose assembled subtrees have not yet come back. The consuming
+  assembler handles one parent resolution at a time, in scope order,
+  and takes that parent's returns positionally. So every return
+  sitting in the level channel belongs to the one parent currently
+  being assembled: at most pending-count many, the pending count is at
+  most the scope's dispute count, and margin 0 makes the dispute count
+  at most $C$. The channel cannot fill. (That returns never accumulate
+  for a _later_ parent is precisely the counting fact the proof
+  establishes at this site; the schedule's positional structure
+  forbids it.) The borrowed slots, and their sensitivity to
+  implementation details at the channel's two ends, exit the argument
+  entirely.
 
 The flagship theorem therefore takes margin 0 as its capacity
 hypothesis: it is simultaneously the robust bound (interleaving-proof,
@@ -697,10 +712,20 @@ it to session completion under `.impl` on every pinned and randomized
 skeleton, at margin 0, and checks the proof-side definition
 event-for-event against an independent construction. #gate The
 schedule assigns every operation a position; call the position of an
-event its τ. (The `d5` proof builds a different witness — the _weave_,
-parent summary spliced in immediately after the final disputed
-resolution — and everything downstream is parameterized so the two
-share machinery.)
+event its τ.
+
+Two terms of art describe the schedule's internal anatomy, and the
+comparison between the two proofs is written in them. A _chunk_ is one
+child's slice of a scope's traffic, taken as a unit: the child's wire
+message, then — if the child is disputed — its resolution and its
+queries. A scope's segment of the schedule is its chunks in child
+order. The only remaining freedom is where the scope's one parent
+summary goes. The eweave answers _last_, after the final chunk; the
+`e` is for the encoder, whose order it mirrors. The `d5` proof builds
+a different witness, the plain _weave_, which _splices_ the parent
+summary into the middle: immediately after the last disputed child's
+chunk. Everything downstream is parameterized so the two witnesses
+share machinery. "Spliced versus last" is exactly where they differ.
 
 == Stage B: the witness is edge-respecting
 
@@ -725,9 +750,9 @@ schedule, by construction.
 The interesting site — the one that distinguishes the two proofs — is
 the parent summary's send into the assembler tower. Here the flagship
 cashes its capacity hypothesis, once, in one inequality: _a level
-channel's occupancy never exceeds the pending count of the one parent
-resolution its consumer is currently assembling_ — at most the scope's
-dispute count — _which is at most_ $C$ _by margin 0_. So the send
+channel's occupancy never exceeds the pending count (@floor) of the
+one parent resolution its consumer is currently assembling_ — at most
+the scope's dispute count, which is at most $C$ by margin 0. So the send
 site's window closes by a counting lemma; the tower above the site
 literally cannot be full. The occupancy bound itself is where the
 schedule's structure earns its keep: assemblers consume positionally
@@ -892,10 +917,11 @@ For the reader who wants to go deeper, in reading order:
 = The question <mux-question>
 
 The theorems of act one carry a premise so structural it is easy to
-read past: the wire streams between the two parties — one per compared
-tree height, seventeen of them at the shipping depth of thirty-two,
-since the walk descends two levels at a time — are _independent_: a
-full or slow stream never prevents another from delivering. The deployed system honors that premise with the `Link`
+read past: the wire streams between the two parties are
+_independent_ — a full or slow stream never prevents another from
+delivering. (One stream per comparison stage: the walk steps down two
+heights at a time, so a depth-32 trie has sixteen interior stages,
+plus one stream for the leaf level — seventeen.) The deployed system honors that premise with the `Link`
 transport contract: a remote connection must supply genuinely
 non-interfering streams (QUIC streams, HTTP/2 streams, separate TCP
 connections). The contract exists because its absence had already been
@@ -1078,10 +1104,11 @@ consequence worth stating: the middle grain and the first are
 _incomparable_ classes (kernel-pinned in both directions), so claims
 about one never transfer silently to the other — the audit surface
 names which grain every locality statement binds. And the finding
-promotes one Rust bridge from supporting to constitutive: the
-announced-skeleton reconstruction test (B5), which decodes a session's
-frame transcript — contents, not pattern — and checks it determines
-the skeleton, is precisely the fact σ\*-causal's locality stands on.
+promotes one Rust bridge from supporting to constitutive. The
+announced-skeleton reconstruction test — B5, the fifth of the
+campaign's numbered Rust bridge tests — decodes a session's frame
+transcript (contents, not pattern) and checks it determines the
+skeleton. That is precisely the fact σ\*-causal's locality stands on.
 
 What σ\*-causal is _not_ is fast at capacity one: its pacing is the
 subject of the window generalization (@window), which is where the
@@ -1179,8 +1206,9 @@ method.
 = The engineering consequence <consequence>
 
 Begin with a framing this act has so far let the reader supply
-incorrectly: the product here is the _library_. `rumormill` is a
-demonstration artifact; the surface a user of `rumors` actually holds
+incorrectly: the product here is the _library_. `rumormill`, the
+demonstration gossip daemon built on it, is exactly that — a
+demonstration; the surface a user of `rumors` actually holds
 is the `Link` transport contract, and the library _requires_
 independent streams while shipping none — the user discharges the
 requirement with whatever their environment already tunes best (QUIC
@@ -1223,7 +1251,8 @@ re-implements per-stream windowing from application-level signals —
 tracks the trace, infers each receiver buffer's occupancy, and imposes
 backpressure on itself. That this is _necessary_ and not merely
 sufficient is at present a derived claim #assumed, chartered
-spec-first as T11, the forced-window theorem (`MUX-PROGRESS.md` §3e):
+spec-first as T11 — the campaign's last numbered theorem target — the
+forced-window theorem (`MUX-PROGRESS.md` §3e):
 every charter-local strategy that is deadlock-free on the class is
 license-bounded at every reachable observation.
 
@@ -1248,8 +1277,9 @@ shelved, theorem-backed, serving exactly the library user whose
 environment cannot supply multi-stream transports — window depths ride
 the _greeting_ (the session's opening handshake), the sender's engine
 is the inference of @answer-sigma at the window of @window,
-over-window arrival is an attributable protocol violation, and any
-window-obeying frame order is valid. Its final
+over-window arrival is a conformance violation that attributes
+cleanly to the sending side's bug, and any window-obeying frame order
+is valid. Its final
 stage — removing `Link` — sits behind a gate now expected never to
 fire, and that is the design working as intended.
 
@@ -1277,8 +1307,9 @@ The trust ledger, act two:
   of act one's gate: a 300-plus-row golden matrix over pinned and
   randomized skeletons, strategies, capacities, and window depths,
   with commit-singularity scans and provenance pins), the stage-0
-  causal sweep (4,970 runs under a structurally-blinded strategy),
-  and the timed harness behind the latency law.
+  causal sweep — stage 0 was the build plan's one blocking gate —
+  with 4,970 runs under a structurally-blinded strategy, and the timed
+  harness behind the latency law.
 + *Assumed, named* #assumed — the model boundary: message-denominated
   capacity (a "reply" is byte-unbounded; byte-level liveness
   additionally needs the byte pacing the design documents specify —

@@ -102,7 +102,8 @@ spans four and a half days.
 The model's central abstraction, which survived unchanged into Lean, is the
 *dispute skeleton*: a finite tree of scopes classified D (two-sided
 dispute), R (one-sided request), or dropped; heights from leaves at 0 to
-the root; `leafReqs` only on height-1 D scopes. Skeletons the Rust cannot
+the root; `leafReqs` — a count of leaf-level requests — only on height-1 D
+scopes. Skeletons the Rust cannot
 generate are deliberately in-scope — an unrealizable skeleton only enlarges
 the verified set. On top of it: the height-parity role map (each party
 consumes alternating message indices; every disputed scope is processed by
@@ -126,7 +127,7 @@ producer holding an item in its hand.
 one-for-one from `Trace::assert_valid`'s checks, no more and no less —
 mirroring the checked interface rather than the code's actual behavior.
 This is the discipline that made the interface's gaps _findable_: three
-times over the campaign (D3, D4, and the parent-placement finding), the
+times over the campaign (d3, d4, and the parent-placement finding), the
 model deadlocked where the Rust does not, and each time the diagnosis was
 the same — the encoder maintains an ordering invariant the checked
 interface never stated.
@@ -135,7 +136,7 @@ The first of those came within the first day. The original three ledgers
 admit a publisher that emits all wires, then all resolutions, then all
 queries — it passes `assert_valid` and deadlocks the cap-1 child-resolution
 queue at fan ≥ 3. The `ledgerGap` instance is the durable witness; Finch
-had `assert_valid` tightened with the sibling-contiguity check (D3) the
+had `assert_valid` tightened with the sibling-contiguity check (d3) the
 same day, 2026-07-15. #artifact The pattern was set: model finds interface
 gap; interface gains a check; a `should_panic` regression pins it in Rust;
 a control instance pins it in the model.
@@ -144,14 +145,16 @@ Phase A also produced the *capacity-tightness law*: a fan-N dispute group
 over level capacity C completes iff N ≤ C + 2, with the slack decomposing
 as the blocked sender's hand plus one resolution parked in the cap-1
 `lowerRes` slot — reproducing, at model scale, the Rust suite's
-stall-at-253/complete-at-254 witness on the [32,256] pyramid. #artifact
+stall-at-253/complete-at-254 witness on the depth-32, fan-256
+pyramid. #artifact
 At this point the +2 was an observed decomposition; its full mechanism
 story, and the discovery that the tight floor is not schedule-robust, came
 four days later (§9).
 
 Honesty about the tools, because it matters to what the artifact's tiers
 mean: *the Apalache exhaustive tier never completed a full-depth
-stuck-freedom run.* The `stuck` invariant is a large disjunction, ~30
+stuck-freedom run.* (Apalache is the symbolic model checker that backs
+Quint.) The `stuck` invariant is a large disjunction, ~30
 seconds per symbolic step on the smallest instance; the deepest exploration
 anywhere reached step 18 of per-instance bounds 106–224 before the client
 died. The simulator tier — hundreds of schedules per instance, seconds —
@@ -249,9 +252,14 @@ The discipline paid for itself immediately and kept paying:
   short), and the honest accounting of the never-completed Apalache tier
   is precisely why nobody believed the matrix had covered it.
 - *The schedulability finding* (2026-07-16): `wellFormed` does not imply a
-  schedule exists. The event DAG — E1 message edges, E2 back-pressure
-  edges, E3 for exactly what the guards force — went cyclic on the pyramid
-  family when capacities were forced to 1, and the derivation generalized:
+  schedule exists. The instrument here is the _event DAG_: every send
+  and receive of the session, with three edge families. _E1_: a receive
+  follows its matching send. _E2_, back-pressure: on a capacity-$C$
+  channel, send $n+C$ follows receive $n$, because the send needs the
+  freed slot. _E3_, program order: the order each process's own ledger
+  guards force among its operations. The DAG went cyclic on the pyramid
+  family (a single scope disputing many children at once) when
+  capacities were forced to 1, and the derivation generalized:
   the DAG is acyclic iff every scope's dispute count ≤ `capLevel` + 2.
   Conjectured, then checked in both directions on the pins, the boundary
   matrix, and every random seed; promoted to `Skel.schedulable` on the
@@ -279,13 +287,17 @@ timestamp: a valid linearization τ of the whole event set.
 The refuted designs are the part of this story I most want preserved,
 because the final artifact hides them completely. #artifact
 
-1. *Closed-form lex timestamps* — τ as (DFS-position, role). Refuted on
-   paper twice: the EARLY parent placement breaks against a committed walk
-   (the asker-assembler starving on `upper` becomes the argmin with its
-   only blame target _later_ than it); the LATE placement breaks the
-   level-channel back-pressure chain (with several D kids, the parent's
-   position is constrained both after a late grandkid and before an early
-   sibling's post — no static position exists). The oracle then confirmed
+1. *Closed-form lex timestamps* — τ as (DFS-position, role). The argmin
+   style needs one property of τ: at any stuck state, the least-stamped
+   blocked process must have a _smaller_-stamped process to indict.
+   This design fails that test twice, once per parent placement. Place
+   the parent summary early, and an assembler starving for one can
+   itself be the least-stamped blocked process — the walk it waits on
+   stamps _later_, and nothing below it can be indicted. Place the
+   parent late, and the level-channel back-pressure chain breaks
+   instead: with several disputed children, the parent's position must
+   fall both after a late grandchild and before an early sibling's
+   summary. No static position satisfies both. The oracle then confirmed
    independently: longest-path depths are not affine in sequence number;
    they jump at subtree boundaries, because E2 injects consumer-timeline
    positions into producer sends. τ is tree-recursive, not a formula.
@@ -346,22 +358,27 @@ D," 2026-07-16 → 07-17). I coordinated the later layers and lived them;
 the earlier ones I have from `PROGRESS.md` and its revision history.
 #lived
 
-The architecture, layer by layer as it actually accreted: an invariant
-`WCount` recovering every manual trace's remainder from the interpreter's
-worklist by _ownership filters over a ghost future_ (rather than carrying
-per-trace state); the initial-alignment master induction (`align_scope`)
-proving the opening worklist's owner-filters are exactly the traces; the
-edge invariant `WEdge` with guard-history fields, preserved freely by
-pumps and under an enabledness hypothesis by manual emission; a precedence
-layer (`DepOK`, dep-closure of the ghost future); the pump stuck
-trichotomies; and then the heart — the four *window lemmas*, which
-discharge a manual emission's channel guard at a pump fixpoint given
-counting packages: `DescSupply` (everything below has been supplied,
-recursively through the demand each level hands down) and `AscCover` (per
-answerer stage in the ascent, two counts: Φ, the in-flight resolution's
-allocation not yet delivered from below, and P1, the walk's schedulable
-overhang bound — the single place `Skel.schedulable` bites, exactly at the
-boundary the executable matrix had pinned). #artifact
+The architecture accreted in five layers. #artifact
+
+- `WCount`: recovers each trace's remainder from the interpreter's
+  worklist. It does this with ownership filters over a _ghost future_ —
+  the not-yet-emitted tail of the schedule, carried as data — so no
+  per-trace state is needed.
+- `align_scope`: the initial-alignment induction. It proves the opening
+  worklist's owner-filters are exactly the traces.
+- `WEdge`: the edge invariant, with guard-history fields. The
+  assembly-side processes (_pumps_) preserve it freely; a walk's own
+  (_manual_) emissions preserve it under an enabledness hypothesis.
+- `DepOK`: the precedence layer, a dependency closure of the ghost
+  future; plus the pump stuck trichotomies.
+- The four *window lemmas* — the heart. They discharge a manual
+  emission's channel guard at a pump fixpoint, given counting packages.
+  `DescSupply` says everything below has been supplied, recursively
+  through the demand each level hands down. `AscCover` tracks two
+  counts per answerer stage: Φ, the in-flight resolution's allocation
+  not yet delivered from below, and P1, the walk's schedulable
+  overhang bound. P1 is the single place `Skel.schedulable` bites —
+  exactly at the boundary the executable matrix had pinned.
 
 Two design events inside this climb are worth the record:
 
@@ -609,8 +626,8 @@ bridge. Each audit cost a fraction of the work it deleted. #lived
 
 The theorem's hypotheses are discharged, in the shipping code, by checks
 that this campaign either found or tightened: `Trace::assert_valid` now
-carries seven ledgers — three original, D3 and the radix-order rule from
-Phase A, D4 from finding \#6, and the epilogue check `assert_parent_last`
+carries seven ledgers — three original, d3 and the radix-order rule from
+Phase A, d4 from finding \#6, and the epilogue check `assert_parent_last`
 (the d6 mirror) from finding \#7's resolution — each with negative tests
 proving the check fires, exercised by every streaming proptest trace. The
 parent-early probe survives as `assert_parent_early`, deliberately
@@ -646,7 +663,7 @@ successor pattern's best demonstrations (the layer-D and E-side master
 inductions, each spanning multiple forks with zero lost work).
 
 Finch's role was adjudication at exactly the statement-shaped moments:
-the language reversal; the D3/radix decisions; the Phase B pivot;
+the language reversal; the d3/radix decisions; the Phase B pivot;
 the schedulable-hypothesis form; "amend and finish" at finding \#7; the
 capacity-conditional re-target and the 256-over-254 call; the monotonicity
 assumption; the two-regimes framing of the final documents. The pattern
@@ -686,7 +703,8 @@ caught by the campaign's own machinery; none survived into the artifact.
 1. The Quint spec's out-of-order-resolution bug — spurious (model
    artifact), fixed 2026-07-15; its articulation led to the radix-order
    check.
-2. Phase B's "strengthened" wire shadow — falsified by the first CTI;
+2. Phase B's "strengthened" wire shadow — falsified by the first
+   counterexample to induction (CTI);
    the model had already disproved the strengthening via a control
    instance, and the invariant's author forgot. Doctrine: mirror guards
    exactly.
@@ -724,7 +742,7 @@ caught by the campaign's own machinery; none survived into the artifact.
 Three reflections, offered as the participant closest to the whole arc.
 
 *The two-tier discipline is the story.* Every finding in this campaign —
-D3, D4, schedulability, the parent-delay hole, the borrowed slots — was
+d3, d4, schedulability, the parent-delay hole, the borrowed slots — was
 found executably and _then_ made kernel-permanent; every refuted design
 died in the oracle before it could waste proof effort; and the one
 premise that slipped through (errata 6) slipped through precisely where
@@ -840,10 +858,12 @@ of Finch's dichotomy: #lived
   tested. The right to idle, not frame choice, is the whole frontier.
   C1's spirit: true.
 - The idling strategy σ\* survived every probe sweep. C1's letter:
-  false, conditionally — the panel named two conditions, one a proof
-  repair (the "Keystone" lemma's delivery case was broken as drafted;
-  the cross-examiner repaired it by hand), one an evidence gap that
-  became stage 0.
+  false, conditionally — the panel named two conditions. One was a
+  proof repair: the "Keystone" lemma (at any stuck state, everything
+  the sender's inference deems inevitable has in fact happened) had a
+  broken delivery case, wrongly treating a parked frame as delivered;
+  the cross-examiner repaired it by hand. The other was an evidence
+  gap that became stage 0.
 - The oracle exists (C2 true), and the campaign's third finding was
   already legible: the panel located the oracle in the base artifact's
   own schedule τ — though it drew the projection _backwards_, of which
@@ -865,7 +885,9 @@ called load-bearing turned out not to be (the no-peek variant survived
 
 == The build wave, and the reversal of the projections
 
-Eight worktree tracks built the suite. The parts worth the record:
+Eight worktree tracks built the suite. (The campaign's plan numbered
+its theorem targets T0 through T11; the labels below are those.) The
+parts worth the record:
 
 _The wedge theorem's elegance._ `wc_impossibility` needed no fooling
 argument and no pigeonhole: on the wedge skeleton, the protocol's own
@@ -957,8 +979,9 @@ announced trace is a literal prefix of its true trace — a new
 ladder: ~4,500 lines showing that every record the inference consults
 was announced by a frame scheduled early enough, which also corrected
 the inherited plan's receive-based phrasing — under drained pipes,
-announcement is a fact about _sends_). `c1_charter_false` went
-unconditional on 2026-07-22.
+announcement is a fact about _sends_). The charter refutation —
+`c1_charter` on the audit surface; the proof lands as
+`c1_charter_false` — went unconditional on 2026-07-22.
 One agent hung mid-climb and was resumed; one was killed by a harness
 accident and relaunched; the liveness diagnostic that matters — a
 transcript's _entry count_, not its modification time — went into the
