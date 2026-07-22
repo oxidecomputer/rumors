@@ -3660,4 +3660,286 @@ theorem flatten_of_sched {s : MState} {N : Nat} (W : Wall sk s N)
     rw [if_pos rfl]
     exact heT
 
+
+/-- An announced stage names a peer walk key. -/
+private theorem walkKeys_of_peerStagesA (hwf : sk.wellFormed = true)
+    (p : Party) (tr : List MObs) {h : Nat}
+    (hh : h ∈ peerStagesA (aviewOf sk p tr)) :
+    (p.other, h) ∈ sk.walkKeys := by
+  have hev : sk.rootH % 2 = 0 := (wf_rootH hwf).1
+  unfold peerStagesA at hh
+  cases p with
+  | I =>
+      rw [if_pos (show (((aviewOf sk Party.I tr).party == Party.I)
+        = true) from rfl)] at hh
+      obtain ⟨k, hk, hke⟩ := List.mem_map.mp hh
+      rw [List.mem_range] at hk
+      have hkr : (aviewOf sk Party.I tr).rootH = sk.rootH := rfl
+      rw [hkr] at hk hke
+      exact Sched.mem_walkKeys_of sk hwf (by omega)
+        (Or.inr ⟨rfl, by omega⟩)
+  | R =>
+      rw [if_neg (show ¬ (((aviewOf sk Party.R tr).party == Party.I)
+        = true) from fun hc => nomatch hc)] at hh
+      obtain ⟨k, hk, hke⟩ := List.mem_map.mp hh
+      rw [List.mem_range] at hk
+      have hkr : (aviewOf sk Party.R tr).rootH = sk.rootH := rfl
+      rw [hkr] at hk hke
+      exact Sched.mem_walkKeys_of sk hwf (by omega)
+        (Or.inl ⟨rfl, by omega⟩)
+
+/-- An announced assembler height names a peer assembler key. -/
+private theorem asmKeys_of_peerAsmHeightsA (p : Party) (tr : List MObs)
+    {j : Nat} (hj : j ∈ peerAsmHeightsA (aviewOf sk p tr)) :
+    (p.other, j) ∈ sk.asmKeys := by
+  unfold peerAsmHeightsA at hj
+  unfold Skel.asmKeys
+  cases p with
+  | I =>
+      rw [if_pos (show (((aviewOf sk Party.I tr).party == Party.I)
+        = true) from rfl)] at hj
+      obtain ⟨m, hm, hme⟩ := List.mem_map.mp hj
+      rw [List.mem_range] at hm
+      refine List.mem_append.mpr (.inr ?_)
+      refine List.mem_map.mpr ⟨m, List.mem_range.mpr hm, ?_⟩
+      rw [Prod.mk.injEq]
+      exact ⟨rfl, hme⟩
+  | R =>
+      rw [if_neg (show ¬ (((aviewOf sk Party.R tr).party == Party.I)
+        = true) from fun hc => nomatch hc)] at hj
+      obtain ⟨m, hm, hme⟩ := List.mem_map.mp hj
+      rw [List.mem_range] at hm
+      refine List.mem_append.mpr (.inl ?_)
+      refine List.mem_map.mpr ⟨m, List.mem_range.mpr hm, ?_⟩
+      rw [Prod.mk.injEq]
+      exact ⟨rfl, hme⟩
+
+/-- Announced-flatten events live on wires or peer-internal channels:
+no internal channel crosses the link. -/
+theorem peer_internal_of_flatten (hwf : sk.wellFormed = true)
+    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
+    (p : Party) (tr : List MObs) {e : Ev}
+    (he : e ∈ (announcedProcs (aviewOf sk p tr)).flatten)
+    (hnw : isWire e.1 = false) : PeerInternal p e.1 := by
+  obtain ⟨TA, hTA, heTA⟩ := List.mem_flatten.mp he
+  unfold announcedProcs at hTA
+  rcases List.mem_append.mp hTA with hTA | hfin
+  rcases List.mem_append.mp hTA with hTA | hasm
+  rcases List.mem_append.mp hTA with hTA | habs
+  rcases List.mem_append.mp hTA with hopen | hwalk
+  · -- the peer opener
+    have hTo : TA = peerOpenTraceA (aviewOf sk p tr) := by
+      simpa using hopen
+    subst hTo
+    have hpre := peerOpenTraceA_prefix hwf p tr
+    cases p with
+    | I =>
+        rw [if_pos rfl] at hpre
+        have heT := hpre.sublist.mem heTA
+        unfold Sched.ropenEvents at heT
+        obtain ⟨c, b, n⟩ := e
+        rcases List.mem_cons.mp heT with heq | he2
+        · have hc : c = Chan.wire Party.I sk.rootH := by injection heq
+          rw [hc] at hnw
+          cases hnw
+        rcases List.mem_cons.mp he2 with heq | he3
+        · have hc : c = Chan.wire Party.R sk.rootH := by injection heq
+          rw [hc] at hnw
+          cases hnw
+        rcases List.mem_cons.mp he3 with heq | he4
+        · have hc : c = Chan.rootres := by injection heq
+          rw [hc]
+          rfl
+        · obtain ⟨t, -, heq⟩ := List.mem_map.mp he4
+          have hc : c = Chan.asked Party.R (sk.rootH - 2) := by
+            injection heq.symm
+          rw [hc]
+          rfl
+    | R =>
+        rw [if_neg (by simp)] at hpre
+        have heT := hpre.sublist.mem heTA
+        unfold Sched.iopenEvents at heT
+        obtain ⟨c, b, n⟩ := e
+        rcases List.mem_cons.mp heT with heq | he2
+        · have hc : c = Chan.wire Party.I sk.rootH := by injection heq
+          rw [hc] at hnw
+          cases hnw
+        rcases List.mem_cons.mp he2 with heq | he3
+        · have hc : c = Chan.asked Party.I (sk.rootH - 1) := by
+            injection heq
+          rw [hc]
+          rfl
+        · cases he3
+  · -- a peer walk stage
+    obtain ⟨h, hh, hTe⟩ := List.mem_map.mp hwalk
+    have hpk := walkKeys_of_peerStagesA hwf p tr hh
+    have hhlt : h < sk.rootH := (walkKeys_stageParty hwf hpk).2
+    have hpre := peerWalkTraceA_prefix hwf p tr hhlt
+    rw [← hTe] at heTA
+    have heT : e ∈ Sched.walkEventsE sk (p.other, h) :=
+      hpre.sublist.mem heTA
+    have hsupp := (Sched.walkEvents_support sk (p.other, h)) _
+      ((Sched.walkEventsE_perm sk (p.other, h)).mem_iff.mp heT)
+    obtain ⟨c, b, n⟩ := e
+    cases b with
+    | true =>
+        rcases hsupp.1 rfl with hc | hc | hc | ⟨hc, hne⟩
+        · rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+          rw [show upperOut (p.other, h) = Chan.upper p.other h
+            from rfl] at hc
+          rw [hc]
+          rfl
+        · rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+          rw [show wireOut (p.other, h) = Chan.wire p.other h
+            from rfl] at hc
+          rw [show ((c, true, n) : Ev).1 = c from rfl,
+            hc] at hnw
+          cases hnw
+        · rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+          rw [show lowerOut (p.other, h) = Chan.lower p.other h
+            from rfl] at hc
+          rw [hc]
+          rfl
+        · rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+          rw [askedOut] at hc
+          by_cases h2 : (p.other, h).2 < 2
+          · rw [if_pos h2] at hc
+            rw [hc]
+            -- leafRequests rides only the initiator's stage 1
+            obtain ⟨hlt2, hpar⟩ := Sched.walkKeys_parity sk hwf hpk
+            show p = Party.R
+            rcases hpar with ⟨hq, hodd⟩ | ⟨hq, heven⟩
+            · cases hp2 : p
+              · rw [hp2] at hq
+                exact absurd hq (by decide)
+              · rfl
+            · exfalso
+              have h0 : h = 0 := by
+                simp only at h2 hne
+                omega
+              exact hne h0
+          · rw [if_neg h2] at hc
+            rw [hc]
+            rfl
+    | false =>
+        rcases hsupp.2 rfl with hc | hc
+        · rw [show ((c, false, n) : Ev).1 = c from rfl] at hc
+          rw [show wireIn (p.other, h)
+            = Chan.wire (p.other).other (h + 1) from rfl] at hc
+          rw [show ((c, false, n) : Ev).1 = c from rfl, hc] at hnw
+          cases hnw
+        · rw [show ((c, false, n) : Ev).1 = c from rfl] at hc
+          rw [show askedIn (p.other, h) = Chan.asked p.other h
+            from rfl] at hc
+          rw [hc]
+          rfl
+  · -- the absorber
+    have hTa : TA = peerAbsorbTraceA (aviewOf sk p tr) := by
+      simpa using habs
+    subst hTa
+    cases p with
+    | I =>
+        exfalso
+        unfold peerAbsorbTraceA at heTA
+        rw [if_pos (show (((aviewOf sk Party.I tr).party == Party.I)
+          = true) from rfl)] at heTA
+        cases heTA
+    | R =>
+        have hpre := peerAbsorbTraceA_prefix hwf Party.R tr
+        have heT := hpre.sublist.mem heTA
+        unfold Sched.absorbEvents at heT
+        obtain ⟨jj, -, hj⟩ := List.mem_flatMap.mp heT
+        obtain ⟨c, b, n⟩ := e
+        rcases List.mem_cons.mp hj with heq | hj2
+        · have hc : c = Chan.wire Party.R 0 := by injection heq
+          rw [show ((c, b, n) : Ev).1 = c from rfl, hc] at hnw
+          cases hnw
+        rcases List.mem_cons.mp hj2 with heq | hj3
+        · have hc : c = Chan.leafRequests := by injection heq
+          rw [hc]
+          rfl
+        rcases List.mem_cons.mp hj3 with heq | hj4
+        · have hc : c = Chan.level Party.I 0 := by injection heq
+          rw [hc]
+          rfl
+        · cases hj4
+  · -- a peer assembler
+    obtain ⟨j, hj, hTe⟩ := List.mem_map.mp hasm
+    have hpk := asmKeys_of_peerAsmHeightsA p tr hj
+    obtain ⟨hj1, hjr, -⟩ := asmKeys_bounds hpk
+    have hpre := peerAsmTraceA_prefix hwf p tr hj1 hjr
+    rw [← hTe] at heTA
+    have heT : e ∈ Sched.asmEvents sk (p.other, j) :=
+      hpre.sublist.mem heTA
+    have hsupp := (Sched.asmEvents_support sk (p.other, j)) _ heT
+    obtain ⟨c, b, n⟩ := e
+    cases b with
+    | true =>
+        have hc := hsupp.1 rfl
+        rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+        rw [Skel.asmOutChan] at hc
+        by_cases h1 : (p.other == Party.I && j == sk.rootH) = true
+        · rw [if_pos h1] at hc
+          rw [hc]
+          simp only [Bool.and_eq_true, beq_iff_eq] at h1
+          show p = Party.R
+          cases hp2 : p
+          · rw [hp2] at h1
+            exact absurd h1.1 (by decide)
+          · rfl
+        · rw [if_neg h1] at hc
+          by_cases h2 : (p.other == Party.R && j == sk.rootH - 1)
+              = true
+          · rw [if_pos h2] at hc
+            rw [hc]
+            simp only [Bool.and_eq_true, beq_iff_eq] at h2
+            show p = Party.I
+            cases hp2 : p
+            · rfl
+            · rw [hp2] at h2
+              exact absurd h2.1 (by decide)
+          · rw [if_neg h2] at hc
+            rw [hc]
+            rfl
+    | false =>
+        rcases hsupp.2 rfl with hc | hc
+        · rw [show ((c, false, n) : Ev).1 = c from rfl] at hc
+          rw [asmResChan] at hc
+          by_cases ha : asks p.other j = true
+          · rw [if_pos ha] at hc
+            rw [hc]
+            rfl
+          · rw [if_neg ha] at hc
+            rw [hc]
+            rfl
+        · rw [show ((c, false, n) : Ev).1 = c from rfl] at hc
+          rw [show asmLevelChan (p.other, j)
+            = Chan.level p.other (j - 1) from rfl] at hc
+          rw [hc]
+          rfl
+  · -- the peer finale
+    have hpre := peerFinTracesA_prefix hwf p tr TA hfin
+    cases p with
+    | I =>
+        rw [if_pos rfl] at hpre
+        have heT := hpre.sublist.mem heTA
+        unfold Sched.finEvents at heT
+        obtain ⟨c, b, n⟩ := e
+        rcases List.mem_cons.mp heT with heq | he2
+        · have hc : c = Chan.rootres := by injection heq
+          rw [hc]
+          rfl
+        · obtain ⟨t, -, heq⟩ := List.mem_map.mp he2
+          have hc : c = Chan.rootrets := by injection heq.symm
+          rw [hc]
+          rfl
+    | R =>
+        rw [if_neg (by simp)] at hpre
+        have heT := hpre.sublist.mem heTA
+        obtain ⟨c, b, n⟩ := e
+        have heq := List.mem_singleton.mp heT
+        have hc : c = Chan.rootret := by injection heq
+        rw [hc]
+        rfl
+
 end StreamingMirror.Mux
