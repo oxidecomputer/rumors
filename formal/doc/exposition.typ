@@ -117,7 +117,8 @@
     one (`oracle_deadlock_free`): the send projection of the
     deadlock-freedom proof's own witness schedule. #kernel
   #v(2pt)
-  The generalization the implementation rests on: at any advertised
+  The generalization any single-channel implementation would rest
+  on: at any advertised
   per-direction window depths, _any_ window-obeying frame order is
   deadlock-free and completes (`sigmaStarK_deadlock_free`,
   `sigmaStarK_completes` — the specification was fixed in English
@@ -159,9 +160,10 @@ theorems assume the seventeen cross-party streams cannot block one
 another; the deployed system once muxed them over a single pipe and
 deadlocked; _is that deadlock fundamental?_ The answer reorganized
 itself, under proof, into the trichotomy of the second box — and into
-an engineering consequence: the transport abstraction built to
-guarantee independence is now scheduled for removal, in favor of the
-single channel it existed to forbid. This document presents each result
+an engineering consequence with a twist: the single channel is
+provably viable, and the transport contract that forbids it stands
+anyway, as the better product decision — theorem-backed, not
+theorem-forced (@consequence). This document presents each result
 where the argument wants it, not in the order it was discovered; the
 companion narrative preserves the discovery order, which was
 considerably more surprising.
@@ -918,8 +920,9 @@ sharper. This act presents the results in their logical order: the
 model (@mux-model), the impossibility that is true (@answer-wc), the
 possibility that refutes C1 as posed (@answer-sigma), the oracle that
 proves C2's existence half in a stronger-than-conjectured form
-(@answer-oracle), the window generalization the implementation rests
-on (@window), and the engineering consequence (@consequence). The
+(@answer-oracle), the window generalization any single-channel
+implementation would rest on (@window), and the engineering
+consequence (@consequence). The
 statement of record for everything in this act is
 `formal/lean/StreamingMirror/Mux/Statement.lean` — like act one's, it
 restates every claim inline and proves each by citation, so the audit
@@ -1125,8 +1128,8 @@ stream, derived instead of transmitted.
 
 = The window dial <window>
 
-The theorem the implementation actually rests on generalizes answer
-two from lockstep to windows. Each receiver advertises, per direction,
+The theorem any single-channel implementation would actually rest on
+generalizes answer two from lockstep to windows. Each receiver advertises, per direction,
 a parking depth $K$; each sender may run $K$ frames past _inferred_
 consumption per stream. Two facts make this the deployable point in
 the design space:
@@ -1163,6 +1166,16 @@ method.
 
 = The engineering consequence <consequence>
 
+Begin with a framing this act has so far let the reader supply
+incorrectly: the product here is the _library_. `rumormill` is a
+demonstration artifact; the surface a user of `rumors` actually holds
+is the `Link` transport contract, and the library _requires_
+independent streams while shipping none — the user discharges the
+requirement with whatever their environment already tunes best (QUIC
+streams, HTTP/2 streams, separate TCP connections). Every consequence
+below is a statement about what that contract should require, not
+about any deployment.
+
 The trichotomy prices the transport design space completely, and the
 price list reads differently than the original deadlock suggested:
 
@@ -1182,18 +1195,55 @@ price list reads differently than the original deadlock suggested:
   interleaving under bulk transfer — real, and now the _only_ items on
   their side of the ledger.
 
-The consequence, recorded in the design documents on the
-`single-connection` branch (`design/single-socket.md` and its
-executable plan): the remote transport returns to a single read/write
-channel; window depths ride the greeting; the sender's engine is the
-inference of @answer-sigma at the window of @window; over-window
-arrival is a protocol violation (attributable, since the peer was told
-the bound); and the `Link` abstraction — introduced to guarantee the
-independence act one assumed — is scheduled for removal once the
-acceptance gates pass. The theorem suite is the warrant: the deadlock
-it was built against is now impossible for the implementation that
-replaces it, at every capacity, every window pairing, and every frame
-ordering that implementation could ever choose.
+One further reading of the suite, weaker in tier but decisive in
+consequence, deserves its own paragraph. The kernel results bracket a
+_mechanism_ claim without yet pinning it: any live local scheduler
+must withhold (@answer-wc), must withhold on information
+(`static_oracle_jams` — the wrong fixed order dies with full
+knowledge), must draw that information from frame _contents_ (the
+payload finding of @answer-sigma — pattern-only inference starves),
+must infer it from announcements (`oracle_not_local` — the omniscient
+license is not locally computable), and the announcement-inferred
+window discipline suffices (@window). Every proven constraint points
+at one mechanism: a correct single-channel scheduler effectively
+re-implements per-stream windowing from application-level signals —
+tracks the trace, infers each receiver buffer's occupancy, and imposes
+backpressure on itself. That this is _necessary_ and not merely
+sufficient is at present a derived claim #assumed, chartered
+spec-first as T11, the forced-window theorem (`MUX-PROGRESS.md` §3e):
+every charter-local strategy that is deadlock-free on the class is
+license-bounded at every reachable observation.
+
+Read as a product decision, the bracket settles the question the
+campaign was chartered to inform. The choice was never windowing
+versus no windowing; it is _whose windowing implementation_: a bespoke
+inference engine — correctness session-fatal at the window boundary,
+tuned by nobody — or transports that have had their decades of tuning
+and carry the two physical properties no inference can recover. The
+one corner where the bespoke engine genuinely wins (silent provision
+runs pipelining without credit round trips) lives in a bandwidth-bound
+regime where the win is invisible. The conclusion of record: *the
+`Link` contract stands as the product surface.* Not theorem-forced —
+the campaign proved the alternative exists and priced it exactly — but
+theorem-backed: we verified the alternative, identified what it must
+implement, and chose the tuned implementation of that same mechanism.
+
+The single-socket design (`design/single-socket.md` on the
+`single-connection` branch, with its code-grounded executable plan) is
+thereby the _contingency of record_, not a successor: finished,
+shelved, theorem-backed, serving exactly the library user whose
+environment cannot supply multi-stream transports — window depths ride
+the greeting, the sender's engine is the inference of @answer-sigma at
+the window of @window, over-window arrival is an attributable protocol
+violation, and any window-obeying frame order is valid. Its final
+stage — removing `Link` — sits behind a gate now expected never to
+fire, and that is the design working as intended.
+
+The campaign's last symmetry is worth stating plainly. The
+impossibility instinct that opened it was right after all — not about
+deadlock-freedom, where the local scheduler won, but about mechanism:
+there was never any escape from flow control, only the choice of who
+implements it.
 
 = What to trust, and why: act two <trust2>
 
@@ -1245,8 +1295,10 @@ The trust ledger, act two:
 - `formal/AUDIT-NOTES.md` — the alignment audit: twelve entries,
   each resolved or honestly scoped.
 - `design/single-socket.md` and `design/single-socket-plan.md`
-  (branch `single-connection`) — the engineering consequence, with
-  its code-grounded executable plan.
+  (branch `single-connection`) — the contingency of record for the
+  no-multi-stream-transport environment, with its code-grounded
+  executable plan; its final stage sits behind a gate expected never
+  to fire (@consequence).
 - The companion narrative (`formal/doc/narrative.typ`, part two) —
   how all of this actually happened, including the reversals this
   exposition presents as if they were always known.
