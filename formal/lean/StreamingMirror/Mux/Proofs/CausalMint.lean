@@ -1646,4 +1646,239 @@ private theorem chunksA_covers (hwf : sk.wellFormed = true)
             · refine List.mem_cons_of_mem _ (List.mem_cons_of_mem _ ?_)
               exact List.mem_append.mpr (.inr (hrec.2 hr x hx))
 
+
+/-- The block prologue is laid before any record arrives. -/
+private theorem prologue_mem_peerBlockA {p : Party} {tr : List MObs}
+    (q : Party) (h k u w d qa : Nat) {e : Ev}
+    (he : e = ((Chan.wire q.other (h + 1), false, k) : Ev)
+      ∨ e = ((Chan.asked q h, false, k) : Ev)) :
+    e ∈ (peerBlockA (aviewOf sk p tr) q h k u w d qa).1 := by
+  have hpro : e ∈ [((Chan.wire q.other (h + 1), false, k) : Ev),
+      ((Chan.asked q h, false, k) : Ev)] := by
+    rcases he with rfl | rfl
+    · exact List.mem_cons_self ..
+    · exact List.mem_cons_of_mem _ (List.mem_cons_self ..)
+  cases hrec : (aviewOf sk p tr).rec? u with
+  | none =>
+      have hstep : peerBlockA (aviewOf sk p tr) q h k u w d qa
+          = ([(Chan.wire q.other (h + 1), false, k),
+              (Chan.asked q h, false, k)], (w, d, qa), false) := by
+        simp only [peerBlockA, hrec]
+      rw [hstep]
+      exact hpro
+  | some sc =>
+      rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h w sc
+          (if (h == 0) = true then sc.leafReqs else sc.kids.length)
+          0 w d qa (sc.kids.length + 1) with ⟨evs, cnts, ok⟩
+      obtain ⟨w', rest⟩ := cnts
+      obtain ⟨d', q'⟩ := rest
+      have hstep : peerBlockA (aviewOf sk p tr) q h k u w d qa
+          = ((([(Chan.wire q.other (h + 1), false, k),
+              (Chan.asked q h, false, k)] : List Ev)
+              ++ evs
+              ++ (if ok then [((Chan.upper q h, true, k) : Ev)] else [])),
+             (w', d', q'), ok) := by
+        simp only [peerBlockA, hrec, hcall]
+      rw [hstep]
+      exact List.mem_append.mpr (.inl (List.mem_append.mpr (.inl hpro)))
+
+/-- A chunk-loop emission is laid once the block's record arrived. -/
+private theorem chunkOut_mem_peerBlockA {p : Party} {tr : List MObs}
+    (q : Party) {h k : Nat} (hk : k < sk.stageLen h)
+    (hann : sk.stageScope h k ∈ announcedIds sk p tr) {w d qa : Nat}
+    {e : Ev}
+    (he : e ∈ (peerBlockA.chunks (aviewOf sk p tr) q h w
+        (sk.scope (sk.stageScope h k))
+        (if (h == 0) = true then
+          (sk.scope (sk.stageScope h k)).leafReqs
+        else (sk.scope (sk.stageScope h k)).kids.length)
+        0 w d qa ((sk.scope (sk.stageScope h k)).kids.length + 1)).1) :
+    e ∈ (peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+        w d qa).1 := by
+  have hrec : (aviewOf sk p tr).rec? (sk.stageScope h k)
+      = some (sk.scope (sk.stageScope h k)) := by
+    rw [rec?_aviewOf, if_pos hann]
+  rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h w
+      (sk.scope (sk.stageScope h k))
+      (if (h == 0) = true then
+        (sk.scope (sk.stageScope h k)).leafReqs
+      else (sk.scope (sk.stageScope h k)).kids.length)
+      0 w d qa ((sk.scope (sk.stageScope h k)).kids.length + 1)
+      with ⟨evs, cnts, ok⟩
+  obtain ⟨w', rest⟩ := cnts
+  obtain ⟨d', q'⟩ := rest
+  rw [hcall] at he
+  have hstep : peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+      w d qa
+      = ((([(Chan.wire q.other (h + 1), false, k),
+          (Chan.asked q h, false, k)] : List Ev)
+          ++ evs
+          ++ (if ok then [((Chan.upper q h, true, k) : Ev)] else [])),
+         (w', d', q'), ok) := by
+    simp only [peerBlockA, hrec, hcall]
+  rw [hstep]
+  exact List.mem_append.mpr (.inl (List.mem_append.mpr (.inr he)))
+
+/-- The whole block completes once its record and every D kid's are
+announced. -/
+private theorem peerBlockA_ok (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} (q : Party) {h k : Nat}
+    (hk : k < sk.stageLen h)
+    (hann : sk.stageScope h k ∈ announcedIds sk p tr)
+    (hkids : ∀ j, sk.childIsD h (sk.stageScope h k) j = true →
+      (sk.scope (sk.stageScope h k)).kids.getD j 0
+        ∈ announcedIds sk p tr) (w d qa : Nat) :
+    (peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+        w d qa).2.2 = true := by
+  have hrec : (aviewOf sk p tr).rec? (sk.stageScope h k)
+      = some (sk.scope (sk.stageScope h k)) := by
+    rw [rec?_aviewOf, if_pos hann]
+  have hok := chunksA_ok hwf q hk hann w
+    ((sk.scope (sk.stageScope h k)).kids.length + 1) 0 w d qa
+    (Nat.zero_le _) (by omega) (fun j _ hD => hkids j hD)
+  rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h w
+      (sk.scope (sk.stageScope h k))
+      (if (h == 0) = true then
+        (sk.scope (sk.stageScope h k)).leafReqs
+      else (sk.scope (sk.stageScope h k)).kids.length)
+      0 w d qa ((sk.scope (sk.stageScope h k)).kids.length + 1)
+      with ⟨evs, cnts, ok⟩
+  obtain ⟨w', rest⟩ := cnts
+  obtain ⟨d', q'⟩ := rest
+  rw [hcall] at hok
+  have hstep : peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+      w d qa
+      = ((([(Chan.wire q.other (h + 1), false, k),
+          (Chan.asked q h, false, k)] : List Ev)
+          ++ evs
+          ++ (if ok then [((Chan.upper q h, true, k) : Ev)] else [])),
+         (w', d', q'), ok) := by
+    simp only [peerBlockA, hrec, hcall]
+  rw [hstep]
+  exact hok
+
+/-- The parent summary is laid on a completed block. -/
+private theorem parent_mem_peerBlockA {p : Party} {tr : List MObs}
+    (q : Party) {h k : Nat}
+    (hann : sk.stageScope h k ∈ announcedIds sk p tr) {w d qa : Nat}
+    (hok : (peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+        w d qa).2.2 = true) :
+    ((Chan.upper q h, true, k) : Ev)
+      ∈ (peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+          w d qa).1 := by
+  have hrec : (aviewOf sk p tr).rec? (sk.stageScope h k)
+      = some (sk.scope (sk.stageScope h k)) := by
+    rw [rec?_aviewOf, if_pos hann]
+  rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h w
+      (sk.scope (sk.stageScope h k))
+      (if (h == 0) = true then
+        (sk.scope (sk.stageScope h k)).leafReqs
+      else (sk.scope (sk.stageScope h k)).kids.length)
+      0 w d qa ((sk.scope (sk.stageScope h k)).kids.length + 1)
+      with ⟨evs, cnts, ok⟩
+  obtain ⟨w', rest⟩ := cnts
+  obtain ⟨d', q'⟩ := rest
+  have hstep : peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
+      w d qa
+      = ((([(Chan.wire q.other (h + 1), false, k),
+          (Chan.asked q h, false, k)] : List Ev)
+          ++ evs
+          ++ (if ok then [((Chan.upper q h, true, k) : Ev)] else [])),
+         (w', d', q'), ok) := by
+    simp only [peerBlockA, hrec, hcall]
+  rw [hstep] at hok ⊢
+  have hoktrue : ok = true := hok
+  rw [hoktrue]
+  refine List.mem_append.mpr (.inr ?_)
+  rw [if_pos rfl]
+  exact List.mem_singleton.mpr rfl
+
+/-- The go loop lays a target block's emission once every earlier block
+completes: the announced walk trace covers everything the records
+reach. -/
+private theorem goA_mem (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} {h : Nat} (hh : h < sk.rootH) :
+    ∀ (is : List Nat) (k₀ k : Nat) {e : Ev},
+      (∀ j, j < is.length → is.getD j 0 = sk.stageScope h (k₀ + j)) →
+      k₀ ≤ k → k - k₀ < is.length → k < sk.stageLen h →
+      (∀ j, k₀ ≤ j → j < k →
+        (peerBlockA (aviewOf sk p tr) p.other h j (sk.stageScope h j)
+          (sk.wiresBefore h j) (sk.dsBefore h j)
+          (sk.qsBefore h j)).2.2 = true) →
+      e ∈ (peerBlockA (aviewOf sk p tr) p.other h k (sk.stageScope h k)
+          (sk.wiresBefore h k) (sk.dsBefore h k) (sk.qsBefore h k)).1 →
+      e ∈ peerWalkTraceA.go (aviewOf sk p tr) h p.other is k₀
+          (sk.wiresBefore h k₀) (sk.dsBefore h k₀)
+          (sk.qsBefore h k₀) := by
+  intro is
+  induction is with
+  | nil =>
+      intro k₀ k e _ hk₀ hklen
+      simp at hklen
+  | cons u rest ih =>
+      intro k₀ k e hjs hk₀ hklen hkst hoks hmem
+      have hu : u = sk.stageScope h k₀ := by
+        have := hjs 0 (by simp)
+        simpa using this
+      rcases hcall : peerBlockA (aviewOf sk p tr) p.other h k₀
+          (sk.stageScope h k₀) (sk.wiresBefore h k₀)
+          (sk.dsBefore h k₀) (sk.qsBefore h k₀) with ⟨evs, cnts, ok⟩
+      obtain ⟨w', rest'⟩ := cnts
+      obtain ⟨d', q'⟩ := rest'
+      by_cases hkk : k = k₀
+      · -- the target block: its emission lands in either branch
+        subst hkk
+        rw [hcall] at hmem
+        have hgo : peerWalkTraceA.go (aviewOf sk p tr) h p.other
+            (u :: rest) k (sk.wiresBefore h k) (sk.dsBefore h k)
+            (sk.qsBefore h k)
+            = if ok then evs ++ peerWalkTraceA.go (aviewOf sk p tr) h
+                p.other rest (k + 1) w' d' q'
+              else evs := by
+          simp [peerWalkTraceA.go, hu, hcall]
+        rw [hgo]
+        by_cases hok : ok = true
+        · rw [if_pos hok]
+          exact List.mem_append.mpr (.inl hmem)
+        · rw [if_neg hok]
+          exact hmem
+      · -- an earlier block: it completes exactly and go advances
+        have hklt : k₀ < k := by omega
+        have hok₀ := hoks k₀ (Nat.le_refl _) hklt
+        rw [hcall] at hok₀
+        have hoktrue : ok = true := hok₀
+        subst hoktrue
+        have hk₀st : k₀ < sk.stageLen h := by omega
+        obtain ⟨-, hcomp⟩ := peerBlockA_spec (p := p) (tr := tr) hwf
+          p.other hh hk₀st
+        rw [hcall] at hcomp
+        obtain ⟨-, hcnts⟩ := hcomp rfl
+        have hcnts' : (w', d', q') = (sk.wiresBefore h (k₀ + 1),
+            sk.dsBefore h (k₀ + 1), sk.qsBefore h (k₀ + 1)) := hcnts
+        have hgo : peerWalkTraceA.go (aviewOf sk p tr) h p.other
+            (u :: rest) k₀ (sk.wiresBefore h k₀) (sk.dsBefore h k₀)
+            (sk.qsBefore h k₀)
+            = evs ++ peerWalkTraceA.go (aviewOf sk p tr) h p.other rest
+                (k₀ + 1) w' d' q' := by
+          simp [peerWalkTraceA.go, hu, hcall]
+        rw [hgo]
+        refine List.mem_append.mpr (.inr ?_)
+        rw [show w' = sk.wiresBefore h (k₀ + 1) from by
+            injection hcnts' with h1 h2,
+          show d' = sk.dsBefore h (k₀ + 1) from by
+            injection hcnts' with h1 h2
+            injection h2 with h3 h4,
+          show q' = sk.qsBefore h (k₀ + 1) from by
+            injection hcnts' with h1 h2
+            injection h2 with h3 h4]
+        refine ih (k₀ + 1) k
+          (fun j hj => by
+            have := hjs (j + 1) (by simpa using Nat.succ_lt_succ hj)
+            rw [List.getD_cons_succ] at this
+            rw [this]
+            congr 1
+            omega)
+          (by omega) (by simp at hklen ⊢; omega) hkst
+          (fun j hj hjk => hoks j (by omega) hjk) hmem
+
 end StreamingMirror.Mux
