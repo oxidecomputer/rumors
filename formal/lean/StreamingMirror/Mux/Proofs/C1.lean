@@ -31,22 +31,21 @@ charter-local. Each statement carries its own refutation witness.
 
 - `C1StatementOmniscient` (no locality hypothesis at all): refuted
   OUTRIGHT by ⟨1, σ*, σ*⟩ + T4 (`c1_omniscient_false`), unconditional.
-- `C1StatementCharter` (the statement of record): refuted by
-  ⟨1, σ*-causal, σ*-causal⟩ with `sigmaStarCausal_charterLocal`
-  KERNEL-PROVEN (`c1_charter_false`). The one hypothesis is
-  `CausalStuckCoverage` — Step 4 of the liveness argument alone; Steps
-  1–3 are kernel-proven (Proofs/CausalCoverage.lean's causal keystone
-  and pipes-drain, Proofs/CausalLive.lean's assembly), as is the
-  announced-prefix property Step 4 rests on
-  (`announcedProcs_prefix`). The probe-checked evidence for the
-  conjunct: 4,970/4,970 terminal causal runs (STAGE0-GATES.md P1);
-  in-kernel anchors `smokeChain_sigmaStarCausal_completes` and
-  `wedge_sigmaStarCausal_completes`, the latter driving the provision
-  wall every work-conserving pair jams. Its kernel discharge is the
-  minting-lemma induction recorded in Mux/Causal.lean's module doc —
-  the same theorem T8's window-sliding needs as its "inference
-  progress" conjunct, so the residue sits on T8's critical path, not
-  beside it.
+- `C1StatementCharter` (the statement of record): refuted
+  UNCONDITIONALLY by ⟨1, σ*-causal, σ*-causal⟩ (`c1_charter_false`):
+  `sigmaStarCausal_charterLocal` is kernel-proven, and the liveness
+  half is now kernel-proven end to end — Steps 1–3 in
+  Proofs/CausalCoverage.lean and Proofs/CausalLive.lean, and Step 4's
+  `CausalStuckCoverage` discharged by `causalStuckCoverage`
+  (Proofs/CausalMint.lean: the minting ladder — every consulted
+  record's minting frame send sits τ-below the consulting event, so
+  the drained pipes turn the τ-wall into announced records — composed
+  with the causal coverage induction and the closure's saturation).
+  The theorem is exactly T8's "inference progress" conjunct, now
+  available to the window-sliding argument as a lemma. The probe and
+  wedge anchors (4,970/4,970 terminal causal runs, STAGE0-GATES.md P1;
+  `wedge_sigmaStarCausal_completes`) stand behind it as executable
+  witnesses rather than as the claim's support.
 - `C1Statement` (legacy grain, internal): refutation
   `c1_literal_false`, carrying σ*'s legacy locality as its named
   hypothesis exactly as landed at stage 3 — `wireHeights`,
@@ -90,7 +89,7 @@ lookahead strategy `sigmaStarK K` demanding `rcv(c, k−K)`:
 A single-K statement would not cover the deployed configuration.
 -/
 import StreamingMirror.Mux.Proofs.SigmaStarLive
-import StreamingMirror.Mux.Proofs.CausalLive
+import StreamingMirror.Mux.Proofs.CausalMint
 import StreamingMirror.Mux.Controls
 
 namespace StreamingMirror.Mux
@@ -143,31 +142,23 @@ theorem c1_omniscient_false : ¬ C1StatementOmniscient := by
   obtain ⟨sk, hwf, hm0, hnd⟩ := hc1 1 (Nat.le_refl 1) sigmaStar sigmaStar
   exact hnd (sigmaStar_deadlock_free hwf hm0 1 (Nat.le_refl 1))
 
-/-- The statement of record is false, GIVEN the Step-4 coverage
-conjunct (`CausalStuckCoverage`) — a strictly smaller hypothesis than
-the deadlock freedom this refutation previously carried. Locality is
-kernel-proven (`sigmaStarCausal_charterLocal`); the liveness assembly
-is kernel-proven through Steps 1–3
-(`sigmaStarCausal_deadlock_free_of_coverage`: causal push certificates
+/-- The statement of record is false, UNCONDITIONALLY: locality is
+kernel-proven (`sigmaStarCausal_charterLocal`), and the liveness half
+is kernel-proven end to end — Steps 1–3 through
+`sigmaStarCausal_deadlock_free_of_coverage` (causal push certificates
 drain the pipes via the causal keystone, the chase names the withheld
-push, and σ*-causal is shown to push whenever coverage proves the
-frame demanded). What remains hypothesized is exactly refute-c1 §2.4
-re-run over the ANNOUNCED closure — the minting lemma plus the
-τ-staged induction, the same fact T8's window-sliding consumes as its
-"inference progress" conjunct — with the announced-prefix property it
-rests on kernel-proven (`announcedProcs_prefix`) and the probe/wedge
-evidence standing behind the rest (4,970/4,970 terminal causal runs;
-`wedge_sigmaStarCausal_completes`). -/
-theorem c1_charter_false
-    (hcov : ∀ (sk : Skel), sk.wellFormed = true →
-      (∀ sc, sk.dCount sc ≤ sk.capLevel) → CausalStuckCoverage sk) :
-    ¬ C1StatementCharter := by
+push, σ*-causal pushes whenever coverage proves the frame demanded),
+and Step 4 through `causalStuckCoverage` (Proofs/CausalMint.lean: the
+minting ladder plus the τ-staged causal coverage induction). This is
+the charter's constructive witness in full: a deterministic,
+charter-local strategy pair no skeleton of the class jams. -/
+theorem c1_charter_false : ¬ C1StatementCharter := by
   intro hc1
   obtain ⟨sk, hwf, hm0, hnd⟩ :=
     hc1 1 (Nat.le_refl 1) sigmaStarCausal sigmaStarCausal
       (sigmaStarCausal_charterLocal .I) (sigmaStarCausal_charterLocal .R)
   exact hnd (sigmaStarCausal_deadlock_free_of_coverage hwf hm0
-    (hcov sk hwf hm0) 1 (Nat.le_refl 1))
+    (causalStuckCoverage hwf hm0) 1 (Nat.le_refl 1))
 
 /-- The LEGACY-grain statement is false, GIVEN σ*'s legacy locality —
 the hypothesis exactly as landed at stage 3 (module doc: it is the

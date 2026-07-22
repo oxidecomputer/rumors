@@ -1,12 +1,13 @@
 /-
 σ*-causal liveness (MUX-PROGRESS §4, the residue's liveness half):
-refute-c1 §2 assembled at the causal grain, with Steps 1–3 (pipes
-drain through the causal keystone; the chase's withheld push) proven
-in the kernel and Step 4 (the τ-staged coverage of the ANNOUNCED
-closure) isolated as `CausalStuckCoverage` — the single remaining
-conjunct, stated exactly at the point the assembly consumes it.
+refute-c1 §2 assembled at the causal grain — Steps 1–3 (pipes drain
+through the causal keystone; the chase's withheld push) proven here in
+the kernel, with Step 4 (the τ-staged coverage of the ANNOUNCED
+closure) isolated as `CausalStuckCoverage`, stated exactly at the
+point the assembly consumes it and DISCHARGED in
+Proofs/CausalMint.lean (`causalStuckCoverage`).
 
-# What is kernel-proven here versus hypothesized
+# The interface
 
 `sigmaStarCausal_deadlock_free_of_coverage` needs only the Step-4
 conjunct: at a reachable σ*-causal-stuck state with both pipes drained
@@ -15,7 +16,7 @@ the chase's withheld push is `demandedA` given that everything τ-below
 it is performed. Everything else — the push certificates
 (`pushProvenA_reachable`), the receive ledger, the causal keystone,
 Steps 2–3's chase, and the final "σ*-causal names a push" inversion —
-is discharged.
+lives here.
 
 `CausalStuckCoverage` is precisely T8's "inference progress" conjunct
 (the window-sliding argument needs the same fact): its content is the
@@ -23,12 +24,12 @@ minting lemma — every consulted record's minting arrival sits τ-below
 the consulting event, so the announced layouts extend past every
 performed event — composed with the τ-staged closure induction of
 SigmaStarLive's `closure_coverage` re-run over `inevitableA`. The
-trace-grammar half (announced layouts are literal prefixes of the true
-traces) is landed in CausalCoverage.lean (`announcedProcs_prefix`);
-the probe evidence for the whole conjunct is STAGE0-GATES.md P1
-(4,970/4,970 terminal causal runs) plus the in-kernel wedge pin
-(`wedge_sigmaStarCausal_completes`), which drives frames 2..7 through
-exactly this coverage on the campaign's canonical adversarial shape.
+trace-grammar half is landed in CausalCoverage.lean
+(`announcedProcs_prefix`); the minting ladder and coverage induction
+in CausalMint.lean; the unconditional composition
+`sigmaStarCausal_deadlock_free` sits at CausalMint.lean's foot. The
+wedge pin (`wedge_sigmaStarCausal_completes`) remains as the
+executable anchor of the same fact.
 -/
 import StreamingMirror.Mux.Proofs.CausalCoverage
 
@@ -47,9 +48,10 @@ proven-demanded under the ANNOUNCED closure.
 This is the coverage re-run of refute-c1 §2.4 over `inevitableA`
 (Mux/Causal.lean's module doc): the chase witness receive is τ-below
 the withheld send, hence performed, hence announced-laid — the minting
-lemma — and then enters the causal closure by its own τ stage. Its
-kernel discharge is the recorded follow-up; the probe evidence and the
-wedge pin stand behind it (module doc). -/
+lemma — and then enters the causal closure by its own τ stage.
+Discharged by `causalStuckCoverage` (Proofs/CausalMint.lean); kept as
+a named Prop because the assembly below and T8's window-sliding both
+consume it at exactly this interface. -/
 def CausalStuckCoverage (sk : Skel) : Prop :=
   ∀ (C : Nat) (s : MState),
     MReachable sk .impl C sigmaStarCausal sigmaStarCausal s →

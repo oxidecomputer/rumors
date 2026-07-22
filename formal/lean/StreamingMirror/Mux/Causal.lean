@@ -79,24 +79,23 @@ executable pins (`smokeChain` and — the real derivation exercise —
 `wedge`, whose provision wall demands closure-proven frames 2..7 on
 the initiator's top stream).
 
-Kernel-proven in Proofs/CausalCoverage.lean and Proofs/CausalLive.lean
-(the liveness track): the announced-prefix property — every
-`announcedProcs` trace is a literal prefix of its true `.impl` process
-trace (`announcedProcs_prefix`, via the census/walk/assembler/absorber
-transcriptions) — the receive ledger (`RecvLedger`, the C-own evidence
-arm's ground fact, preserved strategy-generically), the causal
-keystone (`keystoneA`, T2 re-run over `inevitableA`), σ*-causal's push
-certificates (`pushProvenA_reachable`), Step 1's pipes-drain
-(`sigmaStarCausal_pipes_empty`), and the liveness assembly
-`sigmaStarCausal_deadlock_free_of_coverage`, which needs exactly ONE
-remaining conjunct: `CausalStuckCoverage` — Step 4's τ-staged coverage
-of the announced closure at stuck drained states. Its content is the
-minting lemma (every consulted record's minting arrival sits τ-below
-the consulting event, so the announced layouts extend past every
-performed event) composed with the `closure_coverage` induction re-run
-over `inevitableA`; `c1_charter_false` carries it as its one
-hypothesis, and T8 consumes the same fact as its "inference progress"
-conjunct.
+Kernel-proven in Proofs/CausalCoverage.lean, Proofs/CausalLive.lean,
+and Proofs/CausalMint.lean (the liveness track, now CLOSED): the
+announced-prefix property — every `announcedProcs` trace is a literal
+prefix of its true `.impl` process trace (`announcedProcs_prefix`) —
+the receive ledger (`RecvLedger`), the causal keystone (`keystoneA`),
+σ*-causal's push certificates (`pushProvenA_reachable`), Step 1's
+pipes-drain (`sigmaStarCausal_pipes_empty`), the liveness assembly
+`sigmaStarCausal_deadlock_free_of_coverage`, AND its one conjunct:
+`CausalStuckCoverage`, discharged by `causalStuckCoverage`
+(Proofs/CausalMint.lean). The discharge is the minting ladder — at a
+stuck drained state every record the closure consults was announced,
+because the consulting event's τ-past contains the minting frame's
+send and drained pipes make sent frames delivered — composed with the
+τ-staged causal coverage induction and the closure's saturation
+argument. `sigmaStarCausal_deadlock_free` is therefore unconditional,
+`c1_charter_false` carries no hypothesis (Proofs/C1.lean), and T8's
+"inference progress" conjunct is available as a lemma.
 -/
 import StreamingMirror.Mux.Proofs.SigmaStarInv
 import StreamingMirror.Mux.Strategy

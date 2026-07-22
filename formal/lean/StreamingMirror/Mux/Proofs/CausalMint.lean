@@ -479,7 +479,7 @@ theorem wireHeights_of_allChans {q : Party} {g : Nat}
   · obtain ⟨pk, hpk, hin⟩ := List.mem_flatMap.mp h3
     obtain ⟨p₁, g₁⟩ := pk
     simp only [wireOut, askedIn, upperOut, lowerOut, List.mem_cons,
-      List.mem_singleton, List.not_mem_nil, or_false] at hin
+      List.not_mem_nil, or_false] at hin
     rcases hin with h | h | h | h
     · obtain ⟨hq, hg⟩ := Chan.wire.inj h
       subst hq
@@ -492,7 +492,7 @@ theorem wireHeights_of_allChans {q : Party} {g : Nat}
     · cases h
   · obtain ⟨pk, -, hin⟩ := List.mem_map.mp h4
     cases hin
-  · simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil,
+  · simp only [List.mem_cons, List.not_mem_nil,
       or_false] at h2
     rcases h2 with h | h | h | h | h | h | h
     · obtain ⟨hq, hg⟩ := Chan.wire.inj h
@@ -602,7 +602,7 @@ private theorem bfs_split (hwf : sk.wellFormed = true)
       have htake : (sk.stageScopes h).take (n + 1)
           = (sk.stageScopes h).take n ++ [sk.stageScope h n] := by
         unfold Skel.stageLen at hn'
-        rw [List.take_succ, List.getElem?_eq_getElem hn']
+        rw [List.take_add_one, List.getElem?_eq_getElem hn']
         unfold Skel.stageScope
         rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hn']
         rfl
@@ -665,7 +665,7 @@ private theorem stageScope_kid (hwf : sk.wellFormed = true)
     have htake : (sk.stageScopes h).take (n + 1)
         = (sk.stageScopes h).take n ++ [sk.stageScope h n] := by
       unfold Skel.stageLen at hn
-      rw [List.take_succ, List.getElem?_eq_getElem hn]
+      rw [List.take_add_one, List.getElem?_eq_getElem hn]
       unfold Skel.stageScope
       rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hn]
       rfl
@@ -744,8 +744,8 @@ private theorem prologue_pair {pk : Party × Nat} {k : Nat} {x : Ev}
 
 /-- Locate a wire send inside its stage's encoder trace, paired after
 its parent block's prologue receive: the ladder's hop-B engine. -/
-theorem wire_send_locate (hwf : sk.wellFormed = true)
-    {q : Party} {h : Nat} (hq : (q, h) ∈ sk.walkKeys) {m : Nat}
+theorem wire_send_locate (_hwf : sk.wellFormed = true)
+    {q : Party} {h : Nat} (_hq : (q, h) ∈ sk.walkKeys) {m : Nat}
     (hm : m < sk.wiresBefore h (sk.stageLen h)) :
     ∃ n, n < sk.stageLen h ∧ sk.wiresBefore h n ≤ m
       ∧ m < sk.wiresBefore h (n + 1)
@@ -995,7 +995,6 @@ theorem census_reach {s : MState} {N : Nat} (W : Wall sk s N)
               cases hq : stageParty h <;> cases hp : p <;>
                 first
                   | rfl
-                  | (exact absurd (hq ▸ hp ▸ rfl) hpp)
                   | (rw [hq, hp] at hpp; exact absurd rfl hpp)
             -- the top stage is the initiator's: h = rootH - 1 is odd
             have hI : stageParty h = Party.I := by
@@ -1235,7 +1234,7 @@ announced (the `ok` flag half of the transcription; exactness then
 comes from `peerBlockA_spec`). -/
 private theorem chunksA_ok (hwf : sk.wellFormed = true)
     {p : Party} {tr : List MObs} (q : Party) {h k : Nat}
-    (hk : k < sk.stageLen h)
+    (_hk : k < sk.stageLen h)
     (hann : sk.stageScope h k ∈ announcedIds sk p tr) (wires : Nat) :
     ∀ (fuel i w d qacc : Nat),
       i ≤ (sk.scope (sk.stageScope h k)).kids.length →
@@ -1684,7 +1683,7 @@ private theorem prologue_mem_peerBlockA {p : Party} {tr : List MObs}
 
 /-- A chunk-loop emission is laid once the block's record arrived. -/
 private theorem chunkOut_mem_peerBlockA {p : Party} {tr : List MObs}
-    (q : Party) {h k : Nat} (hk : k < sk.stageLen h)
+    (q : Party) {h k : Nat} (_hk : k < sk.stageLen h)
     (hann : sk.stageScope h k ∈ announcedIds sk p tr) {w d qa : Nat}
     {e : Ev}
     (he : e ∈ (peerBlockA.chunks (aviewOf sk p tr) q h w
@@ -1898,8 +1897,8 @@ private theorem sublist_scopeBlockE_of_chunks {q : Party} {h k : Nat}
 
 /-- Pair a chunk's wire head strictly before a later event of the same
 block, inside the stage trace. -/
-private theorem chunk_pair_walk (hwf : sk.wellFormed = true)
-    {q : Party} {h : Nat} (hq : (q, h) ∈ sk.walkKeys) {k : Nat}
+private theorem chunk_pair_walk (_hwf : sk.wellFormed = true)
+    {q : Party} {h : Nat} (_hq : (q, h) ∈ sk.walkKeys) {k : Nat}
     (hk : k < sk.stageLen h) {j : Nat}
     (hj : j < sk.nChildren h (sk.stageScope h k)) {e : Ev}
     (hcases : (∃ i', j < i' ∧ i' < sk.nChildren h (sk.stageScope h k)
@@ -1990,8 +1989,8 @@ private theorem Wall.kid_minted {s : MState} {N : Nat} (W : Wall sk s N)
 
 /-- The leaf stage's chunk pass emits every supply wire at once. -/
 private theorem leaf_chunks_mem {p : Party} {tr : List MObs}
-    (q : Party) {k : Nat} (hk : k < sk.stageLen 0)
-    (hann : sk.stageScope 0 k ∈ announcedIds sk p tr) {i : Nat}
+    (q : Party) {k : Nat} (_hk : k < sk.stageLen 0)
+    (_hann : sk.stageScope 0 k ∈ announcedIds sk p tr) {i : Nat}
     (hi : i < sk.nChildren 0 (sk.stageScope 0 k)) (d qa : Nat) :
     ((Chan.wire q 0, true, sk.wiresBefore 0 k + i) : Ev)
       ∈ (peerBlockA.chunks (aviewOf sk p tr) q 0 (sk.wiresBefore 0 k)
@@ -2419,7 +2418,7 @@ private theorem totalA_reach (hwf : sk.wellFormed = true)
 /-- The absorber's events below the wall are announced-laid (laid only
 on the responder's side, whose peer owns the absorber). -/
 theorem absorb_laid {s : MState} {N : Nat} (W : Wall sk s N)
-    (hp : Party.R = Party.R) {e : Ev}
+    (_hp : Party.R = Party.R) {e : Ev}
     (he : e ∈ Sched.absorbEvents sk)
     (hτ : evIdx e (scheduleE sk) < N) :
     e ∈ peerAbsorbTraceA (aviewOf sk Party.R (s.hist Party.R)) := by
@@ -2867,7 +2866,7 @@ private theorem countD_take_mid (hwf : sk.wellFormed = true)
             ++ [(sk.scopesAt j).getD (sk.wiresBefore j k + c) 0] := by
         rw [show sk.wiresBefore j k + (c + 1)
           = (sk.wiresBefore j k + c) + 1 from by omega]
-        rw [List.take_succ, List.getElem?_eq_getElem hpos]
+        rw [List.take_add_one, List.getElem?_eq_getElem hpos]
         rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hpos]
         rfl
       rw [htake, List.filter_append, List.length_append, ih (by omega)]
@@ -3410,7 +3409,7 @@ private theorem flatten_of_open {s : MState} {N : Nat} (W : Wall sk s N)
 
 /-- Lift a laid absorber event into the announced flatten. -/
 private theorem flatten_of_absorb {s : MState} {N : Nat}
-    (W : Wall sk s N) (hp : Party.R = Party.R) {e : Ev}
+    (W : Wall sk s N) (_hp : Party.R = Party.R) {e : Ev}
     (he : e ∈ Sched.absorbEvents sk)
     (hτ : evIdx e (scheduleE sk) < N) :
     e ∈ (announcedProcs (aviewOf sk Party.R
@@ -3717,7 +3716,7 @@ private theorem asmKeys_of_peerAsmHeightsA (p : Party) (tr : List MObs)
 /-- Announced-flatten events live on wires or peer-internal channels:
 no internal channel crosses the link. -/
 theorem peer_internal_of_flatten (hwf : sk.wellFormed = true)
-    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
+    (_hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
     (p : Party) (tr : List MObs) {e : Ev}
     (he : e ∈ (announcedProcs (aviewOf sk p tr)).flatten)
     (hnw : isWire e.1 = false) : PeerInternal p e.1 := by
@@ -4041,7 +4040,6 @@ theorem causal_closure_coverage {s : MState} {N : Nat} (W : Wall sk s N)
                 first
                   | rfl
                   | (exact absurd rfl hqp)
-                  | (exfalso; exact hqp rfl)
             subst hqo
             rw [if_neg (by
               intro hcon
@@ -4102,7 +4100,6 @@ theorem causal_closure_coverage {s : MState} {N : Nat} (W : Wall sk s N)
                           first
                             | rfl
                             | (exact absurd rfl hqp)
-                            | (exfalso; exact hqp rfl)
                       subst hqo
                       rw [if_neg (by
                         intro hcon
@@ -4123,7 +4120,6 @@ theorem causal_closure_coverage {s : MState} {N : Nat} (W : Wall sk s N)
                           first
                             | rfl
                             | (exact absurd rfl hqp)
-                            | (exfalso; exact hqp rfl)
                       subst hqo
                       refine mem_evUnivA_peer_send hgm ?_
                       have hdel := W.drained_delivered p.other g hch
@@ -4488,5 +4484,15 @@ theorem causalStuckCoverage (hwf : sk.wellFormed = true)
     have hinev := mem_inevitableA_of_closureNA hcov
     rw [show (aviewOf sk p (s.hist p)).party = p from rfl, hKs]
     exact hinev
+
+/-- σ*-causal is deadlock-free, unconditionally: the charter-grain
+demand-lockstep pair completes every well-formed margin-0 session at
+every capacity C ≥ 1 — T4 re-proven at the grain of record, with every
+closure read routed through the announced view. -/
+theorem sigmaStarCausal_deadlock_free (hwf : sk.wellFormed = true)
+    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C) :
+    MuxDeadlockFree sk .impl C sigmaStarCausal sigmaStarCausal :=
+  sigmaStarCausal_deadlock_free_of_coverage hwf hm0
+    (causalStuckCoverage hwf hm0) C hC
 
 end StreamingMirror.Mux
