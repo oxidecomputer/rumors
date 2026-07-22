@@ -1,6 +1,6 @@
 /-
 The strategy interface: observations, the strategy classes, and locality
-(MUX-ADJUDICATION.md §2.3–§2.4).
+(the adjudicated observation and locality rulings, stated in full below).
 
 The `MObs` alphabet and the `Strategy` type themselves live in
 Mux/Basic.lean — the `push` arm of `Mux.apply` consults σ, so the types
@@ -10,11 +10,11 @@ consistency, the work-conserving class (the impossibility theorem T3's
 hypothesis), the per-party view of a skeleton, and locality as
 invariance.
 
-# The observation ruling (MUX-ADJUDICATION §2.3)
+# The observation ruling
 
 Included: every base action the machine executed (`.act`), its own flush
 receipts (`.pushed`), its demux's deliveries (`.delivered` — at delivery,
-pre-consumption: the slot-peek ruling, ratified per attack-refute F2 and
+pre-consumption: the slot-peek ruling, cross-examination-ratified and
 load-bearing for the landed coverage proof, though stage-0 P4 showed it
 is not a demonstrated liveness necessity;
 decision-for-Finch #1). Excluded: remote delivery, remote consumption,
@@ -22,7 +22,7 @@ own-pipe occupancy drain — a consumption receipt is a covert credit and
 would dissolve the frozen-message-set charter from inside the observation
 type (decision-for-Finch #2).
 
-# Locality as invariance, not a view type (MUX-ADJUDICATION §2.4)
+# Locality as invariance, not a view type
 
 σ receives the FULL skeleton; locality is the hypothesis that σ cannot
 USE what party `p` cannot see. `LocalEq p sk sk'` computes equality of
@@ -34,9 +34,11 @@ existence and content of p-held children and NOTHING peer-side:
   the skeleton); both are visible, in radix order;
 - at a scope where `p` is the answerer, only D children are visible —
   an R child is one the answerer LACKS, invisible at session start
-  (oracle-c2 §3.1's corrected role-dependent alphabet);
+  (the adjudicated role-dependent alphabet: the asker of a scope sees
+  its D and R-cut children, the answerer its D children only);
 - `leafReqs` is erased from both views (not view-determined on either
-  side — oracle-c2 §3.2's adjudicated erasure).
+  side — the adjudicated erasure: leaf-request counts vanish from BOTH
+  parties' views).
 
 `LocalStrategy` then demands invariance across `LocalEq` pairs — guarded
 by `Consistent` (added by the synthesis): without the guard, an
@@ -47,7 +49,7 @@ The mandatory controls are landed: `LocalEq` nondegeneracy
 (`localEq_nondegenerate`) and the strategy-level oracle refutation
 (`oracle_not_localStrategy`, with `Consistent` certificates) in
 Oracle/Controls.lean; the Rust same-p-tree proptest bridge in track D
-(MUX-ADJUDICATION §2.4, §4). `LocalEq`'s label-visibility residue —
+(the adjudicated invariance form). `LocalEq`'s label-visibility residue —
 the relation is finer than session-start indistinguishability — is
 recorded on its docstring; the charter-honest re-grounding landed as
 `CharterLocal` (Mux/Causal.lean, the σ*-causal track), a grain
@@ -81,7 +83,8 @@ asks only "could `p` ever see this?", which is what the `LocalStrategy`
 guard needs: it must exclude traces no run produces (whose divergence
 could leak the skeletons' difference) without tying locality to one
 scheduler. Decidable on pins via the run machinery; a `Prop` for the
-general statement (MUX-ADJUDICATION §2.4). -/
+general statement: a strategy is local when equal views plus equal
+consistent observations force equal choices. -/
 def Consistent (p : Party) (sk : Skel) (tr : List MObs) : Prop :=
   ∃ (ax : AxMode) (C : Nat) (σI σR : Strategy) (s : MState),
     MReachable sk ax C σI σR s ∧ s.hist p = tr
@@ -127,14 +130,14 @@ def enabledPushes (sk : Skel) (C : Nat) (p : Party) (s : MState) :
 state where `p`'s enabled-push set is nonempty, σ names a member.
 
 The choice of WHICH member is free — work-conservation is precisely
-"push before your observation changes", never frame choice (attack-prove
-F2's restatement). A work-conserving strategy may still *wait* on a full
+"push before your observation changes", never frame choice (the
+cross-examination's restatement). A work-conserving strategy may still *wait* on a full
 pipe (the room conjunct lives in `enabledPushes`); it may never idle
 with room and a committed hand. This is T3's hypothesis class — the
 shipped mux's `bottomMostReady` (Mux/Instances.lean) is the pinned
 concrete instance (`bottomMostReady_wc`, Mux/Proofs/Inhabitation.lean),
 and σ* is definitionally outside it (the right to idle is the entire
-frontier, MUX-ADJUDICATION §1.2). -/
+frontier of the impossibility). -/
 def WorkConserving (p : Party) (σ : Strategy) : Prop :=
   ∀ (sk : Skel) (C : Nat) (s : MState), MReachableAny sk s →
     enabledPushes sk C p s ≠ [] →
@@ -158,7 +161,7 @@ bracketing makes the encoding prefix-unambiguous, so token-list equality
 is view equality; heights are depth-determined once `rootH` is fixed
 (`LocalEq` compares it separately), so no height token is needed.
 
-Deviation from oracle-c2 §3.2 recorded: the `PView`/`PKid` nested
+Deviation from the adjudicated encoding recorded: the nested
 inductive is flattened to a token list — same information, and the
 flat form is kernel-`decide`-friendly without nested-inductive
 `DecidableEq` machinery. -/
@@ -172,7 +175,7 @@ def viewEnc (p : Party) (sk : Skel) : Nat → Nat → List Nat
         else if asks p sc.height then [4]
         else []
 
-/-- Equality of the oracle-c2 §3.2 view projections: equal session
+/-- Equality of the adjudicated view projections: equal session
 parameters and equal `viewEnc` token lists for party `p`.
 
 The parameters (`rootH`, `fan`, `capLevel`) are commonly-known
@@ -187,7 +190,8 @@ This relation is provably FINER than "indistinguishable to `p` at
 session start": per p-held child, `viewEnc` emits the SKELETON's label
 (D recursed, asker-side R-cut as `[4]`), and with `p`'s own tree held
 fixed a held child's label ranges over {D, R-cut, absent} as a function
-of the PEER's tree (oracle-c2 §3.1's ground-truth table). So skeleton
+of the PEER's tree (the adjudicated ground-truth table: D vs R-cut vs
+M-absent labels of p-held children are peer-determined facts). So skeleton
 pairs realizable by one common p-tree exist that `LocalEq` refuses to
 relate: every `LocalEq`-related pair is indistinguishable, not
 conversely. The charter-honest re-grounding landed as `CharterLocal`
@@ -213,7 +217,7 @@ def LocalEq (p : Party) (sk sk' : Skel) : Bool :=
 cannot tell apart, on every trace both skeletons can produce.
 
 σ may *read* remote structure but provably cannot *use* it. The
-`Consistent` guards (added by the synthesis, MUX-ADJUDICATION §2.4) keep
+`Consistent` guards (added by the phase-2 synthesis) keep
 the quantification honest: a trace only one skeleton can produce already
 announces the difference, and demanding invariance there would wrongly
 disqualify strategies that are local in every reachable situation. The

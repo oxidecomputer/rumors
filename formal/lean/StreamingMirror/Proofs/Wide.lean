@@ -1,8 +1,8 @@
 /-
 Capacity monotonicity: the flagship at every pointwise-widened
-capacity vector (MUX-PROGRESS §3.4b, track T10; resolves AUDIT-NOTES
-A7 — the window.rs / latency-doc Kahn argument, [derived]-tier until
-here).
+capacity vector (the window.rs / latency-doc Kahn argument —
+capacity monotonicity, an audit-quarantined [derived] assumption
+until this file made it kernel).
 
 # The widened system
 
@@ -15,7 +15,8 @@ is verbatim `apply`. Two definitional anchors pin the relationship:
 control) and `applyW_of_apply` (guards are monotone: whatever the
 floor enables, every wider κ enables, with the same successor).
 
-# The route (t10-audit.md: route (2), the InvPW route)
+# The route (the scoping audit's verdict: the InvPW route, commutation
+never needed)
 
 The progress engine needs no widening at all. Track G re-typed
 `Sched.progress_of_inv` over `InvPW` — conservation without the
@@ -45,7 +46,7 @@ every κ (`terminatingW`) — ρ_κ IS ρ.
 levels while keeping wires at 1, or any mix, is an instance). The
 d5/schedulable corner is NOT covered: Endgame.lean's d5 chain still
 consumes full `InvP` (it was never re-typed to `InvPW`; only the
-E-side was) — see t10-audit.md §3 for the deferral note.
+E-side was) — deferred, recorded here and in Statement.lean.
 
 # Anchors (kernel decide)
 
@@ -1167,7 +1168,7 @@ open Model
 and concludes floor-`canStep`; guard monotonicity lifts the enabled
 action into the wide system. This is the audit's monotonicity verdict
 cashed in: no re-derivation, the argmin argument was already
-capacity-semi-blind (t10-audit.md §2). -/
+capacity-semi-blind (the scoping audit's monotonicity verdict). -/
 theorem progressW (sk : Skel) {κ : Chan → Nat}
     (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
@@ -1176,8 +1177,8 @@ theorem progressW (sk : Skel) {κ : Chan → Nat}
     canStepW sk κ .impl s = true :=
   canStepW_of_canStep sk κ .impl hκ (progress_of_inv sk hwf hm0 hi hnt)
 
-/-- THE capacity-monotonicity theorem (MUX-PROGRESS §3.4b; resolves
-AUDIT-NOTES A7): the shipping encoder's order is deadlock-free at
+/-- THE capacity-monotonicity theorem: the shipping encoder's order is
+deadlock-free at
 EVERY pointwise-widened capacity vector κ ≥ κ₀.
 
 κ is per-channel: widening the `level` family to the deployed window

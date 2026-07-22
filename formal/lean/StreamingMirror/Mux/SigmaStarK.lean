@@ -1,11 +1,12 @@
 /-
 σ*ₖ: the K-parameterized window discipline and its strategy class
-(T8-SPEC.md, clauses 4 and 5) — the demand rule of Mux/SigmaStar.lean
+(T8's spec, clauses 4 and 5 — the specification of record is
+Proofs/SigmaStarKLive.lean's module doc) — the demand rule of Mux/SigmaStar.lean
 and Mux/Causal.lean generalized from demand-lockstep (arrears 1) to the
 per-direction advertised parking depths of the K-deep transport
 (`deliverStepK`, Mux/Proofs/WcImpossibilityK.lean).
 
-# The demand rule at arrears K (T8-SPEC clause 5, transcribed)
+# The demand rule at arrears K (spec clause 5, transcribed)
 
 Frame seqs are 0-based (`Sched.Ev` numbering): the next frame on stream
 `h` is the `pushedCount tr h`-th, and it is *licensed* at gate depth K

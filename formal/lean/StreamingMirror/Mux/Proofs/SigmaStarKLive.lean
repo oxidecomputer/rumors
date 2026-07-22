@@ -1,16 +1,59 @@
 /-
 T8 (`sigmaStarK_deadlock_free`): the window-generalized liveness of
-the single-connection transport, transcribing T8-SPEC.md — for every
-well-formed margin-0 skeleton (clause 1), every capacity C ≥ 1
-(clause 2), every pair of advertised depths K_I, K_R ≥ 1, independent
-per direction (clause 3), and EVERY pair of window-disciplined
-strategies (clause 4, the class quantification — the licensing
-predicate causal per clause 5), the K-deep composition cannot deadlock;
-with `mux_terminatingK` (Mux/Proofs/Termination.lean) every run also
-ends within `2·ρ(init)` steps, so "completes" is kernel-honest
-(clause 6 — both conjuncts, per the phase-4 F5 mint).
+the single-connection transport. This module doc is the theorem's
+ENGLISH SPECIFICATION OF RECORD — fixed before the build (the
+spec-first method: the English is written first and the Lean
+transcribes it; any transcription choice the spec leaves open is
+recorded here, dated, before the theorem lands) — followed by the
+clause-by-clause audit crosswalk from the landed statement.
 
-# The proof, refute-c1 §2 at arrears K
+# The claim
+
+For every pair of trees the protocol can synchronize at all, every
+single-channel capacity, and every pair of advertised window depths —
+the two directions independent and possibly unequal — the
+single-connection session cannot deadlock and always completes: each
+side sends its existing protocol messages in ANY order permitted by
+the window discipline, gated only by an inference computed from its
+own tree and the frames it has decoded so far, and every such session
+reaches successful completion of the synchronization in a bounded
+number of steps.
+
+# The crosswalk (every clause EXACT; any weakening fails the audit)
+
+1. "Every pair of trees the protocol can synchronize at all" —
+   `hwf : sk.wellFormed = true`, `hm0 : ∀ sc, sk.dCount sc ≤
+   sk.capLevel`: verbatim the base flagship's domain; T8 adds no tree
+   assumptions of its own.
+2. "Every single-channel capacity" — `(C : Nat) (hC : 1 ≤ C)`,
+   universally quantified; capacity is not a correctness parameter.
+3. "Every pair of advertised window depths" — `(KI KR : Nat)` with
+   `1 ≤ KI`, `1 ≤ KR`, independent per direction; `deliver` gates at
+   the RECEIVING party's depth. A single-K statement would be WEAKER
+   and fail the audit; the asymmetric pin
+   `smokeChain_sigmaStarK_completes_1_4` executes (K_I, K_R) = (1, 4).
+4. "ANY order permitted by the window discipline" — class
+   quantification over `WindowDisciplined`: every strategy that,
+   whenever a licensed push exists, performs some licensed push. The
+   proof consults only the class's two conjuncts, never a selector —
+   concrete-scheduler drift is structurally impossible. Inhabitants
+   checked: `sigmaStarK_windowDisciplined` (canonical) and
+   `sigmaLadderK_windowDisciplined` (the shipped reverse-index ladder).
+5. "Gated only by an inference from its own tree and decoded frames" —
+   the licensing predicate is `demandedAK` (Mux/SigmaStarK.lean): the
+   ANNOUNCED closure `inevitableA` at parking arrears K, never the
+   omniscient closure (which would spec an engine the implementation
+   cannot compute). Dated transcription choices, recorded before
+   landing: (i) the 0-based arrears form, derived from the
+   `deliverStepK` guard — Step 1's keystone contradiction needs
+   exactly `rcv(c, recvdOf)`; (ii) the class = gate ∧ progress,
+   guarded by K-realizability — exact-or-stronger, never weaker.
+6. "Cannot deadlock and always completes" — progress: this theorem (no
+   reachable K-stuck state); bounded termination: `mux_terminatingK`
+   (Mux/Proofs/Termination.lean), every run ≤ `2·ρ(init)` steps —
+   both conjuncts, so "completes" is kernel-honest.
+
+# The proof: the four-step liveness argument at arrears K
 
 - **The stuck bridge** (`mstuck_of_mstuckK`): a K-stuck state is
   record-stuck for the same pair — base and push arms are shared, and
@@ -42,9 +85,12 @@ ends within `2·ρ(init)` steps, so "completes" is kernel-honest
 
 # Boundaries
 
-Model-tier, reply-denominated, single conforming session: T8-SPEC.md's
-boundary section is the honest reading; the byte caveat of record is
-Mux/Basic.lean's module doc (# The byte-denomination caveat).
+Model-tier, reply-denominated, single conforming session. The kernel
+guarantees the model; the proptest bridge suite argues the model is
+the Rust. Byte-level liveness additionally requires the byte pacing of
+design/single-socket.md — the byte caveat of record is Mux/Basic.lean's
+module doc (# The byte-denomination caveat). No performance content:
+latency lives at the executable tier (design/mux-latency.md).
 -/
 import StreamingMirror.Mux.Proofs.SigmaStarKInv
 import StreamingMirror.Mux.Proofs.CausalMint
@@ -244,7 +290,7 @@ theorem windowK_pipes_empty {KI KR : Nat} (hwf : sk.wellFormed = true)
 
 -- ================================================================== T8
 
-/-- **T8** (`sigmaStarK_deadlock_free`, T8-SPEC.md's claim): for every
+/-- **T8** (`sigmaStarK_deadlock_free`, the module doc's claim): for every
 pair of trees the protocol can synchronize at all — every well-formed
 margin-0 skeleton — every single-channel capacity C ≥ 1, every pair of
 advertised window depths K_I, K_R ≥ 1 (independent, possibly unequal),

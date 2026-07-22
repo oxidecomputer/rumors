@@ -1,7 +1,6 @@
 /-
 The elastic-demux variant and its deadlock-freedom by simulation
-(MUX-PROGRESS.md, the T8/eager-absorption log entries;
-design/eager-absorption.md is the design this formalizes).
+(design/eager-absorption.md is the design this formalizes).
 
 # The semantics
 
@@ -26,7 +25,7 @@ custody is the `Backend`'s, whose nodes are persistent-structure
 pointers), worst-case `fan²` hashes for a maximally disputed reply
 (design/eager-absorption.md §7.1). The model's unbounded cell counts
 REPLIES, not bytes — the same reply denomination as the pipe capacity
-(MUX-ADJUDICATION.md §2.5), so byte soundness sits at the same model
+(the adjudicated reply denomination), so byte soundness sits at the same model
 boundary, and what the model leaves unbounded is exactly the number of
 parked replies. That no FIXED parking bound survives work conservation
 is `wc_impossibility_K` (Mux/Proofs/WcImpossibilityK.lean) at its
@@ -81,8 +80,9 @@ characterizes the trap it closes), and `pipe_wire` carries the
 pipe-content fact the record system keeps in `hist_pipe` (the deliver
 arm must know the landing frame is a wire tag of its direction). This
 theorem's history with the phantom corner — the suite's one
-vacuous-theorem episode — is AUDIT-NOTES A12 and
-mux-notes-phase2/t10-audit.md §4.
+vacuous-theorem episode, the phantom-alias bug class's fourth
+independent instance — is told at `RealWire`'s definition site
+(Chase/Ground.lean) and in doc/narrative.typ.
 
 The kernel-decided completion pin at the bottom (`wedge` completes
 under the shipped work-conserving policy at C = 1 with elastic
@@ -203,8 +203,8 @@ field to state — and minus the history ledger (nothing here reads
 the mandatory shape): at the phantom `wire I 0` the consumer count
 aliases walk (R,0)'s by Nat subtraction while the producer count stays
 zero (`recvdOf_phantom_alias`), so the unguarded form is unsatisfiable
-at reachable states (AUDIT-NOTES A12; the track-F `delivered_eq`
-lesson). `pipe_wire` is `hist_pipe`'s residue
+at reachable states (the phantom-alias bug class; the guarded-accessor
+fix is `RealWire`, Chase/Ground.lean). `pipe_wire` is `hist_pipe`'s residue
 once the ledger is gone: the deliver arm needs to know the frame it
 lands is a wire tag of the delivering direction. Preserved along
 `EMReachable` by `eMuxInv_reachable`; `eMuxInv_init` is the base
@@ -1046,7 +1046,7 @@ induction (module doc; design/eager-absorption.md §7.4: receiver
 parking supplies the buffer a credit window grants explicitly, and at
 unbounded depth no sender inference is needed at all).
 
-Unconditional (T10, MUX-PROGRESS §3.4b's secondary deliverable): the
+Unconditional (T10's secondary deliverable): the
 former explicit `hinv` seam is discharged by `eMuxInv_reachable`, the
 stage-F sweep's elastic twin. Nothing about the composition is
 assumed beyond the class hypotheses, and the `EWorkConserving` class

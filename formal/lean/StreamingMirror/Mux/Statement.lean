@@ -8,7 +8,7 @@ claim, so any drift between the audit surface and the proofs fails the
 build. All on the three standard axioms (`propext`, `Classical.choice`,
 `Quot.sound`); no `sorry`, no `native_decide`.
 
-# The resolved trichotomy (MUX-PROGRESS.md §1, the charter)
+# The resolved trichotomy (the campaign's charter, restated)
 
 The campaign's question: does the single-pipe transport NEED
 flow-control credits or true channel independence, or does a local
@@ -30,9 +30,9 @@ send-order schedule of the protocol's existing messages suffice?
   per-direction advertised depth pair, EVERY strategy sending in any
   order the window discipline permits — licensing causal, at parking
   arrears K — is deadlock-free and completes within `2·ρ(init)`.
-  T8-SPEC.md is its English specification of record, fixed before the
-  build, with the clause-by-clause audit crosswalk in its landed
-  note.
+  Its English specification of record — fixed before the build, per
+  the spec-first method — lives with its clause-by-clause audit
+  crosswalk in Proofs/SigmaStarKLive.lean's module doc.
 - **C2: TRUE at C₀ = 1** (`oracle_deadlock_free`; the conjunction
   `necessity`). The full-skeleton oracle of record is the STATIC send
   projection of the canonical schedule τ — non-adaptive, consulted
@@ -173,9 +173,9 @@ namespace StreamingMirror.Mux.Statement
 open Model
 open StreamingMirror.Mux
 
-/-- C1 as chartered is FALSE — the campaign's headline (MUX-PROGRESS
-§1's first trichotomy bullet, at the grain of record per Finch's F3
-ruling): it is NOT the case that every charter-local deterministic
+/-- C1 as chartered is FALSE — the campaign's headline, at the grain
+of record per Finch's locality ruling: it is NOT the case that every
+charter-local deterministic
 pair has a killer skeleton. The refutation witness is
 ⟨C = 1, σ*-causal, σ*-causal⟩ with locality
 (`sigmaStarCausal_charterLocal`) and liveness
@@ -352,8 +352,9 @@ theorem mreachable_init :
       MReachable sk ax C σI σR (init sk) :=
   fun _ _ _ _ _ => .init
 
-/-- T8, the window-generalized positive half (T8-SPEC.md's claim,
-clause by clause — the crosswalk is the spec's landed note): every
+/-- T8, the window-generalized positive half (the spec's claim, clause
+by clause — Proofs/SigmaStarKLive.lean's module doc is the
+specification of record with its audit crosswalk): every
 well-formed margin-0 skeleton (clause 1), every capacity C ≥ 1
 (clause 2), every advertised depth pair K_I, K_R ≥ 1, independent and
 possibly unequal (clause 3), and EVERY window-disciplined pair — any

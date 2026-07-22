@@ -30,7 +30,7 @@ measure argument.
 
 # What this closes
 
-AUDIT-NOTES A1's remedy (i) landed one tier short: the base artifact
+The termination audit finding's remedy landed one tier short: the base artifact
 got its ρ, the mux tier did not, and the T5/T6 docstrings said
 "completes" on stuck-freedom alone. With `mux_maximal_run_terminal`
 and `oracle_greedy_run_terminal` the word is honest: completion =
@@ -679,7 +679,7 @@ theorem mrunK_length_le {sk : Skel} {ax : AxMode} {KI KR C : Nat}
 /-- K-variant termination: every K run from `init` has length at most
 `2·ρ(init)` — no infinite K runs exist, under any strategy pair, any
 depths, any mode, any capacity. T8's bounded-step half ("completes",
-T8-SPEC clause 6): `MuxDeadlockFreeK` says a maximal run cannot stall;
+spec clause 6): `MuxDeadlockFreeK` says a maximal run cannot stall;
 this says every run ends within the bound. -/
 theorem mux_terminatingK {sk : Skel} {ax : AxMode} {KI KR C : Nat}
     {σI σR : Strategy} {acts : List MAction} {s' : MState}

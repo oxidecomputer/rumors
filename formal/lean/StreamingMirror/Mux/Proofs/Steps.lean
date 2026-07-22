@@ -1,6 +1,6 @@
 /-
-The step vocabulary for the stage-3 `MuxInv` preservation sweep
-(MUX-ADJUDICATION.md §4 stage F): what one enabled base action does to
+The step vocabulary for the stage-F `MuxInv` preservation sweep: what
+one enabled base action does to
 the counting layer, the demux hands, and the local invariant — stated
 once, so the per-arm extraction files (Steps/Top.lean, Steps/WalkAsm.lean,
 Steps/Fire.lean) all deliver the same three-part contract and the

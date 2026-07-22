@@ -1,6 +1,6 @@
 /-
-T4 — σ* is deadlock-free (MUX-ADJUDICATION.md §3 T4; the campaign's
-centerpiece): the demand-lockstep strategy pair is deadlock-free on
+T4 — σ* is deadlock-free (the campaign's centerpiece): the
+demand-lockstep strategy pair is deadlock-free on
 every well-formed margin-0 session over the single-pipe transport, at
 every capacity C ≥ 1 ("completes" in the grounded sense: stuck-freedom
 here, termination via `mux_terminating`, Proofs/Termination.lean).
@@ -9,7 +9,7 @@ refutation of record is `c1_charter_false` via σ*-causal
 (Proofs/C1.lean) — with no fixed capacity, no control messages, only
 the right to idle.
 
-# The four steps (refute-c1 §2, as formalized)
+# The four steps, as formalized
 
 1. **Pipes drain at stuck states.** A buried pipe head would need its
    per-stream predecessor unconsumed in the slot; σ*'s push certificate
@@ -31,7 +31,7 @@ the right to idle.
    proven-demanded, σ* names a push, and `mstuck` is refuted.
 
 The stage-0 probe validated the decidable Step-4 invariant on
-4,970/4,970 causal σ*×σ* runs (STAGE0-GATES.md P1); this file is its
+4,970/4,970 causal σ*×σ* runs (the stage-0 P1 sweep); this file is its
 kernel transcription, with the closure stage-indexed by τ so no
 saturation lemma is ever needed.
 -/
@@ -104,7 +104,7 @@ private theorem pushed_of_extract {a : MObs} {g : Nat}
 
 -- ========================================== Step 1: the pipes drain
 
-/-- At a σ*-stuck state both pipes are empty (refute-c1 §2.1): a pipe
+/-- At a σ*-stuck state both pipes are empty (Step 1): a pipe
 head's per-stream predecessor is unconsumed in the slot, yet σ*'s push
 certificate derived that consumption at push time, monotonicity keeps
 it derived, and the keystone performs it. -/
@@ -270,7 +270,7 @@ private theorem dropWhile_first {l : List Ev} {e : Ev} (he : e ∈ l) :
         · exact absurd rfl hae
         · exact ih het
 
-/-- Coverage (refute-c1 §2.4, the load-bearing novelty): at a drained
+/-- Coverage (Step 4, the load-bearing novelty): at a drained
 state whose τ-prefix below `N` is entirely performed, every scheduled
 event τ-below `N` is in EITHER party's demand closure by its own τ
 stage — performed wire sends are push-grounded (pipes-empty makes
@@ -412,7 +412,7 @@ theorem closure_coverage (hwf : sk.wellFormed = true)
 
 -- ============================================================= T4
 
-/-- T4, the campaign's centerpiece (MUX-ADJUDICATION §3; the liveness
+/-- T4, the campaign's centerpiece (the liveness
 half of C1's refutation — the charter-grain refutation of record is
 `c1_charter_false` via σ*-causal, Proofs/C1.lean): the σ*×σ*
 composition is deadlock-free on the shipping encoder's class at every

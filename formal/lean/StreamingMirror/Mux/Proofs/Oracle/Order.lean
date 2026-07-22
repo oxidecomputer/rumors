@@ -1,5 +1,5 @@
 /-
-The oracle's order layer (MUX-ADJUDICATION.md §3 T5, stage-3 track E):
+The oracle's order layer (T5):
 the send projection of the canonical schedule, the oracle strategy of
 record, and the run invariant that ties a party's push history to the
 projection's τ-prefix.
@@ -8,8 +8,8 @@ projection's τ-prefix.
 
 The adjudication's primary form — `ofSchedule (demandOrder sk d)`, the
 RECEIVE projection of τ pushed as a precomputed list — was executably
-refuted (MUX-PROGRESS.md log 2026-07-21, the π-eligibility failure;
-STAGE0-GATES.md P2), so T5 takes the recorded fallback. The fallback's
+refuted (the stage-0 P2 gate: 8/100 random margin-0 skeletons wedge
+it), so T5 takes the recorded fallback. The fallback's
 "state-feedback / exit-certificate" formulation is here realized in its
 sharpest form: the strategy consults its observation history ONLY
 through the count of its own flush receipts, and pushes its wire sends
@@ -54,7 +54,7 @@ entry per flush receipt; idle while the next entry is not yet in hand.
 
 A pure function of the full bidirectional skeleton and the machine's
 own push count — full-skeleton knowledge plus current observation,
-exactly C2's chartered input (MUX-ADJUDICATION §1.3) — and NON-adaptive
+exactly C2's chartered input — and NON-adaptive
 in the same sense as the refuted receive-projection pusher: entry `k`
 of a fixed list names the `k`-th push. What the receive projection got
 wrong was the ORDER, not the information; see `static_oracle_jams`

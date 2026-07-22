@@ -30,8 +30,8 @@ vector: `Sched.deadlock_free_wide` (Proofs/Wide.lean) — `applyW κ`
 beside the untouched `apply`, the track-G `InvPW` progress engine
 consumed verbatim, the preservation sweep assembled from the mux
 campaign's Steps extraction via chan-doctored companions, termination
-transferred because ρ is chan-blind. AUDIT-NOTES.md A7's resolution;
-mux-notes-phase2/t10-audit.md is its scoping audit.
+transferred because ρ is chan-blind. This resolved the audit's
+capacity-monotonicity quarantine by theorem.
 
 # The shared foundation (order of reading)
 

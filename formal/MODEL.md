@@ -44,7 +44,7 @@ implementation whose traces satisfy the tightened `assert_valid`.
   hypothesis: every action strictly decreases the remaining-operation count
   ρ, so no infinite runs exist and (ii) is a corollary of (i) (§7).
   Kernel-proven since 2026-07-21 (`Proofs/Termination.lean`, closing
-  AUDIT-NOTES.md A1): `rho_decreases` is the 23-case strict-decrease
+  an audit finding resolved by theorem): `rho_decreases` is the 23-case strict-decrease
   lemma (its one hypothesis, `asmLevelsOk`, is an inductive invariant
   from `init` — see the module doc for why some measure hypothesis is
   unavoidable at ill-formed states), `terminating` bounds every run
@@ -60,7 +60,7 @@ implementation whose traces satisfy the tightened `assert_valid`.
   vector κ ≥ that floor — widen levels to the deployed window, keep
   wires at 1, or any mix. Kernel-proven since 2026-07-21
   (`Sched.deadlock_free_wide` and `terminatingW`,
-  `lean/StreamingMirror/Proofs/Wide.lean`; AUDIT-NOTES.md A7): the
+  `lean/StreamingMirror/Proofs/Wide.lean`): the
   widened transition function `applyW κ` recovers `apply` at κ = floor
   definitionally, and ρ never reads occupancy, so the run bound is the
   floor's. The `d5` corner's wire-widening remains on the informal

@@ -1,6 +1,7 @@
 /-
-T8's impossibility half, `wc_impossibility_K` (MUX-PROGRESS.md, the
-T8 log entry; design/eager-absorption.md §1): K-deep reply parking is
+T8's impossibility half, `wc_impossibility_K`
+(design/eager-absorption.md §1 is the design it brackets): K-deep
+reply parking is
 a real mitigation and not a cure — for every FIXED parking depth the
 widened wedge family kills every work-conserving pair at every pipe
 capacity.

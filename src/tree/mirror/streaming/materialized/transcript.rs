@@ -8,7 +8,7 @@
 //! payload-independence premise quantifies over (MODEL.md §1: "the count and
 //! order of channel operations depend only on each child's merge-join arm,
 //! never on payloads"), promoted to a proptest bridge by the mux
-//! adjudication (bridge B5; `formal/AUDIT-NOTES.md` A5): the announced
+//! adjudication (bridge B5): the announced
 //! dispute skeleton must be reconstructible from this transcript alone, and
 //! the session's channel-op trace must be a function of that skeleton only.
 //!

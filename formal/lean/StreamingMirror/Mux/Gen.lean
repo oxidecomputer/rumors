@@ -1,6 +1,6 @@
 /-
 Executable-tier generation and probe machinery for the mux harness
-(MUX-ADJUDICATION.md §4, stage-2 track C). Everything here serves
+(executable tier only). Everything here serves
 `lake exe muxprobe`; nothing here is theorem-bearing, and nothing a
 theorem of record quantifies over may live here (the statement-path
 strategies and classes stay in Mux/{Basic,Strategy,Instances}.lean).
@@ -13,11 +13,11 @@ Three kinds of content:
   self-test), the margin-0 lift for the pinned Controls shapes, and a
   deterministic LCG skeleton generator mirroring `EventDag.genSkel`'s
   approach but emitting margin-0 skeletons directly (the mux statements
-  of record live on the margin-0 class, MUX-ADJUDICATION §2.6).
+  of record live on the margin-0 class).
 - **executable-tier strategies** — `roundRobin` (the probe's `rr`
   policy: a second work-conserving entry, deliberately NOT in the
   theorem modules) and `pushList`/`piOrder` (the demand-order
-  pusher of MUX-ADJUDICATION §1.3 run executably: pushes π_d in order,
+  pusher run executably: pushes π_d in order,
   idles otherwise — the idle-capable matrix entry and the executable
   forerunner of T5's `ofSchedule (demandOrder …)`).
 - **the probe runners** — a step-counted drain over an explicit action
@@ -25,7 +25,7 @@ Three kinds of content:
   identity) with an optional per-state commit-consultation scan, the
   executable echo of `commit_totality` (T1): the Python probe fused
   walkCommit+push while this harness keeps commits adversarial
-  (MUX-ADJUDICATION §6 item 6), and the scan checks the fact that
+  (the probe-reconciliation obligation), and the scan checks the fact that
   reconciles them — at every reachable state each walk has at most one
   choosable obligation, so the fusion was WLOG. Plus the rounds
   runners (`roundsBase`/`roundsMux`), the parallel-time proxy behind
@@ -49,7 +49,7 @@ stream.
 `wedgeFam 6 = wedge` (the T0 witness literal; the exe's self-test pins
 the equality), and the family at growing `w` is where the minimal
 deadlocking width and its C-flatness — the slot-occupation mechanism,
-not pipe exhaustion (MUX-ADJUDICATION §1.2 point 2) — are measured.
+not pipe exhaustion — are measured.
 Margin-0 by construction (every scope disputes at most one child), so
 each member is inside the base flagship's kernel-proven class. -/
 def wedgeFam (w : Nat) (rootH : Nat := 6) : Skel :=
@@ -165,14 +165,14 @@ function of the push count in its own history.
 The idle-capable matrix entry: when the next listed frame is not yet
 the committed hand, the strategy idles (the `push` guard fails on an
 unheld stream) — exactly the right to idle that separates it from the
-work-conserving class (MUX-ADJUDICATION §1.2 point 3). -/
+work-conserving class (the right to idle). -/
 def pushList (frames : List Nat) : Strategy := fun _ tr =>
   frames[tr.countP fun o =>
     match o with | .pushed _ => true | _ => false]?
 
 /-- Direction `d`'s wire frames in the receiver's consumption order:
 the receive events on `d`'s wire channels, projected from the `.impl`
-canonical schedule (MUX-ADJUDICATION §1.3's π_d, run executably).
+canonical schedule (π_d, run executably).
 
 `pushList (piOrder sk d)` is the demand-order pusher — T5's
 `ofSchedule (demandOrder …)` run exactly, not the state-feedback
@@ -251,7 +251,7 @@ so counting it over the commit alphabet counts the enabled
 `walkCommit` arms without paying `Model.apply`'s state rebuild. A
 violation means a commit consultation with a genuine choice — the
 Python probe's commit+push fusion would NOT have been WLOG, and the
-`.impl` forced-order claim (attack-refute §2) is executably false. -/
+`.impl` forced-order claim is executably false. -/
 def commitScan (sk : Skel) (ax : AxMode) (s : MState) : Nat × Nat :=
   sk.walkKeys.foldl (init := (0, 0)) fun acc pk =>
     let ws := s.base.walk pk

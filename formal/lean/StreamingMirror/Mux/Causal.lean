@@ -1,10 +1,11 @@
 /-
 σ*-causal: the charter-grain local demand-lockstep strategy — the Lean
-counterpart of the stage-0 probe's faulting view (causal-reference.py;
+counterpart of the stage-0 probe's faulting view (design/tracecheck/causal-reference.py;
 counterpart, not twin — see the probe-relationship section below),
-discharging the definitional half of the σ*-locality residue
-(MUX-PROGRESS §4, "The locality residue adjudicated by Finch"; F3
-ruling: claims of record bind the charter grain).
+discharging the definitional half of the σ*-locality residue (Finch's
+ruling: claims of record bind the charter grain — locality means
+information in the causal past, never a Rust-side bridge, which a
+local-by-construction Rust function makes vacuous).
 
 # The grain (Finch's F3 ruling, phase 4)
 
@@ -14,8 +15,9 @@ labels (D vs R-cut vs M-absent) of the party's own held children, which
 no party knows at session start from its own tree. The charter's honest
 grain is *information in the causal past of the party at the decision
 point*: in this model, the session parameters plus the sub-skeleton
-ANNOUNCED by the frames that have arrived (refute-c1 §1.2's two minting
-rules; bridge axiom B5: frames are decoded at delivery, so an arrived
+ANNOUNCED by the frames that have arrived (the two minting rules:
+own-minting at parent-frame arrival, parent-driven census; bridge
+axiom B5: frames are decoded at delivery, so an arrived
 frame's decoded record is trace information even though the
 payload-erased `MObs` does not carry it syntactically). `aviewOf` below
 is exactly that announced view — the probe `KnownSkel`'s Lean
@@ -44,7 +46,8 @@ arrival counts was designed and rejected for the claim of record: the
 alternation parity puts the peer-stage kind marks on the wrong side
 forever (they ride only payloads), so an `MObs`-only strategy
 under-derives and starves on the wedge's provision wall — the
-payload-erasure finding this track reports (MUX-PROGRESS §4 entry).
+payload-erasure finding: the announcements were never in the message
+pattern; they were in the messages.
 
 # The announced trace family and the causal closure
 
@@ -70,9 +73,9 @@ inherited verbatim.
 `sigmaStarCausal` is not extensionally the probe's strategy; two
 divergence axes separate them, in opposite directions. (i) `groundedA`
 grounds the party's own performed wire receives (`ownRecvCount`, read
-off its own `.act` stream), where causal-reference.py implements the
-strategy as a function of pushes and arrivals only — the divergence
-STAGE0-GATES.md names as a live risk. (ii) The Python fixpoint derives
+off its own `.act` stream), where the reference implements the
+strategy as a function of pushes and arrivals only — a divergence the
+stage-0 gates report named as a live risk. (ii) The Python fixpoint derives
 through simulated own-side events, so its closure can prove strictly
 more on own-endpoint structure than `inevitableA`. Both directions are
 conservative for the claims of record — the liveness of THIS object is
@@ -85,8 +88,8 @@ qualification.
 
 Everything here lives at `.impl`: the layouts transcribe the
 d6/epilogue trace grammar, `ConsistentImpl` pins the mode, and the
-probe evidence (4,970/4,970 terminal causal runs, STAGE0-GATES.md P1)
-is `.impl`-only. Under other modes the layouts would be wrong-shaped
+probe evidence (4,970/4,970 terminal causal runs, the stage-0 P1
+sweep) is `.impl`-only. Under other modes the layouts would be wrong-shaped
 and every claim below is simply not made.
 
 # Proof state (honest ledger)
@@ -147,7 +150,7 @@ height in stream-major position order — with multiplicity
 (deduplication happens at the record table). Deliberately NOT arrival
 order: the enumeration reads the trace only through per-stream
 delivered counts, so the view is interleaving-independent. The
-positional decode of refute-c1 §1.2 —
+positional decode —
 
 - the opening frame announces the root, and its initiator-side arrival
   (the responder's reply rides `wire R rootH`) also mints the root's
@@ -505,7 +508,7 @@ def closureNA (av : AView) (tr : List MObs) (univ : List Ev)
       closureStepA av tr univ procs (closureNA av tr univ procs n)
 
 /-- The certified events, causal form: the grounded evidence itself
-(C-own/C-arr of refute-c1 §1.3). -/
+(own-flush and arrival evidence). -/
 def certifiedA (av : AView) (tr : List MObs) : List Ev :=
   (evUnivA av tr).filter (groundedA av tr)
 
@@ -522,7 +525,7 @@ def inevitableA (av : AView) (tr : List MObs) : List Ev :=
 information? First frames are unconditionally demanded (every
 consumer's first wire-channel operation is the receive itself); later
 frames need the predecessor's consumption in the causal closure —
-refute-c1 §1.4's rule, `Certified ∪ Inevitable` collapsed by
+the ratified demand rule, `Certified ∪ Inevitable` collapsed by
 construction (stage 0 of `closureNA` is the evidence). -/
 def demandedA (av : AView) (tr : List MObs) (h : Nat) : Bool :=
   pushedCount tr h == 0 ||

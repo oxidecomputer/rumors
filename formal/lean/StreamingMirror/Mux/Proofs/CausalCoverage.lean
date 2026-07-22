@@ -1,11 +1,11 @@
 /-
-The causal coverage layer (MUX-PROGRESS §4, the σ*-locality residue's
-liveness half): the announced-closure lemma suite and the trace-grammar
+The causal coverage layer (the σ*-locality residue's liveness half):
+the announced-closure lemma suite and the trace-grammar
 ground facts everything above it consumes — the announced layouts are
 honest prefixes of the true traces, the causal evidence at a stuck
 state is performed, and σ*-causal's pushes drain the pipes.
 
-# The map (refute-c1 §2 re-run at the causal grain, post-split)
+# The map (the four-step liveness argument re-run at the causal grain, post-split)
 
 The omniscient liveness proof (Proofs/SigmaStarLive.lean) runs: push
 certificates drain the pipes through the keystone (Step 1), the chase

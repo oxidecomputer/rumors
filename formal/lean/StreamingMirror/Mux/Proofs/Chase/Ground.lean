@@ -1,5 +1,5 @@
 /-
-The chase's ground layer (MUX-ADJUDICATION.md §3 T2, stage-2 track B):
+The chase's ground layer (T2):
 the observation-history counting vocabulary, the muxed ground-fact
 interface `MuxInv`, and the lemmas that move between the muxed system
 and the base model at a stuck state.
@@ -23,7 +23,7 @@ decode layer's hypothesis), the slot bound, internal-channel flow, and
 the hist/pipe correspondence (pushes split into a delivered prefix and
 the in-flight suffix, in order; delivery splits into consumed plus
 slot). Its preservation along `MReachable` is the stage-3 obligation
-(MUX-ADJUDICATION §4, stage F: the flowOk-template induction); every
+(the stage-F flowOk-template induction); every
 theorem here takes `MuxInv` as a hypothesis so that both stage-3
 consumers (T4's σ* and T5's oracle) instantiate one statement.
 
@@ -95,8 +95,8 @@ theorem count_map_wire (p : Party) (h : Nat) (l : List Nat) :
 wires its channel (`allChans` membership).
 
 This is the mandatory guard for transport-invariant fields about wire
-counts — the shape is `∀ p h, RealWire sk p h → …` (AUDIT-NOTES
-A11/A12; this definition is the phase-5 source fix). The unguarded
+counts — the shape is `∀ p h, RealWire sk p h → …` (this definition
+is the source fix for the phantom-alias bug class). The unguarded
 form `∀ p h, …` crosses the accessor layer's junk corner —
 `recvdOf_phantom_alias` below characterizes it — and count equations
 quantified that way have been unsatisfiable at reachable states in
@@ -119,8 +119,9 @@ count equation asserts at `wire I 0` that a real walk's consumption is
 zero, which turns false the moment that walk consumes — the equation
 is then not an invariant of the muxed system at all (the pin below
 decides a reachable counterexample). The bug class this lemma exists
-to end: AUDIT-NOTES A11 (tracks E and F, independently) and A12 (the
-elastic twin, caught twice more). -/
+to end was found FOUR independent times — twice in `MuxInv` (by
+parallel tracks), twice more in its elastic twin — before this guard
+ended it. -/
 theorem recvdOf_phantom_alias (sk : Skel)
     (hroot : (0 == sk.rootH) = false) (s : State) :
     recvdOf sk s (Chan.wire .I 0) = wkWireRecvd sk s (.R, 0) := by
@@ -148,8 +149,8 @@ theorem phantom_refutes_unguarded_delivered_eq :
 /-- The muxed ground facts: what the keystone and the chase consume at
 a reachable muxed state.
 
-Preservation along `MReachable` is the stage-3 obligation (the
-MUX-ADJUDICATION §4 stage-F `MuxInv` induction on the flowOk template);
+Preservation along `MReachable` is the stage-3 obligation (the stage-F
+`MuxInv` induction on the flowOk template);
 stating the chase over this interface rather than over `MReachable`
 keeps stage 2 free of the 28-arm preservation sweep, exactly as the
 adjudication's T2 plan prescribes ("closure-order induction, no
@@ -301,7 +302,7 @@ theorem delivered_real (hm : MuxInvB B sk s) (p : Party) (h : Nat)
 
 /-- At the push time of the pipe head, every already-pushed frame is
 among the delivered: the FIFO-ancestry input to the keystone
-(attack-refute F1's repair), in count form.
+(the push-time-derivation repair), in count form.
 
 `tr` is the observation history at the head's push time; its pushes
 are exactly the pushed prefix the deliveries have fully covered. -/

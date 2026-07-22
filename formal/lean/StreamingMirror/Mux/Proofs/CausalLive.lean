@@ -1,6 +1,6 @@
 /-
-σ*-causal liveness (MUX-PROGRESS §4, the residue's liveness half):
-refute-c1 §2 assembled at the causal grain — Steps 1–3 (pipes drain
+σ*-causal liveness (the residue's liveness half): the four-step
+argument assembled at the causal grain — Steps 1–3 (pipes drain
 through the causal keystone; the chase's withheld push) proven here in
 the kernel, with Step 4 (the τ-staged coverage of the ANNOUNCED
 closure) isolated as `CausalStuckCoverage`, stated exactly at the
@@ -45,7 +45,7 @@ variable {sk : Skel}
 τ-prefix below the next frame's send is entirely performed is
 proven-demanded under the ANNOUNCED closure.
 
-This is the coverage re-run of refute-c1 §2.4 over `inevitableA`
+This is the Step-4 coverage re-run over `inevitableA`
 (Mux/Causal.lean's module doc): the chase witness receive is τ-below
 the withheld send, hence performed, hence announced-laid — the minting
 lemma — and then enters the causal closure by its own τ stage.

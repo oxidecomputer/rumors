@@ -1,5 +1,5 @@
 /-
-T1, `commit_totality` (MUX-ADJUDICATION.md §3): under the shipping
+T1, `commit_totality`: under the shipping
 interface `.impl`, an uncommitted phase-2 walk at any reachable state
 has exactly ONE choosable obligation — the ledgers W/D1/D4/D6 plus the
 per-channel child order totally order each scope's publications.
@@ -8,7 +8,7 @@ Existence is the landed Progress pillar (`walk_uncommitted_choosable`);
 this file adds the uniqueness half and packages both as unique
 existence (spelled out — the artifact is Mathlib-free, so no `∃!`). The
 statement discharges the commit-control boundary of the mux campaign
-(attack-prove F5, adopted by MUX-ADJUDICATION §2.2): the harness keeps
+(the commits-stay-adversarial ruling): the harness keeps
 `walkCommit` adversarial and lets σ gate pushes only, and this theorem
 is why that costs nothing under `.impl` — the adversary's commit
 "choices" are forced, so the probe's fused commit+fire is WLOG and
@@ -341,14 +341,14 @@ theorem commit_unique (hwf : sk.wellFormed = true)
 
 /-- T1, `commit_totality`: under the shipping interface `.impl`, at any
 reachable state, an uncommitted phase-2 walk has a UNIQUE choosable
-obligation (MUX-ADJUDICATION §3, T1).
+obligation (T1's claim, exactly).
 
 Existence is the Progress pillar (`walk_uncommitted_choosable`, the
 `d5 = false` branch of `hmode`); uniqueness is `commit_unique`. The
 consequence for the mux campaign: `walkCommit` may stay adversarial in
 the harness while σ gates pushes only — the adversary has no commit
 choice to abuse — and every strategy consultation on a forced run
-happens after a forced commit (attack-refute §2's strengthening,
+happens after a forced commit (the cross-examination's strengthening,
 consumed by T3). -/
 theorem commit_totality (hwf : sk.wellFormed = true) :
     ∀ s, Reachable sk .impl s → ∀ pk, pk ∈ sk.walkKeys →

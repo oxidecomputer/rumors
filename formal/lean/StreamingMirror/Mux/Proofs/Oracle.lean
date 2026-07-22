@@ -1,5 +1,5 @@
 /-
-T5, the oracle (MUX-ADJUDICATION.md §3, stage-3 track E): the
+T5, the oracle: the
 send-projection pusher is deadlock-free on the whole `.impl` + margin-0
 class at every capacity C ≥ 1 — C₀ = 1 suffices.
 
@@ -27,7 +27,7 @@ FIFO burial τ-decreasing, hence impossible.
 # What this refutes, and what it does not
 
 The receive-projection pusher `ofSchedule (demandOrder sk d)` jams
-(MUX-PROGRESS.md, the π-eligibility failure; kernel-pinned by
+(the stage-0 π-eligibility failure; kernel-pinned by
 `static_oracle_jams`, Oracle/Controls.lean) — yet this theorem shows a
 different STATIC order is live everywhere. The muxprobe finding's moral
 ("adaptivity, not information, is the liveness ingredient") is thereby
@@ -39,15 +39,15 @@ SEND order (τ's own emission order) is always safe because the demux
 slots absorb exactly that skew. Scope notes: capacity is denominated in
 messages (= scope replies); byte-level soundness of one-reply slots is
 design/streaming-wire-deadlock.md §5A's W = 1 structural argument,
-assumed at the model boundary (MUX-ADJUDICATION §2.5). NOT claimed:
+assumed at the model boundary (the reply-denomination ruling). NOT claimed:
 overlap/latency optimality (executable tier only, H-c demoted).
 
 # The `MuxInv` hypothesis
 
 The ground facts `MuxInv` (Chase/Ground.lean) enter as an explicit
 reachability hypothesis (`oracle_deadlock_free_of_muxInv`), exactly as
-the keystone and chase consume them; the MUX-ADJUDICATION §4 stage-F
-obligation is discharged by the strategy-generic sweep in
+the keystone and chase consume them; the stage-F obligation is
+discharged by the strategy-generic sweep in
 Proofs/SigmaStarInv.lean (`muxInv_reachable`, the `MuxInv` projection
 of `sinv_reachable`), which closes `oracle_deadlock_free`
 unconditionally in Proofs/Necessity.lean; the one sweep serves both
@@ -621,11 +621,11 @@ theorem oracle_mstuck_eq_false (hwf : sk.wellFormed = true)
 -- ============================================================== T5
 
 /-- T5, `oracle_deadlock_free`, over the `MuxInv` ground facts as an
-explicit reachability hypothesis (MUX-ADJUDICATION §3 T5 — the
-adjudication's fallback SLOT, realized as the static send-projection
+explicit reachability hypothesis (the adjudication's fallback SLOT,
+realized as the static send-projection
 pusher: no state feedback needed — see the module doc).
 
-The hypothesis `hpres` is the MUX-ADJUDICATION §4 stage-F obligation
+The hypothesis `hpres` is the stage-F obligation
 (`MuxInv` preservation along `MReachable`; `muxInv_init` is its landed
 base case). Everything oracle-specific is discharged here
 unconditionally: `OracleInv` preservation, the stuck-state argmin, and

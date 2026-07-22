@@ -1,6 +1,6 @@
 /-
-The minting ladder and Step-4 coverage (MUX-PROGRESS §4, the residue's
-final lemma): at a reachable stuck drained σ*-causal×σ*-causal state,
+The minting ladder and Step-4 coverage (the residue's final lemma): at
+a reachable stuck drained σ*-causal×σ*-causal state,
 every peer-process event τ-below the withheld push is ANNOUNCED-LAID —
 its layout's every consulted record was minted by an arrival whose
 send sits τ-below the consulting event — and therefore enters the
@@ -3986,7 +3986,7 @@ private theorem dropWhile_first' {l : List Ev} {e : Ev} (he : e ∈ l) :
         · exact absurd rfl hae
         · exact ih het
 
-/-- Causal coverage (refute-c1 §2.4 over the ANNOUNCED closure): at the
+/-- Causal coverage (Step 4 over the ANNOUNCED closure): at the
 stuck drained wall, every announced-laid event scheduled below the wall
 enters the causal closure by its own τ stage — wire-send E1/E2
 predecessors are grounded against the drained counts, internal

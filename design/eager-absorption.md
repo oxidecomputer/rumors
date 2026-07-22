@@ -1,7 +1,6 @@
 # Eager absorption: feasibility of K-deep reply parking on one socket
 
-Assessment of Finch's proposal (MUX-PROGRESS.md §5, the T8 log entry,
-2026-07-21): convert incoming wire frames into *logical* protocol
+Assessment of Finch's proposal (2026-07-21): convert incoming wire frames into *logical* protocol
 replies at arrival — supplied (provision) runs absorbed at line rate
 through the existing `Backend` streaming construction into unlinked
 node handles — and park up to K logical replies per stream at the
@@ -40,7 +39,7 @@ Without it, K-parking alone converts the deterministic w = 4 wedge
 into a w > K wedge: a real mitigation with bounded memory (unlike the
 rejected §5B capacity bump, the parked unit is a *decoded* reply, so
 the bound is genuine), but not a liveness proof — and
-`wc_impossibility_K` (MUX-PROGRESS.md T8) says no work-conserving
+`wc_impossibility_K` says no work-conserving
 sender survives any fixed K.
 
 **Version bounds cannot be resurrected by eager absorption** — the
@@ -174,8 +173,7 @@ positionally derivable demux-side; they simply have no reason to move.
 ### 3.3 The causality property: registration precedes need [checked, arm by arm]
 
 The load-bearing fact — the receive-side mirror of the send-side
-announcement completeness that makes σ\* local
-(MUX-ADJUDICATION.md §1.4) — deserves a name:
+announcement completeness that makes σ\* local — deserves a name:
 
 > **Context-registration causality.** Every arriving wire message is
 > causally downstream of the local emission that registered its decode
@@ -384,8 +382,9 @@ identified). The sender currently has:
 
 - **Own pushes**: countable — encode tasks see reply boundaries;
   `FrameSender` receipts are flush-paced (`outgoing.rs:53-63`),
-  which is the right observation per the standing ruling
-  (consumption receipts stay out; MUX-PROGRESS.md §1).
+  which is the right observation per the standing ruling: consumption
+  receipts stay out — admitting them smuggles credits in via the
+  observation type.
 - **Arrivals**: the decoded incoming replies, but they live in
   per-height pump tasks with no channel to the outgoing side. The mux
   scheduler sees only per-stream readiness
@@ -398,7 +397,7 @@ push counters updated by encode, consumption evidence updated from
 decoded arrivals, and the **inevitability closure** deriving the
 silent consumptions (provision absorptions produce no reverse traffic
 ever — the all-M/provision blindness that defeats evidence-only
-schemes, MUX-ADJUDICATION.md §1.4). Its correctness window is narrow
+schemes — the `wedge_evidence_starves` pin). Its correctness window is narrow
 on both sides: under-inference idles into a starvation deadlock,
 over-inference readmits the wedge past K. Its specification *is*
 `sigmaStarK_deadlock_free` (T8); shipping it ahead of that theorem
@@ -420,8 +419,8 @@ proposal reconstructs both halves inside the endpoints of one socket:
 - receiver K-parking supplies the per-stream buffer that a credit
   window's grant W promises explicitly;
 - σ\*ₖ supplies the sender pacing that the credit *message* carries
-  explicitly — "W = 1 credits inferred instead of sent"
-  (MUX-ADJUDICATION.md §1.3), generalized to K.
+  explicitly — "W = 1 credits inferred instead of sent",
+  generalized to K.
 
 And it dissolves the deadlock doc's one discontinuity: §5A ruled
 1 < W *in reply units* unsound because a granted reply's buffer cost

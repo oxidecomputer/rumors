@@ -1,4 +1,5 @@
-//! Bridge 2: `LocalEq` soundness (MUX-ADJUDICATION §2.4, stage-2 track D).
+//! Bridge 2: `LocalEq` soundness — the Lean view projection agrees with
+//! actual tree pairs.
 //!
 //! The Lean locality definition (`Mux/Strategy.lean` `viewEnc`/`LocalEq`)
 //! projects a skeleton to what party `p` holds: every D child (recursed, in
@@ -14,7 +15,7 @@
 //! - **nondegeneracy** (`free_insertions_are_invisible_to_the_local_view`,
 //!   `leaf_requests_are_erased_from_the_view`): the full skeletons CAN
 //!   differ while the p-views agree — the free-insertion moves of the
-//!   corrected fooling alphabet (oracle-c2 §3.1: R children at p-answerer
+//!   corrected fooling alphabet (R children at p-answerer
 //!   scopes; leaf requests) realized by concrete trees, occurring in every
 //!   constructed case.
 
@@ -133,7 +134,7 @@ proptest! {
 /// local party ANSWERS (parity chosen from the computed role — `viewEnc`
 /// shows R children to the asker only). Every sampled case must come out
 /// nondegenerate: `LocalEq` holds for p while the skeletons differ and
-/// `LocalEq` fails for the counterparty. This realizes oracle-c2 §3.1's
+/// `LocalEq` fails for the counterparty. This realizes the adjudicated
 /// answerer-side free-insertion move with concrete trees at 100% frequency.
 #[test]
 fn free_insertions_are_invisible_to_the_local_view() {

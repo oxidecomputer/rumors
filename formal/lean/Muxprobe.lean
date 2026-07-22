@@ -1,7 +1,6 @@
 /-
 Muxprobe: the executable evidence tier of the mux campaign
-(MUX-ADJUDICATION.md §4, stage-2 track C; not part of the library;
-imported by nothing). Runs the REAL mux semantics — the same
+(not part of the library; imported by nothing). Runs the REAL mux semantics — the same
 `Mux.apply`/`mterminal` definitions the theorems of record quantify
 over — across the strategy × skeleton × capacity × interleaving matrix
 the Python probe calibrated, and pins the outcomes.
@@ -17,7 +16,7 @@ pushfirst = sender-runs-ahead). Expected shape, asserted:
 - the smoke positives complete under bottomMostReady at every C;
 - the wedge family jams under every work-conserving entry, and each
   member's jam verdict is C-FLAT — the mechanism is slot occupation +
-  FIFO burial, not pipe exhaustion (MUX-ADJUDICATION §1.2 point 2);
+  FIFO burial, not pipe exhaustion;
 - the demand-order pusher completes the pinned and wedge families at
   every matrix capacity (C = 1, the tight one, included — §1.3's
   positive SHAPE, tier 1) but WEDGES on the committed `rand2`
@@ -31,15 +30,15 @@ pushfirst = sender-runs-ahead). Expected shape, asserted:
 - along every bottomMostReady cell, every commit consultation is a
   SINGLETON (`commitScan`): the executable echo of `commit_totality`
   (T1), reconciling the Python probe's fused commit+push with this
-  harness's adversarial commits (MUX-ADJUDICATION §6 item 6).
+  harness's adversarial commits.
 
 The full per-cell table is pinned byte-for-byte in the committed
 golden file `muxprobe-expected.tsv` (the eventdag gate pattern: drift
 fails loudly); regenerate deliberately with `--update` after a model
 or matrix change and review the diff like a snapshot.
 
-H-c lives here and only here (MUX-ADJUDICATION §1.3: the price of
-idling is demoted to the executable tier — the model is
+H-c — the price of idling — lives here and only here, demoted to the
+executable tier by the adjudication — the model is
 message-counted, payload-erased, and latency-free, which erases where
 a real cost analysis would live). The step-count ratios printed at the
 end are recorded commentary, never an assertion, and no statement of
@@ -97,7 +96,7 @@ def wedges : List (String × Skel) :=
     [("wedge8x8", wedgeFam 8 8)]
 
 /-- THE π-WEDGE (found by this probe's random sweep, 2026-07-21; the
-stage-0 P2 gate MUX-ADJUDICATION §4 scheduled and no tier had run): a
+stage-0 P2 gate no tier had yet run): a
 random margin-0 skeleton on which the demand-order pusher — π_d run
 exactly, not the state-feedback proxy — deadlocks at every C and every
 tested interleaving, while the state-feedback ('exit'-certificate) σ*
@@ -112,7 +111,7 @@ a query into the full cap-1 `asked R 0` channel, which only drains
 after the very frame π_R is waiting to see produced. The precomputed
 order demands a frame the run can no longer produce first — the
 feedback the 'exit' certificate reads per-state is load-bearing, so
-per MUX-ADJUDICATION §1.3's named fallback, T5's oracle of record must
+per the adjudication's named fallback, T5's oracle of record must
 be the state-feedback form (or π-eligibility must be repaired), NOT
 `ofSchedule (demandOrder …)` as drafted. Pinned here so the finding
 cannot silently dissolve. -/
@@ -353,8 +352,7 @@ pinned positives — the locus of the probe's 0.99× observation. Step
 counts are useless here (a completed run's total op count is
 strategy-invariant); rounds expose lockstep stalls. The model is
 message-counted, payload-erased, and latency-free — it erases where a
-real cost analysis lives (MUX-ADJUDICATION §1.3, H-c demoted to this
-tier) — so this is recorded for the log, asserted nowhere, and no
+real cost analysis lives (H-c is demoted to this tier) — so this is recorded for the log, asserted nowhere, and no
 statement of record may consume it. -/
 def hcCommentary : IO Unit := do
   IO.println "  H-c commentary (informational; rounds-to-terminal, C=1):"

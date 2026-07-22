@@ -193,7 +193,7 @@ capacities only widen channels; coverage of widened configurations is
 by capacity monotonicity — **[proven]** for this flagship since
 2026-07-21 (`Sched.deadlock_free_wide`, formal/lean/StreamingMirror/
 Proofs/Wide.lean: deadlock freedom and the run-length bound at every
-pointwise capacity vector κ ≥ the floor; AUDIT-NOTES.md A7). The Kahn
+pointwise capacity vector κ ≥ the floor). The Kahn
 argument (with per-walk order fixed, each process is deterministic in
 its I/O behavior, and in such process networks added buffer capacity
 only relaxes back-pressure and cannot introduce deadlock) remains the

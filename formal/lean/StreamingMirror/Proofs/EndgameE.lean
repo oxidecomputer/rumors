@@ -932,8 +932,7 @@ uses (not the encoder) — is `deadlock_free_d5`
 (design/parent-placement.md has the trade). Wider production
 capacities are covered by `deadlock_free_wide` (Proofs/Wide.lean):
 this theorem at every pointwise capacity vector κ ≥ `sk.cap`, the
-former capacity-monotonicity assumption made kernel (AUDIT-NOTES.md
-A7). -/
+former capacity-monotonicity assumption made kernel. -/
 theorem deadlock_free (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) :
     StreamingMirror.DeadlockFree sk .impl := by

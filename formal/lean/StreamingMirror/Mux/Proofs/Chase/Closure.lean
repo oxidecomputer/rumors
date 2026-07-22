@@ -1,6 +1,6 @@
 /-
-The demand closures (MUX-ADJUDICATION.md §3 T2; refute-c1 §1.3 as
-repaired by attack-refute F1/F6): what a machine can prove about the
+The demand closures (T2's vocabulary, the panel design as repaired in
+cross-examination): what a machine can prove about the
 session's events from its own observation history.
 
 # The two tiers
@@ -13,26 +13,27 @@ every continuation once its whole dependency past does, so an event
 whose E1/E2 predecessors and full trace prefix are derivable is
 derivable. Pushes are strategy-gated and are NEVER derived — they enter
 only as grounded evidence. That exclusion is the self-containment
-property the cross-examination singled out (attack-refute §4.5): no
+property the cross-examination singled out: no
 demand proof ever cites traffic not already committed to the transport.
 
-# Deviations from refute-c1 §1.3, recorded
+# Deviations from the panel's closure design, recorded
 
-- The delivery events of refute-c1's vocabulary do not exist here: the
+- The panel vocabulary's delivery events do not exist here: the
   closure speaks `Sched.Ev` only, and the F1 repair's forward-delivery
   case is discharged where it belongs — in the keystone, by the
   FIFO-ancestry hypothesis (`MuxInv.pushtime_delivered`), not by
   closure members. This is the "ban forward-del citations from I-step"
-  reading of the repair, which attack-refute F1 offers as the
+  reading of the repair, offered by the cross-examination as the
   alternative restatement.
-- The I-step guard is positional (attack-refute F6): a send's E2
+- The I-step guard is positional (the cross-examination's membership
+  form): a send's E2
   predecessor must be a MEMBER; no occupancy is ever computed, so
   monotonicity in the observation is by construction.
 - The I-step's E3 guard requires the event's whole trace prefix, not
   the immediate predecessor: the most restrictive reading, and the one
   that makes the closure literally downward-closed (used by the
   keystone's argmin).
-- I-step is party-uniform where refute-c1 §1.3 restricts to the peer's
+- I-step is party-uniform where the panel design restricts to the peer's
   side: deriving one's own future non-push events is equally sound
   (they are scheduler-forced at stuck states, which is all soundness
   says) and strictly more useful to σ*.
@@ -41,7 +42,7 @@ demand proof ever cites traffic not already committed to the transport.
   event the forward closure re-derives it, and for peer pushes the
   cross-stream program-order evidence matters only to eagerness, never
   to the stuck-state coverage argument, where pipes-empty makes
-  arrival grounding complete (MUX-ADJUDICATION §1.1's Step 4). If the
+  arrival grounding complete (Step 4 of the liveness argument). If the
   stage-3 σ* wants the extra eagerness, mint the back-closure there.
 -/
 import StreamingMirror.Mux.Proofs.Chase.Ground
@@ -76,7 +77,7 @@ theorem trace_count_le_one {sk : Skel} {T : List Ev}
 
 /-- Push evidence: the wire sends this machine's own history commits
 to — its flush receipts on its own streams, its delivery receipts on
-the peer's (C-own and C-arr of refute-c1 §1.3, as per-stream counts). -/
+the peer's (own-flush and arrival evidence, as per-stream counts). -/
 def groundedPush (p : Party) (tr : List MObs) (e : Ev) : Bool :=
   isWire e.1 && e.2.1 &&
     (if wireParty e.1 == p then
@@ -125,7 +126,8 @@ theorem groundedPush_mono {p : Party} {tr tr' : List MObs}
 
 /-- One forward-derivation check against a candidate set `D`: `e` is a
 non-push event whose E1 send, positional E2 predecessor, and whole
-trace prefix are already in `D` (attack-refute F6's membership form).
+trace prefix are already in `D` (the membership form; occupancy is
+never computed).
 
 `e`'s trace prefix is read off `takeWhile`: traces never repeat an
 event (`trace_count_le_one`), so the segment before the first
@@ -236,8 +238,8 @@ def closureN (sk : Skel) (p : Party) (tr : List MObs) : Nat → List Ev
   | n + 1 => closureStep sk p tr (closureN sk p tr n)
 
 /-- The certified events: the push evidence itself (C-own/C-arr of
-refute-c1 §1.3; the C-prog back-closure is deliberately dropped — see
-the module doc). -/
+own-flush and arrival evidence; the program back-closure is
+deliberately dropped — see the module doc). -/
 def certified (sk : Skel) (p : Party) (tr : List MObs) : List Ev :=
   (evUniv sk).filter (groundedPush p tr)
 
@@ -323,7 +325,7 @@ theorem inevitable_inv {sk : Skel} {p : Party} {tr : List MObs} {e : Ev}
       · exact Or.inr (istepOk_mono (closureN_le_succ n) hstep)
 
 /-- The closures are monotone in the observation history: proofs never
-retract (refute-c1 §1.1). -/
+retract (commit-no-retract at the closure tier). -/
 theorem inevitable_mono {sk : Skel} {p : Party} {tr tr' : List MObs}
     (hp : tr <+: tr') :
     ∀ e ∈ inevitable sk p tr, e ∈ inevitable sk p tr' := by

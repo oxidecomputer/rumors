@@ -1,8 +1,9 @@
 /-
-The mux harness of record (MUX-ADJUDICATION.md §2): the single-pipe
+The mux harness of record (the phase-2 adjudication's topology,
+stated in full here): the single-pipe
 transport wrapped around the untouched base model.
 
-# Topology (MUX-ADJUDICATION §2.1: hand + pipe(C) + slot(1), no staging cell)
+# Topology: hand + pipe(C) + slot(1), no staging cell
 
 Per direction the harness has exactly three buffering sites between a
 sender's choice and the consumer:
@@ -17,7 +18,7 @@ sender's choice and the consumer:
 - **the pipe** — one bounded FIFO of `Chan` tags per direction, capacity
   `C`, message-counted (one entry = one scope-level reply; byte-level
   soundness of one-reply slots is §5A's W = 1 argument, assumed at the
-  model boundary — MUX-ADJUDICATION §2.5). Entries are bare tags: payloads
+  model boundary). Entries are bare tags: payloads
   are opaque and identity is positional everywhere in the model, so the
   n-th occurrence of `wire p h` in the push history is seq n by the same
   canonical-numbering argument `Numbering.lean` proves for channel sides.
@@ -30,7 +31,7 @@ sender's choice and the consumer:
 # The extended alphabet
 
 `MAction.base` carries the 23 base arms with three dispositions
-(MUX-ADJUDICATION §2.2):
+(the adjudicated arm dispositions, each restated at its arm):
 
 - 18 arms verbatim (wire receives read the demux slot exactly as the base
   model reads the wire cell);
@@ -39,17 +40,17 @@ sender's choice and the consumer:
   actions — a wire send happens only through `MAction.push`, the
   strategy-gated mux move;
 - the two wire close-receives (`walkCloseWire`, `absorbCloseWire`) gain
-  the no-in-flight conjunct (attack-refute F8): a close is sound only when
+  the no-in-flight conjunct (a cross-examination repair): a close is sound only when
   no frame of the channel can still arrive, else a receiver could close
   under an in-flight frame and manufacture a spurious terminal. The
   must-fail pin for this guard is a Mux/Controls obligation (T0's negative
-  control in MUX-ADJUDICATION §3).
+  control below in Mux/Controls.lean).
 
 `MAction.push p` consults party `p`'s strategy and fires the named
 committed wire obligation into pipe `p`; `MAction.deliver p` moves the
 pipe head into its demux slot, head-of-line (the shipped FIFO discipline,
 incoming.rs:60-92). Commits stay adversarial — σ gates pushes only
-(attack-prove F5); under `.impl` this costs nothing because the ledgers
+(the commits-stay-adversarial ruling); under `.impl` this costs nothing because the ledgers
 totally order each scope's publications (`commit_totality`, the T1
 obligation).
 
@@ -57,7 +58,8 @@ obligation).
 
 `MuxDeadlockFree` fixes the strategies and leaves the endpoint
 interleaving fully adversarial, exactly as the base `DeadlockFree`
-(MUX-ADJUDICATION §2.2's adopted endpoint-adversary decision). Idling is not
+(the adopted endpoint-adversary decision: strategies gate pushes only;
+everything else stays scheduler-adversarial). Idling is not
 a move: a strategy that returns `none` while nothing else is enabled
 leaves the state `mstuck` — an idler carries a real liveness obligation
 (the M3 posture).
@@ -77,7 +79,7 @@ Every capacity in this harness is denominated in MESSAGES: one pipe
 entry = one scope-level reply. Byte-level soundness of one-reply slots
 is design/streaming-wire-deadlock.md §5A's W = 1 structural argument,
 ASSUMED at the model boundary and not re-proven here
-(MUX-ADJUDICATION §2.5). The direction that does not transfer for
+(the reply-denomination ruling). The direction that does not transfer for
 free is liveness: a positive (deadlock-freedom or completion) theorem
 at message denomination says less than its byte-level reading, so
 every positive statement of record carries a one-line pointer to this
@@ -92,7 +94,7 @@ open Model
 
 -- ================================================== observations, strategies
 
-/-- One observation on a party's machine (MUX-ADJUDICATION §2.3).
+/-- One observation on a party's machine.
 
 `.act` records every base action the machine executed (commits, fires,
 internal sends and receives — everything on the machine is observable,
@@ -101,7 +103,7 @@ which maximizes locality and so strengthens the impossibility theorems);
 completion, never the remote drain (a consumption receipt would be a
 covert credit; excluded, decision-for-Finch #2); `.delivered` fires at
 demux delivery, pre-consumption — the slot-peek ruling of
-MUX-ADJUDICATION §2.3, ratified per attack-refute F2 (peek is
+the adjudicated slot-peek ruling, cross-examination-ratified (peek is
 load-bearing for the LANDED coverage proof — `groundedPush` grounds
 arrivals in `.delivered` — and faithful to the Rust demux, which
 decodes every frame before routing; stage-0 P4 showed it is NOT a
@@ -150,7 +152,7 @@ def wireHeight : Chan → Nat
 
 /-- The wire stream heights party `p` produces: the opening wire
 (`wire p rootH` — the openings route through the mux, old-mux faithful,
-MUX-ADJUDICATION §2.2's adopted opening-route decision) plus one stream per
+the adopted opening-route decision, old-mux faithful) plus one stream per
 p-side walk stage. -/
 def wireHeights (sk : Skel) (p : Party) : List Nat :=
   sk.rootH :: sk.walkKeys.filterMap fun pk =>
@@ -171,7 +173,7 @@ structure MState where
   pipe : Party → List Chan
   hist : Party → List MObs
 
-/-- The extended action alphabet (MUX-ADJUDICATION §2.2).
+/-- The extended action alphabet.
 
 `base` carries the 23 protocol arms (wire sends disabled, wire closes
 strengthened — module doc); `push p` is the strategy-gated mux move;
@@ -284,7 +286,8 @@ def isWireFire (s : State) : Action → Bool
   | _ => false
 
 /-- The strengthened wire close-receive guard: no frame of `c` may still
-be in flight in the producer's pipe (attack-refute F8).
+be in flight in the producer's pipe (the strengthened-close repair;
+its must-fail control is `noF8_bogus_terminal` in Mux/Controls.lean).
 
 `producerDone` and the empty slot are the base conjuncts; without this
 third one a receiver could close under an in-flight frame and reach a
@@ -294,7 +297,7 @@ def pipeClear (s : MState) (c : Chan) : Bool :=
 
 /-- Run base action `a` on the wrapped state, recording the observation.
 
-The verbatim lift of MUX-ADJUDICATION §2.2: wire sends are disabled
+The verbatim lift of the adjudicated arm dispositions: wire sends are disabled
 (they are `push`es now), the two wire close-receives carry the F8
 conjunct, and the remaining 18 arms — including every wire *receive*,
 which reads `base.chan` as the demux slot — delegate to `Model.apply`
@@ -384,7 +387,7 @@ inductive MReachable (sk : Skel) (ax : AxMode) (C : Nat)
       MReachable sk ax C σI σR s'
 
 /-- Deadlock freedom of the muxed composition under a fixed strategy
-pair: no reachable state is stuck (MUX-ADJUDICATION §2.2).
+pair: no reachable state is stuck.
 
 Strategies fix the push choices; the endpoint interleaving — which
 process runs, which obligation a walk commits to among ledger-legal

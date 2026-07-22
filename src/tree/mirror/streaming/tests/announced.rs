@@ -1,5 +1,8 @@
 //! Bridge 3: announced-skeleton reconstruction — the payload-independence
-//! bridge B5 (`formal/AUDIT-NOTES.md` A5; MUX-ADJUDICATION §2.3, §4).
+//! bridge B5: the announced skeleton is reconstructible from the frame
+//! transcript alone — payload contents carry the announcements charter
+//! locality rests on, per channel (never globally: the terminal select
+//! draws scheduler randomness).
 //!
 //! MODEL.md §1's extraction premise — the count and order of channel
 //! operations depend only on each child's merge-join arm, never on payloads

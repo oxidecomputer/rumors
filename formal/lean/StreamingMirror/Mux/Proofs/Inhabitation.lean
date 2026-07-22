@@ -1,6 +1,6 @@
 /-
-Non-vacuity certificates for the strategy classes (MUX-ADJUDICATION.md
-§2.4's mandated controls, the phase-4 F8 repair): the shipped policy
+Non-vacuity certificates for the strategy classes (the adjudication's
+mandated controls, landed as a phase-4 repair): the shipped policy
 `bottomMostReady` is `WorkConserving` — and its K/E-universe twins —
 and is `LocalStrategy`, so every ∀-class impossibility in the suite
 quantifies over a kernel-inhabited class.
@@ -983,8 +983,8 @@ theorem bottomMostReady_names_enabled {s : MState} (hm : HistInv sk s)
         exact hpred
       exact mem_enabledPushes.mpr ⟨hroom, hw⟩
 
-/-- The shipped policy is work-conserving: MUX-ADJUDICATION §2.4's
-mandated `bottomMostReady_wc`, the non-vacuity certificate for
+/-- The shipped policy is work-conserving: the mandated
+`bottomMostReady_wc`, the non-vacuity certificate for
 `wc_impossibility`'s and T6's hypothesis class.
 
 At the class's full generality — every axiom mode, every skeleton,
@@ -1011,8 +1011,7 @@ theorem bottomMostReady_wcE (p : Party) :
 
 -- ================================================ the locality witnesses
 
-/-- The shipped policy is local: MUX-ADJUDICATION §2.4's mandated
-`bottomMostReady_local`.
+/-- The shipped policy is local: the mandated `bottomMostReady_local`.
 
 Stronger than the class demands: the policy reads only `rootH` (a
 commonly-known session parameter, the first `LocalEq` conjunct) and its

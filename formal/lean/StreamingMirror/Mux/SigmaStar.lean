@@ -1,6 +1,6 @@
 /-
-σ*, demand-lockstep with forward derivation (MUX-ADJUDICATION.md §3 T4;
-refute-c1 §1.4 as ratified): push a frame only when the receiver's
+σ*, demand-lockstep with forward derivation (T4's strategy, as
+ratified by the adjudication): push a frame only when the receiver's
 consumption of its per-stream predecessor is proven — derivable from
 the machine's own observation history by the Certified ∪ Inevitable
 closure — and among the proven-demanded held streams push the τ-least.
@@ -10,7 +10,7 @@ closure — and among the proven-demanded held streams push the τ-least.
 Frame seqs are 0-based here (`Sched.Ev` numbering): the next frame on
 stream `h` is the `pushedCount tr h`-th, and it is *proven-demanded*
 iff it is the stream's first frame or `rcv(c, k−1)` is in the closure —
-refute-c1's `k = 1 ∨ rcv(c, k−1) ∈ Certified ∪ Inevitable`, with
+the ratified rule `k = 1 ∨ rcv(c, k−1) ∈ Certified ∪ Inevitable`, with
 `certified ⊆ inevitable` by construction (`certified_subset_inevitable`)
 collapsing the union to one membership test.
 
@@ -31,7 +31,7 @@ SigmaStarLive.lean's companion notes for the precise gap).
 
 τ-least among the candidates, ties broken toward the list head. The
 liveness proof never uses the tie-break (any member of the candidate
-set refutes stuckness — refute-c1 §1.4's "any fixed order works"); the
+set refutes stuckness — any fixed order works); the
 τ-least choice matches the demand-order intuition and keeps the
 strategy deterministic.
 -/
@@ -60,7 +60,7 @@ def partyOf (tr : List MObs) : Option Party :=
 
 /-- Is the next frame on stream `h` proven-demanded at observation `tr`?
 First frames are unconditionally demanded (every consumer's first
-wire-channel operation is the receive itself — refute-c1 §1.4); later
+wire-channel operation is the receive itself); later
 frames demand a closure proof that the predecessor was consumed. -/
 def demanded (sk : Skel) (p : Party) (tr : List MObs) (h : Nat) : Bool :=
   pushedCount tr h == 0 ||
@@ -70,7 +70,7 @@ def demanded (sk : Skel) (p : Party) (tr : List MObs) (h : Nat) : Bool :=
 /-- The evidence-only demand rule: the closure replaced by bare push
 evidence (`certified`). The `evidence_only_starves` control pins that
 this variant wedges where σ* completes — the Inevitable closure is
-load-bearing, not decoration (MUX-ADJUDICATION §3 T4 controls). -/
+load-bearing, not decoration. -/
 def demandedEv (sk : Skel) (p : Party) (tr : List MObs) (h : Nat) : Bool :=
   pushedCount tr h == 0 ||
     (certified sk p tr).contains
@@ -128,7 +128,7 @@ def sigmaCands (sk : Skel) (p : Party) (tr : List MObs) : List Nat :=
 
 /-- σ*, demand-lockstep: the τ-least proven-demanded held stream, or
 idle when no held stream's demand is proven (the right to idle is the
-entire frontier — MUX-ADJUDICATION §1.2). -/
+entire frontier of the impossibility). -/
 def sigmaStar : Strategy := fun sk tr =>
   match partyOf tr with
   | none => none
@@ -141,7 +141,7 @@ def sigmaStar : Strategy := fun sk tr =>
 /-- The evidence-only control variant of σ*: same selection, `demanded`
 weakened to `demandedEv`. Never shipped; minted because it marks C1's
 boundary (an all-M scope is invisible in traffic, so evidence alone
-cannot prove its consumption — refute-c1 §5). -/
+cannot prove its consumption; only the Inevitable closure can). -/
 def sigmaEvidence : Strategy := fun sk tr =>
   match partyOf tr with
   | none => none

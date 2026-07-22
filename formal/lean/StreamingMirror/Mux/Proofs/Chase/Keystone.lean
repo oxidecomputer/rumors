@@ -1,6 +1,6 @@
 /-
-T2, the repaired Keystone Lemma (MUX-ADJUDICATION.md §3 T2; the F1
-route of attack-refute, formalized): at a stuck muxed state, every
+T2, the repaired Keystone Lemma (the cross-examination's push-time-
+derivation route, formalized): at a stuck muxed state, every
 event a machine's demand closure derived at push time has been
 performed.
 
@@ -20,8 +20,8 @@ hypotheses:
   the same machine, so its delivery counts bound today's.
 
 Stating the tree this way removes every delivery event from the
-induction: the broken delivery case of the original lemma
-(attack-refute F1) cannot even be written, and what remains is exactly
+induction: the broken delivery case of the original lemma cannot even
+be written, and what remains is exactly
 the panel's repaired remainder — non-push events discharged by the
 counting/enabledness argument.
 

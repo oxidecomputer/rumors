@@ -8,8 +8,9 @@ anchor below was re-derived from the code on this branch
 (`single-connection` at `9cc3c79a`); where the design doc's citations
 drifted, the code wins and §8 records the discrepancy.
 
-Theorem-status snapshot (2026-07-21, from `formal/MUX-PROGRESS.md` on
-`mux-conjectures`; sweep §3's reconciliation table at each stage
+Theorem-status snapshot (2026-07-21; the landed status of record is
+`formal/lean/StreamingMirror/Mux/Statement.lean`; sweep §3's
+reconciliation table at each stage
 boundary): T3 `wc_impossibility` ✓ kernel; T4 `sigmaStar_deadlock_free`
 ✓ kernel; termination ✓ kernel; `elastic_deadlock_free` ✓ kernel (seam
 closure in flight, track T10); `wc_impossibility_K` ✓ kernel for
@@ -21,7 +22,8 @@ flight. **No stage waits on any of these** — see §3 for the stance.
 ## 0a. Standing note (2026-07-22): the contingency posture
 
 Per the conclusion of record (main: `formal/doc/exposition.typ`
-@consequence; `formal/MUX-PROGRESS.md` §3e; `single-socket.md`'s
+@consequence; the T11 charter in
+`formal/lean/StreamingMirror/Mux/Charters.lean`; `single-socket.md`'s
 revision of record), the `Link` contract stands as the library's
 product surface and this plan is the CONTINGENCY plan. The stages were
 built independently valuable and remain so under that posture: R0's
@@ -91,7 +93,7 @@ churning the greeting twice.
   a number to hold (the design doc's §8.9 concern). Record in the
   spike note; re-run in V.6.
 - **R0.5 — reconciliation ritual.** One-liner: at each stage
-  boundary, re-read `MUX-PROGRESS.md` §4/§5 and sweep §3's
+  boundary, re-read `Mux/Statement.lean` and sweep §3's
   reconciliation table — reconcile, don't wait. A landed theorem with
   a different shape is a diff to apply, not a blocker that was
   secretly there all along.
@@ -190,8 +192,8 @@ kernel proofs harden certainty — their landing is *expected, not
 awaited*.
 
 Where the workstream lives: branch `mux-conjectures`, worktree
-`/Users/oxide/src/rumors-mux`; status source
-`formal/MUX-PROGRESS.md` §4 (findings) and §5 (log). In flight at
+`/Users/oxide/src/rumors-mux`; the landed status of record is
+`formal/lean/StreamingMirror/Mux/Statement.lean`. In flight at
 writing: **T8** `sigmaStarK_deadlock_free` (stubbed, with the
 per-direction `(K_I, K_R)` parameterization already recorded);
 **σ\*-causal** (branch `mux-causal`) — the causal closure that *is*

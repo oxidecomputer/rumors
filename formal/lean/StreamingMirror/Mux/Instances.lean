@@ -1,11 +1,10 @@
 /-
 The T0 instances: the `wedge` witness skeleton, the margin-0 hypothesis
 in bounded form, the shipped-mux strategy, and the kernel-decided smoke
-run (MUX-ADJUDICATION.md §3, T0).
+run (the T0 pins).
 
 `wedge` is the committed Rust regression shape in skeleton terms
-(the forced-run family at the Rust trigger point, adjudicated at
-MUX-ADJUDICATION §1.2; the probe's
+(the forced-run family at the Rust trigger point; the probe's
 `regression_shape(provisions := 6, rootH := 6)`): the root disputes its
 FIRST radix child — a chain descending disputed levels to a leaf
 request — and takes six whole-subtree provisions behind it on the same
@@ -13,14 +12,13 @@ stream. One fixed skeleton defeats everything: T3 (`wc_impossibility`,
 stage 2) says every work-conserving pair jams it at every capacity,
 while the same skeleton is inside the base flagship's hypothesis class
 (`wedge_wellFormed` + `wedge_margin0` + `Sched.deadlock_free`), so each
-witness carries its own in-context proof that only the mux is at fault
-(MUX-ADJUDICATION §2.6).
+witness carries its own in-context proof that only the mux is at fault.
 
 `bottomMostReady` is the shipped mux's policy (outgoing.rs:199-224's
 reverse-index poll): deepest ready stream first, memoryless. Here it is
 the pinned concrete `Strategy`, reconstructing its ready set from the
 observation history alone (a machine's local state is a deterministic
-function of its own action history — MUX-ADJUDICATION §2.3).
+function of its own action history).
 
 The two smoke theorems pin the whole harness end to end in the kernel,
 one from each side: the muxed `smokeChain` at C = 1 under
@@ -40,7 +38,7 @@ open Pin (sc)
 
 -- ========================================================== the wedge shape
 
-/-- The regression-shape witness (MUX-ADJUDICATION §1.2, §3 T0): rootH 6,
+/-- The regression-shape witness (T0): rootH 6,
 root fan 7 — the first radix child deep-disputed down to a leaf request,
 six whole-subtree provisions behind it on the same stream.
 
@@ -73,7 +71,7 @@ def wedge : Skel :=
 /-- The margin-0 capacity discipline as a bounded boolean check: every
 scope's dispute count within the assembler capacity — the shipping
 encoder's `FAN ≥ kids` stance, the hypothesis class of every mux
-statement of record (MUX-ADJUDICATION §2.6).
+statement of record.
 
 Bounded over the scope table so it is kernel-`decide`-friendly;
 `margin0_sound` recovers the flagship theorem's unbounded form
@@ -149,7 +147,7 @@ from the observation history (`committedInHist`). Work-conserving and
 local, kernel-checked: `bottomMostReady_wc` (with the K/E-universe
 twins `bottomMostReady_wcK`/`bottomMostReady_wcE`) and
 `bottomMostReady_local` in Mux/Proofs/Inhabitation.lean discharge the
-MUX-ADJUDICATION §2.4 obligations — the non-vacuity certificates for
+mandated obligations — the non-vacuity certificates for
 every ∀-class impossibility over `WorkConserving`. -/
 def bottomMostReady : Strategy := fun sk tr =>
   (List.range (sk.rootH + 1)).find? fun h =>
@@ -191,7 +189,7 @@ set_option maxRecDepth 16000 in
 /-- The smoke pin's negative twin, and the transcription-parity anchor:
 the muxed `wedge` at C = 1 under the shipped policy on both sides drains
 to a stuck non-terminal state — the model twin of the committed Rust
-regression and the probe's minimized jam (MUX-ADJUDICATION §1.2 point 2).
+regression and the probe's minimized jam.
 
 Same greedy drain, same strategy pair as the positive smoke above; only
 the skeleton differs — the harness reproduces the deadlock it exists to

@@ -2,7 +2,7 @@
 //! observability.
 //!
 //! This is bridge support for the mux campaign's Rust proptest bridges
-//! (`formal/MUX-ADJUDICATION.md` §4, stage-2 track D): a Rust mirror of the
+//! (the campaign's bridge suite): a Rust mirror of the
 //! Lean `Skel` (`formal/lean/StreamingMirror/Skel.lean`), the per-party view
 //! projection and `LocalEq` (`formal/lean/StreamingMirror/Mux/Strategy.lean`,
 //! `viewEnc`), the `wedge` witness shape
@@ -17,7 +17,8 @@
 //! - [`announced`] reads the payload-erased wire [`Transcript`] alone — no
 //!   tree, no internal events — and rebuilds the *announced* skeleton by
 //!   replaying the protocol's positional pairing, which is exactly the
-//!   reconstruction bridge B5 asks for (`formal/AUDIT-NOTES.md` A5).
+//!   reconstruction bridge B5 asks for: payload-decoded frame contents
+//!   determine the announced skeleton, the fact charter locality rests on.
 //!
 //! Deviations from the Lean, recorded: the mirror carries `scopes` and
 //! `rootH` only. `Skel.fan` and `Skel.capLevel` are model configuration with
@@ -486,7 +487,7 @@ enum Question {
 /// Reconstruct the announced dispute skeleton from the payload-erased frame
 /// transcript alone — no tree access, no internal events.
 ///
-/// This is bridge B5 (`formal/AUDIT-NOTES.md` A5): the reconstruction
+/// This is bridge B5 (payload-independence made checkable): the reconstruction
 /// replays the protocol's positional pairing, so it works precisely because
 /// every consumption-order discriminator is announced in-band. Per stream,
 /// each reply answers the oldest unanswered question at its height; a
@@ -665,7 +666,7 @@ pub(super) fn transcript_streams(
 /// Lean literal's generator.
 ///
 /// The shape (`formal/lean/StreamingMirror/Mux/Instances.lean` `wedge`,
-/// MUX-ADJUDICATION §1.2/§3 T0): root fan 7 — the FIRST radix child
+/// the Lean witness's shape): root fan 7 — the FIRST radix child
 /// deep-disputed, a single-child chain descending every level to a height-1
 /// scope carrying one leaf request, with six whole-subtree provisions behind
 /// it. At `root_h = 6` this is exactly the Lean literal

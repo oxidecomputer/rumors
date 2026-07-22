@@ -1,5 +1,5 @@
 /-
-The chase (MUX-ADJUDICATION.md §3 T2, stage-2 track B): the shared
+The chase (T2): the shared
 proof infrastructure both stage-3 theorems consume — T5's oracle
 (argmin + π-eligibility) and T4's σ* (keystone + coverage).
 
@@ -9,7 +9,7 @@ proof infrastructure both stage-3 theorems consume — T5's oracle
   the stuckness transfer lemmas (muxed-enabled ⇔ base-enabled off the
   wire fires).
 - Chase/Closure.lean — the Certified/Inevitable demand closures
-  (refute-c1 §1.3, repaired per attack-refute F1/F6).
+  (the ratified evidence/inevitability design, cross-examination-repaired).
 - Chase/Decode.lean — the base pending layer packaged for the mux:
   pool inversions, the unified frontier decode, τ-comparison tools.
 - Chase/Keystone.lean — T2: closure members are performed at stuck
@@ -301,7 +301,7 @@ theorem chase_withheld {B : Chan → Nat} (hwf : sk.wellFormed = true)
 /-- At a stuck state a nonempty pipe's head is slot-blocked: `deliver`
 is never strategy-gated, so only a full slot can hold it.
 
-This is T4-Step-1's opening move (refute-c1 §2.1): together with the
+This is T4-Step-1's opening move: together with the
 `MuxInv` count fields it pins the head-of-line configuration — the
 slot frame is the head's per-stream predecessor at seq
 `recvdOf = deliveredCount − 1` — whose unconsumed-ness the keystone

@@ -1,5 +1,5 @@
 /-
-The C1 verdicts (MUX-ADJUDICATION.md §3 T4 companions): the literal
+The C1 verdicts: the literal
 conjecture at its two locality grains, its refutation shapes, and the
 control pinning why the Inevitable closure is load-bearing.
 
@@ -49,7 +49,7 @@ separately (`oracle_not_localStrategy`, `oracle_not_charterLocal`).
   with the causal coverage induction and the closure's saturation).
   The theorem is exactly T8's "inference progress" conjunct, now
   available to the window-sliding argument as a lemma. The probe and
-  wedge anchors (STAGE0-GATES.md P1's 4,970/4,970 terminal runs —
+  wedge anchors (the stage-0 P1 sweep's 4,970/4,970 terminal runs —
   which validated the strategy's Python counterpart; Mux/Causal.lean's
   module doc names the divergence axes — and
   `wedge_sigmaStarCausal_completes`, on this object) stand behind it
@@ -75,7 +75,7 @@ separately (`oracle_not_localStrategy`, `oracle_not_charterLocal`).
   corollary: the evidence-only variant (push evidence, no forward
   derivation) wedges on `wedge`'s provision wall — with `certified`
   grounding sends only, no later-than-first frame is ever
-  proven-demanded, which is refute-c1 §5's boundary observation: the
+  proven-demanded, which is the boundary observation: the
   Inevitable closure is what C1's falsity rests on, not evidence.
 
 # T8 (LANDED): the positive half's pointer
@@ -89,8 +89,8 @@ pair K_I, K_R ≥ 1, and EVERY window-disciplined strategy pair
 causally licensed frames; the canonical σ*ₖ and the shipped-ladder
 shape are checked inhabitants), the K-deep composition is
 deadlock-free and completes within `2·ρ(init)` steps. The
-specification of record is formal/T8-SPEC.md, whose landed note
-carries the clause-by-clause audit crosswalk.
+specification of record is Proofs/SigmaStarKLive.lean's module doc,
+which carries the clause-by-clause audit crosswalk.
 
 The stub's two convention notes are honored by the landed statement:
 argument order `MuxDeadlockFreeK sk ax KI KR C σI σR` (depths before
@@ -229,8 +229,7 @@ set_option maxRecDepth 1000000 in
 /-- The evidence-only variant starves on the wedge's provision wall:
 with `certified` grounding sends only, no frame past a stream's first
 is ever proven-demanded, and the greedy drain parks in `mstuck`
-(refute-c1 §5: the forward derivation, not evidence, is what refutes
-C1). -/
+(the forward derivation, not evidence, is what refutes C1). -/
 theorem wedge_evidence_starves :
     mstuck wedge .impl 1 sigmaEvidence sigmaEvidence
       (mdrain wedge .impl 1 sigmaEvidence sigmaEvidence 800

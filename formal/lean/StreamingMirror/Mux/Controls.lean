@@ -1,7 +1,7 @@
 /-
 The T3 control suite: kernel-checked pins that each hypothesis of the
-impossibility theorem is load-bearing (MUX-ADJUDICATION.md §3, T3
-controls; the close-guard must-fail pin is T0's negative control).
+impossibility theorem is load-bearing (the close-guard must-fail pin
+is T0's negative control).
 
 Every control here is a `decide` — no `native_decide` — in the
 Controls.lean idiom: a concrete run, a kernel verdict on its final
@@ -44,8 +44,8 @@ that never arrived. The pin therefore guards the guard: `mstuck` and
 `mterminal` are total over arbitrary `Skel`, the theorem statements
 quantify over strategy-reachable states of ANY skeleton a caller
 writes down, and the close semantics must not depend on well-formedness
-for its soundness — attack-refute F8's "Terminal/stuck classification
-drifts at the session tail" is this drift.
+for its soundness — the cross-examination's "Terminal/stuck
+classification drifts at the session tail" is this drift.
 -/
 import StreamingMirror.Mux.Instances
 
@@ -74,8 +74,8 @@ def pushScript (script : List Nat) : Strategy := fun _ tr =>
 /-- The shipped mux policy is NOT deadlock-free on `wedge` at C = 1: the
 kernel-decided jam (`wedge_bottomMostReady_jams`, Mux/Instances.lean)
 lifted through `mdrain_reachable` to refute `MuxDeadlockFree` itself —
-the model twin of the committed Rust regression (MUX-ADJUDICATION §1.2,
-§3 T3 controls; deadlock doc §7 item 4). -/
+the model twin of the committed Rust regression (deadlock doc §7
+item 4). -/
 theorem wedge_not_deadlockFree :
     ¬ MuxDeadlockFree wedge .impl 1 bottomMostReady bottomMostReady := by
   intro h
@@ -94,8 +94,8 @@ BEFORE the six provisions.
 Where the work-conserving policy is forced to flood the provision wall,
 this script idles the wall at exactly the fill observations — the mux
 declines the committed provision until the deep frames have flushed —
-which is the σ* move in its simplest hard-coded form (MUX-ADJUDICATION
-§1.2 point 3: the right to idle, not frame choice, is the entire
+which is the σ* move in its simplest hard-coded form (the right to
+idle, not frame choice, is the entire
 frontier). -/
 def wedgeIdlerI : Strategy := pushScript [6, 5, 3, 1, 5, 5, 5, 5, 5, 5]
 
@@ -108,8 +108,7 @@ set_option maxRecDepth 16000 in
 /-- Work-conservation is load-bearing in T3: a hand-built IDLING pair
 completes `wedge` at the minimum capacity — same skeleton, same C, same
 greedy scheduler as the jam pin; only the strategies' right to idle
-differs (MUX-ADJUDICATION §3, T3 controls: "a hand-built idling
-strategy completes wedge").
+differs: a hand-built idling strategy completes wedge.
 
 With `wedge_not_deadlockFree` this splits the deadlock's cause off the
 skeleton and onto the strategy class: `wc_impossibility`'s hypothesis
@@ -126,7 +125,8 @@ the wire channel WITHOUT the slot-empty guard, so per-stream demux
 state grows without bound; every other arm is the harness of record.
 
 This is the option-C escape hatch of the boundedness caveat
-(MUX-ADJUDICATION §1.2 point 2): with unbounded endpoint demux state
+(the rejected option C of the boundedness analysis): with unbounded
+endpoint demux state
 the pipe always drains, FIFO burial is impossible, and no send-order
 impossibility can exist — C1 is trivially false without a bound on
 demux state. Defined locally: it is a control's foil, not a semantics
@@ -160,8 +160,7 @@ set_option maxHeartbeats 1000000 in
 /-- The one-slot demux state is load-bearing in T3: under the
 unbounded-slot variant the SAME work-conserving pair that jams `wedge`
 (`wedge_bottomMostReady_jams`) completes it at the same capacity
-(MUX-ADJUDICATION §3, T3 controls: "unbounded-slot variant completes
-wedge under bottomMostReady").
+— the unbounded-slot variant completes wedge under bottomMostReady.
 
 With capacity flatness (the probe's minimal w = 4 instance across
 C ∈ {1..16}, §1.2 point 2 — the landed `wedge` literal is the
@@ -190,8 +189,7 @@ theorem smokeChain_C0_stuck :
 /-- The `1 ≤ C` hypothesis of T3 is load-bearing: at C = 0 deadlock is
 capacity-vacuous — even the completing smoke skeleton jams under the
 shipped policy — so an impossibility statement admitting C = 0 would
-indict nothing about scheduling (MUX-ADJUDICATION §3, T3 controls:
-"C = 0 vacuity"). -/
+indict nothing about scheduling (the C = 0 vacuity pin). -/
 theorem smokeChain_C0_not_deadlockFree :
     ¬ MuxDeadlockFree Pin.smokeChain .impl 0
       bottomMostReady bottomMostReady := by
@@ -338,7 +336,7 @@ process's eyes while the producer's pipe still carries the frame the
 absorber closed over. `mterminal`'s pipes-drained conjunct still
 catches this state — the two guards are independent defenses, and this
 pin shows the second is live when the first is removed (T0's negative
-control, MUX-ADJUDICATION §3). -/
+control). -/
 theorem noF8_bogus_terminal :
     (match mrunNoF8 gadget .impl 1 gadgetI gadgetR (init gadget)
         gadgetTrap with

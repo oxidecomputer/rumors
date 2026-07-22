@@ -1,4 +1,5 @@
-//! Bridge 1: wedge realizability (MUX-ADJUDICATION §4, stage-2 track D).
+//! Bridge 1: wedge realizability — real trees produce the Lean witness's
+//! dispute skeleton.
 //!
 //! The mux impossibility theorem T3 (`wc_impossibility`) quantifies over one
 //! fixed skeleton, `wedge` (`formal/lean/StreamingMirror/Mux/Instances.lean`):
@@ -105,7 +106,7 @@ fn wedge_trees() -> (Root<()>, Root<()>) {
 /// root height, with the witness's `fan` and margin-0 `capLevel` values
 /// intact.
 ///
-/// This is the T3 Rust corollary's bridge (MUX-ADJUDICATION §3): the
+/// This is the T3 Rust corollary's bridge: the
 /// impossibility's ∃-witness is realizable, so `wc_impossibility` indicts a
 /// transport, not a phantom shape. On this branch (link-transport) the
 /// session completes — the wedge jams only the retired single-pipe mux — so

@@ -116,8 +116,9 @@ tied to them by checks at both ends (branch `parent-first`,
   flagship, widening is now a THEOREM — `Sched.deadlock_free_wide`
   (Proofs/Wide.lean): deadlock freedom plus the ρ(init) run bound at
   every pointwise capacity vector κ ≥ `sk.cap`, with `applyW_cap`
-  pinning that κ = κ₀ recovers `apply` definitionally (AUDIT-NOTES.md
-  A7, resolved 2026-07-21). What remains assumed is the `d5` corner's
+  pinning that κ = κ₀ recovers `apply` definitionally (the audit's
+  capacity-monotonicity item, resolved by theorem 2026-07-21). What
+  remains assumed is the `d5` corner's
   wire-widening: `deadlock_free_d5`'s chain still consumes the full
   `InvP`, so widened wire cells under the parent-early discipline rest
   on the informal Kahn argument (design/parent-placement.md §6) until

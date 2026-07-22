@@ -1,5 +1,5 @@
 /-
-T3, `wc_impossibility` (MUX-ADJUDICATION.md §3): one fixed skeleton
+T3, `wc_impossibility`: one fixed skeleton
 defeats everything — for every capacity C ≥ 1 and EVERY pair of
 work-conserving strategies, local or not, the muxed `wedge` session
 reaches a stuck non-terminal state.
@@ -9,8 +9,8 @@ reaches a stuck non-terminal state.
 The adversary schedules endpoints and withholds R→I deliveries so that
 every strategy consultation happens at a state whose enabled-push set
 is a SINGLETON; work-conservation forces the push; the strategies are
-never meaningfully consulted (verified step-by-step by
-attack-prove §1.3, adopted by MUX-ADJUDICATION §1.2). Mechanized as a
+never meaningfully consulted (the singleton-consultation design,
+verified step-by-step in cross-examination). Mechanized as a
 σ-free executor:
 
 - `fstep` takes, in priority order, the first enabled base action, a
@@ -226,7 +226,8 @@ else a forced push (I before R), else a forward delivery, else — last,
 the adversary's signature — a reverse delivery.
 
 `deliver .R` last is the delivery-withholding schedule of the forced
-run (attack-prove §1.3): R's question frame crosses only when the
+run (the cross-examination's withholding schedule): R's question frame
+crosses only when the
 system is otherwise quiescent, i.e. after the provision wall has
 parked the consumer. -/
 def fstep (sk : Skel) (ax : AxMode) (b : Nat) (s : MState) :
@@ -348,8 +349,7 @@ private theorem fstep_replay {sk : Skel} {ax : AxMode} {b C : Nat}
 
 /-- The forced run replays end to end: the drained state is reachable
 under EVERY work-conserving pair at every capacity C ≥ b — the
-strategies are never meaningfully consulted (MUX-ADJUDICATION §1.2
-point 1). -/
+strategies are never meaningfully consulted. -/
 theorem fdrain_replay {sk : Skel} {ax : AxMode} {b C : Nat}
     {σI σR : Strategy} (hbC : b ≤ C)
     (hWI : WorkConserving .I σI) (hWR : WorkConserving .R σR)
@@ -545,11 +545,11 @@ theorem wedge_forced_stuck_ge4 :
 
 -- ===================================================== the impossibility
 
-/-- T3, `wc_impossibility` (MUX-ADJUDICATION §3): one fixed, realizable,
+/-- T3, `wc_impossibility`: one fixed, realizable,
 margin-0 skeleton defeats every work-conserving pair at every capacity.
 
 No locality hypotheses: even an omniscient work-conserving strategy
-dies (MUX-ADJUDICATION §1.2 — the right to idle, not information, is
+dies (the right to idle, not information, is
 the entire frontier; the σ-side of the trichotomy is T4's, and the
 idler control in Mux/Controls.lean shows the same skeleton completes
 when idling is allowed). The un-muxed `wedge` session is inside the

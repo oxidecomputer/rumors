@@ -1,11 +1,10 @@
 /-
-The T5/T9 control suite (MUX-ADJUDICATION.md §3 T5 controls, §2.4
-mandatory controls; stage-3 track E): kernel `decide` pins bracketing
+The T5/T9 control suite: kernel `decide` pins bracketing
 the oracle theorem from every side the adjudication names.
 
 - **the refuted primary form, pinned** — the receive-projection pusher
-  `ofSchedule (demandOrder sk d)` (MUX-ADJUDICATION §1.3's π_d, the
-  form the P2 gate and muxprobe executably refuted) jams a pinned
+  `ofSchedule (demandOrder sk d)` (π_d, the form the stage-0 P2 gate
+  and muxprobe executably refuted) jams a pinned
   margin-0 witness at C = 1 (`static_oracle_jams`), which the oracle of
   record completes at the same capacity (`piWedge_oracle_completes`);
 - **non-vacuity anchors** — the oracle completes the positive smoke
@@ -35,8 +34,8 @@ stays pinned in the muxprobe golden matrix.
 # The T9 witness pair
 
 `viewPair`/`viewPair'` differ ONLY in a height-1 leaf-request count —
-erased from BOTH parties' views (`viewEnc`; oracle-c2 §3.2's
-adjudicated erasure), so `LocalEq p` holds for both parties while the
+erased from BOTH parties' views (`viewEnc`'s adjudicated erasure), so
+`LocalEq p` holds for both parties while the
 responder's supply-run length differs: every projection of τ on the
 responder's side (receive order AND send order) sees the difference.
 Searched and not found: an INITIATOR-side witness — on every generator
@@ -58,7 +57,7 @@ open Pin (sc)
 
 /-- The static list-pusher: entry `k` of a fixed height list names the
 `k`-th push; idle while the next listed frame is not yet in hand
-(MUX-ADJUDICATION §3 T5's `ofSchedule`, the thin `Strategy` wrapper).
+(`ofSchedule`, the thin `Strategy` wrapper).
 
 `Gen.pushList` is its executable-tier twin (indexed by the same flush
 count); minted here because a kernel control consumes it. -/
@@ -67,8 +66,8 @@ def ofSchedule (ord : List Nat) : Strategy := fun _ tr =>
 
 /-- Direction `d`'s wire frames in receiver-consumption order: the
 RECEIVE projection of the canonical schedule, as stream heights —
-MUX-ADJUDICATION §1.3's demand order π_d, the oracle form the P2 gate
-executably refuted (`Gen.piOrder` is the executable-tier twin,
+the demand order π_d, the oracle form the stage-0 P2 gate executably
+refuted (`Gen.piOrder` is the executable-tier twin,
 definitionally equal: `piOrder_eq_demandOrder`, Mux/Proofs/Twins.lean;
 the theorem-bearing definition carries the adjudication's
 vocabulary).
@@ -124,8 +123,7 @@ set_option maxHeartbeats 16000000 in
 /-- The adjudication's primary T5 form is FALSE: the receive-projection
 pusher `ofSchedule (demandOrder …)` — full bidirectional skeleton
 knowledge, τ's own consumption order, precomputed — deadlocks `piWedge`
-at C = 1 (the P2 π-eligibility failure, kernel tier; STAGE0-GATES.md
-P2, MUX-PROGRESS.md log 2026-07-21).
+at C = 1 (the π-eligibility failure, kernel tier).
 
 Read with `oracle_deadlock_free_of_muxInv` and
 `piWedge_oracle_completes`, this sharpens the muxprobe finding ("even
@@ -216,7 +214,7 @@ theorem viewPair_wellFormed :
   decide
 
 /-- `LocalEq` is nondegenerate: two DISTINCT skeletons with equal views
-on BOTH sides (MUX-ADJUDICATION §2.4's mandatory control — without
+on BOTH sides (the mandatory nondegeneracy control — without
 this, `LocalStrategy` would be vacuously satisfiable and T6's
 class-relativity would say nothing). -/
 theorem localEq_nondegenerate :
@@ -226,8 +224,8 @@ theorem localEq_nondegenerate :
   decide
 
 /-- The demand order consumes remote structure: a `LocalEq` pair with
-different receive projections (MUX-ADJUDICATION §3 T5's
-`oracle_not_local`, stated for the adjudicated π_d form). The
+different receive projections (`oracle_not_local`, stated for the
+adjudicated π_d form). The
 responder's supply run is one frame longer on the mutated half — a
 difference its own view erases. -/
 theorem demandOrder_not_local :

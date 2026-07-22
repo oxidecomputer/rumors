@@ -1,6 +1,8 @@
 /-
-Termination: the ρ measure and its strict decrease (AUDIT-NOTES.md A1,
-remedy (i); MODEL.md §7's paper argument, minted as a kernel theorem).
+Termination: the ρ measure and its strict decrease (MODEL.md §7's
+paper argument, minted as a kernel theorem — before this file, the
+artifact's termination claim was prose plus per-instance checking,
+an audit finding this file resolves).
 
 # The measure
 

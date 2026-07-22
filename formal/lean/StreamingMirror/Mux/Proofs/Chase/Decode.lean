@@ -1,5 +1,5 @@
 /-
-The decode bridge (MUX-ADJUDICATION.md §3 T2): the base model's pending
+The decode bridge (T2's base-layer packaging): the base model's pending
 layer, packaged for the muxed proofs.
 
 Three groups:

@@ -6,8 +6,9 @@ scaffolding, not a retained alternative, and the receive window is
 advertised in the greeting). This document supersedes
 `streaming-wire-deadlock.md` §5A as the single-socket design of
 record — §5A's credit mux is retired, not superseded by silence: the
-mux conjectures campaign (`formal/MUX-PROGRESS.md`,
-`formal/MUX-ADJUDICATION.md`, on the `mux-conjectures` branch) proved
+mux conjectures campaign (the Lean artifact's audit surface is
+`formal/lean/StreamingMirror/Mux/Statement.lean`; the readable accounts
+are `formal/doc/exposition.typ` and `doc/narrative.typ`) proved
 that the credit *messages* carry no information the protocol does not
 already announce, and the eager-absorption assessment
 (`design/eager-absorption.md`, same branch) verified in the code that
@@ -50,8 +51,7 @@ byte-for-byte unchanged), by the campaign's two results:
   un-provably-consumed — K being the *peer's advertised* receive
   window (§3.1) — the proof built from its own pushes, decoded
   arrivals, and the inevitability closure over silent consumptions:
-  "W = K credits inferred instead of sent"
-  (`MUX-ADJUDICATION.md` §1.3, generalized).
+  "W = K credits inferred instead of sent".
 
 The design's shape follows from a decomposition the campaign made
 exact. A credit scheme conflates three things a transport can sell:
@@ -75,7 +75,8 @@ no transport; users discharge the requirement with whatever their
 environment tunes best (QUIC, HTTP/2, separate TCP connections). With
 the mux campaign complete, the conclusion of record (main:
 `formal/doc/exposition.typ`, the engineering-consequence section;
-`formal/MUX-PROGRESS.md` §3e) is that the `Link` contract STANDS:
+the T11 charter in `formal/lean/StreamingMirror/Mux/Charters.lean`) is
+that the `Link` contract STANDS:
 every kernel result brackets the same mechanism finding — a correct
 single-channel scheduler effectively re-implements per-stream
 windowing from application-level signals ([derived]; its kernel form
@@ -87,7 +88,9 @@ the library user whose environment cannot supply multi-stream
 transports. Everything below stands as designed; stage L's gate is now
 *expected never to fire*, and that is this design working as
 intended — finished, shelved, theorem-backed
-(`sigmaStarK_deadlock_free`, every T8-SPEC clause EXACT).
+(`sigmaStarK_deadlock_free`, every specification clause EXACT — the
+spec and crosswalk live in `Mux/Proofs/SigmaStarKLive.lean`'s module
+doc).
 
 ## 1. The end-state, and Link as scaffolding
 
@@ -252,8 +255,7 @@ What changes:
    prior local emission. Verified arm-by-arm across the message
    vocabulary in `eager-absorption.md` §3.3 [checked]; the proptest
    pins it against drift. It is the receive-side mirror of the
-   announcement-completeness that makes σ\* local [proven-adjacent,
-   MUX-ADJUDICATION §1.2].
+   announcement-completeness that makes σ\* local [proven-adjacent].
 
 One [open] carried from the assessment: the `ProxyLocalQuestions`
 occupancy bound (questions in flight per stream) is not K-bounded from
@@ -349,7 +351,7 @@ un-provably-consumed.
 - **Own pushes**: reply boundaries counted at the encode loop's top
   (the natural gating point — `eager-absorption.md` §7.3). Flush
   receipts are flush-paced, not consumption-paced, and stay that way:
-  the standing ruling (MUX-PROGRESS §1) keeps consumption receipts
+  the standing ruling keeps consumption receipts
   out of the observation — the engine must never mistake "the kernel
   took my bytes" for "the peer consumed my reply".
 - **Arrivals as evidence**: a decoded arrival on stream s' whose
@@ -363,8 +365,8 @@ un-provably-consumed.
   everything the peer must still do before it needs no further input
   from this side. This closure is the load-bearing novelty; its probe
   implementation survived 4,970/4,970 causal runs including the
-  adversarial families built to starve it (stage-0 gate P1,
-  MUX-PROGRESS log 2026-07-21) [checked].
+  adversarial families built to starve it (the stage-0 P1 sweep,
+  4,970/4,970 terminal) [checked].
 
 The writer's cross-stream ordering — control-frame priority, chunk
 granularity, and everything else about *which* eligible frame goes
@@ -399,8 +401,8 @@ terminating:
   whose liveness is the kernel-proven flagships. No step of that
   argument mentions which eligible frame goes first. The theorem
   dependencies are named plainly: the elastic-parking simulation
-  theorem and T8, both in flight (§4; status in
-  `formal/MUX-PROGRESS.md` §5), T8 with the asymmetric-window
+  theorem and T8, both in flight at this writing (§4; the landed
+  status is Mux/Statement.lean), T8 with the asymmetric-window
   (K_I ≠ K_R) parameterization §4 already flags.
 - *Starvation is impossible without fairness machinery.* Every pushed
   frame fires a protocol operation and a session's total is finite
@@ -569,8 +571,8 @@ What is already kernel-proven on `mux-conjectures` [proven]:
   `smokeChain_mux_completes`).
 - The oracle, with a statement-strength REVERSAL the campaign's
   stage-3 track E kernel-checked (superseding two earlier
-  adjudications — the panel's projections were backwards; the
-  superseded-marker lives in `MUX-PROGRESS.md`):
+  adjudications — the panel's projections were backwards, a story
+  `doc/narrative.typ` tells):
   `oracle_deadlock_free` holds for the **static send-projection
   pusher** — a *fixed, non-adaptive* send order computed from the
   full skeleton (τ's send projection), live at C₀ = 1 on every
@@ -592,7 +594,8 @@ What is already kernel-proven on `mux-conjectures` [proven]:
   exists.
 
 Landed since the list above was first written (refresh of
-2026-07-21; live status is always `MUX-PROGRESS.md` §4/§5):
+2026-07-21; the landed status of record is
+`formal/lean/StreamingMirror/Mux/Statement.lean`):
 
 - **T2** keystone/chase infrastructure ✓ kernel (track B, merged).
 - **T4** `sigmaStar_deadlock_free` ✓ kernel (track F, merged): σ\*
@@ -771,8 +774,7 @@ Link carries production traffic until stage L.
 - **V — acceptance (§5):** seeds at K ∈ {1, floor+1, production} and
   asymmetric; the transmuted conformance assertions; gate +
   `just all`; soak; docs (`remote.rs`, `window.rs` — K's second
-  consumer and its advertisement; MODEL.md's scope note per
-  AUDIT-NOTES A6).
+  consumer and its advertisement; MODEL.md's scope note).
 - **L — Link removal (the final stage):** delete `src/link.rs`, the
   `conformance` feature and suite, `remote/streams.rs`, the
   transitional constructor switch; resolve the epoch's fate (§1.2
@@ -793,8 +795,9 @@ Link carries production traffic until stage L.
 
 ## Appendix: relation to the campaign documents
 
-- `formal/MUX-ADJUDICATION.md` — why no eager scheme works and why
-  σ\* does: the verdicts this design implements.
+- `formal/doc/exposition.typ` — why no eager scheme works and why
+  σ\* does: the argument this design implements, by argument order;
+  `formal/doc/narrative.typ` for the discovery order.
 - `design/eager-absorption.md` — the code-level feasibility this
   design turns into a plan; its §7.4 is this document's §1.4 in
   embryo.

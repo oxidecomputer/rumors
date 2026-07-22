@@ -1,6 +1,6 @@
 /-
-`MuxInv` preservation — the stage-3 flowOk-template induction
-(MUX-ADJUDICATION.md §4 stage F) — plus the history-side invariants σ*'s
+`MuxInv` preservation — the stage-F flowOk-template induction — plus
+the history-side invariants σ*'s
 liveness proof consumes.
 
 # The three layers
@@ -17,7 +17,7 @@ liveness proof consumes.
   `holdsWire`). Also strategy-generic.
 - `PushProven` (this file): σ*-specific — every push in the history
   carried a demand certificate at its own push-time observation prefix.
-  This is INV-A of refute-c1 §2.1, the input to T4's Step 1: at a stuck
+  This is INV-A, the input to T4's Step 1: at a stuck
   state the pipe head's predecessor-consumption is closure-derivable at
   push time, and the keystone then contradicts its unconsumed slot.
 
@@ -242,7 +242,7 @@ structure SInvB (B : Chan → Nat) (sk : Skel) (s : MState) : Prop where
 capacity. -/
 abbrev SInv (sk : Skel) (s : MState) : Prop := SInvB sk.cap sk s
 
-/-- σ*'s push certificates (INV-A, refute-c1 §2.1): every recorded
+/-- σ*'s push certificates (INV-A): every recorded
 push was proven-demanded against its own push-time observation
 prefix. -/
 def PushProven (sk : Skel) (s : MState) : Prop :=
@@ -1704,7 +1704,7 @@ theorem sinv_reachable (hwf : sk.wellFormed = true) {C : Nat}
   | step a hr' hstep ih => exact sinv_step hwf hstep ih
 
 /-- The transport ground facts hold at every reachable muxed state,
-for every strategy pair: the MUX-ADJUDICATION §4 stage-F obligation,
+for every strategy pair: the stage-F obligation,
 discharged — both stage-3 assemblies (T4's σ* and T5's oracle)
 consume `MuxInv` through this.
 
@@ -1830,8 +1830,8 @@ theorem pushProven_step (hwf : sk.wellFormed = true) {C : Nat}
         exact hcnt hz
       · exact (List.contains_iff_mem ..).mp hmem
 
-/-- σ*'s push certificates hold along every σ*×σ* run: INV-A of
-refute-c1 §2.1, kernel form. -/
+/-- σ*'s push certificates hold along every σ*×σ* run: INV-A, kernel
+form. -/
 theorem pushProven_reachable (hwf : sk.wellFormed = true) {C : Nat}
     {s : MState}
     (hr : MReachable sk .impl C sigmaStar sigmaStar s) :
