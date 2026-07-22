@@ -100,3 +100,52 @@ synchronizations the protocol itself is proven to perform. This is the
 fully-quantified validity statement for the transport the single-socket
 plan builds back to, and the merge gate its §3 reconciliation table
 points at.
+
+## Landed (2026-07-22): the audit crosswalk
+
+The theorem of record is **`sigmaStarK_deadlock_free`**
+(`formal/lean/StreamingMirror/Mux/Proofs/SigmaStarKLive.lean`), with
+the termination half `mux_terminatingK` and the completion package
+`sigmaStarK_completes`/`muxK_greedy_run_terminal`
+(`Mux/Proofs/Termination.lean`). Clause by clause:
+
+| Clause | Lean transcription | Grade |
+|---|---|---|
+| 1. every synchronizable tree pair | `hwf : sk.wellFormed = true`, `hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel` — verbatim the base flagship's domain; no added tree assumptions | EXACT |
+| 2. every capacity | `(C : Nat) (hC : 1 ≤ C)`, universally quantified | EXACT |
+| 3. every depth pair, per direction | `(KI KR : Nat) (hKI : 1 ≤ KI) (hKR : 1 ≤ KR)`, independent; the semantics is the landed K-harness (`MuxDeadlockFreeK sk .impl KI KR C σI σR`, `deliver` gated at the RECEIVING party's depth via `recvDepth`); the asymmetric pin `smokeChain_sigmaStarK_completes_1_4` executes (K_I, K_R) = (1, 4) | EXACT |
+| 4. ANY order permitted by the discipline | class quantification: `{σI σR} (hWI : WindowDisciplined KR .I σI) (hWR : WindowDisciplined KI .R σR)` — the proof consults only the class's two conjuncts, never a selector; inhabitants checked: `sigmaStarK_windowDisciplined` (canonical) and `sigmaLadderK_windowDisciplined` (the shipped `bottomMostReady` ladder over the licensed set) | EXACT |
+| 5. gated only by a causal inference | the licensing predicate is `demandedAK` (`Mux/SigmaStarK.lean`): the ANNOUNCED closure `inevitableA` over `aviewOf` at parking arrears K — never the omniscient `inevitable`; the class's GATE conjunct binds σ to it | EXACT |
+| 6. cannot deadlock AND always completes | progress: `sigmaStarK_deadlock_free` (no reachable `mstuckK` state); bounded termination: `mux_terminatingK` (every K run ≤ 2·ρ(init) steps) and `muxK_greedy_run_terminal` — packaged as `sigmaStarK_completes` | EXACT |
+
+Companions: `sigmaStarK_pair_deadlock_free` (the canonical pair, each
+side gated at its peer's advertised depth — the C1.lean stub's
+intended statement, now a corollary); `sigmaStarK_one`
+(`sigmaStarK 1 = sigmaStarCausal`, the demand-lockstep degeneration,
+strategy-level); `wedge_sigmaStarK_completes_2_2` (the canonical
+adversarial shape completes under the two-deep window, kernel-decided);
+`stuck_coverage_arrears` (`Mux/Proofs/CausalMint.lean`) — the landed
+Step-4 minting ladder with the parking arrears as a parameter, whose
+K = 1 instance re-derives the landed `causalStuckCoverage` verbatim.
+
+### Determined transcription choices (recorded 2026-07-22, none amend the claim)
+
+1. **The arrears numbering.** Clause 5's "announced-closure at parking
+   arrears K" is transcribed 0-based (the artifact's `Sched.Ev`
+   numbering): frame `n = pushedCount` licensed iff
+   `n < K ∨ rcv(c, n − K) ∈ inevitableA` — identically the 1-based
+   "frame k licensed iff k ≤ K ∨ rcv(c, k−K)". The form is DERIVED,
+   not chosen: the K-deep demux guard (`chan < recvDepth`) makes a
+   blocked cell hold exactly K frames past the consumer, and Step 1's
+   keystone contradiction needs the head's push-time certificate to
+   name exactly `rcv(c, recvdOf)` (`Mux/SigmaStarK.lean`, module doc).
+2. **The class's two conjuncts.** Clause 4's sentence names the
+   progress obligation ("performs some licensed push"); clause 5's
+   "gated ONLY by" supplies the gate obligation (σ never names an
+   unlicensed frame — without it the class contains work-conserving
+   members and `wc_impossibility_K` refutes the claim). The class is
+   their conjunction, guarded by realizability under the K-composition
+   (`KConsistentAny`, mirroring `KWorkConserving`'s posture). The
+   guard widens the class, so the ∀-class claim is at least as strong
+   as the unguarded reading — auditable as EXACT-or-STRONGER, never
+   weaker.
