@@ -778,4 +778,450 @@ theorem wire_send_locate (hwf : sk.wellFormed = true)
   unfold Sched.walkEventsE
   exact sublist_flatMap_block hn hpair
 
+
+-- ==================================================== the census ladder
+
+/-- A prefix agrees with its extension positionally. -/
+private theorem prefix_getD {l₁ l₂ : List Nat} (hpre : l₁ <+: l₂)
+    {i : Nat} (hi : i < l₁.length) (d : Nat) :
+    l₂.getD i d = l₁.getD i d := by
+  obtain ⟨t, rfl⟩ := hpre
+  rw [List.getD_eq_getElem?_getD, List.getD_eq_getElem?_getD,
+    List.getElem?_append_left hi]
+
+/-- The announced stage census is a true-prefix with known kinds (the
+predecessor's `peerWalkTraceA_prefix` opening, extracted). -/
+theorem stageScopesA_prefix (hwf : sk.wellFormed = true)
+    (p : Party) (tr : List MObs) {h : Nat} (hh : h < sk.rootH) :
+    (stageScopesA (aviewOf sk p tr) h).1 <+: sk.stageScopes h
+      ∧ ∀ u ∈ (stageScopesA (aviewOf sk p tr) h).1,
+          (aviewOf sk p tr).kind? u = some ((sk.scope u).kind) := by
+  unfold stageScopesA
+  by_cases htop : (h + 1 == (aviewOf sk p tr).rootH) = true
+  · rw [if_pos htop]
+    have htop' : h + 1 = sk.rootH := beq_iff_eq.mp htop
+    constructor
+    · show [0] <+: _
+      unfold Skel.stageScopes
+      rw [htop', Sched.wf_root_stage hwf]
+      exact List.prefix_refl _
+    · intro u hu
+      have hu' : u ∈ [(0 : Nat)] := hu
+      rw [List.mem_singleton] at hu'
+      subst hu'
+      show (aviewOf sk p tr).kind? 0 = _
+      rw [AView.kind?, if_pos (show ((0 : Nat) == 0) = true from rfl),
+        wf_root_kind hwf]
+  · rw [if_neg htop,
+      if_neg (show ¬ ((aviewOf sk p tr).rootH < h + 1) from by
+        have hne : h + 1 ≠ sk.rootH := fun hc =>
+          htop (beq_iff_eq.mpr hc)
+        show ¬ (sk.rootH < h + 1)
+        omega)]
+    have hsteps : sk.rootH - ((aviewOf sk p tr).rootH - (h + 1))
+        = h + 1 := by
+      show sk.rootH - (sk.rootH - (h + 1)) = h + 1
+      omega
+    have hlvl := levelA_spec hwf p tr ((aviewOf sk p tr).rootH - (h + 1))
+      (by show sk.rootH - (h + 1) ≤ sk.rootH; omega)
+    rw [hsteps] at hlvl
+    exact ⟨hlvl.1, hlvl.2.1⟩
+
+/-- One census descent step: below the top, a stage's announced census
+is the collect pass over the stage above's. -/
+private theorem stageScopesA_succ (p : Party) (tr : List MObs)
+    {h : Nat} (hh : h + 1 < sk.rootH) :
+    (stageScopesA (aviewOf sk p tr) h).1
+      = (levelA.collect (aviewOf sk p tr)
+          (stageScopesA (aviewOf sk p tr) (h + 1)).1).1 := by
+  have hne1 : ¬ ((h + 1 == (aviewOf sk p tr).rootH) = true) := by
+    show ¬ ((h + 1 == sk.rootH) = true)
+    simp only [beq_iff_eq]
+    omega
+  have hlt1 : ¬ ((aviewOf sk p tr).rootH < h + 1) := by
+    show ¬ (sk.rootH < h + 1)
+    omega
+  have hlhs : (stageScopesA (aviewOf sk p tr) h).1
+      = (levelA (aviewOf sk p tr) (sk.rootH - (h + 1))).1 := by
+    unfold stageScopesA
+    rw [if_neg hne1, if_neg hlt1]
+    rfl
+  have hstep : sk.rootH - (h + 1) = (sk.rootH - (h + 2)) + 1 := by
+    omega
+  have hshape : levelA (aviewOf sk p tr) ((sk.rootH - (h + 2)) + 1)
+      = ((levelA.collect (aviewOf sk p tr)
+            (levelA (aviewOf sk p tr) (sk.rootH - (h + 2))).1).1,
+         (levelA (aviewOf sk p tr) (sk.rootH - (h + 2))).2
+          && (levelA.collect (aviewOf sk p tr)
+              (levelA (aviewOf sk p tr) (sk.rootH - (h + 2))).1).2) := by
+    rw [levelA]
+  have hrhs : (stageScopesA (aviewOf sk p tr) (h + 1)).1
+      = (levelA (aviewOf sk p tr) (sk.rootH - (h + 2))).1 := by
+    unfold stageScopesA
+    by_cases htop : (h + 1 + 1 == (aviewOf sk p tr).rootH) = true
+    · rw [if_pos htop]
+      have htop' : h + 2 = sk.rootH := beq_iff_eq.mp htop
+      rw [show sk.rootH - (h + 2) = 0 from by omega]
+      rfl
+    · rw [if_neg htop,
+        if_neg (show ¬ ((aviewOf sk p tr).rootH < h + 1 + 1) from by
+          have : h + 2 ≠ sk.rootH := fun hc => htop (beq_iff_eq.mpr hc)
+          show ¬ (sk.rootH < h + 2)
+          omega)]
+      rfl
+  rw [hlhs, hstep, hshape, hrhs]
+
+/-- The collect pass reaches past every record-known position: with
+kinds known throughout and records announced on the first `n + 1`
+entries, the emitted kids cover those entries' kids as a prefix. -/
+private theorem collect_reach (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} :
+    ∀ (l : List Nat) (n : Nat), n < l.length →
+      (∀ u ∈ l, u < sk.scopes.length
+        ∧ (aviewOf sk p tr).kind? u = some ((sk.scope u).kind)) →
+      (∀ i, i ≤ n → (sk.scope (l.getD i 0)).kind = Kind.D →
+        l.getD i 0 ∈ announcedIds sk p tr) →
+      ((l.take (n + 1)).flatMap (fun u => (sk.scope u).kids))
+        <+: (levelA.collect (aviewOf sk p tr) l).1 := by
+  intro l
+  induction l with
+  | nil =>
+      intro n hn
+      simp at hn
+  | cons u rest ih =>
+      intro n hn hkinds hrecs
+      obtain ⟨hreal, hkind⟩ := hkinds u (List.mem_cons_self ..)
+      have htail : ((rest.take n).flatMap fun v => (sk.scope v).kids)
+          <+: (levelA.collect (aviewOf sk p tr) rest).1 := by
+        cases n with
+        | zero =>
+            show ([] : List Nat).flatMap _ <+: _
+            exact List.nil_prefix
+        | succ n' =>
+            refine ih n' (by simpa using hn)
+              (fun v hv => hkinds v (List.mem_cons_of_mem _ hv))
+              (fun i hi hD => ?_)
+            have := hrecs (i + 1) (by omega)
+            rw [List.getD_cons_succ] at this
+            exact this hD
+      rw [List.take_succ_cons, List.flatMap_cons]
+      by_cases hD : (sk.scope u).kind = Kind.D
+      · have hann : u ∈ announcedIds sk p tr := by
+          have := hrecs 0 (by omega)
+          rw [List.getD_cons_zero] at this
+          exact this hD
+        have hrec : (aviewOf sk p tr).rec? u = some (sk.scope u) := by
+          rw [rec?_aviewOf, if_pos hann]
+        have hshape : (levelA.collect (aviewOf sk p tr) (u :: rest)).1
+            = (sk.scope u).kids
+              ++ (levelA.collect (aviewOf sk p tr) rest).1 := by
+          rcases hc : levelA.collect (aviewOf sk p tr) rest
+            with ⟨items, comp⟩
+          rw [levelA.collect, if_pos (by rw [hkind, hD]; rfl), hrec, hc]
+        rw [hshape]
+        obtain ⟨t, ht⟩ := htail
+        exact ⟨t, by rw [List.append_assoc, ht]⟩
+      · have hshape : (levelA.collect (aviewOf sk p tr) (u :: rest)).1
+            = (levelA.collect (aviewOf sk p tr) rest).1 := by
+          rw [levelA.collect, if_neg (by
+            rw [hkind]
+            simp only [beq_iff_eq, Option.some.injEq]
+            exact fun hc => hD hc)]
+        rw [hshape, (wf_scope_nonD hwf hreal hD).1, List.nil_append]
+        exact htail
+
+/-- The census ladder (the minting lemma's core): at the stuck drained
+wall, a stage's block-`k` prologue receive scheduled below the wall
+forces the announced census to cover block `k` — the stage scopes
+through `k` are announced, and (on the party's own stages, where the
+input stream is the peer's) so are their kid listings.
+
+The τ-recursion climbs one stage per rung: the prologue's E1 send is
+the stage above's wire seq `k`, which sits trace-above ITS parent
+block's prologue — the BFS ancestors, walked by strong induction on
+τ. -/
+theorem census_reach {s : MState} {N : Nat} (W : Wall sk s N)
+    (p : Party) :
+    ∀ (τb h k : Nat), h < sk.rootH → k < sk.stageLen h →
+      ((Chan.wire (stageParty h).other (h + 1), false, k) : Ev)
+        ∈ scheduleE sk →
+      evIdx ((Chan.wire (stageParty h).other (h + 1), false, k) : Ev)
+        (scheduleE sk) < N →
+      evIdx ((Chan.wire (stageParty h).other (h + 1), false, k) : Ev)
+        (scheduleE sk) < τb →
+      k < (stageScopesA (aviewOf sk p (s.hist p)) h).1.length
+        ∧ (∀ j, j ≤ k →
+            sk.stageScope h j ∈ announcedIds sk p (s.hist p))
+        ∧ (stageParty h = p → ∀ j, j ≤ k →
+            ∀ v ∈ (sk.scope (sk.stageScope h j)).kids,
+              v ∈ announcedIds sk p (s.hist p)) := by
+  intro τb
+  induction τb with
+  | zero =>
+      intro h k _ _ _ _ hb
+      omega
+  | succ τb ih =>
+      intro h k hh hk hrmem hrN hrb
+      -- hop A: the prologue's own frame send, τ-below
+      obtain ⟨hsA, hτA⟩ := tau_e1 W.wf hrmem
+      by_cases htop : h + 1 = sk.rootH
+      · -- the top stage: rule 1 supplies the root record (and, on the
+        -- initiator's own top stage, the root's kid listing)
+        have hk0 : k = 0 := by
+          have hlen : sk.stageLen h = 1 := by
+            unfold Skel.stageLen Skel.stageScopes
+            rw [htop, Sched.wf_root_stage W.wf]
+            rfl
+          omega
+        subst hk0
+        have hs0 : sk.stageScope h 0 = 0 := by
+          unfold Skel.stageScope Skel.stageScopes
+          rw [htop, Sched.wf_root_stage W.wf]
+          rfl
+        -- the delivery currency, by stream side
+        have hdel : 0 < deliveredCount (s.hist p) sk.rootH := by
+          by_cases hpp : stageParty h = p
+          · -- the peer's reply/opening arrives on the peer stream
+            refine W.root_delivered p ?_ ?_
+            · rw [show p.other = (stageParty h).other from by
+                rw [hpp], ← htop]
+              exact hsA
+            · rw [show p.other = (stageParty h).other from by
+                rw [hpp], ← htop]
+              have := hτA
+              omega
+          · -- own stream: hop through the responder opening's receive
+            have hpo : stageParty h = p.other := by
+              cases hq : stageParty h <;> cases hp : p <;>
+                first
+                  | rfl
+                  | (exact absurd (hq ▸ hp ▸ rfl) hpp)
+                  | (rw [hq, hp] at hpp; exact absurd rfl hpp)
+            -- the top stage is the initiator's: h = rootH - 1 is odd
+            have hI : stageParty h = Party.I := by
+              have hev : sk.rootH % 2 = 0 := (wf_rootH W.wf).1
+              have h2 : 2 ≤ sk.rootH := (wf_rootH W.wf).2
+              unfold stageParty
+              rw [if_pos (by simp; omega)]
+            have hpR : p = Party.R := by
+              rw [hI] at hpo
+              cases p
+              · exact absurd hpo.symm (by decide)
+              · rfl
+            -- sA = (wire R rootH, true, 0) sits in ropen at position 1
+            have hIo : Party.I.other = Party.R := rfl
+            rw [hI, hIo, htop] at hsA hτA hrN
+            have hpair : ([((Chan.wire Party.I sk.rootH, false, 0) : Ev),
+                ((Chan.wire Party.R sk.rootH, true, 0) : Ev)] :
+                  List Ev).Sublist (Sched.ropenEvents sk) := by
+              unfold Sched.ropenEvents
+              exact List.cons_sublist_cons.mpr
+                (List.singleton_sublist.mpr (List.mem_cons_self ..))
+            obtain ⟨hr'mem, hτ'⟩ := tau_prior W.wf W.m0
+              (Sched.fixed_mem_procsE sk).2.1 hpair
+            obtain ⟨hs'mem, hτ''⟩ := tau_e1 W.wf hr'mem
+            refine W.root_delivered p ?_ ?_
+            · rw [show p.other = Party.I from by rw [hpR]; rfl]
+              exact hs'mem
+            · rw [show p.other = Party.I from by rw [hpR]; rfl]
+              omega
+        refine ⟨?_, ?_, ?_⟩
+        · -- census: the top branch is the literal root singleton
+          unfold stageScopesA
+          rw [if_pos (show (h + 1 == (aviewOf sk p (s.hist p)).rootH)
+            = true from by
+              show (h + 1 == sk.rootH) = true
+              simp [htop])]
+          simp
+        · intro j hj
+          have hj0 : j = 0 := by omega
+          subst hj0
+          rw [hs0]
+          exact announced_root hdel
+        · intro hpp j hj v hv
+          have hj0 : j = 0 := by omega
+          subst hj0
+          rw [hs0] at hv
+          -- the guarded branch is the initiator's own top stage
+          have hI : stageParty h = Party.I := by
+            have hev : sk.rootH % 2 = 0 := (wf_rootH W.wf).1
+            have h2 : 2 ≤ sk.rootH := (wf_rootH W.wf).2
+            unfold stageParty
+            rw [if_pos (by simp; omega)]
+          have hpI : p = Party.I := by rw [← hpp, hI]
+          subst hpI
+          exact announced_root_kids hdel hv
+      · -- generic rung: locate the frame in the stage above and recurse
+        have hh1 : h + 1 < sk.rootH := by omega
+        have hq₁ : (stageParty (h + 1), h + 1) ∈ sk.walkKeys :=
+          stageParty_mem_walkKeys W.wf hh1
+        have htot : sk.wiresBefore (h + 1) (sk.stageLen (h + 1))
+            = sk.stageLen h := by
+          have := Sched.wiresBefore_total (sk := sk) W.wf
+            (show 1 ≤ h + 1 by omega) hh1
+          simpa using this
+        have hkw : k < sk.wiresBefore (h + 1) (sk.stageLen (h + 1)) := by
+          omega
+        -- rewrite the frame send onto the stage above's output
+        have hchan : (stageParty h).other = stageParty (h + 1) :=
+          (stageParty_succ h).symm
+        rw [hchan] at hrmem hrN hrb hsA hτA
+        obtain ⟨n, hn, hle, hlt, hpairs⟩ :=
+          wire_send_locate W.wf hq₁ hkw
+        obtain ⟨hr'mem, hτ'⟩ := tau_prior W.wf W.m0
+          (Sched.walkEventsE_mem_procsE sk W.wf hq₁) hpairs
+        have hτchain : evIdx ((wireIn (stageParty (h + 1), h + 1),
+            false, n) : Ev) (scheduleE sk)
+            < evIdx ((Chan.wire (stageParty (h + 1)) (h + 1), false, k)
+                : Ev) (scheduleE sk) := by
+          have h2 := hτ'
+          omega
+        have hrin : wireIn (stageParty (h + 1), h + 1)
+            = Chan.wire (stageParty (h + 1)).other (h + 1 + 1) := rfl
+        have hIH := ih (h + 1) n hh1 hn
+          (by rwa [hrin] at hr'mem)
+          (by rw [← hrin]; omega)
+          (by rw [← hrin]; omega)
+        obtain ⟨hlen₁, hsc₁, hkid₁⟩ := hIH
+        -- level-(h+1) records, by which side owns the minting stream
+        have hscopes : ∀ j, j ≤ k →
+            sk.stageScope h j ∈ announcedIds sk p (s.hist p) := by
+          by_cases hpp : stageParty h = p
+          · -- peer stream: rule-2 about-scopes, direct harvest
+            have hpk₂ : (p.other, h + 1) ∈ sk.walkKeys := by
+              have : stageParty (h + 1) = p.other := by
+                rw [← hchan, hpp]
+              rwa [this] at hq₁
+            have hdelk : k < deliveredCount (s.hist p) (h + 1) := by
+              refine W.delivered_of_send p
+                (mem_allChans_wireOut hpk₂) ?_ ?_
+              · rw [show p.other = stageParty (h + 1) from by
+                  rw [← hchan, hpp]]
+                exact hsA
+              · rw [show p.other = stageParty (h + 1) from by
+                  rw [← hchan, hpp]]
+                omega
+            intro j hj
+            have hj2 : j < (sk.scopesAt (h + 1)).length := by
+              show j < sk.stageLen h
+              omega
+            have := (announced_of_delivered
+              (sk := sk) (p := p) (tr := s.hist p)
+              (mem_peerMintHeights W.wf p hpk₂)
+              (show h + 1 ≠ 0 by omega)
+              (show j < deliveredCount (s.hist p) (h + 1) by omega)
+              hj2).1
+            exact this
+          · -- own stream: the stage above's kid listings carry them
+            have hpo : stageParty (h + 1) = p := by
+              rw [← hchan]
+              cases hq : stageParty h <;> cases hp : p <;>
+                first
+                  | rfl
+                  | (rw [hq, hp] at hpp; exact absurd rfl hpp)
+            intro j hj
+            have hjw : j < sk.wiresBefore (h + 1) (n + 1) := by omega
+            obtain ⟨nⱼ, hnⱼ, hleⱼ, hltⱼ⟩ := exists_parent_block
+              (show j < sk.wiresBefore (h + 1) (sk.stageLen (h + 1))
+                from by omega)
+            have hnn : nⱼ ≤ n := by
+              by_contra hgt
+              have := Sched.wiresBefore_mono (sk := sk) (h + 1)
+                (show n + 1 ≤ nⱼ by omega)
+              omega
+            have hkids : (sk.scope (sk.stageScope (h + 1) nⱼ)).kids.length
+                = sk.nChildren (h + 1) (sk.stageScope (h + 1) nⱼ) := by
+              unfold Skel.nChildren
+              rw [if_neg (by simp)]
+            have hi : j - sk.wiresBefore (h + 1) nⱼ
+                < (sk.scope (sk.stageScope (h + 1) nⱼ)).kids.length := by
+              have := Sched.wiresBefore_succ sk hnⱼ
+              omega
+            have hkid := stageScope_kid W.wf (show 1 ≤ h + 1 by omega)
+              hh1 hnⱼ hi
+            rw [show sk.wiresBefore (h + 1) nⱼ
+              + (j - sk.wiresBefore (h + 1) nⱼ) = j from by omega]
+              at hkid
+            have hvmem : (sk.scope (sk.stageScope (h + 1) nⱼ)).kids.getD
+                (j - sk.wiresBefore (h + 1) nⱼ) 0
+                ∈ (sk.scope (sk.stageScope (h + 1) nⱼ)).kids := by
+              rw [List.getD_eq_getElem?_getD,
+                List.getElem?_eq_getElem hi]
+              exact List.getElem_mem hi
+            have := hkid₁ hpo nⱼ hnn _ hvmem
+            show sk.stageScope h j ∈ announcedIds sk p (s.hist p)
+            unfold Skel.stageScope Skel.stageScopes
+            rw [hkid]
+            exact this
+        refine ⟨?_, hscopes, ?_⟩
+        · -- census length: collect over the stage above's census
+          rw [stageScopesA_succ p (s.hist p) hh1]
+          have hpre := stageScopesA_prefix W.wf p (s.hist p) hh1
+          have hkinds : ∀ u ∈ (stageScopesA (aviewOf sk p (s.hist p))
+              (h + 1)).1, u < sk.scopes.length
+              ∧ (aviewOf sk p (s.hist p)).kind? u
+                = some ((sk.scope u).kind) := by
+            intro u hu
+            refine ⟨?_, hpre.2 u hu⟩
+            have hmem := hpre.1.sublist.mem hu
+            exact (mem_scopesAt hmem).1
+          have hrecs : ∀ i, i ≤ n →
+              (sk.scope ((stageScopesA (aviewOf sk p (s.hist p))
+                (h + 1)).1.getD i 0)).kind = Kind.D →
+              (stageScopesA (aviewOf sk p (s.hist p)) (h + 1)).1.getD i 0
+                ∈ announcedIds sk p (s.hist p) := by
+            intro i hi hD
+            have hgd : (stageScopesA (aviewOf sk p (s.hist p))
+                (h + 1)).1.getD i 0 = sk.stageScope (h + 1) i := by
+              have := prefix_getD hpre.1 (show i
+                < (stageScopesA (aviewOf sk p (s.hist p)) (h + 1)).1.length
+                from by omega) 0
+              rw [← this]
+              rfl
+            rw [hgd]
+            exact hsc₁ i hi
+          have hcov := collect_reach W.wf
+            (stageScopesA (aviewOf sk p (s.hist p)) (h + 1)).1 n
+            (by omega) hkinds hrecs
+          have htake : (stageScopesA (aviewOf sk p (s.hist p))
+              (h + 1)).1.take (n + 1)
+              = (sk.stageScopes (h + 1)).take (n + 1) := by
+            obtain ⟨t, ht⟩ := hpre.1
+            rw [← ht, List.take_append_of_le_length (by omega)]
+          obtain ⟨rest₂, -, hflen⟩ := bfs_split W.wf
+            (show 1 ≤ h + 1 by omega) hh1 (n + 1) (by omega)
+          have hlenle := hcov.length_le
+          rw [htake] at hlenle
+          have hkids2 : (((sk.stageScopes (h + 1)).take (n + 1)).flatMap
+              (fun u => (sk.scope u).kids)).length
+              = sk.wiresBefore (h + 1) (n + 1) := by
+            have : sk.stageScopes (h + 1) = sk.scopesAt (h + 1 + 1) := rfl
+            exact hflen
+          omega
+        · -- the kids-half: available exactly on the party's own stages
+          intro hpp j hj v hv
+          have hpk₂ : (p.other, h + 1) ∈ sk.walkKeys := by
+            have : stageParty (h + 1) = p.other := by
+              rw [← hchan, hpp]
+            rwa [this] at hq₁
+          have hdelk : k < deliveredCount (s.hist p) (h + 1) := by
+            refine W.delivered_of_send p
+              (mem_allChans_wireOut hpk₂) ?_ ?_
+            · rw [show p.other = stageParty (h + 1) from by
+                rw [← hchan, hpp]]
+              exact hsA
+            · rw [show p.other = stageParty (h + 1) from by
+                rw [← hchan, hpp]]
+              omega
+          have hj2 : j < (sk.scopesAt (h + 1)).length := by
+            show j < sk.stageLen h
+            omega
+          have := (announced_of_delivered
+            (sk := sk) (p := p) (tr := s.hist p)
+            (mem_peerMintHeights W.wf p hpk₂)
+            (show h + 1 ≠ 0 by omega)
+            (show j < deliveredCount (s.hist p) (h + 1) by omega)
+            hj2).2
+          exact this v hv
+
 end StreamingMirror.Mux
