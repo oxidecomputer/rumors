@@ -2536,4 +2536,108 @@ theorem absorb_laid {s : MState} {N : Nat} (W : Wall sk s N)
   refine List.mem_flatMap.mpr ⟨j, List.mem_range.mpr hjtot, ?_⟩
   exact hej
 
+
+-- ==================================================== the asm family
+
+/-- Locate a position under any prefix-sum ledger anchored at zero. -/
+private theorem exists_prefix_block (f : Nat → Nat) (hf0 : f 0 = 0)
+    {M k : Nat} (hk : k < f M) :
+    ∃ n, n < M ∧ f n ≤ k ∧ k < f (n + 1) := by
+  induction M with
+  | zero =>
+      rw [hf0] at hk
+      omega
+  | succ M ih =>
+      by_cases hin : k < f M
+      · obtain ⟨n, hn, h1, h2⟩ := ih hin
+        exact ⟨n, by omega, h1, h2⟩
+      · exact ⟨M, by omega, by omega, hk⟩
+
+/-- An assembler key's height bounds. -/
+private theorem asmKeys_bounds {q : Party} {j : Nat}
+    (hpk : (q, j) ∈ sk.asmKeys) :
+    1 ≤ j ∧ j ≤ sk.rootH ∧ (q = Party.R → j ≤ sk.rootH - 1) := by
+  unfold Skel.asmKeys at hpk
+  rcases List.mem_append.mp hpk with hI | hR
+  · obtain ⟨m, hm, hme⟩ := List.mem_map.mp hI
+    rw [List.mem_range] at hm
+    rw [Prod.mk.injEq] at hme
+    refine ⟨by omega, by omega, fun hq => ?_⟩
+    rw [← hme.1] at hq
+    exact absurd hq (by decide)
+  · obtain ⟨m, hm, hme⟩ := List.mem_map.mp hR
+    rw [List.mem_range] at hm
+    rw [Prod.mk.injEq] at hme
+    exact ⟨by omega, by omega, fun _ => by omega⟩
+
+/-- The go loop lays a target assembler block once the pending entries
+through it are known with their true values. -/
+private theorem goAsm_mem {p : Party} {tr : List MObs} {j : Nat} :
+    ∀ (ps : List (Option Nat)) (idx₀ idx got : Nat) {e : Ev},
+      idx₀ ≤ idx → idx - idx₀ < ps.length →
+      (∀ m, idx₀ ≤ m → m ≤ idx →
+        ps.getD (m - idx₀) none = some (sk.pendAt p.other j m)) →
+      got = sk.pendsBefore p.other j idx₀ →
+      idx < (sk.asmResList p.other j).length →
+      e ∈ Sched.asmBlock sk (p.other, j) idx →
+      e ∈ peerAsmTraceA.go (asmResChan (p.other, j))
+          (asmLevelChan (p.other, j)) (sk.asmOutChan (p.other, j))
+          ps idx₀ got := by
+  intro ps
+  induction ps with
+  | nil =>
+      intro idx₀ idx got e _ hlen
+      simp at hlen
+  | cons pe rest ih =>
+      intro idx₀ idx got e hle hlen hvals hgot hidx he
+      have hpe : pe = some (sk.pendAt p.other j idx₀) := by
+        have := hvals idx₀ (Nat.le_refl _) hle
+        rw [show idx₀ - idx₀ = 0 from by omega,
+          List.getD_cons_zero] at this
+        exact this
+      subst hpe
+      have hgo : peerAsmTraceA.go (asmResChan (p.other, j))
+          (asmLevelChan (p.other, j)) (sk.asmOutChan (p.other, j))
+          (some (sk.pendAt p.other j idx₀) :: rest) idx₀ got
+          = (asmResChan (p.other, j), false, idx₀)
+            :: ((List.range (sk.pendAt p.other j idx₀)).map fun t =>
+                (asmLevelChan (p.other, j), false, got + t))
+            ++ (sk.asmOutChan (p.other, j), true, idx₀)
+            :: peerAsmTraceA.go (asmResChan (p.other, j))
+                (asmLevelChan (p.other, j)) (sk.asmOutChan (p.other, j))
+                rest (idx₀ + 1)
+                (got + sk.pendAt p.other j idx₀) := by
+        simp only [peerAsmTraceA.go]
+      rw [hgo]
+      by_cases hii : idx = idx₀
+      · -- the target block: the emitted block IS the true block
+        subst hii
+        unfold Sched.asmBlock at he
+        rw [hgot]
+        rcases List.mem_cons.mp he with rfl | he2
+        · exact List.mem_cons_self ..
+        rcases List.mem_append.mp he2 with hmap | hout
+        · refine List.mem_cons_of_mem _ (List.mem_append.mpr
+            (.inl ?_))
+          exact hmap
+        · rw [List.mem_singleton] at hout
+          subst hout
+          refine List.mem_cons_of_mem _ (List.mem_append.mpr
+            (.inr ?_))
+          exact List.mem_cons_self ..
+      · -- advance: the counters track the prefix sums
+        have hlt : idx₀ < idx := by omega
+        refine List.mem_cons_of_mem _ (List.mem_append.mpr (.inr
+          (List.mem_cons_of_mem _ ?_)))
+        refine ih (idx₀ + 1) idx
+          (got + sk.pendAt p.other j idx₀) (by omega)
+          (by simp only [List.length_cons] at hlen; omega)
+          (fun m hm1 hm2 => by
+            have := hvals m (by omega) hm2
+            rw [show m - idx₀ = (m - (idx₀ + 1)) + 1 from by omega,
+              List.getD_cons_succ] at this
+            exact this)
+          (by rw [hgot, Sched.pendsBefore_succ sk (by omega)])
+          hidx he
+
 end StreamingMirror.Mux
