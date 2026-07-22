@@ -60,7 +60,10 @@ import StreamingMirror.Mux.Proofs.Steps.Top
 import StreamingMirror.Mux.Proofs.Steps.WalkAsm
 import StreamingMirror.Mux.Proofs.Steps.Fire
 import StreamingMirror.Mux.Proofs.SigmaStarInv
+import StreamingMirror.Mux.Causal
 import StreamingMirror.Mux.Proofs.SigmaStarLive
+import StreamingMirror.Mux.Proofs.CausalCoverage
+import StreamingMirror.Mux.Proofs.CausalLive
 import StreamingMirror.Mux.Proofs.C1
 import StreamingMirror.Proofs.Endgame
 import StreamingMirror.Mux.Proofs.CommitTotality

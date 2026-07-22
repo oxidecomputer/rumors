@@ -1,32 +1,58 @@
 /-
 The C1 verdicts (MUX-ADJUDICATION.md §3 T4 companions): the literal
-conjecture minted faithfully, its refutation shapes, and the control
-pinning why the Inevitable closure is load-bearing.
+conjecture at its two locality grains, its refutation shapes, and the
+control pinning why the Inevitable closure is load-bearing.
 
-# The two statements and the locality gap
+# The grains, and which statement is of record (Finch's F3 ruling)
 
-`C1Statement` is MUX-PROGRESS §1's conjecture verbatim in the artifact's
-vocabulary: for every capacity and every pair of deterministic
-LOCAL-information-only strategies there is a killer skeleton in the
-shipping encoder's class ("schedulable" read per the adjudication's
-domain ruling: wellFormed + margin-0, whose un-muxed session
-`Sched.deadlock_free` completes). `C1StatementOmniscient` widens the
-pair quantifier to ALL strategies.
+Phase 4's F3 found the legacy `LocalEq`/`LocalStrategy` grain
+(Mux/Strategy.lean) FINER than session-start indistinguishability:
+`viewEnc` encodes peer-determined merge labels (D vs R-cut vs M-absent)
+of a party's own held children, which no party knows from its own tree.
+Finch's ruling: theorem statements of record must bind the charter's
+intended grain — information in the causal past of the party at the
+decision point. In this model that grain is `CharterLocal`
+(Mux/Causal.lean): invariance across skeletons with equal ANNOUNCED
+VIEWS (the stage-0 probe's `KnownSkel`: session parameters at t = 0,
+plus the records the arrived frames have determined, at
+`.impl`-realizable observations). `C1StatementCharter` below is
+therefore THE literal conjecture of record; `C1Statement` (the legacy
+grain) is retained as an internal artifact for its landed consumers.
 
-The omniscient form is refuted OUTRIGHT by ⟨1, σ*, σ*⟩ + T4
-(`c1_omniscient_false`). The literal form's refutation additionally
-needs σ*'s locality, and THIS σ* — built over the full-skeleton
-`inevitable` closure and `scheduleE` τ order, per the stage-3 charter —
-is not proven `LocalStrategy`: `wireHeights`, `committedInHist`, and
-`rootH` are `LocalEq`-invariant by construction, but the closure and
-the τ order read peer-side structure (`procsE`), and showing their
-verdicts agree across `LocalEq` pairs on `Consistent` traces is exactly
-the A_p-sufficiency theorem — refute-c1 §2.4's "coverage of A_p"
-quantified over every reachable observation rather than only stuck
-states. The stage-0 probe carries that fact at the checked tier (the
-A_p-limited causal σ* is terminal on 4,970/4,970 runs, STAGE0-GATES.md
-P1); the kernel form is recorded [open], and `c1_literal_false` names
-the residue as an explicit hypothesis instead of forcing it.
+NOTE the two grains are INCOMPARABLE, not nested — the a-fortiori
+transfer fails in BOTH directions. `LocalEq` pairs may differ in
+announced content (answerer-side R children and `leafReqs` of announced
+scopes are `viewEnc`-erased yet frame-announced), so a charter-local
+strategy need not be legacy-local; announced-view pairs may differ in
+unannounced view structure, so a legacy-local strategy need not be
+charter-local. Each statement carries its own refutation witness.
+
+# The refutation ledger
+
+- `C1StatementOmniscient` (no locality hypothesis at all): refuted
+  OUTRIGHT by ⟨1, σ*, σ*⟩ + T4 (`c1_omniscient_false`), unconditional.
+- `C1StatementCharter` (the statement of record): refuted
+  UNCONDITIONALLY by ⟨1, σ*-causal, σ*-causal⟩ (`c1_charter_false`):
+  `sigmaStarCausal_charterLocal` is kernel-proven, and the liveness
+  half is now kernel-proven end to end — Steps 1–3 in
+  Proofs/CausalCoverage.lean and Proofs/CausalLive.lean, and Step 4's
+  `CausalStuckCoverage` discharged by `causalStuckCoverage`
+  (Proofs/CausalMint.lean: the minting ladder — every consulted
+  record's minting frame send sits τ-below the consulting event, so
+  the drained pipes turn the τ-wall into announced records — composed
+  with the causal coverage induction and the closure's saturation).
+  The theorem is exactly T8's "inference progress" conjunct, now
+  available to the window-sliding argument as a lemma. The probe and
+  wedge anchors (4,970/4,970 terminal causal runs, STAGE0-GATES.md P1;
+  `wedge_sigmaStarCausal_completes`) stand behind it as executable
+  witnesses rather than as the claim's support.
+- `C1Statement` (legacy grain, internal): refutation
+  `c1_literal_false`, carrying σ*'s legacy locality as its named
+  hypothesis exactly as landed at stage 3 — `wireHeights`,
+  `committedInHist`, and `rootH` are `LocalEq`-invariant by
+  construction, but the omniscient closure and τ order read peer-side
+  structure (`procsE`), and their `LocalEq`-invariance on `Consistent`
+  traces is the A_p-sufficiency statement, [open] at kernel tier.
 
 # Controls
 
@@ -75,6 +101,7 @@ depth its own sends were advertised). A single-K statement would not
 cover the deployed configuration.
 -/
 import StreamingMirror.Mux.Proofs.SigmaStarLive
+import StreamingMirror.Mux.Proofs.CausalMint
 import StreamingMirror.Mux.Controls
 
 namespace StreamingMirror.Mux
@@ -83,11 +110,25 @@ open Model
 
 -- ======================================================= the statements
 
-/-- C1 as literally chartered (MUX-PROGRESS §1): every capacity and
-every pair of deterministic local strategies has a killer skeleton in
-the shipping encoder's class. Determinism is free (`Strategy` is a
-function); locality is `LocalStrategy`; the domain is the adjudicated
-`.impl`+margin-0 reading of "schedulable". -/
+/-- C1 at the grain of record (Finch's F3 ruling): every capacity and
+every pair of deterministic CHARTER-LOCAL strategies — invariant across
+skeletons with equal announced views at `.impl`-realizable observations
+(`CharterLocal`, Mux/Causal.lean) — has a killer skeleton in the
+shipping encoder's class. Determinism is free (`Strategy` is a
+function); the domain is the adjudicated `.impl`+margin-0 reading of
+"schedulable". -/
+def C1StatementCharter : Prop :=
+  ∀ (C : Nat), 1 ≤ C → ∀ (σI σR : Strategy),
+    CharterLocal .I σI → CharterLocal .R σR →
+    ∃ sk : Skel, sk.wellFormed = true
+      ∧ (∀ sc, sk.dCount sc ≤ sk.capLevel)
+      ∧ ¬ MuxDeadlockFree sk .impl C σI σR
+
+/-- C1 at the LEGACY grain (internal artifact — the module doc's grain
+note): the strategy class is `LocalStrategy` over `viewEnc`/`LocalEq`,
+which phase 4's F3 found finer than session-start honesty. Kept because
+its landed refutation (`c1_literal_false`) and the stage-3 record cite
+it; the statement of record is `C1StatementCharter`. -/
 def C1Statement : Prop :=
   ∀ (C : Nat), 1 ≤ C → ∀ (σI σR : Strategy),
     LocalStrategy .I σI → LocalStrategy .R σR →
@@ -117,12 +158,34 @@ theorem c1_omniscient_false : ¬ C1StatementOmniscient := by
   obtain ⟨sk, hwf, hm0, hnd⟩ := hc1 1 (Nat.le_refl 1) sigmaStar sigmaStar
   exact hnd (sigmaStar_deadlock_free hwf hm0 1 (Nat.le_refl 1))
 
-/-- C1 as literally chartered is false, GIVEN σ*'s locality — the one
-hypothesis this artifact does not discharge (module doc: it is the
-A_p-sufficiency theorem, probe-checked at 4,970/4,970 and recorded
-[open] at kernel tier). Every other ingredient is kernel-proven.
+/-- The statement of record is false, UNCONDITIONALLY: locality is
+kernel-proven (`sigmaStarCausal_charterLocal`), and the liveness half
+is kernel-proven end to end — Steps 1–3 through
+`sigmaStarCausal_deadlock_free_of_coverage` (causal push certificates
+drain the pipes via the causal keystone, the chase names the withheld
+push, σ*-causal pushes whenever coverage proves the frame demanded),
+and Step 4 through `causalStuckCoverage` (Proofs/CausalMint.lean: the
+minting ladder plus the τ-staged causal coverage induction). This is
+the charter's constructive witness in full: a deterministic,
+charter-local strategy pair no skeleton of the class jams.
+Rests on (message-denominated) liveness; the W = 1 byte caveat of
+record is Mux/Basic.lean's module doc (# The byte-denomination
+caveat). -/
+theorem c1_charter_false : ¬ C1StatementCharter := by
+  intro hc1
+  obtain ⟨sk, hwf, hm0, hnd⟩ :=
+    hc1 1 (Nat.le_refl 1) sigmaStarCausal sigmaStarCausal
+      (sigmaStarCausal_charterLocal .I) (sigmaStarCausal_charterLocal .R)
+  exact hnd (sigmaStarCausal_deadlock_free_of_coverage hwf hm0
+    (causalStuckCoverage hwf hm0) 1 (Nat.le_refl 1))
 
-Rests on σ*'s (message-denominated) liveness; the W = 1 byte caveat of
+/-- The LEGACY-grain statement is false, GIVEN σ*'s legacy locality —
+the hypothesis exactly as landed at stage 3 (module doc: it is the
+A_p-sufficiency theorem quantified over every reachable observation,
+probe-adjacent and recorded [open] at kernel tier). Retained as the
+internal artifact the F3 ruling anticipated; the claim of record is
+`c1_charter_false`.
+Rests on (message-denominated) liveness; the W = 1 byte caveat of
 record is Mux/Basic.lean's module doc (# The byte-denomination
 caveat). -/
 theorem c1_literal_false

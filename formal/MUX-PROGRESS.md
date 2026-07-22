@@ -386,6 +386,149 @@ Muxprobe opens both namespaces, and the adjudication's vocabulary
 belongs to the kernel object. Stage 3 is complete: T1–T7 closed, T8
 remains the named stretch, T10 scheduled.
 
+### 2026-07-21 — Step 4 discharged: `CausalStuckCoverage` kernel-proven, `c1_charter_false` UNCONDITIONAL
+
+The minting track lands `Mux/Proofs/CausalMint.lean` (~4,500 lines,
+zero sorry, kernel only; `lake build` green at 265 jobs) and closes the
+mux-conjectures campaign's final lemma. Kernel-proven:
+`causalStuckCoverage` — at any reachable stuck drained
+σ\*-causal×σ\*-causal state, a held stream whose τ-prefix is performed
+is `demandedA` — hence **`sigmaStarCausal_deadlock_free`
+(unconditional T4 at the charter grain)** and **`c1_charter_false`
+with NO hypothesis**: the statement of record's refutation is now
+⟨1, σ\*-causal, σ\*-causal⟩ with locality AND liveness both
+kernel-proven. The same theorem is T8's "inference progress" conjunct,
+now available as a lemma. Proof anatomy, for its consumers: (i) **the
+drained decode** — pipes empty makes `deliveredCount = sentOf` on
+every peer stream (`Wall.drained_delivered`), so announcement reduces
+to "the minting frame's SEND is τ-below the consulting event", a
+static schedule fact (the earlier receive-based phrasing is WRONG on
+slot-parked frames and was not needed: B5 announces at delivery, and
+delivery = send under drained pipes); (ii) **the census ladder**
+(`census_reach`) — strong induction on τ, one stage per rung: a
+block's prologue receive E1-chains to its own frame's send, which sits
+trace-above its parent block's prologue in the stage above; the rung
+indices are exactly the BFS ancestors, and each peer-height rung's
+harvest (`announced_of_delivered`, about-scope + kid halves) tiles two
+census levels; (iii) **the per-family laid lemmas** (`walk_laid`,
+`absorb_laid`, `asm_laid` asker/answerer, opener/finale specials) —
+partial-chunk transcriptions (`chunksA_covers`/`chunksA_ok`) extend
+each announced layout past any true-trace event below the wall; the
+answerer's resolution-to-position bridge is `countD_take_mid` over
+`ds_wires`; (iv) **the flatten dispatcher** (`flatten_of_sched` +
+`peer_internal_of_flatten`) — no internal channel crosses the link, so
+every I-step predecessor routes to a peer family by its channel's
+party tag; (v) **the coverage induction**
+(`causal_closure_coverage`) — SigmaStarLive's Step-4 template re-run
+over `inevitableA`, restricted to the announced flatten (own-endpoint
+events are never consulted); (vi) **closure saturation**
+(`mem_inevitableA_of_closureNA`) — τ can exceed the announced
+universe's length, so stages absorb into `inevitableA` by the
+monotone-filter pigeonhole rather than the omniscient proof's
+τ-below-universe bound. No counterexample surfaced: every chain the
+ladder needed was already in the schedule's E1/E3 order, confirming
+the announcement-timeliness claim the probe's 4,970 runs and the wedge
+pin stood behind. Interface deltas: `peerBlockA_spec` and
+`asmPendsA_spec` de-privatized in CausalCoverage.lean (the mint layer
+consumes their exactness halves); refutation ledgers updated in
+Causal.lean, CausalLive.lean, and C1.lean.
+
+### 2026-07-21 — σ\*-causal liveness: Steps 1–3 kernel-proven; C1's charter hypothesis shrinks to the Step-4 coverage conjunct
+
+The causal-coverage track lands `Mux/Proofs/CausalCoverage.lean` and
+`Mux/Proofs/CausalLive.lean` (~2,900 lines, zero sorry). Kernel-proven:
+(i) **the announced-prefix property** — every `announcedProcs` trace is
+a literal prefix of its true `.impl` process trace
+(`announcedProcs_prefix`), via the census (`levelA` against the BFS
+level slices, with `collect`'s truncation discipline), the walk
+transcription (`chunksA_spec`/`peerBlockA_spec`/`goA_spec`: the chunk
+loop against `childChunk` with the prefix-sum counters threaded, leaf
+stage included), and the assembler/absorber/opener/finale families —
+the module-doc claim of Mux/Causal.lean is now a theorem, not prose;
+(ii) **the receive ledger** (`RecvLedger`): recorded wire-receive
+actions never outrun the base consumer counts and name real channels —
+the ground fact that makes `groundedA`'s C-own evidence arm sound;
+strategy-generic, preserved by the same per-arm Steps decomposition as
+`SInv` (a genuinely new invariant — the landed `MuxInv`/`HistInv`
+fields track pushes and deliveries but not receives); (iii) **the
+causal keystone** (`keystoneA`): T2 re-run over `inevitableA` — causal
+evidence performed against the count walls plus the receive ledger,
+I-step members decoded through the announced-prefix property instead
+of `evUniv`; (iv) **Step 1** — `PushProvenA` certificates ride every
+σ\*-causal push (`pushProvenA_reachable`) and
+`sigmaStarCausal_pipes_empty` drains both pipes at any stuck state;
+(v) **the liveness assembly**
+(`sigmaStarCausal_deadlock_free_of_coverage`): Steps 1–3 plus the
+final σ\*-causal-names-a-push inversion, needing exactly ONE conjunct:
+`CausalStuckCoverage` — Step 4, the τ-staged coverage of the announced
+closure at stuck drained states. `c1_charter_false` now carries THAT
+as its hypothesis instead of full deadlock freedom — a strictly
+stronger refutation; the hypothesis is verbatim T8's "inference
+progress" conjunct. REMAINING (recorded, not discharged): the
+minting-lemma induction — at a stuck drained state every peer-trace
+event τ-below the withheld push is announced-laid, walked as
+E1/trace-order τ-hops up the stage ladder (the τ-route needs no cursor
+decode: each consulted record's minting frame is delivered because its
+send is τ-below the consulting event and pipes are empty), plus the
+`closure_coverage` re-run over `inevitableA` and the same-party wiring
+dispatch (internal channels never cross the link, per-family). No
+counterexample surfaced anywhere in the transcription: every layout
+matched its true trace exactly at the announced frontier, so the
+minting lemma stands unrefuted with the wedge pin still its living
+witness.
+
+### 2026-07-21 — σ\*-causal landed: charter-grain locality kernel-proven; the payload-erasure boundary named
+
+`Mux/Causal.lean` mints `sigmaStarCausal` — the Lean twin of the
+stage-0 probe's faulting view: the announced sub-skeleton accreted at
+arrivals (B5 positional decode, records, and the kid-label stratum the
+parent frame carries), truncating peer-endpoint trace layouts, the
+causal closure with every `istepOk` guard routed through the announced
+family, and the demand rule verbatim. **`sigmaStarCausal_charterLocal`
+is kernel-proven for both parties, definitionally** — the strategy's
+one skeleton read is `aviewOf`, so invariance at Finch's F3 grain
+(equal announced views at `.impl`-consistent observations;
+`ConsistentImpl` binds the mode per the phase-4 handoff) is a rewrite
+over a wf-free history-attribution induction. Per the F3 ruling the C1
+statement of record moved: `C1StatementCharter` quantifies
+`CharterLocal`, and `c1_charter_false` refutes it via
+⟨1, σ\*-causal, σ\*-causal⟩ with locality PROVEN and deadlock freedom
+the one named hypothesis — the residue inverts onto the probe-checked
+side (4,970/4,970; in-kernel: `smokeChain_sigmaStarCausal_completes`
+and **`wedge_sigmaStarCausal_completes`** — the causal pair drives the
+provision wall every work-conserving pair jams, frames 2..7 pushed on
+closure-proven demand, `decide`, ~6 min kernel time, accepted as the
+liveness anchor until coverage lands). FINDINGS: (i) **the two locality
+grains are INCOMPARABLE** — the expected a-fortiori transfer fails both
+ways (`LocalEq` erases announced content: answerer-side R kids,
+`leafReqs`; announced views omit unannounced view structure), so each
+C1 form keeps its own witness; the legacy `C1Statement`/
+`c1_literal_false` stay as internal artifacts. (ii) **Payload erasure
+is a hard boundary**: refute-c1 §1.2's minting rules are realizable
+only through B5 frame content — the labels a party's layouts need
+(peer-determined D/R/M of held children, `leafReqs`, answerer-side kid
+censuses) ride payloads the `MObs` alphabet erases, and the alternation
+parity keeps the peer-stage kind marks off the party's own commit
+ledger forever. A `viewEnc`+ledger surrogate (designed in full, then
+rejected for the record: d4/d6 commit pacing pins the p-asked-side data
+but not the peer-stage marks) under-derives and starves on the wedge —
+so an `MObs`-only "local" strategy is NOT a C1 witness at any grain,
+and the probe's B5 reads are essential, not a convenience. This is the
+code-vs-prose disagreement the relaunch charter anticipated: §1.2's
+"as soon as the parent's listing has arrived" is a statement about
+frame CONTENT; causal-reference.py implements it correctly, the prose
+just never says it is leaning on B5. RESIDUE (T8's critical path,
+unchanged in substance, sharpened in form): the causal coverage re-run
+— at stuck drained states every event τ-below the withheld push enters
+`inevitableA`, whose new content beyond T4's induction is exactly
+"every consulted announced record's minting arrival sits τ-below the
+consulting event" — plus the `inevitableA ⊆ inevitable` containment
+that re-uses the landed keystone for Step 1 (announced layouts are
+true-trace prefixes by construction, so both are trace-grammar lemmas,
+not new closure theory).
+
+### 2026-07-21 — The locality residue adjudicated by Finch: σ\*-causal dispatched
+
 Finch's ruling on the `sigmaStar_local` residue, recorded for the
 negative space: the accept-the-hypothesis-with-a-Rust-bridge option is
 NONSENSICAL — a Rust function cannot be handed the remote skeleton, so
