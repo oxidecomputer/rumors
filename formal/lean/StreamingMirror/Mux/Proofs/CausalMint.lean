@@ -275,7 +275,7 @@ call site, bundled so the ladder's signatures stay readable. -/
 structure Wall (sk : Skel) (s : MState) (N : Nat) : Prop where
   wf : sk.wellFormed = true
   m0 : ∀ sc, sk.dCount sc ≤ sk.capLevel
-  minv : MuxInv sk s
+  minv : MuxInvW sk s
   pipeI : s.pipe .I = []
   pipeR : s.pipe .R = []
   perf : ∀ g ∈ scheduleE sk, evIdx g (scheduleE sk) < N →
@@ -4338,31 +4338,84 @@ private theorem flatten_of_own_wire_recv {s : MState} {N : Nat}
       have hc : Chan.wire p g = Chan.rootrets := by injection heq.symm
       cases hc
 
-/-- Step 4, discharged: `CausalStuckCoverage` holds for every
-well-formed margin-0 skeleton — at a reachable stuck drained
-σ*-causal×σ*-causal state, a held stream whose τ-prefix is performed
-is proven-demanded under the ANNOUNCED closure.
+/-- A pair of receives on one channel embeds into the schedule in seq
+order: the schedule's projection onto `(c, false, ·)` is canonical
+(`scheduleE_canon_self`), a filter preserves relative order, and the
+schedule never repeats an event — so the k-th receive is scheduled
+strictly τ-below the n-th whenever `k < n`. The arrears-K ladder's one
+new τ-hop. -/
+private theorem tau_rcv_lt (hwf : sk.wellFormed = true) {c : Chan}
+    {n k : Nat} (hmem : ((c, false, n) : Ev) ∈ scheduleE sk)
+    (hk : k < n) :
+    ((c, false, k) : Ev) ∈ scheduleE sk
+      ∧ evIdx ((c, false, k) : Ev) (scheduleE sk)
+          < evIdx ((c, false, n) : Ev) (scheduleE sk) := by
+  have hcanon := scheduleE_canon_self hwf c false
+  have hnlt : n < (Sched.proj c false (scheduleE sk)).length := by
+    have hp : ((c, false, n) : Ev) ∈ Sched.proj c false (scheduleE sk) := by
+      unfold Sched.proj
+      refine List.mem_filter.mpr ⟨hmem, ?_⟩
+      simp
+    rw [hcanon] at hp
+    exact mem_canon_iff.mp hp
+  have hpairN : ([k, n] : List Nat).Sublist
+      (List.range (Sched.proj c false (scheduleE sk)).length) := by
+    rw [range_split hnlt]
+    exact List.Sublist.append
+      (List.singleton_sublist.mpr (List.mem_range.mpr hk))
+      (List.cons_sublist_cons.mpr (List.nil_sublist _))
+  have hpair : ([((c, false, k) : Ev), ((c, false, n) : Ev)]).Sublist
+      (scheduleE sk) := by
+    have hmap : ([((c, false, k) : Ev), ((c, false, n) : Ev)]).Sublist
+        (Sched.canon c false (Sched.proj c false (scheduleE sk)).length) := by
+      unfold Sched.canon
+      simpa using hpairN.map (fun j => ((c, false, j) : Ev))
+    rw [← hcanon] at hmap
+    refine hmap.trans ?_
+    unfold Sched.proj
+    exact List.filter_sublist
+  exact ⟨hpair.mem (List.mem_cons_self ..),
+    Sched.pos_lt_of_pair (Sched.scheduleE_count_le_oneE sk hwf) hpair⟩
 
-The withheld frame's predecessor receive is scheduled τ-below the
-withheld send (the wire's unit-capacity E2 edge), the minting ladder
+/-- The arrears-K coverage core (T8's clause-5 engine, the landed
+Step 4 with the parking arrears as a parameter): at ANY stuck drained
+state — any strategy pair, any occupancy bound — a held stream whose
+τ-prefix below the next frame's send is entirely performed has its
+K-arrears predecessor receive in the ANNOUNCED closure, for every
+arrears `1 ≤ K ≤ pushedCount`.
+
+The K-arrears receive is scheduled τ-below the withheld send — the
+wire's unit-capacity E2 edge names arrears 1, and `tau_rcv_lt` walks
+the canonical receive order down to arrears K — the minting ladder
 lays it in the announced family, the coverage induction walks it into
 the causal closure by its own τ stage, and saturation absorbs the
 stage into `inevitableA`. A root-height hold is vacuous here: a
 committed opener hand means the opening frame has not flushed, so
-nothing was ever pushed on that stream. -/
-theorem causalStuckCoverage (hwf : sk.wellFormed = true)
-    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) :
-    CausalStuckCoverage sk := by
-  intro C s hr hstuck hpI hpR p hh hhold hcover
-  have hm := sinv_reachable hwf hr
+nothing was ever pushed on that stream. The K = 1 instance is exactly
+the landed `causalStuckCoverage`; the K-deep window discipline
+(Mux/SigmaStarK.lean) consumes it at the receiving party's advertised
+depth. -/
+theorem stuck_coverage_arrears {B : Chan → Nat}
+    (hwf : sk.wellFormed = true)
+    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
+    {C : Nat} {σI σR : Strategy} {s : MState}
+    (hminv : MuxInvB B sk s)
+    (hstuck : mstuck sk .impl C σI σR s = true)
+    (hpI : s.pipe .I = []) (hpR : s.pipe .R = [])
+    (p : Party) (hh : Nat) (hhold : holdsWire sk p hh s.base = true)
+    (hcover : ∀ g ∈ scheduleE sk,
+      evIdx g (scheduleE sk)
+        < evIdx ((Chan.wire p hh, true,
+            sentOf sk s.base (Chan.wire p hh)) : Ev) (scheduleE sk) →
+      performed sk s.base g)
+    (K : Nat) (hK1 : 1 ≤ K)
+    (hKle : K ≤ pushedCount (s.hist p) hh) :
+    (Chan.wire p hh, false, pushedCount (s.hist p) hh - K)
+      ∈ inevitableA (aviewOf sk p (s.hist p)) (s.hist p) := by
   have W : Wall sk s (evIdx ((Chan.wire p hh, true,
       sentOf sk s.base (Chan.wire p hh)) : Ev) (scheduleE sk)) :=
-    ⟨hwf, hm0, hm.mux, hpI, hpR, hcover⟩
-  rw [demandedA, Bool.or_eq_true]
-  by_cases hK : pushedCount (s.hist p) hh = 0
-  · exact Or.inl (by simpa using hK)
-  refine Or.inr ((List.contains_iff_mem ..).mpr ?_)
-  have hL : InvL sk .impl s.base := hm.mux.invl
+    ⟨hwf, hm0, hminv.relax, hpI, hpR, hcover⟩
+  have hL : InvL sk .impl s.base := hminv.invl
   have hch : Chan.wire p hh ∈ allChans sk :=
     mem_allChans_of_wireHeights (holdsWire_mem_wireHeights hhold)
   have hKs : pushedCount (s.hist p) hh
@@ -4395,7 +4448,7 @@ theorem causalStuckCoverage (hwf : sk.wellFormed = true)
             if_pos (show ((Party.I == Party.I) = true) from rfl), hnw]
           rfl
         rw [hz] at hKs
-        exact hK (by omega)
+        omega
     | R =>
         have hro : s.base.ropenCh = some ROblig.wire :=
           beq_iff_eq.mp hhold
@@ -4415,7 +4468,7 @@ theorem causalStuckCoverage (hwf : sk.wellFormed = true)
             hnw]
           rfl
         rw [hz] at hKs
-        exact hK (by omega)
+        omega
   · -- the walk hand's pending fire places the withheld send
     rw [if_neg hhr] at hhold
     simp only [Bool.and_eq_true] at hhold
@@ -4470,20 +4523,52 @@ theorem causalStuckCoverage (hwf : sk.wellFormed = true)
         rw [Prod.mk.injEq, Prod.mk.injEq]
         exact ⟨rfl, rfl, hseq⟩] at this
       exact this
-    -- the predecessor receive, τ-below the withheld send
+    -- the arrears-K predecessor receive, τ-below the withheld send:
+    -- E2 places arrears 1, and the canonical receive order walks down
     have hcap1 : sk.cap (Chan.wire p hh) = 1 := rfl
     obtain ⟨hrmem, hrτ⟩ := tau_e2 hwf hfmem (by
       rw [hcap1]
       omega)
     rw [hcap1] at hrmem hrτ
-    have hfl := flatten_of_own_wire_recv W p hrmem hrτ
+    obtain ⟨hjmem, hjτ⟩ :
+        ((Chan.wire p hh, false,
+            sentOf sk s.base (Chan.wire p hh) - K) : Ev) ∈ scheduleE sk
+        ∧ evIdx ((Chan.wire p hh, false,
+              sentOf sk s.base (Chan.wire p hh) - K) : Ev) (scheduleE sk)
+            < evIdx ((Chan.wire p hh, true,
+                sentOf sk s.base (Chan.wire p hh)) : Ev) (scheduleE sk) := by
+      by_cases heq : sentOf sk s.base (Chan.wire p hh) - K
+          = sentOf sk s.base (Chan.wire p hh) - 1
+      · rw [heq]
+        exact ⟨hrmem, hrτ⟩
+      · obtain ⟨hm', hlt'⟩ := tau_rcv_lt
+          (k := sentOf sk s.base (Chan.wire p hh) - K) hwf hrmem (by omega)
+        exact ⟨hm', by omega⟩
+    have hfl := flatten_of_own_wire_recv W p hjmem hjτ
     have hcov := causal_closure_coverage W p
       (evIdx ((Chan.wire p hh, false,
-        sentOf sk s.base (Chan.wire p hh) - 1) : Ev) (scheduleE sk) + 1)
-      _ hrmem hrτ (by omega) hfl
+        sentOf sk s.base (Chan.wire p hh) - K) : Ev) (scheduleE sk) + 1)
+      _ hjmem hjτ (by omega) hfl
     have hinev := mem_inevitableA_of_closureNA hcov
-    rw [show (aviewOf sk p (s.hist p)).party = p from rfl, hKs]
+    rw [hKs]
     exact hinev
+
+/-- Step 4, discharged: `CausalStuckCoverage` holds for every
+well-formed margin-0 skeleton — at a reachable stuck drained
+σ*-causal×σ*-causal state, a held stream whose τ-prefix is performed
+is proven-demanded under the ANNOUNCED closure. The arrears-1 instance
+of `stuck_coverage_arrears`, at the record occupancy bound. -/
+theorem causalStuckCoverage (hwf : sk.wellFormed = true)
+    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) :
+    CausalStuckCoverage sk := by
+  intro C s hr hstuck hpI hpR p hh hhold hcover
+  have hm := sinv_reachable hwf hr
+  rw [demandedA, Bool.or_eq_true]
+  by_cases hK : pushedCount (s.hist p) hh = 0
+  · exact Or.inl (by simpa using hK)
+  refine Or.inr ((List.contains_iff_mem ..).mpr ?_)
+  exact stuck_coverage_arrears hwf hm0 hm.mux hstuck hpI hpR p hh hhold
+    hcover 1 (Nat.le_refl 1) (by omega)
 
 /-- σ*-causal is deadlock-free, unconditionally: the charter-grain
 demand-lockstep pair completes every well-formed margin-0 session at

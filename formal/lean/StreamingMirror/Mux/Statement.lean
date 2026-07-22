@@ -25,6 +25,14 @@ send-order schedule of the protocol's existing messages suffice?
   One fixed, Rust-realizable skeleton defeats every WORK-CONSERVING
   pair at every capacity — even omniscient WC dies — and K-deep reply
   parking moves the wall without removing it.
+- **T8: the window-generalized positive half**
+  (`sigmaStarK_deadlock_free`, `sigmaStarK_completes`): at every
+  per-direction advertised depth pair, EVERY strategy sending in any
+  order the window discipline permits — licensing causal, at parking
+  arrears K — is deadlock-free and completes within `2·ρ(init)`.
+  T8-SPEC.md is its English specification of record, fixed before the
+  build, with the clause-by-clause audit crosswalk in its landed
+  note.
 - **C2: TRUE at C₀ = 1** (`oracle_deadlock_free`; the conjunction
   `necessity`). The full-skeleton oracle of record is the STATIC send
   projection of the canonical schedule τ — non-adaptive, consulted
@@ -68,7 +76,10 @@ The statements below quantify over these definitions and nothing else:
   determined). That is the honest cost of the charter-grain claim;
   Mux/Proofs/Grains.lean pins the grain nondegenerate
   (`charterView_nondegenerate`) and discriminating
-  (`oracle_not_charterLocal`).
+  (`oracle_not_charterLocal`). For T8: `demandedAK`/`licensedA` and
+  `WindowDisciplined` (Mux/SigmaStarK.lean, ~40 lines — the arrears-K
+  licensing over the same announced view, and the
+  gate-plus-progress class it quantifies).
 - **The witnesses' shapes**: the `wedge` literal (Mux/Instances.lean,
   12 scopes) and the `wedgeW` family plus `deliverStepK`/`applyK`
   (Proofs/WcImpossibilityK.lean, ~40 lines) for the K statement.
@@ -155,6 +166,7 @@ import StreamingMirror.Mux.Proofs.C1
 import StreamingMirror.Mux.Proofs.Termination
 import StreamingMirror.Mux.Proofs.Inhabitation
 import StreamingMirror.Mux.Proofs.Grains
+import StreamingMirror.Mux.Proofs.SigmaStarKLive
 
 namespace StreamingMirror.Mux.Statement
 
@@ -340,38 +352,52 @@ theorem mreachable_init :
       MReachable sk ax C σI σR (init sk) :=
   fun _ _ _ _ _ => .init
 
+/-- T8, the window-generalized positive half (T8-SPEC.md's claim,
+clause by clause — the crosswalk is the spec's landed note): every
+well-formed margin-0 skeleton (clause 1), every capacity C ≥ 1
+(clause 2), every advertised depth pair K_I, K_R ≥ 1, independent and
+possibly unequal (clause 3), and EVERY window-disciplined pair — any
+selection rule among licensed frames, each side gated at its PEER's
+advertised depth (clause 4; `WindowDisciplined`, with the canonical
+σ*ₖ and the shipped-ladder shape as kernel-pinned inhabitants:
+`sigmaStarK_windowDisciplined`, `sigmaLadderK_windowDisciplined`),
+licensing causal at parking arrears K (clause 5; `demandedAK` over the
+announced view; `sigmaStarK_one` pins the K = 1 degeneration to
+σ*-causal) — the K-deep composition has no reachable stuck state.
+Clause 6's other conjunct is `sigmaStarK_completes` below; the
+executable pins are the asymmetric (1, 4) smoke and the (2, 2) wedge
+(`smokeChain_sigmaStarK_completes_1_4`,
+`wedge_sigmaStarK_completes_2_2`). Message-denominated; the byte
+caveat of record is Mux/Basic.lean's module doc (# The
+byte-denomination caveat). -/
+theorem sigmaStarK_deadlock_free :
+    ∀ (sk : Skel), sk.wellFormed = true →
+      (∀ sc, sk.dCount sc ≤ sk.capLevel) →
+      ∀ (KI KR : Nat), 1 ≤ KI → 1 ≤ KR →
+        ∀ (C : Nat), 1 ≤ C → ∀ (σI σR : Strategy),
+          WindowDisciplined KR .I σI → WindowDisciplined KI .R σR →
+          MuxDeadlockFreeK sk .impl KI KR C σI σR :=
+  fun _ hwf hm0 KI KR hKI hKR C hC _ _ hWI hWR =>
+    _root_.StreamingMirror.Mux.sigmaStarK_deadlock_free hwf hm0
+      KI KR hKI hKR C hC hWI hWR
+
+/-- T8's "always completes", assembled (clause 6, both conjuncts in
+one kernel fact): under any window-disciplined pair the greedy K drain
+reaches `mterminal` within `2·ρ(init)` steps — progress plus the
+K-variant termination bound (`mux_terminatingK`). Message-denominated;
+the byte caveat of record is Mux/Basic.lean's module doc (# The
+byte-denomination caveat). -/
+theorem sigmaStarK_completes :
+    ∀ (sk : Skel), sk.wellFormed = true →
+      (∀ sc, sk.dCount sc ≤ sk.capLevel) →
+      ∀ (KI KR : Nat), 1 ≤ KI → 1 ≤ KR →
+        ∀ (C : Nat), 1 ≤ C → ∀ (σI σR : Strategy),
+          WindowDisciplined KR .I σI → WindowDisciplined KI .R σR →
+          mterminal sk
+            (mdrainK sk .impl KI KR C σI σR
+              (2 * rho sk (Model.init sk)) (init sk)) = true :=
+  fun _ hwf hm0 KI KR hKI hKR C hC _ _ hWI hWR =>
+    _root_.StreamingMirror.Mux.sigmaStarK_completes hwf hm0
+      KI KR hKI hKR C hC hWI hWR
+
 end StreamingMirror.Mux.Statement
-
-/-!
-# T8 SECTION STUB — deliberately unfilled; the T8 track fills it
-
-T8 (`sigmaStarK_deadlock_free`, the window-generalized positive half)
-has its English statement fixed BEFORE its build: formal/T8-SPEC.md is
-the specification of record, and the restatement that lands here must
-transcribe its clauses —
-
-1. **domain**: every well-formed margin-0 skeleton, `.impl` — the base
-   flagship's own class, no new tree assumptions;
-2. **capacity**: every C ≥ 1, universally quantified;
-3. **windows**: every advertised depth pair K_I ≥ 1, K_R ≥ 1,
-   independent and possibly unequal (a single-K statement is WEAKER
-   and fails the audit);
-4. **order**: every selection rule among licensed frames — the
-   statement quantifies over a licensed-push strategy CLASS with the
-   canonical scheduler and the shipped priority ladder as pinned
-   instances (a concrete-scheduler-only statement is WEAKER and fails
-   the audit);
-5. **licensing**: the causal closure over the announced sub-skeleton
-   at parking arrears K, charter-local in the F3 sense
-   (`causalStuckCoverage`, Proofs/CausalMint.lean, is this clause's
-   inference-progress conjunct at K = 1; an omniscient-closure
-   statement is WEAKER and fails the audit);
-6. **completes**: progress AND termination — the K-variant run bound
-   (`mrho_decreasesK` exists; its run-level consumer lands with T8; a
-   progress-only statement is WEAKER and fails the audit).
-
-The impossibility half is landed and restated above
-(`wc_impossibility_K`). At the T8 merge this stub is replaced by the
-restatements and the merge-seam checklist runs over the seam
-(MUX-PROGRESS §1's discipline note).
--/

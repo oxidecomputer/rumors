@@ -1037,8 +1037,8 @@ theorem elastic_no_stuck (sk : Skel) (hwf : sk.wellFormed = true)
           | finRets => simp [isWireFire] at hIF
 
 /-- Elastic deadlock freedom — the unbounded-parking (K = ∞) endpoint
-of T8's dial (the finite-K positive half remains the unattempted stub,
-Proofs/C1.lean's module doc): with unbounded reply parking, every pair
+of T8's dial (the finite-K positive half is `sigmaStarK_deadlock_free`,
+Proofs/SigmaStarKLive.lean): with unbounded reply parking, every pair
 from the pushes-when-nonempty class is deadlock-free at every capacity
 C ≥ 1 — liveness inherited from the
 base flagship through the weak-invariant reduction, no new liveness

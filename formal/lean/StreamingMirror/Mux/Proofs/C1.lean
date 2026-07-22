@@ -78,35 +78,32 @@ separately (`oracle_not_localStrategy`, `oracle_not_charterLocal`).
   proven-demanded, which is refute-c1 §5's boundary observation: the
   Inevitable closure is what C1's falsity rests on, not evidence.
 
-# T8 stub (positive half NOT attempted; corrected against the landed K-harness)
+# T8 (LANDED): the positive half's pointer
 
-The K-deep parking generalization needs per-direction depths: the
-single-socket design (design/single-socket.md) advertises windows per
-direction, so the two parties may run different parking bounds
-(K_I ≠ K_R). The K-harness LANDED with the impossibility half
-(`applyK`/`MuxDeadlockFreeK`/`wc_impossibility_K`,
-WcImpossibilityK.lean); a builder of the positive half must match its
-conventions — two counts a builder would otherwise wire backwards:
+T8 landed as `sigmaStarK_deadlock_free`
+(Mux/Proofs/SigmaStarKLive.lean) with its termination half
+`mux_terminatingK` (Mux/Proofs/Termination.lean): for every
+well-formed margin-0 skeleton, every C ≥ 1, every per-direction depth
+pair K_I, K_R ≥ 1, and EVERY window-disciplined strategy pair
+(`WindowDisciplined`, Mux/SigmaStarK.lean — any selection rule among
+causally licensed frames; the canonical σ*ₖ and the shipped-ladder
+shape are checked inhabitants), the K-deep composition is
+deadlock-free and completes within `2·ρ(init)` steps. The
+specification of record is formal/T8-SPEC.md, whose landed note
+carries the clause-by-clause audit crosswalk.
 
-- argument order is `MuxDeadlockFreeK sk ax KI KR C σI σR`
-  (depths BEFORE capacity, matching `applyK`);
-- the deliver dial is the RECEIVING party's advertised depth:
-  `deliver .I` fills the responder's cells at depth `KR`,
-  `deliver .R` the initiator's at depth `KI` (`recvDepth`) — not
-  "deliver p parks up to K_p".
+The stub's two convention notes are honored by the landed statement:
+argument order `MuxDeadlockFreeK sk ax KI KR C σI σR` (depths before
+capacity), and each party gated at its PEER's advertised depth — the
+canonical instantiation is `sigmaStarK_pair_deadlock_free`:
 
-The intended positive theorem, over a lookahead strategy
-`sigmaStarK K` demanding `rcv(c, k−K)`:
+  MuxDeadlockFreeK sk .impl KI KR C (sigmaStarK KR) (sigmaStarK KI)
 
-  theorem sigmaStarK_deadlock_free (KI KR : Nat)
-      (hKI : 1 ≤ KI) (hKR : 1 ≤ KR)
-      (hwf : sk.wellFormed = true)
-      (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C) :
-      MuxDeadlockFreeK sk .impl KI KR C (sigmaStarK KR) (sigmaStarK KI)
-
-(each party's lookahead is the depth its PEER's demux parks — the
-depth its own sends were advertised). A single-K statement would not
-cover the deployed configuration.
+`CausalStuckCoverage` — this file's charter refutation hypothesis, T8's
+"inference progress" conjunct — generalized as promised: the minting
+ladder parameterized over the parking arrears
+(`stuck_coverage_arrears`, Proofs/CausalMint.lean), with the landed
+`causalStuckCoverage` its K = 1 instance.
 -/
 import StreamingMirror.Mux.Proofs.SigmaStarLive
 import StreamingMirror.Mux.Proofs.CausalMint

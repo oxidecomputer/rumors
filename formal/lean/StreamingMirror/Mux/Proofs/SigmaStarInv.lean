@@ -230,11 +230,17 @@ structure HistInv (sk : Skel) (s : MState) : Prop where
     = pushesOf (s.hist p) h
       + (if holdsWire sk p h s.base then 1 else 0)
 
-/-- The full strategy-generic muxed invariant: transport ground facts
-plus history decode. -/
-structure SInv (sk : Skel) (s : MState) : Prop where
-  mux : MuxInv sk s
+/-- The full strategy-generic muxed invariant at occupancy bound `B`:
+transport ground facts plus history decode. The bound rides along for
+the same reason as `MuxInvB`'s (the K-parked twin shares this sweep,
+Ground.lean's module doc); `SInv` is the record instantiation. -/
+structure SInvB (B : Chan → Nat) (sk : Skel) (s : MState) : Prop where
+  mux : MuxInvB B sk s
   hist : HistInv sk s
+
+/-- The record-harness invariant: the occupancy bound is the base
+capacity. -/
+abbrev SInv (sk : Skel) (s : MState) : Prop := SInvB sk.cap sk s
 
 /-- σ*'s push certificates (INV-A, refute-c1 §2.1): every recorded
 push was proven-demanded against its own push-time observation
@@ -307,8 +313,8 @@ theorem committedInHist_iff_holdsWire {s : MState} (hh : HistInv sk s)
 occupancy stays capacity-bounded, internal conservation holds, wire
 producer counts are untouched, and the wire receive/slot sum is
 conserved. -/
-structure BaseFacts (sk : Skel) (s₀ b : State) : Prop where
-  slot : ∀ c ∈ allChans sk, b.chan c ≤ sk.cap c
+structure BaseFacts (B : Chan → Nat) (sk : Skel) (s₀ b : State) : Prop where
+  slot : ∀ c ∈ allChans sk, b.chan c ≤ B c
   flow_int : ∀ c ∈ allChans sk, isWire c = false →
     b.chan c + recvdOf sk b c = sentOf sk b c
   sent_wire : ∀ q g, Chan.wire q g ∈ allChans sk →
@@ -317,12 +323,12 @@ structure BaseFacts (sk : Skel) (s₀ b : State) : Prop where
     recvdOf sk b (Chan.wire q g) + b.chan (Chan.wire q g)
       = recvdOf sk s₀ (Chan.wire q g) + s₀.chan (Chan.wire q g)
 
-/-- A quiet step delivers the base facts. -/
-theorem BaseFacts.of_quiet {s₀ b : State}
-    (hslot : ∀ c ∈ allChans sk, s₀.chan c ≤ sk.cap c)
+/-- A quiet step delivers the base facts, at any occupancy bound. -/
+theorem BaseFacts.of_quiet {B : Chan → Nat} {s₀ b : State}
+    (hslot : ∀ c ∈ allChans sk, s₀.chan c ≤ B c)
     (hflow : ∀ c ∈ allChans sk, isWire c = false →
       s₀.chan c + recvdOf sk s₀ c = sentOf sk s₀ c)
-    (hq : QuietStep sk s₀ b) : BaseFacts sk s₀ b := by
+    (hq : QuietStep sk s₀ b) : BaseFacts B sk s₀ b := by
   refine ⟨?_, ?_, ?_, ?_⟩
   · intro c hc
     rw [hq.chan]
@@ -335,14 +341,15 @@ theorem BaseFacts.of_quiet {s₀ b : State}
   · intro q g hc
     rw [hq.chan, hq.recvd _ hc]
 
-/-- A receive step delivers the base facts: the received channel's
-occupancy drop balances its consumer-count rise. -/
-theorem BaseFacts.of_recv {s₀ b : State} {c₀ : Chan}
-    (hslot : ∀ c ∈ allChans sk, s₀.chan c ≤ sk.cap c)
+/-- A receive step delivers the base facts, at any occupancy bound:
+the received channel's occupancy drop balances its consumer-count
+rise. -/
+theorem BaseFacts.of_recv {B : Chan → Nat} {s₀ b : State} {c₀ : Chan}
+    (hslot : ∀ c ∈ allChans sk, s₀.chan c ≤ B c)
     (hflow : ∀ c ∈ allChans sk, isWire c = false →
       s₀.chan c + recvdOf sk s₀ c = sentOf sk s₀ c)
     (hr : RecvStep sk s₀ b c₀) :
-    BaseFacts sk s₀ b := by
+    BaseFacts B sk s₀ b := by
   refine ⟨?_, ?_, ?_, ?_⟩
   · intro c hc
     rw [hr.chan]
@@ -374,14 +381,16 @@ theorem BaseFacts.of_recv {s₀ b : State} {c₀ : Chan}
     · rw [bump_ne _ _ he, if_neg he]
       omega
 
-/-- A send step into an INTERNAL channel delivers the base facts: the
-mux never sends on a wire channel through a base arm. -/
-theorem BaseFacts.of_send {s₀ b : State} {c₀ : Chan}
-    (hslot : ∀ c ∈ allChans sk, s₀.chan c ≤ sk.cap c)
+/-- A send step into an INTERNAL channel delivers the base facts, at
+any occupancy bound dominating the base capacity on the sent channel:
+the mux never sends on a wire channel through a base arm. -/
+theorem BaseFacts.of_send {B : Chan → Nat} {s₀ b : State} {c₀ : Chan}
+    (hslot : ∀ c ∈ allChans sk, s₀.chan c ≤ B c)
     (hflow : ∀ c ∈ allChans sk, isWire c = false →
       s₀.chan c + recvdOf sk s₀ c = sentOf sk s₀ c)
     (hs : SendStep sk s₀ b c₀)
-    (hw₀ : isWire c₀ = false) : BaseFacts sk s₀ b := by
+    (hw₀ : isWire c₀ = false) (hcapB : sk.cap c₀ ≤ B c₀) :
+    BaseFacts B sk s₀ b := by
   refine ⟨?_, ?_, ?_, ?_⟩
   · intro c hc
     rw [hs.chan]
@@ -421,11 +430,12 @@ theorem BaseFacts.of_send {s₀ b : State} {c₀ : Chan}
 /-- The transport and action-attribution fields under one `.act`
 append: none of them reads the hands, so both hand variants (neutral
 and commit-flip) share this core. -/
-private theorem mux_act_append {s : MState} {b : State} {a : Action}
-    (hm : SInv sk s) (hL' : InvL sk .impl b)
-    (hbf : BaseFacts sk s.base b) :
-    MuxInv sk { s with base := b
-                       hist := recordObs s.hist (actionParty a) (.act a) }
+private theorem mux_act_append {B : Chan → Nat} {s : MState} {b : State}
+    {a : Action}
+    (hm : SInvB B sk s) (hL' : InvL sk .impl b)
+    (hbf : BaseFacts B sk s.base b) :
+    MuxInvB B sk { s with base := b
+                          hist := recordObs s.hist (actionParty a) (.act a) }
     ∧ ∀ p a', MObs.act a'
         ∈ recordObs s.hist (actionParty a) (.act a) p →
         actionParty a' = p := by
@@ -504,13 +514,14 @@ private theorem mux_act_append {s : MState} {b : State} {a : Action}
 /-- One hand-neutral base action's effect on the muxed state,
 reassembled: the transport fields from `BaseFacts`, the histories from
 the `.act`-append algebra, the untouched hand ledger from `HandsEq`. -/
-theorem SInv.base_assemble {s : MState} {b : State} {a : Action}
-    (hm : SInv sk s) (hL' : InvL sk .impl b)
-    (hbf : BaseFacts sk s.base b)
+theorem SInvB.base_assemble {B : Chan → Nat} {s : MState} {b : State}
+    {a : Action}
+    (hm : SInvB B sk s) (hL' : InvL sk .impl b)
+    (hbf : BaseFacts B sk s.base b)
     (hhand : ∀ p h, holdsWire sk p h b = holdsWire sk p h s.base)
     (hnc : ∀ h, wireCommitOn sk.rootH a h = false) :
-    SInv sk { s with base := b
-                     hist := recordObs s.hist (actionParty a) (.act a) } := by
+    SInvB B sk { s with base := b
+                        hist := recordObs s.hist (actionParty a) (.act a) } := by
   obtain ⟨hmux, hparty⟩ := mux_act_append (a := a) hm hL' hbf
   refine ⟨hmux, hparty, ?_⟩
   intro p h
@@ -531,18 +542,19 @@ theorem SInv.base_assemble {s : MState} {b : State} {a : Action}
 /-- The commit-arm assembly: one wire commit flips exactly one hand on
 while its machine's ledger gains exactly one commit — the `hand_count`
 books balance on both sides of the flip. -/
-theorem SInv.base_assemble_commit {s : MState} {b : State} {a : Action}
+theorem SInvB.base_assemble_commit {B : Chan → Nat} {s : MState}
+    {b : State} {a : Action}
     {p₀ : Party} {h₀ : Nat}
-    (hm : SInv sk s) (hL' : InvL sk .impl b)
-    (hbf : BaseFacts sk s.base b)
+    (hm : SInvB B sk s) (hL' : InvL sk .impl b)
+    (hbf : BaseFacts B sk s.base b)
     (hap : actionParty a = p₀)
     (hcn : ∀ h, wireCommitOn sk.rootH a h = decide (h = h₀))
     (hoff : holdsWire sk p₀ h₀ s.base = false)
     (hon : holdsWire sk p₀ h₀ b = true)
     (hother : ∀ p h, ¬(p = p₀ ∧ h = h₀) →
       holdsWire sk p h b = holdsWire sk p h s.base) :
-    SInv sk { s with base := b
-                     hist := recordObs s.hist (actionParty a) (.act a) } := by
+    SInvB B sk { s with base := b
+                        hist := recordObs s.hist (actionParty a) (.act a) } := by
   obtain ⟨hmux, hparty⟩ := mux_act_append (a := a) hm hL' hbf
   refine ⟨hmux, hparty, ?_⟩
   intro p h
@@ -646,9 +658,10 @@ theorem isWire_obligChan_nonwire (pk : Party × Nat) {o : Oblig}
 
 /-- Every enabled base action preserves the strategy-generic muxed
 invariant: the 23-arm dispatch through the Steps files. -/
-theorem sinv_base (hwf : sk.wellFormed = true) {a : Action} {s s' : MState}
-    (hstep : applyBase sk .impl a s = some s') (hm : SInv sk s) :
-    SInv sk s' := by
+theorem sinv_base {B : Chan → Nat} (hwf : sk.wellFormed = true)
+    (hB : ∀ c, sk.cap c ≤ B c) {a : Action} {s s' : MState}
+    (hstep : applyBase sk .impl a s = some s') (hm : SInvB B sk s) :
+    SInvB B sk s' := by
   obtain ⟨hnf, b, hb, hs'⟩ := applyBase_inv hstep
   have hL := hm.mux.invl
   have hslot := hm.mux.slot
@@ -660,7 +673,7 @@ theorem sinv_base (hwf : sk.wellFormed = true) {a : Action} {s s' : MState}
       | wire =>
           obtain ⟨hL', hq, hoff, hon, hother⟩ :=
             step_iopenChoose_wire hb hL
-          exact SInv.base_assemble_commit hm hL'
+          exact SInvB.base_assemble_commit hm hL'
             (BaseFacts.of_quiet hslot hflow hq) rfl
             (fun h => by
               show (h == sk.rootH) = decide (h = sk.rootH)
@@ -668,7 +681,7 @@ theorem sinv_base (hwf : sk.wellFormed = true) {a : Action} {s s' : MState}
             hoff hon hother
       | query =>
           obtain ⟨hL', hq, hh⟩ := step_iopenChoose_query hb hL
-          exact SInv.base_assemble hm hL'
+          exact SInvB.base_assemble hm hL'
             (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
   | iopenFire =>
       have hch : s.base.iopenCh = some .query := by
@@ -683,18 +696,18 @@ theorem sinv_base (hwf : sk.wellFormed = true) {a : Action} {s s' : MState}
                 simp at hnf
             | query => rfl
       obtain ⟨hL', hsend, hh⟩ := step_iopenFire_query hch hb hL
-      exact SInv.base_assemble hm hL'
-        (BaseFacts.of_send hslot hflow hsend rfl) hh (fun h => rfl)
+      exact SInvB.base_assemble hm hL'
+        (BaseFacts.of_send hslot hflow hsend rfl (hB _)) hh (fun h => rfl)
   | ropenRecv =>
       obtain ⟨hL', hr, hh⟩ := step_ropenRecv hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
   | ropenChoose o =>
       cases o with
       | wire =>
           obtain ⟨hL', hq, hoff, hon, hother⟩ :=
             step_ropenChoose_wire hb hL
-          exact SInv.base_assemble_commit hm hL'
+          exact SInvB.base_assemble_commit hm hL'
             (BaseFacts.of_quiet hslot hflow hq) rfl
             (fun h => by
               show (h == sk.rootH) = decide (h = sk.rootH)
@@ -702,11 +715,11 @@ theorem sinv_base (hwf : sk.wellFormed = true) {a : Action} {s s' : MState}
             hoff hon hother
       | res =>
           obtain ⟨hL', hq, hh⟩ := step_ropenChoose_res hb hL
-          exact SInv.base_assemble hm hL'
+          exact SInvB.base_assemble hm hL'
             (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
       | query =>
           obtain ⟨hL', hq, hh⟩ := step_ropenChoose_query hb hL
-          exact SInv.base_assemble hm hL'
+          exact SInvB.base_assemble hm hL'
             (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
   | ropenFire =>
       have hch : s.base.ropenCh = some .res ∨ s.base.ropenCh = some .query := by
@@ -723,25 +736,25 @@ theorem sinv_base (hwf : sk.wellFormed = true) {a : Action} {s s' : MState}
             | query => exact Or.inr rfl
       rcases hch with hch | hch
       · obtain ⟨hL', hsend, hh⟩ := step_ropenFire_res hch hb hL
-        exact SInv.base_assemble hm hL'
-          (BaseFacts.of_send hslot hflow hsend rfl) hh (fun h => rfl)
+        exact SInvB.base_assemble hm hL'
+          (BaseFacts.of_send hslot hflow hsend rfl (hB _)) hh (fun h => rfl)
       · obtain ⟨hL', hsend, hh⟩ := step_ropenFire_query hch hb hL
-        exact SInv.base_assemble hm hL'
-          (BaseFacts.of_send hslot hflow hsend rfl) hh (fun h => rfl)
+        exact SInvB.base_assemble hm hL'
+          (BaseFacts.of_send hslot hflow hsend rfl (hB _)) hh (fun h => rfl)
   | walkRecvWire pk =>
       obtain ⟨hL', hr, hh⟩ := step_walkRecvWire hwf pk hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
   | walkRecvAsked pk =>
       obtain ⟨hL', hr, hh⟩ := step_walkRecvAsked hwf pk hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
   | walkCommit pk o =>
       cases o with
       | wire i =>
           obtain ⟨hL', hq, hmem, hoff, hon, hother⟩ :=
             step_walkCommit_wire hwf pk i hb hL
-          refine SInv.base_assemble_commit (h₀ := pk.2) hm hL'
+          refine SInvB.base_assemble_commit (h₀ := pk.2) hm hL'
             (BaseFacts.of_quiet hslot hflow hq) rfl
             (fun h => by
               show (pk.2 == h) = decide (h = pk.2)
@@ -758,15 +771,15 @@ theorem sinv_base (hwf : sk.wellFormed = true) {a : Action} {s s' : MState}
           exact ⟨congrArg Prod.fst hcon, congrArg Prod.snd hcon⟩
       | res i =>
           obtain ⟨hL', hq, hh⟩ := step_walkCommit_res pk i hb hL
-          exact SInv.base_assemble hm hL'
+          exact SInvB.base_assemble hm hL'
             (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
       | query i =>
           obtain ⟨hL', hq, hh⟩ := step_walkCommit_query pk i hb hL
-          exact SInv.base_assemble hm hL'
+          exact SInvB.base_assemble hm hL'
             (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
       | parent =>
           obtain ⟨hL', hq, hh⟩ := step_walkCommit_parent pk hb hL
-          exact SInv.base_assemble hm hL'
+          exact SInvB.base_assemble hm hL'
             (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
   | walkFire pk =>
       -- decompose the fire; the wire obligation is barred by `hnf`
@@ -839,70 +852,70 @@ theorem sinv_base (hwf : sk.wellFormed = true) {a : Action} {s s' : MState}
                 | parent => simp
               rw [hwh]
             · exact hoff p h hpe
-          exact SInv.base_assemble hm hL''
+          exact SInvB.base_assemble hm hL''
             (BaseFacts.of_send hslot hflow hsend
-              (isWire_obligChan_nonwire pk hnw))
+              (isWire_obligChan_nonwire pk hnw) (hB _))
             hhands (fun h => rfl)
       next hcm => cases hb
   | walkCloseWire pk =>
       obtain ⟨hL', hq, hh⟩ := step_walkCloseWire hwf pk hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
   | walkCloseAsked pk =>
       obtain ⟨hL', hq, hh⟩ := step_walkCloseAsked hwf pk hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
   | asmRecvRes pk =>
       obtain ⟨hL', hr, hh⟩ := step_asmRecvRes hwf pk hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
   | asmRecvLevel pk =>
       obtain ⟨hL', hr, hh⟩ := step_asmRecvLevel hwf pk hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
   | asmSend pk =>
       obtain ⟨hL', hsend, hh⟩ := step_asmSend hwf pk hb hL
-      refine SInv.base_assemble hm hL'
-        (BaseFacts.of_send hslot hflow hsend ?_) hh (fun h => rfl)
+      refine SInvB.base_assemble hm hL'
+        (BaseFacts.of_send hslot hflow hsend ?_ (hB _)) hh (fun h => rfl)
       rw [Skel.asmOutChan]
       split
       · rfl
       · split <;> rfl
   | asmClose pk =>
       obtain ⟨hL', hq, hh⟩ := step_asmClose hwf pk hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
   | absorbRecvWire =>
       obtain ⟨hL', hr, hh⟩ := step_absorbRecvWire hwf hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
   | absorbRecvAsked =>
       obtain ⟨hL', hr, hh⟩ := step_absorbRecvAsked hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
   | absorbSend =>
       obtain ⟨hL', hsend, hh⟩ := step_absorbSend hb hL
-      exact SInv.base_assemble hm hL'
-        (BaseFacts.of_send hslot hflow hsend rfl) hh (fun h => rfl)
+      exact SInvB.base_assemble hm hL'
+        (BaseFacts.of_send hslot hflow hsend rfl (hB _)) hh (fun h => rfl)
   | absorbCloseWire =>
       obtain ⟨hL', hq, hh⟩ := step_absorbCloseWire hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
   | absorbCloseAsked =>
       obtain ⟨hL', hq, hh⟩ := step_absorbCloseAsked hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_quiet hslot hflow hq) hh (fun h => rfl)
   | finRet =>
       obtain ⟨hL', hr, hh⟩ := step_finRet hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
   | finRes =>
       obtain ⟨hL', hr, hh⟩ := step_finRes hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
   | finRets =>
       obtain ⟨hL', hr, hh⟩ := step_finRets hb hL
-      exact SInv.base_assemble hm hL'
+      exact SInvB.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
 
 -- ==================================================== the push arm
@@ -914,8 +927,9 @@ private theorem party_other_ne (q : Party) : q.other ≠ q := by
 sender's cursor advance rebuild every field. `hoffd` is the hand flip
 DOWN — the fired hand is cleared — and the guard's hand-was-held fact
 balances the ledger. -/
-theorem SInv.push_assemble {s : MState} {b : State} {p : Party} {h : Nat}
-    (hm : SInv sk s) (hL' : InvL sk .impl b)
+theorem SInvB.push_assemble {B : Chan → Nat} {s : MState} {b : State}
+    {p : Party} {h : Nat}
+    (hm : SInvB B sk s) (hL' : InvL sk .impl b)
     (hmem_ch : Chan.wire p h ∈ allChans sk)
     (hchan : b.chan = s.base.chan)
     (hsw : ∀ q g, Chan.wire q g ∈ allChans sk →
@@ -928,10 +942,10 @@ theorem SInv.push_assemble {s : MState} {b : State} {p : Party} {h : Nat}
     (hoffd : holdsWire sk p h b = false)
     (hother : ∀ q g, ¬(q = p ∧ g = h) →
       holdsWire sk q g b = holdsWire sk q g s.base) :
-    SInv sk { base := b
-              pipe := fun q => if q == p
-                then s.pipe q ++ [Chan.wire p h] else s.pipe q
-              hist := recordObs s.hist p (.pushed h) } := by
+    SInvB B sk { base := b
+                 pipe := fun q => if q == p
+                   then s.pipe q ++ [Chan.wire p h] else s.pipe q
+                 hist := recordObs s.hist p (.pushed h) } := by
   have hhist : ∀ q, recordObs s.hist p (.pushed h) q
       = if q == p then s.hist q ++ [.pushed h] else s.hist q := by
     intro q
@@ -1256,10 +1270,11 @@ theorem ropen_fire_facts {s₀ : State}
 
 /-- A successful push preserves the invariant, and its only history
 effect is the flush receipt. -/
-theorem sinv_firePush (hwf : sk.wellFormed = true) {C : Nat} {p : Party}
+theorem sinv_firePush {B : Chan → Nat} (hwf : sk.wellFormed = true)
+    {C : Nat} {p : Party}
     {h : Nat} {s s' : MState}
-    (hfp : firePush sk C p h s = some s') (hm : SInv sk s) :
-    SInv sk s' ∧ s'.hist = recordObs s.hist p (.pushed h) := by
+    (hfp : firePush sk C p h s = some s') (hm : SInvB B sk s) :
+    SInvB B sk s' ∧ s'.hist = recordObs s.hist p (.pushed h) := by
   simp only [firePush] at hfp
   split at hfp
   case isFalse => cases hfp
@@ -1282,7 +1297,7 @@ theorem sinv_firePush (hwf : sk.wellFormed = true) {C : Nat} {p : Party}
                   obtain ⟨hL', hsw, hsint, hrecv, hon, hoffd, hother⟩ :=
                     iopen_fire_facts hch hm.mux.invl
                   subst hs'
-                  refine ⟨SInv.push_assemble hm hL'
+                  refine ⟨SInvB.push_assemble hm hL'
                     (mem_allChans_wire_root _) rfl
                     (fun q g _ => hsw q g)
                     (fun c _ hw => hsint c hw)
@@ -1300,7 +1315,7 @@ theorem sinv_firePush (hwf : sk.wellFormed = true) {C : Nat} {p : Party}
                   obtain ⟨hL', hsw, hsint, hrecv, hon, hoffd, hother⟩ :=
                     ropen_fire_facts hch hm.mux.invl
                   subst hs'
-                  refine ⟨SInv.push_assemble hm hL'
+                  refine ⟨SInvB.push_assemble hm hL'
                     (mem_allChans_wire_root _) rfl
                     (fun q g _ => hsw q g)
                     (fun c _ hw => hsint c hw)
@@ -1326,7 +1341,7 @@ theorem sinv_firePush (hwf : sk.wellFormed = true) {C : Nat} {p : Party}
                 (.wire i))))
             hwf (p, h) (.wire i) hmem' hph2 hcm rfl hm.mux.invl
           subst hs'
-          refine ⟨SInv.push_assemble hm hL'
+          refine ⟨SInvB.push_assemble hm hL'
             (mem_allChans_wireOut hmem') hchan ?_ ?_
             (fun c hc => hrecv c hc) ?_ ?_ ?_, rfl⟩
           · intro q g hc
@@ -1376,24 +1391,21 @@ theorem sinv_firePush (hwf : sk.wellFormed = true) {C : Nat} {p : Party}
 private theorem party_cases (q p : Party) : q = p ∨ q = p.other := by
   cases q <;> cases p <;> simp [Party.other]
 
-/-- A delivery preserves the invariant: the FIFO head moves to its
-slot, and the receipt extends the delivered prefix by exactly that
-frame. -/
-theorem sinv_deliver {C : Nat} {σI σR : Strategy} {p : Party}
-    {s s' : MState}
-    (hstep : apply sk .impl C σI σR (.deliver p) s = some s')
-    (hm : SInv sk s) : SInv sk s' := by
-  simp only [apply] at hstep
-  split at hstep
-  case h_2 => cases hstep
-  case h_1 c rest hp =>
-      split at hstep
-      next h0 =>
-        have hz : s.base.chan c = 0 := by simpa using h0
-        obtain ⟨g, rfl⟩ := hm.mux.pipe_mem_wire (p := p)
-          (c := c) (by rw [hp]; exact List.mem_cons_self ..)
-        injection hstep with hs'
-        subst hs'
+/-- The delivery shape, at any occupancy bound admitting the landed
+frame: the FIFO head moves to its cell, and the receipt extends the
+delivered prefix by exactly that frame. The one bound-sensitive fact is
+`hbound` — the landing cell stays within `B` — which the record wrapper
+(`sinv_deliver`) discharges from the empty-slot guard and the K-parked
+twin discharges from the depth guard. -/
+theorem SInvB.deliver_shape {B : Chan → Nat} {p : Party} {g : Nat}
+    {rest : List Chan} {s : MState}
+    (hp : s.pipe p = Chan.wire p g :: rest)
+    (hbound : s.base.chan (Chan.wire p g) + 1 ≤ B (Chan.wire p g))
+    (hm : SInvB B sk s) :
+    SInvB B sk
+      { base := { s.base with chan := bump s.base.chan (Chan.wire p g) 1 }
+        pipe := fun q => if q == p then rest else s.pipe q
+        hist := recordObs s.hist p.other (.delivered g) } := by
         -- the head frame's position in the push order
         have hpipe := hm.mux.hist_pipe p
         rw [hp] at hpipe
@@ -1436,9 +1448,8 @@ theorem sinv_deliver {C : Nat} {σI σR : Strategy} {p : Party}
           show bump s.base.chan (Chan.wire p g) 1 c' ≤ _
           by_cases he : c' = Chan.wire p g
           · subst he
-            rw [bump_one, hz]
-            show 1 ≤ sk.cap (Chan.wire p g)
-            exact Nat.le_refl _
+            rw [bump_one]
+            exact hbound
           · rw [bump_ne _ _ he]
             exact hm.mux.slot c' hc'
         · -- flow_int
@@ -1601,14 +1612,35 @@ theorem sinv_deliver {C : Nat} {σI σR : Strategy} {p : Party}
             omega
           · rw [if_neg (by simp [hq])]
             exact hm.hist.hand_count q g'
+
+/-- A record delivery preserves the invariant: the empty-slot guard
+lands the frame within the cap-1 demux cell (`SInvB.deliver_shape` at
+the record bound). -/
+theorem sinv_deliver {C : Nat} {σI σR : Strategy} {p : Party}
+    {s s' : MState}
+    (hstep : apply sk .impl C σI σR (.deliver p) s = some s')
+    (hm : SInv sk s) : SInv sk s' := by
+  simp only [apply] at hstep
+  split at hstep
+  case h_2 => cases hstep
+  case h_1 c rest hp =>
+      split at hstep
+      next h0 =>
+        have hz : s.base.chan c = 0 := by simpa using h0
+        obtain ⟨g, rfl⟩ := hm.mux.pipe_mem_wire (p := p)
+          (c := c) (by rw [hp]; exact List.mem_cons_self ..)
+        injection hstep with hs'
+        subst hs'
+        exact SInvB.deliver_shape hp
+          (by rw [hz]; exact Nat.le_refl _) hm
       next => cases hstep
 
 /-- The push arm, decomposed to the strategy verdict. -/
-theorem sinv_push (hwf : sk.wellFormed = true) {C : Nat}
+theorem sinv_push {B : Chan → Nat} (hwf : sk.wellFormed = true) {C : Nat}
     {σI σR : Strategy} {p : Party} {s s' : MState}
     (hstep : apply sk .impl C σI σR (.push p) s = some s')
-    (hm : SInv sk s) :
-    SInv sk s'
+    (hm : SInvB B sk s) :
+    SInvB B sk s'
     ∧ ∃ h, (match p with | .I => σI | .R => σR) sk (s.hist p) = some h
         ∧ s'.hist = recordObs s.hist p (.pushed h) := by
   cases p with
@@ -1635,12 +1667,14 @@ theorem sinv_step (hwf : sk.wellFormed = true) {C : Nat}
     (hstep : apply sk .impl C σI σR ma s = some s')
     (hm : SInv sk s) : SInv sk s' := by
   cases ma with
-  | base a => exact sinv_base hwf hstep hm
+  | base a => exact sinv_base hwf (fun c => Nat.le_refl _) hstep hm
   | push p => exact (sinv_push hwf hstep hm).1
   | deliver p => exact sinv_deliver hstep hm
 
-/-- No committed wire hand exists at the initial state. -/
-private theorem holdsWire_init (p : Party) (h : Nat) :
+/-- No committed wire hand exists at the initial state. Public: the
+K-variant sweep's base case (Mux/Proofs/SigmaStarKInv.lean) shares
+it. -/
+theorem holdsWire_init (p : Party) (h : Nat) :
     holdsWire sk p h (init sk).base = false := by
   rw [holdsWire.eq_def]
   split

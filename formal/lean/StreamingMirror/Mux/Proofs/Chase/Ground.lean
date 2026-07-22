@@ -124,8 +124,7 @@ elastic twin, caught twice more). -/
 theorem recvdOf_phantom_alias (sk : Skel)
     (hroot : (0 == sk.rootH) = false) (s : State) :
     recvdOf sk s (Chan.wire .I 0) = wkWireRecvd sk s (.R, 0) := by
-  simp only [recvdOf, hroot, Bool.false_and, if_neg (by decide :
-    ¬((Party.I == Party.R && (0 : Nat) == 0) = true))]
+  simp only [recvdOf, hroot]
   rfl
 
 set_option maxRecDepth 16000 in
@@ -187,10 +186,24 @@ structure, load-bearing under T4's stack), E with the guards plus a
 `pushed_real` field, the contrapositive of `pushed_mem`. The merge
 kept F's field; E's spelling survives as the derived lemmas
 `pushed_real` and `delivered_real` below, which E's oracle consumers
-use for phantom-corner vacuity. -/
-structure MuxInv (sk : Skel) (s : MState) : Prop where
+use for phantom-corner vacuity.
+
+# The occupancy bound, parameterized (the T8 generalization)
+
+The bundle is parameterized by an occupancy bound `B` because the
+K-deep demux variant (`deliverStepK`, Mux/Proofs/WcImpossibilityK.lean)
+legally parks up to the receiving party's advertised depth in a wire
+cell — the record harness's `sk.cap` bound (cap 1 on the wire family)
+is FALSE at its reachable states. Every derived count lemma below is
+bound-free, so it is stated over `MuxInvB` once; only `invP` (the
+drained collapse onto the full base invariant) genuinely needs the
+record bound and keeps `MuxInv`. `MuxInv` is the record instantiation
+(`B = sk.cap`) and `MuxInvW` the slot-free one (`B = s.base.chan`, the
+bound every state meets), which is what the bound-free consumers — the
+chase, the causal keystone, the minting wall — take. -/
+structure MuxInvB (B : Chan → Nat) (sk : Skel) (s : MState) : Prop where
   invl : InvL sk .impl s.base
-  slot : ∀ c ∈ allChans sk, s.base.chan c ≤ sk.cap c
+  slot : ∀ c ∈ allChans sk, s.base.chan c ≤ B c
   flow_int : ∀ c ∈ allChans sk, isWire c = false →
     s.base.chan c + recvdOf sk s.base c = sentOf sk s.base c
   pushed_eq : ∀ p h, RealWire sk p h →
@@ -206,20 +219,39 @@ structure MuxInv (sk : Skel) (s : MState) : Prop where
   pushed_mem : ∀ p h, pushedCount (s.hist p) h ≠ 0 →
     Chan.wire p h ∈ allChans sk
 
-namespace MuxInv
+/-- The record-harness ground facts: occupancy bounded by the base
+capacity (cap 1 on the wire family — the demux slot). The stage-F
+sweep (`sinv_reachable`) preserves this instantiation. -/
+abbrev MuxInv (sk : Skel) (s : MState) : Prop := MuxInvB sk.cap sk s
 
-variable {sk : Skel} {s : MState}
+/-- The slot-free ground facts: the occupancy bound instantiated at the
+state's own occupancy, which every state meets — everything of
+`MuxInvB` EXCEPT a bound. This is the exact hypothesis of the
+bound-free consumers (the chase, the causal keystone, the minting
+wall), and the projection every parked variant (K-deep, elastic-adjacent)
+can reach; `MuxInvB.relax` converts from any bound. -/
+abbrev MuxInvW (sk : Skel) (s : MState) : Prop := MuxInvB s.base.chan sk s
+
+namespace MuxInvB
+
+variable {B : Chan → Nat} {sk : Skel} {s : MState}
+
+/-- Any-bound ground facts relax to the slot-free form: the state's own
+occupancy is always a bound. -/
+theorem relax (hm : MuxInvB B sk s) : MuxInvW sk s :=
+  ⟨hm.invl, fun _ _ => Nat.le_refl _, hm.flow_int, hm.pushed_eq,
+    hm.hist_del, hm.hist_pipe, hm.delivered_eq, hm.pushed_mem⟩
 
 /-- The delivered heights are a prefix of the pushed heights: FIFO in
 its most consumable form. -/
-theorem delivered_prefix (hm : MuxInv sk s) (p : Party) :
+theorem delivered_prefix (hm : MuxInvB B sk s) (p : Party) :
     delHeights (s.hist p.other) <+: pushHeights (s.hist p) := by
   rw [hm.hist_del p]
   exact List.take_prefix _ _
 
 /-- Per stream, pushes split into the delivered frames plus the frames
 still in flight. -/
-theorem pushed_split (hm : MuxInv sk s) (p : Party) (h : Nat) :
+theorem pushed_split (hm : MuxInvB B sk s) (p : Party) (h : Nat) :
     pushedCount (s.hist p) h
       = deliveredCount (s.hist p.other) h
         + pipeCount s (Chan.wire p h) := by
@@ -231,14 +263,14 @@ theorem pushed_split (hm : MuxInv sk s) (p : Party) (h : Nat) :
   rw [List.count_append]
 
 /-- Delivery never outruns pushing, per stream. -/
-theorem delivered_le_pushed (hm : MuxInv sk s) (p : Party) (h : Nat) :
+theorem delivered_le_pushed (hm : MuxInvB B sk s) (p : Party) (h : Nat) :
     deliveredCount (s.hist p.other) h ≤ pushedCount (s.hist p) h := by
   have := hm.pushed_split p h
   omega
 
 /-- Wire flow conservation through the pipe: slot occupancy plus
 in-flight frames plus consumption is production. -/
-theorem flow_wire (hm : MuxInv sk s) (p : Party) (h : Nat)
+theorem flow_wire (hm : MuxInvB B sk s) (p : Party) (h : Nat)
     (hmem : Chan.wire p h ∈ allChans sk) :
     s.base.chan (Chan.wire p h) + pipeCount s (Chan.wire p h)
       + recvdOf sk s.base (Chan.wire p h)
@@ -248,10 +280,11 @@ theorem flow_wire (hm : MuxInv sk s) (p : Party) (h : Nat)
   have h3 := hm.delivered_eq p h hmem
   omega
 
-/-- Phantom wire channels are never pushed: `pushed_mem` in the
-contrapositive spelling track E minted as a field — kept as a derived
-lemma after the merge picked F's `pushed_mem`. -/
-theorem pushed_real (hm : MuxInv sk s) (p : Party) (h : Nat)
+/-- Phantom wire channels are never pushed: `pushed_mem`'s
+contrapositive, kept as a named lemma for the oracle-side consumers
+that discharge phantom-corner vacuity through it (integration note
+above). -/
+theorem pushed_real (hm : MuxInvB B sk s) (p : Party) (h : Nat)
     (hph : Chan.wire p h ∉ allChans sk) :
     pushedCount (s.hist p) h = 0 := by
   by_contra hne
@@ -259,7 +292,7 @@ theorem pushed_real (hm : MuxInv sk s) (p : Party) (h : Nat)
 
 /-- Phantom wire channels carry no deliveries: FIFO plus `pushed_real`
 — the vacuity door for every guarded wire fact. -/
-theorem delivered_real (hm : MuxInv sk s) (p : Party) (h : Nat)
+theorem delivered_real (hm : MuxInvB B sk s) (p : Party) (h : Nat)
     (hph : Chan.wire p h ∉ allChans sk) :
     deliveredCount (s.hist p.other) h = 0 := by
   have h1 := hm.delivered_le_pushed p h
@@ -272,7 +305,7 @@ among the delivered: the FIFO-ancestry input to the keystone
 
 `tr` is the observation history at the head's push time; its pushes
 are exactly the pushed prefix the deliveries have fully covered. -/
-theorem pushtime_delivered (hm : MuxInv sk s) (p : Party)
+theorem pushtime_delivered (hm : MuxInvB B sk s) (p : Party)
     {tr : List MObs}
     (htr : pushHeights tr
       = (pushHeights (s.hist p)).take (delTotal (s.hist p.other))) :
@@ -288,13 +321,14 @@ theorem _root_.StreamingMirror.Mux.isWire_eq {c : Chan}
   | wire p h => exact ⟨p, h, rfl⟩
   | _ => simp [isWire] at hc
 
-/-- With both pipes drained, the base state satisfies the full unmuxed
-invariant: the muxed conservation law collapses to `InvP.flow`. -/
-theorem invP (hm : MuxInv sk s) (hI : s.pipe .I = [])
-    (hR : s.pipe .R = []) : InvP sk .impl s.base := by
-  refine ⟨hm.invl.wk, hm.invl.asm, hm.invl.top, ?_⟩
+/-- With both pipes drained, per-channel conservation holds at every
+occupancy bound: internal channels never left the unmuxed law, and a
+drained wire channel's pipe term vanishes from `flow_wire`. -/
+theorem flow_drained (hm : MuxInvB B sk s) (hI : s.pipe .I = [])
+    (hR : s.pipe .R = []) :
+    ∀ c ∈ allChans sk,
+      s.base.chan c + recvdOf sk s.base c = sentOf sk s.base c := by
   intro c hc
-  refine ⟨?_, hm.slot c hc⟩
   cases hw : isWire c with
   | false => exact hm.flow_int c hc hw
   | true =>
@@ -310,7 +344,23 @@ theorem invP (hm : MuxInv sk s) (hI : s.pipe .I = [])
         rfl
       omega
 
-end MuxInv
+/-- With both pipes drained, the base state satisfies the WEAK unmuxed
+invariant (conservation without the capacity half) at every occupancy
+bound — exactly what the progress engine consumes, and available where
+the full `InvP` is not (K-parked wire cells exceed cap 1). -/
+theorem invPW (hm : MuxInvB B sk s) (hI : s.pipe .I = [])
+    (hR : s.pipe .R = []) : InvPW sk .impl s.base :=
+  ⟨hm.invl.wk, hm.invl.asm, hm.invl.top, hm.flow_drained hI hR⟩
+
+/-- With both pipes drained, the base state satisfies the full unmuxed
+invariant: the muxed conservation law collapses to `InvP.flow`. Needs
+the record bound (`MuxInv`) — the one lemma here that reads `slot`. -/
+theorem invP (hm : MuxInv sk s) (hI : s.pipe .I = [])
+    (hR : s.pipe .R = []) : InvP sk .impl s.base :=
+  ⟨hm.invl.wk, hm.invl.asm, hm.invl.top, fun c hc =>
+    ⟨hm.flow_drained hI hR c hc, hm.slot c hc⟩⟩
+
+end MuxInvB
 
 -- ============================================== stuckness consequences
 

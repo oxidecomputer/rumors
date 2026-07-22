@@ -629,9 +629,9 @@ The hypothesis `hpres` is the MUX-ADJUDICATION §4 stage-F obligation
 (`MuxInv` preservation along `MReachable`; `muxInv_init` is its landed
 base case). Everything oracle-specific is discharged here
 unconditionally: `OracleInv` preservation, the stuck-state argmin, and
-the naming lemma. Capacity is denominated in messages (= scope
-replies); the §5A W = 1 byte-soundness caveat applies verbatim
-(MUX-ADJUDICATION §2.5). -/
+the naming lemma. Capacity is message-denominated; the byte caveat of
+record is Mux/Basic.lean's module doc (# The byte-denomination
+caveat). -/
 theorem oracle_deadlock_free_of_muxInv (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C)
     (hpres : ∀ s, MReachable sk .impl C (oracle .I) (oracle .R) s →

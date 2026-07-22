@@ -24,8 +24,10 @@ the record slot, definitionally), and `applyU_eq_applyE`
 (Proofs/Twins.lean: the Mux/Controls.lean unbounded-slot control
 `applyU` IS the elastic semantics). Reading the dial: the record
 harness is the K = (1, 1) point, the elastic composition the K = ∞
-endpoint, and T8's positive half — when it lands — quantifies over
-`applyK`'s two depths between them (T8-SPEC.md).
+endpoint, and T8 (`sigmaStarK_deadlock_free`,
+Proofs/SigmaStarKLive.lean) quantifies over `applyK`'s two depths
+between them, with `sigmaStarK_one` pinning the strategy-level K = 1
+degeneration onto σ*-causal.
 
 # The invariant family: the canonical map
 
@@ -46,12 +48,18 @@ system):
 Muxed-system invariants (states of a composition; each is preserved
 along its own reachability and consumed as a ground-fact interface):
 
-- `MuxInv` (Proofs/Chase/Ground.lean) — the record transport's ground
-  facts: `InvL`, the slot bound, internal-channel flow, the hist/pipe
-  FIFO correspondence, and the two `RealWire`-guarded count equations
+- `MuxInvB B` (Proofs/Chase/Ground.lean) — the transport ground
+  facts, parameterized by an occupancy bound `B` (the T8
+  generalization: K-parked wire cells legally exceed cap 1): `InvL`,
+  occupancy ≤ `B`, internal-channel flow, the hist/pipe FIFO
+  correspondence, and the two `RealWire`-guarded count equations
   (`pushed_eq`, `delivered_eq`; the guard discipline and the phantom
-  trap it ends are documented there). With both pipes drained it
-  collapses to `InvP` (`MuxInv.invP`).
+  trap it ends are documented there). `MuxInv` = `MuxInvB sk.cap`
+  (the record instantiation; with both pipes drained it collapses to
+  `InvP` via `invP`, the one consumer that genuinely needs the record
+  bound); `MuxInvW` = `MuxInvB s.base.chan` (the slot-free form every
+  state meets — the bound-free consumers' hypothesis, reached from
+  any bound by `MuxInvB.relax`).
 - `HistInv` (Proofs/Inhabitation.lean) — the hand ledger:
   commit-vs-flush counts decode `holdsWire`. Mode- and shape-generic
   (no `wellFormed`), which is what lets the class-inhabitation
@@ -70,7 +78,12 @@ along its own reachability and consumed as a ground-fact interface):
 - `RecvLedger` (Proofs/CausalCoverage.lean) — recorded wire receives
   never outrun the base consumer counts and name real channels: the
   ground fact that makes the causal closure's own-receive evidence arm
-  sound. Strategy-generic; `recvLedger_reachable`.
+  sound. Strategy-generic; `recvLedger_reachable` (K twin
+  `recvLedger_reachableK`).
+- `SInvK` (Proofs/SigmaStarKInv.lean) — the stage-F bundle at the
+  K-variant's `kcap` bound, with `PushProvenAK` (the arrears-K push
+  certificates — clause 4's class quantification made inductive);
+  preserved by `sinvK_reachable` over `KMReachable`.
 - `OracleInv` (Proofs/Oracle/Order.lean) — oracle-run-specific: a
   machine's pushes are exactly the τ-prefix of its send projection.
   History-only preservation, disjoint from the ground-fact sweep;
@@ -80,7 +93,7 @@ Implication skeleton (arrows are the named projections; the starred
 ones need both pipes drained):
 
     SInv ─→ MuxInv ─*→ InvP ─→ InvPW ─→ (local) InvL
-                EMuxInv ─*→ InvPW
+    MuxInvB B ─→ MuxInvW (relax)      EMuxInv ─*→ InvPW
     SInv ─→ HistInv        RecvLedger, OracleInv: side ledgers
 
 # The statement-by-statement discharge map
@@ -99,6 +112,14 @@ ones need both pipes drained):
 - **T8's impossibility half `wc_impossibility_K`**
   (Proofs/WcImpossibilityK.lean): the same machinery with the deliver
   arm re-gated; 12 anchors across KR ∈ {1,2,3}.
+- **T8's positive half `sigmaStarK_deadlock_free`**
+  (Mux/SigmaStarK.lean the arrears-K demand rule, the
+  `WindowDisciplined` class, and its two kernel-pinned inhabitants;
+  Proofs/SigmaStarKInv.lean the K sweep; Proofs/CausalMint.lean's
+  `stuck_coverage_arrears` the Step-4 ladder at parking arrears K;
+  Proofs/SigmaStarKLive.lean the assembly through the stuck bridge
+  `mstuck_of_mstuckK`, plus `sigmaStarK_completes` and the (1, 4) /
+  (2, 2) pins).
 - **T4 `sigmaStar_deadlock_free`** (Proofs/SigmaStarLive.lean, over
   `sinv_reachable`): push certificates drain the pipes, the chase
   names the withheld push, the τ-staged `closure_coverage` proves it
@@ -120,8 +141,9 @@ ones need both pipes drained):
   liveness induction.
 - **Termination** (Proofs/Termination.lean): `mrho = 2·ρ(base) + Σ
   |pipe|` strictly decreases on every arm of all three deliver
-  variants; `mux_terminating` bounds every run, and the greedy/maximal
-  run corollaries ground every "completes".
+  variants; `mux_terminating` (K twin `mux_terminatingK`) bounds every
+  run, and the greedy/maximal run corollaries ground every
+  "completes".
 - **Class inhabitation** (Proofs/Inhabitation.lean): the `HistInv`
   sweep certifies the shipped policy work-conserving on all three
   universes and legacy-local; the idler pins `LocalStrategy` inhabited.

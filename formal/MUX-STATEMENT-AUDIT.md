@@ -348,6 +348,7 @@ are in the `StreamingMirror.Mux.Statement` namespace.
 | B2 (C1-WC, T3) | `wc_impossibility`; the K-parking half `wc_impossibility_K` |
 | (the F5 completion companion) | `mux_terminating` |
 | (the elastic endpoint) | `elastic_deadlock_free` |
+| (T8, merged by phase 5) | `sigmaStarK_deadlock_free`, `sigmaStarK_completes` — the clause-by-clause crosswalk is T8-SPEC.md's landed note |
 
 Grade revisions this phase:
 

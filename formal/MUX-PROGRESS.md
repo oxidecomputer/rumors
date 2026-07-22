@@ -347,7 +347,9 @@ a wrong-grade finding by definition — including single-K, concrete-
 scheduler-only, omniscient-closure, and progress-only weakenings), and
 the boundaries. The T8 track transcribes it; review passes grade
 against it; amendments land here and there, dated, before the theorem
-does.
+does. **[Realized (2026-07-22): T8 LANDED — `sigmaStarK_deadlock_free`
+with every clause graded EXACT; the crosswalk is T8-SPEC.md's landed
+note and the §4 entry is the record.]**
 
 ## 3c. Chartered follow-on: tracecheck (Finch, 2026-07-21)
 
@@ -398,6 +400,82 @@ decidable with a constructive witness?
 Dated entries accumulate here as phases complete; refuted approaches are
 recorded with their refutations, in the PROGRESS.md tradition of keeping
 the negative space on the record.
+
+### 2026-07-22 — T8 LANDED: `sigmaStarK_deadlock_free`, the window-generalized liveness, class-quantified and kernel-checked
+
+**The campaign's final positive theorem is kernel-checked** (zero
+sorry, 275 jobs green; the T8 pair is CLOSED — `wc_impossibility_K`
+impossibility half + this liveness half): for every well-formed
+margin-0 skeleton, every C ≥ 1, every per-direction advertised depth
+pair K_I, K_R ≥ 1, and EVERY pair of window-disciplined strategies —
+any selection rule among causally licensed frames, each side gated at
+its PEER's advertised depth — the K-deep composition
+(`MuxDeadlockFreeK`) has no reachable stuck state, and every run
+terminates within 2·ρ(init) steps (`mux_terminatingK`,
+`sigmaStarK_completes` — clause 6's two conjuncts, per the F5 mint and
+the round-5 tripwire). The statement transcribes T8-SPEC.md clause by
+clause; the audit crosswalk (all clauses EXACT, two determined
+transcription choices recorded dated, no amendments) lives in
+T8-SPEC.md's landed note. Deliverables and anatomy:
+
+- **The demand rule at arrears K** (`demandedAK`, Mux/SigmaStarK.lean):
+  frame n licensed iff n < K or rcv(c, n−K) is in the ANNOUNCED
+  closure — the arrears form DERIVED from the `deliverStepK` guard
+  (a blocked cell holds exactly K frames past the consumer; Step 1's
+  keystone contradiction needs `rcv(c, recvdOf)` exactly).
+  `demandedAK 1 = demandedA` and `sigmaStarK 1 = sigmaStarCausal`
+  (strategy-level, `sigmaStarK_one`).
+- **The strategy class** (`WindowDisciplined`): gate (clause 5's
+  "gated only by" — σ names only licensed frames) + progress
+  (clause 4 — σ names some frame whenever one is licensed), guarded by
+  K-realizability per `KWorkConserving`'s posture. Two checked
+  inhabitants: the canonical `sigmaStarK` and `sigmaLadderK` — the
+  shipped `bottomMostReady` reverse-index poll over the licensed set —
+  so "the shipped priority ladder is an instance" is a theorem. The
+  liveness proof consults ONLY the two conjuncts; no selector appears,
+  so the named audit failure (concrete-scheduler drift) is structurally
+  impossible.
+- **The enabling refactor** (`MuxInvB`): the ground-fact bundle
+  parameterized by its occupancy bound (K-parked wire cells legally
+  exceed cap 1), with the chase, the causal keystone, and the minting
+  wall weakened to the bound-free form — the drained flow argument
+  never consumed the `chan ≤ cap` half. No landed statement of record
+  changed; the touched hypotheses only weakened.
+- **The sweep** (Mux/Proofs/SigmaStarKInv.lean, the F/E/T10 pattern):
+  `SInvK` = the stage-F bundle at the `kcap` bound (per-direction
+  parking bounds as ground facts); base/push arms re-dispatch the
+  B-generic landed sweep, the one new obligation is the K deliver's
+  depth-guard-lands-within-bound. `PushProvenAK` — INV-A at the
+  advertised depths — is a CLASS invariant (the gate conjunct made
+  inductive): where clause 4's quantification enters the induction.
+- **The coverage at arrears K** (`stuck_coverage_arrears`,
+  Mux/Proofs/CausalMint.lean): the landed Step-4 minting ladder with
+  the parking arrears as a parameter — the E2 edge places arrears 1
+  and the canonical receive order (`tau_rcv_lt`) walks τ-below down to
+  arrears K; the landed `causalStuckCoverage` is re-derived as its
+  K = 1 instance, exactly as the K-dial law's 54/54 predicted (no rung
+  resisted).
+- **The assembly** (Mux/Proofs/SigmaStarKLive.lean): the stuck bridge
+  `mstuck_of_mstuckK` (a K-stuck state is record-stuck — shared arms;
+  a depth-blocked cell blocks the cap-1 slot a fortiori) transports
+  every landed stuck decode; Step 1 (`windowK_pipes_empty`) contradicts
+  a parked head through its push-time arrears-K certificate and the
+  causal keystone; Steps 2–3 are the landed chase unchanged; the class
+  step is one line per conjunct. Canonical-pair corollary
+  `sigmaStarK_pair_deadlock_free` (the C1-stub statement, verbatim
+  conventions).
+- **Kernel pins**: `smokeChain_sigmaStarK_completes_1_4` — the
+  ASYMMETRIC pairing (K_I, K_R) = (1, 4) completes, exercising the
+  per-direction clause for real; `wedge_sigmaStarK_completes_2_2` —
+  the canonical adversarial shape completes under the two-deep window
+  (kernel cost minutes, as for the landed K = 1 wedge pin).
+
+With T8 closed, stage 3's suite stands complete: T1–T8 and T10 all
+kernel-checked, `c1_charter_false` unconditional, and the single-socket
+engine's implementation gate (σ*ₖ = window gate + causal inference
+progress) now rests on a fully-quantified validity statement — every
+capacity, every window pairing, every frame ordering the implementation
+could choose.
 
 ### 2026-07-21 — Stage-3 track E landed and merged: T5 and T6 CLOSED, stage 3 complete
 
@@ -995,13 +1073,42 @@ cover the Rust crates, untouched).
 
 Remaining queue, recorded and deliberately routed onward: the
 height-gap matrix row (largest-tractable-height muxprobe row); the
-`Sched`/`Model` same-name dedup (`frontier_of_count`); the K/E
-run-level termination consumers (T8's tripwire — its track owns
-them); `necessity`'s cosmetic ∀C restatement of the positive conjunct
-(phase-4 consider #6).
+`Sched`/`Model` same-name dedup (`frontier_of_count`); the elastic
+run-level termination consumer (`mux_terminatingE` — the K twin
+landed with T8); `necessity`'s cosmetic ∀C restatement of the
+positive conjunct (phase-4 consider #6).
+
+**T8 MERGED (2026-07-22, this phase's closing act — the suite stands
+complete, T1–T8 and T10 all kernel-checked).** The mux-t8 branch
+merged onto the phase-5 result; resolution decisions of record:
+(i) Ground.lean — git's line merge of the two tracks' independent
+edits to the ground-fact bundle was VERIFIED semantically and kept:
+`MuxInvB` (T8's occupancy-bound parameterization) now carries the
+`RealWire` guards on both count equations, so the source-fix idiom
+applies to the generalized bundle exactly as to its instantiations;
+(ii) C1.lean — T8's retirement of the stub to the landed pointer
+supersedes the stub wording phase 5 had cleaned; (iii) the merge-seam
+checklist ran over the seam (multiline-robust greps per round 6's
+hygiene note): three T8 surfaces gained their byte pointers
+(`sigmaStarK_pair_deadlock_free` and both completion pins — every
+other T8 positive already carried one, and every stuck-freedom
+docstring already grounded its "completes" in the two kernel facts);
+markers, class-relation claims, module-doc ledgers, and the manifest
+verified coherent. Mux/Statement.lean's T8 SECTION STUB is FILLED:
+`Statement.sigmaStarK_deadlock_free` and
+`Statement.sigmaStarK_completes` restate the landed theorems inline
+with the clause-by-clause provenance, and the audit-surface module
+doc carries T8 in the trichotomy list and the window class in the
+must-read contract. Mux/Proofs/Map.lean updated for `MuxInvB`/
+`MuxInvW`/`relax`, `SInvK`/`PushProvenAK`, `recvLedger_reachableK`,
+`mux_terminatingK`, and the T8 discharge chain. §3d carries the
+realized marker.
 
 ## 5. Log
 
+- **2026-07-22** T8 merged into the mainline by phase 5 (see the §4
+  phase-5 entry's closing note): suite complete T1–T8 + T10, seam
+  swept, Statement.lean's T8 section filled, build green at 279 jobs.
 - **2026-07-22** Phase 5 (legibility) complete — see §4's entry:
   Mux/Statement.lean (the audit surface + T8 stub), the A12 source
   fix (`RealWire`), Grains.lean (charter controls; incomparability
