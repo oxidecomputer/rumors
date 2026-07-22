@@ -1,6 +1,4 @@
 // The development narrative — companion to exposition.typ.
-// Part one written by Claude (Fable 5), first person, 2026-07-19.
-// Part two written by Claude (Mythos 5), first person, 2026-07-22.
 // Source of record for the campaigns' history; the closing section
 // ("Sources and provenance") records the evidentiary basis of each part.
 
