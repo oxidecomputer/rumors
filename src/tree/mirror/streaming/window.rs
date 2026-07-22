@@ -30,6 +30,74 @@
 //!   the walk finishes the reaction loop, and the session deadlocks —
 //!   demonstrated by `underbuffered_mirror_stalls` in the capacity tests.
 //!   No configuration, however memory-starved, may shrink them.
+//!
+//! # Sizing the flushed-question edge
+//!
+//! The proxy's flushed-question queue
+//! ([`ProxyLocalQuestions`](super::channel::QueueKind::ProxyLocalQuestions))
+//! holds questions that are on the wire but unanswered: the encoder
+//! publishes a question only after the reply carrying it has completely
+//! flushed, and the decoder retires one per decoded wire reply — a full
+//! round trip later. Its capacity is window-wide, and that is not
+//! defensive headroom. The claim — derived, not measured, from the
+//! premises below; it closes the bound the eager-absorption assessment
+//! carried open (`design/eager-absorption.md` §7.2) — is:
+//!
+//! > At a level whose descent ultimately asks `S` questions, the queue's
+//! > supremum occupancy over schedules is exactly `min(capacity, S)`. Its
+//! > own capacity is the *only* structural bound short of the frontier.
+//!
+//! The `≤` half is immediate: the channel is bounded, and a question
+//! enters the queue at most once. Reachability is the substantive half.
+//! Questions aggregate *across* parent replies — every reply flushed at
+//! the level above deposits up to a full fan of them — and a bounded
+//! channel upstream limits how many items sit on that edge at once, never
+//! how many pass through it: slots recycle. Per-edge independence (the
+//! [link contract](crate::link)) therefore admits schedules in which
+//! retirement stalls while production continues — a live counterparty
+//! that serves every level above promptly but lags on this one, or a
+//! local walk that defers consuming this level's responses so retirement
+//! parks behind the proxy's one-slot response relay. Under such a
+//! schedule, replies decoded above keep refilling the next-scope edge,
+//! the encoder keeps pairing recycled scopes with the walk's replies, and
+//! each flushed pair deposits up to a fan more questions with none
+//! retired: occupancy climbs until the queue's own capacity clamps it or
+//! the frontier runs out.
+//!
+//! Premises, each checked against the code it names:
+//!
+//! - the encoder flushes one complete wire reply, then publishes that
+//!   reply's entire question batch, before dequeuing its next scope
+//!   (`remote/proxy/work/encode.rs`; file paths, not intra-doc links,
+//!   because `proxy` is private to `remote` and unresolvable from here);
+//! - the decoder dequeues question-first and retires exactly one entry
+//!   per decoded reply, in wire order (`remote/proxy/work/pump.rs`);
+//! - one reply asks at most one fan of questions (its disputed children);
+//! - edges are independently flow-controlled, so a full edge stalls only
+//!   its own producer — the premise the session's whole liveness argument
+//!   already rests on.
+//!
+//! Two corollaries:
+//!
+//! - **Window-wide is necessary.** A question holds its slot from
+//!   publication until the decoder takes it up, one wire round trip
+//!   later, so capacity `C` admits at most `C` questions in flight per
+//!   round trip at that level *no matter how wide the walk's own channels
+//!   are*: this edge is the level's wire window, and shrinking it below
+//!   the window re-serializes the descent at exactly that level.
+//!   Shrinking is always *safe* — capacity only relaxes the wait graph,
+//!   so any capacity ≥ 1 preserves liveness — but it forfeits latency the
+//!   rest of the window was sized to buy.
+//! - **The queue undercounts wire in-flight by a bounded slack.** During
+//!   a flush the batch rides the wire before publication (up to one fan,
+//!   in the encoder's hand), and the decoder holds one dequeued question
+//!   while its reply decodes; true wire in-flight at a level is therefore
+//!   at most `capacity + fan + 1`. At the liveness floor the slack *is*
+//!   the story: capacity one still puts a full fan on the wire, because
+//!   the whole reply flushes before any publication. At production widths
+//!   it is a sub-percent correction per level, dwarfed by the full-fan
+//!   cascade the node-budget derivation above already charges each
+//!   saturable boundary.
 
 /// The tree's maximum branching factor: one child per radix byte.
 ///

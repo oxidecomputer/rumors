@@ -25,10 +25,15 @@ pub fn responses<T, H: Height>() -> (Sender<T>, Receiver<T>) {
 
 /// Carry flushed-but-unanswered questions, window-wide.
 ///
-/// This queue's occupancy is the number of questions in flight on the wire
-/// at this height: the encoder publishes each question once its complete
+/// This queue's occupancy tracks the questions in flight on the wire at
+/// this height: the encoder publishes each question once its complete
 /// reply has flushed, and the decoder retires one per decoded wire reply —
-/// a full round trip later.
+/// a full round trip later. Tracks, not equals: occupancy undercounts the
+/// wire by a bounded slack (a flushing batch rides the wire before
+/// publication; the decoder holds one dequeued entry while its reply
+/// decodes). The canonical derivation — the occupancy bound, its
+/// reachability, and the slack — is in the
+/// [`window`](crate::tree::mirror::streaming::window) module docs.
 pub fn local_questions<T, H: Height>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     channel(
         QueueRole::new(QueueKind::ProxyLocalQuestions, H::HEIGHT),
