@@ -243,6 +243,53 @@ Dated entries accumulate here as phases complete; refuted approaches are
 recorded with their refutations, in the PROGRESS.md tradition of keeping
 the negative space on the record.
 
+### 2026-07-21 — Step 4 discharged: `CausalStuckCoverage` kernel-proven, `c1_charter_false` UNCONDITIONAL
+
+The minting track lands `Mux/Proofs/CausalMint.lean` (~4,500 lines,
+zero sorry, kernel only; `lake build` green at 265 jobs) and closes the
+mux-conjectures campaign's final lemma. Kernel-proven:
+`causalStuckCoverage` — at any reachable stuck drained
+σ\*-causal×σ\*-causal state, a held stream whose τ-prefix is performed
+is `demandedA` — hence **`sigmaStarCausal_deadlock_free`
+(unconditional T4 at the charter grain)** and **`c1_charter_false`
+with NO hypothesis**: the statement of record's refutation is now
+⟨1, σ\*-causal, σ\*-causal⟩ with locality AND liveness both
+kernel-proven. The same theorem is T8's "inference progress" conjunct,
+now available as a lemma. Proof anatomy, for its consumers: (i) **the
+drained decode** — pipes empty makes `deliveredCount = sentOf` on
+every peer stream (`Wall.drained_delivered`), so announcement reduces
+to "the minting frame's SEND is τ-below the consulting event", a
+static schedule fact (the earlier receive-based phrasing is WRONG on
+slot-parked frames and was not needed: B5 announces at delivery, and
+delivery = send under drained pipes); (ii) **the census ladder**
+(`census_reach`) — strong induction on τ, one stage per rung: a
+block's prologue receive E1-chains to its own frame's send, which sits
+trace-above its parent block's prologue in the stage above; the rung
+indices are exactly the BFS ancestors, and each peer-height rung's
+harvest (`announced_of_delivered`, about-scope + kid halves) tiles two
+census levels; (iii) **the per-family laid lemmas** (`walk_laid`,
+`absorb_laid`, `asm_laid` asker/answerer, opener/finale specials) —
+partial-chunk transcriptions (`chunksA_covers`/`chunksA_ok`) extend
+each announced layout past any true-trace event below the wall; the
+answerer's resolution-to-position bridge is `countD_take_mid` over
+`ds_wires`; (iv) **the flatten dispatcher** (`flatten_of_sched` +
+`peer_internal_of_flatten`) — no internal channel crosses the link, so
+every I-step predecessor routes to a peer family by its channel's
+party tag; (v) **the coverage induction**
+(`causal_closure_coverage`) — SigmaStarLive's Step-4 template re-run
+over `inevitableA`, restricted to the announced flatten (own-endpoint
+events are never consulted); (vi) **closure saturation**
+(`mem_inevitableA_of_closureNA`) — τ can exceed the announced
+universe's length, so stages absorb into `inevitableA` by the
+monotone-filter pigeonhole rather than the omniscient proof's
+τ-below-universe bound. No counterexample surfaced: every chain the
+ladder needed was already in the schedule's E1/E3 order, confirming
+the announcement-timeliness claim the probe's 4,970 runs and the wedge
+pin stood behind. Interface deltas: `peerBlockA_spec` and
+`asmPendsA_spec` de-privatized in CausalCoverage.lean (the mint layer
+consumes their exactness halves); refutation ledgers updated in
+Causal.lean, CausalLive.lean, and C1.lean.
+
 ### 2026-07-21 — σ\*-causal liveness: Steps 1–3 kernel-proven; C1's charter hypothesis shrinks to the Step-4 coverage conjunct
 
 The causal-coverage track lands `Mux/Proofs/CausalCoverage.lean` and
