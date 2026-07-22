@@ -2829,4 +2829,525 @@ private theorem asm_laid_asker {s : MState} {N : Nat} (W : Wall sk s N)
   rw [hshape, List.length_map]
   omega
 
+
+/-- D-scope counting through a mid-block cut: the level-`j` D scopes
+below wire position `wiresBefore j k + c` are the resolution seq
+`dsBefore j k + dRank k c` — the walk's resolution coordinate meets the
+level's position order. -/
+private theorem countD_take_mid (hwf : sk.wellFormed = true)
+    {j : Nat} (h1 : 1 ≤ j) (hjr : j < sk.rootH) {k : Nat}
+    (hk : k < sk.stageLen j) (q : Party) :
+    ∀ c, c ≤ (sk.scope (sk.stageScope j k)).kids.length →
+      (((sk.scopesAt j).take (sk.wiresBefore j k + c)).filter
+        (fun s => (sk.scope s).kind == Kind.D)).length
+        = sk.dsBefore j k + Sched.dRank sk (q, j) k c := by
+  intro c
+  induction c with
+  | zero =>
+      intro _
+      show (((sk.scopesAt j).take (sk.wiresBefore j k + 0)).filter
+        _).length = _
+      rw [Nat.add_zero, ds_wires hwf h1 hjr k]
+      rfl
+  | succ c ih =>
+      intro hc
+      have hc' : c < (sk.scope (sk.stageScope j k)).kids.length := by
+        omega
+      have hpos : sk.wiresBefore j k + c < (sk.scopesAt j).length := by
+        have hstep := Sched.wiresBefore_succ sk hk
+        have hnc : sk.nChildren j (sk.stageScope j k)
+            = (sk.scope (sk.stageScope j k)).kids.length := by
+          unfold Skel.nChildren
+          rw [if_neg (by simp; omega)]
+        have hbound := wiresBefore_le_scopesAt hwf h1 hjr
+          (show k + 1 ≤ sk.stageLen j by omega)
+        omega
+      have htake : (sk.scopesAt j).take (sk.wiresBefore j k + (c + 1))
+          = (sk.scopesAt j).take (sk.wiresBefore j k + c)
+            ++ [(sk.scopesAt j).getD (sk.wiresBefore j k + c) 0] := by
+        rw [show sk.wiresBefore j k + (c + 1)
+          = (sk.wiresBefore j k + c) + 1 from by omega]
+        rw [List.take_succ, List.getElem?_eq_getElem hpos]
+        rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hpos]
+        rfl
+      rw [htake, List.filter_append, List.length_append, ih (by omega)]
+      have hkid := stageScope_kid hwf h1 hjr hk hc'
+      have hDdec : ((sk.scope ((sk.scopesAt j).getD
+          (sk.wiresBefore j k + c) 0)).kind == Kind.D)
+          = sk.childIsD j (sk.stageScope j k) c := by
+        rw [hkid]
+        unfold Skel.childIsD
+        rw [if_neg (by simp; omega), List.getElem?_eq_getElem hc']
+        rw [show (sk.scope (sk.stageScope j k)).kids.getD c 0
+          = (sk.scope (sk.stageScope j k)).kids[c] from by
+            rw [List.getD_eq_getElem?_getD,
+              List.getElem?_eq_getElem hc']
+            rfl]
+      rw [Sched.dRank_succ]
+      show _ + (List.filter _ [_]).length = _
+      rw [List.filter_cons]
+      by_cases hD : sk.childIsD j (sk.stageScope j k) c = true
+      · rw [if_pos (by rw [hDdec]; exact hD), if_pos hD]
+        simp only [List.filter_nil, List.length_cons, List.length_nil]
+        omega
+      · rw [if_neg (by rw [hDdec]; simpa using hD),
+          if_neg (by simpa using hD)]
+        simp only [List.filter_nil, List.length_nil]
+        omega
+
+
+/-- The answerer side of the assembler minting: block `idx`'s pend is
+the `idx`-th level-`j` D scope's own census, minted by that scope's own
+frame — which departs strictly before the resolution the assembler
+consumes. -/
+private theorem asm_laid_answerer {s : MState} {N : Nat}
+    (W : Wall sk s N) (p : Party) {j : Nat}
+    (hpk : (p.other, j) ∈ sk.asmKeys)
+    (hside : asks p.other j = false) {idx : Nat}
+    (hidx : idx < (sk.asmResList p.other j).length) {e : Ev}
+    (he : e ∈ Sched.asmBlock sk (p.other, j) idx)
+    (hheadm : ((asmResChan (p.other, j), false, idx) : Ev)
+      ∈ scheduleE sk)
+    (hheadτ : evIdx ((asmResChan (p.other, j), false, idx) : Ev)
+      (scheduleE sk) < N) :
+    e ∈ peerAsmTraceA (aviewOf sk p (s.hist p)) j := by
+  obtain ⟨hj1, hjr, hjR⟩ := asmKeys_bounds hpk
+  have hev : sk.rootH % 2 = 0 := (wf_rootH W.wf).1
+  have hres : asmResChan (p.other, j) = Chan.lower p.other j := by
+    unfold asmResChan
+    rw [if_neg (by simp [hside])]
+  obtain ⟨hsm, hslt⟩ := tau_e1 W.wf hheadm
+  -- the answerer's stage is its own walk key
+  have hstg : (p.other, j) ∈ sk.walkKeys := by
+    cases hq : p.other with
+    | I =>
+        rw [hq] at hside
+        have hpar : j % 2 = 1 := by
+          unfold asks at hside
+          simp only [beq_eq_false_iff_ne, ne_eq] at hside
+          omega
+        exact Sched.mem_walkKeys_of sk W.wf (by omega)
+          (Or.inl ⟨rfl, hpar⟩)
+    | R =>
+        rw [hq] at hside
+        have hpar : j % 2 = 0 := by
+          unfold asks at hside
+          simp only [beq_eq_false_iff_ne, ne_eq] at hside
+          omega
+        have hjR' := hjR hq
+        exact Sched.mem_walkKeys_of sk W.wf (by omega)
+          (Or.inr ⟨rfl, hpar⟩)
+  have hjlt : j < sk.rootH := (walkKeys_stageParty W.wf hstg).2
+  -- the resolution's block and D-child coordinates
+  have hidxd : idx < sk.dsBefore j (sk.stageLen j) := by
+    have := answerer_resList_total W.wf hside hj1 hjlt
+    omega
+  obtain ⟨ks, hks, hdle, hdlt⟩ := exists_prefix_block
+    (sk.dsBefore j) rfl hidxd
+  have hdstep := Sched.dsBefore_succ sk hks
+  have hrlt : idx - sk.dsBefore j ks
+      < Sched.dRank sk (p.other, j) ks
+          (sk.nChildren j (sk.stageScope j ks)) := by
+    rw [Sched.dRank_total]
+    have : sk.dOf j (sk.stageScope j ks)
+        = sk.dOf (p.other, j).2 (sk.stageScope (p.other, j).2 ks) := rfl
+    omega
+  obtain ⟨cs, hcs, hrle, hrlt2⟩ := exists_prefix_block
+    (fun c => Sched.dRank sk (p.other, j) ks c) rfl hrlt
+  have hrsucc := Sched.dRank_succ sk (p.other, j) ks cs
+  have hcsD : sk.childIsD j (sk.stageScope j ks) cs = true := by
+    by_cases hD : sk.childIsD (p.other, j).2
+        (sk.stageScope (p.other, j).2 ks) cs = true
+    · exact hD
+    · rw [if_neg hD] at hrsucc
+      omega
+  have hrank : Sched.dRank sk (p.other, j) ks cs
+      = idx - sk.dsBefore j ks := by
+    rw [if_pos hcsD] at hrsucc
+    omega
+  obtain ⟨hj0, hcslen⟩ := childIsD_facts hcsD
+  have hnc : sk.nChildren j (sk.stageScope j ks)
+      = (sk.scope (sk.stageScope j ks)).kids.length := by
+    unfold Skel.nChildren
+    rw [if_neg (by simpa using hj0)]
+  -- the resolution is the D child's chunk event, after its own wire
+  have hchunk : Sched.childChunk sk (p.other, j) ks cs
+      = ((wireOut (p.other, j), true, sk.wiresBefore j ks + cs) : Ev)
+        :: ((lowerOut (p.other, j), true, sk.dsBefore j ks
+            + ((List.range cs).filter
+                (fun i' => sk.childIsD j (sk.stageScope j ks)
+                  i')).length) : Ev)
+        :: ((List.range (sk.qCount j (sk.stageScope j ks) cs)).map
+            fun t => (askedOut (p.other, j), true,
+              sk.qsBefore j ks + ((List.range cs).map
+                (fun i' => sk.qCount j (sk.stageScope j ks) i')).sum
+                + t)) := by
+    unfold Sched.childChunk
+    rw [if_pos hcsD]
+  have hfr : ((List.range cs).filter
+      (fun i' => sk.childIsD j (sk.stageScope j ks) i')).length
+      = Sched.dRank sk (p.other, j) ks cs := rfl
+  have hresev : ((lowerOut (p.other, j), true, sk.dsBefore j ks
+      + ((List.range cs).filter
+          (fun i' => sk.childIsD j (sk.stageScope j ks) i')).length)
+        : Ev)
+      = ((asmResChan (p.other, j), true, idx) : Ev) := by
+    rw [hres]
+    show (Chan.lower p.other j, true, _)
+      = (Chan.lower p.other j, true, _)
+    rw [Prod.mk.injEq, Prod.mk.injEq]
+    refine ⟨rfl, rfl, ?_⟩
+    rw [hfr, hrank]
+    omega
+  -- pair the wire under the resolution inside the chunk, and both
+  -- under the block prologue
+  have hrmem_chunk : ((asmResChan (p.other, j), true, idx) : Ev)
+      ∈ Sched.childChunk sk (p.other, j) ks cs := by
+    rw [hchunk, ← hresev]
+    exact List.mem_cons_of_mem _ (List.mem_cons_self ..)
+  have hwirepair : ([((wireOut (p.other, j), true,
+      sk.wiresBefore j ks + cs) : Ev),
+      ((asmResChan (p.other, j), true, idx) : Ev)] : List Ev).Sublist
+      (Sched.walkEventsE sk (p.other, j)) := by
+    unfold Sched.walkEventsE
+    refine sublist_flatMap_block hks (sublist_scopeBlockE_of_chunks
+      (sublist_flatMap_block (by omega) ?_))
+    rw [hchunk, ← hresev]
+    exact List.cons_sublist_cons.mpr (List.singleton_sublist.mpr
+      (List.mem_cons_self ..))
+  have hτresN : evIdx ((asmResChan (p.other, j), true, idx) : Ev)
+      (scheduleE sk) < N := by omega
+  obtain ⟨hwm, hwlt⟩ := tau_prior W.wf W.m0
+    (Sched.walkEventsE_mem_procsE sk W.wf hstg) hwirepair
+  have hwm' : ((Chan.wire p.other j, true,
+      sk.wiresBefore j ks + cs) : Ev) ∈ scheduleE sk := hwm
+  have hwlt' : evIdx ((Chan.wire p.other j, true,
+      sk.wiresBefore j ks + cs) : Ev) (scheduleE sk)
+      < evIdx ((asmResChan (p.other, j), true, idx) : Ev)
+        (scheduleE sk) := hwlt
+  -- the frame sends through the D child's wire are all delivered
+  have hdel : sk.wiresBefore j ks + cs
+      < deliveredCount (s.hist p) j := by
+    refine W.delivered_of_send p (mem_allChans_wireOut hstg) hwm' ?_
+    omega
+  have hlvlrec : ∀ pos, pos ≤ sk.wiresBefore j ks + cs →
+      (sk.scopesAt j).getD pos 0 ∈ announcedIds sk p (s.hist p) := by
+    intro pos hpos
+    have hposlen : pos < (sk.scopesAt j).length := by
+      have hb1 := Sched.wiresBefore_succ sk hks
+      have hb2 := wiresBefore_le_scopesAt W.wf hj1 hjlt
+        (show ks + 1 ≤ sk.stageLen j by omega)
+      omega
+    exact (announced_of_delivered (mem_peerMintHeights W.wf p hstg)
+      hj0 (by omega) hposlen).1
+  -- the block prologue chains the census to the stage above
+  have hrespair : ([((wireIn (p.other, j), false, ks) : Ev),
+      ((asmResChan (p.other, j), true, idx) : Ev)] : List Ev).Sublist
+      (Sched.walkEventsE sk (p.other, j)) := by
+    unfold Sched.walkEventsE
+    refine sublist_flatMap_block hks (prologue_pair
+      (chunk_mem_scopeBlockE (by omega) hrmem_chunk) ?_)
+    intro hc
+    have := congrArg (fun ev : Ev => ev.2.1) hc
+    simp at this
+  obtain ⟨hr'm, hr'lt⟩ := tau_prior W.wf W.m0
+    (Sched.walkEventsE_mem_procsE sk W.wf hstg) hrespair
+  have hsp := (walkKeys_stageParty W.wf hstg).1
+  have hconv : (Chan.wire (stageParty j).other (j + 1) : Chan)
+      = wireIn (p.other, j) := by
+    rw [← hsp]
+    rfl
+  have hcen := census_reach W p
+    (evIdx ((wireIn (p.other, j), false, ks) : Ev) (scheduleE sk) + 1)
+    j ks hjlt hks
+    (by rw [hconv]; exact hr'm)
+    (by rw [hconv]; omega)
+    (by rw [hconv]; omega)
+  obtain ⟨hclen, hsc, -⟩ := hcen
+  -- the level-j census below reaches past the D child's position
+  have hj' : j - 1 + 1 = j := by omega
+  have hsucc := stageScopesA_succ p (s.hist p)
+    (show (j - 1) + 1 < sk.rootH from by omega)
+  rw [hj'] at hsucc
+  have hpreJ := stageScopesA_prefix W.wf p (s.hist p) hjlt
+  have hkindsJ : ∀ u ∈ (stageScopesA (aviewOf sk p (s.hist p)) j).1,
+      u < sk.scopes.length
+      ∧ (aviewOf sk p (s.hist p)).kind? u
+        = some ((sk.scope u).kind) := by
+    intro u hu
+    refine ⟨?_, hpreJ.2 u hu⟩
+    exact (mem_scopesAt (hpreJ.1.sublist.mem hu)).1
+  have hrecsJ : ∀ i, i ≤ ks →
+      (sk.scope ((stageScopesA (aviewOf sk p (s.hist p)) j).1.getD
+        i 0)).kind = Kind.D →
+      (stageScopesA (aviewOf sk p (s.hist p)) j).1.getD i 0
+        ∈ announcedIds sk p (s.hist p) := by
+    intro i hi hD
+    have hgd : (stageScopesA (aviewOf sk p (s.hist p)) j).1.getD i 0
+        = sk.stageScope j i := by
+      have := prefix_getD hpreJ.1 (show i
+        < (stageScopesA (aviewOf sk p (s.hist p)) j).1.length from by
+          omega) 0
+      rw [← this]
+      rfl
+    rw [hgd]
+    exact hsc i hi
+  have hcov := collect_reach W.wf
+    (stageScopesA (aviewOf sk p (s.hist p)) j).1 ks (by omega)
+    hkindsJ hrecsJ
+  rw [← hsucc] at hcov
+  have htakeJ : (stageScopesA (aviewOf sk p (s.hist p)) j).1.take
+      (ks + 1) = (sk.stageScopes j).take (ks + 1) := by
+    obtain ⟨t, ht⟩ := hpreJ.1
+    rw [← ht, List.take_append_of_le_length (by omega)]
+  obtain ⟨restJ, -, hflenJ⟩ := bfs_split W.wf hj1 hjlt (ks + 1)
+    (by omega)
+  have hlow_len : sk.wiresBefore j (ks + 1)
+      ≤ (stageScopesA (aviewOf sk p (s.hist p)) (j - 1)).1.length := by
+    have := hcov.length_le
+    rw [htakeJ] at this
+    omega
+  -- the announced level-j prefix positions carry the true scopes
+  have hpreLow := stageScopesA_prefix W.wf p (s.hist p)
+    (show j - 1 < sk.rootH by omega)
+  have hlowtake : (stageScopesA (aviewOf sk p (s.hist p)) (j - 1)).1.take
+      (sk.wiresBefore j ks + cs + 1)
+      = (sk.scopesAt j).take (sk.wiresBefore j ks + cs + 1) := by
+    obtain ⟨t, ht⟩ := hpreLow.1
+    have hb1 := Sched.wiresBefore_succ sk hks
+    have hlen1 : sk.wiresBefore j ks + cs + 1
+        ≤ (stageScopesA (aviewOf sk p (s.hist p)) (j - 1)).1.length := by
+      omega
+    rw [← List.take_append_of_le_length (l₂ := t) hlen1, ht,
+      show sk.stageScopes (j - 1) = sk.scopesAt j from by
+        unfold Skel.stageScopes
+        rw [hj']]
+  -- entries through idx are known with true values
+  have hraw : asmPendsA (aviewOf sk p (s.hist p)) j
+      = if asks p.other j = true then
+          (if (j == (aviewOf sk p (s.hist p)).rootH) = true then
+            (([0] : List Nat), true)
+          else levelA (aviewOf sk p (s.hist p))
+            ((aviewOf sk p (s.hist p)).rootH - j)).1.map
+            (fun u => match (aviewOf sk p (s.hist p)).rec? u with
+              | none => none
+              | some sc => some (sc.kids.countP
+                  fun v => (aviewOf sk p (s.hist p)).kind? v
+                    == some Kind.D))
+        else
+          ((if (j == (aviewOf sk p (s.hist p)).rootH) = true then
+            (([0] : List Nat), true)
+          else levelA (aviewOf sk p (s.hist p))
+            ((aviewOf sk p (s.hist p)).rootH - j)).1.filter
+            (fun u => (aviewOf sk p (s.hist p)).kind? u
+              == some Kind.D)).map
+            (fun u => match (aviewOf sk p (s.hist p)).rec? u with
+              | none => none
+              | some sc => some (if (j == 1) = true then sc.leafReqs
+                  else sc.kids.length)) := rfl
+  have hshape : asmPendsA (aviewOf sk p (s.hist p)) j
+      = ((stageScopesA (aviewOf sk p (s.hist p)) (j - 1)).1.filter
+          (fun u => (aviewOf sk p (s.hist p)).kind? u
+            == some Kind.D)).map
+          (fun u => match (aviewOf sk p (s.hist p)).rec? u with
+            | none => none
+            | some sc => some (if (j == 1) = true then sc.leafReqs
+                else sc.kids.length)) := by
+    rw [hraw, if_neg (by rw [hside]; simp),
+      asm_items_eq p (s.hist p) hj1 hjr]
+  -- the filtered prefix through the D child covers idx + 1 entries
+  have hpreLow2 := hpreLow
+  have hkindsLow : ∀ u ∈ (stageScopesA (aviewOf sk p (s.hist p))
+      (j - 1)).1, (aviewOf sk p (s.hist p)).kind? u
+        = some ((sk.scope u).kind) := hpreLow.2
+  have hfiltake : ((stageScopesA (aviewOf sk p (s.hist p))
+      (j - 1)).1.take (sk.wiresBefore j ks + cs + 1)).filter
+      (fun u => (aviewOf sk p (s.hist p)).kind? u == some Kind.D)
+      = ((sk.scopesAt j).take (sk.wiresBefore j ks + cs + 1)).filter
+        (fun u => (sk.scope u).kind == Kind.D) := by
+    rw [hlowtake]
+    refine List.filter_congr fun u hu => ?_
+    have humem : u ∈ (stageScopesA (aviewOf sk p (s.hist p))
+        (j - 1)).1 := by
+      have hu2 : u ∈ (stageScopesA (aviewOf sk p (s.hist p))
+          (j - 1)).1.take (sk.wiresBefore j ks + cs + 1) := by
+        rw [hlowtake]
+        exact hu
+      exact List.mem_of_mem_take hu2
+    rw [hkindsLow u humem]
+    cases (sk.scope u).kind <;> simp
+  have hcount := countD_take_mid W.wf hj1 hjlt hks p.other (cs + 1)
+    (by omega)
+  have hcount' : (((sk.scopesAt j).take
+      (sk.wiresBefore j ks + cs + 1)).filter
+      (fun u => (sk.scope u).kind == Kind.D)).length = idx + 1 := by
+    rw [show sk.wiresBefore j ks + cs + 1
+      = sk.wiresBefore j ks + (cs + 1) from by omega] at *
+    rw [hcount]
+    rw [if_pos hcsD] at hrsucc
+    omega
+  have hfillen : idx < ((stageScopesA (aviewOf sk p (s.hist p))
+      (j - 1)).1.filter
+      (fun u => (aviewOf sk p (s.hist p)).kind? u
+        == some Kind.D)).length := by
+    have hsub : (((stageScopesA (aviewOf sk p (s.hist p))
+        (j - 1)).1.take (sk.wiresBefore j ks + cs + 1)).filter
+        (fun u => (aviewOf sk p (s.hist p)).kind? u
+          == some Kind.D)).Sublist
+        ((stageScopesA (aviewOf sk p (s.hist p)) (j - 1)).1.filter
+          (fun u => (aviewOf sk p (s.hist p)).kind? u
+            == some Kind.D)) :=
+      (List.take_sublist _ _).filter _
+    have hlen := hsub.length_le
+    rw [hfiltake, hcount'] at hlen
+    omega
+  have hentries : ∀ m, m ≤ idx →
+      (asmPendsA (aviewOf sk p (s.hist p)) j).getD m none
+        = some (sk.pendAt p.other j m) := by
+    intro m hm
+    -- the m-th filtered scope sits inside the covered prefix
+    have hmfil : m < (((stageScopesA (aviewOf sk p (s.hist p))
+        (j - 1)).1.take (sk.wiresBefore j ks + cs + 1)).filter
+        (fun u => (aviewOf sk p (s.hist p)).kind? u
+          == some Kind.D)).length := by
+      rw [hfiltake, hcount']
+      omega
+    have hmfilS : m < (((sk.scopesAt j).take
+        (sk.wiresBefore j ks + cs + 1)).filter
+        (fun u => (sk.scope u).kind == Kind.D)).length := by
+      rw [← hfiltake]
+      exact hmfil
+    have hpref : (((stageScopesA (aviewOf sk p (s.hist p))
+        (j - 1)).1.take (sk.wiresBefore j ks + cs + 1)).filter
+        (fun u => (aviewOf sk p (s.hist p)).kind? u
+          == some Kind.D)) <+: ((stageScopesA (aviewOf sk p
+            (s.hist p)) (j - 1)).1.filter
+        (fun u => (aviewOf sk p (s.hist p)).kind? u
+          == some Kind.D)) :=
+      (List.take_prefix _ _).filter _
+    -- name the m-th D scope and mint its record
+    have hv? : (((sk.scopesAt j).take
+        (sk.wiresBefore j ks + cs + 1)).filter
+        (fun u => (sk.scope u).kind == Kind.D))[m]?
+        = some ((((sk.scopesAt j).take
+            (sk.wiresBefore j ks + cs + 1)).filter
+            (fun u => (sk.scope u).kind == Kind.D))[m]'hmfilS) :=
+      List.getElem?_eq_getElem hmfilS
+    have hfull? : ((stageScopesA (aviewOf sk p (s.hist p))
+        (j - 1)).1.filter
+        (fun u => (aviewOf sk p (s.hist p)).kind? u
+          == some Kind.D))[m]?
+        = some ((((sk.scopesAt j).take
+            (sk.wiresBefore j ks + cs + 1)).filter
+            (fun u => (sk.scope u).kind == Kind.D))[m]'hmfilS) := by
+      obtain ⟨t, ht⟩ := hpref
+      rw [← ht, List.getElem?_append_left hmfil, hfiltake]
+      exact hv?
+    have hvann : (((sk.scopesAt j).take
+        (sk.wiresBefore j ks + cs + 1)).filter
+        (fun u => (sk.scope u).kind == Kind.D))[m]'hmfilS
+        ∈ announcedIds sk p (s.hist p) := by
+      have hvmem : (((sk.scopesAt j).take
+          (sk.wiresBefore j ks + cs + 1)).filter
+          (fun u => (sk.scope u).kind == Kind.D))[m]'hmfilS
+          ∈ (sk.scopesAt j).take (sk.wiresBefore j ks + cs + 1) :=
+        (List.mem_filter.mp (List.getElem_mem hmfilS)).1
+      obtain ⟨pos, hpos, hposeq⟩ := List.getElem_of_mem hvmem
+      have hposlt : pos < sk.wiresBefore j ks + cs + 1 := by
+        have := List.length_take_le (sk.wiresBefore j ks + cs + 1)
+          (sk.scopesAt j)
+        omega
+      have hposlen : pos < (sk.scopesAt j).length := by
+        rw [List.length_take] at hpos
+        omega
+      have hposval : (sk.scopesAt j).getD pos 0
+          = (((sk.scopesAt j).take
+            (sk.wiresBefore j ks + cs + 1)).filter
+            (fun u => (sk.scope u).kind == Kind.D))[m]'hmfilS := by
+        rw [← hposeq, List.getElem_take, List.getD_eq_getElem?_getD,
+          List.getElem?_eq_getElem hposlen]
+        rfl
+      rw [← hposval]
+      exact hlvlrec pos (by omega)
+    have hrec : (aviewOf sk p (s.hist p)).rec?
+        ((((sk.scopesAt j).take
+          (sk.wiresBefore j ks + cs + 1)).filter
+          (fun u => (sk.scope u).kind == Kind.D))[m]'hmfilS)
+        = some (sk.scope ((((sk.scopesAt j).take
+            (sk.wiresBefore j ks + cs + 1)).filter
+            (fun u => (sk.scope u).kind == Kind.D))[m]'hmfilS)) := by
+      rw [rec?_aviewOf, if_pos hvann]
+    have hsome : (asmPendsA (aviewOf sk p (s.hist p)) j).getD m none
+        = some (if (j == 1) = true then
+            (sk.scope ((((sk.scopesAt j).take
+              (sk.wiresBefore j ks + cs + 1)).filter
+              (fun u => (sk.scope u).kind == Kind.D))[m]'hmfilS)).leafReqs
+          else (sk.scope ((((sk.scopesAt j).take
+              (sk.wiresBefore j ks + cs + 1)).filter
+              (fun u => (sk.scope u).kind
+                == Kind.D))[m]'hmfilS)).kids.length) := by
+      rw [hshape, List.getD_eq_getElem?_getD, List.getElem?_map, hfull?,
+        Option.map_some, Option.getD_some]
+      show (match (aviewOf sk p (s.hist p)).rec?
+          ((((sk.scopesAt j).take
+            (sk.wiresBefore j ks + cs + 1)).filter
+            (fun u => (sk.scope u).kind == Kind.D))[m]'hmfilS) with
+        | none => none
+        | some sc => some (if (j == 1) = true then sc.leafReqs
+            else sc.kids.length)) = _
+      rw [hrec]
+    obtain ⟨-, hvals⟩ := asmPendsA_spec (sk := sk) W.wf p (s.hist p)
+      hj1 hjr
+    have := hvals m _ hsome
+    rw [hsome, this]
+  -- assemble through the go loop
+  show e ∈ peerAsmTraceA.go (asmResChan (p.other, j))
+    (asmLevelChan (p.other, j)) (sk.asmOutChan (p.other, j))
+    (asmPendsA (aviewOf sk p (s.hist p)) j) 0 0
+  refine goAsm_mem (asmPendsA (aviewOf sk p (s.hist p)) j) 0 idx 0
+    (Nat.zero_le _) ?_ (fun m _ hm => by
+      rw [Nat.sub_zero]
+      exact hentries m hm) rfl hidx he
+  rw [hshape, List.length_map]
+  omega
+
+
+/-- The assembler minting lemma: every peer assembler event scheduled
+below the wall is announced-laid. -/
+theorem asm_laid {s : MState} {N : Nat} (W : Wall sk s N) (p : Party)
+    {j : Nat} (hpk : (p.other, j) ∈ sk.asmKeys) {e : Ev}
+    (he : e ∈ Sched.asmEvents sk (p.other, j))
+    (hτ : evIdx e (scheduleE sk) < N) :
+    e ∈ peerAsmTraceA (aviewOf sk p (s.hist p)) j := by
+  have hTmem := Sched.asmEvents_mem_procsE sk hpk
+  have hemem : e ∈ scheduleE sk :=
+    (Sched.trace_sublistE sk W.wf W.m0 hTmem).mem he
+  unfold Sched.asmEvents at he
+  obtain ⟨idx, hidxr, heidx⟩ := List.mem_flatMap.mp he
+  have hidx : idx < (sk.asmResList p.other j).length :=
+    List.mem_range.mp hidxr
+  -- the block head sits at or before e in τ
+  have hek' : e ∈ ((asmResChan (p.other, j), false, idx) : Ev)
+      :: (((List.range (sk.pendAt p.other j idx)).map fun t =>
+          ((asmLevelChan (p.other, j) : Chan), false,
+            sk.pendsBefore p.other j idx + t))
+        ++ [((sk.asmOutChan (p.other, j) : Chan), true, idx)]) := heidx
+  have hrfacts : ((asmResChan (p.other, j), false, idx) : Ev)
+      ∈ scheduleE sk
+      ∧ evIdx ((asmResChan (p.other, j), false, idx) : Ev)
+          (scheduleE sk) ≤ evIdx e (scheduleE sk) := by
+    rcases pair_of_mem_cons hek' with heq | hpair
+    · subst heq
+      exact ⟨hemem, Nat.le_refl _⟩
+    · have hlift : ([((asmResChan (p.other, j), false, idx) : Ev), e]
+          : List Ev).Sublist (Sched.asmEvents sk (p.other, j)) := by
+        unfold Sched.asmEvents
+        exact sublist_flatMap_block (List.mem_range.mp hidxr) hpair
+      obtain ⟨hm, hlt⟩ := tau_prior W.wf W.m0 hTmem hlift
+      exact ⟨hm, by omega⟩
+  by_cases hside : asks p.other j = true
+  · exact asm_laid_asker W p hpk hside hidx heidx hrfacts.1 (by omega)
+  · exact asm_laid_answerer W p hpk (by simpa using hside) hidx heidx
+      hrfacts.1 (by omega)
+
 end StreamingMirror.Mux
