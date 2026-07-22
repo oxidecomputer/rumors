@@ -474,7 +474,9 @@ machinery.
 ### T0. Harness + instances (Mux/Basic, Mux/Strategy, Mux/Instances)
 
 Definitions of §2; `wedge : Skel` (regression shape, rootH = 6, w = 4,
-fan ≥ 5 root) and `prov C` (secondary family); pins:
+fan ≥ 5 root) **[Superseded (phase 4), witness numbers — see §1.2's
+marker: the landed `wedge` literal (Mux/Instances.lean) is 6
+provisions, root fan 7]** and `prov C` (secondary family); pins:
 
 ```lean
 theorem wedge_wellFormed : wedge.wellFormed = true := by decide

@@ -76,18 +76,25 @@ history).** The conjectures resolve as a trichotomy:
   (A_p-limited) σ* probe sweep is a blocking stage-0 gate — if it
   wedges, C1 flips TRUE with that skeleton as the fooling wedge, and
   the suite is built so that outcome also lands as a theorem.
-  **[Superseded (phase 4): conditions A and B are both DISCHARGED —
-  the keystone landed in its push-time form (Chase/Keystone.lean) and
-  stage-0 P1 passed (4,970/4,970). The status is no longer "two named
-  conditions": the LIVE residue is σ*'s LOCALITY, kernel-unproven for
-  the merged σ* (the omniscient-closure formulation) — "is
-  deterministic and local" above overstates it. The kernel refutation
-  `c1_literal_false` (Mux/Proofs/C1.lean) carries that locality as two
-  named [open] hypotheses (the A_p-sufficiency residue — probe-checked
-  4,970/4,970, not kernel); the σ*-causal track, in flight, is
-  discharging it. `c1_omniscient_false` is the unconditional kernel
-  headline.]**
-- **C1-WC: TRUE** [derived + checked, Lean-ready] — one fixed,
+  **[Superseded (phase 4; marker closed by the σ*-causal merge, round
+  5): conditions A and B are both DISCHARGED — the keystone landed in
+  its push-time form (Chase/Keystone.lean) and stage-0 P1 passed
+  (4,970/4,970) — and the locality residue was then DISSOLVED rather
+  than discharged: the σ*-causal track re-grounded the statement of
+  record at the charter grain with a new witness. `c1_charter_false`
+  (Mux/Proofs/C1.lean) is the unconditional kernel headline: the
+  refutation of record is ⟨1, σ*-causal, σ*-causal⟩ with locality
+  (`sigmaStarCausal_charterLocal`) AND liveness
+  (`sigmaStarCausal_deadlock_free`, via `causalStuckCoverage`) both
+  kernel-proven — NO hypothesis. "Is deterministic and local" above is
+  now true of σ*-CAUSAL at the charter grain; the omniscient σ*'s
+  legacy (`LocalEq`-grain) locality stays [open] forever as
+  `c1_literal_false`'s internal-artifact hypothesis (the
+  A_p-sufficiency residue — probe-checked 4,970/4,970, not kernel).
+  `c1_omniscient_false` remains the no-locality-hypothesis
+  companion.]**
+- **C1-WC: TRUE** [kernel-proven: `wc_impossibility`,
+  Mux/Proofs/WcImpossibility.lean] — one fixed,
   tree-realizable skeleton (`wedge`, the regression shape at w = 4,
   rootH = 6, realized by the committed proptest seeds) defeats every
   *work-conserving* strategy pair — locality hypotheses dropped, even
@@ -149,6 +156,35 @@ canonical statement — Mux/Basic.lean's module doc, "# The
 byte-denomination caveat" — with a one-line pointer in every positive
 statement of record's docstring, completion pins and the C1
 refutations included]**.
+
+### The merge-seam checklist (discipline note, minted round 5)
+
+Six of round 5's eight confirmed findings were one genre: a track
+merges AFTER a documentation-ruling sweep, and its surfaces — now the
+newest and most prominent — were never re-swept against the rulings
+(R5-2 was the third F7-class breach). The discipline, binding on
+whoever performs a merge: **any track merged after a doc sweep gets
+its seam re-swept before the review round closes.** The mechanical
+core is two greps:
+
+1. **Naked "completes"** — every docstring saying "completes" on a
+   stuck-freedom (`MuxDeadlockFree*`) theorem must cite its two kernel
+   facts (the theorem itself + `mux_terminating`,
+   Mux/Proofs/Termination.lean) or use "is deadlock-free"; executable
+   `muxCompletes` pins are exempt (their "completes" is the literal
+   kernel fact — the drain reaches `mterminal` within the stated
+   fuel).
+2. **Byte pointers** — every positive statement of record's docstring
+   (completion pins and C1 refutations included) carries the one-line
+   pointer to Mux/Basic.lean's "# The byte-denomination caveat".
+
+Then by hand, in the same pass: this section's superseded-markers
+against the merged result (the §1 marker discipline); class-relation
+claims at definition sites against the findings of record (nesting vs
+incomparability); module-doc ledgers ("proof state", "the deliverable
+at the bottom") against what actually landed where; and the root
+manifest (formal/lean/StreamingMirror.lean) importing every new
+module.
 
 ## 2. The mux model [open — to be fixed by the adjudication phase]
 
@@ -441,14 +477,15 @@ the announcement-timeliness claim the probe's 4,970 runs and the wedge
 pin stood behind. Interface deltas: `peerBlockA_spec` and
 `asmPendsA_spec` de-privatized in CausalCoverage.lean (the mint layer
 consumes their exactness halves); refutation ledgers updated in
-Causal.lean, CausalLive.lean, and C1.lean.
+Causal.lean, CausalLive.lean, and C1.lean (CausalCoverage.lean's
+module doc was missed by this sweep — re-swept in round 5, R5-5).
 
 ### 2026-07-21 — σ\*-causal liveness: Steps 1–3 kernel-proven; C1's charter hypothesis shrinks to the Step-4 coverage conjunct
 
 The causal-coverage track lands `Mux/Proofs/CausalCoverage.lean` and
 `Mux/Proofs/CausalLive.lean` (~2,900 lines, zero sorry). Kernel-proven:
 (i) **the announced-prefix property** — every `announcedProcs` trace is
-a literal prefix of its true `.impl` process trace
+a literal prefix of a true `.impl` process trace
 (`announcedProcs_prefix`), via the census (`levelA` against the BFS
 level slices, with `collect`'s truncation discipline), the walk
 transcription (`chunksA_spec`/`peerBlockA_spec`/`goA_spec`: the chunk
@@ -483,7 +520,7 @@ send is τ-below the consulting event and pipes are empty), plus the
 `closure_coverage` re-run over `inevitableA` and the same-party wiring
 dispatch (internal channels never cross the link, per-family). No
 counterexample surfaced anywhere in the transcription: every layout
-matched its true trace exactly at the announced frontier, so the
+matched a true trace exactly at the announced frontier, so the
 minting lemma stands unrefuted with the wedge pin still its living
 witness.
 
@@ -720,7 +757,8 @@ Dispositions, per finding:
   label-visibility residue exactly as the σ*-locality residue is
   named; oracle-c2 §3.3's necessity claim marked REFUTED in place.
   Per the same ruling, `C1Statement`'s locality grain is being moved
-  to the charter-honest `PView` class by the σ*-causal track
+  to the charter-honest class by the σ*-causal track — landed as
+  `CharterLocal` (Mux/Causal.lean); "PView" was its working name
   (statements bind the honest grain; legacy `LocalEq` demoted to an
   internal artifact of the landed controls) — that track OWNS
   C1.lean; this phase did not touch its statement semantics.
@@ -787,6 +825,90 @@ in flight), the adjudicated controls' negative space (skip-scan demux,
 `prov C`, the σ* pin sweep), and the model-vs-Rust height gap
 (muxprobe tops at rootH 8; the largest-tractable-height matrix row
 remains unlanded).
+
+### 2026-07-21 — Round 5 (targeted post-merge sweep) closed: eight doc-tier findings at the mux-causal merge seam, all repaired; zero statement changes, zero proof changes
+
+Round 5 re-audited the phase-4 repairs' new statements, the causal
+stack against its references, and the cross-track interactions (three
+independent reviewers, then synthesis re-verification of every claim
+against the source). Headline: the proof core, the phase-4 repairs,
+and the causal kernel content all came back CLEAN — every confirmed
+finding is documentation staleness at the mux-causal merge seam (the
+track landed its statements of record AFTER the phase-4 repair sweep
+and was never re-swept against its rulings). First round of the
+campaign needing zero statement and zero proof changes. Dispositions:
+
+- **R5-1 (Strategy.lean claimed the legacy locality class NESTS
+  charter-local; the finding of record is INCOMPARABILITY)** — fixed
+  by doc: the nesting/a-fortiori clauses replaced with the
+  incomparability statement (finding of record: Proofs/C1.lean's
+  module doc, which now carries a [derived] tag pending the
+  per-direction witness pins, phase-5 queue); the `PView` ghost (the
+  working name of what landed as `CharterLocal`) swept from
+  Strategy.lean and this file's F3 disposition. Consequence made
+  explicit at both definition sites: `oracle_not_localStrategy` does
+  NOT transfer to the charter grain — the oracle's nonlocality at the
+  grain of record is established nowhere (the `¬ CharterLocal`
+  control is a phase-5 queue item).
+- **R5-2 (§1's C1-bullet superseded-marker stale against the merge at
+  HEAD — the third F7-class breach)** — fixed by doc: the marker now
+  records the charter refutation UNCONDITIONAL (`c1_charter_false`,
+  locality AND liveness kernel-proven), the residue dissolved by
+  re-grounding rather than discharged, and the legacy hypotheses
+  demoted to internal-artifact [open]; the C1-WC tag upgraded to
+  kernel-proven (`wc_impossibility`).
+- **R5-3 + R5-8 (the byte-caveat ruling and the "completes"
+  convention breached on every causal positive statement of
+  record)** — fixed by doc: byte pointers on
+  `sigmaStarCausal_deadlock_free`, `…_of_coverage`, and both
+  completion pins; the two flagships cite the two kernel facts
+  ("completes" = stuck-freedom + `mux_terminating`, which is
+  strategy-generic); the pins state the literal-`muxCompletes` sense.
+- **R5-4 (`sigmaStar_deadlock_free` labeled "the constructive
+  refutation of C1 as literally chartered")** — fixed by doc: it is
+  the liveness HALF; the charter-grain refutation of record is
+  `c1_charter_false` via σ\*-causal (Proofs/C1.lean).
+- **R5-5 (CausalCoverage.lean's module doc described the pre-split
+  plan and named a nonexistent deliverable `causal_coverage`)** —
+  fixed by doc: rewritten to the post-split map (this file's bottoms:
+  `announcedProcs_prefix`, `sigmaStarCausal_pipes_empty`; Step 4 and
+  the unconditional assembly live in CausalMint.lean); the mint
+  entry's ledger-update list above annotated with the omission.
+- **R5-6 (two Causal.lean docstrings pre-dated the landing: "the
+  coverage re-run is the recorded follow-up", "until the coverage
+  theorem lands")** — fixed by doc: the coverage theorem landed
+  (`causalStuckCoverage`); the wedge pin stands as an executable
+  witness behind the unconditional theorem, not as the claim's
+  support.
+- **R5-7 (MUX-ADJUDICATION T0 lacked the superseded-marker this
+  file's F6 disposition and the repair commit both claim it
+  carries)** — fixed by doc: one-line marker at T0 pointing at
+  §1.2's.
+
+Consider-tier folded into the same sweep: the root manifest now
+imports Mux.Proofs.CausalMint; `announcedIds`' docstring claims its
+canonical (interleaving-independent) enumeration instead of
+misdescribing it as arrival order; the announced-prefix prose matches
+`announcedProcs_prefix`'s ∃-shape ("a" true trace, not "its");
+`elastic_deadlock_free` reworded to the K = ∞-endpoint framing (T8's
+finite-K positive half remains the unattempted stub); T5's inline
+byte caveat converted to the canonical pointer form. Routed to phase
+5, deliberately NOT done here: the probe divergence-axes paragraph
+("twin" → "counterpart" and the P1-citation qualification), the
+charter-grain nondegeneracy + `¬ CharterLocal` oracle controls
+(decide-cheap), the incomparability witness pins, K/E run-level
+termination consumers, the `Sched`/`Model` name-collision dedup, the
+height-gap matrix row. Statement-audit deltas recorded as an ADDENDUM
+in MUX-STATEMENT-AUDIT.md (its table body stays verbatim-frozen).
+Process remedy: the merge-seam checklist minted as §1's discipline
+note — any track merged after a doc sweep gets its seam re-swept
+before the review round closes, with the two greps (naked
+"completes"; missing byte pointers) as the mechanical core, so the
+third F7-class breach is the last. Round 6 (narrow, terminal,
+pre-committed stop rule per the round-5 synthesis) verifies the sweep
+commits' own text and runs the checklist mechanically; wrong-grade
+findings outside the sweep's text falsify the seam diagnosis and go
+to Finch.
 
 ## 5. Log
 

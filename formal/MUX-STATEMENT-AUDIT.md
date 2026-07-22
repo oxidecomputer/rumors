@@ -269,3 +269,60 @@ claim.
 4. W5's inhabitation lemma (`bottomMostReady_wc`) belongs next to the
    class definition and should be cited from `wc_impossibility`'s
    docstring as its non-vacuity certificate.
+
+---
+
+# ADDENDUM — round-5 causal-track rows (2026-07-21)
+
+The table body above is verbatim-frozen: it records the pre-repair
+state phase 4 reviewed, and explicitly excluded the σ*-causal track
+("in flight elsewhere, NOT reviewed"). This addendum extends the audit
+with that track's statements of record — merged at `fbab795e`,
+reviewed by round 5 (MUX-PROGRESS §4's round-5 entry) — and records
+the grade revisions the merge obsoletes. Grades are POST-round-5-sweep
+(the R5-3/R5-8 docstring fixes are in); at the pre-sweep merge HEAD
+the E2/E3/E6 docstrings graded WEAKER-described (byte pointer and
+"completes" convention missing — R5-3/R5-8, doc-tier only).
+
+## Table E — the causal statements of record
+
+| # | English claim | Lean statement(s) of record | Grade | Notes |
+|---|---|---|---|---|
+| E1 | C1 at the charter grain (the F3 statement of record): every capacity C ≥ 1, every deterministic charter-local pair has a killer skeleton in the shipping encoder's class | `C1StatementCharter` (Mux/Proofs/C1.lean); refuted by `c1_charter_false` — NO hypothesis | EXACT | The new A1-grade anchor. Minting deltas identical to A1's (adjudicated and disclosed in the module doc). The refutation witness is ⟨1, σ*-causal, σ*-causal⟩ with locality and liveness both kernel-proven. |
+| E2 | σ*-causal is deadlock-free, unconditionally: every well-formed margin-0 session, every C ≥ 1, `.impl` | `sigmaStarCausal_deadlock_free` (Mux/Proofs/CausalMint.lean, the foot) | EXACT | The positive flagship at the grain of record. Docstring carries the two-kernel-facts "completes" (this theorem + `mux_terminating`) and the byte pointer (round-5 sweep). |
+| E3 | Conditional form: deadlock freedom given the Step-4 coverage conjunct | `sigmaStarCausal_deadlock_free_of_coverage` (Mux/Proofs/CausalLive.lean); conjunct `CausalStuckCoverage` | EXACT | Interface theorem; the conjunct is verbatim T8's "inference progress" conjunct, kept as a named Prop because the window-sliding argument consumes it at exactly that interface. |
+| E4 | Locality at the charter grain: σ*-causal invariant across skeletons with equal announced views at `.impl`-realizable observations, both parties | `CharterLocal` (Mux/Causal.lean), `sigmaStarCausal_charterLocal` | EXACT | Definitional (the strategy's one skeleton read is `aviewOf`); `ConsistentImpl` pins the mode. The grain is INCOMPARABLE to legacy `LocalEq` [derived; per-direction witness pins are phase-5 queue]. |
+| E5 | Step 4: at a reachable stuck drained σ*-causal state, a held stream with performed τ-prefix is proven-demanded under the announced closure | `causalStuckCoverage` (Mux/Proofs/CausalMint.lean) | EXACT | The minting ladder + τ-staged coverage induction + closure saturation, as §4's mint entry describes clause by clause. |
+| E6 | The causal pins: σ*-causal drives the smoke chain and the wedge to terminal in the kernel | `smokeChain_sigmaStarCausal_completes`, `wedge_sigmaStarCausal_completes` (Mux/Causal.lean) [decide] | EXACT | Executable witnesses behind E2, not its support (docstrings say so post-sweep); their "completes" is the literal `muxCompletes` kernel fact. |
+
+## Grade revisions the merge obsoletes
+
+- **A5** ("EXACT for capacity; WEAKER for 'witness strategy'
+  locality"): the WEAKER clause is now DISCHARGEABLE — the
+  constructive local witness landed (`sigmaStarCausal`, charter-grain
+  locality kernel-proven), so on the post-merge suite the charter
+  fallback is satisfied at grade EXACT via E1/E2/E4. A5's row text
+  stands as the pre-merge record.
+- **A6** ("its kernel form is exactly the σ*-causal A_p-sufficiency
+  theorem — in flight"): LANDED, with a shape correction of record —
+  the kernel form is not an A_p-sufficiency theorem for the omniscient
+  σ* but the re-grounding at the charter grain (E4) plus the
+  announced-closure liveness (E2/E5); the legacy A_p-sufficiency stays
+  [open] forever as `c1_literal_false`'s internal-artifact hypothesis.
+- **B1** ("'local' is not a kernel fact of the merged suite"): true of
+  the omniscient σ* it graded, unchanged; the campaign-level claim "a
+  deterministic local strategy refutes C1" is now kernel at the
+  charter grain (E1). §1's C1-bullet marker closed accordingly
+  (round 5, R5-2).
+- **R4's tail** ("the pins and refutations are a defensible lower tier
+  but phase 5 should sweep them too"): swept — the phase-4 repair
+  covered the pre-causal pin and refutation sites (17 pointer sites),
+  and round 5 covered the four causal surfaces (R5-3).
+
+Handoff note 3's coordination item is resolved: σ*-causal landed, so
+the naming decision for the audit surface (`sigmaStar` vs
+`sigmaStarCausal` — candidate: the causal object as the strategy of
+record, the omniscient σ* as the proof vehicle) is now decidable and
+queued for `Mux/Statement.lean` (phase 5), which must inherit the
+round-5 fixes (the incomparability statement, not the retracted
+nesting claim; no `PView` ghost).
