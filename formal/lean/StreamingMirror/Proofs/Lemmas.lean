@@ -235,6 +235,55 @@ structure InvP (sk : Skel) (ax : AxMode) (s : State) : Prop where
   flow : ∀ c ∈ allChans sk,
     s.chan c + recvdOf sk s c = sentOf sk s c ∧ s.chan c ≤ sk.cap c
 
+/-- The local fragment of the invariant: per-process cursor sanity
+without the flow field.
+
+This is the exact hypothesis of the decode layer (Pending/PendingE and
+the pillar's choice-point lemmas): those lemmas read state only through
+cursors and ledgers, never through channel occupancies, so they hold at
+states whose flow discipline is NOT the unmuxed one. The muxed chase
+(Mux/Proofs/Chase) is the consumer that needs this weakening: a muxed
+state with frames in flight satisfies a pipe-mediated conservation law
+(`Mux.MuxInv`), not `InvP.flow`, yet its cursors decode exactly as the
+unmuxed model's do. -/
+structure InvL (sk : Skel) (ax : AxMode) (s : State) : Prop where
+  wk : ∀ pk ∈ sk.walkKeys, wkLocalOk sk ax s pk = true
+  asm : ∀ pk ∈ sk.asmKeys, asmLocalOk sk s pk = true
+  top : topLocalOk sk ax s = true
+
+/-- The full invariant projects onto its local fragment. -/
+theorem InvP.local {sk : Skel} {ax : AxMode} {s : State}
+    (hi : InvP sk ax s) : InvL sk ax s :=
+  ⟨hi.wk, hi.asm, hi.top⟩
+
+/-- The invariant with the capacity half of `flow` dropped: cursors
+plus bare conservation.
+
+This is the exact hypothesis of the progress engine
+(`Sched.progress_of_inv`): its argmin argument consumes occupancy only
+through the conservation equation and the blocked-guard directions
+(`chan ≥ cap` from a failed send guard, `chan = 0` from a failed
+receive guard), never through the `chan ≤ cap` half. The consumer that
+needs the weakening is the ELASTIC demux variant (Mux/Elastic.lean):
+its parked states satisfy conservation exactly at drained pipes while
+over-filling wire cells past the base model's cap-1 discipline, so the
+full `InvP` is unavailable there by design, not by accident. -/
+structure InvPW (sk : Skel) (ax : AxMode) (s : State) : Prop where
+  wk : ∀ pk ∈ sk.walkKeys, wkLocalOk sk ax s pk = true
+  asm : ∀ pk ∈ sk.asmKeys, asmLocalOk sk s pk = true
+  top : topLocalOk sk ax s = true
+  flow : ∀ c ∈ allChans sk, s.chan c + recvdOf sk s c = sentOf sk s c
+
+/-- The weak invariant projects onto its local fragment. -/
+theorem InvPW.local {sk : Skel} {ax : AxMode} {s : State}
+    (hi : InvPW sk ax s) : InvL sk ax s :=
+  ⟨hi.wk, hi.asm, hi.top⟩
+
+/-- The full invariant weakens: drop the capacity half of `flow`. -/
+theorem InvP.weak {sk : Skel} {ax : AxMode} {s : State}
+    (hi : InvP sk ax s) : InvPW sk ax s :=
+  ⟨hi.wk, hi.asm, hi.top, fun c hc => (hi.flow c hc).1⟩
+
 theorem inv_iff (sk : Skel) (ax : AxMode) (s : State) :
     Inv sk ax s = true ↔ InvP sk ax s := by
   constructor

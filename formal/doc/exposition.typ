@@ -36,11 +36,13 @@
 #align(center)[
   #text(size: 20pt, weight: "bold")[Deadlock Freedom in the Streaming Mirror]
   #v(2pt)
-  #text(size: 12.5pt)[Two disciplines, two theorems]
+  #text(size: 12.5pt)[Two disciplines, two theorems — and one channel]
   #v(6pt)
   #text(size: 9.5pt, fill: rgb("#555555"))[
-    An exposition of the `rumors` formal artifact · 2026-07-19 \
-    Statement of record: `formal/lean/StreamingMirror/Statement.lean`
+    An exposition of the `rumors` formal artifact · 2026-07-19, extended
+    2026-07-22 \
+    Statements of record: `formal/lean/StreamingMirror/Statement.lean`
+    (act one) · `…/Mux/Statement.lean` (act two)
   ]
 ]
 
@@ -89,6 +91,41 @@
 ]
 
 #v(6pt)
+
+#block(
+  fill: rgb("#f6f5f2"), inset: 10pt, radius: 3pt, width: 100%,
+)[
+  *The second result, in one box.* Act two asks whether those
+  independent channels are themselves necessary: can one bounded
+  read/write channel carry the whole session, with deadlock freedom
+  restored purely by _scheduling_ the protocol's existing messages?
+  The answer is a kernel-checked trichotomy:
+
+  #v(4pt)
+  - *Eagerness is fatal.* One fixed, tree-realizable skeleton defeats
+    _every_ scheduler that must send when the pipe has room — at every
+    capacity, every parking depth, locality not even assumed
+    (`wc_impossibility`, `wc_impossibility_K`). #kernel
+  - *Patience and inference suffice.* A deterministic strategy that is
+    local by construction — its every decision a function of the
+    party's causal past — is deadlock-free at every capacity
+    (`sigmaStarCausal_deadlock_free` + `sigmaStarCausal_charterLocal`);
+    the conjecture that no such strategy exists is refuted outright
+    (`c1_charter`). #kernel
+  - *Omniscience buys only an order — and the order already existed.*
+    A _fixed_ send order computed from both trees is live at capacity
+    one (`oracle_deadlock_free`): the send projection of the
+    deadlock-freedom proof's own witness schedule. #kernel
+  #v(2pt)
+  The generalization the implementation rests on: at any advertised
+  per-direction window depths, _any_ window-obeying frame order is
+  deadlock-free and completes (`sigmaStarK_deadlock_free`,
+  `sigmaStarK_completes` — the specification was fixed in English
+  before the theorem was built; `T8-SPEC.md` carries the clause-by-
+  clause crosswalk, every clause EXACT). #kernel
+]
+
+#v(6pt)
 #outline(indent: auto, depth: 2)
 
 = What this document is
@@ -114,6 +151,21 @@ alternative. The deadlock-freedom claims themselves are the headline,
 but the shape of the trade — and the exact capacity arithmetic on which
 it turns — is the part a designer of a similar system will want.
 
+The document has two acts. Act one is the result above: the
+protocol over its intended transport — independent bounded channels —
+under two send disciplines. Act two removes the transport
+assumption and asks the question the first act leaves standing: the
+theorems assume the seventeen cross-party streams cannot block one
+another; the deployed system once muxed them over a single pipe and
+deadlocked; _is that deadlock fundamental?_ The answer reorganized
+itself, under proof, into the trichotomy of the second box — and into
+an engineering consequence: the transport abstraction built to
+guarantee independence is now scheduled for removal, in favor of the
+single channel it existed to forbid. This document presents each result
+where the argument wants it, not in the order it was discovered; the
+companion narrative preserves the discovery order, which was
+considerably more surprising.
+
 Three epistemic tags appear throughout, because this artifact is
 honest about its trust boundaries:
 
@@ -126,6 +178,9 @@ honest about its trust boundaries:
   cannot check that.
 - #assumed — stated, named, and argued for, but not proven. There are
   exactly two such items (@trust).
+
+#v(4pt)
+#heading(numbering: none, level: 1)[Act one — two disciplines, independent channels]
 
 = The problem
 
@@ -805,7 +860,7 @@ The complete trust ledger of the artifact:
 Nothing else is assumed. In particular, no fairness: the scheduler may
 be fully adversarial forever, and the theorems still hold.
 
-= A reader's map
+= A reader's map: act one
 
 For the reader who wants to go deeper, in reading order:
 
@@ -821,6 +876,377 @@ For the reader who wants to go deeper, in reading order:
   five stages file by file, and the `d5`/`.impl` mirror table.
 - `formal/PROGRESS.md` — the campaign log: findings, refuted designs,
   route decisions, and the accumulated proof-engineering lore.
-- The companion narrative (`formal/doc/narrative.typ`, forthcoming) —
-  the faithful history of how this development actually unfolded,
-  including the parts this exposition compresses.
+- The companion narrative (`formal/doc/narrative.typ`) — the faithful
+  history of how both campaigns actually unfolded, including the
+  parts this exposition compresses.
+
+#v(4pt)
+#heading(numbering: none, level: 1)[Act two — one channel]
+
+= The question <mux-question>
+
+The theorems of act one carry a premise so structural it is easy to
+read past: the seventeen wire streams between the two parties are
+_independent_ — a full or slow stream never prevents another from
+delivering. The deployed system honors that premise with the `Link`
+transport contract: a remote connection must supply genuinely
+non-interfering streams (QUIC streams, HTTP/2 streams, separate TCP
+connections). The contract exists because its absence had already been
+paid for: an earlier remote transport muxed all seventeen streams over
+one pipe, and wide trees deadlocked it — a six-link wait cycle through
+the demultiplexer's one-slot handoffs, reproduced identically at
+64-byte and 16-megabyte transport buffers, because the cycle was never
+about buffer capacity (`design/streaming-wire-deadlock.md`).
+
+The owner of this codebase conjectured that the deadlock was
+fundamental, and posed it precisely. Freeze the message set — no new
+frames, no credits, no acknowledgments; the mux may only _reorder_ what
+the protocol already sends. Call a scheduler _local_ if its every
+decision is a function of information in its party's causal past: the
+party's own tree, plus everything it has observed on the wire so far,
+and nothing held by the remote party that has not yet reached it. The
+conjectures: *(C1)* for every pipe capacity, every pair of
+deterministic local schedulers deadlocks on some tree pair the
+protocol itself can synchronize; *(C2)* a deadlock-free send order
+computable from _both_ sides' dispute structure exists — an oracle —
+but is necessarily dependent on information not locally available, and
+so is unrealizable.
+
+Both conjectures were settled in Lean, on top of act one's artifact,
+and neither survived in the form posed — each resolved into something
+sharper. This act presents the results in their logical order: the
+model (@mux-model), the impossibility that is true (@answer-wc), the
+possibility that refutes C1 as posed (@answer-sigma), the oracle that
+proves C2's existence half in a stronger-than-conjectured form
+(@answer-oracle), the window generalization the implementation rests
+on (@window), and the engineering consequence (@consequence). The
+statement of record for everything in this act is
+`formal/lean/StreamingMirror/Mux/Statement.lean` — like act one's, it
+restates every claim inline and proves each by citation, so the audit
+surface cannot drift from the theorems.
+
+= The mux, modeled <mux-model>
+
+The mux model wraps act one's machine without touching it. Per
+direction, one bounded FIFO _pipe_ of capacity $C >= 1$ (denominated
+in messages — a boundary discussed in @trust2) replaces the seventeen
+independent wire channels; the base model's wire cells become the
+receiver's per-stream demultiplexer slots. The sender's _strategy_
+chooses which enabled wire send enters the pipe next — under the same
+committed choice as act one: a pushed frame cannot be retracted. The
+demultiplexer delivers the pipe head into its stream's slot, and
+blocks — head of line — while that slot is full. Everything
+intra-party is exactly act one's machine; cross-process interleaving
+remains fully adversarial. Deadlock freedom is as before: every
+reachable state of the composition can step or is terminal.
+
+A strategy is a function from the party's _observation_ — its own
+structure plus the trace of its pushes and the frames delivered to it
+— to its next push (or to idling). Three classes of strategy organize
+everything that follows:
+
+- *Work-conserving*: whenever the pipe has room and some send is
+  enabled, the strategy must push something. Every eager mux —
+  including the one that deadlocked in production — is in this class.
+- *Local* (the charter's sense): decisions computable from the causal
+  past, as defined above. Formalized _by construction_: the strategy
+  of record consults the skeleton only through an _announced view_,
+  reconstructed from the party's own structure plus delivered frames
+  (@answer-sigma).
+- *Window-disciplined* (the implementation's class): push only frames
+  within an advertised per-stream window of inferred consumption
+  (@window).
+
+= Answer one: eagerness is fatal <answer-wc>
+
+The true impossibility needs no locality hypothesis at all, and that
+is its content: knowing everything does not help a scheduler that may
+not wait.
+
+*The theorem* (`wc_impossibility` #kernel): there is one fixed dispute
+skeleton — the _wedge_: a root with fan seven, its first child
+disputed two levels deep, six whole-subtree provisions queued behind —
+on which _every_ pair of work-conserving strategies deadlocks, at
+every pipe capacity $C >= 1$. The skeleton is realizable by a concrete
+tree pair, pinned by a Rust bridge test that runs the real session and
+decodes the wedge shape from its trace.
+
+The proof is notable for what it does not contain. There is no
+counting argument about capacity, and no information-theoretic fooling
+of the scheduler. On the wedge, the protocol's own ordering ledgers
+funnel any work-conserving scheduler down a corridor in which _every
+decision point offers exactly one legal push_ — so all strategies in
+the class, omniscient ones included, walk the same forced run, and the
+theorem is a replay of that run to a stuck state, kernel-checked. The
+jam mechanism is act two's echo of act one's borrowed slots: a
+one-slot demultiplexer handoff occupied by a frame its consumer will
+not take yet, and the frame it needs buried behind that occupant in
+FIFO order. Capacity never enters — anchors at $C in {1,2,3}$ plus one
+capacity-blind certificate cover every $C >= 4$ — which is the formal
+restatement of the production observation that the stall was identical
+at 64 bytes and 16 megabytes.
+
+Two negative controls pin that each hypothesis earns its keep
+#kernel: a hand-built _idling_ strategy completes the wedge (so
+work-conservation, the right to refuse the pipe, is the entire
+frontier), and an unbounded-slot demultiplexer lets even the jamming
+scheduler complete (so the bounded per-stream state is load-bearing —
+elasticity is a cure, and @consequence spends it deliberately).
+
+The generalization (`wc_impossibility_K` #kernel) closes the obvious
+escape: give the demultiplexer $K$-deep parking per stream and the
+burial just needs a wider wedge — for every fixed parking depth (per
+direction, kernel-anchored at depths one through three and derived
+beyond), a scaled wedge defeats every work-conserving pair at every
+capacity. Parking depth is mitigation, not cure. The cure is either
+elasticity or the right to idle — which is answer two.
+
+= Answer two: patience and local inference suffice <answer-sigma>
+
+C1, as posed, is false — and the witness is the theorem pair at the
+heart of this act #kernel:
+
+- `sigmaStarCausal_deadlock_free`: the strategy σ\*-causal, composed
+  with itself, is deadlock-free on every skeleton in the theorems'
+  class, at _every_ pipe capacity $C >= 1$; and it completes
+  (`mux_terminating` supplies the bounded-step half).
+- `sigmaStarCausal_charterLocal`: σ\*-causal is local in exactly the
+  charter's sense — proven definitionally, because the strategy's one
+  skeleton input _is_ the announced view.
+- `c1_charter`: the conjecture's formal statement, refuted by that
+  witness, unconditionally.
+
+The strategy is _demand-lockstep with inference_. It maintains, from
+its causal past alone, a growing certificate set: which of the peer's
+consumptions are _certified_ (announced by frames already delivered)
+or _inevitable_ (derivable — everything the peer still must do before
+that consumption needs nothing further from this side). It pushes a
+frame only when the consumption of that stream's previous frame is in
+the set; otherwise it idles and lets the reverse traffic grow the set.
+The liveness proof's engine is a coverage theorem: at any drained
+stuck candidate, every event below the missing push enters the causal
+certificate set at its own stage — so the strategy would have pushed,
+contradiction.
+
+== Where the announcements live
+
+The deepest finding of the whole campaign is _what "announced" turned
+out to mean_, and it deserves the slow build-up.
+
+Act one's model erases payloads, soundly: the protocol machines'
+behavior depends only on each child's dispute class, so the model
+keeps the classes and drops the bytes — by moving the classes out of
+the messages and into the ambient skeleton that every definition
+quantifies over. For act one that is a pure economy. But a mux
+scheduler is not a protocol machine: it must _reconstruct_ the
+skeleton from what it observes, and the erasure had quietly deleted
+the classes from the observation channel. Ask precisely where the
+sentence "the peer's reply announces that child 3 is disputed" lives
+on the wire: not in the arrival _pattern_ — a reply frame landing on
+stream $h$ looks identical whichever children it disputes — but in the
+frame's _contents_. And the pattern-only substitute genuinely fails:
+the discriminating counts accrue only as descents unfold, too late,
+permanently — the erased-trace surrogate strategy provably starves on
+the very wedge σ\*-causal completes. The announcements were never in
+the message pattern; they were in the messages.
+
+So there are three candidate grains for "what a local scheduler may
+see," ordered by _when the peer's classes arrive_, and the two wrong
+ones err in opposite directions:
+
++ *In the view* — the strategy is born knowing classes it was never
+  sent: too early, a causality violation dressed as locality (this was
+  a real defect found in the campaign's first locality encoding, and
+  the reason the final one is built the way it is).
++ *Never* (pattern only): starvation, per the surrogate above.
++ *At arrival* — each class becomes visible when the frame carrying it
+  is delivered and decoded: exactly the causal past, and exactly what
+  a real implementation sees, since the receive path decodes every
+  frame on arrival.
+
+The two wrong grains being wrong in opposite directions has a
+consequence worth stating: the middle grain and the first are
+_incomparable_ classes (kernel-pinned in both directions), so claims
+about one never transfer silently to the other — the audit surface
+names which grain every locality statement binds. And the finding
+promotes one Rust bridge from supporting to constitutive: the
+announced-skeleton reconstruction test (B5), which decodes a session's
+frame transcript — contents, not pattern — and checks it determines
+the skeleton, is precisely the fact σ\*-causal's locality stands on.
+
+What σ\*-causal is _not_ is fast at capacity one: its pacing is the
+subject of the window generalization (@window), which is where the
+practical system lives.
+
+= Answer three: the order already existed <answer-oracle>
+
+C2 conjectured that an oracle — given both sides' full dispute
+structure — could emit a deadlock-free send order, and that the order
+would be unrealizable locally. The existence half is true in a form
+stronger than conjectured, and the right way to present it is as a
+_recognition_, not a construction.
+
+Act one's proof already contains a distinguished object: τ, the
+witness schedule — a concrete, kernel-validated linearization of every
+operation of the session, built to prove the independent-channel
+theorems, long before these conjectures were posed. The oracle is
+_that object's send log_: filter τ to one direction's wire sends and
+push frames in exactly that sequence. A fixed list, computed once from
+the two trees, no feedback, no adaptation; live at capacity one, on
+every skeleton in the class (`oracle_deadlock_free` #kernel).
+
+Why the send projection works is the instructive half. The order is
+_feasible by construction_: it is the order in which an actual
+(modeled) execution produced the frames, so every production
+constraint — every intra-party dependency on the sending side — is
+already satisfied when the list demands a frame. The tempting
+alternative fails precisely there: pushing in the order the _receiver_
+will consume (the receive projection of the same τ) jams on an
+eleven-scope counterexample, kernel-pinned (`static_oracle_jams`
+#kernel), because a consumption-friendly order can demand a frame
+whose producer is parked behind a frame the order postponed. The
+receiver's slots absorb the sender-side skew; nothing absorbs
+producer infeasibility. An earlier adjudication in the campaign had
+those two projections exactly backwards — the executable tier caught
+it before the kernel did, which is the campaign's methodological story
+in one sentence.
+
+The necessity half of C2 lands class-relatively (`necessity`
+#kernel): the oracle order is not computable from any single party's
+view (`oracle_not_local` — the projections differ across view-equal
+skeletons), and under work-conservation nonlocal information cannot
+save you anyway (@answer-wc), but — because of answer two — nonlocal
+information is _not necessary for liveness at all_. What the
+conjecture's intuition was tracking is now stated exactly: what
+credits (or an oracle, or true channel independence) buy over local
+inference is _computation and timing_, never information the protocol
+withholds. The inference σ\*-causal runs is exactly the credit
+stream, derived instead of transmitted.
+
+= The window dial <window>
+
+The theorem the implementation actually rests on generalizes answer
+two from lockstep to windows. Each receiver advertises, per direction,
+a parking depth $K$; each sender may run $K$ frames past _inferred_
+consumption per stream. Two facts make this the deployable point in
+the design space:
+
+- *Liveness is order-free within the discipline*
+  (`sigmaStarK_deadlock_free`, `sigmaStarK_completes` #kernel): for
+  every skeleton in the class, every capacity, every pair of advertised
+  depths $K_I, K_R >= 1$ (independent — unequal peers interoperate),
+  _every_ strategy pair in the window-disciplined class — any scheduler
+  that pushes _some_ licensed frame when one exists — is deadlock-free
+  and completes in bounded steps. The class quantification is the
+  point: the shipped scheduler's priority ladder is a proven _instance_
+  (`sigmaLadderK_windowDisciplined`), and frame ordering is thereby
+  demoted from a correctness concern to a latency heuristic. You
+  cannot pick a wrong order, only a slow one.
+- *The latency law is exact at the evidence tier* #gate: pacing on a
+  fresh-dispute frontier is $K + 1$ frames per round trip per stream,
+  and completion matches independent channels _exactly in round
+  trips_ once $K$ exceeds the widest frontier — with the shipped
+  default window ($"fan"^2$) above any frontier a realistic divergence
+  produces. Below that, the residual is hyperbolic in $K$: no cliff.
+  (`MUX-LATENCY.md` §7; validated 54/54 probe-exact with both corners
+  reproducing. Latency claims are deliberately not theorems — the
+  model is untimed; a chartered follow-on campaign owns that.)
+
+This theorem was also the campaign's methodological capstone: its
+English statement was fixed _before_ construction (`T8-SPEC.md`),
+clause by clause, each clause carrying the audit rule naming the
+weakenings that would gut it — single-window, concrete-scheduler-only,
+omniscient-inference, progress-without-termination. The landed
+theorem's crosswalk grades every clause EXACT, and the discipline —
+specification first, statement graded against it — is now house
+method.
+
+= The engineering consequence <consequence>
+
+The trichotomy prices the transport design space completely, and the
+price list reads differently than the original deadlock suggested:
+
+- The production deadlock was never about capacity, muxing, or missing
+  information. It was about _eagerness_ — a scheduler denied the right
+  to idle (@answer-wc) — against bounded per-stream parking.
+- Liveness over one channel needs either elasticity (unbounded
+  parking; proven as `elastic_deadlock_free` #kernel, with the
+  observation that eager conversion of arriving frames into logical
+  replies makes parking cost handles, not buffers — the storage
+  backend was always the sink), or inference-gated sending at any
+  window (@window). Neither needs a wire byte the protocol doesn't
+  already send.
+- Round-trip parity with independent channels is reached at the
+  default window #gate. What independent channels still buy is
+  physics: per-stream loss isolation and packet-granularity
+  interleaving under bulk transfer — real, and now the _only_ items on
+  their side of the ledger.
+
+The consequence, recorded in the design documents on the
+`single-connection` branch (`design/single-socket.md` and its
+executable plan): the remote transport returns to a single read/write
+channel; window depths ride the greeting; the sender's engine is the
+inference of @answer-sigma at the window of @window; over-window
+arrival is a protocol violation (attributable, since the peer was told
+the bound); and the `Link` abstraction — introduced to guarantee the
+independence act one assumed — is scheduled for removal once the
+acceptance gates pass. The theorem suite is the warrant: the deadlock
+it was built against is now impossible for the implementation that
+replaces it, at every capacity, every window pairing, and every frame
+ordering that implementation could ever choose.
+
+= What to trust, and why: act two <trust2>
+
+The trust ledger, act two:
+
++ *Kernel-checked* #kernel — the entire suite behind
+  `Mux/Statement.lean`: `c1_charter`, `c1_omniscient`,
+  `wc_impossibility`, `wc_impossibility_K`,
+  `sigmaStarCausal_deadlock_free`, `sigmaStarCausal_charterLocal`,
+  `oracle_deadlock_free`, `necessity`, `elastic_deadlock_free`,
+  `mux_terminating`, `sigmaStarK_deadlock_free`,
+  `sigmaStarK_completes`, and every control pinning a hypothesis
+  (the idler, the unbounded-slot completion, the static-oracle jam,
+  the evidence-only starvation, the locality-grain pins) — each on
+  the three standard axioms; no `sorry`, no `native_decide`.
++ *Executable, gate-pinned* #gate — `lake exe muxprobe` (the mux twin
+  of act one's gate: a 300-plus-row golden matrix over pinned and
+  randomized skeletons, strategies, capacities, and window depths,
+  with commit-singularity scans and provenance pins), the stage-0
+  causal sweep (4,970 runs under a structurally-blinded strategy),
+  and the timed harness behind the latency law.
++ *Assumed, named* #assumed — the model boundary: message-denominated
+  capacity (a "reply" is byte-unbounded; byte-level liveness
+  additionally needs the byte pacing the design documents specify —
+  impossibility results transfer to bytes a fortiori, positive
+  results do not; every positive statement's docstring carries the
+  pointer), and the bridge premises tying model to Rust (the trace
+  validator's ledgers, the wedge realizability test, and B5 — which
+  the payload finding of @answer-sigma promotes to constitutive).
+  The planned `tracecheck` validator (`TRACECHECK.md`) exists to
+  shrink this category mechanically.
+
+= A reader's map: act two
+
+- `formal/lean/StreamingMirror/Mux/Statement.lean` — the audit
+  surface: every claim of this act, restated inline, proof by
+  citation.
+- `formal/MUX-PROGRESS.md` — the campaign's design of record: the
+  charter, the resolution with its superseded-markers preserved, the
+  findings ledger, the merge-seam checklist, the follow-on charters.
+- `formal/T8-SPEC.md` — the specification-first method's artifact:
+  the English claim, the audit rules, the landed crosswalk.
+- `formal/MUX-STATEMENT-AUDIT.md` — the graded claim table: every
+  English claim against its Lean statement.
+- `formal/MUX-ADJUDICATION.md` and `formal/mux-notes-phase2/` — the
+  adjudication of record and the panel's working papers, including
+  the probe reference implementation.
+- `formal/MUX-LATENCY.md` — the latency analysis and the K-dial law.
+- `formal/AUDIT-NOTES.md` — the alignment audit: twelve entries,
+  each resolved or honestly scoped.
+- `design/single-socket.md` and `design/single-socket-plan.md`
+  (branch `single-connection`) — the engineering consequence, with
+  its code-grounded executable plan.
+- The companion narrative (`formal/doc/narrative.typ`, part two) —
+  how all of this actually happened, including the reversals this
+  exposition presents as if they were always known.

@@ -138,6 +138,8 @@ mod common;
 mod error;
 #[cfg(test)]
 pub(super) mod progress;
+#[cfg(test)]
+pub(super) mod transcript;
 pub(super) mod unknown;
 mod work;
 use channel::{Receiver, Sender};

@@ -43,8 +43,28 @@ implementation whose traces satisfy the tightened `assert_valid`.
 - (ii) **Termination**: every maximal run reaches `Terminal`. No fairness
   hypothesis: every action strictly decreases the remaining-operation count
   ρ, so no infinite runs exist and (ii) is a corollary of (i) (§7).
+  Kernel-proven since 2026-07-21 (`Proofs/Termination.lean`, closing
+  AUDIT-NOTES.md A1): `rho_decreases` is the 23-case strict-decrease
+  lemma (its one hypothesis, `asmLevelsOk`, is an inductive invariant
+  from `init` — see the module doc for why some measure hypothesis is
+  unavoidable at ill-formed states), `terminating` bounds every run
+  from `init` by ρ(init), `maximal_run_terminal` /
+  `maximal_run_terminal_d5` derive (ii) from each progress flagship,
+  and `greedy_run_terminal` is the constructive form with the explicit
+  fuel bound ρ(init).
 - (iii) *Validation property, not a theorem*: the capacity-tightness law
   N ≤ C + 2 for the inter-level return boundary (§8).
+- (iv) **Capacity monotonicity** (for the `.impl` flagship): (i) and
+  (ii) hold not just at the model capacities (walk channels at 1, the
+  assembler at `capLevel`) but at EVERY pointwise-widened capacity
+  vector κ ≥ that floor — widen levels to the deployed window, keep
+  wires at 1, or any mix. Kernel-proven since 2026-07-21
+  (`Sched.deadlock_free_wide` and `terminatingW`,
+  `lean/StreamingMirror/Proofs/Wide.lean`; AUDIT-NOTES.md A7): the
+  widened transition function `applyW κ` recovers `apply` at κ = floor
+  definitionally, and ρ never reads occupancy, so the run bound is the
+  floor's. The `d5` corner's wire-widening remains on the informal
+  Kahn argument (Statement.lean, "Assumed, not proven").
 
 **Explicitly not modeled** (modeled-world premises, each with its Rust
 anchor):
@@ -433,7 +453,9 @@ forked copies.
   quiescence driver's `Pending`-with-no-wake (`Quiescence::Stalled`,
   tests.rs:62-91).
 - `safe` ≡ ¬Stuck (equivalently Terminal ∨ ∃ enabled).
-- ρ(s) ≡ total unfired operations. Every step fires 1 op (2 for a
+- ρ(s) ≡ total unfired operations (in Lean: `Model.rho`,
+  Proofs/Termination.lean, where the strict decrease is the kernel
+  theorem `rho_decreases`). Every step fires 1 op (2 for a
   rendezvous), so ρ strictly decreases; run length ≤ ρ(init). Hence:
   **no infinite runs exist**, bounded model checking at depth ρ(init) + 1 is
   **exhaustive** for reachability, and termination is a fairness-free
