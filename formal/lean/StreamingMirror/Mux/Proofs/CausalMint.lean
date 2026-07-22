@@ -2227,4 +2227,313 @@ theorem walk_laid {s : MState} {N : Nat} (W : Wall sk s N) (p : Party)
     (fun j hj hjk => hoks j hj hjk) hblockmem
   exact hgo
 
+
+-- ============================= the opener, finale, and absorber laid
+
+/-- The root record is announced once the peer's root-wire send is
+scheduled below the wall. -/
+private theorem Wall.root_minted {s : MState} {N : Nat} (W : Wall sk s N)
+    (p : Party)
+    (hmem : ((Chan.wire p.other sk.rootH, true, 0) : Ev) ∈ scheduleE sk)
+    (hτ : evIdx ((Chan.wire p.other sk.rootH, true, 0) : Ev)
+      (scheduleE sk) < N) :
+    (aviewOf sk p (s.hist p)).rec? 0 = some (sk.scope 0) := by
+  rw [rec?_aviewOf, if_pos (announced_root (W.root_delivered p hmem hτ))]
+
+/-- The peer opener's events below the wall are announced-laid. -/
+theorem open_laid {s : MState} {N : Nat} (W : Wall sk s N) (p : Party)
+    {e : Ev}
+    (he : e ∈ (if p = Party.I then Sched.ropenEvents sk
+      else Sched.iopenEvents sk))
+    (hτ : evIdx e (scheduleE sk) < N) :
+    e ∈ peerOpenTraceA (aviewOf sk p (s.hist p)) := by
+  cases p with
+  | I =>
+      rw [if_pos rfl] at he
+      unfold Sched.ropenEvents at he
+      show e ∈ [((Chan.wire Party.I sk.rootH : Chan), false, 0),
+          ((Chan.wire Party.R sk.rootH : Chan), true, 0),
+          ((Chan.rootres : Chan), true, 0)]
+        ++ (match (aviewOf sk Party.I (s.hist Party.I)).rec? 0 with
+            | none => []
+            | some sc =>
+                (List.range sc.kids.length).map fun j =>
+                  ((Chan.asked Party.R (sk.rootH - 2) : Chan), true, j))
+      rcases List.mem_cons.mp he with rfl | he2
+      · exact List.mem_append.mpr (.inl (List.mem_cons_self ..))
+      rcases List.mem_cons.mp he2 with rfl | he3
+      · exact List.mem_append.mpr (.inl (List.mem_cons_of_mem _
+          (List.mem_cons_self ..)))
+      rcases List.mem_cons.mp he3 with rfl | he4
+      · exact List.mem_append.mpr (.inl (List.mem_cons_of_mem _
+          (List.mem_cons_of_mem _ (List.mem_cons_self ..))))
+      -- a root query: the peer's reply is trace-prior, minting the root
+      obtain ⟨j, hj, rfl⟩ := List.mem_map.mp he4
+      rw [List.mem_range] at hj
+      have hpair : ([((Chan.wire Party.R sk.rootH, true, 0) : Ev),
+          ((Chan.asked Party.R (sk.rootH - 2), true, j) : Ev)]
+            : List Ev).Sublist (Sched.ropenEvents sk) := by
+        unfold Sched.ropenEvents
+        refine List.Sublist.trans ?_ (List.sublist_cons_self ..)
+        refine List.cons_sublist_cons.mpr ?_
+        refine List.Sublist.trans ?_ (List.sublist_cons_self ..)
+        exact List.singleton_sublist.mpr
+          (List.mem_map.mpr ⟨j, List.mem_range.mpr hj, rfl⟩)
+      obtain ⟨hm, hlt⟩ := tau_prior W.wf W.m0
+        (Sched.fixed_mem_procsE sk).2.1 hpair
+      have hm' : ((Chan.wire Party.I.other sk.rootH, true, 0) : Ev)
+          ∈ scheduleE sk := hm
+      have hlt' : evIdx ((Chan.wire Party.I.other sk.rootH, true, 0)
+          : Ev) (scheduleE sk)
+          < evIdx ((Chan.asked Party.R (sk.rootH - 2), true, j) : Ev)
+            (scheduleE sk) := hlt
+      have hrec := W.root_minted Party.I hm' (by omega)
+      rw [hrec]
+      refine List.mem_append.mpr (.inr ?_)
+      refine List.mem_map.mpr ⟨j, List.mem_range.mpr ?_, rfl⟩
+      show j < (sk.scope 0).kids.length
+      exact hj
+  | R =>
+      rw [if_neg (by simp)] at he
+      exact he
+
+/-- The peer finale's events below the wall are announced-laid. -/
+theorem fin_laid {s : MState} {N : Nat} (W : Wall sk s N) (p : Party)
+    {e : Ev}
+    (he : e ∈ (if p = Party.I then Sched.finEvents sk
+      else [((Chan.rootret : Chan), false, 0)])) :
+    evIdx e (scheduleE sk) < N →
+    ∃ T ∈ peerFinTracesA (aviewOf sk p (s.hist p)), e ∈ T := by
+  intro hτ
+  cases p with
+  | I =>
+      rw [if_pos rfl] at he
+      refine ⟨((Chan.rootres : Chan), false, 0)
+        :: (match (aviewOf sk Party.I (s.hist Party.I)).rec? 0 with
+            | none => []
+            | some sc =>
+                (List.range sc.kids.length).map fun j =>
+                  ((Chan.rootrets : Chan), false, j)),
+        List.mem_singleton.mpr rfl, ?_⟩
+      unfold Sched.finEvents at he
+      rcases List.mem_cons.mp he with rfl | he2
+      · exact List.mem_cons_self ..
+      -- a root return: chain through the finale's own resolution
+      -- receive and the opener's reply to the root mint
+      obtain ⟨j, hj, rfl⟩ := List.mem_map.mp he2
+      rw [List.mem_range] at hj
+      have hpair : ([((Chan.rootres : Chan), false, 0),
+          ((Chan.rootrets, false, j) : Ev)] : List Ev).Sublist
+          (Sched.finEvents sk) := by
+        unfold Sched.finEvents
+        refine List.cons_sublist_cons.mpr ?_
+        exact List.singleton_sublist.mpr
+          (List.mem_map.mpr ⟨j, List.mem_range.mpr hj, rfl⟩)
+      obtain ⟨hm, hlt⟩ := tau_prior W.wf W.m0
+        (Sched.fixed_mem_procsE sk).2.2.2.2 hpair
+      obtain ⟨hsm, hslt⟩ := tau_e1 W.wf hm
+      have hpair2 : ([((Chan.wire Party.R sk.rootH, true, 0) : Ev),
+          ((Chan.rootres, true, 0) : Ev)] : List Ev).Sublist
+          (Sched.ropenEvents sk) := by
+        unfold Sched.ropenEvents
+        refine List.Sublist.trans ?_ (List.sublist_cons_self ..)
+        exact List.cons_sublist_cons.mpr
+          (List.singleton_sublist.mpr (List.mem_cons_self ..))
+      obtain ⟨hm2, hlt2⟩ := tau_prior W.wf W.m0
+        (Sched.fixed_mem_procsE sk).2.1 hpair2
+      have hm2' : ((Chan.wire Party.I.other sk.rootH, true, 0) : Ev)
+          ∈ scheduleE sk := hm2
+      have hlt2' : evIdx ((Chan.wire Party.I.other sk.rootH, true, 0)
+          : Ev) (scheduleE sk)
+          < evIdx ((Chan.rootres, true, 0) : Ev) (scheduleE sk) := hlt2
+      have hrec := W.root_minted Party.I hm2' (by omega)
+      rw [hrec]
+      refine List.mem_cons_of_mem _ ?_
+      refine List.mem_map.mpr ⟨j, List.mem_range.mpr ?_, rfl⟩
+      show j < (sk.scope 0).kids.length
+      exact hj
+  | R =>
+      rw [if_neg (by simp)] at he
+      exact ⟨[((Chan.rootret : Chan), false, 0)],
+        List.mem_singleton.mpr rfl, he⟩
+
+/-- The announced absorb total covers every record-known census
+position's leaf requests. -/
+private theorem totalA_reach (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} :
+    ∀ (l : List Nat) (n : Nat), n < l.length →
+      (∀ u ∈ l, u < sk.scopes.length
+        ∧ (aviewOf sk p tr).kind? u = some ((sk.scope u).kind)) →
+      (∀ i, i ≤ n → (sk.scope (l.getD i 0)).kind = Kind.D →
+        l.getD i 0 ∈ announcedIds sk p tr) →
+      ((l.take (n + 1)).map
+        (fun u => (sk.scope u).leafReqs)).sum
+        ≤ (peerAbsorbTraceA.total (aviewOf sk p tr) l).1 := by
+  intro l
+  induction l with
+  | nil =>
+      intro n hn
+      simp at hn
+  | cons u rest ih =>
+      intro n hn hkinds hrecs
+      obtain ⟨hreal, hkind⟩ := hkinds u (List.mem_cons_self ..)
+      have htail : ((rest.take n).map
+          (fun u => (sk.scope u).leafReqs)).sum
+          ≤ (peerAbsorbTraceA.total (aviewOf sk p tr) rest).1 := by
+        cases n with
+        | zero =>
+            show (([] : List Nat).map _).sum ≤ _
+            simp
+        | succ n' =>
+            refine ih n' (by simpa using hn)
+              (fun v hv => hkinds v (List.mem_cons_of_mem _ hv))
+              (fun i hi hD => ?_)
+            have := hrecs (i + 1) (by omega)
+            rw [List.getD_cons_succ] at this
+            exact this hD
+      rw [List.take_succ_cons, List.map_cons, List.sum_cons]
+      rw [peerAbsorbTraceA.total]
+      by_cases hD : (sk.scope u).kind = Kind.D
+      · rw [if_pos (by rw [hkind, hD]; rfl)]
+        have hann : u ∈ announcedIds sk p tr := by
+          have := hrecs 0 (by omega)
+          rw [List.getD_cons_zero] at this
+          exact this hD
+        have hrec : (aviewOf sk p tr).rec? u = some (sk.scope u) := by
+          rw [rec?_aviewOf, if_pos hann]
+        rw [hrec]
+        rcases hc : peerAbsorbTraceA.total (aviewOf sk p tr) rest
+          with ⟨t, ok⟩
+        rw [hc] at htail
+        show (sk.scope u).leafReqs + _ ≤ (sk.scope u).leafReqs + t
+        omega
+      · rw [if_neg (by
+          rw [hkind]
+          simp only [beq_iff_eq, Option.some.injEq]
+          exact fun hc => hD hc)]
+        have hzero : (sk.scope u).leafReqs = 0 :=
+          (wf_scope_nonD hwf hreal hD).2
+        rw [hzero]
+        omega
+
+/-- The absorber's events below the wall are announced-laid (laid only
+on the responder's side, whose peer owns the absorber). -/
+theorem absorb_laid {s : MState} {N : Nat} (W : Wall sk s N)
+    (hp : Party.R = Party.R) {e : Ev}
+    (he : e ∈ Sched.absorbEvents sk)
+    (hτ : evIdx e (scheduleE sk) < N) :
+    e ∈ peerAbsorbTraceA (aviewOf sk Party.R (s.hist Party.R)) := by
+  have hev : sk.rootH % 2 = 0 := (wf_rootH W.wf).1
+  have h2 : 2 ≤ sk.rootH := (wf_rootH W.wf).2
+  unfold Sched.absorbEvents at he
+  obtain ⟨j, hjr, hej⟩ := List.mem_flatMap.mp he
+  have hj : j < sk.totalLeafReqs := List.mem_range.mp hjr
+  -- the block head receive is trace-at-or-before e
+  have hrfacts : ((Chan.wire Party.R 0, false, j) : Ev) ∈ scheduleE sk
+      ∧ evIdx ((Chan.wire Party.R 0, false, j) : Ev) (scheduleE sk)
+        ≤ evIdx e (scheduleE sk) := by
+    have hemem : e ∈ scheduleE sk :=
+      (Sched.trace_sublistE sk W.wf W.m0
+        (Sched.fixed_mem_procsE sk).2.2.1).mem he
+    rcases pair_of_mem_cons hej with heq | hpair
+    · subst heq
+      exact ⟨hemem, Nat.le_refl _⟩
+    · have hlift : ([((Chan.wire Party.R 0, false, j) : Ev), e]
+          : List Ev).Sublist (Sched.absorbEvents sk) := by
+        unfold Sched.absorbEvents
+        exact sublist_flatMap_block hj hpair
+      obtain ⟨hm, hlt⟩ := tau_prior W.wf W.m0
+        (Sched.fixed_mem_procsE sk).2.2.1 hlift
+      exact ⟨hm, by omega⟩
+  -- its send is the responder's own leaf wire; locate and recurse
+  obtain ⟨hsm, hslt⟩ := tau_e1 W.wf hrfacts.1
+  have hR0 : (Party.R, 0) ∈ sk.walkKeys :=
+    Sched.mem_walkKeys_of sk W.wf (by omega) (Or.inr ⟨rfl, rfl⟩)
+  have hjw : j < sk.wiresBefore 0 (sk.stageLen 0) := by
+    rw [wiresBefore_full_leaf W.wf]
+    exact hj
+  obtain ⟨m₀, hm₀, hle₀, hlt₀, hpairs⟩ := wire_send_locate W.wf hR0 hjw
+  obtain ⟨hr'm, hr'lt⟩ := tau_prior W.wf W.m0
+    (Sched.walkEventsE_mem_procsE sk W.wf hR0) hpairs
+  -- the census reaches the covering scope
+  have hconv : (Chan.wire (stageParty 0).other (0 + 1) : Chan)
+      = wireIn (Party.R, 0) := rfl
+  have hcen := census_reach W Party.R
+    (evIdx ((wireIn (Party.R, 0), false, m₀) : Ev) (scheduleE sk) + 1)
+    0 m₀ (by omega) hm₀
+    (by rw [hconv]; exact hr'm)
+    (by rw [hconv]
+        have hsl : evIdx ((Chan.wire Party.R 0, true, j) : Ev)
+            (scheduleE sk) < N := by omega
+        omega)
+    (by rw [hconv]; omega)
+  obtain ⟨hclen, hsc, -⟩ := hcen
+  -- the announced total covers block j
+  have hpre := stageScopesA_prefix W.wf Party.R (s.hist Party.R)
+    (show 0 < sk.rootH by omega)
+  have hitems : (stageScopesA (aviewOf sk Party.R (s.hist Party.R)) 0).1
+      = (levelA (aviewOf sk Party.R (s.hist Party.R))
+          (sk.rootH - 1)).1 := by
+    unfold stageScopesA
+    rw [if_neg (by show ¬ ((0 + 1 == sk.rootH) = true); simp; omega),
+      if_neg (by show ¬ (sk.rootH < 0 + 1); omega)]
+    rfl
+  have hkinds : ∀ u ∈ (stageScopesA (aviewOf sk Party.R
+      (s.hist Party.R)) 0).1, u < sk.scopes.length
+      ∧ (aviewOf sk Party.R (s.hist Party.R)).kind? u
+        = some ((sk.scope u).kind) := by
+    intro u hu
+    refine ⟨?_, hpre.2 u hu⟩
+    exact (mem_scopesAt (hpre.1.sublist.mem hu)).1
+  have hrecs : ∀ i, i ≤ m₀ →
+      (sk.scope ((stageScopesA (aviewOf sk Party.R
+        (s.hist Party.R)) 0).1.getD i 0)).kind = Kind.D →
+      (stageScopesA (aviewOf sk Party.R (s.hist Party.R)) 0).1.getD i 0
+        ∈ announcedIds sk Party.R (s.hist Party.R) := by
+    intro i hi hD
+    have hgd : (stageScopesA (aviewOf sk Party.R
+        (s.hist Party.R)) 0).1.getD i 0 = sk.stageScope 0 i := by
+      have := prefix_getD hpre.1 (show i
+        < (stageScopesA (aviewOf sk Party.R
+            (s.hist Party.R)) 0).1.length from by omega) 0
+      rw [← this]
+      rfl
+    rw [hgd]
+    exact hsc i hi
+  have hcov := totalA_reach W.wf
+    (stageScopesA (aviewOf sk Party.R (s.hist Party.R)) 0).1 m₀
+    (by omega) hkinds hrecs
+  -- the taken census prefix's leaf sum is the wire prefix sum
+  have htake : (stageScopesA (aviewOf sk Party.R
+      (s.hist Party.R)) 0).1.take (m₀ + 1)
+      = (sk.stageScopes 0).take (m₀ + 1) := by
+    obtain ⟨t, ht⟩ := hpre.1
+    rw [← ht, List.take_append_of_le_length (by omega)]
+  have hsum : (((sk.stageScopes 0).take (m₀ + 1)).map
+      (fun u => (sk.scope u).leafReqs)).sum
+      = sk.wiresBefore 0 (m₀ + 1) := by
+    unfold Skel.wiresBefore
+    rw [foldl_add_eq_sum, Nat.zero_add]
+    congr 1
+  have hjtot : j < (peerAbsorbTraceA.total
+      (aviewOf sk Party.R (s.hist Party.R))
+      (stageScopesA (aviewOf sk Party.R (s.hist Party.R)) 0).1).1 := by
+    rw [htake, hsum] at hcov
+    omega
+  -- assemble
+  show e ∈ peerAbsorbTraceA (aviewOf sk Party.R (s.hist Party.R))
+  unfold peerAbsorbTraceA
+  rw [if_neg (show ¬ (((aviewOf sk Party.R (s.hist Party.R)).party
+    == Party.I) = true) from fun hc => nomatch hc)]
+  show e ∈ (List.range ((peerAbsorbTraceA.total
+      (aviewOf sk Party.R (s.hist Party.R))
+      (levelA (aviewOf sk Party.R (s.hist Party.R))
+        (sk.rootH - 1)).1).1)).flatMap fun j =>
+    [((Chan.wire Party.R 0 : Chan), false, j),
+     ((Chan.leafRequests : Chan), false, j),
+     ((Chan.level Party.I 0 : Chan), true, j)]
+  rw [← hitems]
+  refine List.mem_flatMap.mpr ⟨j, List.mem_range.mpr hjtot, ?_⟩
+  exact hej
+
 end StreamingMirror.Mux
