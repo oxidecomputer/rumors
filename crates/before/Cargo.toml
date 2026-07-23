@@ -8,7 +8,12 @@ readme = "README.md"
 
 [dependencies]
 bitvec = "1"
-num-bigint = "0.4.6"
+# Floor 0.4.8: 0.4.7 ships divide-and-conquer to_radix_digits (rendering a
+# b-bit magnitude stops being quadratic in b) and 0.4.8 fixes its
+# Burnikel-Ziegler division regression. `Display` on spilled magnitudes
+# delegates to `BigUint`'s rendering, so this floor is what fixes that
+# path's complexity class; tests/display_canary.rs pins it.
+num-bigint = "0.4.8"
 # Stack-growth guard for the recursive traversals: recurse natively on shallow
 # trees; grow the stack onto the heap before a deep one can overflow. The crate
 # stays `#![forbid(unsafe_code)]`; the platform stack manipulation lives here.
