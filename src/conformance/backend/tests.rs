@@ -45,12 +45,26 @@ fn local_backend_conforms() {
 /// resident (header, child table, version bounds), on top of a `Local`
 /// handle standing in for the store.
 ///
-/// `HEADER_SLACK` is the honesty knob: the real row header is
-/// `ROW_HEADER` bytes, and the cost function prices `HEADER_SLACK`, so
-/// slack at or above the header is honest and anything less underprices —
-/// which `underpricing_fails_the_pointwise_check` relies on.
+/// The priced header is the honesty knob: the real row header is
+/// `ROW_HEADER` bytes, and the cost function prices `priced_header()`,
+/// so a priced header at or above the real one is honest and anything
+/// less underprices — which `underpricing_fails_the_pointwise_check`
+/// relies on. The knob is a process-global rather than a const
+/// parameter deliberately: every distinct backend type instantiates the
+/// whole height-indexed protocol tower (see
+/// `design/height-erasure.md`), so the honest and lying variants must
+/// share one type.
 #[derive(Clone, Copy, Debug)]
-struct Materializing<const HEADER_SLACK: usize>;
+struct Materializing;
+
+/// The header bytes [`Materializing::node_bytes`] prices; see the
+/// struct docs for why this is state rather than a type parameter.
+static PRICED_HEADER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The header bytes the cost function prices in this process.
+fn priced_header() -> usize {
+    PRICED_HEADER.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// The bytes a materialized row spends beyond its child table and bounds.
 const ROW_HEADER: usize = 64;
@@ -59,16 +73,13 @@ const ROW_HEADER: usize = 64;
 const ROW_ENTRY: usize = 24;
 
 /// A node value that owns its simulated row.
-///
-/// Carries the backend's pricing const so the node maps back to exactly
-/// one backend type.
 #[derive(Clone, Debug)]
-struct MaterializedNode<N, const HEADER_SLACK: usize> {
+struct MaterializedNode<N> {
     inner: N,
     row: Vec<u8>,
 }
 
-impl<N, const HEADER_SLACK: usize> MaterializedNode<N, HEADER_SLACK> {
+impl<N> MaterializedNode<N> {
     fn wrap(inner: N, row_bytes: usize) -> Self {
         Self {
             inner,
@@ -77,12 +88,12 @@ impl<N, const HEADER_SLACK: usize> MaterializedNode<N, HEADER_SLACK> {
     }
 }
 
-impl<T, H, const HEADER_SLACK: usize> Node<T> for MaterializedNode<typed::Node<T, H>, HEADER_SLACK>
+impl<T, H> Node<T> for MaterializedNode<typed::Node<T, H>>
 where
     T: Send + Sync + 'static,
     H: Height,
 {
-    type Backend = Materializing<HEADER_SLACK>;
+    type Backend = Materializing;
     type Height = H;
 
     fn ceiling(&self) -> &Version {
@@ -106,7 +117,7 @@ where
     }
 }
 
-impl<T, const HEADER_SLACK: usize> Leaf<T> for MaterializedNode<typed::Node<T, Z>, HEADER_SLACK>
+impl<T> Leaf<T> for MaterializedNode<typed::Node<T, Z>>
 where
     T: Send + Sync + 'static,
 {
@@ -126,16 +137,16 @@ fn bounds_of<T: Send + Sync + 'static, H: Height>(node: &typed::Node<T, H>) -> u
     node.ceiling().as_bytes().len() + node.floor().as_bytes().len()
 }
 
-impl<T, const HEADER_SLACK: usize> Backend<T> for Materializing<HEADER_SLACK>
+impl<T> Backend<T> for Materializing
 where
     T: Send + Sync + 'static,
 {
-    type Node<H: Height> = MaterializedNode<typed::Node<T, H>, HEADER_SLACK>;
+    type Node<H: Height> = MaterializedNode<typed::Node<T, H>>;
     type Error = Infallible;
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
-        std::mem::size_of::<MaterializedNode<typed::Node<T, Z>, HEADER_SLACK>>()
-            + HEADER_SLACK
+        std::mem::size_of::<MaterializedNode<typed::Node<T, Z>>>()
+            + priced_header()
             + ROW_ENTRY * children
             + version_bound
     }
@@ -184,7 +195,7 @@ where
     }
 }
 
-impl<T, const HEADER_SLACK: usize> Measure<T> for Materializing<HEADER_SLACK>
+impl<T> Measure<T> for Materializing
 where
     T: Send + Sync + 'static,
 {
@@ -200,7 +211,8 @@ where
 /// window's measured admittance inside a budget the rows make expensive.
 #[test]
 fn materializing_backend_conforms() {
-    pollster::block_on(check(Materializing::<ROW_HEADER>, 4 * 1024 * 1024));
+    PRICED_HEADER.store(ROW_HEADER, std::sync::atomic::Ordering::Relaxed);
+    pollster::block_on(check(Materializing, 4 * 1024 * 1024));
 }
 
 /// An underpricing cost function fails the run by name.
@@ -212,7 +224,8 @@ fn materializing_backend_conforms() {
 #[test]
 #[should_panic(expected = "underpriced node")]
 fn underpricing_fails_the_pointwise_check() {
-    pollster::block_on(check(Materializing::<0>, 4 * 1024 * 1024));
+    PRICED_HEADER.store(0, std::sync::atomic::Ordering::Relaxed);
+    pollster::block_on(check(Materializing, 4 * 1024 * 1024));
 }
 
 /// The decorator's ledger accounting is exact over wrap, clone, and drop.
