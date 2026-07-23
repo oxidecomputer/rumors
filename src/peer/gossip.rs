@@ -482,13 +482,18 @@ impl<T, B: Persist> Peer<T, B> {
         bookmark.write().await
     }
 
-    /// Reflect the live identity into the bookmark before a session transmits
-    /// versioned state: reclaim every stranded identity the party has caught
-    /// up to (growing the live party in place) and persist.
+    /// Reflect the live identity into the bookmark and persist it.
     ///
-    /// Holds the bookmark mutex across a brief `watch` critical section — where
-    /// the party grows atomically with the record — and the persisting write,
-    /// so the two stores never diverge. The lock order is always
+    /// Reclaims every stranded identity the party has caught up to (growing
+    /// the live party in place) and records the party at its frontier. The
+    /// frontier is read *inside* the `watch` critical section the reclaim
+    /// runs in, so the staged record never lags an event the caller has
+    /// already committed — the record's own-party projection dominates every
+    /// event that existed when the reclaim ran.
+    ///
+    /// Holds the bookmark mutex across that brief `watch` critical section —
+    /// where the party grows atomically with the record — and the persisting
+    /// write, so the two stores never diverge. The lock order is always
     /// bookmark-then-`watch`; no path takes them the other way, so it cannot
     /// deadlock.
     ///
@@ -499,35 +504,29 @@ impl<T, B: Persist> Peer<T, B> {
     /// an absorbed retiree — defeats the suppression and persists afresh.
     async fn bookmark_update(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
-
-        // Read the live frontier and party under one `watch` borrow, dropped
-        // before any `send_if_modified` (holding it across one would deadlock).
-        let (version, suppressed) = {
-            let inner = self.inner.borrow();
-            let version = inner.tree.latest().clone();
-            let suppressed = inner
-                .party
-                .as_ref()
-                .is_some_and(|party| bookmark.is_current(party, &version));
-            (version, suppressed)
-        };
-        if suppressed {
-            return Ok(());
-        }
-
         bookmark.ensure_loaded().await?;
+
+        let mut persist = false;
         self.inner.send_if_modified(|inner| {
             if let Some(party) = inner.party.as_mut() {
-                // `reclaim` stages the suppression token for this
-                // `(party, version)`; the `write` below commits it (or, on
-                // failure, clears it so the next update retries).
-                bookmark.reclaim(self.network, party, &version);
+                let version = inner.tree.latest().clone();
+                if !bookmark.is_current(party, &version) {
+                    // `reclaim` stages the suppression token for this
+                    // `(party, version)`; the `write` below commits it (or, on
+                    // failure, clears it so the next update retries).
+                    bookmark.reclaim(self.network, party, &version);
+                    persist = true;
+                }
             }
             // Reclaiming widens the party's id-region but records no new event,
             // so the observable frontier is unchanged: no observer wakeup is due.
             false
         });
-        bookmark.write().await
+        if persist {
+            bookmark.write().await
+        } else {
+            Ok(())
+        }
     }
 
     /// Slice a donated `party` out of the bookmark before it crosses the wire,
@@ -603,47 +602,77 @@ impl<T, B: Persist> Peer<T, B> {
             return (Intent::Remain, Ok(unchanged));
         }
 
-        // Bookmark our identity at its current version before any of it crosses
-        // the wire, reclaiming any stranded identities we have since caught up
-        // to. Reclaiming grows the live party in place, so it must precede the
-        // speculative fork below: a fork or donation then carries the grown
-        // identity. (`retire` reaches here too, through its `gossip_inner`
-        // call, so a retiring set is bookmarked before donating itself.)
-        if let Err(e) = self.bookmark_update().await {
-            return (Intent::Remain, Err(Error::Bookmark(e)));
-        }
-
-        // Clone out the most-recent tree and *speculatively* remove any party
-        // we will donate, both in the same critical section, so that there's
-        // no lag between the snapshot of the version we send to our
-        // counterparty and the fork of the party. Failing to do both at the
-        // same time means a concurrent `send` could introduce messages with a
-        // version that exceeds the version communicated to a bootstrapping
-        // party, violating party disjointness.
+        // Reflect our identity into the bookmark, snapshot the session's
+        // tree, and *speculatively* remove any party we will donate — all in
+        // one `watch` critical section under the bookmark mutex. One critical
+        // section carries two safety obligations at once:
+        //
+        // - The persisted record's own-party projection dominates the
+        //   snapshot's own-party version, so every own event this session can
+        //   transmit is durably accounted for before it crosses the wire, and
+        //   a crash-and-reclaim can never remint a causal coordinate some
+        //   replica already holds. A `send` committed while the record's
+        //   write is in flight lands *after* the snapshot: it stays out of
+        //   this session and the next session's update covers it.
+        //
+        // - The donated party forks at the exact version the snapshot
+        //   carries: no lag in which a concurrent `send` could stamp messages
+        //   with a version exceeding the one communicated to a bootstrapping
+        //   party, violating party disjointness. Reclaiming grows the live
+        //   party in place, so it runs before the fork and a fork or donation
+        //   carries the grown identity. (`retire` reaches here too, through
+        //   its `gossip_inner` call, so a retiring set is bookmarked before
+        //   donating itself.)
+        //
+        // The lock order is bookmark-then-`watch`, as everywhere. A failed
+        // record write aborts the session before any wire traffic: dropping
+        // `guarded` re-joins the speculative fork, and the next update
+        // re-records what the reclaim already grew in memory.
         let mut guarded = PartyGuard {
             party: None,
             recover: self.inner.clone(),
         };
         let mut prior_tree = None;
-        self.inner.send_if_modified(|inner| {
-            prior_tree = Some(inner.tree.clone());
-            guarded.party = if self_retiring {
-                // Retiring donates our *whole* identity, not a fork of it.
-                //
-                // We only can have our hands on a `Peer` when there are no
-                // extant `Rumors`, which means that we aren't stepping on
-                // anyone's toes by doing this.
-                inner.party.take()
-            } else if peer_bootstrapping {
-                // Serving a bootstrap donates a fork of our identity.
-                inner.party.as_mut().map(Party::fork)
-            } else {
-                // Plain gossip moves no party at all.
-                None
-            };
-            // We modified the watched party only if we removed something.
-            guarded.party.is_some()
-        });
+        {
+            let mut bookmark = self.bookmark.lock().await;
+            if let Err(e) = bookmark.ensure_loaded().await {
+                return (Intent::Remain, Err(Error::Bookmark(e)));
+            }
+            let mut persist = false;
+            self.inner.send_if_modified(|inner| {
+                if let Some(party) = inner.party.as_mut() {
+                    let version = inner.tree.latest().clone();
+                    if !bookmark.is_current(party, &version) {
+                        // `reclaim` stages the suppression token for this
+                        // `(party, version)`; the `write` below commits it
+                        // (or, on failure, clears it so the next update
+                        // retries).
+                        bookmark.reclaim(self.network, party, &version);
+                        persist = true;
+                    }
+                }
+                prior_tree = Some(inner.tree.clone());
+                guarded.party = if self_retiring {
+                    // Retiring donates our *whole* identity, not a fork of it.
+                    //
+                    // We only can have our hands on a `Peer` when there are no
+                    // extant `Rumors`, which means that we aren't stepping on
+                    // anyone's toes by doing this.
+                    inner.party.take()
+                } else if peer_bootstrapping {
+                    // Serving a bootstrap donates a fork of our identity.
+                    inner.party.as_mut().map(Party::fork)
+                } else {
+                    // Plain gossip moves no party at all.
+                    None
+                };
+                // We modified the watched party only if we removed something.
+                guarded.party.is_some()
+            });
+            if persist && let Err(e) = bookmark.write().await {
+                return (Intent::Remain, Err(Error::Bookmark(e)));
+            }
+        }
         let prior_tree = prior_tree.expect("set in closure");
         // The event floor this side's handshake declares: `prior_tree` is
         // exactly the root the local protocol participant starts from, so

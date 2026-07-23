@@ -301,13 +301,21 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// is enforced, not advisory: a failed (or cancelled) session poisons
     /// the link, and every subsequent session on it fails fast with
     /// [`Error::LinkPoisoned`] rather than misreading its mid-frame control
-    /// stream. The replica is unchanged by an `Err`, with two qualified
+    /// stream. The replica is unchanged by an `Err`, with three qualified
     /// exceptions: on [`Error::Epilogue`] every local effect of the session
     /// is already committed, and only the confirmation of the *peer's*
     /// completion failed (the two-generals residue; the error's docs carry
-    /// the mechanism); and a failure while donating a bootstrap fork leaks
+    /// the mechanism); a failure while donating a bootstrap fork leaks
     /// that fork's id-region (deliberately — the newcomer may hold it),
-    /// narrowing this replica's identity without touching its content.
+    /// narrowing this replica's identity without touching its content; and
+    /// an [`Error::Bookmark`] raised after absorbing a retiring peer leaves
+    /// the session fully committed — reconciled content *and* the absorbed
+    /// identity — with only its durable record unwritten (the error's docs
+    /// carry the crash-safety consequence). Independently of these, any
+    /// session's `Err` may leave this peer's identity *wider* than before:
+    /// stranded identity reclaimed from the bookmark grows the live party in
+    /// memory before the record persists, and a reclaimed region is never
+    /// rolled back — the next successful persist records it.
     pub async fn gossip<CR, CW, C, A>(&self, link: &mut Link<CR, CW, C, A>) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
@@ -338,10 +346,11 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// terminates in one of three ways:
     ///
     /// - the connection fails: one final `Err` — the replica unchanged,
-    ///   unless the error is the post-commit [`Error::Epilogue`], whose
-    ///   session is fully committed locally — and the link is poisoned on
-    ///   every error path, so any later session on it fails fast with
-    ///   [`Error::LinkPoisoned`]: discard the link;
+    ///   subject to the same qualified exceptions as [`gossip`](Self::gossip)
+    ///   (the post-commit [`Error::Epilogue`] and retiree-absorption
+    ///   [`Error::Bookmark`] cases, and a donated fork lost in flight) — and
+    ///   the link is poisoned on every error path, so any later session on
+    ///   it fails fast with [`Error::LinkPoisoned`]: discard the link;
     /// - `when` ends, cleanly, after finishing any session in flight;
     /// - the remote hangs up at a session boundary, cleanly.
     ///

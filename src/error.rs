@@ -129,6 +129,19 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     BootstrapRetireConflict,
 
     /// The application's bookmark failed to load, persist, or decode.
+    ///
+    /// Raised before a session transmits anything — the durable record must
+    /// cover the identity a session is about to speak for, so a failed
+    /// persist aborts the session with the replica's content untouched —
+    /// and, in one case, after: absorbing a retiring peer commits the
+    /// reconciled content and the absorbed identity first, then persists, so
+    /// this error can arrive with the absorption live but not yet
+    /// crash-safe. Until some later session persists successfully, a crash
+    /// strands the absorbed region — held by no live peer, recorded in no
+    /// bookmark; retrying [`gossip`](crate::Rumors::gossip) on a fresh link
+    /// re-runs the persist. Independently, identity a failed update had
+    /// already reclaimed from the record stays live in memory, and the next
+    /// successful persist records it.
     #[error(transparent)]
     Bookmark(BookmarkIo<B::Error>),
 
