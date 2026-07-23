@@ -14,6 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::link::{Acceptor, Connector, Link, MemoryLink, memory_with_capacity};
 use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
+use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
     Root as TreeRoot,
     mirror::{
@@ -329,10 +330,10 @@ where
     RC: Connector,
     RA: Acceptor,
 {
-    let left = Handshaking::start(Local, Root::from(left));
-    let right = Handshaking::start(Local, Root::from(right));
-    let remote_right = RemoteHandshaking::start(Local, left_link);
-    let remote_left = RemoteHandshaking::start(Local, right_link);
+    let left = Handshaking::start(Local, Root::from(left)).window(WindowConfig::FLOOR);
+    let right = Handshaking::start(Local, Root::from(right)).window(WindowConfig::FLOOR);
+    let remote_right = RemoteHandshaking::start(Local, left_link).window(WindowConfig::FLOOR);
+    let remote_left = RemoteHandshaking::start(Local, right_link).window(WindowConfig::FLOOR);
     let (left, right) = join!(
         Box::pin(mirror(left, remote_right)),
         Box::pin(mirror(remote_left, right)),

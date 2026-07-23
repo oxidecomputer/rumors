@@ -426,6 +426,15 @@ pub(crate) enum WindowConfig {
 }
 
 impl WindowConfig {
+    /// The one-slot serialization floor, pinned: every session edge at
+    /// the capacity where a bad ordering would deadlock.
+    ///
+    /// Tests opt in explicitly so the capacity-one orderings the
+    /// deadlock-freedom argument certifies stay exercised; the
+    /// [`Default`] is the budget and never depends on how the crate is
+    /// built (features are additive and must not change behavior).
+    pub(crate) const FLOOR: Self = Self::Fixed(Window::FLOOR);
+
     /// Resolve the session's window against the exchanged set sizes and
     /// version-size bounds.
     pub(crate) fn resolve(
@@ -452,17 +461,12 @@ impl WindowConfig {
 
 impl Default for WindowConfig {
     fn default() -> Self {
-        // Tests run at the floor so the capacity-one orderings the
-        // deadlock-freedom argument certifies stay exercised; production
-        // sessions derive from the greeting's sizes by default.
-        #[cfg(any(test, feature = "test-internals"))]
-        {
-            Self::Fixed(Window::FLOOR)
-        }
-        #[cfg(not(any(test, feature = "test-internals")))]
-        {
-            Self::Budget(DEFAULT_SYNC_MEMORY_BUDGET)
-        }
+        // Unconditional: cargo features are additive and unify across a
+        // build graph, so no feature may change what `Default` means —
+        // a harness crate enabling this crate's test feature must not
+        // put production sessions at the serialization floor. Tests pin
+        // [`FLOOR`](Self::FLOOR) explicitly instead.
+        Self::Budget(DEFAULT_SYNC_MEMORY_BUDGET)
     }
 }
 

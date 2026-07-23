@@ -136,7 +136,10 @@ async fn season(rumors: &Rumors<u64>, protocol: Protocol, payload_base: u64) {
 
 /// A seasoned replica: a fresh universe on `protocol` with a wide version.
 async fn seasoned(protocol: Protocol) -> Rumors<u64> {
-    let seed: Rumors<u64> = Peer::seed().protocol(protocol).into_rumors();
+    let seed: Rumors<u64> = Peer::seed()
+        .sync_window_floor()
+        .protocol(protocol)
+        .into_rumors();
     season(&seed, protocol, 0).await;
     seed
 }
@@ -194,7 +197,10 @@ async fn divergent(protocol: Protocol) {
 /// greeting), the other is seasoned (a wide one), so the two greeting
 /// frames are maximally asymmetric and the descent is one-sided.
 async fn empty_meets_populated(protocol: Protocol) {
-    let seed: Rumors<u64> = Peer::seed().protocol(protocol).into_rumors();
+    let seed: Rumors<u64> = Peer::seed()
+        .sync_window_floor()
+        .protocol(protocol)
+        .into_rumors();
     // Fork the empty side out before any content exists, then season only
     // the seed.
     let empty = bootstrap_fork_async_with_protocol(&seed, protocol).await;

@@ -33,7 +33,7 @@ proptest! {
         value in any::<u64>(),
         redactor_idx in any::<usize>(),
     ) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
             .map(|_| Peer::new(bootstrap_fork(&seed)))
             .collect();
@@ -69,7 +69,7 @@ proptest! {
         b_values in vec(any::<u64>(), 1..=4),
     ) {
         let run = |a_first: bool| -> BTreeMap<u64, usize> {
-            let seed = rumors::Peer::<u64>::seed().into_rumors();
+            let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
             let mut a = Peer::new(bootstrap_fork(&seed));
             let mut b = Peer::new(bootstrap_fork(&seed));
             let mut a_keys: Vec<Key> = Vec::new();
@@ -97,7 +97,7 @@ proptest! {
     /// redact is a nil action — the leaf is already gone.)
     #[test]
     fn redact_twice_is_idempotent(value in any::<u64>()) {
-        let mut peer = Peer::<u64>::new(rumors::Peer::seed().into_rumors());
+        let mut peer = Peer::<u64>::new(rumors::Peer::seed().sync_window_floor().into_rumors());
         let key = peer.insert_one(value);
         peer.redact_one(key);
 
@@ -117,7 +117,7 @@ proptest! {
     /// this corner.
     #[test]
     fn redact_unknown_key_is_noop(value in any::<u64>()) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let mut bob = Peer::new(bootstrap_fork(&seed));
         let foreign_key = bob.insert_one(value);
 

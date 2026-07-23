@@ -300,13 +300,10 @@ fn redact_all(rumors: &Rumors<u8>, keys: &[Key]) {
     }
 }
 
-/// A seed peer measuring shipped behavior: production window, not the dev
-/// builds' one-slot test floor (see `support/wire.rs`).
+/// A seed peer measuring shipped behavior: the default pipeline window is
+/// the production budget in every build shape (see `support/wire.rs`).
 fn production_seed(protocol: Protocol) -> Rumors<u8> {
-    Peer::seed()
-        .protocol(protocol)
-        .sync_memory_budget(rumors::DEFAULT_SYNC_MEMORY_BUDGET)
-        .into_rumors()
+    Peer::seed().protocol(protocol).into_rumors()
 }
 
 fn seeded_with_messages(protocol: Protocol, n: usize, seed: u64) -> Rumors<u8> {

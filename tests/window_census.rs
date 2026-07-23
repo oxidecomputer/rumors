@@ -201,6 +201,7 @@ fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
         joined
             .expect("bootstrap swarm member")
             .expect("provider is established")
+            .sync_window_floor()
             .into_rumors()
     })
 }
@@ -222,7 +223,7 @@ fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
     // Doubling generations: every fork halves a *different* interval, so
     // party intervals stay shallow and stamps stay small — the many
     // frontiers accumulate in the join, not in any one leaf.
-    let seed = Peer::seed().into_rumors();
+    let seed = Peer::seed().sync_window_floor().into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x0b05_2026_f207_713a);
     send_random(&seed, 4, &mut rng);
     let mut swarm = vec![seed];

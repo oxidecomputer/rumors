@@ -416,6 +416,22 @@ impl<T, B: BookmarkError> Peer<T, B> {
         self
     }
 
+    /// Pin every future session's pipeline window at the one-slot floor.
+    ///
+    /// Test-only: capacity one is the configuration the deadlock-freedom
+    /// argument certifies, so test suites opt in explicitly to keep the
+    /// capacity-one orderings exercised; the default derives capacities
+    /// from [`sync_memory_budget`](Self::sync_memory_budget)'s default
+    /// regardless of how the crate is built. Follows the peer exactly as
+    /// `sync_memory_budget` does.
+    #[cfg(any(test, feature = "test-internals"))]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn sync_window_floor(mut self) -> Self {
+        self.window = WindowConfig::FLOOR;
+        self
+    }
+
     /// Bound the encoded size of the batched messages this peer sends.
     ///
     /// When the default protocol supplies a subtree the counterparty lacks,

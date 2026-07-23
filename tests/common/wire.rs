@@ -173,9 +173,13 @@ where
         Peer::<T>::bootstrap_with_protocol(protocol, &mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
+    // Test peers pin the serialization floor explicitly, keeping the
+    // capacity-one orderings the deadlock-freedom argument certifies
+    // exercised; suites that want a wider window configure a budget.
     let minted = boot_out
         .expect("bootstrap handshake")
         .expect("parent served the bootstrap")
+        .sync_window_floor()
         .into_rumors();
     assert_control_drained(parent_link, boot_link);
     minted

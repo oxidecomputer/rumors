@@ -39,6 +39,7 @@ async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) 
         .unwrap()
         .expect("bootstrap ok")
         .expect("got a peer")
+        .sync_window_floor()
 }
 
 /// Bookmarking a pristine seed touches no storage: a content-free, never-forked
@@ -53,6 +54,7 @@ fn pristine_seed_attaches_without_touching_storage() {
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults, 0);
 
         let _peer = Peer::<String>::seed()
+            .sync_window_floor()
             .bookmark(bookmark)
             .await
             .expect("a pristine seed attaches without attempting a write");
@@ -72,7 +74,7 @@ fn pristine_seed_attaches_without_touching_storage() {
 #[test]
 fn failed_persist_returns_peer_for_retry() {
     block_on(async {
-        let rumors = Peer::<String>::seed().into_rumors();
+        let rumors = Peer::<String>::seed().sync_window_floor().into_rumors();
         rumors.send("the meeting is at noon".to_string());
         let peer = rumors.try_into_peer().await.expect("sole handle");
         let network = peer.network();
@@ -135,6 +137,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
         // A seeds network N over a reliable store and gossips it onward.
         let store_a = Arc::new(Mutex::new(None));
         let a = Peer::<String>::seed()
+            .sync_window_floor()
             .bookmark(FlakyInMemoryBookmark::new(store_a, reliable(), 0))
             .await
             .expect("the seed attaches")

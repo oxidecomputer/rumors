@@ -99,7 +99,9 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Option<Rumors<u6
         assert_control_drained(a_link, b_link);
         (
             retire_out,
-            boot_out.expect("bootstrapper").map(Peer::into_rumors),
+            boot_out
+                .expect("bootstrapper")
+                .map(|peer| peer.sync_window_floor().into_rumors()),
         )
     })
 }
@@ -111,7 +113,7 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Option<Rumors<u6
 /// and the absorbing peer's tree and version are untouched (no content crosses).
 #[test]
 fn retire_into_converged_peer_succeeds() {
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let a = async_known(bootstrap_fork(&seed), &[1, 2]);
     let b = async_known(seed, &[3, 4]);
 
@@ -138,7 +140,7 @@ fn retire_into_converged_peer_succeeds() {
 /// no prior gossip.
 #[test]
 fn empty_equal_version_retire_succeeds() {
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let a = bootstrap_fork(&seed);
     let b = seed;
 
@@ -155,7 +157,7 @@ fn empty_equal_version_retire_succeeds() {
 /// either side held is lost.
 #[test]
 fn divergent_retiree_reconciles_then_retires() {
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let a = async_known(bootstrap_fork(&seed), &[1]);
     let b = async_known(seed, &[2]);
 
@@ -180,7 +182,7 @@ fn divergent_retiree_reconciles_then_retires() {
 fn retiree_redaction_propagates_through_retire() {
     // Both peers hold 1 and 2 (inserted before the fork, so the keys are
     // shared); the retiree then redacts 1 while the peer inserts 3.
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     seed.batch().send(1).send(2);
     let key_of_1 = seed
         .snapshot()
@@ -212,7 +214,7 @@ fn retiree_redaction_propagates_through_retire() {
 /// that is itself leaving. Both are handed back intact.
 #[test]
 fn mutual_retire_declines() {
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let a = async_known(bootstrap_fork(&seed), &[1, 2]);
     let b = async_known(seed, &[3, 4]);
 
@@ -250,7 +252,7 @@ fn mutual_retire_declines() {
 /// first-class.
 #[test]
 fn retire_into_bootstrapper_hands_off_the_identity() {
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let retiree = async_known(bootstrap_fork(&seed), &[1, 2]);
     let network = retiree.network();
     let content = readout(&retiree.snapshot());
@@ -288,7 +290,7 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
 /// party.
 #[test]
 fn gossip_learns_content_from_divergent_retiree() {
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let a = async_known(bootstrap_fork(&seed), &[1, 2]);
     let b = async_known(seed, &[3]);
 
@@ -313,7 +315,7 @@ fn gossip_learns_content_from_divergent_retiree() {
 /// moves when it already dominates), and its tree and version are unchanged.
 #[test]
 fn gossip_absorbs_retiree_without_observations() {
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let a = async_known(bootstrap_fork(&seed), &[1, 2]);
     let b = async_known(seed, &[3, 4]);
 
@@ -353,7 +355,7 @@ proptest! {
     ) {
         // Wire path: converge, then retire A into B.
         let (retire_hash, retire_version) = {
-            let seed = Peer::<u64>::seed().into_rumors();
+            let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
             let a = build_local(bootstrap_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             wire_gossip(&a, &b);
@@ -368,7 +370,7 @@ proptest! {
 
         // Oracle: a plain gossip session in an identically-built universe.
         let (gossip_hash, gossip_version) = {
-            let seed = Peer::<u64>::seed().into_rumors();
+            let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
             let a = build_local(bootstrap_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             wire_gossip(&a, &b);
@@ -396,7 +398,7 @@ proptest! {
     ) {
         // Wire path: retire A into B directly, while they may still diverge.
         let (retire_hash, retire_version) = {
-            let seed = Peer::<u64>::seed().into_rumors();
+            let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
             let a = build_local(bootstrap_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             let outcome = retire_into_gossip(a, &b);
@@ -410,7 +412,7 @@ proptest! {
 
         // Oracle: a plain gossip session in an identically-built universe.
         let (gossip_hash, gossip_version) = {
-            let seed = Peer::<u64>::seed().into_rumors();
+            let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
             let a = build_local(bootstrap_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             wire_gossip(&a, &b);

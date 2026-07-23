@@ -49,7 +49,7 @@ const ROOMY_CAPACITY: usize = 8 * 1024 * 1024;
 /// Build a bootstrapped pair diverged by a handful of messages on each
 /// side, so a session pays at least one request/response of wire stall.
 fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
-    let left = Peer::seed().into_rumors();
+    let left = Peer::seed().sync_window_floor().into_rumors();
     left.batch().send(0);
 
     let right = pollster::block_on(async {

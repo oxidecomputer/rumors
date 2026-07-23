@@ -45,14 +45,24 @@ fn charge(
     total + n.min(window.capacity(0) as u128) * LEAF_REQUEST_BYTES as u128
 }
 
-/// Test builds default to the liveness floor, keeping every schedule
-/// exercised at the capacity where a bad ordering would deadlock.
+/// `Default` is the budget unconditionally: cargo features are additive,
+/// so no build shape may change what a default-configured session does.
 #[test]
-fn test_default_is_the_floor() {
-    let WindowConfig::Fixed(window) = WindowConfig::default() else {
-        panic!("test builds must pin the floor, not derive from a budget");
+fn default_is_the_budget_unconditionally() {
+    let WindowConfig::Budget(bytes) = WindowConfig::default() else {
+        panic!("the default window choice must be the budget, not a fixed table");
     };
-    assert_eq!(window, Window::FLOOR);
+    assert_eq!(bytes, DEFAULT_SYNC_MEMORY_BUDGET);
+}
+
+/// The explicit test floor resolves to the one-slot liveness floor at any
+/// exchanged sizes: pinning it never depends on the greeting.
+#[test]
+fn explicit_floor_pins_every_capacity_at_one() {
+    assert_eq!(
+        WindowConfig::FLOOR.resolve(SYMMETRIC, SYMMETRIC, 0, 0, local_node_bytes),
+        Window::FLOOR
+    );
 }
 
 /// An asymmetric session disputes almost nothing: with one side empty,

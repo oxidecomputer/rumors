@@ -37,7 +37,9 @@ use crate::common::gossip_snapshot::capture_session_v1;
 /// deterministic and these captures stay reproducible. Mirrors
 /// `gossip_snapshot::seeded`.
 fn seeded<T>() -> Rumors<T> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
+    Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .sync_window_floor()
+        .into_rumors()
 }
 
 /// Capture one successful bootstrap: `provider` serves its state via `gossip`
@@ -86,6 +88,7 @@ fn populated_provider() {
 #[test]
 fn v1_populated_provider() {
     let provider: Rumors<u64> = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .sync_window_floor()
         .protocol(Protocol::V1)
         .into_rumors();
     provider.batch().send(1).send(2).send(3);

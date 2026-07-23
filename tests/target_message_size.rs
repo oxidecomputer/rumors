@@ -22,7 +22,10 @@ const DIVERGENT_PER_SIDE: usize = 96;
 /// session between them runs at the exchanged minimum.
 fn diverged_pair(left_target: usize, right_target: usize) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
-        let left = Peer::seed().target_message_size(left_target).into_rumors();
+        let left = Peer::seed()
+            .sync_window_floor()
+            .target_message_size(left_target)
+            .into_rumors();
         let right = bootstrap_fork_async(&left).await;
         let right = right
             .try_into_peer()
@@ -77,6 +80,7 @@ fn seeded_diverged_pair(
 ) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
         let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+            .sync_window_floor()
             .target_message_size(left_target)
             .into_rumors();
         let right = bootstrap_fork_async(&left).await;

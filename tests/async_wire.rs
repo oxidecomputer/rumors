@@ -41,7 +41,7 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let seed = Peer::<u64>::seed().into_rumors();
+        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let a = build_local(bootstrap_fork(&seed), &a_actions);
         let b = build_local(bootstrap_fork(&seed), &b_actions);
 
@@ -63,7 +63,7 @@ proptest! {
         a_actions in arb_string_actions(),
         b_actions in arb_string_actions(),
     ) {
-        let seed = Peer::<String>::seed().into_rumors();
+        let seed = Peer::<String>::seed().sync_window_floor().into_rumors();
         let a = build_local(bootstrap_fork(&seed), &a_actions);
         let b = build_local(bootstrap_fork(&seed), &b_actions);
 

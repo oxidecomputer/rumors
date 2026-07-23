@@ -482,7 +482,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     let mut possible_losses = 0usize;
 
     // Phase 1: fleet. The seed's content predates every fork.
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
         let mut batch = seed.batch();
         for &v in &plan.seed_messages {

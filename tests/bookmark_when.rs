@@ -144,6 +144,7 @@ impl Instrument {
                 log: Arc::clone(&log),
             };
             let subject = Peer::<u64>::seed()
+                .sync_window_floor()
                 .bookmark(probe)
                 .await
                 .expect("a pristine seed attaches without touching storage");
@@ -204,6 +205,7 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
     s.expect("subject serve bootstrap");
     n.expect("bootstrap handshake")
         .expect("subject served the bootstrap")
+        .sync_window_floor()
         .into_rumors()
 }
 
@@ -219,6 +221,7 @@ async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
     o.expect("origin serves the bootstrap");
     n.expect("bootstrap handshake")
         .expect("origin served the bootstrap")
+        .sync_window_floor()
 }
 
 /// Absorb a retiree: `retiree` retires its whole identity into the subject,
@@ -400,6 +403,7 @@ async fn birth(origin: Origin) -> Birth {
     match origin {
         Origin::Seed => {
             let subject = Peer::<u64>::seed()
+                .sync_window_floor()
                 .bookmark(probe)
                 .await
                 .expect("a pristine seed attaches without touching storage");
@@ -417,7 +421,7 @@ async fn birth(origin: Origin) -> Birth {
         Origin::Bootstrap => {
             // A separate seed originates the universe and serves the subject's
             // bootstrap, then stays on as the subject's first counterparty.
-            let origin = Peer::<u64>::seed().into_rumors();
+            let origin = Peer::<u64>::seed().sync_window_floor().into_rumors();
             let fork = bootstrap_fork_peer(&origin).await;
             let subject = fork
                 .bookmark(probe)
