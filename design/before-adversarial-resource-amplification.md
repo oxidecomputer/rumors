@@ -395,12 +395,35 @@ and false for others. Two generator shapes separate them:
   excursions are siblings, not nested.
 
 The implementation requirement this adds: the difference accumulator
-must be cliff-immune. Keep `D` as a big part plus a machine-word
-signed offset, folding small `±` into the offset and renormalizing
-only on word overflow (amortized O(1) per small op; a wide `± Big(x)`
-still costs O(|x|), paid by `x`'s own code); leaf direction tests
-need `sign(D + x − y)` without mutating `D`. With that
-representation the O(n + m) total stands on both shapes.
+must be cliff-immune. Re-amended 2026-07-23 (P3.2; the accumulator
+probe): the representation of record is the redundant balanced
+base-2^32 signed-digit form, landed as `codec::accum` — `Vec<i64>`
+digits, value `Σ dᵢ·2^32ⁱ`, lazy zone `|dᵢ| < 2^33`, every
+out-of-zone write carrying `c = (t + 2^31) >> 32` and recentering
+the remainder into `[−2^31, 2^31)`; `sign()` folds from the top,
+decides at running partial `|s| ≥ 3` (top-digit domination), and
+collapses scanned cancelling prefixes — a value-preserving `&mut`
+rewrite, amortized against the writes that built the prefix.
+Because every write recenters, no normalized region exists anywhere
+in the representation: amortized O(1) per small op, O(|x|) per wide
+`± Big(x)` paid by `x`'s own code, at every delta width. The first
+amendment's design — a normalized big part plus one machine-word
+signed offset, renormalized on word overflow — is **refuted**: any
+such two-zone form has a zone boundary, and the wide-tooth comb
+(teeth `±2^192` across a `2^k` cliff, `k ≫ 192`;
+`meter::wide_tooth_comb` is the packed family) drives it through
+its normalized prefix every tooth, measured 70.5 → 134.5
+limbs/delta as `k` doubles — quadratic again **[measured** —
+accumulator probe, exact-oracle-checked; the §17.1 finding of
+record**]**. The balanced form is flat on both shapes: 2.000 digit
+touches/delta on the boundary comb and 6.000 on the wide-tooth comb
+across a size doubling **[measured** 2026-07-23 — the
+`tests/meter.rs` accumulator envelopes, pinned ×1.25, three
+identical runs**]**. Leaf direction tests `sign(D + x − y)` apply
+`+x, −y`, read the sign, and restore `−x, +y` — every step paid by
+the codes of `x` and `y`, and exact because `sign()`'s rewrite
+never changes the held value. With that representation the O(n + m)
+total stands on both shapes.
 
 Coverage: `causal_cmp` sits on the oracle differential, exhaustive
 small-scope, and algebraic-law suites; this is an internal rewrite
@@ -573,9 +596,10 @@ must also enforce value validity, which means running-value state
 across the delta stream. A plain big-integer accumulator makes that
 Θ(W²) in wire bits on §10.6's boundary comb **[measured** — the
 `meter/tier2` sweep pin**]**; the claim above survives only with the
-cliff-immune accumulator §10.6 requires (big part + word offset:
-nonnegativity is then a sign check on the redundant form, amortized
-O(1) per small delta). V5's *frame* elimination stands either way.
+cliff-immune accumulator §10.6 requires (the balanced signed-digit
+form of record, `codec::accum`: nonnegativity is then a sign check
+on the redundant form, amortized O(1) per small delta). V5's *frame*
+elimination stands either way.
 
 ### 10.3 Operations
 
@@ -713,14 +737,21 @@ stored bits, and decode/cmp/join stay linear per input bit
 each must be designed and priced before a Tier 2 DECIDED entry]:
 
 - **Cliff-immune accumulators** for compare, join/meet, fill, and
-  decode validation: the §8.1-amendment representation (big part +
-  machine-word signed offset, renormalized on word overflow) makes
-  small-delta application and sign/nonnegativity checks amortized
-  O(1) while wide deltas stay paid by their own codes. Note §8.1's
-  fan shape means Tier 1/1.5 needs the same representation — the
-  difference is that Tier 2 *cannot ship without it* (its strict
-  decode is on the hook), while under today's coding only the
-  future difference-tracked compare is.
+  decode validation. Re-amended 2026-07-23 (P3.2): the
+  representation of record is the redundant balanced base-2^32
+  signed-digit accumulator (`codec::accum`; the §8.1 re-amendment
+  carries the form and the measured record) — no normalized region
+  anywhere, so small-delta application and sign/nonnegativity
+  checks are amortized O(1) and wide deltas stay paid by their own
+  codes, at every delta width. The two-zone design this bullet
+  first named (big part + machine-word signed offset) is refuted by
+  the wide-tooth comb — 70.5 → 134.5 limbs/delta as `k` doubles
+  (§17.1) — where the balanced form measures flat (2.000 and 6.000
+  digit touches/delta on the boundary and wide-tooth combs,
+  `tests/meter.rs`). Note §8.1's fan shape means Tier 1/1.5 needs
+  the same representation — the difference is that Tier 2 *cannot
+  ship without it* (its strict decode is on the hook), while under
+  today's coding only the future difference-tracked compare is.
 - **Delta algebra for linear functionals** (`rank`, `min_ticks`,
   `max`, `project`): telescope `Σ vᵢ·wᵢ` into
   `v₁·W + Σ δⱼ·(suffix weight)` so each small stored delta
@@ -1238,8 +1269,8 @@ them plainly:
   finalized until after it.
 
 One probe finding amends this document before anything is built on
-it: the accumulator representation currently named by the §8.1
-amendment and §10.6 ("big part + machine-word signed offset") is
+it: the accumulator representation the §8.1 amendment and §10.6
+first named ("big part + machine-word signed offset") is
 **refuted** by a canonical input — a wide-tooth comb (teeth ±2^192,
 ~387 wire bits each, oscillating across a `2^k` cliff, `k ≫ 192`)
 forces the two-zone form through its normalized prefix every tooth,
@@ -1249,8 +1280,9 @@ with overflow checks**]**. The structural reason: *any* two-zone
 (normalized + fixed-width window) design has a zone boundary the
 input can oscillate across at paid-but-constant cost; widening the
 window only moves it. P3.2 records the dated re-amendment and the
-replacement representation; until it lands, §8.1/§10.6 name a
-mitigation known not to suffice.
+replacement representation (landed 2026-07-23: §8.1/§10.6 name the
+balanced signed-digit form of record, and `codec::accum` is the
+implementation).
 
 Two denomination honesty notes carried from the probes, so green is
 never misread: binary↔decimal conversion is inherently superlinear
