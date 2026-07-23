@@ -315,15 +315,24 @@ holes. Those denominate against total I/O:
   judged against `n_io` = packed input + text output (`Display`) or
   text input + packed output (`FromStr`), output read from the
   actual result, with every ceiling numerically unchanged. The limb
-  column on these rows alone is judged against the radix-work
-  denominator `R = n_io + Σ digitsᵢ × limbsᵢ` (the schoolbook
-  conversion cost law) with the ceiling pinned at the
-  divide-and-conquer target κ = 0.25 limb/`R`-unit — a constant the
-  schoolbook parser measurably exceeds ~4×, so re-denomination
-  alone flips nothing on the limb-red cells; only a subquadratic
-  converter can. An output-honesty assertion (text bytes ≤ 4 ×
-  packed content bits, checked against actual bytes) closes the
-  pad-the-output door.
+  column on these rows carries two legs (amended 2026-07-23, P3 fix
+  round: the original κ-only wording claimed subquadratic
+  enforcement a constant ceiling cannot give — a u32-chunked
+  schoolbook probe scored 0.11 limb/`R` on hugeleaf and 0.15 on
+  bigroot, under κ while quadratic **[measured]**). The *constant*
+  leg is judged against the radix-work denominator
+  `R = n_io + Σ digitsᵢ × limbsᵢ` (the schoolbook conversion cost
+  law), pinned at the divide-and-conquer target κ = 0.25
+  limb/`R`-unit — which the digit-by-digit parser measurably
+  exceeds ~4×, so re-denomination alone flips nothing on the
+  limb-red cells. The *exponent* leg is judged against `n_io` —
+  never against `R`, on which any schoolbook converter reads a flat
+  ~1 — at the unchanged 1.15 ceiling, which chunked schoolbook
+  exceeds at ~2 **[measured]**; that leg is what enforces the
+  complexity class. Only a converter with near-linear recorded limb
+  work and a D&C-class constant reads green. An output-honesty
+  assertion (text bytes ≤ 4 × packed content bits, checked against
+  actual bytes) closes the pad-the-output door.
 - **Output-dominated projection** (`version_project`/
   `clock_own_version` on the comb × scattered-party cross): judged
   against `n_io` = packed input + packed output (canonical coding
@@ -1062,6 +1071,31 @@ Pin the §6 invariant the way `step!` pins time complexity:
   §17.2's P3.3 entry names) until the shared metered converter
   lands with P3.8.
 
+  Amended 2026-07-23 (P3 fix round, the chunked-schoolbook
+  refutation): κ alone did not enforce subquadratic conversion. A
+  u32-chunked schoolbook probe — 9 digits per metered mul-add
+  pair, still Θ(digits × limbs) — scored 0.112 limb/`R` on
+  hugeleaf(16k), 0.112 on hugeleaf(32k) (flat across the
+  doubling), and 0.154 on bigroot(8k, 2k), all under κ = 0.25
+  **[measured** — probe through the board's own metered ops**]**,
+  so a chunked-schoolbook P3.8 would have read the four `FromStr`
+  limb cells (and the two benign ones) green with no committed
+  check objecting. The criterion of record now judges the text
+  rows' limb *exponent* against `n_io` — like every other
+  exponent, and never against `R`, on which any schoolbook
+  converter reads a flat ~1 — at the unchanged 1.15; the constant
+  stays against `R` at κ. Chunked schoolbook reads exponent 1.99
+  against `n_io` **[measured]**; the committed digit-by-digit
+  parser 1.92–1.99 (its four cells now red on both limb legs);
+  P3.8's D&C target sits in the ~1.05–1.1 recorded band, verified
+  at record scale before the κ re-pin. Board re-run at landing,
+  both scales: verdicts identical (96/64 default, 85/75 at ×4 with
+  exactly the §17.3 eleven). Anti-softening is now two committed
+  tripwires in `meter::board`'s test suite: the digit-by-digit
+  parser exceeds κ, and the chunked probe — driven through the
+  board's own `evaluate` — slips under κ and must read red on
+  exactly the limb exponent.
+
   Landed 2026-07-23 (P3.4, the acceptance scale of record). The
   pinned record scale is **×4** (`board::RECORD_SCALE`,
   `just amp-board-record`) — the §17.3 witness floor, at which
@@ -1475,14 +1509,18 @@ implementation).
 
 Two denomination honesty notes carried from the probes, so green is
 never misread: binary↔decimal conversion is inherently superlinear
-in wall time (Θ(M(n)·log n)); the text rows' limb column is judged
-against the radix-work denominator `R` (P3.3), not against wall
-time, and the criterion says so explicitly — and (amended
-2026-07-23, plan adversarial review) it goes green only at P3.3's
-pinned constant, which the current schoolbook parser exceeds ~4×,
-so green on those cells arrives with P3.8's converter (an item the
-same day's text-deprioritization ruling resequences to the P4
-tail), never with the re-denomination alone. And the board's
+in wall time (Θ(M(n)·log n)); the text rows' limb *constant* is
+judged against the radix-work denominator `R` (P3.3), not against
+wall time, and the criterion says so explicitly — and (amended
+2026-07-23, plan adversarial review; re-amended the same day, P3
+fix round) those cells go green only under both limb legs: the
+constant at P3.3's pinned κ, which the current digit-by-digit
+parser exceeds ~4×, and the exponent against `n_io`, which any
+chunked schoolbook converter exceeds at ~2 **[measured** — the
+committed tripwire probe**]** — so green on those cells arrives
+with P3.8's converter (an item the same day's text-deprioritization
+ruling resequences to the P4 tail), never with re-denomination or
+constant-shrinking chunking alone. And the board's
 default-scale run under-detects segment amplifiers (the ~1 MiB
 growth threshold — the §13 caveat of record); acceptance therefore
 runs at a pinned record scale (P3.4) at which the known amplifiers
@@ -1658,6 +1696,31 @@ pre-P3.8 parser reads green anywhere is a bug in this item.
 reads as grading-to-pass → retired by Gate B (the user ratifies the
 amendment with the GO) and by the ceilings staying numerically
 identical. *Deps*: none; must precede P3.8 acceptance.
+Amended 2026-07-23 (P3 fix round, the chunked-schoolbook
+refutation): "the pinned constant is the discriminator the
+exponent cannot be" overclaimed — it holds against the committed
+digit-by-digit parser, not against the schoolbook class. A
+u32-chunked schoolbook probe through the board's metered ops (9
+digits per mul-add pair, still Θ(digits × limbs), quadratic in
+value bits) measured 0.112 limb/`R` on hugeleaf(16k) and
+hugeleaf(32k) — flat across the doubling — and 0.154 on
+bigroot(8k, 2k), all under κ **[measured]**; under the entry as
+first written, a chunked-schoolbook P3.8 would have flipped all
+four `FromStr` limb cells plus the two benign ones green with no
+committed check objecting. The discriminator of record is the
+exponent leg: the text rows' limb exponent is judged against
+`n_io` — like every other exponent, never against `R`, on which
+any schoolbook converter reads a flat ~1 — at the unchanged 1.15.
+Chunked schoolbook reads 1.99 there, the digit-by-digit parser
+1.92–1.99 (its four cells now red on both limb legs)
+**[measured]**, and the D&C converter's recorded limb work sits in
+the ~1.05–1.1 band (P3.8's number, verified at record scale before
+the κ re-pin); κ keeps the constant leg only. Anti-softening is
+two committed tripwires in `meter::board`'s suite, the chunked one
+driven through `evaluate` itself: the digit-by-digit parser
+exceeds κ; the chunked probe slips under κ and must read red on
+exactly the limb exponent. Board re-run at the amendment,
+both scales: verdicts identical (96/64 default, 85/75 at ×4).
 
 **P3.4 — board-criterion hardening: the acceptance scale of
 record.**
@@ -1923,8 +1986,10 @@ witness run**]**.
 canonical text, strict `NotCanonical` rejection); the
 output-honesty assertion; the pending-min probe pin; segments 0 on
 all fourteen cells at both scales; heap ≤ ceiling per I/O byte;
-limb ≤ κ per `R` unit (P3.3's pinned constant) with exponent
-≤ 1.15 at record scale. *Risk*: (1) the pending-min bound is
+limb ≤ κ per `R` unit (P3.3's pinned constant) with limb exponent
+≤ 1.15 against `n_io` (P3.3's exponent leg — the subquadraticity
+discriminator, per its 2026-07-23 fix-round amendment) at record
+scale. *Risk*: (1) the pending-min bound is
 unproven → retired by its probe, scheduled first within the item;
 (2) bigroot `FromStr` may carry a second superlinear path
 (path-sum accumulation of big bases, the V3 read-quadratic genre) —
