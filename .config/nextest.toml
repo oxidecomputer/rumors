@@ -25,3 +25,14 @@
 # real hang by the same amount, which is the worse trade for CI.
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 3 }
+
+# The delay-sweep suites measure real wall-clock slopes: two runs of the
+# same shape at two virtual delays, differenced so compute cancels. The
+# cancellation holds only in expectation — sibling tests saturating every
+# core between the two runs inject the variance the slope cannot survive,
+# reading as degenerate (zero or inflated) hop counts. Each measurement
+# test therefore takes the whole machine for its short run; everything
+# else in the suite schedules around them.
+[[profile.default.overrides]]
+filter = 'binary(window_knee) or binary(window_operator)'
+threads-required = "num-cpus"
