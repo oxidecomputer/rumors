@@ -163,7 +163,12 @@ fn operator_equations_match_measured_sessions() {
     );
     let bdp_messages = 2.0 * DIVERGENT as f64 / f64::from(transfer);
 
-    for budget in [1_200_000usize, 430 * 1024] {
+    // The cells are denominated in the budget's *dispute share*: the flat
+    // supply-decode envelope comes off every budget before the solve, so
+    // it is added back here and the cells keep the calibrated binding
+    // windows they were tuned for.
+    for dispute_share in [1_200_000usize, 430 * 1024] {
+        let budget = supply_decode_envelope_bytes() + dispute_share;
         let window = binding_capacity(budget);
         let predicted = (bdp_messages / window as f64).max(1.0);
         let measured = f64::from(wire_slope(budget)) / f64::from(transfer);
