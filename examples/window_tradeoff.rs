@@ -36,8 +36,8 @@ const BUDGETS: &[(&str, usize)] = &[
     ("4 MiB", 4 << 20),
     ("16 MiB", 16 << 20),
     ("64 MiB", 64 << 20),
-    ("128 MiB", 128 << 20),
-    ("512 MiB (default)", rumors::DEFAULT_SYNC_MEMORY_BUDGET),
+    ("128 MB (default)", rumors::DEFAULT_SYNC_MEMORY_BUDGET),
+    ("512 MiB", 512 << 20),
 ];
 
 /// The mutual-divergence columns (messages per side).

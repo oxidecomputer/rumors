@@ -364,7 +364,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// concurrent gossip on separate links carries one envelope each. The
     /// default, [`DEFAULT_SYNC_MEMORY_BUDGET`], keeps sessions
     /// bandwidth-bound — serialization never observable — on links up to
-    /// roughly 4 Gbps × 100 ms.
+    /// its design point's 12.5 MB bandwidth-delay product (100 Gbps × 1 ms,
+    /// or 1 Gbps × 100 ms).
     ///
     /// # Choosing a budget
     ///

@@ -141,19 +141,48 @@ const SCOPE_FIXED_BYTES: usize = 2 * 40 + 2 * 24;
 /// In-memory bytes of one buffered leaf request: an inline leaf prefix.
 const LEAF_REQUEST_BYTES: usize = 40;
 
-/// Worst-case memory one synchronization may spend by default: 512 MiB.
+/// Bandwidth of the design link the default budget is sized for:
+/// 100 Gbps, in bytes per millisecond.
+const DESIGN_LINK_BYTES_PER_MS: usize = 12_500_000;
+
+/// Round-trip latency of the design link, in milliseconds.
+const DESIGN_LINK_RTT_MS: usize = 1;
+
+/// Wire bytes one disputed message costs end to end — its question,
+/// reply share, and leaf record. Measured: the knee suite's
+/// bandwidth-bound cell calibrates it.
+const DISPUTE_WIRE_BYTES: usize = 200;
+
+/// Session-envelope bytes one in-flight disputed scope is charged.
 ///
-/// An envelope, not an allocation, and **per session**: a session
-/// approaches it only against wide mutual divergence, typical sessions
-/// hold kilobytes, and concurrent sessions on separate links each carry
-/// their own. Sized so dispute traffic (~200 wire bytes and ~2 KiB of
-/// envelope per disputed message) fills links up to roughly
-/// 4 Gbps × 100 ms — equivalently 10 Gbps × 40 ms — so on realistic
-/// links a session is bandwidth-bound at every divergence and window
-/// serialization is never observable. See
-/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for the
-/// measured trade-off table.
-pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 512 << 20;
+/// Fitted from the derivation itself — the budget-to-capacity
+/// conversion across the trade-off table's rows — with the charge
+/// spread over the levels a scope can simultaneously engage.
+const SCOPE_ENVELOPE_BYTES: usize = 2_048;
+
+/// Worst-case memory one synchronization may spend by default: the
+/// envelope that fills the design link's bandwidth-delay product with
+/// dispute traffic.
+///
+/// The design link is 100 Gbps (`DESIGN_LINK_BYTES_PER_MS`) at a 1 ms
+/// round trip (`DESIGN_LINK_RTT_MS`): a 12.5 MB bandwidth-delay
+/// product, kept full by one disputed scope in flight per
+/// `DISPUTE_WIRE_BYTES` of it, each charged `SCOPE_ENVELOPE_BYTES` of
+/// session envelope — 62,500 scopes, 128 MB. On links whose product is
+/// at or under the design point's
+/// (equivalently, 1 Gbps × 100 ms), sessions are bandwidth-bound at
+/// every divergence and window serialization is unobservable; past it,
+/// sessions degrade by the small constant factors the trade-off table
+/// measures.
+///
+/// The budget is an envelope, not an allocation, and **per session**: a
+/// session approaches it only against wide mutual divergence, typical
+/// sessions hold kilobytes, and concurrent sessions on separate links
+/// each carry their own. See
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for
+/// the measured trade-off table.
+pub const DEFAULT_SYNC_MEMORY_BUDGET: usize =
+    DESIGN_LINK_BYTES_PER_MS * DESIGN_LINK_RTT_MS / DISPUTE_WIRE_BYTES * SCOPE_ENVELOPE_BYTES;
 
 /// Per-height channel capacities for one session, in disputed scopes.
 ///

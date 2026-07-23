@@ -471,16 +471,19 @@ motivated in review conversation and measured before adoption:
   the V2 greeting (the version frame's body now leads with eight
   little-endian set-size bytes — a deliberate wire change; every V2
   snapshot re-accepted, V1 byte-identical), and each session derives
-  its per-height capacities from the exchanged pair. Default
-  512 MiB (raised from the initial 128 MiB in review: the envelope is
-  per session, population caps make it irrelevant at typical scales,
-  and the intended deployments have the headroom): dispute traffic
-  fills links up to ~4 Gbps × 100 ms — a 50 MB
-  bandwidth-delay product, 4× the intended rack deployment's
-  (32 sleds, 100 Gbps, sub-millisecond latency: 12.5 MB at a 1 ms
-  RTT), whose worst-case all-neighbors fan-out envelope of
-  31 × 512 MiB stays under 2 % of sled RAM — so
-  serialization is unobservable there at any divergence; the
+  its per-height capacities from the exchanged pair. Default:
+  derived in-code from a design link of 100 Gbps × 1 ms RTT — a
+  12.5 MB bandwidth-delay product, filled at one disputed scope per
+  200 measured wire bytes, each charged ~2 KiB of fitted envelope:
+  62,500 scopes, 128 MB, expressed as a const calculation so the
+  figure cannot drift from its premises. A 4× raise was adopted and
+  reverted the same day [decision]: its margin insures only against
+  loaded-fabric RTT inflation and fitted-constant slop, the lapse
+  costs a small constant factor on heal timescales the covered
+  bandwidth already makes negligible, and the larger bound is paid
+  in every worst-case memory account. With the default,
+  serialization is unobservable at any divergence on covered links;
+  the
   measured latency-only worst case at 50k mutual divergence is
   1.2× (delay-sweep slope, compute excluded — single-point division
   had understated the serialized cells by counting compute in both
