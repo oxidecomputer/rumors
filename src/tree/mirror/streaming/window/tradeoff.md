@@ -8,5 +8,5 @@ Wire-time slowdown by budget and mutual divergence (messages per side): each cel
 | 4 MiB | 1.3× | 6.1× | 33.8× |
 | 16 MiB | 1.0× | 1.5× | 3.8× |
 | 64 MiB | 1.0× | 1.0× | 1.5× |
-| 306 MB (default) | 1.0× | 1.0× | 1.0× |
+| 304 MB (default) | 1.0× | 1.0× | 1.0× |
 | 512 MiB | 1.0× | 1.0× | 1.0× |

@@ -22,11 +22,11 @@ tagged \[derived\] (premises stated), \[measured\] (instrument named),
 ### 1.1 The interface
 
 One optional knob: `Peer::sync_memory_budget(budget_bytes)`, default
-`DEFAULT_SYNC_MEMORY_BUDGET` — ~271 MB, **computed in-code from its
+`DEFAULT_SYNC_MEMORY_BUDGET` — ~304 MB, **computed in-code from its
 premises** (a 100 Gbps × 1 ms-RTT design link's 12.5 MB
 bandwidth-delay product, filled at one disputed scope per 200 measured
 wire bytes, each charged the design session's derived per-scope
-envelope of 4,339 B; `window.rs` holds the constants and the
+envelope of 4,865 B; `window.rs` holds the constants and the
 multiplication, and §2.4's landed status records the envelope's
 derivation and pin). The budget is a worst-case envelope per session,
 never an allocation; concurrent sessions on separate links each carry
@@ -163,13 +163,13 @@ ratio is independent of `D`. With `BDP = bandwidth × RTT`:
 > derived binding window; and, substituting the large-window
 > simplification `K ≈ budget / E`:
 > **`slowdown ≈ max(1, (E/w) × BDP / budget)`** and
-> **`budget_min ≈ (E/w) × BDP / slowdown`**, with `E/w = 22`.
+> **`budget_min ≈ (E/w) × BDP / slowdown`**, with `E/w = 25`.
 
 The default budget is the second form at slowdown 1 on the design
 link — an identity, pinned to the byte with the ratio kept as the
-exact quotient `E/w = 4,339/200` (plus the flat supply-decode
-envelope; see the amendment below). The rounded `E/w = 22` form an
-operator applies runs ≲1.5% above the exact one, in the conservative
+exact quotient `E/w = 4,865/200` (plus the flat supply-decode
+envelope; see the amendment below). The rounded `E/w = 25` form an
+operator applies runs ≲3% above the exact one, in the conservative
 direction. The scalar forms hold in the operating regime and degrade
 in two known directions, both measured:
 
@@ -388,6 +388,21 @@ underpriced node breaches the *memory* envelope. After §2.1–§2.4 no
 input is estimated, so the envelope's status becomes \[derived\]
 from exchanged measurements plus one pinned lemma.
 
+**Amendment (2026-07-23): two slot-pricing corrections re-derive the
+envelope to 4,865 B.** First, the per-child slot constant is now
+`size_of` of the real container types instead of a hand count: the
+`(u8, Resolve)` resolution slot is 24 B, not 16 (`Option<Node>`
+consumes the handle's only null niche, so the `Ready`/`Pending` tag
+sits out of line), moving the slot family from 49 to 57 B/child.
+Second, the leaf-request edge is charged at exactly the width the
+capacity assignment grants it — `population[KEY_DEPTH]`, whose
+depth-31 joint quantile is zero for every representable corpus — in
+place of a corpus-wide `n × 40 B` term the assignment provably never
+granted (the phantom charge returned up to 2.5 MB at the design
+session to the real stages). Net: envelope 4,339 → 4,865 B, default
+budget ~271 → ~304 MB, operator ratio `E/w` 22 → 25; all three
+remain pinned by the same recomputation tests.
+
 **Amendment (2026-07-23): the leaf seam enters the account; the
 decode fans are charged flat.** `Leaf::leaf` is now async and
 fallible — the backend's one chance to take custody of a supplied
@@ -405,8 +420,8 @@ through the session's own `node_bytes`, and the default budget gains
 its `Local`-priced value, `SUPPLY_DECODE_ENVELOPE_BYTES` = 17 × 257
 × 48 = 209,712 B \[derived: slot layout by `size_of`, handle pinned
 pointer-sized\] — the design point keeps slowdown 1 by construction.
-The operator forms become affine in it: `slowdown ≈ max(1, 22 × BDP
-/ (budget − fans))`, `budget_min ≈ fans + 22 × BDP / slowdown`. The
+The operator forms become affine in it: `slowdown ≈ max(1, 25 × BDP
+/ (budget − fans))`, `budget_min ≈ fans + 25 × BDP / slowdown`. The
 conformance suite checks the seam pointwise (`underpriced leaf`, at
 construction) with a lying-leaf negative control, and the census
 charges leaves at their measured post-custody residency.
@@ -472,5 +487,5 @@ the function-priced default row.
   top-K order statistics): recorded, untaken; adopt only if a regime
   wants the ~2× and pays its coupling to stream parity.
 - Per-deployment tuning guidance beyond the table: the default's
-  design-link derivation plus the `budget / (22 × RTT)` operator
+  design-link derivation plus the `budget / (25 × RTT)` operator
   check are the whole story on purpose.

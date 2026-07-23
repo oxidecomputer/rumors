@@ -24,7 +24,7 @@ fn local_node_bytes(_children: usize, _version_bound: usize) -> usize {
 ///
 /// Each level's population is clamped to its capacity and priced at its
 /// occupancy-thinned fan through the backend's pricing function, plus
-/// the leaf-request edge.
+/// the leaf-request edge at the capacity the assignment grants it.
 fn charge(
     window: &Window,
     n: u128,
@@ -42,7 +42,9 @@ fn charge(
         total +=
             population * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
     }
-    total + n.min(window.capacity(0) as u128) * LEAF_REQUEST_BYTES as u128
+    total
+        + stage_population(n, n * n, KEY_DEPTH).min(window.capacity(0) as u128)
+            * LEAF_REQUEST_BYTES as u128
 }
 
 /// `Default` is the budget unconditionally: cargo features are additive,
@@ -195,7 +197,7 @@ fn scope_envelope_matches_the_derivation() {
         total += stage_population(n, n * n, depth).min(n)
             * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
     }
-    total += n * LEAF_REQUEST_BYTES as u128;
+    total += stage_population(n, n * n, KEY_DEPTH).min(n) * LEAF_REQUEST_BYTES as u128;
     assert_eq!(
         SCOPE_ENVELOPE_BYTES as u128,
         total.div_ceil(n),

@@ -399,9 +399,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// size past it). `tests/window_operator.rs` holds both forms
     /// against measured sessions on a bandwidth-limited link, and pins
     /// the default as the inverse form's design-point value with the
-    /// ratio kept as the exact quotient (4,905/200); the rounded
+    /// ratio kept as the exact quotient (4,865/200); the rounded
     /// 25-form written above is what an operator can apply, and it runs
-    /// ≲2% above the exact form — the conservative direction.
+    /// ≲3% above the exact form — the conservative direction.
     ///
     #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
     ///

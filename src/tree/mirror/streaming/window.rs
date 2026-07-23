@@ -213,7 +213,7 @@ pub(crate) const DISPUTE_WIRE_BYTES: usize = 200;
 /// pinned by `scope_envelope_matches_the_derivation`, so this constant
 /// fails loudly instead of drifting when the pricing or the occupancy
 /// envelopes change.
-pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_905;
+pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
 
 /// Worst-case memory one synchronization may spend by default: the
 /// envelope that fills the design link's bandwidth-delay product with
@@ -223,7 +223,7 @@ pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_905;
 /// round trip (`DESIGN_LINK_RTT_MS`): a 12.5 MB bandwidth-delay
 /// product, kept full by one disputed scope in flight per
 /// `DISPUTE_WIRE_BYTES` of it, each charged `SCOPE_ENVELOPE_BYTES` of
-/// session envelope — 62,500 scopes, ~307 MB. On links whose product is
+/// session envelope — 62,500 scopes, ~304 MB. On links whose product is
 /// at or under the design point's
 /// (equivalently, 1 Gbps × 100 ms), sessions are bandwidth-bound at
 /// every divergence and window serialization is unobservable; past it,
@@ -367,9 +367,25 @@ impl Window {
         // charged once (the level's queues hold overlapping views of the
         // same in-flight scopes, and their node references are shared
         // handles, so per-queue multiplication would double-charge), plus
-        // the leaf-request edge, whose items are bare prefixes bounded by
-        // the corpus rather than by dispute statistics, plus the flat
-        // decode-fan term.
+        // the leaf-request edge, plus the flat decode-fan term.
+        //
+        // The leaf-request edge is charged at exactly the width the
+        // capacity assignment below grants it — `population[KEY_DEPTH]`,
+        // the same bound on both sides of the same function — because a
+        // bounded channel's residency never exceeds its own capacity, so
+        // capacity times item size is that edge's exact worst case. No
+        // wider charge buys anything: a leaf request is a listing entry
+        // of a disputed depth-31 leaf parent (`answer::leaf_parent`'s
+        // ask arm), so the entries that could ever occupy the edge are
+        // bounded by the leaf-stage statistic — jointly occupied
+        // depth-31 slots times their per-parent fan — and the depth-31
+        // joint quantile is zero for every representable corpus
+        // (`small_mean_quantile` at j = 31 has 249 denominator bits
+        // against at most 128 for a product of two u64 corpora; nonzero
+        // needs pair ≥ 2¹⁹⁹). Capacity beyond a population is physically
+        // idle, so the edge floors at one slot and the budget is spent
+        // where populations exist.
+        //
         // Saturating arithmetic keeps the solve total: a population near
         // 2⁶⁴ times a near-`usize::MAX` scope price passes u128, and a
         // saturated charge only overstates, failing `charge(mid) <= budget`
@@ -380,7 +396,7 @@ impl Window {
                 total = total
                     .saturating_add(population[depth].min(k).saturating_mul(scope_price[depth]));
             }
-            total.saturating_add(n.min(k) * LEAF_REQUEST_BYTES as u128)
+            total.saturating_add(population[KEY_DEPTH].min(k) * LEAF_REQUEST_BYTES as u128)
         };
 
         // Capacity beyond the widest population is physically idle, so
