@@ -13,6 +13,7 @@
 pub mod accum;
 mod base;
 mod bits;
+mod build;
 mod cursor;
 mod display;
 mod gamma;
@@ -30,6 +31,7 @@ pub use base::Base;
 pub(crate) use bits::{
     bytes_as_bits, pack_to_writer, require_zero_padding, zero_dead_bits, Bits, BitsSlice,
 };
+pub(crate) use build::PackedBuilder;
 pub(crate) use cursor::{BitCursor, SliceCursor};
 pub(crate) use display::{write_ev, write_id};
 pub(crate) use gamma::{decode_int, decode_int_from, encode_int, skip_int};

@@ -1,4 +1,4 @@
-use crate::codec::Bits;
+use crate::codec::{Bits, PackedBuilder};
 use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
@@ -6,10 +6,12 @@ use crate::idbits::{IdNode, IdReader};
 /// A node reserves a 2-bit tag
 /// placeholder before its children are emitted; [`close_node`](Self::close_node)
 /// patches the tag from which children turned out present, collapsing
-/// `(1, 1) → 1` (both terminal) and `(0, 0) → 0` (both empty). This mirrors the
-/// event-side `Builder`, but the id payload is only the tag bits.
+/// `(1, 1) → 1` (both terminal) and `(0, 0) → 0` (both empty). The id
+/// instantiation of the crate's append-truncate discipline
+/// ([`PackedBuilder`] carries the shared move set): the per-node payload is
+/// only the tag bits, and both collapses are pure truncations.
 pub(super) struct IdBuilder {
-    bits: Bits,
+    out: PackedBuilder,
 }
 
 /// What an emitted child turned out to be, so its parent's
@@ -38,10 +40,13 @@ pub(super) enum Built {
 #[must_use = "an opened node must be closed with close_node"]
 pub(super) struct Open(usize);
 
+/// The width of an id node's presence tag: one bit per child.
+const TAG_BITS: usize = 2;
+
 impl IdBuilder {
     pub(super) fn with_capacity(capacity: usize) -> Self {
         IdBuilder {
-            bits: Bits::with_capacity(capacity),
+            out: PackedBuilder::with_capacity(capacity),
         }
     }
 
@@ -58,20 +63,15 @@ impl IdBuilder {
     /// output node exactly once — so no placeholder, patch, or close is
     /// needed.
     pub(super) fn push_tag(&mut self, left: bool, right: bool) {
-        crate::codec::scan::record_bits(2); // one 2-bit tag written
-        self.bits.push(left);
-        self.bits.push(right);
+        self.out.push_bit(left);
+        self.out.push_bit(right);
     }
 
     /// Reserve a node's 2-bit tag; its children are emitted next, then it is
     /// closed (and normalized) with [`close_node`](Self::close_node). The
     /// placeholder is patched to the real presence bits on close.
     pub(super) fn open(&mut self) -> Open {
-        crate::codec::scan::record_bits(2); // one 2-bit tag placeholder written
-        let root = self.bits.len();
-        self.bits.push(false);
-        self.bits.push(false);
-        Open(root)
+        Open(self.out.reserve(TAG_BITS))
     }
 
     /// Copy one already-normal source subtree into the output, advancing `src`
@@ -87,11 +87,9 @@ impl IdBuilder {
         let is_terminal = matches!(src.peek(), IdNode::Full);
         let start = src.pos();
         src.skip();
-        // The verbatim splice length is the write record (the peek and the
-        // skip above record their own reads).
-        crate::codec::scan::record_bits(src.pos() - start);
-        self.bits
-            .extend_from_bitslice(&src.bits()[start..src.pos()]);
+        // The peek and the skip above record their own reads; the splice
+        // records the write.
+        self.out.splice(&src.bits()[start..src.pos()]);
         if is_terminal {
             Built::Terminal
         } else {
@@ -109,25 +107,24 @@ impl IdBuilder {
         let node = node.0;
         match (left, right) {
             (Built::Empty, Built::Empty) => {
-                self.bits.truncate(node); // (0, 0) → 0
+                self.out.truncate(node); // (0, 0) → 0
                 Built::Empty
             }
             (Built::Terminal, Built::Terminal) => {
-                self.bits.truncate(node); // (1, 1) → 1
+                self.out.truncate(node); // (1, 1) → 1
                 self.terminal()
             }
             (left, right) => {
                 // The tag patched in place: bit 0 = left present, bit 1 =
                 // right present.
-                crate::codec::scan::record_bits(2);
-                self.bits.set(node, !matches!(left, Built::Empty));
-                self.bits.set(node + 1, !matches!(right, Built::Empty));
+                self.out.patch_bit(node, !matches!(left, Built::Empty));
+                self.out.patch_bit(node + 1, !matches!(right, Built::Empty));
                 Built::Node
             }
         }
     }
 
     pub(super) fn finish(self) -> Bits {
-        self.bits
+        self.out.finish()
     }
 }
