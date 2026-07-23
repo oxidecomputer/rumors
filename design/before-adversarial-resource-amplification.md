@@ -2202,3 +2202,19 @@ scales, envelopes, byte-pinned snapshots):
   is a natural PR. Prep after the text item (P4-tail P3.8) lands
   the local implementation; after an upstream release ships it,
   bump the dependency floor and delete the local copy.
+
+### 17.6 Representation pins for all exposed types (recorded 2026-07-23, user directive)
+
+`before` is independently useful, so every exposed type's externally
+observable representation is snapshot-pinned inside `before`'s own
+test suite — encode/decode bytes, serde/borsh forms, `Display`/
+`FromStr` text, and documented `Ord` contracts — even for types
+`rumors` never wire-communicates (`Rank` named specifically). A
+representation change must force a deliberate re-pin; it must never
+pass silently, and never be pinned only downstream. The Rank audit's
+returned scope carries the gap inventory; the pins land with the
+coverage audit (P3.6b) or, for types whose representation changes at
+the flip, in the same commit as their re-pin. The full-surface
+measurability constraint (§14) is read as three-legged from here on:
+dual-oracle proptests, a resource pin, and a representation pin per
+exposed type.
