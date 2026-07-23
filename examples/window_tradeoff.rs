@@ -56,7 +56,7 @@ fn main() {
          link is latency-only, so these are worst-case factors, independent \
          of the delay itself; a real link's bandwidth absorbs them: once \
          transfer time exceeds window stall (dispute throughput \
-         `budget / (22 \u{d7} RTT)` at or above the link rate), the factor \
+         `budget / (25 \u{d7} RTT)` at or above the link rate), the factor \
          is 1. Cells are clamped at 1.0\u{d7}: a genuine sub-1.0 result is \
          impossible against the unbounded baseline, so anything below it is \
          delay-sweep measurement noise on the fast side, truncated."

@@ -1,11 +1,11 @@
 //! The operator equations held against measured sessions.
 //!
 //! `sync_memory_budget`'s docs publish two closed forms over a link's
-//! bandwidth-delay product, with `ratio = envelope / wire = 22` and
+//! bandwidth-delay product, with `ratio = envelope / wire = 25` and
 //! `fans` the flat supply-decode envelope that comes off every budget
 //! before the dispute solve: worst-case slowdown under a budget,
-//! `max(1, 22 × BDP / (budget − fans))`, and the smallest budget for an
-//! acceptable slowdown, `fans + 22 × BDP / slowdown`. They are the
+//! `max(1, 25 × BDP / (budget − fans))`, and the smallest budget for an
+//! acceptable slowdown, `fans + 25 × BDP / slowdown`. They are the
 //! large-window simplification of the exact wave-model form
 //! `slowdown = max(1, BDP_messages / K)` with `K` the derived window —
 //! the simplification substitutes `K ≈ (budget − fans) / envelope`,
@@ -20,7 +20,7 @@
 //!   unbounded-budget transfer (the pipe carries several concurrent
 //!   streams, so its effective rate is measured, not assumed);
 //! - the *scalar* form is held by identity at the design point, where
-//!   the default budget is its own inverse: `22 × BDP / 1` at the design
+//!   the default budget is its own inverse: `25 × BDP / 1` at the design
 //!   link is exactly `DEFAULT_SYNC_MEMORY_BUDGET`.
 
 // Only the delayed wire is exercised here; the module's pipes and
@@ -138,7 +138,7 @@ fn binding_capacity(budget: usize) -> usize {
 fn operator_equations_match_measured_sessions() {
     // The scalar identity: budget(slowdown = 1) at the design link IS
     // the default. 12.5 MB of BDP per millisecond of RTT is the design
-    // link's product; the docs' `fans + 22 × BDP / slowdown` is this
+    // link's product; the docs' `fans + 25 × BDP / slowdown` is this
     // expression with the ratio left as a quotient.
     let (envelope, wire) = envelope_and_wire_bytes();
     let design_bdp = 12_500_000usize;

@@ -369,8 +369,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// A budget can add latency, never break a session. A divergence
     /// wider than the derived capacities drains in capacity-sized waves,
-    /// capping dispute throughput near `budget_bytes / (22 × RTT)` (each
-    /// ~200 wire bytes of dispute is charged a ~4.3 KB envelope); any
+    /// capping dispute throughput near `budget_bytes / (25 × RTT)` (each
+    /// ~200 wire bytes of dispute is charged a ~4.9 KB envelope); any
     /// budget, including zero, leaves every session deadlock-free at one
     /// disputed subtree in flight per level. The budget is per session:
     /// concurrent gossip on separate links carries one envelope each. The
@@ -386,9 +386,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// constants make the trade a pair of closed forms:
     ///
     /// - the worst-case slowdown a budget can cost is
-    ///   `max(1, 22 × BDP / (budget_bytes − fans))`;
+    ///   `max(1, 25 × BDP / (budget_bytes − fans))`;
     /// - the smallest budget for an acceptable worst-case slowdown is
-    ///   `fans + 22 × BDP / slowdown`.
+    ///   `fans + 25 × BDP / slowdown`.
     ///
     /// The default is the second form at slowdown 1 on the design
     /// link. Both are envelopes for the operating regime: budgets past
@@ -399,9 +399,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// size past it). `tests/window_operator.rs` holds both forms
     /// against measured sessions on a bandwidth-limited link, and pins
     /// the default as the inverse form's design-point value with the
-    /// ratio kept as the exact quotient (4,339/200); the rounded
-    /// 22-form written above is what an operator can apply, and it runs
-    /// ≲1.5% above the exact form — the conservative direction.
+    /// ratio kept as the exact quotient (4,905/200); the rounded
+    /// 25-form written above is what an operator can apply, and it runs
+    /// ≲2% above the exact form — the conservative direction.
     ///
     #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
     ///

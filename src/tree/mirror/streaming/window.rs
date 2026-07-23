@@ -120,8 +120,8 @@
 //!   its own producer — the premise the session's whole liveness argument
 //!   already rests on.
 
+use super::{Local, materialized::Resolve};
 use crate::link::STREAM_COUNT;
-use crate::tree::MERKLE_HASH_LEN;
 use crate::tree::typed::{self, Prefix, height::Z};
 
 /// The tree's maximum branching factor: one child per radix byte.
@@ -136,12 +136,24 @@ pub(crate) const FAN: usize = 256;
 /// the *depth* of the children discussed at height `h` is `KEY_DEPTH − h`.
 const KEY_DEPTH: usize = 32;
 
-/// In-memory bytes of one child's slots in a level's in-flight containers.
+/// In-memory bytes of one child's slots in a level's in-flight
+/// containers: a query slot, a resolution slot, and a listing entry.
 ///
-/// One `(u8, node-handle)` query slot and one `(u8, resolve)` resolution
-/// slot (pointer-aligned pairs, 16 B each), plus one `(u8, Hash)` listing
-/// entry (byte-packed).
-const REFERENCE_SLOT_BYTES: usize = 16 + 16 + (1 + MERKLE_HASH_LEN);
+/// Derived from `size_of` of the real slot types under the in-memory
+/// backend, so a layout change moves the price with it instead of
+/// leaving a hand-counted byte total stale: the pointer-aligned
+/// `(u8, node-handle)` query slot (16 B); the `(u8, Resolve)` resolution
+/// slot (24 B — `Option<Node>` consumes the handle's only null niche, so
+/// the `Ready`/`Pending` tag sits out of line and the pair outgrows the
+/// query slot by a word); and the byte-packed `(u8, Hash)` listing entry
+/// (17 B). `Resolve`'s layout does not depend on the height or payload
+/// parameters, so the leaf instantiation prices every level. Exact for
+/// pointer-class node handles; a backend whose `Node` demands a wider
+/// layout pads the real slots beyond this constant and owes that padding
+/// to its own `node_bytes` price.
+const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<(), Z>)>()
+    + std::mem::size_of::<(u8, Resolve<Local, (), Z>)>()
+    + std::mem::size_of::<(u8, typed::Hash)>();
 
 /// Fixed in-memory bytes per buffered scope beyond its per-child slots:
 /// two inline prefixes (40 B each) and the container `Vec` headers.
@@ -201,7 +213,7 @@ pub(crate) const DISPUTE_WIRE_BYTES: usize = 200;
 /// pinned by `scope_envelope_matches_the_derivation`, so this constant
 /// fails loudly instead of drifting when the pricing or the occupancy
 /// envelopes change.
-pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_339;
+pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_905;
 
 /// Worst-case memory one synchronization may spend by default: the
 /// envelope that fills the design link's bandwidth-delay product with
@@ -211,7 +223,7 @@ pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_339;
 /// round trip (`DESIGN_LINK_RTT_MS`): a 12.5 MB bandwidth-delay
 /// product, kept full by one disputed scope in flight per
 /// `DISPUTE_WIRE_BYTES` of it, each charged `SCOPE_ENVELOPE_BYTES` of
-/// session envelope — 62,500 scopes, ~271 MB. On links whose product is
+/// session envelope — 62,500 scopes, ~307 MB. On links whose product is
 /// at or under the design point's
 /// (equivalently, 1 Gbps × 100 ms), sessions are bandwidth-bound at
 /// every divergence and window serialization is unobservable; past it,
