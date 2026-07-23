@@ -710,6 +710,111 @@ envelope is tight. (Amended 2026-07-23: the win has an adversarial
 dual — where Tier 2 is radically smaller, wire bits stop bounding
 value content, and the operations must be priced against that; §10.6.)
 
+Amended 2026-07-23 (P3.5, closing §17.1's Gate A): **the join/meet
+subadditivity lemma of record** [derived — full proof below; pinned
+by `meter/tier2`'s emitter-parameterized subadditivity suite]. For
+canonical versions `a`, `b` and `c` either `a ∨ b` (pointwise max)
+or `a ∧ b` (pointwise min), the skyline coded size satisfies
+
+    size(c) ≤ size(a) + size(b) − 2   (bits),
+
+where `size` is the exact skyline bit length (`meter::tier2::
+tier2_size`; its bit-for-bit equality with the skyline encoder's
+output length is proptest-pinned). The byte-level corollary
+`⌈size(c)/8⌉ ≤ ⌈size(a)/8⌉ + ⌈size(b)/8⌉` follows immediately
+(`⌈(x + y − 2)/8⌉ ≤ ⌈x/8⌉ + ⌈y/8⌉`), and is the form the
+`link-transport` window budget cites after the C2 flip — the same
+shape as the bound it holds today against the current coding, so
+Gate A's reroute clause is never exercised.
+
+Notation. `size(x) = N(x) + γ(v₁(x)) + Σ_{t ∈ B(x)} g(|Δx(t)|)`:
+`N(x)` nodes of the canonical tree (topology flag bits), `v₁(x)`
+the first preorder leaf's absolute height, `B(x)` the set of
+internal boundaries of x's canonical leaf partition, `Δx(t)` the
+signed (possibly zero) jump of the step function x at boundary t,
+and `g(m)` the zigzag-gamma code length of a delta of magnitude m.
+Every step below is proven; nothing in the lemma's chain is
+measured-only.
+
+1. **Sign flips are free, and `g` is monotone.** `g(0) = γ(0) = 1`;
+   for `m ≥ 1` a positive delta codes as `gamma(2m)` and a negative
+   one as `gamma(2m − 1)`, and `⌊log₂(2m + 1)⌋ = ⌊log₂(2m)⌋`
+   because `2m + 1` is odd and greater than 1, never a power of
+   two — so both signs cost `2⌊log₂(2m)⌋ + 1` bits. `g` therefore
+   depends only on the magnitude and is nondecreasing in it.
+
+2. **The output topology embeds in the union of the input
+   topologies.** Take `T_a`, `T_b` as the canonical trees' node
+   sets: prefix-closed, every internal node carrying both children.
+   Their union is again such a set (a node internal in the union is
+   internal in an input, which carries both children there), and
+   `c` is constant on each union leaf: a union leaf is a leaf of
+   one input and lies inside a leaf of the other (walking up from a
+   node absent from a tree, the first ancestor present in it must
+   be one of its leaves), so both arguments of the pointwise op are
+   constant there. The union tree therefore represents `c`. The
+   canonical tree of a step function is contained in *every* tree
+   representing it — a node the function is non-constant on cannot
+   be a leaf of any representing tree, so by induction from the
+   shared root the canonical node set descends inside — hence
+   `N(c) ≤ |T_a ∪ T_b| ≤ N(a) + N(b) − 1`, the −1 because both
+   inputs contain the root.
+
+3. **Output boundaries embed in the union of input boundaries.**
+   The union tree's partition has boundary set exactly
+   `B(a) ∪ B(b)`: every partition boundary is the midpoint of an
+   internal union node, which is internal in at least one input and
+   is that input's boundary between two consecutive leaves; and
+   conversely every input's internal node stays internal in the
+   union. `c`'s canonical partition coarsens the union's (step 2),
+   so `B(c) ⊆ B(a) ∪ B(b)`.
+
+4. **Pointwise max/min is 1-Lipschitz at every boundary.** At
+   `t ∈ B(c)`, `δ_c(t) = op(a(t⁺), b(t⁺)) − op(a(t⁻), b(t⁻))`, and
+   for op ∈ {max, min},
+   `|op(x₁, y₁) − op(x₂, y₂)| ≤ max(|x₁ − x₂|, |y₁ − y₂|)`, so
+   `|δ_c(t)| ≤ max(|Δa(t)|, |Δb(t)|)`, where `Δx(t) = 0` whenever
+   `t ∉ B(x)`.
+
+5. **The delta charge is an injection.** Charge each `t ∈ B(c)` to
+   one input delta code at the same point: if `δ_c(t) ≠ 0`, to an
+   input whose jump at t has magnitude `≥ |δ_c(t)|` — it exists by
+   step 4, its jump is nonzero so t is genuinely its boundary, and
+   its code there covers the output's by step 1
+   (`g(|δ_c(t)|) ≤ g(|Δx(t)|)`); if `δ_c(t) = 0` (a canonical zero
+   delta across a subtree boundary), to either input holding a
+   boundary at t — one exists by step 3, and any delta code costs
+   at least `1 = g(0)` bit. Distinct output boundaries charge codes
+   at distinct points, so the charge is injective and
+   `Σ_{B(c)} g(|δ_c|) ≤ Σ_{B(a)} g(|Δa|) + Σ_{B(b)} g(|Δb|)`.
+
+6. **The first leaf is one of the inputs'.**
+   `v₁(c) = op(v₁(a), v₁(b))` equals `v₁(a)` or `v₁(b)`, so
+   `γ(v₁(c)) ≤ γ(v₁(a)) + γ(v₁(b)) − 1`: the unmatched input's
+   first-leaf code is at least 1 bit.
+
+Summing steps 2, 5, and 6 gives `size(c) ≤ size(a) + size(b) − 2`.
+The constant is tight: `a = b =` the empty version gives
+`2 = 2 + 2 − 2`. The Gate A probe agrees at exactly this constant
+**[measured** — ~1.5M pairs: every §13 generator family and
+adversarial cross, the exhaustive small scope, and a directed
+hill-climb on the excess `size(c) − size(a) − size(b)`; maximum
+observed excess −2**]**.
+
+Two scope notes, per the statement-faithfulness bar. The lemma is a
+statement about the canonical skyline stream of the operation's
+*value*, so it binds any correct emitter's output but says nothing
+about a buggy emitter's bytes — which is why the `meter/tier2` pins
+take the join/meet emitters as parameters, run today against the
+packed-form operators, and must be re-instantiated against the
+skyline emission kernel's actual output when that emitter exists.
+And the lemma prices coded size only: it does not bound the *work*
+of the sweep producing `c` (§10.6's ledger does), and it does not
+claim `B(c)` reaches the union bound — normalization can erase
+boundaries, and step 2's shared root alone already yields the
+1-Lipschitz pin's strict leaf inequality
+(`L(c) ≤ L(a) + L(b) − 1`, from `N = 2L − 1`).
+
 ### 10.5 Costs and migration
 
 - **Wire break**: `Version::encode` (and therefore `Clock::encode`)
@@ -1485,8 +1590,8 @@ below or held as an explicit gate this plan cannot pre-discharge.
 The gates first, because the user's GO is conditional on seeing
 them plainly:
 
-- **Gate A — skyline join subadditivity [open, GO/NO-GO].** The
-  `link-transport` window budget cites the pinned lemma
+- **Gate A — skyline join subadditivity [resolved GO 2026-07-23].**
+  The `link-transport` window budget cites the pinned lemma
   `encode(a|b).len() ≤ encode(a).len() + encode(b).len()`
   (`window.rs`), proven against today's coding. Under delta coding
   a crossing switch emits a delta of magnitude ~`|hₐ − h_b|` that
@@ -1506,6 +1611,22 @@ them plainly:
   validated — a written derivation of the new bound, not an
   empirical fit — and the reroute is recorded in this plan as
   exactly that.
+
+  Resolved 2026-07-23 (P3.5): GO. The probe did not falsify — over
+  ~1.5M pairs (every §13 generator family and adversarial cross,
+  the exhaustive small scope, and a directed hill-climb on the
+  excess) the excess `size(a ∨ b) − size(a) − size(b)` never rose
+  above −2 — and the near-tight sketch above dissolves under the
+  full accounting: the huge step's own boundary code covers the
+  switch's delta at that same boundary. Per the resolution policy
+  the existing bound stands unchanged; what lands beside it is the
+  derivation of record (§10.4's dated addendum): skyline
+  `size(a ∨ b) ≤ size(a) + size(b) − 2` bits, meet dual identical,
+  every step proven, the −2 structural (tight at the empty pair)
+  and matching the probe's maximum exactly. Pinned
+  emitter-parameterized in `meter/tier2` beside the 1-Lipschitz
+  pins, so P3.6's emission kernel re-instantiates the same pins
+  over its actual output.
 - **Gate B — the user's §12(b) acceptance and two criterion
   ratifications.** The §10.5 identity/persistence blast radius (the
   `Key` migration story is explicitly out of scope for the swap);
@@ -1811,6 +1932,25 @@ Gate A (the riskiest seam in the plan — scheduled first for that
 reason); a validator bug is a byte-equality bug → retired by the
 oracle differential, exhaustive small-scope, and deliberate
 snapshot re-pins at C2. *Deps*: P3.2.
+
+Landed 2026-07-23 (the subadditivity lemma of record, retiring
+Gate A): verdict GO — §17.1's Gate A entry carries the dated
+resolution and probe record, §10.4's dated addendum the full
+derivation (`size(a ∨ b) ≤ size(a) + size(b) − 2` bits, meet dual
+identical, every step proven, the −2 tight). The pins landed in
+`src/meter/tier2/tests.rs` beside the 1-Lipschitz pins rather than
+`version/tests.rs` (they are statements over `tier2_size`, whose
+suite lives there): join and meet over every §13 event family and
+its full adversarial cross grid, the probe's recipe families
+rebuilt on the committed generators (hugeleaf-vs-step,
+comb-vs-flat, interleaved plateaus, staggered widths, cliff
+staircases), the crate-internal deep-shape grid the external probe
+could not reach, arbitrary trees, organic histories, and the
+equality-case pin that keeps the −2 the strongest constant. The
+checks take the join/meet emitters as function parameters — today
+instantiated at the packed-form operators — so P3.6's skyline
+emission kernel re-instantiates the identical pins over its actual
+output.
 
 **P3.6 — C1b: the sweep kernels and the bench baseline.**
 *What*: the merge-sweep kernels over the new codec — compare/eq/
