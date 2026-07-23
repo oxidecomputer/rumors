@@ -92,8 +92,13 @@ type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T, B: BookmarkError = NoBookmark> {
-    /// **Retired.** The peer reconciled with us, absorbed our identity, and
-    /// confirmed the absorption; this replica has left the universe. The
+    /// **Retired.** This replica has left the universe.
+    ///
+    /// The peer reconciled with us, absorbed our identity, and — under
+    /// [`Protocol::V2`] — confirmed the absorption
+    /// through the session epilogue; the frozen
+    /// [`Protocol::V1`] wire has no confirmation, so
+    /// its `Retired` certifies only that the donation was fully sent. The
     /// link rests at a clean session boundary.
     Retired,
     /// **Declined, unchanged.** The peer was itself retiring, so nothing
@@ -512,8 +517,9 @@ impl<T, B: Persist> Peer<T, B> {
                 let version = inner.tree.latest().clone();
                 if !bookmark.is_current(party, &version) {
                     // `reclaim` stages the suppression token for this
-                    // `(party, version)`; the `write` below commits it (or, on
-                    // failure, clears it so the next update retries).
+                    // `(party, version)`; only the `write` below, completing
+                    // `Ok`, commits it — a failed or cancelled write leaves
+                    // no token, so the next update persists afresh.
                     bookmark.reclaim(self.network, party, &version);
                     persist = true;
                 }
@@ -559,7 +565,7 @@ impl<T, B: Persist> Peer<T, B> {
     ///
     /// `staged` is the remote preamble's staging buffer, usually empty; a
     /// [`gossip_when`] driver hands one that may already hold part (or all)
-    /// of the remote's greeting.
+    /// of the remote's preamble.
     ///
     /// [`gossip_when`]: crate::Rumors::gossip_when
     ///
@@ -643,10 +649,11 @@ impl<T, B: Persist> Peer<T, B> {
                 if let Some(party) = inner.party.as_mut() {
                     let version = inner.tree.latest().clone();
                     if !bookmark.is_current(party, &version) {
-                        // `reclaim` stages the suppression token for this
-                        // `(party, version)`; the `write` below commits it
-                        // (or, on failure, clears it so the next update
-                        // retries).
+                        // `reclaim` stages the suppression token for
+                        // this `(party, version)`; only the `write` below,
+                        // completing `Ok`, commits it — a failed or
+                        // cancelled write leaves no token, so the next
+                        // update persists afresh.
                         bookmark.reclaim(self.network, party, &version);
                         persist = true;
                     }

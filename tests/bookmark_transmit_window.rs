@@ -32,7 +32,7 @@
 mod common;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use before::Version;
 use rumors::{Bookmark, BookmarkError, Peer, Rumors, Serialized};
@@ -67,6 +67,8 @@ struct GatedBookmark {
     armed: Arc<AtomicBool>,
     entered: Arc<Notify>,
     release: Arc<Notify>,
+    /// Fail the Nth `store` call from now (1 = the very next); 0 = disarmed.
+    fail_at: Arc<AtomicUsize>,
 }
 
 impl GatedBookmark {
@@ -76,7 +78,14 @@ impl GatedBookmark {
             armed: Arc::new(AtomicBool::new(false)),
             entered: Arc::new(Notify::new()),
             release: Arc::new(Notify::new()),
+            fail_at: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    /// Make the `n`th `store` call from now (1 = the very next) return an
+    /// injected fault, committing nothing.
+    fn fail_at(&self, n: usize) {
+        self.fail_at.store(n, Ordering::SeqCst);
     }
 
     /// Park the next `store` call on the gate.
@@ -96,11 +105,11 @@ impl GatedBookmark {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("gated bookmark never fails")]
-struct NeverFails;
+#[error("injected store fault")]
+struct InjectedFault;
 
 impl BookmarkError for GatedBookmark {
-    type Error = NeverFails;
+    type Error = InjectedFault;
 }
 
 impl Bookmark for GatedBookmark {
@@ -118,6 +127,14 @@ impl Bookmark for GatedBookmark {
         if self.armed.swap(false, Ordering::SeqCst) {
             self.entered.notify_one();
             self.release.notified().await;
+        }
+        match self.fail_at.load(Ordering::SeqCst) {
+            0 => {}
+            1 => {
+                self.fail_at.store(0, Ordering::SeqCst);
+                return Err(InjectedFault);
+            }
+            n => self.fail_at.store(n - 1, Ordering::SeqCst),
         }
         let mut bytes = Vec::new();
         write(&mut bytes).await.expect("in-memory serialize");
@@ -281,6 +298,91 @@ fn record_dominates_the_transmitted_frontier() {
     });
 }
 
+/// A session future dropped mid-persist never suppresses the next update:
+/// the suppression token commits only when the durable write completes, so
+/// a cancelled write leaves no token claiming coverage the disk lacks, and
+/// the next session persists afresh before transmitting.
+///
+/// Cancelled sessions are an anticipated class (dropping a gossip future is
+/// documented to behave like an `Err`), and the persist is application I/O
+/// of unbounded duration — precisely where a drop lands in practice. A token
+/// staged before the write survives such a drop as a lie: the next session
+/// sees the live `(party, version)` "current", skips the persist, and
+/// transmits own events the durable record does not cover — re-opening the
+/// remint collision through a schedule the in-flight-window fix does not
+/// touch.
+#[test]
+fn cancelled_persist_never_suppresses_the_next_update() {
+    block_on(async {
+        // The scene through the two bootstrap serves, exactly as
+        // `transmit_during_persist` stages it: token cleared by the
+        // donations, record persisted at M0's frontier.
+        let store_a = DurableStore::default();
+        let bm_a = GatedBookmark::new(store_a.clone());
+        let a = Peer::<Msg>::seed()
+            .bookmark(bm_a.clone())
+            .await
+            .expect("a pristine seed attaches its bookmark without touching storage")
+            .into_rumors();
+        a.send(M0);
+        let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
+        let _c = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
+
+        // M1 advances the frontier, so the next update stages a token for
+        // M1's version and parks in the durable write; dropping the session
+        // futures there cancels the persist mid-flight.
+        a.send(M1);
+        bm_a.arm();
+        let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
+        let ga = {
+            let a = a.clone();
+            tokio::spawn(async move {
+                let mut link = side_a;
+                a.gossip(&mut link).await
+            })
+        };
+        let gb = {
+            let b = b.clone();
+            tokio::spawn(async move {
+                let mut link = side_b;
+                b.gossip(&mut link).await
+            })
+        };
+        bm_a.entered().await;
+        ga.abort();
+        gb.abort();
+        let (out_a, out_b) = tokio::join!(ga, gb);
+        assert!(
+            out_a.is_err() && out_b.is_err(),
+            "both session futures were dropped mid-persist",
+        );
+
+        // The next session runs on a fresh link. It must persist M1's
+        // frontier before transmitting M1: a suppression token surviving
+        // the cancelled write would skip that persist.
+        gossip(&a, &b).await;
+
+        let party = a
+            .dangerously_alias_party()
+            .expect("a live peer holds its party");
+        let recorded = persisted_record(&store_a)
+            .remove(&a.network())
+            .expect("the follow-up session persisted a record")
+            .into_iter()
+            .fold(Version::new(), |acc, clock| acc | clock.version());
+        let transmitted = b.snapshot().latest().clone();
+
+        let own_transmitted = transmitted / &party;
+        let own_recorded = recorded / &party;
+        assert!(
+            own_transmitted <= own_recorded,
+            "a session after a cancelled persist transmitted own-party events the durable \
+             record does not dominate: transmitted {own_transmitted:?}, recorded \
+             {own_recorded:?}: the suppression token outlived the write it claimed",
+        );
+    });
+}
+
 /// A crash after the gated session cannot make the network destroy a live,
 /// unredacted message: the restarted peer reclaims its identity only at a
 /// frontier that accounts for every own event it ever transmitted, so no
@@ -299,7 +401,20 @@ fn restart_after_transmit_never_destroys_durable_messages() {
 
         // Whether M1 became durable: it reached B in the gated session. (Its
         // sender crashing below cannot erase it from the network once it did.)
+        //
+        // Under the transmit-window invariant the gated session snapshots
+        // its tree before the persist, so M1 — committed inside the persist's
+        // in-flight window — stays out of the session and dies, never
+        // durable, with A's crash: the destruction arm below is vacuous on
+        // this schedule and goes live only if a change lets a mid-persist
+        // commit ride the wire again. Asserting the expected outcome makes
+        // such drift loud here rather than silently un-arming the check.
         let m1_at_b = leaf_version(&b, M1);
+        assert!(
+            m1_at_b.is_none(),
+            "the gated session must not transmit an own event committed inside the \
+             persist's in-flight window",
+        );
 
         // Crash A: every handle drops; only the durable store survives.
         drop(a);
@@ -356,5 +471,170 @@ fn restart_after_transmit_never_destroys_durable_messages() {
                 );
             }
         }
+    });
+}
+
+/// A failed donation persist aborts the serve before the party crosses the
+/// wire: the donor's identity and durable record are exactly as before the
+/// attempt, the newcomer receives nothing, and the next serve donates
+/// cleanly — a crash at any moment around the abort strands no region.
+///
+/// The abort's mechanics under test: the slice runs in memory, its write
+/// fails, the failure resets the in-memory record to the authoritative
+/// on-disk state, the session returns [`rumors::Error::Bookmark`] without
+/// the party crossing the wire, and the speculative fork re-joins the live
+/// party on the way out.
+#[test]
+fn donation_persist_failure_aborts_before_the_wire() {
+    block_on(async {
+        let store_a = DurableStore::default();
+        let bm_a = GatedBookmark::new(store_a.clone());
+        let a = Peer::<Msg>::seed()
+            .bookmark(bm_a.clone())
+            .await
+            .expect("a pristine seed attaches its bookmark without touching storage")
+            .into_rumors();
+        a.send(M0);
+        let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
+
+        let party_before = a
+            .dangerously_alias_party()
+            .expect("a live peer holds its party");
+        // Settle the record: a session with B re-records the post-donation
+        // identity (the serve's slice cleared the suppression token), so the
+        // failing serve below mutates nothing but the donation itself.
+        gossip(&a, &b).await;
+        let bytes_before = store_a.lock().unwrap().clone();
+
+        // Serve a bootstrap whose donation persist fails. The session's
+        // update is suppressed (the record is current), so the donation
+        // slice's write is the next store call.
+        bm_a.fail_at(1);
+        let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
+        let boot = tokio::spawn(async move {
+            let mut link = boot_side;
+            Peer::<Msg>::bootstrap(&mut link).await
+        });
+        let serve = {
+            let a = a.clone();
+            tokio::spawn(async move {
+                let mut link = serve_side;
+                a.gossip(&mut link).await
+            })
+        };
+        let (boot_out, serve_out) = tokio::join!(boot, serve);
+        assert!(
+            matches!(serve_out.unwrap(), Err(rumors::Error::Bookmark(_))),
+            "the serve must surface the failed donation persist",
+        );
+        assert!(
+            !matches!(boot_out.unwrap(), Ok(Some(_))),
+            "the newcomer must not receive a party the donor could not persist away",
+        );
+
+        // The abort left no trace: identity re-joined, disk untouched.
+        assert_eq!(
+            a.dangerously_alias_party()
+                .expect("a live peer holds its party"),
+            party_before,
+            "the speculative fork must re-join the donor's party on abort",
+        );
+        assert_eq!(
+            *store_a.lock().unwrap(),
+            bytes_before,
+            "a failed donation persist must leave the durable record untouched",
+        );
+
+        // The next serve donates cleanly from the recovered state.
+        let d = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
+        gossip(&a, &d).await;
+        assert_eq!(
+            a.snapshot().hash(),
+            d.snapshot().hash(),
+            "the recovered donor serves and converges normally",
+        );
+    });
+}
+
+/// Repeated donation-persist aborts normalize: after any number of failed
+/// serves, one clean serve leaves the fleet with disjoint identities,
+/// converged content, and every failed newcomer holding nothing.
+///
+/// The single-abort mechanics are pinned above; this drives the *schedule* —
+/// abort, recover, abort again — through the same live party, so a residue
+/// any one abort leaves behind (a stale suppression token, a half-reset
+/// record, an unreturned fork fragment) compounds where this test can see it.
+#[test]
+fn repeated_donation_aborts_normalize() {
+    block_on(async {
+        let store_a = DurableStore::default();
+        let bm_a = GatedBookmark::new(store_a.clone());
+        let a = Peer::<Msg>::seed()
+            .bookmark(bm_a.clone())
+            .await
+            .expect("a pristine seed attaches its bookmark without touching storage")
+            .into_rumors();
+        a.send(M0);
+        let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
+        let party_before = a
+            .dangerously_alias_party()
+            .expect("a live peer holds its party");
+
+        for round in 0..3 {
+            // A failed write resets the in-memory record, so the next
+            // session's update re-records (one store call) before the
+            // donation slice's write (the second): fail the second.
+            bm_a.fail_at(2);
+            let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
+            let boot = tokio::spawn(async move {
+                let mut link = boot_side;
+                Peer::<Msg>::bootstrap(&mut link).await
+            });
+            let serve = {
+                let a = a.clone();
+                tokio::spawn(async move {
+                    let mut link = serve_side;
+                    a.gossip(&mut link).await
+                })
+            };
+            let (boot_out, serve_out) = tokio::join!(boot, serve);
+            assert!(
+                matches!(serve_out.unwrap(), Err(rumors::Error::Bookmark(_))),
+                "round {round}: the serve must surface the failed donation persist",
+            );
+            assert!(
+                !matches!(boot_out.unwrap(), Ok(Some(_))),
+                "round {round}: the newcomer must not receive a party",
+            );
+            assert_eq!(
+                a.dangerously_alias_party()
+                    .expect("a live peer holds its party"),
+                party_before,
+                "round {round}: the donor's identity must be whole again",
+            );
+        }
+
+        // One clean serve, then full convergence: nothing compounded.
+        let d = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
+        gossip(&a, &b).await;
+        gossip(&a, &d).await;
+        gossip(&b, &d).await;
+        let reference = a.snapshot().hash();
+        assert_eq!(
+            reference,
+            b.snapshot().hash(),
+            "B diverged after the aborts"
+        );
+        assert_eq!(
+            reference,
+            d.snapshot().hash(),
+            "D diverged after the aborts"
+        );
+        let pa = a.dangerously_alias_party().expect("A live");
+        let pd = d.dangerously_alias_party().expect("D live");
+        assert!(
+            pa.is_disjoint(&pd),
+            "the clean donation must be disjoint from the donor",
+        );
     });
 }

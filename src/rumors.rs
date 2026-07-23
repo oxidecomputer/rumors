@@ -286,9 +286,12 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// [`Link`].
     ///
     /// On `Ok`, both replicas hold every message either one held when the
-    /// session began, and the peer has confirmed that it completed and
-    /// committed the session too. What `Err` and cancellation leave behind
-    /// is stated in [what a session
+    /// session began, and — under [`Protocol::V2`](crate::Protocol::V2) —
+    /// the peer has confirmed that it completed and committed the session
+    /// too. The frozen [`Protocol::V1`](crate::Protocol::V1) oracle wire has
+    /// no confirmation exchange, so a V1 session's `Ok` certifies only the
+    /// local commit. What `Err` and cancellation leave behind is stated in
+    /// [what a session
     /// promises](crate::link::Link#what-a-session-promises).
     ///
     /// Gossip sessions may run concurrently on different clones of the same
