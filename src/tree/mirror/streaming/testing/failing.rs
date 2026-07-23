@@ -153,6 +153,14 @@ where
     fn hash(&self) -> Hash {
         self.0.hash()
     }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn version_bytes(&self) -> usize {
+        self.0.version_bytes()
+    }
 }
 
 impl<T, N> Leaf<T> for FailingNode<N>

@@ -234,6 +234,7 @@ impl<T> Tree<T> {
     ///
     /// An `O(1)` read of a per-node aggregate maintained exactly, like
     /// [`len`](Self::len): redacting the largest version resizes it down.
+    #[cfg(any(test, feature = "test-internals"))]
     pub(crate) fn max_version_bytes(&self) -> usize {
         self.root
             .root

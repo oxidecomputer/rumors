@@ -44,6 +44,14 @@ impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
     fn floor(&self) -> &Version {
         self.floor()
     }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn version_bytes(&self) -> usize {
+        self.version_bytes()
+    }
 }
 
 impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<T, Z> {

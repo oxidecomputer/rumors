@@ -665,12 +665,8 @@ impl<T, B: Persist> Peer<T, B> {
             Result<(tree::Root<T>, DynRead<'a>, DynWrite<'a>), Error>,
         > = match self.protocol {
             Protocol::V2 => Box::pin(async move {
-                let local_len = prior_tree.len() as u64;
-                let local_version_bytes = prior_tree.max_version_bytes() as u64;
-                let local = materialized::Handshaking::start(Local, prior_tree.root.into())
-                    .window(window)
-                    .set_len(local_len)
-                    .max_version_bytes(local_version_bytes);
+                let local =
+                    materialized::Handshaking::start(Local, prior_tree.root.into()).window(window);
                 let carrier = Link::for_session(read, write, connector, acceptor, epoch);
                 let proxy = streaming_remote::Handshaking::start(Local, carrier)
                     .window(window)

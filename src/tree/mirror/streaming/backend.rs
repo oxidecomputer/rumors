@@ -136,6 +136,31 @@ pub trait Node<T: Send + Sync + 'static> {
 
     /// The merkle hash of this node.
     fn hash(&self) -> Hash;
+
+    /// The number of live leaves under this node, exact.
+    ///
+    /// A leaf answers one; a parent holds the sum over its children,
+    /// fixed when [`Backend::parent`] assembles it — the same
+    /// aggregate-at-construction discipline as
+    /// [`version_bytes`](Self::version_bytes), and cheap for a persistent
+    /// backend to keep as a stored field. The root's value is the exact
+    /// set size the session greeting carries.
+    fn len(&self) -> usize;
+
+    /// The largest canonical encoding among the leaf versions under this
+    /// node, in bytes, exact.
+    ///
+    /// A leaf answers its own version's encoded length; a parent holds
+    /// the **max over its children**, fixed when [`Backend::parent`]
+    /// assembles it. That recurrence is the whole maintenance story:
+    /// every mutation rebuilds its spine through `parent`, which
+    /// recomputes the max from the children in hand, so redacting the
+    /// largest version resizes the aggregate *down* with no separate
+    /// invalidation. The root's value is the version-size bound the
+    /// session greeting carries, which the memory budget prices nodes
+    /// with — an inflated value costs latency, a deflated one breaches
+    /// the memory envelope.
+    fn version_bytes(&self) -> usize;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node
@@ -184,5 +209,28 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Clone for Root<B
             ceiling: self.ceiling.clone(),
             root: self.root.clone(),
         }
+    }
+}
+
+impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Root<B, T> {
+    /// The tree's live message count: the root node's [`len`](Node::len)
+    /// aggregate, or zero when empty. What the session greeting carries
+    /// as the exact set size.
+    pub(crate) fn len(&self) -> u64 {
+        self.root
+            .as_ref()
+            .map(|node| node.len() as u64)
+            .unwrap_or_default()
+    }
+
+    /// The largest canonical leaf-version encoding in the tree, in
+    /// bytes: the root node's [`version_bytes`](Node::version_bytes)
+    /// aggregate, or zero when empty. What the session greeting carries
+    /// as the version-size bound.
+    pub(crate) fn max_version_bytes(&self) -> u64 {
+        self.root
+            .as_ref()
+            .map(|node| node.version_bytes() as u64)
+            .unwrap_or_default()
     }
 }
