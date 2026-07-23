@@ -6,12 +6,11 @@
 //! rests on, per channel (never globally — the terminal select draws
 //! scheduler randomness).
 //!
-//! MODEL.md §1's extraction premise — the count and order of channel
-//! operations depend only on each child's merge-join arm, never on payloads
-//! — became load-bearing in the mux adjudication: σ*'s locality (hence
-//! C1-literal's falsity) rests on every consumption-order discriminator
-//! being announced in-band. This bridge checks both halves against real
-//! sessions:
+//! The model's payload-independence premise (MODEL.md §1) — the count and
+//! order of channel operations depend only on each child's merge-join arm,
+//! never on payloads — is the premise the skeleton abstraction rests on,
+//! and it holds only if every consumption-order discriminator is announced
+//! in-band. This bridge checks both halves against real sessions:
 //!
 //! - the *announced* skeleton, reconstructed from the payload-erased frame
 //!   transcript alone (no tree access, no internal events — [`announced`]),

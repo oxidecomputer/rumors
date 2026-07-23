@@ -2,7 +2,7 @@
 //! dispute skeleton.
 //!
 //! The mux impossibility theorem T3 (`wc_impossibility`) quantifies over one
-//! fixed skeleton, `wedge` (`formal/lean/StreamingMirror/Mux/Instances.lean`):
+//! fixed skeleton, the Lean witness `Mux.wedge`:
 //! root fan 7 with the first radix child deep-disputed down to a leaf request
 //! and six whole-subtree provisions behind it. The theorem's Rust corollary
 //! needs that shape to be *tree-realizable* — a session between two real
@@ -35,9 +35,9 @@ const LEAN_WEDGE_FAN: usize = 7;
 /// satisfies (`Instances.lean`: `capLevel := 1`; `wedge_margin0`).
 const LEAN_WEDGE_CAP_LEVEL: usize = 1;
 
-/// The Lean wedge literal, transcribed scope-for-scope from
-/// `formal/lean/StreamingMirror/Mux/Instances.lean` (`Mux.wedge`) — that
-/// file is the source of truth; if the literal changes there, change this.
+/// The Lean wedge literal, transcribed scope-for-scope from the Lean
+/// definition `Mux.wedge` — the Lean definition is the source of truth;
+/// if the literal changes there, change this.
 fn lean_wedge_literal() -> Skel {
     let sc = |kind, height, kids: &[usize], leaf_reqs| Scope {
         kind,

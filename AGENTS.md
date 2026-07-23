@@ -56,6 +56,11 @@ workspace has a recipe there; `just --list` shows them all. The tiers:
   "formerly", "superseded", "was removed", no deleted API names in any
   prose. Excise or re-denominate; provenance lives in git history and
   the design plans' decision records.
+- Code may cite the Lean artifact by *theorem or definition name* (never
+  by file path — Lean refactors orphan paths) when a kernel-checked
+  statement backs the claim, with the invariant still stated inline;
+  proof-effort progress notes (`formal/PROGRESS.md`) are never cited
+  from code.
 - The model of record is uniform-hash, authenticated-honest-peer:
   transport is pre-authenticated and authorized, and an authorized peer
   already holds write authority over the set, so hostile-peer regimes
