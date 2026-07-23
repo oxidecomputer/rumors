@@ -127,6 +127,7 @@ features:
     cargo check -p before --no-default-features --features oracle
     cargo check -p before --no-default-features --features meter
     cargo check -p before --no-default-features --features limb-meter
+    cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
     cargo check -p rumors --features protocol-v1
@@ -244,13 +245,13 @@ bench *args:
 # byte-identical under any machine load. Optional scale multiplies the input
 # sizes, e.g. `just amp-board 4`.
 amp-board *args:
-    cargo run -p before --example amp_board --features limb-meter -- {{ args }}
+    cargo run -p before --example amp_board --features limb-meter,scan-meter -- {{ args }}
 
 # Run the board at the acceptance scale of record (board::RECORD_SCALE, the
 # segment-onset witness scale). Acceptance is all green at BOTH the default
 # scale and this one, three identical runs each.
 amp-board-record:
-    cargo run -p before --example amp_board --features limb-meter -- record
+    cargo run -p before --example amp_board --features limb-meter,scan-meter -- record
 
 # Paste a peer id into the dialog, or dial one directly:
 # `just rumormill --name bob --peer <endpoint-id>`.

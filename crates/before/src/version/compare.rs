@@ -110,6 +110,9 @@ impl<'a> EvReader<'a> {
             EvReader::Zero => EvNode::Leaf(Base::ZERO),
             EvReader::Packed { bits, pos } => {
                 step!();
+                // The flag bit alone: the gamma code's bits are recorded by
+                // `decode_int`'s own cursor.
+                crate::codec::scan::record_bits(1);
                 let bits = *bits;
                 let internal = bits[*pos];
                 let (base, next) = decode_int(bits, *pos + 1).expect("canonical event bits");
@@ -147,6 +150,9 @@ impl<'a> EvReader<'a> {
                 let bits = *bits;
                 *pos = idbits::skip_subtree(*pos, |p| {
                     step!();
+                    // The flag bit alone: `skip_int` records the code it
+                    // skips over.
+                    crate::codec::scan::record_bits(1);
                     let internal = bits[p];
                     let next = skip_int(bits, p + 1).expect("canonical event bits");
                     // Event nodes are full binary: a node has two children, a

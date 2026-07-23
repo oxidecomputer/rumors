@@ -17,6 +17,7 @@ mod cursor;
 mod display;
 mod gamma;
 mod literal;
+pub(crate) mod scan;
 mod text;
 mod tree;
 

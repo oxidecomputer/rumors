@@ -244,6 +244,10 @@ pub(crate) fn skip_int(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
     if end > bits.len() {
         Err(Decode::Truncated)
     } else {
+        // The whole code's width is the scan record: the skip is the
+        // topology walks' stand-in for reading the code, so it must price
+        // the same bits a read would.
+        super::scan::record_bits(end - pos);
         Ok(end)
     }
 }

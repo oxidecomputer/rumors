@@ -86,6 +86,17 @@ meter = []
 # builds (deliberately not in the self-dev-dependency above) and is lit by
 # `--all-features` runs and the metering envelopes that assert it.
 limb-meter = ["meter"]
+# Counts packed-stream bits scanned and written (id tag reads and skip
+# steps, id-builder bit writes and splice lengths, event topology cursor
+# advances and gamma code-skips, every validator/decoder bit cursor) into a
+# process-global counter read via `before::meter`. Traversal work over the
+# packed forms is invisible to the heap, segment, and limb meters when it
+# allocates nothing, recurses nothing, and does no `Base` arithmetic — the
+# id-side walks are exactly that — so this is the column that sees it.
+# Additive and off by default, in the `limb-meter` idiom: one relaxed atomic
+# bump per primitive, out of the bench builds, lit by `--all-features` runs
+# and the metering suites that assert it.
+scan-meter = ["meter"]
 
 [[bench]]
 name = "party"

@@ -58,6 +58,7 @@ impl IdBuilder {
     /// output node exactly once — so no placeholder, patch, or close is
     /// needed.
     pub(super) fn push_tag(&mut self, left: bool, right: bool) {
+        crate::codec::scan::record_bits(2); // one 2-bit tag written
         self.bits.push(left);
         self.bits.push(right);
     }
@@ -66,6 +67,7 @@ impl IdBuilder {
     /// closed (and normalized) with [`close_node`](Self::close_node). The
     /// placeholder is patched to the real presence bits on close.
     pub(super) fn open(&mut self) -> Open {
+        crate::codec::scan::record_bits(2); // one 2-bit tag placeholder written
         let root = self.bits.len();
         self.bits.push(false);
         self.bits.push(false);
@@ -85,6 +87,9 @@ impl IdBuilder {
         let is_terminal = matches!(src.peek(), IdNode::Full);
         let start = src.pos();
         src.skip();
+        // The verbatim splice length is the write record (the peek and the
+        // skip above record their own reads).
+        crate::codec::scan::record_bits(src.pos() - start);
         self.bits
             .extend_from_bitslice(&src.bits()[start..src.pos()]);
         if is_terminal {
@@ -112,7 +117,9 @@ impl IdBuilder {
                 self.terminal()
             }
             (left, right) => {
-                // bit 0 = left present, bit 1 = right present.
+                // The tag patched in place: bit 0 = left present, bit 1 =
+                // right present.
+                crate::codec::scan::record_bits(2);
                 self.bits.set(node, !matches!(left, Built::Empty));
                 self.bits.set(node + 1, !matches!(right, Built::Empty));
                 Built::Node
