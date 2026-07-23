@@ -24,10 +24,11 @@
 //! budget charges every decode-fan slot. Payload bytes still crossing
 //! inside one wire message are priced by
 //! [`target_message_size`](crate::Peer::target_message_size), not here.
-//! The ledger is process-global (run one `check` per process, as nextest
-//! does), and the differencing baseline absorbs what exists regardless of
-//! the window: the resting corpora, the assembly fans' correctness floor,
-//! and the commit join's transients.
+//! The ledger is process-global — checks in one process must not overlap,
+//! which this module's tests guarantee by holding one lock across each
+//! test body — and the differencing baseline absorbs what exists
+//! regardless of the window: the resting corpora, the assembly fans'
+//! correctness floor, and the commit join's transients.
 //!
 //! # Visibility
 //!
@@ -355,8 +356,10 @@ const DIVERGENT: usize = 1_024;
 /// zero-budget floor, once under `budget_bytes` — and panics with the
 /// violated clause if any assembled node was underpriced, if the window's
 /// measured byte admittance exceeded the budget, or if the session failed
-/// to converge the corpora. Run one check per process: the census ledger
-/// is process-global.
+/// to converge the corpora. Checks in one process must not overlap: the
+/// census ledger is process-global, so callers serialize (this module's
+/// tests hold one static lock per test; nextest's process-per-test
+/// isolates them regardless).
 pub(crate) async fn check<B>(backend: B, budget_bytes: usize)
 where
     B: Measure<u64> + Clone,
