@@ -112,6 +112,33 @@ fn batched_supply_run() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
+/// The session honors the smaller of the two exchanged message targets.
+///
+/// The same two-leaves-one-subtree fixture as [`batched_supply_run`],
+/// except the *receiving* (empty) peer declares a zero target. The
+/// sender's own default would batch both records into one Supply frame —
+/// the previous snapshot pins exactly that — so the two single-record
+/// Supply frames pinned here are the receiver's exchanged preference
+/// being honored by its peer: the greeting carried it, and the session
+/// ran at the minimum of the two settings.
+#[test]
+fn asymmetric_message_targets_unbatch_the_run() {
+    let (a, b) = block_on(async {
+        let a: Rumors<u64> = seeded();
+        let b = bootstrap_fork_async(&a).await;
+        let (first, second) = COLLIDING_VALUES;
+        a.batch().send(first).send(second);
+        let b = b
+            .try_into_peer()
+            .await
+            .expect("the bootstrapped handle is sole")
+            .target_message_size(0)
+            .into_rumors();
+        (a, b)
+    });
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
 /// V1 retains its original strict alternating transcript through the public
 /// selector, including content transfer rather than only an empty handshake.
 #[cfg(feature = "protocol-v1")]

@@ -9,10 +9,11 @@ preamble: 25 bytes
   0010: 00 00 00 00 00 00 00 00
   0018: 00
 version: 0
-version frame: 21 bytes
-  0000: 00 00 00 11 00 00 00 00
+version frame: 29 bytes
+  0000: 00 00 00 19 00 00 00 00
   0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 40
+  0010: 00 00 00 00 00 02 11 00
+  0018: 00 00 00 00 40
 listing frame: 8 bytes
   0000: 00 00 00 04 00 00 00 00
 Responder stream 0 (height 31), epoch 0
@@ -32,10 +33,11 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 01
 version: (0, 0, 2)
-version frame: 21 bytes
-  0000: 00 00 00 11 02 00 00 00
+version frame: 29 bytes
+  0000: 00 00 00 19 02 00 00 00
   0008: 00 00 00 00 01 00 00 00
-  0010: 00 00 00 00 d3
+  0010: 00 00 00 00 00 02 11 00
+  0018: 00 00 00 00 d3
 listing frame: 42 bytes
   0000: 00 00 00 26 02 00 00 00
   0008: 2e 96 c2 0d f8 6b f9 97

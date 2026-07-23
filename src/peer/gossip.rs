@@ -254,8 +254,7 @@ impl<T> Peer<T, NoBookmark> {
                         .window(WindowConfig::default());
                     let carrier = Link::for_session(read, write, connector, acceptor, epoch);
                     let proxy = streaming_remote::Handshaking::start(Local, carrier)
-                        .window(WindowConfig::default())
-                        .run_budget(RunBudget::default());
+                        .window(WindowConfig::default());
                     let handshaken = streaming::handshake(local, proxy)
                         .await
                         .map_err(streaming_error)?;
@@ -665,12 +664,11 @@ impl<T, B: Persist> Peer<T, B> {
             Result<(tree::Root<T>, DynRead<'a>, DynWrite<'a>), Error>,
         > = match self.protocol {
             Protocol::V2 => Box::pin(async move {
-                let local =
-                    materialized::Handshaking::start(Local, prior_tree.root.into()).window(window);
-                let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-                let proxy = streaming_remote::Handshaking::start(Local, carrier)
+                let local = materialized::Handshaking::start(Local, prior_tree.root.into())
                     .window(window)
-                    .run_budget(run_budget);
+                    .target_message_size(run_budget.bytes() as u64);
+                let carrier = Link::for_session(read, write, connector, acceptor, epoch);
+                let proxy = streaming_remote::Handshaking::start(Local, carrier).window(window);
                 let handshaken = streaming::handshake(local, proxy)
                     .await
                     .map_err(streaming_error)?;

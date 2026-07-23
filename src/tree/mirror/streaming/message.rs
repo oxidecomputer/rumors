@@ -66,6 +66,14 @@ pub struct Handshake {
     /// per node — the second input a budget-configured window prices
     /// nodes with.
     pub max_version_bytes: u64,
+    /// The sender's supply-run byte target
+    /// ([`Peer::target_message_size`](crate::Peer::target_message_size)).
+    ///
+    /// The session's encoders on both ends run at the **minimum** of the
+    /// two exchanged targets: each side's setting bounds the frames it
+    /// builds *and* the frames built for it, so the more
+    /// memory-constrained end sets the pace.
+    pub target_message_size: u64,
     /// The sender's root children as `(radix, hash)` pairs in strictly
     /// ascending radix order; empty when the sender's tree is empty.
     pub listing: Vec<(u8, Hash)>,

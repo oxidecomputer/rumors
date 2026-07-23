@@ -12,12 +12,14 @@
 //! that record's overhang. Runs never span protocol reactions: the batching
 //! scope is the leaf enumeration of one supplied subtree.
 //!
-//! The budget is what one endpoint's *own* supply frames may grow to; it is
-//! not wire-visible, and peers with different settings interoperate — each
-//! side decodes whatever run sizes the other chose to send. What the budget
-//! prices is memory per stream: the encoder buffers at most one run while
-//! filling it, and the decoder buffers at most one run's bytes per frame
-//! before yielding its records one at a time. The public knob is
+//! Each endpoint's target rides its greeting, and a session runs at the
+//! **minimum of the two**: the knob states both how large a frame its
+//! peer builds for it and how large a frame it builds for its peer, so
+//! the more memory-constrained end sets the pace and peers with
+//! different settings interoperate. What the budget prices is memory per
+//! stream: the encoder buffers at most one run while filling it, and the
+//! decoder buffers at most one run's bytes per frame before yielding its
+//! records one at a time. The public knob is
 //! [`Peer::target_message_size`](crate::Peer::target_message_size).
 //!
 //! Framing headroom: runs ride the wire's `u32` length header
@@ -70,6 +72,11 @@ impl RunBudget {
     /// Adopt a caller-selected byte budget.
     pub fn from_bytes(bytes: usize) -> Self {
         Self { bytes }
+    }
+
+    /// The byte budget, as the greeting carries it.
+    pub fn bytes(self) -> usize {
+        self.bytes
     }
 
     /// Whether a run may absorb one more record within this budget.

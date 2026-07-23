@@ -30,10 +30,11 @@ fn frame(body: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// A version frame's body: the sender's set-size and version-size-bound
-/// prefixes, then the version.
+/// A version frame's body: the sender's set-size, version-size-bound,
+/// and message-size-target prefixes, then the version.
 fn version_body(version: &Version) -> Vec<u8> {
     let mut body = 0_u64.to_le_bytes().to_vec();
+    body.extend_from_slice(&0_u64.to_le_bytes());
     body.extend_from_slice(&0_u64.to_le_bytes());
     body.extend_from_slice(version.as_bytes());
     body

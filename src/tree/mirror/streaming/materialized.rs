@@ -102,6 +102,7 @@ use crate::tree::{
         materialized::{unknown::Unknown, work::Work},
         message::{Handshake, Reaction, Reply},
         protocol::{self, BoxResponses, Requests},
+        remote::DEFAULT_TARGET_MESSAGE_SIZE,
         window::WindowConfig,
     },
     typed::{
@@ -236,6 +237,9 @@ pub struct Handshaking<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static
     /// The session's window choice, resolved against the exchanged set
     /// sizes; see [`window`](super::window).
     window: WindowConfig,
+    /// This side's supply-run byte target, carried by the greeting; the
+    /// session runs at the minimum of the two ends' targets.
+    target_message_size: u64,
 }
 
 /// The version state of a stage that has been opened but has not yet sent its
@@ -315,12 +319,21 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T
             },
             root,
             window: WindowConfig::default(),
+            target_message_size: DEFAULT_TARGET_MESSAGE_SIZE as u64,
         }
     }
 
     /// Select this session's window choice; see [`window`](super::window).
     pub fn window(mut self, window: WindowConfig) -> Self {
         self.window = window;
+        self
+    }
+
+    /// Declare this side's supply-run byte target for the greeting; the
+    /// session's encoders on both ends run at the minimum of the two
+    /// exchanged targets.
+    pub fn target_message_size(mut self, bytes: u64) -> Self {
+        self.target_message_size = bytes;
         self
     }
 }
@@ -383,6 +396,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
             // so they cannot drift from the tree they describe.
             set_len: self.root.len(),
             max_version_bytes: self.root.max_version_bytes(),
+            target_message_size: self.target_message_size,
             listing: fan_listing(&fan),
         };
         let next = Handshaking {
@@ -390,6 +404,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
             versions: Connecting { our_version, fan },
             root: self.root,
             window: self.window,
+            target_message_size: self.target_message_size,
         };
         Ok((handshake, next))
     }
@@ -412,6 +427,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
             },
             root: self.root,
             window: self.window,
+            target_message_size: self.target_message_size,
         })
     }
 }
@@ -433,6 +449,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
             // so they cannot drift from the tree they describe.
             set_len: self.root.len(),
             max_version_bytes: self.root.max_version_bytes(),
+            target_message_size: self.target_message_size,
             listing: fan_listing(&fan),
         };
         let next = Handshaking {
@@ -446,6 +463,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
             },
             root: self.root,
             window: self.window,
+            target_message_size: self.target_message_size,
         };
         Ok((handshake, next))
     }

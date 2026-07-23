@@ -432,6 +432,12 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// established memory ceiling. Any value is safe, including zero, which
     /// degrades to one leaf per message.
     ///
+    /// Each session runs at the **minimum** of the two ends' targets:
+    /// the greeting carries each side's setting, so yours bounds both
+    /// the frames you build and the frames built for you — the more
+    /// memory-constrained peer sets the pace, and peers with different
+    /// settings interoperate.
+    ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
     /// bookmarking, and retirement. [`Protocol::V1`] sessions ignore it:

@@ -52,8 +52,6 @@ where
     /// exchanged set sizes; see
     /// [`window`](crate::tree::mirror::streaming::window).
     window: WindowConfig,
-    /// The encoder's supply-run byte budget; see [`RunBudget`].
-    budget: RunBudget,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -69,7 +67,6 @@ where
             link,
             versions: Start,
             window: WindowConfig::default(),
-            budget: RunBudget::default(),
             marker: PhantomData,
         }
     }
@@ -78,12 +75,6 @@ where
     /// [`window`](crate::tree::mirror::streaming::window).
     pub fn window(mut self, window: WindowConfig) -> Self {
         self.window = window;
-        self
-    }
-
-    /// Select this session's supply-run byte budget; see [`RunBudget`].
-    pub fn run_budget(mut self, budget: RunBudget) -> Self {
-        self.budget = budget;
         self
     }
 }
@@ -131,7 +122,6 @@ where
             link: self.link,
             versions: Connecting { remote },
             window: self.window,
-            budget: self.budget,
             marker: PhantomData,
         };
         Ok((handshake, next))
@@ -159,10 +149,11 @@ where
             self.versions.remote.max_version_bytes,
             B::node_bytes,
         );
+        let budget = run_budget(&theirs, &self.versions.remote);
         Ok(connected(
             self.backend,
             window,
-            self.budget,
+            budget,
             theirs.version,
             self.versions.remote,
             self.link,
@@ -194,10 +185,11 @@ where
             remote.max_version_bytes,
             B::node_bytes,
         );
+        let budget = run_budget(&request, &remote);
         let next = connected(
             self.backend,
             window,
-            self.budget,
+            budget,
             request.version,
             remote,
             self.link,
@@ -206,21 +198,31 @@ where
     }
 }
 
+/// The session's supply-run budget: the smaller of the two greetings'
+/// targets, so each side's setting bounds both what it builds and what
+/// is built for it, and the more memory-constrained end sets the pace.
+fn run_budget(ours: &Handshake, theirs: &Handshake) -> RunBudget {
+    let bytes = ours.target_message_size.min(theirs.target_message_size);
+    RunBudget::from_bytes(usize::try_from(bytes).unwrap_or(usize::MAX))
+}
+
 /// Send one greeting: the size-prefixed causal-version frame, then the
 /// root-fan listing frame.
 ///
 /// The first frame's body is `set_len (8 B LE) ‖ max_version_bytes
-/// (8 B LE) ‖ version`. Both frames flush on the same hop; the listing
-/// frame is the wire carriage of the opening question's content (see
-/// [`Handshake`] for the always-carry trade).
+/// (8 B LE) ‖ target_message_size (8 B LE) ‖ version`. Both frames flush
+/// on the same hop; the listing frame is the wire carriage of the
+/// opening question's content (see [`Handshake`] for the always-carry
+/// trade).
 async fn send<E, W>(greeting: &Handshake, write: &mut W) -> Result<(), Error<E>>
 where
     W: AsyncWrite + Unpin,
 {
     let mut write = framing::FrameWrite::new(write);
-    let mut first = Vec::with_capacity(16 + greeting.version.as_bytes().len());
+    let mut first = Vec::with_capacity(24 + greeting.version.as_bytes().len());
     first.extend_from_slice(&greeting.set_len.to_le_bytes());
     first.extend_from_slice(&greeting.max_version_bytes.to_le_bytes());
+    first.extend_from_slice(&greeting.target_message_size.to_le_bytes());
     first.extend_from_slice(greeting.version.as_bytes());
     write.frame(&first).await.map_err(Error::HandshakeWrite)?;
     let listing = borsh::to_vec(&greeting.listing).map_err(Error::HandshakeWrite)?;
@@ -253,7 +255,8 @@ where
     };
     let set_len = word(0).ok_or_else(short)?;
     let max_version_bytes = word(8).ok_or_else(short)?;
-    let version = Version::try_from_slice(&bytes[16..]).map_err(Error::HandshakeDecode)?;
+    let target_message_size = word(16).ok_or_else(short)?;
+    let version = Version::try_from_slice(&bytes[24..]).map_err(Error::HandshakeDecode)?;
     let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
     let listing = Vec::<(u8, Hash)>::try_from_slice(&bytes).map_err(Error::HandshakeDecode)?;
     validate_children(&listing).map_err(Error::HandshakeListing)?;
@@ -261,6 +264,7 @@ where
         version,
         set_len,
         max_version_bytes,
+        target_message_size,
         listing,
     })
 }
