@@ -2303,3 +2303,66 @@ separately before anything beyond this scope is planned.
   Display-string snapshot block; recorded fact — Rank and Ranked
   have no serde/borsh/encode surface, so the ideation starts green
   field.
+
+### 17.8 Rank representation (returned scope, recorded 2026-07-23)
+
+The §17.7 ideation returned; the finding is that no representation
+change is warranted, and one algorithmic change is.
+
+- **Consumer inventory [measured]**: production storage of `Rank` is
+  exactly one site — `CausalMessages`' staged backlog
+  (`BTreeMap<(Rank, Key), Leaf<T>>`, one rank per undelivered
+  message, worst case the whole set on a fresh subscribe; key 64 B of
+  which Rank is 32). `Ranked` has no production consumer; `before-viz`
+  none; no serialized surface (the §17.7 green field, confirmed by
+  sweep of both trees).
+- **Class-first comparison (adopted; lands with P3.6)**: `Rank::cmp`
+  decides mismatched magnitude classes from `bits(num) − exp` in
+  O(1), and resolves class ties by MSB-aligned mantissa windows
+  streamed most-significant-limb-first — no alignment shift is ever
+  materialized, and `checked_sub` routes its ordering pre-check
+  through the same path, so only its `Some` arm (whose transient is
+  the output's own value content) still aligns. Soundness of the
+  prefix rule rides on the stored normalization invariant (odd
+  numerator, zero pinned to exponent zero): equal shared windows with
+  unequal mantissa lengths order by length because the longer
+  mantissa's last bit is 1. Cost: O(1) on unequal classes, O(min
+  mantissa limbs) on ties, zero allocation **[measured — scratch
+  probe, release, 25k random pairs fuzz-agreed against the alignment
+  oracle: the RANK_PAIR_MISMATCH shape 1.4–2.6 µs → 1 ns at
+  d = 500k/1M; same-class 17-bit-vs-(d+17)-bit 6.9 µs → 3 ns at
+  d = 1M; deep shared-prefix ties at parity or better]**. The
+  RANK_PAIR_MISMATCH envelope pins at the new cost after this lands.
+  Display, Eq/Hash, and the exp ≤ depth bound are untouched; the limb
+  meter records streamed windows so the metered cost stays honest.
+- **Representation changes rejected**: float-style re-denomination
+  (the class is O(1)-derivable from the stored form; the field change
+  buys nothing) **[derived]**; lazy unnormalized sums (Eq/Hash force
+  normalization at every observation — the cost moves rather than
+  disappears, or interior mutability imports a sync and audit
+  surface) **[derived]**; shared-exponent batch containers (the one
+  bulk consumer needs per-key `Ord` in a `BTreeMap`; no access
+  pattern fits).
+- **Compact inline/spill form (held, not planned)**: an
+  inline-`(u64, u32)`-or-boxed-spill repacking measures 16 bytes and
+  covers 100% of organic ranks inline — gossip meshes at 4→1024
+  parties produce exp = log₂(parties) and ≤ 16-bit numerators;
+  fork-leak churn at ~6k parties reaches exp 28 / 32-bit numerators;
+  tighter sub-16-byte packings lose 37–50% of the churn regime
+  **[measured — public-API harness, seeded, five regimes]**. It
+  would save 22% of a staged-map entry's payload — a transient
+  backlog, so held until bulk-memory pressure is observed. Spill
+  canonicality (un-spill on subtraction, the `Base::from_big`
+  discipline) would become load-bearing for structural Eq/Hash.
+- **Serialized encoding (deferred)**: no consumer stores or wires a
+  `Rank`; minting a codec surface creates §17.6 obligations with no
+  beneficiary. If one is ever wanted: strict decode must reject
+  non-normalized forms (even numerator with nonzero exponent; zero
+  with nonzero exponent) so byte equality keeps implying value
+  equality.
+- **Adjacent observation (unmeasured, wants its own probe)**: the
+  public `Sum` impls fold through a growing normalized accumulator;
+  one high-exponent rank plus n integers costs Θ(n·exp) against
+  Θ(n + exp) input content **[derived]** — curable inside `Sum` with
+  a raw accumulator and a single final normalization, no semantic
+  change.
