@@ -8,6 +8,13 @@ pub enum ScopeError {
     /// A positional query followed all children named by its question.
     #[error("a query has no remaining child in its question")]
     UnpositionedQuery,
+    /// A match followed all children named by its question.
+    ///
+    /// Detected at the offending frame, so a reply cannot grow its
+    /// decoded skeleton past the question's fan before the overrun
+    /// surfaces.
+    #[error("a match has no remaining child in its question")]
+    UnpositionedMatch,
     /// A nonempty query cannot descend below leaf height.
     #[error("a leaf-height reply contains a nonempty query")]
     NonemptyLeafQuery,

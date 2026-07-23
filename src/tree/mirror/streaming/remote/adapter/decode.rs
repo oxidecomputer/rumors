@@ -169,7 +169,11 @@ where
         match reaction {
             WireReaction::Match => {
                 read.supplies.interrupt();
-                let _ = scope.next();
+                // Eager, symmetric with the query arm: a match past the
+                // question's fan fails at its own frame, so a
+                // nonconforming peer cannot grow the skeleton unboundedly
+                // before the walk's whole-reply validation would see it.
+                scope.next().ok_or(ScopeError::UnpositionedMatch)?;
                 read.skeleton.push(Skeleton::Match);
             }
             WireReaction::Query(listing) => {
