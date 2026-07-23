@@ -2449,3 +2449,69 @@ change is warranted, and one algorithmic change is.
   gains a RANK_SUM_MIXED row (n integer ranks + one dense-derived
   high-exp rank, high-first ordering) pinned at current cost ×1.25
   before the cure and re-pinned after.
+
+### 17.9 Public-API census (recorded 2026-07-23)
+
+The full-surface enumeration the §14 measurability constraint calls
+for, run as an independent census against the worktree at P3.4's
+landing. Method of record: rustdoc JSON (nightly, all features)
+walked from the crate root along public reachability — 335 census
+entries (22 types, 109 methods, 25 free functions, 10 modules, 9
+constants, 160 name-level trait impls), reproduced byte-identically
+across two runs. Apparent `Div`/`RangeBounds` rows on `Party`/
+`Version` are rustdoc cross-listings of `impl Div<&Party> for
+Version` and `impl RangeBounds<Version> for causally::Range`
+**[measured** — source-verified**]**, not surface. Every board-NA
+item was triaged by implementation read; the census found one new
+amplifier and two coverage gaps.
+
+- **The join-direction folds are quadratic: V7 — the fold genre
+  (V6's mechanism) generalized beyond Rank.** `Version::join_all`/
+  `Sum`/`FromIterator`, `Party::join_all`, and `Clock::join_all`
+  fold sequentially through a growing accumulator, each step
+  walking — and, on the version side, repacking — the whole
+  accumulated value. On n scatter-ordered organic single-tick
+  versions (built through the public API: balanced forks, one tick
+  each, evens before odds so the accumulator never coalesces), limb
+  work quadruples per n-doubling — 193.8M → 773.7M → 3,091M at
+  n = 4Ki/8Ki/16Ki against 28→131 KiB of packed input, wall
+  0.55 → 2.2 → 9.0 s **[measured** — scratch probe, release,
+  public API only, result verified equal to a balanced-reduction
+  reference each run**]**; the balanced reduction over the same
+  multiset is amortized-linear (14.4M limb ops, 47 ms at the
+  largest cell, ~190× and growing). `Party::join_all` shows the
+  same law on wall (×3.8–3.9 per doubling) while **every
+  deterministic meter column reads zero** — id walks do no `Base`
+  arithmetic, join mutates in place, and the per-join walk is
+  iterative — so the board is structurally blind to the id-side
+  fold the way it was blind to rendering class before the display
+  canary. `meet_all` does not amplify: its accumulator is bounded
+  by the smaller operand **[derived]**. No `rumors` production path
+  calls any of these folds; the exposure is `before`'s
+  independent-library surface, the §17.6 population. The cure
+  attaches to **P3.6** (balanced reduction now, or the n-cursor
+  sweep once the kernels exist); the board's "folds of measured
+  rows" NA rationale — the same drowned genre §17.7 retired for
+  Rank — is replaced at **P3.6b** with a `version_join_all` ×
+  scatter row plus a wall-witnessed party-fold scenario beside the
+  display canary, pinned red before the cure and re-pinned after.
+- **serde forms are untested in-crate.** No roundtrip, no byte-form
+  pin, no strict-reject test exists for the serde
+  `Party`/`Version`/`Clock` impls (borsh has all three legs via its
+  `bytes ≡ as_bytes` proptests anchored to the snapshot-pinned
+  canonical forms). This is the §17.6 downstream-only-pinning hole
+  verbatim; the mirror suite lands with **P3.6b**'s pin inventory.
+- **NA-list prose omissions**, no new mechanism **[derived** — each
+  delegates to a measured kernel, verified by read**]**: the
+  `batch::Version` operator matrix (routes through
+  `join_view`/`meet_view` and the cmp walk), the consuming
+  `From<Party> for [Party; N]`/`From<Clock> for [Clock; N]` splits
+  (the `forks` machinery), `Forks::Drop`'s O(log n) rejoin, and
+  `causally::Range`'s refinement/accessor methods. The board module
+  doc's exhaustiveness claim is repaired at **P3.6b** in the same
+  commit as the audit enumeration, together with `meet_all`'s
+  mechanism-based NA reason.
+
+Everything else on the 335-entry surface is pinned or NA with a
+mechanism-based reason that survived an implementation read; the
+Rank gaps remain owned by §17.7–§17.8 exactly as recorded.
