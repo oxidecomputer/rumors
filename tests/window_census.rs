@@ -138,6 +138,54 @@ fn window_attributable_residency_stays_inside_admittance() {
     );
 }
 
+/// The lemma-slack pin: measured version bounds stay inside the priced
+/// pair bound.
+///
+/// The window prices every version a session can hold — including the
+/// interior ceilings and floors the merged tree assembles from *both*
+/// replicas' leaves — at `local_max + remote_max`, the exchanged
+/// joined-leaf bound resting on the pairwise join-size lemma. Interior
+/// bounds are joins over many leaves, not two, so this is where the
+/// model could silently under-price; measuring a reconciled tree's every
+/// bound against the pre-session exchange pins the slack to reality.
+#[test]
+fn version_bounds_stay_inside_the_priced_pair_bound() {
+    let (left, right) = diverged(TIGHT_BUDGET, DIVERGENT_WIDE);
+
+    // A third concurrent history: interior joins over two parties stay
+    // near either input's size, so a third is what gives the many-leaf
+    // join room to outgrow the pairwise bound if it ever could.
+    let third = pollster::block_on(async {
+        let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        let (served, joined) = tokio::join!(
+            right.gossip(&mut provider),
+            Peer::<u64>::bootstrap_with_protocol(Protocol::V2, &mut newcomer),
+        );
+        served.expect("serve third bootstrap");
+        joined
+            .expect("bootstrap third")
+            .expect("provider is established")
+            .sync_memory_budget(TIGHT_BUDGET)
+            .into_rumors()
+    });
+    let mut rng = SmallRng::seed_from_u64(0x0b05_2026_1e77_a51a);
+    send_random(&third, 2_048, &mut rng);
+    reconcile(&third, &left);
+
+    let local_max = rumors::testing::max_leaf_version_bytes(&left.snapshot());
+    let remote_max = rumors::testing::max_leaf_version_bytes(&right.snapshot());
+    reconcile(&left, &right);
+
+    let measured = rumors::testing::max_bound_bytes(&left.snapshot())
+        .max(rumors::testing::max_bound_bytes(&right.snapshot()));
+    eprintln!("priced bound {local_max} + {remote_max}, measured max node bound {measured}");
+    assert!(
+        measured <= local_max + remote_max,
+        "a reconciled tree holds a {measured}-byte version bound; the \
+         session priced every bound within {local_max} + {remote_max}",
+    );
+}
+
 /// Content overhead at the floor is the output tree, not the divergence.
 ///
 /// At the one-slot floor the window holds almost nothing, so a session's

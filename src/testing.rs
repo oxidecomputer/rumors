@@ -44,6 +44,25 @@ pub fn node_census_reset() {
     crate::tree::typed::untyped::census::reset_peak();
 }
 
+/// The largest canonical encoding among a snapshot's live leaf versions,
+/// in bytes: the exact per-node aggregate the greeting exchanges.
+pub fn max_leaf_version_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
+    snapshot.tree().max_version_bytes()
+}
+
+/// The largest canonical encoding among every per-node version bound in
+/// a snapshot's tree: leaf versions and interior ceilings/floors, with
+/// the lazy memos forced.
+///
+/// The session memory model prices every version a session can hold at
+/// the pairwise joined-leaf bound the greeting exchanges
+/// (`local_max + remote_max`), while interior bounds are joins over
+/// *many* leaves; this walk measures that slack against a real tree, so
+/// tests can pin the model side of the account to reality.
+pub fn max_bound_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
+    snapshot.tree().max_bound_bytes()
+}
+
 /// The per-height channel capacities a session derives from its budget
 /// and the two replicas' exchanged set sizes, indexed by typed height
 /// (`0` = leaves, `32` = root).

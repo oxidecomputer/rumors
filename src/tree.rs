@@ -242,6 +242,23 @@ impl<T> Tree<T> {
             .unwrap_or_default()
     }
 
+    /// The largest canonical encoding among every *per-node* version
+    /// bound the tree holds — leaf versions and interior ceilings/floors,
+    /// memos forced.
+    ///
+    /// Deliberately excludes the root ceiling riding outside the nodes:
+    /// that value is the greeting version, one per tree, priced outside
+    /// the per-node memory model. Test instrumentation; see
+    /// [`testing::max_bound_bytes`](crate::testing::max_bound_bytes).
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn max_bound_bytes(&self) -> usize {
+        self.root
+            .root
+            .as_ref()
+            .map(|node| node.max_bound_bytes())
+            .unwrap_or_default()
+    }
+
     /// Get the root hash for the tree.
     pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         Node::root_hash(&self.root.clone().into()).into()

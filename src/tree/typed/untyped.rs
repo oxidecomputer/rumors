@@ -528,6 +528,34 @@ impl<T> Node<T> {
         }
     }
 
+    /// The largest canonical encoding among every version this subtree
+    /// holds: leaf versions plus every branch's ceiling and floor, the
+    /// memos forced eagerly.
+    ///
+    /// Test instrumentation for the session memory model: interior
+    /// bounds are joins over many leaves, and the model charges them at
+    /// the *pairwise* joined-leaf bound, so this walk is what measures
+    /// that slack against reality. Materialized depth is at most the
+    /// 32-byte path, so the recursion is stack-safe.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub fn max_bound_bytes(&self) -> usize {
+        match &self.inner.children {
+            Children::Leaf { version, .. } => version.as_bytes().len(),
+            Children::Branch { children, .. } => self
+                .ceiling()
+                .as_bytes()
+                .len()
+                .max(self.floor().as_bytes().len())
+                .max(
+                    children
+                        .values()
+                        .map(Node::max_bound_bytes)
+                        .max()
+                        .unwrap_or_default(),
+                ),
+        }
+    }
+
     /// Whether this node's content is a single leaf (regardless of any
     /// path-compressed prefix above it).
     ///

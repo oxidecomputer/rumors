@@ -25,6 +25,12 @@ impl<T> Snapshot<T> {
         Self { network, tree }
     }
 
+    /// The snapshotted tree, for crate-internal instruments.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn tree(&self) -> &Tree<T> {
+        &self.tree
+    }
+
     /// The identifier shared by every peer that descends from the same
     /// [`seed`](crate::Peer::seed) as the snapshotted set.
     pub fn network(&self) -> Network {

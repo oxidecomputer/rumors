@@ -208,6 +208,16 @@ impl<T, H: Height> Node<T, H> {
         self.inner.version_bytes()
     }
 
+    /// The largest canonical encoding among every version bound in this
+    /// subtree — leaf versions and interior ceilings/floors, memos forced.
+    ///
+    /// Test instrumentation for the session memory model; see the
+    /// [untyped walk](untyped::Node::max_bound_bytes).
+    #[cfg(any(test, feature = "test-internals"))]
+    pub fn max_bound_bytes(&self) -> usize {
+        self.inner.max_bound_bytes()
+    }
+
     /// Whether this node's content is a single leaf, regardless of any
     /// path-compressed prefix above it.
     ///
