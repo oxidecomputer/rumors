@@ -229,6 +229,19 @@ impl<T> Tree<T> {
         self.root.root.as_ref().map(Node::len).unwrap_or_default()
     }
 
+    /// The largest canonical version encoding among the tree's live
+    /// messages, in bytes; zero for the empty tree.
+    ///
+    /// An `O(1)` read of a per-node aggregate maintained exactly, like
+    /// [`len`](Self::len): redacting the largest version resizes it down.
+    pub(crate) fn max_version_bytes(&self) -> usize {
+        self.root
+            .root
+            .as_ref()
+            .map(Node::version_bytes)
+            .unwrap_or_default()
+    }
+
     /// Get the root hash for the tree.
     pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         Node::root_hash(&self.root.clone().into()).into()

@@ -145,6 +145,10 @@ enum Children<T> {
         floor: OnceLock<Version>,
         /// The number of total leaves under this branch.
         leaves: usize,
+        /// The largest canonical [`Version`] encoding among the leaves
+        /// under this branch, in bytes: the max over the children's own
+        /// values, fixed at construction like `leaves`.
+        version_bytes: usize,
         /// The children of this branch.
         children: OrdMap<u8, Node<T>>,
     },
@@ -164,11 +168,13 @@ impl<T> Clone for Children<T> {
                 ceiling,
                 floor,
                 leaves,
+                version_bytes,
                 children,
             } => Self::Branch {
                 ceiling: ceiling.clone(),
                 floor: floor.clone(),
                 leaves: *leaves,
+                version_bytes: *version_bytes,
                 children: children.clone(),
             },
         }
@@ -205,6 +211,11 @@ impl<T> Node<T> {
                     ceiling: OnceLock::new(),
                     floor: OnceLock::new(),
                     leaves: children.values().map(Node::len).sum(),
+                    version_bytes: children
+                        .values()
+                        .map(Node::version_bytes)
+                        .max()
+                        .expect("a multi-child branch is non-empty"),
                     children,
                 },
             }))),
@@ -321,6 +332,11 @@ impl<T> Node<T> {
                 ceiling: OnceLock::new(),
                 floor: OnceLock::new(),
                 leaves: count,
+                version_bytes: children
+                    .values()
+                    .map(Node::version_bytes)
+                    .max()
+                    .expect("a branch point separates >= 2 runs"),
                 children,
             },
         }))
@@ -381,6 +397,22 @@ impl<T> Node<T> {
         match self.inner.children {
             Children::Leaf { .. } => 1,
             Children::Branch { leaves, .. } => leaves,
+        }
+    }
+
+    /// The largest canonical [`Version`] encoding among the leaves under
+    /// this node, in bytes.
+    ///
+    /// Exact, never a high-water mark: a leaf answers with its own
+    /// version's packed length, a branch carries the max over its
+    /// children, and every mutation rebuilds its copy-on-write spine
+    /// through the branch constructors — so deleting the largest leaf
+    /// resizes the aggregate down with no separate invalidation, exactly
+    /// like `len`.
+    pub fn version_bytes(&self) -> usize {
+        match &self.inner.children {
+            Children::Leaf { version, .. } => version.as_bytes().len(),
+            Children::Branch { version_bytes, .. } => *version_bytes,
         }
     }
 

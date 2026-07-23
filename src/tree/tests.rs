@@ -972,3 +972,82 @@ proptest! {
         }
     }
 }
+
+// ───────────────────────── version-size aggregate ─────────────────────────
+
+/// The maximum canonical version encoding over a tree's live messages,
+/// recomputed from scratch: the oracle `Tree::max_version_bytes` must match.
+fn naive_max_version_bytes(tree: &Tree<Bytes>) -> usize {
+    tree.iter()
+        .map(|(_, version, _)| version.as_bytes().len())
+        .max()
+        .unwrap_or_default()
+}
+
+proptest! {
+    /// The version-size aggregate is exact through inserts and forgets:
+    /// after every action, `max_version_bytes` equals the max canonical
+    /// version encoding over the live messages (zero once emptied).
+    ///
+    /// Versions grow as a party's history accumulates, so late inserts
+    /// carry strictly larger encodings than early ones; forgetting the
+    /// message that carries the maximum must therefore resize the
+    /// aggregate *down* — the behavior a monotone high-water scalar would
+    /// get wrong.
+    #[test]
+    fn version_size_aggregate_is_exact(
+        values in distinct_bytes(12),
+        forgets in proptest::collection::vec(any::<prop::sample::Index>(), 0..18),
+    ) {
+        let mut tree: Tree<Bytes> = Tree::new();
+        prop_assert_eq!(tree.max_version_bytes(), 0, "the empty tree bounds nothing");
+
+        for (i, value) in values.iter().enumerate() {
+            // Rotating parties makes sibling versions concurrent, not just
+            // points on one chain, so branch maxima genuinely compare.
+            tree.act(&party_of([b'a' + (i % 5) as u8]), [insert_action(value.clone())]);
+            prop_assert_eq!(tree.max_version_bytes(), naive_max_version_bytes(&tree));
+        }
+
+        for forget in forgets {
+            let keys: Vec<Key> = tree.iter().map(|(key, ..)| key).collect();
+            let Some(&key) = keys.get(forget.index(keys.len().max(1))) else {
+                break;
+            };
+            // Target the argmax half the time so the resize-down direction
+            // is exercised on every run, not left to index luck.
+            let key = tree
+                .iter()
+                .max_by_key(|(_, version, _)| version.as_bytes().len())
+                .map(|(argmax, ..)| if forget.index(2) == 0 { argmax } else { key })
+                .unwrap_or(key);
+            tree.act(&party_of("P"), [Action::Forget(key)]);
+            prop_assert_eq!(tree.max_version_bytes(), naive_max_version_bytes(&tree));
+        }
+    }
+}
+
+proptest! {
+    /// The version-size aggregate survives the merge path.
+    ///
+    /// Joining two independently grown trees (disjoint parties, concurrent
+    /// histories) yields exactly the max over the union's live messages,
+    /// checked against the recomputed oracle.
+    #[test]
+    fn version_size_aggregate_survives_join(
+        left_values in distinct_bytes(8),
+        right_values in distinct_bytes(8),
+    ) {
+        let mut left: Tree<Bytes> = Tree::new();
+        for value in &left_values {
+            left.act(&party_of("A"), [insert_action(value.clone())]);
+        }
+        let mut right: Tree<Bytes> = Tree::new();
+        for value in &right_values {
+            right.act(&party_of("B"), [insert_action(value.clone())]);
+        }
+
+        left.join(right);
+        prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
+    }
+}

@@ -198,6 +198,16 @@ impl<T, H: Height> Node<T, H> {
         self.inner.len()
     }
 
+    /// The largest canonical [`Version`] encoding among the leaves under
+    /// this node, in bytes.
+    ///
+    /// Exact under deletion, like [`len`](Self::len): every mutation
+    /// rebuilds its copy-on-write spine through the branch constructors,
+    /// which recompute the max.
+    pub fn version_bytes(&self) -> usize {
+        self.inner.version_bytes()
+    }
+
     /// Whether this node's content is a single leaf, regardless of any
     /// path-compressed prefix above it.
     ///
