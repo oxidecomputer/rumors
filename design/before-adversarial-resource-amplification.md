@@ -383,10 +383,11 @@ and false for others. Two generator shapes separate them:
   decode/cmp/join per-input-byte limb constants flat across a 4×
   input growth (0.72 → 0.67, 0.16 → 0.14, 1.46 → 1.39 ops/byte at
   `k = n` = 1024 → 2048); ceilings pinned.
-- **Unpaid crossings** [derived — build the generator and pin it
-  before this section's implementation lands]: hang teeth
-  `(1, 0, 1)` — 9 bits each — from a base-0 fan under a single
-  stored `2^k − 1` root. The path sum sits at the cliff across the
+- **Unpaid crossings** [derived; the generator landed 2026-07-23 at
+  P3.2 as `meter::cliff_fan`, canonicality and closed-form size
+  pinned, its entry/exit stream in the accumulator envelopes]: hang
+  teeth `(1, 0, 1)` — 12 stored bits each — from a base-0 fan under
+  a single stored `2^k − 1` root. The path sum sits at the cliff across the
   whole fan, every tooth's `+1`/`−1` re-crosses it, and one
   comparably-coded magnitude forces `n` excursions at O(1) input
   bits each: Θ(nk) limb work in a Θ(n + k)-bit input for any
