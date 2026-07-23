@@ -1039,6 +1039,17 @@ resource-pinned by a board row or an enforced meter envelope. Any
 operation found lacking either, at any point in P3–P5, is a coverage
 finding to be fixed in the phase that finds it.
 
+Added 2026-07-23 (P3 planning, benches): the bench suite grows to
+full computational coverage of the new representation — every public
+operation benchmarked over representative and adversarial shapes,
+with before/after deltas reported at each phase that touches the
+operation. The suite is reorganized for targeted iteration: one
+command runs a single operation's benches (a justfile recipe taking
+a filter), and a documented reduced-sampling mode (smaller sample
+count / measurement window) gives agents a fast feedback loop —
+quick mode for iteration, full sampling for any number quoted as a
+result of record.
+
 Amended 2026-07-23, P0 review round 2: the "each phase
 `just gate`-clean" bar is blocked at P0 by the streaming-wire mux
 deadlock inherited from main (`rumors` gossip sessions park;
