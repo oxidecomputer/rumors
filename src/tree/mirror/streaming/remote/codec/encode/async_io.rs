@@ -34,6 +34,14 @@ impl<W> FrameWrite<W> {
 
 impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     /// Validate, write, and flush one canonical frame.
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel safe. A dropped `frame` future may already have written
+    /// part of the frame, leaving the direction mid-frame for the peer's
+    /// reader. Either retain the in-flight future across polls until it
+    /// resolves, or write nothing further on this direction after a
+    /// cancellation.
     pub async fn frame<T>(&mut self, wire: &WireFrame<T>) -> Result<(), EncodeError> {
         let (stream, frame) = wire;
         let result = async {

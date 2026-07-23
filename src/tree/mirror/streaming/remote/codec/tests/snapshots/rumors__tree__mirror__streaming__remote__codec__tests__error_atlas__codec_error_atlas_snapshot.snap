@@ -1,6 +1,6 @@
 ---
 source: src/tree/mirror/streaming/remote/codec/tests/error_atlas.rs
-expression: atlas
+expression: build_atlas()
 ---
 ENCODE
   Initiator/write/signal
@@ -273,3 +273,15 @@ DECODE
     origin: Responder stream 16
     kind: InvalidSignal::Placement(byte=10, class=TerminalLeafReplies)
     source[0]: signal byte 0x10 is invalid for the responder's terminal leaf replies
+RECORD
+  record/version
+    display: supplied Version could not be decoded
+    kind: Record::Version(io=UnexpectedEof)
+    source[0]: Io(UnexpectedEof)
+  record/message
+    display: supplied Message could not be decoded
+    kind: Record::Message(io=InvalidData)
+    source[0]: Io(InvalidData)
+  record/trailing
+    display: 1 trailing bytes follow the supplied Version and Message
+    kind: Record::TrailingBytes(count=1)

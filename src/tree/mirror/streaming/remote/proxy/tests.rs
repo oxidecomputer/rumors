@@ -500,7 +500,7 @@ fn wide_symmetric_accepts_reordered_match_local() {
         reordered.load(Ordering::Relaxed),
         0,
         "the topology now admits a genuine inversion: this test's doc \
-         undersells it — rewrite the claims and flip this tripwire to > 0",
+         undersells it: rewrite the claims and flip this tripwire to > 0",
     );
 }
 

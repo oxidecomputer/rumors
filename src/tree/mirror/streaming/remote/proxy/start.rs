@@ -219,7 +219,8 @@ where
     W: AsyncWrite + Unpin,
 {
     let mut write = framing::FrameWrite::new(write);
-    let mut first = Vec::with_capacity(24 + greeting.version.as_bytes().len());
+    let mut first =
+        Vec::with_capacity(framing::GREETING_SIZE_WORDS_LEN + greeting.version.as_bytes().len());
     first.extend_from_slice(&greeting.set_len.to_le_bytes());
     first.extend_from_slice(&greeting.max_version_bytes.to_le_bytes());
     first.extend_from_slice(&greeting.target_message_size.to_le_bytes());
@@ -249,14 +250,15 @@ where
     };
     let word = |at: usize| {
         bytes
-            .get(at..at + 8)
-            .and_then(|prefix| <[u8; 8]>::try_from(prefix).ok())
+            .get(at..at + framing::GREETING_WORD_LEN)
+            .and_then(|prefix| <[u8; framing::GREETING_WORD_LEN]>::try_from(prefix).ok())
             .map(u64::from_le_bytes)
     };
     let set_len = word(0).ok_or_else(short)?;
-    let max_version_bytes = word(8).ok_or_else(short)?;
-    let target_message_size = word(16).ok_or_else(short)?;
-    let version = Version::try_from_slice(&bytes[24..]).map_err(Error::HandshakeDecode)?;
+    let max_version_bytes = word(framing::GREETING_WORD_LEN).ok_or_else(short)?;
+    let target_message_size = word(2 * framing::GREETING_WORD_LEN).ok_or_else(short)?;
+    let version = Version::try_from_slice(&bytes[framing::GREETING_SIZE_WORDS_LEN..])
+        .map_err(Error::HandshakeDecode)?;
     let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
     let listing = Vec::<(u8, Hash)>::try_from_slice(&bytes).map_err(Error::HandshakeDecode)?;
     validate_children(&listing).map_err(Error::HandshakeListing)?;

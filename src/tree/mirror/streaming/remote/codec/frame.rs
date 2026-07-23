@@ -278,6 +278,18 @@ pub enum LeafRunError {
     TruncatedRecord { len: usize, remaining: usize },
 }
 
+/// Validate that a radix listing is in canonical order: strictly ascending.
+///
+/// This is the one gate every child listing entering from the wire passes,
+/// whichever surface carries it — a query frame's body or the greeting's
+/// root-fan listing. Strictness is the whole invariant: the canonical form
+/// admits each radix at most once, so an equal adjacent pair is rejected
+/// exactly like a descent.
+///
+/// # Errors
+///
+/// The first adjacent non-ascending pair reports both radices as a
+/// [`QueryOrderError`].
 pub fn validate_children(children: &[(u8, Hash)]) -> Result<(), QueryOrderError> {
     for pair in children.windows(ADJACENT_CHILD_COUNT) {
         let [previous, current] = pair else {

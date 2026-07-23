@@ -53,7 +53,10 @@ use super::codec::{
 };
 
 /// Bytes of the label a sender writes before its first frame.
-const LABEL_LEN: usize = 2;
+///
+/// The canonical definition of the wire label's width: the capture
+/// harnesses parse labels with this same constant.
+pub(crate) const LABEL_LEN: usize = 2;
 
 /// Render the label naming one opened stream: session epoch, stream index.
 fn label(epoch: u8, stream: Stream) -> [u8; LABEL_LEN] {
@@ -133,6 +136,17 @@ impl<C: Connector, T> StreamSender<C, T> {
     }
 
     /// Write and flush one reply frame, opening the stream on the first.
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel safe. Dropping the first `frame` future between opening
+    /// the transport stream and completing the label write leaves the peer
+    /// reading a truncated label: its accept driver classifies the short
+    /// read as a failed stream supply and drops every undelivered claim
+    /// slot, so all later levels on the peer fail as supply-closed — a
+    /// session-wide severance misattributed to the supply rather than to
+    /// the cancellation. Retain the future until it resolves, or treat the
+    /// session as severed after cancelling it.
     pub async fn frame(&mut self, frame: ReplyFrame<T>) -> Result<(), SendError> {
         self.write(frame.into()).await
     }
@@ -216,11 +230,15 @@ pub enum StreamError {
     #[error(transparent)]
     Decode(#[from] DecodeError),
     /// A frame's signal byte named a stream other than the claimed label.
-    #[error("{origin}: stream labeled {labeled} carried a frame for {framed}")]
+    #[error(
+        "{origin}: stream labeled {} carried a frame for {}",
+        labeled.index(),
+        framed.index()
+    )]
     Mislabeled {
         origin: Origin,
-        labeled: u8,
-        framed: u8,
+        labeled: Stream,
+        framed: Stream,
     },
     /// The transport stream ended before its explicit end control.
     #[error("{origin}: transport stream ended before its end control")]
@@ -376,8 +394,8 @@ where
                 Ok(Some((framed, _))) => {
                     route.report(StreamError::Mislabeled {
                         origin: Origin::stream(speaker, stream),
-                        labeled: stream.index(),
-                        framed: framed.index(),
+                        labeled: stream,
+                        framed,
                     });
                     cancelled().await
                 }
@@ -465,9 +483,13 @@ impl FirstStreamError {
     }
 }
 
+/// One slot: the route keeps the first error and drops the rest, because
+/// the first failure is the session's cause and later ones its cascade.
+const ERROR_ROUTE_CAPACITY: usize = 1;
+
 /// Allocate the session's incoming-stream error route.
 pub fn error_route() -> (ErrorRoute, FirstStreamError) {
-    let (send, receive) = mpsc::channel(1);
+    let (send, receive) = mpsc::channel(ERROR_ROUTE_CAPACITY);
     (
         ErrorRoute {
             send,
@@ -513,18 +535,21 @@ pub fn claims<Rx>() -> (ClaimSlots<Rx>, Claims<Rx>) {
 /// The session's sole consumer of the link's acceptor.
 ///
 /// Accepts transport streams, validates each label, and delivers the stream
-/// to the claim slot it names. Delivery is a take-once handoff which never
-/// blocks, so a stalled logical stream cannot stall acceptance — the
-/// head-of-line coupling a shared reader would reintroduce is structurally
-/// absent. The driver runs until the protocol completes and is then
-/// dropped. Detection of an unasked stream is late, not prompt: a
-/// valid-label stream delivered into a claim slot whose receiver is alive
-/// but never polled sits there undetected until that level's claim
-/// receiver drops — nearly the whole session; [`AcceptError::Unexpected`]
-/// fires only when delivery finds the receiver already gone, late in the
-/// termination cascade. This is detection latitude, not a safety gap:
-/// unasked replies are never absorbable, and the parked stream's memory is
-/// bounded by its own link stream's buffers.
+/// to the claim slot it names.
+///
+/// Delivery is a take-once handoff which never blocks, so a stalled
+/// logical stream cannot stall acceptance — the head-of-line coupling a
+/// shared reader would reintroduce is structurally absent. The driver runs
+/// until the protocol completes and is then dropped.
+///
+/// An unasked stream with a valid label meets one of two fates, neither
+/// prompt. Delivered while the slot's claim receiver is alive but never
+/// polled, it is never detected at all: it parks in the slot until session
+/// teardown drops slot and stream together, silently. Delivered after the
+/// receiver is already gone, it fires [`AcceptError::Unexpected`], late in
+/// the termination cascade. This is detection latitude, not a safety gap:
+/// unasked replies are never absorbable either way, and a parked stream's
+/// memory is bounded by its own link stream's buffers.
 pub struct AcceptDriver<A: Acceptor> {
     acceptor: A,
     epoch: u8,

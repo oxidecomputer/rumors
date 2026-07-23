@@ -32,6 +32,15 @@ impl<R> FrameRead<R> {
 
 impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// Read and decode one frame without consuming any byte of the next.
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel safe. A dropped `frame` future may already have consumed
+    /// part of a frame — the exact reads do not give bytes back — leaving
+    /// the direction mid-frame, where the next call would parse body bytes
+    /// as a signal. Either retain the in-flight future across polls until
+    /// it resolves, or read nothing further from this direction after a
+    /// cancellation.
     pub async fn frame<T: BorshDeserialize>(
         &mut self,
     ) -> Result<Option<WireFrame<T>>, DecodeError> {

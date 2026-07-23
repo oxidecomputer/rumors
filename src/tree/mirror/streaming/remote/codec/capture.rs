@@ -18,8 +18,9 @@ const PREAMBLE_LEN: usize = 25;
 /// Bytes occupied by one exact-frame length header.
 const FRAME_LEN: usize = std::mem::size_of::<u32>();
 
-/// Bytes occupied by a data stream's leading label: epoch, then stream index.
-const LABEL_LEN: usize = 2;
+// The label's width is defined canonically beside the sender that writes
+// it; captures parse with the same constant.
+use super::super::streams::LABEL_LEN;
 
 /// Everything one endpoint sent during a captured session.
 ///
@@ -119,8 +120,10 @@ impl Control {
         // The version frame's body leads with the sender's eight-byte set
         // size, version-size bound, and message-size target; the version
         // encoding follows them.
-        let version = Version::try_from_slice(&version_frame[FRAME_LEN + 24..])
-            .expect("captured version frame is canonical");
+        let version = Version::try_from_slice(
+            &version_frame[FRAME_LEN + crate::tree::mirror::framing::GREETING_SIZE_WORDS_LEN..],
+        )
+        .expect("captured version frame is canonical");
         // The greeting always carries its listing frame directly behind the
         // version frame (empty tree = empty listing, still framed).
         let (listing_frame, rest) = split_frame(rest, "listing");
