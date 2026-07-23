@@ -2718,3 +2718,36 @@ pin; §11.4's word-scale scanning, when it lands, tightens the same
 envelope it is measured by. Known exception, unchanged: the display
 canary stays wall-clock (num-bigint's internal work is invisible to
 any in-crate shim; recorded at its landing).
+
+### 17.10 Campaign operations runbook (recorded 2026-07-23, checkpoint)
+
+State of record at this checkpoint: branch tip b905b584; P3.5 closed
+and verified (gate green modulo the fifteen-test roster; meter suite
+34/34 twice, byte-identical; board 125/66 default and 114/77 at ×4,
+records exact; 53 pins green). Execution resumes with the staged
+kernels workflow (P3.6/P3.6b/P3.7), then C2 (awaits the user's
+link-transport-landed signal, the C0 rebase, and the artifact-list
+re-derivation), C3, P4.1, the P4-tail text item, P5.
+
+- Pending micro-item: §13's record-scale runtime note predates the
+  cliff family's board landing (P3.5 review advisory); correct at the
+  next §13 touch.
+- Gate invocation of record: `SWAP_LIMIT_GB=24 PROC_LIMIT_GB=16 just
+  gate` (documented memwatch overrides — stale system swap, per-proc
+  rustc peaks); the display canary keeps its reserved-runner nextest
+  wiring; the workspace test step fails with exactly the fifteen-test
+  inherited roster until C0.
+- Environment cautions: cargo's global package-cache lock can convoy
+  behind wedged rust-analyzer `cargo metadata` children — diagnose
+  with `lsof ~/.cargo/.package-cache`, suspect the oldest zero-CPU
+  holder; killing the cargo children is safe (the editor respawns
+  them). Worktree target dirs regrow to hundreds of GB across gate
+  runs and are freely deletable under disk pressure.
+- Workflow-script practices for the scripts still to be written
+  (C2, P4, P5): embed absolute paths as constants in the script;
+  instruct every agent to end by calling its structured-output tool
+  and to run final verification synchronously; on an agent death,
+  salvage = read its transcript, adopt the partial diff critically,
+  commit, resume from the run id (completed agents replay from
+  cache); instruments and red baselines land before the cures that
+  retire them.
