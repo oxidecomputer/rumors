@@ -20,6 +20,6 @@ pub(crate) mod optrace;
 
 mod algebraic_laws;
 pub(crate) mod compactness;
-mod exhaustive;
+pub(crate) mod exhaustive;
 mod semantic_oracle;
 mod snapshots;
