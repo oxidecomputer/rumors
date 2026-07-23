@@ -11,6 +11,11 @@ version = "0.1.0"
 edition = "2024"
 readme = "README.md"
 
+# docs.rs renders every feature-gated module the crate docs advertise
+# (`conformance`), matching the gate's all-features rustdoc passes.
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 # Test-only introspection and deterministic scheduling infrastructure.
 # Enabled for this crate's own tests via the self-referential dev-dependency
