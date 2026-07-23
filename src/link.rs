@@ -159,10 +159,13 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///   session on the link fails fast with
 ///   [`Error::LinkPoisoned`](crate::Error::LinkPoisoned) rather than
 ///   misreading leftover bytes: discard the link and reconnect; there is no
-///   repair. "Unchanged" has two qualified exceptions, stated where they
+///   repair. "Unchanged" has three qualified exceptions, stated where they
 ///   arise: the post-commit [`Error::Epilogue`](crate::Error::Epilogue)
-///   above, and a bootstrap donation lost in flight, which costs the
-///   donated id-region ([`Peer::bootstrap`](crate::Peer::bootstrap)).
+///   above; a bootstrap donation lost in flight, which costs the
+///   donated id-region ([`Peer::bootstrap`](crate::Peer::bootstrap)); and a
+///   bookmark persist failing after a retiring peer's identity is absorbed,
+///   which leaves the session committed with the absorption not yet
+///   crash-safe ([`Error::Bookmark`](crate::Error::Bookmark)).
 ///   `retire` reports failure through [`Retire`](crate::Retire)'s variants
 ///   — stating which side of the identity hand-off the failure landed on —
 ///   with the same link consequences.
