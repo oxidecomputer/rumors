@@ -47,9 +47,19 @@ impl IdBuilder {
 
     /// Append an owned terminal (the `1` leaf): the tag `00` (no children).
     pub(super) fn terminal(&mut self) -> Built {
-        self.bits.push(false);
-        self.bits.push(false);
+        self.push_tag(false, false);
         Built::Terminal
+    }
+
+    /// Append a node's 2-bit presence tag verbatim, already final.
+    ///
+    /// For an emitter that knows its output cannot collapse — the complement
+    /// retagging in [`diff`](crate::idbits::IdReader::diff) writes each
+    /// output node exactly once — so no placeholder, patch, or close is
+    /// needed.
+    pub(super) fn push_tag(&mut self, left: bool, right: bool) {
+        self.bits.push(left);
+        self.bits.push(right);
     }
 
     /// Reserve a node's 2-bit tag; its children are emitted next, then it is
