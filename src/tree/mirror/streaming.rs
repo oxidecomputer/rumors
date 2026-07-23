@@ -9,11 +9,11 @@
 //! On a wire connection, the peer-level driver first exchanges the shared
 //! fixed [`super::handshake`] preamble. Network and intent therefore resolve
 //! before the atomic tree snapshot/party fork; this module begins with the
-//! subsequent greeting exchange — each side's causal version plus its
-//! root-fan listing, the opening question's content carried one hop early
-//! (see [`message::Handshake`]). The selectable V1 alternating protocol is
-//! retained as an independent behavioral oracle; its greeting is its own
-//! and is unchanged by V2's.
+//! subsequent greeting exchange, the one message each side sends before any
+//! frame flows. What the greeting carries — and why each field rides this
+//! early — is documented at its definition, [`message::Handshake`]. The
+//! selectable V1 alternating protocol is retained as an independent
+//! behavioral oracle; its greeting is its own and is unchanged by V2's.
 
 // Where we're going, we need to write some Complex Types.
 #![allow(clippy::type_complexity)]
