@@ -75,15 +75,25 @@ CRATES = [
 # (`Party::is_disjoint`, `std::ops::RangeBounds`, `crate`) from a real link.
 RUST_PATH = r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*"
 
-# `[text](Rust::path)` -> `text`. Text is kept verbatim with its own markup
-# (it may be code, *italic*, or plain), so only the link wrapper is removed.
-WITH_DEST = re.compile(r"\[([^\]]+)\]\((" + RUST_PATH + r")\)")
+# `[text](Rust::path)` -> `text`, including a rustdoc heading anchor on the
+# path (`Link#what-a-session-promises`). Text is kept verbatim with its own
+# markup (it may be code, *italic*, or plain), so only the link wrapper is
+# removed. A bare in-page anchor (`(#section)`) has no leading path and stays.
+WITH_DEST = re.compile(r"\[([^\]]+)\]\((" + RUST_PATH + r"(?:#[\w.-]+)?)\)")
 
-# `[`code`]` shortcut link not continued by a destination `(`, another
-# reference `[`, or a definition `:`. Intra-doc shortcut links are always
-# code-spanned, so keying off the backticks keeps this from eating real
-# reference-style links or footnotes.
-SHORTCUT = re.compile(r"\[(`[^`]+`)\](?![(\[:])")
+# `[`code`]` shortcut link not continued by a destination `(` or another
+# reference `[`. Intra-doc shortcut links are always code-spanned, so keying
+# off the backticks keeps this from eating real reference-style links or
+# footnotes. A trailing `:` marks a reference *definition* only at the start
+# of a line; mid-line it is prose punctuation and the link is still stripped.
+SHORTCUT = re.compile(r"\[(`[^`]+`)\](?![(\[])(:?)")
+
+
+def _strip_shortcut(m: re.Match[str]) -> str:
+    at_line_start = m.start() == 0 or m.string[m.start() - 1] == "\n"
+    if m.group(2) and at_line_start:
+        return m.group(0)  # a reference definition, not a link
+    return m.group(1) + m.group(2)
 
 
 def strip_intra_doc_links(md: str, image_refs: dict[str, str]) -> str:
@@ -92,7 +102,7 @@ def strip_intra_doc_links(md: str, image_refs: dict[str, str]) -> str:
         # Rewrite `![alt][label]` to an inline image at `path`.
         md = md.replace(f"][{label}]", f"]({path})")
     md = WITH_DEST.sub(r"\1", md)
-    md = SHORTCUT.sub(r"\1", md)
+    md = SHORTCUT.sub(_strip_shortcut, md)
     return md
 
 

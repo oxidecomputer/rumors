@@ -98,8 +98,10 @@ const WINDOW_BITS: usize = u64::BITS as usize;
 /// - `pos` lies past the end of the stream (the bit loop reports `Truncated`);
 /// - the `2k+1`-bit code overruns the window's proven bits, either because the
 ///   stream ends first (the bit loop reports `Truncated`) or because the code
-///   is wider than the window (the bit loop decodes it, spilling to
-///   [`Base::Big`] past `u64`).
+///   is wider than the window (the bit loop decodes it: codes up through 127
+///   bits still land in [`Base::Small`] — their `k + 1`-bit mantissa is the
+///   value itself and fits `u64` at every `k ≤ 63` — and only wider codes
+///   spill to [`Base::Big`]).
 ///
 /// The conditions are conservative, never guesses: `Some` is returned only
 /// when every bit of the code lies within the window *and* within the stream,

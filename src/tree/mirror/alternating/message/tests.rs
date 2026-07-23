@@ -7,7 +7,7 @@
 //! satisfy that check, and separately pin that a non-canonical frame is
 //! rejected. `providing` carries whole `(prefix, node)` pairs, so its tests
 //! build nodes via [`arb_root_node`] / [`arb_s_z_node`] / [`arb_leaf`]. The
-//! exact on-wire bytes are pinned by `mirror::wire_snapshot`.
+//! exact on-wire bytes are pinned by `mirror::alternating::wire_snapshot`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -238,7 +238,7 @@ fn uncertain_rejects_duplicate_prefix() {
 // decoder's structural checks (`src/tree/typed/node.rs`) are part of this
 // ingress. The three lies a wire node can tell about its own shape are
 // pinned here byte-by-byte; the elements of a valid encoding are pinned in
-// `mirror::wire_snapshot`.
+// `mirror::alternating::wire_snapshot`.
 
 /// A node whose declared prefix length exceeds its typed height is rejected.
 ///
