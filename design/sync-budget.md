@@ -147,6 +147,54 @@ away.
   smoothness proptest pins that whole-level cliffs (33–50 %) stay
   excluded.
 
+### 1.6 The operator equations (added 2026-07-23)
+
+The wave model closes into a pair of forms fit for capacity planning,
+because divergence cancels: stall time is `D × RTT / K` \[measured,
+the knee suite\], transfer time is `D × w / bandwidth`, and their
+ratio is independent of `D`. With `BDP = bandwidth × RTT`:
+
+> `slowdown ≈ max(1, BDP_messages / K)`, exactly, with `K` the
+> derived binding window; and, substituting the large-window
+> simplification `K ≈ budget / E`:
+> **`slowdown ≈ max(1, (E/w) × BDP / budget)`** and
+> **`budget_min ≈ (E/w) × BDP / slowdown`**, with `E/w = 22`.
+
+The default budget is the second form at slowdown 1 on the design
+link — an identity, pinned to the byte. The scalar forms hold in the
+operating regime and degrade in two known directions, both measured:
+
+- **The near-root band** \[measured\]: `charge(K)` is piecewise —
+  windows under a few hundred scopes pay full-fan reference prices
+  (`c_q` saturates at 256 near the root), so small budgets buy
+  ~3× less window than `budget / E` suggests. The committed
+  trade-off table is the record for that regime; the exact form
+  (`K` from the derivation itself) stays accurate through it.
+- **Corpus and backend growth** \[derived, §2.4\]: `E` is really
+  `E(n, f)` — it grows slowly with set size through the children
+  quantiles and directly with the backend's `node_bytes`, so the
+  22 is the design-corpus, in-memory-backend evaluation.
+
+Pins: `envelope_to_wire_ratio_is_the_documented_22` (the quoted
+ratio is the constants' quotient); `tests/window_operator.rs` (the
+exact form against measured sessions on a bandwidth-limited pipe,
+within the knee suite's accuracy band, and the parity direction —
+the inverse-form budget measured 94 hops against a 96-hop transfer
+bound; the link rate is *self-calibrated* from an unbounded-budget
+run because the pipe carries several concurrent streams, so its
+aggregate rate is measured, never assumed; the calibration cancels
+out of the accuracy band, keeping the pin robust to scheduling
+variance).
+
+Two instrument findings recorded for future readers \[measured\]:
+on a *latency-only* pipe the observed stall runs ~2–2.5× the
+single-wave `2D/K` at deep constriction — concurrent wave systems
+stack where no transfer exists to hide under — which is why the
+trade-off table's cells are worst-case factors a real link's
+bandwidth absorbs; and the delayed-pipe harness's per-stream
+capacity understates a session's aggregate rate (supplies ride
+several streams), which is what forced self-calibration.
+
 ## 2. What remains: backend-priced budgeting (phase 4, spec-first)
 
 The one dishonesty left in the envelope: `Backend::NODE_BYTES` is a

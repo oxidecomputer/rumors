@@ -44,6 +44,22 @@ pub fn node_census_reset() {
     crate::tree::typed::untyped::census::reset_peak();
 }
 
+/// The two constants the operator equations rest on, as
+/// `(envelope, wire)`: bytes of session envelope one in-flight disputed
+/// scope is charged, and wire bytes one disputed message costs end to
+/// end.
+///
+/// `sync_memory_budget`'s documented closed forms —
+/// `slowdown ≈ max(1, (envelope/wire) × BDP / budget)` and its inverse —
+/// are denominated in these; exposed so the operator-equation suite can
+/// hold the documented forms against measured sessions.
+pub fn envelope_and_wire_bytes() -> (usize, usize) {
+    (
+        crate::tree::mirror::streaming::window::SCOPE_ENVELOPE_BYTES,
+        crate::tree::mirror::streaming::window::DISPUTE_WIRE_BYTES,
+    )
+}
+
 /// The largest canonical encoding among a snapshot's live leaf versions,
 /// in bytes: the exact per-node aggregate the greeting exchanges.
 pub fn max_leaf_version_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {

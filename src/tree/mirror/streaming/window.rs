@@ -154,7 +154,7 @@ const DESIGN_LINK_RTT_MS: usize = 1;
 /// Wire bytes one disputed message costs end to end — its question,
 /// reply share, and leaf record. Measured: the knee suite's
 /// bandwidth-bound cell calibrates it.
-const DISPUTE_WIRE_BYTES: usize = 200;
+pub(crate) const DISPUTE_WIRE_BYTES: usize = 200;
 
 /// Session-envelope bytes one in-flight disputed scope is charged.
 ///
@@ -166,7 +166,7 @@ const DISPUTE_WIRE_BYTES: usize = 200;
 /// pinned by `scope_envelope_matches_the_derivation`, so this constant
 /// fails loudly instead of drifting when the pricing or the occupancy
 /// envelopes change.
-const SCOPE_ENVELOPE_BYTES: usize = 4_339;
+pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_339;
 
 /// Worst-case memory one synchronization may spend by default: the
 /// envelope that fills the design link's bandwidth-delay product with

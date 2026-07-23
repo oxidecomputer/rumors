@@ -175,6 +175,19 @@ fn scope_envelope_matches_the_derivation() {
     );
 }
 
+/// The envelope-to-wire ratio the operator equations quote is exactly
+/// this quotient.
+///
+/// `sync_memory_budget`'s docs state `slowdown ≈ max(1, 22 × BDP /
+/// budget)` and `budget ≈ 22 × BDP / slowdown`; the 22 is
+/// `SCOPE_ENVELOPE_BYTES / DISPUTE_WIRE_BYTES` rounded up. Pinning the
+/// quotient keeps the quoted figure and the constants from drifting
+/// apart.
+#[test]
+fn envelope_to_wire_ratio_is_the_documented_22() {
+    assert_eq!(SCOPE_ENVELOPE_BYTES.div_ceil(DISPUTE_WIRE_BYTES), 22);
+}
+
 /// A materializing backend's node price, shaped like a database
 /// placeholder: a fixed header, a per-child entry, and the resident
 /// version bounds.

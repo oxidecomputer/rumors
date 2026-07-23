@@ -372,6 +372,25 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// # Choosing a budget
     ///
+    /// Let `BDP = bandwidth × RTT`, the link's bandwidth-delay product
+    /// in bytes. The two constants above make the trade a pair of
+    /// closed forms:
+    ///
+    /// - the worst-case slowdown a budget can cost is
+    ///   `max(1, 22 × BDP / budget_bytes)`;
+    /// - the smallest budget for an acceptable worst-case slowdown is
+    ///   `22 × BDP / slowdown`.
+    ///
+    /// The default is the second form at slowdown 1 on the design
+    /// link. Both are envelopes for the operating regime: budgets past
+    /// a few MB (a narrower window sits in the near-root band, where
+    /// scopes pay full-fan prices the flat ratio undercounts — the
+    /// table below is the record there) and sets up to roughly the
+    /// BDP in messages (the per-scope envelope grows slowly with set
+    /// size past it). `tests/window_operator.rs` holds both forms
+    /// against measured sessions on a bandwidth-limited link, and pins
+    /// the default as the inverse form's design-point value exactly.
+    ///
     #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
     ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
