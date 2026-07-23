@@ -78,12 +78,24 @@ fn hops(divergent_per_side: usize) -> u32 {
 }
 
 /// [`hops`], with the pipe's per-stream in-flight window chosen by the
-/// caller: `pipe_capacity / DELAY` is the modeled link bandwidth.
+/// caller.
+///
+/// Measured as the delay-sweep slope — the same shape at two delays,
+/// divided by the delay difference — which isolates wire structure from
+/// compute; a single-point division would count the session's compute
+/// as phantom hops. The pipe stays fixed across the sweep, so a tight
+/// pipe's transfer time (`bytes × delay / capacity`) scales with the
+/// delay and survives the slope in hop units, exactly like wave stall.
 fn hops_over(divergent_per_side: usize, pipe_capacity: usize) -> u32 {
-    let (left, right) = diverged(divergent_per_side);
-    let mut wire = latency::DelayedWire::new(pipe_capacity, DELAY);
-    let (_pair, elapsed) = wire.round_trip(left, right);
-    u32::try_from(elapsed.as_millis() / DELAY.as_millis()).expect("bounded hop count")
+    let elapsed_at = |delay: Duration| {
+        let (left, right) = diverged(divergent_per_side);
+        let mut wire = latency::DelayedWire::new(pipe_capacity, delay);
+        let (_pair, elapsed) = wire.round_trip(left, right);
+        elapsed
+    };
+    let (short, long) = (elapsed_at(DELAY), elapsed_at(2 * DELAY));
+    u32::try_from(long.saturating_sub(short).as_millis() / DELAY.as_millis())
+        .expect("bounded hop count")
 }
 
 /// Two peers with a shared prefix, diverged by `divergent` messages each.
@@ -163,19 +175,23 @@ fn above_the_knee_cost_is_linear_in_divergence() {
         .zip(divergences.windows(2))
         .map(|(t, d)| f64::from(t[1] - t[0]) / (d[1] - d[0]) as f64)
         .collect();
+    let predicted = 2.0 / capacity as f64;
     eprintln!(
         "capacity {capacity}: divergences {divergences:?}, hops {times:?}, \
-         marginal hops/message {slopes:?} (wave model predicts {:.4})",
-        2.0 / capacity as f64,
+         marginal hops/message {slopes:?} (wave model predicts {predicted:.4})",
     );
-    let (min, max) = slopes
-        .iter()
-        .fold((f64::MAX, f64::MIN), |(lo, hi), &s| (lo.min(s), hi.max(s)));
-    assert!(
-        min > 0.0 && max / min <= 2.0,
-        "marginal cost per message must be constant in divergence: \
-         slopes {slopes:?} spread more than 2x",
-    );
+    // Each marginal slope must sit in a band around the wave model's
+    // 2/capacity — the direct statement of constant-per-message cost.
+    // The band absorbs the sweep's quantization noise (each cell
+    // differences two sessions at millisecond timer grain), which a
+    // cell-to-cell spread bound would amplify instead.
+    for &slope in &slopes {
+        assert!(
+            slope / predicted > 0.4 && slope / predicted < 2.5,
+            "marginal cost per message must track the wave model's \
+             {predicted:.4}: slopes {slopes:?}",
+        );
+    }
 }
 
 /// A window at or above the link's bandwidth-delay product in messages

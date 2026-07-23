@@ -47,14 +47,22 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 /// disputed scopes, which is an order of magnitude larger here.
 #[test]
 fn window_pipelines_disputed_scopes() {
-    let (left, right) = diverged_pair();
-    let mut wire = latency::DelayedWire::new(LINK_CAPACITY, DELAY);
-    let (_pair, elapsed) = wire.round_trip(left, right);
+    // The delay-sweep slope isolates wire hops from compute: the same
+    // shape runs at two delays, and their difference is pure wire
+    // structure.
+    let elapsed_at = |delay: Duration| {
+        let (left, right) = diverged_pair();
+        let mut wire = latency::DelayedWire::new(LINK_CAPACITY, delay);
+        let (_pair, elapsed) = wire.round_trip(left, right);
+        elapsed
+    };
+    let (short, long) = (elapsed_at(DELAY), elapsed_at(2 * DELAY));
+    let wire_cost = long.saturating_sub(short);
 
     let budget = DELAY * HOP_BUDGET;
     assert!(
-        elapsed < budget,
-        "session cost {elapsed:?} exceeds the pipelined budget {budget:?}: \
+        wire_cost < budget,
+        "session wire cost {wire_cost:?} exceeds the pipelined budget {budget:?}: \
          the descent is serializing per disputed scope again"
     );
 }
