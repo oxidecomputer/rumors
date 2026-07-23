@@ -58,8 +58,8 @@
 //! - **Cancellation.** A pending [`Acceptor::accept`] future may be dropped
 //!   at any moment — session teardown is the common source, and the
 //!   conformance suite drops them mid-session; instantiations must tolerate
-//!   the drop and deliver the affected stream to a later `accept` call or
-//!   fail it cleanly.
+//!   the drop and deliver the affected stream to a later `accept` call: no
+//!   delivery may be lost while the link stays healthy.
 //!
 //! Streams are anonymous at this boundary. The session labels each opened
 //! stream itself (a session epoch and stream index written as the stream's
@@ -153,8 +153,8 @@ pub trait Acceptor: Send {
     ///
     /// A pending `accept` future may be dropped at any moment (session
     /// teardown is the common source). A stream that was mid-delivery must
-    /// either surface from a later `accept` call or fail cleanly; it must
-    /// not be silently lost while the link stays healthy.
+    /// surface from a later `accept` call; it must not be lost while the
+    /// link stays healthy.
     fn accept(&mut self) -> impl Future<Output = io::Result<Self::Rx>> + Send;
 }
 
