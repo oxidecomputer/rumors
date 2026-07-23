@@ -156,6 +156,10 @@ const LEAF_REQUEST_BYTES: usize = 40;
 /// Derived from the queue's real item layout — `size_of` of the
 /// prefix-and-node pair minus the node value — so a layout change moves
 /// the price with it instead of leaving a hand-counted byte total stale.
+/// The derivation is exact for pointer-class node handles; a backend
+/// whose `Node<Z>` demands wider alignment pads the real slot beyond
+/// `node_bytes + FAN_SLOT_BYTES` and owes that padding to its own
+/// `node_bytes` price.
 const FAN_SLOT_BYTES: usize = std::mem::size_of::<(Prefix<Z>, typed::Node<(), Z>)>()
     - std::mem::size_of::<typed::Node<(), Z>>();
 

@@ -204,8 +204,10 @@ pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
     /// A session dropped mid-decode drops this future with it. The
     /// backend must tolerate the drop at any await point: a persisted
     /// payload whose handle never surfaced must be either idempotently
-    /// re-persistable or garbage the backend can reclaim, because the
-    /// record will arrive again in a later session.
+    /// re-persistable or garbage the backend can reclaim — the record
+    /// arrives again in a later session while the divergence persists,
+    /// and a meanwhile-redacted message correctly never re-arrives
+    /// (the reclaimable-garbage case).
     fn leaf(
         version: Version,
         message: Message<T>,
