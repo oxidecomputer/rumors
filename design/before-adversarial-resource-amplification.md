@@ -4,7 +4,8 @@ Status: analysis complete (2026-07-22, measured against the working
 tree at `dd2b1645`, branch `link-transport`, Apple M4 Max, release
 builds). Both representations audited: the event side (`Version`) and
 the id side (`Party`), every public operation. Fix space designed;
-execution not started; decision open at §12 (Tier 1.5 vs Tier 2).
+execution in progress on branch `before-hardening` (plan §14, amended
+2026-07-22); decision open at §12 (Tier 1.5 vs Tier 2).
 
 Scope: `rumors`' model of record is authenticated-honest-peer, so none
 of this is a `rumors` security finding — an authorized peer holds
@@ -677,6 +678,21 @@ Pin the §6 invariant the way `step!` pins time complexity:
 
 - **Generators**: commit §2's four shapes (parameterized) beside the
   existing proptest generators in `testing/`.
+- **Amplification board**: a red-green matrix over the *entire*
+  public operation surface (`Version`, `Party`, `Clock`, `Batch` —
+  including `Display`/`FromStr`/`Hash`, `rank`/`distance`/`lag`,
+  `min_ticks`, `project`, `fork`/`forks`/`join_all`, `Clock::sync`,
+  and both codec directions) × §2's input families. Each cell runs at
+  two scales and reports, from the deterministic meters below (peak
+  heap, stacker segments, limb ops; wall time shown but never
+  asserted), a scaling exponent and a per-input-byte constant. Green
+  = exponent ~≤ 1.15 with constants under pinned ceilings; red
+  otherwise. Default sizes keep the whole board at seconds of
+  runtime — the fast-iteration loop — with a size knob for records
+  of record. The board exists to catch amplifiers the §3–§4 audit
+  missed and to serve as the campaign's progress dashboard: it lands
+  at P0 mostly red by construction, and the campaign's acceptance
+  criterion is an all-green board.
 - **Peak-heap meter**: counting `GlobalAlloc` in a dedicated test
   binary (one global allocator per binary; nextest's
   process-per-test isolation applies). Assert per operation ×
@@ -702,38 +718,59 @@ Pin the §6 invariant the way `step!` pins time complexity:
 Dependency-ordered; each phase `just gate`-clean; wire bytes are
 byte-identical through P4 (the snapshot suite enforces it for free).
 
-- **P0 — yardstick.** Commit generators + all §13 meters with
-  current envelopes as thresholds; state the §6 invariant in the
-  crate docs. No behavior change. (Spec-first: fix the criterion of
-  record before touching the artifact.)
+- **P0 — yardstick.** Commit generators + all §13 meters (the board
+  included) with current envelopes as thresholds; state the §6
+  invariant in the meter's module docs. The crate-doc statement of
+  the invariant lands at P5, with the user's sign-off, once it is
+  true. No behavior change. (Spec-first: fix the criterion of record
+  before touching the artifact.)
 - **P1 — Tier 0.** T0.1 limb-wise mantissa; T0.2 builder capacity;
   T0.3 iterative complement. Tightens: hugeleaf decode to linear
   time; hugeleaf join peak ×100 → ~×1; `without` per-operand depth
   exposure gone.
-- **P2 — V1.** §8.1 in `causal_cmp` first (read path, richest
-  coverage), then §8.2 across combine/fill/grow, with the `Base`
-  mixed-add fix. Tightens: bigroot compare/join to input-linear
-  memory and O(n + m) time.
-- **P3 — quick structural wins.** §11.2 leaf-dominance scans in
-  compare (with iterative `max`/min-path); §11.3 splice-based grow
-  emit. Tightens: `cmp vs small` to O(1)-ish space; tick's hot path
-  off the node-array.
-- **P4 — V2/P1/V5.** §8.3 explicit stacks for the eight hot walks
-  and both parsers. Tightens: dense-spine compare RSS ×782 → ≤ ~×40
-  (position frames) or ~×2 (packed stacks); id walks ×418–456 →
-  ≤ ~×10; decode ×118 → small. Audit whether `stacker` can be
+- **P2 — decision (§12), pulled forward.** Run the §10.4 ratio
+  measurement over the existing generators plus §2's shapes;
+  validate the compactness envelope; record the DECIDED entry in
+  §12, confirming the wire break with the user before any
+  implementation. Deciding here avoids building §8.2/Tier-1.5 emit
+  machinery that Tier 2 deletes; §8.1's difference accumulator is
+  not throwaway either way — it is the core of the Tier 2 sweep.
+- **P3 — endgame.** Tier 2 (expected): §10's representation, codec,
+  validation, and sweeps; §11.1 builder unification; §11.2's
+  pruning falls out of the sweep; §11.3 splice emit; snapshot
+  re-pins. Fallback if the ratio envelope fails: §8.1 + §8.2 on the
+  current representation with the `Base` mixed-add fix, §11.2
+  leaf-dominance scans, §11.3 splice-based grow emit, then Tier 1.5
+  (§9). Either way the working form is deleted.
+- **P4 — stacks.** §8.3 explicit compact stacks for the id walks
+  and every walk still recursive after P3; both parsers if V5
+  machinery survives P3; §11.4 word-scale scanning where profiles
+  justify. Tightens: id walks ×418–456 → ≤ ~×10; any surviving
+  event-walk RSS to small constants. Audit whether `stacker` can be
   dropped.
-- **P5 — decision (§12), then Tier 1.5 or Tier 2.** Either way the
-  working form is deleted. Tier 2 additionally: new codec +
-  validation, §10.4 ratio test, snapshot re-pins, builder
-  unification (§11.1), word-scale scans (§11.4) where profiles
-  justify, README/crate-doc updates.
+- **P5 — closeout.** Tighten every envelope to its final constant;
+  make the fuzz cap proportional to input; benches not regressed
+  (improvement expected at P1 and P3); crate-doc invariant
+  statement and any README/crate-doc updates (user sign-off);
+  `just all` clean.
 - Each phase updates metering thresholds downward in the same commit
   that earns them.
 
+Amended 2026-07-22, execution start: the §12 decision moved from
+last to P2, before any emit-path work — the user's prior favors
+Tier 2, and deciding first avoids building Tier-1.5 machinery that
+Tier 2 would delete. The §13 amplification board was added as a
+deliverable and as the acceptance criterion. Process constraints of
+record: user-facing documentation (crate docs, READMEs, public-item
+rustdoc prose) changes only with the user's sign-off; test and bench
+coverage only ratchets upward through the campaign; the board and
+meter suites default to seconds-scale sizes so the inner loop stays
+fast.
+
 Acceptance for the effort: every §5 row at a small pinned constant ×
-input; no quadratic row in the meter's op × family matrix; `benches/`
-not regressed (improvement expected at P2 and P5).
+input; the §13 board all green — no super-linear cell and no
+large-constant cell anywhere in the op × family matrix; `benches/`
+not regressed (improvement expected at P1 and P3).
 
 ## 15. Adjacent findings
 
