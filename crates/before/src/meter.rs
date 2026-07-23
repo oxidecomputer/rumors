@@ -26,6 +26,10 @@ pub mod tier2;
 /// suite can drive its delta streams and pin its digit-touch cost.
 pub use crate::codec::accum;
 
+/// The skyline transcoding codec, re-exported so the resource-envelope
+/// suite can pin its validator's transient state and limb behavior.
+pub use crate::version::skyline;
+
 use crate::codec::{self, Base, Bits};
 
 /// A generator's output: canonical packed bytes plus the exact bit length.
