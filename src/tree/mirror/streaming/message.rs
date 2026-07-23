@@ -13,7 +13,7 @@
 //!
 //! The memory unit is one reply: a maximally disputed reply is 256
 //! reactions × a 256-entry listing ≈ fan² hashes ≈ 1.1 MB encoded
-//! (≈ 2 MB while an encoded and a decoded copy coexist), transient, at
+//! (≈ 2.2 MB while an encoded and a decoded copy coexist), transient, at
 //! most one in flight per stage.
 
 use crate::{
