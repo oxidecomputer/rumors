@@ -765,6 +765,31 @@ byte-identical through P4 (the snapshot suite enforces it for free).
   T0.3 iterative complement. Tightens: hugeleaf decode to linear
   time; hugeleaf join peak ×100 → ~×1; `without` per-operand depth
   exposure gone.
+
+  Landed 2026-07-23, plus §15's mixed-add and unused-import fixes.
+  One transcription amendment to §7: T0.3's bare pending-children
+  counter under-specifies the emit — a counter alone can neither
+  order the deferred terminals for absent *right* children nor
+  resolve a both-children node's right-child kind (that tag sits a
+  whole left subtree ahead). The landed `complement` is two iterative
+  passes over the fixed-width tag stream — a backward scan resolves
+  right-child kinds onto a bit stack, the forward scan emits with a
+  two-bit-per-level pending stack — still no recursion and no
+  per-level frames, a few bits per level. T0.1 landed as
+  `BigUint::set_bit` accumulation (top bit first sizes storage once;
+  an interim byte-buffer draft regressed decode-hugeleaf peak heap
+  and was rejected by the P0 envelope — the gate catching its first
+  real regression). Results **[measured, three identical runs]**:
+  board 59 green / 99 red → **96 / 62**, 37 cells flipped green,
+  none red (`version_decode dense` heap stays red: V5, untouched);
+  envelope re-pins: decode-hugeleaf limb 122.1M → 1_954 (linear) and
+  heap 55_827 → 46_883, join-hugeleaf heap 3_127_365 → 111_771,
+  decode-bigroot limb 12.52M → 626, id-without segments 138 → 0,
+  join-dense heap → 4_797_477, tick-dense heap → 9_469_952 (T0.2's
+  push-growth beat the pre-size on every family). Adversarial
+  benches (`benches/amplify.rs`, added at P1): hugeleaf decode
+  −94.6%/−97.9% (linear across the doubling), bigroot join ~−24%,
+  seed-without-spine ~−37%.
 - **P2 — decision (§12), pulled forward.** Run the §10.4 ratio
   measurement over the existing generators plus §2's shapes;
   validate the compactness envelope; record the DECIDED entry in
