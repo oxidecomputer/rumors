@@ -41,7 +41,7 @@ fn parked_session() -> ParkedSession {
     let (route, errors) = error_route();
     let accept = AcceptDriver::new(
         parts.acceptor,
-        parts.session.epoch,
+        parts.session.epoch(),
         Speaker::Responder,
         slots,
         route.clone(),
