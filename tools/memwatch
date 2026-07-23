@@ -11,8 +11,17 @@
 #   1. Per-process: any build-related process (rustc, clippy-driver, build
 #      scripts, test binaries under target/) whose resident size exceeds
 #      PROC_LIMIT_GB is killed, and its rustc --crate-name is logged.
-#   2. Global: if system swap usage exceeds SWAP_LIMIT_GB, the whole build
-#      is aborted. This is the backstop against compressor exhaustion.
+#   2. Global: if system swap usage exceeds SWAP_LIMIT_GB, this instance's
+#      build is aborted. This is the backstop against compressor
+#      exhaustion.
+#
+# Every kill is scoped to this instance's own process tree: a candidate
+# counts only if its parent chain reaches the command memwatch spawned.
+# Concurrent instances (another worktree's gate running beside a bench
+# build) therefore never kill each other's compiles, whatever their
+# limits. The swap *measurement* is machine-global — swap is — but the
+# response only fails this instance's build; a neighbor still over the
+# line trips its own watchdog.
 #
 # Usage:
 #   memwatch cargo nextest run --workspace --all-features
@@ -51,12 +60,37 @@ is_build_proc() {
     esac
 }
 
+# Emit `pid rss command` for every process in this instance's own tree:
+# those whose parent chain reaches $ROOT in one ps snapshot. The chain
+# walk is bounded so a torn snapshot (a recycled pid making the ppid
+# graph cyclic) terminates rather than spinning.
+own_procs() {
+    ps -axo pid=,ppid=,rss=,command= | awk -v root="$ROOT" '
+        {
+            line = $0
+            sub(/^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+/, "", line)
+            parent[$1] = $2; rss[$1] = $3; cmd[$1] = line
+        }
+        END {
+            for (p in parent) {
+                a = p
+                for (hops = 0; hops < 128; hops++) {
+                    if (a == root) { print p, rss[p], cmd[p]; break }
+                    if (!(a in parent) || a <= 1) break
+                    a = parent[a]
+                }
+            }
+        }'
+}
+
 tick=0
 while kill -0 "$ROOT" 2>/dev/null; do
     biggest_kb=0 biggest_desc=none
+    build_pids=""
 
     while read -r pid rss cmd; do
         is_build_proc "$cmd" || continue
+        build_pids="$build_pids $pid"
         if [ "$rss" -gt "$biggest_kb" ]; then
             biggest_kb=$rss
             biggest_desc="pid $pid ${cmd:0:80}"
@@ -67,15 +101,18 @@ while kill -0 "$ROOT" 2>/dev/null; do
             echo "    full cmd: $cmd" >> "$LOG"
             kill -9 "$pid"
         fi
-    done < <(ps -axo pid=,rss=,command=)
+    done < <(own_procs)
 
     swap_used_mb=$(sysctl -n vm.swapusage 2>/dev/null | awk '{print $6}' | tr -d 'M' | cut -d. -f1)
     if [ "${swap_used_mb:-0}" -gt "$swap_lim_mb" ]; then
-        note "ABORT: swap at ${swap_used_mb} MB exceeds ${SWAP_LIMIT_GB} GiB; killing build"
+        note "ABORT: swap at ${swap_used_mb} MB exceeds ${SWAP_LIMIT_GB} GiB; killing this build"
+        # Scoped like the per-process check: this build's own tree, the
+        # heavy compiles first so the shells notice cleanly, never a
+        # neighbor's.
+        for pid in $build_pids; do
+            kill -9 "$pid" 2>/dev/null
+        done
         kill -9 "$ROOT" 2>/dev/null
-        pkill -9 -x rustc 2>/dev/null
-        pkill -9 -x clippy-driver 2>/dev/null
-        pkill -9 -f 'cargo (check|clippy|build|nextest|test|bench)' 2>/dev/null
         exit 1
     fi
 
