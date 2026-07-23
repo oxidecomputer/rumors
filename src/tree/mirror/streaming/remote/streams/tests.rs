@@ -276,12 +276,9 @@ fn mislabeled_frame_is_reported_not_yielded() {
     .expect("mislabel detection resolves");
     assert!(
         matches!(
-            error,
-            StreamError::Mislabeled {
-                labeled: LABELED,
-                framed: FRAMED,
-                ..
-            }
+            &error,
+            StreamError::Mislabeled { labeled, framed, .. }
+                if labeled.index() == LABELED && framed.index() == FRAMED
         ),
         "unexpected stream error: {error:?}",
     );

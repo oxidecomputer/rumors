@@ -33,8 +33,9 @@ const QUERY_STATES: RangeInclusive<u8> = 4..=5;
 /// Dense states below this boundary carry reactions rather than bare ends.
 const REACTION_STATE_COUNT: u8 = 8;
 
-/// Bytes of stream label written ahead of a data stream's first frame.
-const LABEL_LEN: usize = 2;
+// The label's width is defined canonically beside the sender that writes
+// it; the harness scripts frames with the same constant.
+use super::super::super::streams::LABEL_LEN;
 
 /// Failure returned by the materialized-left/proxy-right driver.
 pub type LeftError = MirrorError<MaterializedError<Infallible>, RemoteError<Infallible>>;
