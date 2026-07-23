@@ -9,9 +9,12 @@
 //! Usage: `just amp-board`, or directly
 //! `cargo run -p before --example amp_board --features limb-meter -- [scale]`
 //! where the optional `scale` (a positive number, default 1) multiplies
-//! every input family's base size. The default sizes keep the whole board at
-//! seconds of runtime; scale up for records. Without the `limb-meter`
-//! feature the limb column reads `off`.
+//! every input family's base size; the literal `record` selects the
+//! acceptance scale of record (`board::RECORD_SCALE`, `just
+//! amp-board-record`). The default sizes keep the whole board at seconds of
+//! runtime; acceptance requires all green at both the default and record
+//! scales, three identical runs each. Without the `limb-meter` feature the
+//! limb column reads `off`.
 
 use before::meter::board::{self, HeapMeter};
 use peak_alloc::PeakAlloc;
@@ -25,6 +28,7 @@ const DEFAULT_SCALE: f64 = 1.0;
 fn main() {
     let scale = match std::env::args().nth(1) {
         None => DEFAULT_SCALE,
+        Some(arg) if arg == "record" => board::RECORD_SCALE,
         Some(arg) => arg
             .parse::<f64>()
             .unwrap_or_else(|_| panic!("amp-board: scale must be a positive number, got {arg:?}")),

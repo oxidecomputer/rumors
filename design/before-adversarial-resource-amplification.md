@@ -1042,6 +1042,38 @@ Pin the §6 invariant the way `step!` pins time complexity:
   writer routes around the metered arithmetic — the false green
   §17.2's P3.3 entry names) until the shared metered converter
   lands with P3.8.
+
+  Landed 2026-07-23 (P3.4, the acceptance scale of record). The
+  pinned record scale is **×4** (`board::RECORD_SCALE`,
+  `just amp-board-record`) — the §17.3 witness floor, at which
+  every known segment-onset amplifier reads red. **Campaign
+  acceptance is all cells green at BOTH the default scale and the
+  record scale, three identical runs each**; record runs are
+  acceptance-time only and the enforced record remains
+  `tests/meter.rs`. Both-scale baseline of record **[measured** —
+  2026-07-23, dev profile, `limb-meter` lit; the record-scale red
+  enumeration byte-identical across two consecutive runs**]**:
+  **96 green / 64 red at the default scale; 85 green / 75 red at
+  ×4** — the 64 default reds unchanged (none flips green at ×4)
+  plus exactly the §17.3 witness's eleven segment-onset cells, no
+  cells beyond them, each owner-tagged per §17.3: `version_rank ×
+  bigroot` and `version_min_ticks × dense` (P3.6);
+  `version_display`/`clock_display` × bigroot and
+  `party_from_str`/`clock_from_str` × id-pair (P3.8);
+  `party_join`/`party_covers`/`party_disjoint`/`clock_join`/
+  `clock_sync` × id-pair (P4.1). Calibration, per mechanism
+  **[measured** — ×1/×2/×4 sweep**]**: the id-walk lockstep
+  recursion cells (the seven id-pair onsets) and the
+  `min_ticks` event walk first read red at ×2; the bigroot-spine
+  onsets (`rank`, both `Display` cells) need ×4 — so ×2 under-
+  detects and the floor is ×4, not lower. The ×2 sweep also shows
+  why an intermediate scale is not the record: two sub-KiB benign
+  `encode` cells read a heap-exponent artifact there (allocator
+  rounding on inputs under 1 KiB, green at both ×1 and ×4 — the
+  indicative-heap caveat above). Record-scale runtime budget: ≤
+  30 s of summed measured-body wall per family; today's total is
+  ~21 s, dominated by bigroot at 12.5 s (its schoolbook text
+  conversions), against ~3 s for the whole default board.
 - **Peak-heap meter**: counting `GlobalAlloc` in a dedicated test
   binary (one global allocator per binary; nextest's
   process-per-test isolation applies). Assert per operation ×
@@ -2026,6 +2058,18 @@ ceiling (schoolbook on organic values), owner **P3.8** with the
 rest of the text column, whose default-scale kill count is
 therefore 12 and the default-scale total 64. The sums close as
 64 kills + 96 default-green = 160.
+
+Amended 2026-07-23 (P3.4 landed): the pinned record scale is ×4,
+and the baseline red enumeration is re-witnessed there against the
+enlarged board **[measured** — twice, byte-identical**]**: 85
+green / 75 red — the 64 default reds plus this section's eleven
+segment-onset cells exactly, no new cells to assign, both
+comb-scatter projection cells green at both scales. The
+record-scale sums close as 75 (P3.5's 4 + P3.6's 47 + P3.7's 3 +
+P3.8's 16 + P4.1's 5) + 85 = 160; P3.8's sixteen are the ten
+original text cells, the two benign κ reds, and its four
+record-scale onsets. Realization staging is unchanged: C2 realizes
+54; the P4-tail P3.8 its 16; P4.1 its 5.
 Realization is staged: C2 realizes 54 of the 73 (P3.5's 4 +
 P3.6's 47 + P3.7's 3); the P4-tail P3.8 realizes its 14 when it
 lands; P4.1 its 5 — so the board is all green at both scales only
