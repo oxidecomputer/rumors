@@ -1157,3 +1157,584 @@ not regressed (improvement expected at P1 and P3).
   borsh-encoded `Clock`s), `crates/before/src/borsh_impls.rs` and
   `crates/before/src/serde_impls.rs` (canonical bytes as the
   serialized forms).
+
+## 17. P3–P5 plan of record (pre-DECIDED draft)
+
+Added 2026-07-23 (P3 planning round). Assembled from the five P3
+planning probes — accumulator, radix, grow-iterativization,
+display/denomination, migration — each run as an independent
+executable probe against the worktree and each returning
+**promising-with-conditions**; none negative. This section is the
+dependency-ordered path from today's board (96 green / 62 red
+**[measured** — re-run at this section's writing, matching the P2
+record**]**) to all green with strictly-improved performance, under
+Tier 2. It is an input to the §12 DECIDED entry, which remains open
+and is not written here; nothing below is a decision record.
+
+### 17.1 Honesty preamble: conditions, and who discharges them
+
+Every probe condition is either discharged by a named work item
+below or held as an explicit gate this plan cannot pre-discharge.
+The gates first, because the user's GO is conditional on seeing
+them plainly:
+
+- **Gate A — skyline join subadditivity [open, GO/NO-GO].** The
+  `link-transport` window budget cites the pinned lemma
+  `encode(a|b).len() ≤ encode(a).len() + encode(b).len()`
+  (`window.rs`), proven against today's coding. Under delta coding
+  a crossing switch emits a delta of magnitude ~`|hₐ − h_b|` that
+  neither input's local codes paid for; a near-tight sketch exists
+  (single huge step vs a flat half-height version), so failure is
+  plausible. P3.5 probes it adversarially before anything depends
+  on it. A refutation is a fully successful probe: the reroute
+  (re-derive the lemma statement and the window's `version_bound` —
+  the capacity arithmetic consumes greeting-exchanged version sizes
+  dynamically, so a constant-factor lemma re-denominates rather
+  than breaks) happens before C2, and if no bounded form exists the
+  Tier 2 decision itself reopens.
+- **Gate B — the user's §12(b) acceptance and two criterion
+  ratifications.** The §10.5 identity/persistence blast radius (the
+  `Key` migration story is explicitly out of scope for the swap);
+  the P3.3 text-I/O denomination amendment (a contract-statement
+  change — harder, not softer, but the user ratifies it, not this
+  plan); and a recorded blanket sign-off for C2's mechanical byte
+  re-pins (prose and figures stay under per-item sign-off at P5).
+- **Gate C — external timing.** C0 rebases onto main after
+  `link-transport` merges (the §14 gate-roster escalation's
+  resolution of record). C1 work items are pure additions and can
+  proceed before the rebase; the C2 artifact list cannot be
+  finalized until after it.
+
+One probe finding amends this document before anything is built on
+it: the accumulator representation currently named by the §8.1
+amendment and §10.6 ("big part + machine-word signed offset") is
+**refuted** by a canonical input — a wide-tooth comb (teeth ±2^192,
+~387 wire bits each, oscillating across a `2^k` cliff, `k ≫ 192`)
+forces the two-zone form through its normalized prefix every tooth,
+measured 70.5 → 134.5 limbs/delta as `k` doubles — quadratic again
+**[measured** — accumulator probe, exact-oracle-checked, release
+with overflow checks**]**. The structural reason: *any* two-zone
+(normalized + fixed-width window) design has a zone boundary the
+input can oscillate across at paid-but-constant cost; widening the
+window only moves it. P3.2 records the dated re-amendment and the
+replacement representation; until it lands, §8.1/§10.6 name a
+mitigation known not to suffice.
+
+Two denomination honesty notes carried from the probes, so green is
+never misread: binary↔decimal conversion is inherently superlinear
+in wall time (Θ(M(n)·log n)); the text rows' limb column goes green
+against the radix-work denominator `R` (P3.3), not against wall
+time, and the criterion says so explicitly. And the board's
+default-scale run under-detects segment amplifiers (the ~1 MiB
+growth threshold — the §13 caveat of record); acceptance therefore
+runs at a pinned record scale (P3.4) at which the known amplifiers
+were demonstrably red.
+
+### 17.2 Work items
+
+Each item states: what / where / kills (board cells and enforced
+envelope rows) / acceptance / risk → retirement / dependencies.
+Kill lists name the item whose *mechanism* retires the cell; every
+kill on a version path is *realized* at C2 (P3.9, when public
+operations route to the new code) and *verified* at C3 (P3.10).
+Riskiest-first within dependency ties: the accumulator and codec
+core precede everything built on them.
+
+**P3.1 — C0: rebase and merge-seam re-sweep.**
+*What*: rebase `before-hardening` onto main once `link-transport`
+merges (resolving the §14 gate-bar escalation; the fourteen-test
+stall roster becomes that branch's regression pins). Re-derive the
+C2 artifact list from the rebased tree: the worktree-derived list
+(55 snapshots, 10 fuzz seeds, 2 witness literals, byte-pinned
+doctests, `BOOKMARK_FORMAT_VERSION`) is a floor — `link-transport`
+touches ~20 snapshots and adds window/hop-trace/pipelining tests
+that may embed wire bytes. *Where*: branch operation; the re-derived
+list is recorded in P3.9's landed entry. *Kills*: none.
+*Acceptance*: `just gate` fully green at the rebased tip (first time
+in the campaign); board re-run reproduces the 96/62 baseline modulo
+seam. *Risk*: semantic merge conflicts line-level resolution misses
+→ retired by the merge-seam re-sweep practice (mechanical greps,
+full board + meter suite at the rebased tip). *Deps*: Gate C.
+
+**P3.2 — the accumulator of record, its generator families, and the
+§8.1/§10.6 re-amendment.**
+*What*: land the cliff-immune accumulator as the shared arithmetic
+core for every running-height/difference sweep and for strict
+decode's nonnegativity check: a redundant balanced base-2^32
+signed-digit form — `Vec<i64>` digits, value `Σ dᵢ·2^32ⁱ`, lazy
+zone `|dᵢ| < 2^33`; a write leaving the zone carries
+`c = (t + 2^31) >> 32` and stores the recentered remainder in
+`[−2^31, 2^31)`, so a digit needs ~2^33 fresh net drift before
+carrying again — amortized O(1) per small delta, O(delta limbs) per
+wide delta, no preset attack because every write recenters; `sign()`
+folds from the top, decides at running partial `|s| ≥ 3` (top-digit
+domination: everything below contributes < 2.01·2^32ⁱ), and
+collapses any deeper-scanned cancelling prefix so scans amortize
+against the writes that built them; one low-to-high signed-carry
+pass converts to normalized limbs. There is no normalized region
+anywhere, hence no cliff at any delta width **[measured** — probe:
+2.00 limbs/delta flat on the boundary comb as k doubles; 6.00 flat
+on the wide-tooth comb where the two-zone form is quadratic; flat
+per-coded-bit on the magnitude ramp; wall ~4.4 ns/delta flat on the
+comb at k = 4096→32768**]**. The module doc carries the two
+load-bearing arguments (the `|s| ≥ 3` domination bound; the
+collapse/write amortization). Spec-first: the adversarial generator
+families join the meters in this item, before any codec exists —
+the wide-tooth comb, the unpaid-crossing fan (§8.1's promised
+generator), cancelling-prefix chains, and the deep
+alternating-binary spine (P3.7's frame-count adversary). And the
+dated re-amendment to §8.1 and §10.6: the two-zone representation
+is refuted as recorded in §17.1; this form is the representation of
+record for Tier 2's sweeps and for the eventual difference-tracked
+compare under any tier. *Where*: new module (proposed
+`src/version/skyline/accum.rs`); generators in `src/meter.rs`;
+envelopes in `tests/meter.rs`; amendments in this document.
+*Kills*: no cells (foundation for P3.5–P3.8). *Acceptance*:
+exact-value differential proptest against a `BigInt` oracle with
+sign compared every step and periodic snapshots; limb-meter
+envelopes flat per-delta across boundary comb / wide-tooth / fan /
+cancelling-prefix at two scales, pinned via the committed
+`limb-meter` feature (the probe's hand counters are not the record).
+*Risk*: (1) ~2× constants vs the refuted two-level form on
+non-adversarial workloads — accepted and re-pinned with the real
+meter; (2) `sign()` mutates the representation (reads need `&mut`
+discipline) → retired by keeping the type sweep-internal and
+documenting the invariant; (3) probe-counter/meter divergence →
+retired by re-pinning at landing. *Deps*: none (pure addition; may
+precede P3.1).
+
+**P3.3 — board-criterion hardening: output-denominated text I/O.**
+*What*: amend §6 and §13 with the denomination criterion of record.
+Text I/O rows (`Display`/`FromStr` for Version/Party/Clock) are
+judged against total I/O bytes `n_io` — packed input + text output
+(Display), text input + packed output (FromStr) — with every
+ceiling unchanged: heap exponent ≤ 1.15, ≤ 16 B per I/O byte over
+the flat allowance, segments ≤ 1. The limb column on those rows is
+judged against the radix-work denominator
+`R = n_io + Σ (digitsᵢ × limbsᵢ)` over rendered/parsed values — the
+derived cost law of binary↔decimal conversion — with the text codec
+routing all radix arithmetic through one shared, limb-metered
+chunked converter so `R` is observed, not assumed. An
+output-honesty assertion (`text_bytes ≤ C · content_bits`) plus the
+round-trip and snapshot pins close the pad-the-output door. Why
+harder, not softer: the input-only criterion is unsatisfiable by
+construction on expansive shapes — on the §10.6 comb a *perfect*
+writer emits Θ(nk) mandatory digits from Θ(n + k) wire bits (heap
+exponent ~2 with no defect anywhere) — and an unsatisfiable
+criterion degenerates into exemption holes; the I/O criterion keeps
+every ceiling falsifiable (a real amplifier still trips 16 B per
+I/O byte), and today it is the *limb column* that is quietly soft:
+`Base`'s `Display` delegates to `BigUint`'s with no `meter_limbs`
+call, so `version_display × hugeleaf` records 0.1 limb/B while
+doing ~(16000/64)²-scale conversion work — a false green the new
+denominator replaces with an observed number **[measured** — board
++ code**]**. The amendment also enumerates the rows that must NOT
+re-denominate: both binary codec directions (canonical 1:1;
+input-denominated stays the honest bound), all scalar/comparison/
+query rows, and the packed-output mutators — whose input
+denomination rests on output ≤ C·input, pinned for join/meet by
+the 1-Lipschitz boundary argument (|δ_out| ≤ max |δ_in| at each
+overlay boundary, boundaries ⊆ union of inputs') as a `meter/tier2`
+test rather than an assumption. Finally it resolves the one
+output-domination coverage gap the probe sweep found:
+`version_project`/`clock_own_version` on comb × scattered-party is
+Θ(e·k) output from Θ(e + n + k) input and no board cell builds that
+operand cross — add the cell with an explicit denomination
+decision, or record why the family set excludes it. *Where*: §6/§13
+amendments; `src/meter/board.rs` (denominator plumbing);
+`src/meter/tier2` (Lipschitz pin). *Kills*: none directly — it is
+the criterion under which P3.8's ten cells are judged; landing it
+first is the spec-first practice. *Acceptance*: board renders the
+new denominators; the current (recursive, unmetered) text paths
+still read red under the new criterion — the hardening flips
+nothing by itself except the re-denominated mandatory-output heap
+constants it exists to state honestly. *Risk*: criterion drift
+reads as grading-to-pass → retired by Gate B (the user ratifies the
+amendment with the GO) and by the ceilings staying numerically
+identical. *Deps*: none; must precede P3.8 acceptance.
+
+**P3.4 — board-criterion hardening: the acceptance scale of
+record.**
+*What*: pin a record-mode board scale (a committed multiplier and a
+`just amp-board-record` recipe) at which every known amplifier
+class was red under pre-fix code — calibrated against the P0
+baseline mechanisms, with the segment meter's ~1 MiB growth
+threshold as the sizing driver (P1's id walks read green at board
+defaults while red at meter-suite depths; onset-above-default false
+greens must not be able to pass acceptance). Campaign acceptance
+becomes: all green at BOTH the default scale (inner loop) and the
+record scale, three identical runs. *Where*: `src/meter/board.rs`,
+`examples/amp_board.rs`, `justfile`, §13 amendment. *Kills*: none
+(prevents false acceptance). *Acceptance*: the calibration table —
+per family, the scale at which each historically-red mechanism
+first reads red — recorded in the §13 amendment; record-scale
+runtime stays within a documented per-family seconds budget (the
+comb text cells' mandatory Θ(W²) output wall time bounds the comb's
+record size; the enforced record remains `tests/meter.rs`
+regardless of board onset). *Risk*: record scale inflates runtime →
+retired by keeping record runs acceptance-time only. *Deps*: none;
+must precede P3.10's acceptance claim.
+
+**P3.5 — C1a: the skyline codec core and the subadditivity
+GO/NO-GO probe.**
+*What*: land the skyline encoder, strict validator, and a
+transcoder from the current `Version`, module-private beside the
+old codec (old codec = behavioral oracle; wire bytes untouched;
+gate green). The validator enforces topology minimality at ~2
+bits/level (zero-delta right sibling, per §10.2) and leaf-value
+nonnegativity on the P3.2 accumulator (the §10.2 amendment's
+requirement — a plain big-integer running value is Θ(W²) on the
+comb **[measured** — the `meter/tier2` plain-sweep pin**]**).
+First inside this item, Gate A's probe: an executable adversarial
+test of skyline join subadditivity over the §2 families plus
+hugeleaf-vs-step, comb-vs-flat, and `arbitrary` — with the verdict
+recorded as a dated entry either way, and a NO-GO rerouting to
+lemma/`version_bound` re-derivation before any dependent work
+piles on. The boundary comb joins the board's input families
+(§13's landed note anticipates this). *Where*: proposed
+`src/version/skyline/{codec,validate}.rs`; subadditivity pins in
+`version/tests.rs`; board family in `src/meter/board.rs`. *Kills*
+(realized at C2): the four decode-V5 cells — `version_decode ×
+dense`, `version_decode × bigroot`, `clock_decode × dense`,
+`clock_decode × bigroot`. *Acceptance*: transcode round-trip
+differential proptests over all generator families including the
+comb; strict-reject suites (negative running value, sibling zero
+delta, non-canonical codes); decode meter at ~2 bits/level frames
+and limb-linear on the comb; the subadditivity verdict. *Risk*:
+Gate A (the riskiest seam in the plan — scheduled first for that
+reason); a validator bug is a byte-equality bug → retired by the
+oracle differential, exhaustive small-scope, and deliberate
+snapshot re-pins at C2. *Deps*: P3.2.
+
+**P3.6 — C1b: the sweep kernels and the bench baseline.**
+*What*: the merge-sweep kernels over the new codec — compare/eq/
+concurrent/`causally::contains` (sign-fold over the overlay
+partition); join/meet emission on the append-truncate builder,
+unified with `IdBuilder` per §11.1 (one generic open/close/
+copy-splice/truncate builder over a packed preorder stream,
+parameterized by per-node payload); `fill`; and the §10.6 delta
+algebra for the linear functionals (`rank`, `distance`, `lag`,
+`min_ticks`, `max`, `project`/`own_version`): telescoped
+`v₁·W + Σ δⱼ·(suffix weight)` folds, never reconstructing absolute
+heights. The emission side-switch algebra (output delta `−D + δₐ`
+on a switch to `a`, `D + δ_b` to `b`; ties `D = 0` stay on the
+current side) is re-derived for the real *asymmetric* two-cursor
+overlay walk — the probe validated it on aligned streams only —
+with the alternating-protocol oracle as the behavioral
+differential; materialization stays bounded by the switch's own
+input+output codes **[measured** — probe: 3.5 limbs/switch flat at
+any `2^k` altitude when |D| = 1; 0.126 → 0.125 limbs per
+input+output code byte when |D| = 2^(k−1)**]**. Same item: extend
+`benches/` to full sweep-path coverage per §14's bench constraint
+and capture before-numbers at the pre-flip tip, so C3 can report
+required before/after deltas. *Where*: proposed
+`src/version/skyline/sweep.rs` and kernels;
+`party/ops/build.rs` unification; `benches/`. *Kills* (realized at
+C2), 45 cells:
+comparison reads ×8 — `version_cmp × {dense, bigroot}`,
+`version_eq × {dense, bigroot}`,
+`version_concurrent × {dense, bigroot}`,
+`causally_contains × {dense, bigroot}`;
+emit paths ×31 — `version_join × {dense, bigroot}`,
+`version_join_assign × {dense, bigroot}`,
+`version_meet × {dense, bigroot, benign}`,
+`version_meet_assign × {dense, bigroot, benign}`,
+`version_tick × {dense, bigroot, benign}`,
+`version_batch_snapshot × {dense, bigroot, benign}`,
+`version_distance × {dense, bigroot, benign}`,
+`version_lag × {dense, bigroot}`,
+`clock_tick × {dense, bigroot, benign}`,
+`clock_join × {dense, bigroot}`, `clock_sync × {dense, bigroot}`,
+`clock_recv × {dense, bigroot, benign}`;
+projection ×5 — `version_project × id-pair`,
+`clock_own_version × {dense, bigroot, id-pair, benign}`;
+rank ×1 — `version_rank × dense`.
+*Acceptance*: differential proptests against both reference oracles
+(recursive tree oracle and function-space oracle) over all families
+per the §14 full-surface-measurability constraint; kernel-level
+meter envelopes asserted pre-flip; join/meet output-vs-input
+Lipschitz pin (P3.3) holding on every family. *Risk*: silent
+side-switch bookkeeping error on asymmetric cursors (misreads a
+direction rather than panicking) → retired by the oracle
+differentials over comb/wide-tooth/fan plus pointwise-max/min
+verification at every emitted boundary in the proptest harness.
+*Deps*: P3.2, P3.5.
+
+**P3.7 — C1c: grow — iterative bit-packed probe + splice emit.**
+*What*: replace `ProbeWalk::rec` with one loop over the two cursors
+plus a bit-coded explicit frame stack — per frame: kind 2b, phase
+1b, gamma(key delta vs the nearest same-regime ancestor, two
+last-key registers restored on pop), and on the phase flip
+{1 infeasible bit, gamma(expansions), gamma(depth)} for the saved
+left cost — as two parallel stacks (fixed-width control bits +
+value bits, the landed complement rewrite's pattern). The synthetic
+readers are regime, not state (Expand ⇒ event virtual-zero below;
+FullEvNode ⇒ id full below); the Expand arm degenerates to an
+id-only descent with a per-level value stack — a bare
+pending-children counter under-specifies, the T0.3 genre. Written
+against the Tier 2 topology cursor (inside P3, avoiding a double
+migration). `Route` is unchanged (position-keyed random-access bit
+vector; write order irrelevant); the cost fold replays exact unwind
+order so tie-breaking is preserved bit-for-bit. Emission: §11.3
+splice — off-path subtrees copied as verbatim bit ranges, path
+nodes re-emitted, one boundary-delta repair per splice edge on the
+accumulator. Bit-packing is load-bearing, not polish: fixed
+16-byte `Vec` frames cost ~32 B per input byte on the alternating
+binary adversary, over the 16 B/B ceiling; bit-coded frames are
+~0.5–3 b/b **[derived** — probe frame accounting; the adversary
+generator lands at P3.2**]**. The probe is topology-only (reads no
+leaf bases) — zero §10.6 exposure. *Where*:
+`src/version/event/grow.rs` (~150–250 lines replacing the walk);
+splice emit beside the P3.6 builder. *Kills* (realized at C2; probe
+conversion alone leaves them red because today's emit recurses the
+full chosen path — never claimed early): the three grow cells —
+`version_tick_adv_party × id-pair`, `clock_tick × id-pair`,
+`clock_recv × id-pair` (segments retired by the iterative probe,
+heap by the splice emit — the P2 fate map's component split).
+*Acceptance*: `Route` bit-vector equality against a reference
+recursive probe on spine and alternating families; the existing
+grow-optimality proptests against brute force; the deep-spine meter
+pin (≤ ~1 B stack per input byte); board cells at C3. *Risk*:
+tie-break/coordinate drift (silent misdirection) → retired by the
+bit-for-bit `Route` assertion during development. *Deps*: P3.5
+(topology cursor), P3.6 (builder for the emit), P3.2 (boundary
+repair arithmetic).
+
+**P3.8 — C1d: text — sweep writers/parsers and the shared radix
+core.**
+*What*, three parts. (a) **Display**: two-pass iterative writer.
+Pass 1 (finalize): forward sweep with a ~2 b/level topology stack,
+the running height in the P3.2 accumulator, a pending-min spine
+stack holding `m(closed left child)` per open ancestor — stored as
+small offsets against the stack neighbor/anchor, spilling to big
+only when a comparably-wide input delta paid for it (a naive
+Base-per-level stack is amplifier V1 resurrected: d×B transient on
+bigroot-like shapes, and O(width) min-compares) — and a side store
+receiving printed bases finalized at each internal close
+(`b(child) = m(child) − m(node)`, parent-close information, §9.2's
+insight reused). Pass 2 (emit): iterative preorder re-read
+consuming the side store (indexed digit arena ≤ C·output). One
+preorder text emitter parameterized by payload serves
+Version/Party/Clock (party is the degenerate no-value
+instantiation; clock is composition). PRECONDITION, probe-first:
+an executable pin of the offset-coded pending-min stack's
+O(input + depth) coded-size bound — a new Euler-charging-genre
+derivation — over the §2 families + comb + `arbitrary`, before the
+DECIDED entry leans on it. (b) **FromStr**: iterative parse;
+per-level retained bases (≤ input by definition); running path sum
+add-on-descend / subtract-on-ascend on the accumulator (each base
+charged ≤ 2×); per-leaf delta accumulator; canonicality =
+O(1) zero-tests. (c) **The shared radix core**: one limb-metered
+chunked converter (19 digits per u64 chunk) through which both
+directions route — making `R` observed and cutting the quadratic
+constant ~19× — plus the divide-and-conquer parse (right-aligned
+power-of-two digit blocks, squared-power-of-10 ladder, 64-digit
+leaf threshold; recursion depth log₂(digits), no `descend!`)
+replacing the schoolbook `parse_base` **[measured** — radix probe:
+doubling ratio ~2.7 (exponent ~1.44), exact against the oracle at
+every scale, 48× faster than schoolbook at 158k digits**]**; and
+the `num-bigint` floor raised to ≥ 0.4.8 in `Cargo.toml`, not just
+the lockfile (0.4.7 ships divide-and-conquer `to_radix_digits`;
+0.4.8 fixes its Burnikel–Ziegler regression; the workspace lock
+currently resolves 0.4.6, whose `to_string` is measured quadratic)
+— with a limb recording in the big `Display` arm (or a wall-ratio
+canary) because the board is structurally blind to a Display-class
+wall regression. The derived board-band exponent for the D&C parse
+(~1.05–1.1 against the recording scheme) is verified through the
+actual limb meter at record scale before pinning — the margin to
+1.15 is real but not huge and the log factor creeps with scale.
+*Where*: `src/codec/{display,text,base}.rs` reworked into the
+skyline text module; `Cargo.toml`. *Kills* (realized at C2, judged
+under P3.3's criterion), 10 cells: `version_display × dense`,
+`clock_display × dense`, `party_display × id-pair`,
+`clock_display × id-pair`, `version_from_str × {dense, bigroot,
+hugeleaf}`, `clock_from_str × {dense, bigroot, hugeleaf}`.
+*Acceptance*: round-trip pins (parse∘display = id, display∘parse =
+canonical text, strict `NotCanonical` rejection); the
+output-honesty assertion; the pending-min probe pin; segments 0 on
+all ten cells; heap ≤ ceiling per I/O byte; limb exponent ≤ 1.15
+against `R` at record scale. *Risk*: (1) the pending-min bound is
+unproven → retired by its probe, scheduled first within the item;
+(2) bigroot `FromStr` may carry a second superlinear path
+(path-sum accumulation of big bases, the V3 read-quadratic genre) —
+the accumulator-based path sum is designed to absorb it; any
+residue after the swap belongs to the sweeps and is re-measured
+end-to-end here; (3) leading-zero runs / threshold crossings in the
+D&C parse → edge and prop tests at productization. *Deps*: P3.2,
+P3.3, P3.5.
+
+**P3.9 — C2: the flag day (one commit).**
+*What*: flip `Version`'s storage to skyline bits; route every
+algorithm to the P3.5–P3.8 implementations; serde/borsh/encode/
+decode emit skyline bytes; `Display`/`FromStr` swap; and in the
+same commit delete `WorkingVersion`, the event `Builder`,
+`EvReader`'s form split and `Zero` broadcast, the deferred leaf,
+and the old event codec — deferred deletion is impossible
+gate-clean because the old algorithms read the old packed format
+out of `Version`'s own bits and cannot run after the flip.
+Differential coverage re-anchors on `oracle.rs` (untouched; speaks
+semantics, not bytes). The same commit re-pins the full artifact
+list of record (re-derived at P3.1; the worktree floor, verified by
+the migration probe): the codec witness byte literals
+(`codec/tests.rs`), every byte-pinned doctest (`encoded_bits`,
+`as_bytes == encode`), the 10 fuzz seeds regenerated by a
+*committed* seed-writer plus a canonicity check on the seed
+directory (stale seeds fail no gate — they silently degrade the
+corpus), all workspace snapshots (55 at the worktree baseline: 20
+gossip/bootstrap/retire, 28 alternating, 5 streaming-codec, 2
+bookmark; plus whatever the rebase adds) bulk re-accepted with
+`cargo-insta` and each diff reviewed as bytes-only with structure
+intact, and `BOOKMARK_FORMAT_VERSION` 1 → 2. Proptest-regressions
+files stay untouched (RNG seeds, not bytes; committed per policy).
+The public API is unchanged — no public item leaks the
+representation; `rumors` compiles with zero source changes (its
+`as_bytes` uses are content hashing, arbitrary-total-order
+tiebreaks, and one frame length) **[derived** — migration probe,
+verified against every import and call site**]**. Blast radius:
+~3.6k `before` source lines in scope, of which C1 pre-lands the
+novel logic, so C2 itself is rewiring + deletion + ~70 mechanical
+artifact files. *Where*: as enumerated. *Kills*: none of its own —
+it realizes P3.5 (4) + P3.6 (45) + P3.7 (3) + P3.8 (10) = 62.
+*Acceptance*: `just gate` green at the single commit; a dedicated
+review pass confirming every snapshot diff is bytes-only;
+oracle/small-scope/algebraic suites green; `cargo-insta`/`insta`
+version-skew compatibility verified before relying on the bulk
+accept. *Risk*: one large commit → retired by maximal C1
+front-loading and the review pass; Gate B's sign-offs are recorded
+*before* this commit (the DECIDED entry precedes C2 by
+definition). *Deps*: P3.1–P3.8, Gate A GO, Gate B, the user's
+DECIDED entry.
+
+**P3.10 — C3: board and envelope re-pin; bench deltas.**
+*What*: board re-run at default and record scale — all 62
+previously-red cells green — and every event-side envelope in
+`tests/meter.rs` tightened downward in this commit to the
+sweep-earned constants (§14's rule: thresholds tighten in the
+commit that earns them). Bench after-numbers against P3.6's
+baselines, reported as the before/after table of record;
+improvement expected on every touched operation, any regression a
+finding. *Where*: `tests/meter.rs`, `src/meter/board.rs`
+thresholds, bench report in this document's landed entry. *Kills*
+(as enforced envelope rows, mechanism earned at P3.5/P3.6):
+`DECODE_DENSE`, `CMP_DENSE`, `JOIN_DENSE`, `TICK_DENSE`,
+`DECODE_BIGROOT`, `CMP_BIGROOT`, `JOIN_BIGROOT`,
+`DECODE_HUGELEAF`, `JOIN_HUGELEAF`, `DECODE_CLIFF`, `CMP_CLIFF`,
+`JOIN_CLIFF` — twelve rows re-pinned at sweep constants (segments
+0, heap ~1× packed + bit stacks, limb amortized-linear).
+*Acceptance*: three identical runs at both scales. *Risk*: a cell
+green at default but red at record scale → that is P3.4 working as
+designed; the cell's owning item reopens. *Deps*: P3.9, P3.4.
+
+**P4.1 — id-side explicit compact stacks (§8.3).**
+*What*: convert `sum`, `covers`, `is_disjoint` to explicit
+iteration (cursor positions + 2–3 bits/frame; `complement` is
+already iterative from T0.3). The id side is untouched by Tier 2;
+this is the remaining P1 exposure. *Where*:
+`party/ops/{sum,compare}.rs`. *Kills* (enforced envelope rows —
+the board reads green at default depths per the §13 segment-onset
+caveat; the meter suite's d = 250k scenarios are the record):
+`ID_JOIN` (segments 202 → 0), `ID_COVERS` (85 → 0), `ID_DISJOINT`
+(170 → 0). *Acceptance*: `tests/meter.rs` re-pins segments to 0;
+the party differential and algebraic suites unchanged. *Risk*: low
+(mechanical; id frames carry no values) → existing proptests.
+*Deps*: none hard (scheduled P4 to keep P3 single-purpose).
+
+**P4.2 — residual recursion and word-scale scanning.**
+*What*: audit every remaining `recurse::descend!` site after C2
+(expected survivors: test-only walks and any parser the flip did
+not subsume; the documented iterative exceptions stay); convert
+survivors per §8.3; apply §11.4's word-at-a-time subtree skip
+(popcount pending-counter delta with mid-word zero-crossing exit)
+to `idbits` and the Tier 2 topology stream where `benches/` says it
+pays. *Where*: `src/recurse.rs` call sites; `src/idbits.rs`.
+*Kills*: none (constants only). *Acceptance*: the audit list
+recorded; benches. *Deps*: P3.9, P4.1.
+
+**P5.1 — envelope finalization at record scale.**
+*What*: tighten every `tests/meter.rs` envelope — including
+`ID_WITHOUT` (the one enforced row no earlier item re-pins; its
+segments went to 0 at T0.3, its heap constant finalizes here) and
+the P3.2-born families — and every board ceiling to final
+constants, at the record scale, three identical runs. *Kills*
+(enforced envelope row): `ID_WITHOUT` final ratchet. *Deps*: P4.*.
+
+**P5.2 — proportional fuzz cap.**
+*What*: the §13 fuzz item — counting-allocator harness with a hard
+ceiling proportional to input size across all fuzz targets, turning
+any future amplifier into a crash finding; the P3.9 seed-writer and
+seed-canonicity check become part of `just all`. *Deps*: P3.9.
+
+**P5.3 — stacker-removal audit.**
+*What*: if P4.2's audit shows zero remaining depth-recursion on
+library paths, drop `recurse::descend!` and the `stacker`
+dependency; re-denominate `clock::tests::deep_tree_stack_safety`
+(the depth-100k proof becomes a plain deep-input test of the
+iterative walks) and update the crate's AGENTS.md hard rule in the
+same change. If any site must stay recursive, record which and why.
+*Deps*: P4.2.
+
+**P5.4 — documentation closeout (user sign-off, per the process
+constraint of record).**
+*What*: the §6 invariant statement lands in the crate docs now that
+it is true — restated over content bits for the
+content-materializing operations per §10.6, over packed operands
+for the delta-native ones, with the P3.3 denomination stated as
+part of the contract and every cost claim carrying its epistemic
+status; the `Key` stability promise in `rumors`' `src/tree/key.rs`
+gains its same-code-version qualifier; the bookmark format's
+version-mismatch semantics; `before`'s crate-doc Efficiency section
+re-measured under skyline (the ~100-bytes-per-Version figure and
+the space plot) with `just readme` re-derivation; and the
+design-doc distillation pass over this campaign's documents. All
+user-facing prose flagged for sign-off item by item. *Deps*:
+everything prior.
+
+**P5.5 — acceptance sweep of record.**
+*What*: `just all` clean (feature matrix, wasm, bench builds, fuzz
+targets, viz bundle); the board all green at default and record
+scale, three identical runs; the bench before/after table of
+record showing no regression and improvement on every touched
+operation; the §14 acceptance entry recorded. *Deps*: all.
+
+### 17.3 Coverage accounting
+
+Every red cell and every enforced envelope row appears in exactly
+one kill list; the sums close.
+
+| item | kills | count |
+|---|---|---|
+| P3.5 | decode-V5 cells (`version_decode`/`clock_decode` × dense, bigroot) | 4 |
+| P3.6 | comparison reads (8) + emit paths (31) + projection (5) + rank (1) | 45 |
+| P3.7 | grow cells (`version_tick_adv_party`/`clock_tick`/`clock_recv` × id-pair) | 3 |
+| P3.8 | Display (4) + FromStr (6) | 10 |
+| **board total** | | **62** |
+| P3.10 | event + cliff envelope rows re-pinned at sweep constants | 12 |
+| P4.1 | `ID_JOIN`/`ID_COVERS`/`ID_DISJOINT` segments → 0 | 3 |
+| P5.1 | `ID_WITHOUT` final ratchet (all rows final-tightened here) | 1 |
+| **envelope total** | | **16** |
+
+62 kills + the 96 currently-green cells = 158 = the whole board,
+all green at the P3.4 acceptance scale; the sixteen enforced
+`tests/meter.rs` rows all re-pinned at their final mechanisms. The
+families P3.2 adds (wide-tooth, fan, cancelling-prefix, deep
+alternating spine) and P3.5's comb board column are born green
+against their pinned envelopes — coverage ratchets upward, per the
+process constraint.
+
+### 17.4 Commit choreography summary
+
+- **C0** (P3.1): rebase onto post-`link-transport` main; seam
+  re-sweep; gate green for the first time in the campaign.
+- **C1** (P3.2–P3.8, several commits, wire bytes untouched, every
+  commit gate-green): accumulator + generators + re-amendment;
+  criterion amendments; codec + validator + transcoder +
+  subadditivity verdict; sweep kernels + bench baselines; grow;
+  text. The old codec is the oracle throughout.
+- **C2** (P3.9, one commit): the flag day — flip, rewire, delete,
+  re-pin the full artifact enumeration. Preceded by the DECIDED
+  entry and Gate B's recorded sign-offs.
+- **C3** (P3.10): board + envelope re-pin; bench deltas of record.
+- P4 and P5 land as ordinary gate-green commits per item.
+
+The DECIDED entry in §12 remains the user's to record; this
+section is the plan it points at.
