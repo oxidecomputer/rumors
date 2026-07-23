@@ -92,3 +92,7 @@ harness = false
 [[bench]]
 name = "clock"
 harness = false
+
+[[bench]]
+name = "amplify"
+harness = false
