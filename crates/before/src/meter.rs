@@ -186,7 +186,8 @@ pub fn reset_stack_segments() {
 /// The deterministic stand-in for arithmetic-width cost, which no other meter
 /// can see: a magnitude blowup allocates little and visits no extra nodes —
 /// the work is wider, not more frequent. The count is the operands' 64-bit
-/// limb counts per `Base` arithmetic operation plus one value-width record
+/// limb counts per `Base` operation (arithmetic, comparison, equality, and
+/// hashing) plus one value-width record
 /// per wide-gamma decode, so an amortized-linear algorithm counts
 /// linearly in packed input bits and a magnitude-quadratic one counts
 /// quadratically. Process-global, same isolation requirement as

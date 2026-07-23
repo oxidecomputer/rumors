@@ -1,5 +1,6 @@
 use core::cmp::Ordering;
 use core::fmt;
+use core::hash::{Hash, Hasher};
 use core::ops::{Add, AddAssign, BitOr, MulAssign, Shl, Shr, Sub, SubAssign};
 
 use num_bigint::BigUint;
@@ -10,9 +11,10 @@ use num_bigint::BigUint;
 /// blowup performs no extra allocations a peak-heap meter would see and
 /// visits no extra nodes a step counter would see — the work is wider, not
 /// more frequent. The proxy counted here is the operands' 64-bit limb counts
-/// per arithmetic operation (every operation below records before it runs,
-/// and the wide-gamma decode in `codec::gamma` records one value-width count
-/// per decoded value), so amortized-linear algorithms count linearly in
+/// per `Base` operation — arithmetic, comparison, equality, and hashing all
+/// record before they run, and the wide-gamma decode in `codec::gamma`
+/// records one value-width count per decoded value — so amortized-linear
+/// algorithms count linearly in
 /// packed input bits and magnitude-quadratic ones count quadratically.
 /// Relaxed ordering suffices:
 /// the metering binaries run one scenario per process and read the counter
@@ -68,13 +70,28 @@ fn meter_limbs1(a: &Base) {
     let _ = a;
 }
 
+/// Record a single-operand `Base` operation's limb-scale work (hashing
+/// walks every limb of its one operand).
+///
+/// Compiles to nothing without the `limb-meter` feature.
+#[inline(always)]
+fn meter_limbs_solo(a: &Base) {
+    #[cfg(feature = "limb-meter")]
+    limb_meter::record(a.limbs());
+    #[cfg(not(feature = "limb-meter"))]
+    let _ = a;
+}
+
 /// An event tree's stored integer magnitude.
 ///
 /// ITC event counts (path sums of `tick`s, the `max`/`join` of two such sums)
 /// grow without bound, so the value type preserves arbitrary precision: no
 /// `u64` overflow class, in any build profile. The common case stays inline as
 /// a `u64`; only values past `u64::MAX` spill to `BigUint`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+// `PartialEq` and `Hash` are manual (below) so the limb meter sees
+// width-scale equality and hashing work; both keep exactly the structural
+// semantics a derive would generate.
+#[derive(Clone, Debug, Eq)]
 pub enum Base {
     Small(u64),
     Big(BigUint),
@@ -148,6 +165,39 @@ impl Base {
                 n.to_le_bytes()[..n.to_le_bytes().len() - (n.leading_zeros() as usize / 8)].to_vec()
             }
             Base::Big(n) => n.to_bytes_le(),
+        }
+    }
+}
+
+// Structural equality, identical to the derived semantics: variants must
+// match and their payloads must be equal. Canonical form keeps every value
+// in exactly one variant (`Big` only past `u64::MAX`), so cross-variant
+// operands are distinct values, never two spellings of one value. Manual
+// only so the limb meter records the operand widths: equality over spilled
+// magnitudes is width-scale work (the decoder's equal-leaf check, the
+// builder's collapse check) that every other meter is blind to.
+impl PartialEq for Base {
+    fn eq(&self, other: &Self) -> bool {
+        meter_limbs2(self, other);
+        match (self, other) {
+            (Base::Small(a), Base::Small(b)) => a == b,
+            (Base::Big(a), Base::Big(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+// The derived stream: the discriminant, then the payload. Manual only so
+// the limb meter records the operand width (hashing walks every limb).
+// Consistent with `PartialEq` above: equal values are structurally
+// identical, so they feed identical streams to the hasher.
+impl Hash for Base {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        meter_limbs_solo(self);
+        core::mem::discriminant(self).hash(state);
+        match self {
+            Base::Small(n) => n.hash(state),
+            Base::Big(n) => n.hash(state),
         }
     }
 }
