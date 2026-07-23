@@ -2019,6 +2019,59 @@ differentials over comb/wide-tooth/fan plus pointwise-max/min
 verification at every emitted boundary in the proptest harness.
 *Deps*: P3.2, P3.5.
 
+Landed 2026-07-23 (partial: the join/meet emission slice). The
+emission sweep (`version/skyline/emit.rs`) rides the comparison
+sweep's cursors; the side-switch algebra landed in the post-fold
+orientation — output delta `±D′ + δ_old` with `D′` the difference
+after the boundary's folds and `δ_old` the departed side's step
+delta — verified by the packed-form byte-identity differential over
+families/arbitraries/organic/exhaustive-small-scope, a three-cursor
+pointwise overlay walk, and the lattice laws on emitted streams.
+The unified builder landed in two layers: `codec::build` (the
+append/reserve-patch/copy-splice/truncate move set with uniform
+write metering) with `IdBuilder` refactored onto it —
+behavior-identical under the id oracle suites and the `ID_*`
+envelope rows, so no C2 follow-up remains — and
+`version/skyline/build.rs` (the leaf-delta instantiation). One
+addition beyond the sketch: the builder *holds* the newest leaf's
+code out of the stream until the next leaf decides its fate, because
+a flushed-then-truncated code would shift left one bit per collapse
+level — Θ(depth × code width) on a flat operand dominating a deep
+one (join(flat 2^b − 1, dense(d))) — while the held code never
+moves; the re-anchor direction's copy is paid by its own deletion.
+The truncation coordinates live in per-level bit stacks (the
+left-sibling code lengths on a pop-able unary+value bit stack), so
+no per-level machine word survives. Envelope rows
+(`tests/meter.rs::emit_env`, measured ×1.25, three identical runs):
+join × {dense, bigroot, cliff, wide-tooth, absorb} and meet ×
+{cliff, wide-tooth}, all four columns, all zero segments; the
+subadditivity and 1-Lipschitz pins re-instantiated on the skyline
+emitters (`meter/tier2`'s four-entry emitter table), with exact
+emitted-length agreement against `tier2_size` asserted inside the
+emitter hooks. Still open in this item: `fill` (below), the delta
+algebra for the linear functionals, and the §14 bench-surface
+constraint.
+
+Amended 2026-07-23 (fill placement): `fill` does not ride the
+join/meet machinery pre-flip and lands at C2 with the tick splice.
+Reasons, in order of force: (a) its sweep merges a skyline stream
+against an *id* stream (2-bit presence tags, `Empty`/`Full`
+dominance), which is the Tier 2 topology-cursor pairing P3.7's grow
+emit builds on P3.5 — landing a second ad-hoc id cursor here would
+be the double migration §17.1 warns against; (b) its collapse is a
+different discipline — a fully-owned region's raised value is a
+*streaming max over a leaf range*, known only at region close, so
+the repair is a region truncation plus one re-emitted leaf, not the
+equal-sibling-pair rule the output builder normalizes by; the
+truncate-to-recorded-position primitive is shared, the region
+bookkeeping is not; (c) fill's only production caller is `tick`
+(fill + grow), whose cells the P2 fate map already assigns to the
+C2 splice, so a pre-flip fill kernel would move no measurable cell
+and gain no third-reference differential it does not already get at
+C2 from the alternating oracle. The output builder's `leaf`
+interface is the piece fill reuses; nothing in this slice
+forecloses it.
+
 **P3.6b — the full-surface dual-oracle coverage audit.**
 *What* (added 2026-07-23, discharging the §14 full-surface
 measurability constraint as a work item rather than a hope): every
