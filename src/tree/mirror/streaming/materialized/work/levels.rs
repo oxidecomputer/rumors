@@ -84,8 +84,9 @@ where
 
     /// Process the responder level.
     ///
-    /// `fan` is the greeting-time root fan, standing in for the root
-    /// children the pre-greeting protocol exploded here.
+    /// `fan` is the greeting-time root fan: the greeting already carried
+    /// the root's children, so this stage starts from that listing rather
+    /// than exploding the root itself.
     pub fn responder_level(
         &mut self,
         their_version: Version,

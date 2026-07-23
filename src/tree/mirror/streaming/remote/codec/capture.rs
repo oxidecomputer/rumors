@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, fmt::Write as _};
 use borsh::BorshDeserialize;
 
 use crate::Version;
+use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
 
 use super::{
     End, Speaker, Stream,
@@ -14,9 +15,6 @@ use super::{
 
 /// Bytes occupied by the fixed session preamble.
 const PREAMBLE_LEN: usize = 25;
-
-/// Bytes occupied by one exact-frame length header.
-const FRAME_LEN: usize = std::mem::size_of::<u32>();
 
 // The label's width is defined canonically beside the sender that writes
 // it; captures parse with the same constant.
@@ -107,7 +105,7 @@ impl Control {
         // declining at the preamble) still closes with the one-byte session
         // epilogue marker: control bytes too short to be a version frame
         // header are that trailing marker, not a truncated frame.
-        if rest.len() < FRAME_LEN {
+        if rest.len() < LENGTH_HEADER_LEN {
             return Self {
                 preamble: preamble.to_vec(),
                 version_frame: None,
@@ -121,7 +119,8 @@ impl Control {
         // size, version-size bound, and message-size target; the version
         // encoding follows them.
         let version = Version::try_from_slice(
-            &version_frame[FRAME_LEN + crate::tree::mirror::framing::GREETING_SIZE_WORDS_LEN..],
+            &version_frame
+                [LENGTH_HEADER_LEN + crate::tree::mirror::framing::GREETING_SIZE_WORDS_LEN..],
         )
         .expect("captured version frame is canonical");
         // The greeting always carries its listing frame directly behind the
@@ -139,9 +138,13 @@ impl Control {
 
 /// Split one exact length-delimited frame (header included) off `bytes`.
 fn split_frame<'a>(bytes: &'a [u8], what: &str) -> (Vec<u8>, &'a [u8]) {
-    assert!(bytes.len() >= FRAME_LEN, "truncated {what} frame header");
-    let len = u32::from_be_bytes(bytes[..FRAME_LEN].try_into().expect("header width")) as usize;
-    let frame_end = FRAME_LEN + len;
+    assert!(
+        bytes.len() >= LENGTH_HEADER_LEN,
+        "truncated {what} frame header"
+    );
+    let len =
+        u32::from_be_bytes(bytes[..LENGTH_HEADER_LEN].try_into().expect("header width")) as usize;
+    let frame_end = LENGTH_HEADER_LEN + len;
     assert!(bytes.len() >= frame_end, "truncated {what} frame");
     (bytes[..frame_end].to_vec(), &bytes[frame_end..])
 }
@@ -207,9 +210,13 @@ fn raw_frame(speaker: Speaker, bytes: &[u8]) -> (Stream, Signal, usize) {
             1 + (usize::from(count) + QUERY_COUNT_BIAS) * QUERY_CHILD_LEN
         }
         Signal::Supply(_) => {
-            assert!(body.len() >= FRAME_LEN, "captured supply has a length");
-            let len = u32::from_be_bytes(body[..FRAME_LEN].try_into().expect("header width"));
-            FRAME_LEN + len as usize
+            assert!(
+                body.len() >= LENGTH_HEADER_LEN,
+                "captured supply has a length"
+            );
+            let len =
+                u32::from_be_bytes(body[..LENGTH_HEADER_LEN].try_into().expect("header width"));
+            LENGTH_HEADER_LEN + len as usize
         }
     };
     let consumed = 1 + body_len;

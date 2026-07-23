@@ -78,6 +78,11 @@ const BELOW_FULL: usize = 7;
 /// the levels a test-scale divergence engages (depths two through four,
 /// heights 30 down to 28).
 ///
+/// The engaged band is a collision expectation: under uniform hashing the
+/// expected leaf pairs sharing a depth-2 slot are `E = C(n,2)/2^16` for a
+/// session of `n` leaves, falling ~256x per further depth, so past depth
+/// four the expected population is below one at any test-scale `n`.
+///
 /// This is the derivation the session itself performs at greeting time,
 /// evaluated at the sizes the session will actually exchange — both
 /// sides hold [`COMMON`] plus their divergence — so every cell's

@@ -6,7 +6,10 @@
 //! variant's rendered marker to appear in the atlas — or to carry an explicit,
 //! reasoned exemption in `EXEMPT_MARKERS`. The one hole neither half can see:
 //! a variant whose new match arm is added without extending the marker tables
-//! or the witnesses; the comments at each match carry that obligation.
+//! or the witnesses; the comments at each match carry that obligation. An
+//! exemption also outlives its variant silently — the check asserts absence,
+//! which a deleted variant satisfies trivially — so pruning a variant must
+//! prune its `EXEMPT_MARKERS` entry by hand.
 
 use std::{
     error::Error,

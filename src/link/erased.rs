@@ -2,13 +2,16 @@
 //!
 //! The protocol state machines carry their transport type parameters through
 //! every height of the descent, so each distinct [`Link`](super::Link)
-//! instantiation would re-instantiate both towers in each downstream binary.
-//! Every session entry point therefore erases the link's stream supply here
+//! instantiation would re-instantiate both towers in each downstream binary,
+//! at a measured cost of about +0.7 GiB of rustc peak memory per additional
+//! tower instantiation — the reason this funnel is load-bearing. Every
+//! session entry point therefore erases the link's stream supply here
 //! — mirroring the `DynRead`/`DynWrite` erasure of the control halves — and
 //! the towers instantiate once per payload type. The price is one vtable
 //! call per `poll_read`/`poll_write` beneath the frame codec, and — per
-//! stream open/accept — a vtable call plus a fresh `Box::pin` allocation
-//! for the [`BoxFuture`] each erased `connect`/`accept` returns.
+//! stream open/accept — a vtable call plus two allocations: the fresh
+//! `Box::pin` for the [`BoxFuture`] each erased `connect`/`accept` returns,
+//! and the box that erases the stream half it yields.
 
 use std::io;
 
