@@ -4,6 +4,69 @@ use core::ops::{Add, AddAssign, BitOr, MulAssign, Shl, Shr, Sub, SubAssign};
 
 use num_bigint::BigUint;
 
+/// Process-global counter of big-integer limb-scale work.
+///
+/// Arithmetic-width cost is invisible to every other meter: a magnitude
+/// blowup performs no extra allocations a peak-heap meter would see and
+/// visits no extra nodes a step counter would see — the work is wider, not
+/// more frequent. The proxy counted here is the operands' 64-bit limb counts
+/// per arithmetic operation (every operation below records before it runs,
+/// and the wide-gamma accumulation in `codec::gamma` records each step), so
+/// amortized-linear algorithms count linearly in packed input bits and
+/// magnitude-quadratic ones count quadratically. Relaxed ordering suffices:
+/// the metering binaries run one scenario per process and read the counter
+/// only after the metered call returns.
+#[cfg(feature = "limb-meter")]
+pub(crate) mod limb_meter {
+    use core::sync::atomic::{AtomicU64, Ordering};
+
+    static LIMB_OPS: AtomicU64 = AtomicU64::new(0);
+
+    /// Add `n` operand limbs to the counter.
+    pub(crate) fn record(n: u64) {
+        LIMB_OPS.fetch_add(n, Ordering::Relaxed);
+    }
+
+    /// Record one accumulation step on a raw `BigUint` working value.
+    pub(crate) fn record_biguint(n: &num_bigint::BigUint) {
+        record(n.bits().div_ceil(64).max(1));
+    }
+
+    /// The limb operations recorded since the last [`reset`].
+    pub(crate) fn limb_ops() -> u64 {
+        LIMB_OPS.load(Ordering::Relaxed)
+    }
+
+    /// Reset the counter to zero.
+    pub(crate) fn reset() {
+        LIMB_OPS.store(0, Ordering::Relaxed);
+    }
+}
+
+/// Record a two-`Base` arithmetic operation's limb-scale work.
+///
+/// Compiles to nothing without the `limb-meter` feature, so every operation
+/// below can call it unconditionally.
+#[inline(always)]
+fn meter_limbs2(a: &Base, b: &Base) {
+    #[cfg(feature = "limb-meter")]
+    limb_meter::record(a.limbs() + b.limbs());
+    #[cfg(not(feature = "limb-meter"))]
+    let _ = (a, b);
+}
+
+/// Record a `Base`-with-machine-scalar operation's limb-scale work (the
+/// scalar counts as one limb).
+///
+/// Compiles to nothing without the `limb-meter` feature.
+#[inline(always)]
+fn meter_limbs1(a: &Base) {
+    #[cfg(feature = "limb-meter")]
+    limb_meter::record(a.limbs() + 1);
+    #[cfg(not(feature = "limb-meter"))]
+    let _ = a;
+}
+
 /// An event tree's stored integer magnitude.
 ///
 /// ITC event counts (path sums of `tick`s, the `max`/`join` of two such sums)
@@ -69,6 +132,13 @@ impl Base {
         }
     }
 
+    /// The number of 64-bit limbs this magnitude occupies, at least one:
+    /// even a zero costs a word of arithmetic.
+    #[cfg(feature = "limb-meter")]
+    fn limbs(&self) -> u64 {
+        self.bits().div_ceil(64).max(1)
+    }
+
     #[cfg(test)]
     pub(crate) fn to_bytes_le(&self) -> Vec<u8> {
         match self {
@@ -83,6 +153,7 @@ impl Base {
 
 impl Ord for Base {
     fn cmp(&self, other: &Self) -> Ordering {
+        meter_limbs2(self, other);
         match (self, other) {
             (Base::Small(a), Base::Small(b)) => a.cmp(b),
             (Base::Small(_), Base::Big(_)) => Ordering::Less,
@@ -145,6 +216,7 @@ impl Add<&Base> for &Base {
     type Output = Base;
 
     fn add(self, rhs: &Base) -> Base {
+        meter_limbs2(self, rhs);
         match (self, rhs) {
             (Base::Small(a), Base::Small(b)) => a
                 .checked_add(*b)
@@ -183,6 +255,7 @@ impl Add<u32> for Base {
     type Output = Base;
 
     fn add(self, rhs: u32) -> Base {
+        meter_limbs1(&self);
         match self {
             Base::Small(n) => n
                 .checked_add(u64::from(rhs))
@@ -205,6 +278,7 @@ impl Add<u64> for Base {
     type Output = Base;
 
     fn add(self, rhs: u64) -> Base {
+        meter_limbs1(&self);
         match self {
             Base::Small(n) => n
                 .checked_add(rhs)
@@ -239,6 +313,7 @@ impl Sub<&Base> for Base {
     type Output = Base;
 
     fn sub(self, rhs: &Base) -> Base {
+        meter_limbs2(&self, rhs);
         debug_assert!(self >= *rhs, "Base subtraction underflow");
         match (&self, rhs) {
             (Base::Small(a), Base::Small(b)) => Base::Small(a - b),
@@ -255,6 +330,7 @@ impl SubAssign<&Base> for Base {
 
 impl MulAssign<u32> for Base {
     fn mul_assign(&mut self, rhs: u32) {
+        meter_limbs1(self);
         *self = match self {
             Base::Small(n) => n
                 .checked_mul(u64::from(rhs))
@@ -269,6 +345,7 @@ impl Shl<u32> for Base {
     type Output = Base;
 
     fn shl(self, rhs: u32) -> Base {
+        meter_limbs1(&self);
         match self {
             Base::Small(n) if rhs < u64::BITS && n <= (u64::MAX >> rhs) => Base::Small(n << rhs),
             Base::Small(n) => Base::from_big(BigUint::from(n) << rhs),
@@ -290,6 +367,7 @@ impl Shr<u32> for Base {
     type Output = Base;
 
     fn shr(self, rhs: u32) -> Base {
+        meter_limbs1(&self);
         match self {
             Base::Small(n) if rhs < u64::BITS => Base::Small(n >> rhs),
             Base::Small(_) => Base::Small(0),
@@ -302,6 +380,7 @@ impl BitOr<Base> for Base {
     type Output = Base;
 
     fn bitor(self, rhs: Base) -> Base {
+        meter_limbs2(&self, &rhs);
         match (self, rhs) {
             (Base::Small(a), Base::Small(b)) => Base::Small(a | b),
             (a, b) => Base::from_big(a.to_biguint() | b.to_biguint()),

@@ -86,6 +86,38 @@ fn stack_segment_meter_counts_deterministically_and_resets() {
     );
 }
 
+/// The limb meter observes arithmetic width, resets to zero, and reads the
+/// same count for the same operation repeated (determinism is what makes it
+/// envelope-able); doubling a decoded magnitude grows the count.
+///
+/// The counter is process-global, so the repeat-run comparison is meaningful
+/// under nextest's one-test-per-process isolation (this workspace's runner).
+#[cfg(feature = "limb-meter")]
+#[test]
+fn limb_meter_counts_deterministically_and_resets() {
+    // Wide-gamma decode is the arithmetic-width worst case: the whole input
+    // is one code, so every accumulation step is limb-scale work.
+    let count_decode = |b: usize| {
+        let p = hugeleaf(b);
+        super::reset_limb_ops();
+        let _ = Version::decode(&p.bytes[..]).expect("hugeleaf decodes");
+        super::limb_ops()
+    };
+    let first = count_decode(10_000);
+    assert!(first > 0, "a spilled-gamma decode must count limb work");
+    super::reset_limb_ops();
+    assert_eq!(super::limb_ops(), 0, "reset returns the meter to zero");
+    assert_eq!(
+        count_decode(10_000),
+        first,
+        "identical operations count identical limb work"
+    );
+    assert!(
+        count_decode(20_000) > first,
+        "a wider magnitude must count more limb work"
+    );
+}
+
 /// `I(d, divert)` is canonical normal form at exactly `2d + 2` bits for both
 /// divert arms, and the two arms own disjoint regions (the property that
 /// drives two-operand id walks to full lockstep depth).

@@ -72,6 +72,14 @@ oracle = []
 # (`src/meter.rs`) as `before::meter`, so the metering test binaries can build
 # worst-case inputs and read the counters they envelope. Bench/test-only.
 meter = []
+# Counts big-integer limb-scale work (operand limbs per `Base` arithmetic
+# operation, plus the wide-gamma accumulation steps) into a process-global
+# counter read via `before::meter`. Arithmetic-width blowups are invisible to
+# node-count and heap meters; this one sees them. Additive and off by default:
+# it adds one relaxed atomic bump per arithmetic operation, so it stays out of
+# the bench builds (deliberately not in the self-dev-dependency above) and is
+# lit by `--all-features` runs and the metering envelopes that assert it.
+limb-meter = ["meter"]
 
 [[bench]]
 name = "party"

@@ -200,6 +200,10 @@ where
     // remaining `k` bits of `m` into a `BigUint`.
     let mut m = BigUint::from(1u32);
     for _ in 0..k {
+        // Each step shifts the whole accumulator, so the loop's total work is
+        // quadratic in the code's bit width; the limb meter must see it.
+        #[cfg(feature = "limb-meter")]
+        super::base::limb_meter::record_biguint(&m);
         m <<= 1;
         if cursor.read_bit()? {
             m |= BigUint::from(1u32);

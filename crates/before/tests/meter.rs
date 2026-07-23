@@ -1,15 +1,16 @@
-//! Resource envelopes: peak heap and grown stack segments per operation on
-//! the adversarial shapes.
+//! Resource envelopes: peak transient heap, grown stack segments, and
+//! big-integer limb work per operation on the adversarial input families.
 //!
 //! The contract this suite is driving toward: no operation materializes
-//! transient state asymptotically larger than its packed operands, with no
-//! bound on value magnitude, tree depth, or encoded size. Today's
-//! implementation is far from that — several operations amplify their input
-//! by large constants or worse — so every scenario here pins the *current*
-//! measured cost, with ×1.25 slack, as a ceiling. A regression fails loudly
-//! now; each improvement tightens a committed number.
+//! transient state asymptotically larger than its packed operands, and every
+//! operation is amortized O(n + m) in the packed input bits — with no bound
+//! on value magnitude, tree depth, or encoded size. Today's implementation
+//! is far from that — several operations amplify their input by large
+//! constants or worse — so every scenario here pins the *current* measured
+//! cost, with ×1.25 slack, as a ceiling. A regression fails loudly now; each
+//! improvement tightens a committed number.
 //!
-//! Two deterministic meters, asserted together per scenario:
+//! Three deterministic meters, asserted together per scenario:
 //!
 //! - **Peak heap bytes**: the binary-wide counting allocator
 //!   ([`PeakAlloc`]), read as a delta over the scenario body. One global
@@ -23,13 +24,21 @@
 //!   bypass any allocator meter; the segment counter is the honest stand-in
 //!   for recursion-driven stack cost. Process-global, same isolation
 //!   requirement.
+//! - **Big-integer limb operations** ([`meter::limb_ops`], only when the
+//!   `limb-meter` feature compiles the counter into the arithmetic):
+//!   operand limbs per `Base` operation plus one accumulator-width record
+//!   per wide-gamma decode step. Arithmetic-width cost is invisible to the
+//!   other two meters — the work is wider, not more frequent — so this is
+//!   the only column that sees a magnitude-quadratic regression. Without
+//!   the feature the scenarios still run and assert the other two columns.
 //!
 //! Wall time is deliberately never asserted: it is the one number here that
 //! is not deterministic. The envelope constants are **measured** on the
 //! development target (aarch64-apple-darwin, dev profile); heap byte counts
-//! are allocation-pattern-deterministic and portable across 64-bit targets,
-//! while segment counts track per-target frame sizes, and the slack absorbs
-//! modest variation.
+//! and limb counts are deterministic and portable across 64-bit targets
+//! (limb counts shrink under release, where `debug_assert!` comparisons
+//! vanish, so the dev-profile pin is the binding one), while segment counts
+//! track per-target frame sizes, and the slack absorbs modest variation.
 
 use std::fmt::Debug;
 
@@ -51,8 +60,10 @@ const BIGROOT_MAGNITUDE_BITS: usize = 40_000;
 const BIGROOT_DEPTH: usize = 10_000;
 
 /// Leaf magnitude (bits) of the hugeleaf scenarios: sized so the current
-/// magnitude-quadratic decode stays around a second under the dev profile.
-const HUGELEAF_MAGNITUDE_BITS: usize = 250_000;
+/// magnitude-quadratic decode stays well under a second under the dev
+/// profile (the limb column pins that quadratic count, so the size caps the
+/// whole suite's wall time).
+const HUGELEAF_MAGNITUDE_BITS: usize = 125_000;
 
 /// Depth of the id spine `I(d, divert)` pair scenarios.
 const ID_DEPTH: usize = 250_000;
@@ -65,30 +76,48 @@ struct Envelope {
     peak_heap: usize,
     /// Stack segments grown during the scenario body.
     segments: u64,
+    /// Big-integer limb operations counted during the scenario body.
+    #[cfg(feature = "limb-meter")]
+    limb_ops: u64,
+}
+
+/// Build an [`Envelope`] from the three pinned columns.
+///
+/// The limb column is carried only when the `limb-meter` feature compiles
+/// the counter into the arithmetic; the leading underscore keeps the
+/// parameter warning-free in the other configuration.
+const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64) -> Envelope {
+    Envelope {
+        peak_heap,
+        segments,
+        #[cfg(feature = "limb-meter")]
+        limb_ops: _limb_ops,
+    }
 }
 
 // The envelope table: pinned ceiling = measured ×1.25, rounded up. The
 // trailing comment on each line is the measurement of record (2026-07-22,
 // aarch64-apple-darwin, dev profile, three identical runs) the ceiling
 // derives from. Re-pin by rerunning this binary under `--no-capture` and
-// reading the MEASURED lines.
+// reading the MEASURED lines (the limb column needs `--all-features` or
+// `--features limb-meter`).
 #[rustfmt::skip]
 mod envelope {
-    use super::Envelope;
-    //                                                                                      measured: peak heap, segments
-    pub const DECODE_DENSE: Envelope    = Envelope { peak_heap: 13_840_687, segments:   0 }; // 11_072_549,   0
-    pub const CMP_DENSE: Envelope       = Envelope { peak_heap:         10, segments: 240 }; //          8, 192
-    pub const JOIN_DENSE: Envelope      = Envelope { peak_heap:  7_617_320, segments: 300 }; //  6_093_856, 240
-    pub const TICK_DENSE: Envelope      = Envelope { peak_heap: 15_444_374, segments: 165 }; // 12_355_499, 132
-    pub const DECODE_BIGROOT: Envelope  = Envelope { peak_heap:  1_749_312, segments:   0 }; //  1_399_449,   0
-    pub const CMP_BIGROOT: Envelope     = Envelope { peak_heap: 62_535_290, segments:  15 }; // 50_028_232,  12
-    pub const JOIN_BIGROOT: Envelope    = Envelope { peak_heap: 64_394_798, segments:  20 }; // 51_515_838,  16
-    pub const DECODE_HUGELEAF: Envelope = Envelope { peak_heap:    139_567, segments:   0 }; //    111_653,   0
-    pub const JOIN_HUGELEAF: Envelope   = Envelope { peak_heap:  7_818_300, segments:   0 }; //  6_254_640,   0
-    pub const ID_JOIN: Envelope         = Envelope { peak_heap:    156_252, segments: 253 }; //    125_001, 202
-    pub const ID_COVERS: Envelope       = Envelope { peak_heap:          0, segments: 107 }; //          0,  85
-    pub const ID_DISJOINT: Envelope     = Envelope { peak_heap:          0, segments: 213 }; //          0, 170
-    pub const ID_WITHOUT: Envelope      = Envelope { peak_heap:    647_774, segments: 173 }; //    518_219, 138
+    use super::{envelope, Envelope};
+    //                                              peak heap,  segments, limb ops                      measured: peak heap, segments, limb ops
+    pub const DECODE_DENSE: Envelope    = envelope(13_840_687,        0,             0); // 11_072_549,   0,           0
+    pub const CMP_DENSE: Envelope       = envelope(        10,      240,     2_500_013); //          8, 192,   2_000_010
+    pub const JOIN_DENSE: Envelope      = envelope( 7_617_320,      300,     3_437_510); //  6_093_856, 240,   2_750_008
+    pub const TICK_DENSE: Envelope      = envelope(15_444_374,      165,     1_250_005); // 12_355_499, 132,   1_000_004
+    pub const DECODE_BIGROOT: Envelope  = envelope( 1_749_312,        0,    15_650_000); //  1_399_449,   0,  12_520_000
+    pub const CMP_BIGROOT: Envelope     = envelope(62_535_290,       15,    62_657_055); // 50_028_232,  12,  50_125_644
+    pub const JOIN_BIGROOT: Envelope    = envelope(64_394_798,       20,   125_188_308); // 51_515_838,  16, 100_150_646
+    pub const DECODE_HUGELEAF: Envelope = envelope(    69_784,        0,   152_666_020); //     55_827,   0, 122_132_816
+    pub const JOIN_HUGELEAF: Envelope   = envelope( 3_909_207,        0,   152_673_354); //  3_127_365,   0, 122_138_683
+    pub const ID_JOIN: Envelope         = envelope(   156_252,      253,             0); //    125_001, 202,           0
+    pub const ID_COVERS: Envelope       = envelope(         0,      107,             0); //          0,  85,           0
+    pub const ID_DISJOINT: Envelope     = envelope(         0,      213,             0); //          0, 170,           0
+    pub const ID_WITHOUT: Envelope      = envelope(   647_774,      173,             0); //    518_219, 138,           0
 }
 
 // ─── measurement harness ────────────────────────────────────────────────────
@@ -101,11 +130,20 @@ mod envelope {
 /// materialized output, and is dropped by the caller after measurement.
 fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -> R) -> R {
     meter::reset_stack_segments();
+    #[cfg(feature = "limb-meter")]
+    meter::reset_limb_ops();
     HEAP.reset_peak_usage();
     let baseline = HEAP.current_usage();
     let r = f();
     let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
     let segments = meter::stack_segments();
+    #[cfg(feature = "limb-meter")]
+    let limb_ops = meter::limb_ops();
+    #[cfg(feature = "limb-meter")]
+    eprintln!(
+        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments} limb_ops={limb_ops}"
+    );
+    #[cfg(not(feature = "limb-meter"))]
     eprintln!(
         "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments}"
     );
@@ -118,6 +156,12 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
         segments <= env.segments,
         "{name}: {segments} grown stack segments exceed the pinned envelope {}",
         env.segments,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        limb_ops <= env.limb_ops,
+        "{name}: {limb_ops} limb operations exceed the pinned envelope {}",
+        env.limb_ops,
     );
     r
 }
@@ -240,8 +284,9 @@ fn join_bigroot_envelope() {
 // ─── hugeleaf scenarios ─────────────────────────────────────────────────────
 
 /// Decoding hugeleaf stays within its envelope (one gamma code as wide as
-/// the whole input; the accumulation is time-quadratic today, which bounds
-/// this scenario's size, but the peak is what is pinned).
+/// the whole input; the bit-at-a-time accumulation is magnitude-quadratic
+/// today — the limb column pins that count, and its size bounds the
+/// scenario's wall time).
 #[test]
 fn decode_hugeleaf_envelope() {
     let p = meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS);
@@ -256,7 +301,8 @@ fn decode_hugeleaf_envelope() {
 
 /// Joining hugeleaf with a one-tick version stays within its envelope (the
 /// builder's capacity today scales with the operand bit length, not the
-/// result).
+/// result; the limb column matches decode's, because reading the stored
+/// spilled base runs the same quadratic bit-at-a-time accumulation).
 #[test]
 fn join_hugeleaf_envelope() {
     let p = meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS);
