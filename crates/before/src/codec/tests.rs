@@ -406,6 +406,79 @@ fn gamma_truncated_inside_wide_mantissa() {
     assert_eq!(pos, bits.len());
 }
 
+// ──────────────────── metered Base equality and hashing ────────────────────
+
+/// A mirror of `Base` carrying the compiler-derived `PartialEq`/`Hash`: the
+/// semantics of record that `Base`'s manual limb-metered impls must
+/// reproduce exactly.
+#[derive(PartialEq, Hash)]
+enum DerivedBase {
+    Small(u64),
+    Big(num_bigint::BigUint),
+}
+
+impl DerivedBase {
+    /// The same value as `b`, carried by the derived-impl mirror.
+    fn of(b: &Base) -> DerivedBase {
+        match b {
+            Base::Small(n) => DerivedBase::Small(*n),
+            Base::Big(n) => DerivedBase::Big(n.clone()),
+        }
+    }
+}
+
+/// One value's `DefaultHasher` output, so hash streams can be compared
+/// across `Base` and its derived-impl mirror.
+fn default_hash<T: std::hash::Hash>(v: &T) -> u64 {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    v.hash(&mut h);
+    h.finish()
+}
+
+/// The manual (limb-metered) `PartialEq` and `Hash` on `Base` agree with the
+/// compiler-derived semantics over a value grid spanning the `Small`/`Big`
+/// boundary: every pairwise equality answer matches the derived impl's,
+/// every hash stream matches the derived impl's, and equal values hash
+/// equally — metering must never change an answer.
+#[test]
+fn base_eq_hash_agree_with_derived_semantics() {
+    let grid: Vec<Base> = vec![
+        Base::ZERO,
+        Base::from(1u8),
+        Base::from(2u8),
+        Base::from(u64::MAX - 1),
+        Base::from(u64::MAX),
+        // The first spilled value, spelled two ways: an equal `Big` pair.
+        Base::from(u64::MAX) + 1u64,
+        Base::from(1u128 << 64),
+        Base::from(u128::MAX),
+        (Base::from(1u8) << 200u32) - &Base::from(1u8),
+        Base::from(1u8) << 200u32,
+    ];
+    for a in &grid {
+        assert_eq!(
+            default_hash(a),
+            default_hash(&DerivedBase::of(a)),
+            "hash stream must match the derived impl for {a}"
+        );
+        for b in &grid {
+            assert_eq!(
+                a == b,
+                DerivedBase::of(a) == DerivedBase::of(b),
+                "equality answer must match the derived impl for ({a}, {b})"
+            );
+            if a == b {
+                assert_eq!(
+                    default_hash(a),
+                    default_hash(b),
+                    "equal values must hash equally: ({a}, {b})"
+                );
+            }
+        }
+    }
+}
+
 // ───────────────────────── decode∘encode round-trip ─────────────────────────
 
 proptest! {
