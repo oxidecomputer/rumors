@@ -924,7 +924,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                     // here, before the idle select: its session would fail
                     // the same way, but only once a trigger fired, leaving
                     // a driver that looks live while parked on a dead link.
-                    if drive.state.poisoned {
+                    if drive.state.poisoned() {
                         drive.done = true;
                         return Some((Err(Error::LinkPoisoned.widen()), drive));
                     }
@@ -947,7 +947,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                             // leaves the link poisoned. `Drive::drop`'s
                             // predicate covers the other case — a driver
                             // dropped with staged bytes it never replayed.
-                            drive.state.poisoned = true;
+                            drive.state.poison();
                             drive.done = true;
                             return Some((Err(Error::from(e).widen()), drive));
                         }
@@ -1135,7 +1135,7 @@ struct Drive<'a, T, B: BookmarkError, S> {
 impl<T, B: BookmarkError, S> Drop for Drive<'_, T, B, S> {
     fn drop(&mut self) {
         if !self.staged.is_empty() {
-            self.state.poisoned = true;
+            self.state.poison();
         }
     }
 }

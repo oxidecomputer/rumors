@@ -329,7 +329,7 @@ where
         acceptor,
         session,
     } = link;
-    let epoch = session.epoch;
+    let epoch = session.epoch();
     let remote = local.other();
     let (slots, claims) = claims();
     let (route, errors) = error_route();

@@ -13,20 +13,30 @@
 //!   closing epilogue — in order, for the life of the link;
 //! - a [`Connector`]: opens outgoing unidirectional **data streams**,
 //!   lazily, mid-session;
-//! - an [`Acceptor`]: yields the peer's incoming data streams, in arrival
-//!   order.
+//! - an [`Acceptor`]: yields the peer's incoming data streams, in whatever
+//!   order the transport delivers them.
 //!
-//! Data streams are session-scoped and cheap. A session opens one only when
-//! reconciliation has something to say at that tree level — up to
-//! [`STREAM_COUNT`], typically far fewer — and closes every one before it
-//! completes. Only the control stream survives into the next session.
+//! Data streams are session-scoped and cheap: a session opens them lazily
+//! and sparsely — up to [`STREAM_COUNT`], typically far fewer — and closes
+//! every one before it completes. Only the control stream survives into
+//! the next session.
 //!
 //! # The contract
 //!
 //! The protocol's deadlock-freedom argument rests on stream independence, so
 //! these clauses are load-bearing for every implementation ("instantiation")
-//! of [`Connector`] and [`Acceptor`]:
+//! of a link — the caller-supplied control halves as much as [`Connector`]
+//! and [`Acceptor`]:
 //!
+//! - **Control duplex.** The control stream's two directions are
+//!   independent: a side's control read makes progress while that same
+//!   side's control write sits blocked on the peer. The protocol exchanges
+//!   its largest control frames (the greeting, the epilogue) as concurrent
+//!   write-and-read on both ends precisely because such a frame may exceed
+//!   any buffer, so a carrier that couples the directions — a half-duplex
+//!   turn protocol, a shared lock across read and write — deadlocks the
+//!   first oversized exchange. Receiver-paced backpressure at any positive
+//!   capacity is fine, exactly as for data streams.
 //! - **Independence.** Each data stream is reliable and ordered internally,
 //!   with **no ordering guaranteed — or assumed — across streams**. Writing
 //!   to one stream may block only on that stream's receiver; reading one
@@ -45,24 +55,47 @@
 //! - **Half-close.** Dropping a [`Connector::Tx`] ends that stream; the
 //!   peer's [`Acceptor::Rx`] then observes end-of-stream after the final
 //!   bytes. The control stream outlives all data streams of its session.
-//! - **Cancellation.** A pending [`Acceptor::accept`] future is dropped at
-//!   session teardown; instantiations must tolerate that and deliver the
-//!   affected stream to a later `accept` call or fail it cleanly.
+//! - **Cancellation.** A pending [`Acceptor::accept`] future may be dropped
+//!   at any moment — session teardown is the common source, and the
+//!   conformance suite drops them mid-session; instantiations must tolerate
+//!   the drop and deliver the affected stream to a later `accept` call: no
+//!   delivery may be lost while the link stays healthy.
 //!
 //! Streams are anonymous at this boundary. The session labels each opened
 //! stream itself (a session epoch and stream index written as the stream's
 //! first bytes) and validates the label on the accepting side, so an
 //! [`Acceptor`] may yield streams in any order and needs no routing logic.
 //!
+//! One consequence worth deriving once: a transport that pools flow control
+//! across streams — a connection-level window layered over per-stream
+//! windows — satisfies every clause by sizing alone, provided the pool,
+//! like each per-stream window, is credited back as the receiver consumes.
+//! A pooled write budget of at least **([`STREAM_COUNT`] + 1) × B** per
+//! direction, where B is the per-stream buffering the transport grants and
+//! the +1 covers the control stream, can never become the binding
+//! constraint: no stream ever holds more unread bytes than its own buffer,
+//! so the pool always retains headroom and each clause reduces to the
+//! per-stream case. The premise is load-bearing — a pool credited only when
+//! streams *close* deadlocks at any size, because the control stream never
+//! closes and its cumulative traffic exhausts any budget — and a single
+//! pool shared by both directions needs the sum: twice the per-direction
+//! bound. The conformance suite exercises a pool exactly at the bound
+//! (passes the whole suite) and one far below the buffering it must cover
+//! (fails the independence check). Sessions measured over far smaller pools
+//! (down to tens of bytes) stay live with latency degradation, but that is
+//! observed behavior of the current protocol, not a promise: size pools to
+//! the bound.
+//!
 //! # Instantiations
 //!
 //! [`memory`] builds the in-memory instantiation both ends of a test or an
 //! in-process pairing use; it is also the reference implementation of the
-//! contract. Network instantiations (QUIC connections mapping streams 1:1,
-//! TCP with one connection per stream behind a routing listener) live in
-//! sibling crates so the core stays free of network dependencies; a
-//! deployment can also implement the two traits directly against its own
-//! transport.
+//! contract. No network instantiation ships with the crate — the core stays
+//! free of network dependencies — so a real-network deployment implements
+//! the two traits against its own transport (QUIC connections mapping
+//! streams 1:1, or TCP with one connection per stream behind a routing
+//! listener, are the natural shapes) and validates the result with the
+//! `conformance` feature's link suite.
 
 use std::future::Future;
 use std::io;
@@ -72,18 +105,21 @@ use tokio::sync::mpsc;
 
 /// Logical data streams a session may open in one direction.
 ///
-/// One per speaker-owned reply height in the descent schedule: the protocol
-/// never opens more, and instantiations must admit this many concurrently
-/// (per direction, plus the control stream).
+/// The protocol never opens more, and instantiations must admit this many
+/// concurrently (per direction, plus the control stream). The value is the
+/// protocol's own — fixed by its wire schedule and pinned against the wire
+/// codec by test, so it cannot drift silently.
 pub const STREAM_COUNT: usize = 17;
 
 /// Opens outgoing unidirectional data streams for one link.
 ///
-/// The session hands an owned clone to each stream producer, and producers
-/// connect concurrently — hence `Clone + Send + Sync + 'static`. Natural
-/// implementations are handles: a QUIC connection, a channel sender, a
-/// dialer around an address. See the [module docs](self) for the contract
-/// every implementation must satisfy.
+/// Opens may be requested concurrently, through clones and through shared
+/// references alike — hence `Clone + Send + Sync + 'static` — and every
+/// clone must reach the same peer: clones are handles onto one stream
+/// supply, never isolated sub-connections with their own state. Natural
+/// implementations are handles already: a QUIC connection, a channel
+/// sender, a dialer around an address. See the [module docs](self) for the
+/// contract every implementation must satisfy.
 pub trait Connector: Clone + Send + Sync + 'static {
     /// The write half of one outgoing data stream.
     type Tx: AsyncWrite + Unpin + Send + 'static;
@@ -99,14 +135,19 @@ pub trait Connector: Clone + Send + Sync + 'static {
 
 /// Accepts incoming unidirectional data streams for one link.
 ///
-/// The session's single accept loop is the sole caller, so `&mut self` —
-/// unlike [`Connector`], no sharing is required. See the [module
-/// docs](self) for the contract every implementation must satisfy.
+/// Accepts arrive through `&mut self` — unlike [`Connector`], no sharing
+/// is required, so an implementation needs no internal synchronization.
+/// See the [module docs](self) for the contract every implementation must
+/// satisfy.
 pub trait Acceptor: Send {
     /// The read half of one incoming data stream.
     type Rx: AsyncRead + Unpin + Send + 'static;
 
-    /// Accept the next incoming unidirectional stream, in arrival order.
+    /// Accept one incoming unidirectional stream.
+    ///
+    /// Order across streams is the transport's own: the session pairs
+    /// streams by the label written as each stream's first bytes, never by
+    /// accept order, so an implementation may yield arrivals in any order.
     ///
     /// # Errors
     ///
@@ -115,9 +156,10 @@ pub trait Acceptor: Send {
     ///
     /// # Cancel safety
     ///
-    /// The session drops a pending `accept` at teardown. A stream that was
-    /// mid-delivery must either surface from a later `accept` call or fail
-    /// cleanly; it must not be silently lost while the link stays healthy.
+    /// A pending `accept` future may be dropped at any moment (session
+    /// teardown is the common source). A stream that was mid-delivery must
+    /// surface from a later `accept` call; it must not be lost while the
+    /// link stays healthy.
     fn accept(&mut self) -> impl Future<Output = io::Result<Self::Rx>> + Send;
 }
 
@@ -199,8 +241,10 @@ pub struct Link<CR, CW, C, A> {
 /// each session — but the poison latch is local by design: one end can
 /// conclude a session `Ok` while its peer fails post-commit
 /// ([`Error::Epilogue`](crate::Error::Epilogue)), so between sessions the
-/// two ends' latches may legitimately disagree. Never mirror or
-/// reconstruct one end's state from the other's.
+/// two ends' latches may legitimately disagree. The state is sealed: a
+/// wrapper carries the value whole (it is `Copy`), and only the link's own
+/// sessions advance the counter or clear the latch. Never mirror one end's
+/// carried state onto the other.
 #[derive(Clone, Copy, Debug)]
 pub struct SessionState {
     /// The next session's epoch.
@@ -208,7 +252,7 @@ pub struct SessionState {
     /// Both ends count every session on the link (sessions are serialized,
     /// and both ends run each handshake), so the counters agree; it wraps,
     /// serving as a label tripwire rather than an identity.
-    pub epoch: u8,
+    epoch: u8,
     /// Whether a session on this link was interrupted before its boundary.
     ///
     /// Set while a session is in flight and cleared when it completes
@@ -216,10 +260,23 @@ pub struct SessionState {
     /// control stream rests somewhere mid-frame — a link no further
     /// session can trust. Starting a session on such a link fails fast
     /// with [`Error::LinkPoisoned`](crate::Error::LinkPoisoned).
-    pub poisoned: bool,
+    poisoned: bool,
 }
 
 impl SessionState {
+    /// The epoch that will label the next session's data streams.
+    pub fn epoch(&self) -> u8 {
+        self.epoch
+    }
+
+    /// Whether a session on this link was interrupted before its boundary.
+    ///
+    /// Between sessions this reads true only on a link whose control
+    /// stream rests somewhere mid-frame; starting a session on such a link
+    /// fails fast with [`Error::LinkPoisoned`](crate::Error::LinkPoisoned).
+    pub fn poisoned(&self) -> bool {
+        self.poisoned
+    }
     /// Open one session, returning the epoch that labels its data streams.
     ///
     /// Fails fast with [`Error::LinkPoisoned`](crate::Error::LinkPoisoned)
@@ -242,6 +299,13 @@ impl SessionState {
     /// latch: the control stream rests exactly at the session boundary.
     pub(crate) fn finish(&mut self) {
         self.poisoned = false;
+    }
+
+    /// Latch the link as poisoned outside a session funnel: the transport
+    /// errored, or a driver was dropped with staged bytes it never
+    /// replayed, so the control stream's position can no longer be trusted.
+    pub(crate) fn poison(&mut self) {
+        self.poisoned = true;
     }
 }
 
@@ -330,10 +394,11 @@ pub struct LinkParts<CR, CW, C, A> {
     /// The link's session counter and poison latch; see [`SessionState`].
     ///
     /// Preserve it when reassembling a wrapped link: both ends of a
-    /// connection count sessions in lockstep, so a reset counter would
-    /// mislabel every stream of the next session — and a cleared
-    /// [`poisoned`](SessionState::poisoned) latch would let sessions run on
-    /// a link whose control stream rests mid-frame.
+    /// connection count sessions in lockstep, so carrying anything but this
+    /// link's own current state — another link's, or a stale copy from
+    /// before a session ran — would mislabel every stream of the next
+    /// session, or let sessions run on a link whose control stream rests
+    /// mid-frame.
     pub session: SessionState,
 }
 
@@ -360,8 +425,13 @@ where
 pub type MemoryLink = Link<DuplexStream, DuplexStream, MemoryConnector, MemoryAcceptor>;
 
 /// Bytes buffered by each in-memory stream (control and data alike) before
-/// its writer blocks on its reader: enough to keep honest sessions off the
-/// backpressure path while still exercising bounded buffers.
+/// its writer blocks on its reader.
+///
+/// Sessions are live at any positive capacity (the contract's flow-control
+/// clause), so the buffer sets the pipe's granularity, not its correctness:
+/// frames smaller than this cross without a blocking round trip, larger
+/// transfers stream through in refills, and [`memory_with_capacity`] picks
+/// other sizes down to one byte.
 const MEMORY_STREAM_CAPACITY: usize = 8 * 1024;
 
 /// In-flight opened-but-unaccepted streams per direction.
