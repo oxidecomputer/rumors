@@ -7,6 +7,10 @@
 //! backend's author can know a node value's real resident bytes — so this
 //! suite is how a backend implementation proves its account:
 //!
+//! - **Shape**: the cost function is swept for monotonicity in both
+//!   arguments over a fan and version-bound grid before any session
+//!   runs — the property that keeps the window's quantile evaluation an
+//!   upper bound.
 //! - **Pointwise**: every node the session assembles is measured (via
 //!   [`Measure`]) against the cost function at that node's actual fan and
 //!   version bounds. An underpriced node fails the run by name.
@@ -521,6 +525,74 @@ where
     }
 }
 
+/// Every version bound up to this many bytes is swept pairwise: the
+/// small encodings real sessions exchange, where an off-by-one hides.
+const BOUND_DENSE_CEILING: usize = 64;
+
+/// The sweep's largest version bound: 1 MiB, far past any canonical
+/// encoding the suite's corpus scale reaches, sampled at powers of two.
+const BOUND_SWEEP_CEILING: usize = 1 << 20;
+
+/// The monotonicity sweep's version-bound grid, ascending.
+///
+/// Dense to [`BOUND_DENSE_CEILING`], then each power of two with both
+/// neighbors (the neighbors catch a cost function that special-cases
+/// round sizes) up to [`BOUND_SWEEP_CEILING`].
+fn sweep_bounds() -> Vec<usize> {
+    let mut bounds: Vec<usize> = (0..=BOUND_DENSE_CEILING).collect();
+    let mut power = BOUND_DENSE_CEILING << 1;
+    while power <= BOUND_SWEEP_CEILING {
+        bounds.extend([power - 1, power, power + 1]);
+        power <<= 1;
+    }
+    bounds
+}
+
+/// Sweep one cost function for monotonicity in both arguments.
+///
+/// The [`node_bytes`](Backend::node_bytes) contract requires an upper
+/// bound monotone in the child count and in the version bound, because
+/// the window derivation evaluates the cost at per-depth quantiles and
+/// monotonicity is what keeps a quantile evaluation an upper bound: a
+/// pointwise-honest function with a dip between evaluation points
+/// under-prices every in-flight reference. The derivation's own check
+/// is a four-point `debug_assert`, compiled out of release, so the
+/// suite sweeps the grid: every adjacent fan pair up to the radix
+/// ([`FAN`]), crossed with [`sweep_bounds`]'s version bounds, and every
+/// adjacent bound pair at each swept fan.
+fn node_bytes_monotone<B>()
+where
+    B: Measure<u64> + Clone,
+    B::Error: std::fmt::Debug,
+{
+    let bounds = sweep_bounds();
+    for &bound in &bounds {
+        for fan in 0..FAN {
+            let here = B::node_bytes(fan, bound);
+            let there = B::node_bytes(fan + 1, bound);
+            assert!(
+                here <= there,
+                "node_bytes must be monotone in children: fan {fan} prices {here} B, \
+                 fan {} prices {there} B, at version bound {bound}",
+                fan + 1,
+            );
+        }
+    }
+    for pair in bounds.windows(2) {
+        for fan in 0..=FAN {
+            let here = B::node_bytes(fan, pair[0]);
+            let there = B::node_bytes(fan, pair[1]);
+            assert!(
+                here <= there,
+                "node_bytes must be monotone in version bound: bound {} prices {here} B, \
+                 bound {} prices {there} B, at fan {fan}",
+                pair[0],
+                pair[1],
+            );
+        }
+    }
+}
+
 /// Messages each side holds before the fork: the shared corpus.
 const COMMON: usize = 512;
 
@@ -529,12 +601,14 @@ const DIVERGENT: usize = 1_024;
 
 /// Run one backend through the full conformance check.
 ///
-/// Builds two corpora sharing [`COMMON`] messages and diverging by
-/// [`DIVERGENT`] more on each side, walks each corpus through the bulk
-/// leaf seam, and reconciles them twice — once at the zero-budget floor,
-/// once under `budget_bytes` — panicking with the violated clause if any
-/// constructed, walked, or assembled node was underpriced, if a bulk
-/// seam mis-answered an aggregate, if the window's measured byte
+/// Sweeps the cost function for monotonicity, then builds two corpora
+/// sharing [`COMMON`] messages and diverging by [`DIVERGENT`] more on
+/// each side, walks each corpus through the bulk leaf seam, and
+/// reconciles them twice — once at the zero-budget floor, once under
+/// `budget_bytes` — panicking with the violated clause if the cost
+/// function dips anywhere on the swept fan and version-bound grid, if
+/// any constructed, walked, or assembled node was underpriced, if a
+/// bulk seam mis-answered an aggregate, if the window's measured byte
 /// admittance exceeded the budget, or if the session failed to converge
 /// the corpora. Checks in one process must not overlap: the
 /// census ledger is process-global, so callers serialize (this module's
@@ -545,6 +619,8 @@ where
     B: Measure<u64> + Clone,
     B::Error: std::fmt::Debug,
 {
+    node_bytes_monotone::<B>();
+
     let floor_peak = run(backend.clone(), WindowConfig::Budget(0)).await;
     let budget_peak = run(backend, WindowConfig::Budget(budget_bytes)).await;
 

@@ -170,6 +170,14 @@ static VERSION_DEFLATE: Knob = Knob::new(0);
 /// it.
 static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 
+/// Bytes [`Materializing::node_bytes`] subtracts at [`DIP_FAN`] alone:
+/// honest at zero, a monotonicity dip above it.
+static PRICED_DIP: Knob = Knob::new(0);
+
+/// The one fan [`PRICED_DIP`] carves the dip at: an arbitrary interior
+/// value the monotonicity sweep's adjacent-fan comparisons must cross.
+const DIP_FAN: usize = 7;
+
 /// The bytes a materialized row spends beyond its child table and bounds.
 const ROW_HEADER: usize = 64;
 
@@ -268,10 +276,17 @@ where
     type Error = Infallible;
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
-        std::mem::size_of::<MaterializedNode<typed::Node<T, Z>>>()
+        let priced = std::mem::size_of::<MaterializedNode<typed::Node<T, Z>>>()
             + PRICED_HEADER.get()
             + ROW_ENTRY * children
-            + version_bound
+            + version_bound;
+        // The monotonicity-lying knob: a dip at one fan, invisible to
+        // every check that does not compare across it.
+        if children == DIP_FAN {
+            priced.saturating_sub(PRICED_DIP.get())
+        } else {
+            priced
+        }
     }
 
     async fn parent<H>(
@@ -461,6 +476,20 @@ fn deflated_version_bytes_fails_the_assembly_floor() {
 #[should_panic(expected = "walked leaf encodes")]
 fn inflated_leaf_version_bytes_fails_the_walk_check() {
     let _dishonest = LEAF_VERSION_INFLATE.set(1024 * 1024);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A cost function with a dip between quantile evaluation points is
+/// caught by the monotonicity sweep before any session runs.
+///
+/// The dip is the smallest adjacent fans reveal: one byte more than the
+/// per-child entry, so [`DIP_FAN`] prices one byte below the fan before
+/// it. The sweep runs first and catches it a priori — no session has to
+/// happen to assemble a node at the dipped fan for the lie to surface.
+#[test]
+#[should_panic(expected = "monotone in children")]
+fn dipping_node_bytes_fails_the_monotonicity_sweep() {
+    let _dishonest = PRICED_DIP.set(ROW_ENTRY + 1);
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
 }
 
