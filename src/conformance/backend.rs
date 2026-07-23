@@ -10,6 +10,10 @@
 //! - **Pointwise**: every node the session assembles is measured (via
 //!   [`Measure`]) against the cost function at that node's actual fan and
 //!   version bounds. An underpriced node fails the run by name.
+//! - **Bulk seams**: the backend's own [`leaves`](Backend::leaves) and
+//!   [`assemble`](Backend::assemble) overrides — the paths the wire codec
+//!   runs — are delegated to, their yields priced on the same census and
+//!   held to the walked or assembled node's aggregates.
 //! - **End to end**: identical divergent corpora reconcile once at the
 //!   zero-budget floor and once under a stated budget, with every live
 //!   node value's measured bytes on a census ledger. The peak difference
@@ -38,9 +42,10 @@
 //! boundary ships, the way [`conformance::link`](super::link) shipped
 //! with the [`Link`](crate::link::Link) boundary.
 
+use std::collections::BTreeMap;
 use std::pin::pin;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use async_stream::stream;
 use futures::{StreamExt, stream as futures_stream};
@@ -50,7 +55,10 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            self, Backend, Leaf, Node, NodeStream, Root, materialized, window::WindowConfig,
+            self, Backend, BoxNodeStream, Leaf, Node, NodeStream, Root,
+            convert::Convert,
+            materialized,
+            window::{FAN, WindowConfig},
         },
         typed::{
             Hash, Path, Prefix,
@@ -118,10 +126,12 @@ mod ledger {
 
 /// The byte-charging census decorator.
 ///
-/// Delegates every operation to the wrapped backend, keeping each node
-/// value's measured bytes on the [`ledger`] for as long as any handle to
-/// it lives, and checking each assembled parent against the cost
-/// function and the aggregate recurrences.
+/// Delegates every operation to the wrapped backend — the bulk
+/// [`leaves`](Backend::leaves)/[`assemble`](Backend::assemble) overrides
+/// included, so the paths production runs are the paths on trial —
+/// keeping each node value's measured bytes on the [`ledger`] for as
+/// long as any handle to it lives, and checking each assembled parent
+/// against the cost function and the aggregate recurrences.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Charged<B> {
     inner: B,
@@ -341,6 +351,174 @@ where
             }
         }
     }
+
+    fn leaves<H: Convert>(
+        self,
+        prefix: Prefix<H>,
+        node: Self::Node<H>,
+    ) -> impl NodeStream<Self, T, Z> {
+        // Delegate to the wrapped backend's own override: the bulk walk
+        // is the path the wire encoder runs, so its yields must land on
+        // the census and answer the walked node's aggregates.
+        let expected = node.len();
+        let aggregate = node.version_bytes();
+        stream! {
+            let mut walked = 0usize;
+            let mut failed = false;
+            let mut leaves = pin!(self.inner.leaves(prefix, node.into_inner()));
+            while let Some(leaf) = leaves.next().await {
+                failed |= leaf.is_err();
+                yield leaf.map(|(prefix, leaf)| {
+                    walked += 1;
+                    let measured = B::measure(&leaf);
+                    // The pointwise contract at the walk: a walked leaf
+                    // is a fan slot the session budget prices at
+                    // `children = 0`.
+                    let priced = B::node_bytes(0, bound_bytes::<T, _>(&leaf));
+                    if measured > priced {
+                        ledger::violation(format!(
+                            "underpriced walked leaf: measured {measured} B, \
+                             node_bytes priced {priced} B",
+                        ));
+                    }
+                    // Every version bound under the walked node is in its
+                    // aggregate, each walked leaf's own included.
+                    let encoded = leaf.version_bytes();
+                    if encoded > aggregate {
+                        ledger::violation(format!(
+                            "deflated version_bytes: walked leaf encodes {encoded} B, \
+                             the walked node's aggregate answers {aggregate} B",
+                        ));
+                    }
+                    (prefix, ChargedNode::wrap(leaf, measured))
+                });
+            }
+            // The len aggregate is exact, so a completed walk returns it.
+            if !failed && walked != expected {
+                ledger::violation(format!(
+                    "mis-sized leaf walk: yielded {walked} leaves, \
+                     the walked node's len answers {expected}",
+                ));
+            }
+        }
+    }
+
+    fn assemble<'a, H: Convert>(
+        self,
+        leaves: BoxNodeStream<'a, Self, T, Z>,
+    ) -> impl NodeStream<Self, T, H> + 'a {
+        // Delegate to the wrapped backend's own override: bulk assembly
+        // is the path the wire decoder runs. The wrapper records each
+        // maximal same-prefix run as it feeds the inner stream, then
+        // holds every assembled node to account for its run.
+        let runs: Arc<Mutex<BTreeMap<Prefix<H>, Run>>> = Arc::default();
+        let recorded = Arc::clone(&runs);
+        let supplied: BoxNodeStream<'a, B, T, Z> = Box::pin(leaves.map(move |item| {
+            item.map(|(prefix, leaf)| {
+                let mut runs = recorded
+                    .lock()
+                    .expect("the run ledger mutex is not poisoned");
+                let run = runs
+                    .entry(Prefix::<H>::containing(&Path::from(prefix)))
+                    .or_default();
+                run.leaves += 1;
+                run.version_bytes = run.version_bytes.max(leaf.version_bytes());
+                (prefix, leaf.into_inner())
+            })
+        }));
+        let assembled = self.inner.assemble::<H>(supplied);
+        stream! {
+            let mut assembled = pin!(assembled);
+            let mut failed = false;
+            while let Some(item) = assembled.next().await {
+                failed |= item.is_err();
+                yield item.map(|(prefix, node)| {
+                    let run = runs
+                        .lock()
+                        .expect("the run ledger mutex is not poisoned")
+                        .remove(&prefix);
+                    let measured = B::measure(&node);
+                    match run {
+                        None => ledger::violation(format!(
+                            "unsupplied assembly: a node yielded at {prefix:?} \
+                             without a leaf run",
+                        )),
+                        Some(run) => check_assembled::<B, T, H>(&node, measured, &run),
+                    }
+                    (prefix, ChargedNode::wrap(node, measured))
+                });
+            }
+            // Every recorded run must have assembled a node; leftovers
+            // are swallowed leaves. Meaningless after an error: the
+            // session is failing for its own reasons.
+            if !failed {
+                let leftovers = std::mem::take(
+                    &mut *runs.lock().expect("the run ledger mutex is not poisoned"),
+                );
+                for (prefix, run) in leftovers {
+                    ledger::violation(format!(
+                        "unassembled run: {} leaves at {prefix:?} never yielded a node",
+                        run.leaves,
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// One maximal same-prefix leaf run fed to the assembly seam: what its
+/// assembled node must answer.
+#[derive(Default)]
+struct Run {
+    /// Leaves supplied to the run: the assembled node's exact `len`.
+    leaves: usize,
+    /// The largest supplied version encoding: a floor on the assembled
+    /// node's `version_bytes` aggregate.
+    version_bytes: usize,
+}
+
+/// Hold one bulk-assembled node to its run's account.
+fn check_assembled<B, T, H>(node: &B::Node<H>, measured: usize, run: &Run)
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    H: Height,
+{
+    // The len aggregate is exact: a run's node answers its leaf count.
+    if node.len() != run.leaves {
+        ledger::violation(format!(
+            "bulk-assembled len: node answers {}, its run supplied {} leaves",
+            node.len(),
+            run.leaves,
+        ));
+    }
+    // Interior bounds under the node are invisible at this seam, so the
+    // aggregate check is a floor: the run's largest leaf encoding and
+    // the node's own two bounds are all in the aggregate. The parent
+    // seam keeps the exact recurrence where children are in hand.
+    let floor = run
+        .version_bytes
+        .max(node.ceiling().as_bytes().len())
+        .max(node.floor().as_bytes().len());
+    if node.version_bytes() < floor {
+        ledger::violation(format!(
+            "deflated version_bytes: bulk-assembled node answers {} B, \
+             its run's leaves and own bounds reach {floor} B",
+            node.version_bytes(),
+        ));
+    }
+    // The pointwise contract, evaluated at the widest fan the run
+    // admits: the node's own fan is invisible here but never exceeds
+    // the radix (`FAN`) or the run's leaf count, and the contract
+    // requires `node_bytes` monotone in fan, so a measurement above
+    // this price is above the price at the node's own fan too.
+    let priced = B::node_bytes(run.leaves.min(FAN), bound_bytes::<T, _>(node));
+    if measured > priced {
+        ledger::violation(format!(
+            "bulk-assembled node over-holds: measured {measured} B, \
+             node_bytes at the run's widest fan prices {priced} B",
+        ));
+    }
 }
 
 /// Messages each side holds before the fork: the shared corpus.
@@ -352,11 +530,13 @@ const DIVERGENT: usize = 1_024;
 /// Run one backend through the full conformance check.
 ///
 /// Builds two corpora sharing [`COMMON`] messages and diverging by
-/// [`DIVERGENT`] more on each side, reconciles them twice — once at the
-/// zero-budget floor, once under `budget_bytes` — and panics with the
-/// violated clause if any assembled node was underpriced, if the window's
-/// measured byte admittance exceeded the budget, or if the session failed
-/// to converge the corpora. Checks in one process must not overlap: the
+/// [`DIVERGENT`] more on each side, walks each corpus through the bulk
+/// leaf seam, and reconciles them twice — once at the zero-budget floor,
+/// once under `budget_bytes` — panicking with the violated clause if any
+/// constructed, walked, or assembled node was underpriced, if a bulk
+/// seam mis-answered an aggregate, if the window's measured byte
+/// admittance exceeded the budget, or if the session failed to converge
+/// the corpora. Checks in one process must not overlap: the
 /// census ledger is process-global, so callers serialize (this module's
 /// tests hold one static lock per test; nextest's process-per-test
 /// isolates them regardless).
@@ -410,6 +590,13 @@ where
     let left = corpus(&charged, common.iter().chain(&left_tail)).await;
     let right = corpus(&charged, common.iter().chain(&right_tail)).await;
 
+    // The bulk walk seam, exercised the way the wire encoder runs it:
+    // every leaf of each corpus once. Before the baseline resets, so the
+    // walk's checks land on the ledger while its transient charges stay
+    // out of the session's differenced peak.
+    walk(&charged, &left).await;
+    walk(&charged, &right).await;
+
     // The corpora are what exists regardless of the window; measure the
     // session's own admittance above them. The greeting's sizes need no
     // stating: they are the roots' own aggregates.
@@ -431,6 +618,21 @@ where
         "the conformance session must converge both corpora to one root",
     );
     peak
+}
+
+/// Drain one corpus's bulk leaf walk so the walk seam's checks run.
+async fn walk<B>(charged: &Charged<B>, corpus: &Root<Charged<B>, u64>)
+where
+    B: Measure<u64> + Clone,
+    B::Error: std::fmt::Debug,
+{
+    let Some(root) = corpus.root.clone() else {
+        return;
+    };
+    let mut leaves = pin!(charged.clone().leaves(Prefix::<height::Root>::new(), root));
+    while let Some(leaf) = leaves.next().await {
+        leaf.expect("corpus leaves walk at rest");
+    }
 }
 
 /// Assemble one corpus through the charged backend, leaves in path order.

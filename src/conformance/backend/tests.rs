@@ -7,14 +7,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use async_stream::stream;
-use futures::StreamExt;
+use futures::{StreamExt, stream as futures_stream};
 
 use super::{Charged, Measure, check, ledger};
 use crate::{
     Version,
     message::Message,
     tree::{
-        mirror::streaming::{Backend, Leaf, Local, Node, NodeStream},
+        mirror::streaming::{
+            Backend, BoxNodeStream, Leaf, Local, Node, NodeStream, convert::Convert,
+        },
         typed::{
             self, Hash, Prefix,
             height::{Height, S, Z},
@@ -145,11 +147,38 @@ struct Materializing;
 /// real [`ROW_HEADER`], lying below it.
 static PRICED_HEADER: Knob = Knob::new(ROW_HEADER);
 
+/// Extra bytes the bulk walk's yielded rows keep resident: honest at
+/// zero, over-holding above it.
+static WALK_SLACK: Knob = Knob::new(0);
+
+/// Leaves the bulk walk silently drops: honest at zero.
+static WALK_SKIPS: Knob = Knob::new(0);
+
+/// Extra bytes bulk-assembled rows keep resident: honest at zero,
+/// over-holding above it.
+static ASSEMBLE_SLACK: Knob = Knob::new(0);
+
+/// Leaves bulk assembly silently drops: honest at zero.
+static ASSEMBLE_SKIPS: Knob = Knob::new(0);
+
+/// Bytes subtracted from every node's `version_bytes` answer: honest at
+/// zero, deflating the aggregate above it.
+static VERSION_DEFLATE: Knob = Knob::new(0);
+
+/// Bytes added to a leaf's `version_bytes` answer: honest at zero,
+/// pushing a leaf's claimed encoding past its parents' aggregates above
+/// it.
+static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
+
 /// The bytes a materialized row spends beyond its child table and bounds.
 const ROW_HEADER: usize = 64;
 
 /// The bytes one child entry occupies in a materialized row.
 const ROW_ENTRY: usize = 24;
+
+/// The stated budget every materializing check runs under: the rows
+/// make it genuinely binding at the suite's corpus scale.
+const MATERIALIZING_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
 #[derive(Clone, Debug)]
@@ -192,7 +221,18 @@ where
     }
 
     fn version_bytes(&self) -> usize {
-        self.inner.version_bytes()
+        // The aggregate-lying knobs: a deflated answer must be caught by
+        // the assembly seam's floor, and an inflated leaf answer by the
+        // walk seam's aggregate-membership check.
+        let inflate = if H::HEIGHT == 0 {
+            LEAF_VERSION_INFLATE.get()
+        } else {
+            0
+        };
+        self.inner
+            .version_bytes()
+            .saturating_sub(VERSION_DEFLATE.get())
+            + inflate
     }
 }
 
@@ -276,6 +316,45 @@ where
             }
         }
     }
+
+    fn leaves<H: Convert>(
+        self,
+        prefix: Prefix<H>,
+        node: Self::Node<H>,
+    ) -> impl NodeStream<Self, T, Z> {
+        // The reference bulk walk: the default explosion behind knobs
+        // that drop leaves ([`WALK_SKIPS`]) and inflate the yielded rows
+        // ([`WALK_SLACK`]) — honest at rest, the negative controls'
+        // subject when set.
+        H::explode(
+            self,
+            Box::pin(futures_stream::once(async move { Ok((prefix, node)) })),
+        )
+        .skip(WALK_SKIPS.get())
+        .map(|item| {
+            item.map(|(prefix, mut leaf)| {
+                leaf.row.resize(leaf.row.len() + WALK_SLACK.get(), 0);
+                (prefix, leaf)
+            })
+        })
+    }
+
+    fn assemble<'a, H: Convert>(
+        self,
+        leaves: BoxNodeStream<'a, Self, T, Z>,
+    ) -> impl NodeStream<Self, T, H> + 'a {
+        // The reference bulk assembly: the default fold behind knobs
+        // that drop supplied leaves ([`ASSEMBLE_SKIPS`]) and inflate the
+        // assembled rows ([`ASSEMBLE_SLACK`]) — honest at rest, the
+        // negative controls' subject when set.
+        let supplied: BoxNodeStream<'a, Self, T, Z> = Box::pin(leaves.skip(ASSEMBLE_SKIPS.get()));
+        H::assemble(self, supplied).map(|item| {
+            item.map(|(prefix, mut node)| {
+                node.row.resize(node.row.len() + ASSEMBLE_SLACK.get(), 0);
+                (prefix, node)
+            })
+        })
+    }
 }
 
 impl<T> Measure<T> for Materializing
@@ -297,7 +376,7 @@ where
 #[test]
 fn materializing_backend_conforms() {
     let _serial = serialized();
-    pollster::block_on(check(Materializing, 4 * 1024 * 1024));
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
 }
 
 /// An underpricing cost function fails the run by name.
@@ -310,7 +389,79 @@ fn materializing_backend_conforms() {
 #[should_panic(expected = "underpriced node")]
 fn underpricing_fails_the_pointwise_check() {
     let _dishonest = PRICED_HEADER.set(0);
-    pollster::block_on(check(Materializing, 4 * 1024 * 1024));
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// Row slack that clears the assembly seam's fan headroom.
+///
+/// The capped pointwise check prices at the run's widest fan, which
+/// exceeds the honest row's own fan by at most the radix's worth of
+/// entries ([`FAN`](crate::tree::mirror::streaming::window::FAN) ×
+/// [`ROW_ENTRY`] bytes, 6 KiB); 64 KiB of slack is unambiguously past
+/// it.
+const BULK_OVERHOLD: usize = 64 * 1024;
+
+/// A bulk walk that over-holds memory in its yielded rows is caught by
+/// the walk seam's pointwise check: the negative control proving the
+/// suite exercises and prices the backend's own `leaves` override.
+///
+/// One extra byte per row suffices: the honest reference walk is priced
+/// exactly, so the check is tight at this seam.
+#[test]
+#[should_panic(expected = "underpriced walked leaf")]
+fn overholding_walk_fails_the_pointwise_check() {
+    let _dishonest = WALK_SLACK.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A bulk walk that silently drops a leaf is caught by the walk seam's
+/// count against the walked node's exact `len` aggregate.
+#[test]
+#[should_panic(expected = "mis-sized leaf walk")]
+fn short_walk_fails_the_len_check() {
+    let _dishonest = WALK_SKIPS.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A bulk assembly whose nodes over-hold memory is caught by the
+/// assembly seam's capped pointwise check: the negative control proving
+/// the suite exercises and prices the backend's own `assemble` override.
+#[test]
+#[should_panic(expected = "bulk-assembled node over-holds")]
+fn overholding_bulk_assembly_fails_the_capped_check() {
+    let _dishonest = ASSEMBLE_SLACK.set(BULK_OVERHOLD);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// Bulk assembly that silently drops a supplied leaf is caught by the
+/// assembly seam's exact `len` accounting of each leaf run.
+#[test]
+#[should_panic(expected = "bulk-assembled len")]
+fn lossy_bulk_assembly_fails_the_len_check() {
+    let _dishonest = ASSEMBLE_SKIPS.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A deflated `version_bytes` answer is caught by the assembly seam's floor.
+///
+/// The run's own leaf encodings and the node's two bounds are all in
+/// the aggregate, so an answer below them is a lie: deflation is the
+/// direction that breaches the memory envelope.
+#[test]
+#[should_panic(expected = "deflated version_bytes: bulk-assembled node")]
+fn deflated_version_bytes_fails_the_assembly_floor() {
+    let _dishonest = VERSION_DEFLATE.set(usize::MAX);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A leaf whose `version_bytes` answer exceeds the walked node's
+/// aggregate is caught by the walk seam's membership check: every bound
+/// under a node is in the node's aggregate.
+#[test]
+#[should_panic(expected = "walked leaf encodes")]
+fn inflated_leaf_version_bytes_fails_the_walk_check() {
+    let _dishonest = LEAF_VERSION_INFLATE.set(1024 * 1024);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
 }
 
 /// A leaf priced below its post-custody residency is caught at

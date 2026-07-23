@@ -230,7 +230,7 @@ where
 }
 
 /// A [`NodeStream`] erased to one level of type depth.
-pub(super) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
+pub(crate) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
 
 /// A backend's whole tree at rest: what a mirror session consumes and produces.
 ///
