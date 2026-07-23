@@ -10,9 +10,9 @@
 //! `ReplyEnd` and `StreamEnd`. Values 170 through 255 are reserved. The
 //! phase schedule narrows that syntactic product further: the initiator
 //! admits 161 placements and the responder 163, rejecting the rest
-//! immediately after the signal byte, before any frame body is read. Each
-//! stream carries exactly one placement of that grammar, so the signal's
-//! stream component is redundant with the stream's label — deliberately:
+//! immediately after the signal byte, before any frame body is read. Every
+//! frame's signal names the stream it rides, so the signal's stream
+//! component is redundant with the stream's label — deliberately:
 //! [`streams`] holds every frame to exact agreement with the label, so a
 //! miswired link surfaces at the first frame.
 //!
