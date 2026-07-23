@@ -1031,6 +1031,14 @@ coverage only ratchets upward through the campaign; the board and
 meter suites default to seconds-scale sizes so the inner loop stays
 fast.
 
+Added 2026-07-23 (P3 planning): full-surface measurability is a
+deliverable of the rework, not a hope. Every public operation must
+be (a) proptested against both reference oracles — the recursive
+tree oracle and the semantic (function-space) oracle — and (b)
+resource-pinned by a board row or an enforced meter envelope. Any
+operation found lacking either, at any point in P3–P5, is a coverage
+finding to be fixed in the phase that finds it.
+
 Amended 2026-07-23, P0 review round 2: the "each phase
 `just gate`-clean" bar is blocked at P0 by the streaming-wire mux
 deadlock inherited from main (`rumors` gossip sessions park;
