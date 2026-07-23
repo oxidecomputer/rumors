@@ -82,6 +82,8 @@ debug = "line-tables-only"
 [[example]]
 name = "swarm"
 path = "examples/swarm.rs"
+# The steady-state controller's convergence tests live in the example.
+test = true
 
 [[bench]]
 name = "in_memory"
