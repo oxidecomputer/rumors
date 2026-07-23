@@ -461,6 +461,25 @@ the codes of `x` and `y`, and exact because `sign()`'s rewrite
 never changes the held value. With that representation the O(n + m)
 total stands on both shapes.
 
+Amended 2026-07-23 (P3 accumulator review round): the four delta
+streams in the P3.2 acceptance list (boundary comb, wide-tooth,
+fan, cancelling-prefix) fund every deep sign scan with an
+immediately adjacent wide write, so none of them enforces the
+collapse — with the collapse branch disabled outright, all four
+envelopes still pass (the cancelling stream reads 252/251
+milli-touches per coded byte against the 314 ceiling) **[measured**
+— perturbation run, collapse branch disabled**]**. The
+collapse-is-load-bearing shape is read-heavy: a cancelling prefix
+built once, then many sign reads with unit writes. The suite now
+pins it — the static-prefix stream (`+2^k`, `−(2^k − 1)` as
+excluded setup, then `n` `±1`/sign cycles): 2.006 digit touches per
+sign read, flat across the `k`, `n` doubling, versus 66.0 per read
+at `k = 2048` (growing linearly with `k`) with the collapse
+disabled **[measured** 2026-07-23 —
+`tests/meter.rs::accum_static_prefix_touches_flat`, pinned ×1.25,
+three identical runs; perturbation run for the no-collapse
+figure**]**.
+
 Coverage: `causal_cmp` sits on the oracle differential, exhaustive
 small-scope, and algebraic-law suites; this is an internal rewrite
 with unchanged verdicts.
@@ -1505,7 +1524,10 @@ amendments in this document.
 exact-value differential proptest against a `BigInt` oracle with
 sign compared every step and periodic snapshots; limb-meter
 envelopes flat per-delta across boundary comb / wide-tooth / fan /
-cancelling-prefix at two scales, pinned via the committed
+cancelling-prefix at two scales, plus flat per sign read on the
+static-prefix read stream (the §8.1 2026-07-23 amendment: the
+write-funded streams pass with the collapse deleted, so this stream
+is the collapse's enforcing pin), all pinned via the committed
 `limb-meter` feature (the probe's hand counters are not the record).
 *Risk*: (1) ~2× constants vs the refuted two-level form on
 non-adversarial workloads — accepted and re-pinned with the real
