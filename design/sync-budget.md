@@ -163,17 +163,24 @@ the fallback is a per-node aggregate of materialized bound sizes
 (which a database backend stores anyway); the plan proceeds either
 way, with the lemma's status recorded here.
 
-### 2.2 The leaf-version high-water
+### 2.2 The version-size aggregate
 
-Each replica tracks the **maximum encoded size of any leaf version
-it has ever held**: one scalar beside the tree, updated by one
-`max()` at insert (the version is in hand — O(1), like `len()`),
-deliberately monotone under redaction (a high-water mark; safe
-direction; a database backend may re-aggregate to tighten). Only
-leaf versions cross the wire (supply records; queries and listings
-carry hashes), so with §2.1 every version a session can hold —
-including freshly assembled interior joins of mixed provenance — is
-bounded by `local_max + remote_max`.
+Each replica tracks the **maximum encoded size over its live leaf
+versions**, exactly — as a per-node aggregate, not a monotone
+scalar, so redaction resizes it down instead of drifting loose
+forever \[decision\]: each leaf's value is its own version's
+encoded size (in hand at construction), each internal node's is the
+max over its children, held as an eager field beside the `leaves`
+count. Because mutation is copy-on-write spine rebuilding, the
+aggregate is automatically correct under deletion — the rebuilt
+path recomputes it at construction, no separate invalidation — and
+the root's value is the replica's exact current maximum, O(1) to
+read. A database backend maintains the same aggregate as a cached
+query, recomputed on subtree deletion. Only leaf versions cross the
+wire (supply records; queries and listings carry hashes), so with
+§2.1 every version a session can hold — including freshly assembled
+interior joins of mixed provenance — is bounded by
+`local_max + remote_max`.
 
 ### 2.3 The greeting carries it
 
