@@ -77,6 +77,19 @@ const CLIFF_SCALE: usize = 1_024;
 /// still oscillating across the `2^k` cliff.
 const WIDE_TOOTH_WIDTH_BITS: usize = 192;
 
+/// Depth of the harmonic spine `H(d)` rank scenario: deep enough that the
+/// fold's per-level numerator re-shifts dominate every constant.
+const RANK_HARMONIC_DEPTH: usize = 65_536;
+
+/// Spine depth behind the max-exponent rank of the pair-mismatch scenario.
+const RANK_PAIR_DEPTH: usize = 500_000;
+
+/// Integer ranks folded by the mixed-sum scenario.
+const RANK_SUM_COUNT: usize = 10_000;
+
+/// Spine depth behind the mixed-sum scenario's one high-exponent rank.
+const RANK_SUM_EXP_DEPTH: usize = 250_000;
+
 // ─── pinned envelopes ───────────────────────────────────────────────────────
 
 /// One scenario's pinned ceilings: the measured value ×1.25, rounded up.
@@ -151,6 +164,15 @@ mod envelope {
     pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope( 2_083_300,        0,       463_554); //  1_666_640, 0,   370_843
     pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(   117_414,        0,        12_217); //     93_931, 0,     9_773
     pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope(19_723_745,        0,     3_437_515); // 15_778_996, 0, 2_750_012
+    // Rank rows (2026-07-23, new scenarios). RANK_HARMONIC,
+    // RANK_PAIR_MISMATCH, and RANK_SUM_MIXED are deliberate red baselines
+    // (the scenario section doc carries the mechanism each pins); the
+    // other two are the linear controls.
+    pub const RANK_DENSE: Envelope         = envelope(         0,      240,     1_562_503); //          0,  192,     1_250_002
+    pub const RANK_BIGROOT: Envelope       = envelope(    21_900,       15,       128_530); //     17_520,   12,       102_824
+    pub const RANK_HARMONIC: Envelope      = envelope(    30_730,      123,   168_426_244); //     24_584,   98,   134_740_995
+    pub const RANK_PAIR_MISMATCH: Envelope = envelope(   234_400,        0,        68_388); //    187_520,    0,        54_710
+    pub const RANK_SUM_MIXED: Envelope     = envelope(   156_290,        0,   195_390_245); //    125_032,    0,   156_312_196
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -442,6 +464,141 @@ fn join_cliff_envelope() {
         &v | &one
     });
     drop(joined);
+}
+
+// ─── rank scenarios ─────────────────────────────────────────────────────────
+//
+// The rank fold and the Rank operations, pinned at their current measured
+// cost per the ×1.25 convention. Three of these rows are deliberate red
+// baselines in the ratchet sense — the pinned number is the *amplified*
+// cost the current implementation pays, recorded so the telescoped rank
+// kernel, the class-first comparison, and the raw-accumulator Sum fold
+// each land as a tightening of a committed constant rather than an
+// unwitnessed claim:
+//
+// - RANK_HARMONIC: the fold re-shifts a numerator as wide as the depth
+//   already walked at every level, Θ(d²) limb work in Θ(d) input bits.
+// - RANK_PAIR_MISMATCH: cmp and checked_sub materialize a full alignment
+//   shift of the mismatched exponents on every call.
+// - RANK_SUM_MIXED: the Sum fold renormalizes a high-exponent accumulator
+//   once per folded element, Θ(n·exp) limb work in Θ(n + exp) content.
+//
+// RANK_DENSE and RANK_BIGROOT are the controls: one-bit and root-heavy
+// numerators respectively, on which the same fold is linear.
+
+/// The rank fold on the dense spine stays within its envelope (the
+/// control: the spine's numerator stays one bit wide, so the fold's
+/// per-level shifts are word-scale and the walk is linear).
+#[test]
+fn rank_dense_envelope() {
+    let p = meter::dense(DENSE_DEPTH);
+    let v = version_of(&p);
+    let r = metered("rank_dense", p.bytes.len(), &envelope::RANK_DENSE, || {
+        v.rank()
+    });
+    consumed(r);
+}
+
+/// The rank fold on the bigroot spine stays within its envelope (the
+/// wide-magnitude control: one root-wide shift, then word-scale work).
+#[test]
+fn rank_bigroot_envelope() {
+    let p = meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
+    let v = version_of(&p);
+    let r = metered(
+        "rank_bigroot",
+        p.bytes.len(),
+        &envelope::RANK_BIGROOT,
+        || v.rank(),
+    );
+    consumed(r);
+}
+
+/// The rank fold on the harmonic spine stays within its envelope — a
+/// deliberate red baseline: the pinned cost is quadratic (the fold
+/// re-shifts an accumulated numerator as wide as the depth already walked
+/// at every level), recorded so the telescoped delta-algebra kernel
+/// retires it by moving this committed number.
+#[test]
+fn rank_harmonic_envelope() {
+    let p = meter::harmonic(RANK_HARMONIC_DEPTH);
+    let v = version_of(&p);
+    let r = metered(
+        "rank_harmonic",
+        p.bytes.len(),
+        &envelope::RANK_HARMONIC,
+        || v.rank(),
+    );
+    consumed(r);
+}
+
+/// `Rank::cmp` + `checked_sub` + `+` on the mismatched-exponent pair stay
+/// within their envelope — a deliberate red baseline: every call
+/// materializes a full alignment shift of the half-million-bit exponent
+/// gap, recorded so the class-first comparison retires the cmp and
+/// pre-check share of this committed number.
+///
+/// The pair is built through the public API outside measurement: the
+/// dense spine's rank is the maximal-exponent operand (`1/2^d`, a
+/// one-bit numerator, so the pinned cost is pure mismatch), against a
+/// small integer rank at exponent zero.
+#[test]
+fn rank_pair_mismatch_envelope() {
+    let a = version_of(&meter::dense(RANK_PAIR_DEPTH)).rank();
+    let b = Version::try_from(3u64)
+        .expect("a small integer version is valid")
+        .rank();
+    // Informational denominator: the pair's value content in bytes
+    // (numerator bits + exponent, over eight).
+    let content_bytes = RANK_PAIR_DEPTH / 8 + 1;
+    let r = metered(
+        "rank_pair_mismatch",
+        content_bytes,
+        &envelope::RANK_PAIR_MISMATCH,
+        || {
+            let ord = a.cmp(&b);
+            let diff = b.checked_sub(&a);
+            let sum = &a + &b;
+            (ord, diff, sum)
+        },
+    );
+    let (ord, diff, sum) = r;
+    assert_eq!(ord, std::cmp::Ordering::Less, "1/2^d is under 3");
+    assert!(
+        diff.is_some(),
+        "3 dominates 1/2^d, so the difference exists"
+    );
+    consumed((ord, diff, sum));
+}
+
+/// `Sum` over one high-exponent rank followed by many integer ranks stays
+/// within its envelope — a deliberate red baseline: the fold renormalizes
+/// the high-exponent accumulator once per folded element (Θ(n·exp) limb
+/// work in Θ(n + exp) value content), recorded so a raw-accumulator Sum
+/// with a single final normalization retires this committed number.
+///
+/// High-first ordering is the adversarial arm of the fold's
+/// order-dependence: `Sum` accepts arbitrary order, so the worst order is
+/// the honest pin.
+#[test]
+fn rank_sum_mixed_envelope() {
+    let high = version_of(&meter::dense(RANK_SUM_EXP_DEPTH)).rank();
+    let ones: Vec<before::Rank> = (0..RANK_SUM_COUNT)
+        .map(|i| {
+            Version::try_from(i as u64 % 7 + 1)
+                .expect("a small integer version is valid")
+                .rank()
+        })
+        .collect();
+    let content_bytes = RANK_SUM_EXP_DEPTH / 8 + RANK_SUM_COUNT;
+    let ranks: Vec<before::Rank> = std::iter::once(high).chain(ones).collect();
+    let r = metered(
+        "rank_sum_mixed",
+        content_bytes,
+        &envelope::RANK_SUM_MIXED,
+        || ranks.into_iter().sum::<before::Rank>(),
+    );
+    consumed(r);
 }
 
 // ─── skyline codec scenarios ────────────────────────────────────────────────
