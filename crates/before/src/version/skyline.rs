@@ -13,14 +13,14 @@
 //!   absolute height as `gamma(v1)`, every later leaf as
 //!   `zigzag-gamma(vi − vi−1)` over consecutive leaves in preorder. The
 //!   zigzag map is `k >= 0 -> 2k`, `k < 0 -> 2|k| − 1`; the mapped value is
-//!   then gamma-coded by the same [`codec::encode_int`] machinery as every
-//!   stored integer, so the code shape (`2k + 1` bits) and the decoder's
-//!   window fast path carry over unchanged.
+//!   then gamma-coded by the same machinery as every stored integer
+//!   (`codec::encode_int`), so the code shape (`2k + 1` bits) and the
+//!   decoder's window fast path carry over unchanged.
 //!
 //! Nothing routes wire bytes through this module: [`Version::encode`] and
 //! [`Version::decode`] carry the packed preorder form, which doubles as
-//! this codec's behavioral oracle — [`encode`] transcodes a stored
-//! [`Version`] into skyline bits, [`decode`] strictly validates skyline
+//! this codec's behavioral oracle — [`encode`](fn@encode) transcodes a stored
+//! [`Version`] into skyline bits, [`decode`](fn@decode) strictly validates skyline
 //! bits and transcodes them back, and the test suite pins the two codings
 //! against each other (see Testing below). The module is test- and
 //! meter-visible only, via [`crate::meter::skyline`].
@@ -55,12 +55,13 @@
 //!
 //! # Validation cost
 //!
-//! [`validate`] runs one forward pass holding, per open ancestor, two
+//! [`validate`](fn@validate) runs one forward pass holding, per open ancestor, two
 //! bits — "is my left child complete" and "was that child a leaf" — on a
-//! packed bit stack, plus one [`Accum`](codec::accum::Accum) carrying the
-//! running leaf height for the nonnegativity check. The bit stack replaces
-//! the packed form's per-ancestor parse frames (two [`codec::Base`] values,
-//! ~56 bytes per level) with ~2 bits per level; the resource-envelope suite
+//! packed bit stack, plus one [`Accum`](crate::meter::accum::Accum)
+//! carrying the running leaf height for the nonnegativity check. The bit
+//! stack replaces the packed form's per-ancestor parse frames (two
+//! `codec::Base` values, ~56 bytes per level) with ~2 bits per level; the
+//! resource-envelope suite
 //! (`tests/meter.rs`) pins both that transient and the validator's limb
 //! behavior.
 //!
@@ -69,7 +70,7 @@
 //! codes sitting exactly on a `2^k` carry boundary, so a plain big-integer
 //! running height pays a full `k`-bit carry per 3-bit delta — `Θ(W²)` limb
 //! work in skyline wire bits `W` (`meter::tier2`'s plain-sweep pin measures
-//! it). The balanced signed-digit [`Accum`](codec::accum::Accum) applies a
+//! it). The balanced signed-digit [`Accum`](crate::meter::accum::Accum) applies a
 //! small delta and answers the sign check in amortized O(1) digit touches
 //! on every input sequence, so validation stays linear per wire bit; the
 //! envelope suite pins the per-delta touch cost flat across size doublings
@@ -78,12 +79,12 @@
 //! # Cost of the transcoders
 //!
 //! Both transcoding directions materialize absolute heights and are priced
-//! by the *packed* form, never by skyline bits: [`encode`] walks the stored
+//! by the *packed* form, never by skyline bits: [`encode`](fn@encode) walks the stored
 //! packed stream accumulating root-to-leaf path sums (bounded by the packed
-//! form it reads), and [`decode`] rebuilds per-node subtree floors to emit
+//! form it reads), and [`decode`](fn@decode) rebuilds per-node subtree floors to emit
 //! min-lifted bases (bounded by the packed form it writes — on the comb
 //! that output is `Θ(nk)` bits behind `Θ(n + k)` skyline bits, so no
-//! transcode can be skyline-linear). Only [`validate`] carries the
+//! transcode can be skyline-linear). Only [`validate`](fn@validate) carries the
 //! wire-bit-linear guarantee, and it is the piece whose envelope is pinned.
 //!
 //! # Testing
@@ -172,8 +173,8 @@ pub fn validate(bytes: &[u8], bits: usize) -> Result<(), Decode> {
 
 /// Strictly validate a skyline stream and transcode it back to a [`Version`].
 ///
-/// [`validate`]'s pass runs first and gates the transcode, so acceptance
-/// is identical to [`validate`]'s; the transcode then materializes heights
+/// [`validate`](fn@validate)'s pass runs first and gates the transcode, so acceptance
+/// is identical to [`validate`](fn@validate)'s; the transcode then materializes heights
 /// and subtree floors, priced by the packed form it emits (see the module
 /// doc's cost section).
 ///
