@@ -20,6 +20,7 @@
 //! occupying no bits.
 
 pub mod board;
+pub mod tier2;
 
 use crate::codec::{self, Base, Bits};
 
