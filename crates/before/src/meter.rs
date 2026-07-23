@@ -19,6 +19,8 @@
 //! `m = n + 1`); an id node is a 2-bit child-presence tag, absent children
 //! occupying no bits.
 
+pub mod board;
+
 use crate::codec::{self, Base, Bits};
 
 /// A generator's output: canonical packed bytes plus the exact bit length.

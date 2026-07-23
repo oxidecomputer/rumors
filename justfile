@@ -236,6 +236,16 @@ window-tradeoff:
 bench *args:
     cargo bench {{ args }}
 
+# Run the amplification board: the red-green resource-proportionality matrix
+# over before's public operations × adversarial input families. Each cell
+# judges deterministic work counters (limbs, scans, segments, heap) against
+# a pinned proportionality envelope: green means work scaled with the input,
+# red is an amplification finding. Reads no clock, so the output is
+# byte-identical under any machine load. Optional scale multiplies the input
+# sizes, e.g. `just amp-board 4`.
+amp-board *args:
+    cargo run -p before --example amp_board --features limb-meter -- {{ args }}
+
 # Paste a peer id into the dialog, or dial one directly:
 # `just rumormill --name bob --peer <endpoint-id>`.
 
