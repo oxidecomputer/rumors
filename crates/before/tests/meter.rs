@@ -72,6 +72,11 @@ const ID_DEPTH: usize = 250_000;
 /// stays paid for by a `2k + 1`-bit stored code.
 const CLIFF_SCALE: usize = 1_024;
 
+/// Tooth width (bits) of the wide-tooth comb scenarios: wider than any
+/// machine word, so every skyline delta is a genuinely wide operand while
+/// still oscillating across the `2^k` cliff.
+const WIDE_TOOTH_WIDTH_BITS: usize = 192;
+
 // ─── pinned envelopes ───────────────────────────────────────────────────────
 
 /// One scenario's pinned ceilings: the measured value ×1.25, rounded up.
@@ -127,6 +132,25 @@ mod envelope {
     pub const DECODE_CLIFF: Envelope    = envelope(   718_402,        0,        51_200); //    574_721,   0,        40_960 (2026-07-23, new scenario)
     pub const CMP_CLIFF: Envelope       = envelope(       820,        0,       238_093); //        656,   0,       190_474 (2026-07-23, new scenario)
     pub const JOIN_CLIFF: Envelope      = envelope( 1_723_362,        0,       480_010); //  1_378_689,   0,       384_008 (2026-07-23, new scenario)
+    // Skyline validator rows (2026-07-23, new scenarios): the V5
+    // replacement's transient, achieved — the dense row's 49 KB peak over
+    // 125k levels is ~3.1 bits per open ancestor (bit stack plus
+    // reallocation growth) against DECODE_DENSE's 11 MB parse frames on
+    // the same tree, ~56 B per level.
+    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope(    61_450,        0,       625_003); //     49_160, 0,   500_002
+    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(     1_770,        0,        12_903); //      1_416, 0,    10_322
+    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(     1_520,        0,        42_325); //      1_216, 0,    33_860
+    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope(    80_980,        0,         2_443); //     64_784, 0,     1_954
+    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope(    61_450,        0,       625_003); //     49_160, 0,   500_002
+    // Skyline decoder rows (2026-07-23, new scenarios): validate plus the
+    // transcode back to the packed form, whose materialized heights and
+    // floors price these against the packed output rather than the skyline
+    // input (the module doc's cost section).
+    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope(22_672_865,        0,     3_437_515); // 18_138_292, 0, 2_750_012
+    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope( 2_193_750,        0,       397_033); //  1_755_000, 0,   317_626
+    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope( 2_083_300,        0,       463_554); //  1_666_640, 0,   370_843
+    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(   117_414,        0,        12_217); //     93_931, 0,     9_773
+    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope(19_723_745,        0,     3_437_515); // 15_778_996, 0, 2_750_012
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -418,6 +442,270 @@ fn join_cliff_envelope() {
         &v | &one
     });
     drop(joined);
+}
+
+// ─── skyline codec scenarios ────────────────────────────────────────────────
+//
+// The skyline validator and decoder over the adversarial event families,
+// with the stream transcoded outside measurement. The validator rows pin
+// the V5 replacement's transient — ~2 bits of open-ancestor stack per
+// level plus the cliff-immune accumulator — denominated against skyline
+// input bytes; the decoder rows add the transcode back to the packed
+// form, whose materialized heights and floors are priced by that packed
+// output (on the comb it is quadratically larger than the skyline input,
+// so no transcode can be skyline-linear; the validator is the piece that
+// carries the wire-bit-linear claim).
+
+/// The skyline stream of a packed family shape, built outside measurement.
+fn skyline_of(p: &meter::Packed) -> meter::skyline::Encoded {
+    meter::skyline::encode(&version_of(p))
+}
+
+/// The skyline validator on the dense spine stays within its envelope:
+/// ~2 bits of transient per open ancestor (measured ~3.1 bits per level
+/// including reallocation growth, against the old parse stack's ~56 bytes
+/// per level on the same tree), zero grown segments.
+#[test]
+fn skyline_validate_dense_envelope() {
+    let enc = skyline_of(&meter::dense(DENSE_DEPTH));
+    let r = metered(
+        "skyline_validate_dense",
+        enc.bytes.len(),
+        &envelope::SKYLINE_VALIDATE_DENSE,
+        || meter::skyline::validate(&enc.bytes, enc.bits),
+    );
+    assert!(r.is_ok(), "the transcoded dense spine is canonical");
+}
+
+/// The skyline validator on the boundary comb stays within its envelope:
+/// every 3-bit `±1` delta sits on the `2^k` carry boundary, and the
+/// accumulator's redundant representation keeps the nonnegativity check
+/// amortized O(1) per delta (the flatness pin below is the cross-scale
+/// witness; a plain big-integer accumulator is quadratic here).
+#[test]
+fn skyline_validate_cliff_envelope() {
+    let enc = skyline_of(&meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE));
+    let r = metered(
+        "skyline_validate_cliff",
+        enc.bytes.len(),
+        &envelope::SKYLINE_VALIDATE_CLIFF,
+        || meter::skyline::validate(&enc.bytes, enc.bits),
+    );
+    assert!(r.is_ok(), "the transcoded boundary comb is canonical");
+}
+
+/// The skyline validator on the wide-tooth comb stays within its envelope:
+/// each `±2^w` delta is a wide operand paid for by its own zigzag code, so
+/// limb work stays linear per input bit at every tooth width.
+#[test]
+fn skyline_validate_wide_tooth_envelope() {
+    let enc = skyline_of(&meter::wide_tooth_comb(
+        CLIFF_SCALE,
+        WIDE_TOOTH_WIDTH_BITS,
+        CLIFF_SCALE,
+    ));
+    let r = metered(
+        "skyline_validate_wide_tooth",
+        enc.bytes.len(),
+        &envelope::SKYLINE_VALIDATE_WIDE_TOOTH,
+        || meter::skyline::validate(&enc.bytes, enc.bits),
+    );
+    assert!(r.is_ok(), "the transcoded wide-tooth comb is canonical");
+}
+
+/// The skyline validator on the hugeleaf analog — a single huge first
+/// leaf, the whole stream one absolute gamma code — stays within its
+/// envelope: one wide decode plus one wide accumulator load, both linear
+/// in the code's own width.
+#[test]
+fn skyline_validate_hugeleaf_envelope() {
+    let enc = skyline_of(&meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS));
+    let r = metered(
+        "skyline_validate_hugeleaf",
+        enc.bytes.len(),
+        &envelope::SKYLINE_VALIDATE_HUGELEAF,
+        || meter::skyline::validate(&enc.bytes, enc.bits),
+    );
+    assert!(r.is_ok(), "the transcoded hugeleaf is canonical");
+}
+
+/// The skyline validator on the alternating-binary spine stays within its
+/// envelope: the direction of descent flips every level, so per-level
+/// state is maximally non-uniform — and still costs 2 bits per level, not
+/// a frame.
+#[test]
+fn skyline_validate_alt_spine_envelope() {
+    let enc = skyline_of(&meter::alt_spine(DENSE_DEPTH));
+    let r = metered(
+        "skyline_validate_alt_spine",
+        enc.bytes.len(),
+        &envelope::SKYLINE_VALIDATE_ALT_SPINE,
+        || meter::skyline::validate(&enc.bytes, enc.bits),
+    );
+    assert!(r.is_ok(), "the transcoded alternating spine is canonical");
+}
+
+/// The skyline decoder on the dense spine stays within its envelope (the
+/// transcode materializes per-node floors, priced by the packed output).
+#[test]
+fn skyline_decode_dense_envelope() {
+    let p = meter::dense(DENSE_DEPTH);
+    let enc = skyline_of(&p);
+    let v = metered(
+        "skyline_decode_dense",
+        enc.bytes.len(),
+        &envelope::SKYLINE_DECODE_DENSE,
+        || meter::skyline::decode(&enc.bytes, enc.bits).expect("canonical"),
+    );
+    assert_eq!(v, version_of(&p), "the transcode round-trips");
+}
+
+/// The skyline decoder on the boundary comb stays within its envelope:
+/// the packed output stores a fresh `gamma(2^k − 1)` per tooth, so the
+/// materialized heights and floors are output-sized — quadratically above
+/// the skyline input, linearly within the packed form being rebuilt.
+#[test]
+fn skyline_decode_cliff_envelope() {
+    let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
+    let enc = skyline_of(&p);
+    let v = metered(
+        "skyline_decode_cliff",
+        enc.bytes.len(),
+        &envelope::SKYLINE_DECODE_CLIFF,
+        || meter::skyline::decode(&enc.bytes, enc.bits).expect("canonical"),
+    );
+    assert_eq!(v, version_of(&p), "the transcode round-trips");
+}
+
+/// The skyline decoder on the wide-tooth comb stays within its envelope
+/// (wide heights and floors, output-priced like the boundary comb's).
+#[test]
+fn skyline_decode_wide_tooth_envelope() {
+    let p = meter::wide_tooth_comb(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let enc = skyline_of(&p);
+    let v = metered(
+        "skyline_decode_wide_tooth",
+        enc.bytes.len(),
+        &envelope::SKYLINE_DECODE_WIDE_TOOTH,
+        || meter::skyline::decode(&enc.bytes, enc.bits).expect("canonical"),
+    );
+    assert_eq!(v, version_of(&p), "the transcode round-trips");
+}
+
+/// The skyline decoder on the hugeleaf analog stays within its envelope
+/// (one wide height, one wide floor, one wide re-emitted gamma code).
+#[test]
+fn skyline_decode_hugeleaf_envelope() {
+    let p = meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS);
+    let enc = skyline_of(&p);
+    let v = metered(
+        "skyline_decode_hugeleaf",
+        enc.bytes.len(),
+        &envelope::SKYLINE_DECODE_HUGELEAF,
+        || meter::skyline::decode(&enc.bytes, enc.bits).expect("canonical"),
+    );
+    assert_eq!(v, version_of(&p), "the transcode round-trips");
+}
+
+/// The skyline decoder on the alternating-binary spine stays within its
+/// envelope (small heights and floors, one per node, output-priced).
+#[test]
+fn skyline_decode_alt_spine_envelope() {
+    let p = meter::alt_spine(DENSE_DEPTH);
+    let enc = skyline_of(&p);
+    let v = metered(
+        "skyline_decode_alt_spine",
+        enc.bytes.len(),
+        &envelope::SKYLINE_DECODE_ALT_SPINE,
+        || meter::skyline::decode(&enc.bytes, enc.bits).expect("canonical"),
+    );
+    assert_eq!(v, version_of(&p), "the transcode round-trips");
+}
+
+// ─── skyline cliff-immunity flatness ────────────────────────────────────────
+//
+// The cross-scale witness that the validator's nonnegativity state is
+// cliff-immune on the boundary comb: per-delta accumulator digit touches
+// and per-input-byte limb work both stay flat (×1.25) across a size
+// doubling of `k = n`. A plain big-integer running height roughly doubles
+// its per-unit cost per doubling here (the `meter/tier2` plain-sweep pin),
+// so this is the row that separates the two representations.
+#[cfg(feature = "limb-meter")]
+mod skyline_flatness {
+    use before::meter::{self, accum::touch_meter};
+
+    /// Slack numerator over the small-scale cost (denominator
+    /// [`SLACK_DEN`]): the ×1.25 flatness convention.
+    const SLACK_NUM: u64 = 5;
+
+    /// Slack denominator for the flatness bound.
+    const SLACK_DEN: u64 = 4;
+
+    /// One comb validation run: the two per-unit denominators (deltas for
+    /// touches, skyline bytes for limb ops) and both counters.
+    struct Run {
+        deltas: u64,
+        bytes: u64,
+        touches: u64,
+        limb_ops: u64,
+    }
+
+    /// Validate the `k = n = scale` boundary comb's skyline stream and
+    /// record both counters over the validation body alone.
+    fn comb_run(scale: usize) -> Run {
+        let packed = meter::cliff_comb(scale, scale);
+        let v = before::Version::decode(&packed.bytes[..]).expect("comb is strict normal form");
+        let enc = meter::skyline::encode(&v);
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        meter::skyline::validate(&enc.bytes, enc.bits).expect("the comb stream is canonical");
+        Run {
+            // 2n + 1 leaves: 2n delta codes follow the first leaf.
+            deltas: 2 * scale as u64,
+            bytes: enc.bytes.len() as u64,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        }
+    }
+
+    /// Assert one per-unit cost stays flat (×1.25) across the doubling.
+    fn assert_flat(name: &str, unit: &str, small: (u64, u64), large: (u64, u64)) {
+        let (m1, n1) = small;
+        let (m2, n2) = large;
+        eprintln!(
+            "MEASURED skyline_comb_{name}: small={m1}/{n1} large={m2}/{n2} \
+             milli_per_{unit}={} -> {}",
+            m1 * 1000 / n1,
+            m2 * 1000 / n2,
+        );
+        assert!(
+            u128::from(m2) * u128::from(n1) * u128::from(SLACK_DEN)
+                <= u128::from(m1) * u128::from(n2) * u128::from(SLACK_NUM),
+            "skyline_comb_{name}: per-{unit} cost grew more than x1.25 across the \
+             size doubling: {m1}/{n1} -> {m2}/{n2}"
+        );
+    }
+
+    /// The validator's per-delta accumulator touches and per-byte limb
+    /// work stay flat across a `k = n` doubling of the boundary comb: the
+    /// nonnegativity check is cliff-immune, achieved rather than promised.
+    #[test]
+    fn skyline_validate_cliff_cost_is_flat_per_unit() {
+        let small = comb_run(512);
+        let large = comb_run(1_024);
+        assert_flat(
+            "touches",
+            "delta",
+            (small.touches, small.deltas),
+            (large.touches, large.deltas),
+        );
+        assert_flat(
+            "limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
 }
 
 // ─── id spine pair scenarios ────────────────────────────────────────────────
