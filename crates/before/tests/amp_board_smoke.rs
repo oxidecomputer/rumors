@@ -17,18 +17,18 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The board's exact cell count: 42 operation rows over 6 families (252
-/// combinations) minus the 92 where the family provides no operand.
+/// The board's exact cell count: 42 operation rows over 7 families (294
+/// combinations) minus the 103 where the family provides no operand.
 ///
 /// The exclusions: the 19 version rows needing a packed version skip the
 /// id-pair family (19), the 10 party rows plus the adversarial-party tick
-/// row skip the three event-only families (11 x 3 = 33), and every row but
+/// row skip the four event-only families (11 x 4 = 44), and every row but
 /// the two projection cells (`version_project`, `clock_own_version`) skips
 /// the comb-scatter cross family (40). The table is fixed and applicability
 /// depends on the family alone (`board::run` enforces this per cell), so
 /// the count is deterministic at every scale; a row added to or dropped
 /// from the table must move this pin.
-const EXPECTED_CELLS: usize = 160;
+const EXPECTED_CELLS: usize = 191;
 
 /// The board runs to completion at tiny sizes: every cell prepares,
 /// measures, and renders, and the matrix keeps covering the full operation
