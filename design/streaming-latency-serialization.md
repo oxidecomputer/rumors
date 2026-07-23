@@ -1,9 +1,18 @@
 # Streaming latency serialization: diagnosis and fix space
 
-Status: diagnosis complete (2026-07-17, on `link-transport` at
-`d571c21f` plus the latency benchmark harness); root cause confirmed
+> **Where these commits live.** The commit hashes in this document
+> resolve on the archive branch `wave1/integration`, not on today's
+> `link-transport`: the work was cherry-picked onto `link-transport`
+> under new SHAs (lever E's landed pair, `5a6dd8a2`/`0dd2743e`, is
+> cited at its §10 entry). Keep `wave1/integration` fetched to
+> follow the pointers.
+
+Status: diagnosis complete (2026-07-17, at `d571c21f` on the
+archive branch, plus the latency benchmark harness); root cause confirmed
 by experiment. **Fix (a) landed the same day** as
-`Peer::max_in_flight_nodes` — see §5.2 for the shipped shape, §5.3
+`Peer::max_in_flight_nodes` — since resized by the 2026-07-22
+amendment in §5.2: `sync_memory_budget(budget_bytes)` is the whole
+public knob today — see §5.2 for the shipped shape, §5.3
 for the per-leaf fan-buffer follow-up — and
 `tests/gossip_pipelining.rs` pins the pipelining behavior against
 regression. **The zero-latency compute gap was profiled and largely
@@ -463,7 +472,12 @@ motivated in review conversation and measured before adoption:
   4×–32× the binding capacity, centered on the predicted
   2/capacity), and window stall hides entirely under bandwidth-bound
   transfer once the link's BDP in messages is at or below the
-  binding capacity (40 vs 63 hops at 16× capacity). Effective wire
+  binding capacity (40 vs 63 hops at 16× capacity). These figures
+  are specific to this refinement's derived binding capacities;
+  the same suite re-run under the later pair-based, backend-priced
+  derivation records different absolute numbers in
+  `design/sync-budget.md` §1.3 — the model's predictions hold in
+  both configurations. Effective wire
   cost per divergent message calibrates at ~200 B. This licenses a
   fixed default instead of per-deployment tuning.
 - **`sync_memory_budget(budget_bytes)` is the whole public knob.**
@@ -1068,9 +1082,10 @@ counts unchanged) plus a green gate.
   compression-invariance-becomes-canonicity argument, and the
   acceptance envelope (~6 ± 1 ms/session for V2 at I = 5000). No
   version gate: nothing has deployed either protocol [decision].
-  **Shipped and measured [checked, 2026-07-18]**: `51f6ecd1`
-  (implementation + snapshot re-accept), `1b2770ab` (review
-  hardening: call-site debug_asserts, u16 high-byte pin). At
+  **Shipped and measured [checked, 2026-07-18]**: landed on
+  `link-transport` as `5a6dd8a2` (implementation + snapshot
+  re-accept) and `0dd2743e` (review hardening: call-site
+  debug_asserts, u16 high-byte pin). At
   d = 0, I = 5000: V2 insertions 29.5 → **19.25 ms**, V1
   19.6 → **9.20 ms** — beyond the envelope because the model
   costed only the compressions, not the per-wrap `Vec` allocation

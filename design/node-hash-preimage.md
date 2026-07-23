@@ -1,8 +1,9 @@
 # Single-preimage node hashing: one compression per node
 
-Status: implemented 2026-07-18 (commit `51f6ecd1`; revised from
-the two-rule spine-wrap draft after review — see §5 for the
-draft's shape and why this one won). This is the design note that
+Status: implemented 2026-07-18 (landed on `link-transport` as
+`5a6dd8a2`, hardened after review in `0dd2743e`; revised from
+the two-rule spine-wrap draft — see §5 for the draft's shape and
+why this one won). This is the design note that
 `design/streaming-latency-serialization.md` §10 lever E calls
 for; the measurements referenced here are that document's (§8
 cells, post-lever-A profile).
@@ -110,7 +111,7 @@ to *by canonicity*:
 
 - The tree's shape is a function of its content. `Node::branch`
   collapses a singleton branch into its child's prefix at
-  construction (`untyped.rs`), `from_sorted_run` builds maximally
+  construction (`untyped.rs`), `from_sorted_leaves` builds maximally
   compressed subtrees, and there is no other branch constructor:
   a one-child branch node cannot exist. Equal content therefore
   yields equal shape, hence equal `(prefix, children)` fields,
