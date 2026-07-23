@@ -1,8 +1,8 @@
 //! End-to-end coverage of [`rumors::Peer::target_message_size`]: the knob
-//! threads from the public builder into the streaming session, any target
-//! (including the degenerate zero) leaves reconciliation convergent, and
-//! peers with different targets interoperate because run sizing is not
-//! wire-visible.
+//! threads from the public builder into the greeting, the session runs at
+//! the exchanged minimum of the two sides' settings, any minimum (including
+//! the degenerate zero) leaves reconciliation convergent, and the minimum
+//! binds both encoders regardless of which side advertised it.
 
 mod common;
 
@@ -18,7 +18,8 @@ use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 const DIVERGENT_PER_SIDE: usize = 96;
 
 /// A divergent pair whose sides select different run targets before any
-/// session runs, so both encoders exercise their own setting.
+/// session runs: each greeting advertises its side's setting, and every
+/// session between them runs at the exchanged minimum.
 fn diverged_pair(left_target: usize, right_target: usize) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
         let left = Peer::seed().target_message_size(left_target).into_rumors();
@@ -51,15 +52,16 @@ fn assert_converges(pair: (Rumors<u64>, Rumors<u64>)) {
     );
 }
 
-/// A zero target — every leaf in its own run, the pre-batching wire
-/// traffic — still reconciles a divergent pair completely.
+/// A zero target degrades run batching to one leaf per message; the
+/// session still reconciles a divergent pair completely.
 #[test]
 fn zero_target_still_converges() {
     assert_converges(diverged_pair(0, 0));
 }
 
-/// Peers with different targets interoperate: run sizing is a local
-/// encoder choice, not a negotiated wire parameter.
+/// Peers with different targets interoperate: the session runs at the
+/// exchanged minimum of the two greeting-carried settings — here zero, so
+/// both encoders unbatch.
 #[test]
 fn mixed_targets_interoperate() {
     assert_converges(diverged_pair(0, DEFAULT_TARGET_MESSAGE_SIZE));
@@ -68,22 +70,28 @@ fn mixed_targets_interoperate() {
 /// Like [`diverged_pair`], but with deterministically seeded peer identities,
 /// so the same divergence replays byte-identically across sessions and their
 /// wire captures are comparable.
-fn seeded_diverged_pair(target: usize) -> (Rumors<u64>, Rumors<u64>) {
+fn seeded_diverged_pair(
+    left_target: usize,
+    right_target: usize,
+    (left_messages, right_messages): (usize, usize),
+) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
         let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
-            .target_message_size(target)
+            .target_message_size(left_target)
             .into_rumors();
         let right = bootstrap_fork_async(&left).await;
         let right = right
             .try_into_peer()
             .await
             .expect("the fresh fork has a single handle")
-            .target_message_size(target)
+            .target_message_size(right_target)
             .into_rumors();
 
         let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
-        for _ in 0..DIVERGENT_PER_SIDE {
+        for _ in 0..left_messages {
             left.send(rng.next_u64());
+        }
+        for _ in 0..right_messages {
             right.send(rng.next_u64());
         }
         (left, right)
@@ -106,11 +114,15 @@ fn supply_frames(capture: &str) -> usize {
 #[test]
 fn zero_target_emits_more_supply_frames_than_default() {
     let zero = {
-        let (left, right) = seeded_diverged_pair(0);
+        let (left, right) = seeded_diverged_pair(0, 0, (DIVERGENT_PER_SIDE, DIVERGENT_PER_SIDE));
         capture_gossip(left, right)
     };
     let batched = {
-        let (left, right) = seeded_diverged_pair(DEFAULT_TARGET_MESSAGE_SIZE);
+        let (left, right) = seeded_diverged_pair(
+            DEFAULT_TARGET_MESSAGE_SIZE,
+            DEFAULT_TARGET_MESSAGE_SIZE,
+            (DIVERGENT_PER_SIDE, DIVERGENT_PER_SIDE),
+        );
         capture_gossip(left, right)
     };
     let (zero_frames, batched_frames) = (supply_frames(&zero), supply_frames(&batched));
@@ -121,5 +133,68 @@ fn zero_target_emits_more_supply_frames_than_default() {
     assert!(
         zero_frames > batched_frames,
         "target 0 must forbid batching: {zero_frames} supply frames vs {batched_frames} batched"
+    );
+}
+
+/// A small nonzero target: a few supply records fit one run, so a session
+/// bound by it emits strictly more frames than the default target and
+/// strictly fewer than an unbatched (zero-target) one.
+const SMALL_TARGET: usize = 128;
+
+/// Messages the supplying side originates for the binding-minimum capture:
+/// dense enough that the root's 256 child subtrees average eight novel
+/// leaves each, so the runs supplying them outgrow [`SMALL_TARGET`] and the
+/// small bound genuinely splits them.
+const BINDING_MESSAGES: usize = 2048;
+
+/// Messages the other side originates: one, so the divergence is two-sided
+/// and disputes resolve at the root fan (whole one-byte-prefix subtrees are
+/// supplied as single runs), rather than against an empty replica, whose
+/// dispute shape supplies narrower subtrees.
+const BINDING_COUNTER_MESSAGES: usize = 1;
+
+/// The exchanged minimum binds both encoders when nonzero, which the
+/// zero-minimum cell cannot show.
+///
+/// The same seeded one-sided divergence is reconciled under five target
+/// assignments. If the session runs at the exchanged minimum, a mixed
+/// (small, default) pair must emit exactly the frame count of a
+/// (small, small) pair — in particular, a default-target supplier facing a
+/// small-target receiver is bound by the *remote* setting — and the same
+/// count with the assignment reversed. The small-bound count must sit
+/// strictly between the default-bound count (small genuinely splits runs)
+/// and the zero-target count (a nonzero minimum still batches). If run
+/// sizing were each encoder's local choice, the mixed captures would
+/// differ from the uniform small capture.
+#[test]
+fn nonzero_minimum_binds_both_encoders() {
+    let frames = |left, right| {
+        let (l, r) =
+            seeded_diverged_pair(left, right, (BINDING_MESSAGES, BINDING_COUNTER_MESSAGES));
+        supply_frames(&capture_gossip(l, r))
+    };
+    let small_default = frames(SMALL_TARGET, DEFAULT_TARGET_MESSAGE_SIZE);
+    let default_small = frames(DEFAULT_TARGET_MESSAGE_SIZE, SMALL_TARGET);
+    let small_small = frames(SMALL_TARGET, SMALL_TARGET);
+    let default_default = frames(DEFAULT_TARGET_MESSAGE_SIZE, DEFAULT_TARGET_MESSAGE_SIZE);
+    let zero_zero = frames(0, 0);
+
+    assert_eq!(
+        small_default, small_small,
+        "the default-target side must encode at the exchanged minimum"
+    );
+    assert_eq!(
+        default_small, small_small,
+        "the minimum must bind regardless of which side advertised it"
+    );
+    assert!(
+        small_small > default_default,
+        "the small target must genuinely split runs: \
+         {small_small} frames vs {default_default} at the default"
+    );
+    assert!(
+        small_small < zero_zero,
+        "a nonzero minimum must still batch: \
+         {small_small} frames vs {zero_zero} unbatched"
     );
 }
