@@ -290,8 +290,13 @@ pub fn cliff_fan(k: usize, n: usize) -> Packed {
 /// with wide digits — a high positive digit cancelled by a trail of
 /// negative ones — so the next sign check cannot decide at the top digit
 /// and must scan (and collapse) the whole cancelling prefix. Every drop is
-/// paid by its own `gamma(2^k − 1)` input code; the family prices the
-/// collapse/write amortization that keeps repeated deep scans linear.
+/// paid by its own `gamma(2^k − 1)` input code, so the family prices deep
+/// sign scans against the wide writes that immediately precede them. It
+/// does not exercise the collapse: a scan funded by an adjacent write is
+/// linear whether or not the fold rewrites what it scanned. The
+/// collapse-is-load-bearing case — a cancelling prefix built once, then
+/// read many times — is a delta-stream shape, not a packed input, and is
+/// pinned by the accumulator envelope suite's static-prefix stream.
 ///
 /// Layout per tooth: `"11"` (spine node, `gamma(0)`), `"1" · gamma(1)`
 /// (tooth node), `"0" · gamma(2^k − 1)` (leaf `2^k − 1`), `"01"` (leaf 0);

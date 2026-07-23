@@ -496,13 +496,15 @@ fn id_without_envelope() {
 //
 // The digit-touch cost of the cliff-immune accumulator on the adversarial
 // families' delta streams, with the sign read after every delta (the read
-// the sweeps depend on). Each scenario runs at a base scale and its
-// doubling under the same per-stream ceiling — pinning the per-delta (or
-// per-coded-byte, where the deltas themselves widen) cost *flat* across the
-// doubling is the linearity claim — plus an explicit cross-scale ratio
-// bound. Touch counts are deterministic, so the ceilings are exact-measured
-// ×1.25 like every other column; the counter exists only under the
-// `limb-meter` feature, which is the whole scenario's gate.
+// the sweeps depend on), plus the read-heavy stream where the sign folds
+// outnumber the writes. Each scenario runs at a base scale and its
+// doubling under the same per-stream ceiling — pinning the per-unit cost
+// (per delta, per coded byte where the deltas themselves widen, or per
+// sign read where reads dominate) *flat* across the doubling is the
+// linearity claim — plus an explicit cross-scale ratio bound. Touch
+// counts are deterministic, so the ceilings are exact-measured ×1.25 like
+// every other column; the counter exists only under the `limb-meter`
+// feature, which is the whole scenario's gate.
 #[cfg(feature = "limb-meter")]
 mod accum_streams {
     use std::cmp::Ordering;
@@ -517,9 +519,10 @@ mod accum_streams {
     /// Slack denominator: ceilings and flatness bounds are measured ×5/4.
     const SLACK_DEN: u64 = 4;
 
-    /// One accumulator stream measurement: deltas applied, the linearity
-    /// denominator (delta count, or coded bytes where deltas widen), and
-    /// the digit touches counted over the stream body (setup excluded).
+    /// One accumulator stream measurement: the linearity denominator
+    /// (delta count, coded bytes where deltas widen, or sign reads where
+    /// reads dominate) and the digit touches counted over the stream body
+    /// (setup excluded).
     struct Run {
         denominator: u64,
         touches: u64,
@@ -618,6 +621,36 @@ mod accum_streams {
         }
     }
 
+    /// The static-prefix read stream: a cancelling prefix built once
+    /// (`+2^k` then `−(2^k − 1)`, leaving value 1 spelled across `k/32`
+    /// wide digits), then `n` cycles of `add_small(1)` / sign /
+    /// `sub_small(1)` / sign. Setup is excluded from the count; the
+    /// linearity denominator is the `2n` sign reads.
+    ///
+    /// Unlike [`cancelling_run`], no wide write precedes the reads: the
+    /// first sign fold must scan the whole prefix, and only its collapse
+    /// keeps every later read from re-scanning it. A no-collapse
+    /// implementation reads the full `k/32`-digit prefix on every sign
+    /// here, so its per-read cost grows linearly with `k` instead of
+    /// staying flat.
+    fn static_prefix_run(k: u32, n: usize) -> Run {
+        let drop = (BigUint::from(1u8) << k) - 1u8;
+        let mut acc = Accum::new();
+        acc.add_wide(&(BigUint::from(1u8) << k));
+        acc.sub_wide(&drop);
+        touch_meter::reset();
+        for _ in 0..n {
+            acc.add_small(1);
+            assert_eq!(acc.sign(), Ordering::Greater, "up at 2");
+            acc.sub_small(1);
+            assert_eq!(acc.sign(), Ordering::Greater, "back at 1");
+        }
+        Run {
+            denominator: 2 * n as u64,
+            touches: touch_meter::touches(),
+        }
+    }
+
     /// The boundary-comb stream's per-delta digit-touch cost stays under
     /// its pinned ceiling at both scales and flat across the `k`, `n`
     /// doubling (the shape where a normalized representation is quadratic).
@@ -660,8 +693,11 @@ mod accum_streams {
 
     /// The cancelling-prefix chain's digit-touch cost per coded byte of its
     /// own wide deltas stays under its pinned ceiling at both scales and
-    /// flat across the doubling: the sign fold's collapse keeps repeated
-    /// deep scans amortized against the writes that build them.
+    /// flat across the doubling: every deep sign scan here is funded by the
+    /// wide delta immediately preceding it, so the stream's cost tracks its
+    /// own coded size (the collapse itself is priced by
+    /// `accum_static_prefix_touches_flat`, where no adjacent write funds
+    /// the scans).
     #[test]
     fn accum_cancelling_touches_flat() {
         let small = cancelling_run(2_048, 4_096);
@@ -674,8 +710,32 @@ mod accum_streams {
         );
     }
 
+    /// The static-prefix read stream's digit-touch cost per sign read
+    /// stays under its pinned ceiling at both scales and flat across the
+    /// `k`, `n` doubling: the sign fold's collapse pays for the deep scan
+    /// exactly once, so a cancelling prefix built once and then read many
+    /// times costs O(1) digit touches per read.
+    ///
+    /// This is the pin that makes the collapse load-bearing: the other
+    /// three streams fund every deep scan with an immediately preceding
+    /// wide write, so they stay flat even with the collapse deleted; only
+    /// this stream's ceiling breaks (by a factor growing linearly in `k`)
+    /// when a sign fold leaves the scanned prefix in place.
+    #[test]
+    fn accum_static_prefix_touches_flat() {
+        let small = static_prefix_run(2_048, 10_000);
+        let large = static_prefix_run(4_096, 20_000);
+        assert_flat(
+            "static_prefix",
+            &small,
+            &large,
+            envelope::STATIC_PREFIX_MILLI_PER_READ,
+        );
+    }
+
     // The pinned per-unit ceilings: measured ×1.25, rounded up, in
-    // milli-touches per unit (per delta, or per coded byte for the chain).
+    // milli-touches per unit (per delta, per coded byte for the chain, per
+    // sign read for the static prefix).
     // The trailing comment on each line is the measurement of record the
     // ceiling derives from; re-pin from the MEASURED lines under
     // `--no-capture` with `--all-features`.
@@ -685,5 +745,6 @@ mod accum_streams {
         pub const COMB_MILLI_PER_DELTA: u64            = 2_500; // 2_000.00 at k=4096/n=50_000 and k=8192/n=100_000 (also the fan row)
         pub const WIDE_TOOTH_MILLI_PER_DELTA: u64      = 7_501; // 6_000.08 at w=192, k=4096/n=25_000; 6_000.04 at k=8192/n=50_000
         pub const CANCELLING_MILLI_PER_CODED_BYTE: u64 =   314; // 250.81 at k=2048/n=4096; 250.40 at k=4096/n=8192
+        pub const STATIC_PREFIX_MILLI_PER_READ: u64    = 2_509; // 2_006.50 at k=2048/n=10_000; 2_006.45 at k=4096/n=20_000
     }
 }
