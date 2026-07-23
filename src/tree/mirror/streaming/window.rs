@@ -69,7 +69,11 @@
 //!   maximally disputed reply's child completions cannot all enqueue while
 //!   the walk finishes the reaction loop, and the session deadlocks —
 //!   demonstrated by `underbuffered_mirror_stalls` in the capacity tests.
-//!   No configuration, however memory-starved, may shrink them.
+//!   No configuration, however memory-starved, may shrink them. Their
+//!   residency is nevertheless in the budget: the decode fans hold
+//!   backend-priced leaf nodes, charged flat as the supply-decode
+//!   envelope ([`SUPPLY_DECODE_ENVELOPE_BYTES`]) since a floor-width
+//!   window fills them exactly as a wide one does.
 //!
 //! # Sizing the flushed-question edge
 //!
@@ -116,7 +120,9 @@
 //!   its own producer — the premise the session's whole liveness argument
 //!   already rests on.
 
+use crate::link::STREAM_COUNT;
 use crate::tree::MERKLE_HASH_LEN;
+use crate::tree::typed::{self, Prefix, height::Z};
 
 /// The tree's maximum branching factor: one child per radix byte.
 ///
@@ -143,6 +149,31 @@ const SCOPE_FIXED_BYTES: usize = 2 * 40 + 2 * 24;
 
 /// In-memory bytes of one buffered leaf request: an inline leaf prefix.
 const LEAF_REQUEST_BYTES: usize = 40;
+
+/// In-memory bytes one decode-fan slot spends beyond the leaf node value
+/// it carries: the inline leaf prefix and the pair's padding.
+///
+/// Derived from the queue's real item layout — `size_of` of the
+/// prefix-and-node pair minus the node value — so a layout change moves
+/// the price with it instead of leaving a hand-counted byte total stale.
+const FAN_SLOT_BYTES: usize = std::mem::size_of::<(Prefix<Z>, typed::Node<(), Z>)>()
+    - std::mem::size_of::<typed::Node<(), Z>>();
+
+/// Worst-case bytes the decode fans of one session keep resident, under
+/// the in-memory backend's pricing.
+///
+/// Derived, term by term: each of the [`STREAM_COUNT`] reply streams a
+/// session decodes owns one fan channel of [`FAN`] slots plus the record
+/// in the reader's hand, and each occupant is one backend-priced leaf
+/// node in its slot — for the in-memory backend, a pointer-sized handle
+/// (pinned by the `Local` handle assertion) beside [`FAN_SLOT_BYTES`] of
+/// slot. [`from_budget`](Window::from_budget) charges the same shape
+/// through the live backend's own `node_bytes`; this constant is that
+/// charge at the design session, folded into
+/// [`DEFAULT_SYNC_MEMORY_BUDGET`] so the default still admits the design
+/// link's whole bandwidth-delay product in disputed scopes.
+pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
+    STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<(), Z>>() + FAN_SLOT_BYTES);
 
 /// Bandwidth of the design link the default budget is sized for:
 /// 100 Gbps, in bytes per millisecond.
@@ -186,11 +217,15 @@ pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_339;
 /// The budget is an envelope, not an allocation, and **per session**: a
 /// session approaches it only against wide mutual divergence, typical
 /// sessions hold kilobytes, and concurrent sessions on separate links
-/// each carry their own. See
+/// each carry their own. The second term is the decode fans' flat
+/// residency (~0.21 MB under the in-memory backend's pricing), charged
+/// off the top because the fan channels exist at their
+/// correctness-floor capacity regardless of window width. See
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for
-/// the measured trade-off table.
+/// the closed forms and the measured trade-off table.
 pub const DEFAULT_SYNC_MEMORY_BUDGET: usize =
-    DESIGN_LINK_BYTES_PER_MS * DESIGN_LINK_RTT_MS / DISPUTE_WIRE_BYTES * SCOPE_ENVELOPE_BYTES;
+    DESIGN_LINK_BYTES_PER_MS * DESIGN_LINK_RTT_MS / DISPUTE_WIRE_BYTES * SCOPE_ENVELOPE_BYTES
+        + SUPPLY_DECODE_ENVELOPE_BYTES;
 
 /// Per-height channel capacities for one session, in disputed scopes.
 ///
@@ -222,7 +257,9 @@ impl Window {
     /// budget can widen, because their populations cannot exist — and `K`
     /// is the widest global width whose worst case fits the budget,
     /// charging each level's population once at its own occupancy-thinned
-    /// fan. Disputes require joint occupancy, so the joint terms take the
+    /// fan, after the decode fans' flat residency
+    /// ([`SUPPLY_DECODE_ENVELOPE_BYTES`]'s shape, priced through this
+    /// session's own `node_bytes`) comes off the top. Disputes require joint occupancy, so the joint terms take the
     /// *pair product* of the two sizes — an asymmetric session (bootstrap
     /// catch-up) disputes almost nothing and gets narrow dispute windows,
     /// while its supplies stream outside the window — where the
@@ -261,8 +298,9 @@ impl Window {
         // Ceiling and floor each encode within the exchanged aggregates'
         // sum `local + remote` (each side's aggregate covers the bounds
         // it materializes; a cross-side assembly joins or meets one from
-        // each, within the pinned pairwise lemmas); the pair together
-        // within its double.
+        // each, within the pinned pairwise lemmas; deletion-pruned
+        // survivor bounds are *priced* within the same sum, guarded by
+        // the census pin); the pair together within its double.
         let version_bound = usize::try_from(
             2 * (u128::from(local_version_bytes) + u128::from(remote_version_bytes)),
         )
@@ -295,14 +333,26 @@ impl Window {
                 children_quantile(n, depth - 1) * reference_bytes + SCOPE_FIXED_BYTES as u128;
         }
 
+        // The decode fans' residency, charged flat: one fan channel per
+        // reply stream at its correctness-floor capacity plus the record
+        // in the reader's hand, each slot one backend-priced leaf node
+        // (custody of the payload passed to the backend at construction,
+        // so `node_bytes(0, ·)` is its whole resident price). Width
+        // cannot shrink this term — the fan capacity is load-bearing for
+        // liveness — so it comes off the budget before the solve.
+        let supply_fans = (STREAM_COUNT as u128)
+            * (FAN as u128 + 1)
+            * (node_bytes(0, version_bound) as u128 + FAN_SLOT_BYTES as u128);
+
         // The worst case a width-k window admits: each level's population
         // charged once (the level's queues hold overlapping views of the
         // same in-flight scopes, and their node references are shared
         // handles, so per-queue multiplication would double-charge), plus
         // the leaf-request edge, whose items are bare prefixes bounded by
-        // the corpus rather than by dispute statistics.
+        // the corpus rather than by dispute statistics, plus the flat
+        // decode-fan term.
         let charge = |k: u128| -> u128 {
-            let mut total = 0u128;
+            let mut total = supply_fans;
             for depth in 1..=KEY_DEPTH {
                 total += population[depth].min(k) * scope_price[depth];
             }
@@ -421,10 +471,27 @@ fn pow256(j: usize) -> u128 {
     if j >= 16 { u128::MAX } else { 1u128 << (8 * j) }
 }
 
+/// The union tail level, in bits: every (stage, statistic) quantile is
+/// taken at probability 2⁻⁴⁸, so one session's few hundred statistics
+/// hold jointly at ≥ 1 − 2⁻⁴⁰.
+const UNION_TAIL_BITS: usize = 48;
+
+/// The Bernstein exponent delivering the union tail: `e⁻ᵗ ≤ 2⁻⁴⁸` needs
+/// `t ≥ UNION_TAIL_BITS × ln 2 ≈ 33.3`, rounded up.
+///
+/// Derived from [`UNION_TAIL_BITS`]; a changed tail level must move
+/// this with it.
+const BERNSTEIN_TAIL: u128 = 34;
+
+/// Depth cap on the per-depth tail sharpening: past it, `2^−(48+8×40)`
+/// is already beyond any population a `u64` corpus can raise, so
+/// sharpening further buys nothing and risks exponent overflow.
+const TAIL_DEPTH_CAP: usize = 40;
+
 /// Integer upper bound on `ln 2 ×` the union tail bits at parent depth
-/// `j`: `⌈0.7 × (48 + 8 min(j, 40))⌉`.
+/// `j`: `⌈0.7 × (UNION_TAIL_BITS + 8 min(j, TAIL_DEPTH_CAP))⌉`.
 fn tail_exponent(j: usize) -> u128 {
-    (7 * (48 + 8 * j.min(40)) as u128).div_ceil(10)
+    (7 * (UNION_TAIL_BITS + 8 * j.min(TAIL_DEPTH_CAP)) as u128).div_ceil(10)
 }
 
 /// Integer quantile from the multiplicative Chernoff tail
@@ -485,9 +552,9 @@ fn jointly_occupied(n: u128, pair: u128, j: usize) -> u128 {
         return u128::from(pair >= 1);
     }
     let smaller = pair.checked_div(n).unwrap_or(0);
-    let quantile = match small_mean_quantile(pair, j, 48) {
+    let quantile = match small_mean_quantile(pair, j, UNION_TAIL_BITS as u128) {
         Some(q) => q,
-        None => bernstein(pair / pow256(j) + 1, 34),
+        None => bernstein(pair / pow256(j) + 1, BERNSTEIN_TAIL),
     };
     pow256(j).min(smaller).min(quantile)
 }
@@ -498,7 +565,8 @@ fn jointly_occupied(n: u128, pair: u128, j: usize) -> u128 {
 /// mean.
 fn leaves_quantile(n: u128, j: usize) -> u128 {
     if j > 0
-        && let Some(q) = small_mean_quantile(n, j, 48 + 8 * j.min(40) as u128)
+        && let Some(q) =
+            small_mean_quantile(n, j, (UNION_TAIL_BITS + 8 * j.min(TAIL_DEPTH_CAP)) as u128)
     {
         return q;
     }
@@ -507,9 +575,15 @@ fn leaves_quantile(n: u128, j: usize) -> u128 {
 }
 
 /// Per-parent quantile, slots route: mean occupied child slots of a
-/// depth-`j` parent are `256 × (1 − (1 − 256^−(j+1))^N)`, and
-/// `1 − e⁻ˣ ≤ 2x/(2+x)` gives the integer mean envelope; Bernstein slack
-/// at the union level on top.
+/// depth-`j` parent are `256 × (1 − (1 − p)^N)` at `p = 256^−(j+1)`.
+///
+/// The upper envelope needs the exponent correction: `(1 − p)^N ≥
+/// e^(−x′)` at `x′ = Np/(1 − p)`, so the mean is at most `256 × (1 −
+/// e^(−x′)) ≤ 256 × 2x′/(2 + x′)`. The code evaluates that form at
+/// `x = Np` instead of `x′` — an understatement of at most half a slot
+/// for `p ≤ 1/256`, absorbed (with the floor division's sub-unit loss)
+/// by the `+ 1` on `mean_hi`; the Bernstein slack at `t ≥ 34` rides on
+/// top.
 fn child_slots_quantile(n: u128, j: usize) -> u128 {
     let fan = FAN as u128;
     let child_slots = pow256(j).saturating_mul(fan);

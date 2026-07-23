@@ -126,12 +126,14 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 /// whenever a peer observes one, it can use a deterministic metric to decide
 /// whether it or its peer should dominate.
 ///
-/// A reasonable such metric would be to compare the `remote_min_ticks` reported
-/// by the peer in the error with your own
-/// [`Snapshot::latest`](crate::Snapshot::latest)'s [`Version::min_ticks`], so
-/// that whichever network with greater minimal event count wins, with total
-/// comparison on [`Network`] breaking ties. Based on this comparison, both
-/// sides can come to uncoordinated consensus on which will persist in its
+/// A reasonable such metric ships inside the error itself: compare
+/// [`Error::NetworkMismatch`]'s `local_min_events` against its
+/// `remote_min_events`, so that whichever universe records the greater
+/// minimal event count wins, with total comparison on [`Network`] breaking
+/// ties. Both fields ride the one error — each side declared its count in
+/// the session's handshake — so both sides apply the rule from the error
+/// alone, with nothing further to fetch or race. Based on this comparison,
+/// both come to uncoordinated consensus on which will persist in its
 /// [`Peer`] identity (the greater), and which will attempt to
 /// re-[`bootstrap`](Peer::bootstrap) into the dominating [`Network`] (the
 /// lesser).
@@ -345,9 +347,16 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// priced by the storage backend's own cost function — and
     /// `budget_bytes` is its worst-case envelope, not an allocation: a
     /// session holds only what it actually disputes, typically
-    /// kilobytes, plus a few MB of in-hand reply batches this setting
-    /// does not govern ([`target_message_size`](Self::target_message_size)
-    /// bounds that unit).
+    /// kilobytes. The budget also pre-charges the decode fans' flat
+    /// residency (one fan of backend-priced leaves plus an in-hand
+    /// record per reply stream — `fans` in the forms below, ~0.2 MB
+    /// under the in-memory backend). Encoded wire messages in hand are
+    /// the one term this setting does not govern: derived from the
+    /// stream schedule, at most one run per stream per direction, so up
+    /// to [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
+    /// [`target_message_size`](Self::target_message_size) — ~19 MB per
+    /// direction at the defaults, plus a lone over-target record's
+    /// overhang.
     ///
     /// Each session divides the budget into fixed per-level channel
     /// capacities from what the two replicas exchange at session start:
@@ -373,13 +382,13 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// # Choosing a budget
     ///
     /// Let `BDP = bandwidth × RTT`, the link's bandwidth-delay product
-    /// in bytes. The two constants above make the trade a pair of
-    /// closed forms:
+    /// in bytes, and `fans` the flat decode-fan pre-charge above. The
+    /// constants make the trade a pair of closed forms:
     ///
     /// - the worst-case slowdown a budget can cost is
-    ///   `max(1, 22 × BDP / budget_bytes)`;
+    ///   `max(1, 22 × BDP / (budget_bytes − fans))`;
     /// - the smallest budget for an acceptable worst-case slowdown is
-    ///   `22 × BDP / slowdown`.
+    ///   `fans + 22 × BDP / slowdown`.
     ///
     /// The default is the second form at slowdown 1 on the design
     /// link. Both are envelopes for the operating regime: budgets past
@@ -389,7 +398,10 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// BDP in messages (the per-scope envelope grows slowly with set
     /// size past it). `tests/window_operator.rs` holds both forms
     /// against measured sessions on a bandwidth-limited link, and pins
-    /// the default as the inverse form's design-point value exactly.
+    /// the default as the inverse form's design-point value with the
+    /// ratio kept as the exact quotient (4,339/200); the rounded
+    /// 22-form written above is what an operator can apply, and it runs
+    /// ≲1.5% above the exact form — the conservative direction.
     ///
     #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
     ///
@@ -419,8 +431,11 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// The target is the unit of wire-message buffering on both sides:
     /// the encoder accumulates at most one run per stream before writing
-    /// it, and the receiver buffers one run's bytes per message while
-    /// decoding its leaves one at a time. Each session therefore runs at
+    /// it, and the receiver buffers one run's encoded bytes per message,
+    /// handing each decoded leaf to the storage backend as it is read
+    /// (the constructed leaves it holds in flight are charged against
+    /// [`sync_memory_budget`](Self::sync_memory_budget), not this
+    /// setting). Each session therefore runs at
     /// the **minimum** of the two ends' targets — the greeting carries
     /// each side's setting, so yours bounds both the frames you build
     /// and the frames built for you, and the more memory-constrained

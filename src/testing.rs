@@ -60,6 +60,16 @@ pub fn envelope_and_wire_bytes() -> (usize, usize) {
     )
 }
 
+/// Worst-case bytes one session's decode fans keep resident under the
+/// in-memory backend's pricing: the flat term of the default budget.
+///
+/// The budget's closed forms are affine in this term — it comes off the
+/// budget before the dispute-scope solve — so the operator-equation
+/// suite needs it to reproduce the default exactly.
+pub fn supply_decode_envelope_bytes() -> usize {
+    crate::tree::mirror::streaming::window::SUPPLY_DECODE_ENVELOPE_BYTES
+}
+
 /// The largest canonical encoding among every version bound a
 /// snapshot's tree holds — leaf versions and every interior ceiling and
 /// floor — in bytes: the exact per-node aggregate the greeting

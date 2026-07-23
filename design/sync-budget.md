@@ -77,7 +77,12 @@ message (slopes 0.0072–0.0127 hops/message bracketing the predicted
 `2/capacity` = 0.0097), and window stall hides under bandwidth-bound
 transfer once the link's BDP-in-messages is at or below the binding
 capacity (39 vs 94 hops at 16× capacity). Effective wire cost
-calibrates at ~200 B per disputed message \[measured\]. This is what
+calibrates at ~200 B per disputed message \[measured\]. These figures
+are configuration-specific: the suite's derived binding capacities
+moved between derivations, and
+`design/streaming-latency-serialization.md` §5.2's second-wave
+amendment records the same claims measured at the earlier
+configuration (~5× larger slopes; both honest). This is what
 licenses fixed constants in place of per-deployment tuning.
 
 **All wire costs are measured by delay-sweep slope** \[decision,
@@ -161,8 +166,12 @@ ratio is independent of `D`. With `BDP = bandwidth × RTT`:
 > **`budget_min ≈ (E/w) × BDP / slowdown`**, with `E/w = 22`.
 
 The default budget is the second form at slowdown 1 on the design
-link — an identity, pinned to the byte. The scalar forms hold in the
-operating regime and degrade in two known directions, both measured:
+link — an identity, pinned to the byte with the ratio kept as the
+exact quotient `E/w = 4,339/200` (plus the flat supply-decode
+envelope; see the amendment below). The rounded `E/w = 22` form an
+operator applies runs ≲1.5% above the exact one, in the conservative
+direction. The scalar forms hold in the operating regime and degrade
+in two known directions, both measured:
 
 - **The near-root band** \[measured\]: `charge(K)` is piecewise —
   windows under a few hundred scopes pay full-fan reference prices
@@ -271,9 +280,9 @@ of materialized bound sizes) still recorded in §2.1 should a workload
 ever trip the pin.
 
 **Amendment (2026-07-23): the pin tripped; §2.1's fallback is
-adopted.** The branch review's R4 finding pressed on the gloss above,
-and a constructed workload broke the leaf-denominated exchange: 32
-parties forked in doubling generations (shallow intervals), each
+adopted.** A constructed adversarial-honest workload broke the
+leaf-denominated exchange: 32 parties forked in doubling generations
+(shallow intervals), each
 stamping a *different* number of times with no cross-sync — ragged
 counts defeat frontier saturation — gathered into one replica. Every
 leaf stamp stays small while the gathered interior ceilings join all
@@ -379,6 +388,29 @@ underpriced node breaches the *memory* envelope. After §2.1–§2.4 no
 input is estimated, so the envelope's status becomes \[derived\]
 from exchanged measurements plus one pinned lemma.
 
+**Amendment (2026-07-23): the leaf seam enters the account; the
+decode fans are charged flat.** `Leaf::leaf` is now async and
+fallible — the backend's one chance to take custody of a supplied
+payload (persist it eagerly, or stage it in its own priced
+write-behind buffer) before the leaf enters the decode fan — so a
+leaf's whole resident price is `node_bytes(0, bounds)`, and "leaf
+payloads are out of scope" narrows to payload bytes still crossing
+inside one wire message (`target_message_size`'s unit). What the fan
+channels hold is therefore backend-priced, and their residency is
+deterministic rather than population-driven: one channel of `FAN`
+slots plus the record in the reader's hand per reply stream
+(`STREAM_COUNT` of them; capacity is a liveness floor no
+configuration may shrink). `from_budget` pre-charges that flat term
+through the session's own `node_bytes`, and the default budget gains
+its `Local`-priced value, `SUPPLY_DECODE_ENVELOPE_BYTES` = 17 × 257
+× 48 = 209,712 B \[derived: slot layout by `size_of`, handle pinned
+pointer-sized\] — the design point keeps slowdown 1 by construction.
+The operator forms become affine in it: `slowdown ≈ max(1, 22 × BDP
+/ (budget − fans))`, `budget_min ≈ fans + 22 × BDP / slowdown`. The
+conformance suite checks the seam pointwise (`underpriced leaf`, at
+construction) with a lying-leaf negative control, and the census
+charges leaves at their measured post-custody residency.
+
 ### 2.5 Validation
 
 - Census suite gains the lemma-slack pin: max encoded node-version
@@ -424,10 +456,12 @@ pointwise conformance check are in the gate; and the trade-off table
 is regenerated under the function-priced derivation.
 
 **Met, 2026-07-22**: every clause checked mechanically — no
-`NODE_BYTES` token survives anywhere; the only "fitted" mentions in
-`src/` are the two negations documenting that the envelope no longer
-is; the pins run under the ordinary test gate; the committed table
-carries the function-priced default row.
+`NODE_BYTES` token survives in `src/` (the token lives on in this
+plan's sibling design documents and the B0.5 simulator, which speak
+about the rejected shape); the only "fitted" mentions in `src/` are
+the two negations documenting that the envelope no longer is; the
+pins run under the ordinary test gate; the committed table carries
+the function-priced default row.
 
 ## 3. Deliberately out of scope
 
