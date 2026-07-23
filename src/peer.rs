@@ -360,10 +360,11 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// wider than the derived capacities drains in capacity-sized waves,
     /// capping dispute throughput near `budget_bytes / (3 × RTT)`; any
     /// budget, including zero, leaves every session deadlock-free at one
-    /// disputed subtree in flight per level. The default,
-    /// [`DEFAULT_SYNC_MEMORY_BUDGET`], keeps sessions bandwidth-bound —
-    /// serialization never observable — on links up to roughly
-    /// 1 Gbps × 100 ms.
+    /// disputed subtree in flight per level. The budget is per session:
+    /// concurrent gossip on separate links carries one envelope each. The
+    /// default, [`DEFAULT_SYNC_MEMORY_BUDGET`], keeps sessions
+    /// bandwidth-bound — serialization never observable — on links up to
+    /// roughly 4 Gbps × 100 ms.
     ///
     /// # Choosing a budget
     ///

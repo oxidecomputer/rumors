@@ -141,17 +141,19 @@ const SCOPE_FIXED_BYTES: usize = 2 * 40 + 2 * 24;
 /// In-memory bytes of one buffered leaf request: an inline leaf prefix.
 const LEAF_REQUEST_BYTES: usize = 40;
 
-/// Worst-case memory one synchronization may spend by default: 128 MiB.
+/// Worst-case memory one synchronization may spend by default: 512 MiB.
 ///
-/// An envelope, not an allocation — a session approaches it only against
-/// wide mutual divergence; typical sessions hold kilobytes. Sized so
-/// dispute traffic (~200 wire bytes and ~2 KiB of envelope per disputed
-/// message) fills links up to roughly 1 Gbps × 100 ms: on such links a
-/// session is bandwidth-bound at every divergence, and window
+/// An envelope, not an allocation, and **per session**: a session
+/// approaches it only against wide mutual divergence, typical sessions
+/// hold kilobytes, and concurrent sessions on separate links each carry
+/// their own. Sized so dispute traffic (~200 wire bytes and ~2 KiB of
+/// envelope per disputed message) fills links up to roughly
+/// 4 Gbps × 100 ms — equivalently 10 Gbps × 40 ms — so on realistic
+/// links a session is bandwidth-bound at every divergence and window
 /// serialization is never observable. See
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for the
 /// measured trade-off table.
-pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 128 << 20;
+pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 512 << 20;
 
 /// Per-height channel capacities for one session, in disputed scopes.
 ///

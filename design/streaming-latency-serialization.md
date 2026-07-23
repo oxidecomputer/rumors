@@ -472,7 +472,10 @@ motivated in review conversation and measured before adoption:
   little-endian set-size bytes — a deliberate wire change; every V2
   snapshot re-accepted, V1 byte-identical), and each session derives
   its per-height capacities from the exchanged pair. Default
-  128 MiB: dispute traffic fills links up to ~1 Gbps × 100 ms, so
+  512 MiB (raised from the initial 128 MiB in review: the envelope is
+  per session, population caps make it irrelevant at typical scales,
+  and the intended deployments have the headroom): dispute traffic
+  fills links up to ~4 Gbps × 100 ms, so
   serialization is unobservable there at any divergence; the
   measured latency-only worst case at 50k mutual divergence is
   1.2× (delay-sweep slope, compute excluded — single-point division
