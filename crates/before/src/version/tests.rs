@@ -351,6 +351,33 @@ proptest! {
 }
 
 proptest! {
+    /// The meet is representationally subadditive:
+    /// `encode(a & b).len() <= encode(a).len() + encode(b).len()`.
+    ///
+    /// Dual to [`join_encoding_is_subadditive`]: the meet's event tree
+    /// branches only where an input branches and its bases come from
+    /// pointwise combination, so meeting can restructure but never invent
+    /// structure beyond both inputs together. Callers that track
+    /// version-size maxima rely on this to charge a meet of two bounded
+    /// versions (an assembled floor) the sum of their bounds. Probed over
+    /// the same churned populations as the join lemma.
+    #[test]
+    fn meet_encoding_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+        let meet = a.clone() & b.clone();
+        prop_assert!(
+            meet.encode().len() <= a.encode().len() + b.encode().len(),
+            "meet encoding outgrew its inputs: {} > {} + {}",
+            meet.encode().len(), a.encode().len(), b.encode().len(),
+        );
+    }
+}
+
+proptest! {
     /// Differential. The impl version meet (`&`) matches the oracle's `meet`,
     /// dual to [`merge_matches_oracle`].
     #[test]
@@ -1114,6 +1141,31 @@ proptest! {
             join.encode().len() <= a.encode().len() + b.encode().len(),
             "join encoding outgrew its inputs: {} > {} + {}",
             join.encode().len(), a.encode().len(), b.encode().len(),
+        );
+    }
+}
+
+proptest! {
+    /// The meet-size lemma of [`meet_encoding_is_subadditive`], on
+    /// arbitrary, typically *unrelated* normal-form pairs.
+    ///
+    /// Dual to [`join_encoding_is_subadditive_arbitrary`], and for the same
+    /// reason: independent shapes and large-base leaves are the corner
+    /// where a meet must restructure most, so this is where subadditivity
+    /// would break if normalization could ever inflate a combined tree
+    /// past its inputs.
+    #[test]
+    fn meet_encoding_is_subadditive_arbitrary(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+    ) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let meet = a.clone() & b.clone();
+        prop_assert!(
+            meet.encode().len() <= a.encode().len() + b.encode().len(),
+            "meet encoding outgrew its inputs: {} > {} + {}",
+            meet.encode().len(), a.encode().len(), b.encode().len(),
         );
     }
 }
