@@ -541,7 +541,9 @@ Internal bases are redundant: topology plus absolute leaf values
 determine the event function. Storing exactly that dissolves the
 obstruction instead of routing around it — and makes the event
 representation morally identical to the id representation plus a
-leaf-payload stream (§11.1).
+leaf-payload stream (§11.1). This section is the specification;
+`design/before-skyline-encoding.md` is its expository companion,
+building the same design up from the step-function semantics.
 
 ### 10.1 Encoding
 
