@@ -12,8 +12,10 @@
 //! [`DelayedWire`] drives both session ends on a current-thread Tokio
 //! runtime whose clock is **paused**: pipe arrival deadlines live in virtual
 //! time, which advances only while every task is blocked waiting on one.
-//! The duration [`DelayedWire::round_trip`] reports is the sum of two
-//! disjoint components:
+//! On a paused-clock wire, the duration [`DelayedWire::round_trip`]
+//! reports is the sum of two disjoint components (on the
+//! [`new_wall_clock`](DelayedWire::new_wall_clock) cross-check variant the
+//! clocks coincide, and the report is real elapsed time alone):
 //!
 //! - the *wall* component: real CPU time spent computing — both peers
 //!   serialized on one thread, the same convention as the zero-latency
@@ -359,6 +361,12 @@ pub struct DelayedWire {
     runtime: tokio::runtime::Runtime,
     a_link: DelayedLink,
     b_link: DelayedLink,
+    /// Whether the runtime's clock started paused. [`round_trip`]
+    /// (Self::round_trip) selects its cost model by this: paused wires
+    /// partition cost into disjoint wall and virtual components; on a
+    /// running clock the virtual component tracks the real one, so only
+    /// real elapsed time is reported.
+    paused: bool,
 }
 
 impl DelayedWire {
@@ -390,13 +398,18 @@ impl DelayedWire {
             runtime,
             a_link,
             b_link,
+            paused,
         }
     }
 
     /// Reconcile one pair, returning the handles and the session's cost.
     ///
-    /// The reported duration is wall compute plus virtual wire stall; see
-    /// the [module docs](self) for the model and its epistemic status.
+    /// On the paused-clock default the reported duration is wall compute
+    /// plus virtual wire stall; see the [module docs](self) for the model
+    /// and its epistemic status. On a
+    /// [`new_wall_clock`](Self::new_wall_clock) wire the virtual clock
+    /// tracks the real one — the two components overlap instead of
+    /// partitioning — so the report is real elapsed time alone.
     pub fn round_trip<T>(
         &mut self,
         a: Rumors<T>,
@@ -409,6 +422,7 @@ impl DelayedWire {
             runtime,
             a_link,
             b_link,
+            paused,
         } = self;
         let wall_start = std::time::Instant::now();
         let virtual_elapsed = runtime.block_on(async {
@@ -418,6 +432,15 @@ impl DelayedWire {
             b_result.expect("peer B gossip");
             virtual_start.elapsed()
         });
-        ((a, b), wall_start.elapsed() + virtual_elapsed)
+        let elapsed = if *paused {
+            wall_start.elapsed() + virtual_elapsed
+        } else {
+            // A running virtual clock advances with the real one, so wall
+            // and virtual are two measurements of the same interval:
+            // summing them would double-count. Real elapsed time is the
+            // whole cost.
+            wall_start.elapsed()
+        };
+        ((a, b), elapsed)
     }
 }
