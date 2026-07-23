@@ -302,6 +302,41 @@ Adopt as a stated contract of the crate (crate docs; enforced by the
 > `O(n + m)` in the packed input bits — with no bound on value
 > magnitude, tree depth, or encoded size.**
 
+Amended 2026-07-23 (P3.3, the denomination criterion of record):
+"packed operands" and "packed input bits" denominate every
+operation *except* the two classes whose mandatory output is
+asymptotically larger than any constant times their input, for
+which an input-only bound is unsatisfiable by construction (a
+perfect text writer emits Θ(nk) mandatory digits from Θ(n + k)
+wire bits on the §10.6 comb) and would degenerate into exemption
+holes. Those denominate against total I/O:
+
+- **Text I/O** (`Display`/`FromStr` for `Version`/`Party`/`Clock`):
+  judged against `n_io` = packed input + text output (`Display`) or
+  text input + packed output (`FromStr`), output read from the
+  actual result, with every ceiling numerically unchanged. The limb
+  column on these rows alone is judged against the radix-work
+  denominator `R = n_io + Σ digitsᵢ × limbsᵢ` (the schoolbook
+  conversion cost law) with the ceiling pinned at the
+  divide-and-conquer target κ = 0.25 limb/`R`-unit — a constant the
+  schoolbook parser measurably exceeds ~4×, so re-denomination
+  alone flips nothing on the limb-red cells; only a subquadratic
+  converter can. An output-honesty assertion (text bytes ≤ 4 ×
+  packed content bits, checked against actual bytes) closes the
+  pad-the-output door.
+- **Output-dominated projection** (`version_project`/
+  `clock_own_version` on the comb × scattered-party cross): judged
+  against `n_io` = packed input + packed output (canonical coding
+  cannot be padded), ceilings unchanged.
+
+Everything else stays input-denominated — both binary codec
+directions (canonical 1:1), all scalar/comparison/query rows, and
+the packed-output mutators, whose input denomination rests on
+output coding ≤ inputs + O(1) per overlay boundary, pinned for
+join/meet as the 1-Lipschitz proptest in `meter/tier2`'s suite
+(boundaries ⊆ union of the inputs'; total Tier 2 bits within 4
+bits per input leaf of the inputs' sum) rather than assumed.
+
 Why it is achievable [derived]: comparison consumes only
 `sign(a_sum − b_sum)`; the combine sink consumes a min of two sibling
 values sharing an offset — a local difference; leaf emission consumes
@@ -968,6 +1003,45 @@ Pin the §6 invariant the way `step!` pins time complexity:
   have a ~1 MiB growth threshold, so P1's id walks read green at
   board-default depths — the meter suite's d = 250k scenarios are
   what pin P1.
+
+  Landed 2026-07-23 (P3.3, the denomination hardening; the
+  criterion itself is the §6 amendment): the ten text-I/O cells and
+  the new projection cross are I/O-denominated with the output side
+  read from the actual result; the text rows' limb column is judged
+  against `R` at κ = 0.25 (provisional **[derived]** — 4× under the
+  measured schoolbook ratio, ~4× over the probe-extrapolated D&C
+  ratio at the default hugeleaf scale; re-pinned from the observed
+  meter when the chunked converter lands, verified at record scale
+  before enforcement); the output-honesty assertion and the
+  join/meet 1-Lipschitz proptest (`meter/tier2`) are in the tree,
+  and `meter::board`'s module doc records the do-not-re-denominate
+  list. The board gains the one operand cross the probe sweep found
+  missing — `version_project`/`clock_own_version` × comb-scatter
+  (`cliff_comb` × the `scattered_id` generator, every-other-tooth
+  ownership) — so the output-dominated case is visible: 42 rows ×
+  6 families minus 92 inapplicable = **160 cells**, pinned by the
+  smoke test. Re-baselined **[measured** — board re-run at landing,
+  dev profile, `limb-meter` lit**]**: 96 green / 64 red at the
+  default scale. Within that: the ten pre-amendment text reds stay
+  red — the four limb-only `FromStr` cells now read exactly the
+  schoolbook law (hugeleaf and bigroot at 1.0 limb/`R` against
+  κ = 0.25; the `meter::board` test suite pins that the schoolbook
+  parser exceeds κ, so the ceiling cannot silently soften), the
+  rest stay red on their unchanged segment legs while their
+  mandatory-output heap constants restate honestly
+  (`version_display × dense` 23.5 → 1.4 B/B against `n_io`, still
+  red on segments) — and the criterion being *harder* surfaces two
+  reds the input denomination hid: `version_from_str`/
+  `clock_from_str` × benign at 1.4 limb/`R` (schoolbook on organic
+  values), owner P3.8 with the rest of the text column. The two
+  cross cells read green at the default scale (heap 0.9 B/B of
+  `n_io`, segments 0): the cross exists for record-scale
+  visibility and for the post-flip era, when the comb input
+  collapses to Θ(n + k) while the projected output stays Θ(e·k).
+  `Display`'s limb column remains an under-count (0.0/`R`: today's
+  writer routes around the metered arithmetic — the false green
+  §17.2's P3.3 entry names) until the shared metered converter
+  lands with P3.8.
 - **Peak-heap meter**: counting `GlobalAlloc` in a dedicated test
   binary (one global allocator per binary; nextest's
   process-per-test isolation applies). Assert per operation ×
@@ -1942,6 +2016,16 @@ eleven are assigned owners there by dated amendment**]**.
 
 62 kills + the 96 default-green cells = 158 = the whole board at
 the default scale; 73 + 85 = 158 at the ×4 record witness.
+
+Amended 2026-07-23 (P3.3 landed): the board is 160 cells — the
+two comb-scatter projection cells joined (green at the default
+scale, so the default kill lists are untouched by them) — and the
+amended criterion surfaces two default reds beyond the table:
+`version_from_str`/`clock_from_str` × benign, red on the κ limb
+ceiling (schoolbook on organic values), owner **P3.8** with the
+rest of the text column, whose default-scale kill count is
+therefore 12 and the default-scale total 64. The sums close as
+64 kills + 96 default-green = 160.
 Realization is staged: C2 realizes 54 of the 73 (P3.5's 4 +
 P3.6's 47 + P3.7's 3); the P4-tail P3.8 realizes its 14 when it
 lands; P4.1 its 5 — so the board is all green at both scales only

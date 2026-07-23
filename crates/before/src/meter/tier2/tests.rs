@@ -1,18 +1,70 @@
-//! Hand-computed pins for the Tier 2 size function on small trees.
+//! Hand-computed pins for the Tier 2 size function on small trees, and the
+//! join/meet 1-Lipschitz coding pin the board's input denomination rests on.
 //!
-//! Each test states the tree, the hand-derived Tier 2 bit count, and the
+//! Each size test states the tree, the hand-derived Tier 2 bit count, and the
 //! hand-derived current bit count, so a regression in the walk (path sums,
 //! zigzag map, gamma lengths, topology accounting) fails against arithmetic a
 //! reader can re-derive in the margin. Gamma lengths used below:
 //! `gamma(0) = 1`, `gamma(1) = 3`, `gamma(2) = 3`, `gamma(4) = 5`,
 //! `gamma(2^b - 1) = 2b + 1`.
 
+use proptest::prelude::*;
+
 use crate::codec::Base;
-use crate::meter::{cliff_comb, hugeleaf};
+use crate::meter::{bigroot, cliff_comb, dense, hugeleaf};
 use crate::testing::bridge::from_oracle_version;
-use crate::{oracle, Party, Version};
+use crate::testing::compactness::{arb_comb_params, comb};
+use crate::testing::{generators, optrace};
+use crate::{oracle, Clock, Party, Version};
 
 use super::{tier2_size, Tier2Size};
+
+/// Per-input-leaf slack for the join/meet 1-Lipschitz coding pin \[derived\].
+///
+/// At each overlay boundary the output's jump is at most the largest input
+/// jump there (`max`/`min` are 1-Lipschitz in each argument), and the
+/// output's boundaries are a subset of the union of the inputs'. A coded
+/// output delta may telescope several union jumps when equal-valued spans
+/// collapse, so per input leaf the coding spends at most: the input's own
+/// delta code, +1 bit for the zigzag sign convention, +1 bit of gamma
+/// subadditivity per merged jump, and ≤ 2 bits of code-length rounding per
+/// coded delta — 4 bits covers every term.
+const JOIN_MEET_BOUNDARY_SLACK_BITS: u64 = 4;
+
+/// Assert the join/meet 1-Lipschitz coding pin on one operand pair.
+///
+/// The statement the board's input denomination of the packed-output
+/// mutators rests on: the output's coded size is at most the inputs' plus
+/// O(1) bits per boundary — boundaries (leaves) contained in the union of
+/// the inputs', and total Tier 2 bits within
+/// [`JOIN_MEET_BOUNDARY_SLACK_BITS`] per input leaf of the inputs' sum.
+fn check_join_meet_lipschitz(a: &Version, b: &Version) {
+    let sa = tier2_size(a);
+    let sb = tier2_size(b);
+    for (name, out) in [("join", a | b), ("meet", a & b)] {
+        let so = tier2_size(&out);
+        assert!(
+            so.leaves < sa.leaves + sb.leaves,
+            "{name}: {} output leaves reach the input leaf total {} + {}: \
+             an output boundary appeared outside the inputs' boundaries",
+            so.leaves,
+            sa.leaves,
+            sb.leaves,
+        );
+        let ceiling =
+            sa.total_bits + sb.total_bits + JOIN_MEET_BOUNDARY_SLACK_BITS * (sa.leaves + sb.leaves);
+        assert!(
+            so.total_bits <= ceiling,
+            "{name}: 1-Lipschitz coding pin violated: {} output bits > {} + {} inputs + {} \
+             slack per input leaf over {} leaves",
+            so.total_bits,
+            sa.total_bits,
+            sb.total_bits,
+            JOIN_MEET_BOUNDARY_SLACK_BITS,
+            sa.leaves + sb.leaves,
+        );
+    }
+}
 
 /// The empty version is the single leaf 0: one topology bit plus `gamma(0)`,
 /// 2 bits in both encodings.
@@ -194,6 +246,64 @@ fn cliff_comb_plain_delta_sweep_is_quadratic_in_tier2_wire_bits() {
          (measured {small:.2} then {large:.2} limb ops per wire bit): \
          a plain accumulator over the comb's delta stream is quadratic"
     );
+}
+
+proptest! {
+    /// Join and meet of arbitrary normal-form event trees hold the
+    /// 1-Lipschitz coding pin: output boundaries within the union of the
+    /// inputs', output coded size within the inputs' plus the per-leaf
+    /// slack.
+    #[test]
+    fn arbitrary_pairs_hold_the_lipschitz_pin(
+        a in generators::arb_oracle_version(),
+        b in generators::arb_oracle_version(),
+    ) {
+        check_join_meet_lipschitz(&from_oracle_version(&a), &from_oracle_version(&b));
+    }
+
+    /// Join and meet over every version pair produced by an organic
+    /// fork/tick/send/sync/join history hold the 1-Lipschitz coding pin.
+    #[test]
+    fn organic_pairs_hold_the_lipschitz_pin(ops in optrace::world_strategy_up_to(120)) {
+        let mut clocks = vec![Clock::seed()];
+        for op in &ops {
+            optrace::step_impl(&mut clocks, op);
+        }
+        for pair in clocks.windows(2) {
+            check_join_meet_lipschitz(pair[0].version(), pair[1].version());
+        }
+    }
+
+    /// Join and meet of alternating combs — the ratio meter's
+    /// tightness family, whose every consecutive-leaf delta is a full
+    /// magnitude swing — hold the 1-Lipschitz coding pin.
+    #[test]
+    fn comb_pairs_hold_the_lipschitz_pin(
+        (m1, p1) in arb_comb_params(),
+        (m2, p2) in arb_comb_params(),
+    ) {
+        check_join_meet_lipschitz(&comb(m1, p1), &comb(m2, p2));
+    }
+}
+
+/// Join and meet across the adversarial event shapes of record (dense
+/// spine, bigroot, hugeleaf, boundary comb) hold the 1-Lipschitz coding pin
+/// on every cross of the family grid.
+#[test]
+fn adversarial_crosses_hold_the_lipschitz_pin() {
+    let decode =
+        |bytes: &[u8]| Version::decode(bytes).expect("meter shapes are strict normal form");
+    let shapes = [
+        decode(&dense(512).bytes),
+        decode(&bigroot(200, 100).bytes),
+        decode(&hugeleaf(500).bytes),
+        decode(&cliff_comb(64, 64).bytes),
+    ];
+    for a in &shapes {
+        for b in &shapes {
+            check_join_meet_lipschitz(a, b);
+        }
+    }
 }
 
 /// Equal leaf values meeting across a subtree boundary make Tier 2 strictly
