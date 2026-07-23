@@ -698,11 +698,18 @@ Pin the §6 invariant the way `step!` pins time complexity:
 
   Landed 2026-07-22 (`before::meter::board`; runner
   `examples/amp_board.rs`, `just amp-board`; nextest smoke): 42
-  operation rows × 5 families = 158 cells (amended 2026-07-23:
-  originally stated 41 rows; the committed table has 42, confirmed
-  both by the `Op` entries in `board.rs` and by the distinct op
-  labels in the rendered board — the cell total and the green/red
-  split were already exact); P0 baseline **[measured]**
+  operation rows × 5 families, with the 52 row × family combinations
+  that lack an applicable operand excluded (the 19 version rows skip
+  the id-pair family; the 10 party rows and the adversarial-party
+  tick row skip the three event-only families), = 158 cells (amended
+  2026-07-23: originally stated 41 rows; the committed table has 42,
+  confirmed both by the `Op` entries in `board.rs` and by the
+  distinct op labels in the rendered board — the cell total and the
+  green/red split were already exact. Amended again 2026-07-23: the
+  total was written as the bare product `42 × 5 = 158`, false as an
+  equation; the inapplicable-combination exclusion above is the
+  actual arithmetic, and the smoke test now pins the 158 exactly);
+  P0 baseline **[measured]**
   59 green / 99 red (dev profile, `limb-meter` lit, meter columns
   byte-identical across runs). Ceilings pinned in the module:
   exponent ≤ 1.15; heap ≤ 16 B per input byte over an 8 KiB flat
@@ -869,8 +876,11 @@ replays against every property in its file), and P1's final
 deadlock, `tests/async_wire.proptest-regressions`, failing
 `async_wire::async_gossip_converges_on_the_union` — verified by
 replay at bc4320e5, before any P1 change, with the identical
-`Stalled` witness (698 run: 684 passed, 14 failed, 2 skipped at P1's
-tip). The stall is transport-buffer
+`Stalled` witness (701 run: 687 passed, 14 failed, 2 skipped at P1's
+tip; an earlier draft of this amendment recorded 698/684, the count
+of a pre-tip sweep taken before P1's late test additions — corrected
+2026-07-23 against a fresh `--no-fail-fast` sweep at the tip, same
+fourteen-test roster). The stall is transport-buffer
 independent (identical at 8 KiB and 64 MiB duplex), matching the
 wait-cycle diagnosis in `design/streaming-wire-deadlock.md` on the
 `link-transport` branch, whose determination is a stream-capable
