@@ -108,13 +108,13 @@ mod envelope {
     //                                              peak heap,  segments, limb ops                      measured: peak heap, segments, limb ops
     pub const DECODE_DENSE: Envelope    = envelope(13_840_687,        0,             0); // 11_072_549,   0,           0
     pub const CMP_DENSE: Envelope       = envelope(        10,      240,     2_500_013); //          8, 192,   2_000_010
-    pub const JOIN_DENSE: Envelope      = envelope( 7_617_320,      300,     3_437_510); //  6_093_856, 240,   2_750_008
-    pub const TICK_DENSE: Envelope      = envelope(15_444_374,      165,     1_250_005); // 12_355_499, 132,   1_000_004
+    pub const JOIN_DENSE: Envelope      = envelope( 5_996_847,      300,     3_437_510); //  6_093_856 -> 4_797_477, 240, 2_750_008 (2026-07-23, push-grow Builder)
+    pub const TICK_DENSE: Envelope      = envelope(11_837_440,      165,     1_250_005); // 12_355_499 -> 9_469_952, 132, 1_000_004 (2026-07-23, push-grow Builder)
     pub const DECODE_BIGROOT: Envelope  = envelope( 1_745_332,        0,           783); //  1_399_449 -> 1_396_265, 0, 12_520_000 -> 626 (2026-07-23, limb-wise wide-gamma decode)
     pub const CMP_BIGROOT: Envelope     = envelope(62_531_310,       15,    47_007_838); // 50_028_232 -> 50_025_048, 12, 50_125_644 -> 37_606_270 (2026-07-23, limb-wise wide-gamma decode)
-    pub const JOIN_BIGROOT: Envelope    = envelope(64_390_818,       20,   109_539_090); // 51_515_838 -> 51_512_654, 16, 100_150_646 -> 87_631_272 (2026-07-23, limb-wise wide-gamma decode)
+    pub const JOIN_BIGROOT: Envelope    = envelope(63_075_342,       20,   109_539_090); // 51_515_838 -> 50_460_273, 16, 100_150_646 -> 87_631_272 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder)
     pub const DECODE_HUGELEAF: Envelope = envelope(    58_604,        0,         2_443); //     55_827 -> 46_883, 0, 122_132_816 -> 1_954 (2026-07-23, limb-wise wide-gamma decode)
-    pub const JOIN_HUGELEAF: Envelope   = envelope( 3_909_207,        0,         9_777); //  3_127_365, 0, 122_138_683 -> 7_821 (2026-07-23, limb-wise wide-gamma decode)
+    pub const JOIN_HUGELEAF: Envelope   = envelope(   139_714,        0,         9_777); //  3_127_365 -> 111_771, 0, 122_138_683 -> 7_821 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder)
     pub const ID_JOIN: Envelope         = envelope(   156_252,      253,             0); //    125_001, 202,           0
     pub const ID_COVERS: Envelope       = envelope(         0,      107,             0); //          0,  85,           0
     pub const ID_DISJOINT: Envelope     = envelope(         0,      213,             0); //          0, 170,           0
@@ -300,9 +300,9 @@ fn decode_hugeleaf_envelope() {
 }
 
 /// Joining hugeleaf with a one-tick version stays within its envelope (the
-/// builder's capacity today scales with the operand bit length, not the
-/// result; the limb column tracks decode's, because reading the stored
-/// spilled base runs the same linear wide-gamma decode).
+/// emit path grows by push, so the peak tracks the result's node count;
+/// the limb column tracks decode's, because reading the stored spilled
+/// base runs the same linear wide-gamma decode).
 #[test]
 fn join_hugeleaf_envelope() {
     let p = meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS);

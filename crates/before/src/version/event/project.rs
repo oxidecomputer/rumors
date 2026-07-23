@@ -27,11 +27,8 @@ impl EvReader<'_> {
     /// `id_bits`: keep each value where the id is full, zero it where the id is
     /// empty. Produces normal form. `O(n + m)`.
     pub(in crate::version) fn project(self, id_bits: &BitsSlice) -> WorkingVersion {
-        // The broadcast case can expand one event leaf into an id-shaped
-        // subtree, so allow for the id's nodes on top of the event's.
-        let cap = self.node_capacity_bound() + id_bits.len();
         let mut walk = ProjectWalk {
-            out: Builder::with_capacity(cap),
+            out: Builder::new(),
         };
         let mut ev = self;
         let mut id = IdReader::root(id_bits);
