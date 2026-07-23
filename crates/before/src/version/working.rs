@@ -67,11 +67,11 @@ impl WorkingVersion {
     /// pass: emit each node's flag followed by its base as `gamma(base + 1)`,
     /// in preorder. Canonical whenever the working form is in normal form.
     pub(crate) fn repack(&self) -> Bits {
-        // Grow `out` by `push` rather than pre-sizing: dropping the
-        // `with_capacity` also drops the `encoded_int_len` capacity-sum pass
-        // (real work over every base), and `Bits`'s power-of-two growth
-        // recycles through the allocator's size classes across calls (see
-        // `unpack`).
+        // Grow `out` by `push` rather than pre-sizing: an exact
+        // `with_capacity` would cost a capacity-sum pass over every base's
+        // encoded length (real work over the whole tree) before the emit
+        // pass, and `Bits`'s power-of-two growth recycles through the
+        // allocator's size classes across calls (see `unpack`).
         let mut out = Bits::new();
         for (flag, base) in self.topo.iter().by_vals().zip(&self.base) {
             step!(); // one step per node processed

@@ -81,11 +81,17 @@
 //! - **Moves, borrows, and byte copies**: `is_empty`, `as_bytes`,
 //!   `encoded_bits`, `encode_to` (the `encode` row's path into a writer),
 //!   `dangerously_alias` (a byte copy), `Clock::from_parts`/`into_parts`,
-//!   `Clock::party`/`version`, `Version::batch`.
+//!   `Clock::party`/`version`, `Version::batch`; `Party`'s and `Clock`'s
+//!   derived `PartialEq`/`Eq` are one bit-slice compare of the stored
+//!   canonical bits (`Version`'s `==` is the causal walk the `version_eq`
+//!   row measures, so that one has a row).
 //! - **Derived pairings**: `Ranked::from` is the `rank` row plus a move; its
 //!   comparisons are `Rank` comparisons plus byte equality;
 //!   `Rank::checked_sub` and `Rank`'s ordering run inside the
-//!   `distance`/`lag` rows.
+//!   `distance`/`lag` rows; `Rank`'s `Display` (its `Debug` delegates)
+//!   prints the `rank` row's output — a derived value with no packed
+//!   encoding to normalize against, rendered by the same per-`Base` decimal
+//!   print the `version_display` row drives.
 //! - **The same comparisons under another name**: `causally`'s other
 //!   constructors and `Range::placement_of` perform the identical causal
 //!   comparisons the `causally_contains` row measures.

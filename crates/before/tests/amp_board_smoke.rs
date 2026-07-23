@@ -17,9 +17,16 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The board must have a cell for the bulk of the public operation surface:
-/// a sweep that silently lost rows would pass a bare completion check.
-const MIN_CELLS: usize = 100;
+/// The board's exact cell count: 42 operation rows over 5 families (210
+/// combinations) minus the 52 where the family provides no operand.
+///
+/// The exclusions: the 19 version rows needing a packed version skip the
+/// id-pair family (19), and the 10 party rows plus the adversarial-party
+/// tick row skip the three event-only families (11 x 3 = 33). The table is
+/// fixed and applicability depends on the family alone (`board::run`
+/// enforces this per cell), so the count is deterministic at every scale;
+/// a row added to or dropped from the table must move this pin.
+const EXPECTED_CELLS: usize = 158;
 
 /// The board runs to completion at tiny sizes: every cell prepares,
 /// measures, and renders, and the matrix keeps covering the full operation
@@ -35,9 +42,10 @@ fn board_runs_to_completion() {
     let mut rendered = Vec::new();
     let summary = board::run(SMOKE_SCALE, &heap, &mut rendered).expect("writing to a Vec succeeds");
     let cells = summary.green + summary.red;
-    assert!(
-        cells >= MIN_CELLS,
-        "the board swept only {cells} cells: rows have gone missing"
+    assert_eq!(
+        cells, EXPECTED_CELLS,
+        "the board swept {cells} cells, not the pinned {EXPECTED_CELLS}: \
+         rows were added or lost without moving the pin"
     );
     let text = String::from_utf8(rendered).expect("the board renders UTF-8");
     assert!(
