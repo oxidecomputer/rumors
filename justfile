@@ -125,6 +125,7 @@ features:
     cargo check -p before --no-default-features --features serde
     cargo check -p before --no-default-features --features borsh
     cargo check -p before --no-default-features --features oracle
+    cargo check -p before --no-default-features --features meter
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
     cargo check -p rumors --features protocol-v1

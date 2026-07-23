@@ -13,6 +13,8 @@
 //! would force a second frame and call per node. The shallow case therefore
 //! pays almost nothing, and only deep inputs ever trip a heap growth.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 /// Recurse this many levels between stack-headroom probes.
 ///
 /// Must satisfy `STRIDE * max_frame_bytes < RED_ZONE`: a burst of `STRIDE`
@@ -34,6 +36,35 @@ const RED_ZONE: usize = 256 * 1024;
 /// Size of each heap-allocated stack segment allocated when growth triggers.
 const STACK_GROWTH: usize = 1024 * 1024;
 
+/// Number of heap stack segments grown since the last reset.
+///
+/// The resource envelopes need a deterministic stand-in for recursion-driven
+/// stack consumption, and the segments `stacker` allocates never pass through
+/// the global allocator, so no heap meter can see them. Counting here — the
+/// one place a segment is created — is the honest signal. Always compiled: the
+/// bump sits on the growth path only, whose cost is already a segment
+/// allocation, so production traversals pay nothing on the probe or call
+/// paths. Process-global (relaxed) because the meter's test binaries run one
+/// scenario per process.
+static SEGMENTS_GROWN: AtomicU64 = AtomicU64::new(0);
+
+/// The number of heap stack segments grown since the last
+/// [`reset_segments_grown`].
+///
+/// Compiled only for the meter surface: the counter is always written (the
+/// bump is inseparable from the growth arm), but nothing outside the meters
+/// ever reads it.
+#[cfg(any(test, feature = "meter"))]
+pub(crate) fn segments_grown() -> u64 {
+    SEGMENTS_GROWN.load(Ordering::Relaxed)
+}
+
+/// Reset the grown-segment counter to zero.
+#[cfg(any(test, feature = "meter"))]
+pub(crate) fn reset_segments_grown() {
+    SEGMENTS_GROWN.store(0, Ordering::Relaxed);
+}
+
 /// Whether to probe stack headroom on entering `depth` (every [`STRIDE`] levels).
 #[inline]
 pub(crate) fn should_grow(depth: usize) -> bool {
@@ -41,9 +72,18 @@ pub(crate) fn should_grow(depth: usize) -> bool {
 }
 
 /// Grow the stack onto the heap if under [`RED_ZONE`], then run `f`.
+///
+/// Open-codes `stacker::maybe_grow`'s headroom branch (same probe, same
+/// growth policy: an unknown remaining stack also grows) so the growth arm —
+/// and only that arm — can count the segment in [`SEGMENTS_GROWN`].
 #[inline]
 pub(crate) fn grow<R>(f: impl FnOnce() -> R) -> R {
-    stacker::maybe_grow(RED_ZONE, STACK_GROWTH, f)
+    if stacker::remaining_stack().is_some_and(|remaining| remaining >= RED_ZONE) {
+        f()
+    } else {
+        SEGMENTS_GROWN.fetch_add(1, Ordering::Relaxed);
+        stacker::grow(STACK_GROWTH, f)
+    }
 }
 
 /// Recurse into one child, guarding the descent without wrapping the caller's
