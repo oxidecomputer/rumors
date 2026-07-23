@@ -2515,3 +2515,19 @@ amplifier and two coverage gaps.
 Everything else on the 335-entry surface is pinned or NA with a
 mechanism-based reason that survived an implementation read; the
 Rank gaps remain owned by §17.7–§17.8 exactly as recorded.
+
+Addendum (2026-07-23, user directive following the census): the
+id-side blind spot gets a deterministic instrument rather than a
+wall-clock witness. **The scan-work meter** — a fourth meter column
+counting bits scanned and written at the packed-stream primitives
+(idbits tag reads and skip steps, IdBuilder bit writes and splice
+lengths, the event topology cursor's advances and gamma code-skips)
+behind an additive off-by-default feature in the limb-meter idiom —
+lands at P3.6b. The board gains the column (exponent + per-byte
+constant); envelopes may pin scan bits ≤ C·(input + output) per
+operation; the V7 party-fold scenario pins deterministically instead
+of by wall; P4.1's id-walk rows gain a work pin beside their segment
+pin; §11.4's word-scale scanning, when it lands, tightens the same
+envelope it is measured by. Known exception, unchanged: the display
+canary stays wall-clock (num-bigint's internal work is invisible to
+any in-crate shim; recorded at its landing).
