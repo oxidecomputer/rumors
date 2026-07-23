@@ -656,6 +656,7 @@ hardening, *and* code simplification together — reframes it:
 | net code | *adds* machinery (scratch, mirror records, splice pass) beside the walks | *removes* machinery (working form, form-split reader, broadcast, deferred leaves, likely stacker) and unifies the two sides' builders (§11.1) |
 | comparison | tree recursion retained (improved by §11.2) | interval sweep; §11.2 pruning falls out naturally |
 | compactness | identical | ~≤2× envelope, sometimes better (§10.4) |
+| compactness envelope **[measured** 2026-07-23, `testing/compactness` ratio meter + `meter/tier2` exact sizer, ~13k samples: arbitrary, organic-30/120/400, the §2 grids, alternating combs, realistic gossip populations**]** | identical (r = 1 by construction) | holds, strictly: `tier2 ≤ 2×current` outright on every sample (per-node excess `(tier2 − 2·current)/nodes` never above −1.57; ceiling pinned 0), Euler charged-at-most-twice validated with >1.3 bits/leaf slack; max r 1.9966 (comb, m=2048, 1024 pairs — monotone toward 2 from below, tight as §10.4 claims), max off-comb 1.9633; realistic gossip r median 0.9888, max 1.1798, Tier 2 smaller on 61.6%; Tier 2 smaller on most dense (10/11) and bigroot (30/36) samples, down to 0.75 |
 | risk | moderate; total byte-identity oracle | higher (new codec + canonical form); oracle + differential suites carry it |
 
 The win-win observation: Tier 1.5 hardens at the cost of *added*
