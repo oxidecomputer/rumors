@@ -1,0 +1,774 @@
+# `before`: adversarial resource amplification in Version and Party computation
+
+Status: analysis complete (2026-07-22, measured against the working
+tree at `dd2b1645`, branch `link-transport`, Apple M4 Max, release
+builds). Both representations audited: the event side (`Version`) and
+the id side (`Party`), every public operation. Fix space designed;
+execution not started; decision open at §12 (Tier 1.5 vs Tier 2).
+
+Scope: `rumors`' model of record is authenticated-honest-peer, so none
+of this is a `rumors` security finding — an authorized peer holds
+write authority and needs no memory tricks. The goal is to harden and
+performance-optimize `before` *unconditionally*: as a standalone
+library whose `decode` boundary may face untrusted bytes, and because
+every amplification constant below is also a tax on honest deep or
+large inputs (fork-heavy histories produce deep trees organically).
+Native builds only; the wasm target is demo-only and out of scope.
+The yardstick is resource proportionality — transient cost as a
+function of input size, for whoever presents the input — never
+adversary economics.
+
+Epistemic key, following `design/streaming-wire-deadlock.md`:
+**[measured]** = observed in the instrumented experiment (§5);
+**[derived]** = argument from the code or arithmetic in this document;
+**[open]** = known unknown / decision pending.
+
+## 1. Problem statement
+
+A `Version` at rest is a packed preorder bit stream — per node, a
+flag bit plus an Elias-gamma-coded base (`codec/gamma.rs`). A `Party`
+is a packed preorder id tree of 2-bit child-presence tags
+(`idbits.rs`), with no integers. Computation converts between these
+compact at-rest forms and working values: fixed-width arrays,
+arbitrary-precision path sums, recursion frames.
+
+The question: can an adversary craft canonical, normal-form inputs
+whose *computation* costs memory or CPU grossly disproportionate to
+their encoded size — and can the library be redesigned to compute
+with cost proportional to the packed size, **without bounding
+inputs** (no value, depth, or size caps) and **without losing the
+compactness of the representation or the `O(n + m)` operation
+costs**? Bounding inputs is the uninteresting answer and is not
+pursued here; the representations and algorithms are on the table.
+
+Answer, in brief: yes. There are six amplifier classes — five on the
+event side (§3), one on the id side (§4) — two of them quadratic;
+and all are removable (§7–§10) because every quantity the algorithms
+need at a node is either one of two global accumulators or bounded by
+that node's own coded size. The blowups come from the chosen
+representation of *intermediate* state, not from anything the
+algorithms inherently require. The id side, which has no integers, is
+already most of the way there and serves as the existence proof for
+the event-side redesign (§11.1).
+
+## 2. Adversarial input constructions
+
+All shapes pass strict normal-form validation (`codec/tree.rs`:
+`parse_ev` — at least one zero-base child per node, no equal-valued
+leaf pair; `parse_id` — no `(1,1)` node) and therefore
+`Version::decode` / `Party::decode`. Each is reachable by an honest
+history. Bit layouts are given so an independent implementer can
+reproduce them. Event coding: `enc_ev(Leaf n) = 0 · gamma(n)`,
+`enc_ev(Node n l r) = 1 · gamma(n) · l · r`, where `gamma(n)` codes
+`m = n + 1` (so `gamma(0) = 1`, `gamma(1) = 010`,
+`gamma(2^B − 1) = 0^B · 1 · 0^B`). Id coding: 2-bit presence tags,
+`00` terminal, `10`/`01` unary, `11` both; absent children occupy no
+bits.
+
+**S(d), the dense event spine.** A left spine of `d` zero-base
+internal nodes, each with a 0-leaf right sibling, bottoming out in
+`(0, 0, 1)`:
+
+    "11" × d            d internal nodes: flag 1, gamma(0)
+    "01"                bottom-left leaf 0
+    "0010"              bottom-right leaf 1
+    "01" × (d − 1)      each ancestor's right sibling, leaf 0
+
+Total `4d + 4` bits, `2d + 1` nodes, depth `d`. Normal form holds
+everywhere (each internal node's spine child has base 0; the only
+leaf pair is `(0, 1)`). This is the *densest* shape normal form
+admits — ~2 bits per node, depth ~n/4 for n bits — maximizing node
+count and recursion depth simultaneously.
+
+**bigroot(B, d).** A root with base `2^B − 1` over S(d) and a 0-leaf:
+`"1" · gamma(2^B − 1) · S(d) · "01"`, total `2B + 4d + 7` bits. Puts a
+B-bit magnitude on every root-to-node path sum while keeping paths
+long.
+
+**hugeleaf(B).** A single leaf of value `2^B − 1`: `2B + 2` bits, one
+node. Maximizes bit length per node.
+
+**I(d, divert), the id spine.** A unary chain of `d` left-only tags
+ending in a terminal: `"10" × d · "00"`, `2d + 2` bits, depth `d`.
+With `divert`, the last unary node is right-only (`01`), so
+`I(d, false)` and `I(d, true)` share their first `d − 1` levels and
+own disjoint regions — the shape that drives two-operand id walks to
+full lockstep depth.
+
+## 3. Event-side amplifiers
+
+### V1 — quadratic memory and time: owned per-frame path sums
+
+Mechanism [derived, confirmed]: the comparison walk
+(`version/compare.rs`, `CmpWalk::rec`) and the join/meet walk
+(`version/event/combine.rs`, `CombineWalk::rec`) both execute, at
+every node:
+
+```rust
+let a_sum = a_off + a_node.base();
+let b_sum = b_off + b_node.base();
+```
+
+`a_sum` is an **owned** `Base` held in the frame while both children
+recurse, and `Add<&Base> for &Base` in the mixed/big case routes
+through `to_biguint()`, which clones the full accumulated magnitude.
+On bigroot(B, d), every one of the `d` simultaneously-live frames
+owns a private B-bit `BigUint` equal to the same path sum — and paid
+O(B) time to clone it.
+
+Cost model [derived]: peak ≈ `d·B/8` bytes and time ≈ `d·B` bit-ops
+from `n = 2B + 4d` input bits; maximizing at `B = n/4`, `d = n/8`
+gives **peak ≈ n²/32 bits = n²/256 bytes**.
+
+Measured (§5): 14 KiB → 48 MiB (×3,335); 29 KiB → 191 MiB (×6,668);
+doubling the input quadrupled the peak, and the model's prediction
+(20 000 × 80 000 / 8 = 200 MB) matches. Time scaled ×3.8 per
+doubling. Extrapolation [derived from the fitted model]: a 1 MiB
+version costs ~275 GB peak on one `partial_cmp` — **against the empty
+version**. This is the pure read path: no `Batch`, no working form.
+`PartialOrd`/`PartialEq` (mixed forms), `concurrent`, join, and meet
+all reach it.
+
+A contributing structural fact: comparison against a *shallow*
+operand does not prune. When one side bottoms out at a leaf, the walk
+broadcasts a synthetic `Zero` and descends the deep side to its full
+depth (`EvReader::Zero`, the paper's "leaf `n` behaves as
+`(n, 0, 0)`"). Contrast the id side, §4/§11.2.
+
+### V2 — linear ×782: recursion frames
+
+Mechanism [measured]: comparing S(d) against `Version::new()`
+allocates **zero heap** — the entire cost is stack segments.
+Recursion depth is tree depth (~n/4) at the ~0.5 KiB/frame that
+`recurse.rs`'s `RED_ZONE` comment itself records; `stacker`'s
+segments bypass the global allocator (invisible to the counting
+allocator, visible to RSS).
+
+Measured: +93.3 MiB RSS for 122 KiB (×782); +186.7 MiB for 244 KiB
+(×783) — cleanly linear, ~391 B/frame. Every recursive walk pays it:
+compare, combine, fill, grow, rank, project. A 10 MiB version costs
+~7.6 GiB of stack to compare once.
+
+### V3 — quadratic time: spilled-gamma decode
+
+Mechanism [derived, confirmed]: `codec/gamma.rs`, `decode_int_from`'s
+wide fallback builds the `BigUint` mantissa one bit at a time
+(`m <<= 1; m |= 1`); each shift copies O(B/64) limbs, so one B-bit
+value costs **O(B²/64) limb-ops**.
+
+Measured: `Version::decode` of hugeleaf(4M) — 977 KiB — took
+**14.5 s** of CPU; a subsequent join re-paid 14.6 s (every operation
+re-decodes bases through `EvReader::read`). Memory is unaffected
+(×2). `skip_int` is immune (never materializes the value); encode is
+linear.
+
+### V4 — linear ×98–198: the working form and `Builder`
+
+Mechanism [derived, confirmed]: `Base` is 24 bytes (niche-optimized
+[measured via layout stand-in]), so `WorkingVersion` and `Builder`
+cost ~24 B plus a topo bit per node that costs as little as 2 bits
+packed: ×~100 per materialized copy. `Batch::tick` unpacks then
+builds (`fill`, possibly `grow`), holding ~two copies: ×198 measured.
+A join of two packed versions skips the unpack (the combine walk
+reads packed directly) but still builds: ×98.
+
+Sharper sub-finding [measured]: `Builder::with_capacity` pre-sizes
+from `EvReader::node_capacity_bound` = *bit length* / 2, before any
+node is visited. Joining hugeleaf(4M) — **one node** — pre-allocated
+95.4 MiB (×100). (`WorkingVersion::unpack` deliberately push-grows
+instead, per its own comment; `Builder` predates that reasoning.)
+
+### V5 — linear ×118: `decode`'s parse stack
+
+Mechanism [derived, confirmed]: `codec/tree.rs::parse_ev_from` keeps
+one `EvFrame` (56 B measured via stand-in; `NeedRight` holds two
+`Base`s) per unfinished ancestor. S(d) keeps ~n/4 live: ×118
+measured. Decoding-and-dropping a 1 MiB crafted version transiently
+costs ~118 MiB.
+
+## 4. Id-side audit (`Party` and its operations)
+
+The id representation has **no integers and no working form**: 2-bit
+presence tags; operations run directly on packed bits;
+`party/ops/build.rs::IdBuilder` emits packed output and normalizes
+via a fixed-width in-place tag patch plus truncation-only collapses.
+Consequently there are no analogues of V1 (no arithmetic), V3 (no
+codes wider than 2 bits), or V4 (no unpacked form; builder capacity
+hints are bit-proportional). What remains:
+
+### P1 — linear ×418–456: recursion frames in the two-tree walks
+
+`sum` (⇒ `Party::join`/`join_all`), `covers`, and `is_disjoint`
+recurse per lockstep level (`party/ops/{sum,compare}.rs`); `diff` (⇒
+`Party::without`) additionally recurses through `complement`
+(`party/ops/diff.rs`). Measured on I(d) pairs at two scales each
+(cleanly linear):
+
+- `join` ×455–456, `covers`/`is_disjoint` ×418, `without` ×357–358
+  against combined operand bytes — and `without` reaches its depth
+  through **one** adversarial operand (`diff(1, b)` complements `b`
+  single-sidedly), so per adversarial byte it is ~×715.
+
+Two structural mitigations the event side lacks, worth naming
+because they bound the honest-vs-adversarial cases [derived]:
+
+- **Lockstep pruning**: `sum`/`covers`/`is_disjoint` descend only
+  where *both* sides are internal; an `Empty`/`Full` leaf resolves
+  its arm with an iterative skip or verbatim copy, no recursion. So
+  recursion depth ≤ the *shallower* operand's depth: one honest
+  operand caps the walk. The exceptions are `complement` (one-sided
+  by nature) and, on the event side via `tick`, `grow`'s `Expand`
+  arm, which descends the id to its full depth against virtual
+  `Zero` events — so `tick` with an adversarial `Party` reaches id
+  depth even over a tiny event tree.
+- `split` (⇒ `fork`/`forks`) is immune: an iterative spine loop plus
+  verbatim bit-range splices (`party/ops/split.rs`), O(1) auxiliary
+  state beyond the output. This is the pattern §11.3 exports.
+
+`Party::decode` is clean: `parse_id_from`'s `IdFrame` carries no
+values (a few bytes per level; ×~4 worst case) [derived].
+
+## 5. Measurement methodology and results of record
+
+Instrument: a standalone crate — generators for §2's shapes as byte
+writers; a counting `GlobalAlloc` (current/peak live bytes); a
+`getrusage(RUSAGE_SELF)` max-RSS mode run one-scenario-per-process
+(RSS is a high-water mark, and stacker bypasses the heap counter).
+Raw results (release, Apple M4 Max, 2026-07-22):
+
+    size_of Base-like: 24 B, EvFrame-like: 56 B
+
+    decode dense(d=125000)                 input 0.060 MiB  peak +7.060 MiB   x118      3.0ms
+    cmp    dense(d=125000) vs new          input 0.060 MiB  peak +0.000 MiB   x0        6.5ms
+    join   dense(d=125000) | 1             input 0.060 MiB  peak +5.812 MiB   x98       8.8ms
+    tick   dense(d=125000)                 input 0.060 MiB  peak +11.783 MiB  x198      5.5ms
+    decode dense(d=250000)                 input 0.119 MiB  peak +14.119 MiB  x118      6.8ms
+    cmp    dense(d=250000) vs new          input 0.119 MiB  peak +0.000 MiB   x0       13.3ms
+    join   dense(d=250000) | 1             input 0.119 MiB  peak +11.623 MiB  x98      18.2ms
+    tick   dense(d=250000)                 input 0.119 MiB  peak +23.566 MiB  x198     12.3ms
+    decode bigroot(B=40000,d=10000)        input 0.014 MiB  peak +0.897 MiB   x63       2.0ms
+    cmp    bigroot(B=40000,d=10000) vs new input 0.014 MiB  peak +47.706 MiB  x3335     8.2ms
+    join   bigroot(B=40000,d=10000) | 1    input 0.014 MiB  peak +49.129 MiB  x3434    26.7ms
+    decode bigroot(B=80000,d=20000)        input 0.029 MiB  peak +1.794 MiB   x63       6.8ms
+    cmp    bigroot(B=80000,d=20000) vs new input 0.029 MiB  peak +190.779 MiB x6668    30.9ms
+    join   bigroot(B=80000,d=20000) | 1    input 0.029 MiB  peak +193.626 MiB x6767    94.6ms
+    decode hugeleaf(B=4M)                  input 0.954 MiB  peak +1.454 MiB   x2       14.5s
+    join   hugeleaf(B=4M) | 1              input 0.954 MiB  peak +95.414 MiB  x100     14.6s
+
+    densecmp   d=250000: input 0.119 MiB, rss delta  93.3 MiB (x782), 12.4ms
+    densecmp   d=500000: input 0.238 MiB, rss delta 186.7 MiB (x783), 24.7ms
+    idjoin     d=250000: input 0.119 MiB, rss delta  54.2 MiB (x455),  8.8ms
+    idjoin     d=500000: input 0.238 MiB, rss delta 108.6 MiB (x456), 17.8ms
+    idcovers   d=250000: input 0.119 MiB, rss delta  49.8 MiB (x418),  5.8ms
+    idcovers   d=500000: input 0.238 MiB, rss delta  99.7 MiB (x418), 12.0ms
+    iddisjoint d=250000: input 0.119 MiB, rss delta  49.8 MiB (x418),  6.8ms
+    iddisjoint d=500000: input 0.238 MiB, rss delta  99.7 MiB (x418), 13.3ms
+    idwithout  d=250000: input 0.119 MiB, rss delta  42.6 MiB (x357),  7.3ms
+    idwithout  d=500000: input 0.238 MiB, rss delta  85.3 MiB (x358), 14.7ms
+
+Notes: the `cmp dense vs new` rows verify the walk runs to
+completion on these shapes (against the empty version one direction
+stays possible throughout, so the early-`concurrent` exit never
+fires). Id rows report combined operand bytes; `idwithout`'s depth
+comes from one operand. The experiment crate is session-scratch;
+Phase 0 (§14) commits its generators and harness into `testing/` so
+these numbers become pinned regression envelopes.
+
+### Ranked summary
+
+| # | side | path | class | measured |
+|---|------|------|-------|----------|
+| V1 | event | compare, join, meet (read path included) | quadratic memory + time | ×6,668 @ 29 KiB; doubling ⇒ ×4 |
+| V2 | event | every recursive walk | linear memory (stack) | ×782 |
+| V3 | event | decode + every read of a spilled base | quadratic time | 14.5 s @ 977 KiB |
+| V4 | event | tick, join, meet (emit paths) | linear memory | ×98–×198; ×100 on 1 node |
+| V5 | event | decode | linear memory | ×118 |
+| P1 | id | join, covers, is_disjoint, without | linear memory (stack) | ×357–×456 |
+
+The hypothesis that started this investigation — "the working-form
+conversion blows up" — is V4: real, but fourth-ranked. The two worst
+amplifiers live on paths that never build a working form.
+
+## 6. The design invariant
+
+Adopt as a stated contract of the crate (crate docs; enforced by the
+§13 metering gate):
+
+> **No operation materializes transient state asymptotically larger
+> than its packed operands, and every operation remains amortized
+> `O(n + m)` in the packed input bits — with no bound on value
+> magnitude, tree depth, or encoded size.**
+
+Why it is achievable [derived]: comparison consumes only
+`sign(a_sum − b_sum)`; the combine sink consumes a min of two sibling
+values sharing an offset — a local difference; leaf emission consumes
+a value provably within a locally-coded distance of a computable
+anchor (§8.2); id operations consume presence bits. Nothing requires
+an absolute path sum per frame, a machine word per 2-bit node, or
+half a kilobyte per level. The id side already demonstrates the
+target shape end-to-end except for its call-stack frames.
+
+Remediation is tiered. Tiers 0–1 change no observable behavior and
+no stored bytes; Tier 1.5 and Tier 2 are alternative endgames for the
+event-side emit paths (§12 decides).
+
+## 7. Tier 0 — point fixes
+
+**T0.1 (kills V3).** In `decode_int_from`'s wide fallback,
+accumulate the mantissa into limbs (64 bits at a time into a
+`Vec<u64>`, or byte-aligned chunks) and construct the `BigUint` once
+— O(B). The window fast path and all reject decisions are untouched.
+Verify with the codec round-trip/canonicality suites plus a metered
+envelope on hugeleaf.
+
+**T0.2 (kills V4's pre-allocation half).** Stop pre-sizing `Builder`
+from `node_capacity_bound`; push-grow, for exactly the reason
+`WorkingVersion::unpack`'s comment records. Delete
+`node_capacity_bound` if unused after.
+
+**T0.3 (halves P1's worst per-byte case).** Make `complement`
+iterative: it is a structure-preserving map (its collapse arm never
+fires, per its own doc comment), so a pending-children counter over
+the tag stream — the `skip_subtree` shape — emits it without
+recursion. `Party::without` then prunes like its siblings: depth
+bounded by the shallower *shared* structure.
+
+## 8. Tier 1 — same representations, streaming intermediate state
+
+### 8.1 Difference-tracked path sums (kills V1 in compare)
+
+Replace the two owned per-frame sums in `CmpWalk::rec` with one
+running signed difference `D = a_path_sum − b_path_sum`
+(`num_bigint::BigInt`, or sign flag + `Base`), threaded `&mut`:
+
+- reading the aligned pair: `D += a_base; D −= b_base`;
+- the direction tests become sign tests on `D` (kill `le` if
+  `D > 0`, `ge` if `D < 0`) — O(1);
+- leaving the subtree: restore `D −= a_base; D += b_base`. The
+  relative bases needed for the restore are the ones just decoded —
+  in the frame either way, and their total live size along any path
+  is ≤ the decoded input.
+
+Memory [derived]: one accumulator (≤ max path-sum bits) plus
+per-frame relative bases summing ≤ input. The d-copies-of-B
+quadratic is gone. Time [derived; to be validated by the meter]:
+`± u64` into a bignum is amortized O(1) (carry-run potential);
+`± Big(x)` costs O(|x|) with Σ|xᵢ| ≤ input bits. The subtle case is
+±-oscillation across a `2^64k` carry cliff (a single small op costing
+O(k) limbs); the walk's Dyck structure bounds it — the accumulator
+tracks path sums, monotone along any root-to-leaf path, so an
+excursion across a cliff costs two long runs and forcing another
+requires another comparably-coded magnitude in the input; total
+O(n + m). Write this argument into the module doc when implemented
+and pin it empirically with cliff-straddling generators (§13) — it is
+what the probe-first practice exists for.
+
+Coverage: `causal_cmp` sits on the oracle differential, exhaustive
+small-scope, and algebraic-law suites; this is an internal rewrite
+with unchanged verdicts.
+
+### 8.2 Anchored relative emission (kills V1 in combine/fill/grow)
+
+The emitting walks also need values — a combined leaf is
+`leaf_op(a_sum, b_sum)` — and today absolute values transit frames
+and `Builder` until `close_node`'s sink re-relativizes them. Emit
+relative to a per-node anchor instead:
+
+- at aligned node `v`, anchor `δ_v = op(A_v, B_v)` (the two path
+  sums; `op` = max for join, min for meet);
+- every output value in `v`'s subtree is ≥ `δ_v` [derived: for join,
+  `max(A+x, B+y) ≥ max(A, B)` with `x, y ≥ 0`; dually for meet], so
+  subtree values are emitted relative to `δ_v` as nonnegative `Base`s;
+- magnitudes are locally bounded [derived]:
+  `op(A+x, B+y) − op(A, B) ≤ max(x, y)`;
+- a child's anchor delta `δ_c − δ_v ≥ 0` (monotonicity of `op`) is
+  computable from `D`'s sign and the two local bases in local-sized
+  time: it is `x` while `D` stays nonnegative, `y` while
+  nonpositive, and `y − D_v` (with `|D_v| < y`) on a sign crossing —
+  dually for the meet;
+- `close_node`'s sink is translation-invariant, so its math is
+  unchanged on anchored values.
+
+No absolute magnitude is cloned per level; every materialized
+quantity is bounded by the coded size of the node that produced it.
+This also deletes the O(B)-per-level `to_biguint` clones — a strict
+time win. While in `Base`: make the mixed-size `Add` arm add the
+`Small` side into (a clone of) the `Big` side directly, and prefer
+in-place `AddAssign` in hot paths.
+
+### 8.3 Explicit compact stacks (kills V2 and P1; shrinks V5)
+
+Depth costs ~0.5 KiB/level of stacker segment on every walk, both
+sides. Convert the walks (event: compare, combine, fill, grow; id:
+sum, diff, covers, is_disjoint) to explicit iteration whose frame is:
+
+- resume state (which child next; each side's node kind): a few bits;
+- what §8.1's restore needs: the two relative bases — or, smaller,
+  the two *cursor positions*, re-decoding on unwind (one extra decode
+  per node, O(1) each via the window path once T0.1 lands).
+
+A `Vec` of position-pair frames is ~16–24 B/level (×782 → ~×40;
+×455 → ~×10 on the id side, whose frames need only positions and 2–3
+bits), one allocation, no stacker. The full-invariant refinement —
+adopt if the meter says the constant matters — keeps restore values
+as a *packed* side stack: push `gamma(a_base) · gamma(b_base)`
+bit-reversed, so popping reads them forward from the top; the control
+stack is then itself proportional to the packed input with constant
+~1. Apply the same slimming to `parse_ev_from` (V5): the normal-form
+checks need a zero-flag per child plus, for the equal-leaves test, a
+re-decode at a recorded position — a few bytes per frame.
+
+`recurse::descend!`/`stacker` remain only if some walk stays
+recursive; audit at the end of the phase whether the dependency can
+be dropped entirely. **[open]** convert all walks or only the eight
+hot ones above (rank/project/max/min_ticks are same-shape but
+lower-exposure).
+
+### What Tier 1 does not fix
+
+The event emit paths still build a ~24 B/node `Builder`/
+`WorkingVersion` (V4's other half, ×~100). Closing that requires
+changing output assembly — §9 or §10, decided at §12.
+
+## 9. Tier 1.5 — packed event emission via a parent-close scratch
+
+### 9.1 The one genuine obstruction
+
+The single back-referential edit in the system is
+`Builder::close_node`'s normalization sink: the parent's base
+receives the children's common minimum (`+= m`: its gamma *widens*)
+and the children's roots give it up (`−= m`: theirs *narrow*).
+Preorder output places the parent's code before its children's
+blocks, but the sink is bottom-up information — hence the fixed-width
+array. `fill`'s `deferred_leaf` is the same phenomenon. Note the id
+side has the same close-time normalization and *no* such problem,
+because its patch is fixed-width (§11.1); the event-side problem is
+purely the variable-width code.
+
+A record is final only when its **parent's** sink is known. So write
+records in parent-close order:
+
+### 9.2 Pass 1: parent-close scratch
+
+Run the (Tier-1-rewritten) walk once, emitting a packed scratch:
+
+- hold each completed subtree's root `(flag, base)` on the spine
+  stack; its descendants are already in the scratch;
+- when a node closes: compute `m` from the two held child roots,
+  apply the sink, apply the leaf-collapse if both held children are
+  leaves (nothing was written for them — collapse is free), then
+  **write the two finalized child-root records** and push the node's
+  own `(flag, base)` as held;
+- at the end of the walk, write the root's record.
+
+Scratch layout, recursively:
+`Inner(v) = Inner(L) · Inner(R) · rec(Lroot) · rec(Rroot)`, root
+record last. Each record is written exactly once, already final,
+**bit-reversed** so pass 2 can read the stream backward (gamma is
+not otherwise backward-decodable). `fill`'s deferred left leaf
+dissolves: by the time any leaf record is written, its right sibling
+is closed and its value known.
+
+### 9.3 Pass 2: backward read, preorder re-emission
+
+Reading the scratch backward yields
+`rec(v), rec(Rroot), rec(Lroot), Back-inner(R), Back-inner(L)` — each
+node before its children, right-subtree material before left.
+Preorder wants `v, pre(L), pre(R)`: walk the backward stream with an
+explicit stack, translating the **right** subtree into a side buffer
+first, streaming the **left** subtree directly, then splicing the
+buffer. Pending right-blocks belong to ancestors and are disjoint
+subtrees, so their total is ≤ the output size [derived].
+
+Cost [derived]: two O(n + m) passes; transient ≤ scratch + pending
+buffers + stacks ≈ **2–3× packed size, unconditionally**. Wire bytes
+are *unchanged*: normal form is canonical and the algorithm computes
+the same tree, so outputs are byte-identical — the snapshot suite and
+a `join/meet/tick` equivalence proptest against the current
+implementation give a total regression oracle for the rewrite.
+
+`Batch` survives API-unchanged, retaining packed bits (each op is
+already a full rebuild; the working form bought transcode constants,
+which the window codec made word-scale). `WorkingVersion`, `Builder`,
+and `EvReader::Working` are deleted; `EvReader` reads packed only.
+Expected performance: plausibly a net win — per-node state drops from
+24 B allocated to ~2–4 bits streamed; `benches/` arbitrates.
+**[open]**: measure; pass 2 is mechanical (bit-block reversal + code
+re-emission) if it shows up in profiles.
+
+## 10. Tier 2 — representation change: topology + delta-coded leaf values
+
+Internal bases are redundant: topology plus absolute leaf values
+determine the event function. Storing exactly that dissolves the
+obstruction instead of routing around it — and makes the event
+representation morally identical to the id representation plus a
+leaf-payload stream (§11.1).
+
+### 10.1 Encoding
+
+Preorder topology bits as today. At each leaf position, in-stream:
+the first leaf's value as `gamma(v₁)`; every later leaf as
+`zigzag-gamma(vᵢ − vᵢ₋₁)` over consecutive leaves in preorder
+(zigzag `2k` / `2|k| − 1`; one canonical sign convention, no negative
+zero). The gamma window fast path applies unchanged (same `2k+1`
+shape; unzigzag is a shift and mask).
+
+### 10.2 Canonical form and validation
+
+Canonical iff the topology is minimal: no internal node with two
+equal-valued leaf children (recursively-uniform subtrees reduce to
+this case, exactly as today's collapse does). Sibling leaves are
+consecutive in leaf order, so equality is *the right sibling's delta
+is zero*: the validator needs no values at all — per ancestor frame,
+one is-leaf bit and one last-delta-was-zero bit. `decode` validation
+drops from 56 B/level to ~2 bits/level with no arithmetic (V5
+eliminated outright). Byte-equality remains `Eq`/`Hash`.
+
+### 10.3 Operations
+
+All single forward passes over packed streams; depth costs bits:
+
+- **compare**: versions are step functions over the unit id
+  interval; merge-walk the two leaf sequences by dyadic boundary
+  (topology stacks, ~2 bits/level), maintaining the running
+  difference `D` (§8.1) and folding `le`/`ge` per elementary
+  interval. No tree recursion, no broadcast machinery.
+- **join/meet**: the same sweep emitting `op(v_a, v_b)` per
+  elementary interval, re-delta-coded on the fly. Normalization is
+  only the uniform-collapse — a pure **truncation** of emitted
+  output back to a recorded subtree start (widths only shrink; each
+  emitted bit is truncated at most once ⇒ amortized O(1)) plus one
+  locally-sized repaired entry delta. The widening backpatch does
+  not exist because there is no parent base — the same reason
+  `IdBuilder` never needed one.
+- **fill**: collapse fully-owned id regions to a streaming max over
+  a leaf range; the sibling-raising value is known by emission time
+  under the same truncate-and-re-emit discipline. **grow**: probe
+  unchanged (small-int cost fold, bit-vector `Route`); emit rebuilds
+  one root-to-leaf path and splices off-path spans verbatim with one
+  boundary-delta repair each (§11.3).
+- **rank / min_ticks / max / project**: sums/maxes of
+  `value × interval` over the leaf sweep.
+
+### 10.4 Compactness
+
+Claim [derived — produce the full proof or refute with the §13 ratio
+meter before committing]: Tier 2 coded size ≤ ~2× today's plus O(1)
+bits per node, and is sometimes smaller. Argument: a
+consecutive-leaf delta telescopes over the two path segments to the
+LCA, so `|vᵢ − vᵢ₋₁| ≤ Σ` of stored relative bases on those
+segments; each stored base lies on the exit path of exactly one
+consecutive-leaf pair and the entry path of exactly one other (Euler
+tour), so it is charged at most twice; and
+`gamma(x + y) ≤ gamma(x) + gamma(y) + O(1)`. Topology is 1 bit/node
+in both forms. Delta coding wins where similar magnitudes span
+subtree boundaries, which min-lift cannot factor. The alternating
+comb `(0, M, 0, M, …)` is tight for both forms. Property-test the
+ratio over existing generators plus §2's shapes; document where the
+envelope is tight.
+
+### 10.5 Costs and migration
+
+- **Wire break**: `Version::encode` (and therefore `Clock::encode`)
+  bytes change; `before`'s codec pins and `rumors`'
+  `gossip_snapshot` re-pin as a deliberate protocol change.
+- `Display`/`FromStr` keep the paper notation (internal bases are
+  derivable in one pass for display; parsing accumulates path sums).
+- `oracle.rs` is untouched and anchors the rewrite differentially;
+  the exhaustive small-scope and algebraic-law suites transfer.
+- Deleted: `WorkingVersion`, `Builder`, `EvReader`'s form split and
+  `Zero` broadcast, `deferred_leaf`; `Base` stays for accumulators;
+  `recurse`/`stacker` likely removable (everything is a sweep with
+  bit-stacks).
+
+## 11. Cross-pollination between the two sides
+
+Each side already contains the solution to the other side's
+problems; this section makes the directions explicit.
+
+### 11.1 id → event: `IdBuilder` is the existence proof
+
+The id side normalizes at close time *on the packed stream*: a
+fixed-width 2-bit tag patched in place, collapses as truncations. It
+never needed a working form because nothing it writes ever widens.
+Tier 2 (§10) is precisely the change that gives the event side the
+same property — no internal payloads, collapse-by-truncation — after
+which the two builders are one packed-tree-builder shape and should
+be unified into shared machinery (one generic
+open/close/copy-splice/truncate builder over a packed preorder
+stream, parameterized by the per-node payload: none for ids, a leaf
+delta for events).
+
+### 11.2 id → event: leaf-dominance pruning in comparison
+
+Id walks never recurse into a subtree that a leaf on the other side
+dominates: `Empty`/`Full` settle the arm with an iterative skip. The
+event comparison instead broadcasts `Zero` and recurses to full
+depth. But leaf-versus-subtree dominance is a *scan*, not a walk
+[derived]: for a leaf value `t` (path-sum-adjusted), `subtree ≤ t`
+iff `max(subtree) ≤ t`, and `subtree ≥ t` iff every root-to-leaf
+path sum ≥ t — both computable iteratively with a pending-children
+counter and a running offset (the `skip_subtree` shape plus a small
+value stack). Replacing the `Zero`-broadcast recursion with these
+two scans makes comparison against a shallow operand cost O(deep
+side) time but O(1)-ish space — which both neutralizes the
+`cmp vs new()` shape of V1/V2 *and* speeds up the common honest case
+of comparing against a much smaller version. Worth doing even if
+Tier 2 later subsumes it, since it is small and self-contained.
+**[open]**: `EvReader::max` (`version/event/max.rs`) currently
+recurses; make it and the min-path scan iterative first.
+
+### 11.3 id → event: splice-based single-path edits
+
+`split` edits an id by copying verbatim bit ranges around a
+retagged spine — no builder, no per-node work. `grow`'s emit is the
+same shape on the event side: it rebuilds exactly one root-to-leaf
+path and copies every off-path subtree unchanged. On a packed
+output (either tier), grow-emit becomes: splice off-path spans
+verbatim; re-emit only the path nodes' codes (whose widths change).
+`tick`'s hot path (`fill` no-op, `grow` inflates a leaf) then costs
+O(n) time with O(path) working state and no node-array at all.
+
+### 11.4 event → id: word-scale scanning
+
+The event side's window decoder settles a whole gamma code with one
+`leading_zeros`. The id side still steps 2 bits at a time in
+`skip_subtree`; tags pack 32 to a word, and the pending-children
+counter's delta over a word is `popcount(word) − 32` with an early
+exit when the counter would cross zero mid-word — a word-at-a-time
+subtree skip [derived]. Same trick applies to the event topology
+stream under Tier 2. Pure performance; adversary-neutral.
+
+## 12. The decision: Tier 1.5 vs Tier 2 (holistic view)
+
+Both reach the §6 invariant. The holistic question — performance,
+hardening, *and* code simplification together — reframes it:
+
+| | Tier 1.5 | Tier 2 |
+|---|---|---|
+| wire bytes | unchanged (byte-identical outputs) | breaking change; snapshots re-pin |
+| transient memory | ~2–3× packed | ~1× packed + bit-stacks |
+| passes per emit op | 2, plus mirror-read plumbing | 1 |
+| decode validation | V5 fixed by frame slimming | 2 bits/level, no arithmetic |
+| net code | *adds* machinery (scratch, mirror records, splice pass) beside the walks | *removes* machinery (working form, form-split reader, broadcast, deferred leaves, likely stacker) and unifies the two sides' builders (§11.1) |
+| comparison | tree recursion retained (improved by §11.2) | interval sweep; §11.2 pruning falls out naturally |
+| compactness | identical | ~≤2× envelope, sometimes better (§10.4) |
+| risk | moderate; total byte-identity oracle | higher (new codec + canonical form); oracle + differential suites carry it |
+
+The win-win observation: Tier 1.5 hardens at the cost of *added*
+complexity; Tier 2 hardens by *subtraction* — the event side ends up
+shaped like the id side, one packed-builder abstraction serves both,
+and the walk/cursor/broadcast scaffolding that exists to bridge
+representations disappears. Its costs are the wire break and the
+compactness envelope (§10.4), both checkable before commitment: the
+ratio meter for compactness, the bench suite for speed, and the
+oracle for correctness.
+
+Recommendation: land Tiers 0–1 (common to both, independently
+worthwhile, no format risk) plus the §11.2/§11.3 pruning and splice
+wins; run the §10.4 ratio measurement; then choose. If the ratio
+envelope holds and a protocol-change window exists, take Tier 2; Tier
+1.5 is the fallback if the wire format must not move.
+**[open — record the DECIDED entry here.]**
+
+## 13. The metering gate
+
+Pin the §6 invariant the way `step!` pins time complexity:
+
+- **Generators**: commit §2's four shapes (parameterized) beside the
+  existing proptest generators in `testing/`.
+- **Peak-heap meter**: counting `GlobalAlloc` in a dedicated test
+  binary (one global allocator per binary; nextest's
+  process-per-test isolation applies). Assert per operation ×
+  generator family: `peak ≤ C_op · packed_bytes + K`, constants
+  pinned in the test. Phase 0 lands current (bad) envelopes as
+  thresholds so every later phase tightens a committed number.
+- **Stack meter**: stacker segments bypass the heap meter
+  [measured]; count them at the source — a counter in
+  `recurse::grow` (segments × `STACK_GROWTH`) — and envelope it too.
+  It reads zero once §8.3 converts the walks.
+- **Limb-work meter**: V3-class regressions are invisible to `step!`
+  (node visits, not arithmetic width). Count big-integer limb
+  operations behind a test-only feature (a thin shim around `Base`
+  arithmetic) and assert amortized-linear envelopes on
+  hugeleaf/bigroot and on §8.1's carry-cliff generators.
+- **Fuzz under a cap**: the existing fuzz targets gain a
+  counting-allocator harness with a hard ceiling tied to input size,
+  turning any future amplifier into a crash finding instead of a
+  latent one.
+
+## 14. Execution plan
+
+Dependency-ordered; each phase `just gate`-clean; wire bytes are
+byte-identical through P4 (the snapshot suite enforces it for free).
+
+- **P0 — yardstick.** Commit generators + all §13 meters with
+  current envelopes as thresholds; state the §6 invariant in the
+  crate docs. No behavior change. (Spec-first: fix the criterion of
+  record before touching the artifact.)
+- **P1 — Tier 0.** T0.1 limb-wise mantissa; T0.2 builder capacity;
+  T0.3 iterative complement. Tightens: hugeleaf decode to linear
+  time; hugeleaf join peak ×100 → ~×1; `without` per-operand depth
+  exposure gone.
+- **P2 — V1.** §8.1 in `causal_cmp` first (read path, richest
+  coverage), then §8.2 across combine/fill/grow, with the `Base`
+  mixed-add fix. Tightens: bigroot compare/join to input-linear
+  memory and O(n + m) time.
+- **P3 — quick structural wins.** §11.2 leaf-dominance scans in
+  compare (with iterative `max`/min-path); §11.3 splice-based grow
+  emit. Tightens: `cmp vs small` to O(1)-ish space; tick's hot path
+  off the node-array.
+- **P4 — V2/P1/V5.** §8.3 explicit stacks for the eight hot walks
+  and both parsers. Tightens: dense-spine compare RSS ×782 → ≤ ~×40
+  (position frames) or ~×2 (packed stacks); id walks ×418–456 →
+  ≤ ~×10; decode ×118 → small. Audit whether `stacker` can be
+  dropped.
+- **P5 — decision (§12), then Tier 1.5 or Tier 2.** Either way the
+  working form is deleted. Tier 2 additionally: new codec +
+  validation, §10.4 ratio test, snapshot re-pins, builder
+  unification (§11.1), word-scale scans (§11.4) where profiles
+  justify, README/crate-doc updates.
+- Each phase updates metering thresholds downward in the same commit
+  that earns them.
+
+Acceptance for the effort: every §5 row at a small pinned constant ×
+input; no quadratic row in the meter's op × family matrix; `benches/`
+not regressed (improvement expected at P2 and P5).
+
+## 15. Adjacent findings
+
+- `Add<&Base> for &Base` clones both operands via `to_biguint()` in
+  any mixed/big case; `Small + Big` should cost one big clone at
+  most. Subsumed by P2; worth fixing in `Base` regardless.
+- `Display`/`Debug` on a big-base version does full decimal
+  conversion (superlinear); logging one adversarial or organic huge
+  version is a CPU sink. Consider digit-capped rendering with an
+  explicit elision marker. **[open]** whether any hot path formats
+  versions.
+- `grow`'s builder capacity adds `id_bits.len()`; an oversized party
+  inflates the allocation. Subsumed by T0.2.
+- Building `before` with default features emits an unused-import
+  warning (`parse_ev_from`, `parse_id_from` in `codec`) visible to
+  downstream consumers though hidden from the all-features workspace
+  gate. Feature-gate the imports.
+- `Rank`'s exponent-alignment shifts allocate ~tree-depth bits —
+  linear, acceptable; the meter should cover `rank`/`distance`/`lag`
+  to keep it that way.
+- `min_ticks` (saturating u64 fold), `Route` (bit-vector), and
+  `split` are already invariant-clean.
+
+## 16. Cross-references
+
+- Event-side architecture this document modifies:
+  `src/version/event.rs` module doc (walk shape), `src/version/
+  compare.rs` (comparison), `src/version/working.rs` (working form),
+  `src/version/event/builder.rs` (the sink), `src/codec/gamma.rs`
+  (codec + window fast path), `src/recurse.rs` (stack guard and its
+  frame-size measurement).
+- Id-side architecture: `src/idbits.rs` (cursor, `skip_subtree`),
+  `src/party/ops/` (walks and `IdBuilder`).
+- Testing architecture the plan leans on: `src/testing/` module docs
+  (oracle differential, exhaustive small-scope, algebraic laws,
+  complexity metering).
+- Wire pinning affected by Tier 2 only: `tests/gossip_snapshot.rs`
+  and the `insta` snapshots (workspace root).
