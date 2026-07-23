@@ -272,10 +272,11 @@ fn next_is_internal(bits: &BitsSlice, at: usize) -> bool {
     bits[at] || bits[at + 1]
 }
 
-/// Push one open ancestor's two-bit pending entry: `deferred` = an action is
-/// due when the subtree now being read closes; `synthetic` = that action is
-/// emitting the terminal an absent right child complements to (otherwise the
-/// real right subtree follows in the stream).
+/// Push one open ancestor's two-bit pending entry.
+///
+/// `deferred` = an action is due when the subtree now being read closes;
+/// `synthetic` = that action is emitting the terminal an absent right child
+/// complements to (otherwise the real right subtree follows in the stream).
 fn push_pending(stack: &mut Bits, deferred: bool, synthetic: bool) {
     stack.push(deferred);
     stack.push(synthetic);
