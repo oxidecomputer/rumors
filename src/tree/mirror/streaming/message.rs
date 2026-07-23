@@ -13,7 +13,7 @@
 //!
 //! The memory unit is one reply: a maximally disputed reply is 256
 //! reactions × a 256-entry listing ≈ fan² hashes ≈ 1.1 MB encoded
-//! (≈ 2 MB while an encoded and a decoded copy coexist), transient, at
+//! (≈ 2.2 MB while an encoded and a decoded copy coexist), transient, at
 //! most one in flight per stage.
 
 use crate::{
@@ -27,8 +27,11 @@ use crate::{
     },
 };
 
-/// The greeting exchanged after the fixed transport preamble: the sender's
-/// causal [`Version`] plus its root-fan listing.
+/// The greeting exchanged after the fixed transport preamble.
+///
+/// It carries everything a session must know about a sender before the
+/// descent — its causal position, its negotiation inputs, and its opening
+/// question's content; the fields below are the inventory.
 ///
 /// The listing is the same radix-keyed hash listing the initiator's opening
 /// [`Reaction::Query`] carries — and that is the point: the opening
@@ -56,15 +59,21 @@ pub struct Handshake {
     /// populations scale with the *product* of the two sizes (joint
     /// occupancy), so the window needs the peer's size, not an estimate.
     pub set_len: u64,
-    /// The largest canonical version encoding among the sender's live
-    /// messages, in bytes — exact, like `set_len` (an O(1) read of a
-    /// per-node aggregate that redaction resizes down).
+    /// The largest canonical version-bound encoding the sender's tree
+    /// holds — leaf versions and every interior ceiling and floor — in
+    /// bytes: exact, a read of a memoized per-node aggregate that
+    /// redaction resizes down.
     ///
-    /// Every version a session holds is a join of leaf versions from the
-    /// two replicas, and a join's encoding never exceeds its inputs'
-    /// combined, so the exchanged pair bounds worst-case version bytes
-    /// per node — the second input a budget-configured window prices
-    /// nodes with.
+    /// Every bound a session holds is either a bound one replica already
+    /// materializes (covered by that side's aggregate alone) or a
+    /// join/meet of the two sides' contributions, whose encoding never
+    /// exceeds its inputs' combined (the pinned pairwise lemmas), so the
+    /// exchanged pair bounds worst-case version bytes per node — the
+    /// second input a budget-configured window prices nodes with. One
+    /// priced residual: deletion-honoring can prune a side's
+    /// contribution to a survivor subset whose recomputed bound neither
+    /// input materialized; the pair sum there is an envelope, pinned by
+    /// the census suite's reconciled-bound measurements.
     pub max_version_bytes: u64,
     /// The sender's supply-run byte target
     /// ([`Peer::target_message_size`](crate::Peer::target_message_size)).

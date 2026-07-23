@@ -97,7 +97,9 @@ where
         reply,
         |scope, reaction| match reaction {
             ProtocolReaction::Match => {
-                let _ = scope.next();
+                // Symmetric with decode: a match past the question's fan
+                // is unrepresentable on the wire.
+                scope.next().ok_or(ScopeError::UnpositionedMatch)?;
                 Ok(None)
             }
             ProtocolReaction::Query(listing) => {
@@ -127,7 +129,9 @@ where
         reply,
         |scope, reaction| match reaction {
             ProtocolReaction::Match => {
-                let _ = scope.next();
+                // Symmetric with decode: a match past the question's fan
+                // is unrepresentable on the wire.
+                scope.next().ok_or(ScopeError::UnpositionedMatch)?;
                 Ok(None)
             }
             ProtocolReaction::Query(listing) if !listing.is_empty() => {

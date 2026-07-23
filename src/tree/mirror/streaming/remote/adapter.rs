@@ -51,13 +51,16 @@
 //!
 //! The decoder yields each record as it is decoded through a fan-bounded
 //! channel into the existing
-//! [`Convert::assemble`](super::super::convert::Convert::assemble) fold. While
-//! that fold rebuilds backend nodes, the reader retains only the reply skeleton
-//! (`Match`, `Query`, or a supplied-prefix placeholder). Completed nodes fill
-//! those placeholders after the reply end arrives. Thus memory remains one
-//! finite reply, its completed node handles, one encoded run, and the
-//! buffered fan of decoded leaves; no subtree payload is accumulated merely
-//! to cross the backend boundary.
+//! [`Convert::assemble`](super::super::convert::Convert::assemble) fold,
+//! passing custody of the payload to the backend at construction
+//! ([`Leaf::leaf`](super::super::Leaf::leaf)) before the leaf enters the
+//! channel. While that fold rebuilds backend nodes, the reader retains only
+//! the reply skeleton (`Match`, `Query`, or a supplied-prefix placeholder).
+//! Completed nodes fill those placeholders after the reply end arrives. Thus
+//! memory remains one finite reply, its completed node handles, one encoded
+//! run, and the buffered fan of backend-priced leaves — the session budget's
+//! supply-decode charge; no subtree payload is accumulated merely to cross
+//! the backend boundary.
 //!
 //! # Why this is sufficient
 //!

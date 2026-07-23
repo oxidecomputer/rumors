@@ -125,10 +125,14 @@ where
         self.inner.message()
     }
 
-    fn leaf(version: Version, message: Message<T>) -> Self {
-        // Leaf rows carry the payload, which the account leaves to the
-        // wire's message-size target; no interior row is simulated.
-        Self::wrap(typed::Node::leaf(version, message), 0)
+    async fn leaf(version: Version, message: Message<T>) -> Result<Self, Infallible> {
+        // Eager persistence at the conversion boundary: the payload is
+        // written to the store here, so the resident row keeps only the
+        // header and bounds — the thin-handle shape the leaf seam prices
+        // at `node_bytes(0, bounds)`.
+        let node = typed::Node::leaf(version, message);
+        let row = ROW_HEADER + bounds_of(&node);
+        Ok(Self::wrap(node, row))
     }
 }
 
@@ -228,11 +232,39 @@ fn underpricing_fails_the_pointwise_check() {
     pollster::block_on(check(Materializing, 4 * 1024 * 1024));
 }
 
+/// A leaf priced below its post-custody residency is caught at
+/// construction: the negative control for the leaf seam of the account.
+///
+/// The session budget charges every decode-fan slot at
+/// `node_bytes(0, bounds)`, so a backend whose leaf handles keep more
+/// resident than that price must fail the pointwise check the moment
+/// one is constructed — before any parent assembles.
+#[test]
+#[should_panic(expected = "underpriced leaf")]
+fn leaf_underpricing_fails_at_construction() {
+    use super::ledger;
+    PRICED_HEADER.store(0, std::sync::atomic::Ordering::Relaxed);
+    let leaf = pollster::block_on(
+        <super::ChargedNode<MaterializedNode<typed::Node<u64, Z>>> as Leaf<u64>>::leaf(
+            Version::new(),
+            Message::new(7),
+        ),
+    )
+    .expect("the reference backend constructs leaves infallibly");
+    drop(leaf);
+    let violations = ledger::take_violations();
+    assert!(
+        !violations.is_empty(),
+        "a lying leaf price must land a violation on the ledger",
+    );
+    panic!("{}", violations.join("\n"));
+}
+
 /// The decorator's ledger accounting is exact over wrap, clone, and drop.
 ///
-/// A wrapped leaf charges nothing (out of scope), a cloned handle charges
-/// its bytes again, and drops settle to the starting balance — the
-/// arithmetic the end-to-end census rests on.
+/// A wrapped leaf charges its measured post-custody bytes, a cloned
+/// handle charges its bytes again, and drops settle to the starting
+/// balance — the arithmetic the end-to-end census rests on.
 #[test]
 fn ledger_settles_over_clone_and_drop() {
     use super::ledger;
@@ -240,18 +272,22 @@ fn ledger_settles_over_clone_and_drop() {
         ledger::reset_peak();
         ledger::peak()
     };
-    let leaf = <super::ChargedNode<typed::Node<u64, Z>> as Leaf<u64>>::leaf(
-        Version::new(),
-        Message::new(7),
-    );
+    let leaf = pollster::block_on(
+        <super::ChargedNode<typed::Node<u64, Z>> as Leaf<u64>>::leaf(
+            Version::new(),
+            Message::new(7),
+        ),
+    )
+    .expect("a local leaf constructs infallibly");
+    let handle = std::mem::size_of::<typed::Node<u64, Z>>();
     let clone = leaf.clone();
-    drop(leaf);
-    drop(clone);
     assert_eq!(
         ledger::peak(),
-        before,
-        "zero-charged handles must not move the ledger",
+        before + 2 * handle,
+        "two live leaf handles charge their measured bytes twice",
     );
+    drop(leaf);
+    drop(clone);
 
     let node = typed::Node::leaf(Version::new(), Message::new(7));
     let charged = Charged::<Local>::new(Local);

@@ -60,21 +60,34 @@ pub fn envelope_and_wire_bytes() -> (usize, usize) {
     )
 }
 
-/// The largest canonical encoding among a snapshot's live leaf versions,
-/// in bytes: the exact per-node aggregate the greeting exchanges.
-pub fn max_leaf_version_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
+/// Worst-case bytes one session's decode fans keep resident under the
+/// in-memory backend's pricing: the flat term of the default budget.
+///
+/// The budget's closed forms are affine in this term — it comes off the
+/// budget before the dispute-scope solve — so the operator-equation
+/// suite needs it to reproduce the default exactly.
+pub fn supply_decode_envelope_bytes() -> usize {
+    crate::tree::mirror::streaming::window::SUPPLY_DECODE_ENVELOPE_BYTES
+}
+
+/// The largest canonical encoding among every version bound a
+/// snapshot's tree holds — leaf versions and every interior ceiling and
+/// floor — in bytes: the exact per-node aggregate the greeting
+/// exchanges.
+pub fn max_version_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
     snapshot.tree().max_version_bytes()
 }
 
 /// The largest canonical encoding among every per-node version bound in
-/// a snapshot's tree: leaf versions and interior ceilings/floors, with
-/// the lazy memos forced.
+/// a snapshot's tree, recomputed by direct walk with no aggregate memo
+/// consulted.
 ///
-/// The session memory model prices every version a session can hold at
-/// the pairwise joined-leaf bound the greeting exchanges
-/// (`local_max + remote_max`), while interior bounds are joins over
-/// *many* leaves; this walk measures that slack against a real tree, so
-/// tests can pin the model side of the account to reality.
+/// The session memory model prices every bound a session can hold
+/// within the exchanged pair sum (`local_max + remote_max`), and
+/// deletion-honoring can assemble bounds over survivor subsets neither
+/// input materialized; this walk measures a reconciled tree against the
+/// pre-session exchange, so tests can pin the model side of the account
+/// to reality.
 pub fn max_bound_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
     snapshot.tree().max_bound_bytes()
 }

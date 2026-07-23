@@ -1,14 +1,17 @@
 //! The operator equations held against measured sessions.
 //!
 //! `sync_memory_budget`'s docs publish two closed forms over a link's
-//! bandwidth-delay product, with `ratio = envelope / wire = 22`:
-//! worst-case slowdown under a budget, `max(1, 22 × BDP / budget)`, and
-//! the smallest budget for an acceptable slowdown, `22 × BDP / slowdown`.
-//! They are the large-window simplification of the exact wave-model form
+//! bandwidth-delay product, with `ratio = envelope / wire = 22` and
+//! `fans` the flat supply-decode envelope that comes off every budget
+//! before the dispute solve: worst-case slowdown under a budget,
+//! `max(1, 22 × BDP / (budget − fans))`, and the smallest budget for an
+//! acceptable slowdown, `fans + 22 × BDP / slowdown`. They are the
+//! large-window simplification of the exact wave-model form
 //! `slowdown = max(1, BDP_messages / K)` with `K` the derived window —
-//! the simplification substitutes `K ≈ budget / envelope`, which holds
-//! once the window is past the near-root structural band (a few hundred
-//! scopes; small budgets pay full-fan prices the scalar undercounts).
+//! the simplification substitutes `K ≈ (budget − fans) / envelope`,
+//! which holds once the window is past the near-root structural band (a
+//! few hundred scopes; small budgets pay full-fan prices the scalar
+//! undercounts).
 //!
 //! Two pins split the claim at that seam:
 //!
@@ -30,7 +33,7 @@ use std::time::Duration;
 
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::testing::{envelope_and_wire_bytes, window_capacities};
+use rumors::testing::{envelope_and_wire_bytes, supply_decode_envelope_bytes, window_capacities};
 use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Protocol, Rumors};
 
 /// One-way delay for the virtual-time measurements (the timer grain).
@@ -135,12 +138,12 @@ fn binding_capacity(budget: usize) -> usize {
 fn operator_equations_match_measured_sessions() {
     // The scalar identity: budget(slowdown = 1) at the design link IS
     // the default. 12.5 MB of BDP per millisecond of RTT is the design
-    // link's product; the docs' `22 × BDP / slowdown` is this expression
-    // with the ratio left as a quotient.
+    // link's product; the docs' `fans + 22 × BDP / slowdown` is this
+    // expression with the ratio left as a quotient.
     let (envelope, wire) = envelope_and_wire_bytes();
     let design_bdp = 12_500_000usize;
     assert_eq!(
-        design_bdp / wire * envelope,
+        supply_decode_envelope_bytes() + design_bdp / wire * envelope,
         DEFAULT_SYNC_MEMORY_BUDGET,
         "the inverse form at slowdown 1 must reproduce the default budget",
     );
@@ -149,9 +152,23 @@ fn operator_equations_match_measured_sessions() {
     // the effective link rate, so BDP_messages = RTT × rate / wire
     // = 2 × divergence / transfer_hops (both sides' divergences cross).
     let transfer = wire_slope(UNBOUNDED);
+    // A degenerate slope means the delay sweep was swamped: compute time
+    // under machine load dwarfed the virtual delay and the difference
+    // collapsed. Fail by name here rather than letting BDP go infinite
+    // and the accuracy band compare NaN.
+    assert!(
+        transfer >= 4,
+        "self-calibration measured a degenerate transfer slope ({transfer} hops): \
+         the delay sweep was swamped by machine load; rerun on a quieter machine",
+    );
     let bdp_messages = 2.0 * DIVERGENT as f64 / f64::from(transfer);
 
-    for budget in [1_200_000usize, 430 * 1024] {
+    // The cells are denominated in the budget's *dispute share*: the flat
+    // supply-decode envelope comes off every budget before the solve, so
+    // it is added back here and the cells keep the calibrated binding
+    // windows they were tuned for.
+    for dispute_share in [1_200_000usize, 430 * 1024] {
+        let budget = supply_decode_envelope_bytes() + dispute_share;
         let window = binding_capacity(budget);
         let predicted = (bdp_messages / window as f64).max(1.0);
         let measured = f64::from(wire_slope(budget)) / f64::from(transfer);
@@ -194,6 +211,13 @@ fn parity_budget_runs_at_the_transfer_bound() {
             .expect("bounded hop count")
     };
     let transfer = slope_at(UNBOUNDED);
+    // Same degenerate-slope guard as the operator-equation cell: a
+    // load-swamped sweep must fail by name, not divide toward infinity.
+    assert!(
+        transfer >= 4,
+        "self-calibration measured a degenerate transfer slope ({transfer} hops): \
+         the delay sweep was swamped by machine load; rerun on a quieter machine",
+    );
     let bdp_messages = 2.0 * DIVERGENT as f64 / f64::from(transfer);
 
     // Grow the budget until the derived window clears the measured BDP:

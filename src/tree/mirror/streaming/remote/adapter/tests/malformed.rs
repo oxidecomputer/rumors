@@ -64,6 +64,56 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
     assert!(matches!(error, DecodeError::TruncatedReply));
 }
 
+/// A match past the question's fan fails at its own frame, in both directions.
+///
+/// The scope walk is symmetric with the query arm: every positional
+/// reaction consumes one listed child, so excess `Match` frames are
+/// rejected eagerly — at the offending frame, before the skeleton grows
+/// past the fan — rather than after the whole reply decodes.
+#[test]
+fn an_unpositioned_match_is_rejected_in_both_directions() {
+    let path = Path::for_leaf(&Version::new(), &[0]);
+    let parent = Prefix::<S<S<Z>>>::containing(&path);
+    // One listed child admits one positional reaction; the second Match
+    // must fail at its own frame with the reply still unterminated.
+    let frames: Vec<Frame<()>> = vec![
+        Frame::Reaction(WireReaction::Match, Flow::Continue),
+        Frame::Reaction(WireReaction::Match, Flow::Continue),
+    ];
+
+    let decode_error = runtime().block_on(async {
+        let mut frames = stream::iter(frames);
+        decode_reply::<Local, (), Z, _>(Local, Scope::new(parent, &[(1, hash(1))]), &mut frames)
+            .await
+            .err()
+            .expect("a match without a remaining child cannot be scoped")
+    });
+    assert!(matches!(
+        decode_error,
+        DecodeError::Scope(ScopeError::UnpositionedMatch)
+    ));
+
+    let reply = Reply::<Local, (), S<Z>> {
+        replies: vec![Reaction::Match, Reaction::Match],
+    };
+    let encode_error = runtime().block_on(async {
+        encode_reply(
+            Local,
+            RunBudget::default(),
+            Scope::new(parent, &[(1, hash(1))]),
+            reply,
+        )
+        .try_collect::<Vec<_>>()
+        .await
+        .err()
+        .expect("an unpositioned match cannot be put on the wire")
+    });
+    assert!(matches!(
+        encode_error,
+        EncodeError::Scope(ScopeError::UnpositionedMatch)
+    ));
+}
+
 /// Prefix-free queries require a remaining positional child in both conversion directions.
 #[test]
 fn an_unpositioned_query_is_rejected_in_both_directions() {
@@ -387,6 +437,9 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
 #[test]
 fn a_supply_run_cannot_resume_after_another_reaction() {
     let leaves = under_root_pair();
+    // The interrupting Match consumes the scope's one listed child, so it
+    // is positionally valid and the failure isolates the supply
+    // resumption itself.
     let frames = vec![
         Frame::Reaction(
             WireReaction::Supply(leaf_run(&[(&leaves[0].0, &leaves[0].1)])),
@@ -401,10 +454,14 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, u64, UnderUnderRoot, _>(Local, Scope::opening(&[]), &mut input)
-            .await
-            .err()
-            .expect("a keyed supply may occupy only one ascending run")
+        decode_reply::<Local, u64, UnderUnderRoot, _>(
+            Local,
+            Scope::opening(&[(1, hash(1))]),
+            &mut input,
+        )
+        .await
+        .err()
+        .expect("a keyed supply may occupy only one ascending run")
     });
     assert!(matches!(error, DecodeError::SupplyOrder { .. }));
 }

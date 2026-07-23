@@ -17,9 +17,13 @@
 //!
 //! # Accounting premises
 //!
-//! Leaf values are deliberately outside the account: leaf payloads are
-//! priced by [`target_message_size`](crate::Peer::target_message_size),
-//! so leaves constructed at the conversion boundary charge nothing here.
+//! Leaves are in the account at their post-custody price: construction
+//! ([`Leaf::leaf`]) is the backend's chance to persist the payload, so a
+//! leaf charges what its handle keeps resident afterward, checked
+//! pointwise against `node_bytes(0, bounds)` — the price the session
+//! budget charges every decode-fan slot. Payload bytes still crossing
+//! inside one wire message are priced by
+//! [`target_message_size`](crate::Peer::target_message_size), not here.
 //! The ledger is process-global (run one `check` per process, as nextest
 //! does), and the differencing baseline absorbs what exists regardless of
 //! the window: the resting corpora, the assembly fans' correctness floor,
@@ -216,10 +220,24 @@ where
         self.inner().message()
     }
 
-    fn leaf(version: Version, message: Message<T>) -> Self {
-        // Leaf values are outside the account by the module's premise:
-        // their payloads are priced by the wire's message-size target.
-        Self::wrap(N::leaf(version, message), 0)
+    async fn leaf(
+        version: Version,
+        message: Message<T>,
+    ) -> Result<Self, <N::Backend as Backend<T>>::Error> {
+        let node = N::leaf(version, message).await?;
+        let measured = <N::Backend as Measure<T>>::measure::<N::Height>(&node);
+        // The pointwise contract at the leaf seam: after construction has
+        // had its chance to persist the payload, the cost function at
+        // `children = 0` and the node's own bounds must cover what the
+        // handle keeps resident — this is the price the session budget
+        // charges every decode-fan slot.
+        let priced = <N::Backend as Backend<T>>::node_bytes(0, bound_bytes::<T, _>(&node));
+        if measured > priced {
+            ledger::violation(format!(
+                "underpriced leaf: measured {measured} B, node_bytes priced {priced} B",
+            ));
+        }
+        Ok(Self::wrap(node, measured))
     }
 }
 
@@ -279,17 +297,23 @@ where
                 ));
             }
             // The aggregate contract: a parent answers the sum of its
-            // children's leaves and the max of their version bytes.
+            // children's leaves, and the max of their version bytes and
+            // its own two bounds' encodings — interior ceilings and
+            // floors join many leaves and can outgrow every one of them,
+            // so the aggregate must cover the bounds it assembles.
             if fan > 0 && node.len() != leaves {
                 ledger::violation(format!(
                     "mis-propagated len: parent answers {}, children sum to {leaves}",
                     node.len(),
                 ));
             }
+            let version_bytes = version_bytes
+                .max(node.ceiling().as_bytes().len())
+                .max(node.floor().as_bytes().len());
             if fan > 0 && node.version_bytes() != version_bytes {
                 ledger::violation(format!(
                     "mis-propagated version_bytes: parent answers {}, \
-                     children max to {version_bytes}",
+                     children and own bounds max to {version_bytes}",
                     node.version_bytes(),
                 ));
             }
@@ -418,14 +442,15 @@ where
     B: Measure<u64> + Clone,
     B::Error: std::fmt::Debug,
 {
-    let mut leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)> = messages
-        .map(|(version, payload)| {
-            let message = Message::new(*payload);
-            let path = Path::for_leaf(version, message.bytes());
-            let leaf = <ChargedNode<B::Node<Z>> as Leaf<u64>>::leaf(version.clone(), message);
-            (Prefix::from(path), leaf)
-        })
-        .collect();
+    let mut leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)> = Vec::new();
+    for (version, payload) in messages {
+        let message = Message::new(*payload);
+        let path = Path::for_leaf(version, message.bytes());
+        let leaf = <ChargedNode<B::Node<Z>> as Leaf<u64>>::leaf(version.clone(), message)
+            .await
+            .expect("corpus leaves construct at rest");
+        leaves.push((Prefix::from(path), leaf));
+    }
     leaves.sort_by_key(|(prefix, _)| *prefix);
     let ceiling = Version::join_all(leaves.iter().map(|(_, leaf)| leaf.ceiling().clone()));
 

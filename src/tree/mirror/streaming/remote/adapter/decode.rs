@@ -112,11 +112,16 @@ where
     F: Stream<Item = Frame<T>> + Unpin,
     Q: FnMut(&mut Scope<H>, &[(u8, Hash)]) -> Result<N, ScopeError>,
 {
-    // One fan of buffered leaves: a supply run belongs to one scope, whose
-    // full fan the session's memory model already charges, so this buffer
-    // adds no memory term of its own — it exists to amortize the
-    // reader/assembler waker round trip over runs of consecutive leaves
-    // instead of paying it per leaf.
+    // One fan of buffered leaves, amortizing the reader/assembler waker
+    // round trip over runs of consecutive leaves instead of paying it per
+    // leaf. The capacity is load-bearing for liveness: the channel must
+    // admit one full fan of records while the assembler holds a parent
+    // group open, so no configuration may shrink it. Its residency is
+    // charged: each slot holds a backend-priced node — the payload's
+    // custody already passed to the backend at `Leaf::leaf` — and the
+    // session budget prices all of them, one fan plus the record in the
+    // reader's hand per reply stream, at `node_bytes(0, version_bound)`
+    // plus the slot itself (the window's supply-decode envelope).
     let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
     let read = read_reply::<B, T, H, _, _, _>(scope, frames, question, tx);
     let assemble = assemble_supplies::<B, T, H>(backend, rx);
@@ -164,7 +169,11 @@ where
         match reaction {
             WireReaction::Match => {
                 read.supplies.interrupt();
-                let _ = scope.next();
+                // Eager, symmetric with the query arm: a match past the
+                // question's fan fails at its own frame, so a
+                // nonconforming peer cannot grow the skeleton unboundedly
+                // before the walk's whole-reply validation would see it.
+                scope.next().ok_or(ScopeError::UnpositionedMatch)?;
                 read.skeleton.push(Skeleton::Match);
             }
             WireReaction::Query(listing) => {
@@ -192,7 +201,9 @@ where
                     if let Some((radix, prefix)) = run {
                         read.skeleton.push(Skeleton::Supply { radix, prefix });
                     }
-                    let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message);
+                    let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message)
+                        .await
+                        .map_err(DecodeError::Backend)?;
                     if leaves.send(Ok((leaf_prefix, leaf))).await.is_err() {
                         return Ok(None);
                     }

@@ -172,8 +172,16 @@ where
         self.0.message()
     }
 
-    fn leaf(version: Version, message: Message<T>) -> Self {
-        Self(N::leaf(version, message))
+    // Custody passes straight through: fault injection targets the
+    // traversal operations, not construction.
+    async fn leaf(
+        version: Version,
+        message: Message<T>,
+    ) -> Result<Self, Failure<<N::Backend as Backend<T>>::Error>> {
+        N::leaf(version, message)
+            .await
+            .map(Self)
+            .map_err(Failure::Inner)
     }
 }
 

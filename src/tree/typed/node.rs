@@ -198,20 +198,23 @@ impl<T, H: Height> Node<T, H> {
         self.inner.len()
     }
 
-    /// The largest canonical [`Version`] encoding among the leaves under
-    /// this node, in bytes.
+    /// The largest canonical [`Version`] encoding among every bound this
+    /// subtree holds — leaf versions and every branch's ceiling and
+    /// floor — in bytes.
     ///
     /// Exact under deletion, like [`len`](Self::len): every mutation
-    /// rebuilds its copy-on-write spine through the branch constructors,
-    /// which recompute the max.
+    /// rebuilds its copy-on-write spine through the branch constructors
+    /// with fresh memos, so the max is recomputed lazily from what
+    /// remains.
     pub fn version_bytes(&self) -> usize {
         self.inner.version_bytes()
     }
 
     /// The largest canonical encoding among every version bound in this
-    /// subtree — leaf versions and interior ceilings/floors, memos forced.
+    /// subtree, recomputed by direct walk with no aggregate memo.
     ///
-    /// Test instrumentation for the session memory model; see the
+    /// The independent oracle [`version_bytes`](Self::version_bytes) is
+    /// pinned against; see the
     /// [untyped walk](untyped::Node::max_bound_bytes).
     #[cfg(any(test, feature = "test-internals"))]
     pub fn max_bound_bytes(&self) -> usize {

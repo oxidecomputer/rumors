@@ -6,7 +6,7 @@ use futures::{StreamExt, stream};
 
 use crate::tree::{
     mirror::streaming::{
-        Failing, FailingNode, Failure, Leaf, Local, Operation,
+        Failing, FailingNode, Failure, Local, Operation,
         message::{Reaction, Reply},
     },
     typed::{
@@ -31,7 +31,7 @@ trait BackendHeight: Convert {
 
 impl BackendHeight for Z {
     fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
-        <typed::Node<u64, Z> as Leaf<u64>>::leaf(leaf.version.clone(), leaf.message.clone())
+        typed::Node::leaf(leaf.version.clone(), leaf.message.clone())
     }
 }
 

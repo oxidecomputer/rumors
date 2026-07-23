@@ -145,10 +145,15 @@ enum Children<T> {
         floor: OnceLock<Version>,
         /// The number of total leaves under this branch.
         leaves: usize,
-        /// The largest canonical [`Version`] encoding among the leaves
-        /// under this branch, in bytes: the max over the children's own
-        /// values, fixed at construction like `leaves`.
-        version_bytes: usize,
+        /// The largest canonical [`Version`] encoding among every bound
+        /// this branch holds — its leaf versions and every descendant
+        /// branch's ceiling and floor, its own included — in bytes,
+        /// computed lazily on first read and memoized.
+        ///
+        /// Like `ceiling` and `floor` (which it forces), this must be
+        /// reset whenever the branch's children change, but not when its
+        /// prefix does.
+        version_bytes: OnceLock<usize>,
         /// The children of this branch.
         children: OrdMap<u8, Node<T>>,
     },
@@ -174,7 +179,7 @@ impl<T> Clone for Children<T> {
                 ceiling: ceiling.clone(),
                 floor: floor.clone(),
                 leaves: *leaves,
-                version_bytes: *version_bytes,
+                version_bytes: version_bytes.clone(),
                 children: children.clone(),
             },
         }
@@ -211,11 +216,7 @@ impl<T> Node<T> {
                     ceiling: OnceLock::new(),
                     floor: OnceLock::new(),
                     leaves: children.values().map(Node::len).sum(),
-                    version_bytes: children
-                        .values()
-                        .map(Node::version_bytes)
-                        .max()
-                        .expect("a multi-child branch is non-empty"),
+                    version_bytes: OnceLock::new(),
                     children,
                 },
             }))),
@@ -332,11 +333,7 @@ impl<T> Node<T> {
                 ceiling: OnceLock::new(),
                 floor: OnceLock::new(),
                 leaves: count,
-                version_bytes: children
-                    .values()
-                    .map(Node::version_bytes)
-                    .max()
-                    .expect("a branch point separates >= 2 runs"),
+                version_bytes: OnceLock::new(),
                 children,
             },
         }))
@@ -400,19 +397,44 @@ impl<T> Node<T> {
         }
     }
 
-    /// The largest canonical [`Version`] encoding among the leaves under
-    /// this node, in bytes.
+    /// The largest canonical [`Version`] encoding among every bound this
+    /// subtree holds — its leaf versions and every branch's ceiling and
+    /// floor — in bytes.
     ///
     /// Exact, never a high-water mark: a leaf answers with its own
-    /// version's packed length, a branch carries the max over its
-    /// children, and every mutation rebuilds its copy-on-write spine
-    /// through the branch constructors — so deleting the largest leaf
-    /// resizes the aggregate down with no separate invalidation, exactly
-    /// like `len`.
+    /// version's packed length, and a branch memoizes the max over its
+    /// children's values and its own two bounds, computed lazily on
+    /// first read like [`ceiling`](Self::ceiling) (which it forces).
+    /// Every mutation rebuilds its copy-on-write spine through the
+    /// branch constructors with fresh memos, so deleting the version
+    /// that carries the maximum resizes the aggregate down with no
+    /// separate invalidation, exactly like `len`. Interior bounds must
+    /// be covered because a join over many small concurrent leaf stamps
+    /// can encode several times larger than any one of them — the
+    /// aggregate answers for what the tree *holds*, not only what its
+    /// leaves carry.
+    ///
+    /// The first read after loading a large corpus materializes the
+    /// subtree's bounds once; a session forces the same memos along
+    /// every divergent path it walks, and they are shared through the
+    /// copy-on-write clones, so subsequent reads cost the freshly
+    /// rebuilt spine only.
     pub fn version_bytes(&self) -> usize {
         match &self.inner.children {
             Children::Leaf { version, .. } => version.as_bytes().len(),
-            Children::Branch { version_bytes, .. } => *version_bytes,
+            Children::Branch {
+                version_bytes,
+                children,
+                ..
+            } => *version_bytes.get_or_init(|| {
+                children
+                    .values()
+                    .map(Node::version_bytes)
+                    .max()
+                    .expect("a branch always has >= 2 children")
+                    .max(self.ceiling().as_bytes().len())
+                    .max(self.floor().as_bytes().len())
+            }),
         }
     }
 
@@ -529,14 +551,15 @@ impl<T> Node<T> {
     }
 
     /// The largest canonical encoding among every version this subtree
-    /// holds: leaf versions plus every branch's ceiling and floor, the
-    /// memos forced eagerly.
+    /// holds — leaf versions plus every branch's ceiling and floor —
+    /// recomputed by direct walk with no aggregate memo consulted.
     ///
-    /// Test instrumentation for the session memory model: interior
-    /// bounds are joins over many leaves, and the model charges them at
-    /// the *pairwise* joined-leaf bound, so this walk is what measures
-    /// that slack against reality. Materialized depth is at most the
-    /// 32-byte path, so the recursion is stack-safe.
+    /// Test instrumentation: the independent oracle the aggregate
+    /// proptests and the census pin hold
+    /// [`version_bytes`](Self::version_bytes) against — the two must
+    /// agree on every tree, and this side derives the answer from the
+    /// bounds alone. Materialized depth is at most the 32-byte path, so
+    /// the recursion is stack-safe.
     #[cfg(any(test, feature = "test-internals"))]
     pub fn max_bound_bytes(&self) -> usize {
         match &self.inner.children {

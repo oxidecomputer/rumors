@@ -975,25 +975,27 @@ proptest! {
 
 // ───────────────────────── version-size aggregate ─────────────────────────
 
-/// The maximum canonical version encoding over a tree's live messages,
-/// recomputed from scratch: the oracle `Tree::max_version_bytes` must match.
+/// The maximum canonical encoding over every version bound a tree holds
+/// — leaf versions and every branch's ceiling and floor — recomputed by
+/// direct walk: the oracle `Tree::max_version_bytes` must match.
 fn naive_max_version_bytes(tree: &Tree<Bytes>) -> usize {
-    tree.iter()
-        .map(|(_, version, _)| version.as_bytes().len())
-        .max()
-        .unwrap_or_default()
+    tree.max_bound_bytes()
 }
 
 proptest! {
-    /// The version-size aggregate is exact through inserts and forgets:
-    /// after every action, `max_version_bytes` equals the max canonical
-    /// version encoding over the live messages (zero once emptied).
+    /// The version-size aggregate is exact through inserts and forgets.
+    ///
+    /// After every action, `max_version_bytes` equals the recomputed max
+    /// over every bound the tree holds — leaf versions and every
+    /// branch's ceiling and floor (zero once emptied).
     ///
     /// Versions grow as a party's history accumulates, so late inserts
     /// carry strictly larger encodings than early ones; forgetting the
     /// message that carries the maximum must therefore resize the
     /// aggregate *down* — the behavior a monotone high-water scalar would
-    /// get wrong.
+    /// get wrong. Rotating parties makes sibling versions concurrent, so
+    /// branch ceilings genuinely join and can outgrow every leaf below
+    /// them — the interior contribution the aggregate must cover.
     #[test]
     fn version_size_aggregate_is_exact(
         values in distinct_bytes(12),
@@ -1028,15 +1030,20 @@ proptest! {
 }
 
 proptest! {
-    /// The version-size aggregate survives the merge path.
+    /// The version-size aggregate survives the merge path, deletion
+    /// included.
     ///
     /// Joining two independently grown trees (disjoint parties, concurrent
-    /// histories) yields exactly the max over the union's live messages,
-    /// checked against the recomputed oracle.
+    /// histories) yields exactly the recomputed max over the union's
+    /// bounds. Forgetting on one side first exercises the
+    /// deletion-honoring arm: the filter drops the other side's
+    /// causally-covered leaves through the merge, and the rebuilt spines
+    /// must resize the aggregate to exactly what survives.
     #[test]
     fn version_size_aggregate_survives_join(
         left_values in distinct_bytes(8),
         right_values in distinct_bytes(8),
+        forgets in proptest::collection::vec(any::<prop::sample::Index>(), 0..6),
     ) {
         let mut left: Tree<Bytes> = Tree::new();
         for value in &left_values {
@@ -1045,6 +1052,31 @@ proptest! {
         let mut right: Tree<Bytes> = Tree::new();
         for value in &right_values {
             right.act(&party_of("B"), [insert_action(value.clone())]);
+        }
+
+        // A fork of `right` that `left` first absorbs wholesale: the
+        // forgets below then land on messages `left`'s vector already
+        // covers, so the join must *drop* them from the incoming side —
+        // the deletion-honoring arm, aimed at the argmax half the time
+        // so the resize-down direction is exercised through the merge.
+        let absorbed = right.clone();
+        left.join(absorbed);
+        prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
+
+        for forget in forgets {
+            let Some(key) = left
+                .iter()
+                .max_by_key(|(_, version, _)| version.as_bytes().len())
+                .map(|(argmax, ..)| argmax)
+                .filter(|_| forget.index(2) == 0)
+                .or_else(|| {
+                    let keys: Vec<Key> = left.iter().map(|(key, ..)| key).collect();
+                    keys.get(forget.index(keys.len().max(1))).copied()
+                })
+            else {
+                break;
+            };
+            left.act(&party_of("A"), [Action::Forget(key)]);
         }
 
         left.join(right);

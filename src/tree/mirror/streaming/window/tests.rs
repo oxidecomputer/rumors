@@ -2,10 +2,11 @@ use proptest::prelude::*;
 
 use super::{
     DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_LINK_BYTES_PER_MS, DESIGN_LINK_RTT_MS, DISPUTE_WIRE_BYTES,
-    FAN, KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES,
-    SCOPE_FIXED_BYTES, Window, WindowConfig, children_quantile, jointly_occupied, occupied,
-    stage_population,
+    FAN, FAN_SLOT_BYTES, KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES,
+    SCOPE_FIXED_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES, Window, WindowConfig, children_quantile,
+    jointly_occupied, occupied, stage_population,
 };
+use crate::link::STREAM_COUNT;
 
 /// The symmetric set size the fixed-scale tests derive against: both
 /// replicas at a terabyte-scale corpus.
@@ -30,7 +31,9 @@ fn charge(
     node_bytes: impl Fn(usize, usize) -> usize,
     version_bound: usize,
 ) -> u128 {
-    let mut total = 0u128;
+    let mut total = (STREAM_COUNT as u128)
+        * (FAN as u128 + 1)
+        * (node_bytes(0, version_bound) as u128 + FAN_SLOT_BYTES as u128);
     for depth in 1..=KEY_DEPTH {
         let held = usize::try_from(children_quantile(n, depth)).unwrap_or(usize::MAX);
         let reference = (node_bytes(held, version_bound) + REFERENCE_SLOT_BYTES) as u128;
@@ -172,6 +175,32 @@ fn scope_envelope_matches_the_derivation() {
     assert!(
         (0..=KEY_DEPTH).any(|height| window.capacity(height) as u64 >= bdp),
         "the default budget must admit the design link's BDP in flight",
+    );
+}
+
+/// The supply-decode envelope is the charge's own shape at the design
+/// session, and the default budget is the scope term plus exactly it.
+///
+/// `SUPPLY_DECODE_ENVELOPE_BYTES` must equal the flat decode-fan term
+/// `from_budget` charges under the in-memory backend's pricing — one
+/// fan channel plus one in-hand record per reply stream, each occupant
+/// a pointer-priced leaf in its slot — and the default budget must
+/// decompose into the dispute-scope product plus this envelope, so
+/// neither constant can drift from the solve it feeds.
+#[test]
+fn supply_decode_envelope_matches_the_charge() {
+    let flat = (STREAM_COUNT as u128)
+        * (FAN as u128 + 1)
+        * (local_node_bytes(0, 0) as u128 + FAN_SLOT_BYTES as u128);
+    assert_eq!(
+        SUPPLY_DECODE_ENVELOPE_BYTES as u128, flat,
+        "SUPPLY_DECODE_ENVELOPE_BYTES must equal the solve's flat decode-fan term",
+    );
+    assert_eq!(
+        DEFAULT_SYNC_MEMORY_BUDGET,
+        DESIGN_LINK_BYTES_PER_MS * DESIGN_LINK_RTT_MS / DISPUTE_WIRE_BYTES * SCOPE_ENVELOPE_BYTES
+            + SUPPLY_DECODE_ENVELOPE_BYTES,
+        "the default budget is the scope term plus the supply-decode envelope",
     );
 }
 

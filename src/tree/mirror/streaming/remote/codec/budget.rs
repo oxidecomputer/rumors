@@ -16,10 +16,13 @@
 //! **minimum of the two**: the knob states both how large a frame its
 //! peer builds for it and how large a frame it builds for its peer, so
 //! the more memory-constrained end sets the pace and peers with
-//! different settings interoperate. What the budget prices is memory per
-//! stream: the encoder buffers at most one run while filling it, and the
-//! decoder buffers at most one run's bytes per frame before yielding its
-//! records one at a time. The public knob is
+//! different settings interoperate. What the budget prices is encoded
+//! memory per stream: the encoder buffers at most one run while filling
+//! it, and the decoder buffers at most one run's bytes per frame before
+//! yielding its records one at a time — each record passing custody of
+//! its payload to the storage backend as it is read, so the constructed
+//! leaves in flight are the sync budget's decode-fan charge, not this
+//! one's. The public knob is
 //! [`Peer::target_message_size`](crate::Peer::target_message_size).
 //!
 //! Framing headroom: runs ride the wire's `u32` length header

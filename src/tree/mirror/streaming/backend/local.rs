@@ -59,8 +59,10 @@ impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<T, Z> {
         self.message()
     }
 
-    fn leaf(version: Version, message: Message<T>) -> Self {
-        Self::leaf(version, message)
+    // Custody is free: the handle owns the payload and the tree it will
+    // join is resident regardless, so construction completes immediately.
+    async fn leaf(version: Version, message: Message<T>) -> Result<Self, Infallible> {
+        Ok(Self::leaf(version, message))
     }
 }
 
