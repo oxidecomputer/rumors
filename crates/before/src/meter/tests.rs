@@ -3,7 +3,10 @@
 
 use crate::{Party, Version};
 
-use super::{bigroot, cliff_comb, dense, hugeleaf, id_spine, Packed};
+use super::{
+    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, id_spine,
+    wide_tooth_comb, Packed,
+};
 
 /// Appended to the counter-comparison failures: the first cause to rule out
 /// is a shared-process test runner, under which the process-global counters
@@ -76,6 +79,76 @@ fn cliff_comb_decodes_canonically_at_predicted_length() {
     let p = cliff_comb(3, 2);
     let v = Version::decode(&p.bytes[..]).expect("comb is strict normal form");
     assert_eq!(v.to_string(), "(0, (7, 0, 1), (0, (7, 0, 1), 0))");
+}
+
+/// `wide_tooth_comb(k, w, n)` is canonical normal form at exactly
+/// `n(2k + 2w + 6) + 2` bits, and its preorder leaf values oscillate
+/// `2^k − 2^w ↔ 2^k`.
+///
+/// The sizes cover teeth and cliffs wide enough to spill machine-word gamma
+/// decoding, and the leaf-value oscillation is pinned via the paper
+/// notation on a hand-checkable size (leaf values are absolute there).
+#[test]
+fn wide_tooth_comb_decodes_canonically_at_predicted_length() {
+    for (k, w, n) in [(2, 1, 1), (3, 1, 4), (200, 100, 50)] {
+        check_version(&wide_tooth_comb(k, w, n), n * (2 * k + 2 * w + 6) + 2);
+    }
+    // Teeth (2^3 − 2^1, 0, 2^1): leaf values oscillate 6 ↔ 8 across 2^3.
+    let p = wide_tooth_comb(3, 1, 2);
+    let v = Version::decode(&p.bytes[..]).expect("wide-tooth comb is strict normal form");
+    assert_eq!(v.to_string(), "(0, (6, 0, 2), (0, (6, 0, 2), 0))");
+}
+
+/// `cliff_fan(k, n)` is canonical normal form at exactly `12n + 2k + 6`
+/// bits, with every tooth's 12 stored bits crossing the `2^k` path-sum
+/// boundary twice under one stored root magnitude.
+///
+/// The sizes cover a root magnitude wide enough to spill machine-word gamma
+/// decoding, and the one-magnitude-over-cheap-teeth structure is pinned via
+/// the paper notation on a hand-checkable size.
+#[test]
+fn cliff_fan_decodes_canonically_at_predicted_length() {
+    for (k, n) in [(1, 1), (3, 4), (200, 50)] {
+        check_version(&cliff_fan(k, n), 12 * n + 2 * k + 6);
+    }
+    // Root 2^3 − 1 = 7 over teeth (1, 0, 1): the fan's path sum enters
+    // 2^3 at every tooth and leaves it again.
+    let p = cliff_fan(3, 2);
+    let v = Version::decode(&p.bytes[..]).expect("cliff fan is strict normal form");
+    assert_eq!(v.to_string(), "(7, (0, (1, 0, 1), (0, (1, 0, 1), 0)), 0)");
+}
+
+/// `cancelling_chain(k, n)` is canonical normal form at exactly
+/// `n(2k + 10) + 2` bits, and its preorder leaf values oscillate `2^k ↔ 1`.
+///
+/// The sizes cover a peak magnitude wide enough to spill machine-word gamma
+/// decoding, and the peak-to-1 oscillation is pinned via the paper notation
+/// on a hand-checkable size.
+#[test]
+fn cancelling_chain_decodes_canonically_at_predicted_length() {
+    for (k, n) in [(2, 1), (3, 4), (200, 50)] {
+        check_version(&cancelling_chain(k, n), n * (2 * k + 10) + 2);
+    }
+    // Teeth (1, 2^3 − 1, 0): leaf values oscillate 8 ↔ 1.
+    let p = cancelling_chain(3, 2);
+    let v = Version::decode(&p.bytes[..]).expect("cancelling chain is strict normal form");
+    assert_eq!(v.to_string(), "(0, (1, 7, 0), (0, (1, 7, 0), 0))");
+}
+
+/// The alternating-binary spine `A(d)` is canonical normal form at exactly
+/// `4d + 4` bits, with the internal child changing sides every level.
+///
+/// The direction alternation is pinned via the paper notation on a
+/// hand-checkable depth: left at the root (even), right one level down
+/// (odd).
+#[test]
+fn alt_spine_decodes_canonically_at_predicted_length() {
+    for d in [1, 2, 3, 1000] {
+        check_version(&alt_spine(d), 4 * d + 4);
+    }
+    let p = alt_spine(3);
+    let v = Version::decode(&p.bytes[..]).expect("alternating spine is strict normal form");
+    assert_eq!(v.to_string(), "(0, (0, 0, (0, 0, 1)), 0)");
 }
 
 /// The stack-segment meter observes deep recursion, resets to zero, and reads
