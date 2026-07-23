@@ -41,7 +41,9 @@ const STACK_GROWTH: usize = 1024 * 1024;
 /// The resource envelopes need a deterministic stand-in for recursion-driven
 /// stack consumption, and the segments `stacker` allocates never pass through
 /// the global allocator, so no heap meter can see them. Counting here — the
-/// one place a segment is created — is the honest signal. Always compiled: the
+/// one place a segment is created on the psm-supported native targets of
+/// record (`stacker`'s fallback arm runs the callback on the current stack,
+/// allocating nothing) — is the honest signal. Always compiled: the
 /// bump sits on the growth path only, whose cost is already a segment
 /// allocation, so production traversals pay nothing on the probe or call
 /// paths. Process-global (relaxed) because the meter's test binaries run one
