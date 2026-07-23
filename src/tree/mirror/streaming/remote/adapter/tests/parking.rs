@@ -10,10 +10,13 @@
 //! Supplied payloads stream through `Convert::assemble` into backend
 //! custody while the reply retains one pointer-sized handle per supplied
 //! node, and a maximally disputed reply retains a pure skeleton of at most
-//! fan² `(radix, hash)` entries (≈ 1.1 MB encoded, ≈ 2 MB while the encoded
-//! and decoded forms coexist — the figure in `streaming/message.rs`,
-//! [derived] from `FAN² × size_of::<(u8, Hash)>()` and pinned here). These
-//! tests hold both shapes to that accounting.
+//! fan² `(radix, hash)` entries: ≈ 1.1 MB encoded, ≈ 2.2 MB while the
+//! encoded and decoded forms coexist mid-decode. That coexistence
+//! transient is the figure the session's memory model charges per parked
+//! reply (`streaming/message.rs`), and it is pinned here as a sum of the
+//! encoded half, measured off the codec, and the decoded half, derived
+//! from `FAN² × size_of::<(u8, Hash)>()`. These tests hold both shapes to
+//! that accounting.
 
 use std::mem;
 
@@ -26,7 +29,7 @@ use crate::{
         mirror::streaming::{
             Local,
             message::{Reaction, Reply},
-            remote::codec::RunBudget,
+            remote::codec::{self, RunBudget, Speaker, Stream},
             window::FAN,
         },
         typed::{
@@ -45,6 +48,16 @@ use super::{
 /// child nodes are multi-leaf, so a handle demonstrably covers a subtree
 /// larger than itself.
 const LEAVES: u64 = 512;
+
+/// The pinned coexistence transient of one maximally disputed reply.
+///
+/// One encoded and one decoded copy of the fan² skeleton resident at
+/// once, plus per-frame signal and count framing, with ~3% headroom.
+/// Chosen tight so growth in either half — a wider hash, a larger fan,
+/// heavier framing — fails the pin and forces the module doc's charged
+/// figure (and `streaming/message.rs`, which states it) to be
+/// re-derived rather than silently going stale.
+const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 2_300_000;
 
 /// A parked decoded reply holds one pointer-sized node handle per supplied
 /// node — O(fan) handles independent of how many leaves streamed through
@@ -138,18 +151,15 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     }
 }
 
-/// A maximally disputed reply parks a bounded skeleton — fan queries of fan
-/// listing entries each, ≈ 1.1 MB [derived] — and no node payload at all.
+/// A maximally disputed reply parks a bounded skeleton and no payload.
+///
+/// The skeleton is fan queries of fan listing entries each, and its
+/// coexistence transient — the encoded reply and the decoded skeleton
+/// resident at once, mid-decode — stays within the charged figure the
+/// module doc states, pinned as measured encoded bytes plus the derived
+/// decoded size so growth in either half fails loudly.
 #[test]
 fn maximally_disputed_reply_parks_bounded_skeleton() {
-    // The worst-case envelope, [derived]: fan² `(radix, hash)` entries.
-    // This is the ≈ 1.1 MB encoded / ≈ 2 MB transient figure the session's
-    // memory model charges per parked reply (`streaming/message.rs`).
-    assert!(
-        FAN * FAN * mem::size_of::<(u8, Hash)>() <= 2 * 1024 * 1024,
-        "the disputed-reply skeleton envelope must stay within its 2 MB charge",
-    );
-
     let listing: Vec<(u8, Hash)> = (0..FAN)
         .map(|radix| (radix as u8, hash(radix as u8)))
         .collect();
@@ -166,6 +176,35 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             .await
             .expect("the local backend is infallible")
     });
+
+    // The coexistence transient, held to the module doc's charged figure:
+    // the encoded half measured off the codec (every frame's exact wire
+    // bytes), the decoded half derived from the skeleton's in-memory
+    // entries. The stream label prices nothing: the signal byte is
+    // per-frame and identical across streams.
+    let stream = Stream::new(11).expect("a valid data stream index");
+    let encoded_bytes: usize = frames
+        .iter()
+        .map(|frame| {
+            let mut wire = Vec::new();
+            codec::encode(Speaker::Initiator, &(stream, frame.clone()), &mut wire)
+                .expect("a canonical disputed frame encodes");
+            wire.len()
+        })
+        .sum();
+    let decoded_skeleton = FAN * FAN * mem::size_of::<(u8, Hash)>();
+    let transient = encoded_bytes + decoded_skeleton;
+    eprintln!(
+        "disputed-reply transient: {encoded_bytes} B encoded + \
+         {decoded_skeleton} B decoded = {transient} B",
+    );
+    assert!(
+        transient <= DISPUTED_REPLY_TRANSIENT_CEILING,
+        "the coexistence transient (encoded {encoded_bytes} B plus decoded \
+         skeleton {decoded_skeleton} B = {transient} B) must stay within \
+         the memory model's charged figure of \
+         {DISPUTED_REPLY_TRANSIENT_CEILING} B",
+    );
 
     let mut frames = stream::iter(frames);
     let decoded = runtime

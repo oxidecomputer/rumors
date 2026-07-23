@@ -7,9 +7,12 @@
 //! beyond it the descent drains in capacity-sized waves — one round trip
 //! per wave at the binding level. These tests read the derived capacities
 //! back through `rumors::testing::window_capacities`, place divergences
-//! on both sides of the predicted knee, and measure serialized wire hops
-//! in exact virtual time on a delayed link: flat below the knee, growing
-//! with the wave count above it.
+//! on both sides of the predicted knee — each cell against the binding
+//! capacity of its own session shape, the same derivation the session
+//! performs at greeting time, so the prediction and the measurement
+//! cannot drift apart — and measure serialized wire hops in exact
+//! virtual time on a delayed link: flat below the knee, growing with the
+//! wave count above it.
 
 // Only the delayed wire is exercised here; the module's pipes and
 // conformance surface belong to the benches and `latency_link.rs`.
@@ -24,9 +27,9 @@ use rand::{RngCore, SeedableRng};
 use rumors::testing::window_capacities;
 use rumors::{Peer, Protocol, Rumors};
 
-/// A budget sized so the binding capacity lands in the tens: small
-/// enough that a modest divergence crosses the knee, large enough that
-/// below-knee sessions genuinely pipeline.
+/// A budget sized so the binding capacity lands in the low hundreds:
+/// small enough that a modest divergence crosses the knee at test scale,
+/// large enough that below-knee sessions genuinely pipeline.
 const BUDGET: usize = 2 << 20;
 
 /// Messages both peers share before the fork.
@@ -48,15 +51,40 @@ const KNEE_MARGIN: u32 = 6;
 /// round-trip structure is measured.
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
-/// The binding capacity among the levels a test-scale divergence
-/// engages: depths two through four (heights 30 down to 28).
-fn binding_capacity() -> usize {
-    // The knee prediction must use the sizes the session itself will
-    // exchange; both sides hold COMMON plus their divergence, and the
-    // capacities vary little across the test's divergence range, so the
-    // largest shape stands for all of them (the assertion below keeps
-    // that honest if the derivation drifts).
-    let session_len = (COMMON + 32 * 64) as u64;
+/// The linearity suite's cells, in eighths of each cell's own capacity.
+///
+/// Widely spaced: each marginal spans at least eight capacities of
+/// divergence (~16 hops of signal), so wall-compute noise under a loaded
+/// test machine — which the two-point sweep cannot fully cancel — stays
+/// far below the signal it is differenced against.
+const LINEAR_CELLS: [usize; 3] = [32, 96, 288];
+
+/// The above-knee wave-growth cell, in eighths of its own capacity.
+const GROWTH_CELL: usize = 64;
+
+/// The bandwidth-bound comparison cell, in eighths of its own capacity.
+const STALL_CELL: usize = 128;
+
+/// The lower below-knee cell: half of its session's capacity, in eighths.
+const BELOW_HALF: usize = 4;
+/// The upper below-knee cell, in eighths: strictly inside the knee.
+///
+/// Seven eighths rather than the full capacity: a cell placed exactly on
+/// the boundary flips into one serialized wave on a ±1 measurement
+/// wobble, so the below-knee claim is stated for the regime's interior.
+const BELOW_FULL: usize = 7;
+
+/// The binding capacity for one measured session shape: the minimum over
+/// the levels a test-scale divergence engages (depths two through four,
+/// heights 30 down to 28).
+///
+/// This is the derivation the session itself performs at greeting time,
+/// evaluated at the sizes the session will actually exchange — both
+/// sides hold [`COMMON`] plus their divergence — so every cell's
+/// prediction and its measurement rest on the same numbers. A separate
+/// band check keeps the knee reachable at test scale.
+fn binding_capacity_at(divergent_per_side: usize) -> usize {
+    let session_len = (COMMON + divergent_per_side) as u64;
     let capacities = window_capacities(session_len, session_len, BUDGET);
     let binding = capacities[28..=30]
         .iter()
@@ -65,11 +93,67 @@ fn binding_capacity() -> usize {
         .expect("three engaged heights");
     assert!(
         (4..=256).contains(&binding),
-        "the test budget must land the binding capacity in a band where \
-         both sides of the knee are reachable at test scale; got {binding} \
-         from capacities {capacities:?}",
+        "the test budget must land every measured cell's binding capacity \
+         in a band where both sides of the knee are reachable at test \
+         scale; got {binding} at divergence {divergent_per_side}",
     );
     binding
+}
+
+/// The smallest divergence at or above `eighths`/8 of its own capacity.
+///
+/// A cell's placement is self-referential: its target is a multiple of
+/// the binding capacity of the session that cell runs, which shrinks as
+/// the divergence grows. `8d / capacity(d)` is monotone in `d`, so a
+/// binary search solves the placement, and the landing assertion is the
+/// coupling between derivation and measurement: a derivation change that
+/// displaces a cell from its target multiple fails here, loudly, instead
+/// of silently measuring a shape the prediction does not cover.
+fn divergence_at_least(eighths: usize) -> usize {
+    let reaches = |d: usize| 8 * d >= eighths * binding_capacity_at(d);
+    let mut hi = binding_capacity_at(0).max(1);
+    while !reaches(hi) {
+        hi = hi.checked_mul(2).expect("cell placement must terminate");
+    }
+    let mut lo = 0;
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if reaches(mid) { hi = mid } else { lo = mid }
+    }
+    let capacity = binding_capacity_at(hi);
+    assert!(
+        8 * hi >= eighths * capacity && 8 * hi <= eighths * capacity * 3 / 2 + 8,
+        "a measured cell must land near its target multiple of its own \
+         session's binding capacity (the derivation/measurement coupling): \
+         {hi} divergent, capacity {capacity}, target {eighths}/8",
+    );
+    hi
+}
+
+/// The largest divergence at or below `eighths`/8 of its own capacity.
+///
+/// The below-knee dual of [`divergence_at_least`], with the same landing
+/// assertion coupling the cell to the prediction for its own shape.
+fn divergence_at_most(eighths: usize) -> usize {
+    let exceeds = |d: usize| 8 * d > eighths * binding_capacity_at(d);
+    let mut hi = binding_capacity_at(0).max(2);
+    while !exceeds(hi) {
+        hi = hi.checked_mul(2).expect("cell placement must terminate");
+    }
+    let mut lo = 0;
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if exceeds(mid) { hi = mid } else { lo = mid }
+    }
+    let cell = hi - 1;
+    let capacity = binding_capacity_at(cell);
+    assert!(
+        cell >= 1 && 8 * cell <= eighths * capacity && 16 * cell + 16 >= eighths * capacity,
+        "a below-knee cell must land near its target multiple of its own \
+         session's binding capacity (the derivation/measurement coupling): \
+         {cell} divergent, capacity {capacity}, target {eighths}/8",
+    );
+    cell
 }
 
 /// Serialized one-way hops one divergent session spends on the wire.
@@ -132,15 +216,22 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
 }
 
 /// Below the predicted knee the session is pipelined: hops are bounded
-/// by the phase ladder, not by scope count. Doubling the divergence may
-/// engage one more trie level — a couple of ladder hops — but never a
-/// per-wave cost, which is what separates it from the above-knee regime.
+/// by the phase ladder, not by scope count. Widening the divergence
+/// toward the knee may engage one more trie level — a couple of ladder
+/// hops — but never a per-wave cost, which is what separates it from the
+/// above-knee regime.
 #[test]
 fn below_the_knee_hops_are_flat() {
-    let capacity = binding_capacity();
-    let half = hops(capacity / 2);
-    let full = hops(capacity);
-    eprintln!("binding capacity {capacity}: hops {half} at half, {full} at capacity");
+    let half_cell = divergence_at_most(BELOW_HALF);
+    let full_cell = divergence_at_most(BELOW_FULL);
+    let half = hops(half_cell);
+    let full = hops(full_cell);
+    eprintln!(
+        "below-knee cells {half_cell} (capacity {}) and {full_cell} \
+         (capacity {}): hops {half} at half, {full} near capacity",
+        binding_capacity_at(half_cell),
+        binding_capacity_at(full_cell),
+    );
     assert!(
         half <= PIPELINED_HOPS && full <= PIPELINED_HOPS,
         "below-knee sessions must stay pipelined: {half} and {full} hops \
@@ -148,8 +239,8 @@ fn below_the_knee_hops_are_flat() {
     );
     assert!(
         full <= half + 4,
-        "doubling a below-knee divergence may deepen the ladder, not \
-         serialize: {half} -> {full}",
+        "widening a below-knee divergence toward the knee may deepen the \
+         ladder, not serialize: {half} -> {full}",
     );
 }
 
@@ -161,35 +252,40 @@ fn below_the_knee_hops_are_flat() {
 /// *constant* increment per message — which is what makes a fixed window
 /// a throughput ceiling with a fixed slowdown factor rather than a
 /// latency penalty that compounds with divergence. Measured on a
-/// latency-only link (roomy pipe), the marginal hops per message between
-/// consecutive divergence doublings must agree with each other within a
-/// factor of two; their absolute scale is reported for calibration
-/// against the predicted `2 / capacity`.
+/// latency-only link (roomy pipe), each marginal hops-per-message
+/// between consecutive cells must track the wave model's prediction for
+/// those cells' own shapes, `Δ(2·d/capacity(d)) / Δd`, within a factor
+/// of two either way.
 #[test]
 fn above_the_knee_cost_is_linear_in_divergence() {
-    let capacity = binding_capacity();
-    // Widely spaced cells: each marginal spans at least eight capacities
-    // of divergence (~16 hops of signal), so wall-compute noise under a
-    // loaded test machine — which the two-point sweep cannot fully
-    // cancel — stays far below the signal it is differenced against.
-    let divergences = [4, 12, 36].map(|factor| factor * capacity);
+    let divergences = LINEAR_CELLS.map(divergence_at_least);
+    let capacities = divergences.map(binding_capacity_at);
     let times: Vec<u32> = divergences.iter().map(|&d| hops(d)).collect();
+    let cells: Vec<(usize, usize)> = divergences.into_iter().zip(capacities).collect();
     let slopes: Vec<f64> = times
         .windows(2)
-        .zip(divergences.windows(2))
-        .map(|(t, d)| f64::from(t[1] - t[0]) / (d[1] - d[0]) as f64)
+        .zip(cells.windows(2))
+        .map(|(t, c)| (f64::from(t[1]) - f64::from(t[0])) / (c[1].0 - c[0].0) as f64)
         .collect();
-    let predicted = 2.0 / capacity as f64;
+    // The wave model's marginal between two cells, each at its own
+    // shape's capacity: Δ(2·d/capacity) over Δd.
+    let predicted: Vec<f64> = cells
+        .windows(2)
+        .map(|c| {
+            let waves = |(d, capacity): (usize, usize)| 2.0 * d as f64 / capacity as f64;
+            (waves(c[1]) - waves(c[0])) / (c[1].0 - c[0].0) as f64
+        })
+        .collect();
     eprintln!(
-        "capacity {capacity}: divergences {divergences:?}, hops {times:?}, \
-         marginal hops/message {slopes:?} (wave model predicts {predicted:.4})",
+        "cells (divergence, capacity) {cells:?}, hops {times:?}, marginal \
+         hops/message {slopes:?} (wave model predicts {predicted:?})",
     );
-    // Each marginal slope must sit in a band around the wave model's
-    // 2/capacity — the direct statement of constant-per-message cost.
-    // The band absorbs the sweep's quantization noise (each cell
-    // differences two sessions at millisecond timer grain), which a
-    // cell-to-cell spread bound would amplify instead.
-    for &slope in &slopes {
+    // Each marginal slope must sit in a band around its own predicted
+    // marginal — the direct statement of constant-per-message cost. The
+    // band absorbs the sweep's quantization noise (each cell differences
+    // two sessions at millisecond timer grain), which a cell-to-cell
+    // spread bound would amplify instead.
+    for (&slope, &predicted) in slopes.iter().zip(&predicted) {
         assert!(
             slope / predicted > 0.4 && slope / predicted < 2.5,
             "marginal cost per message must track the wave model's \
@@ -211,8 +307,8 @@ fn above_the_knee_cost_is_linear_in_divergence() {
 /// constant serve every divergence on links up to its design BDP.
 #[test]
 fn window_stall_hides_under_bandwidth_bound_transfer() {
-    let capacity = binding_capacity();
-    let divergence = 16 * capacity;
+    let divergence = divergence_at_least(STALL_CELL);
+    let capacity = binding_capacity_at(divergence);
     // 2 KiB in flight at 10 ms one-way models ~200 KB/s per stream: a
     // BDP of ~2 KiB, tens of messages at the ~100 B floor — at or below
     // the binding capacity, so bandwidth binds before the window does.
@@ -231,18 +327,26 @@ fn window_stall_hides_under_bandwidth_bound_transfer() {
 }
 
 /// Above the predicted knee the descent serializes into capacity-sized
-/// waves: eight times the binding capacity costs measurably more round
-/// trips than the pipelined session, in the direction and scale the
-/// derivation predicts.
+/// waves: a divergence at [`GROWTH_CELL`] eighths of its own session's
+/// binding capacity costs measurably more round trips than the
+/// pipelined session, in the direction and scale the derivation
+/// predicts.
 #[test]
 fn above_the_knee_hops_grow() {
-    let capacity = binding_capacity();
-    let below = hops(capacity / 2);
-    let above = hops(8 * capacity);
-    eprintln!("binding capacity {capacity}: hops {below} below, {above} above");
+    let below_cell = divergence_at_most(BELOW_HALF);
+    let above_cell = divergence_at_least(GROWTH_CELL);
+    let below = hops(below_cell);
+    let above = hops(above_cell);
+    eprintln!(
+        "cells {below_cell} (capacity {}) and {above_cell} (capacity {}): \
+         hops {below} below, {above} above",
+        binding_capacity_at(below_cell),
+        binding_capacity_at(above_cell),
+    );
     assert!(
         above >= below + KNEE_MARGIN,
-        "a divergence of 8x the binding capacity must serialize into \
-         waves: measured {above} hops vs {below} pipelined",
+        "a divergence at {GROWTH_CELL} eighths of its own binding capacity \
+         must serialize into waves: measured {above} hops vs {below} \
+         pipelined",
     );
 }
