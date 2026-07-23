@@ -331,7 +331,10 @@ impl Window {
         let mut scope_price = [0u128; KEY_DEPTH + 1];
         for depth in 1..=KEY_DEPTH {
             let held = children_quantile(n, depth).try_into().unwrap_or(usize::MAX);
-            let reference_bytes = (node_bytes(held, version_bound) + REFERENCE_SLOT_BYTES) as u128;
+            // Widened before the add: a backend pricing nodes near
+            // `usize::MAX` must not wrap the slot term away.
+            let reference_bytes =
+                node_bytes(held, version_bound) as u128 + REFERENCE_SLOT_BYTES as u128;
             population[depth] = stage_population(n, pair, depth);
             scope_price[depth] =
                 children_quantile(n, depth - 1) * reference_bytes + SCOPE_FIXED_BYTES as u128;
@@ -355,12 +358,17 @@ impl Window {
         // the leaf-request edge, whose items are bare prefixes bounded by
         // the corpus rather than by dispute statistics, plus the flat
         // decode-fan term.
+        // Saturating arithmetic keeps the solve total: a population near
+        // 2⁶⁴ times a near-`usize::MAX` scope price passes u128, and a
+        // saturated charge only overstates, failing `charge(mid) <= budget`
+        // and narrowing the window — the safe direction.
         let charge = |k: u128| -> u128 {
             let mut total = supply_fans;
             for depth in 1..=KEY_DEPTH {
-                total += population[depth].min(k) * scope_price[depth];
+                total = total
+                    .saturating_add(population[depth].min(k).saturating_mul(scope_price[depth]));
             }
-            total + n.min(k) * LEAF_REQUEST_BYTES as u128
+            total.saturating_add(n.min(k) * LEAF_REQUEST_BYTES as u128)
         };
 
         // Capacity beyond the widest population is physically idle, so

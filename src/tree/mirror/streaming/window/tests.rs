@@ -88,6 +88,27 @@ fn tiny_set_is_the_floor() {
     );
 }
 
+/// The budget solve is total under pathological pricing.
+///
+/// A backend charging `usize::MAX` per node at `u64::MAX`-message
+/// corpora drives the population-times-price products past `u128`, and
+/// the solve saturates instead of wrapping — overstating the charge,
+/// which can only narrow the window, so the result is the floor rather
+/// than a panic (or, in release, a wrapped charge granting an unpriced
+/// width).
+#[test]
+fn pathological_pricing_saturates_to_the_floor() {
+    let window = Window::from_budget(
+        u64::MAX,
+        u64::MAX,
+        u64::MAX,
+        u64::MAX,
+        usize::MAX,
+        |_, _| usize::MAX,
+    );
+    assert_eq!(window, Window::FLOOR);
+}
+
 /// The structural near-root caps hold at any set size and any budget.
 ///
 /// The level under the root fans one scope into at most 256, and the next
