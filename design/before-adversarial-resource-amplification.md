@@ -2360,9 +2360,27 @@ change is warranted, and one algorithmic change is.
   non-normalized forms (even numerator with nonzero exponent; zero
   with nonzero exponent) so byte equality keeps implying value
   equality.
-- **Adjacent observation (unmeasured, wants its own probe)**: the
-  public `Sum` impls fold through a growing normalized accumulator;
-  one high-exponent rank plus n integers costs Θ(n·exp) against
-  Θ(n + exp) input content **[derived]** — curable inside `Sum` with
-  a raw accumulator and a single final normalization, no semantic
-  change.
+- **`Sum` fold amplification (probed 2026-07-23)**: the public
+  `Sum` impls fold through a growing normalized accumulator; one
+  high-exponent rank plus n integer ranks costs Θ(n·exp) limb work
+  against Θ(n + exp) input value content **[measured — scratch
+  probe, release, public API only (`dense(d)` rank `1/2^d` via
+  decode, integer-leaf ranks via `try_from`), n = 10k/20k/40k ×
+  exp = 250k/500k/1M: limb ops = 4·n·exp/64 exactly in every cell
+  (four full-width passes per element: accumulator shift, operand
+  shift, add, renormalization shift — the odd numerator means
+  normalization never narrows the accumulator), 625M limb ops /
+  0.19 s at n = 20k, exp = 500k against ~168k limbs of value
+  content (~3,700×); every sum value checked equal to a two-pass
+  reference]**. Order-dependence pins the mechanism: the same
+  multiset with the high-exp rank last costs 8n + 2·exp/64 (176k
+  limb ops, 0.3 ms — the accumulator widens only at the final add),
+  and `Sum` accepts arbitrary order. Curable inside `Sum` with a
+  raw accumulator and a single final normalization, no semantic
+  change: the cure shape measures 2·exp/64 independent of n (15.6k
+  limb ops at the largest cell, ~40,000× headroom) and returns the
+  identical `Rank`. The cure attaches to P3.6 alongside the rank
+  kernel and the class-first comparison; the §17.7 envelope list
+  gains a RANK_SUM_MIXED row (n integer ranks + one dense-derived
+  high-exp rank, high-first ordering) pinned at current cost ×1.25
+  before the cure and re-pinned after.
