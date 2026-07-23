@@ -629,7 +629,13 @@ fn skyline_decode_alt_spine_envelope() {
 // and per-input-byte limb work both stay flat (×1.25) across a size
 // doubling of `k = n`. A plain big-integer running height roughly doubles
 // its per-unit cost per doubling here (the `meter/tier2` plain-sweep pin),
-// so this is the row that separates the two representations.
+// so this is the row that separates the two representations — provided
+// the height state actually runs on the metered accumulator. The touch
+// column carries a liveness floor of one digit touch per delta (the
+// counterpart of the heap meter's canaries): an unmetered height
+// representation registers zero touches, and a flatness ratio over zeros
+// holds vacuously, so the floor is what makes the flatness column a
+// witness rather than a tautology.
 #[cfg(feature = "limb-meter")]
 mod skyline_flatness {
     use before::meter::{self, accum::touch_meter};
@@ -652,6 +658,14 @@ mod skyline_flatness {
 
     /// Validate the `k = n = scale` boundary comb's skyline stream and
     /// record both counters over the validation body alone.
+    ///
+    /// Enforces the touch-meter liveness floor before returning: every
+    /// delta code writes at least one accumulator digit, so a validator
+    /// whose height state runs on anything but the metered accumulator
+    /// (under which the flatness ratio holds vacuously at zero touches)
+    /// fails loudly here instead. The metered accumulator measures about
+    /// 1.6 touches per delta on this comb, so the one-touch floor is
+    /// comfortable.
     fn comb_run(scale: usize) -> Run {
         let packed = meter::cliff_comb(scale, scale);
         let v = before::Version::decode(&packed.bytes[..]).expect("comb is strict normal form");
@@ -659,13 +673,21 @@ mod skyline_flatness {
         touch_meter::reset();
         meter::reset_limb_ops();
         meter::skyline::validate(&enc.bytes, enc.bits).expect("the comb stream is canonical");
-        Run {
+        let run = Run {
             // 2n + 1 leaves: 2n delta codes follow the first leaf.
             deltas: 2 * scale as u64,
             bytes: enc.bytes.len() as u64,
             touches: touch_meter::touches(),
             limb_ops: meter::limb_ops(),
-        }
+        };
+        assert!(
+            run.touches >= run.deltas,
+            "skyline_comb scale {scale}: {} digit touches under the {}-delta floor: \
+             the validator's height state is not running on the metered accumulator",
+            run.touches,
+            run.deltas,
+        );
+        run
     }
 
     /// Assert one per-unit cost stays flat (×1.25) across the doubling.
@@ -689,6 +711,9 @@ mod skyline_flatness {
     /// The validator's per-delta accumulator touches and per-byte limb
     /// work stay flat across a `k = n` doubling of the boundary comb: the
     /// nonnegativity check is cliff-immune, achieved rather than promised.
+    ///
+    /// Each run also carries the one-touch-per-delta liveness floor (in
+    /// [`comb_run`]), so flatness is asserted over a meter proven live.
     #[test]
     fn skyline_validate_cliff_cost_is_flat_per_unit() {
         let small = comb_run(512);
