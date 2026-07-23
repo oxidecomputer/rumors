@@ -27,8 +27,11 @@ use crate::{
     },
 };
 
-/// The greeting exchanged after the fixed transport preamble: the sender's
-/// causal [`Version`] plus its root-fan listing.
+/// The greeting exchanged after the fixed transport preamble.
+///
+/// It carries everything a session must know about a sender before the
+/// descent — its causal position, its negotiation inputs, and its opening
+/// question's content; the fields below are the inventory.
 ///
 /// The listing is the same radix-keyed hash listing the initiator's opening
 /// [`Reaction::Query`] carries — and that is the point: the opening
@@ -63,10 +66,14 @@ pub struct Handshake {
     ///
     /// Every bound a session holds is either a bound one replica already
     /// materializes (covered by that side's aggregate alone) or a
-    /// join/meet of the two sides' surviving contributions, whose
-    /// encoding never exceeds its inputs' combined, so the exchanged
-    /// pair bounds worst-case version bytes per node — the second input
-    /// a budget-configured window prices nodes with.
+    /// join/meet of the two sides' contributions, whose encoding never
+    /// exceeds its inputs' combined (the pinned pairwise lemmas), so the
+    /// exchanged pair bounds worst-case version bytes per node — the
+    /// second input a budget-configured window prices nodes with. One
+    /// priced residual: deletion-honoring can prune a side's
+    /// contribution to a survivor subset whose recomputed bound neither
+    /// input materialized; the pair sum there is an envelope, pinned by
+    /// the census suite's reconciled-bound measurements.
     pub max_version_bytes: u64,
     /// The sender's supply-run byte target
     /// ([`Peer::target_message_size`](crate::Peer::target_message_size)).

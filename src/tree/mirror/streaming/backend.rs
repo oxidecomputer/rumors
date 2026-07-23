@@ -35,16 +35,19 @@ where
     /// beyond the replica's own storage, its version bounds (ceiling and
     /// floor together) encoding within `version_bound` bytes.
     ///
-    /// This prices the session window's in-flight references
+    /// This prices the session window's in-flight references and the
+    /// decode fan's buffered leaves
     /// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)):
     /// [`Local`]'s nodes are handles into a tree that is resident
     /// regardless, so its price is one pointer at every argument; a
     /// backend without an always-resident tree must charge everything its
     /// `Node` values own — at minimum the hash, the child table, and the
-    /// two version bounds its [`Node`] accessors return by reference.
-    /// Leaf payloads are deliberately out of scope: the wire already
-    /// bounds them through
-    /// [`target_message_size`](crate::Peer::target_message_size).
+    /// two version bounds its [`Node`] accessors return by reference. A
+    /// leaf is priced at `children = 0`: what its handle keeps resident
+    /// after [`Leaf::leaf`] has had its chance to persist the payload.
+    /// Payload bytes still in flight inside one wire message are priced
+    /// by [`target_message_size`](crate::Peer::target_message_size), not
+    /// here.
     ///
     /// The result must be an **upper bound**, monotone in both arguments
     /// — the derivation evaluates it at per-depth quantiles, and
@@ -92,7 +95,12 @@ where
     ///
     /// By default, this is implemented as a streaming recursive traversal of
     /// the node's children, but some backends may be able to obtain this more
-    /// efficiently.
+    /// efficiently. An override must preserve what the default guarantees —
+    /// the wire encoder enforces each by panic:
+    ///
+    /// - every yielded prefix extends the requested `prefix` (containment);
+    /// - prefixes are yielded in strictly ascending path order;
+    /// - a node yields at least one leaf (every node contains one).
     fn leaves<H: Convert>(
         self,
         prefix: Prefix<H>,
@@ -172,8 +180,38 @@ pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
     /// The message stored at this leaf node.
     fn message(&self) -> &Message<T>;
 
-    /// Construct a leaf node.
-    fn leaf(version: Version, message: Message<T>) -> Self;
+    /// Construct a leaf node from one decoded wire record, taking custody
+    /// of its payload.
+    ///
+    /// This is the backend's one opportunity to persist the message
+    /// before the leaf enters the decode fan: an eagerly persisting
+    /// backend writes the payload here and returns a thin handle, and a
+    /// backend that batches writes stages it in its own write-behind
+    /// buffer — memory the backend owns and must price through
+    /// [`Backend::node_bytes`] at `children = 0`, the shape the session
+    /// budget charges for every buffered leaf. [`Local`] keeps the
+    /// payload in the handle and completes immediately: its tree is
+    /// resident regardless, so custody costs it nothing new.
+    ///
+    /// # Errors
+    ///
+    /// A failed construction is a backend error and ends the session the
+    /// same way a failed [`Backend::parent`] does; the record it carried
+    /// is re-supplied by a later session.
+    ///
+    /// # Cancel safety
+    ///
+    /// A session dropped mid-decode drops this future with it. The
+    /// backend must tolerate the drop at any await point: a persisted
+    /// payload whose handle never surfaced must be either idempotently
+    /// re-persistable or garbage the backend can reclaim, because the
+    /// record will arrive again in a later session.
+    fn leaf(
+        version: Version,
+        message: Message<T>,
+    ) -> impl Future<Output = Result<Self, <Self::Backend as Backend<T>>::Error>> + Send
+    where
+        Self: Sized;
 }
 
 /// Type synonym for a fallible [`Stream`] of prefix-keyed nodes represented by
@@ -232,7 +270,12 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Root<B, T> {
     ///
     /// The root node's [`version_bytes`](Node::version_bytes) aggregate
     /// — leaf versions and every interior ceiling and floor — or zero
-    /// when empty.
+    /// when empty. The first read materializes it: every branch's
+    /// ceiling and floor memo is forced tree-wide, `O(#branches)` bound
+    /// joins, once per tree lineage — the memos are shared through the
+    /// node handles across snapshots, and a mutation invalidates only
+    /// its own spine. A fully converged pair pays this once, at
+    /// greeting time.
     pub(crate) fn max_version_bytes(&self) -> u64 {
         self.root
             .as_ref()

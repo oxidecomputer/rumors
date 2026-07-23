@@ -7,7 +7,7 @@ use proptest::{collection::btree_set, prelude::*, test_runner::TestCaseResult};
 
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Local,
+        Backend, Local,
         convert::Convert,
         message::{Reaction, Reply},
     },
@@ -92,7 +92,7 @@ trait AdapterHeight: Convert {
 
 impl AdapterHeight for Z {
     fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
-        <typed::Node<u64, Z> as Leaf<u64>>::leaf(leaf.version.clone(), leaf.message.clone())
+        typed::Node::leaf(leaf.version.clone(), leaf.message.clone())
     }
 
     fn supplied_leaf_is_lossless(
