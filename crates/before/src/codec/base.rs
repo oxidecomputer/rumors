@@ -218,12 +218,17 @@ impl Add<&Base> for &Base {
 
     fn add(self, rhs: &Base) -> Base {
         meter_limbs2(self, rhs);
+        // Every spilled arm allocates exactly the result: num-bigint adds a
+        // machine scalar or a borrowed `BigUint` to a borrowed `BigUint`
+        // without cloning either operand.
         match (self, rhs) {
             (Base::Small(a), Base::Small(b)) => a
                 .checked_add(*b)
                 .map(Base::Small)
                 .unwrap_or_else(|| Base::Big(BigUint::from(*a) + BigUint::from(*b))),
-            _ => Base::from_big(self.to_biguint() + rhs.to_biguint()),
+            (Base::Small(a), Base::Big(b)) => Base::from_big(b + *a),
+            (Base::Big(a), Base::Small(b)) => Base::from_big(a + *b),
+            (Base::Big(a), Base::Big(b)) => Base::from_big(a + b),
         }
     }
 }
@@ -300,7 +305,21 @@ impl Add<u64> for &Base {
 
 impl AddAssign<&Base> for Base {
     fn add_assign(&mut self, rhs: &Base) {
-        *self = &*self + rhs;
+        meter_limbs2(self, rhs);
+        match (&mut *self, rhs) {
+            (Base::Small(a), Base::Small(b)) => {
+                if let Some(n) = a.checked_add(*b) {
+                    *a = n;
+                } else {
+                    *self = Base::Big(BigUint::from(*a) + *b);
+                }
+            }
+            (Base::Small(a), Base::Big(b)) => *self = Base::from_big(b + *a),
+            // A `Big` is canonically past the `u64` range and addition only
+            // grows it, so accumulating in place cannot need a demotion.
+            (Base::Big(a), Base::Small(b)) => *a += *b,
+            (Base::Big(a), Base::Big(b)) => *a += b,
+        }
     }
 }
 

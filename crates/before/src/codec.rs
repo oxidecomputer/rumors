@@ -34,7 +34,12 @@ pub(crate) use gamma::{decode_int, decode_int_from, encode_int, skip_int};
 pub(crate) use gamma::decode_int_window;
 pub(crate) use literal::{ev_leaf, ev_node, id_is_empty, id_leaf, id_node};
 pub(crate) use text::{parse_clock_str, parse_ev_str, parse_id_str};
-pub(crate) use tree::{parse_ev, parse_ev_from, parse_id, parse_id_from, validate_ev, validate_id};
+pub(crate) use tree::{parse_ev, parse_id, validate_ev, validate_id};
+// The mid-stream parser entries are consumed only by the borsh wire format
+// (everything else parses whole streams); gating the re-export keeps default
+// builds warning-free for downstream consumers.
+#[cfg(feature = "borsh")]
+pub(crate) use tree::{parse_ev_from, parse_id_from};
 // Test-only: the spill tests (here and in `borsh_impls`) size their trees
 // relative to the inline capacity so they keep testing the heap spill if the
 // capacity is ever retuned.
