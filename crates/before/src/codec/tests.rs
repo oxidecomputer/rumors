@@ -46,7 +46,7 @@ proptest! {
     /// value built from many random `u64` limbs (well past `u64::MAX`) survives
     /// `decode_int ∘ encode_int` exactly and remains self-delimiting.
     #[test]
-    fn gamma_roundtrip_wide(limbs in proptest::collection::vec(any::<u64>(), 1..8)) {
+    fn gamma_roundtrip_wide(limbs in proptest::collection::vec(any::<u64>(), 1..40)) {
         let mut n = Base::ZERO;
         for limb in limbs {
             n = (n << 64) | Base::from(limb);
@@ -367,6 +367,43 @@ fn gamma_window_declines_conservatively() {
     // All zeros: no terminating 1 in the stream (bit loop: `Truncated`).
     let zeros = Bits::repeat(false, 70);
     assert_eq!(decode_int_window(&zeros, 0), None);
+}
+
+/// A gamma code wide enough to spill machine-word decoding round-trips
+/// exactly and remains self-delimiting (the whole mantissa is one spilled
+/// value, byte-unaligned on both ends).
+#[test]
+fn gamma_roundtrip_wide_value() {
+    // 2^1000 + 12345: a 1001-bit mantissa with live bits at both ends.
+    let n = (Base::from(1u8) << 1000u32) + 12345u64;
+    let mut bits = Bits::new();
+    encode_int(&mut bits, &n);
+    let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
+    assert_eq!(decoded, n);
+    assert_eq!(pos, bits.len());
+}
+
+/// A stream that ends anywhere inside a wide mantissa is `Truncated`: the
+/// wide-decode accept/reject boundary sits exactly at the declared code
+/// length, wherever the cut falls relative to byte alignment.
+#[test]
+fn gamma_truncated_inside_wide_mantissa() {
+    let n = (Base::from(1u8) << 1000u32) + 12345u64;
+    let mut bits = Bits::new();
+    encode_int(&mut bits, &n);
+    // Cuts inside the unary prefix, at the leading mantissa 1, just after
+    // it, at byte-scale offsets into the mantissa, and one bit short.
+    for cut in [1, 500, 1001, 1002, 1009, 1500, bits.len() - 1] {
+        let truncated = &bits[..cut];
+        assert!(
+            matches!(decode_int(truncated, 0), Err(Decode::Truncated)),
+            "cut at bit {cut} must report Truncated",
+        );
+    }
+    // The full code still decodes: the cuts, not the value, are the failure.
+    let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
+    assert_eq!(decoded, n);
+    assert_eq!(pos, bits.len());
 }
 
 // ───────────────────────── decode∘encode round-trip ─────────────────────────

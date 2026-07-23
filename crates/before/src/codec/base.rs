@@ -11,9 +11,10 @@ use num_bigint::BigUint;
 /// visits no extra nodes a step counter would see — the work is wider, not
 /// more frequent. The proxy counted here is the operands' 64-bit limb counts
 /// per arithmetic operation (every operation below records before it runs,
-/// and the wide-gamma accumulation in `codec::gamma` records each step), so
-/// amortized-linear algorithms count linearly in packed input bits and
-/// magnitude-quadratic ones count quadratically. Relaxed ordering suffices:
+/// and the wide-gamma decode in `codec::gamma` records one value-width count
+/// per decoded value), so amortized-linear algorithms count linearly in
+/// packed input bits and magnitude-quadratic ones count quadratically.
+/// Relaxed ordering suffices:
 /// the metering binaries run one scenario per process and read the counter
 /// only after the metered call returns.
 #[cfg(feature = "limb-meter")]
@@ -27,7 +28,7 @@ pub(crate) mod limb_meter {
         LIMB_OPS.fetch_add(n, Ordering::Relaxed);
     }
 
-    /// Record one accumulation step on a raw `BigUint` working value.
+    /// Record the limb width of a raw `BigUint` working value.
     pub(crate) fn record_biguint(n: &num_bigint::BigUint) {
         record(n.bits().div_ceil(64).max(1));
     }

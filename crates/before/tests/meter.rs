@@ -59,10 +59,9 @@ const BIGROOT_MAGNITUDE_BITS: usize = 40_000;
 /// Spine depth of the bigroot scenarios.
 const BIGROOT_DEPTH: usize = 10_000;
 
-/// Leaf magnitude (bits) of the hugeleaf scenarios: sized so the current
-/// magnitude-quadratic decode stays well under a second under the dev
-/// profile (the limb column pins that quadratic count, so the size caps the
-/// whole suite's wall time).
+/// Leaf magnitude (bits) of the hugeleaf scenarios: one gamma code as wide
+/// as the whole input, the shape where any cost superlinear in a single
+/// code's width shows up undiluted.
 const HUGELEAF_MAGNITUDE_BITS: usize = 125_000;
 
 /// Depth of the id spine `I(d, divert)` pair scenarios.
@@ -98,7 +97,9 @@ const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64) -> Envelope {
 // The envelope table: pinned ceiling = measured ×1.25, rounded up. The
 // trailing comment on each line is the measurement of record (2026-07-22,
 // aarch64-apple-darwin, dev profile, three identical runs) the ceiling
-// derives from. Re-pin by rerunning this binary under `--no-capture` and
+// derives from; a row re-pinned after an improvement records the movement
+// as `old -> new` with the re-pin date, and its ceiling derives from the
+// new value. Re-pin by rerunning this binary under `--no-capture` and
 // reading the MEASURED lines (the limb column needs `--all-features` or
 // `--features limb-meter`).
 #[rustfmt::skip]
@@ -109,11 +110,11 @@ mod envelope {
     pub const CMP_DENSE: Envelope       = envelope(        10,      240,     2_500_013); //          8, 192,   2_000_010
     pub const JOIN_DENSE: Envelope      = envelope( 7_617_320,      300,     3_437_510); //  6_093_856, 240,   2_750_008
     pub const TICK_DENSE: Envelope      = envelope(15_444_374,      165,     1_250_005); // 12_355_499, 132,   1_000_004
-    pub const DECODE_BIGROOT: Envelope  = envelope( 1_749_312,        0,    15_650_000); //  1_399_449,   0,  12_520_000
-    pub const CMP_BIGROOT: Envelope     = envelope(62_535_290,       15,    62_657_055); // 50_028_232,  12,  50_125_644
-    pub const JOIN_BIGROOT: Envelope    = envelope(64_394_798,       20,   125_188_308); // 51_515_838,  16, 100_150_646
-    pub const DECODE_HUGELEAF: Envelope = envelope(    69_784,        0,   152_666_020); //     55_827,   0, 122_132_816
-    pub const JOIN_HUGELEAF: Envelope   = envelope( 3_909_207,        0,   152_673_354); //  3_127_365,   0, 122_138_683
+    pub const DECODE_BIGROOT: Envelope  = envelope( 1_745_332,        0,           783); //  1_399_449 -> 1_396_265, 0, 12_520_000 -> 626 (2026-07-23, limb-wise wide-gamma decode)
+    pub const CMP_BIGROOT: Envelope     = envelope(62_531_310,       15,    47_007_838); // 50_028_232 -> 50_025_048, 12, 50_125_644 -> 37_606_270 (2026-07-23, limb-wise wide-gamma decode)
+    pub const JOIN_BIGROOT: Envelope    = envelope(64_390_818,       20,   109_539_090); // 51_515_838 -> 51_512_654, 16, 100_150_646 -> 87_631_272 (2026-07-23, limb-wise wide-gamma decode)
+    pub const DECODE_HUGELEAF: Envelope = envelope(    58_604,        0,         2_443); //     55_827 -> 46_883, 0, 122_132_816 -> 1_954 (2026-07-23, limb-wise wide-gamma decode)
+    pub const JOIN_HUGELEAF: Envelope   = envelope( 3_909_207,        0,         9_777); //  3_127_365, 0, 122_138_683 -> 7_821 (2026-07-23, limb-wise wide-gamma decode)
     pub const ID_JOIN: Envelope         = envelope(   156_252,      253,             0); //    125_001, 202,           0
     pub const ID_COVERS: Envelope       = envelope(         0,      107,             0); //          0,  85,           0
     pub const ID_DISJOINT: Envelope     = envelope(         0,      213,             0); //          0, 170,           0
@@ -284,9 +285,8 @@ fn join_bigroot_envelope() {
 // ─── hugeleaf scenarios ─────────────────────────────────────────────────────
 
 /// Decoding hugeleaf stays within its envelope (one gamma code as wide as
-/// the whole input; the bit-at-a-time accumulation is magnitude-quadratic
-/// today — the limb column pins that count, and its size bounds the
-/// scenario's wall time).
+/// the whole input; the limb column pins the wide decode's linear limb
+/// work, so a magnitude-superlinear regression fails this row first).
 #[test]
 fn decode_hugeleaf_envelope() {
     let p = meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS);
@@ -301,8 +301,8 @@ fn decode_hugeleaf_envelope() {
 
 /// Joining hugeleaf with a one-tick version stays within its envelope (the
 /// builder's capacity today scales with the operand bit length, not the
-/// result; the limb column matches decode's, because reading the stored
-/// spilled base runs the same quadratic bit-at-a-time accumulation).
+/// result; the limb column tracks decode's, because reading the stored
+/// spilled base runs the same linear wide-gamma decode).
 #[test]
 fn join_hugeleaf_envelope() {
     let p = meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS);

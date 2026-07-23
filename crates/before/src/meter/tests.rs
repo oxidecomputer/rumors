@@ -96,7 +96,7 @@ fn stack_segment_meter_counts_deterministically_and_resets() {
 #[test]
 fn limb_meter_counts_deterministically_and_resets() {
     // Wide-gamma decode is the arithmetic-width worst case: the whole input
-    // is one code, so every accumulation step is limb-scale work.
+    // is one code, so the decoded value's width is the input's bit length.
     let count_decode = |b: usize| {
         let p = hugeleaf(b);
         super::reset_limb_ops();
