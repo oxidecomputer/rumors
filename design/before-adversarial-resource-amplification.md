@@ -1165,11 +1165,13 @@ planning probes — accumulator, radix, grow-iterativization,
 display/denomination, migration — each run as an independent
 executable probe against the worktree and each returning
 **promising-with-conditions**; none negative. This section is the
-dependency-ordered path from today's board (96 green / 62 red
-**[measured** — re-run at this section's writing, matching the P2
-record**]**) to all green with strictly-improved performance, under
-Tier 2. It is an input to the §12 DECIDED entry, which remains open
-and is not written here; nothing below is a decision record.
+dependency-ordered path from today's board (96 green / 62 red at
+the default scale **[measured** — re-run at this section's writing,
+matching the P2 record**]**; the record-scale red set is strictly
+larger — §17.3) to all green with strictly-improved performance,
+under Tier 2. It is an input to the §12 DECIDED entry, which
+remains open and is not written here; nothing below is a decision
+record.
 
 ### 17.1 Honesty preamble: conditions, and who discharges them
 
@@ -1191,14 +1193,24 @@ them plainly:
   the capacity arithmetic consumes greeting-exchanged version sizes
   dynamically, so a constant-factor lemma re-denominates rather
   than breaks) happens before C2, and if no bounded form exists the
-  Tier 2 decision itself reopens.
+  Tier 2 decision itself reopens. Resolution policy (the user's
+  ruling, 2026-07-23): the existing bound stays unless the probe
+  *falsifies* it — no preemptive replacement. On falsification
+  only, the replacement is a different estimate function that is
+  both proptested over the adversarial families and analytically
+  validated — a written derivation of the new bound, not an
+  empirical fit — and the reroute is recorded in this plan as
+  exactly that.
 - **Gate B — the user's §12(b) acceptance and two criterion
   ratifications.** The §10.5 identity/persistence blast radius (the
   `Key` migration story is explicitly out of scope for the swap);
   the P3.3 text-I/O denomination amendment (a contract-statement
-  change — harder, not softer, but the user ratifies it, not this
-  plan); and a recorded blanket sign-off for C2's mechanical byte
-  re-pins (prose and figures stay under per-item sign-off at P5).
+  change — harder, not softer, an arithmetic claim P3.3 now carries
+  the numbers for rather than asserting: the pinned limb constant
+  is one the current schoolbook parser measurably exceeds — but the
+  user ratifies it, not this plan); and a recorded blanket
+  sign-off for C2's mechanical byte re-pins (prose and figures
+  stay under per-item sign-off at P5).
 - **Gate C — external timing.** C0 rebases onto main after
   `link-transport` merges (the §14 gate-roster escalation's
   resolution of record). C1 work items are pure additions and can
@@ -1222,13 +1234,20 @@ mitigation known not to suffice.
 
 Two denomination honesty notes carried from the probes, so green is
 never misread: binary↔decimal conversion is inherently superlinear
-in wall time (Θ(M(n)·log n)); the text rows' limb column goes green
+in wall time (Θ(M(n)·log n)); the text rows' limb column is judged
 against the radix-work denominator `R` (P3.3), not against wall
-time, and the criterion says so explicitly. And the board's
+time, and the criterion says so explicitly — and (amended
+2026-07-23, plan adversarial review) it goes green only at P3.3's
+pinned constant, which the current schoolbook parser exceeds ~4×,
+so green on those cells arrives with P3.8's converter (an item the
+same day's text-deprioritization ruling resequences to the P4
+tail), never with the re-denomination alone. And the board's
 default-scale run under-detects segment amplifiers (the ~1 MiB
 growth threshold — the §13 caveat of record); acceptance therefore
 runs at a pinned record scale (P3.4) at which the known amplifiers
-were demonstrably red.
+were demonstrably red — a scale at which the red set is strictly
+larger than the default board's: eleven default-green cells read
+red at a ×4 witness run, each assigned an owning item in §17.3.
 
 ### 17.2 Work items
 
@@ -1236,7 +1255,11 @@ Each item states: what / where / kills (board cells and enforced
 envelope rows) / acceptance / risk → retirement / dependencies.
 Kill lists name the item whose *mechanism* retires the cell; every
 kill on a version path is *realized* at C2 (P3.9, when public
-operations route to the new code) and *verified* at C3 (P3.10).
+operations route to the new code) and *verified* at C3 (P3.10) —
+with two recorded exceptions: the text cells' realization moves
+with their item to the P4 tail (the user's 2026-07-23
+deprioritization ruling, recorded at P3.8), and the record-scale
+id cells are realized at P4.1.
 Riskiest-first within dependency ties: the accumulator and codec
 core precede everything built on them.
 
@@ -1286,9 +1309,17 @@ alternating-binary spine (P3.7's frame-count adversary). And the
 dated re-amendment to §8.1 and §10.6: the two-zone representation
 is refuted as recorded in §17.1; this form is the representation of
 record for Tier 2's sweeps and for the eventual difference-tracked
-compare under any tier. *Where*: new module (proposed
+compare under any tier. Same item, carved out of the text work by
+the 2026-07-23 deprioritization ruling because it is a one-line
+dependency floor that fixes `Display`'s complexity class by
+itself: raise the `num-bigint` floor to ≥ 0.4.8 in `Cargo.toml`,
+not just the lockfile (0.4.7 ships divide-and-conquer
+`to_radix_digits`; 0.4.8 fixes its Burnikel–Ziegler regression;
+the workspace lock currently resolves 0.4.6, whose `to_string` is
+measured quadratic). *Where*: new module (proposed
 `src/version/skyline/accum.rs`); generators in `src/meter.rs`;
-envelopes in `tests/meter.rs`; amendments in this document.
+envelopes in `tests/meter.rs`; `Cargo.toml` (the floor);
+amendments in this document.
 *Kills*: no cells (foundation for P3.5–P3.8). *Acceptance*:
 exact-value differential proptest against a `BigInt` oracle with
 sign compared every step and periodic snapshots; limb-meter
@@ -1312,9 +1343,35 @@ ceiling unchanged: heap exponent ≤ 1.15, ≤ 16 B per I/O byte over
 the flat allowance, segments ≤ 1. The limb column on those rows is
 judged against the radix-work denominator
 `R = n_io + Σ (digitsᵢ × limbsᵢ)` over rendered/parsed values — the
-derived cost law of binary↔decimal conversion — with the text codec
-routing all radix arithmetic through one shared, limb-metered
-chunked converter so `R` is observed, not assumed. An
+derived cost law of *schoolbook* binary↔decimal conversion — with
+the text codec routing all radix arithmetic through one shared,
+limb-metered chunked converter so `R` is observed, not assumed,
+and with the ceiling PINNED at the divide-and-conquer target: limb
+≤ κ = 0.25 per `R` unit, replacing the 128-per-input-byte board
+ceiling on these rows (κ is provisional — set 4× under the
+measured schoolbook ratio and ~4× over the probe-extrapolated D&C
+ratio at the default hugeleaf scale **[derived]** — re-pinned from
+the observed meter when P3.8 lands, and verified at record scale
+before enforcement). Amended 2026-07-23 (plan adversarial review):
+the pinned κ is load-bearing, because a bare `R` re-denomination
+under the old ceiling is *softer*, not harder, on four cells.
+`version_from_str`/`clock_from_str` × {bigroot, hugeleaf} are red
+today only on limb-vs-input, at exactly the schoolbook law:
+hugeleaf, limb exponent 1.99 at 503 limb/B × 9633 B ≈ 4.85M limbs
+against an `R` term ≈ 9633 digits × 500 limbs ≈ 4.8M, ratio
+≈ 1.01; bigroot, exponent 1.92 at 34.6 limb/B × 36 825 B ≈ 1.27M
+against ≈ 1.2M, ratio ≈ 1.06 **[measured** — board, re-run this
+round**]**. Because `R` *is* the schoolbook cost law,
+re-denomination alone flips all four green with zero code change,
+and the exponent leg is toothless there by construction
+(schoolbook's limb count grows exactly as `R`, so its exponent
+against `R` reads a flat ~1.0). The pinned constant is the
+discriminator the exponent cannot be: schoolbook's ratio ≈ 1.0
+exceeds κ by ~4× at every scale, so the current parser cannot pass
+the amended criterion, and these four cells go green only when
+P3.8 (at the P4 tail) lands the D&C parse (measured exponent
+~1.05–1.1 with a small constant). The harder-not-softer statement
+Gate B ratifies is this arithmetic, not an assertion. An
 output-honesty assertion (`text_bytes ≤ C · content_bits`) plus the
 round-trip and snapshot pins close the pad-the-output door. Why
 harder, not softer: the input-only criterion is unsatisfiable by
@@ -1343,12 +1400,17 @@ operand cross — add the cell with an explicit denomination
 decision, or record why the family set excludes it. *Where*: §6/§13
 amendments; `src/meter/board.rs` (denominator plumbing);
 `src/meter/tier2` (Lipschitz pin). *Kills*: none directly — it is
-the criterion under which P3.8's ten cells are judged; landing it
-first is the spec-first practice. *Acceptance*: board renders the
+the criterion under which P3.8's fourteen cells (ten at the
+default scale) are judged; landing it first is the spec-first
+practice. *Acceptance*: board renders the
 new denominators; the current (recursive, unmetered) text paths
-still read red under the new criterion — the hardening flips
+still read red under the new criterion — the four limb-only
+`FromStr` cells because schoolbook's ≈ 1.0 limb/`R` exceeds κ, the
+rest on their unchanged segment/heap legs — so the hardening flips
 nothing by itself except the re-denominated mandatory-output heap
-constants it exists to state honestly. *Risk*: criterion drift
+constants it exists to state honestly; a criterion under which the
+pre-P3.8 parser reads green anywhere is a bug in this item.
+*Risk*: criterion drift
 reads as grading-to-pass → retired by Gate B (the user ratifies the
 amendment with the GO) and by the ceilings staying numerically
 identical. *Deps*: none; must precede P3.8 acceptance.
@@ -1361,13 +1423,19 @@ class was red under pre-fix code — calibrated against the P0
 baseline mechanisms, with the segment meter's ~1 MiB growth
 threshold as the sizing driver (P1's id walks read green at board
 defaults while red at meter-suite depths; onset-above-default false
-greens must not be able to pass acceptance). Campaign acceptance
+greens must not be able to pass acceptance). The ×4 witness run
+(§17.3) is the calibration floor: eleven default-green cells read
+red there, every one segment-onset; the pinned scale sits at or
+above it, the baseline red enumeration is re-witnessed at the
+pinned scale, and any cells beyond §17.3's eleven are assigned
+owning items by dated amendment. Campaign acceptance
 becomes: all green at BOTH the default scale (inner loop) and the
 record scale, three identical runs. *Where*: `src/meter/board.rs`,
 `examples/amp_board.rs`, `justfile`, §13 amendment. *Kills*: none
 (prevents false acceptance). *Acceptance*: the calibration table —
 per family, the scale at which each historically-red mechanism
-first reads red — recorded in the §13 amendment; record-scale
+first reads red — recorded in the §13 amendment, together with the
+record-scale baseline red enumeration; record-scale
 runtime stays within a documented per-family seconds budget (the
 comb text cells' mandatory Θ(W²) output wall time bounds the comb's
 record size; the enforced record remains `tests/meter.rs`
@@ -1424,13 +1492,22 @@ with the alternating-protocol oracle as the behavioral
 differential; materialization stays bounded by the switch's own
 input+output codes **[measured** — probe: 3.5 limbs/switch flat at
 any `2^k` altitude when |D| = 1; 0.126 → 0.125 limbs per
-input+output code byte when |D| = 2^(k−1)**]**. Same item: extend
-`benches/` to full sweep-path coverage per §14's bench constraint
-and capture before-numbers at the pre-flip tip, so C3 can report
-required before/after deltas. *Where*: proposed
+input+output code byte when |D| = 2^(k−1)**]**. Same item, the §14
+bench constraint discharged in full: extend `benches/` to full
+operation-surface coverage — every public operation over
+representative and adversarial shapes, bench IDs mirroring the
+board's op names so a board cell names its bench — with a justfile
+recipe for targeted single-operation runs (`just bench <target>
+<filter>`, criterion filter passthrough) and a documented
+reduced-sampling quick mode (criterion `--sample-size` /
+`--measurement-time` flags) for agent iteration, full sampling
+required for any number of record; before-numbers captured at the
+pre-flip tip, so C3 can report required before/after deltas.
+*Where*: proposed
 `src/version/skyline/sweep.rs` and kernels;
-`party/ops/build.rs` unification; `benches/`. *Kills* (realized at
-C2), 45 cells:
+`party/ops/build.rs` unification; `benches/`; `justfile`. *Kills*
+(realized at C2), 45 default-scale cells plus 2 record-scale cells
+(§17.3):
 comparison reads ×8 — `version_cmp × {dense, bigroot}`,
 `version_eq × {dense, bigroot}`,
 `version_concurrent × {dense, bigroot}`,
@@ -1448,7 +1525,11 @@ emit paths ×31 — `version_join × {dense, bigroot}`,
 `clock_recv × {dense, bigroot, benign}`;
 projection ×5 — `version_project × id-pair`,
 `clock_own_version × {dense, bigroot, id-pair, benign}`;
-rank ×1 — `version_rank × dense`.
+rank ×1 — `version_rank × dense`;
+record scale ×2 — `version_rank × bigroot` (segments 6 at the ×4
+witness) and `version_min_ticks × dense` (segments 24): event-walk
+recursion frames above the default segment onset, retired by the
+same iterative sweeps **[measured** — ×4 witness run**]**.
 *Acceptance*: differential proptests against both reference oracles
 (recursive tree oracle and function-space oracle) over all families
 per the §14 full-surface-measurability constraint; kernel-level
@@ -1459,6 +1540,28 @@ direction rather than panicking) → retired by the oracle
 differentials over comb/wide-tooth/fan plus pointwise-max/min
 verification at every emitted boundary in the proptest harness.
 *Deps*: P3.2, P3.5.
+
+**P3.6b — the full-surface dual-oracle coverage audit.**
+*What* (added 2026-07-23, discharging the §14 full-surface
+measurability constraint as a work item rather than a hope): every
+public operation — the §13 board's op enumeration is the checklist
+— proptested against BOTH reference oracles, the recursive tree
+oracle and the semantic (function-space) oracle; and the sweep
+kernels additionally differential-tested against the OLD
+implementation as a third reference for as long as it exists (C1
+only — C2 deletes it, and coverage re-anchors on `oracle.rs`). The
+audit itself is a recorded enumeration: for each public operation,
+which oracles cover it and which board row or enforced
+`tests/meter.rs` envelope pins its resources; any operation
+lacking either reference or a pin is a coverage finding, fixed in
+the phase that finds it per the §14 constraint. *Where*:
+`src/testing/` proptest suites; the audit enumeration in this
+document's landed entry. *Kills*: none (coverage, not mechanism).
+*Acceptance*: the audit's gap list is empty — and stays empty:
+re-running it with an empty result is a P5.5 acceptance clause.
+*Deps*: P3.6 (the kernels exist to be tested); the first full pass
+runs before C2, while the third-reference differentials are still
+possible.
 
 **P3.7 — C1c: grow — iterative bit-packed probe + splice emit.**
 *What*: replace `ProbeWalk::rec` with one loop over the two cursors
@@ -1500,8 +1603,16 @@ bit-for-bit `Route` assertion during development. *Deps*: P3.5
 (topology cursor), P3.6 (builder for the emit), P3.2 (boundary
 repair arithmetic).
 
-**P3.8 — C1d: text — sweep writers/parsers and the shared radix
-core.**
+**P3.8 — text: sweep writers/parsers and the shared radix core
+(resequenced to the P4 tail).**
+Resequenced 2026-07-23 by the user's ruling: `Display`/`FromStr`
+are debugging surfaces, not interoperation — prioritized below
+everything else, though hardening them remains wanted. The item
+moves from C1 to the tail of P4 (after P4.2), stays inside P5.5's
+all-green acceptance (the campaign still ends all green; text is
+last in line), and leaves the DECIDED entry's critical path
+entirely — C2 flips text as a correctness-only port (P3.9) and
+this item hardens it afterward.
 *What*, three parts. (a) **Display**: two-pass iterative writer.
 Pass 1 (finalize): forward sweep with a ~2 b/level topology stack,
 the running height in the P3.2 accumulator, a pending-min spine
@@ -1519,8 +1630,17 @@ Version/Party/Clock (party is the degenerate no-value
 instantiation; clock is composition). PRECONDITION, probe-first:
 an executable pin of the offset-coded pending-min stack's
 O(input + depth) coded-size bound — a new Euler-charging-genre
-derivation — over the §2 families + comb + `arbitrary`, before the
-DECIDED entry leans on it. (b) **FromStr**: iterative parse;
+derivation — over the §2 families + comb + `arbitrary`, before any
+of this item's writer work builds on it (the resequencing takes
+the bound off the DECIDED entry's critical path — the flag day no
+longer waits on any text design — so the probe runs first *within*
+this item, not earlier in the campaign). Its fallback is named
+now: if the bound fails, printed bases come from a two-pass
+derivation — a bounded second forward sweep recomputes each node's
+pending min at its close, in place of any spine stack holding it —
+costing one extra pass over the input, retaining only the
+~2 b/level topology stack, ceilings unchanged. (b) **FromStr**:
+iterative parse;
 per-level retained bases (≤ input by definition); running path sum
 add-on-descend / subtract-on-ascend on the accumulator (each base
 charged ≤ 2×); per-leaf delta accumulator; canonicality =
@@ -1532,28 +1652,35 @@ power-of-two digit blocks, squared-power-of-10 ladder, 64-digit
 leaf threshold; recursion depth log₂(digits), no `descend!`)
 replacing the schoolbook `parse_base` **[measured** — radix probe:
 doubling ratio ~2.7 (exponent ~1.44), exact against the oracle at
-every scale, 48× faster than schoolbook at 158k digits**]**; and
-the `num-bigint` floor raised to ≥ 0.4.8 in `Cargo.toml`, not just
-the lockfile (0.4.7 ships divide-and-conquer `to_radix_digits`;
-0.4.8 fixes its Burnikel–Ziegler regression; the workspace lock
-currently resolves 0.4.6, whose `to_string` is measured quadratic)
-— with a limb recording in the big `Display` arm (or a wall-ratio
-canary) because the board is structurally blind to a Display-class
+every scale, 48× faster than schoolbook at 158k digits**]** (the
+`num-bigint` ≥ 0.4.8 floor is carved out to P3.2 — a free
+dependency line that fixes `Display`'s complexity class well ahead
+of this item) — with a limb recording in the big `Display` arm
+(or a wall-ratio canary) because the board is structurally blind to a Display-class
 wall regression. The derived board-band exponent for the D&C parse
 (~1.05–1.1 against the recording scheme) is verified through the
 actual limb meter at record scale before pinning — the margin to
 1.15 is real but not huge and the log factor creeps with scale.
 *Where*: `src/codec/{display,text,base}.rs` reworked into the
-skyline text module; `Cargo.toml`. *Kills* (realized at C2, judged
-under P3.3's criterion), 10 cells: `version_display × dense`,
+skyline text module. *Kills* (realized when this item lands — the
+recorded exception to the realized-at-C2 convention, since the
+item now follows C2 — judged under P3.3's criterion), 10
+default-scale cells: `version_display × dense`,
 `clock_display × dense`, `party_display × id-pair`,
 `clock_display × id-pair`, `version_from_str × {dense, bigroot,
-hugeleaf}`, `clock_from_str × {dense, bigroot, hugeleaf}`.
+hugeleaf}`, `clock_from_str × {dense, bigroot, hugeleaf}`; plus 4
+record-scale cells (§17.3, all segment-onset at the ×4 witness):
+`version_display × bigroot` and `clock_display × bigroot` (writer
+recursion, segments 14) and `party_from_str × id-pair` and
+`clock_from_str × id-pair` (parser recursion, segments 48) —
+retired by the same iterative writer and parser **[measured** — ×4
+witness run**]**.
 *Acceptance*: round-trip pins (parse∘display = id, display∘parse =
 canonical text, strict `NotCanonical` rejection); the
 output-honesty assertion; the pending-min probe pin; segments 0 on
-all ten cells; heap ≤ ceiling per I/O byte; limb exponent ≤ 1.15
-against `R` at record scale. *Risk*: (1) the pending-min bound is
+all fourteen cells at both scales; heap ≤ ceiling per I/O byte;
+limb ≤ κ per `R` unit (P3.3's pinned constant) with exponent
+≤ 1.15 at record scale. *Risk*: (1) the pending-min bound is
 unproven → retired by its probe, scheduled first within the item;
 (2) bigroot `FromStr` may carry a second superlinear path
 (path-sum accumulation of big bases, the V3 read-quadratic genre) —
@@ -1561,12 +1688,18 @@ the accumulator-based path sum is designed to absorb it; any
 residue after the swap belongs to the sweeps and is re-measured
 end-to-end here; (3) leading-zero runs / threshold crossings in the
 D&C parse → edge and prop tests at productization. *Deps*: P3.2,
-P3.3, P3.5.
+P3.3, and P3.9 (it hardens the post-flip skyline text module);
+scheduled after P4.2, and nothing waits on it except P5's
+closeout.
 
 **P3.9 — C2: the flag day (one commit).**
 *What*: flip `Version`'s storage to skyline bits; route every
-algorithm to the P3.5–P3.8 implementations; serde/borsh/encode/
-decode emit skyline bytes; `Display`/`FromStr` swap; and in the
+algorithm to the P3.5–P3.7 implementations; serde/borsh/encode/
+decode emit skyline bytes; `Display`/`FromStr` swap to a
+correctness-only port over the skyline form — the simplest
+`descend!`-routed walk, behavior-preserving on the text bytes; its
+board cells stay red, owned by the P4-tail P3.8 (the 2026-07-23
+ruling); and in the
 same commit delete `WorkingVersion`, the event `Builder`,
 `EvReader`'s form split and `Zero` broadcast, the deferred leaf,
 and the old event codec — deferred deletion is impossible
@@ -1594,7 +1727,10 @@ verified against every import and call site**]**. Blast radius:
 ~3.6k `before` source lines in scope, of which C1 pre-lands the
 novel logic, so C2 itself is rewiring + deletion + ~70 mechanical
 artifact files. *Where*: as enumerated. *Kills*: none of its own —
-it realizes P3.5 (4) + P3.6 (45) + P3.7 (3) + P3.8 (10) = 62.
+it realizes P3.5 (4) + P3.6 (47) + P3.7 (3) = 54 of the
+record-scale red set, 52 of the 62 default-scale reds; the text
+cells (P3.8's ten default-scale, fourteen at record scale) are
+realized when the P4-tail item lands, and P4.1's five at P4.1.
 *Acceptance*: `just gate` green at the single commit; a dedicated
 review pass confirming every snapshot diff is bytes-only;
 oracle/small-scope/algebraic suites green; `cargo-insta`/`insta`
@@ -1602,12 +1738,16 @@ version-skew compatibility verified before relying on the bulk
 accept. *Risk*: one large commit → retired by maximal C1
 front-loading and the review pass; Gate B's sign-offs are recorded
 *before* this commit (the DECIDED entry precedes C2 by
-definition). *Deps*: P3.1–P3.8, Gate A GO, Gate B, the user's
-DECIDED entry.
+definition). *Deps*: P3.1–P3.7 (P3.8 deferred to the P4 tail),
+Gate A GO, Gate B, the user's DECIDED entry.
 
 **P3.10 — C3: board and envelope re-pin; bench deltas.**
-*What*: board re-run at default and record scale — all 62
-previously-red cells green — and every event-side envelope in
+*What*: board re-run at default and record scale — the 54
+C2-realized cells green at both scales (52 of the 62 default-scale
+reds), the remaining reds enumerated as expected with named
+owners: the text cells (ten at default, fourteen at record scale;
+the P4-tail P3.8) and the five record-scale id cells (P4.1) — and
+every event-side envelope in
 `tests/meter.rs` tightened downward in this commit to the
 sweep-earned constants (§14's rule: thresholds tighten in the
 commit that earns them). Bench after-numbers against P3.6's
@@ -1630,20 +1770,29 @@ designed; the cell's owning item reopens. *Deps*: P3.9, P3.4.
 iteration (cursor positions + 2–3 bits/frame; `complement` is
 already iterative from T0.3). The id side is untouched by Tier 2;
 this is the remaining P1 exposure. *Where*:
-`party/ops/{sum,compare}.rs`. *Kills* (enforced envelope rows —
-the board reads green at default depths per the §13 segment-onset
-caveat; the meter suite's d = 250k scenarios are the record):
+`party/ops/{sum,compare}.rs`. *Kills* — five record-scale board
+cells (the board reads green at default depths per the §13
+segment-onset caveat and red at record scale, all on segments at
+the ×4 witness): `party_join`/`party_covers`/`party_disjoint` ×
+id-pair (segments 60/24/48 at ×4; 202/85/170 at the meter suite's
+d = 250k scenarios, which remain the record) and
+`clock_join`/`clock_sync` × id-pair (segments 60 each at ×4 —
+both route the id side through the same recursive `sum` walk)
+**[measured** — ×4 witness run; envelope numbers from
+`tests/meter.rs`**]** — plus the enforced envelope rows:
 `ID_JOIN` (segments 202 → 0), `ID_COVERS` (85 → 0), `ID_DISJOINT`
 (170 → 0). *Acceptance*: `tests/meter.rs` re-pins segments to 0;
-the party differential and algebraic suites unchanged. *Risk*: low
+the five board cells green at the record scale; the party
+differential and algebraic suites unchanged. *Risk*: low
 (mechanical; id frames carry no values) → existing proptests.
 *Deps*: none hard (scheduled P4 to keep P3 single-purpose).
 
 **P4.2 — residual recursion and word-scale scanning.**
 *What*: audit every remaining `recurse::descend!` site after C2
-(expected survivors: test-only walks and any parser the flip did
-not subsume; the documented iterative exceptions stay); convert
-survivors per §8.3; apply §11.4's word-at-a-time subtree skip
+(expected survivors: test-only walks, the C2 correctness-port text
+walks — owned by the P4-tail P3.8, not converted here — and the
+documented iterative exceptions, which stay); convert the
+remaining survivors per §8.3; apply §11.4's word-at-a-time subtree skip
 (popcount pending-counter delta with mid-word zero-crossing exit)
 to `idbits` and the Tier 2 topology stream where `benches/` says it
 pays. *Where*: `src/recurse.rs` call sites; `src/idbits.rs`.
@@ -1656,7 +1805,8 @@ recorded; benches. *Deps*: P3.9, P4.1.
 segments went to 0 at T0.3, its heap constant finalizes here) and
 the P3.2-born families — and every board ceiling to final
 constants, at the record scale, three identical runs. *Kills*
-(enforced envelope row): `ID_WITHOUT` final ratchet. *Deps*: P4.*.
+(enforced envelope row): `ID_WITHOUT` final ratchet. *Deps*: P4.*
+including the P4-tail P3.8.
 
 **P5.2 — proportional fuzz cap.**
 *What*: the §13 fuzz item — counting-allocator harness with a hard
@@ -1671,7 +1821,8 @@ dependency; re-denominate `clock::tests::deep_tree_stack_safety`
 (the depth-100k proof becomes a plain deep-input test of the
 iterative walks) and update the crate's AGENTS.md hard rule in the
 same change. If any site must stay recursive, record which and why.
-*Deps*: P4.2.
+*Deps*: P4.2 and the P4-tail P3.8 (the text walks are the last
+library-path recursion scheduled to convert).
 
 **P5.4 — documentation closeout (user sign-off, per the process
 constraint of record).**
@@ -1694,47 +1845,102 @@ everything prior.
 targets, viz bundle); the board all green at default and record
 scale, three identical runs; the bench before/after table of
 record showing no regression and improvement on every touched
-operation; the §14 acceptance entry recorded. *Deps*: all.
+operation; the P3.6b coverage audit re-run with an empty gap list
+(every public operation proptested against both reference oracles
+and resource-pinned by a board row or an enforced envelope); the
+§14 acceptance entry recorded. *Deps*: all.
 
 ### 17.3 Coverage accounting
 
 Every red cell and every enforced envelope row appears in exactly
-one kill list; the sums close.
+one kill list; the sums close — at both acceptance scales, because
+the red set is scale-dependent. Amended 2026-07-23 (plan
+adversarial review): this section originally assumed the 96
+default-green cells stay green at record scale; a ×4 witness run
+refutes that — 85 green / 73 red (158 cells), the 62 default reds
+unchanged plus eleven record-scale-only reds, every one a segment
+red (recursion-frame onset above the board's default depths — the
+§13 segment-onset caveat, which is not id-specific) **[measured**
+— single ×4 run, dev profile, limb-meter lit; the enumeration is
+re-witnessed at the P3.4 pinned scale, and any cells beyond these
+eleven are assigned owners there by dated amendment**]**.
 
-| item | kills | count |
+| item | kills, default scale | count |
 |---|---|---|
 | P3.5 | decode-V5 cells (`version_decode`/`clock_decode` × dense, bigroot) | 4 |
 | P3.6 | comparison reads (8) + emit paths (31) + projection (5) + rank (1) | 45 |
 | P3.7 | grow cells (`version_tick_adv_party`/`clock_tick`/`clock_recv` × id-pair) | 3 |
 | P3.8 | Display (4) + FromStr (6) | 10 |
-| **board total** | | **62** |
+| **default-scale board total** | | **62** |
+
+| item | record-scale additions (×4 witness, all segment-onset) | count |
+|---|---|---|
+| P3.6 | `version_rank × bigroot`, `version_min_ticks × dense` | 2 |
+| P3.8 | `version_display`/`clock_display` × bigroot, `party_from_str`/`clock_from_str` × id-pair | 4 |
+| P4.1 | `party_join`/`party_covers`/`party_disjoint`/`clock_join`/`clock_sync` × id-pair | 5 |
+| **record-scale board total** | 62 + 11 | **73** |
+
+| item | envelope kills | count |
+|---|---|---|
 | P3.10 | event + cliff envelope rows re-pinned at sweep constants | 12 |
 | P4.1 | `ID_JOIN`/`ID_COVERS`/`ID_DISJOINT` segments → 0 | 3 |
 | P5.1 | `ID_WITHOUT` final ratchet (all rows final-tightened here) | 1 |
 | **envelope total** | | **16** |
 
-62 kills + the 96 currently-green cells = 158 = the whole board,
-all green at the P3.4 acceptance scale; the sixteen enforced
-`tests/meter.rs` rows all re-pinned at their final mechanisms. The
-families P3.2 adds (wide-tooth, fan, cancelling-prefix, deep
-alternating spine) and P3.5's comb board column are born green
-against their pinned envelopes — coverage ratchets upward, per the
+62 kills + the 96 default-green cells = 158 = the whole board at
+the default scale; 73 + 85 = 158 at the ×4 record witness.
+Realization is staged: C2 realizes 54 of the 73 (P3.5's 4 +
+P3.6's 47 + P3.7's 3); the P4-tail P3.8 realizes its 14 when it
+lands; P4.1 its 5 — so the board is all green at both scales only
+after the P4 tail, P3.10 verifies the 54 with the remainder
+enumerated as expected, and the all-green-at-both-scales claim
+belongs to P5.5. P3.6b kills nothing: its deliverable is the empty
+gap list (every public operation dual-oracle proptested and
+resource-pinned), carried as a P5.5 acceptance clause. The sixteen
+enforced `tests/meter.rs` rows all re-pinned at their final
+mechanisms.
+
+The families P3.2 adds (wide-tooth, fan, cancelling-prefix, deep
+alternating spine) are born green against their pinned envelopes —
+they meter the new accumulator, which lands with those envelopes
+in the same commit. The comb board column is not born green
+(amended 2026-07-23, plan adversarial review — the original
+sentence claimed it was): it joins at P3.5 while every public
+operation still routes through the old code, whose plain
+running-value sweeps are the §10.6 Θ(W²) genre on the comb
+**[measured** — the `meter/tier2` plain-sweep pin**]**, so the
+column joins with EXPECTED interim reds — enumerated as such in
+P3.5's landed entry, each tagged with its owner (realization at C2
+for the sweep-path rows, at the P4-tail P3.8 for the text rows;
+verification at the following board re-pin): dashboard honesty,
+not a coverage regression. The column adds ~31 cells (the 11
+id-side rows are inapplicable, per §13's exclusion arithmetic)
+**[derived** — confirmed against the committed row set when P3.5
+lands**]**, and the sums above are restated over the enlarged
+board in that landed entry. Coverage ratchets upward, per the
 process constraint.
 
 ### 17.4 Commit choreography summary
 
 - **C0** (P3.1): rebase onto post-`link-transport` main; seam
   re-sweep; gate green for the first time in the campaign.
-- **C1** (P3.2–P3.8, several commits, wire bytes untouched, every
-  commit gate-green): accumulator + generators + re-amendment;
-  criterion amendments; codec + validator + transcoder +
-  subadditivity verdict; sweep kernels + bench baselines; grow;
-  text. The old codec is the oracle throughout.
+- **C1** (P3.2–P3.7 with P3.6b, several commits, wire bytes
+  untouched, every commit gate-green — read modulo the recorded
+  fourteen-test stall roster until C0 lands, the §14 convention, so
+  the C1 items that may precede the rebase are unambiguous;
+  unqualified gate-green starts at C0): accumulator + generators +
+  re-amendment + the `num-bigint` floor; criterion amendments;
+  codec + validator + transcoder + subadditivity verdict; sweep
+  kernels + bench baselines + the dual-oracle coverage audit; grow.
+  The old codec is the oracle throughout.
 - **C2** (P3.9, one commit): the flag day — flip, rewire, delete,
-  re-pin the full artifact enumeration. Preceded by the DECIDED
-  entry and Gate B's recorded sign-offs.
+  re-pin the full artifact enumeration; text flips as a
+  correctness-only port. Preceded by the DECIDED entry and Gate B's
+  recorded sign-offs.
 - **C3** (P3.10): board + envelope re-pin; bench deltas of record.
-- P4 and P5 land as ordinary gate-green commits per item.
+- P4 and P5 land as ordinary gate-green commits per item — P4.1,
+  P4.2, then the resequenced P3.8 (text, the P4 tail, per the
+  user's 2026-07-23 ruling), then P5.
 
 The DECIDED entry in §12 remains the user's to record; this
 section is the plan it points at.
