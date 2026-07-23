@@ -511,11 +511,11 @@ fn wide_symmetric_accepts_reordered_match_local() {
 /// reconcile to the materialized oracle's result under closed-world
 /// polling.
 ///
-/// This is the streaming wire deadlock's counterexample made permanent
-/// at the tier that should have owned it: under the deleted
-/// mux/demux session layer this exact shape deadlocked (independently of
-/// buffer size — the original stall reproduced from 64-byte to 16 MiB
-/// buffers, so the standard small capacity here loses no coverage).
+/// This pins the wait-cycle trigger geometry at the tier that owns stream
+/// scheduling. Liveness for this shape may not depend on transport buffer
+/// capacity (the link contract admits any positive capacity), so the
+/// standard small capacity here is the demanding case and loses no
+/// coverage.
 #[test]
 fn early_first_child_dispute_is_live() {
     let (a, b) = early_first_child_dispute_pair();

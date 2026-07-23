@@ -2,9 +2,9 @@
 //!
 //! The greeting's frames are peer-controlled bytes arriving on the control
 //! stream — first the causal-version frame, then the root-fan listing frame,
-//! whose structural validation lives in [`receive`] rather than in the
-//! data-stream query decode (where the listing lived before it rode the
-//! greeting). The scripted-fault harness wraps only data streams, so this
+//! whose structural validation lives in [`receive`]: the same canonical-order
+//! rule the frame codec applies to a wire query, applied at the greeting
+//! ingress. The scripted-fault harness wraps only data streams, so this
 //! ingress is exercised here directly: crafted control-stream bytes must
 //! surface the typed greeting errors ([`Error::HandshakeRead`] for
 //! truncation and length lies, [`Error::HandshakeListing`] for

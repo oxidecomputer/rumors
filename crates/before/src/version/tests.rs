@@ -1121,9 +1121,9 @@ proptest! {
 proptest! {
     /// `is_empty` ⟺ `v == Version::new()`, over arbitrary normal-form trees.
     ///
-    /// Pins the O(1) two-bit emptiness test to the definitional comparison it
-    /// replaced; `arb_oracle_version` generates the empty leaf too, so both
-    /// arms are exercised.
+    /// Pins the O(1) two-bit emptiness test to the definitional comparison
+    /// `v == Version::new()`; `arb_oracle_version` generates the empty leaf
+    /// too, so both arms are exercised.
     #[test]
     fn is_empty_iff_new(ov in arb_oracle_version()) {
         let v = from_oracle_version(&ov);

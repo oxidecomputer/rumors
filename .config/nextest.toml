@@ -2,13 +2,12 @@
 # under a closed-world deterministic poller (`run_to_quiescence`), which
 # turns a reintroduced wire stall into a stalled-future error — but a stall
 # that escapes that harness (a real-executor integration test, a proptest
-# whose case never completes) would otherwise hang the run forever. See
-# design/streaming-wire-deadlock.md section 7.
+# whose case never completes) would otherwise hang the run forever.
 #
 # The slowest honest tests today are the proptest suites and the
 # inter-process disruption tests, all finishing well under 60 seconds
-# (the deterministic fixture search in src/tree/arb.rs is around 6 seconds
-# after its attempt budget was tightened), so three 60-second periods —
+# (the deterministic fixture search in src/tree/arb.rs is around 6
+# seconds), so three 60-second periods —
 # termination at 180 seconds — is generous headroom, and everything past
 # the first period is flagged as slow in the meantime.
 #

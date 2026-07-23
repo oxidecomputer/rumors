@@ -334,8 +334,8 @@ fn truncated_stream_is_reported_not_ended() {
 /// `AfterEnd`: a peer that keeps talking past its own end is caught.
 ///
 /// After `End(Stream)` the receiver requires transport end-of-stream
-/// before ending cleanly (the double-checked stream end), recovering the
-/// deleted demux's frame-after-end detection.
+/// before ending cleanly: the double-checked stream end, so trailing
+/// frames are a reportable protocol violation, never silently dropped.
 #[test]
 fn frames_after_the_end_control_are_reported() {
     let (a, mut b) = memory();

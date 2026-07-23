@@ -56,9 +56,7 @@ proptest! {
     /// never demote a declared winner (`decide` is monotone in `ours`),
     /// only promote the declared loser into a second winner — so a side
     /// that substitutes its fresh floor for the declared one risks the
-    /// both-Win collision, never a both-Lose one. This is the property
-    /// that failed when `ours` was read from a fresh snapshot at mismatch
-    /// time.
+    /// both-Win collision, never a both-Lose one.
     #[test]
     fn declared_floors_yield_exactly_one_winner(
         declared_a in any::<u64>(),
@@ -79,10 +77,10 @@ proptest! {
         let verdict_b = decide((declared_b, net_b), (declared_a, net_a));
         prop_assert_ne!(verdict_a, verdict_b);
 
-        // A declared winner still wins from its fresh floor: the collision
-        // the fresh-snapshot bug produced is one-sided (both Win), so the
-        // failure mode is two servers waiting on absent losers, never two
-        // losers bootstrapping into each other.
+        // A declared winner still wins from its fresh floor: a fresh-floor
+        // collision is one-sided (both Win), so the failure mode it risks
+        // is two servers waiting on absent losers, never two losers
+        // bootstrapping into each other.
         if verdict_a == Verdict::Win {
             prop_assert_eq!(decide((fresh_a, net_a), (declared_b, net_b)), Verdict::Win);
         }
@@ -92,19 +90,19 @@ proptest! {
     }
 }
 
-/// Regression for the fresh-snapshot verdict bug: with equal declared
-/// floors and one commit landing mid-session on each side, deciding from
-/// the fresh floors makes both sides Win — each then serves a merge the
-/// other never requests — while deciding from the declared floors stays
-/// antisymmetric.
+/// With equal declared floors and one commit landing mid-session on each
+/// side, deciding from the fresh floors makes both sides Win — each then
+/// serves a merge the other never requests — while deciding from the
+/// declared floors stays antisymmetric. Pins the concrete collision the
+/// declared-floor rule exists to exclude.
 #[test]
 fn fresh_floors_can_make_both_sides_win() {
     let (net_a, net_b) = (network(1), network(2));
     let declared = 7;
     let fresh = declared + 1; // one local commit landed mid-session
 
-    // The broken construction, kept as documentation of the failure mode:
-    // each side pairs its own fresh floor with the peer's declared one.
+    // The forbidden construction: each side pairs its own fresh floor with
+    // the peer's declared one.
     assert_eq!(decide((fresh, net_a), (declared, net_b)), Verdict::Win);
     assert_eq!(decide((fresh, net_b), (declared, net_a)), Verdict::Win);
 

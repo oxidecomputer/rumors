@@ -1,4 +1,4 @@
-//! Frame-level hop tracing over the delayed link: the §9-item-3 instrument.
+//! Frame-level hop tracing over the delayed link: the hop-count instrument.
 //!
 //! Wraps every pipe of a delayed link pair in a byte-level tracer and runs
 //! representative divergent sessions at a fixed one-way delay under the
@@ -486,8 +486,7 @@ fn trace_insertion_session() {
 
 /// Traces the serialized hop structure of a redaction-shaped divergent
 /// session and pins its exact hop count: 7 hops, like the insertion shape
-/// (the redaction ladder bottoms out at the same depth at this scale), one
-/// fewer than before the opening question moved into the greeting.
+/// (the redaction ladder bottoms out at the same depth at this scale).
 #[test]
 fn trace_redaction_session() {
     let (left, right) = diverged_redactions();
@@ -498,9 +497,9 @@ fn trace_redaction_session() {
 }
 
 /// Traces the empty session (identical peers): the protocol floor every
-/// divergent trace is read against. Pinned at 3 hops, unchanged by the
-/// greeting carrying the root-fan listing: converged peers pay the listing
-/// bytes on the existing greeting hop and ask no question either way.
+/// divergent trace is read against. Pinned at 3 hops: the root-fan listing
+/// rides the greeting hop itself, and converged peers ask no question
+/// either way, so no further hop exists to pay.
 #[test]
 fn trace_empty_session() {
     let left = Peer::seed()
@@ -512,5 +511,5 @@ fn trace_empty_session() {
     let trace = traced_session(left.clone(), right.clone());
     report("empty divergence: identical 64-message peers", &trace);
     assert_eq!(left.snapshot().len(), right.snapshot().len());
-    assert_eq!(trace.hops(), 3, "converged-session hop count is unchanged");
+    assert_eq!(trace.hops(), 3, "converged-session hop count");
 }
