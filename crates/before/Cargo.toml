@@ -39,6 +39,11 @@ ciborium = "0.2"
 # Compile-fail tests pinning the linearity guarantees (`Party`/`Clock` `!Clone`,
 # by-value `BitOr`).
 trybuild = "1"
+# Peak-tracking global allocator for the resource-envelope test binary
+# (`tests/meter.rs`). A dependency rather than a hand-rolled GlobalAlloc: the
+# workspace policy prefers a maintained crate over owning unsafe code, even in
+# a test binary.
+peak_alloc = "0.3"
 # Snapshot tests where a literal expected value is clearer inline than maintained by hand.
 insta = "1"
 # Parallelizes the exhaustive small-scope cross-products (the `exhaustive` module)
