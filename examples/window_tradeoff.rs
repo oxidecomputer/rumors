@@ -57,7 +57,9 @@ fn main() {
          of the delay itself; a real link's bandwidth absorbs them: once \
          transfer time exceeds window stall (dispute throughput \
          `budget / (22 \u{d7} RTT)` at or above the link rate), the factor \
-         is 1."
+         is 1. Cells are clamped at 1.0\u{d7}: a genuine sub-1.0 result is \
+         impossible against the unbounded baseline, so anything below it is \
+         delay-sweep measurement noise on the fast side, truncated."
     );
     println!();
     println!("| budget | 1k | 10k | 50k |");
@@ -80,7 +82,9 @@ fn main() {
         let mut row = format!("| {label} |");
         for (column, &divergence) in DIVERGENCES.iter().enumerate() {
             let elapsed = session(budget, divergence);
-            let slowdown = elapsed.as_secs_f64() / baselines[column].as_secs_f64();
+            // Clamped at 1.0: the unbounded baseline cannot genuinely be
+            // beaten, so a sub-1.0 quotient is sweep noise, truncated.
+            let slowdown = (elapsed.as_secs_f64() / baselines[column].as_secs_f64()).max(1.0);
             row.push_str(&format!(" {slowdown:.1}\u{d7} |"));
         }
         println!("{row}");
