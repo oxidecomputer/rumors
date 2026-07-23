@@ -38,11 +38,15 @@
 //! ```
 //!
 //! At `L = 0` it always adds; at `L = T` the odds are even; as `L` grows past
-//! `T` adding becomes rare. The fixed point is `L = T`, so the network's live
-//! set settles around the target. Because redactions and inserts both
-//! propagate, every node's `L` tracks the *global* live count once converged —
-//! so `T` is effectively the steady-state size of the whole network's rumor
-//! set, tunable live from the UI.
+//! `T` adding becomes rare. The fixed point is `L = T`, so each node's live
+//! count is driven toward the target, tunable live from the UI. A redact op
+//! always removes a key that is still live, discarding pool entries other
+//! parties already redacted as they surface; [`steady_state_op`] explains
+//! why the fixed point depends on that, and `swarm/tests.rs` pins
+//! convergence through retargeting. Because redactions and inserts both
+//! propagate, every node's `L` tracks the global live count as views
+//! converge; while churn and syncs race each other the network rides above
+//! the target by the messages still in flight between views.
 //!
 //! # Synchronization uses the wire protocol
 //!
@@ -97,7 +101,11 @@
 //!   and both directions, auto-scaled to B/KiB/MiB/…;
 //! - **sync latency** — mean wall-clock duration of one end-to-end gossip
 //!   session, measured by the initiator from the instant the exchange begins
-//!   to the instant it returns (never derived from the Poisson schedule);
+//!   to the instant it returns (never derived from the Poisson schedule).
+//!   Wall clock includes every OS scheduling delay between protocol hops,
+//!   and those dominate on a loaded machine, so the readout pairs the mean
+//!   with the window's *best* session — a floor for what the protocol
+//!   itself costs;
 //! - **roundtrips/sync** — mean number of request→response turns per session,
 //!   counted from write→read direction flips on the initiator's I/O;
 //! - **live messages/node** — the current rumor-set size, charted against the
@@ -107,6 +115,12 @@
 //!
 //! `↑`/`↓` select a parameter, `←`/`→` adjust it (`Shift` for a coarse step),
 //! `space` pauses all churn, `q` quits.
+//!
+//! # Headless mode
+//!
+//! `--headless-secs N` runs the same swarm without the UI for `N` seconds
+//! and prints the readout's statistics to stdout — the scripted way to
+//! measure the swarm itself.
 
 use std::collections::VecDeque;
 use std::io;
@@ -216,6 +230,12 @@ struct Args {
     /// UI refresh interval in milliseconds.
     #[arg(long, default_value_t = 200)]
     refresh_ms: u64,
+
+    /// Run without the UI for this many seconds, then print the readout's
+    /// windowed statistics to stdout and exit. Zero runs the interactive UI.
+    /// Useful for scripted measurements of the swarm itself.
+    #[arg(long, default_value_t = 0)]
+    headless_secs: u64,
 }
 
 /// Live-tunable knobs shared with every party thread. Read on the hot path, so
@@ -235,9 +255,9 @@ struct Controls {
     paused: AtomicBool,
 }
 
-/// Process-wide counters, sampled by the UI. All monotonic since start; the UI
-/// differences successive snapshots to get windowed rates.
-#[derive(Default)]
+/// Process-wide counters, sampled by the UI. All monotonic since start except
+/// `sync_nanos_best`; the UI differences successive snapshots to get windowed
+/// rates.
 struct Metrics {
     /// Local inserts + redactions completed across all parties.
     local_ops: AtomicU64,
@@ -254,12 +274,36 @@ struct Metrics {
     syncs: AtomicU64,
     /// Sum of session wall-clock durations in nanos (end-to-end latency).
     sync_nanos: AtomicU64,
+    /// Fastest session in the current sampling window, in nanos —
+    /// `u64::MAX` when the window has seen none. The sampler swaps the
+    /// sentinel back in each time it reads, so the value is windowed where
+    /// every other counter is monotonic. Wall-clock means include every
+    /// OS scheduling delay a loaded machine inserts between protocol
+    /// hops; the window's fastest session is a floor for what the
+    /// protocol itself costs, so the readout shows both.
+    sync_nanos_best: AtomicU64,
     /// Sum of request→response roundtrips across all sessions.
     roundtrips: AtomicU64,
     /// Sessions still in flight. Drains to zero during shutdown before any
     /// thread is allowed to exit, so no party is left blocked on a peer that
     /// already quit.
     inflight: AtomicU64,
+}
+
+impl Default for Metrics {
+    fn default() -> Self {
+        Metrics {
+            local_ops: AtomicU64::new(0),
+            wire_bytes: Arc::new(AtomicU64::new(0)),
+            wire_direction_nanos: AtomicU64::new(0),
+            syncs: AtomicU64::new(0),
+            sync_nanos: AtomicU64::new(0),
+            // The windowed minimum starts at its no-sessions sentinel.
+            sync_nanos_best: AtomicU64::new(u64::MAX),
+            roundtrips: AtomicU64::new(0),
+            inflight: AtomicU64::new(0),
+        }
+    }
 }
 
 impl Metrics {
@@ -269,10 +313,34 @@ impl Metrics {
         let nanos = duration.as_nanos() as u64;
         self.syncs.fetch_add(1, Ordering::Relaxed);
         self.sync_nanos.fetch_add(nanos, Ordering::Relaxed);
+        self.sync_nanos_best.fetch_min(nanos, Ordering::Relaxed);
         // Two directions, each spanning the whole session.
         self.wire_direction_nanos
             .fetch_add(nanos.saturating_mul(2), Ordering::Relaxed);
         self.roundtrips.fetch_add(roundtrips, Ordering::Relaxed);
+    }
+}
+
+/// Holds one in-flight session slot; releases it on drop. Shutdown drains
+/// the in-flight counter to zero before letting threads exit, so the slot
+/// must be released on every exit from a session — including a panic
+/// unwinding out of `gossip` — or shutdown spins forever on a slot no one
+/// holds. RAII is what makes the release unconditional.
+struct InflightGuard<'a>(&'a Metrics);
+
+impl<'a> InflightGuard<'a> {
+    /// Reserve a slot. Callers reserve *before* their final `running` check:
+    /// shutdown first clears `running`, then waits for this counter, so the
+    /// ordering guarantees no session slips between the check and the drain.
+    fn reserve(metrics: &'a Metrics) -> Self {
+        metrics.inflight.fetch_add(1, Ordering::SeqCst);
+        InflightGuard(metrics)
+    }
+}
+
+impl Drop for InflightGuard<'_> {
+    fn drop(&mut self) {
+        self.0.inflight.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -391,17 +459,37 @@ fn main() -> io::Result<()> {
             .expect("spawn coordinator thread")
     };
 
-    // Run the interactive UI on the main thread until the user quits. Always
-    // restore the terminal, even on error or panic.
-    let result = run_ui(&net, &args);
+    // Run the interactive UI on the main thread until the user quits (or, in
+    // headless mode, sample the same statistics for the requested duration).
+    // The UI always restores the terminal, even on error or panic.
+    let result = if args.headless_secs > 0 {
+        run_headless(&net, &args);
+        Ok(())
+    } else {
+        run_ui(&net, &args)
+    };
 
     // Shutdown: stop new syncs and membership changes. Clearing `running`
     // ends the coordinator's reconcile loop; it hands back every party's join
     // handle. Then wait for in-flight sessions to drain so no party is blocked
-    // on a peer that already quit, and finally release the threads.
+    // on a peer that already quit, and finally release the threads. The drain
+    // is bounded: in-flight slots release even across panics (see
+    // [`InflightGuard`]), so a drain that outlives the deadline means a
+    // session is wedged, and joining its thread would hang forever — report
+    // and let process exit reap the threads instead.
     net.running.store(false, Ordering::SeqCst);
     let handles = coordinator.join().expect("join coordinator thread");
+    let drain_deadline = Instant::now() + SHUTDOWN_DRAIN_DEADLINE;
     while net.metrics.inflight.load(Ordering::SeqCst) > 0 {
+        if Instant::now() >= drain_deadline {
+            eprintln!(
+                "shutdown: {} session(s) still in flight after {:?}: \
+                 exiting without joining party threads",
+                net.metrics.inflight.load(Ordering::SeqCst),
+                SHUTDOWN_DRAIN_DEADLINE,
+            );
+            return result;
+        }
         thread::sleep(Duration::from_millis(1));
     }
     net.shutdown.store(true, Ordering::SeqCst);
@@ -411,6 +499,12 @@ fn main() -> io::Result<()> {
 
     result
 }
+
+/// How long shutdown waits for in-flight sessions to drain before concluding
+/// one is wedged and exiting without the party-thread joins. In-memory
+/// sessions complete in milliseconds even on a heavily loaded machine, so
+/// five seconds is generous.
+const SHUTDOWN_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
 
 // --- party engine ----------------------------------------------------------
 
@@ -441,18 +535,21 @@ fn run_party(
     let mut keys: Vec<Key> = Vec::new();
 
     loop {
-        // Catch the key pool up with everything observed since the last turn,
-        // and republish our live-message count for the UI gauge.
-        drain_keys(&mut observer, &mut keys);
-        me.live
-            .store(rumors.snapshot().len() as u64, Ordering::Relaxed);
-
         // 1. Serve every inbound session. Our engaged flag was set true by the
         //    initiator that claimed us; clear it once we have reconciled.
         while let Ok(end) = inbox.try_recv() {
             serve_sync(&runtime, &net, &rumors, end);
             me.engaged.store(false, Ordering::Release);
         }
+
+        // Catch the key pool up with everything observed since the last turn
+        // — the sessions just served included — and republish our live count
+        // for the UI gauge. One snapshot serves the rest of the iteration:
+        // taking it after the serves keeps the controller's odds and the
+        // pool's liveness checks current with what just arrived.
+        drain_keys(&mut observer, &mut keys);
+        let snap = rumors.snapshot();
+        me.live.store(snap.len() as u64, Ordering::Relaxed);
 
         // 2. Obey membership commands from the coordinator, between sessions.
         while let Ok(cmd) = control.try_recv() {
@@ -486,18 +583,20 @@ fn run_party(
         }
 
         // 3. Time to initiate a sync? Only while still running, and only if we
-        //    can claim both ourselves and a peer.
-        if net.running.load(Ordering::SeqCst) && Instant::now() >= next_sync {
-            if try_initiate(&runtime, &net, &me, &mut rng, &rumors) {
-                next_sync = Instant::now() + exponential(&mut rng, &net.controls);
-            }
-            // If the claim failed (peer busy), fall through to local work and
-            // retry on the next iteration; next_sync stays in the past.
+        //    can claim both ourselves and a peer. When the claim fails (peer
+        //    busy), fall through to local work and retry on the next
+        //    iteration — next_sync stays in the past — so a due initiator
+        //    keeps churning instead of spinning on claim attempts.
+        if net.running.load(Ordering::SeqCst)
+            && Instant::now() >= next_sync
+            && try_initiate(&runtime, &net, &me, &mut rng, &rumors)
+        {
+            next_sync = Instant::now() + exponential(&mut rng, &net.controls);
             continue;
         }
 
         // 4. Local churn under the steady-state controller.
-        local_op(&net, &mut rng, &rumors, &mut keys);
+        local_op(&net, &mut rng, &rumors, &snap, &mut keys);
     }
 }
 
@@ -586,14 +685,13 @@ fn try_initiate(
         return false;
     }
 
-    // Both claimed. Reserve an in-flight slot before the final `running` check:
-    // shutdown first clears `running`, then waits for this counter to drain, so
-    // it cannot miss a session that is about to start.
-    net.metrics.inflight.fetch_add(1, Ordering::SeqCst);
+    // Both claimed. Reserve the in-flight slot (see `InflightGuard::reserve`
+    // for the ordering against shutdown); the guard releases it on every
+    // exit from this function, panics included.
+    let _inflight = InflightGuard::reserve(&net.metrics);
     if !net.running.load(Ordering::SeqCst) {
         peer.engaged.store(false, Ordering::Release);
         me.engaged.store(false, Ordering::Release);
-        net.metrics.inflight.fetch_sub(1, Ordering::SeqCst);
         return false;
     }
 
@@ -602,7 +700,6 @@ fn try_initiate(
     if peer.inbox.send(theirs).is_err() {
         peer.engaged.store(false, Ordering::Release);
         me.engaged.store(false, Ordering::Release);
-        net.metrics.inflight.fetch_sub(1, Ordering::SeqCst);
         return false;
     }
 
@@ -635,7 +732,6 @@ fn try_initiate(
 
     net.metrics.record_sync(elapsed, rounds.roundtrips());
     me.engaged.store(false, Ordering::Release);
-    net.metrics.inflight.fetch_sub(1, Ordering::SeqCst);
     true
 }
 
@@ -659,34 +755,67 @@ fn serve_sync(
         .expect("responder gossip");
 }
 
-/// Perform one unit of local churn under the steady-state controller. The
-/// probability of adding (rather than redacting) is `target / (target + live)`,
-/// so the live set is driven toward `target`. Falls back to an insert when
-/// there is nothing to redact.
-fn local_op(net: &Net, rng: &mut SmallRng, rumors: &Rumors<Payload>, keys: &mut Vec<Key>) {
-    let target = net.controls.target.load(Ordering::Relaxed) as f64;
-    let live = rumors.snapshot().len() as f64;
-    // p_add = T / (T + L): 1.0 when empty, 0.5 at target, → 0 when far over.
+/// Perform one unit of local churn under the steady-state controller, against
+/// `snap`, the caller's current snapshot, and bump the ops counter.
+fn local_op(
+    net: &Net,
+    rng: &mut SmallRng,
+    rumors: &Rumors<Payload>,
+    snap: &rumors::Snapshot<Payload>,
+    keys: &mut Vec<Key>,
+) {
+    let target = net.controls.target.load(Ordering::Relaxed);
+    let size = net.controls.message_size.load(Ordering::Relaxed) as usize;
+    steady_state_op(rng, rumors, snap, keys, target, size);
+    net.metrics.local_ops.fetch_add(1, Ordering::Relaxed);
+}
+
+/// One steady-state controller op: insert with probability
+/// `target / (target + live)` (1.0 when empty, 0.5 at target, → 0 far over),
+/// otherwise redact a **live** key, so the live set is driven toward
+/// `target`. Falls back to an insert when no live key is in the pool.
+///
+/// The redact arm draws until it finds a key still present in `snap`,
+/// discarding stale entries — keys other parties already redacted — as they
+/// surface, without spending the op on them. The discard is what keeps the
+/// fixed point at `live == target` for any swarm size: every party's pool
+/// takes in every party's inserts but drains only by its own draws, so
+/// counting a stale draw as the op's redaction would let the stale backlog
+/// grow with the swarm and starve the downward pressure (live counts then
+/// stall near `parties × target` instead).
+fn steady_state_op(
+    rng: &mut SmallRng,
+    rumors: &Rumors<Payload>,
+    snap: &rumors::Snapshot<Payload>,
+    keys: &mut Vec<Key>,
+    target: u64,
+    message_size: usize,
+) {
+    let target = target as f64;
+    let live = snap.len() as f64;
     let p_add = if target <= 0.0 {
         0.0
     } else {
         target / (target + live)
     };
 
-    if keys.is_empty() || rng.gen_bool(p_add.clamp(0.0, 1.0)) {
-        let size = net.controls.message_size.load(Ordering::Relaxed) as usize;
-        // The minted key reaches the pool through the observer's next drain.
-        rumors.send(random_message(rng, size));
-    } else {
-        // Swap-remove a random key and redact it: the key leaves our local
-        // view and the redaction propagates on our next sync. A key already
-        // redacted by another party simply makes this a no-op, and either way
-        // it leaves our vector, so stale keys drain out over time.
-        let idx = rng.gen_range(0..keys.len());
-        let key = keys.swap_remove(idx);
-        rumors.redact(key);
+    if !rng.gen_bool(p_add.clamp(0.0, 1.0)) {
+        // Swap-remove random keys until one is still live, and redact it: the
+        // key leaves our local view and the redaction propagates on our next
+        // sync. Stale keys leave the vector as they are drawn, so a redaction
+        // burst elsewhere costs at most one pass over the pool here.
+        while !keys.is_empty() {
+            let idx = rng.gen_range(0..keys.len());
+            let key = keys.swap_remove(idx);
+            if snap.get(&key).is_some() {
+                rumors.redact(key);
+                return;
+            }
+        }
     }
-    net.metrics.local_ops.fetch_add(1, Ordering::Relaxed);
+    // The add arm — or a pool with no live key left in it. The minted key
+    // reaches the pool through the observer's next drain.
+    rumors.send(random_message(rng, message_size));
 }
 
 /// Draw an exponential inter-arrival time with the current mean, so successive
@@ -1081,6 +1210,65 @@ fn responder_link(link: MemoryLink, wire_bytes: Arc<AtomicU64>) -> ResponderLink
     .into_link()
 }
 
+// --- headless measurement --------------------------------------------------
+
+/// Sample the same windowed statistics the UI renders, for `headless_secs`,
+/// then print one summary line per readout row to stdout. The first sampling
+/// window is discarded as warmup so the summary reflects steady state.
+fn run_headless(net: &Net, args: &Args) {
+    let sample_interval = Duration::from_millis(args.refresh_ms.max(1));
+    let windows = (args.headless_secs * 1000 / args.refresh_ms.max(1)).max(2) as usize;
+    let mut prev = Snapshot::take(net);
+    let mut samples: Vec<Stats> = Vec::with_capacity(windows);
+    for i in 0..windows {
+        thread::sleep(sample_interval);
+        let now = Snapshot::take(net);
+        let stats = compute(net, &prev, &now);
+        prev = now;
+        if i > 0 {
+            samples.push(stats);
+        }
+    }
+    let n = samples.len().max(1) as f64;
+    let mean = |f: fn(&Stats) -> f64| samples.iter().map(f).sum::<f64>() / n;
+    let ops_total = mean(|s| s.ops_total);
+    let ops_per_party = mean(|s| s.ops_per_party);
+    let bandwidth = mean(|s| s.bandwidth);
+    let sync_rate = mean(|s| s.sync_rate);
+    let avg_live = mean(|s| s.avg_live);
+    // Latency and roundtrips are formatted strings in `Stats`; recompute the
+    // means from the raw counters across the whole measured span instead. The
+    // best is the fastest session seen in any window.
+    let best = samples
+        .iter()
+        .map(|s| s.latency_best_nanos)
+        .min()
+        .unwrap_or(u64::MAX);
+    let end = Snapshot::take(net);
+    let syncs = end.syncs.max(1);
+    let latency = Duration::from_nanos(end.sync_nanos / syncs);
+    let roundtrips = end.roundtrips as f64 / syncs as f64;
+    println!("parties          {}", net.peers.load().len());
+    println!("local ops/s      {ops_total:.0} total, {ops_per_party:.0} per party");
+    println!("wire bandwidth   {} per direction", format_rate(bandwidth));
+    println!(
+        "sync latency     {} mean, {} best, over {} sessions",
+        format_duration(latency),
+        if best == u64::MAX {
+            "--".to_string()
+        } else {
+            format_duration(Duration::from_nanos(best))
+        },
+        end.syncs
+    );
+    println!("sync rate        {sync_rate:.1}/s");
+    println!("roundtrips/sync  {roundtrips:.1}");
+    println!(
+        "live messages    {avg_live:.0}/node (target {})",
+        net.controls.target.load(Ordering::Relaxed)
+    );
+}
+
 // --- interactive UI --------------------------------------------------------
 
 /// Largest party count the UI will dial up to. A guard against accidentally
@@ -1194,6 +1382,8 @@ struct Stats {
     ops_total: f64,
     bandwidth: f64,
     latency: String,
+    /// Fastest session in the window, nanos; `u64::MAX` when none completed.
+    latency_best_nanos: u64,
     sync_rate: f64,
     roundtrips: String,
     avg_live: f64,
@@ -1237,11 +1427,19 @@ fn compute(net: &Net, prev: &Snapshot, now: &Snapshot) -> Stats {
 
     let live_total: u64 = dir.iter().map(|p| p.live.load(Ordering::Relaxed)).sum();
 
+    // Consume the window's fastest session and re-arm the sentinel for the
+    // next window.
+    let latency_best_nanos = net
+        .metrics
+        .sync_nanos_best
+        .swap(u64::MAX, Ordering::Relaxed);
+
     Stats {
         ops_per_party: ops_total / parties,
         ops_total,
         bandwidth,
         latency,
+        latency_best_nanos,
         sync_rate,
         roundtrips,
         avg_live: live_total as f64 / parties,
@@ -1459,7 +1657,16 @@ fn draw_stats(frame: &mut ratatui::Frame, area: Rect, stats: &Stats) {
         ),
         kv(
             "sync latency",
-            format!("{}  ({:.1}/s)", stats.latency, stats.sync_rate),
+            format!(
+                "{} (best {})  ({:.1}/s)",
+                stats.latency,
+                if stats.latency_best_nanos == u64::MAX {
+                    "--".to_string()
+                } else {
+                    format_duration(Duration::from_nanos(stats.latency_best_nanos))
+                },
+                stats.sync_rate,
+            ),
         ),
         kv("roundtrips/sync", stats.roundtrips.clone()),
         kv("live messages", target_hint),
@@ -1536,6 +1743,13 @@ fn format_rate(bytes_per_sec: f64) -> String {
     }
     format!("{value:.1} {}/s", UNITS[unit])
 }
+
+// The example file is its own crate root, so the module path is stated
+// explicitly to keep the tests beside it in `examples/swarm/` rather than
+// loose in `examples/` where cargo would take them for another example.
+#[cfg(test)]
+#[path = "swarm/tests.rs"]
+mod tests;
 
 /// Format a short duration with an adaptive unit (ns / µs / ms / s).
 fn format_duration(d: Duration) -> String {
