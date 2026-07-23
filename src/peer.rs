@@ -417,26 +417,20 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// # Memory
     ///
-    /// The target is the unit of wire-message buffering on both sides: this
-    /// peer's encoder accumulates at most one run per stream before writing
-    /// it, and the *receiving* peer buffers one run's bytes per message
-    /// while decoding its leaves one at a time — so raising the target
-    /// raises the counterparty's per-message decode buffering, not just
-    /// local memory. The setting is not wire-visible and peers with
-    /// different targets interoperate; each side's runs are sized by its
-    /// own setting, and each side decodes whatever the other sends.
+    /// The target is the unit of wire-message buffering on both sides:
+    /// the encoder accumulates at most one run per stream before writing
+    /// it, and the receiver buffers one run's bytes per message while
+    /// decoding its leaves one at a time. Each session therefore runs at
+    /// the **minimum** of the two ends' targets — the greeting carries
+    /// each side's setting, so yours bounds both the frames you build
+    /// and the frames built for you, and the more memory-constrained
+    /// peer sets the pace. Peers with different settings interoperate.
     ///
     /// The default, [`DEFAULT_TARGET_MESSAGE_SIZE`], is the byte size of
     /// the wire's maximally disputed reply — the decode side's documented
     /// per-reply memory unit — so default batching never raises the wire's
     /// established memory ceiling. Any value is safe, including zero, which
     /// degrades to one leaf per message.
-    ///
-    /// Each session runs at the **minimum** of the two ends' targets:
-    /// the greeting carries each side's setting, so yours bounds both
-    /// the frames you build and the frames built for you — the more
-    /// memory-constrained peer sets the pace, and peers with different
-    /// settings interoperate.
     ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
