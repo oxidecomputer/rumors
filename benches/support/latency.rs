@@ -364,11 +364,27 @@ pub struct DelayedWire {
 impl DelayedWire {
     /// Allocate the runtime and one delayed link pair, one end per side.
     pub fn new(capacity: usize, delay: Duration) -> Self {
+        Self::with_clock(capacity, delay, true)
+    }
+
+    /// [`new`](Self::new) on a running clock: pipe delays burn wall time.
+    ///
+    /// The cross-check counterpart of the paused default — a wall-clock
+    /// measurement over the same pipes tests whether the virtual model's
+    /// figures survive real timer scheduling.
+    // Used only by `window_wallclock`; the module is `#[path]`-included by
+    // several targets, each seeing its own copy's usage.
+    #[allow(dead_code)]
+    pub fn new_wall_clock(capacity: usize, delay: Duration) -> Self {
+        Self::with_clock(capacity, delay, false)
+    }
+
+    fn with_clock(capacity: usize, delay: Duration, paused: bool) -> Self {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_time()
-            .start_paused(true)
+            .start_paused(paused)
             .build()
-            .expect("build paused current-thread runtime");
+            .expect("build current-thread runtime");
         let (a_link, b_link) = delayed_pair(capacity, delay);
         Self {
             runtime,

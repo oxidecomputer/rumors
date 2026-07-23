@@ -30,9 +30,16 @@ fn frame(body: &[u8]) -> Vec<u8> {
     bytes
 }
 
+/// A version frame's body: the sender's set-size prefix, then the version.
+fn version_body(version: &Version) -> Vec<u8> {
+    let mut body = 0_u64.to_le_bytes().to_vec();
+    body.extend_from_slice(version.as_bytes());
+    body
+}
+
 /// A full greeting: the identity-version frame, then `listing_body` framed.
 fn greeting(listing_body: &[u8]) -> Vec<u8> {
-    let mut bytes = frame(Version::new().as_bytes());
+    let mut bytes = frame(&version_body(&Version::new()));
     bytes.extend_from_slice(&frame(listing_body));
     bytes
 }
@@ -91,9 +98,10 @@ async fn over_declared_version_frame_is_a_typed_read_error() {
 
 /// A zero-length version frame fails as a typed decode error.
 ///
-/// A frame whose declared length is zero carries no version at all; the
-/// empty body must surface [`Error::HandshakeDecode`] — the under-declared
-/// degenerate case, distinct from the transport-level truncations above.
+/// A frame whose declared length is zero carries neither the set-size
+/// prefix nor a version; the empty body must surface
+/// [`Error::HandshakeDecode`] — the under-declared degenerate case,
+/// distinct from the transport-level truncations above.
 #[pollster::test]
 async fn empty_version_frame_is_a_typed_decode_error() {
     let result = receive_greeting(&frame(&[])).await.map(|_| ());
@@ -112,7 +120,7 @@ async fn empty_version_frame_is_a_typed_decode_error() {
 /// version silently accepted.
 #[pollster::test]
 async fn truncated_version_body_is_a_typed_decode_error() {
-    let mut body = ticked_version().as_bytes().to_vec();
+    let mut body = version_body(&ticked_version());
     body.truncate(body.len() - 1);
 
     let result = receive_greeting(&frame(&body)).await.map(|_| ());
@@ -131,7 +139,7 @@ async fn truncated_version_body_is_a_typed_decode_error() {
 /// (which would let two encodings name one greeting).
 #[pollster::test]
 async fn trailing_version_bytes_are_rejected() {
-    let mut body = ticked_version().as_bytes().to_vec();
+    let mut body = version_body(&ticked_version());
     body.push(0xFF);
 
     let result = receive_greeting(&frame(&body)).await.map(|_| ());
@@ -148,7 +156,7 @@ async fn trailing_version_bytes_are_rejected() {
 /// missing listing, never a greeting with a defaulted listing.
 #[pollster::test]
 async fn missing_listing_frame_is_a_typed_read_error() {
-    let bytes = frame(Version::new().as_bytes());
+    let bytes = frame(&version_body(&Version::new()));
 
     let result = receive_greeting(&bytes).await.map(|_| ());
     match result {

@@ -102,7 +102,7 @@ use crate::tree::{
         materialized::{unknown::Unknown, work::Work},
         message::{Handshake, Reaction, Reply},
         protocol::{self, BoxResponses, Requests},
-        window::Window,
+        window::WindowConfig,
     },
     typed::{
         Hash, Prefix,
@@ -233,8 +233,11 @@ pub struct Handshaking<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static
     backend: B,
     versions: V,
     root: Root<B, T>,
-    /// The session's pipeline window; see [`window`](super::window).
-    window: Window,
+    /// The session's window choice, resolved against the exchanged set
+    /// sizes; see [`window`](super::window).
+    window: WindowConfig,
+    /// This side's live message count, carried by the greeting.
+    local_len: u64,
 }
 
 /// The version state of a stage that has been opened but has not yet sent its
@@ -261,6 +264,8 @@ pub struct Connecting<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>
 pub struct Connected<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
     our_version: Version,
     their_version: Version,
+    /// The peer's live message count, from its greeting.
+    their_len: u64,
     fan: Vec<(u8, B::Node<UnderRoot>)>,
 }
 
@@ -308,13 +313,21 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T
                 our_version: root.ceiling.clone(),
             },
             root,
-            window: Window::default(),
+            window: WindowConfig::default(),
+            local_len: 0,
         }
     }
 
-    /// Select this session's pipeline window; see [`window`](super::window).
-    pub fn window(mut self, window: Window) -> Self {
+    /// Select this session's window choice; see [`window`](super::window).
+    pub fn window(mut self, window: WindowConfig) -> Self {
         self.window = window;
+        self
+    }
+
+    /// Declare this side's live message count for the greeting; the pair
+    /// of exchanged counts sizes a budget-configured window.
+    pub fn set_len(mut self, len: u64) -> Self {
+        self.local_len = len;
         self
     }
 }
@@ -373,6 +386,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
             .map_err(Error::Backend)?;
         let handshake = Handshake {
             version: our_version.clone(),
+            set_len: self.local_len,
             listing: fan_listing(&fan),
         };
         let next = Handshaking {
@@ -380,6 +394,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
             versions: Connecting { our_version, fan },
             root: self.root,
             window: self.window,
+            local_len: self.local_len,
         };
         Ok((handshake, next))
     }
@@ -396,10 +411,12 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
             versions: Connected {
                 our_version: self.versions.our_version,
                 their_version: theirs.version,
+                their_len: theirs.set_len,
                 fan: self.versions.fan,
             },
             root: self.root,
             window: self.window,
+            local_len: self.local_len,
         })
     }
 }
@@ -417,6 +434,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
             .map_err(Error::Backend)?;
         let handshake = Handshake {
             version: our_version.clone(),
+            set_len: self.local_len,
             listing: fan_listing(&fan),
         };
         let next = Handshaking {
@@ -424,10 +442,12 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
             versions: Connected {
                 our_version,
                 their_version: request.version,
+                their_len: request.set_len,
                 fan,
             },
             root: self.root,
             window: self.window,
+            local_len: self.local_len,
         };
         Ok((handshake, next))
     }
@@ -450,11 +470,15 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
         let Connected {
             our_version,
             their_version,
+            their_len,
             fan,
         } = self.versions;
         let ceiling = our_version | &their_version;
 
-        let mut work = Work::new(self.backend, self.window);
+        let window = self
+            .window
+            .resolve(self.local_len, their_len, B::NODE_BYTES);
+        let mut work = Work::new(self.backend, window);
         let (responses, queries, returns, finish) = work.initiator_level(ceiling, fan);
 
         (
@@ -482,11 +506,15 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
         let Connected {
             our_version,
             their_version,
+            their_len,
             fan,
         } = self.versions;
         let ceiling = our_version | &their_version;
 
-        let mut work = Work::new(self.backend, self.window);
+        let window = self
+            .window
+            .resolve(self.local_len, their_len, B::NODE_BYTES);
+        let mut work = Work::new(self.backend, window);
         let (responses, queries, returns, finish) =
             work.responder_level(their_version.clone(), ceiling, fan, requests);
 

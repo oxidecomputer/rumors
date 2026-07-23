@@ -150,10 +150,7 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
 
     // Production window, not the dev builds' test floor; see `wire.rs`.
     let left: Rumors<()> = Peer::seed()
-        .sync_memory_budget(
-            rumors::DEFAULT_EXPECTED_MESSAGES,
-            rumors::DEFAULT_SYNC_MEMORY_BUDGET,
-        )
+        .sync_memory_budget(rumors::DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     send_units(&left, common);
     // The shared prefix's keys, for carving the redaction blocks; order is

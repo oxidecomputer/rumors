@@ -50,6 +50,12 @@ use crate::{
 #[derive(Clone)]
 pub struct Handshake {
     pub version: Version,
+    /// The sender's live message count, exact (an O(1) read of its set).
+    ///
+    /// Both sides size their session window from the pair: dispute
+    /// populations scale with the *product* of the two sizes (joint
+    /// occupancy), so the window needs the peer's size, not an estimate.
+    pub set_len: u64,
     /// The sender's root children as `(radix, hash)` pairs in strictly
     /// ascending radix order; empty when the sender's tree is empty.
     pub listing: Vec<(u8, Hash)>,

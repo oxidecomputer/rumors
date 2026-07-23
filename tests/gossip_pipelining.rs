@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::{DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET, Peer, Protocol, Rumors};
+use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Protocol, Rumors};
 
 /// Messages both peers share before the fork.
 const COMMON: usize = 2_048;
@@ -62,7 +62,7 @@ fn window_pipelines_disputed_scopes() {
 /// Two production-window peers with a shared prefix and heavy divergence.
 fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed()
-        .sync_memory_budget(DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET)
+        .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
@@ -77,7 +77,7 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
         joined
             .expect("bootstrap newcomer")
             .expect("provider is established")
-            .sync_memory_budget(DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET)
+            .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
             .into_rumors()
     });
 

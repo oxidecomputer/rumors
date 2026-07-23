@@ -94,3 +94,7 @@ harness = false
 [[bench]]
 name = "gossip_fixed"
 harness = false
+
+[[bench]]
+name = "window_wallclock"
+harness = false

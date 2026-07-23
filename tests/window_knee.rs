@@ -24,10 +24,6 @@ use rand::{RngCore, SeedableRng};
 use rumors::testing::window_capacities;
 use rumors::{Peer, Protocol, Rumors};
 
-/// The declared set size: far above test scale, so capacities are
-/// budget-bound and the knee is the budget's, not the data's.
-const DECLARED_MESSAGES: u64 = 10_000_000_000;
-
 /// A budget sized so the binding capacity lands in the tens: small
 /// enough that a modest divergence crosses the knee, large enough that
 /// below-knee sessions genuinely pipeline.
@@ -55,7 +51,13 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 /// The binding capacity among the levels a test-scale divergence
 /// engages: depths two through four (heights 30 down to 28).
 fn binding_capacity() -> usize {
-    let capacities = window_capacities(DECLARED_MESSAGES, BUDGET);
+    // The knee prediction must use the sizes the session itself will
+    // exchange; both sides hold COMMON plus their divergence, and the
+    // capacities vary little across the test's divergence range, so the
+    // largest shape stands for all of them (the assertion below keeps
+    // that honest if the derivation drifts).
+    let session_len = (COMMON + 32 * 64) as u64;
+    let capacities = window_capacities(session_len, session_len, BUDGET);
     let binding = capacities[28..=30]
         .iter()
         .copied()
@@ -86,9 +88,7 @@ fn hops_over(divergent_per_side: usize, pipe_capacity: usize) -> u32 {
 
 /// Two peers with a shared prefix, diverged by `divergent` messages each.
 fn diverged(divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
-    let left = Peer::seed()
-        .sync_memory_budget(DECLARED_MESSAGES, BUDGET)
-        .into_rumors();
+    let left = Peer::seed().sync_memory_budget(BUDGET).into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x0077_1e0f_0b05_2026);
     send_random(&left, COMMON, &mut rng);
 
@@ -102,7 +102,7 @@ fn diverged(divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
         joined
             .expect("bootstrap newcomer")
             .expect("provider is established")
-            .sync_memory_budget(DECLARED_MESSAGES, BUDGET)
+            .sync_memory_budget(BUDGET)
             .into_rumors()
     });
 

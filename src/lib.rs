@@ -266,8 +266,8 @@ pub use link::{Acceptor, Connector, Link};
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
-    DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET, DEFAULT_TARGET_MESSAGE_SIZE, Gossiped,
-    Led, Peer, Retire, Unbookmarked,
+    DEFAULT_SYNC_MEMORY_BUDGET, DEFAULT_TARGET_MESSAGE_SIZE, Gossiped, Led, Peer, Retire,
+    Unbookmarked,
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};

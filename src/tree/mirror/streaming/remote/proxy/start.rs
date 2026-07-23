@@ -1,5 +1,6 @@
 //! The wire participant's protocol handshake states.
 
+use std::io;
 use std::marker::PhantomData;
 
 use borsh::BorshDeserialize;
@@ -23,7 +24,7 @@ use crate::{
                     },
                     streams::{AcceptDriver, claims, error_route},
                 },
-                window::Window,
+                window::{Window, WindowConfig},
             },
         },
         typed::{
@@ -47,9 +48,10 @@ where
     backend: B,
     link: Link<R, W, C, A>,
     versions: V,
-    /// The session's pipeline window; see
+    /// The session's window choice, resolved against the greeting's
+    /// exchanged set sizes; see
     /// [`window`](crate::tree::mirror::streaming::window).
-    window: Window,
+    window: WindowConfig,
     /// The encoder's supply-run byte budget; see [`RunBudget`].
     budget: RunBudget,
     marker: PhantomData<fn() -> T>,
@@ -66,15 +68,15 @@ where
             backend,
             link,
             versions: Start,
-            window: Window::default(),
+            window: WindowConfig::default(),
             budget: RunBudget::default(),
             marker: PhantomData,
         }
     }
 
-    /// Select this session's pipeline window; see
+    /// Select this session's window choice; see
     /// [`window`](crate::tree::mirror::streaming::window).
-    pub fn window(mut self, window: Window) -> Self {
+    pub fn window(mut self, window: WindowConfig) -> Self {
         self.window = window;
         self
     }
@@ -123,10 +125,7 @@ where
     /// Receive the remote greeting before asking the local server to answer it.
     async fn connect(mut self) -> Result<(Handshake, Self::Next), Self::Error> {
         let remote = receive::<B::Error, _>(&mut self.link.control_read).await?;
-        let handshake = Handshake {
-            version: remote.version.clone(),
-            listing: remote.listing.clone(),
-        };
+        let handshake = remote.clone();
         let next = Handshaking {
             backend: self.backend,
             link: self.link,
@@ -153,9 +152,12 @@ where
     /// Send the local server's greeting, then open only if versions differ.
     async fn complete_connect(mut self, theirs: Handshake) -> Result<Self::Next, Self::Error> {
         send::<B::Error, _>(&theirs, &mut self.link.control_write).await?;
+        let window =
+            self.window
+                .resolve(theirs.set_len, self.versions.remote.set_len, B::NODE_BYTES);
         Ok(connected(
             self.backend,
-            self.window,
+            window,
             self.budget,
             theirs.version,
             self.versions.remote,
@@ -180,13 +182,13 @@ where
         let send = send::<B::Error, _>(&request, &mut self.link.control_write);
         let receive = receive::<B::Error, _>(&mut self.link.control_read);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
-        let handshake = Handshake {
-            version: remote.version.clone(),
-            listing: remote.listing.clone(),
-        };
+        let handshake = remote.clone();
+        let window = self
+            .window
+            .resolve(request.set_len, remote.set_len, B::NODE_BYTES);
         let next = connected(
             self.backend,
-            self.window,
+            window,
             self.budget,
             request.version,
             remote,
@@ -196,8 +198,8 @@ where
     }
 }
 
-/// Send one greeting: an exactly bounded causal-version frame, then the
-/// root-fan listing frame.
+/// Send one greeting: the set-size-prefixed causal-version frame, then
+/// the root-fan listing frame.
 ///
 /// Both frames flush on the same hop; the listing frame is the wire carriage
 /// of the opening question's content (see [`Handshake`] for the always-carry
@@ -207,16 +209,16 @@ where
     W: AsyncWrite + Unpin,
 {
     let mut write = framing::FrameWrite::new(write);
-    write
-        .frame(greeting.version.as_bytes())
-        .await
-        .map_err(Error::HandshakeWrite)?;
+    let mut first = Vec::with_capacity(8 + greeting.version.as_bytes().len());
+    first.extend_from_slice(&greeting.set_len.to_le_bytes());
+    first.extend_from_slice(greeting.version.as_bytes());
+    write.frame(&first).await.map_err(Error::HandshakeWrite)?;
     let listing = borsh::to_vec(&greeting.listing).map_err(Error::HandshakeWrite)?;
     write.frame(&listing).await.map_err(Error::HandshakeWrite)
 }
 
-/// Receive and canonically decode one greeting: the causal-version frame,
-/// then the root-fan listing frame.
+/// Receive and canonically decode one greeting: the set-size-prefixed
+/// causal-version frame, then the root-fan listing frame.
 ///
 /// The listing is peer-controlled, so its canonical strictly-ascending radix
 /// order is enforced here — the same rule the frame codec applies to a wire
@@ -227,11 +229,25 @@ where
 {
     let mut read = framing::FrameRead::new(read);
     let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
-    let version = Version::try_from_slice(&bytes).map_err(Error::HandshakeDecode)?;
+    let set_len = bytes
+        .get(..8)
+        .and_then(|prefix| <[u8; 8]>::try_from(prefix).ok())
+        .map(u64::from_le_bytes)
+        .ok_or_else(|| {
+            Error::HandshakeDecode(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "greeting version frame is shorter than its set-size prefix",
+            ))
+        })?;
+    let version = Version::try_from_slice(&bytes[8..]).map_err(Error::HandshakeDecode)?;
     let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
     let listing = Vec::<(u8, Hash)>::try_from_slice(&bytes).map_err(Error::HandshakeDecode)?;
     validate_children(&listing).map_err(Error::HandshakeListing)?;
-    Ok(Handshake { version, listing })
+    Ok(Handshake {
+        version,
+        set_len,
+        listing,
+    })
 }
 
 /// Return untouched control halves on equality, otherwise open the session.

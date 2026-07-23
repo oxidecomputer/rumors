@@ -116,7 +116,9 @@ impl Control {
             };
         }
         let (version_frame, rest) = split_frame(rest, "version");
-        let version = Version::try_from_slice(&version_frame[FRAME_LEN..])
+        // The version frame's body leads with the sender's eight-byte set
+        // size; the version encoding follows it.
+        let version = Version::try_from_slice(&version_frame[FRAME_LEN + 8..])
             .expect("captured version frame is canonical");
         // The greeting always carries its listing frame directly behind the
         // version frame (empty tree = empty listing, still framed).

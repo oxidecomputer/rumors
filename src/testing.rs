@@ -44,14 +44,16 @@ pub fn node_census_reset() {
     crate::tree::typed::untyped::census::reset_peak();
 }
 
-/// The per-height channel capacities `sync_memory_budget`'s parameters
-/// derive, indexed by typed height (`0` = leaves, `32` = root).
+/// The per-height channel capacities a session derives from its budget
+/// and the two replicas' exchanged set sizes, indexed by typed height
+/// (`0` = leaves, `32` = root).
 ///
 /// Exposed so integration suites can compute, from the same derivation
 /// sessions use, where a divergence must saturate and serialize.
-pub fn window_capacities(expected_messages: u64, budget_bytes: usize) -> Vec<usize> {
+pub fn window_capacities(local_len: u64, remote_len: u64, budget_bytes: usize) -> Vec<usize> {
     let window = crate::tree::mirror::streaming::window::Window::from_budget(
-        expected_messages,
+        local_len,
+        remote_len,
         budget_bytes,
         crate::tree::mirror::streaming::Local::NODE_BYTES,
     );

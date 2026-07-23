@@ -12,35 +12,34 @@
 //! graph, so every schedule live at the floor stays live at any width.
 //!
 //! The public knob ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget))
-//! is denominated in the two quantities a deployment can state — the
-//! message count the set is expected to reach, and a worst-case memory
-//! budget for one synchronization of a set that size — and each edge's
-//! capacity is a **static, per-height bound** derived from them at
-//! configuration time. Channels stay plain bounded queues; the
-//! [link](crate::link) remains the only backpressure boundary with runtime
-//! semantics.
+//! is one byte budget; each session turns it into **static per-height
+//! capacities** using the set sizes the two replicas exchange in their
+//! greetings. Channels stay plain bounded queues; the [link](crate::link)
+//! remains the only backpressure boundary with runtime semantics.
 //!
 //! # The occupancy model
 //!
 //! Content addresses are uniform 32-byte strings (the model of record:
 //! uniform-hash, authenticated-honest-peer), so the trie's occupancy thins
 //! geometrically with depth, and the population of scopes a level can
-//! *ever* hold in flight is bounded by closed-form statistics of `N`
-//! uniform keys:
+//! *ever* hold in flight is bounded by closed-form statistics of the two
+//! corpora, sizes `A` and `B`:
 //!
-//! - **Occupied slots.** A depth-`j` slot is occupied with probability
-//!   `1 − (1 − 256⁻ʲ)ᴺ`; at most `min(256ʲ, N)` slots are occupied at all
-//!   — deterministically, since each of `N` leaves occupies one slot per
+//! - **Occupied slots.** At most `min(256ʲ, max(A, B))` depth-`j` slots
+//!   are occupied at all — deterministically, one slot per leaf per
 //!   level.
 //! - **Joint occupancy.** A scope is disputed only where **both** replicas
-//!   occupy the slot; two honest corpora are independent draws, so the
-//!   expected jointly occupied depth-`j` slots are `≤ N²/256ʲ` — the
+//!   occupy the slot — a *shared prefix*, deterministically capped by the
+//!   smaller corpus — and two honest corpora are independent draws, so
+//!   the expected jointly occupied depth-`j` slots are `≤ A·B/256ʲ`: the
 //!   birthday scale that shuts dispute populations off past the joint
-//!   frontier, falling ~256× per further depth.
-//! - **Per-parent fan.** A disputed parent's queried children are bounded
-//!   by its own occupied sub-slots, concentrating near `N/256ʲ` per
-//!   depth-`j` parent — far below the structural fan of 256 at every
-//!   depth past the first few.
+//!   frontier, falling ~256× per further depth. An asymmetric session (a
+//!   bootstrap catch-up) disputes almost nothing and derives floor-width
+//!   dispute capacities; its supplies stream outside the window.
+//! - **Per-parent fan.** A disputed parent's queried children are the
+//!   *replier's* — bounded by the larger corpus's occupied sub-slots,
+//!   concentrating near `max(A, B)/256ʲ` per depth-`j` parent, far below
+//!   the structural fan of 256 at every depth past the first few.
 //!
 //! Each bound enters as an *integer envelope*: a quantile at tail
 //! probability 2⁻⁴⁸ per (stage, statistic) from the multiplicative
@@ -142,31 +141,26 @@ const SCOPE_FIXED_BYTES: usize = 2 * 40 + 2 * 24;
 /// In-memory bytes of one buffered leaf request: an inline leaf prefix.
 const LEAF_REQUEST_BYTES: usize = 40;
 
-/// Messages a peer sizes its window for by default: 10^10, a terabyte of
-/// minimal ~100-byte messages — the count a terabyte-scale set cannot
-/// exceed, since smaller messages do not encode.
-pub const DEFAULT_EXPECTED_MESSAGES: u64 = 10_000_000_000;
-
-/// Worst-case memory one synchronization may spend by default: 10 GiB.
+/// Worst-case memory one synchronization may spend by default: 128 MiB.
 ///
 /// An envelope, not an allocation — a session approaches it only against
-/// multi-gigabyte divergence; typical sessions hold kilobytes. Tune down
-/// via [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) under
-/// hard memory budgets.
-pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 10 << 30;
+/// wide mutual divergence; typical sessions hold kilobytes. Sized so
+/// dispute traffic (~200 wire bytes and ~2 KiB of envelope per disputed
+/// message) fills links up to roughly 1 Gbps × 100 ms: on such links a
+/// session is bandwidth-bound at every divergence, and window
+/// serialization is never observable. See
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for the
+/// measured trade-off table.
+pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 128 << 20;
 
 /// Per-height channel capacities for one session, in disputed scopes.
 ///
-/// Constructed from a set-size estimate, a memory budget, and the
-/// backend's per-node price by [`from_budget`](Self::from_budget);
-/// consumed by the channel constructors of the materialized walk and the
-/// remote proxy, each at the typed height its items carry. `Default`
-/// differs by build: production sessions get the window
-/// [`DEFAULT_EXPECTED_MESSAGES`] and [`DEFAULT_SYNC_MEMORY_BUDGET`]
-/// derive at the in-memory backend's node price, while test builds
-/// (`cfg(test)` and the `test-internals` feature) get the one-slot
-/// liveness floor so every schedule keeps being exercised at the capacity
-/// where a bad ordering *would* deadlock.
+/// Constructed from the two replicas' exchanged set sizes, a memory
+/// budget, and the backend's per-node price by
+/// [`from_budget`](Self::from_budget) — usually through a
+/// [`WindowConfig`] once the greeting supplies the sizes — and consumed
+/// by the channel constructors of the materialized walk and the remote
+/// proxy, each at the typed height its items carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Window {
     /// Channel capacity per typed item height, `0..=KEY_DEPTH`.
@@ -179,7 +173,7 @@ impl Window {
         capacities: [1; KEY_DEPTH + 1],
     };
 
-    /// Derive per-height capacities from an expected set size, a
+    /// Derive per-height capacities from the two replicas' set sizes, a
     /// worst-case memory budget, and the backend's bytes per resident
     /// node reference.
     ///
@@ -189,14 +183,21 @@ impl Window {
     /// budget can widen, because their populations cannot exist — and `K`
     /// is the widest global width whose worst case fits the budget,
     /// charging each level's population once at its own occupancy-thinned
-    /// fan. Any budget, including zero, keeps every capacity at least
-    /// one: liveness outranks the budget.
+    /// fan. Disputes require joint occupancy, so the joint terms take the
+    /// *pair product* of the two sizes — an asymmetric session (bootstrap
+    /// catch-up) disputes almost nothing and gets narrow dispute windows,
+    /// while its supplies stream outside the window — where the
+    /// occupied-slot and per-parent fan terms bound the replier's listed
+    /// children and take the larger side. Any budget, including zero,
+    /// keeps every capacity at least one: liveness outranks the budget.
     pub(crate) fn from_budget(
-        expected_messages: u64,
+        local_messages: u64,
+        remote_messages: u64,
         budget_bytes: usize,
         node_bytes: usize,
     ) -> Self {
-        let n = u128::from(expected_messages);
+        let n = u128::from(local_messages.max(remote_messages));
+        let pair = u128::from(local_messages) * u128::from(remote_messages);
         let reference_bytes = (node_bytes + REFERENCE_SLOT_BYTES) as u128;
         let budget = budget_bytes as u128;
 
@@ -207,7 +208,7 @@ impl Window {
         let mut population = [0u128; KEY_DEPTH + 1];
         let mut scope_price = [0u128; KEY_DEPTH + 1];
         for depth in 1..=KEY_DEPTH {
-            population[depth] = stage_population(n, depth);
+            population[depth] = stage_population(n, pair, depth);
             scope_price[depth] =
                 children_quantile(n, depth - 1) * reference_bytes + SCOPE_FIXED_BYTES as u128;
         }
@@ -264,22 +265,44 @@ impl Window {
     }
 }
 
-impl Default for Window {
+/// How a session chooses its window: fixed capacities, or a byte budget
+/// resolved against the set sizes the greeting exchanges.
+// A fixed table is ~260 B against `Budget`'s word; the config lives one
+// per peer and per in-flight session, so indirection would spend an
+// allocation to save nothing that matters.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum WindowConfig {
+    /// Predetermined capacities: the test floor, or a harness pinning
+    /// exact widths.
+    Fixed(Window),
+    /// Derive per-height capacities at session start, once both replicas'
+    /// sizes are known.
+    Budget(usize),
+}
+
+impl WindowConfig {
+    /// Resolve the session's window against the exchanged set sizes.
+    pub(crate) fn resolve(self, local_len: u64, remote_len: u64, node_bytes: usize) -> Window {
+        match self {
+            Self::Fixed(window) => window,
+            Self::Budget(bytes) => Window::from_budget(local_len, remote_len, bytes, node_bytes),
+        }
+    }
+}
+
+impl Default for WindowConfig {
     fn default() -> Self {
         // Tests run at the floor so the capacity-one orderings the
         // deadlock-freedom argument certifies stay exercised; production
-        // sessions pipeline by default at the in-memory backend's price.
+        // sessions derive from the greeting's sizes by default.
         #[cfg(any(test, feature = "test-internals"))]
         {
-            Self::FLOOR
+            Self::Fixed(Window::FLOOR)
         }
         #[cfg(not(any(test, feature = "test-internals")))]
         {
-            Self::from_budget(
-                DEFAULT_EXPECTED_MESSAGES,
-                DEFAULT_SYNC_MEMORY_BUDGET,
-                super::backend::Local::NODE_BYTES,
-            )
+            Self::Budget(DEFAULT_SYNC_MEMORY_BUDGET)
         }
     }
 }
@@ -352,19 +375,24 @@ fn occupied(n: u128, j: usize) -> u128 {
 
 /// Jointly occupied depth-`j` slots.
 ///
-/// Slot and corpus caps plus a quantile at the pair mean `N²/256ʲ`:
-/// Bernstein in the bulk (flat 2⁻⁴⁸ level, `t = 34 ≥ 48 ln 2`),
-/// Poisson-type past the joint frontier where the mean is sub-unit.
-fn jointly_occupied(n: u128, j: usize) -> u128 {
+/// A slot is jointly occupied only if the smaller corpus occupies it, so
+/// the deterministic caps are the slot count and the corpora; the
+/// quantile sits at the pair mean `A·B/256ʲ` — Bernstein in the bulk
+/// (flat 2⁻⁴⁸ level, `t = 34 ≥ 48 ln 2`), Poisson-type past the joint
+/// frontier where the mean is sub-unit. `n` is the larger corpus and
+/// `pair = A·B`, so `pair / n` recovers the smaller.
+fn jointly_occupied(n: u128, pair: u128, j: usize) -> u128 {
     if j == 0 {
-        return u128::from(n >= 1);
+        // The root is jointly occupied only when both corpora are
+        // non-empty; an empty side disputes nothing and only receives.
+        return u128::from(pair >= 1);
     }
-    let pair_mean = n.saturating_mul(n);
-    let quantile = match small_mean_quantile(pair_mean, j, 48) {
+    let smaller = pair.checked_div(n).unwrap_or(0);
+    let quantile = match small_mean_quantile(pair, j, 48) {
         Some(q) => q,
-        None => bernstein(pair_mean / pow256(j) + 1, 34),
+        None => bernstein(pair / pow256(j) + 1, 34),
     };
-    pow256(j).min(n).min(quantile)
+    pow256(j).min(smaller).min(quantile)
 }
 
 /// Per-parent quantile, leaves route: occupied sub-slots under one
@@ -404,8 +432,10 @@ fn children_quantile(n: u128, j: usize) -> u128 {
 ///
 /// Entries live at depth `d − 1`, bounded by the occupied-slot cap there
 /// and by the listed-under-disputed-parents aggregate — jointly occupied
-/// depth-(d−2) parents times the per-parent children quantile.
-fn stage_population(n: u128, d: usize) -> u128 {
+/// depth-(d−2) parents times the per-parent children quantile. `n` is the
+/// larger corpus (whose children a reply lists); `pair` is the product of
+/// the two corpus sizes, the scale of joint occupancy.
+fn stage_population(n: u128, pair: u128, d: usize) -> u128 {
     if d == 0 || n == 0 {
         return 0;
     }
@@ -413,7 +443,7 @@ fn stage_population(n: u128, d: usize) -> u128 {
         // The opening question: exactly one root scope.
         return 1;
     }
-    let listed = jointly_occupied(n, d - 2).saturating_mul(children_quantile(n, d - 2));
+    let listed = jointly_occupied(n, pair, d - 2).saturating_mul(children_quantile(n, d - 2));
     occupied(n, d - 1).min(listed)
 }
 

@@ -1,10 +1,14 @@
 use proptest::prelude::*;
 
 use super::{
-    DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET, FAN, KEY_DEPTH, LEAF_REQUEST_BYTES,
-    REFERENCE_SLOT_BYTES, SCOPE_FIXED_BYTES, Window, children_quantile, jointly_occupied, occupied,
+    DEFAULT_SYNC_MEMORY_BUDGET, FAN, KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES,
+    SCOPE_FIXED_BYTES, Window, WindowConfig, children_quantile, jointly_occupied, occupied,
     stage_population,
 };
+
+/// The symmetric set size the fixed-scale tests derive against: both
+/// replicas at a terabyte-scale corpus.
+const SYMMETRIC: u64 = 10_000_000_000;
 
 /// The in-memory backend's per-reference price, for tests that recompute
 /// the charge the solve stayed inside.
@@ -18,7 +22,7 @@ fn charge(window: &Window, n: u128, node_bytes: usize) -> u128 {
     let mut total = 0u128;
     for depth in 1..=KEY_DEPTH {
         let capacity = window.capacity(KEY_DEPTH - depth) as u128;
-        let held = stage_population(n, depth).min(capacity);
+        let held = stage_population(n, n * n, depth).min(capacity);
         total += held * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
     }
     total + n.min(window.capacity(0) as u128) * LEAF_REQUEST_BYTES as u128
@@ -28,7 +32,22 @@ fn charge(window: &Window, n: u128, node_bytes: usize) -> u128 {
 /// exercised at the capacity where a bad ordering would deadlock.
 #[test]
 fn test_default_is_the_floor() {
-    assert_eq!(Window::default(), Window::FLOOR);
+    let WindowConfig::Fixed(window) = WindowConfig::default() else {
+        panic!("test builds must pin the floor, not derive from a budget");
+    };
+    assert_eq!(window, Window::FLOOR);
+}
+
+/// An asymmetric session disputes almost nothing: with one side empty,
+/// joint occupancy is zero, so every capacity floors regardless of budget
+/// — a bootstrap-shaped catch-up is all supply, and supply does not ride
+/// the window.
+#[test]
+fn asymmetric_sessions_get_floor_dispute_windows() {
+    assert_eq!(
+        Window::from_budget(0, SYMMETRIC, usize::MAX, LOCAL_NODE_BYTES),
+        Window::FLOOR
+    );
 }
 
 /// A zero memory budget yields the one-slot liveness floor at every
@@ -37,7 +56,7 @@ fn test_default_is_the_floor() {
 #[test]
 fn zero_budget_is_the_floor() {
     assert_eq!(
-        Window::from_budget(DEFAULT_EXPECTED_MESSAGES, 0, LOCAL_NODE_BYTES),
+        Window::from_budget(SYMMETRIC, SYMMETRIC, 0, LOCAL_NODE_BYTES),
         Window::FLOOR
     );
 }
@@ -47,7 +66,7 @@ fn zero_budget_is_the_floor() {
 #[test]
 fn tiny_set_is_the_floor() {
     assert_eq!(
-        Window::from_budget(0, usize::MAX, LOCAL_NODE_BYTES),
+        Window::from_budget(0, 0, usize::MAX, LOCAL_NODE_BYTES),
         Window::FLOOR
     );
 }
@@ -59,7 +78,7 @@ fn tiny_set_is_the_floor() {
 /// however much budget is offered.
 #[test]
 fn near_root_capacities_are_structural() {
-    let window = Window::from_budget(u64::MAX, usize::MAX, LOCAL_NODE_BYTES);
+    let window = Window::from_budget(u64::MAX, u64::MAX, usize::MAX, LOCAL_NODE_BYTES);
     // Height KEY_DEPTH−2 discusses depth-2 children: at most one full fan
     // of queried entries under the single jointly-known root.
     assert!(window.capacity(KEY_DEPTH - 2) <= FAN);
@@ -73,7 +92,8 @@ fn near_root_capacities_are_structural() {
 #[test]
 fn default_budget_pipelines_the_fat_stages() {
     let window = Window::from_budget(
-        DEFAULT_EXPECTED_MESSAGES,
+        SYMMETRIC,
+        SYMMETRIC,
         DEFAULT_SYNC_MEMORY_BUDGET,
         LOCAL_NODE_BYTES,
     );
@@ -92,7 +112,7 @@ fn default_budget_pipelines_the_fat_stages() {
 /// than claiming an impossibility it cannot certify.
 #[test]
 fn deep_levels_are_sparse() {
-    let window = Window::from_budget(1_000_000, usize::MAX, LOCAL_NODE_BYTES);
+    let window = Window::from_budget(1_000_000, 1_000_000, usize::MAX, LOCAL_NODE_BYTES);
     for height in 0..=(KEY_DEPTH - 10) {
         assert!(
             window.capacity(height) <= 16,
@@ -111,7 +131,7 @@ proptest! {
         messages in 1u64..,
         budget in 0usize..=1 << 44,
     ) {
-        let window = Window::from_budget(messages, budget, LOCAL_NODE_BYTES);
+        let window = Window::from_budget(messages, messages, budget, LOCAL_NODE_BYTES);
         prop_assert!(
             window == Window::FLOOR
                 || charge(&window, u128::from(messages), LOCAL_NODE_BYTES)
@@ -126,9 +146,9 @@ proptest! {
     #[test]
     fn envelopes_are_consistent(messages in 0u64.., depth in 1usize..=KEY_DEPTH) {
         let n = u128::from(messages);
-        prop_assert!(jointly_occupied(n, depth) <= occupied(n, depth));
+        prop_assert!(jointly_occupied(n, n * n, depth) <= occupied(n, depth));
         prop_assert!(children_quantile(n, depth) <= FAN as u128);
-        prop_assert!(stage_population(n, depth) <= occupied(n, depth - 1));
+        prop_assert!(stage_population(n, n * n, depth) <= occupied(n, depth - 1));
     }
 
     /// Capacities move smoothly as the set estimate crosses a tree-height
@@ -151,8 +171,8 @@ proptest! {
         budget in (1usize << 24)..=(1 << 40),
     ) {
         let boundary = 256u64.pow(level);
-        let below = Window::from_budget(boundary - offset, budget, LOCAL_NODE_BYTES);
-        let above = Window::from_budget(boundary + offset, budget, LOCAL_NODE_BYTES);
+        let below = Window::from_budget(boundary - offset, boundary - offset, budget, LOCAL_NODE_BYTES);
+        let above = Window::from_budget(boundary + offset, boundary + offset, budget, LOCAL_NODE_BYTES);
         for height in 0..=KEY_DEPTH {
             let (b, a) = (below.capacity(height), above.capacity(height));
             let step = b.abs_diff(a) as u64;

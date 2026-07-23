@@ -15,10 +15,8 @@ use crate::link::{Acceptor, Connector, Link};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::tree::mirror::streaming::remote::RunBudget;
-use crate::tree::mirror::streaming::window::Window;
-pub use crate::tree::mirror::streaming::window::{
-    DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET,
-};
+pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
+use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{
     Batch, Bookmark, CausalMessages, Error, Key, Network, Protocol, Rumors, Snapshot,
     UnorderedMessages, Version,
@@ -145,9 +143,10 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 pub struct Peer<T, B: BookmarkError = NoBookmark> {
     pub(crate) network: Network,
     pub(crate) protocol: Protocol,
-    /// The reconciliation pipeline window derived from
-    /// [`sync_memory_budget`](Self::sync_memory_budget).
-    pub(crate) window: Window,
+    /// The reconciliation window choice selected by
+    /// [`sync_memory_budget`](Self::sync_memory_budget), resolved per
+    /// session against the greeting's exchanged set sizes.
+    pub(crate) window: WindowConfig,
     /// The supply-run byte budget selected by
     /// [`target_message_size`](Self::target_message_size).
     pub(crate) run_budget: RunBudget,
@@ -201,7 +200,7 @@ impl<T> Peer<T, NoBookmark> {
         Self {
             network: Network::from_rng(rng),
             protocol: Protocol::default(),
-            window: Window::default(),
+            window: WindowConfig::default(),
             run_budget: RunBudget::default(),
             inner: watch::Sender::new(Inner {
                 party: Some(Party::seed()),
@@ -338,35 +337,37 @@ impl<T, B: BookmarkError> Peer<T, B> {
         self
     }
 
-    /// Bound the memory this peer's sessions may spend on pipelining.
+    /// Bound the memory a synchronization may spend on pipelining.
     ///
     /// Reconciliation pipelines disputed subtrees so wire latency is paid
-    /// per tree level rather than per disputed node; the pipeline's depth
-    /// is what costs memory. This knob sizes it from what a deployment can
-    /// state: the message count the set may reach (`expected_messages`)
-    /// and the most memory one synchronization of such a set may spend
-    /// (`budget_bytes`).
+    /// per tree level rather than per disputed subtree. Pipelining is
+    /// what costs memory — a few hundred bytes per disputed subtree in
+    /// flight — and `budget_bytes` is its worst-case envelope, not an
+    /// allocation: a session holds only what it actually disputes,
+    /// typically kilobytes, plus a few MB of in-hand reply batches this
+    /// setting does not govern ([`target_message_size`](Self::target_message_size)
+    /// bounds that unit).
     ///
-    /// Both become static per-level channel capacities, fixed here.
-    /// Content addresses are uniform hashes, so each level's population
-    /// of disputed scopes is bounded by closed-form occupancy statistics
-    /// of `expected_messages` keys; a level's capacity never exceeds its
-    /// population, and the budget buys width only where population can
-    /// exist. The budget is an envelope, not an allocation: sessions hold
-    /// only what they dispute — typically kilobytes — plus a few MB of
-    /// in-hand reply batches this setting does not govern
-    /// ([`target_message_size`](Self::target_message_size) bounds that
-    /// unit). Peers with different settings interoperate; the setting is
-    /// not wire-visible.
+    /// Each session divides the budget into fixed per-level channel
+    /// capacities from the set sizes the two replicas exchange at session
+    /// start. Under uniform content hashing, dispute populations thin
+    /// geometrically with depth and scale with the *product* of the two
+    /// set sizes, so the budget buys width only where disputes can exist.
+    /// The setting is not wire-visible: peers with different budgets
+    /// interoperate.
     ///
-    /// Mis-estimation degrades to latency, never to memory growth or
-    /// deadlock. A level whose real population outruns its bound — a set
-    /// beyond the estimate, or the sub-2⁻⁴⁰ tail uniform hashing leaves —
-    /// simply serializes behind its channel. Any budget, including zero,
-    /// keeps sessions live: the floor is one disputed subtree in flight
-    /// per level. The defaults ([`DEFAULT_EXPECTED_MESSAGES`],
-    /// [`DEFAULT_SYNC_MEMORY_BUDGET`]) size a terabyte-scale set within
-    /// 10 GiB.
+    /// A budget can add latency, never break a session. A divergence
+    /// wider than the derived capacities drains in capacity-sized waves,
+    /// capping dispute throughput near `budget_bytes / (3 × RTT)`; any
+    /// budget, including zero, leaves every session deadlock-free at one
+    /// disputed subtree in flight per level. The default,
+    /// [`DEFAULT_SYNC_MEMORY_BUDGET`], keeps sessions bandwidth-bound —
+    /// serialization never observable — on links up to roughly
+    /// 1 Gbps × 100 ms.
+    ///
+    /// # Choosing a budget
+    ///
+    #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
     ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
@@ -374,12 +375,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// the alternating protocol batches whole levels instead of
     /// pipelining.
     #[must_use]
-    pub fn sync_memory_budget(mut self, expected_messages: u64, budget_bytes: usize) -> Self {
-        self.window = Window::from_budget(
-            expected_messages,
-            budget_bytes,
-            crate::tree::mirror::streaming::Local::NODE_BYTES,
-        );
+    pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
+        self.window = WindowConfig::Budget(budget_bytes);
         self
     }
 

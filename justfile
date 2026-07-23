@@ -206,6 +206,10 @@ muxprobe rand_seeds="25":
 
 # ── conveniences ─────────────────────────────────────────────────────────────
 
+# Regenerate the sync-budget trade-off table compiled into the rustdoc.
+window-tradeoff:
+    cargo run --release --example window_tradeoff > src/tree/mirror/streaming/window/tradeoff.md
+
 # Run benches, e.g. `just bench -p before party` or `just bench gossip_grid`.
 bench *args:
     cargo bench {{ args }}

@@ -24,10 +24,6 @@ use rumors::{Peer, Protocol, Rumors};
 /// link backpressure never shapes residency.
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
-/// The declared set size for every derivation: far above the test's own
-/// scale, so capacities are budget-bound, never bound by the test data.
-const DECLARED_MESSAGES: u64 = 10_000_000_000;
-
 /// A budget that binds at test scale: a few scopes per level.
 const TIGHT_BUDGET: usize = 64 * 1024;
 
@@ -50,9 +46,7 @@ const TRANSIENT_SLACK: usize = 8 * 1024;
 /// Two peers sharing a bootstrap, then diverged by `divergent` random
 /// messages on each side, both configured with `budget`.
 fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
-    let left = Peer::seed()
-        .sync_memory_budget(DECLARED_MESSAGES, budget)
-        .into_rumors();
+    let left = Peer::seed().sync_memory_budget(budget).into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x00c0_ffee_0b05_cafe);
     send_random(&left, 1_024, &mut rng);
 
@@ -66,7 +60,7 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
         joined
             .expect("bootstrap newcomer")
             .expect("provider is established")
-            .sync_memory_budget(DECLARED_MESSAGES, budget)
+            .sync_memory_budget(budget)
             .into_rumors()
     });
 
@@ -123,7 +117,10 @@ fn overhead(budget: usize, divergent: usize) -> usize {
 /// measurement, not the bound.
 #[test]
 fn window_attributable_residency_stays_inside_admittance() {
-    let capacities = window_capacities(DECLARED_MESSAGES, TIGHT_BUDGET);
+    // The sizes the session itself will exchange: both replicas hold the
+    // common prefix plus their own divergence when they reconcile.
+    let session_len = (1_024 + DIVERGENT_WIDE) as u64;
+    let capacities = window_capacities(session_len, session_len, TIGHT_BUDGET);
     let admitted: usize = capacities.iter().sum::<usize>() * HANDLES_PER_SCOPE
         + ASSEMBLY_FAN_HANDLES
         + TRANSIENT_SLACK;

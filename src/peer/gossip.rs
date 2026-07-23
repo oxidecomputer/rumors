@@ -35,7 +35,7 @@ use crate::{
         party,
         streaming::{
             self, Local, materialized, remote as streaming_remote, remote::RunBudget,
-            window::Window,
+            window::WindowConfig,
         },
     },
 };
@@ -251,10 +251,10 @@ impl<T> Peer<T, NoBookmark> {
                 Protocol::V2 => Box::pin(async move {
                     let local_root: streaming::Root<Local, T> = tree::Root::default().into();
                     let local = materialized::Handshaking::start(Local, local_root)
-                        .window(Window::default());
+                        .window(WindowConfig::default());
                     let carrier = Link::for_session(read, write, connector, acceptor, epoch);
                     let proxy = streaming_remote::Handshaking::start(Local, carrier)
-                        .window(Window::default())
+                        .window(WindowConfig::default())
                         .run_budget(RunBudget::default());
                     let handshaken = streaming::handshake(local, proxy)
                         .await
@@ -310,7 +310,7 @@ impl<T> Peer<T, NoBookmark> {
             let peer = Self {
                 network: remote.network,
                 protocol,
-                window: Window::default(),
+                window: WindowConfig::default(),
                 run_budget: RunBudget::default(),
                 inner: watch::Sender::new(Inner {
                     party: Some(party),
@@ -665,8 +665,10 @@ impl<T, B: Persist> Peer<T, B> {
             Result<(tree::Root<T>, DynRead<'a>, DynWrite<'a>), Error>,
         > = match self.protocol {
             Protocol::V2 => Box::pin(async move {
-                let local =
-                    materialized::Handshaking::start(Local, prior_tree.root.into()).window(window);
+                let local_len = prior_tree.len() as u64;
+                let local = materialized::Handshaking::start(Local, prior_tree.root.into())
+                    .window(window)
+                    .set_len(local_len);
                 let carrier = Link::for_session(read, write, connector, acceptor, epoch);
                 let proxy = streaming_remote::Handshaking::start(Local, carrier)
                     .window(window)

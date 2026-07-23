@@ -9,8 +9,9 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (2, 1, 0)
-version frame: 6 bytes
-  0000: 00 00 00 02 b2 40
+version frame: 14 bytes
+  0000: 00 00 00 0a 01 00 00 00
+  0008: 00 00 00 00 b2 40
 listing frame: 25 bytes
   0000: 00 00 00 15 01 00 00 00
   0008: fe 80 a3 55 90 2f 7a 57
@@ -31,8 +32,9 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (2, 0, 1)
-version frame: 6 bytes
-  0000: 00 00 00 02 b4 80
+version frame: 14 bytes
+  0000: 00 00 00 0a 01 00 00 00
+  0008: 00 00 00 00 b4 80
 listing frame: 25 bytes
   0000: 00 00 00 15 01 00 00 00
   0008: fe 80 a3 55 90 2f 7a 57

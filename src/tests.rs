@@ -271,7 +271,9 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root))
         .unwrap_or_else(|never| match never {});
     let listing = borsh::to_vec(&materialized::fan_listing(&fan)).expect("a listing serializes");
+    // The version frame's body leads with the sender's eight-byte set size.
     crate::tree::mirror::framing::LENGTH_HEADER_LEN
+        + 8
         + retiree.snapshot().latest().as_bytes().len()
         + crate::tree::mirror::framing::LENGTH_HEADER_LEN
         + listing.len()
