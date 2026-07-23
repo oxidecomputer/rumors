@@ -695,6 +695,37 @@ Pin the §6 invariant the way `step!` pins time complexity:
   missed and to serve as the campaign's progress dashboard: it lands
   at P0 mostly red by construction, and the campaign's acceptance
   criterion is an all-green board.
+
+  Landed 2026-07-22 (`before::meter::board`; runner
+  `examples/amp_board.rs`, `just amp-board`; nextest smoke): 41
+  operation rows × 5 families = 158 cells; P0 baseline **[measured]**
+  59 green / 99 red (dev profile, `limb-meter` lit, meter columns
+  byte-identical across runs). Ceilings pinned in the module:
+  exponent ≤ 1.15; heap ≤ 16 B per input byte over an 8 KiB flat
+  allowance; grown segments ≤ 1 flat; limb ≤ 128 ops per input byte,
+  calibrated up from a first-cut 8 after the benign control ran red —
+  amortized-linear per-node arithmetic records tens of unit-limb ops
+  per packed byte, which is the contract's linear regime, and width
+  blowups are caught by the exponent bound regardless. Surfaces red
+  at P0 that §3–§4's path list does not name (the mechanisms are the
+  known classes; the paths are new): **projection** (`Version /
+  &Party`, `Clock::own_version`) — owned per-frame path sums (V1's
+  mechanism) plus a `node_capacity_bound + id_bits.len()` builder
+  pre-size (T0.2's pattern) — red heap ~95–130 B/B on every family;
+  **the paper-notation parsers** (`FromStr`) — recursion frames on
+  deep input, and magnitude-quadratic limb work rebuilding a huge
+  parsed decimal (V3's mechanism on the string path, which V5 did
+  not cover); **`Display`** — event- and id-side writer recursion
+  frames plus ~24–31 B/B formatting heap (the id side is outside
+  P1's op list); **`min_ticks`/`rank` on big bases** — the V3
+  read-quadratic, correcting §15's "min_ticks … already
+  invariant-clean" (true for heap, not for limb work). Two dashboard
+  caveats of record: the board shares one process, so its heap
+  numbers are indicative and the process-isolated envelopes in
+  `tests/meter.rs` remain the enforced record; and segment counts
+  have a ~1 MiB growth threshold, so P1's id walks read green at
+  board-default depths — the meter suite's d = 250k scenarios are
+  what pin P1.
 - **Peak-heap meter**: counting `GlobalAlloc` in a dedicated test
   binary (one global allocator per binary; nextest's
   process-per-test isolation applies). Assert per operation ×
