@@ -43,7 +43,14 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 
 /// A trace of up to 30 ops over a population that starts as a single seed clock.
 pub(crate) fn world_strategy() -> impl Strategy<Value = Vec<Op>> {
-    prop::collection::vec(op_strategy(), 0..30)
+    world_strategy_up_to(30)
+}
+
+/// A trace of up to `max_ops` ops over a population that starts as a single
+/// seed clock, for suites that need histories deeper than [`world_strategy`]'s
+/// default cap.
+pub(crate) fn world_strategy_up_to(max_ops: usize) -> impl Strategy<Value = Vec<Op>> {
+    prop::collection::vec(op_strategy(), 0..max_ops)
 }
 
 /// Apply a trace to a fresh oracle population.

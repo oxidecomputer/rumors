@@ -19,6 +19,7 @@ pub(crate) mod metrics;
 pub(crate) mod optrace;
 
 mod algebraic_laws;
+mod compactness;
 mod exhaustive;
 mod semantic_oracle;
 mod snapshots;
