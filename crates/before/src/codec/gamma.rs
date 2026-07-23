@@ -196,19 +196,25 @@ where
         return Ok(Base::from(m - 1));
     }
 
-    // Wide fallback: the leading 1 has already been consumed; accumulate the
-    // remaining `k` bits of `m` into a `BigUint`.
-    let mut m = BigUint::from(1u32);
-    for _ in 0..k {
-        // Each step shifts the whole accumulator, so the loop's total work is
-        // quadratic in the code's bit width; the limb meter must see it.
-        #[cfg(feature = "limb-meter")]
-        super::base::limb_meter::record_biguint(&m);
-        m <<= 1;
+    // Wide fallback: the leading 1 has already been consumed, and it is the
+    // mantissa's top bit, at position `k`; the next `k` stream bits are the
+    // mantissa's remaining bits, most-significant first. Setting the top bit
+    // first sizes the value's storage once, and each later set writes one
+    // limb in place, so the total limb work is linear in the code's bit
+    // width and the only allocation is the value itself. A truncated stream
+    // still fails at the same `read_bit` position it would reading into an
+    // accumulator, so the accept/reject boundary is unchanged.
+    let mut m = BigUint::default();
+    m.set_bit(k as u64, true);
+    for i in (0..k as u64).rev() {
         if cursor.read_bit()? {
-            m |= BigUint::from(1u32);
+            m.set_bit(i, true);
         }
     }
+    // One width-proportional record per wide value: sizing `m`'s storage and
+    // decrementing it below each cost one pass over its limbs.
+    #[cfg(feature = "limb-meter")]
+    super::base::limb_meter::record_biguint(&m);
     Ok(Base::from(m - 1u32))
 }
 
