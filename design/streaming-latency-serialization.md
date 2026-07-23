@@ -475,7 +475,11 @@ motivated in review conversation and measured before adoption:
   512 MiB (raised from the initial 128 MiB in review: the envelope is
   per session, population caps make it irrelevant at typical scales,
   and the intended deployments have the headroom): dispute traffic
-  fills links up to ~4 Gbps × 100 ms, so
+  fills links up to ~4 Gbps × 100 ms — a 50 MB
+  bandwidth-delay product, 4× the intended rack deployment's
+  (32 sleds, 100 Gbps, sub-millisecond latency: 12.5 MB at a 1 ms
+  RTT), whose worst-case all-neighbors fan-out envelope of
+  31 × 512 MiB stays under 2 % of sled RAM — so
   serialization is unobservable there at any divergence; the
   measured latency-only worst case at 50k mutual divergence is
   1.2× (delay-sweep slope, compute excluded — single-point division
