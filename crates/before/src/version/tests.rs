@@ -324,6 +324,33 @@ proptest! {
 }
 
 proptest! {
+    /// The join is representationally subadditive:
+    /// `encode(a | b).len() <= encode(a).len() + encode(b).len()`.
+    ///
+    /// The join's event tree branches only where an input branches and its
+    /// bases come from pointwise combination, so joining can restructure but
+    /// never invent structure beyond both inputs together. Callers that
+    /// track version-size maxima rely on this to charge a join of two
+    /// bounded versions the sum of their bounds. Probed here over churned
+    /// (fork/send/sync/retire) populations — the causally related pairs live
+    /// replicas hold, including the normalization corners churn produces.
+    #[test]
+    fn join_encoding_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+        let join = a.clone() | b.clone();
+        prop_assert!(
+            join.encode().len() <= a.encode().len() + b.encode().len(),
+            "join encoding outgrew its inputs: {} > {} + {}",
+            join.encode().len(), a.encode().len(), b.encode().len(),
+        );
+    }
+}
+
+proptest! {
     /// Differential. The impl version meet (`&`) matches the oracle's `meet`,
     /// dual to [`merge_matches_oracle`].
     #[test]
@@ -1063,6 +1090,31 @@ proptest! {
         let mut ba2 = ca2.batch();
         ba2.materialize();
         prop_assert!(ba == ba2); // working vs working, equal
+    }
+}
+
+proptest! {
+    /// The join-size lemma of [`join_encoding_is_subadditive`], on
+    /// arbitrary, typically *unrelated* normal-form pairs.
+    ///
+    /// The churned generator only produces causally related versions from
+    /// one seed; these pairs add independent shapes and large-base leaves
+    /// (values near/beyond `u64::MAX`), where a join must restructure most —
+    /// the corner where subadditivity would break if normalization could
+    /// ever inflate a combined tree past its inputs.
+    #[test]
+    fn join_encoding_is_subadditive_arbitrary(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+    ) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let join = a.clone() | b.clone();
+        prop_assert!(
+            join.encode().len() <= a.encode().len() + b.encode().len(),
+            "join encoding outgrew its inputs: {} > {} + {}",
+            join.encode().len(), a.encode().len(), b.encode().len(),
+        );
     }
 }
 

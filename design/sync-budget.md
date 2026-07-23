@@ -1,7 +1,7 @@
 # The sync budget: session memory bounded by occupancy, priced by the backend
 
 Status: phases 1–3 landed (2026-07-22, `a3da46c4..4d6ff0f0` on
-`link-transport`); phase 4 planned below, spec-first, unstarted.
+`link-transport`); phase 4 in progress below, spec-first.
 Companions: `design/streaming-latency-serialization.md` (the
 serialization diagnosis this campaign grew from, amended in place as
 the knob evolved) and `design/b05-uniformity-envelope.md` (the
@@ -162,6 +162,15 @@ and §2.2's scalar suffices. If a normalization corner falsifies it,
 the fallback is a per-node aggregate of materialized bound sizes
 (which a database backend stores anyway); the plan proceeds either
 way, with the lemma's status recorded here.
+
+**Status (2026-07-22): probed and pinned.**
+`version::tests::join_encoding_is_subadditive` (churned
+fork/send/sync/retire populations) and
+`…_subadditive_arbitrary` (unrelated normal-form pairs with
+large-base leaves) hold at 20,000 cases each. The pin rides the
+public `encode`/`|` surface only, deliberately: the in-flight
+`before` representation rework must keep the property — the pin is
+the tripwire, not a bystander. §2.2's scalar therefore suffices.
 
 ### 2.2 The version-size aggregate
 
