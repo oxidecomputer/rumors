@@ -30,7 +30,11 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 /// Messages both peers share before the fork.
 const COMMON: usize = 2_048;
 
-/// The grid: one pipelined cell and one serialized cell per budget.
+/// The grid: three cells over two budgets.
+///
+/// The tight budget runs below and above its serialization knee (1k
+/// pipelined, 10k serialized); the roomy budget runs the same large
+/// divergence as the pipelined contrast at identical work.
 const CELLS: &[(&str, usize, usize)] = &[
     ("256KiB-1k", 256 << 10, 1_000),
     ("256KiB-10k", 256 << 10, 10_000),
