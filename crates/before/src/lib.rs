@@ -293,6 +293,12 @@ mod recurse;
 #[cfg(any(test, feature = "oracle"))]
 pub mod oracle;
 
+/// Adversarial input generators and deterministic resource meters, the
+/// instruments behind the resource-proportionality envelopes. Public under
+/// the `meter` feature so the metering test binaries can drive them.
+#[cfg(any(test, feature = "meter"))]
+pub mod meter;
+
 #[cfg(feature = "serde")]
 mod serde_impls;
 

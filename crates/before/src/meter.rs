@@ -1,0 +1,163 @@
+//! Adversarial input generators and deterministic resource meters.
+//!
+//! This module is the measurement half of the crate's resource-proportionality
+//! work: transient cost — peak heap, stack segments — as a function of packed
+//! input size, with no bound on value magnitude, tree depth, or encoded size.
+//! The generators below build the canonical packed encodings that maximize
+//! each cost against its input size. Public under the `meter` feature so the
+//! metering test binaries (and benches) can reach it; never part of a
+//! production build.
+//!
+//! Every generator output is strict normal form: it round-trips through
+//! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
+//! and re-encodes byte-identically,
+//! and its exact bit length is a closed formula in the parameters (pinned by
+//! this module's tests). Bit layouts follow the crate codec: an event node is
+//! a flag bit plus the Elias-gamma code of its base (`gamma(n)` codes
+//! `m = n + 1`); an id node is a 2-bit child-presence tag, absent children
+//! occupying no bits.
+
+use crate::codec::{self, Base, Bits};
+
+/// A generator's output: canonical packed bytes plus the exact bit length.
+///
+/// `bytes` is what `decode` accepts and `encode` reproduces (final partial
+/// byte zero-padded); `bits` is the live bit length before that padding, so
+/// tests can pin the closed-form size of each shape.
+#[derive(Debug, Clone)]
+pub struct Packed {
+    /// The canonical packed bytes, zero-padded to a byte boundary.
+    pub bytes: Vec<u8>,
+    /// The exact number of live bits in `bytes` before the zero pad.
+    pub bits: usize,
+}
+
+impl Packed {
+    /// Canonicalize a built bit stream: zero the dead pad bits and keep the
+    /// live length.
+    fn from_bits(mut bits: Bits) -> Self {
+        let len = bits.len();
+        codec::zero_dead_bits(&mut bits);
+        Packed {
+            bytes: bits.into_vec(),
+            bits: len,
+        }
+    }
+}
+
+/// Append an event leaf with base `n`: flag `0`, then `gamma(n)`.
+fn ev_leaf(bits: &mut Bits, n: u64) {
+    bits.push(false);
+    codec::encode_int(bits, &Base::from(n));
+}
+
+/// Append the dense event spine body: `d` zero-base internal nodes leaning
+/// left, each with a 0-leaf right sibling, bottoming out in `(0, 0, 1)`.
+///
+/// Layout: `"11" × d` (internal flag + `gamma(0)`), `"01"` (bottom-left leaf
+/// 0), `"0010"` (bottom-right leaf 1), `"01" × (d − 1)` (each ancestor's
+/// right sibling). Exactly `4d + 4` bits for `2d + 1` nodes at depth `d` —
+/// the densest shape normal form admits (~2 bits per node, depth ~n/4 for
+/// `n` bits), maximizing node count and recursion depth simultaneously.
+/// Normal form holds everywhere: each internal node's spine child has base
+/// 0, and the only leaf pair is `(0, 1)`.
+fn ev_spine(bits: &mut Bits, d: usize) {
+    for _ in 0..d {
+        bits.push(true); // internal-node flag
+        codec::encode_int(bits, &Base::from(0u8)); // gamma(0) = "1"
+    }
+    ev_leaf(bits, 0); // bottom node's left child
+    ev_leaf(bits, 1); // bottom node's right child: distinct, so no collapse
+    for _ in 0..d - 1 {
+        ev_leaf(bits, 0); // each ancestor's right sibling
+    }
+}
+
+/// The dense event spine `S(d)`: depth `d`, `2d + 1` nodes, `4d + 4` bits.
+///
+/// The node-count and recursion-depth maximizer; drives every per-node and
+/// per-level cost (decode parse stacks, walk frames, working-form arrays) to
+/// its worst case per input bit.
+///
+/// # Panics
+///
+/// Panics if `d == 0`: the spine needs at least one internal node.
+pub fn dense(d: usize) -> Packed {
+    assert!(d >= 1, "dense spine needs at least one internal node");
+    let mut bits = Bits::with_capacity(4 * d + 4);
+    ev_spine(&mut bits, d);
+    Packed::from_bits(bits)
+}
+
+/// A root with base `2^b − 1` over `S(d)` and a 0-leaf: `2b + 4d + 8` bits.
+///
+/// Layout: `"1" · gamma(2^b − 1) · S(d) · "01"`, where
+/// `gamma(2^b − 1) = 0^b · 1 · 0^b` (`2b + 1` bits). Puts a `b`-bit magnitude
+/// on every root-to-node path sum while keeping paths long — the shape that
+/// makes owned per-frame path sums quadratic in the input.
+///
+/// # Panics
+///
+/// Panics if `b == 0` or `d == 0`.
+pub fn bigroot(b: usize, d: usize) -> Packed {
+    assert!(b >= 1, "bigroot needs a nonzero root magnitude");
+    assert!(d >= 1, "bigroot needs a nonzero spine depth");
+    let mut bits = Bits::with_capacity(2 * b + 4 * d + 8);
+    bits.push(true); // root node flag
+    codec::encode_int(&mut bits, &pow2_minus_1(b));
+    ev_spine(&mut bits, d); // left child: the dense spine (its root has base 0)
+    ev_leaf(&mut bits, 0); // right child: the root's required zero-base leaf
+    Packed::from_bits(bits)
+}
+
+/// A single event leaf of value `2^b − 1`: one node, `2b + 2` bits.
+///
+/// Maximizes bit length per node: the whole input is one gamma code, so any
+/// cost superlinear in a single code's width (bit-at-a-time big-integer
+/// accumulation, size-from-bit-length allocations) shows up undiluted.
+///
+/// # Panics
+///
+/// Panics if `b == 0`.
+pub fn hugeleaf(b: usize) -> Packed {
+    assert!(b >= 1, "hugeleaf needs a nonzero magnitude");
+    let mut bits = Bits::with_capacity(2 * b + 2);
+    bits.push(false); // leaf flag
+    codec::encode_int(&mut bits, &pow2_minus_1(b));
+    Packed::from_bits(bits)
+}
+
+/// The id spine `I(d, divert)`: a unary chain of depth `d`, `2d + 2` bits.
+///
+/// Layout: `d` left-only tags (`10`) ending in a terminal (`00`). With
+/// `divert`, the last unary node is right-only (`01`) instead, so
+/// `I(d, false)` and `I(d, true)` share their first `d − 1` levels and own
+/// disjoint regions — the pair shape that drives two-operand id walks to
+/// full lockstep depth. Normal form: no `(1, 1)` node anywhere.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn id_spine(d: usize, divert: bool) -> Packed {
+    assert!(d >= 1, "id spine needs at least one unary node");
+    let mut bits = Bits::with_capacity(2 * d + 2);
+    for _ in 0..d - 1 {
+        bits.push(true); // left child present ...
+        bits.push(false); // ... right child absent
+    }
+    // The last unary node: left-only, or right-only when diverted.
+    bits.push(!divert);
+    bits.push(divert);
+    bits.push(false); // terminal tag "00": the single owned tip
+    bits.push(false);
+    Packed::from_bits(bits)
+}
+
+/// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
+fn pow2_minus_1(b: usize) -> Base {
+    let b = u32::try_from(b).expect("magnitude bit count fits u32");
+    (Base::from(1u8) << b) - &Base::from(1u8)
+}
+
+#[cfg(test)]
+mod tests;
