@@ -851,7 +851,27 @@ DECIDED entry is additionally gated on: (a) a designed-and-priced
 the linear functionals; the §6 invariant restated over content
 bits), and (b) the user's explicit acceptance of the §10.5
 identity/persistence blast radius, not just the snapshot re-pin.
-**[open — record the DECIDED entry here.]**
+**DECIDED 2026-07-23 (Finch): Tier 2 — the skyline encoding — as a
+flag day.** Evidence of record: the §10.4 envelope measured to hold
+outright (max ratio 1.9966, comb-tight; honest-regime median
+0.9888, §12 table); all five P3 derisk probes promising (§17); the
+fate map killing 49/62 default-scale red cells at the flip.
+Ratified with the decision: (a) the identity and persistence break —
+content-address leaf paths, borsh/serde bytes, one universe upgrades
+atomically, application-level `Key` migration out of scope; (b) the
+§17 P3.3 text-cell denomination amendment (R-denominated, κ-pinned,
+harder-not-softer per the recorded arithmetic); (c) blanket
+authorization for the mechanical byte re-pins at C2 (~55+ snapshots,
+fuzz seeds, codec witness literals), reviewed bytes-only. Bookmark
+posture: no v1 bookmark files exist anywhere (pre-production), so
+`BOOKMARK_FORMAT_VERSION` bumps 1→2 with strict reject and no
+migration machinery. Display/FromStr hardening is deprioritized to
+the plan's tail (debugging surfaces, not interoperation — user
+ruling, §17). The window-budget subadditivity lemma stands unless
+the §17 Gate A probe falsifies it; on falsification only, a
+proptested and analytically derived replacement estimate. Tier 1.5
+(§9) is not pursued; it remains in this document as the evaluated
+alternative.
 
 ## 13. The metering gate
 
