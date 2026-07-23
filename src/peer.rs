@@ -407,9 +407,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
-    /// bookmarking, and retirement. [`Protocol::V1`] sessions ignore it:
-    /// the alternating protocol batches whole levels instead of
-    /// pipelining.
+    /// bookmarking, and retirement. `Protocol::V1` sessions (behind the
+    /// `protocol-v1` cargo feature) ignore it: the alternating protocol
+    /// batches whole levels instead of pipelining.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.window = WindowConfig::Budget(budget_bytes);
@@ -449,8 +449,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
-    /// bookmarking, and retirement. [`Protocol::V1`] sessions ignore it:
-    /// the alternating protocol's wire format is frozen.
+    /// bookmarking, and retirement. `Protocol::V1` sessions (behind the
+    /// `protocol-v1` cargo feature) ignore it: the alternating protocol's
+    /// wire format is frozen.
     #[must_use]
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);

@@ -129,8 +129,8 @@ let alice = Peer::<String>::seed().into_rumors();
 // A bare `send` statement commits when its `Batch` drops, right here.
 alice.send("the meeting is at noon".to_string());
 
-// A session runs over a [`Link`]: a control byte stream plus a supply of
-// per-level data streams (see `link`); here, the in-memory pair.
+// A session runs over a `Link`: a control byte stream plus a supply of
+// per-level data streams (see the `link` module); here, the in-memory pair.
 // Alice serves one gossip session...
 let (mut near, mut far) = rumors::link::memory();
 let serve = alice.clone();
@@ -184,8 +184,8 @@ reconciliation needs them. The `link` module states what an
 implementation must guarantee, ships the in-memory instantiation
 (`link::memory`), and documents how to bind a real transport (QUIC
 connections map streams one to one; TCP can carry one stream per
-connection behind a routing listener) — with a
-conformance suite (behind the `conformance` cargo
+connection behind a routing listener) — with a conformance suite (the
+`conformance::link` module, unlocked by the `conformance` cargo
 feature) that checks those guarantees on a caller-built link.
 `Link`'s docs state [what a session
 promises](Link#what-a-session-promises) on `Ok`, `Err`, and cancellation.
