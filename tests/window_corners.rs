@@ -70,11 +70,23 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
     }
 }
 
-/// Serialized one-way hops one session spends on the paused-clock wire.
-fn hops(left: Rumors<u64>, right: Rumors<u64>) -> u32 {
-    let mut wire = latency::DelayedWire::new(LINK_CAPACITY, DELAY);
-    let (_pair, elapsed) = wire.round_trip(left, right);
-    u32::try_from(elapsed.as_millis() / DELAY.as_millis()).expect("bounded hop count")
+/// Serialized one-way hops one session spends on the wire, by the
+/// delay-sweep slope: the same shape runs at two delays, and the time
+/// difference divided by the delay difference isolates wire structure
+/// from compute (the harness reports their sum, and a session that
+/// moves tens of thousands of messages spends real milliseconds
+/// computing — dividing a single point by the delay would count that
+/// compute as phantom hops).
+fn hops(shape: impl Fn() -> (Rumors<u64>, Rumors<u64>)) -> u32 {
+    let elapsed_at = |delay: Duration| {
+        let (left, right) = shape();
+        let mut wire = latency::DelayedWire::new(LINK_CAPACITY, delay);
+        let (_pair, elapsed) = wire.round_trip(left, right);
+        elapsed
+    };
+    let (short, long) = (elapsed_at(DELAY), elapsed_at(2 * DELAY));
+    u32::try_from(long.saturating_sub(short).as_millis() / DELAY.as_millis())
+        .expect("bounded hop count")
 }
 
 /// Asymmetric catch-up is priced by its disputes, not its size: a nearly
@@ -87,14 +99,15 @@ fn hops(left: Rumors<u64>, right: Rumors<u64>) -> u32 {
 /// mispricing real sessions.
 #[test]
 fn asymmetric_catch_up_is_ladder_bound_at_the_floor() {
-    let (left, right) = pair(0, 1, 20_000, 0);
-    let measured = hops(left, right);
+    let measured = hops(|| pair(0, 1, 20_000, 0));
     eprintln!("asymmetric catch-up at budget 0: {measured} hops");
-    // Measured 41: the phase ladder plus floor-paced supply framing. A
-    // size-priced session would cost ~2 hops per message — three orders
-    // of magnitude past this bound.
+    // Ladder hops: the dispute chain prunes within a few levels (the one
+    // shared key's subtree thins to exactly that leaf and matches), and
+    // the supply is one unidirectional stream. A size-priced session
+    // would cost ~2 hops per message — three orders of magnitude past
+    // this bound.
     assert!(
-        measured <= 64,
+        measured <= 24,
         "a one-common-message catch-up must cost ladder hops, not waves: \
          {measured} hops",
     );
@@ -105,11 +118,10 @@ fn asymmetric_catch_up_is_ladder_bound_at_the_floor() {
 /// same near-nothing, and stays ladder-bound.
 #[test]
 fn asymmetric_catch_up_is_direction_independent() {
-    let (left, right) = pair(0, 1, 0, 20_000);
-    let measured = hops(left, right);
+    let measured = hops(|| pair(0, 1, 0, 20_000));
     eprintln!("reverse asymmetric catch-up at budget 0: {measured} hops");
     assert!(
-        measured <= 64,
+        measured <= 24,
         "catch-up direction must not change the dispute price: {measured} hops",
     );
 }
@@ -122,8 +134,8 @@ fn asymmetric_catch_up_is_direction_independent() {
 #[test]
 fn zero_budget_serializes_but_completes() {
     let divergence = 2_000;
+    let measured = hops(|| pair(0, 2_048, divergence, divergence));
     let (left, right) = pair(0, 2_048, divergence, divergence);
-    let measured = hops(left.clone(), right.clone());
     eprintln!("zero budget at {divergence} mutual divergence: {measured} hops");
     assert!(
         measured > 64,
@@ -133,6 +145,8 @@ fn zero_budget_serializes_but_completes() {
         measured <= 8 * 2 * divergence as u32,
         "floor cost must stay linear in divergence: {measured} hops",
     );
+    let mut wire = latency::DelayedWire::new(LINK_CAPACITY, DELAY);
+    let ((left, right), _elapsed) = wire.round_trip(left, right);
     assert_eq!(
         left.snapshot().len(),
         right.snapshot().len(),
