@@ -1,7 +1,11 @@
-//! Hand-pinned streams and the strict-reject corpus for the skyline codec.
+//! Agreement pins and the strict-reject corpus for the skyline codec.
 //!
-//! The hand pins fix the coding against arithmetic a reader can re-derive
-//! in the margin; the reject corpus and the mutation sweeps pin the
+//! Three independent artifacts triangulate here: the encoder (a walk over
+//! the packed form), the sizer [`tier2_size`] (an independent walk with its
+//! own zigzag map), and the decoder (validation plus min-lift
+//! reconstruction). Length agreement pins encoder against sizer; the
+//! round-trip pins encoder against decoder through the packed form's
+//! canonical uniqueness; the reject corpus and the mutation sweeps pin the
 //! validator's strictness — every non-canonical spelling is rejected, so
 //! acceptance implies the stream is *the* canonical encoding of its value.
 
@@ -11,11 +15,16 @@ use proptest::prelude::*;
 
 use crate::codec::{self, Base, Bits};
 use crate::error::Decode;
-use crate::meter::{alt_spine, cliff_comb, dense, hugeleaf, Packed};
+use crate::meter::tier2::tier2_size;
+use crate::meter::{
+    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, wide_tooth_comb,
+    Packed,
+};
 use crate::testing::bridge::from_oracle_version;
+use crate::testing::compactness::{arb_comb_params, comb};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
-use crate::testing::generators;
-use crate::{oracle, Version};
+use crate::testing::{generators, optrace};
+use crate::{oracle, Clock, Version};
 
 use super::{decode_bits, encode_bits, unzigzag, validate_bits, zigzag};
 
@@ -260,5 +269,138 @@ proptest! {
         let bits = encode_bits(&v);
         let flip = flip_seed.index(bits.len());
         assert_mutation_never_aliases(&v, &bits, flip);
+    }
+}
+
+// ─── agreement over the generator families ──────────────────────────────────
+
+/// The full agreement pin on one version: the encoder's length equals the
+/// independent sizer bit for bit, the stream validates, and decoding it
+/// reproduces the version exactly (packed byte equality).
+fn assert_agreement(v: &Version) {
+    let bits = encode_bits(v);
+    let size = tier2_size(v);
+    assert_eq!(
+        bits.len() as u64,
+        size.total_bits,
+        "skyline encoder length disagrees with the tier2 sizer: one of the \
+         two independent walks is wrong"
+    );
+    assert!(
+        validate_bits(&bits).is_ok(),
+        "the encoder emits canonical streams"
+    );
+    let back = decode_bits(&bits).expect("a canonical stream decodes");
+    assert_eq!(
+        &back, v,
+        "the skyline round-trip reproduces the version exactly"
+    );
+}
+
+/// Every adversarial generator family agrees with the sizer and round-trips
+/// exactly, across a deterministic size grid per family.
+#[test]
+fn generator_families_agree_and_round_trip() {
+    let shapes: Vec<Packed> = vec![
+        dense(1),
+        dense(2),
+        dense(64),
+        dense(1_000),
+        bigroot(7, 3),
+        bigroot(200, 50),
+        bigroot(1_000, 200),
+        hugeleaf(1),
+        hugeleaf(64),
+        hugeleaf(5_000),
+        cliff_comb(3, 2),
+        cliff_comb(64, 64),
+        cliff_comb(512, 512),
+        wide_tooth_comb(64, 8, 16),
+        wide_tooth_comb(512, 192, 64),
+        cliff_fan(64, 64),
+        cliff_fan(512, 128),
+        cancelling_chain(64, 64),
+        cancelling_chain(512, 128),
+        alt_spine(1),
+        alt_spine(2),
+        alt_spine(3),
+        alt_spine(64),
+        alt_spine(1_001),
+    ];
+    for p in &shapes {
+        assert_agreement(&version_of(p));
+    }
+}
+
+/// Exhaustive small scope: every normal-form tree to depth 2 round-trips,
+/// agrees with the sizer, and no two distinct versions share a skyline
+/// stream (injectivity, the other face of byte uniqueness).
+#[test]
+fn exhaustive_small_scope_agrees_and_is_injective() {
+    let pool = all_normal_events(EV_SMALL_DEPTH);
+    let mut seen: BTreeSet<Vec<u8>> = BTreeSet::new();
+    for t in &pool {
+        let v = from_oracle_version(t);
+        assert_agreement(&v);
+        let enc = super::encode(&v);
+        // Key on padded bytes plus the live length: distinct versions must
+        // differ somewhere a decoder can see.
+        let mut key = enc.bytes.clone();
+        key.extend_from_slice(&enc.bits.to_le_bytes());
+        assert!(
+            seen.insert(key),
+            "two distinct versions encoded to one skyline stream: {v}"
+        );
+    }
+}
+
+proptest! {
+    /// Arbitrary normal-form trees (magnitudes past `u64::MAX` included)
+    /// agree with the sizer and round-trip exactly.
+    #[test]
+    fn arbitrary_trees_agree_and_round_trip(t in generators::arb_oracle_version()) {
+        assert_agreement(&from_oracle_version(&t));
+    }
+
+    /// Every version produced by an organic fork/tick/send/sync/join
+    /// history agrees with the sizer and round-trips exactly.
+    #[test]
+    fn organic_histories_agree_and_round_trip(ops in optrace::world_strategy_up_to(120)) {
+        let mut clocks = vec![Clock::seed()];
+        for op in &ops {
+            optrace::step_impl(&mut clocks, op);
+        }
+        for clock in &clocks {
+            assert_agreement(clock.version());
+        }
+    }
+
+    /// Alternating combs — the compactness suite's tightness family, every
+    /// consecutive-leaf delta a full magnitude swing — agree and round-trip.
+    #[test]
+    fn alternating_combs_agree_and_round_trip((m, p) in arb_comb_params()) {
+        assert_agreement(&comb(m, p));
+    }
+
+    /// Value-equal versions built along different operation paths produce
+    /// byte-identical skyline streams: the coding is a function of the
+    /// value, never of the op path that constructed it.
+    #[test]
+    fn op_paths_yield_identical_bytes(
+        a in generators::arb_oracle_version(),
+        b in generators::arb_oracle_version(),
+        c in generators::arb_oracle_version(),
+    ) {
+        let (a, b, c) = (
+            from_oracle_version(&a),
+            from_oracle_version(&b),
+            from_oracle_version(&c),
+        );
+        prop_assert_eq!(encode_bits(&(&a | &b)), encode_bits(&(&b | &a)));
+        prop_assert_eq!(
+            encode_bits(&(&(&a | &b) | &c)),
+            encode_bits(&(&a | &(&b | &c)))
+        );
+        prop_assert_eq!(encode_bits(&(&a & &b)), encode_bits(&(&b & &a)));
     }
 }
