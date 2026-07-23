@@ -1016,7 +1016,7 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
             opened >= 1,
             "the session check opened no data streams on side {side}: \
              reconciliation rode the control stream alone, so the end-to-end \
-             check no longer exercises the connector and acceptor in-session",
+             check does not exercise the connector and acceptor in-session",
         );
     }
 }

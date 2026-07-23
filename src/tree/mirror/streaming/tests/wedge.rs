@@ -10,12 +10,12 @@
 //! impossibilities, realizability flows from Rust to the model).
 //!
 //! On the committed seeds: `tests/pairwise.proptest-regressions` and
-//! `tests/shadow_validity.proptest-regressions` exist on this branch, but
-//! they are integration-level seeds (three-peer networks, content-addressed
-//! keys, whole-`Rumors` action lists) that realize the wedge's *jam
-//! mechanism* on the old transport, not its byte-exact shape; a structural
-//! equality pin needs hand-placed paths. This bridge therefore constructs
-//! the pair deterministically and pins the decoded skeleton to the literal.
+//! `tests/shadow_validity.proptest-regressions` are integration-level
+//! seeds (three-peer networks, content-addressed keys, whole-`Rumors`
+//! action lists) that realize the wedge's *jam mechanism*, not its
+//! byte-exact shape; a structural equality pin needs hand-placed paths.
+//! This bridge therefore constructs the pair deterministically and pins
+//! the decoded skeleton to the literal.
 //!
 //! The Lean literal lives at `rootH = 6`; the protocol's real root is at
 //! height 32, where the same generator yields the same shape with the

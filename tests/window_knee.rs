@@ -79,9 +79,13 @@ const BELOW_FULL: usize = 7;
 /// heights 30 down to 28).
 ///
 /// The engaged band is a collision expectation: under uniform hashing the
-/// expected leaf pairs sharing a depth-2 slot are `E = C(n,2)/2^16` for a
-/// session of `n` leaves, falling ~256x per further depth, so past depth
-/// four the expected population is below one at any test-scale `n`.
+/// expected leaf pairs sharing a depth-`j` slot are `E = C(n,2)/256^j`
+/// for a session of `n` leaves, falling ~256x per further depth. At this
+/// file's scale (`n` runs a few hundred past [`COMMON`]) that is ~32-40
+/// pairs forcing descent to depth three and ~0.13-0.16 expected pairs
+/// reaching depth four: depth four's capacity enters the minimum as tail
+/// coverage, not typical population, and expected engagement past depth
+/// four is below 10^-3.
 ///
 /// This is the derivation the session itself performs at greeting time,
 /// evaluated at the sizes the session will actually exchange — both
