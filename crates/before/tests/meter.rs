@@ -67,6 +67,11 @@ const HUGELEAF_MAGNITUDE_BITS: usize = 125_000;
 /// Depth of the id spine `I(d, divert)` pair scenarios.
 const ID_DEPTH: usize = 250_000;
 
+/// Tooth magnitude (bits) of the boundary comb scenarios; also its tooth
+/// count, so crossing work `n·k` grows quadratically while each crossing
+/// stays paid for by a `2k + 1`-bit stored code.
+const CLIFF_SCALE: usize = 1_024;
+
 // ─── pinned envelopes ───────────────────────────────────────────────────────
 
 /// One scenario's pinned ceilings: the measured value ×1.25, rounded up.
@@ -119,6 +124,9 @@ mod envelope {
     pub const ID_COVERS: Envelope       = envelope(         0,      107,             0); //          0,  85,           0
     pub const ID_DISJOINT: Envelope     = envelope(         0,      213,             0); //          0, 170,           0
     pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
+    pub const DECODE_CLIFF: Envelope    = envelope(   718_402,        0,        51_200); //    574_721,   0,        40_960 (2026-07-23, new scenario)
+    pub const CMP_CLIFF: Envelope       = envelope(       820,        0,       238_093); //        656,   0,       190_474 (2026-07-23, new scenario)
+    pub const JOIN_CLIFF: Envelope      = envelope( 1_723_362,        0,       480_010); //  1_378_689,   0,       384_008 (2026-07-23, new scenario)
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -363,6 +371,52 @@ fn join_hugeleaf_envelope() {
         &envelope::JOIN_HUGELEAF,
         || &v | &one,
     );
+    drop(joined);
+}
+
+// ─── boundary comb scenarios ────────────────────────────────────────────────
+
+/// Decoding the boundary comb stays within its envelope (every carry-cliff
+/// crossing in the leaf values is paid for by a `2k + 1`-bit stored code, so
+/// the parse's limb work stays linear per input bit).
+#[test]
+fn decode_cliff_envelope() {
+    let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
+    let v = metered(
+        "decode_cliff",
+        p.bytes.len(),
+        &envelope::DECODE_CLIFF,
+        || version_of(&p),
+    );
+    drop(v);
+}
+
+/// Comparing the boundary comb against the empty version stays within its
+/// envelope (each tooth's cliff excursion costs `Θ(k)` limb work bought by
+/// its own `2k + 1`-bit stored magnitude, so the walk stays linear per
+/// input bit — the property the comb exists to separate from codings that
+/// store 3-bit deltas per crossing).
+#[test]
+fn cmp_cliff_envelope() {
+    let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
+    let v = version_of(&p);
+    let r = metered("cmp_cliff", p.bytes.len(), &envelope::CMP_CLIFF, || {
+        v.partial_cmp(&Version::new())
+    });
+    consumed(r);
+}
+
+/// Joining the boundary comb with a one-tick version stays within its
+/// envelope (the emit path re-codes every tooth magnitude, each paid for by
+/// a comparably-wide input code).
+#[test]
+fn join_cliff_envelope() {
+    let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
+    let v = version_of(&p);
+    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let joined = metered("join_cliff", p.bytes.len(), &envelope::JOIN_CLIFF, || {
+        &v | &one
+    });
     drop(joined);
 }
 

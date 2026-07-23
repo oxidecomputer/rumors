@@ -132,6 +132,49 @@ pub fn hugeleaf(b: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The boundary comb `C(k, n)`: `n` cliff teeth, `n(2k + 10) + 2` bits.
+///
+/// A zero-base spine leaning right, each spine node's left child a *tooth*
+/// `(2^k − 1, 0, 1)` — an internal node with base `2^k − 1` over leaves 0
+/// and 1 — terminated by a leaf 0. Its preorder leaf values oscillate
+/// `2^k − 1 ↔ 2^k`: every consecutive-leaf difference is `±1` sitting
+/// exactly on the `2^k` carry boundary, so any sweep that maintains a
+/// running leaf value (or a running difference of leaf values) pays a full
+/// `k`-bit carry or borrow per crossing. In this coding each tooth stores
+/// its own `gamma(2^k − 1)` — `2k + 1` bits — so every crossing is paid for
+/// by a comparably-wide input code and operations stay linear per input
+/// bit; a delta coding of the same tree stores 3-bit `±1` codes per
+/// crossing instead, which is what makes this the separating family for the
+/// leaf-delta representation question.
+///
+/// Layout per tooth: `"11"` (spine node, `gamma(0)`),
+/// `"1" · gamma(2^k − 1)` (tooth node), `"01"` (leaf 0),
+/// `"0011"` (leaf 1); after all `n` teeth, `"01"` (the terminal leaf 0).
+/// `2k + 10` bits per tooth plus 2, over `4n + 1` nodes of which `2n + 1`
+/// are leaves. Normal form holds everywhere: each spine node's right child
+/// has base 0, each tooth's left leaf has base 0, and the only leaf pairs
+/// are `(0, 1)`.
+///
+/// # Panics
+///
+/// Panics if `k == 0` or `n == 0`.
+pub fn cliff_comb(k: usize, n: usize) -> Packed {
+    assert!(k >= 1, "cliff comb needs a nonzero tooth magnitude");
+    assert!(n >= 1, "cliff comb needs at least one tooth");
+    let mut bits = Bits::with_capacity(n * (2 * k + 10) + 2);
+    let tooth = pow2_minus_1(k);
+    for _ in 0..n {
+        bits.push(true); // spine node flag
+        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        bits.push(true); // tooth node flag
+        codec::encode_int(&mut bits, &tooth);
+        ev_leaf(&mut bits, 0); // tooth's left leaf: value 2^k − 1
+        ev_leaf(&mut bits, 1); // tooth's right leaf: value 2^k
+    }
+    ev_leaf(&mut bits, 0); // terminal spine leaf
+    Packed::from_bits(bits)
+}
+
 /// The id spine `I(d, divert)`: a unary chain of depth `d`, `2d + 2` bits.
 ///
 /// Layout: `d` left-only tags (`10`) ending in a terminal (`00`). With
