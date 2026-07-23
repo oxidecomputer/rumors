@@ -107,6 +107,19 @@ impl Rank {
         (a >= b).then(|| Rank::from_raw(a - &b, e))
     }
 
+    /// The rank's value content in bits: `bits(num) + exp`.
+    ///
+    /// The meter denominator of record for `Rank` operands, which have no
+    /// packed encoding to charge against: the numerator's bit width plus
+    /// the exponent bounds the information the value carries, and every
+    /// public construction path emits ranks whose content is linear in the
+    /// packed bits it read, so a cost linear in this quantity is linear in
+    /// wire terms too.
+    #[cfg(any(test, feature = "meter"))]
+    pub(crate) fn content_bits(&self) -> u64 {
+        self.num.bits() + u64::from(self.exp)
+    }
+
     /// Normalize raw fold output `num · 2⁻ᵉˣᵖ` into canonical form: strip
     /// the factors of two shared by numerator and denominator, and pin zero
     /// to exponent zero, so structural equality is value equality.
