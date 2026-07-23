@@ -249,6 +249,63 @@ async fn retire(protocol: Protocol) {
     assert_control_drained(r_link, p_link);
 }
 
+/// Mutual bootstrap: both sides are identity-less newcomers, so the session
+/// bails with `None` on both ends — but only after the bail is certified
+/// through a symmetric greeting exchange whose fixed-width frames overflow
+/// the one-byte window many times over. No seasoning is possible here: a
+/// bootstrapping peer holds no identity to widen, so the fixed frames are
+/// the whole hazard.
+async fn mutual_bootstrap(protocol: Protocol) {
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
+    let (a_out, b_out) = tokio::join!(
+        Peer::<u64>::bootstrap_with_protocol(protocol, &mut a_link),
+        Peer::<u64>::bootstrap_with_protocol(protocol, &mut b_link),
+    );
+    assert!(
+        a_out.expect("side A handshake completes").is_none(),
+        "a mutually-bootstrapping peer bails with None"
+    );
+    assert!(
+        b_out.expect("side B handshake completes").is_none(),
+        "a mutually-bootstrapping peer bails with None"
+    );
+    assert_control_drained(a_link, b_link);
+}
+
+/// Retire into a bootstrapper: a seasoned retiree hands its whole tree and
+/// then its whole party to an identity-less newcomer — the maximally
+/// asymmetric greetings of bootstrap plus the trailing donation of retire,
+/// all through the minimal link.
+async fn retire_into_bootstrapper(protocol: Protocol) {
+    let retiree = seasoned(protocol).await;
+    let before = retiree.snapshot();
+    let retiree = retiree
+        .try_into_peer()
+        .await
+        .expect("the seasoned replica is the sole handle");
+    let (mut r_link, mut n_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
+    let (retired, joined) = tokio::join!(
+        retiree.retire(&mut r_link),
+        Peer::<u64>::bootstrap_with_protocol(protocol, &mut n_link),
+    );
+    assert!(
+        matches!(retired, Retire::Retired),
+        "the bootstrapper absorbs the retiree, got {retired:?}"
+    );
+    let successor = joined
+        .expect("the bootstrap session completes")
+        .expect("the retiree serves the bootstrap")
+        .into_rumors();
+    let after = successor.snapshot();
+    assert_eq!(after.len(), before.len(), "no content is lost in handoff");
+    assert_eq!(
+        after.iter().map(|(k, _, _)| k).collect::<Vec<_>>(),
+        before.iter().map(|(k, _, _)| k).collect::<Vec<_>>(),
+        "the successor holds exactly the retiree's content"
+    );
+    assert_control_drained(r_link, n_link);
+}
+
 /// Mutual retire: both sides declare `Retire`, so the session early-outs
 /// right after the preamble and both replicas survive intact.
 async fn mutual_retire(protocol: Protocol) {
@@ -343,6 +400,36 @@ fn retire_v2() {
 #[test]
 fn retire_v1() {
     block_on(retire(Protocol::V1));
+}
+
+/// A mutual V2 bootstrap bails cleanly on both sides over a
+/// one-byte-window link, its fixed-width greeting exchange included.
+#[test]
+fn mutual_bootstrap_v2() {
+    block_on(mutual_bootstrap(Protocol::V2));
+}
+
+/// A mutual V1 bootstrap bails cleanly on both sides over a
+/// one-byte-window link, its fixed-width greeting exchange included.
+#[cfg(feature = "protocol-v1")]
+#[test]
+fn mutual_bootstrap_v1() {
+    block_on(mutual_bootstrap(Protocol::V1));
+}
+
+/// A V2 retirement into a bootstrapper stays live over a one-byte-window
+/// link and hands the newcomer the retiree's exact content.
+#[test]
+fn retire_into_bootstrapper_v2() {
+    block_on(retire_into_bootstrapper(Protocol::V2));
+}
+
+/// A V1 retirement into a bootstrapper stays live over a one-byte-window
+/// link and hands the newcomer the retiree's exact content.
+#[cfg(feature = "protocol-v1")]
+#[test]
+fn retire_into_bootstrapper_v1() {
+    block_on(retire_into_bootstrapper(Protocol::V1));
 }
 
 /// A mutual V2 retirement early-outs cleanly over a one-byte-window link,
