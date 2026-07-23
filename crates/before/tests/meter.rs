@@ -118,7 +118,7 @@ mod envelope {
     pub const ID_JOIN: Envelope         = envelope(   156_252,      253,             0); //    125_001, 202,           0
     pub const ID_COVERS: Envelope       = envelope(         0,      107,             0); //          0,  85,           0
     pub const ID_DISJOINT: Envelope     = envelope(         0,      213,             0); //          0, 170,           0
-    pub const ID_WITHOUT: Envelope      = envelope(   647_774,      173,             0); //    518_219, 138,           0
+    pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
 }
 
 // ─── measurement harness ────────────────────────────────────────────────────
@@ -373,7 +373,8 @@ fn id_disjoint_envelope() {
 }
 
 /// `without` subtracting an id spine from the seed stays within its envelope
-/// (the complement walk recurses on the subtrahend's depth).
+/// (the complement emitter is iterative, so the subtrahend's depth alone
+/// must grow no stack segments).
 #[test]
 fn id_without_envelope() {
     let pb = meter::id_spine(ID_DEPTH, true);
