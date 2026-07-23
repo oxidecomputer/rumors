@@ -18,7 +18,7 @@ Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
   the deadlock-freedom argument rests on) is in `src/link.rs`; the
   `conformance` cargo feature ships the public validation suite for
   caller-built links; `design/streaming-wire-deadlock.md` records why the
-  contract exists and the mux it replaced.
+  contract exists and the deadlock analysis behind it.
 - The tree (sparse Merkle radix trie, path compression, content-addressed
   leaves, the memo/version-bounds design): module docs in `src/tree.rs` and
   `src/tree/typed/`.
