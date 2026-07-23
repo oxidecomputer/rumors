@@ -1,8 +1,8 @@
 //! End-to-end coverage of [`rumors::Peer::target_message_size`]: the knob
-//! threads from the public builder into the streaming session, any target
-//! (including the degenerate zero) leaves reconciliation convergent, and
-//! peers with different targets interoperate because run sizing is not
-//! wire-visible.
+//! threads from the public builder into the greeting, the session runs at
+//! the exchanged minimum of the two sides' settings, any minimum (including
+//! the degenerate zero) leaves reconciliation convergent, and the minimum
+//! binds both encoders regardless of which side advertised it.
 
 mod common;
 
@@ -18,7 +18,8 @@ use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 const DIVERGENT_PER_SIDE: usize = 96;
 
 /// A divergent pair whose sides select different run targets before any
-/// session runs, so both encoders exercise their own setting.
+/// session runs: each greeting advertises its side's setting, and every
+/// session between them runs at the exchanged minimum.
 fn diverged_pair(left_target: usize, right_target: usize) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
         let left = Peer::seed().target_message_size(left_target).into_rumors();
@@ -51,15 +52,16 @@ fn assert_converges(pair: (Rumors<u64>, Rumors<u64>)) {
     );
 }
 
-/// A zero target — every leaf in its own run, the pre-batching wire
-/// traffic — still reconciles a divergent pair completely.
+/// A zero target degrades run batching to one leaf per message; the
+/// session still reconciles a divergent pair completely.
 #[test]
 fn zero_target_still_converges() {
     assert_converges(diverged_pair(0, 0));
 }
 
-/// Peers with different targets interoperate: run sizing is a local
-/// encoder choice, not a negotiated wire parameter.
+/// Peers with different targets interoperate: the session runs at the
+/// exchanged minimum of the two greeting-carried settings — here zero, so
+/// both encoders unbatch.
 #[test]
 fn mixed_targets_interoperate() {
     assert_converges(diverged_pair(0, DEFAULT_TARGET_MESSAGE_SIZE));
@@ -68,22 +70,28 @@ fn mixed_targets_interoperate() {
 /// Like [`diverged_pair`], but with deterministically seeded peer identities,
 /// so the same divergence replays byte-identically across sessions and their
 /// wire captures are comparable.
-fn seeded_diverged_pair(target: usize) -> (Rumors<u64>, Rumors<u64>) {
+fn seeded_diverged_pair(
+    left_target: usize,
+    right_target: usize,
+    (left_messages, right_messages): (usize, usize),
+) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
         let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
-            .target_message_size(target)
+            .target_message_size(left_target)
             .into_rumors();
         let right = bootstrap_fork_async(&left).await;
         let right = right
             .try_into_peer()
             .await
             .expect("the fresh fork has a single handle")
-            .target_message_size(target)
+            .target_message_size(right_target)
             .into_rumors();
 
         let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
-        for _ in 0..DIVERGENT_PER_SIDE {
+        for _ in 0..left_messages {
             left.send(rng.next_u64());
+        }
+        for _ in 0..right_messages {
             right.send(rng.next_u64());
         }
         (left, right)
@@ -91,8 +99,36 @@ fn seeded_diverged_pair(target: usize) -> (Rumors<u64>, Rumors<u64>) {
 }
 
 /// Count the supply frames (both directions) in a rendered wire capture.
+///
+/// Oracle assumption: this counts frames the capture labels `Supply` and
+/// nothing else, so it observes run sizing only while supplied leaves ride
+/// frames with that label. A protocol change that relabels leaf-bearing
+/// frames would weaken every count-based assertion here silently; the
+/// snapshot suite (`tests/gossip_snapshot.rs`) pins the labels themselves.
 fn supply_frames(capture: &str) -> usize {
     capture.matches(": Supply").count()
+}
+
+/// Count the supply frames in each direction of a rendered wire capture:
+/// `(a_to_b, b_to_a)`, attributed by the capture's `direction` headers.
+/// Same oracle assumption as [`supply_frames`].
+fn directional_supply_frames(capture: &str) -> (usize, usize) {
+    let (mut a_to_b, mut b_to_a) = (0, 0);
+    let mut toward_b = true;
+    for line in capture.lines() {
+        if line.starts_with("direction A -> B") {
+            toward_b = true;
+        } else if line.starts_with("direction B -> A") {
+            toward_b = false;
+        } else if line.contains(": Supply") {
+            if toward_b {
+                a_to_b += 1;
+            } else {
+                b_to_a += 1;
+            }
+        }
+    }
+    (a_to_b, b_to_a)
 }
 
 /// The knob genuinely reaches the wire, which convergence alone cannot show.
@@ -106,11 +142,15 @@ fn supply_frames(capture: &str) -> usize {
 #[test]
 fn zero_target_emits_more_supply_frames_than_default() {
     let zero = {
-        let (left, right) = seeded_diverged_pair(0);
+        let (left, right) = seeded_diverged_pair(0, 0, (DIVERGENT_PER_SIDE, DIVERGENT_PER_SIDE));
         capture_gossip(left, right)
     };
     let batched = {
-        let (left, right) = seeded_diverged_pair(DEFAULT_TARGET_MESSAGE_SIZE);
+        let (left, right) = seeded_diverged_pair(
+            DEFAULT_TARGET_MESSAGE_SIZE,
+            DEFAULT_TARGET_MESSAGE_SIZE,
+            (DIVERGENT_PER_SIDE, DIVERGENT_PER_SIDE),
+        );
         capture_gossip(left, right)
     };
     let (zero_frames, batched_frames) = (supply_frames(&zero), supply_frames(&batched));
@@ -121,5 +161,86 @@ fn zero_target_emits_more_supply_frames_than_default() {
     assert!(
         zero_frames > batched_frames,
         "target 0 must forbid batching: {zero_frames} supply frames vs {batched_frames} batched"
+    );
+}
+
+/// A small nonzero target that fits one supply record of this corpus but
+/// not two: every multi-record run splits under it, in both supply
+/// directions, so both directions' margin self-checks below have teeth.
+/// (A nonzero target still batching runs that fit is
+/// [`zero_target_emits_more_supply_frames_than_default`]'s claim, over a
+/// corpus whose runs fit the default; this test's corpus is chosen for
+/// per-direction discrimination instead.)
+const SMALL_TARGET: usize = 32;
+
+/// Messages each side originates for the binding-minimum capture: two per
+/// root-fan child on average. Measured at this shape, the two supply
+/// directions batch differently — the session's initiating side ships its
+/// exclusive root-fan subtrees as multi-record runs (dozens of batching
+/// events), while the other side's multi-record runs are only the rare
+/// sibling pairs sharing a two-byte key prefix (a handful) — so the margin
+/// self-checks hold per direction, with very different margins, and the
+/// tuple equalities discriminate in both directions.
+const BINDING_MESSAGES_PER_SIDE: usize = 512;
+
+/// The exchanged minimum binds both encoders when nonzero, which the
+/// zero-minimum cell cannot show.
+///
+/// The same seeded two-sided divergence is reconciled under four target
+/// assignments, and supply frames are counted per direction. Under the
+/// exchanged-minimum semantics every cell containing a small advertisement
+/// runs both directions at the small target, so both mixed cells must equal
+/// the uniform-small cell as `(a_to_b, b_to_a)` tuples exactly. Under the
+/// rejected reading — each encoder sizing runs by its own local setting —
+/// each mixed cell would differ from the uniform-small cell in exactly the
+/// component its default-advertising side supplies: (small, default) in
+/// `b_to_a`, (default, small) in `a_to_b`, each landing at the
+/// uniform-default cell's count for that component instead. The margin
+/// self-checks prove those components genuinely differ between the
+/// uniform-small and uniform-default cells, so neither equality can hold
+/// vacuously.
+#[test]
+fn nonzero_minimum_binds_both_encoders() {
+    let frames = |left, right| {
+        let (l, r) = seeded_diverged_pair(
+            left,
+            right,
+            (BINDING_MESSAGES_PER_SIDE, BINDING_MESSAGES_PER_SIDE),
+        );
+        directional_supply_frames(&capture_gossip(l, r))
+    };
+    let small_default = frames(SMALL_TARGET, DEFAULT_TARGET_MESSAGE_SIZE);
+    let default_small = frames(DEFAULT_TARGET_MESSAGE_SIZE, SMALL_TARGET);
+    let small_small = frames(SMALL_TARGET, SMALL_TARGET);
+    let default_default = frames(DEFAULT_TARGET_MESSAGE_SIZE, DEFAULT_TARGET_MESSAGE_SIZE);
+
+    // Margin self-checks: the small target splits runs in each direction
+    // independently, so the tuple equalities below cannot hold vacuously.
+    assert!(
+        small_small.0 > default_default.0,
+        "A -> B runs must outgrow the small target: \
+         {} frames small vs {} default",
+        small_small.0,
+        default_default.0,
+    );
+    assert!(
+        small_small.1 > default_default.1,
+        "B -> A runs must outgrow the small target: \
+         {} frames small vs {} default",
+        small_small.1,
+        default_default.1,
+    );
+
+    assert_eq!(
+        small_default, small_small,
+        "side B advertises the default but must supply at the remote small \
+         minimum: under own-setting sizing this cell's b_to_a count would \
+         match the uniform-default cell's"
+    );
+    assert_eq!(
+        default_small, small_small,
+        "side A advertises the default but must supply at the remote small \
+         minimum: under own-setting sizing this cell's a_to_b count would \
+         match the uniform-default cell's"
     );
 }
