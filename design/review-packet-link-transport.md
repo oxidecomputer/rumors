@@ -1,6 +1,14 @@
 # Review packet: link-transport → main
 
-Point-in-time review aid, pinned at `069ec491` (2026-07-18). 72
+> **Where these commits live.** Every commit hash in this packet —
+> the pin below and all per-series review-fix pointers — resolves
+> on the archive branch `wave1/integration`, not on
+> `link-transport`: the reviewed work was cherry-picked onto
+> `link-transport` under new SHAs. Keep `wave1/integration` fetched
+> to follow the pointers.
+
+Point-in-time review aid, pinned at `069ec491` on
+`wave1/integration` (2026-07-18). 72
 commits, 198 files, +19.1k/−5.1k excluding `formal/`. Every
 substantive change below already survived its own adversarial
 review round and landed gate-clean; per-series pointers to the
@@ -190,12 +198,20 @@ Measured: V2 29.5→19.25, V1 19.6→9.20 ms; gap unchanged ~10 ms.
 
 ## Measured outcome of the whole campaign (d=0, quiet machine)
 
-| cell | pre-campaign | at pin | Δ |
-|---|---|---|---|
-| V2 insertions I=5000 | 31.6 ms | 19.4 ms | −39 % |
-| V1 insertions I=5000 | 20.7 ms | 9.2 ms  | −56 % |
-| V2 redactions I=2500 | 12.3 ms | 10.0 ms | −19 % |
-| V1 redactions I=2500 | 6.5 ms  | 3.9 ms  | −40 % |
+| cell | campaign start | post-§5.4 | at pin | Δ (whole campaign) |
+|---|---|---|---|---|
+| V2 insertions I=5000 | 87.8 ms | 31.6 ms | 19.4 ms | −78 % |
+| V1 insertions I=5000 | 21.0 ms | 20.7 ms | 9.2 ms  | −56 % |
+| V2 redactions R=2500 | 20.5 ms | 12.3 ms | 10.0 ms | −51 % |
+| V1 redactions R=2500 | 7.2 ms  | 6.5 ms  | 3.9 ms  | −46 % |
+
+(Campaign-start and post-§5.4 figures are
+`design/streaming-latency-serialization.md`'s checked baselines —
+its opening d=0 table and its §5.4 after-column. The
+conversion-boundary fix is inside this packet's own Series B, so
+the whole-campaign Δ is measured from the true start; the
+post-§5.4 column is the baseline the per-series comparisons above
+quote.)
 
 Plus one full RTT removed from every delayed divergent session
 (hop 9→8 at bench scale). Residual V2−V1 gap ≈ 10 ms, owned by
