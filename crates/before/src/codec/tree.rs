@@ -9,10 +9,10 @@ use super::{Base, BitCursor, BitsSlice, SliceCursor};
 /// One frame per level of unfinished ancestors, so the stack is as deep as
 /// the tree; real id and event trees stay well under 16 levels, so a parse
 /// normally touches no heap at all — worth having because the wire path runs
-/// one parse per decoded `Version` (~10k per gossip session), where a fresh
-/// `Vec` per call was measured (jointly with the wire cursor's old buffer
-/// growth) at the profile's sampling floor. Deeper trees spill to the heap
-/// transparently; depth still never lands on the call stack.
+/// one parse per decoded `Version` (~10k per gossip session), so a fresh
+/// `Vec` per call would put an allocation on every decoded version rather
+/// than none. Deeper trees spill to the heap transparently; depth still
+/// never lands on the call stack.
 pub(crate) const PARSE_STACK_INLINE: usize = 16;
 
 /// While building a node bottom-up, what we still need from the stream.

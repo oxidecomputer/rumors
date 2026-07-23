@@ -159,14 +159,14 @@ proptest! {
 // ─────────────── wire cursor ≡ per-bit reference (differential) ───────────────
 //
 // `ReaderCursor` reads bits by byte-index and integers through the word
-// window over its already-read bytes; the pre-window cursor below — a growing
+// window over its already-read bytes; the per-bit cursor below — a growing
 // bit buffer, per-bit reads only — is the specification. These tests pin the
 // wire decode to it differentially: same accepts, same rejects, same error
 // variants, and byte-for-byte identical consumption from the reader.
 
-/// The pre-window `ReaderCursor`, the wire decode's differential oracle.
+/// The per-bit reference cursor, the wire decode's differential oracle.
 ///
-/// Kept verbatim from before the word window: a growing `BitVec` refilled one
+/// The definitional shape with no fast paths: a growing `BitVec` refilled one
 /// byte at a time, per-bit reads only, and the default per-bit `read_int`.
 struct BitwiseReaderCursor<'a, R> {
     reader: &'a mut R,
@@ -195,7 +195,7 @@ impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
 
 /// Decode one event tree per-bit through [`BitwiseReaderCursor`].
 ///
-/// Replicates the pre-window wire pipeline exactly: parse, padding check,
+/// Replicates the wire pipeline stage for stage: parse, padding check,
 /// truncate to the consumed bits.
 fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
     let mut cursor = BitwiseReaderCursor {
@@ -213,7 +213,7 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
 
 /// Decode one id tree per-bit through [`BitwiseReaderCursor`].
 ///
-/// Replicates the pre-window wire pipeline exactly, including the anonymity
+/// Replicates the wire pipeline stage for stage, including the anonymity
 /// rejection of `Party::deserialize_reader`.
 fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     let mut cursor = BitwiseReaderCursor {

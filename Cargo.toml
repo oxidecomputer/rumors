@@ -78,9 +78,8 @@ ratatui = "0.30"
 [profile.dev]
 debug = "line-tables-only"
 
-# Profiling the benches (design/streaming-latency-serialization.md §9) needs
-# symbolicated stacks; line tables are enough for samply/Instruments without
-# the compile-time cost of full debug info.
+# Profiling the benches needs symbolicated stacks; line tables are enough
+# for samply/Instruments without the compile-time cost of full debug info.
 [profile.bench]
 debug = "line-tables-only"
 

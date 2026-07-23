@@ -33,7 +33,7 @@ const DELAY: Duration = Duration::from_millis(10);
 /// Serialized one-way hops a pipelined session may spend, with margin.
 ///
 /// A pipelined descent costs a handful of hops (~7 measured; the phase
-/// ladder's few active levels). The pre-window behavior paid one round
+/// ladder's few active levels). A floor-window descent pays one round
 /// trip per disputed scope — here ≥ ~250 scopes, hence ≥ 2.8 s of stall —
 /// so the bound separates the regimes by well over 2× in both directions.
 const HOP_BUDGET: u32 = 64;

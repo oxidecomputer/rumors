@@ -2,14 +2,12 @@
 //! donated-exactly-once, and the fragmentation bound, over the peer
 //! lifecycle.
 //!
-//! Motivation: the withdrawn version-hop attempt
-//! passed every identity test it carried, yet was rejected in design review
-//! because its speculative pre-forks would fragment a bootstrap provider's
-//! id tree into non-contiguous shards under contention — a party
-//! *size/shape* regression no test then modeled. These tests pin the
-//! conservation algebra and that shape bound on mainline, so a future
-//! identity-touching change fails the gate instead of relying on a reviewer
-//! to spot the hazard.
+//! Motivation: an identity-touching change can pass every functional test
+//! while regressing the party *size/shape* algebra — speculative pre-forks,
+//! for example, fragment a bootstrap provider's id tree into non-contiguous
+//! shards under contention. These tests pin the conservation algebra and
+//! that shape bound on mainline, so such a change fails the gate instead of
+//! relying on a reviewer to spot the hazard.
 //!
 //! Four invariant families, each observed through the accounting-only alias
 //! (`Rumors::dangerously_alias_party`; aliases here are compared and folded,
@@ -291,10 +289,9 @@ proptest! {
     /// tree: after each of `k` cycles of (bootstrap a newcomer off `P`,
     /// retire it back into `P`), `P`'s party is bit-for-bit its pre-cycle
     /// baseline — the ITC join renormalizes the returned fork — so its
-    /// encoded size is constant, independent of `k`. This is the shape
-    /// regression that sank the withdrawn version-hop design: its
-    /// speculative forks would have left non-contiguous shards that grow
-    /// this measure permanently.
+    /// encoded size is constant, independent of `k`. The baseline equality
+    /// is the shape bound: a design whose speculative forks leave
+    /// non-contiguous shards grows this measure permanently and fails here.
     #[test]
     fn party_returns_to_baseline_under_sequential_cycles(k in 1usize..=12) {
         let seed = Peer::<u64>::seed().into_rumors();

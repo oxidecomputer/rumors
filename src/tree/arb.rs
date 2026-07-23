@@ -186,8 +186,9 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
 /// count matters more than per-case breadth; wire-liveness properties run
 /// both.
 ///
-/// This strategy supplies §7 item 3's *budget* only, deliberately not its
-/// *bias*: content addressing makes each child's radix a function of leaf
+/// This strategy closes the proxy tier's generator gap on *budget* only,
+/// deliberately not on *bias*: content addressing makes each child's radix a
+/// function of leaf
 /// hashes, so steering generation toward the early-radix-order deep-dispute
 /// shape would mean a per-case search inside the strategy. The geometry pin
 /// is instead the deterministic [`early_first_child_dispute_pair`] fixture,

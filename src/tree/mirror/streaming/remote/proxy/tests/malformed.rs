@@ -18,9 +18,9 @@ use crate::tree::{
 /// Depth matters here: the corruptions below hit an *early* frame of the
 /// corrupt side, and with exchanges still owed at lower levels, the
 /// corruptor provably cannot complete once its receiver aborts — so both
-/// sessions must fail, not just the receiving one. (The opening question no
-/// longer crosses as a frame — its listing rides the greeting — so a
-/// corrupt side's first data frame is its first *reply*.) The divergent
+/// sessions must fail, not just the receiving one. (The opening question's
+/// listing rides the greeting, never a data frame, so a corrupt side's
+/// first data frame is its first *reply*.) The divergent
 /// branching dispute also guarantees nonempty queries in both directions,
 /// which the unordered-query mutation needs to find.
 fn deep_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
@@ -84,8 +84,8 @@ fn reserved_signals_propagate_through_the_full_proxy() {
 /// A signal placed in a forbidden stream phase is a typed placement failure.
 ///
 /// The injected byte is a continuing `Match` aimed at the opening-question
-/// stream — which carries no frames at all now that the opening rides the
-/// greeting — and the receiving proxy retains the exact placement rejection
+/// stream — which carries no frames at all (the opening's listing rides the
+/// greeting) — and the receiving proxy retains the exact placement rejection
 /// through the full stack.
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {

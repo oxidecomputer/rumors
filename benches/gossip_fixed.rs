@@ -35,9 +35,10 @@
 //! hop count. `I = 0` is the identical corner — the steady-state "nothing
 //! changed" handshake a production peer pays every gossip round.
 //!
-//! On their first run these groups measured the V2 hop count scaling with
-//! disputed scopes rather than tree depth — the capacity-one inter-stage
-//! channels — which is the finding behind the session window.
+//! Read the slopes for regressions: a hop count scaling with disputed
+//! scopes rather than tree depth is the serialized inter-stage regime the
+//! session window exists to prevent, and it shows up here as slope growing
+//! with divergence.
 
 use std::hint::black_box;
 use std::time::Duration;

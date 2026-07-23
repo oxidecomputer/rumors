@@ -113,8 +113,8 @@ fn gamma_truncated() {
 // straddling the window edge, streams ending mid-code) where a window bug
 // would hide.
 
-/// The per-bit reference emitter (the pre-word `encode_int`), the encode-side
-/// differential oracle.
+/// The per-bit reference emitter, the encode-side differential oracle:
+/// unary prefix then MSB-first mantissa, one push per bit.
 fn encode_int_bitwise(out: &mut Bits, n: &Base) {
     let m = n + 1u32;
     let k = m.bits() - 1;
@@ -126,8 +126,8 @@ fn encode_int_bitwise(out: &mut Bits, n: &Base) {
     }
 }
 
-/// The per-bit reference `skip_int` (the pre-word implementation), the
-/// skip-side differential oracle.
+/// The per-bit reference `skip_int`, the skip-side differential oracle:
+/// counts the unary prefix, then steps over the mantissa bit by bit.
 fn skip_int_bitwise(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
     let mut k = 0usize;
     loop {

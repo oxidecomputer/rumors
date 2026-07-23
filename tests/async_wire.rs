@@ -3,10 +3,11 @@
 //! in-memory [`rumors::link`] pair must converge both peers on the union of
 //! their pre-session live content.
 //!
-//! (The old in-process `join` is gone — wire gossip *is* the merge —
-//! so the oracle is the abstract union of the two pre-session readouts:
-//! sound because the peers tick disjoint parties, never share keys, and
-//! only ever redact keys they themselves minted before the session.)
+//! (Wire gossip *is* the merge — there is no in-process join to compare
+//! against — so the oracle is the abstract union of the two pre-session
+//! readouts: sound because the peers tick disjoint parties, never share
+//! keys, and only ever redact keys they themselves minted before the
+//! session.)
 //!
 //! Both tests share the `Insert`/`Redact` action shape, so redactions cross
 //! the wire too (not just inserts), and run against both a primitive (`u64`)
