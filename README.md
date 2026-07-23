@@ -129,7 +129,7 @@ let alice = Peer::<String>::seed().into_rumors();
 // A bare `send` statement commits when its `Batch` drops, right here.
 alice.send("the meeting is at noon".to_string());
 
-// A session runs over a [`Link`]: a control byte stream plus a supply of
+// A session runs over a `Link`: a control byte stream plus a supply of
 // per-level data streams (see `link`); here, the in-memory pair.
 // Alice serves one gossip session...
 let (mut near, mut far) = rumors::link::memory();
@@ -177,7 +177,7 @@ not a substitute.
 
 ## Transport: bring a `Link`
 
-A session's transport is a [`Link`]: one persistent bidirectional
+A session's transport is a `Link`: one persistent bidirectional
 *control stream* plus a supply of independent, individually
 flow-controlled unidirectional *data streams*, opened lazily as
 reconciliation needs them. The `link` module states what an
@@ -187,8 +187,8 @@ connections map streams one to one; TCP can carry one stream per
 connection behind a routing listener) — with a
 conformance suite (behind the `conformance` cargo
 feature) that checks those guarantees on a caller-built link.
-`Link`'s docs state [what a session
-promises](Link#what-a-session-promises) on `Ok`, `Err`, and cancellation.
+`Link`'s docs state what a session
+promises on `Ok`, `Err`, and cancellation.
 
 ## Runtime independence
 
