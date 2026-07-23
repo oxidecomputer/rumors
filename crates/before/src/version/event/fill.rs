@@ -29,7 +29,7 @@ impl EvReader<'_> {
     /// shrinks the tree when `fill` alone suffices.
     pub(super) fn fill(self, id_bits: &BitsSlice) -> WorkingVersion {
         let mut walk = FillWalk {
-            out: Builder::with_capacity(self.node_capacity_bound()),
+            out: Builder::new(),
         };
         let mut ev = self;
         let mut id = IdReader::root(id_bits);

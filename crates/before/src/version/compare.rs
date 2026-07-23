@@ -220,19 +220,6 @@ impl<'a> EvReader<'a> {
             EvReader::Zero => true,
         }
     }
-
-    /// A conservative node-count capacity for output builders.
-    ///
-    /// Packed event nodes occupy at least two bits (flag + gamma(0)), so this
-    /// avoids a full counting pass while keeping over-allocation bounded for
-    /// normal small-base trees.
-    pub(super) fn node_capacity_bound(&self) -> usize {
-        match self {
-            EvReader::Packed { bits, .. } => bits.len().div_ceil(2),
-            EvReader::Working { work, .. } => work.base.len(),
-            EvReader::Zero => 0,
-        }
-    }
 }
 
 impl EvReader<'_> {

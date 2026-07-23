@@ -16,10 +16,18 @@ pub(super) struct Builder {
 }
 
 impl Builder {
-    pub(super) fn with_capacity(nodes: usize) -> Self {
+    /// An empty builder.
+    ///
+    /// `topo`/`base` grow by `push` rather than from a pre-size, for the
+    /// reason `WorkingVersion::unpack` records: the output is transient,
+    /// allocated and freed on every emitting op, so power-of-two growth
+    /// recycles through the allocator's size classes across calls — and a
+    /// pre-size derived from operand *bit* length would let one wide-gamma
+    /// node inflate the allocation to ~100 times its node count.
+    pub(super) fn new() -> Self {
         Builder {
-            topo: Bits::with_capacity(nodes),
-            base: Vec::with_capacity(nodes),
+            topo: Bits::new(),
+            base: Vec::new(),
         }
     }
 

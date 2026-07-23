@@ -173,11 +173,8 @@ impl EvReader<'_> {
 /// twice needs no cursor duplication.
 pub(super) fn grow(ev: &WorkingVersion, id_bits: &BitsSlice) -> WorkingVersion {
     let mut route = Route::new(id_bits.len(), ev.base.len());
-    // Conservative: the grown tree is the source plus the nodes a single
-    // expansion adds along the chosen path, bounded by the id's bit length.
-    let cap = ev.base.len() + id_bits.len();
     EvReader::working(ev).grow_probe(id_bits, &mut route);
-    let mut out = Builder::with_capacity(cap);
+    let mut out = Builder::new();
     EvReader::working(ev).grow_emit(id_bits, &mut out, &route);
     out.finish()
 }

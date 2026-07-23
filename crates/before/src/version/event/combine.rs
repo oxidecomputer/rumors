@@ -47,7 +47,7 @@ impl<'a> EvReader<'a> {
     /// other side's children; each side hands its node sum to both children.
     fn combine(self, other: EvReader<'a>, leaf_op: LeafOp) -> WorkingVersion {
         let mut walk = CombineWalk {
-            out: Builder::with_capacity(self.node_capacity_bound() + other.node_capacity_bound()),
+            out: Builder::new(),
             leaf_op,
         };
         let zero = Base::ZERO;
