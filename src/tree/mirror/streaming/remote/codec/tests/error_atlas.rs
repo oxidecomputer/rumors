@@ -1,4 +1,12 @@
 //! Stable witnesses for every codec error reachable without resource exhaustion.
+//!
+//! Coverage is enforced from both ends: every `describe_*` match below is
+//! wildcard-free, so a new error variant fails compilation until it is
+//! described, and `atlas_covers_every_error_variant` requires each described
+//! variant's rendered marker to appear in the atlas — or to carry an explicit,
+//! reasoned exemption in `EXEMPT_MARKERS`. The one hole neither half can see:
+//! a variant whose new match arm is added without extending the marker tables
+//! or the witnesses; the comments at each match carry that obligation.
 
 use std::{
     error::Error,
@@ -8,15 +16,60 @@ use std::{
     task::{Context, Poll},
 };
 
+use borsh::BorshSerialize;
 use tokio::io::AsyncWrite;
 
 use super::super::{
-    DecodeError, DecodeErrorKind, DecodeSignalError, EncodeError, EncodeErrorKind, Flow, Frame,
-    FrameWrite, LeafRunError, Reaction, Speaker, Stream, WireFrame, decode, decode_exact, encode,
+    DecodeError, DecodeErrorKind, DecodeLeafError, DecodeSignalError, EncodeError, EncodeErrorKind,
+    Flow, Frame, FrameWrite, LeafRunError, Reaction, Speaker, Stream, WireFrame, decode,
+    decode_exact, encode,
     frame::{LeafRun, QUERY_CHILD_LEN},
     signal::{Signal, WireSignal},
 };
 use crate::{Version, message::Message, tree::typed::Hash};
+
+/// One rendered marker per error variant the atlas must witness.
+///
+/// Grouped by the enum whose `describe_*` match is the compile-time
+/// tripwire for it; a new variant's match arm and its entry here land
+/// together, with a witness below (or an exemption in `EXEMPT_MARKERS`).
+const WITNESS_MARKERS: &[&str] = &[
+    // EncodeErrorKind (describe_encode_kind).
+    "kind: Write(part=",
+    "kind: Flush(io=",
+    // DecodeErrorKind, including its nested DecodeSignalError and
+    // LeafRunError variants (describe_decode_kind).
+    "kind: Read(part=",
+    "kind: InvalidSignal::Reserved(",
+    "kind: InvalidSignal::Placement(",
+    "kind: Truncated(missing=",
+    "kind: QueryOutOfOrder(previous=",
+    "kind: InvalidRun::Empty",
+    "kind: InvalidRun::TruncatedHeader(",
+    "kind: InvalidRun::TruncatedRecord(",
+    "kind: TrailingBytes(count=",
+    // DecodeLeafError (describe_leaf_kind).
+    "kind: Record::Version(io=",
+    "kind: Record::Message(io=",
+    "kind: Record::TrailingBytes(count=",
+    // FramePart: every frame component must fail somewhere. These ride the
+    // encode Write witnesses; FramePart has no exhaustive match here, so a
+    // new component's marker must be added by hand alongside its witnesses.
+    "part=Signal",
+    "part=QueryCount",
+    "part=QueryChildren",
+    "part=SupplyLength",
+    "part=SupplyRun",
+];
+
+/// Variants deliberately absent from the atlas, each with the reason it is
+/// unreachable without resource exhaustion.
+const EXEMPT_MARKERS: &[(&str, &str)] = &[(
+    "kind: SupplyTooLarge(",
+    "requires a run body past the u32 frame ceiling: a >4 GiB in-memory run \
+     is resource exhaustion by construction; the ceiling itself is pinned at \
+     its exact boundary in frame/tests.rs",
+)];
 
 /// Interior stream used where both speakers admit every signal state.
 const INTERIOR_STREAM: u8 = 8;
@@ -35,10 +88,36 @@ fn one_record_run<T: borsh::BorshSerialize>(version: Version, value: T) -> LeafR
 /// Every feasible typed failure pins its origin, fields, and source chain.
 #[test]
 fn codec_error_atlas_snapshot() {
+    insta::assert_snapshot!(build_atlas());
+}
+
+/// Every inventoried error variant has an atlas witness, and every
+/// exemption is genuinely absent (a witnessed exemption is stale).
+#[test]
+fn atlas_covers_every_error_variant() {
+    let atlas = build_atlas();
+    for marker in WITNESS_MARKERS {
+        assert!(
+            atlas.contains(marker),
+            "no atlas witness renders {marker:?}: add a witness for the \
+             variant or an explicit exemption in EXEMPT_MARKERS",
+        );
+    }
+    for (marker, reason) in EXEMPT_MARKERS {
+        assert!(
+            !atlas.contains(marker),
+            "exempt variant {marker:?} now has a witness: move it into \
+             WITNESS_MARKERS (recorded exemption reason: {reason})",
+        );
+    }
+}
+
+fn build_atlas() -> String {
     let mut atlas = String::new();
     encode_errors(&mut atlas);
     decode_errors(&mut atlas);
-    insta::assert_snapshot!(atlas);
+    record_errors(&mut atlas);
+    atlas
 }
 
 fn encode_errors(atlas: &mut String) {
@@ -172,6 +251,74 @@ fn decode_errors(atlas: &mut String) {
     }
 }
 
+/// Witness the record-level decode failures a supplied leaf can carry.
+///
+/// These surface from the run's record iterator rather than the frame
+/// decoder — a structurally valid run defers canonical decoding of each
+/// record — so they have no `Origin` and no speaker dimension.
+fn record_errors(atlas: &mut String) {
+    writeln!(atlas, "RECORD").unwrap();
+
+    // A zero-length record is structurally valid; its empty body fails
+    // at the version decoder.
+    let run = LeafRun::<u64>::from_encoded(framed_record(&[])).unwrap();
+    record_leaf(atlas, "record/version", &next_record_error(&run));
+
+    // A record ending after its version fails at the message decoder.
+    let mut version = Vec::new();
+    Version::new().serialize(&mut version).unwrap();
+    let run = LeafRun::<u64>::from_encoded(framed_record(&version)).unwrap();
+    record_leaf(atlas, "record/message", &next_record_error(&run));
+
+    // Bytes past the canonical pair are trailing.
+    let mut padded = version.clone();
+    0_u64.serialize(&mut padded).unwrap();
+    padded.push(u8::MIN);
+    let run = LeafRun::<u64>::from_encoded(framed_record(&padded)).unwrap();
+    record_leaf(atlas, "record/trailing", &next_record_error(&run));
+}
+
+/// Frame one record body with its length header, as a run body.
+fn framed_record(record: &[u8]) -> Vec<u8> {
+    let mut body = (record.len() as u32).to_be_bytes().to_vec();
+    body.extend_from_slice(record);
+    body
+}
+
+/// The first record's decode failure from a structurally valid run.
+fn next_record_error(run: &LeafRun<u64>) -> DecodeLeafError {
+    run.records()
+        .next()
+        .expect("the run holds one record")
+        .unwrap_err()
+}
+
+fn record_leaf(atlas: &mut String, label: &str, error: &DecodeLeafError) {
+    writeln!(atlas, "  {label}").unwrap();
+    writeln!(atlas, "    display: {error}").unwrap();
+    write!(atlas, "    kind: ").unwrap();
+    describe_leaf_kind(atlas, error);
+    atlas.push('\n');
+    record_sources(atlas, error);
+}
+
+// No wildcard arm, deliberately: a new DecodeLeafError variant must be
+// described here, marked in WITNESS_MARKERS, and witnessed above (or
+// exempted with a reason).
+fn describe_leaf_kind(out: &mut String, kind: &DecodeLeafError) {
+    match kind {
+        DecodeLeafError::Version(source) => {
+            write!(out, "Record::Version(io={:?})", source.kind()).unwrap()
+        }
+        DecodeLeafError::Message(source) => {
+            write!(out, "Record::Message(io={:?})", source.kind()).unwrap()
+        }
+        DecodeLeafError::TrailingBytes { count } => {
+            write!(out, "Record::TrailingBytes(count={count})").unwrap()
+        }
+    }
+}
+
 fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame<u8>); 3] {
     [
         (
@@ -233,6 +380,9 @@ fn record_encode(atlas: &mut String, label: &str, error: &EncodeError) {
     record_sources(atlas, error);
 }
 
+// No wildcard arm, deliberately: a new EncodeErrorKind variant must be
+// described here, marked in WITNESS_MARKERS, and witnessed above (or
+// exempted with a reason).
 fn describe_encode_kind(out: &mut String, kind: &EncodeErrorKind) {
     match kind {
         EncodeErrorKind::Write { part, source } => {
@@ -253,6 +403,10 @@ fn record_decode(atlas: &mut String, label: &str, error: &DecodeError) {
     record_sources(atlas, error);
 }
 
+// No wildcard arm, deliberately — including the nested DecodeSignalError
+// and LeafRunError patterns: a new variant in any of the three enums must
+// be described here, marked in WITNESS_MARKERS, and witnessed above (or
+// exempted with a reason).
 fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
     match kind {
         DecodeErrorKind::Read { part, source } => {
