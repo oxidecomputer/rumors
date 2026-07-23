@@ -229,11 +229,13 @@ impl<T> Tree<T> {
         self.root.root.as_ref().map(Node::len).unwrap_or_default()
     }
 
-    /// The largest canonical version encoding among the tree's live
-    /// messages, in bytes; zero for the empty tree.
+    /// The largest canonical version encoding among every bound the
+    /// tree holds — leaf versions and every branch's ceiling and floor —
+    /// in bytes; zero for the empty tree.
     ///
-    /// An `O(1)` read of a per-node aggregate maintained exactly, like
-    /// [`len`](Self::len): redacting the largest version resizes it down.
+    /// A read of a per-node aggregate maintained exactly, memoized like
+    /// the bounds it covers: redacting the version that carries the
+    /// maximum resizes it down.
     #[cfg(any(test, feature = "test-internals"))]
     pub(crate) fn max_version_bytes(&self) -> usize {
         self.root
@@ -244,8 +246,9 @@ impl<T> Tree<T> {
     }
 
     /// The largest canonical encoding among every *per-node* version
-    /// bound the tree holds — leaf versions and interior ceilings/floors,
-    /// memos forced.
+    /// bound the tree holds, recomputed by direct walk with no aggregate
+    /// memo: the oracle [`max_version_bytes`](Self::max_version_bytes)
+    /// is pinned against.
     ///
     /// Deliberately excludes the root ceiling riding outside the nodes:
     /// that value is the greeting version, one per tree, priced outside

@@ -279,17 +279,23 @@ where
                 ));
             }
             // The aggregate contract: a parent answers the sum of its
-            // children's leaves and the max of their version bytes.
+            // children's leaves, and the max of their version bytes and
+            // its own two bounds' encodings — interior ceilings and
+            // floors join many leaves and can outgrow every one of them,
+            // so the aggregate must cover the bounds it assembles.
             if fan > 0 && node.len() != leaves {
                 ledger::violation(format!(
                     "mis-propagated len: parent answers {}, children sum to {leaves}",
                     node.len(),
                 ));
             }
+            let version_bytes = version_bytes
+                .max(node.ceiling().as_bytes().len())
+                .max(node.floor().as_bytes().len());
             if fan > 0 && node.version_bytes() != version_bytes {
                 ledger::violation(format!(
                     "mis-propagated version_bytes: parent answers {}, \
-                     children max to {version_bytes}",
+                     children and own bounds max to {version_bytes}",
                     node.version_bytes(),
                 ));
             }

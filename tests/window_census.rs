@@ -142,12 +142,15 @@ fn window_attributable_residency_stays_inside_admittance() {
 /// pair bound.
 ///
 /// The window prices every version a session can hold — including the
-/// interior ceilings and floors the merged tree assembles from *both*
-/// replicas' leaves — at `local_max + remote_max`, the exchanged
-/// joined-leaf bound resting on the pairwise join-size lemma. Interior
-/// bounds are joins over many leaves, not two, so this is where the
-/// model could silently under-price; measuring a reconciled tree's every
-/// bound against the pre-session exchange pins the slack to reality.
+/// bounds the merged tree assembles from *both* replicas' surviving
+/// leaves — at `local_max + remote_max`, the sum of the exchanged
+/// per-node aggregates. Each aggregate covers the bounds its own
+/// replica materializes, and a cross-side assembly is priced by the
+/// pairwise join/meet lemmas — but deletion-honoring can recompute a
+/// merged bound over a survivor subset neither input materialized, so
+/// this is where the model could silently under-price; measuring a
+/// reconciled tree's every bound against the pre-session exchange pins
+/// the slack to reality.
 #[test]
 fn version_bounds_stay_inside_the_priced_pair_bound() {
     let (left, right) = diverged(TIGHT_BUDGET, DIVERGENT_WIDE);
@@ -172,8 +175,8 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
     send_random(&third, 2_048, &mut rng);
     reconcile(&third, &left);
 
-    let local_max = rumors::testing::max_leaf_version_bytes(&left.snapshot());
-    let remote_max = rumors::testing::max_leaf_version_bytes(&right.snapshot());
+    let local_max = rumors::testing::max_version_bytes(&left.snapshot());
+    let remote_max = rumors::testing::max_version_bytes(&right.snapshot());
     reconcile(&left, &right);
 
     let measured = rumors::testing::max_bound_bytes(&left.snapshot())
@@ -183,6 +186,82 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
         measured <= local_max + remote_max,
         "a reconciled tree holds a {measured}-byte version bound; the \
          session priced every bound within {local_max} + {remote_max}",
+    );
+}
+
+/// One newcomer bootstrapped from `provider` over a roomy link.
+fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
+    pollster::block_on(async {
+        let (mut serving, mut joining) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        let (served, joined) = tokio::join!(
+            provider.gossip(&mut serving),
+            Peer::<u64>::bootstrap_with_protocol(Protocol::V2, &mut joining),
+        );
+        served.expect("serve swarm bootstrap");
+        joined
+            .expect("bootstrap swarm member")
+            .expect("provider is established")
+            .into_rumors()
+    })
+}
+
+/// A wide concurrent frontier stays inside the exchanged version bound.
+///
+/// The session memory model prices every bound it can hold within the
+/// exchanged pair sum, so the aggregate each greeting carries must cover
+/// interior ceilings and floors, not just leaf stamps. This corpus is
+/// the shape that separates the two: parties forked in doubling
+/// generations (so each interval sits shallow) each stamp one message
+/// concurrently, and one replica gathers all of them — every leaf
+/// version is a small single-spike stamp, while the gathered tree's
+/// interior ceilings join *all* the frontiers and encode several times
+/// larger than any leaf. A leaf-denominated exchange under-prices
+/// exactly here; the bound-covering aggregate holds.
+#[test]
+fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
+    // Doubling generations: every fork halves a *different* interval, so
+    // party intervals stay shallow and stamps stay small — the many
+    // frontiers accumulate in the join, not in any one leaf.
+    let seed = Peer::seed().into_rumors();
+    let mut rng = SmallRng::seed_from_u64(0x0b05_2026_f207_713a);
+    send_random(&seed, 4, &mut rng);
+    let mut swarm = vec![seed];
+    for _ in 0..5 {
+        let next: Vec<_> = swarm.iter().map(bootstrap_from).collect();
+        swarm.extend(next);
+    }
+
+    // Every member stamps concurrently, each a *different* number of
+    // times: no cross-sync, so the stamps are mutually concurrent, and
+    // the ragged counts keep the joined frontier from saturating into a
+    // uniform plateau — the join must carry one distinct count per
+    // interval, while each member's own stamps refine only its own.
+    for (ticks, member) in swarm.iter().enumerate() {
+        let mut batch = member.batch();
+        for _ in 0..=ticks {
+            batch.send(rng.next_u64());
+        }
+    }
+
+    // One replica gathers the whole frontier; the last member stays
+    // un-gathered as the session counterparty.
+    let (gatherer, rest) = swarm.split_first().expect("swarm is non-empty");
+    let (remote, gathered) = rest.split_last().expect("swarm has members");
+    for member in gathered {
+        reconcile(gatherer, member);
+    }
+
+    let local_max = rumors::testing::max_version_bytes(&gatherer.snapshot());
+    let remote_max = rumors::testing::max_version_bytes(&remote.snapshot());
+    reconcile(gatherer, remote);
+
+    let measured = rumors::testing::max_bound_bytes(&gatherer.snapshot())
+        .max(rumors::testing::max_bound_bytes(&remote.snapshot()));
+    eprintln!("priced bound {local_max} + {remote_max}, measured max node bound {measured}");
+    assert!(
+        measured <= local_max + remote_max,
+        "a gathered concurrent frontier holds a {measured}-byte version \
+         bound; the session priced every bound within {local_max} + {remote_max}",
     );
 }
 

@@ -270,6 +270,39 @@ bound of the reconciled trees at 11 B against a priced 10 + 7 — the
 of materialized bound sizes) still recorded in §2.1 should a workload
 ever trip the pin.
 
+**Amendment (2026-07-23): the pin tripped; §2.1's fallback is
+adopted.** The branch review's R4 finding pressed on the gloss above,
+and a constructed workload broke the leaf-denominated exchange: 32
+parties forked in doubling generations (shallow intervals), each
+stamping a *different* number of times with no cross-sync — ragged
+counts defeat frontier saturation — gathered into one replica. Every
+leaf stamp stays small while the gathered interior ceilings join all
+32 frontiers: measured max bound 41 B against a priced 5 + 5
+(`window_census::wide_concurrent_frontiers_stay_inside_the_exchanged_bound`,
+the regression pin, red before the fix). The aggregate is therefore
+re-denominated over every bound the tree holds: a leaf answers its
+own version's encoded length, a branch the max over its children's
+values *and its own ceiling and floor encodings*, memoized lazily
+beside the bounds themselves (they force the same memos) rather than
+eagerly at construction — a session forces bound memos along every
+divergent path it walks anyway, so the aggregate rides along, and the
+copy-on-write spine rebuild resets exactly the memos a mutation
+invalidates. The greeting's shape is unchanged and the two-party
+causally-chained snapshot fixtures exchange the same values
+byte-for-byte (the latest stamp dominates their interior joins), so
+no snapshot moved. Derivation status after the change: a bound one
+replica materializes is covered by its own side's aggregate exactly;
+a cross-side assembly joins (ceiling) or meets (floor) one
+contribution from each side, priced within the exchanged sum by
+§2.1's join lemma and its meet dual, probed and pinned alongside it
+(`meet_encoding_is_subadditive`, `…_arbitrary`). The one residual
+*priced* step: deletion-honoring can prune a side's contribution to
+a survivor subset whose recomputed bound is not one that side
+materialized (`Unknown::unknown` reassembles pruned spines, and a
+subset join can out-encode the full join it was pruned from), so
+§2.5's census pin remains the guard for exactly that arm, restated
+in its docs.
+
 ### 2.3 The greeting carries it
 
 The version frame's body grows from `len(8)` to

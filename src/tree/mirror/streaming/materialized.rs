@@ -268,8 +268,8 @@ pub struct Connected<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> 
     their_version: Version,
     /// The peer's live message count, from its greeting.
     their_len: u64,
-    /// The peer's largest live version encoding in bytes, from its
-    /// greeting.
+    /// The peer's largest live version-bound encoding in bytes, from
+    /// its greeting.
     their_version_bytes: u64,
     fan: Vec<(u8, B::Node<UnderRoot>)>,
 }

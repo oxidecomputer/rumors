@@ -232,11 +232,18 @@ impl Window {
     ///
     /// A held reference at depth `d` is priced by
     /// `node_bytes(c_q(d), version_bound)`: its own children quantile,
-    /// and the exchanged version-size bounds combined and doubled — every
-    /// version a session assembles is a join of leaf versions from the
-    /// two replicas, a join encodes within its inputs' sum (`before`'s
-    /// pinned subadditivity lemma), and a node holds two bounds, ceiling
-    /// and floor. `node_bytes` must be an upper bound and monotone in
+    /// and the exchanged version-size bounds combined and doubled. Each
+    /// exchanged bound covers every ceiling, floor, and leaf version its
+    /// replica materializes (the greeting reads the per-node aggregate),
+    /// and a bound a session assembles across the two joins a ceiling —
+    /// or meets a floor — drawn from each side, encoding within the
+    /// pair's sum (`before`'s pinned join- and meet-subadditivity
+    /// lemmas); a node holds two bounds, hence the double. One priced
+    /// residual: deletion-honoring can prune a side's contribution to a
+    /// survivor subset whose recomputed bound is not one the input tree
+    /// materialized, so the pair sum there is a priced envelope, pinned
+    /// against reality by the census suite's reconciled-bound
+    /// measurements. `node_bytes` must be an upper bound and monotone in
     /// both arguments ([`Backend::node_bytes`](super::Backend::node_bytes)),
     /// so evaluating it at quantiles keeps the whole charge an upper
     /// bound; monotonicity is spot-checked here in debug builds.
@@ -251,8 +258,11 @@ impl Window {
         let n = u128::from(local_messages.max(remote_messages));
         let pair = u128::from(local_messages) * u128::from(remote_messages);
         let budget = budget_bytes as u128;
-        // Ceiling and floor each encode within the joined-leaf bound
-        // `local + remote`; the pair together within its double.
+        // Ceiling and floor each encode within the exchanged aggregates'
+        // sum `local + remote` (each side's aggregate covers the bounds
+        // it materializes; a cross-side assembly joins or meets one from
+        // each, within the pinned pairwise lemmas); the pair together
+        // within its double.
         let version_bound = usize::try_from(
             2 * (u128::from(local_version_bytes) + u128::from(remote_version_bytes)),
         )

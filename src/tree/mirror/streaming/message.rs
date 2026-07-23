@@ -56,15 +56,17 @@ pub struct Handshake {
     /// populations scale with the *product* of the two sizes (joint
     /// occupancy), so the window needs the peer's size, not an estimate.
     pub set_len: u64,
-    /// The largest canonical version encoding among the sender's live
-    /// messages, in bytes — exact, like `set_len` (an O(1) read of a
-    /// per-node aggregate that redaction resizes down).
+    /// The largest canonical version-bound encoding the sender's tree
+    /// holds — leaf versions and every interior ceiling and floor — in
+    /// bytes: exact, a read of a memoized per-node aggregate that
+    /// redaction resizes down.
     ///
-    /// Every version a session holds is a join of leaf versions from the
-    /// two replicas, and a join's encoding never exceeds its inputs'
-    /// combined, so the exchanged pair bounds worst-case version bytes
-    /// per node — the second input a budget-configured window prices
-    /// nodes with.
+    /// Every bound a session holds is either a bound one replica already
+    /// materializes (covered by that side's aggregate alone) or a
+    /// join/meet of the two sides' surviving contributions, whose
+    /// encoding never exceeds its inputs' combined, so the exchanged
+    /// pair bounds worst-case version bytes per node — the second input
+    /// a budget-configured window prices nodes with.
     pub max_version_bytes: u64,
     /// The sender's supply-run byte target
     /// ([`Peer::target_message_size`](crate::Peer::target_message_size)).

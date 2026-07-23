@@ -141,25 +141,28 @@ pub trait Node<T: Send + Sync + 'static> {
     ///
     /// A leaf answers one; a parent holds the sum over its children,
     /// fixed when [`Backend::parent`] assembles it — the same
-    /// aggregate-at-construction discipline as
+    /// recompute-on-reassembly discipline as
     /// [`version_bytes`](Self::version_bytes), and cheap for a persistent
     /// backend to keep as a stored field. The root's value is the exact
     /// set size the session greeting carries.
     fn len(&self) -> usize;
 
-    /// The largest canonical encoding among the leaf versions under this
-    /// node, in bytes, exact.
+    /// The largest canonical encoding among every version bound under
+    /// this node — its leaf versions and every interior node's ceiling
+    /// and floor, its own included — in bytes, exact.
     ///
-    /// A leaf answers its own version's encoded length; a parent holds
-    /// the **max over its children**, fixed when [`Backend::parent`]
-    /// assembles it. That recurrence is the whole maintenance story:
-    /// every mutation rebuilds its spine through `parent`, which
-    /// recomputes the max from the children in hand, so redacting the
-    /// largest version resizes the aggregate *down* with no separate
-    /// invalidation. The root's value is the version-size bound the
-    /// session greeting carries, which the memory budget prices nodes
-    /// with — an inflated value costs latency, a deflated one breaches
-    /// the memory envelope.
+    /// A leaf answers its own version's encoded length; a parent answers
+    /// the **max over its children's values and its own two bounds'
+    /// encodings**. That recurrence is the whole maintenance story: every
+    /// mutation rebuilds its spine through [`Backend::parent`], so the
+    /// max is recomputed from what remains and redacting the version
+    /// that carries it resizes the aggregate *down* with no separate
+    /// invalidation. Interior bounds must be covered: a ceiling joins
+    /// every leaf version below it, and a join of many small concurrent
+    /// stamps can encode several times larger than any one of them. The
+    /// root's value is the version-size bound the session greeting
+    /// carries, which the memory budget prices nodes with — an inflated
+    /// value costs latency, a deflated one breaches the memory envelope.
     fn version_bytes(&self) -> usize;
 }
 
@@ -223,10 +226,13 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Root<B, T> {
             .unwrap_or_default()
     }
 
-    /// The largest canonical leaf-version encoding in the tree, in
-    /// bytes: the root node's [`version_bytes`](Node::version_bytes)
-    /// aggregate, or zero when empty. What the session greeting carries
-    /// as the version-size bound.
+    /// The largest canonical version-bound encoding in the tree, in
+    /// bytes: what the session greeting carries as the version-size
+    /// bound.
+    ///
+    /// The root node's [`version_bytes`](Node::version_bytes) aggregate
+    /// — leaf versions and every interior ceiling and floor — or zero
+    /// when empty.
     pub(crate) fn max_version_bytes(&self) -> u64 {
         self.root
             .as_ref()
