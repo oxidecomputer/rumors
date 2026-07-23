@@ -32,9 +32,11 @@
 
 set -u
 
-# 12 GiB: see design/height-erasure.md, incident log 2026-07-17, for the
-# growth analysis behind this number (linear per-tower cost vs. the
-# exponential runaway this tripwire exists to catch).
+# An uncalibrated backstop, generous by design: the per-process limit is
+# defense-in-depth against type-size exponentiality — a height-indexed
+# tower that fails to be boxed and erased in the right place sends codegen
+# memory exponential, and this tripwire exists to catch that runaway, not
+# to budget legitimate builds. Override per invocation when one needs more.
 PROC_LIMIT_GB="${PROC_LIMIT_GB:-20}"
 SWAP_LIMIT_GB="${SWAP_LIMIT_GB:-20}"
 LOG="${LOG:-/tmp/memwatch.log}"
@@ -86,11 +88,9 @@ own_procs() {
 tick=0
 while kill -0 "$ROOT" 2>/dev/null; do
     biggest_kb=0 biggest_desc=none
-    build_pids=""
 
     while read -r pid rss cmd; do
         is_build_proc "$cmd" || continue
-        build_pids="$build_pids $pid"
         if [ "$rss" -gt "$biggest_kb" ]; then
             biggest_kb=$rss
             biggest_desc="pid $pid ${cmd:0:80}"
@@ -106,13 +106,28 @@ while kill -0 "$ROOT" 2>/dev/null; do
     swap_used_mb=$(sysctl -n vm.swapusage 2>/dev/null | awk '{print $6}' | tr -d 'M' | cut -d. -f1)
     if [ "${swap_used_mb:-0}" -gt "$swap_lim_mb" ]; then
         note "ABORT: swap at ${swap_used_mb} MB exceeds ${SWAP_LIMIT_GB} GiB; killing this build"
-        # Scoped like the per-process check: this build's own tree, the
-        # heavy compiles first so the shells notice cleanly, never a
-        # neighbor's.
-        for pid in $build_pids; do
+        # Scoped like the per-process check: this build's own tree, never
+        # a neighbor's. Freeze before killing: a stopped process cannot
+        # fork, so no compile spawned between enumeration and the kill
+        # survives orphaned. The root freezes first (no new children),
+        # then descendants until a pass finds nothing new — a child forked
+        # before its parent froze is caught by the next pass. The pass
+        # count is bounded so a torn ps snapshot cannot spin.
+        kill -STOP "$ROOT" 2>/dev/null
+        frozen=" $ROOT "
+        for _ in 1 2 3 4 5; do
+            new=0
+            while read -r pid _rss _cmd; do
+                case "$frozen" in *" $pid "*) continue ;; esac
+                kill -STOP "$pid" 2>/dev/null
+                frozen="$frozen$pid "
+                new=1
+            done < <(own_procs)
+            [ "$new" -eq 0 ] && break
+        done
+        for pid in $frozen; do
             kill -9 "$pid" 2>/dev/null
         done
-        kill -9 "$ROOT" 2>/dev/null
         exit 1
     fi
 
