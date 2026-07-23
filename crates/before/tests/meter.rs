@@ -26,8 +26,8 @@
 //!   requirement.
 //! - **Big-integer limb operations** ([`meter::limb_ops`], only when the
 //!   `limb-meter` feature compiles the counter into the arithmetic):
-//!   operand limbs per `Base` operation plus one accumulator-width record
-//!   per wide-gamma decode step. Arithmetic-width cost is invisible to the
+//!   operand limbs per `Base` operation plus one value-width record per
+//!   decoded wide-gamma value. Arithmetic-width cost is invisible to the
 //!   other two meters — the work is wider, not more frequent — so this is
 //!   the only column that sees a magnitude-quadratic regression. Without
 //!   the feature the scenarios still run and assert the other two columns.
@@ -121,7 +121,56 @@ mod envelope {
     pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
 }
 
+// ─── meter liveness canaries ────────────────────────────────────────────────
+
+/// Size of the canary allocation that proves the heap meter is live.
+const CANARY_ALLOC_BYTES: usize = 1 << 20;
+
+/// The heap meter registers a known allocation: a canary buffer reads back
+/// a peak delta at least its own size, so a lost `#[global_allocator]` line
+/// or a broken peak reader (either of which would pass every upper-bound
+/// envelope vacuously at zero) fails loudly here instead.
+#[test]
+fn heap_meter_registers_known_allocation() {
+    HEAP.reset_peak_usage();
+    let baseline = HEAP.current_usage();
+    let buf = std::hint::black_box(vec![0u8; CANARY_ALLOC_BYTES]);
+    let peak = HEAP.peak_usage().saturating_sub(baseline);
+    assert!(
+        peak >= CANARY_ALLOC_BYTES,
+        "heap meter read {peak} B for a {CANARY_ALLOC_BYTES} B canary allocation: \
+         the counting allocator is not measuring this binary"
+    );
+    drop(buf);
+}
+
+/// The dense-spine decode registers at least its packed input size: the
+/// decoded version owns a copy of the packed bits, so the one big scenario
+/// here has a floor as well as a ceiling, and a dead heap meter cannot
+/// slide a big scenario under its envelope at zero.
+#[test]
+fn heap_meter_floor_on_decode_dense() {
+    let p = meter::dense(DENSE_DEPTH);
+    HEAP.reset_peak_usage();
+    let baseline = HEAP.current_usage();
+    let v = version_of(&p);
+    let peak = HEAP.peak_usage().saturating_sub(baseline);
+    assert!(
+        peak >= p.bytes.len(),
+        "decode_dense peak {peak} B is under its {} B packed input: \
+         the decoded version alone must allocate at least that",
+        p.bytes.len(),
+    );
+    drop(v);
+}
+
 // ─── measurement harness ────────────────────────────────────────────────────
+
+/// Appended to every envelope failure: the first cause to rule out is a
+/// shared-process test runner, under which the process-global meters bleed
+/// other tests' work into the scenario being measured.
+const ISOLATION_NOTE: &str = "note: the meters are process-global and meaningful only one \
+     scenario per process: run under cargo nextest, not a shared-process cargo test";
 
 /// Run one scenario body under both meters and assert its envelope.
 ///
@@ -150,18 +199,18 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
     );
     assert!(
         peak_heap <= env.peak_heap,
-        "{name}: peak heap {peak_heap} B exceeds the pinned envelope {} B (input {input_bytes} B)",
+        "{name}: peak heap {peak_heap} B exceeds the pinned envelope {} B (input {input_bytes} B): {ISOLATION_NOTE}",
         env.peak_heap,
     );
     assert!(
         segments <= env.segments,
-        "{name}: {segments} grown stack segments exceed the pinned envelope {}",
+        "{name}: {segments} grown stack segments exceed the pinned envelope {}: {ISOLATION_NOTE}",
         env.segments,
     );
     #[cfg(feature = "limb-meter")]
     assert!(
         limb_ops <= env.limb_ops,
-        "{name}: {limb_ops} limb operations exceed the pinned envelope {}",
+        "{name}: {limb_ops} limb operations exceed the pinned envelope {}: {ISOLATION_NOTE}",
         env.limb_ops,
     );
     r

@@ -438,9 +438,11 @@ fn default_hash<T: std::hash::Hash>(v: &T) -> u64 {
 
 /// The manual (limb-metered) `PartialEq` and `Hash` on `Base` agree with the
 /// compiler-derived semantics over a value grid spanning the `Small`/`Big`
-/// boundary: every pairwise equality answer matches the derived impl's,
-/// every hash stream matches the derived impl's, and equal values hash
-/// equally — metering must never change an answer.
+/// boundary.
+///
+/// Every pairwise equality answer matches the derived impl's, every hash
+/// stream matches the derived impl's, and equal values hash equally:
+/// metering must never change an answer.
 #[test]
 fn base_eq_hash_agree_with_derived_semantics() {
     let grid: Vec<Base> = vec![
