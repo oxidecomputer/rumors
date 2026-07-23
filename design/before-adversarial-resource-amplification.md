@@ -697,8 +697,12 @@ Pin the §6 invariant the way `step!` pins time complexity:
   criterion is an all-green board.
 
   Landed 2026-07-22 (`before::meter::board`; runner
-  `examples/amp_board.rs`, `just amp-board`; nextest smoke): 41
-  operation rows × 5 families = 158 cells; P0 baseline **[measured]**
+  `examples/amp_board.rs`, `just amp-board`; nextest smoke): 42
+  operation rows × 5 families = 158 cells (amended 2026-07-23:
+  originally stated 41 rows; the committed table has 42, confirmed
+  both by the `Op` entries in `board.rs` and by the distinct op
+  labels in the rendered board — the cell total and the green/red
+  split were already exact); P0 baseline **[measured]**
   59 green / 99 red (dev profile, `limb-meter` lit, meter columns
   byte-identical across runs). Ceilings pinned in the module:
   exponent ≤ 1.15; heap ≤ 16 B per input byte over an 8 KiB flat
