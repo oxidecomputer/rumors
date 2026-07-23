@@ -502,6 +502,18 @@ motivated in review conversation and measured before adoption:
   derives floor-width dispute capacities — correctly, since it is
   all supply — and symmetric sessions reduce to the previous N².
 
+**Amendment (2026-07-22, third wave): the envelope constant is
+derived, and the default rose to its honest price.** The
+backend-priced budgeting campaign (`design/sync-budget.md`, phase 4)
+replaced the flat per-node constant with the backend's own cost
+function and re-derived the fitted ~2 KiB per-scope envelope through
+it: the design session's true per-scope charge is 4,339 B (the fit,
+made across the table's smaller corpora, under-covered the design
+point by ~2.1×), so the default budget is ~271 MB and the operator
+throughput check is `budget / (22 × RTT)`. The constant is pinned by
+exact recomputation, and the regenerated table's default row sits at
+parity in every column.
+
 ### 5.3 The per-leaf compute follow-up
 
 Chasing the zero-latency compute gap (§2, §7) surfaced a second

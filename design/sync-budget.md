@@ -1,7 +1,10 @@
 # The sync budget: session memory bounded by occupancy, priced by the backend
 
 Status: phases 1–3 landed (2026-07-22, `a3da46c4..4d6ff0f0` on
-`link-transport`); phase 4 in progress below, spec-first.
+`link-transport`); phase 4 landed the same day (`b9679a1a..922db57a`),
+spec-first — each §2 section carries its landed status, and
+transcription deviations from the original spec text are recorded as
+dated amendments in place.
 Companions: `design/streaming-latency-serialization.md` (the
 serialization diagnosis this campaign grew from, amended in place as
 the knob evolved) and `design/b05-uniformity-envelope.md` (the
@@ -19,13 +22,15 @@ tagged \[derived\] (premises stated), \[measured\] (instrument named),
 ### 1.1 The interface
 
 One optional knob: `Peer::sync_memory_budget(budget_bytes)`, default
-`DEFAULT_SYNC_MEMORY_BUDGET` — 128 MB, **computed in-code from its
+`DEFAULT_SYNC_MEMORY_BUDGET` — ~271 MB, **computed in-code from its
 premises** (a 100 Gbps × 1 ms-RTT design link's 12.5 MB
 bandwidth-delay product, filled at one disputed scope per 200 measured
-wire bytes, each charged 2 KiB of fitted envelope; `window.rs` holds
-the constants and the multiplication). The budget is a worst-case
-envelope per session, never an allocation; concurrent sessions on
-separate links each carry their own.
+wire bytes, each charged the design session's derived per-scope
+envelope of 4,339 B; `window.rs` holds the constants and the
+multiplication, and §2.4's landed status records the envelope's
+derivation and pin). The budget is a worst-case envelope per session,
+never an allocation; concurrent sessions on separate links each carry
+their own.
 
 Each session resolves the budget into **static per-height channel
 capacities** at handshake time, from the set sizes the two replicas
@@ -109,8 +114,10 @@ away.
 - **`examples/window_tradeoff.rs`** → `just window-tradeoff` →
   `src/tree/mirror/streaming/window/tradeoff.md`, compiled into
   `sync_memory_budget`'s rustdoc: the budget × divergence slowdown
-  grid, latency-only worst case (256 KiB at 50k mutual: ~635×; the
-  default at parity).
+  grid, latency-only worst case (256 KiB at 50k mutual: ~500×; the
+  default at parity). The committed table is the figure of record;
+  run-to-run capacity derivations move the extreme cells by tens of
+  percent.
 - **`benches/window_wallclock.rs`**: criterion over the same delayed
   pipes on a running clock; cross-checks the virtual figures by eye
   (pipelined cell within noise; serialized cells 20–60 % under the
@@ -191,6 +198,30 @@ wire (supply records; queries and listings carry hashes), so with
 interior joins of mixed provenance — is bounded by
 `local_max + remote_max`.
 
+**Status (2026-07-22): landed**, in two shapes. The in-memory tree
+holds `version_bytes` as the eager field beside `leaves`
+(`untyped.rs`; both branch constructors recompute it, and proptests
+pin exactness against a recomputed oracle through inserts, argmax
+forgets, and the merge path). Then, by direction during
+implementation, the aggregate — and `len` with it — moved up to the
+**`Node` trait itself**: leaf = one / its own version's encoded
+length, parent = sum / max over children, fixed at
+`Backend::parent`. That is the auto-derivable propagation rule a
+persistent backend keeps as stored fields, it lets the materialized
+handshake read both greeting values off the root (no caller-stated
+sizes to go stale — the `set_len`/`max_version_bytes` builders were
+deleted), and §2.5's suite pins the recurrence per assembled parent.
+
+One precision the spec sentence above glosses: interior ceilings and
+floors are joins over *many* leaves, and §2.1's lemma is pairwise —
+summing over k leaves is vacuous at tree scale. The pairwise bound is
+the *priced* claim, and §2.5's lemma-slack pin is its empirical
+guard: a three-party controlled divergence measured every per-node
+bound of the reconciled trees at 11 B against a priced 10 + 7 — the
+11 genuinely mixed-provenance — with the fallback (per-node aggregate
+of materialized bound sizes) still recorded in §2.1 should a workload
+ever trip the pin.
+
 ### 2.3 The greeting carries it
 
 The version frame's body grows from `len(8)` to
@@ -198,6 +229,11 @@ The version frame's body grows from `len(8)` to
 procedure as the set size (one isolated snapshot re-accept,
 byte-verified version-frames-only, V1 untouched). After it, **every
 input to worst-case memory is on the table at handshake time**.
+
+**Status (2026-07-22): landed** as specified: all 17 V2 snapshots
+re-accepted after mechanical byte verification (only the version
+frame changed; `set_len` word and version bytes preserved, length
+header +8, bound zero iff the sender is empty), V1 byte-identical.
 
 ### 2.4 The cost function
 
@@ -215,6 +251,15 @@ keeps quantile evaluation an upper bound). Leaves are deliberately
 out of scope: leaf payloads are priced by `target_message_size`,
 and the docs state the split once.
 
+> **Amendment (2026-07-22, transcription)**: the two sentences above
+> disagreed — "each encode within `version_bound`" versus the
+> call-site doubling below. Landed semantics: `version_bound` bounds
+> the node's resident bounds **together** (the ceiling/floor pair),
+> and the caller doubles once, centrally. A hidden per-backend ×2
+> would be the kind of forgotten constant whose lapse breaches the
+> memory envelope; the doubling now lives at the one audited call
+> site in `from_budget`.
+
 The derivation evaluates it per depth at
 `(c_q(depth), 2 × (local_max + remote_max))` — the per-parent fan
 quantile it already computes, and §2.2's exchanged bound doubled for
@@ -224,6 +269,28 @@ default budget's `SCOPE_ENVELOPE_BYTES` \[fitted\] is then
 re-derived through `Local`'s function and either confirmed or
 corrected — the design-link statement stays, its constant stops
 being hand-fitted.
+
+**Status (2026-07-22): landed, and the re-derivation corrected the
+constant.** The held reference at depth `d` is priced at its own
+fan quantile `c_q(d)`, and the recomputed design-session charge —
+BDP-scale corpora (62,500 messages a side) in full divergence, every
+stage population in flight, through `Local`'s function — is
+**4,339 B per scope**, not the fitted 2 KiB: the fit, made across
+the trade-off table's smaller corpora, under-covered the design
+point by ~2.1×. The constant is now that derived value, pinned by
+exact recomputation (`scope_envelope_matches_the_derivation`, which
+also asserts end-to-end that the default admits the whole BDP in
+flight at the design session), so it fails loudly instead of
+drifting. Consequences, all regenerated: the default budget is
+~271 MB (`62,500 × 4,339`); the trade-off table's default row sits
+at parity in every column (the 128 MB fit had read 1.4× at 50k
+mutual divergence); the operator throughput check re-derives to
+`budget / (22 × RTT)`, the envelope-to-wire ratio `4,339 / 200`;
+and the table's default row is labeled from the constant at
+generation time so it cannot go stale. §1.5's same-day 512 MiB
+adopt-and-revert reasoning is unchanged in kind — the margin
+question was about slack *above* the design point, while this
+correction is the design point's own charge, priced honestly.
 
 **Audit rule**: this closes the derivation's one asymmetric error
 direction. Everywhere else, mis-estimation costs latency; an
@@ -246,6 +313,26 @@ from exchanged measurements plus one pinned lemma.
   the user's bound actually hold" for backends this crate has never
   seen.
 
+**Status (2026-07-22): both landed.** The lemma-slack pin
+(`version_bounds_stay_inside_the_priced_pair_bound`) reconciles a
+three-party divergence and measures every per-node bound with memos
+forced — the numbers in §2.2's status. `conformance::backend` runs
+the byte-charging decorator (`Charged<B>` over a `Measure` oracle
+the backend supplies as ground truth) end to end: identical corpora
+at the floor and under a stated budget, peak *measured-byte*
+difference held inside the budget, pointwise `node_bytes` and
+`len`/`version_bytes`-recurrence checks per assembled parent, and
+convergence witnessed by root-hash equality. Exercised against
+`Local` and against a DB-row-shaped materializing reference backend
+whose node values own real buffers; an underpriced variant of the
+same backend is pinned to fail by name (the suite's teeth are
+themselves tested). One deliberate deviation: the `Backend` trait is
+crate-internal today, so the suite is crate-gated and runs as this
+crate's own gate — its entry point goes public together with the
+storage-backend boundary, the way `conformance::link` shipped with
+`Link`. Accounting premise stated in its module docs: leaf values
+charge nothing (leaf payloads belong to `target_message_size`).
+
 ### 2.6 Acceptance
 
 Phase 4 is done when: the lemma is probed and pinned (or the
@@ -254,6 +341,12 @@ longer exists; the envelope claim in `sync_memory_budget`'s docs
 carries no \[fitted\] input; the census lemma-slack pin and the
 pointwise conformance check are in the gate; and the trade-off table
 is regenerated under the function-priced derivation.
+
+**Met, 2026-07-22**: every clause checked mechanically — no
+`NODE_BYTES` token survives anywhere; the only "fitted" mentions in
+`src/` are the two negations documenting that the envelope no longer
+is; the pins run under the ordinary test gate; the committed table
+carries the function-priced default row.
 
 ## 3. Deliberately out of scope
 
@@ -264,5 +357,5 @@ is regenerated under the function-priced derivation.
   top-K order statistics): recorded, untaken; adopt only if a regime
   wants the ~2× and pays its coupling to stream parity.
 - Per-deployment tuning guidance beyond the table: the default's
-  design-link derivation plus the `budget / (3 × RTT)` operator
+  design-link derivation plus the `budget / (22 × RTT)` operator
   check are the whole story on purpose.
