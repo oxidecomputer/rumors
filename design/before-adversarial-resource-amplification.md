@@ -1266,6 +1266,28 @@ Escalated for the user's ruling: either P0's gate bar is met by
 rebasing onto main after `link-transport` merges, or the user
 records an explicit exception here so P0 can close first.
 
+Amended 2026-07-23, P3 accumulator fix round: the roster is now
+**fifteen** tests. Gate runs generated two seeds (both committed in
+`proptest-regressions/tree/mirror/streaming/remote/proxy/tests/failures.txt`,
+`cc 532cbe72…` and `cc 83fded99…`) for
+`rumors tree::mirror::streaming::remote::proxy::tests::failures::transport_failures_are_exact_and_fail_fast`.
+The witness is new to the roster: not the `Stalled` deadlock but a
+fail-fast conformance assertion — a transport failure injected on
+one side (the shrunk case: `fail_left = true` during `Flush`) is
+not observed as an error on the other (`outcome.right.is_err()`
+fails). Provenance verified 2026-07-23 by replay: deterministic in
+isolation at this branch's tip with every campaign change stashed,
+and at the plain merge-base 6b39482d with the seed file copied in —
+main is red on these seeds with no campaign changes applied. The
+fifteen-test sweep of record at this branch's tip:
+`--no-fail-fast`, 745 run: 730 passed, 15 failed, 2 skipped, the
+fourteen stall-roster tests plus this one and no others. Same
+streaming-transport genre as the stall roster and the same expected
+fix of record (`link-transport` reworks `streaming/remote/proxy`),
+but whether that branch cures this witness is **unverified**: these
+seeds must be replayed there before the C0 rebase closes the
+roster.
+
 Acceptance for the effort: every §5 row at a small pinned constant ×
 input; the §13 board all green — no super-linear cell and no
 large-constant cell anywhere in the op × family matrix; `benches/`
