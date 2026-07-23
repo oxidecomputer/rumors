@@ -904,6 +904,76 @@ proptest! {
         let c3: Clock = ciborium::de::from_reader(&b[..]).unwrap();
         prop_assert_eq!(c3.encode(), c.encode());
     }
+
+    /// The serde byte payload is exactly the canonical encoding.
+    ///
+    /// Each type serializes to the same stream as its own `encode()` bytes
+    /// handed to the format as a plain byte sequence, so the wire form is
+    /// `encode()` with nothing added, reordered, or wrapped — the serde
+    /// mirror of the borsh `bytes == as_bytes` pin, witnessed through
+    /// postcard, whose byte-sequence framing is a length prefix plus the
+    /// raw bytes.
+    #[test]
+    fn serde_bytes_pin_the_canonical_encoding(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let p = from_oracle_party(cs[i % n].party());
+        let v = from_oracle_version(&cs[i % n].version());
+        let c = from_oracle_clock(&cs[i % n]);
+
+        prop_assert_eq!(
+            postcard::to_allocvec(&p).unwrap(),
+            postcard::to_allocvec(&p.encode()).unwrap(),
+        );
+        prop_assert_eq!(
+            postcard::to_allocvec(&v).unwrap(),
+            postcard::to_allocvec(&v.encode()).unwrap(),
+        );
+        prop_assert_eq!(
+            postcard::to_allocvec(&c).unwrap(),
+            postcard::to_allocvec(&c.encode()).unwrap(),
+        );
+    }
+
+    /// Serde deserialization runs the strict `decode` validator: a
+    /// non-canonical payload is rejected, never silently accepted.
+    ///
+    /// The serde mirror of the borsh strict-reject leg, for all three
+    /// types and through both deserialization paths.
+    #[test]
+    fn serde_rejects_non_canonical(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let p = from_oracle_party(cs[i % n].party());
+        let v = from_oracle_version(&cs[i % n].version());
+        let c = from_oracle_clock(&cs[i % n]);
+
+        // Append a spurious whole zero byte: canonical padding is < 8 bits,
+        // so `decode` rejects it, and serde must surface that rejection
+        // through both the binary (typed-bytes) and the self-describing
+        // (number-array) paths.
+        let mut party_body = p.encode();
+        party_body.push(0x00);
+        prop_assume!(Party::decode(&party_body[..]).is_err());
+        let mut version_body = v.encode();
+        version_body.push(0x00);
+        prop_assume!(Version::decode(&version_body[..]).is_err());
+        let mut clock_body = c.encode();
+        clock_body.push(0x00);
+        prop_assume!(Clock::decode(&clock_body[..]).is_err());
+
+        let postcard_frame =
+            |body: &Vec<u8>| postcard::to_allocvec(body).expect("byte vectors serialize");
+        prop_assert!(postcard::from_bytes::<Party>(&postcard_frame(&party_body)).is_err());
+        prop_assert!(postcard::from_bytes::<Version>(&postcard_frame(&version_body)).is_err());
+        prop_assert!(postcard::from_bytes::<Clock>(&postcard_frame(&clock_body)).is_err());
+
+        let json_frame =
+            |body: &Vec<u8>| serde_json::to_vec(body).expect("byte vectors serialize");
+        prop_assert!(serde_json::from_slice::<Party>(&json_frame(&party_body)).is_err());
+        prop_assert!(serde_json::from_slice::<Version>(&json_frame(&version_body)).is_err());
+        prop_assert!(serde_json::from_slice::<Clock>(&json_frame(&clock_body)).is_err());
+    }
 }
 
 // ───────────────────────────── borsh (feature-gated) ─────────────────────────────
