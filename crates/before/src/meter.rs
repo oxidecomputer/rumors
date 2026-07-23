@@ -367,6 +367,42 @@ pub fn alt_spine(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The scattered id `Z(e)`: `e` owned left subtrees at alternating depths of
+/// a right-leaning spine, `6e + 2` bits.
+///
+/// The operand cross's id side for output-dominated projection: the party
+/// owns the whole left child at every other level of a right-leaning spine —
+/// the positions where [`cliff_comb`]'s teeth hang — so projecting a comb
+/// through it keeps every second tooth. `e` disjoint owned fragments scatter
+/// across the id tree at `Θ(1)` stored bits each, so the *input* is linear
+/// in `e` while every kept fragment boundary forces a fresh wide magnitude
+/// into the projected *output*.
+///
+/// Layout, repeated `e` times: `11` (both children present), `00` (the owned
+/// left leaf), `01` (a right-only gap level); terminated by `00` (the owned
+/// tip). 6 bits per fragment plus 2. Normal form: no node has two
+/// fully-owned children (each `11` node's right child is a gap node) and no
+/// node has two absent children.
+///
+/// # Panics
+///
+/// Panics if `e == 0`.
+pub fn scattered_id(e: usize) -> Packed {
+    assert!(e >= 1, "scattered id needs at least one owned fragment");
+    let mut bits = Bits::with_capacity(6 * e + 2);
+    for _ in 0..e {
+        bits.push(true); // fragment node: left child present ...
+        bits.push(true); // ... and the spine continues right
+        bits.push(false); // the owned left leaf: terminal tag "00"
+        bits.push(false);
+        bits.push(false); // gap node: left child absent ...
+        bits.push(true); // ... spine continues right
+    }
+    bits.push(false); // terminal tag "00": the owned tip
+    bits.push(false);
+    Packed::from_bits(bits)
+}
+
 /// The id spine `I(d, divert)`: a unary chain of depth `d`, `2d + 2` bits.
 ///
 /// Layout: `d` left-only tags (`10`) ending in a terminal (`00`). With

@@ -5,7 +5,7 @@ use crate::{Party, Version};
 
 use super::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, id_spine,
-    wide_tooth_comb, Packed,
+    scattered_id, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -229,4 +229,31 @@ fn id_spine_decodes_canonically_at_predicted_length() {
         let b = check_party(&id_spine(d, true), 2 * d + 2);
         assert!(a.is_disjoint(&b), "divert arms own disjoint regions");
     }
+}
+
+/// `Z(e)` is canonical normal form at exactly `6e + 2` bits, and projecting
+/// a comb through it keeps a wide magnitude per kept tooth: the projected
+/// output out-scales the scattered party's own bits.
+///
+/// The overlap claim is what the generator exists for — the owned left
+/// subtrees sit at the comb's tooth positions — so a projection that came
+/// back near-empty would mean the shapes no longer align.
+#[test]
+fn scattered_id_decodes_canonically_at_predicted_length() {
+    for e in [1, 500] {
+        check_party(&scattered_id(e), 6 * e + 2);
+    }
+    let (k, n) = (64, 16);
+    let comb = Version::decode(&cliff_comb(k, n).bytes[..]).expect("comb is strict normal form");
+    let party =
+        Party::decode(&scattered_id(n / 2).bytes[..]).expect("scattered id is strict normal form");
+    let projected = &comb / &party;
+    assert!(
+        projected.encoded_bits() >= (n / 2) * k,
+        "projection through the scattered id must keep a wide magnitude per kept tooth \
+         (got {} bits from {} teeth of {} bits)",
+        projected.encoded_bits(),
+        n,
+        k
+    );
 }

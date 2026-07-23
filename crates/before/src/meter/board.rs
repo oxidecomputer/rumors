@@ -24,14 +24,59 @@
 //!   blowups are invisible to the other two meters.
 //!
 //! Per meter the board derives a **scaling exponent**
-//! `log(m₂/m₁) / log(n₂/n₁)` (`n` = packed input bytes) and a **per-input-byte
-//! constant** at the larger scale. A cell is **GREEN** iff every meter's
-//! exponent is at most [`MAX_SCALING_EXPONENT`] *and* every constant is under
-//! its pinned ceiling ([`MAX_HEAP_BYTES_PER_INPUT_BYTE`] over
-//! [`HEAP_FLAT_ALLOWANCE_BYTES`], [`MAX_GROWN_STACK_SEGMENTS`],
-//! [`MAX_LIMB_OPS_PER_INPUT_BYTE`]); **RED** otherwise, with the offending
-//! meters named. Wall time is displayed per scale but never judged: it is the
-//! one number here that is not deterministic.
+//! `log(m₂/m₁) / log(n₂/n₁)` (`n` = the cell's denominator bytes, below) and
+//! a **per-denominator-byte constant** at the larger scale. A cell is
+//! **GREEN** iff every meter's exponent is at most [`MAX_SCALING_EXPONENT`]
+//! *and* every constant is under its pinned ceiling
+//! ([`MAX_HEAP_BYTES_PER_INPUT_BYTE`] over [`HEAP_FLAT_ALLOWANCE_BYTES`],
+//! [`MAX_GROWN_STACK_SEGMENTS`], [`MAX_LIMB_OPS_PER_INPUT_BYTE`] — or, on
+//! the text rows' limb column, [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]); **RED**
+//! otherwise, with the offending meters named. Wall time is displayed per
+//! scale but never judged: it is the one number here that is not
+//! deterministic.
+//!
+//! # Denomination
+//!
+//! Most cells charge cost against **packed input bytes** alone. Two cell
+//! classes have *mandatory* output asymptotically larger than any constant
+//! times their input, so an input-only ceiling on them is unsatisfiable by
+//! construction — and an unsatisfiable criterion degenerates into exemption
+//! holes. Those cells are denominated against **total I/O bytes** `n_io`,
+//! with the output side read back from the operation's actual result, never
+//! assumed from its inputs:
+//!
+//! - **Text rows** (`Display` and `FromStr` for all three types): `n_io` is
+//!   packed input + text output (`Display`) or text input + packed output
+//!   (`FromStr`). Their heap and segment columns are judged per `n_io` byte
+//!   at the unchanged ceilings. Their **limb column** is judged against the
+//!   radix-work denominator `R = n_io + Σ digitsᵢ × limbsᵢ` over the values
+//!   the text spells — the cost law of schoolbook binary↔decimal conversion,
+//!   which no converter beats on exponent alone (binary↔decimal is inherently
+//!   superlinear) — with the ceiling pinned at the divide-and-conquer target
+//!   [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]: a schoolbook converter scores
+//!   ~1 limb per `R` unit and must read red; only a subquadratic chunked
+//!   converter passes.
+//! - **Output-dominated projection** (`version_project` and
+//!   `clock_own_version` on the comb × scattered-party cross): `n_io` is
+//!   packed input + packed output. The cross exists because a scattered
+//!   party keeps a wide magnitude per kept tooth — `Θ(e·k)` mandatory output
+//!   bits — and a packed output cannot be padded, so `n_io` is the honest
+//!   denominator on all three columns at the unchanged ceilings.
+//!
+//! The **output-honesty assertion** closes the pad-the-output door on the
+//! text side: any text stream entering a denominator must satisfy
+//! `text_bytes ≤` [`TEXT_BYTES_PER_CONTENT_BIT`] `× packed content bits` of
+//! the value it spells, checked against the actual bytes.
+//!
+//! **Do not re-denominate** (these stay input-denominated): both binary
+//! codec directions (the coding is canonical 1:1, so input bytes are the
+//! honest bound); every scalar, comparison, and query row (word-sized or
+//! borrowed results); and the packed-output mutator rows (`join`, `meet`,
+//! `tick`, `batch_snapshot`, `fork`, `recv`, `sync`, `without`, and the
+//! non-cross projection cells) — their input denomination rests on output
+//! coding ≤ inputs + O(1) per overlay boundary, which is pinned for
+//! join/meet as the 1-Lipschitz proptest in
+//! [`tier2`](crate::meter::tier2)'s test suite rather than assumed.
 //!
 //! # Reading the numbers
 //!
@@ -54,6 +99,11 @@
 //! exercises `Party` (and `Clock`) operations; `benign` provides both. Where
 //! an operation needs a `Party` and a `Version`, the board crosses
 //! adversarial party × small version and small party × adversarial version.
+//!
+//! One more column, `comb-scatter`, exists for exactly two cells: the
+//! adversarial × adversarial projection cross (boundary-comb version ×
+//! scattered party) whose mandatory output dominates its input — the case
+//! the small-operand crosses above cannot exhibit. Every other row skips it.
 //!
 //! # Coverage: the not-applicable list
 //!
@@ -101,6 +151,9 @@
 //! - **Test support**: `oracle`, `meter`, and the `error`/`iter` modules'
 //!   data types perform no computation over packed inputs.
 
+#[cfg(test)]
+mod tests;
+
 use std::any::Any;
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
@@ -108,6 +161,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
+use crate::codec;
 use crate::{causally, Clock, Party, Version};
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
@@ -144,6 +198,36 @@ pub const MAX_GROWN_STACK_SEGMENTS: u64 = 1;
 /// long before the constant.
 pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 
+/// Text rows only: green requires at most this many limb operations per
+/// radix-work unit `R = n_io + Σ digitsᵢ × limbsᵢ` (κ).
+///
+/// `R` is the schoolbook conversion cost law itself, so a schoolbook
+/// converter scores ~1 limb per unit at every scale and any ceiling at or
+/// above 1 is satisfied by re-denomination alone — softer, not harder. The
+/// pin is the discriminator the exponent column cannot be (schoolbook's limb
+/// count grows exactly as `R`, so its exponent against `R` is a flat ~1):
+/// κ sits 4× under the measured schoolbook ratio and ~4× over the
+/// divide-and-conquer ratio extrapolated at the default hugeleaf scale
+/// \[derived\], so only a subquadratic chunked converter reads green.
+/// Provisional until such a converter lands: re-pin it from the observed
+/// meter then, and verify it at record scale before any envelope enforces
+/// it. The test suite pins that the current digit-by-digit parser exceeds κ,
+/// so this ceiling cannot silently soften.
+pub const MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT: f64 = 0.25;
+
+/// Any text stream entering a denominator must hold at most this many bytes
+/// per packed content bit of the value it spells (the output-honesty
+/// ceiling).
+///
+/// Denominating against I/O bytes opens a door: pad the output, inflate the
+/// denominator, read green. The ceiling closes it \[derived\]: the grammar
+/// spends at most 6 syntax bytes per node against at least 2 packed bits per
+/// node (id spines approach 3 bytes per bit, the worst case), and decimal
+/// digits cost ~0.302 bytes per magnitude bit against ~2 packed bits per
+/// magnitude bit — so honest text stays under 3.2 bytes per content bit and
+/// padding trips the assertion.
+pub const TEXT_BYTES_PER_CONTENT_BIT: f64 = 4.0;
+
 // ─── family sizes at scale 1.0 ──────────────────────────────────────────────
 
 /// Dense event spine depth at scale 1.0 (packed size ~4 KiB).
@@ -160,6 +244,17 @@ const HUGELEAF_BASE_MAGNITUDE_BITS: usize = 16_000;
 
 /// Id spine depth at scale 1.0 (packed pair ~6 KiB).
 const ID_BASE_DEPTH: usize = 12_000;
+
+/// Comb-scatter tooth count at scale 1.0 (packed cross ~32 KiB).
+///
+/// Scale drives the tooth count (and with it the scattered party's fragment
+/// count, half the teeth); the tooth magnitude stays at
+/// [`CROSS_TOOTH_MAGNITUDE_BITS`], so the operands grow linearly and the
+/// output-domination ratio holds at every scale.
+const CROSS_BASE_TEETH: usize = 128;
+
+/// Comb-scatter tooth magnitude in bits (fixed across scales).
+const CROSS_TOOTH_MAGNITUDE_BITS: usize = 1_000;
 
 /// Benign clock population at scale 1.0.
 const BENIGN_BASE_CLOCKS: usize = 256;
@@ -214,16 +309,19 @@ enum FamilyKind {
     Hugeleaf,
     /// The diverted id-spine pair `I(d, ·)`: full-lockstep two-party walks.
     IdPair,
+    /// The output-domination cross: boundary comb × scattered party.
+    CombScatter,
     /// The fixed-seed organic control population.
     Benign,
 }
 
 /// Every family, in display order.
-const FAMILIES: [FamilyKind; 5] = [
+const FAMILIES: [FamilyKind; 6] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
     FamilyKind::IdPair,
+    FamilyKind::CombScatter,
     FamilyKind::Benign,
 ];
 
@@ -238,6 +336,9 @@ struct FamilyData {
     version2: Option<Vec<u8>>,
     /// A disjoint packed party pair (the id pair and benign halves).
     parties: Option<(Vec<u8>, Vec<u8>)>,
+    /// The projection cross's packed (comb version, scattered party) — the
+    /// comb-scatter family only, reached by nothing but the two cross cells.
+    cross: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 impl FamilyData {
@@ -272,7 +373,22 @@ impl FamilyData {
                     super::id_spine(size(ID_BASE_DEPTH), false).bytes,
                     super::id_spine(size(ID_BASE_DEPTH), true).bytes,
                 )),
+                cross: None,
             },
+            FamilyKind::CombScatter => {
+                let teeth = size(CROSS_BASE_TEETH);
+                FamilyData {
+                    kind,
+                    name: "comb-scatter",
+                    version: None,
+                    version2: None,
+                    parties: None,
+                    cross: Some((
+                        super::cliff_comb(CROSS_TOOTH_MAGNITUDE_BITS, teeth).bytes,
+                        super::scattered_id(teeth / 2).bytes,
+                    )),
+                }
+            }
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
         }
     }
@@ -288,6 +404,7 @@ impl FamilyData {
             version: Some(bytes),
             version2: Some(w.encode()),
             parties: None,
+            cross: None,
         }
     }
 
@@ -327,6 +444,7 @@ impl FamilyData {
             version: Some(version.encode()),
             version2: Some(version2.encode()),
             parties: Some((a.encode(), b.encode())),
+            cross: None,
         }
     }
 
@@ -418,28 +536,182 @@ impl XorShift {
 
 // ─── operations ─────────────────────────────────────────────────────────────
 
-/// One prepared cell run: the operand bytes it charges against and the body
-/// to measure.
+/// One prepared cell run: the operand bytes it charges against, the
+/// denomination rule, and the body to measure.
 ///
 /// `prepare` builds (and decodes) operands outside measurement; the body's
 /// result is boxed and kept alive until the meters are read, so peak heap
 /// includes the fully materialized output.
 struct Cell {
-    /// The packed operand bytes the cost is normalized against.
+    /// The packed (or, on `FromStr` rows, text) operand bytes.
     input_bytes: usize,
+    /// How the meters are denominated (the module doc's criterion).
+    denom: Denom,
     /// The measured body; its result stays alive until the meters are read.
     #[allow(clippy::type_complexity)]
     body: Box<dyn FnOnce() -> Box<dyn Any>>,
 }
 
+/// A cell's denomination rule (see the module doc's list of which rows get
+/// which).
+enum Denom {
+    /// Input bytes alone: the default, and the only rule most rows may use.
+    Input,
+    /// Total I/O bytes: input plus the actual output, read back from the
+    /// measured result after the meters are captured.
+    Io(IoSpec),
+}
+
+/// The I/O-denomination data for a mandatory-output cell.
+struct IoSpec {
+    /// Read the actual output's byte size from the boxed result.
+    output_bytes: fn(&dyn Any) -> usize,
+    /// The text rows' extra terms; `None` for packed-output cells.
+    text: Option<TextSpec>,
+}
+
+/// The text rows' radix-work term and output-honesty data.
+struct TextSpec {
+    /// `Σ digitsᵢ × limbsᵢ` over the values the text spells; the limb column
+    /// is judged against `R = n_io +` this, at the κ ceiling.
+    radix_units: u64,
+    /// Packed content bits behind the text: the honesty ceiling's basis.
+    content_bits: u64,
+    /// Whether the measured *output* is the text side (`Display`); the
+    /// honesty assertion then runs against the actual output bytes.
+    /// `FromStr`'s text is input and is asserted at prepare.
+    output_is_text: bool,
+}
+
 impl Cell {
-    /// Package a measured body with its operand byte count.
+    /// Package an input-denominated body with its operand byte count.
     fn new<R: Any>(input_bytes: usize, body: impl FnOnce() -> R + 'static) -> Cell {
         Cell {
             input_bytes,
+            denom: Denom::Input,
             body: Box::new(move || Box::new(body())),
         }
     }
+
+    /// Package an I/O-denominated packed-output body: the output side of
+    /// `n_io` is read back from the actual result.
+    fn io<R: Any>(
+        input_bytes: usize,
+        output_bytes: fn(&dyn Any) -> usize,
+        body: impl FnOnce() -> R + 'static,
+    ) -> Cell {
+        Cell {
+            input_bytes,
+            denom: Denom::Io(IoSpec {
+                output_bytes,
+                text: None,
+            }),
+            body: Box::new(move || Box::new(body())),
+        }
+    }
+
+    /// Package a text-row body: I/O-denominated, with the limb column judged
+    /// against the radix-work denominator.
+    fn text<R: Any>(
+        input_bytes: usize,
+        output_bytes: fn(&dyn Any) -> usize,
+        spec: TextSpec,
+        body: impl FnOnce() -> R + 'static,
+    ) -> Cell {
+        Cell {
+            input_bytes,
+            denom: Denom::Io(IoSpec {
+                output_bytes,
+                text: Some(spec),
+            }),
+            body: Box::new(move || Box::new(body())),
+        }
+    }
+}
+
+/// Assert the output-honesty ceiling on one text stream.
+///
+/// Every text stream entering a denominator passes through here: text bytes
+/// at most [`TEXT_BYTES_PER_CONTENT_BIT`] per packed content bit of the
+/// value the text spells, so padding the text side of `n_io` trips the run
+/// instead of greening a cell.
+fn assert_honest_text(what: &'static str, text_bytes: usize, content_bits: u64) {
+    assert!(
+        text_bytes as f64 <= TEXT_BYTES_PER_CONTENT_BIT * content_bits as f64,
+        "output honesty: {what}: {text_bytes} text bytes exceed \
+         {TEXT_BYTES_PER_CONTENT_BIT} per content bit over {content_bits} bits"
+    );
+}
+
+/// `Σ digits × limbs` over the decimal values an event tree's text spells:
+/// every node's stored base, exactly what `Display` renders and `FromStr`
+/// parses.
+///
+/// `digits` is the value's exact decimal length; `limbs` its 64-bit limb
+/// count (at least 1, so single-digit zeros still cost a unit). The walk is
+/// iterative over the packed form; only the per-value `digits × limbs`
+/// products enter the denominator, so the term prices schoolbook conversion
+/// work without assuming any converter.
+fn radix_units_version(v: &Version) -> u64 {
+    let bits = v.as_bits();
+    let mut pos = 0usize;
+    let mut pending = 1u64;
+    let mut units = 0u64;
+    while pending > 0 {
+        pending -= 1;
+        let internal = bits[pos];
+        let (base, next) =
+            codec::decode_int(bits, pos + 1).expect("a stored event tree is canonical");
+        pos = next;
+        if internal {
+            pending += 2;
+        }
+        let digits = base.to_string().len() as u64;
+        let limbs = base.bits().div_ceil(64).max(1);
+        units += digits * limbs;
+    }
+    units
+}
+
+/// `Σ digits × limbs` over an id tree's text: one unit per rendered `0`/`1`
+/// token (terminals and absent children), each a single digit of a
+/// single-limb value.
+fn radix_units_party(p: &Party) -> u64 {
+    let bits = p.as_bits();
+    if bits.is_empty() {
+        return 1; // the empty id renders one `0` token
+    }
+    let mut pos = 0usize;
+    let mut pending = 1u64;
+    let mut units = 0u64;
+    while pending > 0 {
+        pending -= 1;
+        let left = bits[pos];
+        let right = bits[pos + 1];
+        pos += 2;
+        if !left && !right {
+            units += 1; // a terminal renders `1`
+            continue;
+        }
+        for present in [left, right] {
+            if present {
+                pending += 1;
+            } else {
+                units += 1; // an absent child renders `0`
+            }
+        }
+    }
+    units
+}
+
+/// `Σ digits × limbs` over a clock's text: its party's and version's terms.
+fn radix_units_clock(c: &Clock) -> u64 {
+    radix_units_party(c.party()) + radix_units_version(c.version())
+}
+
+/// The packed byte size of a version produced by a measured body.
+fn version_output_bytes(v: &Version) -> usize {
+    v.encoded_bits().div_ceil(8)
 }
 
 /// One board row: a public operation and how to instantiate it per family.
@@ -606,6 +878,24 @@ fn ops() -> Vec<Op> {
                     v.tick(&a);
                     Some(Cell::new(n + v.encode().len(), move || (&v / &a, v, a)))
                 }
+                // Adversarial × adversarial: comb version × scattered party,
+                // I/O-denominated (the output is mandatory and dominates).
+                FamilyKind::CombScatter => {
+                    let (v_bytes, p_bytes) = f.cross.as_ref()?;
+                    let n = v_bytes.len() + p_bytes.len();
+                    let v = decode_version(v_bytes);
+                    let p = decode_party(p_bytes);
+                    Some(Cell::io(
+                        n,
+                        |r| {
+                            let (out, _, _) = r
+                                .downcast_ref::<(Version, Version, Party)>()
+                                .expect("the cross projection body yields (out, v, p)");
+                            version_output_bytes(out)
+                        },
+                        move || (&v / &p, v, p),
+                    ))
+                }
                 // Small (half-interval) party × adversarial version.
                 _ => {
                     let (v, n) = f.version()?;
@@ -618,7 +908,22 @@ fn ops() -> Vec<Op> {
             name: "version_display",
             prepare: |f| {
                 let (v, n) = f.version()?;
-                Some(Cell::new(n, move || (v.to_string(), v)))
+                let spec = TextSpec {
+                    radix_units: radix_units_version(&v),
+                    content_bits: v.encoded_bits() as u64,
+                    output_is_text: true,
+                };
+                Some(Cell::text(
+                    n,
+                    |r| {
+                        r.downcast_ref::<(String, Version)>()
+                            .expect("the display body yields (text, v)")
+                            .0
+                            .len()
+                    },
+                    spec,
+                    move || (v.to_string(), v),
+                ))
             },
         },
         Op {
@@ -626,10 +931,26 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (v, _) = f.version()?;
                 let s = v.to_string();
-                Some(Cell::new(s.len(), move || {
-                    s.parse::<Version>()
-                        .expect("a displayed version parses back")
-                }))
+                let spec = TextSpec {
+                    radix_units: radix_units_version(&v),
+                    content_bits: v.encoded_bits() as u64,
+                    output_is_text: false,
+                };
+                assert_honest_text("version_from_str input", s.len(), spec.content_bits);
+                Some(Cell::text(
+                    s.len(),
+                    |r| {
+                        version_output_bytes(
+                            r.downcast_ref::<Version>()
+                                .expect("the parse body yields a version"),
+                        )
+                    },
+                    spec,
+                    move || {
+                        s.parse::<Version>()
+                            .expect("a displayed version parses back")
+                    },
+                ))
             },
         },
         Op {
@@ -719,7 +1040,22 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
-                Some(Cell::new(n, move || (a.to_string(), a)))
+                let spec = TextSpec {
+                    radix_units: radix_units_party(&a),
+                    content_bits: a.encoded_bits() as u64,
+                    output_is_text: true,
+                };
+                Some(Cell::text(
+                    n,
+                    |r| {
+                        r.downcast_ref::<(String, Party)>()
+                            .expect("the display body yields (text, party)")
+                            .0
+                            .len()
+                    },
+                    spec,
+                    move || (a.to_string(), a),
+                ))
             },
         },
         Op {
@@ -727,9 +1063,23 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (a, _, _) = f.party_pair()?;
                 let s = a.to_string();
-                Some(Cell::new(s.len(), move || {
-                    s.parse::<Party>().expect("a displayed party parses back")
-                }))
+                let spec = TextSpec {
+                    radix_units: radix_units_party(&a),
+                    content_bits: a.encoded_bits() as u64,
+                    output_is_text: false,
+                };
+                assert_honest_text("party_from_str input", s.len(), spec.content_bits);
+                Some(Cell::text(
+                    s.len(),
+                    |r| {
+                        r.downcast_ref::<Party>()
+                            .expect("the parse body yields a party")
+                            .encoded_bits()
+                            .div_ceil(8)
+                    },
+                    spec,
+                    move || s.parse::<Party>().expect("a displayed party parses back"),
+                ))
             },
         },
         Op {
@@ -829,16 +1179,51 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "clock_own_version",
-            prepare: |f| {
-                let (clock, n) = f.clock()?;
-                Some(Cell::new(n, move || (clock.own_version(), clock)))
+            prepare: |f| match f.kind {
+                // Adversarial × adversarial: a clock holding the comb whose
+                // party is the scattered id, I/O-denominated (the module
+                // doc's output-domination cross).
+                FamilyKind::CombScatter => {
+                    let (v_bytes, p_bytes) = f.cross.as_ref()?;
+                    let n = v_bytes.len() + p_bytes.len();
+                    let clock = Clock::from_parts(decode_party(p_bytes), decode_version(v_bytes));
+                    Some(Cell::io(
+                        n,
+                        |r| {
+                            let (out, _) = r
+                                .downcast_ref::<(Version, Clock)>()
+                                .expect("the own_version body yields (out, clock)");
+                            version_output_bytes(out)
+                        },
+                        move || (clock.own_version(), clock),
+                    ))
+                }
+                _ => {
+                    let (clock, n) = f.clock()?;
+                    Some(Cell::new(n, move || (clock.own_version(), clock)))
+                }
             },
         },
         Op {
             name: "clock_display",
             prepare: |f| {
                 let (clock, n) = f.clock()?;
-                Some(Cell::new(n, move || (clock.to_string(), clock)))
+                let spec = TextSpec {
+                    radix_units: radix_units_clock(&clock),
+                    content_bits: clock.encoded_bits() as u64,
+                    output_is_text: true,
+                };
+                Some(Cell::text(
+                    n,
+                    |r| {
+                        r.downcast_ref::<(String, Clock)>()
+                            .expect("the display body yields (text, clock)")
+                            .0
+                            .len()
+                    },
+                    spec,
+                    move || (clock.to_string(), clock),
+                ))
             },
         },
         Op {
@@ -846,9 +1231,23 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (clock, _) = f.clock()?;
                 let s = clock.to_string();
-                Some(Cell::new(s.len(), move || {
-                    s.parse::<Clock>().expect("a displayed clock parses back")
-                }))
+                let spec = TextSpec {
+                    radix_units: radix_units_clock(&clock),
+                    content_bits: clock.encoded_bits() as u64,
+                    output_is_text: false,
+                };
+                assert_honest_text("clock_from_str input", s.len(), spec.content_bits);
+                Some(Cell::text(
+                    s.len(),
+                    |r| {
+                        r.downcast_ref::<Clock>()
+                            .expect("the parse body yields a clock")
+                            .encoded_bits()
+                            .div_ceil(8)
+                    },
+                    spec,
+                    move || s.parse::<Clock>().expect("a displayed clock parses back"),
+                ))
             },
         },
         Op {
@@ -867,9 +1266,16 @@ fn ops() -> Vec<Op> {
 
 // ─── measurement ────────────────────────────────────────────────────────────
 
-/// One measured run of a cell body: every meter, plus wall time.
+/// One measured run of a cell body: every meter, its denominators, plus
+/// wall time.
 struct Sample {
-    input_bytes: usize,
+    /// The heap and segment denominator: packed input bytes, or `n_io` for
+    /// the I/O-denominated cells.
+    denom_bytes: usize,
+    /// The limb denominator: `denom_bytes`, or `R` for the text rows.
+    limb_denom: u64,
+    /// Whether the limb column is judged at the text ceiling κ.
+    text_row: bool,
     peak_heap: usize,
     segments: u64,
     limb: Option<u64>,
@@ -877,7 +1283,12 @@ struct Sample {
 }
 
 /// Run one prepared cell under all meters.
-fn measure(heap: &HeapMeter, cell: Cell) -> Sample {
+///
+/// The denominators are settled after the meters are read and before the
+/// result is dropped: an I/O-denominated cell's output side comes from the
+/// actual result (never from a prediction), and a text output is checked
+/// against the honesty ceiling right here.
+fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
     super::reset_stack_segments();
     reset_limb();
     (heap.reset_peak)();
@@ -888,9 +1299,27 @@ fn measure(heap: &HeapMeter, cell: Cell) -> Sample {
     let peak_heap = (heap.peak)().saturating_sub(baseline);
     let segments = super::stack_segments();
     let limb = read_limb();
+    let (denom_bytes, limb_denom, text_row) = match cell.denom {
+        Denom::Input => (cell.input_bytes, cell.input_bytes as u64, false),
+        Denom::Io(spec) => {
+            let output_bytes = (spec.output_bytes)(result.as_ref());
+            let n_io = cell.input_bytes + output_bytes;
+            match spec.text {
+                None => (n_io, n_io as u64, false),
+                Some(text) => {
+                    if text.output_is_text {
+                        assert_honest_text(op, output_bytes, text.content_bits);
+                    }
+                    (n_io, n_io as u64 + text.radix_units, true)
+                }
+            }
+        }
+    };
     drop(result);
     Sample {
-        input_bytes: cell.input_bytes,
+        denom_bytes,
+        limb_denom,
+        text_row,
         peak_heap,
         segments,
         limb,
@@ -950,20 +1379,35 @@ struct CellResult {
 }
 
 /// Score a cell's two samples against the exponent bound and the ceilings.
+///
+/// The heap and segment columns are judged per denominator byte (packed
+/// input, or `n_io` on the I/O-denominated cells); the limb column per limb
+/// denominator unit — the same bytes, except on text rows, where it is `R`
+/// under the κ ceiling.
 fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> CellResult {
     let heap_exp = exponent(
         s1.peak_heap as u64,
         s2.peak_heap as u64,
-        s1.input_bytes,
-        s2.input_bytes,
+        s1.denom_bytes,
+        s2.denom_bytes,
     );
     let heap_per_byte =
-        s2.peak_heap.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES) as f64 / s2.input_bytes as f64;
-    let seg_exp = exponent(s1.segments, s2.segments, s1.input_bytes, s2.input_bytes);
+        s2.peak_heap.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES) as f64 / s2.denom_bytes as f64;
+    let seg_exp = exponent(s1.segments, s2.segments, s1.denom_bytes, s2.denom_bytes);
+    let limb_ceiling = if s2.text_row {
+        MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT
+    } else {
+        MAX_LIMB_OPS_PER_INPUT_BYTE
+    };
     let (limb_exp, limb_per_byte) = match (s1.limb, s2.limb) {
         (Some(l1), Some(l2)) => (
-            Some(exponent(l1, l2, s1.input_bytes, s2.input_bytes)),
-            Some(l2 as f64 / s2.input_bytes as f64),
+            Some(exponent(
+                l1,
+                l2,
+                usize::try_from(s1.limb_denom).expect("limb denominators fit usize"),
+                usize::try_from(s2.limb_denom).expect("limb denominators fit usize"),
+            )),
+            Some(l2 as f64 / s2.limb_denom as f64),
         ),
         _ => (None, None),
     };
@@ -984,7 +1428,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
     if limb_exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
         red.push("limb exponent");
     }
-    if limb_per_byte.is_some_and(|c| c > MAX_LIMB_OPS_PER_INPUT_BYTE) {
+    if limb_per_byte.is_some_and(|c| c > limb_ceiling) {
         red.push("limb constant");
     }
 
@@ -1010,10 +1454,17 @@ fn wall(d: Duration) -> String {
 }
 
 /// Render one result row.
+///
+/// The byte range is the cell's denominator (packed input, or `n_io` on the
+/// I/O-denominated cells); a text row's limb column reads `/R`, everything
+/// else `/B`.
 fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     let verdict = if r.red.is_empty() { "GREEN" } else { "RED" };
     let limb = match (r.limb_exp, r.limb_per_byte) {
-        (Some(e), Some(c)) => format!("limb[e{e:5.2} {c:>10.1}/B]"),
+        (Some(e), Some(c)) => {
+            let unit = if r.s2.text_row { "/R" } else { "/B" };
+            format!("limb[e{e:5.2} {c:>10.1}{unit}]")
+        }
         _ => "limb[      off      ]".to_string(),
     };
     let reasons = if r.red.is_empty() {
@@ -1023,13 +1474,13 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     };
     writeln!(
         out,
-        "{verdict:<5} {op:<24} {family:<8} {n1:>8}->{n2:<8} B  \
+        "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
          heap[e{he:5.2} {hc:>10.1}/B]  seg[e{se:5.2} {sc:>4}]  {limb}  \
          wall {w1:>9}->{w2:<9}{reasons}",
         op = r.op,
         family = r.family,
-        n1 = r.s1.input_bytes,
-        n2 = r.s2.input_bytes,
+        n1 = r.s1.denom_bytes,
+        n2 = r.s2.denom_bytes,
         he = r.heap_exp,
         hc = r.heap_per_byte,
         se = r.seg_exp,
@@ -1072,22 +1523,25 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
             };
             let c2 = (op.prepare)(large)
                 .expect("a cell's applicability depends on the family, never the size");
-            let s1 = measure(heap, c1);
-            let s2 = measure(heap, c2);
+            let s1 = measure(heap, op.name, c1);
+            let s2 = measure(heap, op.name, c2);
             results.push(evaluate(op.name, small.name, s1, s2));
         }
     }
 
     writeln!(
         out,
-        "amplification board: transient cost vs packed input bytes, each cell at two scales"
+        "amplification board: transient cost vs denominator bytes (packed input; total I/O on \
+         the text and cross cells), each cell at two scales"
     )?;
     writeln!(
         out,
         "green iff every meter's exponent <= {MAX_SCALING_EXPONENT} and constants within: \
          heap <= {MAX_HEAP_BYTES_PER_INPUT_BYTE} B/B over {HEAP_FLAT_ALLOWANCE_BYTES} B flat, \
          segments <= {MAX_GROWN_STACK_SEGMENTS}, \
-         limb <= {MAX_LIMB_OPS_PER_INPUT_BYTE} ops/B; wall time shown, never judged"
+         limb <= {MAX_LIMB_OPS_PER_INPUT_BYTE} ops/B \
+         (text rows: <= {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT} ops/R); \
+         wall time shown, never judged"
     )?;
     writeln!(out)?;
 
