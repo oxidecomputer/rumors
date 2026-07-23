@@ -2169,3 +2169,36 @@ process constraint.
 
 The DECIDED entry in §12 remains the user's to record; this
 section is the plan it points at.
+
+### 17.5 Post-campaign docket (recorded 2026-07-23, user directives)
+
+Adjacent work that deliberately waits for the P5 acceptance gate —
+each item is a pure refactor or an upstream contribution whose
+safety argument IS the finished gate (all-green board at both
+scales, envelopes, byte-pinned snapshots):
+
+- **Extract the accumulator as a workspace crate.** The balanced
+  signed-digit accumulator's natural API (add-small, add-wide, sign,
+  drain-to-limbs) has nothing `before`-specific; a workspace crate
+  (unpublished until a second consumer stabilizes the API) gets it
+  isolated proptests and a fuzz target. Its amortization contract is
+  subtle (reads mutate; bounds tied to the lazy-zone constants), so
+  publication waits.
+- **Evaluate replacing `Base`'s internals with an existing
+  small-value-optimized bignum crate** (candidates: `ibig`, `dashu`;
+  `num-bigint` lacks the inline-small representation). `Base` never
+  reaches the wire — magnitudes are gamma-coded by this crate's own
+  encoder from the value's bits — so the swap is byte-invisible and
+  fully checkable under the gate. Target shape: `Base` stays as a
+  thin metered newtype (the limb-meter seam survives as arithmetic
+  delegation), the owned arithmetic is deleted. Decide by: the bench
+  suite (no regression, full sampling), the limb envelopes re-pinned
+  through the wrapper, dependency health/MSRV, and the no-unsafe
+  policy read (internal `unsafe` in a dependency is acceptable;
+  owned `unsafe` is not).
+- **Upstream the divide-and-conquer radix parsing to `num-bigint`.**
+  The rendering direction landed upstream in 0.4.7; the parsing
+  direction (this campaign's D&C parse and its measured exponent)
+  is a natural PR. Prep after the text item (P4-tail P3.8) lands
+  the local implementation; after an upstream release ships it,
+  bump the dependency floor and delete the local copy.
