@@ -99,16 +99,18 @@ wedges (every hard-stuck reproduced by the uncoupled control). A parallel Lean c
   deployment mileage is known complexity versus new complexity owned
   forever.
 
-## What was harvested (branch `harvest/single-socket`)
+## What was harvested (landed on `link-transport`)
 
-Transport-independent fixes and tests: the parked-reply
-memory-accounting tests; the context-registration-causality proptest;
-the `ProxyLocalQuestions` occupancy derivation (supremum exactly
-min(capacity, S)) with `eager-absorption.md` §7.2 closed; the
-ghost-reference prose sweep; the `AGENTS.md` hard rules. Analyses: the
-corrected uniformity envelope and its simulation, re-headed for their
-Link-relevant application — principled per-stream receive-window
-sizing from one budget via L(N). Everything else — greeting
+Transport-independent fixes and tests, each cited at its landing
+commit on `link-transport`: the parked-reply memory-accounting
+tests (`3a5ba643`); the context-registration-causality proptest
+(`675e2f53`); the `ProxyLocalQuestions` occupancy derivation
+(supremum exactly min(capacity, S)) with the eager-absorption
+assessment imported (`b76a31f3`); the ghost-reference prose sweep
+(`44724ad0`); the `AGENTS.md` hard rules (`a59dc786`). Analyses:
+the corrected uniformity envelope and its simulation, imported as
+a decision-record artifact (`5f86158f`) — principled per-stream
+receive-window sizing from one budget via L(N). Everything else — greeting
 advertisement, widened parking, the ledger, the pool, the socket
 harness — remains on the archive branch as the priced record of the
 road not taken.
