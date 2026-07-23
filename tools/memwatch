@@ -111,8 +111,20 @@ while kill -0 "$ROOT" 2>/dev/null; do
         # fork, so no compile spawned between enumeration and the kill
         # survives orphaned. The root freezes first (no new children),
         # then descendants until a pass finds nothing new — a child forked
-        # before its parent froze is caught by the next pass. The pass
-        # count is bounded so a torn ps snapshot cannot spin.
+        # before its parent froze is caught by the next pass. The bounded
+        # passes cover any build-shaped tree (cargo's spawn depth is a few
+        # levels); only a fork-storm outrunning five enumerations escapes,
+        # and the bound keeps a torn ps snapshot from spinning. Should
+        # memwatch itself die mid-freeze, the traps thaw whatever is
+        # stopped so the build wedges nothing (a SIGKILL of memwatch
+        # itself is untrappable; that one path still strands the tree).
+        thaw() {
+            for pid in ${frozen:-}; do
+                kill -CONT "$pid" 2>/dev/null
+            done
+        }
+        trap 'thaw; kill "$ROOT" 2>/dev/null; exit 1' INT TERM
+        trap 'thaw' EXIT
         kill -STOP "$ROOT" 2>/dev/null
         frozen=" $ROOT "
         for _ in 1 2 3 4 5; do
@@ -128,6 +140,7 @@ while kill -0 "$ROOT" 2>/dev/null; do
         for pid in $frozen; do
             kill -9 "$pid" 2>/dev/null
         done
+        trap - EXIT INT TERM
         exit 1
     fi
 

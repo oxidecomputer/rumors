@@ -361,11 +361,12 @@ pub struct DelayedWire {
     runtime: tokio::runtime::Runtime,
     a_link: DelayedLink,
     b_link: DelayedLink,
-    /// Whether the runtime's clock started paused. [`round_trip`]
-    /// (Self::round_trip) selects its cost model by this: paused wires
-    /// partition cost into disjoint wall and virtual components; on a
-    /// running clock the virtual component tracks the real one, so only
-    /// real elapsed time is reported.
+    /// Whether the runtime's clock started paused.
+    ///
+    /// [`round_trip`](Self::round_trip) selects its cost model by this:
+    /// paused wires partition cost into disjoint wall and virtual
+    /// components; on a running clock the virtual component tracks the
+    /// real one, so only real elapsed time is reported.
     paused: bool,
 }
 
