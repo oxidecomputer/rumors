@@ -1,7 +1,7 @@
 //! Bridge 2: `LocalEq` soundness — the Lean view projection agrees with
 //! actual tree pairs.
 //!
-//! The Lean locality definition (`Mux/Strategy.lean` `viewEnc`/`LocalEq`)
+//! The Lean locality definition (`Mux.viewEnc`/`Mux.LocalEq`)
 //! projects a skeleton to what party `p` holds: every D child (recursed, in
 //! radix order), R children only where `p` is the scope's asker (a held
 //! cut), nothing where `p` is the answerer (a child `p` lacks, invisible at
@@ -248,7 +248,7 @@ fn free_insertions_are_invisible_to_the_local_view() {
 /// NONDEGENERACY at the leaves: `leafReqs` is erased from both views, so
 /// leaf-request-only skeleton differences are `LocalEq`.
 ///
-/// The erasure is `Mux/Strategy.lean`'s adjudicated one: two sessions from
+/// The erasure is `Mux.viewEnc`'s adjudicated one: two sessions from
 /// the same local tree whose skeletons differ ONLY in a height-1 scope's
 /// leaf request count agree in the local party's view while the full
 /// skeletons differ.

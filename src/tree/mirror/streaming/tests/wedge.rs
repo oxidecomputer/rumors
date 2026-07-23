@@ -28,11 +28,11 @@ use super::transcribed_mirror_sides;
 use crate::tree::Root;
 
 /// The Lean wedge's `fan` field: the tight fan bound of the witness
-/// (`Instances.lean`: `fan := 7`).
+/// (`Mux.wedge`: `fan := 7`).
 const LEAN_WEDGE_FAN: usize = 7;
 
 /// The Lean wedge's `capLevel` field: the margin-0 dispute bound the witness
-/// satisfies (`Instances.lean`: `capLevel := 1`; `wedge_margin0`).
+/// satisfies (`Mux.wedge`: `capLevel := 1`; the theorem `Mux.wedge_margin0`).
 const LEAN_WEDGE_CAP_LEVEL: usize = 1;
 
 /// The Lean wedge literal, transcribed scope-for-scope from the Lean

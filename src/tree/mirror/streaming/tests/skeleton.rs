@@ -40,7 +40,7 @@ pub(super) const ROOT_H: usize = RootHeight::HEIGHT;
 
 // ------------------------------------------------------------------ skeleton
 
-/// A skeleton scope's kind (`Skel.lean` `Kind`): two-sided dispute or
+/// A skeleton scope's kind (the Lean `Kind`): two-sided dispute or
 /// one-sided whole-subtree request. Matches (`M`) are dropped entirely.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Kind {
@@ -52,7 +52,7 @@ pub(super) enum Kind {
 }
 
 /// One scope of a dispute skeleton, in the flattened BFS encoding
-/// (`Skel.lean` `Scope`).
+/// (the Lean `Scope`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Scope {
     /// Two-sided dispute or one-sided request.
@@ -65,7 +65,7 @@ pub(super) struct Scope {
     pub leaf_reqs: usize,
 }
 
-/// A dispute skeleton (`Skel.lean` `Skel`, minus the `fan`/`capLevel`
+/// A dispute skeleton (the Lean `Skel`, minus the `fan`/`capLevel`
 /// configuration — module doc).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Skel {
@@ -86,7 +86,7 @@ impl Skel {
             .unwrap_or(0)
     }
 
-    /// The number of disputed children of scope `i` (`Skel.lean` `dCount`).
+    /// The number of disputed children of scope `i` (the Lean `Skel.dCount`).
     pub fn d_count(&self, i: usize) -> usize {
         self.scopes[i]
             .kids
@@ -107,7 +107,7 @@ impl Skel {
 
 // -------------------------------------------------------------------- roles
 
-/// A session role (`Skel.lean` `Party`): initiator or responder.
+/// A session role (the Lean `Party`): initiator or responder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Party {
     /// The initiator: asks about even-height scopes.
@@ -128,7 +128,7 @@ impl Party {
 
 /// Does party `p` ask (pair reply with query) for scopes at this height?
 ///
-/// Initiator asks even heights, responder odd (`Skel.lean` `asks`;
+/// Initiator asks even heights, responder odd (the Lean `asks`;
 /// MODEL.md §3's height-parity theorem).
 pub(super) fn asks(p: Party, height: usize) -> bool {
     match p {
@@ -162,7 +162,7 @@ const TOKEN_CLOSE: u8 = 3;
 const TOKEN_CUT: u8 = 4;
 
 /// Preorder token serialization of party `p`'s view of the skeleton: the
-/// Rust mirror of `Mux/Strategy.lean` `viewEnc`.
+/// Rust mirror of the Lean `Mux.viewEnc`.
 ///
 /// Per child of each scope, in radix order: a D child emits an open bracket,
 /// its own serialization, and a close bracket — held by `p` in both roles,
@@ -196,7 +196,7 @@ pub(super) fn view_enc(p: Party, sk: &Skel) -> Vec<u8> {
 
 /// Are two skeletons indistinguishable to party `p` at session start?
 ///
-/// The Rust mirror of `Mux/Strategy.lean` `LocalEq`: equal root heights and
+/// The Rust mirror of the Lean `Mux.LocalEq`: equal root heights and
 /// equal p-views. The Lean's `fan`/`capLevel` conjuncts are vacuous in Rust
 /// (single fixed values — module doc), so they do not appear.
 pub(super) fn local_eq(p: Party, a: &Skel, b: &Skel) -> bool {
