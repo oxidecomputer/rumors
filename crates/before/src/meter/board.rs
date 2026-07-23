@@ -103,6 +103,14 @@
 //! join/meet as the 1-Lipschitz proptest in
 //! [`tier2`](crate::meter::tier2)'s test suite rather than assumed.
 //!
+//! **Rank operands** (`rank_pair_ops`) have no packed encoding to charge
+//! against; their denominator of record is the pair's **value content**
+//! `bits(num) + exp` in bytes. That content is wire-bounded: every public
+//! construction path (the `rank`/`distance`/`lag` folds) emits a rank
+//! whose numerator width and exponent are each linear in the packed bits
+//! the fold read, so a ceiling per content byte is a ceiling per wire byte
+//! up to the fold's own constant.
+//!
 //! # Reading the numbers
 //!
 //! The board runs every cell in one process and resets the peak-heap counter
@@ -127,10 +135,30 @@
 //! `Party` and a `Version`, the board crosses adversarial party × small
 //! version and small party × adversarial version.
 //!
-//! One more column, `comb-scatter`, exists for exactly two cells: the
-//! adversarial × adversarial projection cross (boundary-comb version ×
-//! scattered party) whose mandatory output dominates its input — the case
-//! the small-operand crosses above cannot exhibit. Every other row skips it.
+//! Three columns exist for dedicated cell sets and are skipped by every
+//! other row:
+//!
+//! - `comb-scatter`, for exactly two cells: the adversarial × adversarial
+//!   projection cross (boundary-comb version × scattered party) whose
+//!   mandatory output dominates its input — the case the small-operand
+//!   crosses above cannot exhibit.
+//! - `harmonic` (`meter::harmonic`, a 1-leaf at every depth), for the
+//!   linear-functional rows (`rank`/`distance`/`lag`/`min_ticks`) and
+//!   `rank_pair_ops`: its rank's numerator is as wide as the depth already
+//!   walked at every level, so a fold that re-shifts its accumulated
+//!   numerator per level reads limb exponent ~2 here while `dense` (a
+//!   one-bit numerator) stays the linear control. The red
+//!   `version_rank × harmonic` cell is a pinned honest baseline; the
+//!   telescoped delta-algebra fold is what retires it.
+//! - `scatter`, for the two fold rows (`version_join_all`,
+//!   `party_join_all`): balanced-forked single-tick operands ordered evens
+//!   before odds, so a sequential fold's accumulator holds every other
+//!   leaf and never coalesces. Both cells read exponent ~2 — the version
+//!   fold on the limb column, the party fold on the scan column (its walk
+//!   allocates nothing, recurses nothing, and does no arithmetic, so the
+//!   scan column is the only deterministic meter that sees it) — pinned
+//!   honest baselines retired by balanced reduction over the fold
+//!   operands.
 //!
 //! # Coverage: the not-applicable list
 //!
@@ -141,16 +169,30 @@
 //!   are one `partial_cmp` (the `cmp` row measures the walk; `concurrent`
 //!   still gets its own row since it is the documented entry point);
 //!   `Version::tick` is `Batch::tick` (the tick rows drive the batch);
+//!   `Batch`'s operator matrix (`|`, `&`, and their assign forms, over
+//!   every borrow shape) routes through the same `join_view`/`meet_view`
+//!   emitters and cmp walk the `join`/`meet`/`cmp` rows measure — the
+//!   batch is a decode-once wrapper, not a second implementation;
 //!   `Clock::send` is `Clock::tick` by definition; `clock | version` and
 //!   `clock |= version` fold through the same `join_version` the `recv` row
 //!   measures; `Clock::batch` operations are what the clock rows already
 //!   route through; `Party::tick` is the mirror of `Version::tick` (the
 //!   `tick_adv_party` row); `Debug` for all three types delegates to
 //!   `Display`.
-//! - **Folds of measured rows**: `Version::join_all`/`meet_all`,
-//!   `Sum`/`FromIterator`, `Party::join_all`, `Clock::join_all` iterate the
-//!   measured `join`/`meet` cells; `Party::forks`/`Clock::forks` iterate
-//!   `fork`.
+//! - **Folds over measured operations**: `Version::join_all` has its own
+//!   row (the `scatter` cell), and `Version::Sum`/`FromIterator` are that
+//!   fold by definition; `Party::join_all` likewise (the party fold's
+//!   `scatter` cell); `Clock::join_all` is the party fold and the version
+//!   fold run side by side, so the two `scatter` cells price both of its
+//!   halves. `Version::meet_all` stays NA by mechanism: meet only shrinks,
+//!   so its running accumulator is bounded by the *smaller* operand at
+//!   every step — the fold does at most `Σ min(|acc|, |vᵢ|)` work and
+//!   cannot exhibit the growing-accumulator genre the join folds do.
+//!   `Party::forks`/`Clock::forks` iterate the measured `fork`, each step
+//!   on the freshly-split half (shrinking operands, same argument); a
+//!   `Forks` iterator dropped mid-run rejoins its unclaimed remainder in
+//!   one `join` per remaining level of the fork tree — O(log n) of the
+//!   measured `join` on shrinking operands.
 //! - **Bounded or trivial inputs**: `Version::new`/`Default`,
 //!   `TryFrom<u64>`/tuple literals (word-sized literals),
 //!   `Party::seed`/`is_seed`, `TryFrom<u8>`/`TryFrom<bool>`,
@@ -161,17 +203,22 @@
 //!   `Clock::party`/`version`, `Version::batch`; `Party`'s and `Clock`'s
 //!   derived `PartialEq`/`Eq` are one bit-slice compare of the stored
 //!   canonical bits (`Version`'s `==` is the causal walk the `version_eq`
-//!   row measures, so that one has a row).
+//!   row measures, so that one has a row); the consuming array splits
+//!   (`From<Party> for [Party; N]`, `From<Clock> for [Clock; N]`) are the
+//!   `forks` machinery above plus `N` moves.
 //! - **Derived pairings**: `Ranked::from` is the `rank` row plus a move; its
-//!   comparisons are `Rank` comparisons plus byte equality;
-//!   `Rank::checked_sub` and `Rank`'s ordering run inside the
-//!   `distance`/`lag` rows; `Rank`'s `Display` (its `Debug` delegates)
+//!   comparisons are `Rank` comparisons plus byte equality; `Rank::cmp`,
+//!   `checked_sub`, and `+` have their own row (`rank_pair_ops`, on the
+//!   mismatched-exponent pair, value-content-denominated per the
+//!   Denomination section); `Rank`'s `Display` (its `Debug` delegates)
 //!   prints the `rank` row's output — a derived value with no packed
 //!   encoding to normalize against, rendered by the same per-`Base` decimal
 //!   print the `version_display` row drives.
 //! - **The same comparisons under another name**: `causally`'s other
-//!   constructors and `Range::placement_of` perform the identical causal
-//!   comparisons the `causally_contains` row measures.
+//!   constructors, `Range::placement_of`, and `Range`'s refinement methods
+//!   perform the identical causal comparisons the `causally_contains` row
+//!   measures; `Range`'s bound accessors (including its `RangeBounds`
+//!   view) are borrows.
 //! - **Wrappers**: the `serde`/`borsh` impls serialize as the canonical
 //!   encoding and deserialize through the strict decoder — the
 //!   `encode`/`decode` rows.
@@ -327,6 +374,18 @@ const CROSS_BASE_TEETH: usize = 128;
 /// Comb-scatter tooth magnitude in bits (fixed across scales).
 const CROSS_TOOTH_MAGNITUDE_BITS: usize = 1_000;
 
+/// Harmonic spine depth at scale 1.0 (packed size ~6 KiB, matching the
+/// dense spine's depth).
+const HARMONIC_BASE_DEPTH: usize = 8_000;
+
+/// Scatter population at scale 1.0: balanced-forked parties, one tick
+/// each (~10 KiB of packed single-tick versions).
+const SCATTER_BASE_CLOCKS: usize = 1_024;
+
+/// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops`
+/// row: small, so the pair's cost is carried entirely by the mismatch.
+const RANK_PAIR_INTEGER_TICKS: u64 = 3;
+
 /// Benign clock population at scale 1.0.
 const BENIGN_BASE_CLOCKS: usize = 256;
 
@@ -385,18 +444,28 @@ enum FamilyKind {
     IdPair,
     /// The output-domination cross: boundary comb × scattered party.
     CombScatter,
+    /// The harmonic spine `H(d)`: the rank fold's wide-numerator
+    /// adversary, reached only by the linear-functional rows and the rank
+    /// pair.
+    Harmonic,
+    /// The scatter-ordered fold population: balanced-forked single-tick
+    /// operands whose join accumulator never coalesces, reached only by
+    /// the fold rows.
+    Scatter,
     /// The fixed-seed organic control population.
     Benign,
 }
 
 /// Every family, in display order.
-const FAMILIES: [FamilyKind; 7] = [
+const FAMILIES: [FamilyKind; 9] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
     FamilyKind::Cliff,
     FamilyKind::IdPair,
     FamilyKind::CombScatter,
+    FamilyKind::Harmonic,
+    FamilyKind::Scatter,
     FamilyKind::Benign,
 ];
 
@@ -414,6 +483,14 @@ struct FamilyData {
     /// The projection cross's packed (comb version, scattered party) — the
     /// comb-scatter family only, reached by nothing but the two cross cells.
     cross: Option<(Vec<u8>, Vec<u8>)>,
+    /// The measure operand and its ticked counterpart — the harmonic family
+    /// only, reached by nothing but the linear-functional rows
+    /// (`rank`/`distance`/`lag`/`min_ticks`) and `rank_pair_ops`.
+    measure: Option<(Vec<u8>, Vec<u8>)>,
+    /// The scatter-ordered packed fold operands (versions, parties) — the
+    /// scatter family only, reached by nothing but the two fold rows.
+    #[allow(clippy::type_complexity)]
+    fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
 }
 
 impl FamilyData {
@@ -453,6 +530,8 @@ impl FamilyData {
                     super::id_spine(size(ID_BASE_DEPTH), true).bytes,
                 )),
                 cross: None,
+                measure: None,
+                fold: None,
             },
             FamilyKind::CombScatter => {
                 let teeth = size(CROSS_BASE_TEETH);
@@ -466,9 +545,77 @@ impl FamilyData {
                         super::cliff_comb(CROSS_TOOTH_MAGNITUDE_BITS, teeth).bytes,
                         super::scattered_id(teeth / 2).bytes,
                     )),
+                    measure: None,
+                    fold: None,
                 }
             }
+            FamilyKind::Harmonic => {
+                let bytes = super::harmonic(size(HARMONIC_BASE_DEPTH)).bytes;
+                let v = decode_version(&bytes);
+                let mut w = v;
+                w.tick(&Party::seed());
+                FamilyData {
+                    kind,
+                    name: "harmonic",
+                    version: None,
+                    version2: None,
+                    parties: None,
+                    cross: None,
+                    measure: Some((bytes, w.encode())),
+                    fold: None,
+                }
+            }
+            FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
+        }
+    }
+
+    /// Build the scatter fold population: `n` balanced-forked parties, one
+    /// tick each, ordered evens before odds so a sequential fold's
+    /// accumulator holds every other leaf and never coalesces.
+    fn scatter(n: usize) -> FamilyData {
+        let mut parties = vec![Party::seed()];
+        while parties.len() < n {
+            let mut next = Vec::with_capacity(parties.len() * 2);
+            for mut p in parties {
+                let q = p.fork();
+                next.push(p);
+                next.push(q);
+            }
+            parties = next;
+        }
+        // Dropping the tail keeps `n` honest at non-power-of-two scales;
+        // a dropped party's region simply goes unowned.
+        parties.truncate(n);
+        let scatter_order = |v: Vec<Vec<u8>>| -> Vec<Vec<u8>> {
+            let (evens, odds): (Vec<_>, Vec<_>) =
+                v.into_iter().enumerate().partition(|(i, _)| i % 2 == 0);
+            evens
+                .into_iter()
+                .chain(odds)
+                .map(|(_, bytes)| bytes)
+                .collect()
+        };
+        let versions = scatter_order(
+            parties
+                .iter()
+                .map(|p| {
+                    let mut v = Version::new();
+                    v.tick(p);
+                    v.encode()
+                })
+                .collect(),
+        );
+        let parties = scatter_order(parties.iter().map(Party::encode).collect());
+        FamilyData {
+            kind: FamilyKind::Scatter,
+            name: "scatter",
+            version: None,
+            version2: None,
+            parties: None,
+            cross: None,
+            measure: None,
+            fold: Some((versions, parties)),
         }
     }
 
@@ -484,6 +631,8 @@ impl FamilyData {
             version2: Some(w.encode()),
             parties: None,
             cross: None,
+            measure: None,
+            fold: None,
         }
     }
 
@@ -524,6 +673,8 @@ impl FamilyData {
             version2: Some(version2.encode()),
             parties: Some((a.encode(), b.encode())),
             cross: None,
+            measure: None,
+            fold: None,
         }
     }
 
@@ -538,6 +689,33 @@ impl FamilyData {
         let (v, n) = self.version()?;
         let bytes2 = self.version2.as_ref()?;
         Some((v, decode_version(bytes2), n + bytes2.len()))
+    }
+
+    /// The linear-functional measure operand: the family's packed version,
+    /// or the harmonic spine on the measure family.
+    ///
+    /// The `rank`/`distance`/`lag`/`min_ticks` rows (and the rank pair)
+    /// read operands through this, so they alone gain the harmonic column;
+    /// every other row sees the harmonic family as inapplicable.
+    fn measure_version(&self) -> Option<(Version, usize)> {
+        match &self.measure {
+            Some((bytes, _)) => Some((decode_version(bytes), bytes.len())),
+            None => self.version(),
+        }
+    }
+
+    /// Both measure operands decoded fresh, with combined packed length
+    /// (the harmonic spine and its ticked counterpart on the measure
+    /// family).
+    fn measure_version_pair(&self) -> Option<(Version, Version, usize)> {
+        match &self.measure {
+            Some((bytes, bytes2)) => Some((
+                decode_version(bytes),
+                decode_version(bytes2),
+                bytes.len() + bytes2.len(),
+            )),
+            None => self.version_pair(),
+        }
     }
 
     /// The disjoint party pair decoded fresh, with combined byte length.
@@ -921,29 +1099,69 @@ fn ops() -> Vec<Op> {
         Op {
             name: "version_rank",
             prepare: |f| {
-                let (v, n) = f.version()?;
+                let (v, n) = f.measure_version()?;
                 Some(Cell::new(n, move || (v.rank(), v)))
+            },
+        },
+        Op {
+            name: "rank_pair_ops",
+            prepare: |f| {
+                // The mismatched pair: a family-derived rank (maximal
+                // exponent on the spines) against a small integer rank, on
+                // the spine families that maximize the mismatch plus the
+                // benign control. Ranks are built at prepare, outside
+                // measurement; the denominator is the pair's value content
+                // (the module doc's rank denomination).
+                if !matches!(
+                    f.kind,
+                    FamilyKind::Dense | FamilyKind::Harmonic | FamilyKind::Benign
+                ) {
+                    return None;
+                }
+                let (v, _) = f.measure_version()?;
+                let a = v.rank();
+                let b = Version::try_from(RANK_PAIR_INTEGER_TICKS)
+                    .expect("a small integer version is valid")
+                    .rank();
+                let n = (a.content_bits() + b.content_bits()).div_ceil(8) as usize;
+                Some(Cell::new(n, move || {
+                    let ord = a.cmp(&b);
+                    // One direction of the pair dominates; keep whichever
+                    // difference exists so the subtraction always runs.
+                    let diff = a.checked_sub(&b).or_else(|| b.checked_sub(&a));
+                    let sum = &a + &b;
+                    (ord, diff, sum, a, b)
+                }))
             },
         },
         Op {
             name: "version_distance",
             prepare: |f| {
-                let (v, w, n) = f.version_pair()?;
+                let (v, w, n) = f.measure_version_pair()?;
                 Some(Cell::new(n, move || (v.distance(&w), v, w)))
             },
         },
         Op {
             name: "version_lag",
             prepare: |f| {
-                let (v, w, n) = f.version_pair()?;
+                let (v, w, n) = f.measure_version_pair()?;
                 Some(Cell::new(n, move || (v.lag(&w), v, w)))
             },
         },
         Op {
             name: "version_min_ticks",
             prepare: |f| {
-                let (v, n) = f.version()?;
+                let (v, n) = f.measure_version()?;
                 Some(Cell::new(n, move || (v.min_ticks(), v)))
+            },
+        },
+        Op {
+            name: "version_join_all",
+            prepare: |f| {
+                let (versions, _) = f.fold.as_ref()?;
+                let n = versions.iter().map(Vec::len).sum();
+                let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
+                Some(Cell::new(n, move || Version::join_all(versions)))
             },
         },
         Op {
@@ -1089,6 +1307,22 @@ fn ops() -> Vec<Op> {
                 Some(Cell::new(n, move || {
                     let joined = a.join(b).is_ok();
                     (joined, a)
+                }))
+            },
+        },
+        Op {
+            name: "party_join_all",
+            prepare: |f| {
+                let (_, parties) = f.fold.as_ref()?;
+                let n = parties.iter().map(Vec::len).sum();
+                let mut parties = parties.iter().map(|b| decode_party(b));
+                let acc = parties.next().expect("the scatter population is nonempty");
+                let rest: Vec<Party> = parties.collect();
+                Some(Cell::new(n, move || {
+                    let mut acc = acc;
+                    acc.join_all(rest)
+                        .expect("balanced forks are pairwise disjoint");
+                    acc
                 }))
             },
         },
