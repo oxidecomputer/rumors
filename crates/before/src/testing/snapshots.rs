@@ -3,7 +3,8 @@
 use insta::assert_snapshot;
 
 use crate::codec::{encode_int, Base, Bits, BitsSlice};
-use crate::{Clock, Party, Version};
+use crate::error::{Decode, Overlap, Parse};
+use crate::{Clock, Party, Rank, Version};
 
 /// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`, the same
 /// order `encode_int` and the preorder codec emit. Empty stream renders as `""`.
@@ -178,6 +179,98 @@ fn clock_canonical_form() {
     bits:    000010 (6 bits)
     bytes:   00 20
     ");
+}
+
+/// One rank rendering row: a label, the rendered `Display`, and the
+/// `Debug ≡ Display` witness inline (`Debug` delegates, and this block is
+/// where that contract is pinned).
+fn rank_row(label: &str, r: &Rank) -> String {
+    assert_eq!(
+        format!("{r}"),
+        format!("{r:?}"),
+        "Rank's Debug must render exactly its Display"
+    );
+    format!("{label:<22} {r}")
+}
+
+/// `Rank`'s rendered representation across every rendering regime: zero,
+/// integral, fractional, normalized-after-subtraction, and a numerator
+/// spilled past `u64`.
+///
+/// `Rank` has no packed, serde, or borsh surface — its externally
+/// observable representation is exactly this text (and the `Ord`
+/// contract) — so this block is the type's representation pin, and every
+/// row also witnesses `Debug ≡ Display`. The spilled row's digits are the
+/// literal decimal of `2^100 + 1`: the rendering of a `BigUint`-backed
+/// numerator must not differ from the machine-word rendering in anything
+/// but length.
+#[test]
+fn rank_rendered_forms() {
+    let integral = Version::try_from(5u64).unwrap().rank();
+    let half: Version = "(0, 1, 0)".parse().unwrap();
+    let three_halves: Version = "(0, 3, 0)".parse().unwrap();
+    // 3/2 − 1/2 = 2/2: the raw difference is even over 2^1, so the
+    // subtraction's output normalizes back to the integral 1.
+    let normalized = three_halves
+        .rank()
+        .checked_sub(&half.rank())
+        .expect("3/2 dominates 1/2");
+    // 2^100 + 1: odd, so the numerator stays spilled after normalization.
+    let spilled: Version = "(0, 1267650600228229401496703205377, 0)".parse().unwrap();
+
+    let block = [
+        rank_row("zero", &Rank::ZERO),
+        rank_row("integral", &integral),
+        rank_row("fractional", &half.rank()),
+        rank_row("normalized after sub", &normalized),
+        rank_row("spilled numerator", &spilled.rank()),
+    ]
+    .join("\n");
+    assert_snapshot!(block, @r"
+    zero                   0
+    integral               5
+    fractional             1/2^1
+    normalized after sub   1
+    spilled numerator      1267650600228229401496703205377/2^1
+    ");
+}
+
+/// The error types' rendered `Display` strings, pinned verbatim.
+///
+/// These strings are the crate's error representation — what a caller's
+/// logs and wrapped error chains show — so a wording change must be a
+/// deliberate re-pin here, never a silent drift. `Decode::Io`'s rendering
+/// wraps the underlying `std::io::Error`'s Debug form, which std owns, so
+/// its row pins only the crate-owned prefix.
+#[test]
+fn error_display_strings() {
+    let block = [
+        format!("Overlap               {Overlap}"),
+        format!("Decode::Truncated     {}", Decode::Truncated),
+        format!("Decode::TrailingBits  {}", Decode::TrailingBits),
+        format!("Decode::NotCanonical  {}", Decode::NotCanonical),
+        format!("Decode::Anonymous     {}", Decode::Anonymous),
+        format!("Parse::Syntax         {}", Parse::Syntax),
+        format!("Parse::NotCanonical   {}", Parse::NotCanonical),
+        format!("Parse::Anonymous      {}", Parse::Anonymous),
+    ]
+    .join("\n");
+    assert_snapshot!(block, @r"
+    Overlap               parties are not disjoint
+    Decode::Truncated     unexpected end of input
+    Decode::TrailingBits  trailing or nonzero padding bits
+    Decode::NotCanonical  input is not canonical
+    Decode::Anonymous     party is anonymous
+    Parse::Syntax         input is not well-formed paper notation
+    Parse::NotCanonical   input is not canonical
+    Parse::Anonymous      party is anonymous
+    ");
+
+    let io = Decode::Io(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+    assert!(
+        io.to_string().starts_with("read error: "),
+        "Decode::Io renders with the crate-owned prefix: {io}"
+    );
 }
 
 /// The paper's §5.1 worked example, rendered step by step as `Clock` `Display`.
