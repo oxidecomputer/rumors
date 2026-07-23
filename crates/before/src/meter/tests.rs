@@ -4,8 +4,8 @@
 use crate::{Party, Version};
 
 use super::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, id_spine,
-    scattered_id, wide_tooth_comb, Packed,
+    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
+    id_spine, scattered_id, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -133,6 +133,45 @@ fn cancelling_chain_decodes_canonically_at_predicted_length() {
     let p = cancelling_chain(3, 2);
     let v = Version::decode(&p.bytes[..]).expect("cancelling chain is strict normal form");
     assert_eq!(v.to_string(), "(0, (1, 7, 0), (0, (1, 7, 0), 0))");
+}
+
+/// The harmonic spine `H(d)` is canonical normal form at exactly `6d + 2`
+/// bits, and its rank is exactly the closed form `(2^d − 1)/2^d`.
+///
+/// The closed form is pinned two ways: directly against the rendered
+/// rational at hand-checkable depths, and at meter scale through the
+/// telescoping witness `1 − rank(H(d)) = 1/2^d` — `checked_sub` against
+/// the unit rank yields a one-bit numerator whose rendering is cheap at
+/// any depth, so the pin stays exact where the direct string would be
+/// thousands of digits.
+#[test]
+fn harmonic_decodes_canonically_at_predicted_length_and_rank() {
+    for d in [1, 2, 3, 1000] {
+        check_version(&harmonic(d), 6 * d + 2);
+    }
+    let p = harmonic(2);
+    let v = Version::decode(&p.bytes[..]).expect("harmonic spine is strict normal form");
+    assert_eq!(v.to_string(), "(0, (0, 0, 1), 1)");
+    assert_eq!(v.rank().to_string(), "3/2^2");
+    assert_eq!(
+        Version::decode(&harmonic(7).bytes[..])
+            .expect("harmonic spine is strict normal form")
+            .rank()
+            .to_string(),
+        "127/2^7"
+    );
+    // Meter scale: 1 − (2^d − 1)/2^d = 1/2^d, exact at any depth.
+    let d = 4_096;
+    let h = Version::decode(&harmonic(d).bytes[..])
+        .expect("harmonic spine is strict normal form")
+        .rank();
+    let one = Version::try_from(1u64)
+        .expect("a one-tick version is valid")
+        .rank();
+    let gap = one
+        .checked_sub(&h)
+        .expect("H(d)'s rank is strictly under the unit rank");
+    assert_eq!(gap.to_string(), format!("1/2^{d}"));
 }
 
 /// The alternating-binary spine `A(d)` is canonical normal form at exactly
