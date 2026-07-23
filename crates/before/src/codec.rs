@@ -6,6 +6,11 @@
 //! that stream to a byte boundary; `decode` parses and *strictly validates*
 //! normal form, then stores the (canonical) consumed prefix.
 
+// No production caller yet, so the module compiles only where it is used:
+// its own tests, and the metering surface (`before::meter` re-exports it so
+// the resource-envelope suite can pin its digit-touch cost).
+#[cfg(any(test, feature = "meter"))]
+pub mod accum;
 mod base;
 mod bits;
 mod cursor;
