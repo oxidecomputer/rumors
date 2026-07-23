@@ -62,7 +62,6 @@ use core::cmp::Ordering;
 
 use num_bigint::BigUint;
 
-#[cfg(test)]
 use super::Base;
 
 /// Process-global counter of accumulator digit touches.
@@ -198,11 +197,11 @@ impl Accum {
         self.apply_limbs(delta.iter_u64_digits(), true);
     }
 
-    /// Add a stored magnitude.
-    // The `Base` entry points have no production caller yet; they compile
-    // where they are used today (their differential tests) so the
-    // meter-feature build stays warning-free.
-    #[cfg(test)]
+    /// Add a stored magnitude, at the width it is stored at.
+    ///
+    /// The stored-magnitude entry points carry the skyline sweep's leaf
+    /// heights and deltas into the accumulator: a word-scale magnitude
+    /// takes the small path, a spilled one the wide path.
     pub(crate) fn add_base(&mut self, delta: &Base) {
         match delta {
             Base::Small(n) => self.add_u64(*n),
@@ -210,8 +209,7 @@ impl Accum {
         }
     }
 
-    /// Subtract a stored magnitude.
-    #[cfg(test)]
+    /// Subtract a stored magnitude, at the width it is stored at.
     pub(crate) fn sub_base(&mut self, delta: &Base) {
         match delta {
             Base::Small(n) => self.sub_u64(*n),
