@@ -100,9 +100,11 @@ fn paths() -> impl Strategy<Value = std::collections::BTreeSet<[u8; 32]>> {
 proptest! {
     /// Bulk assembly of one full-height run matches the default fold.
     ///
-    /// Same hash (structure), same leaf count, same version bounds — and
-    /// both walks (Local's direct one and the default explosion) return
-    /// exactly the input leaves, in order.
+    /// Same hash (structure), same leaf count, same version bounds, same
+    /// `version_bytes` aggregate (not serialized, so this equivalence is
+    /// its only bulk-path coverage) — and both walks (Local's direct one
+    /// and the default explosion) return exactly the input leaves, in
+    /// order.
     #[test]
     fn full_height_roundtrip_matches_default(paths in paths()) {
         let run = leaves_at(paths);
@@ -121,6 +123,7 @@ proptest! {
         prop_assert_eq!(ours_node.len(), theirs_node.len());
         prop_assert_eq!(ours_node.ceiling(), theirs_node.ceiling());
         prop_assert_eq!(ours_node.floor(), theirs_node.floor());
+        prop_assert_eq!(ours_node.version_bytes(), theirs_node.version_bytes());
 
         let walked = leaves_local(root, ours_node);
         prop_assert_eq!(content(&walked), expected.clone());
@@ -132,7 +135,8 @@ proptest! {
     ///
     /// Near the leaves, one stream carries *several* runs: Local's
     /// assembly must cut nodes at exactly the same height-two prefix
-    /// boundaries, yielding the same node sequence.
+    /// boundaries, yielding the same node sequence — same hash, leaf
+    /// count, and `version_bytes` aggregate per node.
     #[test]
     fn multi_run_grouping_matches_default(
         suffixes in proptest::collection::btree_set(
@@ -157,6 +161,7 @@ proptest! {
             prop_assert_eq!(ours_prefix, theirs_prefix);
             prop_assert_eq!(ours_node.hash(), theirs_node.hash());
             prop_assert_eq!(ours_node.len(), theirs_node.len());
+            prop_assert_eq!(ours_node.version_bytes(), theirs_node.version_bytes());
             let walked = leaves_local(ours_prefix, ours_node);
             let exploded = leaves_default(theirs_prefix, theirs_node);
             prop_assert_eq!(content(&walked), content(&exploded));
