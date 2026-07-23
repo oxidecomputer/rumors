@@ -62,7 +62,8 @@ fn rejects_sibling_resolution_before_dependent_work() {
 /// The wire-stream twin of sibling contiguity (finding #6): a wire stream
 /// that runs ahead of its siblings' dependent work satisfies the other
 /// checks and deadlocks a three-walk wait cycle at uneven fan. The
-/// kernel-checked witness is `formal/lean/StreamingMirror/Controls.lean`.
+/// kernel-checked witness is the Lean control theorem
+/// `Control.jam_not_deadlockFree`.
 #[test]
 #[should_panic(expected = "departed while resolved sibling")]
 fn rejects_wire_while_sibling_owes_dependent_work() {

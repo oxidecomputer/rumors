@@ -82,16 +82,19 @@ impl Trace {
     /// (finding #6): without it, a wire stream that runs ahead of an
     /// earlier sibling's resolution or queries satisfies the other checks
     /// and deadlocks a three-walk wait cycle at uneven fan — the
-    /// kernel-checked witness is
-    /// `formal/lean/StreamingMirror/Controls.lean`. On wire-disciplined
+    /// kernel-checked witness is the Lean control theorem
+    /// `Control.jam_not_deadlockFree`, a well-formed skeleton whose
+    /// greedy run wedges once the wire-contiguity axiom is dropped from
+    /// the mode. On wire-disciplined
     /// traces wire contiguity subsumes sibling contiguity; both stay, as
     /// independent statements of intent. Radix order is what positional
     /// pairing rests on: no message or return carries a key, so a
     /// consumer's only way to know which scope the k-th item describes is
     /// that producers never reorder within a channel. Parent placement
-    /// (finding #7) is the `d6` ordering ledger of the formal model
-    /// (`formal/PROGRESS.md` §8): the local invariant under which the
-    /// `AxMode.impl` deadlock-freedom theorem holds, mirrored here so the
+    /// (finding #7) is the `d6` (parent-last) ordering axiom of the
+    /// formal model: the local invariant under which the Lean flagship
+    /// deadlock-freedom theorem (`Sched.deadlock_free`, mode
+    /// `AxMode.impl`) holds, mirrored here so the
     /// encoder's traces pin exactly the discipline the proof consumes.
     pub fn assert_valid(&self) {
         self.assert_valid_with_wire_contiguity(true);
@@ -111,15 +114,16 @@ impl Trace {
     /// The parent-placement check (finding #7): a parent resolution is
     /// its scope's last publication.
     ///
-    /// This is the `d6` (epilogue-placement) ordering ledger of the
-    /// formal model, mirrored verbatim (`formal/PROGRESS.md` §8): a
+    /// This is the `d6` (epilogue-placement) ordering axiom of the
+    /// formal model, mirrored verbatim: a
     /// parent summary that departs while any wire of its scope is
     /// unsent, or while any disputed child's resolution is unsent or its
     /// dependent-work quota not fully issued, is a violation. This is
     /// the discipline the encoder actually follows (the scope epilogue's
     /// "Launch every `Pending` slot's work before publishing its
     /// enclosing parent resolution" placement in levels.rs), and the
-    /// local invariant the `AxMode.impl` deadlock-freedom theorem
+    /// local invariant the flagship `AxMode.impl` deadlock-freedom
+    /// theorem (`Sched.deadlock_free`)
     /// consumes. Its deliberate opposite, the weave's parent-early
     /// discipline, is documented by [`Self::assert_parent_early`].
     fn assert_parent_last(&self) {

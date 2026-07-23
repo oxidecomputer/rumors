@@ -1,12 +1,10 @@
 //! The formal model's skeleton vocabulary, and its decoders from session
 //! observability.
 //!
-//! This is bridge support for the mux campaign's Rust proptest bridges
-//! (the campaign's bridge suite): a Rust mirror of the
-//! Lean `Skel` (`formal/lean/StreamingMirror/Skel.lean`), the per-party view
-//! projection and `LocalEq` (`formal/lean/StreamingMirror/Mux/Strategy.lean`,
-//! `viewEnc`), the `wedge` witness shape
-//! (`formal/lean/StreamingMirror/Mux/Instances.lean`), and two decoders that
+//! This is the bridge layer between the formal model and real sessions: a
+//! Rust mirror of the Lean model's `Skel`, its per-party view projection
+//! and `LocalEq` (the Lean `viewEnc` form), the Lean witness shape
+//! `Mux.wedge`, and two decoders that
 //! extract a skeleton from a real session:
 //!
 //! - [`decode`] reads the materialized progress [`Trace`] (both endpoints'
@@ -665,8 +663,7 @@ pub(super) fn transcript_streams(
 /// The wedge witness shape at a chosen root height: the Rust mirror of the
 /// Lean literal's generator.
 ///
-/// The shape (`formal/lean/StreamingMirror/Mux/Instances.lean` `wedge`,
-/// the Lean witness's shape): root fan 7 — the FIRST radix child
+/// The shape (the Lean witness `Mux.wedge`): root fan 7 — the FIRST radix child
 /// deep-disputed, a single-child chain descending every level to a height-1
 /// scope carrying one leaf request, with six whole-subtree provisions behind
 /// it. At `root_h = 6` this is exactly the Lean literal
