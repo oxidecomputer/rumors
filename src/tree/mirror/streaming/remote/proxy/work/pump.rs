@@ -5,10 +5,15 @@
 //! receiver-side stream or next-phase scope queue fed by that task. No state
 //! outside this module handles an internal sender.
 //!
-//! Three one-slot channels carry acknowledged local questions into decoding,
-//! decoded replies outward through [`Work::respond`], and scopes derived from
-//! those replies into the next phase. A complete wire reply precedes its local
-//! questions; a decoded reply precedes its dependent scopes.
+//! Three channels carry the dataflow. Flushed local questions flow into
+//! decoding and scopes derived from decoded replies flow into the next
+//! phase, both sized by the session
+//! [`Window`](crate::tree::mirror::streaming::window::Window); decoded
+//! replies flow outward through [`Work::respond`] on a one-slot edge, an
+//! in-order relay that bounds decoded replies in flight at one per stage.
+//! A complete wire reply precedes its local questions; a decoded reply
+//! precedes its dependent scopes. Each edge's capacity rationale lives at
+//! its constructor in [`queues`].
 
 use async_stream::try_stream;
 
