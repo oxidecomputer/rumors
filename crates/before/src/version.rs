@@ -22,6 +22,11 @@ pub(crate) mod compare;
 pub(crate) mod event;
 mod rank;
 mod ranked;
+// The skyline transcoding codec compiles only where it is reachable: its
+// own tests, and the metering surface (`before::meter` re-exports it so
+// the resource-envelope suite can pin its validator).
+#[cfg(any(test, feature = "meter"))]
+pub mod skyline;
 mod working;
 
 pub use batch::Batch;
