@@ -319,8 +319,8 @@ fn bench_causal_delta(c: &mut Criterion) {
 /// `get`: a point lookup by key — one `O(depth)` descent, never a scan.
 ///
 /// Lookups go through [`snapshot`](Rumors::snapshot), so the timed body pays
-/// for acquiring the root handle plus the descent — the same per-call shape
-/// the old handle-level `get` had.
+/// for acquiring the root handle plus the descent: the whole per-call cost
+/// of a point read through the public API.
 fn bench_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("get");
     for &n in SIZES {

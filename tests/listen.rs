@@ -1,8 +1,8 @@
-//! The [`Messages`] observer: delivery contract, checkpoint semantics,
-//! termination, and non-interference with the actor handles
-//! (plan: `plans/broadcast-listen.md` §6; the `Snapshot::range`
-//! differential proptest lives with the walk machinery in
-//! `src/tree/test.rs`).
+//! The [`Messages`] observer: delivery contract (exactly-once, redaction
+//! honored, cursor resume and portability), checkpoint semantics,
+//! termination, and non-interference with the actor handles. (The
+//! `Snapshot::range` differential proptest lives with the walk machinery
+//! in `src/tree/tests.rs`.)
 //!
 //! The observer is pull-based, so "the listener is parked" is simply "the
 //! caller has not asked": these tests drive observers step-by-step with
