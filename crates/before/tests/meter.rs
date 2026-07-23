@@ -40,6 +40,7 @@
 //! vanish, so the dev-profile pin is the binding one), while segment counts
 //! track per-target frame sizes, and the slack absorbs modest variation.
 
+use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use before::{meter, Party, Version};
@@ -779,6 +780,250 @@ fn skyline_decode_alt_spine_envelope() {
     assert_eq!(v, version_of(&p), "the transcode round-trips");
 }
 
+// ─── skyline comparison sweep scenarios ─────────────────────────────────────
+//
+// The comparison sweep over skyline streams: one merge of the two leaf
+// sequences on two path-bit stacks and one cliff-immune accumulator, no
+// recursion anywhere. Streams are transcoded outside measurement. Each
+// family scenario compares the shape against the empty version — the
+// shallow-operand shape, where the whole deep side is consumed
+// iteratively against a single depth-0 plateau — and the self scenario
+// compares identical dense streams, so every boundary is an aligned tie
+// and both cursors advance in lockstep to full depth. These rows carry a
+// fourth column, packed-stream bits scanned, because the sweep's work is
+// dominated by stream reads that allocate nothing, recurse nothing, and
+// (off the cliff families) do almost no arithmetic — the scan column is
+// the one that sees it.
+
+/// One sweep scenario's pinned ceilings: [`Envelope`]'s three columns
+/// plus scanned bits, asserted when the `scan-meter` feature is lit.
+struct SweepEnvelope {
+    /// Peak heap delta over the scenario body, in bytes.
+    peak_heap: usize,
+    /// Stack segments grown during the scenario body.
+    segments: u64,
+    /// Big-integer limb operations counted during the scenario body.
+    #[cfg(feature = "limb-meter")]
+    limb_ops: u64,
+    /// Packed-stream bits scanned during the scenario body.
+    #[cfg(feature = "scan-meter")]
+    scan_bits: u64,
+}
+
+/// Build a [`SweepEnvelope`] from the four pinned columns.
+///
+/// The limb and scan columns are carried only when their features
+/// compile the counters in; the leading underscores keep the parameters
+/// warning-free in the other configurations.
+const fn sweep_envelope(
+    peak_heap: usize,
+    segments: u64,
+    _limb_ops: u64,
+    _scan_bits: u64,
+) -> SweepEnvelope {
+    SweepEnvelope {
+        peak_heap,
+        segments,
+        #[cfg(feature = "limb-meter")]
+        limb_ops: _limb_ops,
+        #[cfg(feature = "scan-meter")]
+        scan_bits: _scan_bits,
+    }
+}
+
+// The sweep envelope table: pinned ceiling = measured ×1.25, rounded up.
+// The trailing comment on each line is the measurement of record
+// (2026-07-23, aarch64-apple-darwin, dev profile, three identical runs)
+// the ceiling derives from. Re-pin by rerunning under `--no-capture`
+// with `--all-features` and reading the MEASURED lines.
+#[rustfmt::skip]
+mod sweep_env {
+    use super::{sweep_envelope, SweepEnvelope};
+    //                                                               peak heap, segments, limb ops,  scan bits            measured: peak heap, segments, limb ops, scan bits
+    pub const SKYLINE_CMP_DENSE: SweepEnvelope      = sweep_envelope(   30_730,        0,   312_503,   468_760); //   24_584, 0, 250_002, 375_008
+    pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(   51_210,        0,   625_005,   937_515); //   40_968, 0, 500_004, 750_012
+    pub const SKYLINE_CMP_BIGROOT: SweepEnvelope    = sweep_envelope(   39_540,        0,    25_788,   137_514); //   31_632, 0,  20_630, 110_011
+    pub const SKYLINE_CMP_CLIFF: SweepEnvelope      = sweep_envelope(    1_450,        0,     7_763,    17_925); //    1_160, 0,   6_210,  14_340
+    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_050,        0,    29_509, 1_000_483); //      840, 0,  23_607, 800_386
+}
+
+/// Run one sweep scenario body under all four meters and assert its
+/// envelope.
+///
+/// [`metered`]'s harness plus the scan column; prints the measured
+/// numbers so re-pinning never requires editing the harness.
+fn sweep_metered<R>(
+    name: &str,
+    input_bytes: usize,
+    env: &SweepEnvelope,
+    f: impl FnOnce() -> R,
+) -> R {
+    meter::reset_stack_segments();
+    #[cfg(feature = "limb-meter")]
+    meter::reset_limb_ops();
+    #[cfg(feature = "scan-meter")]
+    meter::reset_scan_bits();
+    HEAP.reset_peak_usage();
+    let baseline = HEAP.current_usage();
+    let r = f();
+    let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
+    let segments = meter::stack_segments();
+    #[cfg(feature = "limb-meter")]
+    let limb_ops = meter::limb_ops();
+    #[cfg(feature = "scan-meter")]
+    let scan_bits = meter::scan_bits();
+    #[cfg(feature = "limb-meter")]
+    let limb_col = format!(" limb_ops={limb_ops}");
+    #[cfg(not(feature = "limb-meter"))]
+    let limb_col = "";
+    #[cfg(feature = "scan-meter")]
+    let scan_col = format!(" scan_bits={scan_bits}");
+    #[cfg(not(feature = "scan-meter"))]
+    let scan_col = "";
+    eprintln!(
+        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments}{limb_col}{scan_col}"
+    );
+    assert!(
+        peak_heap <= env.peak_heap,
+        "{name}: peak heap {peak_heap} B exceeds the pinned envelope {} B (input {input_bytes} B): {ISOLATION_NOTE}",
+        env.peak_heap,
+    );
+    assert!(
+        segments <= env.segments,
+        "{name}: {segments} grown stack segments exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.segments,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        limb_ops <= env.limb_ops,
+        "{name}: {limb_ops} limb operations exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.limb_ops,
+    );
+    #[cfg(feature = "scan-meter")]
+    assert!(
+        scan_bits <= env.scan_bits,
+        "{name}: {scan_bits} scanned bits exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.scan_bits,
+    );
+    r
+}
+
+/// The empty version's two-bit skyline stream: the shallow operand of
+/// the family cmp scenarios.
+fn skyline_empty() -> meter::skyline::Encoded {
+    meter::skyline::encode(&Version::new())
+}
+
+/// The combined operand bytes of a sweep scenario.
+fn sweep_input_bytes(a: &meter::skyline::Encoded, b: &meter::skyline::Encoded) -> usize {
+    a.bytes.len() + b.bytes.len()
+}
+
+/// The sweep on the dense spine against the empty version stays within
+/// its envelope: the deep side's 125k levels cost path *bits* (no grown
+/// segments, heap in the path stack), consumed iteratively against one
+/// depth-0 plateau.
+#[test]
+fn skyline_cmp_dense_envelope() {
+    let a = skyline_of(&meter::dense(DENSE_DEPTH));
+    let b = skyline_empty();
+    let r = sweep_metered(
+        "skyline_cmp_dense",
+        sweep_input_bytes(&a, &b),
+        &sweep_env::SKYLINE_CMP_DENSE,
+        || meter::skyline::sweep::causal_cmp(&a, &b),
+    );
+    assert_eq!(
+        r,
+        Some(Ordering::Greater),
+        "the dense spine strictly dominates the empty version"
+    );
+}
+
+/// The sweep on two identical dense streams stays within its envelope:
+/// every boundary is an aligned tie, both cursors advance in lockstep to
+/// full depth, and the verdict is Equal only after both streams are
+/// wholly consumed (no early exit anywhere).
+#[test]
+fn skyline_cmp_dense_self_envelope() {
+    let a = skyline_of(&meter::dense(DENSE_DEPTH));
+    let b = a.clone();
+    let r = sweep_metered(
+        "skyline_cmp_dense_self",
+        sweep_input_bytes(&a, &b),
+        &sweep_env::SKYLINE_CMP_DENSE_SELF,
+        || meter::skyline::sweep::causal_cmp(&a, &b),
+    );
+    assert_eq!(r, Some(Ordering::Equal), "identical streams read equal");
+}
+
+/// The sweep on bigroot against the empty version stays within its
+/// envelope: the difference accumulator absorbs the wide first height
+/// once (paid by its own code) and every later delta is small.
+#[test]
+fn skyline_cmp_bigroot_envelope() {
+    let a = skyline_of(&meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
+    let b = skyline_empty();
+    let r = sweep_metered(
+        "skyline_cmp_bigroot",
+        sweep_input_bytes(&a, &b),
+        &sweep_env::SKYLINE_CMP_BIGROOT,
+        || meter::skyline::sweep::causal_cmp(&a, &b),
+    );
+    assert_eq!(
+        r,
+        Some(Ordering::Greater),
+        "bigroot strictly dominates the empty version"
+    );
+}
+
+/// The sweep on the boundary comb against the empty version stays within
+/// its envelope: every 3-bit `±1` delta drives the running difference
+/// across the `2^k` carry boundary, and the accumulator keeps each
+/// crossing amortized O(1) (the flatness pin below is the cross-scale
+/// witness).
+#[test]
+fn skyline_cmp_cliff_envelope() {
+    let a = skyline_of(&meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE));
+    let b = skyline_empty();
+    let r = sweep_metered(
+        "skyline_cmp_cliff",
+        sweep_input_bytes(&a, &b),
+        &sweep_env::SKYLINE_CMP_CLIFF,
+        || meter::skyline::sweep::causal_cmp(&a, &b),
+    );
+    assert_eq!(
+        r,
+        Some(Ordering::Greater),
+        "the comb strictly dominates the empty version"
+    );
+}
+
+/// The sweep on the wide-tooth comb against the empty version stays
+/// within its envelope: each `±2^w` delta is a genuinely wide operand
+/// paid by its own zigzag code, so limb work stays linear per input bit
+/// at every tooth width.
+#[test]
+fn skyline_cmp_wide_tooth_envelope() {
+    let a = skyline_of(&meter::wide_tooth_comb(
+        CLIFF_SCALE,
+        WIDE_TOOTH_WIDTH_BITS,
+        CLIFF_SCALE,
+    ));
+    let b = skyline_empty();
+    let r = sweep_metered(
+        "skyline_cmp_wide_tooth",
+        sweep_input_bytes(&a, &b),
+        &sweep_env::SKYLINE_CMP_WIDE_TOOTH,
+        || meter::skyline::sweep::causal_cmp(&a, &b),
+    );
+    assert_eq!(
+        r,
+        Some(Ordering::Greater),
+        "the wide-tooth comb strictly dominates the empty version"
+    );
+}
+
 // ─── skyline cliff-immunity flatness ────────────────────────────────────────
 //
 // The cross-scale witness that the validator's nonnegativity state is
@@ -883,6 +1128,71 @@ mod skyline_flatness {
         );
         assert_flat(
             "limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
+
+    /// Compare the `k = n = scale` boundary comb's skyline stream against
+    /// the empty version's and record both counters over the sweep body
+    /// alone.
+    ///
+    /// Enforces the same touch-meter liveness floor as [`comb_run`]:
+    /// every comb delta lands in the running difference, so a sweep whose
+    /// difference state is not the metered accumulator fails loudly here
+    /// instead of passing the flatness ratio vacuously at zero touches.
+    fn comb_cmp_run(scale: usize) -> Run {
+        let packed = meter::cliff_comb(scale, scale);
+        let v = before::Version::decode(&packed.bytes[..]).expect("comb is strict normal form");
+        let a = meter::skyline::encode(&v);
+        let b = meter::skyline::encode(&before::Version::new());
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let verdict = meter::skyline::sweep::causal_cmp(&a, &b);
+        assert_eq!(
+            verdict,
+            Some(std::cmp::Ordering::Greater),
+            "the comb strictly dominates the empty version"
+        );
+        let run = Run {
+            // 2n + 1 leaves: 2n delta codes follow the first leaf.
+            deltas: 2 * scale as u64,
+            bytes: (a.bytes.len() + b.bytes.len()) as u64,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert!(
+            run.touches >= run.deltas,
+            "skyline_comb_cmp scale {scale}: {} digit touches under the {}-delta floor: \
+             the sweep's difference state is not running on the metered accumulator",
+            run.touches,
+            run.deltas,
+        );
+        run
+    }
+
+    /// The sweep's per-delta accumulator touches and per-byte limb work
+    /// stay flat across a `k = n` doubling of the boundary comb compared
+    /// against the empty version: the running difference crosses the
+    /// `2^k` carry boundary at every delta and each crossing stays
+    /// amortized O(1) — the comparison-side cliff-immunity witness.
+    ///
+    /// Each run also carries the one-touch-per-delta liveness floor (in
+    /// [`comb_cmp_run`]), so flatness is asserted over a meter proven
+    /// live.
+    #[test]
+    fn skyline_cmp_cliff_cost_is_flat_per_unit() {
+        let small = comb_cmp_run(512);
+        let large = comb_cmp_run(1_024);
+        assert_flat(
+            "cmp_touches",
+            "delta",
+            (small.touches, small.deltas),
+            (large.touches, large.deltas),
+        );
+        assert_flat(
+            "cmp_limb_ops",
             "byte",
             (small.limb_ops, small.bytes),
             (large.limb_ops, large.bytes),
