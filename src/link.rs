@@ -68,18 +68,23 @@
 //!
 //! One consequence worth deriving once: a transport that pools flow control
 //! across streams — a connection-level window layered over per-stream
-//! windows — satisfies every clause by sizing alone. A pooled write budget
-//! of at least **([`STREAM_COUNT`] + 1) × B** per direction, where B is the
-//! per-stream buffering the transport grants and the +1 covers the control
-//! stream, can never become the binding constraint: no stream ever holds
-//! more unread bytes than its own buffer, so the pool always retains
-//! headroom and each clause reduces to the per-stream case. The conformance
-//! suite pins both sides of the bound — a pool at it passes the whole
-//! suite; one sized below the buffering it must cover fails the
-//! independence check. Sessions measured over far smaller pools (down to
-//! tens of bytes) stay live with latency degradation, but that is observed
-//! behavior of the current protocol, not a promise: size pools to the
-//! bound.
+//! windows — satisfies every clause by sizing alone, provided the pool,
+//! like each per-stream window, is credited back as the receiver consumes.
+//! A pooled write budget of at least **([`STREAM_COUNT`] + 1) × B** per
+//! direction, where B is the per-stream buffering the transport grants and
+//! the +1 covers the control stream, can never become the binding
+//! constraint: no stream ever holds more unread bytes than its own buffer,
+//! so the pool always retains headroom and each clause reduces to the
+//! per-stream case. The premise is load-bearing — a pool credited only when
+//! streams *close* deadlocks at any size, because the control stream never
+//! closes and its cumulative traffic exhausts any budget — and a single
+//! pool shared by both directions needs the sum: twice the per-direction
+//! bound. The conformance suite exercises a pool exactly at the bound
+//! (passes the whole suite) and one far below the buffering it must cover
+//! (fails the independence check). Sessions measured over far smaller pools
+//! (down to tens of bytes) stay live with latency degradation, but that is
+//! observed behavior of the current protocol, not a promise: size pools to
+//! the bound.
 //!
 //! # Instantiations
 //!
