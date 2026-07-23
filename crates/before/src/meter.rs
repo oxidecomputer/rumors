@@ -4,9 +4,10 @@
 //! work: transient cost — peak heap, stack segments — as a function of packed
 //! input size, with no bound on value magnitude, tree depth, or encoded size.
 //! The generators below build the canonical packed encodings that maximize
-//! each cost against its input size. Public under the `meter` feature so the
-//! metering test binaries (and benches) can reach it; never part of a
-//! production build.
+//! each cost against its input size; the meters read the deterministic
+//! counters the envelopes are pinned against. Public under the `meter`
+//! feature so the metering test binaries (and benches) can reach it; never
+//! part of a production build.
 //!
 //! Every generator output is strict normal form: it round-trips through
 //! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
@@ -157,6 +158,24 @@ pub fn id_spine(d: usize, divert: bool) -> Packed {
 fn pow2_minus_1(b: usize) -> Base {
     let b = u32::try_from(b).expect("magnitude bit count fits u32");
     (Base::from(1u8) << b) - &Base::from(1u8)
+}
+
+/// The number of heap stack segments the deep traversals have grown since the
+/// last [`reset_stack_segments`].
+///
+/// The deterministic stand-in for recursion-driven stack consumption: the
+/// segments the stack guard allocates never pass through the global
+/// allocator, so no heap meter can see them; this reads the counter bumped at
+/// the one place a segment is created. Process-global — meaningful per
+/// scenario only under one-scenario-per-process isolation (nextest's model)
+/// or a single-threaded caller.
+pub fn stack_segments() -> u64 {
+    crate::recurse::segments_grown()
+}
+
+/// Reset the grown-segment counter behind [`stack_segments`] to zero.
+pub fn reset_stack_segments() {
+    crate::recurse::reset_segments_grown()
 }
 
 #[cfg(test)]

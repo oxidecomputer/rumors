@@ -54,6 +54,38 @@ fn hugeleaf_decodes_canonically_at_predicted_length() {
     }
 }
 
+/// The stack-segment meter observes deep recursion, resets to zero, and reads
+/// the same count for the same traversal repeated at the same call depth
+/// (determinism is what makes it envelope-able).
+///
+/// The counter is process-global, so the repeat-run comparison is meaningful
+/// under nextest's one-test-per-process isolation (this workspace's runner).
+#[test]
+fn stack_segment_meter_counts_deterministically_and_resets() {
+    // Comparison recurses on depth; decode itself parses iteratively and
+    // must not show up in the meter.
+    let p = dense(50_000);
+    let v = Version::decode(&p.bytes[..]).expect("dense spine decodes");
+    super::reset_stack_segments();
+    let first = {
+        let _ = v.partial_cmp(&Version::new());
+        super::stack_segments()
+    };
+    assert!(first > 0, "a depth-50000 comparison must grow the stack");
+    super::reset_stack_segments();
+    assert_eq!(
+        super::stack_segments(),
+        0,
+        "reset returns the meter to zero"
+    );
+    let _ = v.partial_cmp(&Version::new());
+    assert_eq!(
+        super::stack_segments(),
+        first,
+        "identical traversals at identical call depth grow identical segments"
+    );
+}
+
 /// `I(d, divert)` is canonical normal form at exactly `2d + 2` bits for both
 /// divert arms, and the two arms own disjoint regions (the property that
 /// drives two-operand id walks to full lockstep depth).
