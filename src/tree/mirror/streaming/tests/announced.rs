@@ -6,8 +6,8 @@
 //! rests on, per channel (never globally — the terminal select draws
 //! scheduler randomness).
 //!
-//! The model's payload-independence premise (MODEL.md §1) — the count and
-//! order of channel operations depend only on each child's merge-join arm,
+//! The formal model's payload-independence premise — the count and order
+//! of channel operations depend only on each child's merge-join arm,
 //! never on payloads — is the premise the skeleton abstraction rests on,
 //! and it holds only if every consumption-order discriminator is announced
 //! in-band. This bridge checks both halves against real sessions:
