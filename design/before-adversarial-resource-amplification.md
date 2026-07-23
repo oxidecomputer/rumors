@@ -860,7 +860,17 @@ passed, 11 failed, every failure the `Stalled` witness, and every
 other gate stage green. (Fail-fast cancellation hides roster
 members on an ordinary gate run — earlier counts of two and nine
 tests were both truncations — so gate runs during this campaign are
-read against this roster.) The stall is transport-buffer
+read against this roster.) Amended 2026-07-23, P1 close: the roster
+is now **fourteen** tests. bc4320e5's retire seed fails both
+`retire::{retire_matches_plain_gossip,
+unsynchronized_retire_matches_plain_gossip}` (a regression file
+replays against every property in its file), and P1's final
+`--no-fail-fast` sweep generated one more seed for the same
+deadlock, `tests/async_wire.proptest-regressions`, failing
+`async_wire::async_gossip_converges_on_the_union` — verified by
+replay at bc4320e5, before any P1 change, with the identical
+`Stalled` witness (698 run: 684 passed, 14 failed, 2 skipped at P1's
+tip). The stall is transport-buffer
 independent (identical at 8 KiB and 64 MiB duplex), matching the
 wait-cycle diagnosis in `design/streaming-wire-deadlock.md` on the
 `link-transport` branch, whose determination is a stream-capable
