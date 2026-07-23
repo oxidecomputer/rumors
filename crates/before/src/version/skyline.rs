@@ -22,8 +22,11 @@
 //! this codec's behavioral oracle — [`encode`](fn@encode) transcodes a stored
 //! [`Version`] into skyline bits, [`decode`](fn@decode) strictly validates skyline
 //! bits and transcodes them back, and the test suite pins the two codings
-//! against each other (see Testing below). The module is test- and
-//! meter-visible only, via [`crate::meter::skyline`].
+//! against each other (see Testing below). The [`sweep`] submodule decides
+//! comparisons directly on skyline streams — the merge form the coding
+//! exists to enable — differentially pinned against the stored-form
+//! comparison. The module is test- and meter-visible only, via
+//! [`crate::meter::skyline`].
 //!
 //! # Canonical form
 //!
@@ -116,6 +119,7 @@ use crate::Version;
 
 mod decode;
 mod encode;
+pub mod sweep;
 mod validate;
 
 #[cfg(test)]
