@@ -804,6 +804,51 @@ coverage only ratchets upward through the campaign; the board and
 meter suites default to seconds-scale sizes so the inner loop stays
 fast.
 
+Amended 2026-07-23, P0 review round 2: the "each phase
+`just gate`-clean" bar is blocked at P0 by the streaming-wire mux
+deadlock inherited from main (`rumors` gossip sessions park;
+`run_to_quiescence` reports `Stalled`), recorded here as the roster
+of record. Two provenances, both verified 2026-07-23 by replay:
+
+- Main's own committed seeds already fail at the merge-base:
+  `rumors::shadow_validity::shadow_predicts_live_state` stalls at
+  plain 6b39482d replaying the second seed of
+  `tests/shadow_validity.proptest-regressions` (committed at
+  83edcd94). Main's gate is red today with no campaign changes
+  applied.
+- This campaign's gate runs generated two new seeds for the same
+  deadlock — one line each in `tests/pairwise.proptest-regressions`
+  and `tests/multi_peer.proptest-regressions` (20fd050a) — which
+  also replay deterministically at the merge-base. Regression files
+  replay against every property in their file, so these two lines
+  fail ten tests: `pairwise::{gossip_converges, gossip_idempotent,
+  gossip_side_symmetric, gossip_order_independent,
+  gossip_unions_content}` and
+  `multi_peer::{all_peers_converge_after_quiesce,
+  each_key_observed_at_most_once_per_peer,
+  keys_stable_across_peers, readout_matches_oracle_after_quiesce,
+  quiesced_state_is_gossip_fixed_point}`.
+
+The full roster is those eleven tests and no others: a
+`--no-fail-fast` workspace run at this branch's tip shows 685
+passed, 11 failed, every failure the `Stalled` witness, and every
+other gate stage green. (Fail-fast cancellation hides roster
+members on an ordinary gate run — earlier counts of two and nine
+tests were both truncations — so gate runs during this campaign are
+read against this roster.) The stall is transport-buffer
+independent (identical at 8 KiB and 64 MiB duplex), matching the
+wait-cycle diagnosis in `design/streaming-wire-deadlock.md` on the
+`link-transport` branch, whose determination is a stream-capable
+transport contract and which rejects capacity mitigations as
+unsound. At that branch's tip (b93541b4) with this branch's seed
+files copied in, all fifteen tests across the three files pass.
+This campaign therefore does not fork a competing transport fix:
+the deadlock's fix of record is the in-flight `link-transport`
+work, and these seeds become its regression pins when it lands.
+Escalated for the user's ruling: either P0's gate bar is met by
+rebasing onto main after `link-transport` merges, or the user
+records an explicit exception here so P0 can close first.
+
 Acceptance for the effort: every §5 row at a small pinned constant ×
 input; the §13 board all green — no super-linear cell and no
 large-constant cell anywhere in the op × family matrix; `benches/`
