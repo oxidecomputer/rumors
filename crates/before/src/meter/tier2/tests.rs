@@ -1,5 +1,6 @@
-//! Hand-computed pins for the Tier 2 size function on small trees, and the
-//! join/meet 1-Lipschitz coding pin the board's input denomination rests on.
+//! Hand-computed pins for the Tier 2 size function on small trees, the
+//! join/meet 1-Lipschitz coding pin the board's input denomination rests on,
+//! and the join/meet subadditivity pins.
 //!
 //! Each size test states the tree, the hand-derived Tier 2 bit count, and the
 //! hand-derived current bit count, so a regression in the walk (path sums,
@@ -11,7 +12,9 @@
 use proptest::prelude::*;
 
 use crate::codec::Base;
-use crate::meter::{bigroot, cliff_comb, dense, hugeleaf};
+use crate::meter::{
+    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, wide_tooth_comb,
+};
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::compactness::{arb_comb_params, comb};
 use crate::testing::{generators, optrace};
@@ -303,6 +306,321 @@ fn adversarial_crosses_hold_the_lipschitz_pin() {
         for b in &shapes {
             check_join_meet_lipschitz(a, b);
         }
+    }
+}
+
+// ───────────────────── join/meet subadditivity pins ─────────────────────
+
+/// Guaranteed coding savings of the join/meet subadditivity lemma, in bits
+/// \[derived\].
+///
+/// For canonical `a`, `b` and `c` either their join (pointwise max) or meet
+/// (pointwise min), the Tier 2 sizes satisfy
+/// `size(c) <= size(a) + size(b) - 2`, term by term: the canonical output
+/// topology embeds in the union of the input topologies, which share at
+/// least the root (1 topology bit saved); the output's first leaf value is
+/// one of the inputs' first leaf values, so the other input's first-leaf
+/// code (>= 1 bit) goes unmatched; and every output boundary charges a
+/// distinct input boundary at the same point whose delta code covers the
+/// output's — output boundaries are contained in the union of the inputs',
+/// pointwise max/min is 1-Lipschitz in each argument, and the zigzag-gamma
+/// code length depends only on the delta's magnitude (a sign flip is free:
+/// `gamma(2m)` and `gamma(2m - 1)` have equal length because `2m + 1` is
+/// never a power of two). Equality holds at `a = b = Version::new()`, so
+/// this margin is the strongest constant the lemma admits and must never
+/// loosen.
+const JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS: u64 = 2;
+
+/// The packed-form join: the subadditivity pins' emitter of record.
+///
+/// The pins are statements about an emitter's actual output, so every
+/// check below takes the emitter as a parameter: a skyline-native emission
+/// kernel re-instantiates the whole suite by passing its own join and meet
+/// entry points to [`check_subadditive`] in place of these two.
+fn packed_join(a: &Version, b: &Version) -> Version {
+    a | b
+}
+
+/// The packed-form meet: the subadditivity pins' emitter of record.
+fn packed_meet(a: &Version, b: &Version) -> Version {
+    a & b
+}
+
+/// Assert the subadditivity lemma on one operand pair under one emitter.
+///
+/// The invariant: the emitted output's Tier 2 size stays at least
+/// [`JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS`] below the sum of the inputs'
+/// Tier 2 sizes.
+fn check_subadditive(
+    name: &str,
+    emit: fn(&Version, &Version) -> Version,
+    a: &Version,
+    b: &Version,
+) {
+    let sa = tier2_size(a);
+    let sb = tier2_size(b);
+    let so = tier2_size(&emit(a, b));
+    assert!(
+        so.total_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS <= sa.total_bits + sb.total_bits,
+        "{name}: subadditivity violated: {} output bits > {} + {} input bits - {} pinned savings",
+        so.total_bits,
+        sa.total_bits,
+        sb.total_bits,
+        JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS,
+    );
+}
+
+/// Assert the subadditivity lemma for both join and meet on one operand
+/// pair, under the packed-form emitters of record.
+fn check_join_meet_subadditive(a: &Version, b: &Version) {
+    check_subadditive("join", packed_join, a, b);
+    check_subadditive("meet", packed_meet, a, b);
+}
+
+/// `2^bits - 1` as a [`Base`]: the all-ones magnitude of a given bit width.
+fn all_ones(bits: usize) -> Base {
+    (Base::from(1u8) << u32::try_from(bits).expect("magnitude bit count fits u32"))
+        - &Base::from(1u8)
+}
+
+/// Build the version whose skyline takes `values[i]` on the `i`th cell of a
+/// uniform dyadic grid.
+///
+/// `values.len()` must be a power of two. The oracle's normalizing
+/// constructors collapse equal-valued uniform runs, so the result is
+/// canonical whatever the values. Recursive over the grid's `O(log)` depth
+/// (test-only; the measured paths are iterative).
+fn grid_version(values: &[Base]) -> Version {
+    fn build(values: &[Base]) -> oracle::Version {
+        match values {
+            [v] => oracle::Version::leaf(v.clone()),
+            _ => {
+                let (l, r) = values.split_at(values.len() / 2);
+                oracle::Version::node(0u64, build(l), build(r))
+            }
+        }
+    }
+    assert!(
+        values.len().is_power_of_two(),
+        "uniform grid needs a power-of-two cell count: got {}",
+        values.len()
+    );
+    from_oracle_version(&build(values))
+}
+
+/// Plateau magnitude bit widths spanning small values, the machine-word
+/// boundary, and magnitudes far past one word.
+fn magnitude_bits() -> impl Strategy<Value = usize> {
+    prop_oneof![1usize..=8, 60usize..=68, 190usize..=200]
+}
+
+/// Join and meet of two empty versions sit exactly on the lemma's equality
+/// case: 2 output bits against 2 + 2 input bits, so the pinned savings
+/// margin is the strongest constant the lemma admits.
+#[test]
+fn empty_pair_is_the_subadditivity_equality_case() {
+    let (a, b) = (Version::new(), Version::new());
+    for (name, emit) in [
+        ("join", packed_join as fn(&Version, &Version) -> Version),
+        ("meet", packed_meet as fn(&Version, &Version) -> Version),
+    ] {
+        let so = tier2_size(&emit(&a, &b));
+        assert_eq!(
+            so.total_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS,
+            tier2_size(&a).total_bits + tier2_size(&b).total_bits,
+            "{name} of two empty versions must realize the savings margin exactly",
+        );
+    }
+}
+
+/// Join and meet across the full adversarial event-shape grid hold the
+/// subadditivity lemma on every cross of the family grid.
+///
+/// The grid: dense spine, bigroot, hugeleaf, boundary comb, wide-tooth
+/// comb, cliff fan, cancelling chain, alternating spine.
+#[test]
+fn adversarial_crosses_hold_subadditivity() {
+    let decode =
+        |bytes: &[u8]| Version::decode(bytes).expect("meter shapes are strict normal form");
+    let shapes = [
+        decode(&dense(256).bytes),
+        decode(&bigroot(128, 64).bytes),
+        decode(&hugeleaf(300).bytes),
+        decode(&cliff_comb(48, 48).bytes),
+        decode(&wide_tooth_comb(96, 32, 32).bytes),
+        decode(&cliff_fan(48, 32).bytes),
+        decode(&cancelling_chain(48, 32).bytes),
+        decode(&alt_spine(128).bytes),
+    ];
+    for a in &shapes {
+        for b in &shapes {
+            check_join_meet_subadditive(a, b);
+        }
+    }
+}
+
+/// A single huge step against a flat half-height plateau holds the
+/// subadditivity lemma.
+///
+/// This is the shape where a crossing switch emits a boundary delta
+/// neither input's *local* codes appear to pay for; the step's own
+/// full-height delta code at the same boundary covers the output's
+/// smaller jump there.
+#[test]
+fn hugeleaf_vs_step_holds_subadditivity() {
+    for b in [8usize, 64, 200, 1000] {
+        let step = from_oracle_version(&oracle::Version::node(
+            0u64,
+            oracle::Version::leaf(all_ones(b)),
+            oracle::Version::leaf(0u64),
+        ));
+        let flat =
+            Version::decode(&hugeleaf(b - 1).bytes[..]).expect("hugeleaf is strict normal form");
+        check_join_meet_subadditive(&step, &flat);
+        check_join_meet_subadditive(&flat, &step);
+    }
+}
+
+/// The boundary comb against flat plateaus at its valleys' height, its
+/// cliff, above all teeth, and at zero holds the subadditivity lemma.
+///
+/// Clipping teeth or erasing valleys only removes boundaries, and every
+/// surviving boundary keeps a covering input code.
+#[test]
+fn comb_vs_flat_holds_subadditivity() {
+    for (k, n) in [(3usize, 2usize), (48, 48)] {
+        let comb_version =
+            Version::decode(&cliff_comb(k, n).bytes[..]).expect("comb is strict normal form");
+        let cliff = Base::from(1u8) << u32::try_from(k).expect("cliff bit count fits u32");
+        let heights = [
+            all_ones(k),     // the valleys' height: join is the comb, meet is flat
+            cliff.clone(),   // the teeth's height: meet is the comb, join is flat
+            &cliff + &cliff, // above every tooth: join is flat, meet is the comb
+            Base::ZERO,      // below everything: the empty version
+        ];
+        for height in heights {
+            let flat = from_oracle_version(&oracle::Version::leaf(height));
+            check_join_meet_subadditive(&comb_version, &flat);
+            check_join_meet_subadditive(&flat, &comb_version);
+        }
+    }
+}
+
+proptest! {
+    /// Join and meet of arbitrary normal-form event trees hold the
+    /// subadditivity lemma.
+    #[test]
+    fn arbitrary_pairs_hold_subadditivity(
+        a in generators::arb_oracle_version(),
+        b in generators::arb_oracle_version(),
+    ) {
+        check_join_meet_subadditive(&from_oracle_version(&a), &from_oracle_version(&b));
+    }
+
+    /// Join and meet over every version pair produced by an organic
+    /// fork/tick/send/sync/join history hold the subadditivity lemma.
+    #[test]
+    fn organic_pairs_hold_subadditivity(ops in optrace::world_strategy_up_to(120)) {
+        let mut clocks = vec![Clock::seed()];
+        for op in &ops {
+            optrace::step_impl(&mut clocks, op);
+        }
+        for pair in clocks.windows(2) {
+            check_join_meet_subadditive(pair[0].version(), pair[1].version());
+        }
+    }
+
+    /// Join and meet of alternating combs — every consecutive-leaf delta a
+    /// full magnitude swing — hold the subadditivity lemma.
+    #[test]
+    fn comb_pairs_hold_subadditivity(
+        (m1, p1) in arb_comb_params(),
+        (m2, p2) in arb_comb_params(),
+    ) {
+        check_join_meet_subadditive(&comb(m1, p1), &comb(m2, p2));
+    }
+
+    /// Join and meet of the deep unbalanced shape-grid trees (left spine,
+    /// right spine, zigzag, bushy) hold the subadditivity lemma across
+    /// every shape cross and scale pairing.
+    #[test]
+    fn deep_shape_pairs_hold_subadditivity(
+        shape_a in generators::arb_shape(),
+        shape_b in generators::arb_shape(),
+        scale_a in 1usize..=48,
+        scale_b in 1usize..=48,
+    ) {
+        check_join_meet_subadditive(
+            &generators::shape_version(shape_a, scale_a),
+            &generators::shape_version(shape_b, scale_b),
+        );
+    }
+
+    /// Join and meet of interleaved plateau grids — high/low runs of
+    /// independent periods, phases, and magnitudes on a shared 32-cell
+    /// grid — hold the subadditivity lemma.
+    #[test]
+    fn interleaved_plateau_pairs_hold_subadditivity(
+        ma in magnitude_bits(),
+        mb in magnitude_bits(),
+        pa in prop_oneof![Just(1usize), Just(2), Just(4)],
+        pb in prop_oneof![Just(1usize), Just(2), Just(4)],
+        phase in 0usize..=3,
+    ) {
+        const CELLS: usize = 32;
+        let high_a = all_ones(ma);
+        let high_b = all_ones(mb);
+        let a: Vec<Base> = (0..CELLS)
+            .map(|i| if (i / pa) % 2 == 0 { high_a.clone() } else { Base::ZERO })
+            .collect();
+        let b: Vec<Base> = (0..CELLS)
+            .map(|i| if ((i + phase) / pb) % 2 == 0 { Base::ZERO } else { high_b.clone() })
+            .collect();
+        check_join_meet_subadditive(&grid_version(&a), &grid_version(&b));
+    }
+
+    /// Join and meet of plateau grids at staggered widths — one operand's
+    /// plateaus 16 cells wide, the other's oscillating cell by cell, so no
+    /// boundary structure aligns — hold the subadditivity lemma.
+    #[test]
+    fn staggered_width_pairs_hold_subadditivity(
+        ma in magnitude_bits(),
+        mb in magnitude_bits(),
+        phase in 0usize..=1,
+    ) {
+        let high_a = all_ones(ma);
+        let high_b = all_ones(mb);
+        let a: Vec<Base> = (0..4)
+            .map(|i| if i % 2 == 0 { Base::ZERO } else { high_a.clone() })
+            .collect();
+        let b: Vec<Base> = (0..64)
+            .map(|i| if (i + phase) % 2 == 0 { high_b.clone() } else { Base::ZERO })
+            .collect();
+        check_join_meet_subadditive(&grid_version(&a), &grid_version(&b));
+    }
+
+    /// Join and meet of two staircases stepping cell-by-cell across the
+    /// same power-of-two cliff — shifted copies or opposed directions —
+    /// hold the subadditivity lemma at every crossing pattern.
+    #[test]
+    fn cliff_staircase_pairs_hold_subadditivity(
+        k in prop_oneof![8usize..=10, 62usize..=66, 190usize..=194],
+        shift in 1usize..=4,
+        descending in any::<bool>(),
+    ) {
+        const CELLS: usize = 16;
+        // The staircase floor 2^k - CELLS/2, so the ascent crosses the
+        // cliff at the grid's midpoint.
+        let floor = (Base::from(1u8) << u32::try_from(k).expect("cliff bit count fits u32"))
+            - &Base::from((CELLS / 2) as u8);
+        let a: Vec<Base> = (0..CELLS).map(|i| &floor + &Base::from(i as u64)).collect();
+        let b: Vec<Base> = (0..CELLS)
+            .map(|i| {
+                let step = if descending { CELLS - 1 - i } else { i + shift };
+                &floor + &Base::from(step as u64)
+            })
+            .collect();
+        check_join_meet_subadditive(&grid_version(&a), &grid_version(&b));
     }
 }
 
