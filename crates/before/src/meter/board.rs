@@ -24,8 +24,10 @@
 //!   blowups are invisible to the other two meters.
 //!
 //! Per meter the board derives a **scaling exponent**
-//! `log(m₂/m₁) / log(n₂/n₁)` (`n` = the cell's denominator bytes, below) and
-//! a **per-denominator-byte constant** at the larger scale. A cell is
+//! `log(m₂/m₁) / log(n₂/n₁)` (`n` = the cell's denominator bytes, below —
+//! every exponent, on every column) and a **per-denominator-byte constant**
+//! at the larger scale (the one constant not per denominator byte: the text
+//! rows' limb constant is per `R` unit, below). A cell is
 //! **GREEN** iff every meter's exponent is at most [`MAX_SCALING_EXPONENT`]
 //! *and* every constant is under its pinned ceiling
 //! ([`MAX_HEAP_BYTES_PER_INPUT_BYTE`] over [`HEAP_FLAT_ALLOWANCE_BYTES`],
@@ -60,14 +62,18 @@
 //! - **Text rows** (`Display` and `FromStr` for all three types): `n_io` is
 //!   packed input + text output (`Display`) or text input + packed output
 //!   (`FromStr`). Their heap and segment columns are judged per `n_io` byte
-//!   at the unchanged ceilings. Their **limb column** is judged against the
-//!   radix-work denominator `R = n_io + Σ digitsᵢ × limbsᵢ` over the values
-//!   the text spells — the cost law of schoolbook binary↔decimal conversion,
-//!   which no converter beats on exponent alone (binary↔decimal is inherently
-//!   superlinear) — with the ceiling pinned at the divide-and-conquer target
-//!   [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]: a schoolbook converter scores
-//!   ~1 limb per `R` unit and must read red; only a subquadratic chunked
-//!   converter passes.
+//!   at the unchanged ceilings. Their **limb column** is judged on two legs
+//!   that exclude different converters. The *exponent* leg — against `n_io`,
+//!   like every exponent — is what excludes quadratic conversion: any
+//!   schoolbook converter's limb work is `Θ(digits × limbs)`, quadratic in
+//!   the value bits however wide its chunks, and reads ~2 there \[measured\].
+//!   The *constant* leg — against the radix-work denominator
+//!   `R = n_io + Σ digitsᵢ × limbsᵢ` over the values the text spells, the
+//!   schoolbook cost law itself, at the divide-and-conquer target
+//!   [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`] — is what excludes a wasteful
+//!   constant: the digit-by-digit parser scores ~1 limb per `R` unit,
+//!   ~4× over it \[measured\]. Only a converter whose recorded limb work is
+//!   near-linear in `n_io` with a D&C-class constant reads green.
 //! - **Output-dominated projection** (`version_project` and
 //!   `clock_own_version` on the comb × scattered-party cross): `n_io` is
 //!   packed input + packed output. The cross exists because a scattered
@@ -213,18 +219,23 @@ pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 /// Text rows only: green requires at most this many limb operations per
 /// radix-work unit `R = n_io + Σ digitsᵢ × limbsᵢ` (κ).
 ///
-/// `R` is the schoolbook conversion cost law itself, so a schoolbook
-/// converter scores ~1 limb per unit at every scale and any ceiling at or
-/// above 1 is satisfied by re-denomination alone — softer, not harder. The
-/// pin is the discriminator the exponent column cannot be (schoolbook's limb
-/// count grows exactly as `R`, so its exponent against `R` is a flat ~1):
-/// κ sits 4× under the measured schoolbook ratio and ~4× over the
-/// divide-and-conquer ratio extrapolated at the default hugeleaf scale
-/// \[derived\], so only a subquadratic chunked converter reads green.
-/// Provisional until such a converter lands: re-pin it from the observed
-/// meter then, and verify it at record scale before any envelope enforces
-/// it. The test suite pins that the current digit-by-digit parser exceeds κ,
-/// so this ceiling cannot silently soften.
+/// κ carries the text limb column's *constant* leg only; the *exponent* leg
+/// is judged against `n_io`, never against `R` — `R` is the schoolbook cost
+/// law itself, so an exponent against it reads a flat ~1 on exactly the
+/// quadratic converters the bound exists to catch. The legs exclude
+/// different converters, and a constant ceiling cannot enforce a complexity
+/// class: a `u32`-chunked schoolbook converter scores ~0.11 limb per `R`
+/// unit — under κ, and wider chunks only lower it — while its limb work
+/// stays quadratic in the value bits and reads exponent ~2 against `n_io`
+/// \[measured — the chunked tripwire in the test suite\]; the exponent leg
+/// is what excludes it. What κ excludes is a wasteful constant: it sits 4×
+/// under the digit-by-digit parser's measured ~1 limb per `R` unit and ~4×
+/// over the divide-and-conquer ratio extrapolated at the default hugeleaf
+/// scale \[derived\]. Provisional until such a converter lands: re-pin it
+/// from the observed meter then, and verify it at record scale before any
+/// envelope enforces it. The test suite pins both legs — the digit-by-digit
+/// parser exceeds κ; the chunked probe slips under κ and trips the exponent
+/// leg — so neither can silently soften.
 pub const MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT: f64 = 0.25;
 
 /// Any text stream entering a denominator must hold at most this many bytes
@@ -1296,10 +1307,13 @@ fn ops() -> Vec<Op> {
 /// One measured run of a cell body: every meter, its denominators, plus
 /// wall time.
 struct Sample {
-    /// The heap and segment denominator: packed input bytes, or `n_io` for
-    /// the I/O-denominated cells.
+    /// The denominator of every column's exponent and of the heap and
+    /// segment constants: packed input bytes, or `n_io` for the
+    /// I/O-denominated cells.
     denom_bytes: usize,
-    /// The limb denominator: `denom_bytes`, or `R` for the text rows.
+    /// The limb *constant*'s denominator: `denom_bytes`, or `R` for the
+    /// text rows (the limb exponent is judged against `denom_bytes` on
+    /// every row).
     limb_denom: u64,
     /// Whether the limb column is judged at the text ceiling κ.
     text_row: bool,
@@ -1407,10 +1421,13 @@ struct CellResult {
 
 /// Score a cell's two samples against the exponent bound and the ceilings.
 ///
-/// The heap and segment columns are judged per denominator byte (packed
-/// input, or `n_io` on the I/O-denominated cells); the limb column per limb
-/// denominator unit — the same bytes, except on text rows, where it is `R`
-/// under the κ ceiling.
+/// Every exponent — the limb column's included — is judged against the
+/// denominator bytes (packed input, or `n_io` on the I/O-denominated
+/// cells), never against `R`: `R` is the schoolbook cost law, so a limb
+/// exponent against it reads a flat ~1 on exactly the quadratic converters
+/// the bound exists to catch. Constants are judged per denominator byte,
+/// except the text rows' limb constant, which is per `R` unit under the κ
+/// ceiling.
 fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> CellResult {
     let heap_exp = exponent(
         s1.peak_heap as u64,
@@ -1428,12 +1445,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
     };
     let (limb_exp, limb_per_byte) = match (s1.limb, s2.limb) {
         (Some(l1), Some(l2)) => (
-            Some(exponent(
-                l1,
-                l2,
-                usize::try_from(s1.limb_denom).expect("limb denominators fit usize"),
-                usize::try_from(s2.limb_denom).expect("limb denominators fit usize"),
-            )),
+            Some(exponent(l1, l2, s1.denom_bytes, s2.denom_bytes)),
             Some(l2 as f64 / s2.limb_denom as f64),
         ),
         _ => (None, None),
@@ -1483,8 +1495,9 @@ fn wall(d: Duration) -> String {
 /// Render one result row.
 ///
 /// The byte range is the cell's denominator (packed input, or `n_io` on the
-/// I/O-denominated cells); a text row's limb column reads `/R`, everything
-/// else `/B`.
+/// I/O-denominated cells); a text row's limb constant reads `/R` (its
+/// exponent, like every exponent, is against the denominator bytes),
+/// everything else `/B`.
 fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     let verdict = if r.red.is_empty() { "GREEN" } else { "RED" };
     let limb = match (r.limb_exp, r.limb_per_byte) {
