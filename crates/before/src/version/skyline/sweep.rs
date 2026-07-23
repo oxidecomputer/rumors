@@ -209,13 +209,89 @@ impl Mode {
     }
 }
 
-/// Which side of the difference `D = height_a − height_b` a cursor feeds.
-#[derive(Clone, Copy)]
-enum Side {
+/// Which side of the difference `D = height_a − height_b` a stream feeds.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Side {
     /// The left operand: its heights enter `D` positively.
     A,
     /// The right operand: its heights enter `D` negatively.
     B,
+}
+
+/// Fold one decoded leaf delta into the running difference, oriented by
+/// the side its stream feeds: `a`'s height rising raises `D`, `b`'s
+/// lowers it.
+pub(super) fn fold(diff: &mut Accum, side: Side, negative: bool, magnitude: &Base) {
+    let raises_diff = match side {
+        Side::A => !negative,
+        Side::B => negative,
+    };
+    if raises_diff {
+        diff.add_base(magnitude);
+    } else {
+        diff.sub_base(magnitude);
+    }
+}
+
+/// One cursor advance: the flip level and the leaf-to-leaf delta folded.
+pub(super) struct Step {
+    /// The flip level's depth, for the boundary tie test.
+    pub(super) flip: usize,
+    /// Whether the delta lowers this stream's height.
+    pub(super) negative: bool,
+    /// The delta's absolute value.
+    pub(super) magnitude: Base,
+}
+
+/// Advance the overlay walk one boundary: step the deeper cursor, and the
+/// other in the same step on a tie, folding every consumed delta into
+/// `diff`.
+///
+/// Returns each side's consumed delta (`None` for a side that did not
+/// step), which the emission sweep re-codes and the comparison sweep
+/// discards. The tie rule is the module doc's bookkeeping: the deeper
+/// side's flip level rising to or above the shallower side's depth is the
+/// tie, and the two sides then close to the same flip level.
+pub(super) fn advance(
+    a: &mut LeafCursor<'_>,
+    b: &mut LeafCursor<'_>,
+    diff: &mut Accum,
+) -> (Option<Step>, Option<Step>) {
+    match a.depth().cmp(&b.depth()) {
+        Ordering::Greater => {
+            let sa = a.step(diff, Side::A);
+            let sb = (sa.flip <= b.depth()).then(|| {
+                let sb = b.step(diff, Side::B);
+                debug_assert_eq!(
+                    sa.flip, sb.flip,
+                    "tied boundaries close to one shared flip level"
+                );
+                sb
+            });
+            (Some(sa), sb)
+        }
+        Ordering::Less => {
+            let sb = b.step(diff, Side::B);
+            let sa = (sb.flip <= a.depth()).then(|| {
+                let sa = a.step(diff, Side::A);
+                debug_assert_eq!(
+                    sb.flip, sa.flip,
+                    "tied boundaries close to one shared flip level"
+                );
+                sa
+            });
+            (sa, Some(sb))
+        }
+        Ordering::Equal => {
+            let sa = a.step(diff, Side::A);
+            let sb = b.step(diff, Side::B);
+            debug_assert_eq!(
+                sa.flip, sb.flip,
+                "equal-depth leaves share their whole path, so their flip levels agree"
+            );
+            (Some(sa), Some(sb))
+        }
+    }
 }
 
 /// Run the merge, returning the surviving directions `(a <= b, b <= a)`.
@@ -225,8 +301,10 @@ enum Side {
 /// prefix left it.
 fn sweep(a_bits: &BitsSlice, b_bits: &BitsSlice, mode: Mode) -> (bool, bool) {
     let mut diff = Accum::new();
-    let mut a = LeafCursor::open(a_bits, Side::A, &mut diff);
-    let mut b = LeafCursor::open(b_bits, Side::B, &mut diff);
+    let (mut a, a_first) = LeafCursor::open(a_bits);
+    let (mut b, b_first) = LeafCursor::open(b_bits);
+    diff.add_base(&a_first);
+    diff.sub_base(&b_first);
     let (mut le, mut ge) = (true, true);
     loop {
         // One fold per elementary interval: the interval starting at the
@@ -240,92 +318,60 @@ fn sweep(a_bits: &BitsSlice, b_bits: &BitsSlice, mode: Mode) -> (bool, bool) {
         if mode.decided(le, ge) || (a.done() && b.done()) {
             return (le, ge);
         }
-        // Advance the deeper side; the shallower side advances in the
-        // same step exactly when the boundaries tie (the module doc's
-        // bookkeeping: the deeper flip level reaching the shallower
-        // depth is the tie).
-        match a.depth().cmp(&b.depth()) {
-            Ordering::Greater => {
-                let flip = a.step(&mut diff);
-                if flip <= b.depth() {
-                    let tied = b.step(&mut diff);
-                    debug_assert_eq!(flip, tied, "tied boundaries close to one shared flip level");
-                }
-            }
-            Ordering::Less => {
-                let flip = b.step(&mut diff);
-                if flip <= a.depth() {
-                    let tied = a.step(&mut diff);
-                    debug_assert_eq!(flip, tied, "tied boundaries close to one shared flip level");
-                }
-            }
-            Ordering::Equal => {
-                let fa = a.step(&mut diff);
-                let fb = b.step(&mut diff);
-                debug_assert_eq!(
-                    fa, fb,
-                    "equal-depth leaves share their whole path, so their flip levels agree"
-                );
-            }
-        }
+        advance(&mut a, &mut b, &mut diff);
     }
 }
 
 /// A cursor at the current leaf of one skyline stream.
 ///
-/// Holds the sequential bit cursor, the root-to-leaf path — one bit per
-/// open ancestor: `false` inside its left child (the right subtree is
-/// still pending in the stream), `true` inside its right — and which
-/// side of the running difference the stream feeds. The path is the
-/// only per-depth state; no height, base, or node is retained, which is
-/// what keeps the sweep's transient linear in depth *bits*.
-struct LeafCursor<'a> {
+/// Holds the sequential bit cursor and the root-to-leaf path — one bit
+/// per open ancestor: `false` inside its left child (the right subtree
+/// is still pending in the stream), `true` inside its right. The path is
+/// the only per-depth state; no height, base, or node is retained, which
+/// is what keeps a sweep's transient linear in depth *bits*. The
+/// comparison and emission sweeps share the cursor: both consume decoded
+/// leaf deltas through [`fold`], and emission additionally re-codes
+/// them.
+pub(super) struct LeafCursor<'a> {
     cursor: SliceCursor<'a>,
     /// Root-to-leaf branch directions, root first.
     path: Bits,
     /// The stream's live bit length; the cursor reaching it is
     /// exhaustion (the current leaf is the stream's last).
     len: usize,
-    side: Side,
 }
 
 impl<'a> LeafCursor<'a> {
-    /// Open a stream at its first leaf, folding that leaf's absolute
-    /// height into `diff` on this cursor's side.
+    /// Open a stream at its first leaf, returning the cursor and that
+    /// leaf's absolute height (later leaves carry zigzag deltas, which
+    /// [`step`](Self::step) decodes instead).
     ///
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding.
-    fn open(bits: &'a BitsSlice, side: Side, diff: &mut Accum) -> Self {
+    pub(super) fn open(bits: &'a BitsSlice) -> (Self, Base) {
         let mut this = LeafCursor {
             cursor: SliceCursor::new(bits, 0),
             path: Bits::new(),
             len: bits.len(),
-            side,
         };
-        // The first leaf's payload is its absolute height (later leaves
-        // carry zigzag deltas, which `step` folds instead).
         let first = this.descend();
-        match side {
-            Side::A => diff.add_base(&first),
-            Side::B => diff.sub_base(&first),
-        }
-        this
+        (this, first)
     }
 
     /// The current leaf's depth: its plateau has width `2^-depth`.
-    fn depth(&self) -> usize {
+    pub(super) fn depth(&self) -> usize {
         self.path.len()
     }
 
     /// Whether the current leaf is the stream's last (its plateau ends
     /// at the unit interval's right edge).
-    fn done(&self) -> bool {
+    pub(super) fn done(&self) -> bool {
         self.cursor.position() == self.len
     }
 
     /// Advance past the current leaf to the next, folding the leaf-to-
-    /// leaf zigzag delta into `diff` on this cursor's side; returns the
+    /// leaf zigzag delta into `diff` on `side` and returning it with the
     /// flip level's depth for the caller's tie test.
     ///
     /// Pops the trailing right-branch levels (each ancestor's subtree
@@ -335,10 +381,10 @@ impl<'a> LeafCursor<'a> {
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding. Never
-    /// called on a final leaf: the sweep stops when both cursors are
+    /// called on a final leaf: a sweep stops when both cursors are
     /// done, and the module doc's bookkeeping shows a final leaf is
     /// never the advanced side before then.
-    fn step(&mut self, diff: &mut Accum) -> usize {
+    pub(super) fn step(&mut self, diff: &mut Accum, side: Side) -> Step {
         loop {
             match self.path.pop() {
                 Some(true) => continue, // this ancestor closed with the leaf
@@ -352,17 +398,12 @@ impl<'a> LeafCursor<'a> {
         let flip = self.path.len();
         let code = self.descend();
         let (negative, magnitude) = super::unzigzag(code);
-        // `a`'s height rising raises `D`; `b`'s height rising lowers it.
-        let raises_diff = match self.side {
-            Side::A => !negative,
-            Side::B => negative,
-        };
-        if raises_diff {
-            diff.add_base(&magnitude);
-        } else {
-            diff.sub_base(&magnitude);
+        fold(diff, side, negative, &magnitude);
+        Step {
+            flip,
+            negative,
+            magnitude,
         }
-        flip
     }
 
     /// Descend from the cursor to the next leaf in preorder, extending

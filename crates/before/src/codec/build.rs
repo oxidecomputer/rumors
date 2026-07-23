@@ -39,10 +39,27 @@ impl PackedBuilder {
         }
     }
 
+    /// The current output length in bits: the position the next append
+    /// lands at, and the coordinate [`truncate`](Self::truncate) rolls
+    /// back to.
+    pub(crate) fn len(&self) -> usize {
+        self.bits.len()
+    }
+
     /// Append one bit.
     pub(crate) fn push_bit(&mut self, bit: bool) {
         super::scan::record_bits(1);
         self.bits.push(bit);
+    }
+
+    /// Copy the completed range `start..` back out of the output,
+    /// recording the read.
+    ///
+    /// Collapse repairs re-anchor a surviving code before truncating the
+    /// region it sits in; this is the read half of that repair.
+    pub(crate) fn extract(&self, start: usize) -> Bits {
+        super::scan::record_bits(self.bits.len() - start);
+        self.bits[start..].to_bitvec()
     }
 
     /// Append `width` zero bits as a header slot to be

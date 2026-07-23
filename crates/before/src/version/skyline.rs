@@ -25,8 +25,11 @@
 //! against each other (see Testing below). The [`sweep`] submodule decides
 //! comparisons directly on skyline streams — the merge form the coding
 //! exists to enable — differentially pinned against the stored-form
-//! comparison. The module is test- and meter-visible only, via
-//! [`crate::meter::skyline`].
+//! comparison; the [`emit`] submodule runs the same merge as join and
+//! meet, re-delta-coding pointwise max/min into a canonical stream
+//! through the collapsing output builder, differentially pinned against
+//! the packed-form operators byte for byte. The module is test- and
+//! meter-visible only, via [`crate::meter::skyline`].
 //!
 //! # Canonical form
 //!
@@ -117,7 +120,9 @@ use crate::codec::{self, Base, BitsSlice};
 use crate::error::Decode;
 use crate::Version;
 
+mod build;
 mod decode;
+pub mod emit;
 mod encode;
 pub mod sweep;
 mod validate;
@@ -211,6 +216,24 @@ fn zigzag(prev: &Base, cur: &Base) -> Base {
         (cur.clone() - prev) << 1u32
     } else {
         ((prev.clone() - cur) << 1u32) - &Base::from(1u8)
+    }
+}
+
+/// Map a delta given as sign and absolute value to its zigzag magnitude:
+/// `+m -> 2m`, `−m -> 2m − 1`.
+///
+/// [`zigzag`] for a difference already in sign-magnitude form — the shape
+/// the emission sweep computes deltas in. A negative delta must have a
+/// nonzero magnitude (there is no negative zero to map).
+fn zigzag_signed(negative: bool, magnitude: Base) -> Base {
+    debug_assert!(
+        !negative || magnitude != Base::ZERO,
+        "a negative delta has a nonzero magnitude"
+    );
+    if negative {
+        (magnitude << 1u32) - &Base::from(1u8)
+    } else {
+        magnitude << 1u32
     }
 }
 
