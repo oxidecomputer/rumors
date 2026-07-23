@@ -3,7 +3,7 @@
 
 use crate::{Party, Version};
 
-use super::{bigroot, dense, hugeleaf, id_spine, Packed};
+use super::{bigroot, cliff_comb, dense, hugeleaf, id_spine, Packed};
 
 /// Appended to the counter-comparison failures: the first cause to rule out
 /// is a shared-process test runner, under which the process-global counters
@@ -58,6 +58,24 @@ fn hugeleaf_decodes_canonically_at_predicted_length() {
     for b in [1, 200] {
         check_version(&hugeleaf(b), 2 * b + 2);
     }
+}
+
+/// `cliff_comb(k, n)` is canonical normal form at exactly `n(2k + 10) + 2`
+/// bits, and its preorder leaf values oscillate across the `2^k` boundary.
+///
+/// The sizes cover a tooth magnitude wide enough to spill machine-word gamma
+/// decoding and a tooth count deep enough for the oscillation to dominate.
+#[test]
+fn cliff_comb_decodes_canonically_at_predicted_length() {
+    for (k, n) in [(2, 1), (3, 4), (200, 50)] {
+        check_version(&cliff_comb(k, n), n * (2 * k + 10) + 2);
+    }
+    // The oscillation the family exists for: leaf values alternate
+    // `2^k − 1 ↔ 2^k`, pinned on a hand-checkable size via the paper
+    // notation (leaf values are absolute there).
+    let p = cliff_comb(3, 2);
+    let v = Version::decode(&p.bytes[..]).expect("comb is strict normal form");
+    assert_eq!(v.to_string(), "(0, (7, 0, 1), (0, (7, 0, 1), 0))");
 }
 
 /// The stack-segment meter observes deep recursion, resets to zero, and reads

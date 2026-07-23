@@ -366,6 +366,42 @@ O(n + m). Write this argument into the module doc when implemented
 and pin it empirically with cliff-straddling generators (§13) — it is
 what the probe-first practice exists for.
 
+Amended 2026-07-23 (P2 carry-cliff round): the probe-first practice
+caught the paragraph above — its conclusion survives only with a
+stronger accumulator design than it states, because the
+"comparably-coded magnitude" premise is true for some cliff shapes
+and false for others. Two generator shapes separate them:
+
+- **Paid crossings** — the boundary comb `C(k, n)`
+  (`meter::cliff_comb`: teeth `(2^k − 1, 0, 1)` off a zero-base
+  spine, terminal leaf 0; preorder leaf values oscillate
+  `2^k − 1 ↔ 2^k`, so every consecutive-leaf step crosses the `2^k`
+  carry boundary). Each tooth stores its own `gamma(2^k − 1)` —
+  `2k + 1` bits — so every crossing is bought by a comparably-wide
+  input code and the premise holds. **[measured** 2026-07-23,
+  `tests/meter.rs` cliff envelopes, three identical runs**]**:
+  decode/cmp/join per-input-byte limb constants flat across a 4×
+  input growth (0.72 → 0.67, 0.16 → 0.14, 1.46 → 1.39 ops/byte at
+  `k = n` = 1024 → 2048); ceilings pinned.
+- **Unpaid crossings** [derived — build the generator and pin it
+  before this section's implementation lands]: hang teeth
+  `(1, 0, 1)` — 9 bits each — from a base-0 fan under a single
+  stored `2^k − 1` root. The path sum sits at the cliff across the
+  whole fan, every tooth's `+1`/`−1` re-crosses it, and one
+  comparably-coded magnitude forces `n` excursions at O(1) input
+  bits each: Θ(nk) limb work in a Θ(n + k)-bit input for any
+  accumulator that materializes each `D ± base` as a plain big
+  integer. The Dyck argument does not save this case — the
+  excursions are siblings, not nested.
+
+The implementation requirement this adds: the difference accumulator
+must be cliff-immune. Keep `D` as a big part plus a machine-word
+signed offset, folding small `±` into the offset and renormalizing
+only on word overflow (amortized O(1) per small op; a wide `± Big(x)`
+still costs O(|x|), paid by `x`'s own code); leaf direction tests
+need `sign(D + x − y)` without mutating `D`. With that
+representation the O(n + m) total stands on both shapes.
+
 Coverage: `causal_cmp` sits on the oracle differential, exhaustive
 small-scope, and algebraic-law suites; this is an internal rewrite
 with unchanged verdicts.
@@ -527,6 +563,18 @@ one is-leaf bit and one last-delta-was-zero bit. `decode` validation
 drops from 56 B/level to ~2 bits/level with no arithmetic (V5
 eliminated outright). Byte-equality remains `Eq`/`Hash`.
 
+Amended 2026-07-23 (P2 carry-cliff round): "no arithmetic" was
+overclaimed — it covers topology minimality only. Leaf values are
+naturals, and a signed delta stream can drive a running leaf value
+negative; no per-level topology bit sees that, so strict `decode`
+must also enforce value validity, which means running-value state
+across the delta stream. A plain big-integer accumulator makes that
+Θ(W²) in wire bits on §10.6's boundary comb **[measured** — the
+`meter/tier2` sweep pin**]**; the claim above survives only with the
+cliff-immune accumulator §10.6 requires (big part + word offset:
+nonnegativity is then a sign check on the redundant form, amortized
+O(1) per small delta). V5's *frame* elimination stands either way.
+
 ### 10.3 Operations
 
 All single forward passes over packed streams; depth costs bits:
@@ -568,13 +616,47 @@ in both forms. Delta coding wins where similar magnitudes span
 subtree boundaries, which min-lift cannot factor. The alternating
 comb `(0, M, 0, M, …)` is tight for both forms. Property-test the
 ratio over existing generators plus §2's shapes; document where the
-envelope is tight.
+envelope is tight. (Amended 2026-07-23: the win has an adversarial
+dual — where Tier 2 is radically smaller, wire bits stop bounding
+value content, and the operations must be priced against that; §10.6.)
 
 ### 10.5 Costs and migration
 
 - **Wire break**: `Version::encode` (and therefore `Clock::encode`)
   bytes change; `before`'s codec pins and `rumors`'
   `gossip_snapshot` re-pin as a deliberate protocol change.
+
+  Amended 2026-07-23 (P2 blast-radius round): the snapshot re-pin is
+  the *smallest* part of the break. Three durable consumers of the
+  canonical bytes sit beyond the test pins, all verified in code:
+
+  - **Message identity.** Every trie leaf path is
+    `hash(ContentHash(version.as_bytes()), ContentHash(value))`
+    (`src/tree/typed/path.rs`), `Version::as_bytes` is
+    doctest-pinned equal to `encode()`, and `Key`
+    (`src/tree/key.rs`) is that path, publicly promised stable
+    across replicas and freely persistable as its raw 32 bytes.
+    Under Tier 2 every message's `Key` changes: application-persisted
+    `Key`s dangle, and replicas on different code versions mint
+    *different* `Key`s for the same message, so `redact(key)` and
+    `get(key)` break across versions. This is a semantic identity
+    break — a flag day plus an application-level `Key` migration
+    story, not a re-pin.
+  - **The bookmark store.** The durable, versioned
+    (`BOOKMARK_FORMAT_VERSION = 1`) frame in
+    `src/bookmark/format.rs` borsh-encodes `Clock`s, and
+    `crates/before/src/borsh_impls.rs` defines the borsh form as
+    exactly the canonical encode bytes with strict canonical decode
+    on read. A previously persisted bookmark passes the frame's
+    integrity hash and then fails `Clock` decode, surfacing as
+    `FormatError::Decode` — documented as a logic error, not
+    corruption — unless `BOOKMARK_FORMAT_VERSION` is bumped in the
+    same change.
+  - **Consumer-persisted serialized forms.**
+    `crates/before/src/serde_impls.rs` serializes the same canonical
+    bytes (deserializing through the strict validator), so any
+    serde- or borsh-persisted `Party`/`Version`/`Clock` outside this
+    workspace breaks identically.
 - `Display`/`FromStr` keep the paper notation (internal bases are
   derivable in one pass for display; parsing accumulates path sums).
 - `oracle.rs` is untouched and anchors the rewrite differentially;
@@ -583,6 +665,82 @@ envelope is tight.
   `Zero` broadcast, `deferred_leaf`; `Base` stays for accumulators;
   `recurse`/`stacker` likely removable (everything is a sweep with
   bit-stacks).
+
+### 10.6 The carry-cliff genre: wire bits no longer bound value content
+
+Added 2026-07-23 (P2 carry-cliff round; found by the negative-space
+review, constructed and measured here). Delta coding breaks the
+premise every §10.3 sweep inherited from §8.1: that a cliff
+excursion is always bought by a comparably-coded magnitude in the
+input.
+
+**The construction.** The boundary comb `C(k, n)`
+(`meter::cliff_comb`; canonical — round-trips `Version::decode`
+strictly, pinned to `n = k = 4096`): teeth `(2^k − 1, 0, 1)` off a
+zero-base spine, terminal leaf 0. Its preorder leaf values oscillate
+`2^k − 1 ↔ 2^k`, so the Tier 2 delta stream is 3-bit zigzag codes at
+`10n + 4k + 2` total bits, while today's coding stores a fresh
+`gamma(2^k − 1)` per tooth at `n(2k + 10) + 2` bits. At `n = k` that
+is `14n + 2` against `2n² + 10n + 2` **[measured** — exact closed
+forms pinned in `meter/tier2` tests**]**: current/Tier 2 = 9.84×
+(n = 64), 146.98× (n = 1024), 585.84× (n = 4096), unbounded. The
+§10.4 envelope holds in the useless direction: the comb's `2n + 1`
+leaves carry Θ(nk) bits of absolute value content behind Θ(n + k)
+Tier 2 wire bits, so **Tier 2 wire bits do not bound value content**
+— the same lever behind the honest-regime "sometimes smaller" wins
+on dense/bigroot, read adversarially.
+
+**The cost.** Any sweep that materializes running leaf values (or a
+running difference) in a plain big integer pays a full `k`-bit
+carry or borrow per 3-bit delta: Θ(W²) total in Tier 2 wire bits
+`W`. **[measured** 2026-07-23**]**: deterministically, the
+`meter/tier2` limb pin (per-wire-bit limb cost roughly doubles per
+size doubling, ratio ≥ 1.8 asserted at `n = k` = 512 → 1024); on
+the wall clock (scratch probe, release, in-place `num-bigint` `±`),
+21 → 44 → 83 → 158 ns per Tier 2 wire byte at
+`n = k` = 4096/8192/16384/32768 — the per-byte cost doubles per
+size doubling, the quadratic law of record (constants are
+profile-dependent). This cost is not avoidable at decode: §10.2's
+amendment — strict decode must enforce leaf-value nonnegativity, so
+it runs the running-value state a plain topology check skips. Under
+today's coding the same tree prices every crossing at `2k + 1`
+stored bits, and decode/cmp/join stay linear per input bit
+**[measured** — the `tests/meter.rs` cliff envelopes**]**.
+
+**What it would take to keep Tier 2's operations linear** [open —
+each must be designed and priced before a Tier 2 DECIDED entry]:
+
+- **Cliff-immune accumulators** for compare, join/meet, fill, and
+  decode validation: the §8.1-amendment representation (big part +
+  machine-word signed offset, renormalized on word overflow) makes
+  small-delta application and sign/nonnegativity checks amortized
+  O(1) while wide deltas stay paid by their own codes. Note §8.1's
+  fan shape means Tier 1/1.5 needs the same representation — the
+  difference is that Tier 2 *cannot ship without it* (its strict
+  decode is on the hook), while under today's coding only the
+  future difference-tracked compare is.
+- **Delta algebra for linear functionals** (`rank`, `min_ticks`,
+  `max`, `project`): telescope `Σ vᵢ·wᵢ` into
+  `v₁·W + Σ δⱼ·(suffix weight)` so each small stored delta
+  contributes small work; never reconstruct absolute values.
+- **Content-materializing operations are out of reach**: `Display`
+  and the paper notation must output the absolute values — Θ(W²)
+  bits of output from `W` wire bits on the comb — so the §6
+  invariant *denominated over Tier 2 packed operands* is
+  unsatisfiable for them. (Today's coding already has an
+  output-superlinear case: bigroot's `Display` is Θ(bd) from
+  Θ(b + d) input bits — §15's digit-capping note; Tier 2 widens the
+  genre from formatting to anything that materializes content, and
+  re-denominates §6 in a currency the adversary can deflate.) The
+  invariant for Tier 2 must be restated over *content bits*
+  (Σ leaf-value widths), with wire bits bounding only the
+  delta-native operations.
+
+**Decision weight.** Carried into §12 as a Tier 2 cost against Tier
+1.5: under today's coding the genre is confined to the not-yet-built
+§8.1 accumulator (and cured by the same representation); under Tier
+2 it reaches the codec itself, and the mitigation set above is
+design work that does not exist yet.
 
 ## 11. Cross-pollination between the two sides
 
@@ -649,10 +807,11 @@ hardening, *and* code simplification together — reframes it:
 
 | | Tier 1.5 | Tier 2 |
 |---|---|---|
-| wire bytes | unchanged (byte-identical outputs) | breaking change; snapshots re-pin |
+| wire bytes | unchanged (byte-identical outputs) | breaking change: snapshots re-pin, **plus** the §10.5 blast radius — every message `Key` changes (flag day + application-level `Key` migration), `BOOKMARK_FORMAT_VERSION` bump, consumer-persisted serde/borsh forms break |
 | transient memory | ~2–3× packed | ~1× packed + bit-stacks |
 | passes per emit op | 2, plus mirror-read plumbing | 1 |
-| decode validation | V5 fixed by frame slimming | 2 bits/level, no arithmetic |
+| decode validation | V5 fixed by frame slimming | 2 bits/level for topology; value nonnegativity needs running-value state — cliff-immune accumulator required (§10.2, §10.6) |
+| carry-cliff genre (§10.6) | linear per input bit on the boundary comb **[measured**, envelopes pinned**]**; the §8.1 accumulator must be cliff-immune when it lands | Θ(W²) in wire bits for any plain running-value sweep, strict decode included **[measured]**; linear only under the §10.6 mitigation set, which is undesigned and unpriced |
 | net code | *adds* machinery (scratch, mirror records, splice pass) beside the walks | *removes* machinery (working form, form-split reader, broadcast, deferred leaves, likely stacker) and unifies the two sides' builders (§11.1) |
 | comparison | tree recursion retained (improved by §11.2) | interval sweep; §11.2 pruning falls out naturally |
 | compactness | identical | ~≤2× envelope, sometimes better (§10.4) |
@@ -668,11 +827,28 @@ compactness envelope (§10.4), both checkable before commitment: the
 ratio meter for compactness, the bench suite for speed, and the
 oracle for correctness.
 
+Amended 2026-07-23 (P2 carry-cliff and blast-radius rounds): two of
+that cost accounting's premises were undersized, and the table above
+now carries both. The wire break is not "snapshots re-pin" — it is a
+durable-identity and persistence break (§10.5: `Key`s, bookmarks,
+consumer serde/borsh forms) needing a flag day and an application
+`Key` migration story. And Tier 2's packed operands stop bounding
+value content (§10.6): without the cliff-immune accumulator and
+delta-algebra designs, its sweeps — strict decode included — are
+Θ(W²) on the boundary comb, a genre Tier 1.5 prices linearly under
+today's coding. Neither kills Tier 2; both must be priced into any
+DECIDED entry.
+
 Recommendation: land Tiers 0–1 (common to both, independently
 worthwhile, no format risk) plus the §11.2/§11.3 pruning and splice
 wins; run the §10.4 ratio measurement; then choose. If the ratio
 envelope holds and a protocol-change window exists, take Tier 2; Tier
-1.5 is the fallback if the wire format must not move.
+1.5 is the fallback if the wire format must not move. A Tier 2
+DECIDED entry is additionally gated on: (a) a designed-and-priced
+§10.6 mitigation set (cliff-immune accumulators; delta algebra for
+the linear functionals; the §6 invariant restated over content
+bits), and (b) the user's explicit acceptance of the §10.5
+identity/persistence blast radius, not just the snapshot re-pin.
 **[open — record the DECIDED entry here.]**
 
 ## 13. The metering gate
@@ -752,7 +928,13 @@ Pin the §6 invariant the way `step!` pins time complexity:
   (node visits, not arithmetic width). Count big-integer limb
   operations behind a test-only feature (a thin shim around `Base`
   arithmetic) and assert amortized-linear envelopes on
-  hugeleaf/bigroot and on §8.1's carry-cliff generators.
+  hugeleaf/bigroot and on §8.1's carry-cliff generators. (Landed
+  2026-07-23, P2: `meter::cliff_comb` is the paid-crossing
+  generator, with decode/cmp/join envelopes in `tests/meter.rs` and
+  the Tier 2 size and plain-sweep pins in `meter/tier2`; §8.1's
+  unpaid-crossing fan generator lands with §8.1's implementation.
+  The comb joins the board's input families if Tier 2 proceeds to
+  implementation.)
 - **Fuzz under a cap**: the existing fuzz targets gain a
   counting-allocator harness with a hard ceiling tied to input size,
   turning any future amplifier into a crash finding instead of a
@@ -804,7 +986,17 @@ byte-identical through P4 (the snapshot suite enforces it for free).
   §12, confirming the wire break with the user before any
   implementation. Deciding here avoids building §8.2/Tier-1.5 emit
   machinery that Tier 2 deletes; §8.1's difference accumulator is
-  not throwaway either way — it is the core of the Tier 2 sweep.
+  not throwaway either way — it is the core of the Tier 2 sweep
+  (and must be cliff-immune per the §8.1 amendment).
+
+  Amended 2026-07-23, P2 negative-space round: the review's two
+  blocking findings are priced into the decision packet. The §10.5
+  wire break is a durable identity/persistence break (Keys,
+  bookmarks, consumer serde/borsh), and the §10.6 carry-cliff genre
+  makes every plain Tier 2 running-value sweep Θ(W²) — the boundary
+  comb generator, its `tests/meter.rs` envelopes, and the
+  `meter/tier2` size and plain-sweep pins landed with this
+  amendment. The DECIDED entry remains open, gated as §12 records.
 - **P3 — endgame.** Tier 2 (expected): §10's representation, codec,
   validation, and sweeps; §11.1 builder unification; §11.2's
   pruning falls out of the sweep; §11.3 splice emit; snapshot
@@ -936,4 +1128,11 @@ not regressed (improvement expected at P1 and P3).
   (oracle differential, exhaustive small-scope, algebraic laws,
   complexity metering).
 - Wire pinning affected by Tier 2 only: `tests/gossip_snapshot.rs`
-  and the `insta` snapshots (workspace root).
+  and the `insta` snapshots (workspace root) — and, beyond the test
+  pins, the §10.5 durable surfaces: `src/tree/typed/path.rs` (leaf
+  paths hash `Version::as_bytes`), `src/tree/key.rs` (`Key`'s
+  cross-replica stability and persistability contract),
+  `src/bookmark/format.rs` (versioned durable frame over
+  borsh-encoded `Clock`s), `crates/before/src/borsh_impls.rs` and
+  `crates/before/src/serde_impls.rs` (canonical bytes as the
+  serialized forms).
