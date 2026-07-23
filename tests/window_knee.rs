@@ -168,7 +168,11 @@ fn below_the_knee_hops_are_flat() {
 #[test]
 fn above_the_knee_cost_is_linear_in_divergence() {
     let capacity = binding_capacity();
-    let divergences = [4, 8, 16, 32].map(|factor| factor * capacity);
+    // Widely spaced cells: each marginal spans at least eight capacities
+    // of divergence (~16 hops of signal), so wall-compute noise under a
+    // loaded test machine — which the two-point sweep cannot fully
+    // cancel — stays far below the signal it is differenced against.
+    let divergences = [4, 12, 36].map(|factor| factor * capacity);
     let times: Vec<u32> = divergences.iter().map(|&d| hops(d)).collect();
     let slopes: Vec<f64> = times
         .windows(2)
