@@ -330,6 +330,43 @@ pub fn cancelling_chain(k: usize, n: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The harmonic spine `H(d)`: a 1-leaf at every depth, `6d + 2` bits, rank
+/// `(2^d − 1)/2^d`.
+///
+/// `d` zero-base internal nodes leaning left, each with a 1-leaf right
+/// sibling, bottoming out in a 0-leaf: level `i`'s leaf contributes area
+/// `1/2^i`, so the whole tree's rank telescopes to `(2^d − 1)/2^d` — the
+/// closed form this module's tests pin. The numerator is the all-ones
+/// `d`-bit odd integer, so the rank fold's running numerator is as wide as
+/// the depth already walked at *every* level: any fold that re-shifts its
+/// accumulated numerator per level does `Θ(d²)` limb work against `Θ(d)`
+/// input bits, which is what makes this the separating family for the
+/// rank/distance/lag delta algebra. [`dense`] is the control: same density,
+/// but its single 1-leaf keeps the fold's numerator one bit wide.
+///
+/// Layout: `"11" × d` (internal flag + `gamma(0)`), `"01"` (the bottom
+/// 0-leaf), then `"0010" × d` (each level's 1-leaf right sibling,
+/// innermost first). Exactly `6d + 2` bits for `2d + 1` nodes at depth `d`.
+/// Normal form holds everywhere: each internal node's left child stores
+/// base 0, and the only sibling leaf pair is the bottom `(0, 1)`.
+///
+/// # Panics
+///
+/// Panics if `d == 0`: the spine needs at least one internal node.
+pub fn harmonic(d: usize) -> Packed {
+    assert!(d >= 1, "harmonic spine needs at least one internal node");
+    let mut bits = Bits::with_capacity(6 * d + 2);
+    for _ in 0..d {
+        bits.push(true); // internal-node flag
+        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+    }
+    ev_leaf(&mut bits, 0); // the bottom node's left child
+    for _ in 0..d {
+        ev_leaf(&mut bits, 1); // each level's right sibling: value 1
+    }
+    Packed::from_bits(bits)
+}
+
 /// The alternating-binary spine `A(d)`: depth `d`, `2d + 1` nodes, `4d + 4`
 /// bits.
 ///
