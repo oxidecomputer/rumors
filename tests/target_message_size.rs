@@ -99,8 +99,36 @@ fn seeded_diverged_pair(
 }
 
 /// Count the supply frames (both directions) in a rendered wire capture.
+///
+/// Oracle assumption: this counts frames the capture labels `Supply` and
+/// nothing else, so it observes run sizing only while supplied leaves ride
+/// frames with that label. A protocol change that relabels leaf-bearing
+/// frames would weaken every count-based assertion here silently; the
+/// snapshot suite (`tests/gossip_snapshot.rs`) pins the labels themselves.
 fn supply_frames(capture: &str) -> usize {
     capture.matches(": Supply").count()
+}
+
+/// Count the supply frames in each direction of a rendered wire capture:
+/// `(a_to_b, b_to_a)`, attributed by the capture's `direction` headers.
+/// Same oracle assumption as [`supply_frames`].
+fn directional_supply_frames(capture: &str) -> (usize, usize) {
+    let (mut a_to_b, mut b_to_a) = (0, 0);
+    let mut toward_b = true;
+    for line in capture.lines() {
+        if line.starts_with("direction A -> B") {
+            toward_b = true;
+        } else if line.starts_with("direction B -> A") {
+            toward_b = false;
+        } else if line.contains(": Supply") {
+            if toward_b {
+                a_to_b += 1;
+            } else {
+                b_to_a += 1;
+            }
+        }
+    }
+    (a_to_b, b_to_a)
 }
 
 /// The knob genuinely reaches the wire, which convergence alone cannot show.
@@ -136,65 +164,83 @@ fn zero_target_emits_more_supply_frames_than_default() {
     );
 }
 
-/// A small nonzero target: a few supply records fit one run, so a session
-/// bound by it emits strictly more frames than the default target and
-/// strictly fewer than an unbatched (zero-target) one.
-const SMALL_TARGET: usize = 128;
+/// A small nonzero target that fits one supply record of this corpus but
+/// not two: every multi-record run splits under it, in both supply
+/// directions, so both directions' margin self-checks below have teeth.
+/// (A nonzero target still batching runs that fit is
+/// [`zero_target_emits_more_supply_frames_than_default`]'s claim, over a
+/// corpus whose runs fit the default; this test's corpus is chosen for
+/// per-direction discrimination instead.)
+const SMALL_TARGET: usize = 32;
 
-/// Messages the supplying side originates for the binding-minimum capture:
-/// dense enough that the root's 256 child subtrees average eight novel
-/// leaves each, so the runs supplying them outgrow [`SMALL_TARGET`] and the
-/// small bound genuinely splits them.
-const BINDING_MESSAGES: usize = 2048;
-
-/// Messages the other side originates: one, so the divergence is two-sided
-/// and disputes resolve at the root fan (whole one-byte-prefix subtrees are
-/// supplied as single runs), rather than against an empty replica, whose
-/// dispute shape supplies narrower subtrees.
-const BINDING_COUNTER_MESSAGES: usize = 1;
+/// Messages each side originates for the binding-minimum capture: two per
+/// root-fan child on average. Measured at this shape, the two supply
+/// directions batch differently — the session's initiating side ships its
+/// exclusive root-fan subtrees as multi-record runs (dozens of batching
+/// events), while the other side's multi-record runs are only the rare
+/// sibling pairs sharing a two-byte key prefix (a handful) — so the margin
+/// self-checks hold per direction, with very different margins, and the
+/// tuple equalities discriminate in both directions.
+const BINDING_MESSAGES_PER_SIDE: usize = 512;
 
 /// The exchanged minimum binds both encoders when nonzero, which the
 /// zero-minimum cell cannot show.
 ///
-/// The same seeded one-sided divergence is reconciled under five target
-/// assignments. If the session runs at the exchanged minimum, a mixed
-/// (small, default) pair must emit exactly the frame count of a
-/// (small, small) pair — in particular, a default-target supplier facing a
-/// small-target receiver is bound by the *remote* setting — and the same
-/// count with the assignment reversed. The small-bound count must sit
-/// strictly between the default-bound count (small genuinely splits runs)
-/// and the zero-target count (a nonzero minimum still batches). If run
-/// sizing were each encoder's local choice, the mixed captures would
-/// differ from the uniform small capture.
+/// The same seeded two-sided divergence is reconciled under four target
+/// assignments, and supply frames are counted per direction. Under the
+/// exchanged-minimum semantics every cell containing a small advertisement
+/// runs both directions at the small target, so both mixed cells must equal
+/// the uniform-small cell as `(a_to_b, b_to_a)` tuples exactly. Under the
+/// rejected reading — each encoder sizing runs by its own local setting —
+/// each mixed cell would differ from the uniform-small cell in exactly the
+/// component its default-advertising side supplies: (small, default) in
+/// `b_to_a`, (default, small) in `a_to_b`, each landing at the
+/// uniform-default cell's count for that component instead. The margin
+/// self-checks prove those components genuinely differ between the
+/// uniform-small and uniform-default cells, so neither equality can hold
+/// vacuously.
 #[test]
 fn nonzero_minimum_binds_both_encoders() {
     let frames = |left, right| {
-        let (l, r) =
-            seeded_diverged_pair(left, right, (BINDING_MESSAGES, BINDING_COUNTER_MESSAGES));
-        supply_frames(&capture_gossip(l, r))
+        let (l, r) = seeded_diverged_pair(
+            left,
+            right,
+            (BINDING_MESSAGES_PER_SIDE, BINDING_MESSAGES_PER_SIDE),
+        );
+        directional_supply_frames(&capture_gossip(l, r))
     };
     let small_default = frames(SMALL_TARGET, DEFAULT_TARGET_MESSAGE_SIZE);
     let default_small = frames(DEFAULT_TARGET_MESSAGE_SIZE, SMALL_TARGET);
     let small_small = frames(SMALL_TARGET, SMALL_TARGET);
     let default_default = frames(DEFAULT_TARGET_MESSAGE_SIZE, DEFAULT_TARGET_MESSAGE_SIZE);
-    let zero_zero = frames(0, 0);
+
+    // Margin self-checks: the small target splits runs in each direction
+    // independently, so the tuple equalities below cannot hold vacuously.
+    assert!(
+        small_small.0 > default_default.0,
+        "A -> B runs must outgrow the small target: \
+         {} frames small vs {} default",
+        small_small.0,
+        default_default.0,
+    );
+    assert!(
+        small_small.1 > default_default.1,
+        "B -> A runs must outgrow the small target: \
+         {} frames small vs {} default",
+        small_small.1,
+        default_default.1,
+    );
 
     assert_eq!(
         small_default, small_small,
-        "the default-target side must encode at the exchanged minimum"
+        "side B advertises the default but must supply at the remote small \
+         minimum: under own-setting sizing this cell's b_to_a count would \
+         match the uniform-default cell's"
     );
     assert_eq!(
         default_small, small_small,
-        "the minimum must bind regardless of which side advertised it"
-    );
-    assert!(
-        small_small > default_default,
-        "the small target must genuinely split runs: \
-         {small_small} frames vs {default_default} at the default"
-    );
-    assert!(
-        small_small < zero_zero,
-        "a nonzero minimum must still batch: \
-         {small_small} frames vs {zero_zero} unbatched"
+        "side A advertises the default but must supply at the remote small \
+         minimum: under own-setting sizing this cell's a_to_b count would \
+         match the uniform-default cell's"
     );
 }
