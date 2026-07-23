@@ -82,9 +82,11 @@ admits — ~2 bits per node, depth ~n/4 for n bits — maximizing node
 count and recursion depth simultaneously.
 
 **bigroot(B, d).** A root with base `2^B − 1` over S(d) and a 0-leaf:
-`"1" · gamma(2^B − 1) · S(d) · "01"`, total `2B + 4d + 7` bits. Puts a
-B-bit magnitude on every root-to-node path sum while keeping paths
-long.
+`"1" · gamma(2^B − 1) · S(d) · "01"`, total `2B + 4d + 8` bits
+(amended 2026-07-22: originally stated `2B + 4d + 7`; the committed
+generator's length pin caught the off-by-one — `1` flag + `2B + 1`
+gamma + `4d + 4` spine + `2` leaf). Puts a B-bit magnitude on every
+root-to-node path sum while keeping paths long.
 
 **hugeleaf(B).** A single leaf of value `2^B − 1`: `2B + 2` bits, one
 node. Maximizes bit length per node.

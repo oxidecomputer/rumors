@@ -46,11 +46,12 @@ insta = "1"
 rayon = "1"
 # Progress bars for the long-running `space_consumption` example.
 indicatif = "0.17"
-# Self-dependency that turns on the `oracle` feature for benches (and tests): a
-# recognized Cargo idiom so `cargo bench` builds the lib with the oracle exposed
-# without needing `--features oracle`. Dev-dependency cycles are explicitly allowed,
-# and dev-dependencies never affect a normal `cargo build`, so production stays clean.
-before = { path = ".", features = ["oracle"] }
+# Self-dependency that turns on the `oracle` and `meter` features for benches
+# (and tests): a recognized Cargo idiom so `cargo bench`/`cargo nextest` build
+# the lib with the oracle and the metering instruments exposed without needing
+# `--features`. Dev-dependency cycles are explicitly allowed, and
+# dev-dependencies never affect a normal `cargo build`, so production stays clean.
+before = { path = ".", features = ["oracle", "meter"] }
 
 [features]
 default = []
@@ -62,6 +63,10 @@ doc-images = ["dep:embed-doc-image"]
 # Re-exports the reference oracle (`src/oracle.rs`) as `before::oracle`, so the benchmark
 # suite can time it against the optimized implementation. Bench/test-only.
 oracle = []
+# Exposes the adversarial input generators and deterministic resource meters
+# (`src/meter.rs`) as `before::meter`, so the metering test binaries can build
+# worst-case inputs and read the counters they envelope. Bench/test-only.
+meter = []
 
 [[bench]]
 name = "party"
