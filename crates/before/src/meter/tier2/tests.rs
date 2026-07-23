@@ -18,6 +18,7 @@ use crate::meter::{
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::compactness::{arb_comb_params, comb};
 use crate::testing::{generators, optrace};
+use crate::version::skyline;
 use crate::{oracle, Clock, Party, Version};
 
 use super::{tier2_size, Tier2Size};
@@ -34,7 +35,8 @@ use super::{tier2_size, Tier2Size};
 /// coded delta — 4 bits covers every term.
 const JOIN_MEET_BOUNDARY_SLACK_BITS: u64 = 4;
 
-/// Assert the join/meet 1-Lipschitz coding pin on one operand pair.
+/// Assert the join/meet 1-Lipschitz coding pin on one operand pair,
+/// under every emitter of record.
 ///
 /// The statement the board's input denomination of the packed-output
 /// mutators rests on: the output's coded size is at most the inputs' plus
@@ -44,7 +46,8 @@ const JOIN_MEET_BOUNDARY_SLACK_BITS: u64 = 4;
 fn check_join_meet_lipschitz(a: &Version, b: &Version) {
     let sa = tier2_size(a);
     let sb = tier2_size(b);
-    for (name, out) in [("join", a | b), ("meet", a & b)] {
+    for (name, emit) in EMITTERS {
+        let out = emit(a, b);
         let so = tier2_size(&out);
         assert!(
             so.leaves < sa.leaves + sb.leaves,
@@ -331,19 +334,57 @@ fn adversarial_crosses_hold_the_lipschitz_pin() {
 /// loosen.
 const JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS: u64 = 2;
 
-/// The packed-form join: the subadditivity pins' emitter of record.
+/// The emitters of record, named: join and meet, packed-form and
+/// skyline emission kernel.
 ///
 /// The pins are statements about an emitter's actual output, so every
-/// check below takes the emitter as a parameter: a skyline-native emission
-/// kernel re-instantiates the whole suite by passing its own join and meet
-/// entry points to [`check_subadditive`] in place of these two.
+/// check takes the emitter as a parameter and the suites below iterate
+/// this table — the skyline kernel re-instantiates each pin the
+/// packed-form operators established.
+#[allow(clippy::type_complexity)]
+const EMITTERS: [(&str, fn(&Version, &Version) -> Version); 4] = [
+    ("packed join", packed_join),
+    ("packed meet", packed_meet),
+    ("skyline join", skyline_join),
+    ("skyline meet", skyline_meet),
+];
+
+/// The packed-form join: the subadditivity pins' first emitter of record.
 fn packed_join(a: &Version, b: &Version) -> Version {
     a | b
 }
 
-/// The packed-form meet: the subadditivity pins' emitter of record.
+/// The packed-form meet: the subadditivity pins' first emitter of record.
 fn packed_meet(a: &Version, b: &Version) -> Version {
     a & b
+}
+
+/// The skyline emission kernel's join, through the transcoders.
+///
+/// Also asserts the emitted stream's exact length agreement with
+/// [`tier2_size`] on the result: the pins then price the kernel's own
+/// output stream, not merely the value it denotes.
+fn skyline_join(a: &Version, b: &Version) -> Version {
+    let out = skyline::emit::join(&skyline::encode(a), &skyline::encode(b));
+    let decoded = skyline::decode(&out.bytes, out.bits).expect("an emitted join is canonical");
+    assert_eq!(
+        out.bits as u64,
+        tier2_size(&decoded).total_bits,
+        "the emitted join stream must be exactly the canonical coded size"
+    );
+    decoded
+}
+
+/// The skyline emission kernel's meet, through the transcoders.
+fn skyline_meet(a: &Version, b: &Version) -> Version {
+    let out = skyline::emit::meet(&skyline::encode(a), &skyline::encode(b));
+    let decoded = skyline::decode(&out.bytes, out.bits).expect("an emitted meet is canonical");
+    assert_eq!(
+        out.bits as u64,
+        tier2_size(&decoded).total_bits,
+        "the emitted meet stream must be exactly the canonical coded size"
+    );
+    decoded
 }
 
 /// Assert the subadditivity lemma on one operand pair under one emitter.
@@ -371,10 +412,11 @@ fn check_subadditive(
 }
 
 /// Assert the subadditivity lemma for both join and meet on one operand
-/// pair, under the packed-form emitters of record.
+/// pair, under every emitter of record.
 fn check_join_meet_subadditive(a: &Version, b: &Version) {
-    check_subadditive("join", packed_join, a, b);
-    check_subadditive("meet", packed_meet, a, b);
+    for (name, emit) in EMITTERS {
+        check_subadditive(name, emit, a, b);
+    }
 }
 
 /// `2^bits - 1` as a [`Base`]: the all-ones magnitude of a given bit width.
@@ -415,15 +457,13 @@ fn magnitude_bits() -> impl Strategy<Value = usize> {
 }
 
 /// Join and meet of two empty versions sit exactly on the lemma's equality
-/// case: 2 output bits against 2 + 2 input bits, so the pinned savings
-/// margin is the strongest constant the lemma admits.
+/// case under every emitter of record: 2 output bits against 2 + 2 input
+/// bits, so the pinned savings margin is the strongest constant the lemma
+/// admits.
 #[test]
 fn empty_pair_is_the_subadditivity_equality_case() {
     let (a, b) = (Version::new(), Version::new());
-    for (name, emit) in [
-        ("join", packed_join as fn(&Version, &Version) -> Version),
-        ("meet", packed_meet as fn(&Version, &Version) -> Version),
-    ] {
+    for (name, emit) in EMITTERS {
         let so = tier2_size(&emit(&a, &b));
         assert_eq!(
             so.total_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS,
