@@ -1024,6 +1024,184 @@ fn skyline_cmp_wide_tooth_envelope() {
     );
 }
 
+// ─── skyline join/meet emission scenarios ───────────────────────────────────
+//
+// The emission sweep over the same adversarial families: pointwise
+// max/min re-delta-coded through the collapsing output builder, the
+// measured result held alive so every peak includes the emitted stream.
+// The columns carry the emission contract — zero grown segments (nothing
+// recurses), heap in the cursor paths, the builder's bit stacks, and the
+// output itself, limb work linear per input bit through the accumulator,
+// and scanned-plus-written bits linear in the streams. The absorb row is
+// the builder's collapse-heavy extreme: a flat dominating operand over
+// the dense spine collapses the whole output to one leaf, one truncation
+// per level around a held wide code — the shape whose cost a re-copying
+// collapse discipline would make quadratic in depth times code width.
+
+// The emission envelope table: pinned ceiling = measured ×1.25, rounded
+// up. The trailing comment on each line is the measurement of record
+// (2026-07-23, aarch64-apple-darwin, dev profile, three identical runs)
+// the ceiling derives from. Re-pin by rerunning under `--no-capture`
+// with `--all-features` and reading the MEASURED lines.
+#[rustfmt::skip]
+mod emit_env {
+    use super::{sweep_envelope, SweepEnvelope};
+    //                                                                peak heap, segments, limb ops,  scan bits            measured: peak heap, segments, limb ops, scan bits
+    pub const SKYLINE_JOIN_DENSE: SweepEnvelope      = sweep_envelope(  130_297,        0,   937_505,   625_018); //  104_237, 0, 750_004,   500_014
+    pub const SKYLINE_JOIN_ABSORB: SweepEnvelope     = sweep_envelope(  270_798,        0,   942_389, 1_250_013); //  216_638, 0, 753_911, 1_000_010
+    pub const SKYLINE_JOIN_BIGROOT: SweepEnvelope    = sweep_envelope(   89_710,        0,    76_583,   275_028); //   71_768, 0,  61_266,   220_022
+    pub const SKYLINE_JOIN_CLIFF: SweepEnvelope      = sweep_envelope(    5_512,        0,    25_869,    35_848); //    4_409, 0,  20_695,    28_678
+    pub const SKYLINE_JOIN_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  128_312,        0,    74_477, 2_000_963); //  102_649, 0,  59_581, 1_600_770
+    pub const SKYLINE_MEET_CLIFF: SweepEnvelope      = sweep_envelope(    5_002,        0,    18_020,    23_055); //    4_001, 0,  14_416,    18_444
+    pub const SKYLINE_MEET_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  127_732,        0,    39_767, 1_005_613); //  102_185, 0,  31_813,   804_490
+}
+
+/// The one-tick version's skyline stream: the shallow operand of the
+/// family join/meet scenarios, mirroring the packed-form join rows.
+fn skyline_one_tick() -> meter::skyline::Encoded {
+    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    meter::skyline::encode(&one)
+}
+
+/// One family shape and the packed-form oracle's answer against the
+/// one-tick version, both as skyline streams built outside measurement,
+/// so every scenario asserts byte-identity after its sweep.
+fn skyline_oracle(
+    p: &meter::Packed,
+    join: bool,
+) -> (meter::skyline::Encoded, meter::skyline::Encoded) {
+    let v = version_of(p);
+    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let out = if join { &v | &one } else { &v & &one };
+    (meter::skyline::encode(&v), meter::skyline::encode(&out))
+}
+
+/// Joining the dense spine's skyline with a one-tick stream stays within
+/// its envelope: the 125k-level walk emits and collapses on path-bit
+/// stacks and one accumulator, with zero grown segments and the peak in
+/// the emitted stream itself.
+#[test]
+fn skyline_join_dense_envelope() {
+    let p = meter::dense(DENSE_DEPTH);
+    let (a, expected) = skyline_oracle(&p, true);
+    let b = skyline_one_tick();
+    let out = sweep_metered(
+        "skyline_join_dense",
+        sweep_input_bytes(&a, &b),
+        &emit_env::SKYLINE_JOIN_DENSE,
+        || meter::skyline::emit::join(&a, &b),
+    );
+    assert_eq!(out, expected, "the emitted join must match the oracle");
+}
+
+/// Joining the dense spine's skyline with a dominating flat operand
+/// stays within its envelope: the whole output collapses to one leaf
+/// through 125k absorb steps around a held 125k-bit code, so this row
+/// is linear only because absorb never moves the held code.
+#[test]
+fn skyline_join_absorb_envelope() {
+    let p = meter::dense(DENSE_DEPTH);
+    let flat = version_of(&meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS));
+    let a = skyline_of(&p);
+    let b = meter::skyline::encode(&flat);
+    let expected = b.clone();
+    let out = sweep_metered(
+        "skyline_join_absorb",
+        sweep_input_bytes(&a, &b),
+        &emit_env::SKYLINE_JOIN_ABSORB,
+        || meter::skyline::emit::join(&a, &b),
+    );
+    assert_eq!(out, expected, "a dominating flat operand is the whole join");
+}
+
+/// Joining bigroot's skyline with a one-tick stream stays within its
+/// envelope: the wide first height is absorbed once, paid by its own
+/// code, and every later delta is small.
+#[test]
+fn skyline_join_bigroot_envelope() {
+    let p = meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
+    let (a, expected) = skyline_oracle(&p, true);
+    let b = skyline_one_tick();
+    let out = sweep_metered(
+        "skyline_join_bigroot",
+        sweep_input_bytes(&a, &b),
+        &emit_env::SKYLINE_JOIN_BIGROOT,
+        || meter::skyline::emit::join(&a, &b),
+    );
+    assert_eq!(out, expected, "the emitted join must match the oracle");
+}
+
+/// Joining the boundary comb's skyline with a one-tick stream stays
+/// within its envelope: every 3-bit `±1` delta re-emits across the
+/// `2^k` carry boundary, and the accumulator keeps each crossing
+/// amortized O(1).
+#[test]
+fn skyline_join_cliff_envelope() {
+    let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
+    let (a, expected) = skyline_oracle(&p, true);
+    let b = skyline_one_tick();
+    let out = sweep_metered(
+        "skyline_join_cliff",
+        sweep_input_bytes(&a, &b),
+        &emit_env::SKYLINE_JOIN_CLIFF,
+        || meter::skyline::emit::join(&a, &b),
+    );
+    assert_eq!(out, expected, "the emitted join must match the oracle");
+}
+
+/// Joining the wide-tooth comb's skyline with a one-tick stream stays
+/// within its envelope: each `±2^w` delta is a genuinely wide operand
+/// re-coded into the output, paid by its own zigzag code.
+#[test]
+fn skyline_join_wide_tooth_envelope() {
+    let p = meter::wide_tooth_comb(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let (a, expected) = skyline_oracle(&p, true);
+    let b = skyline_one_tick();
+    let out = sweep_metered(
+        "skyline_join_wide_tooth",
+        sweep_input_bytes(&a, &b),
+        &emit_env::SKYLINE_JOIN_WIDE_TOOTH,
+        || meter::skyline::emit::join(&a, &b),
+    );
+    assert_eq!(out, expected, "the emitted join must match the oracle");
+}
+
+/// Meeting the boundary comb's skyline with a one-tick stream stays
+/// within its envelope: the output collapses to the flat one-tick leaf
+/// through the absorb cascade while every comb delta still crosses the
+/// carry boundary in the accumulator.
+#[test]
+fn skyline_meet_cliff_envelope() {
+    let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
+    let (a, expected) = skyline_oracle(&p, false);
+    let b = skyline_one_tick();
+    let out = sweep_metered(
+        "skyline_meet_cliff",
+        sweep_input_bytes(&a, &b),
+        &emit_env::SKYLINE_MEET_CLIFF,
+        || meter::skyline::emit::meet(&a, &b),
+    );
+    assert_eq!(out, expected, "the emitted meet must match the oracle");
+}
+
+/// Meeting the wide-tooth comb's skyline with a one-tick stream stays
+/// within its envelope: wide deltas are folded but never re-emitted
+/// (the flat side wins everywhere), so the collapse discipline runs at
+/// spilled operand widths.
+#[test]
+fn skyline_meet_wide_tooth_envelope() {
+    let p = meter::wide_tooth_comb(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let (a, expected) = skyline_oracle(&p, false);
+    let b = skyline_one_tick();
+    let out = sweep_metered(
+        "skyline_meet_wide_tooth",
+        sweep_input_bytes(&a, &b),
+        &emit_env::SKYLINE_MEET_WIDE_TOOTH,
+        || meter::skyline::emit::meet(&a, &b),
+    );
+    assert_eq!(out, expected, "the emitted meet must match the oracle");
+}
+
 // ─── skyline cliff-immunity flatness ────────────────────────────────────────
 //
 // The cross-scale witness that the validator's nonnegativity state is
