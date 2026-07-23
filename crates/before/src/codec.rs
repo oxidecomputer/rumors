@@ -18,6 +18,8 @@ mod tree;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "limb-meter")]
+pub(crate) use base::limb_meter;
 pub use base::Base;
 pub(crate) use bits::{
     bytes_as_bits, pack_to_writer, require_zero_padding, zero_dead_bits, Bits, BitsSlice,

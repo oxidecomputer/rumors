@@ -1,8 +1,9 @@
 //! Adversarial input generators and deterministic resource meters.
 //!
 //! This module is the measurement half of the crate's resource-proportionality
-//! work: transient cost — peak heap, stack segments — as a function of packed
-//! input size, with no bound on value magnitude, tree depth, or encoded size.
+//! work: transient cost — peak heap, stack segments, big-integer limb work —
+//! as a function of packed input size, with no bound on value magnitude, tree
+//! depth, or encoded size.
 //! The generators below build the canonical packed encodings that maximize
 //! each cost against its input size; the meters read the deterministic
 //! counters the envelopes are pinned against. Public under the `meter`
@@ -176,6 +177,28 @@ pub fn stack_segments() -> u64 {
 /// Reset the grown-segment counter behind [`stack_segments`] to zero.
 pub fn reset_stack_segments() {
     crate::recurse::reset_segments_grown()
+}
+
+/// The big-integer limb operations counted since the last [`reset_limb_ops`].
+///
+/// The deterministic stand-in for arithmetic-width cost, which no other meter
+/// can see: a magnitude blowup allocates little and visits no extra nodes —
+/// the work is wider, not more frequent. The count is the operands' 64-bit
+/// limb counts per `Base` arithmetic operation plus one accumulator-width
+/// record per wide-gamma decode step, so an amortized-linear algorithm counts
+/// linearly in packed input bits and a magnitude-quadratic one counts
+/// quadratically. Process-global, same isolation requirement as
+/// [`stack_segments`]; only compiled under the `limb-meter` feature, which
+/// adds the counting to the arithmetic itself.
+#[cfg(feature = "limb-meter")]
+pub fn limb_ops() -> u64 {
+    crate::codec::limb_meter::limb_ops()
+}
+
+/// Reset the limb-operation counter behind [`limb_ops`] to zero.
+#[cfg(feature = "limb-meter")]
+pub fn reset_limb_ops() {
+    crate::codec::limb_meter::reset()
 }
 
 #[cfg(test)]
