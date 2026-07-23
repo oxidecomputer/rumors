@@ -1,0 +1,291 @@
+//! The canonical skyline output builder: append one leaf per plateau,
+//! collapse equal sibling leaves by truncation.
+//!
+//! An emitter drives this builder with the output's leaf sequence in
+//! preorder — each call one plateau, as a depth and a payload code — and
+//! gets back a canonical stream: the preorder leaf depths of a dyadic
+//! tiling determine the tree, so the builder derives every topology flag
+//! itself, and the one normalization the coding leaves (an internal node
+//! whose two children are equal-height leaves — a zero right-sibling
+//! delta) it performs as it closes each node. Both collapse repairs are
+//! subtractive, on the [`PackedBuilder`] move set:
+//!
+//! - **Absorb** (the pair's right leaf arrives): the incoming delta code
+//!   is 1 bit exactly when the delta is zero — `gamma(zigzag(0))` is the
+//!   lone 1-bit code — so a zero-delta right sibling of a held left leaf
+//!   is recognized before anything is written, absorbed, and the pair's
+//!   parent flag truncated off the stream. The held leaf's own code is
+//!   untouched: its delta is against a predecessor outside the pair, and
+//!   the merged leaf has the same height and the same predecessor.
+//! - **Re-anchor** (the pair's right leaf is the merge of a whole
+//!   subtree): the merged leaf's zero delta says it equals the completed
+//!   left sibling leaf, so the pair truncates back over that sibling's
+//!   code — parent flag, leaf flag, code — and the sibling's code is
+//!   copied out first to become the held leaf's. Each copied bit is a
+//!   bit being truncated, so the copy is paid by the deletion.
+//!
+//! Cascading is the loop over re-anchor: a merged leaf may in turn be a
+//! zero-delta right sibling one level up. Each cascade step deletes at
+//! least three stream bits and copies only a code already priced by that
+//! deletion, so emission stays amortized O(1) per output bit; the wide
+//! code a deep uniform region telescopes onto is *held*, never re-copied
+//! (the absorb repair moves no code bits at all, whatever the held
+//! width).
+//!
+//! # The held leaf
+//!
+//! The most recent leaf is held out of the stream — flag and code — until
+//! the next leaf's arrival decides whether it flushes or merges; the
+//! stream itself always ends with the held leaf's preorder predecessor.
+//! Holding the code is what makes absorb O(1): a deep uniform region
+//! collapses by truncating one parent flag per level around a held code
+//! that never moves, where a flushed code would shift left by one bit per
+//! level — quadratic on exactly the join shapes (a flat operand raised
+//! over a deep one) that collapse everywhere.
+//!
+//! # Transient state
+//!
+//! Bits per open ancestor, and nothing per node: the branch-direction
+//! path, one is-the-left-sibling-a-leaf bit per level, and — for the
+//! levels where that left sibling *is* a leaf — its code's length on a
+//! pop-able bit stack ([`LenStack`], ~2·log₂(length) bits per entry), the
+//! coordinate re-anchor truncates to. The resource-envelope suite
+//! (`tests/meter.rs`, the `skyline_join_*` rows) pins the whole
+//! emission's transient against these bounds.
+
+use crate::codec::{Bits, PackedBuilder};
+
+/// The 1-bit payload code: `gamma(zigzag(0))`, the zero delta.
+///
+/// Gamma codes spend `2·floor(log2(m + 1)) + 1` bits on a mapped value
+/// `m`, so one bit is exactly the code for zero — the recognition the
+/// collapse checks ride on.
+const ZERO_DELTA_CODE_BITS: usize = 1;
+
+/// A canonical-skyline stream builder driven by the output leaf sequence.
+///
+/// Create with [`with_capacity`](Self::with_capacity), feed every plateau
+/// in preorder through [`leaf`](Self::leaf), and take the canonical
+/// stream with [`finish`](Self::finish). The module doc carries the
+/// collapse discipline and the cost argument.
+pub(super) struct SkylineBuilder {
+    out: PackedBuilder,
+    /// The held leaf's payload code (the module doc's *held leaf*);
+    /// `None` only before the first leaf arrives.
+    held: Option<Bits>,
+    /// Root-to-held-leaf branch directions: `false` inside a left child,
+    /// `true` inside a right.
+    path: Bits,
+    /// Parallel to `path`: at a right-branch level, whether the completed
+    /// left sibling is a single leaf (the collapse precondition); a
+    /// placeholder `false` at left-branch levels.
+    left_leaf: Bits,
+    /// Code lengths of the left-sibling leaves, one entry per
+    /// right-branch level whose `left_leaf` bit is set, deepest last.
+    lens: LenStack,
+}
+
+impl SkylineBuilder {
+    /// Create a builder with room for `capacity` output bits.
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        SkylineBuilder {
+            out: PackedBuilder::with_capacity(capacity),
+            held: None,
+            path: Bits::new(),
+            left_leaf: Bits::new(),
+            lens: LenStack::new(),
+        }
+    }
+
+    /// Append the next plateau: a leaf at `depth` whose payload is `code`.
+    ///
+    /// `depth` is the leaf's tree depth (its plateau has width
+    /// `2^-depth`), and `code` its complete payload — the absolute gamma
+    /// code for the first leaf, the zigzag-gamma delta code for every
+    /// later one. The leaf sequence must be the preorder tiling of one
+    /// tree: each new depth must be reachable from the last by the forced
+    /// flip-and-descend, which the builder debug-asserts.
+    pub(super) fn leaf(&mut self, depth: usize, code: Bits) {
+        debug_assert!(!code.is_empty(), "a leaf payload code is never empty");
+        let Some(held) = self.held.take() else {
+            // The first leaf: the leftmost path, one flag per ancestor.
+            self.descend_to(depth);
+            self.held = Some(code);
+            return;
+        };
+
+        // The incoming leaf is the held leaf's direct right sibling
+        // exactly when the held leaf is a left child at the same depth.
+        // A zero delta there is the collapsible pair: absorb the incoming
+        // leaf, truncate the pair's parent flag (the stream's last bit,
+        // since the parent is the held left child's preorder
+        // predecessor), and let the merge cascade.
+        if depth == self.path.len()
+            && self.path.last().map(|bit| !*bit).unwrap_or(false)
+            && code.len() == ZERO_DELTA_CODE_BITS
+        {
+            self.out.truncate(self.out.len() - 1);
+            self.path.pop();
+            self.left_leaf.pop();
+            self.held = Some(held);
+            self.cascade();
+            return;
+        }
+
+        // Flush the held leaf and place the incoming one.
+        let flushed_len = held.len();
+        self.out.push_bit(false);
+        self.out.splice(&held);
+        // Close the ancestors the flushed leaf completed: pop the
+        // trailing right-branch levels, retiring their left-sibling
+        // records, then flip the deepest left branch to its right child.
+        let mut popped_rights = 0usize;
+        loop {
+            match self.path.pop() {
+                Some(true) => {
+                    if self.left_leaf.pop() == Some(true) {
+                        self.lens.pop();
+                    }
+                    popped_rights += 1;
+                }
+                Some(false) => {
+                    self.left_leaf.pop();
+                    break;
+                }
+                None => panic!("a leaf arrived after the final plateau: the tiling is complete"),
+            }
+        }
+        // The subtree completed at the flip level is a single leaf
+        // exactly when the flushed leaf was itself the left child there.
+        let left_is_leaf = popped_rights == 0;
+        self.path.push(true);
+        self.left_leaf.push(left_is_leaf);
+        if left_is_leaf {
+            self.lens.push(flushed_len);
+        }
+        debug_assert!(
+            depth >= self.path.len(),
+            "a leaf depth above its forced flip level: the input is not one preorder tiling"
+        );
+        self.descend_to(depth);
+        self.held = Some(code);
+    }
+
+    /// Take the finished canonical stream.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no leaf was ever appended.
+    pub(super) fn finish(mut self) -> Bits {
+        let held = self
+            .held
+            .take()
+            .expect("a skyline stream has at least one leaf");
+        self.out.push_bit(false);
+        self.out.splice(&held);
+        debug_assert!(
+            self.path.iter().all(|bit| *bit),
+            "the final leaf closes every open ancestor from the right"
+        );
+        self.out.finish()
+    }
+
+    /// Merge the held leaf upward while it is a zero-delta right sibling
+    /// of a completed left-sibling leaf (the module doc's *re-anchor*).
+    fn cascade(&mut self) {
+        loop {
+            let held = self.held.as_ref().expect("cascade runs with a held leaf");
+            // The held delta must be zero, the held leaf a right child,
+            // and that level's left sibling a single leaf.
+            if held.len() != ZERO_DELTA_CODE_BITS
+                || !self.path.last().map(|bit| *bit).unwrap_or(false)
+                || !self.left_leaf.last().map(|bit| *bit).unwrap_or(false)
+            {
+                return;
+            }
+            // The stream ends with the pair's prefix: parent flag, left
+            // leaf flag, left leaf code. The merged leaf keeps the left
+            // code — same height, same predecessor — and the pair leaves
+            // the stream; each copied bit is one being truncated.
+            let code_len = self.lens.pop();
+            let code = self.out.extract(self.out.len() - code_len);
+            self.out.truncate(self.out.len() - code_len - 2);
+            self.path.pop();
+            self.left_leaf.pop();
+            self.held = Some(code);
+        }
+    }
+
+    /// Descend left from the current path to a leaf at `depth`, emitting
+    /// one internal-node flag per level entered.
+    fn descend_to(&mut self, depth: usize) {
+        for _ in self.path.len()..depth {
+            self.out.push_bit(true);
+            self.path.push(false);
+            self.left_leaf.push(false);
+        }
+    }
+}
+
+/// A pop-able stack of code lengths, held as bits rather than words.
+///
+/// Each entry costs `2·w` bits for a `w`-bit length: the value's bits on
+/// one stack, and `w` in pop-able unary — a terminator under `w − 1`
+/// continuation bits — on the other. Depth therefore costs bits here the
+/// same way it does in the path stacks, keeping the builder's transient
+/// state free of a per-level machine word.
+struct LenStack {
+    /// Width markers: for each entry, one `false` under `w − 1` `true`s.
+    unary: Bits,
+    /// Value bits, most-significant pushed first so pops read the value
+    /// least-significant first.
+    value: Bits,
+}
+
+impl LenStack {
+    fn new() -> Self {
+        LenStack {
+            unary: Bits::new(),
+            value: Bits::new(),
+        }
+    }
+
+    /// Push a nonzero length.
+    fn push(&mut self, len: usize) {
+        debug_assert!(len > 0, "payload codes are never empty");
+        let width = usize::BITS - len.leading_zeros();
+        for i in (0..width).rev() {
+            self.value.push(len >> i & 1 == 1);
+        }
+        self.unary.push(false);
+        for _ in 1..width {
+            self.unary.push(true);
+        }
+    }
+
+    /// Pop the most recently pushed length.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stack is empty.
+    fn pop(&mut self) -> usize {
+        let mut width = 0u32;
+        loop {
+            let continuation = self.unary.pop().expect("length stack underflow");
+            width += 1;
+            if !continuation {
+                break;
+            }
+        }
+        let mut len = 0usize;
+        for i in 0..width {
+            if self.value.pop().expect("length stack value bits underflow") {
+                len |= 1 << i;
+            }
+        }
+        len
+    }
+}
+
+#[cfg(test)]
+mod tests;
