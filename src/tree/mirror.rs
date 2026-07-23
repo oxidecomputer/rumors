@@ -41,7 +41,7 @@ impl<C, S> Error<C, S> {
     /// The same fault, seen from the counterparty's frame.
     ///
     /// The drivers run the descent in initiator/responder order regardless of
-    /// which side is the local client; when the version tiebreak swaps the
+    /// which side is the local client; when the role election swaps the
     /// roles, the error's sides swap back with it.
     pub(crate) fn flip(self) -> Error<S, C> {
         match self {
@@ -59,8 +59,8 @@ impl<C, S> Error<C, S> {
 /// its session at the *frame-relative* instantiation with its own error
 /// first, so `?` lifts either party's backend errors through this one impl,
 /// and the party boundary [flips](Error::flip) errors between frames as they
-/// cross (the same flip the drivers apply when the version tiebreak swaps
-/// the roles).
+/// cross (the same flip the drivers apply when the role election swaps the
+/// roles).
 impl<C, S> From<C> for Error<C, S> {
     fn from(client: C) -> Self {
         Error::Client(client)

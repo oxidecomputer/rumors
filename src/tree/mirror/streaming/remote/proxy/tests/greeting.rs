@@ -78,7 +78,8 @@ fn carried_listing_converges_with_right_initiator() {
 }
 
 /// Order a divergent pair so the first returned root is the one the session
-/// will elect initiator (the greater causal version in canonical bytes).
+/// will elect initiator (the smaller live set; ties fall back to the greater
+/// causal version in canonical bytes).
 fn order_by_election(
     a: crate::tree::Root<()>,
     b: crate::tree::Root<()>,
@@ -88,7 +89,14 @@ fn order_by_election(
         b.ceiling.as_bytes(),
         "a divergent fixture must elect deterministically"
     );
-    if a.ceiling.as_bytes() > b.ceiling.as_bytes() {
+    let len = |root: &crate::tree::Root<()>| {
+        root.root
+            .as_ref()
+            .map(|node| node.len() as u64)
+            .unwrap_or_default()
+    };
+    if crate::tree::mirror::streaming::message::initiates(len(&a), &a.ceiling, len(&b), &b.ceiling)
+    {
         (a, b)
     } else {
         (b, a)
@@ -97,35 +105,24 @@ fn order_by_election(
 
 /// An empty-tree initiator's carried listing is empty and asks for everything.
 ///
-/// The tree is empty but the version is not (everything was redacted), so
-/// this side still wins the election; its greeting carries an *empty*
-/// listing, which the responder reads as the empty opening query — "I lack
-/// the root, send everything" — and the session converges on the
-/// responder's content.
+/// The tree is empty but the version is not (everything was redacted). An
+/// empty set is smaller than any populated one, so this side wins the
+/// initiator election; its greeting carries an *empty* listing, which the
+/// responder reads as the empty opening query — "I lack the root, send
+/// everything" — and the session converges on the responder's content.
 #[test]
 fn empty_carried_listing_asks_for_everything() {
     // The populated responder: one message on party 0.
     let mut populated = Tree::new();
     populated.act(&nth_party(0), [Action::Insert(Message::new(()))]);
 
-    // The emptied initiator: insert-then-forget on party 1 until its ceiling
-    // outranks the populated peer's in the canonical-bytes election. Each
-    // round ticks the version while redaction keeps the tree empty, so the
-    // bounded search only ever varies the ceiling.
+    // The emptied initiator: insert-then-forget on party 1 ticks its version
+    // while redaction keeps the tree (and so its advertised set) empty.
     let mut emptied = Tree::new();
-    for _ in 0..16 {
-        emptied.act(&nth_party(1), [Action::Insert(Message::new(()))]);
-        let keys: Vec<_> = emptied.iter().map(|(key, _, _)| key).collect();
-        emptied.act(&nth_party(1), keys.into_iter().map(Action::Forget));
-        if emptied.latest().as_bytes() > populated.latest().as_bytes() {
-            break;
-        }
-    }
+    emptied.act(&nth_party(1), [Action::Insert(Message::new(()))]);
+    let keys: Vec<_> = emptied.iter().map(|(key, _, _)| key).collect();
+    emptied.act(&nth_party(1), keys.into_iter().map(Action::Forget));
     assert!(emptied.is_empty(), "the initiator's tree must be empty");
-    assert!(
-        emptied.latest().as_bytes() > populated.latest().as_bytes(),
-        "the emptied side must win the initiator election"
-    );
 
     let expected = {
         let mut union = populated.clone();
@@ -177,10 +174,12 @@ fn converged_session_carries_listings_unused() {
     }
 }
 
-/// A genuinely pristine peer (empty tree, identity version) against a
-/// populated one: the populated side wins the election, its carried listing
-/// is answered by the empty responder, and both converge on the populated
-/// content.
+/// A genuinely pristine peer (empty tree, identity version) converges
+/// against a populated one.
+///
+/// The pristine side wins the election (the smaller set initiates), its
+/// empty carried listing asks for everything, and both sides converge on
+/// the populated content shipped whole by the responder.
 #[test]
 fn mixed_empty_and_populated_converges() {
     let empty = Tree::<()>::new();
@@ -189,9 +188,10 @@ fn mixed_empty_and_populated_converges() {
         &nth_party(0),
         (0..4).map(|_| Action::Insert(Message::new(()))),
     );
-    assert!(
-        populated.latest().as_bytes() > empty.latest().as_bytes(),
-        "the populated side must win the initiator election"
+    assert_ne!(
+        populated.latest().as_bytes(),
+        empty.latest().as_bytes(),
+        "the fixture must diverge so an election happens at all"
     );
 
     let expected = populated.hash();

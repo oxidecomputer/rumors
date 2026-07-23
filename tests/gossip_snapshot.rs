@@ -57,9 +57,10 @@ fn empty_pair_converges_immediately() {
 }
 
 /// One side holds two messages, the other is an empty peer in the same
-/// universe. Captures the one-directional flow: the populated peer ships its
-/// content and the empty peer requests and receives it, with nothing of
-/// substance flowing the other way.
+/// universe. Captures the one-directional flow: the empty peer initiates
+/// (the smaller set wins the election) and its empty greeting listing asks
+/// for everything, so the populated responder ships its root children as
+/// whole height-31 supplies while nothing of substance flows the other way.
 #[test]
 fn one_sided_transfer() {
     let (a, b) = block_on(async {
@@ -76,9 +77,11 @@ fn one_sided_transfer() {
 
 /// Values whose two messages, batch-sent in this order into the seeded
 /// universe of [`batched_supply_run`], produce keys sharing their first two
-/// bytes (`67 99`; found by search over the second value). The empty peer's
-/// side of the dispute resolves one level under the root, so sharing two
-/// leading bytes places both leaves inside one supplied height-30 subtree.
+/// bytes (`67 99`; found by search over the second value). The populated
+/// responder ships its root children as whole height-31 supplies, so the
+/// shared leading byte places both leaves inside one supplied subtree (the
+/// two-byte collision is stronger than that supply needs, and keeps the
+/// pair inside one subtree at height 30 as well).
 const COLLIDING_VALUES: (u64, u64) = (1, 15123);
 
 /// One supplied subtree holding two leaves pins a batched run on the wire.

@@ -138,18 +138,33 @@ pub(super) fn asks(p: Party, height: usize) -> bool {
 }
 
 /// The role the client (the driver's first argument) will play against
-/// `server`: a mirror of `streaming.rs::descend`'s canonical-byte tiebreak.
+/// `server`: a mirror of `streaming.rs::descend`'s election (the smaller
+/// set initiates, canonical version bytes break ties).
 ///
 /// # Panics
 ///
 /// If the advertised versions are equal: such a session short-circuits
 /// without descending, so it has no skeleton to talk about.
 pub(super) fn client_role<T>(client: &TreeRoot<T>, server: &TreeRoot<T>) -> Party {
-    match server.ceiling.as_bytes().cmp(client.ceiling.as_bytes()) {
-        std::cmp::Ordering::Less => Party::I,
-        std::cmp::Ordering::Greater => Party::R,
-        std::cmp::Ordering::Equal => panic!("equal versions short-circuit the descent"),
+    if crate::tree::mirror::streaming::message::initiates(
+        advertised_len(client),
+        &client.ceiling,
+        advertised_len(server),
+        &server.ceiling,
+    ) {
+        Party::I
+    } else {
+        Party::R
     }
+}
+
+/// The live message count a root advertises in its greeting: the election's
+/// primary key.
+fn advertised_len<T>(root: &TreeRoot<T>) -> u64 {
+    root.root
+        .as_ref()
+        .map(|node| node.len() as u64)
+        .unwrap_or_default()
 }
 
 // ------------------------------------------------------------ the projection
