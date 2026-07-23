@@ -22,6 +22,10 @@
 pub mod board;
 pub mod tier2;
 
+/// The cliff-immune signed accumulator, re-exported so the resource-envelope
+/// suite can drive its delta streams and pin its digit-touch cost.
+pub use crate::codec::accum;
+
 use crate::codec::{self, Base, Bits};
 
 /// A generator's output: canonical packed bytes plus the exact bit length.
