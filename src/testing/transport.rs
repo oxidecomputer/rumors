@@ -490,8 +490,8 @@ fn wrap_write<W>(write: W, state: Arc<Mutex<State>>) -> AdversarialWrite<W> {
 ///
 /// Delay schedules and fault thresholds count operations across all of the
 /// side's streams in poll order, so a single plan exercises (or fails)
-/// whichever surface reaches the threshold first — exactly the coverage the
-/// single-pipe wrapper provided when every stream shared one pipe.
+/// whichever surface reaches the threshold first — the same single-threshold
+/// coverage [`wrap_io`] gives one ordered pipe, extended over a whole link.
 pub fn wrap_link<CR, CW, C, A>(
     side: Side,
     plan: IoPlan,
@@ -648,15 +648,14 @@ const REORDER_PATIENCE: u8 = 32;
 ///
 /// Every batch of two or more is a genuine inversion, recorded in the
 /// shared `reordered` counter so a test can assert the adversity's actual
-/// disposition instead of assuming it. (An earlier draft only drained
-/// arrivals already `Ready` under a noop-waker poll; under the
-/// deterministic scheduler a second arrival was never queued at that
-/// instant, so the decorator silently degenerated to pass-through — and
-/// nothing said so.)
+/// disposition instead of assuming it. The genuine wait is load-bearing: a
+/// decorator that only drains arrivals already `Ready` never sees a second
+/// arrival under the deterministic scheduler and silently degenerates to
+/// pass-through — which is exactly what the asserted counter makes loud.
 ///
 /// A sibling of the conformance suite's `ReversingAcceptor`
-/// (`src/conformance/tests.rs`), duplicated so this crate-internal seam does
-/// not depend on the public `conformance` feature.
+/// (`src/conformance/link/tests.rs`), duplicated so this crate-internal seam
+/// does not depend on the public `conformance` feature.
 pub struct ReorderingAcceptor<A: crate::link::Acceptor> {
     inner: A,
     held: VecDeque<A::Rx>,
@@ -687,8 +686,12 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
                     self.held.push_front(rx);
                     patience = REORDER_PATIENCE;
                 }
-                // Errored: stop batching and release what is held; a real
-                // error resurfaces from the next accept call.
+                // Errored: stop batching and release what is held.
+                // Swallowing the error is sound for the memory-backed
+                // acceptors this decorator wraps, whose errors are
+                // persistent (a closed supply errors on every later
+                // accept, so the next call resurfaces it); the decorator
+                // is not built for acceptors with one-shot errors.
                 Poll::Ready(Err(_)) => break,
                 Poll::Pending => {
                     let Some(remaining) = patience.checked_sub(1) else {
