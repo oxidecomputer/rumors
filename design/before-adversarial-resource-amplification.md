@@ -1328,9 +1328,50 @@ not regressed (improvement expected at P1 and P3).
   warning (`parse_ev_from`, `parse_id_from` in `codec`) visible to
   downstream consumers though hidden from the all-features workspace
   gate. Feature-gate the imports.
-- `Rank`'s exponent-alignment shifts allocate ~tree-depth bits —
+- Amended 2026-07-23 (Rank audit): this entry originally read
+  "`Rank`'s exponent-alignment shifts allocate ~tree-depth bits —
   linear, acceptable; the meter should cover `rank`/`distance`/`lag`
-  to keep it that way.
+  to keep it that way" — true of the single-op alignments and false
+  of the fold that produces them. **The rank fold's plain-bignum
+  accumulator is quadratic: V6.** The harmonic spine H(d) — d
+  internal nodes `(0, ·, 1)` bottoming in `(0, 0, 1)`, canonical at
+  `6d + 2` wire bits — has rank `(2^d − 1)/2^d`, so the fold's
+  running numerator crosses every width from 1 to d and each level's
+  exponent-alignment shift-and-add walks the full accumulator:
+  Θ(d²) limb work from Θ(d) wire bits against a Θ(d)-bit mandatory
+  output **[measured** — scratch probe, release, inputs round-tripped
+  through strict decode: limb ops 33.8M → 134.7M → 537.9M at
+  d = 32Ki/64Ki/128Ki, ratio 3.99 per input doubling; wall
+  12.9 → 44.1 → 164 ms; peak heap linear at ~0.5 B per wire
+  bit**]**. `distance`/`lag` inherit it through their rank calls;
+  `min_ticks` (u64 fold) does not. It is not V3 — H(d) contains no
+  wide gammas — and no §2 family can see it (dense keeps the
+  numerator at one limb, bigroot's magnitude sits at the root,
+  hugeleaf has no depth), so H(d) joins the generators and the rank
+  rows join the enforced envelopes. The cure is P3.6's delta-algebra
+  kernel with its accumulator requirement made load-bearing: the
+  telescoped rank sum runs on the §8.1/P3.2 balanced signed-digit
+  form, under today's coding as under Tier 2, with H(d) as the
+  regression witness — a plain-bignum telescoped fold re-imports the
+  quadratic. The rest of the Rank surface is clean **[measured]**:
+  `cmp`/`checked_sub`/`+` materialize Θ(exp) transient bits
+  (62.5 KB → 250 KB across exp = 5×10⁵ → 10⁶, doubling exactly) —
+  four thousand times the 32-byte operands, but linear in the
+  operands' value content `bits(num) + exp`, which every public
+  construction path bounds by the producing wire (exp ≤ depth ≤
+  wire/4; num bits ≤ exp + max-path-sum bits; addition and
+  subtraction never raise exp above their inputs') — the §10.6
+  stored-bits-don't-bound-content genre in miniature, priced
+  honestly; Rank rows on the board denominate against value content
+  accordingly. §10.6's delta algebra covers Rank *production* only,
+  and that is enough: a produced rank's content stays wire-bounded
+  even under Tier 2 (a sum's width is max magnitude + depth + log
+  leaf-count, each term wire-bounded — the comb's Θ(nk) leaf content
+  aggregates to a Θ(n + k)-bit rank), so Rank-vs-Rank arithmetic
+  needs no Tier 2 mechanism. One edge **[derived]**: `rank_rec`'s
+  u32 exponent wraps silently past depth 2^32 (≥ 2 GiB of wire); a
+  checked add converts a wrong answer into a panic under the
+  no-depth-bound contract.
 - `min_ticks` (saturating u64 fold), `Route` (bit-vector), and
   `split` are already invariant-clean.
 
@@ -2218,3 +2259,47 @@ the flip, in the same commit as their re-pin. The full-surface
 measurability constraint (§14) is read as three-legged from here on:
 dual-oracle proptests, a resource pin, and a representation pin per
 exposed type.
+
+### 17.7 Rank parity scope (recorded 2026-07-23, from the Rank audit)
+
+The V6 finding (§15 amendment) and the Rank coverage gaps attach to
+the plan as follows; the Rank-representation ideation (compactness;
+green field — Rank has no serialized surface today) reports
+separately before anything beyond this scope is planned.
+
+- **Generators**: `meter::harmonic(d)` (H(d), `6d + 2` bits,
+  closed-form pin) joins the §2 families. Adversarial Rank pairs are
+  built through the public API only: dense-derived max-exp ranks ×
+  exp-0 ranks; harmonic-derived max-width numerators; bigroot-derived
+  wide integer parts.
+- **Board** (P3.6b): the rank/distance/lag/min_ticks rows gain the
+  harmonic family; a new `rank_pair_ops` row (cmp + checked_sub +
+  add on the mismatched-exponent pair) replaces the drowned
+  "runs inside distance/lag rows" NA rationale; the board doc
+  records Rank's denominator of record — value content
+  `bits(num) + exp`, wire-bounded via the audit's construction-path
+  bound. `version_rank × harmonic` lands red (limb exponent ~2.0),
+  an honest baseline retired at P3.6.
+- **Envelopes** (tests/meter.rs): RANK_HARMONIC (d = 65,536),
+  RANK_DENSE (control), RANK_BIGROOT, RANK_PAIR_MISMATCH
+  (d = 500,000) — discharging §15's meter note in the enforced
+  suite, current-cost ×1.25 convention.
+- **Proptests** (P3.6b): distance/lag dual-oracle differentials
+  (tree oracle pins the arithmetic; semantic Riemann-sum oracle pins
+  the meaning); Rank monoid and order self-laws (associativity,
+  commutativity, identity, add-monotonicity, checked_sub inverse
+  and `Some ⟺ rhs ≤ self`, `Sum == fold`); a cross-path
+  normalization/Hash witness.
+- **Benches** (P3.6): rank/distance/lag × {dense, bigroot, harmonic,
+  benign}, IDs mirroring the board.
+- **Kernel requirement** (P3.6, load-bearing): the rank/distance/lag
+  delta-algebra kernels run their telescoped sums on the balanced
+  signed-digit accumulator, with H(d) as the regression witness.
+- **Point fix**: checked `exp + 1` in the rank fold (V6's u32-wrap
+  edge), Tier-0-sized, lands with the kernel work.
+- **Representation pins** (§17.6 standard): a Rank snapshot block
+  (integral, fractional, normalized-after-sub, ZERO, spilled >u64
+  numerator rendering), a Debug≡Display assert, and an error-type
+  Display-string snapshot block; recorded fact — Rank and Ranked
+  have no serde/borsh/encode surface, so the ideation starts green
+  field.
