@@ -1127,6 +1127,37 @@ Pin the §6 invariant the way `step!` pins time complexity:
   30 s of summed measured-body wall per family; today's total is
   ~21 s, dominated by bigroot at 12.5 s (its schoolbook text
   conversions), against ~3 s for the whole default board.
+
+  Landed 2026-07-23 (P3.5's board family, C1a). The boundary comb
+  joins the board's input families as the `cliff` column
+  (`cliff_comb` at `k = n`, `board::CLIFF_BASE_SCALE` = 128, ~4 KiB
+  packed at scale 1.0): 42 rows × 7 families minus 103 inapplicable
+  = **191 cells**, pinned by the smoke test; scaling `k` with `n` is
+  the deliberate separating choice — the comb's absolute value
+  content grows quadratically in its packed input, so a
+  running-leaf-value sweep in a plain big integer reads a
+  superlinear exponent instead of hiding a `k`-sized constant.
+  Re-baselined at both scales **[measured** — 2026-07-23, dev
+  profile, `limb-meter` lit; red enumerations byte-identical across
+  two consecutive runs per scale**]**: **125 green / 66 red at the
+  default scale; 114 green / 77 red at ×4** — the prior red sets
+  unchanged at both scales, plus exactly two cliff cells:
+  `version_from_str × cliff` and `clock_from_str × cliff`, red on
+  both text limb legs (exponent 1.27 against `n_io`, constant
+  1.2/`R` at the default scale; 1.41 and 1.1 at ×4), owner **P3.8**
+  with the rest of the text column. The anticipated sweep-path
+  interim reds did not materialize, and the mechanism says why
+  rather than excusing it: the board's operands are today's packed
+  coding, which stores a fresh `gamma(2^k − 1)` per tooth, so every
+  cliff crossing is paid by a comparably-wide input code and the
+  sweep-path rows are linear per input bit — exactly the
+  `tests/meter.rs` cliff envelopes' record. The §10.6 Θ(W²) genre is
+  denominated in *Tier 2 wire bits*, which reach the board only at
+  C2, when the comb's packed operands collapse to Θ(n + k) against
+  Θ(nk) value content; the column exists (and its `k = n` scaling is
+  pinned) so that regression becomes board-visible the moment the
+  flip lands. Realization staging is unchanged: the 29 green cliff
+  cells must stay green through C2 on the new codec's sweeps.
 - **Peak-heap meter**: counting `GlobalAlloc` in a dedicated test
   binary (one global allocator per binary; nextest's
   process-per-test isolation applies). Assert per operation ×
@@ -2250,6 +2281,22 @@ id-side rows are inapplicable, per §13's exclusion arithmetic)
 lands**]**, and the sums above are restated over the enlarged
 board in that landed entry. Coverage ratchets upward, per the
 process constraint.
+
+Amended 2026-07-23 (P3.5's board family landed): the board is 191
+cells — the cliff column's 31 joined (the 11 id-side rows
+inapplicable, confirming the derived count) — and the column's
+interim red set is exactly two cells, not the broader sweep-path
+set this section anticipated: under today's coding every comb
+crossing is paid by its own stored code, so the sweep-path rows
+read green pre-flip and the §10.6 genre becomes board-visible only
+at C2 (the §13 landed record carries the mechanism). The kill
+lists move only on P3.8: `version_from_str`/`clock_from_str` ×
+cliff join its text column, its default-scale count 12 → 14 and
+its all-in count 16 → 18. The sums close as 66 kills (P3.5's 4 +
+P3.6's 45 + P3.7's 3 + P3.8's 14) + 125 default-green = 191, and
+75 → 77 at ×4 (P3.5's 4 + P3.6's 47 + P3.7's 3 + P3.8's 18 +
+P4.1's 5) + 114 = 191. Realization staging is unchanged: C2
+realizes 54; the P4-tail P3.8 its 18; P4.1 its 5.
 
 ### 17.4 Commit choreography summary
 

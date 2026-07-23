@@ -189,9 +189,11 @@ fn rejects_trailing_bits() {
 }
 
 /// The zigzag map is a bijection with no negative-zero spelling, checked
-/// exhaustively at small scope: this is why the reject corpus has no
-/// "non-canonical zigzag" member — the genre is empty by construction, as
-/// is non-minimal gamma (a prefix code with one spelling per natural).
+/// exhaustively at small scope.
+///
+/// This is why the reject corpus has no "non-canonical zigzag" member —
+/// the genre is empty by construction, as is non-minimal gamma (a prefix
+/// code with one spelling per natural).
 #[test]
 fn zigzag_is_a_bijection_without_negative_zero() {
     let mut seen: BTreeSet<(bool, u64)> = BTreeSet::new();

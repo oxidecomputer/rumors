@@ -109,14 +109,16 @@
 //!
 //! # Families
 //!
-//! The four adversarial shapes from [`meter`](crate::meter) — the dense
-//! event spine, `bigroot`, `hugeleaf`, and the diverted id-spine pair — plus
-//! `benign`: a fixed-seed pseudo-random population of forked, ticked clocks,
-//! the control row that keeps the ceilings honest on organic inputs. Event
-//! families exercise `Version` (and `Clock`) operations; the id pair
-//! exercises `Party` (and `Clock`) operations; `benign` provides both. Where
-//! an operation needs a `Party` and a `Version`, the board crosses
-//! adversarial party × small version and small party × adversarial version.
+//! The five adversarial shapes from [`meter`](crate::meter) — the dense
+//! event spine, `bigroot`, `hugeleaf`, the boundary comb (`cliff`, at
+//! `k = n` so its value content grows quadratically in its packed input),
+//! and the diverted id-spine pair — plus `benign`: a fixed-seed
+//! pseudo-random population of forked, ticked clocks, the control row that
+//! keeps the ceilings honest on organic inputs. Event families exercise
+//! `Version` (and `Clock`) operations; the id pair exercises `Party` (and
+//! `Clock`) operations; `benign` provides both. Where an operation needs a
+//! `Party` and a `Version`, the board crosses adversarial party × small
+//! version and small party × adversarial version.
 //!
 //! One more column, `comb-scatter`, exists for exactly two cells: the
 //! adversarial × adversarial projection cross (boundary-comb version ×
@@ -283,6 +285,17 @@ const HUGELEAF_BASE_MAGNITUDE_BITS: usize = 16_000;
 /// Id spine depth at scale 1.0 (packed pair ~6 KiB).
 const ID_BASE_DEPTH: usize = 12_000;
 
+/// Boundary-comb tooth magnitude (bits) and tooth count at scale 1.0
+/// (packed size ~4 KiB); one parameter drives both, mirroring the meter
+/// suite's `k = n` convention.
+///
+/// Scaling `k` with `n` is the separating choice: it keeps the comb's
+/// absolute value content growing quadratically in the packed input, so a
+/// sweep that materializes running leaf values in a plain big integer
+/// reads a superlinear exponent here instead of hiding a `k`-sized
+/// constant under a fixed magnitude.
+const CLIFF_BASE_SCALE: usize = 128;
+
 /// Comb-scatter tooth count at scale 1.0 (packed cross ~32 KiB).
 ///
 /// Scale drives the tooth count (and with it the scattered party's fragment
@@ -345,6 +358,9 @@ enum FamilyKind {
     Bigroot,
     /// `hugeleaf(B)`: one node, maximal bits per node.
     Hugeleaf,
+    /// The boundary comb `C(k, n)` at `k = n`: leaf values oscillating
+    /// across a `2^k` carry cliff, every crossing paid by a stored code.
+    Cliff,
     /// The diverted id-spine pair `I(d, ·)`: full-lockstep two-party walks.
     IdPair,
     /// The output-domination cross: boundary comb × scattered party.
@@ -354,10 +370,11 @@ enum FamilyKind {
 }
 
 /// Every family, in display order.
-const FAMILIES: [FamilyKind; 6] = [
+const FAMILIES: [FamilyKind; 7] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
+    FamilyKind::Cliff,
     FamilyKind::IdPair,
     FamilyKind::CombScatter,
     FamilyKind::Benign,
@@ -402,6 +419,10 @@ impl FamilyData {
                 "hugeleaf",
                 super::hugeleaf(size(HUGELEAF_BASE_MAGNITUDE_BITS)).bytes,
             ),
+            FamilyKind::Cliff => {
+                let scale = size(CLIFF_BASE_SCALE);
+                Self::event(kind, "cliff", super::cliff_comb(scale, scale).bytes)
+            }
             FamilyKind::IdPair => FamilyData {
                 kind,
                 name: "id-pair",
