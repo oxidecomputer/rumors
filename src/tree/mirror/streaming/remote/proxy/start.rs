@@ -198,26 +198,28 @@ where
     }
 }
 
-/// Send one greeting: the set-size-prefixed causal-version frame, then
-/// the root-fan listing frame.
+/// Send one greeting: the size-prefixed causal-version frame, then the
+/// root-fan listing frame.
 ///
-/// Both frames flush on the same hop; the listing frame is the wire carriage
-/// of the opening question's content (see [`Handshake`] for the always-carry
-/// trade).
+/// The first frame's body is `set_len (8 B LE) ‖ max_version_bytes
+/// (8 B LE) ‖ version`. Both frames flush on the same hop; the listing
+/// frame is the wire carriage of the opening question's content (see
+/// [`Handshake`] for the always-carry trade).
 async fn send<E, W>(greeting: &Handshake, write: &mut W) -> Result<(), Error<E>>
 where
     W: AsyncWrite + Unpin,
 {
     let mut write = framing::FrameWrite::new(write);
-    let mut first = Vec::with_capacity(8 + greeting.version.as_bytes().len());
+    let mut first = Vec::with_capacity(16 + greeting.version.as_bytes().len());
     first.extend_from_slice(&greeting.set_len.to_le_bytes());
+    first.extend_from_slice(&greeting.max_version_bytes.to_le_bytes());
     first.extend_from_slice(greeting.version.as_bytes());
     write.frame(&first).await.map_err(Error::HandshakeWrite)?;
     let listing = borsh::to_vec(&greeting.listing).map_err(Error::HandshakeWrite)?;
     write.frame(&listing).await.map_err(Error::HandshakeWrite)
 }
 
-/// Receive and canonically decode one greeting: the set-size-prefixed
+/// Receive and canonically decode one greeting: the size-prefixed
 /// causal-version frame, then the root-fan listing frame.
 ///
 /// The listing is peer-controlled, so its canonical strictly-ascending radix
@@ -229,23 +231,28 @@ where
 {
     let mut read = framing::FrameRead::new(read);
     let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
-    let set_len = bytes
-        .get(..8)
-        .and_then(|prefix| <[u8; 8]>::try_from(prefix).ok())
-        .map(u64::from_le_bytes)
-        .ok_or_else(|| {
-            Error::HandshakeDecode(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "greeting version frame is shorter than its set-size prefix",
-            ))
-        })?;
-    let version = Version::try_from_slice(&bytes[8..]).map_err(Error::HandshakeDecode)?;
+    let short = || {
+        Error::HandshakeDecode(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "greeting version frame is shorter than its size prefixes",
+        ))
+    };
+    let word = |at: usize| {
+        bytes
+            .get(at..at + 8)
+            .and_then(|prefix| <[u8; 8]>::try_from(prefix).ok())
+            .map(u64::from_le_bytes)
+    };
+    let set_len = word(0).ok_or_else(short)?;
+    let max_version_bytes = word(8).ok_or_else(short)?;
+    let version = Version::try_from_slice(&bytes[16..]).map_err(Error::HandshakeDecode)?;
     let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
     let listing = Vec::<(u8, Hash)>::try_from_slice(&bytes).map_err(Error::HandshakeDecode)?;
     validate_children(&listing).map_err(Error::HandshakeListing)?;
     Ok(Handshake {
         version,
         set_len,
+        max_version_bytes,
         listing,
     })
 }

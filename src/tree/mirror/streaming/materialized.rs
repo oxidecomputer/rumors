@@ -238,6 +238,9 @@ pub struct Handshaking<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static
     window: WindowConfig,
     /// This side's live message count, carried by the greeting.
     local_len: u64,
+    /// This side's largest live version encoding in bytes, carried by the
+    /// greeting.
+    local_version_bytes: u64,
 }
 
 /// The version state of a stage that has been opened but has not yet sent its
@@ -315,6 +318,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T
             root,
             window: WindowConfig::default(),
             local_len: 0,
+            local_version_bytes: 0,
         }
     }
 
@@ -328,6 +332,14 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T
     /// of exchanged counts sizes a budget-configured window.
     pub fn set_len(mut self, len: u64) -> Self {
         self.local_len = len;
+        self
+    }
+
+    /// Declare this side's largest live version encoding, in bytes, for
+    /// the greeting; the pair of exchanged bounds prices a
+    /// budget-configured window's per-node version bytes.
+    pub fn max_version_bytes(mut self, bytes: u64) -> Self {
+        self.local_version_bytes = bytes;
         self
     }
 }
@@ -387,6 +399,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
         let handshake = Handshake {
             version: our_version.clone(),
             set_len: self.local_len,
+            max_version_bytes: self.local_version_bytes,
             listing: fan_listing(&fan),
         };
         let next = Handshaking {
@@ -395,6 +408,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
             root: self.root,
             window: self.window,
             local_len: self.local_len,
+            local_version_bytes: self.local_version_bytes,
         };
         Ok((handshake, next))
     }
@@ -417,6 +431,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
             root: self.root,
             window: self.window,
             local_len: self.local_len,
+            local_version_bytes: self.local_version_bytes,
         })
     }
 }
@@ -435,6 +450,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
         let handshake = Handshake {
             version: our_version.clone(),
             set_len: self.local_len,
+            max_version_bytes: self.local_version_bytes,
             listing: fan_listing(&fan),
         };
         let next = Handshaking {
@@ -448,6 +464,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
             root: self.root,
             window: self.window,
             local_len: self.local_len,
+            local_version_bytes: self.local_version_bytes,
         };
         Ok((handshake, next))
     }

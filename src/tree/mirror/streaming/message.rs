@@ -56,6 +56,16 @@ pub struct Handshake {
     /// populations scale with the *product* of the two sizes (joint
     /// occupancy), so the window needs the peer's size, not an estimate.
     pub set_len: u64,
+    /// The largest canonical version encoding among the sender's live
+    /// messages, in bytes — exact, like `set_len` (an O(1) read of a
+    /// per-node aggregate that redaction resizes down).
+    ///
+    /// Every version a session holds is a join of leaf versions from the
+    /// two replicas, and a join's encoding never exceeds its inputs'
+    /// combined, so the exchanged pair bounds worst-case version bytes
+    /// per node — the second input a budget-configured window prices
+    /// nodes with.
+    pub max_version_bytes: u64,
     /// The sender's root children as `(radix, hash)` pairs in strictly
     /// ascending radix order; empty when the sender's tree is empty.
     pub listing: Vec<(u8, Hash)>,
