@@ -17,9 +17,18 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+# Peak-tracking global allocator for the under-cap harness (src/lib.rs): every fuzz
+# input runs under a hard transient-heap ceiling, so a resource amplifier becomes a
+# crash finding instead of staying latent. A dependency rather than a hand-rolled
+# GlobalAlloc: the workspace policy prefers a maintained crate over owning unsafe
+# code, even in a fuzz binary.
+peak_alloc = "0.3"
 
 [dependencies.before]
 path = ".."
+
+# The package's lib (src/lib.rs) is the shared harness: the peak-tracking global
+# allocator and the per-input heap cap both targets run under.
 
 # Decode-only target: feed arbitrary bytes to every top-level `decode`. Asserts the
 # keystone invariant (COV-7) inline — an accepted value re-encodes stably and decodes

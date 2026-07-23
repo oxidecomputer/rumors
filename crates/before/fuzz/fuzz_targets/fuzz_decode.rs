@@ -6,6 +6,8 @@
 //!   2. Any accepted value is canonical: re-encoding it then decoding again yields the
 //!      same value and the same bytes (the keystone byte-equality invariant that
 //!      `Eq`/`Hash` rely on).
+//!   3. No input's computation exceeds the harness heap cap (`before_fuzz::under_heap_cap`),
+//!      so a resource amplifier is a crash finding, not a latent one.
 
 #![no_main]
 
@@ -14,6 +16,11 @@ use libfuzzer_sys::fuzz_target;
 use before::{Clock, Party, Version};
 
 fuzz_target!(|data: &[u8]| {
+    before_fuzz::under_heap_cap(|| run(data));
+});
+
+/// One input's body: decode every top-level type and check the round-trip contract.
+fn run(data: &[u8]) {
     if let Ok(p) = Party::decode(data) {
         let bytes = p.encode();
         let again = Party::decode(&bytes[..]).expect("re-decode of an accepted party is canonical");
@@ -32,4 +39,4 @@ fuzz_target!(|data: &[u8]| {
         let again = Clock::decode(&bytes[..]).expect("re-decode of an accepted clock is canonical");
         assert_eq!(again.encode(), bytes, "clock re-encode is not stable");
     }
-});
+}
