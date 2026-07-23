@@ -35,6 +35,18 @@
 //! scale but never judged: it is the one number here that is not
 //! deterministic.
 //!
+//! # Acceptance scales
+//!
+//! Every cell runs at a size scale; the inner loop uses the default
+//! (scale 1, seconds of runtime). Segment counts have a ~1 MiB growth
+//! threshold, so recursion-frame amplifiers whose onset sits above the
+//! default depths read false green there — **campaign acceptance is
+//! therefore all cells green at BOTH the default scale and the record
+//! scale [`RECORD_SCALE`] (`just amp-board-record`), three identical runs
+//! each**. Record runs are acceptance-time only; the enforced
+//! per-operation record remains the process-isolated envelope suite in
+//! `tests/meter.rs`.
+//!
 //! # Denomination
 //!
 //! Most cells charge cost against **packed input bytes** alone. Two cell
@@ -227,6 +239,21 @@ pub const MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT: f64 = 0.25;
 /// magnitude bit — so honest text stays under 3.2 bytes per content bit and
 /// padding trips the assertion.
 pub const TEXT_BYTES_PER_CONTENT_BIT: f64 = 4.0;
+
+/// The acceptance scale of record: the size multiplier of the record-mode
+/// board run (`just amp-board-record`).
+///
+/// The default-scale board under-detects segment amplifiers: stacker grows
+/// a segment only past ~1 MiB of frames, so a recursion-frame amplifier
+/// whose onset sits above the default depths reads a false green there.
+/// ×4 is the witnessed calibration floor — the scale at which every known
+/// segment-onset amplifier read red under pre-fix code — so acceptance runs
+/// pin it. **Campaign acceptance is all cells green at BOTH the default
+/// scale and this one, three identical runs each**; a record run is
+/// acceptance-time only (the inner loop stays at the default scale, and the
+/// enforced per-operation record remains the envelope suite in
+/// `tests/meter.rs` regardless of board onset).
+pub const RECORD_SCALE: f64 = 4.0;
 
 // ─── family sizes at scale 1.0 ──────────────────────────────────────────────
 

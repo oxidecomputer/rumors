@@ -246,6 +246,12 @@ bench *args:
 amp-board *args:
     cargo run -p before --example amp_board --features limb-meter -- {{ args }}
 
+# Run the board at the acceptance scale of record (board::RECORD_SCALE, the
+# segment-onset witness scale). Acceptance is all green at BOTH the default
+# scale and this one, three identical runs each.
+amp-board-record:
+    cargo run -p before --example amp_board --features limb-meter -- record
+
 # Paste a peer id into the dialog, or dial one directly:
 # `just rumormill --name bob --peer <endpoint-id>`.
 
