@@ -91,6 +91,10 @@ path = "examples/swarm.rs"
 test = true
 
 [[bench]]
+name = "branch_hash"
+harness = false
+
+[[bench]]
 name = "in_memory"
 harness = false
 

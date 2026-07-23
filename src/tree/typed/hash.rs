@@ -57,10 +57,12 @@ const LEAF_TAG: u8 = 0;
 
 /// Domain-separation tag leading a branch's hash preimage.
 ///
-/// Both tags are load-bearing, not legacy: a leaf may carry an *empty*
-/// suffix (its parent sits at depth 31), and the kind byte is what
-/// separates its preimage from the empty root's, rather than an argument
-/// about field lengths.
+/// The kind byte makes leaf/branch separation checkable from the first
+/// byte alone. The nearest pair of shapes — a leaf with an *empty*
+/// suffix (its parent sits at depth 31) and the empty root — would
+/// otherwise differ only in preimage length (two bytes against four),
+/// so the tag is the stated separator and the length difference the
+/// backstop.
 const BRANCH_TAG: u8 = 1;
 
 /// Bytes a single child contributes to a branch preimage: its radix byte
@@ -148,11 +150,12 @@ impl Hash {
         // Assemble the whole preimage contiguously, then hash it in one shot.
         // Handing BLAKE3 a single large slice lets it engage its multi-block
         // SIMD compression; streaming a tiny `update` per field defeats that
-        // and compresses block-by-block. For a saturated 256-child branch the
-        // contiguous form is ~2x faster; for the hot small nodes (short
-        // prefix, small fan) the whole preimage fits one 64-byte block, so a
-        // node costs a single compression. `size_hint` sizes the buffer
-        // exactly for the `OrdMap`/array/empty callers (all exact).
+        // and compresses block-by-block. Measured by `benches/branch_hash.rs`
+        // over this preimage layout: ~2x faster for a saturated 256-child
+        // branch, and never slower at the hot small nodes (short prefix,
+        // small fan), whose whole preimage fits one 64-byte block and costs
+        // a single compression. `size_hint` sizes the buffer exactly for
+        // the `OrdMap`/array/empty callers (all exact).
         let prefix_len =
             u8::try_from(prefix.len()).expect("a compressed span fits in one length byte");
         let children = children.into_iter();
