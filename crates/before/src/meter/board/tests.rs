@@ -189,6 +189,7 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
             peak_heap: 0,
             segments: 0,
             limb: Some(ops),
+            scan: None,
             wall: Duration::ZERO,
         }
     };

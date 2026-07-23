@@ -1,9 +1,9 @@
 //! Adversarial input generators and deterministic resource meters.
 //!
 //! This module is the measurement half of the crate's resource-proportionality
-//! work: transient cost — peak heap, stack segments, big-integer limb work —
-//! as a function of packed input size, with no bound on value magnitude, tree
-//! depth, or encoded size.
+//! work: transient cost — peak heap, stack segments, big-integer limb work,
+//! packed-stream scan work — as a function of packed input size, with no
+//! bound on value magnitude, tree depth, or encoded size.
 //! The generators below build the canonical packed encodings that maximize
 //! each cost against its input size; the meters read the deterministic
 //! counters the envelopes are pinned against. Public under the `meter`
@@ -488,6 +488,31 @@ pub fn limb_ops() -> u64 {
 #[cfg(feature = "limb-meter")]
 pub fn reset_limb_ops() {
     crate::codec::limb_meter::reset()
+}
+
+/// The packed-stream bits scanned and written since the last
+/// [`reset_scan_bits`].
+///
+/// The deterministic stand-in for traversal work over the packed forms,
+/// which every other meter can miss at once: an id-tree fold allocates
+/// little (no heap delta), loops rather than recurses (no segments), and
+/// does no `Base` arithmetic (no limb operations) — the work is *reading
+/// and writing stream bits*, and this counter records exactly those, at
+/// the packed-stream primitives (id tag reads and skip steps, id-builder
+/// bit writes and splice lengths, event topology cursor advances and gamma
+/// code-skips, every sequential decoder/validator bit read). Unit: bits.
+/// Process-global, same isolation requirement as [`stack_segments`]; only
+/// compiled under the `scan-meter` feature, which adds the counting to the
+/// primitives themselves.
+#[cfg(feature = "scan-meter")]
+pub fn scan_bits() -> u64 {
+    crate::codec::scan::scan_bits()
+}
+
+/// Reset the scanned-bits counter behind [`scan_bits`] to zero.
+#[cfg(feature = "scan-meter")]
+pub fn reset_scan_bits() {
+    crate::codec::scan::reset()
 }
 
 #[cfg(test)]

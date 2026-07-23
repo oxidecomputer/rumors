@@ -80,6 +80,11 @@ impl BitCursor for SliceCursor<'_> {
     fn read_bit(&mut self) -> Result<bool, Truncated> {
         // `ok_or`'s eager argument is fine here: `Truncated` is a ZST.
         let bit = *self.bits.get(self.position).ok_or(Truncated)?;
+        // One live bit scanned: this cursor is the sequential read primitive
+        // under `decode`, the gamma decoder, and the skyline
+        // validator/decoder, so the scan meter records here once for all of
+        // them.
+        super::scan::record_bits(1);
         self.position += 1;
         Ok(bit)
     }

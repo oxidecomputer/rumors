@@ -125,6 +125,7 @@ impl<'a> IdReader<'a> {
             IdReader::Empty => IdNode::Empty,
             IdReader::At { bits, pos } => {
                 step!();
+                crate::codec::scan::record_bits(2); // one 2-bit tag scanned
                 let node = Self::tag(bits, *pos);
                 *pos += 2;
                 node
@@ -144,6 +145,7 @@ impl<'a> IdReader<'a> {
             IdReader::Empty => IdNode::Empty,
             IdReader::At { bits, pos } => {
                 step!();
+                crate::codec::scan::record_bits(2); // one 2-bit tag scanned
                 Self::tag(bits, *pos)
             }
         }
@@ -157,7 +159,9 @@ impl<'a> IdReader<'a> {
             let bits = *bits;
             *pos = skip_subtree(*pos, |at| {
                 step!();
-                // Children present = the two tag bits; the tag is 2 bits wide.
+                // One 2-bit tag scanned per skip step. Children present =
+                // the two tag bits; the tag is 2 bits wide.
+                crate::codec::scan::record_bits(2);
                 let children = usize::from(bits[at]) + usize::from(bits[at + 1]);
                 (children, at + 2)
             });

@@ -11,7 +11,7 @@
 //! # The criterion
 //!
 //! Each cell runs its operation at two input scales (the second twice the
-//! first) and reads three deterministic meters over the body alone:
+//! first) and reads four deterministic meters over the body alone:
 //!
 //! - **peak heap bytes**, from a caller-installed counting allocator
 //!   (see [`HeapMeter`]);
@@ -21,7 +21,13 @@
 //! - **big-integer limb operations**
 //!   ([`limb_ops`](crate::meter::limb_ops)), only when the `limb-meter`
 //!   feature compiles the counter into the arithmetic; arithmetic-width
-//!   blowups are invisible to the other two meters.
+//!   blowups are invisible to the other two meters;
+//! - **packed-stream scan bits**
+//!   ([`scan_bits`](crate::meter::scan_bits)), only when the `scan-meter`
+//!   feature compiles the counter into the stream primitives; traversal
+//!   work over the packed forms — the id-side walks and folds above all —
+//!   allocates nothing, recurses nothing, and does no `Base` arithmetic, so
+//!   this is the one column that sees it.
 //!
 //! Per meter the board derives a **scaling exponent**
 //! `log(m₂/m₁) / log(n₂/n₁)` (`n` = the cell's denominator bytes, below —
@@ -31,7 +37,8 @@
 //! **GREEN** iff every meter's exponent is at most [`MAX_SCALING_EXPONENT`]
 //! *and* every constant is under its pinned ceiling
 //! ([`MAX_HEAP_BYTES_PER_INPUT_BYTE`] over [`HEAP_FLAT_ALLOWANCE_BYTES`],
-//! [`MAX_GROWN_STACK_SEGMENTS`], [`MAX_LIMB_OPS_PER_INPUT_BYTE`] — or, on
+//! [`MAX_GROWN_STACK_SEGMENTS`], [`MAX_LIMB_OPS_PER_INPUT_BYTE`],
+//! [`MAX_SCAN_BITS_PER_INPUT_BYTE`] — or, on
 //! the text rows' limb column, [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]); **RED**
 //! otherwise, with the offending meters named. Wall time is displayed per
 //! scale but never judged: it is the one number here that is not
@@ -217,6 +224,19 @@ pub const MAX_GROWN_STACK_SEGMENTS: u64 = 1;
 /// ceiling sits above it; width blowups are caught by the exponent bound
 /// long before the constant.
 pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
+
+/// Green requires at most this many packed-stream scan bits per denominator
+/// byte (asserted only when the `scan-meter` feature is lit).
+///
+/// Calibrated against the benign control and the green adversarial
+/// families: a single walk over packed operands scans ~8 bits per byte,
+/// multi-walk operations (`distance` runs join, meet, and two rank folds;
+/// `sync` joins in both directions) scan a small multiple, and the text
+/// parsers re-scan their packed output through the strict validator. The
+/// worst honest reader measured is well under 64; the ceiling sits at 96 so
+/// only a walk that re-scans state growing with the input — the fold genre,
+/// which reads exponent ~2 here — goes red on this column.
+pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 
 /// Text rows only: green requires at most this many limb operations per
 /// radix-work unit `R = n_io + Σ digitsᵢ × limbsᵢ` (κ).
@@ -1341,6 +1361,7 @@ struct Sample {
     peak_heap: usize,
     segments: u64,
     limb: Option<u64>,
+    scan: Option<u64>,
     wall: Duration,
 }
 
@@ -1353,6 +1374,7 @@ struct Sample {
 fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
     super::reset_stack_segments();
     reset_limb();
+    reset_scan();
     (heap.reset_peak)();
     let baseline = (heap.current)();
     let start = Instant::now();
@@ -1361,6 +1383,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
     let peak_heap = (heap.peak)().saturating_sub(baseline);
     let segments = super::stack_segments();
     let limb = read_limb();
+    let scan = read_scan();
     let (denom_bytes, limb_denom, text_row) = match cell.denom {
         Denom::Input => (cell.input_bytes, cell.input_bytes as u64, false),
         Denom::Io(spec) => {
@@ -1385,6 +1408,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
         peak_heap,
         segments,
         limb,
+        scan,
         wall,
     }
 }
@@ -1408,6 +1432,28 @@ fn read_limb() -> Option<u64> {
 /// Without the `limb-meter` feature the limb column is absent.
 #[cfg(not(feature = "limb-meter"))]
 fn read_limb() -> Option<u64> {
+    None
+}
+
+/// Reset the scan counter when the `scan-meter` feature carries one.
+#[cfg(feature = "scan-meter")]
+fn reset_scan() {
+    super::reset_scan_bits();
+}
+
+/// Without the `scan-meter` feature there is no counter to reset.
+#[cfg(not(feature = "scan-meter"))]
+fn reset_scan() {}
+
+/// Read the scan counter, or `None` without the `scan-meter` feature.
+#[cfg(feature = "scan-meter")]
+fn read_scan() -> Option<u64> {
+    Some(super::scan_bits())
+}
+
+/// Without the `scan-meter` feature the scan column is absent.
+#[cfg(not(feature = "scan-meter"))]
+fn read_scan() -> Option<u64> {
     None
 }
 
@@ -1436,6 +1482,8 @@ struct CellResult {
     seg_exp: f64,
     limb_exp: Option<f64>,
     limb_per_byte: Option<f64>,
+    scan_exp: Option<f64>,
+    scan_per_byte: Option<f64>,
     /// The meters over their bounds; empty means green.
     red: Vec<&'static str>,
 }
@@ -1471,6 +1519,13 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         ),
         _ => (None, None),
     };
+    let (scan_exp, scan_per_byte) = match (s1.scan, s2.scan) {
+        (Some(b1), Some(b2)) => (
+            Some(exponent(b1, b2, s1.denom_bytes, s2.denom_bytes)),
+            Some(b2 as f64 / s2.denom_bytes as f64),
+        ),
+        _ => (None, None),
+    };
 
     let mut red = Vec::new();
     if heap_exp > MAX_SCALING_EXPONENT {
@@ -1491,6 +1546,12 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
     if limb_per_byte.is_some_and(|c| c > limb_ceiling) {
         red.push("limb constant");
     }
+    if scan_exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
+        red.push("scan exponent");
+    }
+    if scan_per_byte.is_some_and(|c| c > MAX_SCAN_BITS_PER_INPUT_BYTE) {
+        red.push("scan constant");
+    }
 
     CellResult {
         op,
@@ -1502,6 +1563,8 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         seg_exp,
         limb_exp,
         limb_per_byte,
+        scan_exp,
+        scan_per_byte,
         red,
     }
 }
@@ -1528,6 +1591,10 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         }
         _ => "limb[      off      ]".to_string(),
     };
+    let scan = match (r.scan_exp, r.scan_per_byte) {
+        (Some(e), Some(c)) => format!("scan[e{e:5.2} {c:>10.1}/B]"),
+        _ => "scan[      off      ]".to_string(),
+    };
     let reasons = if r.red.is_empty() {
         String::new()
     } else {
@@ -1536,7 +1603,7 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     writeln!(
         out,
         "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
-         heap[e{he:5.2} {hc:>10.1}/B]  seg[e{se:5.2} {sc:>4}]  {limb}  \
+         heap[e{he:5.2} {hc:>10.1}/B]  seg[e{se:5.2} {sc:>4}]  {limb}  {scan}  \
          wall {w1:>9}->{w2:<9}{reasons}",
         op = r.op,
         family = r.family,
@@ -1601,7 +1668,8 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
          heap <= {MAX_HEAP_BYTES_PER_INPUT_BYTE} B/B over {HEAP_FLAT_ALLOWANCE_BYTES} B flat, \
          segments <= {MAX_GROWN_STACK_SEGMENTS}, \
          limb <= {MAX_LIMB_OPS_PER_INPUT_BYTE} ops/B \
-         (text rows: <= {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT} ops/R); \
+         (text rows: <= {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT} ops/R), \
+         scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B; \
          wall time shown, never judged"
     )?;
     writeln!(out)?;
