@@ -31,17 +31,29 @@ where
     /// The type of errors returned by this backend.
     type Error: Send + 'static;
 
-    /// Bytes one node value keeps resident beyond the replica's own
-    /// storage, excluding its children.
+    /// Bytes one node value with `children` child entries keeps resident
+    /// beyond the replica's own storage, its version bounds (ceiling and
+    /// floor together) encoding within `version_bound` bytes.
     ///
     /// This prices the session window's in-flight references
     /// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)):
     /// [`Local`]'s nodes are handles into a tree that is resident
-    /// regardless, so its rate is one pointer; a backend without an
-    /// always-resident tree must charge everything its `Node` values own
-    /// — at minimum the hash and the two version bounds its [`Node`]
-    /// accessors return by reference.
-    const NODE_BYTES: usize;
+    /// regardless, so its price is one pointer at every argument; a
+    /// backend without an always-resident tree must charge everything its
+    /// `Node` values own — at minimum the hash, the child table, and the
+    /// two version bounds its [`Node`] accessors return by reference.
+    /// Leaf payloads are deliberately out of scope: the wire already
+    /// bounds them through
+    /// [`target_message_size`](crate::Peer::target_message_size).
+    ///
+    /// The result must be an **upper bound**, monotone in both arguments
+    /// — the derivation evaluates it at per-depth quantiles, and
+    /// monotonicity is what keeps a quantile evaluation an upper bound
+    /// (debug-asserted when a session derives its window). Everywhere
+    /// else in the budget derivation, mis-estimation costs latency; an
+    /// underpriced node is the one input that breaches the *memory*
+    /// envelope instead.
+    fn node_bytes(children: usize, version_bound: usize) -> usize;
 
     /// Assemble one parent node at `prefix` from one radix-keyed child group.
     ///

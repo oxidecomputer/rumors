@@ -178,7 +178,9 @@ where
     type Error = Failure<B::Error>;
     // The wrapper adds no resident state: a failing node is the inner
     // backend's node plus fault bookkeeping shared behind it.
-    const NODE_BYTES: usize = B::NODE_BYTES;
+    fn node_bytes(children: usize, version_bound: usize) -> usize {
+        B::node_bytes(children, version_bound)
+    }
 
     async fn parent<H>(
         self,

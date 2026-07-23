@@ -29,14 +29,14 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 /// The unbounded-budget baseline each cell's slowdown is measured against.
 const BASELINE_BUDGET: usize = 8 << 30;
 
-/// The budget rows of the table; the last is the default.
+/// The fixed budget rows of the table; the default row is labeled from
+/// its own constant at run time, so the table cannot go stale against it.
 const BUDGETS: &[(&str, usize)] = &[
     ("256 KiB", 256 << 10),
     ("1 MiB", 1 << 20),
     ("4 MiB", 4 << 20),
     ("16 MiB", 16 << 20),
     ("64 MiB", 64 << 20),
-    ("128 MB (default)", rumors::DEFAULT_SYNC_MEMORY_BUDGET),
     ("512 MiB", 512 << 20),
 ];
 
@@ -56,7 +56,7 @@ fn main() {
          link is latency-only, so these are worst-case factors, independent \
          of the delay itself; a real link's bandwidth absorbs them: once \
          transfer time exceeds window stall (dispute throughput \
-         `budget / (3 \u{d7} RTT)` at or above the link rate), the factor \
+         `budget / (22 \u{d7} RTT)` at or above the link rate), the factor \
          is 1."
     );
     println!();
@@ -68,7 +68,15 @@ fn main() {
         .map(|&d| session(BASELINE_BUDGET, d))
         .collect();
 
-    for &(label, budget) in BUDGETS {
+    let default_label = format!(
+        "{} MB (default)",
+        rumors::DEFAULT_SYNC_MEMORY_BUDGET / 1_000_000
+    );
+    let mut rows: Vec<(&str, usize)> = BUDGETS.to_vec();
+    rows.push((&default_label, rumors::DEFAULT_SYNC_MEMORY_BUDGET));
+    rows.sort_by_key(|&(_, budget)| budget);
+
+    for (label, budget) in rows {
         let mut row = format!("| {label} |");
         for (column, &divergence) in DIVERGENCES.iter().enumerate() {
             let elapsed = session(budget, divergence);

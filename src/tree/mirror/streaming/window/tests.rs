@@ -1,7 +1,8 @@
 use proptest::prelude::*;
 
 use super::{
-    DEFAULT_SYNC_MEMORY_BUDGET, FAN, KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES,
+    DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_LINK_BYTES_PER_MS, DESIGN_LINK_RTT_MS, DISPUTE_WIRE_BYTES,
+    FAN, KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES,
     SCOPE_FIXED_BYTES, Window, WindowConfig, children_quantile, jointly_occupied, occupied,
     stage_population,
 };
@@ -10,20 +11,33 @@ use super::{
 /// replicas at a terabyte-scale corpus.
 const SYMMETRIC: u64 = 10_000_000_000;
 
-/// The in-memory backend's per-reference price, for tests that recompute
-/// the charge the solve stayed inside.
-const LOCAL_NODE_BYTES: usize = std::mem::size_of::<*const ()>();
+/// The in-memory backend's pricing, for tests that recompute the charge
+/// the solve stayed inside: one pointer per reference at every fan and
+/// version bound.
+fn local_node_bytes(_children: usize, _version_bound: usize) -> usize {
+    std::mem::size_of::<*const ()>()
+}
 
 /// The worst case a derived window admits, recomputed exactly as the
-/// solve charges it: each level's population clamped to its capacity,
-/// priced at its occupancy-thinned fan, plus the leaf-request edge.
-fn charge(window: &Window, n: u128, node_bytes: usize) -> u128 {
-    let reference = (node_bytes + REFERENCE_SLOT_BYTES) as u128;
+/// solve charges it.
+///
+/// Each level's population is clamped to its capacity and priced at its
+/// occupancy-thinned fan through the backend's pricing function, plus
+/// the leaf-request edge.
+fn charge(
+    window: &Window,
+    n: u128,
+    node_bytes: impl Fn(usize, usize) -> usize,
+    version_bound: usize,
+) -> u128 {
     let mut total = 0u128;
     for depth in 1..=KEY_DEPTH {
+        let held = usize::try_from(children_quantile(n, depth)).unwrap_or(usize::MAX);
+        let reference = (node_bytes(held, version_bound) + REFERENCE_SLOT_BYTES) as u128;
         let capacity = window.capacity(KEY_DEPTH - depth) as u128;
-        let held = stage_population(n, n * n, depth).min(capacity);
-        total += held * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
+        let population = stage_population(n, n * n, depth).min(capacity);
+        total +=
+            population * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
     }
     total + n.min(window.capacity(0) as u128) * LEAF_REQUEST_BYTES as u128
 }
@@ -45,7 +59,7 @@ fn test_default_is_the_floor() {
 #[test]
 fn asymmetric_sessions_get_floor_dispute_windows() {
     assert_eq!(
-        Window::from_budget(0, SYMMETRIC, usize::MAX, LOCAL_NODE_BYTES),
+        Window::from_budget(0, SYMMETRIC, 0, 0, usize::MAX, local_node_bytes),
         Window::FLOOR
     );
 }
@@ -56,7 +70,7 @@ fn asymmetric_sessions_get_floor_dispute_windows() {
 #[test]
 fn zero_budget_is_the_floor() {
     assert_eq!(
-        Window::from_budget(SYMMETRIC, SYMMETRIC, 0, LOCAL_NODE_BYTES),
+        Window::from_budget(SYMMETRIC, SYMMETRIC, 0, 0, 0, local_node_bytes),
         Window::FLOOR
     );
 }
@@ -66,7 +80,7 @@ fn zero_budget_is_the_floor() {
 #[test]
 fn tiny_set_is_the_floor() {
     assert_eq!(
-        Window::from_budget(0, 0, usize::MAX, LOCAL_NODE_BYTES),
+        Window::from_budget(0, 0, 0, 0, usize::MAX, local_node_bytes),
         Window::FLOOR
     );
 }
@@ -78,7 +92,7 @@ fn tiny_set_is_the_floor() {
 /// however much budget is offered.
 #[test]
 fn near_root_capacities_are_structural() {
-    let window = Window::from_budget(u64::MAX, u64::MAX, usize::MAX, LOCAL_NODE_BYTES);
+    let window = Window::from_budget(u64::MAX, u64::MAX, 0, 0, usize::MAX, local_node_bytes);
     // Height KEY_DEPTH−2 discusses depth-2 children: at most one full fan
     // of queried entries under the single jointly-known root.
     assert!(window.capacity(KEY_DEPTH - 2) <= FAN);
@@ -94,8 +108,10 @@ fn default_budget_pipelines_the_fat_stages() {
     let window = Window::from_budget(
         SYMMETRIC,
         SYMMETRIC,
+        0,
+        0,
         DEFAULT_SYNC_MEMORY_BUDGET,
-        LOCAL_NODE_BYTES,
+        local_node_bytes,
     );
     // Depth 4 is the first boundary whose population outgrows the
     // structural caps at the default declaration; its height must carry
@@ -112,7 +128,7 @@ fn default_budget_pipelines_the_fat_stages() {
 /// than claiming an impossibility it cannot certify.
 #[test]
 fn deep_levels_are_sparse() {
-    let window = Window::from_budget(1_000_000, 1_000_000, usize::MAX, LOCAL_NODE_BYTES);
+    let window = Window::from_budget(1_000_000, 1_000_000, 0, 0, usize::MAX, local_node_bytes);
     for height in 0..=(KEY_DEPTH - 10) {
         assert!(
             window.capacity(height) <= 16,
@@ -120,6 +136,84 @@ fn deep_levels_are_sparse() {
             window.capacity(height),
         );
     }
+}
+
+/// The scope envelope is the derivation's own number, not a hand-fitted
+/// one.
+///
+/// `SCOPE_ENVELOPE_BYTES` converts the design link's bandwidth-delay
+/// product in scopes into the default budget. Its value must equal the
+/// per-scope charge of the design session — BDP-scale corpora in full
+/// divergence, every stage population held in flight, priced through the
+/// in-memory backend's function — recomputed here exactly as the solve
+/// charges it, so the constant fails loudly instead of drifting when the
+/// pricing or the envelopes change. The end-to-end statement is asserted
+/// too: the default budget admits the whole BDP in flight at the design
+/// session.
+#[test]
+fn scope_envelope_matches_the_derivation() {
+    let bdp = (DESIGN_LINK_BYTES_PER_MS * DESIGN_LINK_RTT_MS / DISPUTE_WIRE_BYTES) as u64;
+    let n = u128::from(bdp);
+    let mut total = 0u128;
+    for depth in 1..=KEY_DEPTH {
+        let held = usize::try_from(children_quantile(n, depth)).unwrap_or(usize::MAX);
+        let reference = (local_node_bytes(held, 0) + REFERENCE_SLOT_BYTES) as u128;
+        total += stage_population(n, n * n, depth).min(n)
+            * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
+    }
+    total += n * LEAF_REQUEST_BYTES as u128;
+    assert_eq!(
+        SCOPE_ENVELOPE_BYTES as u128,
+        total.div_ceil(n),
+        "SCOPE_ENVELOPE_BYTES must equal the design session's per-scope charge",
+    );
+
+    let window = Window::from_budget(bdp, bdp, 0, 0, DEFAULT_SYNC_MEMORY_BUDGET, local_node_bytes);
+    assert!(
+        (0..=KEY_DEPTH).any(|height| window.capacity(height) as u64 >= bdp),
+        "the default budget must admit the design link's BDP in flight",
+    );
+}
+
+/// A materializing backend's node price, shaped like a database
+/// placeholder: a fixed header, a per-child entry, and the resident
+/// version bounds.
+fn materializing_node_bytes(children: usize, version_bound: usize) -> usize {
+    64 + 24 * children + version_bound
+}
+
+/// Pricier nodes buy narrower windows from the same budget.
+///
+/// A backend that materializes child tables and version bounds derives
+/// capacities pointwise at or below the pointer-priced window at every
+/// height, and its recomputed worst-case charge still fits the budget:
+/// the derivation spends the budget through the supplied function, not
+/// through any built-in rate.
+#[test]
+fn function_pricing_narrows_the_window() {
+    let (len, version_bytes, budget) = (1 << 24, 512, 64 << 20);
+    let cheap = Window::from_budget(len, len, version_bytes, version_bytes, budget, |_, _| {
+        std::mem::size_of::<*const ()>()
+    });
+    let pricey = Window::from_budget(
+        len,
+        len,
+        version_bytes,
+        version_bytes,
+        budget,
+        materializing_node_bytes,
+    );
+    for height in 0..=KEY_DEPTH {
+        assert!(
+            pricey.capacity(height) <= cheap.capacity(height),
+            "height {height}: {} > {}",
+            pricey.capacity(height),
+            cheap.capacity(height),
+        );
+    }
+    // The solve evaluated the function at the doubled joined-pair bound.
+    let bound = 2 * usize::try_from(2 * version_bytes).expect("small bound");
+    assert!(charge(&pricey, u128::from(len), materializing_node_bytes, bound) <= budget as u128);
 }
 
 proptest! {
@@ -131,10 +225,10 @@ proptest! {
         messages in 1u64..,
         budget in 0usize..=1 << 44,
     ) {
-        let window = Window::from_budget(messages, messages, budget, LOCAL_NODE_BYTES);
+        let window = Window::from_budget(messages, messages, 0, 0, budget, local_node_bytes);
         prop_assert!(
             window == Window::FLOOR
-                || charge(&window, u128::from(messages), LOCAL_NODE_BYTES)
+                || charge(&window, u128::from(messages), local_node_bytes, 0)
                     <= budget as u128
         );
     }
@@ -171,8 +265,8 @@ proptest! {
         budget in (1usize << 24)..=(1 << 40),
     ) {
         let boundary = 256u64.pow(level);
-        let below = Window::from_budget(boundary - offset, boundary - offset, budget, LOCAL_NODE_BYTES);
-        let above = Window::from_budget(boundary + offset, boundary + offset, budget, LOCAL_NODE_BYTES);
+        let below = Window::from_budget(boundary - offset, boundary - offset, 0, 0, budget, local_node_bytes);
+        let above = Window::from_budget(boundary + offset, boundary + offset, 0, 0, budget, local_node_bytes);
         for height in 0..=KEY_DEPTH {
             let (b, a) = (below.capacity(height), above.capacity(height));
             let step = b.abs_diff(a) as u64;

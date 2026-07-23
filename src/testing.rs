@@ -48,14 +48,18 @@ pub fn node_census_reset() {
 /// and the two replicas' exchanged set sizes, indexed by typed height
 /// (`0` = leaves, `32` = root).
 ///
-/// Exposed so integration suites can compute, from the same derivation
-/// sessions use, where a divergence must saturate and serialize.
+/// Priced as the in-memory backend prices its nodes: one pointer per
+/// handle at any version bound. Exposed so integration suites can
+/// compute, from the same derivation sessions use, where a divergence
+/// must saturate and serialize.
 pub fn window_capacities(local_len: u64, remote_len: u64, budget_bytes: usize) -> Vec<usize> {
     let window = crate::tree::mirror::streaming::window::Window::from_budget(
         local_len,
         remote_len,
+        0,
+        0,
         budget_bytes,
-        crate::tree::mirror::streaming::Local::NODE_BYTES,
+        crate::tree::mirror::streaming::Local::node_bytes,
     );
     (0..=32).map(|height| window.capacity(height)).collect()
 }

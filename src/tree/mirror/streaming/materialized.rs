@@ -269,6 +269,9 @@ pub struct Connected<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> 
     their_version: Version,
     /// The peer's live message count, from its greeting.
     their_len: u64,
+    /// The peer's largest live version encoding in bytes, from its
+    /// greeting.
+    their_version_bytes: u64,
     fan: Vec<(u8, B::Node<UnderRoot>)>,
 }
 
@@ -426,6 +429,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
                 our_version: self.versions.our_version,
                 their_version: theirs.version,
                 their_len: theirs.set_len,
+                their_version_bytes: theirs.max_version_bytes,
                 fan: self.versions.fan,
             },
             root: self.root,
@@ -459,6 +463,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
                 our_version,
                 their_version: request.version,
                 their_len: request.set_len,
+                their_version_bytes: request.max_version_bytes,
                 fan,
             },
             root: self.root,
@@ -488,13 +493,18 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             our_version,
             their_version,
             their_len,
+            their_version_bytes,
             fan,
         } = self.versions;
         let ceiling = our_version | &their_version;
 
-        let window = self
-            .window
-            .resolve(self.local_len, their_len, B::NODE_BYTES);
+        let window = self.window.resolve(
+            self.local_len,
+            their_len,
+            self.local_version_bytes,
+            their_version_bytes,
+            B::node_bytes,
+        );
         let mut work = Work::new(self.backend, window);
         let (responses, queries, returns, finish) = work.initiator_level(ceiling, fan);
 
@@ -524,13 +534,18 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             our_version,
             their_version,
             their_len,
+            their_version_bytes,
             fan,
         } = self.versions;
         let ceiling = our_version | &their_version;
 
-        let window = self
-            .window
-            .resolve(self.local_len, their_len, B::NODE_BYTES);
+        let window = self.window.resolve(
+            self.local_len,
+            their_len,
+            self.local_version_bytes,
+            their_version_bytes,
+            B::node_bytes,
+        );
         let mut work = Work::new(self.backend, window);
         let (responses, queries, returns, finish) =
             work.responder_level(their_version.clone(), ceiling, fan, requests);

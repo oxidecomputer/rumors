@@ -341,24 +341,27 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// Reconciliation pipelines disputed subtrees so wire latency is paid
     /// per tree level rather than per disputed subtree. Pipelining is
-    /// what costs memory — a few hundred bytes per disputed subtree in
-    /// flight — and `budget_bytes` is its worst-case envelope, not an
-    /// allocation: a session holds only what it actually disputes,
-    /// typically kilobytes, plus a few MB of in-hand reply batches this
-    /// setting does not govern ([`target_message_size`](Self::target_message_size)
+    /// what costs memory — kilobytes per disputed subtree in flight,
+    /// priced by the storage backend's own cost function — and
+    /// `budget_bytes` is its worst-case envelope, not an allocation: a
+    /// session holds only what it actually disputes, typically
+    /// kilobytes, plus a few MB of in-hand reply batches this setting
+    /// does not govern ([`target_message_size`](Self::target_message_size)
     /// bounds that unit).
     ///
     /// Each session divides the budget into fixed per-level channel
-    /// capacities from the set sizes the two replicas exchange at session
-    /// start. Under uniform content hashing, dispute populations thin
-    /// geometrically with depth and scale with the *product* of the two
-    /// set sizes, so the budget buys width only where disputes can exist.
-    /// The setting is not wire-visible: peers with different budgets
-    /// interoperate.
+    /// capacities from what the two replicas exchange at session start:
+    /// exact set sizes and version-size bounds, so every input to the
+    /// worst case is on the table before the descent begins. Under
+    /// uniform content hashing, dispute populations thin geometrically
+    /// with depth and scale with the *product* of the two set sizes, so
+    /// the budget buys width only where disputes can exist. The setting
+    /// is not wire-visible: peers with different budgets interoperate.
     ///
     /// A budget can add latency, never break a session. A divergence
     /// wider than the derived capacities drains in capacity-sized waves,
-    /// capping dispute throughput near `budget_bytes / (3 × RTT)`; any
+    /// capping dispute throughput near `budget_bytes / (22 × RTT)` (each
+    /// ~200 wire bytes of dispute is charged a ~4.3 KB envelope); any
     /// budget, including zero, leaves every session deadlock-free at one
     /// disputed subtree in flight per level. The budget is per session:
     /// concurrent gossip on separate links carries one envelope each. The

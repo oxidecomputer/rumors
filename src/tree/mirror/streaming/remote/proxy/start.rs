@@ -152,9 +152,13 @@ where
     /// Send the local server's greeting, then open only if versions differ.
     async fn complete_connect(mut self, theirs: Handshake) -> Result<Self::Next, Self::Error> {
         send::<B::Error, _>(&theirs, &mut self.link.control_write).await?;
-        let window =
-            self.window
-                .resolve(theirs.set_len, self.versions.remote.set_len, B::NODE_BYTES);
+        let window = self.window.resolve(
+            theirs.set_len,
+            self.versions.remote.set_len,
+            theirs.max_version_bytes,
+            self.versions.remote.max_version_bytes,
+            B::node_bytes,
+        );
         Ok(connected(
             self.backend,
             window,
@@ -183,9 +187,13 @@ where
         let receive = receive::<B::Error, _>(&mut self.link.control_read);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
         let handshake = remote.clone();
-        let window = self
-            .window
-            .resolve(request.set_len, remote.set_len, B::NODE_BYTES);
+        let window = self.window.resolve(
+            request.set_len,
+            remote.set_len,
+            request.max_version_bytes,
+            remote.max_version_bytes,
+            B::node_bytes,
+        );
         let next = connected(
             self.backend,
             window,

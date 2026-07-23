@@ -13,9 +13,12 @@
 //!
 //! The public knob ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget))
 //! is one byte budget; each session turns it into **static per-height
-//! capacities** using the set sizes the two replicas exchange in their
-//! greetings. Channels stay plain bounded queues; the [link](crate::link)
-//! remains the only backpressure boundary with runtime semantics.
+//! capacities** using what the two replicas exchange in their greetings —
+//! exact set sizes and version-size bounds — priced through the storage
+//! backend's own cost function
+//! ([`Backend::node_bytes`](super::Backend::node_bytes)). Channels stay
+//! plain bounded queues; the [link](crate::link) remains the only
+//! backpressure boundary with runtime semantics.
 //!
 //! # The occupancy model
 //!
@@ -155,10 +158,15 @@ const DISPUTE_WIRE_BYTES: usize = 200;
 
 /// Session-envelope bytes one in-flight disputed scope is charged.
 ///
-/// Fitted from the derivation itself — the budget-to-capacity
-/// conversion across the trade-off table's rows — with the charge
-/// spread over the levels a scope can simultaneously engage.
-const SCOPE_ENVELOPE_BYTES: usize = 2_048;
+/// Derived, not fitted: the per-scope charge of the *design session* —
+/// two corpora the size of the design link's bandwidth-delay product in
+/// messages, in full divergence, every stage population held in flight —
+/// under the in-memory backend's pricing, exactly as
+/// [`from_budget`](Window::from_budget) charges it. The recomputation is
+/// pinned by `scope_envelope_matches_the_derivation`, so this constant
+/// fails loudly instead of drifting when the pricing or the occupancy
+/// envelopes change.
+const SCOPE_ENVELOPE_BYTES: usize = 4_339;
 
 /// Worst-case memory one synchronization may spend by default: the
 /// envelope that fills the design link's bandwidth-delay product with
@@ -168,7 +176,7 @@ const SCOPE_ENVELOPE_BYTES: usize = 2_048;
 /// round trip (`DESIGN_LINK_RTT_MS`): a 12.5 MB bandwidth-delay
 /// product, kept full by one disputed scope in flight per
 /// `DISPUTE_WIRE_BYTES` of it, each charged `SCOPE_ENVELOPE_BYTES` of
-/// session envelope — 62,500 scopes, 128 MB. On links whose product is
+/// session envelope — 62,500 scopes, ~271 MB. On links whose product is
 /// at or under the design point's
 /// (equivalently, 1 Gbps × 100 ms), sessions are bandwidth-bound at
 /// every divergence and window serialization is unobservable; past it,
@@ -204,9 +212,9 @@ impl Window {
         capacities: [1; KEY_DEPTH + 1],
     };
 
-    /// Derive per-height capacities from the two replicas' set sizes, a
-    /// worst-case memory budget, and the backend's bytes per resident
-    /// node reference.
+    /// Derive per-height capacities from the two replicas' set sizes and
+    /// version-size bounds, a worst-case memory budget, and the backend's
+    /// node pricing function.
     ///
     /// Each height's capacity is `min(K, S(depth))`, floored at one slot:
     /// `S(d)` is the depth's integer population envelope ([module
@@ -221,24 +229,57 @@ impl Window {
     /// occupied-slot and per-parent fan terms bound the replier's listed
     /// children and take the larger side. Any budget, including zero,
     /// keeps every capacity at least one: liveness outranks the budget.
+    ///
+    /// A held reference at depth `d` is priced by
+    /// `node_bytes(c_q(d), version_bound)`: its own children quantile,
+    /// and the exchanged version-size bounds combined and doubled — every
+    /// version a session assembles is a join of leaf versions from the
+    /// two replicas, a join encodes within its inputs' sum (`before`'s
+    /// pinned subadditivity lemma), and a node holds two bounds, ceiling
+    /// and floor. `node_bytes` must be an upper bound and monotone in
+    /// both arguments ([`Backend::node_bytes`](super::Backend::node_bytes)),
+    /// so evaluating it at quantiles keeps the whole charge an upper
+    /// bound; monotonicity is spot-checked here in debug builds.
     pub(crate) fn from_budget(
         local_messages: u64,
         remote_messages: u64,
+        local_version_bytes: u64,
+        remote_version_bytes: u64,
         budget_bytes: usize,
-        node_bytes: usize,
+        node_bytes: impl Fn(usize, usize) -> usize,
     ) -> Self {
         let n = u128::from(local_messages.max(remote_messages));
         let pair = u128::from(local_messages) * u128::from(remote_messages);
-        let reference_bytes = (node_bytes + REFERENCE_SLOT_BYTES) as u128;
         let budget = budget_bytes as u128;
+        // Ceiling and floor each encode within the joined-leaf bound
+        // `local + remote`; the pair together within its double.
+        let version_bound = usize::try_from(
+            2 * (u128::from(local_version_bytes) + u128::from(remote_version_bytes)),
+        )
+        .unwrap_or(usize::MAX);
+
+        #[cfg(debug_assertions)]
+        for window in [0usize, 1, 16, FAN].windows(2) {
+            debug_assert!(
+                node_bytes(window[0], version_bound) <= node_bytes(window[1], version_bound),
+                "node_bytes must be monotone in the child count",
+            );
+            debug_assert!(
+                node_bytes(window[1], version_bound / 2) <= node_bytes(window[1], version_bound),
+                "node_bytes must be monotone in the version bound",
+            );
+        }
 
         // Populations and per-scope fans per depth, computed once. A
         // buffered scope whose children sit at depth d is one queried
         // entry of the depth-d stage; its held references are the
-        // children of one depth-(d−1) parent.
+        // children of one depth-(d−1) parent, each priced at its own
+        // depth's fan quantile.
         let mut population = [0u128; KEY_DEPTH + 1];
         let mut scope_price = [0u128; KEY_DEPTH + 1];
         for depth in 1..=KEY_DEPTH {
+            let held = children_quantile(n, depth).try_into().unwrap_or(usize::MAX);
+            let reference_bytes = (node_bytes(held, version_bound) + REFERENCE_SLOT_BYTES) as u128;
             population[depth] = stage_population(n, pair, depth);
             scope_price[depth] =
                 children_quantile(n, depth - 1) * reference_bytes + SCOPE_FIXED_BYTES as u128;
@@ -313,11 +354,26 @@ pub(crate) enum WindowConfig {
 }
 
 impl WindowConfig {
-    /// Resolve the session's window against the exchanged set sizes.
-    pub(crate) fn resolve(self, local_len: u64, remote_len: u64, node_bytes: usize) -> Window {
+    /// Resolve the session's window against the exchanged set sizes and
+    /// version-size bounds.
+    pub(crate) fn resolve(
+        self,
+        local_len: u64,
+        remote_len: u64,
+        local_version_bytes: u64,
+        remote_version_bytes: u64,
+        node_bytes: impl Fn(usize, usize) -> usize,
+    ) -> Window {
         match self {
             Self::Fixed(window) => window,
-            Self::Budget(bytes) => Window::from_budget(local_len, remote_len, bytes, node_bytes),
+            Self::Budget(bytes) => Window::from_budget(
+                local_len,
+                remote_len,
+                local_version_bytes,
+                remote_version_bytes,
+                bytes,
+                node_bytes,
+            ),
         }
     }
 }
