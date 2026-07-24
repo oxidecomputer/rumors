@@ -127,6 +127,89 @@ fn parse_reject_parity_with_the_production_parser() {
     }
 }
 
+/// How many mutated texts the generated reject-parity sweep judges.
+const REJECT_PARITY_FUZZ_CASES: usize = 512;
+
+/// The sweep's fixed PRNG seed: every run replays the same corpus.
+const REJECT_PARITY_FUZZ_SEED: u64 = 0x5EED_CA5E_0B57_AC1E;
+
+/// Replacement and insertion bytes for the mutation sweep: the grammar's
+/// whole alphabet plus one byte outside it.
+const MUTATION_ALPHABET: &[u8] = b"0123456789(), x";
+
+/// One step of SplitMix64: the mutation sweep's deterministic randomness.
+fn splitmix64(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// A deterministic byte-mutation sweep holds accept/reject parity between
+/// the kernel and the production parser.
+///
+/// Each case deletes, inserts, replaces, or truncates one point of a
+/// rendered generator-family text; on every mutant the two parsers must
+/// agree — the same accepts (with the kernel yielding the transcoder's
+/// stream) and the same error kind on rejects. The hand-picked corpus
+/// above pins known grammar decisions; this sweep is its generated
+/// regression sibling over [`REJECT_PARITY_FUZZ_CASES`] mutants at the
+/// fixed [`REJECT_PARITY_FUZZ_SEED`].
+#[test]
+fn mutated_texts_hold_reject_parity_with_the_production_parser() {
+    let seeds: Vec<String> = [
+        dense(3),
+        bigroot(7, 3),
+        hugeleaf(64),
+        cliff_comb(3, 2),
+        jump_comb(1, 2),
+        harmonic(2),
+        alt_spine(2),
+    ]
+    .iter()
+    .map(|p| version_of(p).to_string())
+    .collect();
+    let mut rng = REJECT_PARITY_FUZZ_SEED;
+    let mut pick = |n: usize| (splitmix64(&mut rng) % n as u64) as usize;
+    for _ in 0..REJECT_PARITY_FUZZ_CASES {
+        let mut bytes = seeds[pick(seeds.len())].clone().into_bytes();
+        match pick(4) {
+            0 => {
+                bytes.remove(pick(bytes.len()));
+            }
+            1 => {
+                let b = MUTATION_ALPHABET[pick(MUTATION_ALPHABET.len())];
+                bytes.insert(pick(bytes.len() + 1), b);
+            }
+            2 => {
+                let b = MUTATION_ALPHABET[pick(MUTATION_ALPHABET.len())];
+                let at = pick(bytes.len());
+                bytes[at] = b;
+            }
+            _ => bytes.truncate(pick(bytes.len())),
+        }
+        let mutated = String::from_utf8(bytes).expect("ASCII mutations of ASCII text stay UTF-8");
+        match (mutated.parse::<Version>(), parse(&mutated)) {
+            (Ok(v), Ok(enc)) => assert_eq!(
+                enc,
+                super::super::encode(&v),
+                "an accepted mutant {mutated:?} must yield the transcoder's stream"
+            ),
+            (Err(production), Err(kernel)) => assert_eq!(
+                kernel, production,
+                "reject parity on {mutated:?}: the kernel must return the production error"
+            ),
+            (production, kernel) => panic!(
+                "accept/reject parity broke on {mutated:?}: production accepted={}, \
+                 kernel accepted={}",
+                production.is_ok(),
+                kernel.is_ok()
+            ),
+        }
+    }
+}
+
 proptest! {
     /// Arbitrary normal-form trees (magnitudes past `u64::MAX` included)
     /// render and parse byte-identically against the production text path.
