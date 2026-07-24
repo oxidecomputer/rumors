@@ -435,6 +435,38 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// `tests/dispute_wire.rs` pins the per-message wire law the
     /// record size `m` enters through.
     ///
+    /// The table below gives the worst-case wire-time slowdown by
+    /// budget and mean encoded record size `m`, from the measured wave
+    /// form `slowdown = max(1, BDP_messages / K)` at the specification
+    /// bandwidth-delay product of 12.5 MB (1 Gbps × 100 ms and
+    /// 100 Gbps × 1 ms coincide there). Each row's window `K` (second
+    /// column, in disputed scopes) is derived by the same solve
+    /// sessions run at handshake time, evaluated at the design
+    /// session — 62500-message corpora a side, the scale the pinned
+    /// per-scope envelope is denominated at; larger corpora derive
+    /// narrower windows. `BDP_messages = BDP / (28 + m)`. Cells are
+    /// clamped at 1.0×, which is wire-time-optimal (bandwidth-bound
+    /// stays bandwidth-bound).
+    ///
+    /// Provenance: the 28 B per-message wire cost is calibrated by
+    /// deterministic byte counts (`tests/dispute_wire.rs`); the wave
+    /// form is measured (`tests/window_knee.rs`,
+    /// `tests/window_operator.rs`).
+    ///
+    /// Two subtleties. Rows whose window reaches the design session's
+    /// population ceiling (62500 scopes: every stage granted its full
+    /// population envelope, so the stated corpus itself is never
+    /// window-constricted) read differently: in those rows the
+    /// sub-design-record cells are upper envelopes at the stated
+    /// corpus, not predictions for yours. A corpus at such a column's
+    /// own BDP scale derives its own, wider window (`m = 8` at the
+    /// default: 82214 scopes, ≈4.2×). And the default's slowdown-1
+    /// crossover, derived self-consistently from the solve (corpus =
+    /// BDP / (28 + m) a side), is m* = 51 B. The factor prices the
+    /// interleaved dispute walk only — supply runs stream outside the
+    /// window — and costs latency, never memory: a session serializes
+    /// into capacity-sized waves, deadlock-free at any budget.
+    ///
     #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
