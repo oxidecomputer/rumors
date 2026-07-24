@@ -92,3 +92,6 @@ import StreamingMirror.Ord.Wiring
 import StreamingMirror.Ord.Init
 import StreamingMirror.Ord.Preserve.Walk
 import StreamingMirror.Ord.Termination
+import StreamingMirror.Ord.Sched
+import StreamingMirror.Ord.Numbering
+import StreamingMirror.Ord.Pumps
