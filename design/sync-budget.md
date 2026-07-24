@@ -96,6 +96,31 @@ The pipe stays fixed across the sweep so a tight pipe's transfer time
 survives the slope; scaling it with delay differences the transfer
 away.
 
+**Amendment (2026-07-23): wire costs are measured in exact virtual
+time; the sweep is retired from every asserting suite.** The
+paused-clock harness's virtual component is a deterministic function
+of the session shape — compute costs zero virtual time, no thread
+outside the current-thread runtime participates, and every pipe
+deadline lands on the delay lattice — so
+`DelayedWire::round_trip_virtual` reads serialized hops exactly, and
+machine load cannot move them (pinned by determinism and lattice
+tests in `tests/latency_link.rs`). The sweep's differencing cancelled
+the harness-reported wall component only in expectation: under fleet
+load the residue read as phantom hops (the catch-up corner observed
+at 31 hops against its then-24 bound), and the suites needed
+whole-machine nextest isolation, now removed. Exact re-measurement
+moved the recorded figures — catch-up 8 hops in either direction
+(the sweep read 7 and 5, the spread being wall residue), knee cells
+7 below / 23 above the knee at marginals 0.0137–0.0146 hops/message,
+stall-under-transfer 37 vs 79 hops — and every noise allowance
+tightened: catch-up bound 24 → 12, pipelined bounds 24 → 12
+(`window_knee`) and 64 → 24 (`gossip_pipelining`), required knee
+growth 6 → 12, wave-model accuracy bands 0.4–2.5× → 0.5–2.0×,
+stall-under-transfer to a plain ≤, parity allowance transfer/2 →
+transfer/8. The benches keep sweeping: their wall intercept is the
+compute figure they exist to show, and load noise averages out
+across samples.
+
 ### 1.4 The instruments
 
 - **Node census** (`test-internals`): every tree-node handle counted
@@ -111,8 +136,9 @@ away.
   predicted knee, and pins flat-below / linear-above / stall-under-
   transfer.
 - **`tests/window_corners.rs`**: the boundary honesty suite —
-  asymmetric catch-up at 7 hops (5 reverse) regardless of budget,
-  zero-budget serialization (520 hops at 2k mutual) that converges,
+  asymmetric catch-up at 8 hops in either direction regardless of
+  budget, zero-budget serialization (521 hops at 2k mutual) that
+  converges,
   one-byte pipes under floor windows live under the deterministic
   quiescence witness, mid-session growth only serializes, and the
   claims re-verified on a running clock (the virtual model

@@ -83,23 +83,15 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
     }
 }
 
-/// Serialized wire time of one session at `budget` over the tight pipe,
-/// by the delay-sweep slope in units of the one-way delay.
+/// Serialized wire hops of one session at `budget` over the tight pipe.
 ///
-/// The pipe stays fixed across the sweep, so transfer time (bytes over
-/// the capacity-limited pipe) and window stall both scale with the delay
-/// and survive the slope, while compute — which does not scale — is
-/// differenced away.
-fn wire_slope(budget: usize) -> u32 {
-    let elapsed_at = |delay: Duration| {
-        let (left, right) = diverged(budget);
-        let mut wire = latency::DelayedWire::new(TIGHT_PIPE, delay);
-        let (_pair, elapsed) = wire.round_trip(left, right);
-        elapsed
-    };
-    let (short, long) = (elapsed_at(DELAY), elapsed_at(2 * DELAY));
-    u32::try_from(long.saturating_sub(short).as_millis() / DELAY.as_millis())
-        .expect("bounded hop count")
+/// Measured in exact virtual time: transfer time (bytes over the
+/// capacity-limited pipe) and window stall are both delay-denominated,
+/// while compute costs zero virtual time, so the count is a
+/// deterministic function of the session shape — machine load cannot
+/// move it.
+fn wire_hops(budget: usize) -> u32 {
+    latency::session_hops(TIGHT_PIPE, DELAY, diverged(budget))
 }
 
 /// The binding window a budget derives at this suite's session shape:
@@ -130,15 +122,14 @@ fn wave_model_matches_measured_sessions() {
     // Transfer baseline first: it calibrates the effective link rate,
     // so BDP_messages = RTT × rate / wire = 2 × divergence /
     // transfer_hops (both sides' divergences cross).
-    let transfer = wire_slope(UNBOUNDED);
-    // A degenerate slope means the delay sweep was swamped: compute time
-    // under machine load dwarfed the virtual delay and the difference
-    // collapsed. Fail by name here rather than letting BDP go infinite
-    // and the accuracy band compare NaN.
+    let transfer = wire_hops(UNBOUNDED);
+    // The calibration divides by this count, so the tight pipe must
+    // genuinely bind: a transfer too fast to price the pipe would carry
+    // no bandwidth signal into BDP_messages.
     assert!(
         transfer >= 4,
-        "self-calibration measured a degenerate transfer slope ({transfer} hops): \
-         the delay sweep was swamped by machine load; rerun on a quieter machine",
+        "self-calibration needs a genuinely bandwidth-limited transfer: \
+         {transfer} hops",
     );
     let bdp_messages = 2.0 * DIVERGENT as f64 / f64::from(transfer);
 
@@ -150,7 +141,7 @@ fn wave_model_matches_measured_sessions() {
         let budget = supply_decode_envelope_bytes() + dispute_share;
         let window = binding_capacity(budget);
         let predicted = (bdp_messages / window as f64).max(1.0);
-        let measured = f64::from(wire_slope(budget)) / f64::from(transfer);
+        let measured = f64::from(wire_hops(budget)) / f64::from(transfer);
         eprintln!(
             "budget {budget}: window {window}, BDP {bdp_messages:.0} messages, \
              predicted {predicted:.1}x, measured {measured:.1}x",
@@ -160,7 +151,7 @@ fn wave_model_matches_measured_sessions() {
             "the cell must predict real constriction to carry signal: {predicted:.1}x",
         );
         assert!(
-            measured / predicted > 0.4 && measured / predicted < 2.5,
+            measured / predicted > 0.5 && measured / predicted < 2.0,
             "measured slowdown {measured:.1}x outside the accuracy band of \
              predicted {predicted:.1}x",
         );
@@ -178,24 +169,15 @@ const PARITY_PIPE: usize = 4 * 1024;
 /// inverse form.
 #[test]
 fn parity_budget_runs_at_the_transfer_bound() {
-    let slope_at = |budget: usize| {
-        let elapsed_at = |delay: Duration| {
-            let (left, right) = diverged(budget);
-            let mut wire = latency::DelayedWire::new(PARITY_PIPE, delay);
-            let (_pair, elapsed) = wire.round_trip(left, right);
-            elapsed
-        };
-        let (short, long) = (elapsed_at(DELAY), elapsed_at(2 * DELAY));
-        u32::try_from(long.saturating_sub(short).as_millis() / DELAY.as_millis())
-            .expect("bounded hop count")
-    };
-    let transfer = slope_at(UNBOUNDED);
-    // Same degenerate-slope guard as the operator-equation cell: a
-    // load-swamped sweep must fail by name, not divide toward infinity.
+    let hops_at = |budget: usize| latency::session_hops(PARITY_PIPE, DELAY, diverged(budget));
+    let transfer = hops_at(UNBOUNDED);
+    // Same binding-pipe guard as the operator-equation cell: the
+    // calibration divides by this count, so a transfer too fast to price
+    // the pipe would carry no bandwidth signal.
     assert!(
         transfer >= 4,
-        "self-calibration measured a degenerate transfer slope ({transfer} hops): \
-         the delay sweep was swamped by machine load; rerun on a quieter machine",
+        "self-calibration needs a genuinely bandwidth-limited transfer: \
+         {transfer} hops",
     );
     let bdp_messages = 2.0 * DIVERGENT as f64 / f64::from(transfer);
 
@@ -206,14 +188,17 @@ fn parity_budget_runs_at_the_transfer_bound() {
         budget *= 2;
         assert!(budget < 1 << 30, "a parity window must be derivable");
     }
-    let measured = slope_at(budget);
+    let measured = hops_at(budget);
     eprintln!(
         "parity budget {budget} (window {} vs BDP {bdp_messages:.0}): \
          {measured} hops vs transfer {transfer}",
         binding_capacity(budget),
     );
+    // Measured excess at this shape is 2 hops over a 97-hop transfer;
+    // the additive allowance admits ladder drift, never a wave regime
+    // (one wave at this window would add tens of hops).
     assert!(
-        measured <= transfer + transfer / 2 + 4,
+        measured <= transfer + transfer / 8 + 4,
         "a window at the link's BDP must hide its waves under transfer: \
          {measured} hops vs {transfer}",
     );

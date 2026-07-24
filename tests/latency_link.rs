@@ -95,6 +95,55 @@ fn paused_report_includes_virtual_stall() {
     );
 }
 
+/// A paused-clock wire's virtual report is exact: it lands on the delay
+/// lattice (every pipe deadline is a whole number of delays past the
+/// runtime's epoch) and includes the diverged session's request/response
+/// stall, at least `2 * delay`.
+#[test]
+fn virtual_report_is_exact_on_the_delay_lattice() {
+    let delay = Duration::from_millis(10);
+    let (left, right) = diverged_pair();
+    let mut wire = latency::DelayedWire::new(ROOMY_CAPACITY, delay);
+    let (_pair, reported) = wire.round_trip_virtual(left, right);
+    let hops = latency::hops_on_lattice(reported, delay);
+    assert!(
+        hops >= 2,
+        "a diverged session pays at least one request/response of wire \
+         stall: {hops} hops at one-way delay {delay:?}",
+    );
+}
+
+/// The virtual report is deterministic: the same session shape measures
+/// the same wire cost on every run — the load-immunity the window suites
+/// pin their bounds on, stated as run-to-run equality.
+#[test]
+fn virtual_report_is_deterministic() {
+    let delay = Duration::from_millis(10);
+    let measure = || {
+        let (left, right) = diverged_pair();
+        let mut wire = latency::DelayedWire::new(ROOMY_CAPACITY, delay);
+        let (_pair, reported) = wire.round_trip_virtual(left, right);
+        reported
+    };
+    let (first, second) = (measure(), measure());
+    assert_eq!(
+        first, second,
+        "one session shape, one virtual wire cost: {first:?} vs {second:?}",
+    );
+}
+
+/// A wall-clock wire refuses to report a virtual cost: its virtual clock
+/// tracks the real one, so the component is wall time in disguise and
+/// load-immunity — the figure's contract — cannot be honored.
+#[test]
+#[should_panic(expected = "virtual wire cost is only meaningful on a paused clock")]
+fn wall_clock_wire_refuses_virtual_report() {
+    let delay = Duration::from_millis(2);
+    let (left, right) = diverged_pair();
+    let mut wire = latency::DelayedWire::new_wall_clock(ROOMY_CAPACITY, delay);
+    let _ = wire.round_trip_virtual(left, right);
+}
+
 /// A wall-clock wire's reported cost never exceeds externally measured
 /// elapsed time: the report is one interval strictly contained in the
 /// caller's, so summing wall and virtual components (two measurements of

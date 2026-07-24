@@ -10,27 +10,41 @@
 //! # The measurement model
 //!
 //! [`DelayedWire`] drives both session ends on a current-thread Tokio
-//! runtime whose clock is **paused**: pipe arrival deadlines live in virtual
-//! time, which advances only while every task is blocked waiting on one.
-//! On a paused-clock wire, the duration [`DelayedWire::round_trip`]
-//! reports is the sum of two disjoint components (on the
-//! [`new_wall_clock`](DelayedWire::new_wall_clock) cross-check variant the
-//! clocks coincide, and the report is real elapsed time alone):
+//! runtime whose clock is **paused**: pipe arrival deadlines live in
+//! virtual time, which advances only when the runtime's one thread has no
+//! ready task left and parks on its own timer driver. A session's cost
+//! splits into two components:
 //!
-//! - the *wall* component: real CPU time spent computing — both peers
-//!   serialized on one thread, the same convention as the zero-latency
-//!   harness in [`wire.rs`](wire.rs); and
 //! - the *virtual* component: time the session spent with every task
 //!   blocked on the wire — `delay` times the length of the session's
 //!   longest serialized chain of stream hops, plus any window stalls.
+//!   Compute costs zero virtual time, no thread outside the runtime
+//!   participates, and the library arms no timers of its own, so the
+//!   figure is a deterministic function of the session shape: OS
+//!   descheduling can starve the thread of CPU, never convince the
+//!   runtime that a pending task is idle, so machine load cannot move
+//!   it. Every pipe deadline is `delay` past an instant that is itself
+//!   a whole number of delays past the runtime's epoch, so the figure
+//!   lands on the delay lattice: dividing by `delay` reads serialized
+//!   one-way hops exactly. [`DelayedWire::round_trip_virtual`] reports
+//!   this component alone; it is the load-immune measurement the window
+//!   suites (`tests/window_knee.rs` and siblings) pin their bounds on.
+//! - the *wall* component: real CPU time spent computing — both peers
+//!   serialized on one thread, the same convention as the zero-latency
+//!   harness in [`wire.rs`](wire.rs). It moves with machine load.
 //!
-//! The sum approximates session completion time on a link with the given
-//! latency (an overestimate insofar as a real deployment overlaps one
-//! peer's compute with the other's wait). At `delay = 0` the virtual
-//! component vanishes and the figure degenerates to the zero-latency
-//! harness's wall measure. A sweep over `delay` therefore separates the
-//! two costs cleanly: the intercept is computational overhead, the slope
-//! is latency sensitivity in units of serialized one-way hops.
+//! [`DelayedWire::round_trip`] reports their sum, which approximates
+//! session completion time on a link with the given latency (an
+//! overestimate insofar as a real deployment overlaps one peer's compute
+//! with the other's wait). At `delay = 0` the virtual component vanishes
+//! and the sum degenerates to the zero-latency harness's wall measure. A
+//! sweep over `delay` separates the two costs in expectation — the
+//! intercept is computational overhead, the slope is latency sensitivity
+//! — which suits the benches, where load noise averages out across
+//! samples; assertions belong on the virtual figure instead. On the
+//! [`new_wall_clock`](DelayedWire::new_wall_clock) cross-check variant
+//! the clocks coincide, and [`DelayedWire::round_trip`]'s report is real
+//! elapsed time alone.
 //!
 //! Two deliberate simplifications:
 //!
@@ -419,21 +433,9 @@ impl DelayedWire {
     where
         T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
     {
-        let Self {
-            runtime,
-            a_link,
-            b_link,
-            paused,
-        } = self;
         let wall_start = std::time::Instant::now();
-        let virtual_elapsed = runtime.block_on(async {
-            let virtual_start = Instant::now();
-            let (a_result, b_result) = tokio::join!(a.gossip(a_link), b.gossip(b_link));
-            a_result.expect("peer A gossip");
-            b_result.expect("peer B gossip");
-            virtual_start.elapsed()
-        });
-        let elapsed = if *paused {
+        let (pair, virtual_elapsed) = self.reconcile(a, b);
+        let elapsed = if self.paused {
             wall_start.elapsed() + virtual_elapsed
         } else {
             // A running virtual clock advances with the real one, so wall
@@ -442,6 +444,100 @@ impl DelayedWire {
             // whole cost.
             wall_start.elapsed()
         };
-        ((a, b), elapsed)
+        (pair, elapsed)
     }
+
+    /// Reconcile one pair, returning the handles and the session's wire
+    /// cost alone: the virtual component, exact and load-immune.
+    ///
+    /// This is the measurement to assert on: a deterministic function of
+    /// the session shape, landing on the delay lattice, unmoved by
+    /// machine load (see the [module docs](self) for the argument).
+    ///
+    /// # Panics
+    ///
+    /// On a [`new_wall_clock`](Self::new_wall_clock) wire, where the
+    /// virtual clock tracks the real one and the component is wall time
+    /// in disguise: load-immunity is the figure's contract, so a wire
+    /// that cannot honor it must refuse loudly.
+    // Used only by the window measurement suites; the module is
+    // `#[path]`-included by several targets, each seeing its own copy's
+    // usage.
+    #[allow(dead_code)]
+    pub fn round_trip_virtual<T>(
+        &mut self,
+        a: Rumors<T>,
+        b: Rumors<T>,
+    ) -> ((Rumors<T>, Rumors<T>), Duration)
+    where
+        T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    {
+        assert!(
+            self.paused,
+            "virtual wire cost is only meaningful on a paused clock: \
+             a running clock's virtual component is wall time in disguise",
+        );
+        self.reconcile(a, b)
+    }
+
+    /// Drive one gossip session to completion, timing it in virtual time.
+    fn reconcile<T>(&mut self, a: Rumors<T>, b: Rumors<T>) -> ((Rumors<T>, Rumors<T>), Duration)
+    where
+        T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    {
+        let Self {
+            runtime,
+            a_link,
+            b_link,
+            paused: _,
+        } = self;
+        let virtual_elapsed = runtime.block_on(async {
+            let virtual_start = Instant::now();
+            let (a_result, b_result) = tokio::join!(a.gossip(a_link), b.gossip(b_link));
+            a_result.expect("peer A gossip");
+            b_result.expect("peer B gossip");
+            virtual_start.elapsed()
+        });
+        ((a, b), virtual_elapsed)
+    }
+}
+
+/// The window suites' measurement primitive: one session's exact hops.
+///
+/// Reconciles the pair over a fresh paused-clock wire with the given
+/// per-stream `capacity` and one-way `delay`, and reads the virtual wire
+/// cost as serialized one-way hops: deterministic and load-immune (see
+/// the [module docs](self) for the argument).
+// Used only by the window measurement suites; the module is
+// `#[path]`-included by several targets, each seeing its own copy's
+// usage.
+#[allow(dead_code)]
+pub fn session_hops<T>(capacity: usize, delay: Duration, (a, b): (Rumors<T>, Rumors<T>)) -> u32
+where
+    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    let mut wire = DelayedWire::new(capacity, delay);
+    let (_pair, elapsed) = wire.round_trip_virtual(a, b);
+    hops_on_lattice(elapsed, delay)
+}
+
+/// Read a virtual wire cost as a whole number of one-way hops at `delay`.
+///
+/// # Panics
+///
+/// If `elapsed` is off the delay lattice: exactness is the invariant the
+/// measurement model rests on (see the [module docs](self)), so drift
+/// fails loudly instead of rounding silently.
+// Used only by the window measurement suites and the harness pins; the
+// module is `#[path]`-included by several targets, each seeing its own
+// copy's usage.
+#[allow(dead_code)]
+pub fn hops_on_lattice(elapsed: Duration, delay: Duration) -> u32 {
+    assert_eq!(
+        elapsed.as_millis() % delay.as_millis(),
+        0,
+        "virtual wire cost must land on the delay lattice: \
+         {elapsed:?} at one-way delay {delay:?}",
+    );
+    u32::try_from(elapsed.as_millis() / delay.as_millis()).expect("bounded hop count")
 }

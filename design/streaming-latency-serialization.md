@@ -80,6 +80,15 @@ one-way stream hops. The conformance suite passes for this link at
 zero and nonzero delay (`tests/latency_link.rs`), so the numbers
 below measure the protocols, not a nonconforming transport.
 
+**Amendment (2026-07-23)**: the harness also reports the virtual
+component alone (`DelayedWire::round_trip_virtual`): the same exact
+hop count read directly — one run, no differencing, no wall term —
+deterministic under arbitrary machine load, and the asserting test
+suites pin their bounds on it (determinism and delay-lattice
+exactness are themselves pinned in `tests/latency_link.rs`). The
+benches keep the summed report and the sweep, whose intercept is
+the compute figure they exist to show.
+
 Instrument caveats, all shared equally by both protocols:
 
 - Both peers' compute serializes on one thread (same convention as
@@ -424,8 +433,9 @@ unit question — charged in node references, the quantity §6 prices:
   correctness floor (`underbuffered_mirror_stalls` demonstrates the
   stall below it), documented at the constructor.
 - Verification: `tests/gossip_pipelining.rs` gossips ~500 disputed
-  scopes over a 10 ms delayed link and bounds the session at 64
-  hops; at the floor the same session measures ~370 hops (3.7 s),
+  scopes over a 10 ms delayed link and bounds the session at 24
+  exact virtual hops (it measures 7); at the floor the same session
+  measures ~370 hops (3.7 s),
   so the test fails loudly if any edge regresses to serial. The §2
   sweep rerun through the public knob measures 8–9 hops at I = 5000
   and R = 2500 (from the 10 ms and 100 ms columns; the 1 ms column
