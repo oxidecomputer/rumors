@@ -39,9 +39,8 @@
 //! ([`MAX_HEAP_BYTES_PER_INPUT_BYTE`] over [`HEAP_FLAT_ALLOWANCE_BYTES`],
 //! [`MAX_GROWN_STACK_SEGMENTS`], [`MAX_LIMB_OPS_PER_INPUT_BYTE`],
 //! [`MAX_SCAN_BITS_PER_INPUT_BYTE`] — or, on
-//! the text rows' limb column, [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]), every
-//! committed liveness floor is met, and the judged wall exponent (below) is
-//! within [`MAX_WALL_SCALING_EXPONENT`]; **RED** otherwise, with the
+//! the text rows' limb column, [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]), and
+//! every committed liveness floor is met; **RED** otherwise, with the
 //! offending meters named.
 //!
 //! # Liveness floors
@@ -93,21 +92,27 @@
 //! around them still reads green. That is the derivation rule's designed
 //! limit — a floor states what the operation *must* do, and partial
 //! rerouting still does it — so the floors are a bypass tripwire, never a
-//! full-liveness proof; the judged time exponent below is the leg that
-//! bounds work no counter sees.
+//! full-liveness proof; the leg that bounds work no counter sees is the
+//! time exponent judged over the bench suite (below).
 //!
-//! # The judged time exponent
+//! # Determinism and the time leg
 //!
-//! Wall time is the one implementation-agnostic witness for *time*, exactly
-//! as heap is for space: a kernel doing quadratic work in plain machine-word
-//! arithmetic — no allocation, no recursion, no metered reads — is invisible
-//! to all four counters and visible to the clock. The board therefore fits
-//! the wall exponent across its two scales and judges it at
-//! [`MAX_WALL_SCALING_EXPONENT`] — generous against scheduler noise,
-//! impassable for a quadratic's ~2.0. Wall **constants** stay
-//! displayed-never-judged, and the exponent is judged only when the larger
-//! scale's wall reaches [`MIN_JUDGED_WALL_MILLIS`] (microsecond cells have
-//! meaningless exponents); a judged cell's wall column is marked `*`.
+//! Every quantity the board judges or renders is a deterministic counter,
+//! so two board runs at the same scale are byte-identical under any
+//! machine load: the board reads no clock, conditions nothing on timing,
+//! and comparing runs needs no exclusion rules. Time still has its own
+//! judged leg — wall time is the one implementation-agnostic witness for
+//! *time*, exactly as heap is for space: a kernel doing quadratic work in
+//! plain machine-word arithmetic (no allocation, no recursion, no metered
+//! reads) is invisible to all four counters and visible only to a clock —
+//! but the clock lives where timing discipline does. The bench judge
+//! (`tools/benchjudge`, `just bench-judge`) fits each cell's time exponent
+//! across two scales of the board benches' criterion medians (warmup,
+//! sampling, and outlier rejection are criterion's), denominated against
+//! the same per-cell bytes as the board's own exponents
+//! ([`BenchCell::denominator_bytes`]), and holds every judged cell to a
+//! ceiling generous to scheduler noise and impassable for a quadratic's
+//! ~2.0.
 //!
 //! # Acceptance scales
 //!
@@ -117,7 +122,8 @@
 //! default depths read false green there — **campaign acceptance is
 //! therefore all cells green at BOTH the default scale and the record
 //! scale [`RECORD_SCALE`] (`just amp-board-record`), three identical runs
-//! each**. Record runs are acceptance-time only; the enforced
+//! each, plus the bench judge green across the same two scales**. Record
+//! runs are acceptance-time only; the enforced
 //! per-operation record remains the process-isolated envelope suite in
 //! `tests/meter.rs`.
 //!
@@ -300,7 +306,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::rc::Rc;
-use std::time::{Duration, Instant};
 
 use crate::codec;
 use crate::{causally, Clock, Party, Rank, Version};
@@ -351,35 +356,6 @@ pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 /// only a walk that re-scans state growing with the input — the fold genre,
 /// which reads exponent ~2 here — goes red on this column.
 pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
-
-/// Green requires the wall-time scaling exponent at or below this, judged
-/// only above the [`MIN_JUDGED_WALL_MILLIS`] threshold.
-///
-/// Wall time is the one implementation-agnostic witness for time (as heap
-/// is for space): work done in plain machine words — no allocation, no
-/// recursion, no metered reads — is invisible to every counter column and
-/// visible here. The ceiling is generous so scheduler noise on a
-/// deterministic linear cell (measured ≤ ~1.15 across the board) cannot
-/// trip it, while a quadratic's ~2.0 cannot slip under it. Wall *constants*
-/// are displayed, never judged: machine speed is not a contract.
-pub const MAX_WALL_SCALING_EXPONENT: f64 = 1.3;
-
-/// The wall exponent is judged only when the larger scale's measured wall
-/// reaches this many milliseconds.
-///
-/// A microsecond-scale cell's wall ratio is timer and scheduler noise, not
-/// a complexity class. The threshold is calibrated on the two-runs-per-scale
-/// determinism check \[measured — 2026-07-24, both scales twice, dev
-/// profile\]: at 100 ms every judged cell reads either ~1.9 (the bigroot
-/// quadratics, red on their counters too) or at most ~1.13 (the linear
-/// controls) — margins a quiet run cannot cross — while the cells whose
-/// smaller-scale wall is noise-dominated (tens of milliseconds) fall below
-/// judgment and stop flickering their verdict reasons. The smoke test's
-/// tiny scale keeps every cell far below this threshold, so the parallel
-/// test suite never judges time; the board runners (default and record
-/// scale) and the dedicated reserved-runner tripwire are where the leg
-/// binds.
-pub const MIN_JUDGED_WALL_MILLIS: u64 = 100;
 
 /// Scan liveness floor: an operation that must examine its packed operands
 /// scans at least this many bits per packed input byte.
@@ -1023,7 +999,7 @@ const NA_LIMB_ID_TREE: &str = "id trees store no magnitudes: there is no arithme
 const NA_LIMB_WORD_FOLD: &str = "a machine-word fold: no big-integer arithmetic in the contract";
 /// Limb NA: the work runs below the shim, in the dependency.
 const NA_LIMB_DEPENDENCY: &str = "the decimal conversion runs inside the bignum dependency, \
-     below the limb shim: the display canary and the wall leg judge this row";
+     below the limb shim: the display canary and the bench judge's time leg judge this row";
 /// Heap floor: the result materializes at least its packed bytes.
 const WHY_HEAP_MATERIALIZES: &str =
     "materializes a result at least as large as the packed bytes it codes";
@@ -2082,8 +2058,7 @@ fn ops() -> Vec<Op> {
 
 // ─── measurement ────────────────────────────────────────────────────────────
 
-/// One measured run of a cell body: every meter, its denominators, plus
-/// wall time.
+/// One measured run of a cell body: every meter and its denominators.
 struct Sample {
     /// The denominator of every column's exponent and of the heap and
     /// segment constants: packed input bytes, or `n_io` for the
@@ -2102,7 +2077,6 @@ struct Sample {
     segments: u64,
     limb: Option<u64>,
     scan: Option<u64>,
-    wall: Duration,
 }
 
 /// Run one prepared cell under all meters.
@@ -2117,9 +2091,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
     reset_scan();
     (heap.reset_peak)();
     let baseline = (heap.current)();
-    let start = Instant::now();
     let result = (cell.body)();
-    let wall = start.elapsed();
     let peak_heap = (heap.peak)().saturating_sub(baseline);
     let segments = super::stack_segments();
     let limb = read_limb();
@@ -2150,7 +2122,6 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
         segments,
         limb,
         scan,
-        wall,
     }
 }
 
@@ -2245,12 +2216,6 @@ struct CellResult {
     limb_per_byte: Option<f64>,
     scan_exp: Option<f64>,
     scan_per_byte: Option<f64>,
-    /// The wall-time scaling exponent across the two samples (always
-    /// computed, judged only when `wall_judged`).
-    wall_exp: f64,
-    /// Whether the larger scale's wall reached [`MIN_JUDGED_WALL_MILLIS`],
-    /// putting the wall exponent under judgment.
-    wall_judged: bool,
     /// The meters over their bounds; empty means green.
     red: Vec<&'static str>,
 }
@@ -2293,14 +2258,6 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         ),
         _ => (None, None),
     };
-
-    let wall_exp = exponent(
-        s1.wall.as_nanos().try_into().unwrap_or(u64::MAX),
-        s2.wall.as_nanos().try_into().unwrap_or(u64::MAX),
-        s1.denom_bytes,
-        s2.denom_bytes,
-    );
-    let wall_judged = s2.wall >= Duration::from_millis(MIN_JUDGED_WALL_MILLIS);
 
     let mut red = Vec::new();
     if heap_exp > MAX_SCALING_EXPONENT {
@@ -2348,11 +2305,6 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
     {
         red.push(SCAN_FLOOR_TRIP);
     }
-    // The judged time exponent: wall constants are displayed, never judged;
-    // the exponent is judged once the larger scale's wall is above noise.
-    if wall_judged && wall_exp > MAX_WALL_SCALING_EXPONENT {
-        red.push("wall exponent");
-    }
 
     CellResult {
         op,
@@ -2366,18 +2318,11 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         limb_per_byte,
         scan_exp,
         scan_per_byte,
-        wall_exp,
-        wall_judged,
         red,
     }
 }
 
 // ─── rendering ──────────────────────────────────────────────────────────────
-
-/// Format a wall-time reading compactly in milliseconds.
-fn wall(d: Duration) -> String {
-    format!("{:.2}ms", d.as_secs_f64() * 1e3)
-}
 
 /// Render one liveness declaration's floor value: the committed minimum, or
 /// `-` for a not-applicable column.
@@ -2395,8 +2340,7 @@ fn floor_value(liveness: Liveness) -> String {
 /// exponent, like every exponent, is against the denominator bytes),
 /// everything else `/B`. The `flr` column shows the larger scale's committed
 /// liveness floors per judged column (`-` where not applicable; derivations
-/// in the legend above the matrix); the wall exponent's `*` marks a cell
-/// under time judgment.
+/// in the legend above the matrix).
 fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     let verdict = if r.red.is_empty() { "GREEN" } else { "RED" };
     let limb = match (r.limb_exp, r.limb_per_byte) {
@@ -2419,8 +2363,7 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         out,
         "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
          heap[e{he:5.2} {hc:>10.1}/B]  seg[e{se:5.2} {sc:>4}]  {limb}  {scan}  \
-         flr[h {fh:>6} l {fl:>6} s {fs:>6}]  \
-         wall[e{we:5.2}{judged} {w1:>9}->{w2:<9}]{reasons}",
+         flr[h {fh:>6} l {fl:>6} s {fs:>6}]{reasons}",
         op = r.op,
         family = r.family,
         n1 = r.s1.denom_bytes,
@@ -2432,10 +2375,6 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         fh = floor_value(r.s2.floors.heap),
         fl = floor_value(r.s2.floors.limb),
         fs = floor_value(r.s2.floors.scan),
-        we = r.wall_exp,
-        judged = if r.wall_judged { "*" } else { " " },
-        w1 = wall(r.s1.wall),
-        w2 = wall(r.s2.wall),
     )
 }
 
@@ -2491,11 +2430,10 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
          limb <= {MAX_LIMB_OPS_PER_INPUT_BYTE} ops/B \
          (text rows: <= {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT} ops/R), \
          scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B; \
-         every committed liveness floor met (flr[...]: a counter below its floor is red: \
+         and every committed liveness floor met (flr[...]: a counter below its floor is red: \
          the meter is not watching that work; segments is ceiling-only by policy, its honest \
-         floor is zero); and wall exponent <= {MAX_WALL_SCALING_EXPONENT} once the larger \
-         scale's wall reaches {MIN_JUDGED_WALL_MILLIS} ms (marked *; wall constants are \
-         displayed, never judged)"
+         floor is zero). every judged quantity is a deterministic counter: the time-exponent \
+         leg lives in the bench judge (just bench-judge)"
     )?;
     writeln!(out)?;
     writeln!(out, "liveness declarations on this board:")?;
@@ -2544,7 +2482,9 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
 /// The bench suite (`benches/board.rs`) is the board's wall-time shadow: its
 /// criterion group and function IDs are exactly [`BenchCell::op`] and
 /// [`BenchCell::family`], so a board cell names the bench that times it and
-/// a criterion filter selects a cell.
+/// a criterion filter selects a cell. The bench judge (`tools/benchjudge`)
+/// reads those same IDs out of criterion's saved estimates to run the time
+/// leg the module doc describes.
 pub struct BenchCell {
     /// The board row's operation name: the bench group ID.
     pub op: &'static str,
@@ -2568,6 +2508,36 @@ impl BenchCell {
         (self.prepare)(&self.data)
             .expect("cell applicability was settled at construction")
             .body
+    }
+
+    /// The cell's denominator bytes at its scale: packed input, or total
+    /// I/O on the I/O-denominated rows.
+    ///
+    /// Runs one untimed body to read the output side back from the actual
+    /// result, exactly as the board's measurement does (a prediction never
+    /// substitutes for the result, and a text output is checked against the
+    /// honesty ceiling on the way). The bench judge denominates its fitted
+    /// time exponents against these bytes — the board's own convention — so
+    /// a family whose packed bytes grow faster than the scale knob (the
+    /// cliff comb's value content is quadratic in its parameter) is judged
+    /// against what the operation actually reads and writes, never against
+    /// the knob.
+    pub fn denominator_bytes(&self) -> usize {
+        let cell =
+            (self.prepare)(&self.data).expect("cell applicability was settled at construction");
+        let result = (cell.body)();
+        match cell.denom {
+            Denom::Input => cell.input_bytes,
+            Denom::Io(spec) => {
+                let output_bytes = (spec.output_bytes)(result.as_ref());
+                if let Some(text) = spec.text {
+                    if text.output_is_text {
+                        assert_honest_text(self.op, output_bytes, text.content_bits);
+                    }
+                }
+                cell.input_bytes + output_bytes
+            }
+        }
     }
 }
 

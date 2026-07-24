@@ -5,8 +5,10 @@
 //! The tripwires: κ against a digit-by-digit schoolbook probe (and the
 //! production delegating parser pinned under κ with a live counter); the
 //! `n_io` exponent leg against a chunked schoolbook converter; the
-//! liveness floors against a meter-bypassing walk; the wall-exponent leg
-//! against an unmetered quadratic.
+//! liveness floors against a meter-bypassing walk. The time leg's tripwire
+//! (an unmetered quadratic reading red on its fitted exponent) lives with
+//! the leg, in `tools/benchjudge`'s self-test and the `tripwire` bench
+//! target.
 
 use crate::meter::{bigroot, dense, hugeleaf, Packed};
 use crate::{Party, Version};
@@ -242,8 +244,6 @@ fn schoolbook_limb_ops(text: &str, chunk_digits: usize) -> u64 {
 #[cfg(feature = "limb-meter")]
 #[test]
 fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
-    use std::time::Duration;
-
     use super::{evaluate, na, Floors, Sample};
 
     let measure = |packed: &Packed| -> Sample {
@@ -273,7 +273,6 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
             segments: 0,
             limb: Some(ops),
             scan: None,
-            wall: Duration::ZERO,
         }
     };
     // The spine-over-magnitude family is also constant-blind to chunking.
@@ -332,8 +331,6 @@ fn bypass_walk(v: &Version) -> usize {
 #[cfg(feature = "scan-meter")]
 #[test]
 fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
-    use std::time::Duration;
-
     use super::{evaluate, na, walk_floors, Floors, Sample, SCAN_FLOOR_TRIP};
 
     const PROBE_NA: &str = "probe: the ceilings-alone leg declares no floors";
@@ -362,7 +359,6 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             segments: 0,
             limb: None,
             scan: Some(scanned),
-            wall: Duration::ZERO,
         }
     };
 
@@ -390,95 +386,5 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
         vec![SCAN_FLOOR_TRIP],
         "under the committed floors the bypass walk must read red on exactly the scan \
          floor: the meter is not watching its traversal"
-    );
-}
-
-/// The size parameter of the wall-exponent probe's smaller scale; the
-/// larger runs at its double.
-///
-/// Sized so the larger scale's quadratic pass comfortably outlasts
-/// [`MIN_JUDGED_WALL_MILLIS`](super::MIN_JUDGED_WALL_MILLIS) under the dev
-/// profile while the whole probe stays under about a second.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
-const QUAD_PROBE_BASE: usize = 6_144;
-
-/// One quadratic pass of plain machine-word arithmetic keyed to `n`: no
-/// allocation, no recursion, no metered reads.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
-fn unmetered_quadratic(n: usize) -> u64 {
-    let mut acc = 0u64;
-    for i in 0..n {
-        for j in 0..n {
-            acc = acc
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add((i ^ j) as u64);
-        }
-    }
-    acc
-}
-
-/// An unmetered quadratic reads red on the wall-exponent leg and green on
-/// all four counter columns: the time leg sees what no counter does.
-///
-/// The probe is plain machine-word arithmetic — no allocation, no
-/// recursion, no big-integer ops, no stream reads — so heap, segments,
-/// limb, and scan all record zero and every ceiling and floor passes; only
-/// the measured wall, fitted across the doubling through [`evaluate`]
-/// itself, exposes the ~2.0 exponent. Wall measurement wants a quiet
-/// machine: the runner configuration reserves every test thread for this
-/// test (the display canary's idiom), and the quadratic-versus-1.3 margin
-/// absorbs what scheduling noise remains.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
-#[test]
-fn unmetered_quadratic_reads_red_on_the_wall_exponent_leg_alone() {
-    use std::hint::black_box;
-    use std::time::{Duration, Instant};
-
-    use super::{evaluate, na, Floors, Sample, MIN_JUDGED_WALL_MILLIS};
-
-    const PROBE_NA: &str = "probe: plain machine-word arithmetic declares no floors";
-    let sample = |n: usize| -> Sample {
-        crate::meter::reset_stack_segments();
-        crate::meter::reset_limb_ops();
-        crate::meter::reset_scan_bits();
-        let start = Instant::now();
-        let acc = unmetered_quadratic(black_box(n));
-        let wall = start.elapsed();
-        black_box(acc);
-        Sample {
-            denom_bytes: n,
-            limb_denom: n as u64,
-            text_row: false,
-            floors: Floors {
-                heap: na(PROBE_NA),
-                limb: na(PROBE_NA),
-                scan: na(PROBE_NA),
-            },
-            // The probe allocates nothing; this binary installs no counting
-            // allocator, so zero is also the only honest reading.
-            peak_heap: 0,
-            segments: crate::meter::stack_segments(),
-            limb: Some(crate::meter::limb_ops()),
-            scan: Some(crate::meter::scan_bits()),
-            wall,
-        }
-    };
-    let s1 = sample(QUAD_PROBE_BASE);
-    let s2 = sample(QUAD_PROBE_BASE * 2);
-    assert!(
-        s2.wall >= Duration::from_millis(MIN_JUDGED_WALL_MILLIS),
-        "the probe's larger scale must outlast the wall judgment threshold \
-         ({MIN_JUDGED_WALL_MILLIS} ms): measured {:?}; grow QUAD_PROBE_BASE",
-        s2.wall
-    );
-    let cell = evaluate("unmetered_quadratic_probe", "probe", s1, s2);
-    assert_eq!(
-        cell.red,
-        vec!["wall exponent"],
-        "the criterion must read the unmetered quadratic red on exactly the wall exponent \
-         (measured exponent {:.2}, walls {:?} -> {:?}): every counter column is blind to it",
-        cell.wall_exp,
-        cell.s1.wall,
-        cell.s2.wall
     );
 }

@@ -120,3 +120,7 @@ harness = false
 [[bench]]
 name = "board"
 harness = false
+
+[[bench]]
+name = "tripwire"
+harness = false
