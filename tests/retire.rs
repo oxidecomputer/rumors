@@ -12,9 +12,9 @@
 //! it receives the whole tree through the descent and the whole party as
 //! the trailing frame, becoming the retiree's successor.
 //!
-//! (The old typestate-era tests of a retire refused by outstanding
-//! snapshots have no equivalent: the `Peer`/`Rumors` XOR makes "retire
-//! while observers share the party" unrepresentable at compile time. The
+//! (No test covers a retire refused by outstanding snapshots, because
+//! none can exist: the `Peer`/`Rumors` XOR makes "retire while
+//! observers share the party" unrepresentable at compile time. The
 //! party-accounting side — every retire reconstituting the seed's whole
 //! id-space — lives in the crate-level tests, which can read the party.)
 
