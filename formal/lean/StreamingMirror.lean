@@ -86,3 +86,4 @@ import StreamingMirror.Mux.Proofs.Termination
 import StreamingMirror.Mux.Statement
 import StreamingMirror.Mux.Charters
 import StreamingMirror.Proofs.Wide
+import StreamingMirror.Ord.Basic
