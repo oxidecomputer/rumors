@@ -1723,3 +1723,51 @@ row is ONE row and its channel-side projections are unchanged, so the
 twins are transcriptions, not new mathematics — but they are a unit of
 work the scoping priced at zero. Base files stay untouched (the
 zero-edits rule); the cost is absorbed as one extra fork-sized unit.
+
+**The chain through merge completeness, LANDED (2026-07-23/24, six
+fork units, all green at every commit):**
+
+- *Stage B (safety)*: `invO_preserved`/`invO_reachable`
+  (Ord/Preserve.lean + the five per-family twin files; the four
+  absorber arms partner-arm dispatched, flow re-plumbed through the
+  `recvdOfO` frames).
+- *Stage C (traces)*: `procsO`/`scheduleO` with the reply-first
+  collapse pins landing as `rfl`; the proj/perm bridges
+  (`proj_pair_swap` the one workhorse: swapping adjacent events on
+  distinct channels is projection-invisible); canon + ownership +
+  `ManRows` unconditional over the class; the merge wrappers. The
+  eventdag gate pins BOTH kernel transcriptions (`Ord.scheduleO`,
+  `Ord.weaveO`) to the tool event-for-event per pin and per acyclic
+  seed.
+- *Stage D (witness + edge respect)*: `weaveGoO` over ord-dispatched
+  scope expanders (kernel anchors at `.qf` by `decide`);
+  `align_scopeO`/`weaveO_wcount` unconditional; the dep layer
+  transfers PER CHANNEL (`manDep` never crosses channels —
+  `depOK_transfer_chan`); the FamOKO pump layer (the priced
+  deviation) with the absorber trichotomy's starved arms phrased by
+  `wirePhase` offsets so downstream consumers never dispatch; the O
+  windows, with ONE statement deviation — `wire0_windowO`'s
+  request-feed slack is `1 − wirePhase` (the base hypothesis at
+  reply-first, NO slack at query-first; the site derivation keeps
+  the exact feed count the E proof had before weakening, so the
+  master induction closes it by omega); `weaveO_wedge` CLOSED for
+  every assignment — the prologue delta packaged as one rest-generic
+  `emitOK_prologueO`, the entire post-prologue body shared between
+  the orders.
+- *Stage E (decode)*: Ord/Pending.lean re-denominates the pend layer
+  (`performedO`/`PendOkO`): base `recvdOf` factually mis-counts a
+  query-first loop mid-prologue, so the E decode statements are
+  unprovable over O states as-is — the five placement-independent
+  decodes transfer through bridges, the walk/absorb decodes dispatch
+  over `walkEventsO`/`absorbEventsO`.
+- *Stage D exit*: `merge_completeO` CLOSED (standard axiom set), the
+  argmin over `weaveO` positions; 20 FamOKO signature-swap twins in
+  the drain ladder, no per-assignment dispatch anywhere.
+- *Stage F*: `rho_decreasesO` (15 arms delegated by iota, 8 re-phased
+  arms priced by the CROSSED walkRho step lemmas — the measure is
+  order-blind by design), `run_length_leO`/`terminatingO`,
+  `drainO`/`drain_quiescentO`.
+
+One merge-seam finding from the parallel fan-out, fixed: two units
+independently minted `mem_prologueO` (Align exports it; Pending's
+went private). The duplicate sweep is now part of the close-out.
