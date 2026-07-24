@@ -13,6 +13,79 @@ use crate::testing::generators::{
 };
 use crate::testing::optrace::{run, world_strategy};
 
+// ───────────────────────────── the join fold ─────────────────────────────
+
+/// Build one organic history's party population, deterministically
+/// reproducible from the same ops.
+fn world_parties(ops: &[crate::testing::optrace::Op]) -> Vec<Party> {
+    run(ops)
+        .iter()
+        .map(|c| from_oracle_party(c.party()))
+        .collect()
+}
+
+proptest! {
+    /// The balanced `join_all` is the sequential fold: over one organic
+    /// history's pairwise-disjoint parties, folding the rest into any
+    /// member returns `Ok` with exactly the party the sequential
+    /// `join`-per-input reference produces, in both input orders.
+    #[test]
+    fn join_all_matches_the_sequential_fold(ops in world_strategy(), i in 0usize..64, reverse in any::<bool>()) {
+        let mut reference_pool = world_parties(&ops);
+        let n = reference_pool.len();
+        let mut reference = reference_pool.remove(i % n);
+        if reverse {
+            reference_pool.reverse();
+        }
+        for p in reference_pool {
+            reference.join(p).expect("one world's parties are pairwise disjoint");
+        }
+
+        let mut pool = world_parties(&ops);
+        let mut acc = pool.remove(i % n);
+        if reverse {
+            pool.reverse();
+        }
+        acc.join_all(pool).expect("one world's parties are pairwise disjoint");
+        prop_assert_eq!(acc, reference);
+    }
+}
+
+/// Aliased inputs stay best-effort: a duplicated share collides on its
+/// way in and is handed back whole (nothing panics, nothing is dropped),
+/// while the honest copy of every share still reunites the seed region.
+///
+/// The duplicate rides directly behind its original, so the collision
+/// happens original-against-duplicate; which parties come back for other
+/// interleavings is deliberately unspecified (the contract's
+/// order-dependence for aliased input).
+#[test]
+fn join_all_hands_back_aliased_inputs() {
+    let mut acc = Party::seed();
+    let shares: Vec<Party> = acc.forks(3).collect();
+    let mut dup_seed = Party::seed();
+    let mut dups = dup_seed.forks(3);
+    let duplicate = dups.next().expect("three shares were requested");
+    drop(dups);
+    drop(dup_seed);
+    let mut again = Party::seed();
+    let mut again_shares = again.forks(3);
+    let expected_back = again_shares.next().expect("three shares were requested");
+    drop(again_shares);
+    drop(again);
+    let mut inputs = shares;
+    inputs.insert(1, duplicate);
+    let back = acc
+        .join_all(inputs)
+        .expect_err("the duplicated share must collide");
+    assert_eq!(back.len(), 1, "exactly the duplicate comes back");
+    assert_eq!(back[0], expected_back, "the duplicate comes back whole");
+    assert!(
+        acc.is_seed(),
+        "the honest copy of every share reunites the seed region"
+    );
+}
+
 // ───────────────────────────── differential vs oracle ─────────────────────────────
 
 proptest! {

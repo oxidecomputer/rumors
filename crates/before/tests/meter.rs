@@ -1883,6 +1883,8 @@ mod query_env {
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255); // 24_576, 0, 250_002, 375_006, 125_004
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62); // 528, 0, 17, 2_052, 49
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924); // 420_560, 0, 92_212, 2_124_806, 35_939
+    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(    91_520,        0,   862_888,   204_833,         0); // 73_216, 0, 690_310 (sequential 14_281_732), 163_866, 0
+    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   365_540,         0); // 336, 0, 0, 292_432 (sequential 3_284_952), 0
 }
 
 /// Run one query scenario body under all five meters and assert its
@@ -2108,4 +2110,98 @@ fn skyline_project_comb_scatter_envelope() {
     );
     let expected = meter::skyline::encode(&(&v / &party));
     assert_eq!(out, expected, "the kernel must match the packed quotient");
+}
+
+// ─── join-fold scenarios ────────────────────────────────────────────────────
+//
+// The public join folds on the scatter population: 1,024 balanced-forked
+// parties, one tick each, ordered evens before odds so a left fold's
+// accumulator would hold every other leaf and never coalesce — the shape
+// on which a sequential fold reads quadratic (the board's two `scatter`
+// cells were its red pins). The balanced binary-counter reduction gives
+// every input O(log n) joins against similarly-sized partners, and these
+// rows pin that as the enforced record: the version fold on the limb
+// column (sequential reads 14,281,732 limb ops on this population — 20.7×
+// the pinned fold), the party fold on the scan column (sequential reads
+// 3,284,952 scanned bits — 11.2× the pinned fold; the id walk allocates
+// nothing and does no `Base` arithmetic, so scanned bits are the only
+// deterministic meter that sees it).
+
+/// The board's scatter population at the enforced-suite scale.
+const FOLD_SCATTER_CLOCKS: usize = 1_024;
+
+/// Build the scatter fold population: balanced-forked parties, one tick
+/// each, evens before odds (the board's `scatter` family recipe).
+fn scatter_population() -> (Vec<Version>, Vec<before::Party>) {
+    let mut parties = vec![before::Party::seed()];
+    while parties.len() < FOLD_SCATTER_CLOCKS {
+        let mut next = Vec::with_capacity(parties.len() * 2);
+        for mut p in parties {
+            let q = p.fork();
+            next.push(p);
+            next.push(q);
+        }
+        parties = next;
+    }
+    let versions: Vec<Version> = parties
+        .iter()
+        .map(|p| {
+            let mut v = Version::new();
+            v.tick(p);
+            v
+        })
+        .collect();
+    let scatter = |len: usize| (0..len).step_by(2).chain((1..len).step_by(2));
+    let versions = scatter(versions.len())
+        .map(|i| versions[i].clone())
+        .collect();
+    let mut scattered_parties = Vec::with_capacity(parties.len());
+    let mut slots: Vec<Option<before::Party>> = parties.into_iter().map(Some).collect();
+    for i in scatter(slots.len()) {
+        scattered_parties.push(slots[i].take().expect("each index is visited once"));
+    }
+    (versions, scattered_parties)
+}
+
+/// `Version::join_all` over the scatter population stays within its
+/// envelope: the balanced reduction keeps every join's operands
+/// comparably sized, so the fold is near-linear in the population's
+/// packed bytes where the left fold re-scanned its whole accumulator per
+/// input.
+#[test]
+fn fold_version_scatter_envelope() {
+    let (versions, _) = scatter_population();
+    let input_bytes: usize = versions.iter().map(|v| v.encode().len()).sum();
+    let reference = versions.iter().fold(Version::new(), |acc, v| acc | v);
+    let out = query_metered(
+        "fold_version_scatter",
+        input_bytes,
+        &query_env::FOLD_VERSION_SCATTER,
+        || Version::join_all(versions),
+    );
+    assert_eq!(out, reference, "the balanced fold equals the left fold");
+}
+
+/// `Party::join_all` over the scatter population stays within its
+/// envelope: the id-side fold's work is pure stream scanning, and the
+/// balanced reduction keeps the scanned bits near-linear in the
+/// population's packed bytes where the left fold re-walked its whole
+/// accumulated region per input.
+#[test]
+fn fold_party_scatter_envelope() {
+    let (_, mut parties) = scatter_population();
+    let input_bytes: usize = parties.iter().map(|p| p.encode().len()).sum();
+    let rest = parties.split_off(1);
+    let mut acc = parties.remove(0);
+    let acc = query_metered(
+        "fold_party_scatter",
+        input_bytes,
+        &query_env::FOLD_PARTY_SCATTER,
+        move || {
+            acc.join_all(rest)
+                .expect("balanced forks are pairwise disjoint");
+            acc
+        },
+    );
+    assert!(acc.is_seed(), "the scattered forks reunite the seed region");
 }
