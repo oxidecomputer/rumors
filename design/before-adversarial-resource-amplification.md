@@ -1504,6 +1504,30 @@ but whether that branch cures this witness is **unverified**: these
 seeds must be replayed there before the C0 rebase closes the
 roster.
 
+Amended 2026-07-24, P3.6 fix round: the roster is now **sixteen**
+tests. A gate run at this branch's tip minted one more seed for the
+inherited stall — `cc 36aa4c82…` in
+`tests/multi_peer.proptest-regressions` — failing
+`rumors::multi_peer::readout_matches_oracle_after_quiesce_string`
+with the identical `Stalled` witness. Provenance verified 2026-07-24
+by replay at the plain merge-base 6b39482d: the test fails there
+with the seed file copied in and passes there without it — main's
+transport, no campaign changes applied. The sixteen-test sweep of
+record at this branch's tip: `--no-fail-fast`, 879 run: 863 passed,
+16 failed, 2 skipped, the fifteen recorded tests plus this one and
+no others. Process rule, recorded with this amendment: until
+`link-transport` lands, the roster is not a stable set — any
+sufficiently long proptest run can mint a fresh schedule that walks
+into the same wait cycle — so a gate read is judged by provenance,
+not by count alone. A novel failure joins the roster (commit the
+seed, amend this section) exactly when all three hold: the witness
+is the `Stalled` panic, the cause is a new seed line in one of the
+stall files (`tests/pairwise.proptest-regressions`,
+`tests/multi_peer.proptest-regressions`,
+`tests/async_wire.proptest-regressions`), and the test replays red
+at the plain merge-base with the seed file copied in. Any novel
+failure outside that shape blocks.
+
 Acceptance for the effort: every §5 row at a small pinned constant ×
 input; the §13 board all green — no super-linear cell and no
 large-constant cell anywhere in the op × family matrix; `benches/`
@@ -3255,8 +3279,12 @@ re-derivation), C3, P4.1, the P4-tail text item, P5.
 - Gate invocation of record: `SWAP_LIMIT_GB=24 PROC_LIMIT_GB=16 just
   gate` (documented memwatch overrides — stale system swap, per-proc
   rustc peaks); the display canary keeps its reserved-runner nextest
-  wiring; the workspace test step fails with exactly the fifteen-test
-  inherited roster until C0.
+  wiring; the workspace test step fails with exactly the §14
+  inherited roster until C0 (sixteen tests as of 2026-07-24), read
+  under §14's provenance-replay rule: a novel `Stalled` failure from
+  a fresh seed line in one of the three stall files that replays red
+  at the plain merge-base joins the roster by amendment; any other
+  novel failure blocks.
 - Environment cautions: cargo's global package-cache lock can convoy
   behind wedged rust-analyzer `cargo metadata` children — diagnose
   with `lsof ~/.cargo/.package-cache`, suspect the oldest zero-CPU
