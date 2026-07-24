@@ -3749,6 +3749,31 @@ snapshots):
   predicate envelope rows re-pin deliberately under either
   ordering.
 
+- **Defended keeps (2026-07-24 This-Nature sweep) — adjudicated
+  once, not relitigated.** The sweep cleared the measurement
+  infrastructure under the protective test (could a maintained
+  external tool produce this number?): the limb/scan/segment/touch
+  meters and their floors (domain-semantic quantities; the floors
+  are the liveness rule with the recorded P3.5 live catch); the
+  adversarial generators, envelope harnesses, and the ratchet
+  convention; `tier2_size` and the compactness probes;
+  `testing/metrics` step counts; `tools/memwatch` (no macOS cgroup
+  equivalent; process-tree scoping engineered); `tools/doclint`
+  (measured non-subsumed: clippy's too-long-first-doc-paragraph
+  fires only on multi-paragraph docs, never the
+  single-over-long-paragraph case doclint exists for); heap
+  metering (`peak_alloc`, a maintained dep, plus `HeapMeter`
+  fn-pointer plumbing forced by the one-global-allocator-per-binary
+  constraint; dhat's testing mode cannot reset its high-water mark
+  mid-process, which per-cell measurement requires); κ and its
+  three tripwires (every sub-problem exists because adversarial
+  review refuted weaker criteria). Open internal-hygiene items from
+  the same sweep, not This-Nature: the `tests/meter.rs` harness
+  triplication (one column-set-parameterized harness; P5-window
+  candidate); heap-column exact pins kept eyes-open (a second
+  round of split-provenance archaeology under a backend bump
+  reopens band-rounding).
+
 ### 17.6 Representation pins for all exposed types (recorded 2026-07-23, user directive)
 
 `before` is independently useful, so every exposed type's externally
@@ -4104,6 +4129,19 @@ re-derivation), C3, P4.1, the P4-tail text item, P5.
   Style and substance improvements to user-facing prose remain
   gated on the user's final say; a dedicated prose improvement
   pass is planned (P5's doc distillation is its slot).
+- Phase-boundary dissolution check (2026-07-24, from the
+  This-Nature sweep): at each phase boundary, ask "did anything we
+  landed this phase make something older dissolvable?"
+  Self-justifying infrastructure accretes when machinery outlives
+  the constraint that justified it (the Small(u64) arm predated
+  dashu; the board's wall leg predated the bench mandate's
+  criterion mirror; the display canary predates both). The
+  criterion: (i) reimplements a capability a mature in-tree tool
+  provides, or (ii) generates its own maintenance cascade — with
+  the protective test "could a maintained external tool produce
+  this number?" guarding the domain meters. Retiring an instrument
+  follows the same ratchet as landing one: the replacement's
+  tripwire reads red before the old instrument is deleted.
 - Bench-judge roster convention (2026-07-24, bench-judge review):
   the judge's expected-red roster (`tools/benchjudge-expected.json`,
   path named as `benchjudge_roster` in the justfile) is the
