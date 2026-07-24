@@ -1620,10 +1620,12 @@ fn rank_parts(r: &super::Rank) -> (num_bigint::BigUint, u32) {
     (num_bigint::BigUint::from_bytes_le(&bytes), exp)
 }
 
-/// One adversarial `Rank` for the 25k-pair order agreement sweep, from a
-/// deterministic word stream: odd numerators from one to a few hundred
-/// limbs wide (with all-ones runs so shared prefixes go deep), exponents
-/// from zero to well past any numerator width.
+/// One adversarial `Rank` for the order-agreement sweeps, from a
+/// deterministic word stream.
+///
+/// Odd numerators from one to a few hundred limbs wide (with all-ones
+/// runs so shared prefixes go deep), exponents from zero to well past
+/// any numerator width.
 fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
     let limbs = match next() % 8 {
         0..=3 => 1,
@@ -1654,12 +1656,15 @@ fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
     super::Rank::from_raw(num, exp)
 }
 
-/// The class-first streamed `Rank` order agrees with the alignment oracle
-/// on 25,000 adversarial pairs: random wide/narrow numerators crossed
-/// with far-apart exponents (the mismatched-class fast path), forced
-/// class ties with deep shared prefixes (the streamed-window path), and
-/// exact duplicates (the equality path). `checked_sub`'s pre-check is
-/// asserted consistent on every pair: `Some` exactly when `rhs <= self`.
+/// The class-first streamed `Rank` order agrees with the alignment
+/// oracle on 25,000 adversarial pairs.
+///
+/// The pairs cross random wide/narrow numerators with far-apart
+/// exponents (the mismatched-class fast path), forced class ties with
+/// deep shared prefixes (the streamed-window path), and exact
+/// duplicates (the equality path). `checked_sub`'s pre-check is
+/// asserted consistent on every pair: `Some` exactly when
+/// `rhs <= self`.
 #[test]
 fn rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs() {
     // A fixed splitmix64 stream: deterministic, dependency-free.
@@ -1717,10 +1722,12 @@ fn rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs() {
 }
 
 proptest! {
-    /// `Sum` is the pairwise fold: over an arbitrary multiset of ranks in
-    /// arbitrary order, both `Sum` impls return exactly the value the
-    /// reference `fold(ZERO, +)` produces — one raw accumulation with a
-    /// final normalization changes the cost, never the result.
+    /// `Sum` is the pairwise fold.
+    ///
+    /// Over an arbitrary multiset of ranks in arbitrary order, both
+    /// `Sum` impls return exactly the value the reference `fold(ZERO, +)`
+    /// produces — one raw accumulation with a final normalization changes
+    /// the cost, never the result.
     #[test]
     fn rank_sum_equals_the_pairwise_fold(seeds in proptest::collection::vec(any::<u64>(), 0..24)) {
         let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
@@ -1738,11 +1745,12 @@ fn a_bits(r: &super::Rank) -> u64 {
 }
 
 proptest! {
-    /// `distance` and `lag` realize both reference oracles: the recursive
-    /// tree fold's rank differences pin the arithmetic, and the semantic
-    /// oracle's Riemann sums over join/meet events pin the meaning — the
-    /// three computations share no walk, no accumulator, and no
-    /// normalization sink.
+    /// `distance` and `lag` realize both reference oracles.
+    ///
+    /// The recursive tree fold's rank differences pin the arithmetic, and
+    /// the semantic oracle's Riemann sums over join/meet events pin the
+    /// meaning — the three computations share no walk, no accumulator,
+    /// and no normalization sink.
     #[test]
     fn distance_and_lag_realize_both_oracles(
         oa in arb_oracle_version(),
@@ -1816,10 +1824,12 @@ proptest! {
     }
 
     /// Value-equal ranks built along different operation paths are one
-    /// structural value: pairwise addition, `Sum`, and add-then-subtract
-    /// land on identical representations, equal under `Eq` and under
-    /// `Hash` — the normalization invariant `Ord`'s class-first fast path
-    /// and every container key rest on.
+    /// structural value.
+    ///
+    /// Pairwise addition, `Sum`, and add-then-subtract land on identical
+    /// representations, equal under `Eq` and under `Hash` — the
+    /// normalization invariant `Ord`'s class-first fast path and every
+    /// container key rest on.
     #[test]
     fn rank_cross_path_normalization_and_hash(seeds in proptest::collection::vec(any::<u64>(), 3)) {
         use core::hash::{Hash, Hasher};
@@ -1871,10 +1881,12 @@ fn world_versions(ops: &[Op]) -> Vec<Version> {
 }
 
 proptest! {
-    /// The balanced `join_all` is the sequential fold: over organic
-    /// version populations in both orders, `join_all`, both `Sum` forms,
-    /// and both `FromIterator` forms all return exactly the left fold's
-    /// join — the reduction changes the grouping, never the value.
+    /// The balanced `join_all` is the sequential fold on versions.
+    ///
+    /// Over organic version populations in both orders, `join_all`, both
+    /// `Sum` forms, and both `FromIterator` forms all return exactly the
+    /// left fold's join — the reduction changes the grouping, never the
+    /// value.
     #[test]
     fn join_all_equals_the_sequential_fold(ops in world_strategy()) {
         let pool = world_versions(&ops);

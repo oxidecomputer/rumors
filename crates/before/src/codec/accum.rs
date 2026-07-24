@@ -419,9 +419,10 @@ impl Accum {
     }
 
     /// Add `value` (any sign, any `i128` magnitude) into the digit at
-    /// `pos`, carrying upward until every touched digit is back in the
-    /// lazy zone: O(value bits / 32) digit touches, amortized O(1) for
-    /// word-scale values.
+    /// `pos`, carrying upward until every touched digit is in the zone.
+    ///
+    /// O(value bits / 32) digit touches, amortized O(1) for word-scale
+    /// values.
     fn add_at(&mut self, mut pos: usize, mut value: i128) {
         while value != 0 {
             if pos >= self.digits.len() {
@@ -452,8 +453,9 @@ impl Accum {
         }
     }
 
-    /// Apply a little-endian 64-bit limb stream scaled by `2^shift`,
-    /// digit-aligned: each limb lands as two independent 32-bit
+    /// Apply a little-endian 64-bit limb stream scaled by `2^shift`.
+    ///
+    /// Digit-aligned: each limb lands as two independent 32-bit
     /// contributions at its own shifted position, so a wide operand costs
     /// O(its limbs) regardless of the held width or the shift.
     fn apply_limbs<I: Iterator<Item = u64>>(&mut self, limbs: I, negative: bool, shift: u64) {

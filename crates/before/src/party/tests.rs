@@ -25,10 +25,12 @@ fn world_parties(ops: &[crate::testing::optrace::Op]) -> Vec<Party> {
 }
 
 proptest! {
-    /// The balanced `join_all` is the sequential fold: over one organic
-    /// history's pairwise-disjoint parties, folding the rest into any
-    /// member returns `Ok` with exactly the party the sequential
-    /// `join`-per-input reference produces, in both input orders.
+    /// The balanced `join_all` is the sequential fold on parties.
+    ///
+    /// Over one organic history's pairwise-disjoint parties, folding the
+    /// rest into any member returns `Ok` with exactly the party the
+    /// sequential `join`-per-input reference produces, in both input
+    /// orders.
     #[test]
     fn join_all_matches_the_sequential_fold(ops in world_strategy(), i in 0usize..64, reverse in any::<bool>()) {
         let mut reference_pool = world_parties(&ops);
