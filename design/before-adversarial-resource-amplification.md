@@ -3507,6 +3507,38 @@ scales, envelopes, byte-pinned snapshots):
   user sign-off). See §11, whose cross-pollination items this
   completes.
 
+  *Probe run 2026-07-24 (ahead of the post-C3 decision point;
+  scratchpad `probe-boolean-skyline`, skeleton compiling with 7/7
+  smoke tests including mixed-depth id/event tie cases). Verdict:
+  GO-WITH-SHAPE.* Measured [per-line classification, mechanical
+  count cross-checked]: the comparison sweep is 57% boundary
+  bookkeeping vs 13% value plumbing (4.4:1 — the proceed-condition
+  met), but the emission kernel is the inverse (7% vs 45%, and it
+  already imports sweep.rs's boundary layer — the seam exists with
+  two clients). The id predicates carry a parallel 108-line walk
+  discipline (compare.rs's lockstep) solving the same problem as
+  the sweep's boundary algebra. The skeleton found no type-system
+  friction: the leaf-cursor trait's associated State type keeps the
+  accumulator entirely out of the boolean instantiation (its whole
+  state is two bools); generic `advance` transcribes verbatim. The
+  one confirmed specialization: verdict logic does not generalize
+  (is_disjoint is not a sign fold), so the shape of record keeps
+  both concrete drivers. Recommended shape: genericize `advance` +
+  `Side` + the leaf-cursor contract only (~70 lines, one home for
+  the dyadic/flip/tie derivation); add an id cursor (~100 lines;
+  synthesized absent-child leaves, done = no open left branches);
+  reimplement covers and is_disjoint as boolean folds (~25 lines
+  each), retiring the lockstep vocabulary; sum/without/complement
+  stay on their current walks (verbatim copy-splice and straight
+  retagging have no sweep analogue). Net lines are a wash; the
+  payoff is one walk discipline retired and the sweep derivation
+  covering the predicates. Sequencing risk to resolve at decision
+  time: §11.4's word-scale subtree skip fits the lockstep shape,
+  not a leaf-enumerating sweep — if §11.4 lands first, the
+  predicate sweep's constants regress relative to it; the id
+  predicate envelope rows re-pin deliberately under either
+  ordering.
+
 ### 17.6 Representation pins for all exposed types (recorded 2026-07-23, user directive)
 
 `before` is independently useful, so every exposed type's externally
@@ -3834,4 +3866,18 @@ re-derivation), C3, P4.1, the P4-tail text item, P5.
   The records of record remain quiet-machine runs per §13's
   calibration. Queued hardening: min-of-K wall sampling per cell
   (the probe's min-over-runs technique) to make the leg
-  load-tolerant without weakening the judgment.
+  load-tolerant without weakening the judgment. Escalated
+  2026-07-24 (P3.8 advisory round): under session load the churn
+  reaches the DEFAULT scale too — consecutive same-tree runs read
+  125/75 and 118/82 with the deterministic counter-red set exactly
+  the 63 of record, byte-identical, all churn wall-only — so the
+  hardening's acceptance criterion is byte-identical enumerations
+  including wall judgments at BOTH scales under load.
+- Frozen-docs convention refined (2026-07-24, user ruling): agent
+  charters permit correcting user-facing rustdoc that is
+  *factually wrong* (prose contradicting the code), always
+  correcting toward the code, with every such change surfaced to
+  the user in the agent's report and the coordinator's relay.
+  Style and substance improvements to user-facing prose remain
+  gated on the user's final say; a dedicated prose improvement
+  pass is planned (P5's doc distillation is its slot).
