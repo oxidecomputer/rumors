@@ -14,8 +14,8 @@
 //! of a given small depth are few, so total enumeration is cheap, yet it
 //! deterministically reaches the edge shapes random sampling under-hits — a
 //! `grow` tie at the very root, an empty-child spine corner, the `close_node`
-//! truncate-adjacency boundary, the `is_disjoint`/`compare` overlap arms, the
-//! concurrent (`None`) verdict.
+//! truncate-adjacency boundary, the `is_disjoint`/`covers`/`compare` overlap
+//! arms, the concurrent (`None`) verdict.
 //!
 //! The id and event depth bounds are **decoupled**, because the two corpora
 //! grow at very different rates: an id node branches binary (leaves `0`/`1`),
