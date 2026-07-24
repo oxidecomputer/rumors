@@ -2139,6 +2139,140 @@ re-running it with an empty result is a P5.5 acceptance clause.
 runs before C2, while the third-reference differentials are still
 possible.
 
+Landed 2026-07-24 (the audit of record: the first full pass, pre-C2,
+third references live). Method, re-runnable as stated: walk the
+board's op enumeration — the §17.9 census's computational surface;
+everything else on the 335-entry census is on the board module doc's
+not-applicable list with a mechanism-based reason (the census's three
+prose omissions and `meet_all`'s bounded-accumulator reason are in
+that list; its exhaustiveness claim is repaired) — and for each row
+name the suite carrying each of the three legs: the recursive tree
+oracle (reached through `testing::bridge`'s structural lowering,
+never the byte codec), the function-space oracle
+(`testing::semantic_oracle`, the paper's §4 construction as boxed
+closures), and the resource pin (board row and/or enforced
+`tests/meter.rs` envelope). Representation pins (§17.6) are the
+snapshot suite (`testing::snapshots`: display/bits/bytes blocks per
+type, the Rank blocks, error strings) plus the serde/borsh mirror
+suites (byte-form ≡ canonical encoding, strict-reject legs, the
+typed-bytes CBOR path). The kernels' third reference — agreement
+with the packed implementation over families, arbitraries, organic
+histories, and the exhaustive small scope — is per-kernel
+(`skyline/{sweep,emit,query,grow}/tests.rs`) and dies at C2 by
+design, when coverage re-anchors on `oracle.rs`. The enumeration:
+
+- *Comparisons* (`version_cmp`/`version_eq`/`version_concurrent`,
+  `causally_contains`): tree leg `compare_matches_oracle`,
+  `compare_matrix_matches_oracle` (every borrow shape),
+  `causal_cmp_arbitrary`, the exhaustive event pair matrix, and the
+  `causally` suite (nine range/bound tests on the same walk);
+  function leg `replay_matches_across_references` (the three-way
+  comparison-descriptor agreement over op-trace populations) with
+  `order_is_a_partial_order`, plus the impl-direct order laws;
+  pins: board rows × {dense, bigroot, hugeleaf, cliff, benign},
+  `cmp_{dense,bigroot,cliff}` envelopes, `skyline_cmp_*` rows;
+  third ref: the sweep differentials incl. the four-outcome matrix.
+- *Join/meet emitters* (`version_join`/`_assign`, `version_meet`/
+  `_assign`, the batch operator matrix riding them): tree leg
+  `merge/meet_matches_oracle`, the join/meet/assign matrices,
+  `materialized_{join,meet,batch}_parity`, `merge/meet_arbitrary`,
+  exhaustive pairs; function leg `join_is_the_lub`,
+  `meet_is_the_glb`, `meet_realizes_pointwise_min`, the replay
+  trace (joins via receive), plus the impl-direct lattice laws;
+  pins: board rows, `join_{dense,bigroot,hugeleaf,cliff}` and
+  `skyline_{join,meet}_*` envelopes, the tier2 1-Lipschitz and
+  subadditivity pins on both emitter tables; third ref: the emit
+  byte-identity differentials.
+- *Grow* (`version_tick`/`version_tick_adv_party`/
+  `version_batch_snapshot`, `clock_tick`/`clock_recv`): tree leg
+  `tick_matches_oracle`, `tick_arbitrary`, `monotone_tick`, the
+  exhaustive tick cross (events × owning ids), and the brute-force
+  minimal-inflation reference (`grow_matches_brute_force`,
+  `grow_minimal`, and directly on the kernel); function leg the
+  replay trace's random-inflation policy invariance plus
+  `event_dominates_local_and_advances`; pins: board rows (the three
+  id-pair cells red, owner P3.7's realized-at-C2 recording),
+  `tick_dense` and `grow_env` envelopes; third ref: packed-grow
+  byte identity plus the `Route`/root-cost probe contract.
+- *Linear functionals* (`version_rank`, `version_distance`,
+  `version_lag`, `version_min_ticks`, `rank_pair_ops`): tree leg
+  `rank_matches_oracle`, `min_ticks_matches_oracle`,
+  `min_ticks_floors_every_history`, rank monotonicity ×3; function
+  leg `rank_realizes_riemann_sum`, `min_ticks_realizes_base_sum`,
+  and `distance_and_lag_realize_both_oracles` (impl against both
+  references directly); Rank self-laws (monoid/order,
+  `rank_sum_equals_the_pairwise_fold`, the 25k-pair msb_cmp
+  alignment-oracle sweep, cross-path normalization/Hash witness);
+  pins: board rows incl. the harmonic column and the rank pair row,
+  `rank_*`/`rank_pair_mismatch`/`rank_sum_mixed` and
+  `skyline_{rank,min_ticks}_*` envelopes; third ref: the query-fold
+  differentials (rank additionally vs the tree fold and Riemann sum).
+- *Projection* (`version_project`, `clock_own_version`): tree leg
+  `div_matches_oracle`, `own_version_matches_oracle`,
+  `div_by_party_laws`, `div_is_additive_over_fork`; function leg
+  `quotient_realizes_region_mask`; pins: board rows incl. both
+  I/O-denominated comb-scatter cells,
+  `skyline_project_comb_scatter`; third ref: the projection
+  differentials plus the oracle mask.
+- *Folds* (`version_join_all`/`Sum`/`FromIterator`,
+  `party_join_all`, `Clock::join_all`): the reduction is joins by
+  construction, so the oracle legs are the join legs plus
+  `join_all_{equals,matches}_the_sequential_fold` in both orders
+  with the aliased-duplicate pins and the party fold laws
+  (reunites/empty/best-effort); pins: the two scatter board cells
+  and `fold_{version,party}_scatter_envelope` — the cells'
+  marginal reds stay owned by §17.9's C2-adjacent n-cursor merge.
+- *Party algebra* (`party_fork`, `party_join`, `party_covers`,
+  `party_disjoint`, `party_without`): tree leg
+  `{split,sum,covers,disjoint,without}_arbitrary`, the
+  fork/join round-trips, overlap hand-back, `covers_tracks_fork_join`,
+  `without_inverts_fork`, the exhaustive id pair/split matrices, and
+  the `Forks` laws (`forks_matches_from_array`,
+  `forks_partial_drop_folds_back` — the consuming array splits ride
+  these); function leg `fork_partitions`, `sum_of_disjoint_is_union`,
+  `covers_realizes_containment`, `without_realizes_region_difference`,
+  and the replay trace's three-way disjointness descriptor; pins:
+  board rows and the `id_{join,covers,disjoint,without}` envelopes
+  (segment reds owned by P4.1).
+- *Clock composites* (`clock_fork`, `clock_join`, `clock_sync`):
+  `master_differential` (structural three-type agreement over
+  op-trace populations), `clock_observers_match_oracle`,
+  `clock_assign_join_matches_oracle`, `sync`,
+  `heterogeneous_joins`, `fork_preserves_version`,
+  `own_receive_is_tick`, `batch_equals_value_level`,
+  `ops_preserve_normal_form`; function leg: the replay trace runs
+  every one of these through the `FunctionClock`; pins: board rows.
+- *Representation surfaces* (`encode`/`decode`, `Display`/
+  `FromStr`, `Hash`, serde/borsh, for all three types): the
+  function-space oracle is definitionally inapplicable — bytes and
+  text are representations of the tree, and the §4 function space
+  has no encoding to compare — so the second independent reference
+  here is the strict decoder/validator (reject corpora, bit-flip
+  and truncation probes, byte-uniqueness), the snapshot-pinned
+  canonical and text forms, and roundtrips anchored on
+  oracle-built values (`decode_encode_arbitrary`,
+  `as_bytes_matches_encode*`, `display_fromstr_roundtrip`,
+  `display_matches_paper_notation`, the serde/borsh mirror
+  suites); `Hash` rides normal form (derived over canonical bits;
+  `ops_preserve_normal_form`, `as_bytes_matches_encode*`, and the
+  codec byte-uniqueness pins are what make byte-hash ≡ causal-Eq
+  sound, with the Rank cross-path witness covering the one
+  manual-Eq pairing). Pins: board codec/text/hash rows (text reds
+  owned by P3.8) and the decode envelopes.
+
+**The gap list is empty.** No public operation lacks a reference
+leg or a resource pin. The recorded qualifications, each already
+owned: the representation-surface function-space exception above
+(mechanism-based, not an owner-less hole); the two marginal scatter
+cells (owner: §17.9's C2-adjacent follow-up); the red board cells
+enumerated in §17.3's kill lists (instruments, not coverage gaps —
+each names its curing item); and the third-reference differentials'
+scheduled death at C2 (coverage re-anchors on `oracle.rs`, per this
+item's *What*). Re-run of record for P5.5: repeat this walk over
+the board's op list and the board-doc NA list against the then-
+current test tree; any row that cannot name all its legs is a
+finding.
+
 **P3.7 — C1c: grow — iterative bit-packed probe + splice emit.**
 *What*: replace `ProbeWalk::rec` with one loop over the two cursors
 plus a bit-coded explicit frame stack — per frame: kind 2b, phase
