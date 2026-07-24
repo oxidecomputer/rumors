@@ -1504,7 +1504,69 @@ scale where their larger walls reach
 is run-to-run noise); every other P4.1 wall — the predicate cells
 at both scales, all five cells at the default scale — sits below
 the judgment threshold, displayed and never judged. No other
-verdict moves at either scale.
+verdict moves at either scale. The Legs A/B re-baseline below is
+the record of the id renderer's metering cure this finding
+anticipated.
+
+Re-baselined 2026-07-24 (P3.8 Legs A/B, pulled forward pre-flip:
+the delegated text parse and the metered iterative id renderer;
+§17.2's P3.8 entry carries the realization staging): **137 green /
+63 red at the default scale; 128 green / 72 red at ×4**
+**[measured** — dev profile, limb-meter and scan-meter lit; each
+scale run twice, judged enumerations byte-identical**]**. No cell
+regresses at either scale; nine default reds and seven ×4 reds
+flip green, split by mechanism:
+
+- **Leg A** (`parse_base` slices the digit run whole and delegates
+  the radix conversion to the backend's divide-and-conquer parser,
+  recording one width-proportional limb count per materialized
+  value — the wide-gamma decode's convention): the six
+  wide-magnitude `FromStr` cells flip at the default scale —
+  `version_from_str`/`clock_from_str` × {bigroot, hugeleaf, cliff},
+  limb exponents 1.92/1.99/1.27 → 1.00/1.00/0.75 and constants
+  1.0/1.0/1.2 limb/`R` → 0.0/0.0/0.1 — realized kills from P3.8's
+  text column. At ×4 the hugeleaf and cliff pairs flip likewise
+  (hugeleaf limb exponent 2.00 → 1.00, its judged wall exponent
+  1.64/1.68 → 1.07/1.06, retiring the two `from_str` wall reds the
+  wall-leg record above names); the bigroot pair's limb legs read
+  the same movement but the cells stay red on parser recursion
+  (segments 2), owner P3.8-at-C2.
+- **Leg B** (`write_id` reads its 2-bit tags through the metered
+  id cursor and walks iteratively, one to two control bits per
+  open node on a bit stack): the vacuity finding's three
+  scan-floor cells go live — the walk now records the full stored
+  bits, ~8 per packed byte, reading 0.4–0.6 per `n_io` byte under
+  the text denomination — and all three flip green at both scales:
+  `party_display × benign` (the recorded verdict flip, cured),
+  `party_display × id-pair` and `clock_display × id-pair` (their
+  segment legs also drop to 0 at both scales — 2 at default, 37 at
+  ×4 — the walk no longer recursing).
+
+Remaining text reds, each keeping its P3.8-at-C2 owner:
+`version_display`/`clock_display` × dense (event writer recursion,
+segments 14); `version_from_str`/`clock_from_str` × dense (parser
+recursion, segments 2 at default and 64 at ×4, plus the limb
+constant 1.3 → 0.8 limb/`R`); `version_from_str`/`clock_from_str`
+× benign (limb constant 1.4 → 0.9 limb/`R`); at ×4 only, the
+bigroot `from_str` segment pair above, the bigroot display pair
+(writer recursion, segments 14), and `party_from_str`/
+`clock_from_str` × id-pair (parser recursion, segments 48). The
+benign and dense residues are per-value gamma-encode arithmetic,
+not conversion — the delegation roughly halves the constant and
+the rest is one metered `n + 1` per parsed value against an `R`
+that under-weights small values — so κ's re-derivation against the
+observed meter belongs to the C2 kernel routing (the κ rustdoc
+records the same hand-off).
+
+Record-scale runtime, correcting the P3.4-era note above at this
+§13 touch (it predates the cliff, harmonic, scatter, and
+rank-pair families): summed measured-body wall at ×4 is ~32 s
+across both measurement levels over the 200-cell board, every
+family within the ≤ 30 s per-family budget — bigroot the largest
+at 11.4 s (the pre-flip cmp/join quadratics; its text conversions
+no longer dominate), cliff 8.1 s, every other family ≤ 3.5 s —
+against ~4.6 s for the whole default board **[measured** — the
+Legs A/B re-baseline runs**]**.
 
 ## 14. Execution plan
 
@@ -3186,6 +3248,23 @@ the §13 scan-vacuity red (`party_display × benign`) + 121 green =
 scan-vacuity red + 128 green = 200). Remaining realization
 staging: C2 its 58; the P4-tail P3.8 its 18; the C2-adjacent
 merge its 2; P5.5 its 1.
+
+Amended 2026-07-24 (P3.8 Legs A/B landed pre-flip — the delegated
+parse and the metered iterative id renderer; §13's re-baseline
+records the runs, §17.2's P3.8 entry the staging): eight of
+P3.8's fourteen default-scale kills are realized —
+`version_from_str`/`clock_from_str` × {bigroot, hugeleaf, cliff}
+(Leg A's limb legs) and `party_display`/`clock_display` × id-pair
+(Leg B's scan and segment legs) — and the §13 scan-vacuity red
+(`party_display × benign`) is cured, so P3.8's default count is
+14 → 6 and the default sums close as 63 owned kills + 137 green =
+200. At ×4, six of the eight reproduce (the bigroot `from_str`
+pair stays red on parser recursion, segments 2, so its ×4 cell
+stays owned), P3.8's all-in count is 18 → 12, and the sums close
+as 72 owned kills (P3.5's 4 + P3.6's 51 + P3.7's 3 + P3.8's 12 +
+the C2-adjacent line's 1 + P5.5's 1) + 128 green = 200. Remaining
+realization staging: C2 its 58; the P4-tail P3.8 its 12 (6 at the
+default scale); the C2-adjacent merge its 2; P5.5 its 1.
 
 ### 17.4 Commit choreography summary
 
