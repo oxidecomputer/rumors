@@ -1494,6 +1494,197 @@ fn skyline_grow_cross_envelope() {
     assert_eq!(out, expected, "the grown stream must match the oracle");
 }
 
+// ─── skyline text kernel scenarios ──────────────────────────────────────────
+//
+// The skyline-first text kernels (`meter::skyline::text`): rendering
+// derives every printed base in delta-sized relative coordinates and
+// sizes its output exactly before writing; parsing turns path-sum
+// movement into skyline payloads through the per-leaf delta accumulator
+// and the collapsing output builder. The columns carry the kernels'
+// contract — zero grown segments (nothing recurses at any depth), heap
+// in the frame vectors, the digit arena, and the output itself, limb
+// work linear per I/O byte (radix conversion runs inside the backend;
+// the recorded ops are the delta algebra), and scan linear in the
+// skyline stream. The bigroot rows are the width separator: the 40k-bit
+// heights never materialize, so no summary or accumulator state carries
+// a copy of the wide magnitude per level.
+
+// The text envelope table: pinned ceiling = measured ×1.25, rounded up,
+// and only ever tightened. The trailing comment on each line is the
+// measurement of record (2026-07-24, aarch64-apple-darwin, dev profile,
+// three identical runs) the ceiling derives from. Re-pin by rerunning
+// under `--no-capture` with `--all-features` and reading the MEASURED
+// lines.
+// The limb floor column is the measured value ×0.75, rounded down (the
+// module doc's liveness-floor convention).
+#[rustfmt::skip]
+mod text_env {
+    use super::{sweep_envelope, SweepEnvelope};
+    //                                                                 peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
+    pub const SKYLINE_RENDER_DENSE: SweepEnvelope    = sweep_envelope(29_511_680,        0, 1_562_513,   468_758, 937_507); // 23_609_344, 0, 1_250_010, 375_006
+    pub const SKYLINE_RENDER_BIGROOT: SweepEnvelope  = sweep_envelope( 3_688_960,        0,   127_368,   137_512, 76_420); //  2_951_168, 0,   101_894, 110_009
+    pub const SKYLINE_RENDER_HUGELEAF: SweepEnvelope = sweep_envelope(   171_370,        0,     7_330,   312_503, 4_398); //    137_096, 0,     5_864, 250_002
+    pub const SKYLINE_RENDER_CLIFF: SweepEnvelope    = sweep_envelope( 1_850_502,        0,   243_385,    17_923, 146_031); //  1_480_401, 0,   194_708, 14_338
+    pub const SKYLINE_PARSE_DENSE: SweepEnvelope     = sweep_envelope(13_918_822,        0, 1_875_017,   937_515, 1_125_009); // 11_135_057, 0, 1_500_013, 750_012
+    pub const SKYLINE_PARSE_BIGROOT: SweepEnvelope   = sweep_envelope( 1_762_244,        0,   152_374,   275_023, 91_424); //  1_409_795, 0,   121_899, 220_018
+    pub const SKYLINE_PARSE_HUGELEAF: SweepEnvelope  = sweep_envelope(   196_280,        0,     7_329,   625_005, 4_397); //    157_024, 0,     5_863, 500_004
+    pub const SKYLINE_PARSE_CLIFF: SweepEnvelope     = sweep_envelope(   482_592,        0,    84_705,    35_845, 50_823); //    386_073, 0,    67_764, 28_676
+}
+
+/// Rendering the dense spine's skyline stays within its envelope: 125k
+/// levels of frames and ~250k single-digit printed bases finalize
+/// through word-sized summaries, the output is sized exactly before one
+/// byte is written, and nothing recurses.
+#[test]
+fn skyline_render_dense_envelope() {
+    let v = version_of(&meter::dense(DENSE_DEPTH));
+    let a = meter::skyline::encode(&v);
+    let expected = v.to_string();
+    let out = sweep_metered(
+        "skyline_render_dense",
+        a.bytes.len(),
+        &text_env::SKYLINE_RENDER_DENSE,
+        || meter::skyline::text::render(&a),
+    );
+    assert_eq!(out, expected, "the kernel must render Display's bytes");
+}
+
+/// Rendering bigroot's skyline stays within its envelope: the width
+/// separator — every leaf height carries the 40k-bit root magnitude,
+/// but the finalize pass's summaries are leaf-delta-sized, so the deep
+/// spine's transient holds no per-level copy of the wide value and the
+/// one wide printed base is paid by its own rendered digits.
+#[test]
+fn skyline_render_bigroot_envelope() {
+    let v = version_of(&meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
+    let a = meter::skyline::encode(&v);
+    let expected = v.to_string();
+    let out = sweep_metered(
+        "skyline_render_bigroot",
+        a.bytes.len(),
+        &text_env::SKYLINE_RENDER_BIGROOT,
+        || meter::skyline::text::render(&a),
+    );
+    assert_eq!(out, expected, "the kernel must render Display's bytes");
+}
+
+/// Rendering hugeleaf's skyline stays within its envelope: one node, one
+/// 125k-bit magnitude, so the whole cost is the delegated decimal
+/// rendering plus the exact-sized output — no tree state at all.
+#[test]
+fn skyline_render_hugeleaf_envelope() {
+    let v = version_of(&meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS));
+    let a = meter::skyline::encode(&v);
+    let expected = v.to_string();
+    let out = sweep_metered(
+        "skyline_render_hugeleaf",
+        a.bytes.len(),
+        &text_env::SKYLINE_RENDER_HUGELEAF,
+        || meter::skyline::text::render(&a),
+    );
+    assert_eq!(out, expected, "the kernel must render Display's bytes");
+}
+
+/// Rendering the boundary comb's skyline stays within its envelope:
+/// every tooth's wide printed base re-derives from 3-bit `±1` deltas
+/// against the running relative floor, each merge paid by the tooth's
+/// own rendered digits.
+#[test]
+fn skyline_render_cliff_envelope() {
+    let v = version_of(&meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE));
+    let a = meter::skyline::encode(&v);
+    let expected = v.to_string();
+    let out = sweep_metered(
+        "skyline_render_cliff",
+        a.bytes.len(),
+        &text_env::SKYLINE_RENDER_CLIFF,
+        || meter::skyline::text::render(&a),
+    );
+    assert_eq!(out, expected, "the kernel must render Display's bytes");
+}
+
+/// Parsing the dense spine's text stays within its envelope: one frame
+/// per open node, single-digit bases through the delegated reader, and
+/// the per-leaf delta accumulator staying word-sized throughout.
+#[test]
+fn skyline_parse_dense_envelope() {
+    let v = version_of(&meter::dense(DENSE_DEPTH));
+    let s = v.to_string();
+    let expected = meter::skyline::encode(&v);
+    let out = sweep_metered(
+        "skyline_parse_dense",
+        s.len(),
+        &text_env::SKYLINE_PARSE_DENSE,
+        || meter::skyline::text::parse(&s).expect("canonical text parses"),
+    );
+    assert_eq!(
+        out, expected,
+        "the kernel must build the transcoder's stream"
+    );
+}
+
+/// Parsing bigroot's text stays within its envelope: the 12k-digit root
+/// base converts once through the backend's divide-and-conquer parser,
+/// joins and leaves the delta accumulator exactly twice, and every
+/// spine base is word-sized — no per-level copy of the wide value.
+#[test]
+fn skyline_parse_bigroot_envelope() {
+    let v = version_of(&meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
+    let s = v.to_string();
+    let expected = meter::skyline::encode(&v);
+    let out = sweep_metered(
+        "skyline_parse_bigroot",
+        s.len(),
+        &text_env::SKYLINE_PARSE_BIGROOT,
+        || meter::skyline::text::parse(&s).expect("canonical text parses"),
+    );
+    assert_eq!(
+        out, expected,
+        "the kernel must build the transcoder's stream"
+    );
+}
+
+/// Parsing hugeleaf's text stays within its envelope: one ~37k-digit
+/// run through the delegated conversion, one absolute payload out — the
+/// shape where any superlinear parse-side arithmetic shows undiluted.
+#[test]
+fn skyline_parse_hugeleaf_envelope() {
+    let v = version_of(&meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS));
+    let s = v.to_string();
+    let expected = meter::skyline::encode(&v);
+    let out = sweep_metered(
+        "skyline_parse_hugeleaf",
+        s.len(),
+        &text_env::SKYLINE_PARSE_HUGELEAF,
+        || meter::skyline::text::parse(&s).expect("canonical text parses"),
+    );
+    assert_eq!(
+        out, expected,
+        "the kernel must build the transcoder's stream"
+    );
+}
+
+/// Parsing the boundary comb's text stays within its envelope: every
+/// tooth's wide base enters and leaves the cliff-immune accumulator paid
+/// by its own digit run, so the `2^k` carry boundary costs amortized
+/// O(1) digit touches per crossing.
+#[test]
+fn skyline_parse_cliff_envelope() {
+    let v = version_of(&meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE));
+    let s = v.to_string();
+    let expected = meter::skyline::encode(&v);
+    let out = sweep_metered(
+        "skyline_parse_cliff",
+        s.len(),
+        &text_env::SKYLINE_PARSE_CLIFF,
+        || meter::skyline::text::parse(&s).expect("canonical text parses"),
+    );
+    assert_eq!(
+        out, expected,
+        "the kernel must build the transcoder's stream"
+    );
+}
+
 // ─── skyline cliff-immunity flatness ────────────────────────────────────────
 //
 // The cross-scale witness that the validator's nonnegativity state is
