@@ -53,7 +53,7 @@
 //! (`tests/meter.rs`, the `skyline_join_*` rows) pins the whole
 //! emission's transient against these bounds.
 
-use crate::codec::{Bits, PackedBuilder};
+use crate::codec::{Bits, BitsSlice, PackedBuilder};
 
 /// The 1-bit payload code: `gamma(zigzag(0))`, the zero delta.
 ///
@@ -169,6 +169,74 @@ impl SkylineBuilder {
         );
         self.descend_to(depth);
         self.held = Some(code);
+    }
+
+    /// Splice the remainder of a canonical multi-leaf subtree verbatim,
+    /// holding its last leaf's code per the held-leaf discipline.
+    ///
+    /// The caller has just fed the subtree's *first* leaf through
+    /// [`leaf`](Self::leaf) (verbatim or with a repaired code) at depth
+    /// `root_depth` plus that leaf's own relative depth; `rest` is the
+    /// subtree's stream from just past that leaf's payload code to the
+    /// subtree's end. Because every consecutive-leaf delta strictly inside
+    /// a canonical subtree is unchanged by anything outside it, the range
+    /// is copied in one splice instead of leaf by leaf; only the held-leaf
+    /// discipline is re-established around it — the last leaf's flag is
+    /// withheld and its code (`last_code_len` bits, ending the range)
+    /// becomes the held code. `last_rel_depth` is that last leaf's depth
+    /// below the subtree root (at least 1: a single-leaf subtree is fed
+    /// wholly through [`leaf`](Self::leaf) instead).
+    ///
+    /// The spliced interior levels record no left-sibling-leaf collapse
+    /// coordinates: a canonical subtree's rightmost leaf is never the
+    /// equal right sibling of a left-sibling leaf (the pair would have
+    /// collapsed at the source), so a cascade can never need to re-anchor
+    /// into the spliced range, and the placeholder records only suppress
+    /// merges canonicity already rules out.
+    pub(super) fn continue_verbatim(
+        &mut self,
+        rest: &BitsSlice,
+        root_depth: usize,
+        last_rel_depth: usize,
+        last_code_len: usize,
+    ) {
+        debug_assert!(
+            last_rel_depth >= 1,
+            "a multi-leaf subtree's last leaf sits below its root"
+        );
+        debug_assert!(
+            rest.len() > last_code_len,
+            "the continuation holds at least the last leaf's flag and code"
+        );
+        let last_flag = rest.len() - last_code_len - 1;
+        debug_assert!(!rest[last_flag], "the continuation ends with a leaf");
+        let held = self
+            .held
+            .take()
+            .expect("the subtree's first leaf is already held");
+        // Flush the first leaf and copy everything up to the last leaf's
+        // flag; the last code is withheld as the new held leaf.
+        self.out.push_bit(false);
+        self.out.splice(&held);
+        self.out.splice(&rest[..last_flag]);
+        self.held = Some(rest[last_flag + 1..].to_bitvec());
+        // Re-anchor the per-level stacks from the first leaf's leftmost
+        // descent to the last leaf's rightmost one. The popped levels were
+        // pushed by `descend_to` (left branches, no left-sibling records),
+        // and the pushed levels carry the placeholder records argued above.
+        while self.path.len() > root_depth {
+            let popped = self.path.pop();
+            debug_assert_eq!(
+                popped,
+                Some(false),
+                "a subtree's first leaf lies on its leftmost path"
+            );
+            self.left_leaf.pop();
+        }
+        for _ in 0..last_rel_depth {
+            self.path.push(true);
+            self.left_leaf.push(false);
+        }
     }
 
     /// Take the finished canonical stream.
