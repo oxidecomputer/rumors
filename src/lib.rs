@@ -256,16 +256,17 @@
 //!
 //! # Wire compatibility
 //!
+//! A session's version check keys on an internal wire-format constant,
+//! deliberately not the crate version: crate upgrades are wire-compatible
+//! with one another unless that constant was bumped, and any release that
+//! changes the pinned wire bytes is a wire break and bumps it.
+//!
 //! Every session opens with a fixed 25-byte preamble carrying
 //! [`PROTOCOL_MAGIC`], the selected [`Protocol`]'s version, the network, and
 //! session intent.
 //! A counterparty that is not speaking `rumors`, or speaks an incompatible
 //! version, is rejected before any peer-declared frame length is trusted
-//! ([`Error::MagicMismatch`], [`Error::VersionMismatch`]). The version check
-//! keys on an internal wire-format constant, deliberately not the crate
-//! version: crate upgrades are wire-compatible with one another unless that
-//! constant was bumped, and any release that changes the pinned wire bytes is
-//! a wire break and bumps it.
+//! ([`Error::MagicMismatch`], [`Error::VersionMismatch`]).
 //! [`Protocol::V2`] is the default; `Protocol::V1` (behind the `protocol-v1`
 //! cargo feature) can be selected on an established [`Peer`] with
 //! [`Peer::protocol`], or while joining with

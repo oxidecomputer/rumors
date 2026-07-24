@@ -340,6 +340,12 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// the budget buys width only where disputes can exist. The setting
     /// is not wire-visible: peers with different budgets interoperate.
     ///
+    /// Like [`protocol`](Self::protocol), the choice follows the peer
+    /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
+    /// bookmarking, and retirement. `Protocol::V1` sessions (behind the
+    /// `protocol-v1` cargo feature) ignore it: the alternating protocol
+    /// batches whole levels instead of pipelining.
+    ///
     /// # What this does not bound
     ///
     /// - **Encoded wire messages in hand**: the run buffers stated
@@ -431,12 +437,6 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// record size `m` enters through.
     ///
     #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
-    ///
-    /// Like [`protocol`](Self::protocol), the choice follows the peer
-    /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
-    /// bookmarking, and retirement. `Protocol::V1` sessions (behind the
-    /// `protocol-v1` cargo feature) ignore it: the alternating protocol
-    /// batches whole levels instead of pipelining.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.window = WindowConfig::Budget(budget_bytes);
