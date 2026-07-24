@@ -49,9 +49,9 @@ fn uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
     (small.root, large.root)
 }
 
-/// A peer whose supplied versions exceed its greeting-declared
-/// `max_version_bytes` fails the session with a typed violation: the
-/// receiving side reports `OversizedVersion` at the first offending
+/// A supplied version over the declared `max_version_bytes` fails the session typed.
+///
+/// The receiving side reports `OversizedVersion` at the first offending
 /// record — the declared aggregate covers every version the peer's tree
 /// materializes, so an arriving version over it voids the premise the
 /// window solve priced the session with — and both endpoints terminate
@@ -88,11 +88,12 @@ fn understated_version_bytes_fail_the_session() {
     }
 }
 
-/// An absurdly overstated `max_version_bytes` declaration costs only
-/// window width, never the session: the budget solve saturates toward its
-/// floor on huge inputs (`pathological_pricing_saturates_to_the_floor`
-/// pins the solve itself), roles are unaffected, and the session
-/// converges on the union.
+/// An absurdly overstated `max_version_bytes` costs window width, never the session.
+///
+/// The budget solve saturates toward its floor on huge inputs
+/// (`pathological_pricing_saturates_to_the_floor` pins the solve
+/// itself), roles are unaffected, and the session converges on the
+/// union.
 #[test]
 fn overstated_version_bytes_still_converge() {
     for victim_left in [false, true] {
@@ -113,10 +114,11 @@ fn overstated_version_bytes_still_converge() {
     }
 }
 
-/// An absurdly overstated `set_len` heard from the *larger* side leaves
-/// the roles complementary — the smaller side initiates against the honest
-/// pair and against the lie alike — so the lie distorts only the victim's
-/// derived capacities and the session converges on the union.
+/// An absurdly overstated `set_len` heard from the larger side still converges.
+///
+/// The roles stay complementary — the smaller side initiates against
+/// the honest pair and against the lie alike — so the lie distorts only
+/// the victim's derived capacities.
 #[test]
 fn overstated_set_len_from_the_bulk_side_still_converges() {
     for small_left in [false, true] {
