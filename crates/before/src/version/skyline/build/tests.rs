@@ -174,6 +174,118 @@ fn partial_equality_collapses_only_the_equal_pair() {
     assert_eq!(kept, bits("1 0 011 1 0 1 0 0001111"));
 }
 
+/// One subtree's continuation range for [`SkylineBuilder::continue_verbatim`]:
+/// the stream bits between the first leaf's payload code and the
+/// subtree's end, re-derived by the forced flip-and-descend.
+///
+/// `first_depth` is the already-fed first leaf's depth; `leaves` are the
+/// remaining leaves in preorder. Returns the range with the last leaf's
+/// relative depth and code length — the coordinates the splice
+/// re-anchors the builder around.
+fn continuation(
+    root_depth: usize,
+    first_depth: usize,
+    leaves: &[(usize, Bits)],
+) -> (Bits, usize, usize) {
+    let mut range = Bits::new();
+    // The within-subtree path to the previous leaf; the subtree's first
+    // leaf is its leftmost, so the path starts all left branches.
+    let mut path = vec![false; first_depth - root_depth];
+    for (depth, code) in leaves {
+        // Close the ancestors the previous leaf completed and flip the
+        // deepest left branch, then descend, emitting one internal flag
+        // per level entered (the builder's own derivation, mirrored).
+        while let Some(bit) = path.pop() {
+            if !bit {
+                path.push(true);
+                break;
+            }
+        }
+        let rel = depth - root_depth;
+        let entered = rel - path.len();
+        range.extend(std::iter::repeat_n(true, entered));
+        path.extend(std::iter::repeat_n(false, entered));
+        range.push(false);
+        range.extend_from_bitslice(code);
+    }
+    let (last_depth, last_code) = leaves.last().expect("a continuation has at least one leaf");
+    (range, last_depth - root_depth, last_code.len())
+}
+
+/// Splicing a subtree's continuation is stream-identical to feeding its
+/// leaves one by one, and leaves the builder able to keep collapsing:
+/// a later zero delta against the spliced subtree's internal sibling
+/// survives, exactly as under per-leaf feeding.
+#[test]
+fn continue_verbatim_matches_per_leaf_feeding() {
+    // Tiling of `((3, (5, 6)), 5)`: subtree `(5, 6)` at depth 2 arrives
+    // as first-leaf feed + continuation; the final depth-1 leaf is a
+    // canonical zero delta across the subtree boundary.
+    let per_leaf = built(vec![
+        (2, gamma(3)),
+        (3, delta(false, 2)),
+        (3, delta(false, 1)),
+        (1, delta(true, 1)),
+    ]);
+    let mut spliced = SkylineBuilder::with_capacity(64);
+    spliced.leaf(2, gamma(3));
+    spliced.leaf(3, delta(false, 2));
+    let (range, last_rel, last_len) = continuation(2, 3, &[(3, delta(false, 1))]);
+    spliced.continue_verbatim(&range, 2, last_rel, last_len);
+    spliced.leaf(1, delta(true, 1));
+    assert_eq!(spliced.finish(), per_leaf);
+}
+
+/// A spliced continuation spanning several levels re-anchors the path
+/// to the subtree's rightmost leaf, so the very next leaf's close/flip
+/// bookkeeping matches per-leaf feeding bit for bit.
+#[test]
+fn continue_verbatim_reanchors_across_levels() {
+    // Tiling of `((2, ((4, 7), 6)), 9)`: the depth-2 subtree's last
+    // leaf sits two levels below its root.
+    let leaves = vec![
+        (2, gamma(2)),
+        (4, delta(false, 2)),
+        (4, delta(false, 3)),
+        (3, delta(true, 1)),
+        (1, delta(false, 3)),
+    ];
+    let per_leaf = built(leaves);
+    let mut spliced = SkylineBuilder::with_capacity(64);
+    spliced.leaf(2, gamma(2));
+    spliced.leaf(4, delta(false, 2));
+    let (range, last_rel, last_len) =
+        continuation(2, 4, &[(4, delta(false, 3)), (3, delta(true, 1))]);
+    spliced.continue_verbatim(&range, 2, last_rel, last_len);
+    spliced.leaf(1, delta(false, 3));
+    assert_eq!(spliced.finish(), per_leaf);
+}
+
+/// An absorb arriving right after a spliced sibling still collapses:
+/// the held last leaf of the continuation participates in the normal
+/// flush, and a later equal-sibling pair merges exactly as under
+/// per-leaf feeding.
+#[test]
+fn collapse_after_a_splice_matches_per_leaf_feeding() {
+    // Tiling of `((3, (5, 6)), (8, 8))`: the right pair collapses to
+    // one leaf whichever way the left subtree arrived.
+    let per_leaf = built(vec![
+        (2, gamma(3)),
+        (3, delta(false, 2)),
+        (3, delta(false, 1)),
+        (2, delta(false, 2)),
+        (2, delta(false, 0)),
+    ]);
+    let mut spliced = SkylineBuilder::with_capacity(64);
+    spliced.leaf(2, gamma(3));
+    spliced.leaf(3, delta(false, 2));
+    let (range, last_rel, last_len) = continuation(2, 3, &[(3, delta(false, 1))]);
+    spliced.continue_verbatim(&range, 2, last_rel, last_len);
+    spliced.leaf(2, delta(false, 2));
+    spliced.leaf(2, delta(false, 0));
+    assert_eq!(spliced.finish(), per_leaf);
+}
+
 /// The length stack round-trips arbitrary pushes through pops in LIFO
 /// order, so re-anchor always truncates over exactly the left sibling's
 /// code.
