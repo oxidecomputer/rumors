@@ -212,10 +212,12 @@ fn continuation(
     (range, last_depth - root_depth, last_code.len())
 }
 
-/// Splicing a subtree's continuation is stream-identical to feeding its
-/// leaves one by one, and leaves the builder able to keep collapsing:
-/// a later zero delta against the spliced subtree's internal sibling
-/// survives, exactly as under per-leaf feeding.
+/// Splicing a subtree's continuation is stream-identical to feeding
+/// its leaves one by one.
+///
+/// And it leaves the builder able to keep collapsing: a later zero
+/// delta against the spliced subtree's internal sibling survives,
+/// exactly as under per-leaf feeding.
 #[test]
 fn continue_verbatim_matches_per_leaf_feeding() {
     // Tiling of `((3, (5, 6)), 5)`: subtree `(5, 6)` at depth 2 arrives

@@ -316,10 +316,12 @@ fn worked_examples_grow_exactly() {
 }
 
 /// Deep spines in every regime stay correct at depths that would
-/// overflow a native-frame walk long before the resource envelopes
-/// notice: the frame-count adversary (alternating spine under the full
-/// id), a deep expansion chain (unary id spine over one leaf), and a
-/// deep two-cursor descent (both spines together).
+/// overflow a native-frame walk.
+///
+/// The frame-count adversary (alternating spine under the full id), a
+/// deep expansion chain (unary id spine over one leaf), and a deep
+/// two-cursor descent (both spines together), all long before the
+/// resource envelopes notice.
 #[test]
 fn deep_spines_grow_identically() {
     let deep_ev = version_of(&alt_spine(4096));
@@ -331,9 +333,11 @@ fn deep_spines_grow_identically() {
 
 proptest! {
     /// Arbitrary owning parties over arbitrary normal-form versions
-    /// (magnitudes past `u64::MAX` included) grow byte-identically to
-    /// the packed-form oracle, validate, and probe route-identically —
-    /// and register exactly the brute-force minimal inflation.
+    /// grow byte-identically to the packed-form oracle.
+    ///
+    /// Magnitudes past `u64::MAX` included; each pair also validates,
+    /// probes route-identically, and registers exactly the brute-force
+    /// minimal inflation.
     #[test]
     fn arbitrary_pairs_grow_identically(
         op in generators::arb_oracle_party_nonempty(),
