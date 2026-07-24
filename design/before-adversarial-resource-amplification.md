@@ -1316,6 +1316,56 @@ Pin the §6 invariant the way `step!` pins time complexity:
   turning any future amplifier into a crash finding instead of a
   latent one.
 
+### Surface judgment: liveness floors and the judged time exponent (recorded 2026-07-24, user directive)
+
+The board's call sites are the public API, but three of its four
+judged columns are sensors inside the implementation: segments
+(`recurse::grow`), limb (the `Base` hooks), and scan (the cursor
+and builder primitives). A ceiling over such a counter proves the
+*instrumented* work is small, not that the operation is cheap — the
+coupling assumption ("all work flows through instrumented
+primitives") is exactly what an implementation change breaks, and
+the C2 flip re-routes every operation at once. The empirical
+instance is on record: P3.5's cliff-immunity envelope read green
+over an accumulator the limb meter could not see, until the touch
+floor landed (b905b584). Sharpest form of the gap: wall time is
+displayed but never judged, so a kernel doing quadratic work in
+plain machine-word arithmetic — no allocation, no recursion, no
+metered reads — reads green on all four columns.
+
+The user's ruling (2026-07-24): the board judges the API surface
+as well as its implementation. Two legs, both landing before C2:
+
+1. **Uniform liveness floors, cell × column.** The cell-judging
+   code requires a floor-or-NA declaration per judged column: a
+   semantic floor (what the counter must read, at minimum, if the
+   meter is watching the work — derived from what the operation
+   must do, never from how it does it), or a documented reason the
+   column cannot be exercised, so a cell cannot be added without
+   answering the question. The universal leg is scan: an operation
+   that must examine its input scans at least a stated fraction of
+   the input bits. Limb floors bind where big-integer arithmetic
+   is semantically mandatory (the rank family, text). Segments
+   keeps ceiling-only (its honest floor is zero). A floor trip is
+   a designed stop-and-look: an implementation that legitimately
+   does less work lowers the floor deliberately — the ceilings'
+   ratchet discipline pointed the other way.
+2. **The wall-time exponent leg.** Judge the time exponent fitted
+   across the board's two scales at a generous ceiling (≤ 1.3:
+   robust to scheduler noise, impassable for a quadratic's ~2.0);
+   constants stay displayed-never-judged. Heap is the
+   implementation-agnostic witness for space; this leg is the same
+   witness for time.
+
+Tripwires per §14's rule (every criterion needs a demonstration
+that the status quo fails it): a test-only implementation that
+does its work outside the metered primitives must read green under
+ceilings alone and red under the committed floors; the time leg's
+tripwire is an unmetered quadratic reading red on the exponent.
+
+Acceptance is re-denominated: the all-green board of record means
+ceilings AND floors AND the time-exponent leg, at both scales.
+
 ## 14. Execution plan
 
 Dependency-ordered; each phase `just gate`-clean; wire bytes are
@@ -2666,7 +2716,12 @@ accept. *Risk*: one large commit → retired by maximal C1
 front-loading and the review pass; Gate B's sign-offs are recorded
 *before* this commit (the DECIDED entry precedes C2 by
 definition). *Deps*: P3.1–P3.7 (P3.8 deferred to the P4 tail),
-Gate A GO, Gate B, the user's DECIDED entry.
+Gate A GO, Gate B, the user's DECIDED entry, and §13's
+surface-judgment legs (uniform liveness floors and the judged
+wall-time exponent, the 2026-07-24 ruling) green on the pre-flip
+board — the flip is the moment every operation walks out from
+under its old sensors at once, so the floors must be watching
+before it lands.
 
 **P3.10 — C3: board and envelope re-pin; bench deltas.**
 *What*: board re-run at default and record scale — the 54
