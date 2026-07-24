@@ -1,18 +1,21 @@
-//! The fan channel's occupancy ceiling: the supply-decode charge premise.
+//! The fan channels' occupancy ceiling: the supply-decode charge premise.
 //!
-//! The decode path buffers decoded leaf records in a [`FAN`]-slot channel
-//! between the reader and the assembler, and the session budget charges
-//! that residency flat: `SUPPLY_DECODE_ENVELOPE_BYTES` prices exactly
-//! `FAN + 1` backend-priced records per reply stream — one full channel
-//! plus the record in the reader's hand. The pins here hold that premise
-//! against the code through the test-gated `fan_probe` in `decode.rs`,
-//! with deterministic counts and no timing anywhere: an eager frame
-//! source *reaches* the `FAN + 1` ceiling (the priced regime is real, so
-//! the pin cannot pass vacuously) and never exceeds it, and a paced
-//! source is the negative control proving the probe reports the regime
-//! rather than a constant.
+//! Both reply-decode shapes buffer decoded leaf records in a
+//! [`FAN`]-slot channel between the reader and the assembler —
+//! `decode`'s joined reader/assembler pair and `early_supplies`'
+//! jointly driven pair — and the session budget charges that residency
+//! flat: `SUPPLY_DECODE_ENVELOPE_BYTES` prices exactly `FAN + 1`
+//! backend-priced records per reply stream, one full channel plus the
+//! record in the reader's hand. The pins here hold that premise against
+//! the code through the test-gated `fan_probe` in `decode.rs` (both
+//! paths hook the same counter), with deterministic counts and no
+//! timing anywhere: an eager frame source *reaches* the `FAN + 1`
+//! ceiling on each path (the priced regime is real, so the pins cannot
+//! pass vacuously) and never exceeds it, and a paced source is the
+//! negative control proving the probe reports the regime rather than a
+//! constant.
 
-use futures::{Stream, StreamExt, stream};
+use futures::{Stream, StreamExt, TryStreamExt, stream};
 
 use before::Version;
 
@@ -25,13 +28,13 @@ use crate::{
             window::FAN,
         },
         typed::{
-            Path,
+            Path, Prefix,
             height::{UnderRoot, UnderUnderRoot},
         },
     },
 };
 
-use super::super::{Scope, decode::fan_probe, decode_reply};
+use super::super::{Scope, decode::fan_probe, decode_reply, early_supplies};
 
 /// Leaf records per supply frame.
 const PER_FRAME: usize = 16;
@@ -112,6 +115,42 @@ fn eager_decode_occupancy_pins_the_charged_ceiling() {
         "peak resident decoded records must equal the charged ceiling: one full \
          fan channel plus the record in the reader's hand, the per-stream shape \
          SUPPLY_DECODE_ENVELOPE_BYTES prices",
+    );
+}
+
+/// The twin channel rides the same ceiling: `early_supplies`' jointly
+/// driven reader/assembler pair reaches exactly `FAN + 1` resident
+/// records under an eager source and never exceeds it.
+///
+/// The opening-supply path is one of the reply streams the flat charge
+/// prices, so its channel must hold the same `FAN + 1` premise as
+/// `decode`'s; the probe is the same counter, and the paced negative
+/// control below covers its liveness.
+#[test]
+fn eager_early_supplies_ride_the_same_ceiling() {
+    let leaves = leaves(4 * FAN as u64);
+    let runtime = super::runtime();
+    fan_probe::reset();
+    runtime.block_on(async {
+        let assembled: Vec<_> = early_supplies::<Local, u64, UnderRoot, _>(
+            Local,
+            Prefix::new(),
+            stream::iter(frames(&leaves)),
+        )
+        .try_collect()
+        .await
+        .expect("ascending in-scope leaves assemble");
+        assert!(
+            !assembled.is_empty(),
+            "the eager reply supplies real groups"
+        );
+    });
+    assert_eq!(
+        fan_probe::peak(),
+        FAN + 1,
+        "peak resident decoded records on the early-supply path must equal the \
+         charged ceiling, the same per-stream shape SUPPLY_DECODE_ENVELOPE_BYTES \
+         prices for every reply stream",
     );
 }
 

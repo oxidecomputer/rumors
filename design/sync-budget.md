@@ -265,9 +265,15 @@ fans, 4.31 MB of root-adjacent stages at full-fan reference prices
 marginal = 5,324 B/scope; depth-5 saturation (≈5,500 scopes) lifts
 `F` to 7.93 MB and settles the marginal at 4,741 B/scope, 2.5% under
 the 4,865 B saturation average, out to the population ceiling. The
-decomposition reproduces the measured budget/K gaps exactly: the
-back-fit `budget − K × 4,865` at the probe cells (5.20 / 7.01 /
-5.66 MB) equals `F + K × (marginal − 4,865)` at each. The closed
+decomposition reproduces the measured budget/K gaps: the back-fit
+`budget − K × 4,865` at the probe cells (5.20 / 7.01 / 5.66 MB)
+equals `F + K × (marginal − 4,865)` — exactly at the first two cells
+(K = 1,015 and 4,968 sit below depth-5 saturation, where
+F = 4.73 MB is insensitive to the probe session's 2,048 common
+messages atop the design divergence), and at the third once `F` is
+taken at the session's own corpus (64,548 a side: depth-5 population
+5,782, F = 8.10 MB), giving 5.663 against the measured 5.664 MB —
+the residue is the solve's sub-scope slack. The closed
 form's window error is therefore ~`F/budget` (plus the ≤10% marginal
 offset): the slowdown it returns runs ~2× low at 10 MB, ~1.5× low at
 16 MiB, within a few percent past ~300 MB.
@@ -278,7 +284,7 @@ crossover, evaluated self-consistently (corpus = BDP/(28 + m) a
 side), is **m* = 51 B** — the closed form's 85.3 B estimate is its
 safe-side reading. u64 corpora at the default run ≈4.2× at a
 BDP-scale corpus (82,214-scope window), the factor growing with set
-size as the window narrows (~15× at 10⁷ messages, ~28× at 10¹⁰)
+size as the window narrows (~14.8× at 10⁷ messages, ~27.5× at 10¹⁰)
 \[derived\]. `budget*` for the design record is 304.2 MB by the solve
 (the form: ~304 MB — the design point is where the envelope is
 pinned); for u64, 1.11 GB by the solve against the form's ~1.7 GB

@@ -446,8 +446,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// relative to wire-time-optimal: slowdown 1 means bandwidth-bound
     /// stays bandwidth-bound. At the spec BDP, `u64` records at the
     /// default run at ~4.2× for a BDP-scale corpus, and the factor
-    /// grows slowly with set size as the derived window narrows (~15×
-    /// at 10⁷ messages, ~28× at 10¹⁰; all derived from the solve). The
+    /// grows slowly with set size as the derived window narrows (~14.8×
+    /// at 10⁷ messages, ~27.5× at 10¹⁰; all derived from the solve). The
     /// factor prices the interleaved dispute walk only — supply runs
     /// stream outside the window — and costs smooth latency, never
     /// memory. `tests/window_operator.rs` holds the wave model against
