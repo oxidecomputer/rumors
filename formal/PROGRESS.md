@@ -1771,3 +1771,53 @@ fork units, all green at every commit):**
 One merge-seam finding from the parallel fan-out, fixed: two units
 independently minted `mem_prologueO` (Align exports it; Pending's
 went private). The duplicate sweep is now part of the close-out.
+
+**§13 CLOSED (2026-07-24): the claim of record is kernel-proven in
+full.** `Sched.deadlock_free_anyOrder` (Ord/Endgame.lean),
+`Sched.deadlock_free_wide_anyOrder` (Ord/WideEndgame.lean),
+`Ord.rho_decreasesO`/`Ord.terminatingO`/`Ord.terminatingWO`, and the
+run-level corollaries (`maximal_run_terminal_anyOrder`,
+`greedy_run_terminal_anyOrder`, `maximal_run_terminal_wide_anyOrder`)
+all check at `[propext, Classical.choice, Quot.sound]`; the base and
+mux flagships are byte-untouched and re-audited at their original
+axiom sets. The endgame's close cascade hoists producer-done facts
+for BOTH prologue channels at the sweep frontier, so the four
+(phase × order) close branches are one-liners; the Pending `hrem`
+seams discharge through `merge_completeO` and never reach the
+flagship statements. The wide corner closed by the audited minus-cap
+route (WidePreserve/, 3.9k lines; the predicted frozen-count lemma
+was already Ord/Wiring's `_congr` workhorses), and the consistency
+square is pinned both ways (`deadlock_free_wide_rf_corner` = the base
+wide flagship; `deadlock_free_anyOrder_cap_corner` = the floor
+metatheorem). Ord/Statement.lean is the audit surface: the class, the
+exclusions quoted from MODEL.md, the reply-first residue, and the
+executable anchors (`invAlongO` on the positive matrix at `.qf` and a
+mixed literal; greedy QF drains complete; `pdelay` sticks sub-margin
+at `.qf` AND at the mix — the capacity hypothesis is load-bearing per
+assignment). MODEL.md's claim-of-record paragraph and §1 item (v) now
+record the kernel status, dated.
+
+Campaign accounting: ten subagent units (PreserveO, SchedO,
+TerminationO, pumpO, weaveO, pendingO, masterO, finalO, endgameO,
+wideO) within the 8–12 budget; ~13.5k new Lean lines under Ord/, zero
+edits to existing proof files, zero sorries at every commit; the
+eventdag ord tier green — the four-assignment matrix + rf-corner
+identity at 300 fuzz seeds, and the kernel-transcription equality
+pins (`scheduleO`, `weaveO`) at their landing runs on the final
+oracle code (nothing the oracle audits moved afterward); the Rust
+`just gate` green (the formal work touched no Rust). Statement deviations from the scoped shape: NONE —
+every landed statement is the scoped landing shape or stronger
+(ManRows/canon unconditional; the flagship exactly as drafted).
+
+**comb6 exhaustive-BFS status (honest, at close):** the scoping
+session's 200M-state query-first BFS on comb6 was found still IN
+FLIGHT during this campaign (>10 CPU-hours, no emitted result; the
+three comb6 output files remain empty) and had not completed when the
+campaign closed. comb6's ord coverage of record is therefore the
+oracle tier — the comb6 pin runs the full four-assignment matrix
+(candidate drains + validates + replays to TERMINAL under
+`Ord.applyO .impl`, oweave valid, rf corner event-identical to the E
+tier) — plus the kernel theorems themselves, which quantify over all
+skeletons and subsume the pin. The exhaustive-BFS run, if it ever
+completes, lands as a dated addendum here; nothing in the record
+depends on it.

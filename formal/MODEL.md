@@ -74,6 +74,14 @@ implementation whose traces satisfy the tightened `assert_valid`.
   definitionally, and ρ never reads occupancy, so the run bound is the
   floor's. The `d5` corner's wire-widening remains on the informal
   Kahn argument (Statement.lean, "Assumed, not proven").
+- (v) **Dequeue-order indifference** (for the `.impl` flagship): (i),
+  (ii), and (iv) hold at EVERY assignment of the two-point per-loop
+  dequeue-order class (each walk stage and the absorber independently
+  reply-first or query-first, closes tied to the prologue choice —
+  the shipping Rust is the all-query-first instance). Kernel-proven
+  since 2026-07-24 (`Sched.deadlock_free_anyOrder`,
+  `Sched.deadlock_free_wide_anyOrder`; the class, its exclusions, and
+  the reply-first residue: §5's dequeue-order subsection).
 
 **Explicitly not modeled** (modeled-world premises, each with its Rust
 anchor):
@@ -398,15 +406,18 @@ dequeue choice; none is the shipping Rust, and none is covered):
 - a prologue interleaved with the scope's sends (both receives always
   precede every publication of the scope).
 
-**Claim of record** (fixed 2026-07-23, before any Lean transcription):
-under `wellFormed` and margin 0 (`∀ σ, dCount σ ≤ capLevel`), every
-assignment's `.impl` session is deadlock-free and terminating, at the
-floor capacities and at every pointwise-widened capacity vector
-κ ≥ floor — `Sched.deadlock_free_anyOrder`,
-`Sched.deadlock_free_wide_anyOrder`, `Ord.rho_decreasesO` /
-`Ord.terminatingO`. This is per-loop dequeue-order indifference over
-the two-point class above, NOT arbitrary-order indifference: nothing
-is claimed for the excluded loop shapes.
+**Claim of record** (fixed 2026-07-23, before any Lean transcription;
+kernel-proven 2026-07-24): under `wellFormed` and margin 0
+(`∀ σ, dCount σ ≤ capLevel`), every assignment's `.impl` session is
+deadlock-free and terminating, at the floor capacities and at every
+pointwise-widened capacity vector κ ≥ floor —
+`Sched.deadlock_free_anyOrder` (Ord/Endgame.lean),
+`Sched.deadlock_free_wide_anyOrder` (Ord/WideEndgame.lean),
+`Ord.rho_decreasesO` / `Ord.terminatingO` (Ord/Termination.lean),
+each at kernel axioms `[propext, Classical.choice, Quot.sound]`; the
+audit surface is Ord/Statement.lean. This is per-loop dequeue-order
+indifference over the two-point class above, NOT arbitrary-order
+indifference: nothing is claimed for the excluded loop shapes.
 
 **Reply-first residue** (each theorem below stays certifying the
 baseline reply-first order only; dated notes, deliberate scope
