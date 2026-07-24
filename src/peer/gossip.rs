@@ -1068,7 +1068,7 @@ where
 ///
 /// A bootstrap claimant is definitionally a newborn replica with no causal
 /// history, yet its greeting version feeds the deletion-honoring filter as
-/// its causal frontier — a fabricated frontier would make established
+/// its causal frontier — a mis-declared frontier would make established
 /// content read as deleted-there on both sides of the descent. Every
 /// session facing a claimant runs this after the greeting and before
 /// reconciliation, whichever protocol carries it: a failing session moves

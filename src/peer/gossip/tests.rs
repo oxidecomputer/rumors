@@ -138,7 +138,8 @@ fn bytes_after_the_marker_stay_untouched() {
 /// events: what a misdeclaring claimant presents, nothing to provide plus a
 /// version dominating any replica with fewer events.
 ///
-/// Built with real semantics rather than forged bytes: a redaction advances
+/// Built with real semantics, standing in for a misbehaving implementation:
+/// a redaction advances
 /// the ceiling and leaves no tombstone, so committing and then redacting
 /// `events` messages leaves an empty root carrying a genuine `events`-tick
 /// version.
@@ -342,20 +343,38 @@ fn v1_bootstrap_claimant_declaring_history_is_rejected() {
     let provider = provider_with(&[1, 2, 3]).protocol(Protocol::V1);
     let hash_before = provider.snapshot().hash();
     let party_before = party_of(&provider);
-    let claimant_root = redacted_history_root(8);
+    let claimant_tree = Tree {
+        root: redacted_history_root(8),
+    };
+    let claimed_min_events = claimant_tree.latest().min_ticks();
 
     let provider_ref = &provider;
-    let (claim_out, provider_out) = pollster::block_on(async {
+    let (claim_out, (first, second)) = pollster::block_on(async {
         let (mut a_link, mut b_link) = memory();
         tokio::join!(
-            async move { claim_bootstrap_v1(&mut a_link, claimant_root).await },
-            async move { provider_ref.gossip(&mut b_link).await },
+            async move { claim_bootstrap_v1(&mut a_link, claimant_tree.root).await },
+            async move {
+                let first = provider_ref.gossip(&mut b_link).await;
+                // The second session on the same link must fail fast,
+                // before any wire traffic: the rejection poisoned it.
+                let second = provider_ref.gossip(&mut b_link).await;
+                (first, second)
+            },
         )
     });
 
+    match first {
+        Err(Error::BootstrapHistoryConflict {
+            claimed_min_events: reported,
+        }) => assert_eq!(
+            reported, claimed_min_events,
+            "the error carries the claimed history's event floor",
+        ),
+        other => panic!("the provider rejects the claimant, got {other:?}"),
+    }
     assert!(
-        matches!(provider_out, Err(Error::BootstrapHistoryConflict { .. })),
-        "the provider rejects the claimant, got {provider_out:?}",
+        matches!(second, Err(Error::LinkPoisoned)),
+        "the failed session poisons the link, got {second:?}",
     );
     assert!(
         claim_out.is_err(),

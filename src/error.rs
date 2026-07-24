@@ -17,6 +17,7 @@
 //! | [`Error::LinkPoisoned`] | unchanged | handle the first non-poisoned error; repeats mean the reconnect is not minting a fresh link |
 //! | [`Error::IntentInvalid`] | unchanged | counterparty bug: report it |
 //! | [`Error::BootstrapRetireConflict`] | unchanged | counterparty bug: report it |
+//! | [`Error::BootstrapHistoryConflict`] | unchanged | counterparty bug: report it |
 //! | [`Error::Bookmark`] | unchanged — committed if raised after absorbing a retirement | fix or replace the bookmark storage, then retry |
 //! | [`Error::Mirror`] | unchanged | reconciliation failed: the nested source names the detecting side and the fault |
 
@@ -153,7 +154,7 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// A bootstrap claimant is definitionally a newborn replica with no
     /// causal history, so its greeting version must be empty. The declared
     /// version feeds the deletion-honoring filter as the claimant's causal
-    /// frontier, and a fabricated frontier would make established content
+    /// frontier, and a mis-declared frontier would make established content
     /// read as deleted-there; the conflict between the two claims —
     /// newborn, yet with history — is rejected here, after the greeting
     /// and before reconciliation moves anything.
