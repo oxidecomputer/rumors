@@ -204,8 +204,8 @@ consistency, the crossover's fourth input). Zero textual conflicts; seams
 verified function-level. Clean-target gate green, 918/918 (first run flaked
 on a test whose identity was lost to output truncation under fleet load; two
 subsequent full passes; the deterministic-executor task is the cure).
-Flagged for Finch: tests/stale_floor.rs:3 "Under the old API" (pre-existing
-regression-pin module doc, not merge-introduced).
+tests/stale_floor.rs's "Under the old API" module doc: ruled a ghost by
+Finch and re-denominated as a counterfactual hazard statement (706352a3).
 
 3c. **Post-wave-2 dispatch set (RULED, Finch 2026-07-23)** — all launch on
    the integrated base without further adjudication:
@@ -215,25 +215,55 @@ regression-pin module doc, not merge-introduced).
      Own agent, reviewed.
    - Swarm above-target offset: re-observe under the production-default
      regime (post-R20); characterize only if it persists. Own agent.
-   - R79 bootstrap builder API: implement in a subagent, BUT the merge
-     waits on Finch's approval of the API design — present the design
-     with the report before integrating.
+   - R79 bootstrap builder API: design APPROVED (Finch, 2026-07-24) —
+     `join` stays; NO byte-quantity newtypes, ruled permanently (bare
+     usize + named methods across Peer and Bootstrap); the bookmark knob
+     is REQUIRED (rejected-alternative 4 graduates; three-way outcome
+     shape must make the bookmark-failure arm impossible to ignore).
+     Follow-up round in flight atop f1194914; skeptical review after.
    - Small combined agent: R5 (b05 fold + delete doc AND Python sim) +
      the one-shot hop-ratio validation of the closed-form table + R8
      occupancy pin (3b). (R6: untracked by Finch's ruling — the doc is
-     honest at first outside read; no change, no follow-up.)
+     honest at first outside read; no change, no follow-up.) DELIVERED
+     with a FINDING: measured slowdown exceeds the closed-form table by
+     1.33-1.45x in the constricted band (up to 31 MB budgets / ~5k-scope
+     windows — far past the documented "few MiB" caveat). Mechanism: the
+     K = budget/E substitution ignores the corpus-fixed component F
+     (~5-7 MB at design corpus: saturated non-binding-depth grants +
+     209,712 B stream machinery; decomposition to be verified in the fix
+     round). RULED (Finch, 2026-07-24), option (c): the table generator
+     derives each cell's window from the REAL solve (window_capacities);
+     the closed form is demoted to prose with the F/budget validity band;
+     F decomposed and verified; probe cells become regression pins; the
+     86 B crossover re-pinned under the exact derivation. Fix round in
+     flight; census rule recorded: any quantity computable two ways gets
+     a pin comparing them.
    - Metatheorem (§4.2): Finch pre-authorized merge on completion; still
      gets the standing skeptical review, but no adjudication pause.
    - Wave-2 close-out mechanics (worktree/branch cleanup, ledger commit)
      proceed autonomously as they become applicable.
 
-4. **Low-prio ledger**: swarm's above-target population offset (session-
-   coupling effect, wrong-sign vs propagation-lag model; needs quiet
-   characterization); R11's timing residual on real transports (admitted in
+4. **Low-prio ledger**: swarm's above-target population offset —
+   CHARACTERIZED (2026-07-23, measured at 512 MiB production default, so
+   floor-regime coupling is refuted): offset grows with session rate
+   (+121% at 0.05 s interval vs +26% at 1.0 s) and party count (+28% at 4
+   vs +226% at 16), proportional to target, shrinks with churn-per-session;
+   propagation-lag refuted by direction (predicts the opposite interval
+   dependence). Suspected mechanism (inference, unproven): merge-union
+   bias — concurrent inserts all add while concurrent redactions on shared
+   keys collapse. CLOSED by ruling (Finch, 2026-07-24): no controller fix,
+   no doc reword — the characterization stands as the record, run data in
+   the session scratchpad. The same ruling dropped the reply-first proof
+   residue from the docket (it stays as MODEL.md's dated record; nothing
+   queued) and the R6 first-release trigger (untracked), and ruled IN the
+   R79 budget-wire-invariance hardening pin (one commit, in flight); R11's timing residual on real transports (admitted in
    "cannot see"); R32/R70 load-tolerant retuning if sweeps flake at the final
-   gate (mechanism: paused-clock auto-advance manufactures idle under OS
-   descheduling — durable fix is exact-advance or single-threaded
-   deterministic executor for those pins). Named offenders observed under
+   gate (mechanism REFINED by the deterministic-executor branch 814f07ad:
+   the harness was already a current-thread paused-clock runtime immune to
+   descheduling; the sensitivity was the READOUT — suites differenced
+   wall+virtual across two delay runs, so differential wall noise read as
+   phantom hops. Landed fix: exact-advance readout, virtual component
+   alone, delay-lattice exactness asserted; under review). Named offenders observed under
    fleet contention, passing in isolation and uncontended gates:
    window_corners::asymmetric_catch_up_is_ladder_bound_at_the_floor (31 hops
    vs <=24), window_knee::above_the_knee_hops_grow, window_operator and
@@ -267,6 +297,11 @@ regression-pin module doc, not merge-introduced).
 - Background-watcher fragility: agents parked on background gate monitors die
   silently with the machine; foreground-only completion discipline for final
   steps, and liveness = process count + transcript growth, never claims.
+- Message mis-routing recurred (2026-07-24): an R17 scope-update meant for
+  the window reviewer went to the metatheorem lead (adjacent recipients);
+  the recipient correctly ignored it and no damage resulted, but the genre
+  is now 2-for-2 across campaigns — verify the recipient pin on every
+  cross-agent send.
 - Reviewer record-correction norm: three agent reports contained overclaims
   (nonexistent #[ignore] instrument; 8,192 vs 4,096 payloads; "244 GB main
   target" stale) caught only because reviewers audit reports as part of the
