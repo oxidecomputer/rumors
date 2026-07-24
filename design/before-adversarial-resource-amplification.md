@@ -2117,6 +2117,66 @@ fold was cured in the same round (the §15 V6 entry); still open in
 this item: the §14 bench-surface constraint (untouched by this
 slice) and `fill` at C2 per the recorded amendment.
 
+Landed 2026-07-24 (the bench-surface slice; the §14 bench constraint
+discharged in full — `fill` at C2 is now this item's only open
+piece). The suite gained `benches/board.rs`: the full operation
+surface as the amplification board's wall-time shadow, one criterion
+group per board row and one bench per family, driven by the board's
+own cell table (`meter::board::bench_cells`) so bench IDs mirror
+board cells by construction — 200 cells at this tip, and a new board
+row is a new bench with no second registry to drift. Targeted runs:
+`just bench <target> <filter>` (criterion filter passthrough; full
+sampling — criterion's 100-sample regime over the committed 500 ms /
+2 s windows — is the mode required for any number of record) and
+`just bench-quick` (`--sample-size 10 --measurement-time 1`, the
+iteration inner loop; the CLI flags keep precedence over the
+committed windows). Each measured body is the board row's own
+prepare/body pair, operands decoded fresh in untimed setup, so
+destructive operations time the operation alone; the rank pair moved
+to family construction so the `rank_pair_ops` prepare stays cheap
+under per-iteration rebuilds (behavior-identical for the board:
+prepare was already outside measurement). Pre-flip bench baseline of
+record **[measured** — full sampling, one run at this tip, mean
+estimates; `clock_recv` and `clock_own_version` re-run on a quiet
+machine after a build overlapped their window**]**, the table C3's
+before/after deltas are judged against, covering this item's mandated
+op list (compare/join/meet/tick/rank/distance/lag/min_ticks/project/
+decode/encode × representative + adversarial). The party, text, hash,
+fork, and rank-pair rows this table omits ran in the same 200-cell
+sweep and rerun with `just bench board`; the text rows' deltas land
+with the P4-tail P3.8, the party rows' with P4.1. Wall time is
+displayed, never judged — the deterministic record stays with the
+board and the envelope suite:
+
+| op | dense | bigroot | hugeleaf | cliff | harmonic | id-pair | scatter | comb-scatter | benign |
+|---|---|---|---|---|---|---|---|---|---|
+| `version_decode` | 81.9 µs | 35.1 µs | 25.3 µs | 33.4 µs | — | — | — | — | 2.25 µs |
+| `version_encode` | 181 ns | 119 ns | 123 ns | 156 ns | — | — | — | — | 61.9 ns |
+| `version_cmp` | 245 µs | 693 µs | 54.8 µs | 53.8 µs | — | — | — | — | 5.36 µs |
+| `version_eq` | 609 µs | 2.03 ms | 175 µs | 79.3 µs | — | — | — | — | 8.34 µs |
+| `version_concurrent` | 349 µs | 927 µs | 72.1 µs | 68.3 µs | — | — | — | — | 5.77 µs |
+| `causally_contains` | 558 µs | 1.72 ms | 123 µs | 110 µs | — | — | — | — | 8.97 µs |
+| `version_join` | 418 µs | 2.23 ms | 97.9 µs | 99.7 µs | — | — | — | — | 10.0 µs |
+| `version_join_assign` | 377 µs | 2.36 ms | 95.5 µs | 96.7 µs | — | — | — | — | 9.84 µs |
+| `version_meet` | 447 µs | 2.12 ms | 97.5 µs | 133 µs | — | — | — | — | 12.6 µs |
+| `version_meet_assign` | 445 µs | 3.93 ms | 100 µs | 132 µs | — | — | — | — | 12.5 µs |
+| `version_tick` | 233 µs | 366 µs | 66.1 µs | 47.1 µs | — | — | — | — | 5.13 µs |
+| `version_tick_adv_party` | — | — | — | — | — | 705 µs | — | — | 2.67 µs |
+| `version_batch_snapshot` | 233 µs | 380 µs | 106 µs | 48.0 µs | — | — | — | — | 5.13 µs |
+| `version_rank` | 164 µs | 55.0 µs | 26.8 µs | 45.2 µs | 215 µs | — | — | — | 3.68 µs |
+| `version_distance` | 1.27 ms | 4.48 ms | 247 µs | 276 µs | 1.09 ms | — | — | — | 26.3 µs |
+| `version_lag` | 551 µs | 2.22 ms | 149 µs | 171 µs | 616 µs | — | — | — | 14.7 µs |
+| `version_min_ticks` | 131 µs | 45.7 µs | 24.5 µs | 32.7 µs | 145 µs | — | — | — | 2.83 µs |
+| `version_join_all` | — | — | — | — | — | — | 1.73 ms | — | — |
+| `version_project` | 10.5 µs | 37.0 µs | 67.1 µs | 93.1 µs | — | 559 µs | — | 299 µs | 1.39 µs |
+| `clock_decode` | 304 µs | 132 µs | 86.7 µs | 136 µs | — | 123 µs | — | — | 7.59 µs |
+| `clock_encode` | 375 ns | 402 ns | 442 ns | 701 ns | — | 336 ns | — | — | 143 ns |
+| `clock_tick` | 409 µs | 658 µs | 104 µs | 76.6 µs | — | 1.17 ms | — | — | 10.7 µs |
+| `clock_join` | 1.43 ms | 8.15 ms | 308 µs | 329 µs | — | 864 µs | — | — | 53.8 µs |
+| `clock_sync` | 1.45 ms | 6.62 ms | 196 µs | 212 µs | — | 605 µs | — | — | 35.9 µs |
+| `clock_recv` | 1.18 ms | 4.24 ms | 125 µs | 133 µs | — | 2.50 ms | — | — | 29.9 µs |
+| `clock_own_version` | 382 µs | 158 µs | 111 µs | 139 µs | — | 638 µs | — | 463 µs | 11.8 µs |
+
 **P3.6b — the full-surface dual-oracle coverage audit.**
 *What* (added 2026-07-23, discharging the §14 full-surface
 measurability constraint as a work item rather than a hope): every
