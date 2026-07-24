@@ -12,8 +12,11 @@ use std::{
 use futures::join;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use tokio::io::ReadBuf;
+
 use crate::link::{Acceptor, Connector, Link, MemoryLink, memory_with_capacity};
 use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
+use crate::tree::mirror::framing::{GREETING_WORD_LEN, LENGTH_HEADER_LEN};
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
     Root as TreeRoot,
@@ -27,6 +30,9 @@ use crate::tree::{
         },
     },
 };
+
+/// Bytes buffered by each per-stream pipe before backpressure applies.
+const TRANSPORT_CAPACITY: usize = 37;
 
 /// Dense states occupied by the two nonempty-query flow variants.
 const QUERY_STATES: RangeInclusive<u8> = 4..=5;
@@ -244,6 +250,90 @@ impl<C: Connector> Connector for ScriptedConnector<C> {
     }
 }
 
+/// One 8-byte little-endian greeting size word replaced in the traffic a
+/// side receives.
+///
+/// Rewriting the *received* greeting simulates a buggy counterparty whose
+/// declaration disagrees with the traffic it then sends: the receiving side
+/// negotiates against the rewritten word while the sender behaves per its
+/// honest tree. The offsets are absolute control-stream positions — the
+/// greeting's version frame is the first control traffic at this layer, so
+/// its size words sit at fixed offsets behind the frame's length header.
+#[derive(Clone, Copy)]
+pub struct GreetingRewrite {
+    /// Absolute control-stream offset of the rewritten word.
+    offset: usize,
+    /// The declaration the receiving side decodes instead of the honest one.
+    value: u64,
+}
+
+impl GreetingRewrite {
+    /// Rewrite the received greeting's `set_len` word.
+    pub fn set_len(value: u64) -> Self {
+        Self {
+            offset: LENGTH_HEADER_LEN,
+            value,
+        }
+    }
+
+    /// Rewrite the received greeting's `max_version_bytes` word.
+    pub fn max_version_bytes(value: u64) -> Self {
+        Self {
+            offset: LENGTH_HEADER_LEN + GREETING_WORD_LEN,
+            value,
+        }
+    }
+}
+
+/// A control-stream reader replacing one absolute byte range with a pinned
+/// little-endian word, robust to arbitrary read chunking.
+pub struct RewriteRead<R> {
+    inner: R,
+    rewrite: Option<GreetingRewrite>,
+    /// Bytes already delivered to the reader, locating the next chunk's
+    /// absolute stream offsets.
+    consumed: usize,
+}
+
+impl<R> RewriteRead<R> {
+    fn new(inner: R, rewrite: Option<GreetingRewrite>) -> Self {
+        Self {
+            inner,
+            rewrite,
+            consumed: 0,
+        }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for RewriteRead<R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let before = buf.filled().len();
+        match Pin::new(&mut this.inner).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) => {
+                let chunk = &mut buf.filled_mut()[before..];
+                if let Some(rewrite) = this.rewrite {
+                    let word = rewrite.value.to_le_bytes();
+                    for (index, byte) in chunk.iter_mut().enumerate() {
+                        if let Some(within) = (this.consumed + index).checked_sub(rewrite.offset)
+                            && within < word.len()
+                        {
+                            *byte = word[within];
+                        }
+                    }
+                }
+                this.consumed += chunk.len();
+                Poll::Ready(Ok(()))
+            }
+            other => other,
+        }
+    }
+}
+
 /// Reconcile one pair through two proxies over independently wrapped links.
 pub async fn reconcile(
     left: TreeRoot<()>,
@@ -256,7 +346,7 @@ pub async fn reconcile(
     let (left_link, left_io) = wrap_link(IoSide::Left, left_plan, left_link);
     let (right_link, right_io) = wrap_link(IoSide::Right, right_plan, right_link);
 
-    let (left, right) = drive(left, right, left_link, right_link).await;
+    let (left, right) = drive(left, right, left_link, right_link, WindowConfig::FLOOR).await;
 
     Outcome {
         left,
@@ -264,6 +354,51 @@ pub async fn reconcile(
         left_io,
         right_io,
     }
+}
+
+/// Reconcile with each side's *received* greeting optionally rewritten.
+///
+/// Runs under the default budget-derived window so the rewritten
+/// declarations flow into the live window solve, not a fixed test floor.
+pub async fn reconcile_rewritten_greetings(
+    left: TreeRoot<()>,
+    right: TreeRoot<()>,
+    left_hears: Option<GreetingRewrite>,
+    right_hears: Option<GreetingRewrite>,
+) -> (
+    Result<TreeRoot<()>, LeftError>,
+    Result<TreeRoot<()>, RightError>,
+) {
+    let (left_link, right_link) = memory_with_capacity(TRANSPORT_CAPACITY);
+    drive(
+        left,
+        right,
+        rewritten(left_link, left_hears),
+        rewritten(right_link, right_hears),
+        WindowConfig::default(),
+    )
+    .await
+}
+
+/// Wrap one link's control-read half in a greeting-word rewriter.
+fn rewritten(
+    link: MemoryLink,
+    rewrite: Option<GreetingRewrite>,
+) -> Link<
+    RewriteRead<tokio::io::DuplexStream>,
+    tokio::io::DuplexStream,
+    crate::link::MemoryConnector,
+    crate::link::MemoryAcceptor,
+> {
+    let parts = link.into_parts();
+    crate::link::LinkParts {
+        control_read: RewriteRead::new(parts.control_read, rewrite),
+        control_write: parts.control_write,
+        connector: parts.connector,
+        acceptor: parts.acceptor,
+        session: parts.session,
+    }
+    .into_link()
 }
 
 /// Reconcile while mutating at most one data-stream frame on each side.
@@ -276,12 +411,13 @@ pub async fn reconcile_scripted(
     Result<TreeRoot<()>, LeftError>,
     Result<TreeRoot<()>, RightError>,
 ) {
-    let (left_link, right_link) = memory_with_capacity(37);
+    let (left_link, right_link) = memory_with_capacity(TRANSPORT_CAPACITY);
     drive(
         left,
         right,
         scripted(left_link, left_script),
         scripted(right_link, right_script),
+        WindowConfig::FLOOR,
     )
     .await
 }
@@ -316,6 +452,7 @@ async fn drive<LR, LW, LC, LA, RR, RW, RC, RA>(
     right: TreeRoot<()>,
     left_link: Link<LR, LW, LC, LA>,
     right_link: Link<RR, RW, RC, RA>,
+    window: WindowConfig,
 ) -> (
     Result<TreeRoot<()>, LeftError>,
     Result<TreeRoot<()>, RightError>,
@@ -330,10 +467,10 @@ where
     RC: Connector,
     RA: Acceptor,
 {
-    let left = Handshaking::start(Local, Root::from(left)).window(WindowConfig::FLOOR);
-    let right = Handshaking::start(Local, Root::from(right)).window(WindowConfig::FLOOR);
-    let remote_right = RemoteHandshaking::start(Local, left_link).window(WindowConfig::FLOOR);
-    let remote_left = RemoteHandshaking::start(Local, right_link).window(WindowConfig::FLOOR);
+    let left = Handshaking::start(Local, Root::from(left)).window(window);
+    let right = Handshaking::start(Local, Root::from(right)).window(window);
+    let remote_right = RemoteHandshaking::start(Local, left_link).window(window);
+    let remote_left = RemoteHandshaking::start(Local, right_link).window(window);
     let (left, right) = join!(
         Box::pin(mirror(left, remote_right)),
         Box::pin(mirror(remote_left, right)),

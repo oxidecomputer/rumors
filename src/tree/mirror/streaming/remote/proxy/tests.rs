@@ -38,6 +38,7 @@ type ProxyFailure = RemoteError<BackendFailure>;
 type LeftFailure = MirrorError<LocalFailure, ProxyFailure>;
 type RightFailure = MirrorError<ProxyFailure, LocalFailure>;
 
+mod declarations;
 mod failures;
 mod greeting;
 mod harness;
