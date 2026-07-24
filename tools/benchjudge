@@ -11,32 +11,93 @@ deterministic arithmetic over criterion's saved estimates.
 
 The pipeline (`just bench-judge`): run `benches/board.rs` at two scales
 with `--save-baseline` per scale, each run writing a denominator sidecar
-(cell ID -> the board's denominator bytes at that scale, the board's own
-denomination read back from actual results); then, per cell, fit
+(a configuration stamp plus cell ID -> the board's denominator bytes at
+that scale, the board's own denomination read back from actual results);
+then, per cell, fit
 
     e = ln(median_hi / median_lo) / ln(denom_hi / denom_lo)
 
 and hold every judged cell to MAX_WALL_SCALING_EXPONENT. The fit is the
 board's own scaling-exponent form (board.rs `exponent()`: log of the
 measurement ratio over log of the denominator-bytes ratio) at the ceiling
-that moved here with the leg — the same convention, not a new one; the
-board's zero-count clamps have no analogue because a criterion median is a
-positive float, so a nonpositive median or a non-growing denominator is an
-input error, never a score. A cell is judged only when its larger-scale
-median reaches MIN_JUDGED_MEDIAN_NANOS (derivation at the constant);
-sub-floor cells are enumerated as SKIP, never judged. Output is a red/green
-table in the board's style (red rows first); exit is nonzero on any red.
+that moved here with the leg — the same convention, not a new one. A cell
+is judged only when its larger-scale median reaches
+MIN_JUDGED_MEDIAN_NANOS (derivation at the constant); sub-floor cells are
+enumerated as SKIP, never judged. Output is a red/green table in the
+board's style (red rows first); exit is nonzero on any red (or, in roster
+mode, on any roster violation).
+
+Input-error discipline: exit 2, with the offending cell or file named,
+never a scored verdict and never a silent skip. Input errors are a
+malformed or mismatched pipeline, and scoring one would launder it into a
+judgment: a nonpositive median at either scale, a non-finite (NaN or
+infinite) median, a missing median in a saved estimate, a malformed
+sidecar or roster, mismatched sidecar stamps, and a roster whose pinned
+configuration is not the invocation's. (The board's zero-count clamps
+have no analogue here because a criterion median is a positive float, so
+none of these is ever a score.)
+
+Sidecar stamps: each sidecar carries the configuration of the bench run
+that wrote it — the resolved scale, the profile, the sampling mode, and
+the source tip (`BOARD_BENCH_TIP`, the recipes pass `git rev-parse
+HEAD`). The judge refuses (exit 2) two sidecars whose profiles, sampling
+modes, or tips disagree, a scale pair that does not grow, and any stamp
+that disagrees with `--tip`: a leftover baseline from an interrupted or
+older run, or a sidecar rewritten at a different scale than the saved
+medians, is a mismatch, never a silent re-score.
+
+Profiles: criterion benches build under cargo's bench profile
+(optimized), and the judged medians, this tool's records, and the roster
+are all optimized-profile numbers; the amplification board's counter
+records are dev-profile numbers — each artifact pins its own profile.
+Verdicts are profile-sensitive, so the harness stamps the profile it
+observed (`dev` under debug assertions, `optimized` otherwise) and the
+judge refuses a roster pinned to a different one.
+
+Roster mode (`--roster FILE`): the committed expected-verdict roster —
+the board-side sibling of the gate's expected-failure test roster, same
+membership-by-name philosophy — makes the judge enforce a *fixed* verdict
+map instead of all-green, so `just all` stays meaningful while owned reds
+await their cures. The file pins the configuration it was recorded under
+(profile, sampling, scale pair; mismatch is exit 2) and lists cells in
+two classes:
+
+  - "red": must be judged and must read RED. Reading GREEN is a
+    verdict-flip or liveness signal (exit 1, cell named): either the cure
+    landed (re-baseline deliberately) or the pipeline stopped seeing the
+    work. Reading SKIP is likewise a violation — drifting out of judgment
+    is a change, not a pass.
+  - "boundary": must be judged; either verdict is accepted while the
+    fitted exponent stays within FIT_NOISE_EXPONENT_BAND of the ceiling
+    (derivation at the constant). Outside the band the cell has genuinely
+    moved and the roster entry is stale (exit 1). Reading SKIP is a
+    violation, as above.
+
+Any unrostered cell reading RED is a violation (exit 1). Unrostered cells
+may drift between GREEN and SKIP freely — both are non-red, and
+near-floor cells cross the judgment floor with machine noise. A roster
+naming a cell the run does not contain is an input error (exit 2).
 
 Usage:
     benchjudge --criterion-dir DIR --lo NAME --hi NAME \\
-        --denoms-lo FILE --denoms-hi FILE [--expect-red]
+        --denoms-lo FILE --denoms-hi FILE \\
+        [--roster FILE | --expect-red] [--tip HASH]
     benchjudge --self-test
 
 `--expect-red` inverts the bottom line for tripwire runs (`just
 bench-judge-tripwire`): exit 0 iff at least one judged cell is red.
+
+`--self-test` (run at the head of every bench-judge recipe) pins the
+judging arithmetic AND the exit contract end-to-end: it invokes `main` on
+synthetic criterion trees and asserts the exit codes themselves — 0 on
+all-green, 1 on a red, 1 on a dark tripwire, 1 on each roster violation,
+2 on each input error — so a judge that stops failing cannot pass its own
+self-test.
 """
 
 import argparse
+import contextlib
+import io
 import json
 import math
 import sys
@@ -55,10 +116,13 @@ MAX_WALL_SCALING_EXPONENT = 1.3
 # harness's floor, restated.
 CRITERION_TIMER_ERROR_NANOS = 100
 
-# The judged median must dominate the timer error by this factor, so
-# resolution moves a fitted exponent across a x4 denominator span by at
-# most ln(1.01/0.99)/ln 4 ~ 0.015 — far inside the 0.3 gap between the
-# linear band and the ceiling.
+# The judged (larger-scale) median must dominate the timer error by this
+# factor. The floor binds the hi median only — the lo median is
+# deliberately unfloored, because a hi-side floor already excludes cells
+# too small to time and a lo-side floor would evict real judged coverage
+# (benign-family cells and the fork/cliff cells judge from lo medians of
+# 2-10 us). The honest resolution bound under that choice is
+# FIT_NOISE_EXPONENT_BAND, below.
 RESOLUTION_DOMINANCE_FACTOR = 100
 
 # The judgment floor: cells whose larger-scale median sits below this are
@@ -66,15 +130,56 @@ RESOLUTION_DOMINANCE_FACTOR = 100
 # CRITERION_TIMER_ERROR_NANOS x RESOLUTION_DOMINANCE_FACTOR = 10 us.
 MIN_JUDGED_MEDIAN_NANOS = CRITERION_TIMER_ERROR_NANOS * RESOLUTION_DOMINANCE_FACTOR
 
+# The scale pair's nominal denominator span: the record scale is x4, and
+# the judged families' denominator bytes grow at least in proportion
+# (most spans measure ~4.0; wider spans — the cliff comb's x15 — only
+# shrink resolution's pull on the fit).
+NOMINAL_DENOMINATOR_SPAN = 4.0
+
+# How far timer resolution alone can pull a fitted exponent that sits at
+# the ceiling — the fit-noise band the roster's boundary class accepts.
+# Derived, not calibrated: a judged cell has median_hi >= the floor, so
+# the hi-side relative error is at most 1/RESOLUTION_DOMINANCE_FACTOR
+# (1%); a cell fitted AT the ceiling across the nominal x4 span has
+# median_lo >= floor / 4^1.3, so its lo-side relative error is at most
+# 4^1.3 / RESOLUTION_DOMINANCE_FACTOR (~6.1%). Worst one-direction pull:
+#   ( ln(1 + 0.01) + ln(1 / (1 - 0.061)) ) / ln 4  ~ 0.052.
+# Only near-ceiling cells matter for a verdict, so this is the operative
+# bound: a cell whose true exponent sits farther than the band from the
+# ceiling cannot be flipped by resolution.
+FIT_NOISE_EXPONENT_BAND = (
+    math.log1p(1.0 / RESOLUTION_DOMINANCE_FACTOR)
+    - math.log1p(
+        -(NOMINAL_DENOMINATOR_SPAN**MAX_WALL_SCALING_EXPONENT)
+        / RESOLUTION_DOMINANCE_FACTOR
+    )
+) / math.log(NOMINAL_DENOMINATOR_SPAN)
+
+# The stamp fields a sidecar must carry, and the vocabularies of the two
+# enumerated ones (the profile vocabulary is the harness's observable:
+# debug assertions on = dev, off = optimized).
+STAMP_FIELDS = ("scale", "profile", "sampling", "tip")
+PROFILES = ("dev", "optimized")
+SAMPLINGS = ("quick", "record")
+
 
 class JudgeError(Exception):
-    """A malformed input: missing estimates, bad denominators, bad medians."""
+    """A malformed input: bad estimates, sidecars, stamps, or roster."""
+
+
+def checked_median(name, side, value):
+    """Validate one cell's median: positive and finite, or an input error."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise JudgeError(f"{name}: {side} median is not a number ({value!r})")
+    if not math.isfinite(value):
+        raise JudgeError(f"{name}: {side} median is not finite ({value})")
+    if value <= 0:
+        raise JudgeError(f"{name}: {side} median is not positive ({value})")
+    return value
 
 
 def fit_exponent(median_lo, median_hi, denom_lo, denom_hi, name):
     """The board's scaling-exponent fit over one cell's two medians."""
-    if median_lo <= 0 or median_hi <= 0:
-        raise JudgeError(f"{name}: nonpositive median ({median_lo}, {median_hi})")
     if denom_lo <= 0 or denom_hi <= denom_lo:
         raise JudgeError(
             f"{name}: denominator bytes must grow across the scales, "
@@ -88,10 +193,14 @@ def judge_cells(cells):
 
     Returns `(verdict, name, exponent, row)` tuples where verdict is one of
     GREEN, RED, SKIP; the exponent is None for SKIP (a sub-floor median has
-    no judged exponent).
+    no judged exponent). Malformed medians — nonpositive or non-finite at
+    either scale — raise JudgeError before any floor comparison: an input
+    error is never laundered into a sub-floor SKIP.
     """
     rows = []
     for name, median_lo, median_hi, denom_lo, denom_hi in cells:
+        median_lo = checked_median(name, "lo", median_lo)
+        median_hi = checked_median(name, "hi", median_hi)
         if median_hi < MIN_JUDGED_MEDIAN_NANOS:
             rows.append(
                 (
@@ -132,12 +241,69 @@ def nanos(value):
     return f"{value:.0f}ns"
 
 
-def read_denoms(path):
-    """Read a denominator sidecar: cell ID -> denominator bytes."""
-    denoms = json.loads(Path(path).read_text(encoding="utf-8"))
+def read_sidecar(path):
+    """Read a denominator sidecar: its stamp and its cell -> bytes map."""
+    try:
+        sidecar = json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as error:
+        raise JudgeError(f"{path}: cannot read the sidecar: {error}") from error
+    except json.JSONDecodeError as error:
+        raise JudgeError(f"{path}: the sidecar is not JSON: {error}") from error
+    if not isinstance(sidecar, dict) or set(sidecar) != {"stamp", "denominator_bytes"}:
+        raise JudgeError(
+            f"{path}: expected a JSON object with exactly a `stamp` and a "
+            f"`denominator_bytes` member"
+        )
+    stamp = sidecar["stamp"]
+    if not isinstance(stamp, dict) or set(stamp) != set(STAMP_FIELDS):
+        raise JudgeError(f"{path}: the stamp must carry exactly {STAMP_FIELDS}")
+    scale = stamp["scale"]
+    if (
+        isinstance(scale, bool)
+        or not isinstance(scale, (int, float))
+        or not math.isfinite(scale)
+        or scale <= 0
+    ):
+        raise JudgeError(f"{path}: stamp scale must be a positive number, got {scale!r}")
+    if stamp["profile"] not in PROFILES:
+        raise JudgeError(f"{path}: stamp profile must be one of {PROFILES}")
+    if stamp["sampling"] not in SAMPLINGS:
+        raise JudgeError(f"{path}: stamp sampling must be one of {SAMPLINGS}")
+    if stamp["tip"] is not None and not isinstance(stamp["tip"], str):
+        raise JudgeError(f"{path}: stamp tip must be a string or null")
+    denoms = sidecar["denominator_bytes"]
     if not isinstance(denoms, dict) or not denoms:
-        raise JudgeError(f"{path}: expected a nonempty JSON object")
-    return denoms
+        raise JudgeError(f"{path}: expected a nonempty denominator_bytes object")
+    for name, denom in denoms.items():
+        if isinstance(denom, bool) or not isinstance(denom, int) or denom <= 0:
+            raise JudgeError(
+                f"{path}: {name}: denominator bytes must be a positive "
+                f"integer, got {denom!r}"
+            )
+    return stamp, denoms
+
+
+def cross_check_stamps(stamp_lo, stamp_hi, tip):
+    """Refuse sidecars from different runs, trees, or configurations."""
+    for field in ("profile", "sampling", "tip"):
+        if stamp_lo[field] != stamp_hi[field]:
+            raise JudgeError(
+                f"the two sidecars disagree on {field}: "
+                f"{stamp_lo[field]!r} vs {stamp_hi[field]!r} "
+                f"(a leftover baseline from another run?)"
+            )
+    if stamp_lo["scale"] >= stamp_hi["scale"]:
+        raise JudgeError(
+            f"the scale pair must grow: lo stamped {stamp_lo['scale']}, "
+            f"hi stamped {stamp_hi['scale']}"
+        )
+    if tip is not None:
+        for side, stamp in (("lo", stamp_lo), ("hi", stamp_hi)):
+            if stamp["tip"] != tip:
+                raise JudgeError(
+                    f"the {side} sidecar is stamped tip {stamp['tip']!r}, not the "
+                    f"invocation's {tip!r}: a leftover baseline from another tree"
+                )
 
 
 def read_median(criterion_dir, name, baseline):
@@ -146,18 +312,27 @@ def read_median(criterion_dir, name, baseline):
     path = Path(criterion_dir, op, family, baseline, "estimates.json")
     if not path.is_file():
         raise JudgeError(f"{name}: no saved estimates at {path}")
-    estimates = json.loads(path.read_text(encoding="utf-8"))
-    return estimates["median"]["point_estimate"]
+    try:
+        estimates = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise JudgeError(f"{name}: cannot read estimates at {path}: {error}") from error
+    try:
+        return estimates["median"]["point_estimate"]
+    except (TypeError, KeyError) as error:
+        raise JudgeError(
+            f"{name}: estimates at {path} carry no median point estimate"
+        ) from error
 
 
-def load_cells(criterion_dir, lo, hi, denoms_lo_path, denoms_hi_path):
+def load_cells(criterion_dir, lo, hi, denoms_lo_path, denoms_hi_path, tip):
     """Assemble the judged rows from the two baselines and two sidecars."""
-    denoms_lo = read_denoms(denoms_lo_path)
-    denoms_hi = read_denoms(denoms_hi_path)
+    stamp_lo, denoms_lo = read_sidecar(denoms_lo_path)
+    stamp_hi, denoms_hi = read_sidecar(denoms_hi_path)
+    cross_check_stamps(stamp_lo, stamp_hi, tip)
     if denoms_lo.keys() != denoms_hi.keys():
         difference = sorted(denoms_lo.keys() ^ denoms_hi.keys())
         raise JudgeError(f"the two sidecars disagree on the cell set: {difference}")
-    return [
+    cells = [
         (
             name,
             read_median(criterion_dir, name, lo),
@@ -167,6 +342,101 @@ def load_cells(criterion_dir, lo, hi, denoms_lo_path, denoms_hi_path):
         )
         for name in denoms_lo
     ]
+    return (stamp_lo, stamp_hi), cells
+
+
+def load_roster(path):
+    """Read the expected-verdict roster: pinned configuration and classes."""
+    try:
+        roster = json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as error:
+        raise JudgeError(f"{path}: cannot read the roster: {error}") from error
+    except json.JSONDecodeError as error:
+        raise JudgeError(f"{path}: the roster is not JSON: {error}") from error
+    if not isinstance(roster, dict) or not {"configuration", "red", "boundary"} <= set(
+        roster
+    ) <= {"configuration", "red", "boundary", "notes"}:
+        raise JudgeError(
+            f"{path}: expected a JSON object with `configuration`, `red`, "
+            f"`boundary`, and optionally `notes`"
+        )
+    configuration = roster["configuration"]
+    wanted = {"profile", "sampling", "scale_lo", "scale_hi"}
+    if not isinstance(configuration, dict) or set(configuration) != wanted:
+        raise JudgeError(f"{path}: the configuration must pin exactly {sorted(wanted)}")
+    for cls in ("red", "boundary"):
+        names = roster[cls]
+        if not isinstance(names, list) or not all(
+            isinstance(name, str) for name in names
+        ):
+            raise JudgeError(f"{path}: `{cls}` must be a list of cell IDs")
+    overlap = sorted(set(roster["red"]) & set(roster["boundary"]))
+    if overlap:
+        raise JudgeError(f"{path}: cells rostered both red and boundary: {overlap}")
+    return roster
+
+
+def check_roster_configuration(roster_path, configuration, stamp_lo, stamp_hi):
+    """Refuse a roster whose pinned configuration is not this invocation's."""
+    pins = (
+        ("profile", configuration["profile"], stamp_lo["profile"]),
+        ("sampling", configuration["sampling"], stamp_lo["sampling"]),
+        ("scale_lo", configuration["scale_lo"], stamp_lo["scale"]),
+        ("scale_hi", configuration["scale_hi"], stamp_hi["scale"]),
+    )
+    for field, pinned, actual in pins:
+        if pinned != actual:
+            raise JudgeError(
+                f"{roster_path}: the roster pins {field} = {pinned!r} but this "
+                f"run is stamped {actual!r}: the roster's expectations were "
+                f"recorded under a different configuration"
+            )
+
+
+def roster_violations(roster, rows):
+    """The named roster violations in `rows`, in row order.
+
+    Every rostered cell must be judged with its class's verdict; any
+    unrostered RED is a violation. A rostered cell absent from the run
+    entirely is an input error, not a violation: the run and the roster
+    describe different boards.
+    """
+    red = set(roster["red"])
+    boundary = set(roster["boundary"])
+    names = {name for _, name, _, _ in rows}
+    missing = sorted((red | boundary) - names)
+    if missing:
+        raise JudgeError(f"the roster names cells this run does not contain: {missing}")
+    violations = []
+    for verdict, name, exponent, _ in rows:
+        if name in red:
+            if verdict == "GREEN":
+                violations.append(
+                    f"{name}: rostered red read GREEN (e {exponent:.2f}): a cured "
+                    f"cell or a verdict-flip/liveness signal; re-baseline the "
+                    f"roster deliberately"
+                )
+            elif verdict == "SKIP":
+                violations.append(
+                    f"{name}: rostered red fell below the judgment floor: "
+                    f"drifting out of judgment is a change, not a pass"
+                )
+        elif name in boundary:
+            if verdict == "SKIP":
+                violations.append(
+                    f"{name}: rostered boundary fell below the judgment floor: "
+                    f"drifting out of judgment is a change, not a pass"
+                )
+            elif abs(exponent - MAX_WALL_SCALING_EXPONENT) > FIT_NOISE_EXPONENT_BAND:
+                violations.append(
+                    f"{name}: rostered boundary fitted e {exponent:.2f}, outside "
+                    f"the +-{FIT_NOISE_EXPONENT_BAND:.3f} fit-noise band around "
+                    f"the {MAX_WALL_SCALING_EXPONENT} ceiling: the cell has "
+                    f"genuinely moved; re-roster it deliberately"
+                )
+        elif verdict == "RED":
+            violations.append(f"{name}: unrostered cell read RED (e {exponent:.2f})")
+    return violations
 
 
 def render(rows, out):
@@ -204,7 +474,9 @@ def render(rows, out):
 
 
 def self_test():
-    """Pin the judging arithmetic on synthetic estimates."""
+    """Pin the judging arithmetic and the exit contract end-to-end."""
+    import tempfile
+
     floor = MIN_JUDGED_MEDIAN_NANOS
 
     def verdicts(cells):
@@ -237,11 +509,21 @@ def self_test():
     )
     [(verdict, _, exponent, _)] = rows
     assert verdict == "RED" and 1.8 <= exponent <= 2.2, rows
-    # Malformed inputs are errors, never scores.
+    # Malformed inputs are errors, never scores and never sub-floor skips:
+    # a shrinking or flat denominator; a nonpositive median at either
+    # scale (the hi side must NOT fall through to SKIP); a NaN or infinite
+    # median at either scale.
     for bad in [
         ("op/shrunk", 1e6, 4e6, 4000, 1000),
         ("op/flat", 1e6, 4e6, 1000, 1000),
-        ("op/negative", -1.0, 4e6, 1000, 4000),
+        ("op/lo_negative", -1.0, 4e6, 1000, 4000),
+        ("op/lo_zero", 0.0, 4e6, 1000, 4000),
+        ("op/hi_negative", 1e6, -5.0, 1000, 4000),
+        ("op/hi_zero", 1e6, 0.0, 1000, 4000),
+        ("op/lo_nan", float("nan"), 4e6, 1000, 4000),
+        ("op/hi_nan", 1e6, float("nan"), 1000, 4000),
+        ("op/hi_inf", 1e6, float("inf"), 1000, 4000),
+        ("op/hi_not_a_number", 1e6, "4e6", 1000, 4000),
     ]:
         try:
             judge_cells([bad])
@@ -249,6 +531,139 @@ def self_test():
             pass
         else:
             raise AssertionError(f"expected a JudgeError for {bad}")
+
+    # The exit contract, end-to-end: build synthetic criterion trees and
+    # assert what `main` RETURNS, so a judge that stops failing (the
+    # `return 0 on red` mutation) cannot pass its own self-test.
+
+    def stamp(scale, profile="optimized", sampling="quick", tip="selftest"):
+        return {"scale": scale, "profile": profile, "sampling": sampling, "tip": tip}
+
+    def exit_code(root, lo_sidecar, hi_sidecar, *extra):
+        argv = [
+            "benchjudge",
+            "--criterion-dir",
+            str(root),
+            "--lo",
+            "lo",
+            "--hi",
+            "hi",
+            "--denoms-lo",
+            str(lo_sidecar),
+            "--denoms-hi",
+            str(hi_sidecar),
+            *extra,
+        ]
+        with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stderr(io.StringIO()):
+                return main(argv)
+
+    def write_pair(root, cells, stamp_lo=None, stamp_hi=None):
+        """cells: name -> (median_lo, median_hi); x4 denominator span."""
+        for name, (median_lo, median_hi) in cells.items():
+            for baseline, median in (("lo", median_lo), ("hi", median_hi)):
+                op, _, family = name.partition("/")
+                cell_dir = Path(root, op, family, baseline)
+                cell_dir.mkdir(parents=True, exist_ok=True)
+                (cell_dir / "estimates.json").write_text(
+                    json.dumps({"median": {"point_estimate": median}}),
+                    encoding="utf-8",
+                )
+        paths = {}
+        for baseline, denom, st in (
+            ("lo", 1000, stamp_lo or stamp(1.0)),
+            ("hi", 4000, stamp_hi or stamp(4.0)),
+        ):
+            path = Path(root, f"denoms-{baseline}.json")
+            path.write_text(
+                json.dumps(
+                    {
+                        "stamp": st,
+                        "denominator_bytes": {name: denom for name in cells},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths[baseline] = path
+        return paths
+
+    def judged(cells, *extra, stamp_lo=None, stamp_hi=None, roster=None):
+        with tempfile.TemporaryDirectory() as root:
+            paths = write_pair(root, cells, stamp_lo=stamp_lo, stamp_hi=stamp_hi)
+            if roster is not None:
+                roster_path = Path(root, "roster.json")
+                roster_path.write_text(json.dumps(roster), encoding="utf-8")
+                extra = (*extra, "--roster", str(roster_path))
+            return exit_code(root, paths["lo"], paths["hi"], *extra)
+
+    linear = (floor * 10.0, floor * 40.0)
+    quadratic = (floor * 10.0, floor * 160.0)
+    at_ceiling = (floor * 10.0, floor * 10.0 * 4**MAX_WALL_SCALING_EXPONENT)
+    sub_floor = (floor / 32, floor / 2)
+
+    # Exit 0 on all-green.
+    assert judged({"op/a": linear, "op/b": linear}) == 0
+    # Exit 1 on a red in normal mode: the `return 0 on red` mutation dies here.
+    assert judged({"op/a": linear, "op/quad": quadratic}) == 1
+    # Exit 1 when a tripwire run judges no red: the tripwire has gone dark.
+    assert judged({"op/a": linear}, "--expect-red") == 1
+    # Exit 0 when the tripwire run reads its red.
+    assert judged({"op/quad": quadratic}, "--expect-red") == 0
+    # Exit 2 on input errors, end-to-end: a zero hi median, a negative hi
+    # median, a NaN median, a missing median key, a missing baseline.
+    assert judged({"op/a": (floor * 10.0, 0.0)}) == 2
+    assert judged({"op/a": (floor * 10.0, -5.0)}) == 2
+    assert judged({"op/a": (float("nan"), floor * 40.0)}) == 2
+    with tempfile.TemporaryDirectory() as root:
+        paths = write_pair(root, {"op/a": linear})
+        estimates = Path(root, "op", "a", "hi", "estimates.json")
+        estimates.write_text(json.dumps({"mean": {"point_estimate": 1.0}}))
+        assert exit_code(root, paths["lo"], paths["hi"]) == 2
+        estimates.unlink()
+        assert exit_code(root, paths["lo"], paths["hi"]) == 2
+    # Exit 2 on stamp mismatches: disagreeing tips, a non-growing scale
+    # pair, a profile mismatch, and an invocation tip the sidecars predate.
+    assert judged({"op/a": linear}, stamp_hi=stamp(4.0, tip="other")) == 2
+    assert judged({"op/a": linear}, stamp_hi=stamp(1.0)) == 2
+    assert judged({"op/a": linear}, stamp_hi=stamp(4.0, profile="dev")) == 2
+    assert judged({"op/a": linear}, "--tip", "newer") == 2
+    assert judged({"op/a": linear}, "--tip", "selftest") == 0
+
+    def roster(red=(), boundary=(), sampling="quick"):
+        return {
+            "configuration": {
+                "profile": "optimized",
+                "sampling": sampling,
+                "scale_lo": 1.0,
+                "scale_hi": 4.0,
+            },
+            "red": list(red),
+            "boundary": list(boundary),
+        }
+
+    # Roster mode: exit 0 iff the verdict map matches the roster exactly.
+    assert judged({"op/quad": quadratic, "op/a": linear}, roster=roster(["op/quad"])) == 0
+    # A rostered red reading GREEN is a verdict-flip/liveness signal: exit 1.
+    assert judged({"op/quad": linear}, roster=roster(["op/quad"])) == 1
+    # A rostered red drifting below the judgment floor is a violation.
+    assert judged({"op/quad": sub_floor}, roster=roster(["op/quad"])) == 1
+    # An unrostered red is a violation.
+    assert judged({"op/quad": quadratic}, roster=roster()) == 1
+    # A boundary cell may read either verdict within the fit-noise band...
+    assert judged({"op/edge": at_ceiling}, roster=roster(boundary=["op/edge"])) == 0
+    over_band = (floor * 10.0, floor * 10.0 * 4**2.0)
+    under_band = (floor * 10.0, floor * 40.0)
+    # ...but not a verdict outside it (the cell genuinely moved)...
+    assert judged({"op/edge": over_band}, roster=roster(boundary=["op/edge"])) == 1
+    assert judged({"op/edge": under_band}, roster=roster(boundary=["op/edge"])) == 1
+    # ...and never a sub-floor skip.
+    assert judged({"op/edge": sub_floor}, roster=roster(boundary=["op/edge"])) == 1
+    # Unrostered cells drift between GREEN and SKIP freely: both non-red.
+    assert judged({"op/a": linear, "op/tiny": sub_floor}, roster=roster()) == 0
+    # A roster pinned to a different configuration is refused: exit 2.
+    assert judged({"op/a": linear}, roster=roster(sampling="record")) == 2
+    # A roster naming a cell the run does not contain is an input error.
+    assert judged({"op/a": linear}, roster=roster(["op/gone"])) == 2
 
 
 def main(argv):
@@ -264,16 +679,37 @@ def main(argv):
     parser.add_argument("--denoms-lo", required=True)
     parser.add_argument("--denoms-hi", required=True)
     parser.add_argument(
+        "--tip",
+        help="the source tip of this invocation; both sidecars must be stamped with it",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--roster",
+        help="roster mode: enforce this committed expected-verdict roster",
+    )
+    mode.add_argument(
         "--expect-red",
         action="store_true",
         help="tripwire mode: succeed iff at least one judged cell is red",
     )
     args = parser.parse_args(argv[1:])
     try:
-        cells = load_cells(
-            args.criterion_dir, args.lo, args.hi, args.denoms_lo, args.denoms_hi
+        stamps, cells = load_cells(
+            args.criterion_dir,
+            args.lo,
+            args.hi,
+            args.denoms_lo,
+            args.denoms_hi,
+            args.tip,
         )
+        roster = None
+        if args.roster is not None:
+            roster = load_roster(args.roster)
+            check_roster_configuration(
+                args.roster, roster["configuration"], stamps[0], stamps[1]
+            )
         rows = judge_cells(cells)
+        violations = None if roster is None else roster_violations(roster, rows)
     except JudgeError as error:
         print(f"benchjudge: {error}", file=sys.stderr)
         return 2
@@ -286,6 +722,19 @@ def main(argv):
                 file=sys.stderr,
             )
             return 1
+        return 0
+    if violations is not None:
+        if violations:
+            print(file=sys.stdout)
+            for violation in violations:
+                print(f"benchjudge: roster violation: {violation}", file=sys.stdout)
+            return 1
+        print(
+            f"benchjudge: roster {args.roster} satisfied "
+            f"({len(roster['red'])} expected red, "
+            f"{len(roster['boundary'])} boundary)",
+            file=sys.stdout,
+        )
         return 0
     return 1 if counts["RED"] > 0 else 0
 

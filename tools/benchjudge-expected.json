@@ -1,0 +1,31 @@
+{
+  "notes": "The bench judge's expected-verdict roster (tools/benchjudge --roster): membership by cell name, the board-side sibling of the gate's expected-failure test roster. `red` cells are the counter-red bigroot sweeps whose cures are owned by the C2 kernel flip; `boundary` cells fit within the fit-noise band of the 1.3 ceiling (FIT_NOISE_EXPONENT_BAND in tools/benchjudge states the derivation) and may read either verdict. The roster empties at C3.",
+  "configuration": {
+    "profile": "optimized",
+    "sampling": "quick",
+    "scale_lo": 1.0,
+    "scale_hi": 4.0
+  },
+  "red": [
+    "version_cmp/bigroot",
+    "version_eq/bigroot",
+    "version_concurrent/bigroot",
+    "version_join/bigroot",
+    "version_join_assign/bigroot",
+    "version_meet/bigroot",
+    "version_meet_assign/bigroot",
+    "version_tick/bigroot",
+    "version_batch_snapshot/bigroot",
+    "version_distance/bigroot",
+    "version_lag/bigroot",
+    "causally_contains/bigroot",
+    "clock_tick/bigroot",
+    "clock_join/bigroot",
+    "clock_sync/bigroot",
+    "clock_recv/bigroot"
+  ],
+  "boundary": [
+    "version_display/hugeleaf",
+    "clock_display/hugeleaf"
+  ]
+}
