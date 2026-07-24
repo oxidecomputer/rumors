@@ -1366,6 +1366,106 @@ tripwire is an unmetered quadratic reading red on the exponent.
 Acceptance is re-denominated: the all-green board of record means
 ceilings AND floors AND the time-exponent leg, at both scales.
 
+Landed 2026-07-24 (both legs, this directive's implementation).
+Every board cell now carries a `Floors` declaration the type
+demands: `Cell` cannot be constructed without a floor-or-NA answer
+per judged column (`board::Liveness`, `Floor { min, why } |
+NotApplicable { reason }`), rendered per cell (`flr[...]`) with the
+derivations and NA reasons printed as a legend above the matrix;
+segments is ceiling-only by policy (its honest floor is zero),
+stated once at the type and in the board header, not per cell.
+Floors bind in the same `evaluate` pass the ceilings do, at both
+scales; a trip is red with the column and mechanism named
+("counter reads below floor: the meter is not watching this
+work"). The floor-derivation conventions of record:
+
+- **Scan** (the universal leg): full-examination floor
+  `SCAN_FLOOR_BITS_PER_INPUT_BYTE` = 1 bit per packed operand byte
+  (an eighth of the stored bits; honest walks measure ~8) on every
+  row that must examine its operands; the early-exit rows
+  (`covers`, `fork` on a nontrivial party) floor at
+  `SCAN_TOUCH_FLOOR_BITS` = 2 (the root codes); `version_eq`
+  carries the one deterministic-liveness floor (the causal walk
+  reads its operands in full today; a bytewise equality lowers it
+  deliberately). NA is reserved for wholesale byte moves
+  (encode, hash), operands with no packed stream (the rank pair),
+  and the seed party's empty form (`clock_fork` on the event
+  families).
+- **Limb**: floors bind where big-integer arithmetic is
+  semantically mandatory, at one op per 64 bits of every stored
+  magnitude wider than `MACHINE_WORD_MAGNITUDE_BITS` = 128
+  (`mandatory_limbs_version`, hand-count-pinned): the rank family
+  (`rank`/`distance`/`lag`), the parsing text rows, and both
+  decode rows; `rank_pair_ops` floors at one limb write per 64
+  content bits of the wider operand (the sum's numerator spans
+  it). The display rows are the load-bearing NA: their conversion
+  runs inside the bignum dependency, below the limb shim — the
+  display canary and the wall leg judge them, and the declaration
+  now says so on the board face.
+- **Heap**: floors on the codec and text rows (the result
+  materializes at least its packed bytes); NA elsewhere
+  (allocation is not semantically forced, and the process
+  allocator cannot be re-routed around).
+
+The wall leg: `MAX_WALL_SCALING_EXPONENT` = 1.3 judges the wall
+exponent fitted across the two scales, only when the larger
+scale's wall reaches `MIN_JUDGED_WALL_MILLIS` = 100 (marked `*` on
+the board); wall constants stay displayed-never-judged. The
+threshold is the calibrated determinism point **[measured** —
+2026-07-24, two runs per scale, dev profile**]**: a 50 ms draft
+left three bigroot cells' smaller-scale walls (24–35 ms) noise-
+dominated and their "wall exponent" reason flickering across
+runs; at 100 ms every judged cell reads ~1.9 (the bigroot
+quadratics) or ≤ ~1.13 (the linear controls), and both scales'
+judged enumerations — verdicts, all counter columns, floors, and
+red reasons, wall text excluded — are byte-identical across two
+consecutive runs. Today's wall-exponent reds are all cells already
+red on their counters (default: `version_distance × bigroot`;
+record: the nine bigroot join/meet/sync/recv/distance/lag legs plus
+`version_from_str`/`clock_from_str` × hugeleaf): the leg adds no
+verdict flip, exactly as a deterministic-first suite should read.
+
+Both §14 tripwires are committed in `meter/board/tests.rs`:
+`bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors`
+(an index-walk over the stored bits — real linear work, every
+counter near zero — green through `evaluate` under all-NA
+declarations, red on exactly the scan floor under the committed
+walk convention) and
+`unmetered_quadratic_reads_red_on_the_wall_exponent_leg_alone`
+(plain machine-word arithmetic, walls measured live, red on
+exactly the wall exponent with all four counter columns green;
+runner-reserved in `.config/nextest.toml` on the display canary's
+idiom).
+
+**Vacuity finding (real, predicted by this directive's mechanism):
+the id text renderer walks its operand outside the scan meter.**
+`write_id` (`codec/display.rs`) reads the stored id bits by direct
+slice indexing, so `party_display` records zero scan bits over a
+63 KB walk while the event renderer's walk (through the metered
+`decode_int`) records ~8 bits per packed byte. The committed scan
+floor trips on exactly three cells — `party_display × id-pair`,
+`party_display × benign`, `clock_display × id-pair` (its version
+half is the empty version; the party half is the unwatched walk) —
+and one verdict flips at each scale: `party_display × benign`,
+green → red. Per the directive's records rule the floor stands and
+the cell is red until the id renderer's walk is metered (or C2's
+kernel routing subsumes it); the other two cells were already red
+on segments. `party_fork × id-pair` and `clock_fork × id-pair`,
+the other anticipated bypass candidates, pass their touch floors:
+the split path does read the root codes through metered
+primitives (their scan counts are small constants, invisible at
+the board's per-byte display precision, above the 2-bit floor).
+
+Board of record after both legs **[measured** — 2026-07-24, dev
+profile, limb-meter and scan-meter lit; each scale run twice,
+judged enumerations byte-identical as above**]**: **128 green /
+72 red at the default scale; 116 green / 84 red at ×4** — the
+prior red sets reproduce unchanged at both scales plus exactly
+`party_display × benign` at each, the scan-floor flip recorded
+above. §17.3's record-scale ownership table is unchanged (the
+flip's owner is this finding, P3.8's text column owns the cure
+alongside the id renderer's metering).
+
 ## 14. Execution plan
 
 Dependency-ordered; each phase `just gate`-clean; wire bytes are
