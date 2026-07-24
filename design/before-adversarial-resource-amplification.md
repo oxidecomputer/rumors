@@ -2117,6 +2117,54 @@ fold was cured in the same round (the §15 V6 entry); still open in
 this item: the §14 bench-surface constraint (untouched by this
 slice) and `fill` at C2 per the recorded amendment.
 
+Amended 2026-07-24 (P3.6 fix round: the freeze quadratic). The
+query-fold slice's original freeze discipline — an absolute 8-digit
+width threshold on the live component, the frozen part flushed as a
+frozen-width product per segment — was refuted by the wide-tooth
+comb one notch over that threshold: with the frozen part set wide
+once by the first leaf, every 300-bit tooth bought an O(frozen-width)
+flush funded only by its own code. Executed **[measured]**: the rank
+kernel on `wide_tooth_comb(w = 300)` read 13.5 accumulator touches
+per skyline byte at `k = 76,800, n = 128` and 26.8 at the doubling —
+per-byte cost doubling per input doubling, ~36× the `w = 192`
+control's flat 0.4/B — and no committed family priced the band (the
+committed wide-tooth width sat below the threshold as the no-freeze
+pin; the boundary comb freezes at most once). Per the ratchet
+convention the band landed red first
+(`skyline_rank_wide_tooth_freeze_band`: absolute ceilings at the
+measured quadratic baseline plus a ×1.8 per-byte growth floor proving
+the defect reproduces), and the cure's own commit retired the floor,
+re-pinned the band flat (×1.25 across the doubling), and tightened
+the ceilings ~16×. The cure, two moves in the kernel: (a) the freeze
+trigger is *relative* — a fold that leaves the live component more
+than 8 digits wider than its own delta's code freezes — so bounded
+oscillation never freezes at any width, and a freeze fires exactly
+when stale wide drift is about to ride under cheaper codes; (b) the
+frozen part reaches the total by summation by parts,
+`Σᵢ F(i)·massᵢ = F_final·2^S − Σ_freezes drift·position`: one
+frozen-wide shifted add at stream end plus, per freeze, one
+drift-wide product per nonzero signed digit of the compacted freeze
+position — each freeze is charged to the drift it evicts (built and
+funded by the codes since the last freeze, consumed by the eviction),
+and nothing ever multiplies by the frozen width. The freeze path's
+own family is new: `meter::jump_comb` (a low tooth, a mid-stream
+`2^k`-scale jump, cheap teeth behind it) fires exactly one eviction
+and reads flat per byte across a doubling, under ceilings an
+un-evicted live component exceeds ~15-fold
+(`skyline_rank_jump_eviction_is_flat_per_unit`); `jump_comb` and the
+over-threshold wide tooth joined the query differential pool. All
+five rank envelope rows re-pinned at the cured mechanism — dense,
+harmonic, cliff, and wide-tooth tighten on every moved column;
+bigroot's heap and touch cells rose within their standing ceilings
+(the frozen component now lives on the accumulator) and keep the
+older, tighter pins. Honest residual, stated in the module doc's
+cost section: a freeze correction is priced at drift width ×
+compacted-position density, so a stream that re-arms wide drift
+under cheap codes at a *dense* position (deep alternating topology
+around every freeze) is the one shape the funding argument does not
+certify; every committed family's freeze positions are ones-runs.
+`distance`/`lag` inherit the cure through their rank calls.
+
 Landed 2026-07-24 (the bench-surface slice; the §14 bench constraint
 discharged in full — `fill` at C2 is now this item's only open
 piece). The suite gained `benches/board.rs`: the full operation

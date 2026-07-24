@@ -201,6 +201,49 @@ pub fn cliff_comb(k: usize, n: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The jump comb `J(k, n)`: one low tooth, then `n − 1` cliff teeth,
+/// `(n − 1)(2k + 10) + 14` bits.
+///
+/// The boundary comb with its first tooth lowered to `(1, 0, 1)`: preorder
+/// leaf values run `1, 2`, jump to `2^k − 1`, then oscillate
+/// `2^k − 1 ↔ 2^k`. In a delta coding the jump is the one wide
+/// leaf-to-leaf code, arriving mid-stream with only 3-bit codes behind
+/// it — the stale-drift shape: a sweep that keeps running height state
+/// must move the jump out of its cheap-delta path exactly once, paid by
+/// the jump's own code, or pay the jump's width again on every 3-bit
+/// delta that follows. The wide-tooth comb prices bounded wide
+/// oscillation (state that must *stay* live); this family prices the
+/// eviction (state that must *leave*), so together they pin a height
+/// split from both sides.
+///
+/// Layout: one tooth `"11" · "1" · gamma(1) · "01" · "0010"` (12 bits),
+/// then `n − 1` [`cliff_comb`] teeth at `2k + 10` bits, then the terminal
+/// `"01"`. Normal form holds everywhere by the comb's own argument: every
+/// spine node's right child has base 0, every tooth's left leaf has base
+/// 0, and the only leaf pairs are `(0, 1)`.
+///
+/// # Panics
+///
+/// Panics if `k == 0` or `n < 2`: the jump needs a low tooth and at
+/// least one cliff tooth to jump between.
+pub fn jump_comb(k: usize, n: usize) -> Packed {
+    assert!(k >= 1, "jump comb needs a nonzero cliff magnitude");
+    assert!(n >= 2, "jump comb needs a low tooth and a cliff tooth");
+    let mut bits = Bits::with_capacity((n - 1) * (2 * k + 10) + 14);
+    let tooth = pow2_minus_1(k);
+    let one = Base::from(1u8);
+    for i in 0..n {
+        bits.push(true); // spine node flag
+        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        bits.push(true); // tooth node flag
+        codec::encode_int(&mut bits, if i == 0 { &one } else { &tooth });
+        ev_leaf(&mut bits, 0); // tooth's left leaf
+        ev_leaf(&mut bits, 1); // tooth's right leaf: distinct, no collapse
+    }
+    ev_leaf(&mut bits, 0); // terminal spine leaf
+    Packed::from_bits(bits)
+}
+
 /// The wide-tooth comb `W(k, w, n)`: `n` teeth of width `2^w` oscillating
 /// across the `2^k` cliff, `n(2k + 2w + 6) + 2` bits.
 ///

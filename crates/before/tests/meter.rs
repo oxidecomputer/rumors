@@ -1627,31 +1627,28 @@ mod skyline_flatness {
     }
 
     /// Absolute over-threshold ceilings, measured 2026-07-24 ×1.25
-    /// (three identical runs): the CURRENT quadratic baseline of record,
-    /// deliberately red per the ratchet convention — the freeze
-    /// discipline cure retires these by re-pinning the whole band flat.
-    /// Measured: small 101,716 touches / 145,680 limbs on 24,085 skyline
-    /// bytes; large 396,126 touches / 564,784 limbs on 48,245 bytes.
-    const FREEZE_BAND_OVER_TOUCH_CEILINGS: (u64, u64) = (127_145, 495_158);
+    /// (three identical runs): the cured freeze discipline's numbers,
+    /// tightened from the retired quadratic baseline of record
+    /// (101,716 → 396,126 touches, 145,680 → 564,784 limbs at these
+    /// scales) in the commit that landed the cure, per the ratchet
+    /// convention. Measured: small 6,182 touches / 4,326 limbs on
+    /// 24,085 skyline bytes; large 12,390 touches / 8,662 limbs on
+    /// 48,245 bytes.
+    const FREEZE_BAND_OVER_TOUCH_CEILINGS: (u64, u64) = (7_728, 15_488);
 
     /// The over-threshold limb ceilings paired with
     /// [`FREEZE_BAND_OVER_TOUCH_CEILINGS`].
-    const FREEZE_BAND_OVER_LIMB_CEILINGS: (u64, u64) = (182_100, 705_980);
+    const FREEZE_BAND_OVER_LIMB_CEILINGS: (u64, u64) = (5_408, 10_828);
 
     /// The rank kernel's freeze band on the wide-tooth comb, both sides
-    /// pinned: one notch under the freeze threshold (192-bit teeth) the
-    /// per-byte cost is flat across a doubling of `k` and `n`; one notch
-    /// over it (300-bit teeth) the current discipline freezes on every
-    /// tooth and each freeze re-reads the `k`-bit frozen component, so
-    /// per-byte cost doubles per input doubling — quadratic in skyline
-    /// bytes, refuting the funded-freeze cost claim for this band.
-    ///
-    /// The over-threshold side is pinned at the measured quadratic
-    /// baseline (absolute ceilings above) **plus a ×1.8 per-byte growth
-    /// floor proving the defect reproduces**: this test is the ratchet's
-    /// deliberately-red instrument, and the freeze-discipline cure must
-    /// replace the growth floor with the ×1.25 flatness bound and
-    /// tighten the ceilings in the same commit that lands it.
+    /// flat: bounded oscillation never freezes at any tooth width — a
+    /// fold's cost rides the live component, paid by the tooth's own
+    /// code — so per-byte cost stays flat (×1.25) across a doubling of
+    /// `k` and `n` one notch under the freeze allowance's 256-bit digit
+    /// bound (192-bit teeth) and one notch over it (300-bit teeth)
+    /// alike, with the over side's absolute ceilings pinned as the
+    /// tightened record that retired the frozen-width-per-tooth
+    /// quadratic baseline.
     #[test]
     fn skyline_rank_wide_tooth_freeze_band() {
         let under_small = rank_wide_tooth_run(
@@ -1705,25 +1702,125 @@ mod skyline_flatness {
             assert!(
                 run.touches <= touch_ceiling,
                 "skyline_rank_over_threshold_{scale}: {} touches exceed the pinned \
-                 baseline {touch_ceiling}",
+                 ceiling {touch_ceiling}",
                 run.touches,
             );
             assert!(
                 run.limb_ops <= limb_ceiling,
                 "skyline_rank_over_threshold_{scale}: {} limb ops exceed the pinned \
-                 baseline {limb_ceiling}",
+                 ceiling {limb_ceiling}",
                 run.limb_ops,
             );
         }
-        // The deliberate red: per-byte touches grow at least ×1.8 across
-        // the doubling under the current freeze discipline. The cure
-        // deletes this floor in favor of the ×1.25 flatness bound.
+        assert_flat(
+            "rank_over_threshold_touches",
+            "byte",
+            (over_small.touches, over_small.bytes),
+            (over_large.touches, over_large.bytes),
+        );
+        assert_flat(
+            "rank_over_threshold_limb_ops",
+            "byte",
+            (over_small.limb_ops, over_small.bytes),
+            (over_large.limb_ops, over_large.bytes),
+        );
+    }
+
+    /// One rank run over the jump comb `J(k, n)`'s skyline stream: the
+    /// per-unit denominators and both counters over the rank body alone.
+    ///
+    /// Carries the same liveness floor and packed-rank agreement as
+    /// [`rank_wide_tooth_run`].
+    fn rank_jump_run(k: usize, n: usize) -> Run {
+        let packed = meter::jump_comb(k, n);
+        let v = before::Version::decode(&packed.bytes[..]).expect("the comb is strict normal form");
+        let enc = meter::skyline::encode(&v);
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let r = meter::skyline::query::rank(&enc);
+        let run = Run {
+            // Each tooth's two leaves follow the first leaf as deltas.
+            deltas: 2 * n as u64,
+            bytes: enc.bytes.len() as u64,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert_eq!(r, v.rank(), "the kernel must match the packed rank");
         assert!(
-            u128::from(over_large.touches) * u128::from(over_small.bytes) * 10
-                >= u128::from(over_small.touches) * u128::from(over_large.bytes) * 18,
-            "skyline_rank_over_threshold: per-byte touches read flat across the \
-             doubling: the freeze discipline changed; re-pin this band as a \
-             flatness row and retire the growth floor"
+            run.touches >= run.deltas,
+            "skyline_rank_jump k={k}: {} digit touches under the {}-delta floor: \
+             the rank height state is not running on the metered accumulator",
+            run.touches,
+            run.deltas,
+        );
+        run
+    }
+
+    /// Absolute jump-comb ceilings, measured 2026-07-24 ×1.25 (three
+    /// identical runs): one eviction of the `k`-bit jump plus flat
+    /// 3-bit-delta work — the un-evicted alternative reads the jump's
+    /// width again on every following delta, ~15× these numbers at the
+    /// small scale alone. Measured: small 5,138 touches / 2,128 limbs
+    /// on 4,961 skyline bytes; large 10,272 touches / 4,250 limbs on
+    /// 9,921 bytes.
+    const RANK_JUMP_TOUCH_CEILINGS: (u64, u64) = (6_423, 12_840);
+
+    /// The jump-comb limb ceilings paired with
+    /// [`RANK_JUMP_TOUCH_CEILINGS`].
+    const RANK_JUMP_LIMB_CEILINGS: (u64, u64) = (2_660, 5_313);
+
+    /// The rank kernel's freeze eviction on the jump comb is funded and
+    /// flat: the mid-stream `k`-bit jump lands in the live component,
+    /// the first cheap delta behind it fires the one freeze — priced by
+    /// the drift the jump's own code paid for, never by the frozen
+    /// width — and every later 3-bit delta rides an emptied live
+    /// component, so per-byte cost stays flat (×1.25) across a doubling
+    /// of `k` and `n` under absolute ceilings a stale-drift regression
+    /// (the jump re-read per delta) exceeds ~15-fold.
+    #[test]
+    fn skyline_rank_jump_eviction_is_flat_per_unit() {
+        let small = rank_jump_run(FREEZE_BAND_SMALL_K, FREEZE_BAND_SMALL_N);
+        let large = rank_jump_run(2 * FREEZE_BAND_SMALL_K, 2 * FREEZE_BAND_SMALL_N);
+        for (run, (touch_ceiling, limb_ceiling), scale) in [
+            (
+                &small,
+                (RANK_JUMP_TOUCH_CEILINGS.0, RANK_JUMP_LIMB_CEILINGS.0),
+                "small",
+            ),
+            (
+                &large,
+                (RANK_JUMP_TOUCH_CEILINGS.1, RANK_JUMP_LIMB_CEILINGS.1),
+                "large",
+            ),
+        ] {
+            eprintln!(
+                "MEASURED skyline_rank_jump_{scale}: bytes={} touches={} limb_ops={}",
+                run.bytes, run.touches, run.limb_ops,
+            );
+            assert!(
+                run.touches <= touch_ceiling,
+                "skyline_rank_jump_{scale}: {} touches exceed the pinned ceiling \
+                 {touch_ceiling}: the jump's drift is not being evicted once",
+                run.touches,
+            );
+            assert!(
+                run.limb_ops <= limb_ceiling,
+                "skyline_rank_jump_{scale}: {} limb ops exceed the pinned ceiling \
+                 {limb_ceiling}: the jump's drift is not being evicted once",
+                run.limb_ops,
+            );
+        }
+        assert_flat(
+            "rank_jump_touches",
+            "byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+        assert_flat(
+            "rank_jump_limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
         );
     }
 }
@@ -2066,13 +2163,15 @@ mod accum_streams {
 // scanned bits, and accumulator touches — because the kernels' arithmetic
 // lives in digit touches (the limb column alone would read a vacuous
 // near-zero), while their stream work lives in the scan column. The cliff
-// and wide-tooth rank rows are the load-bearing pins: the boundary comb
-// exercises the freeze machinery (one wide segment flush paid by the wide
-// final borrow), the wide-tooth comb the no-freeze live path (192-bit
-// deltas held under the freeze threshold, each fold paid by its own
-// code). The projection row is I/O-denominated per the board's criterion:
-// its output is mandatory and dominates its input, so the pinned ceilings
-// price input + output bytes (the MEASURED line prints both).
+// and wide-tooth rank rows are load-bearing live-path pins: wide deltas
+// ride the live component without freezing — the comb's terminal borrow
+// and every 192-bit tooth are each paid by their own codes — and the
+// `skyline_flatness` module's freeze-band and jump rows pin the freeze
+// discipline itself (bounded oscillation never freezes at any width;
+// stale drift is evicted once, at the drift's own width). The projection
+// row is I/O-denominated per the board's criterion: its output is
+// mandatory and dominates its input, so the pinned ceilings price
+// input + output bytes (the MEASURED line prints both).
 
 /// One query scenario's pinned ceilings: [`Envelope`]'s three columns
 /// plus scanned bits and accumulator touches, asserted when their
@@ -2117,8 +2216,11 @@ const fn query_envelope(
     }
 }
 
-// The query envelope table: pinned ceiling = measured ×1.25, rounded up.
-// The trailing comment on each line is the measurement of record
+// The query envelope table: pinned ceiling = measured ×1.25, rounded up,
+// and only ever tightened: where a remeasure rises while staying inside
+// an existing ceiling (the bigroot heap and touch cells, whose frozen
+// component now lives on the accumulator), the older, tighter ceiling
+// stands. The trailing comment on each line is the measurement of record
 // (2026-07-24, aarch64-apple-darwin, dev profile, three identical runs)
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
@@ -2126,11 +2228,11 @@ const fn query_envelope(
 mod query_env {
     use super::{query_envelope, QueryEnvelope};
     //                                                                        peak heap, segments,  limb ops, scan bits,   touches       measured: heap, seg, limb, scan, touches
-    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(   100_540,        0,   317_395, 1_093_772,   161_142); // 80_432, 0, 253_916, 875_017, 128_913
-    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    28_924,   387_530,    17_199); // 53_716, 0, 23_139, 310_024, 13_759
-    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_710,        0,   167_689,   573_454,   250_884); // 57_368, 0, 134_151, 458_763, 200_707
-    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_885,        0,     8_104,    48_647,     8_153); // 3_108, 0, 6_483, 38_917, 6_522
-    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_850, 2_996_319,    33_687); // 2_476, 0, 23_880, 2_397_055, 26_949
+    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    81_950,        0,   312_505, 1_093_772,   156_259); // 65_560, 0, 250_004, 875_017, 125_007
+    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199); // 60_088, 0, 21_413, 310_024, 17_194
+    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324); // 57_364, 0, 132_097, 458_763, 198_659
+    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008); // 2_460, 0, 6_244, 38_917, 6_406
+    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580); // 2_740, 0, 23_641, 2_397_055, 26_864
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255); // 24_576, 0, 250_002, 375_006, 125_004
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62); // 528, 0, 17, 2_052, 49
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924); // 420_560, 0, 92_212, 2_124_806, 35_939
@@ -2227,8 +2329,9 @@ fn skyline_rank_dense_envelope() {
 }
 
 /// The rank kernel on the bigroot skyline stays within its envelope (the
-/// wide-magnitude control: the first leaf's magnitude freezes once at
-/// position zero and flushes once against the whole interval).
+/// wide-magnitude control: the first leaf's magnitude seeds the frozen
+/// component and is read exactly once, in the closing shifted add
+/// against the whole interval).
 #[test]
 fn skyline_rank_bigroot_envelope() {
     let p = meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
@@ -2262,11 +2365,10 @@ fn skyline_rank_harmonic_envelope() {
 }
 
 /// The rank kernel on the boundary comb's skyline stays within its
-/// envelope — the freeze machinery's load-bearing pin: the heights are
-/// `2^k`-scale behind 3-bit deltas, the live component absorbs the
-/// oscillation at O(1) digits per fold, and the one wide segment flush
-/// (triggered by the terminal borrow) costs two frozen-width products
-/// against the compacted mass.
+/// envelope: the heights are `2^k`-scale behind 3-bit deltas, the live
+/// component absorbs the oscillation at O(1) digits per fold, and the
+/// terminal borrow — as wide as its own code — rides the live component
+/// into the last leaf's single wide add, no freeze anywhere.
 #[test]
 fn skyline_rank_cliff_envelope() {
     let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
@@ -2282,9 +2384,11 @@ fn skyline_rank_cliff_envelope() {
 }
 
 /// The rank kernel on the wide-tooth comb's skyline stays within its
-/// envelope — the no-freeze pin: 192-bit deltas stay under the freeze
-/// threshold, so every fold and every per-leaf add is paid by the
-/// tooth's own wide code and the frozen component never churns.
+/// envelope — the no-freeze pin: bounded 192-bit oscillation keeps the
+/// live component exactly as wide as each tooth's own code, so every
+/// fold and every per-leaf add is paid by that code and the frozen
+/// component never churns (the `skyline_flatness` freeze-band row pins
+/// the same shape above the freeze allowance).
 #[test]
 fn skyline_rank_wide_tooth_envelope() {
     let p = meter::wide_tooth_comb(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
