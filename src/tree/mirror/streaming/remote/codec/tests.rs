@@ -31,7 +31,7 @@ const MAX_EXHAUSTIVE_BRANCHING: usize = 2;
 const EXHAUSTIVE_FRAME_CASES: usize = 1_118_600;
 
 /// Bounded exhaustive frames admitted in the initiator direction.
-const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 1_019_906;
+const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 987_012;
 
 /// Bounded exhaustive frames admitted in the responder direction.
 const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_052_803;

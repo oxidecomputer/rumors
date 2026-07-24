@@ -525,9 +525,17 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
         ROOT_H - 1,
         "the opening rides the top stream"
     );
-    let [Label::Query(root_radices)] = opening.labels.as_slice() else {
-        panic!("the opening is a single root-listing query: {opening:?}");
+    // The opening leads with the root-listing query; any trailing labels
+    // are the initiator's early supplies, which carry their own radices
+    // and consume no positions — exactly like supplies inside a dispute
+    // reply, they are `M` moves the skeleton drops.
+    let [Label::Query(root_radices), early @ ..] = opening.labels.as_slice() else {
+        panic!("the opening leads with the root-listing query: {opening:?}");
     };
+    assert!(
+        early.iter().all(|label| matches!(label, Label::Supply(_))),
+        "only early supplies trail the opening question: {opening:?}"
+    );
     let initiator = opening.work;
 
     let mut d = BTreeSet::from([Vec::new()]);

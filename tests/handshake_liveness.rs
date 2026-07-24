@@ -190,6 +190,36 @@ async fn divergent(protocol: Protocol) {
     );
 }
 
+/// Bulk initiator: the smaller side holds many exclusive root children, so
+/// its opening supplies cross a stream the responder drains only while its
+/// own opening reply is still flushing.
+///
+/// One extra message on the other side makes the bulk holder the smaller
+/// set, so the size election routes it into the initiator role
+/// deterministically, and every early-supply frame dwarfs the one-byte
+/// window.
+async fn bulk_initiator(protocol: Protocol) {
+    let (a, b) = seasoned_pair(protocol).await;
+    let converged_len = a.snapshot().len();
+    for v in 0..DIVERGENT_MESSAGES {
+        a.send(300_000 + v);
+    }
+    for v in 0..=DIVERGENT_MESSAGES {
+        b.send(400_000 + v);
+    }
+    assert!(
+        a.snapshot().len() < b.snapshot().len(),
+        "the bulk-exclusive side must advertise the smaller set"
+    );
+    gossip_over(&a, &b, MIN_CAPACITY).await;
+    assert_eq!(a.snapshot().hash(), b.snapshot().hash());
+    assert_eq!(
+        a.snapshot().len(),
+        converged_len + (2 * DIVERGENT_MESSAGES + 1) as usize,
+        "every exclusive message survives the session"
+    );
+}
+
 /// Empty meets populated: one replica has committed nothing (a tiny
 /// greeting), the other is seasoned (a wide one), so the two greeting
 /// frames are maximally asymmetric and the descent is one-sided.
@@ -355,6 +385,22 @@ fn divergent_v2() {
 #[test]
 fn divergent_v1() {
     block_on(divergent(Protocol::V1));
+}
+
+/// A V2 session whose initiator ships bulk opening supplies stays live
+/// over a one-byte-window link and converges both replicas.
+#[test]
+fn bulk_initiator_v2() {
+    block_on(bulk_initiator(Protocol::V2));
+}
+
+/// A V1 session with the bulk-initiator shape (the smaller set holding the
+/// bulk) stays live over a one-byte-window link and converges both
+/// replicas.
+#[cfg(feature = "protocol-v1")]
+#[test]
+fn bulk_initiator_v1() {
+    block_on(bulk_initiator(Protocol::V1));
 }
 
 /// A V2 session between an empty replica and a seasoned one — maximally

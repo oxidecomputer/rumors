@@ -44,14 +44,16 @@ use crate::{
 /// everything."
 ///
 /// Both sides carry a listing because neither knows at greeting time whether
-/// it will win the initiator election; the elected responder consumes the
-/// initiator's, and the responder's own listing is deliberately dead weight.
-/// Likewise a converged session (equal versions) ends at the greeting and
-/// consumes neither. That is the trade, made knowingly: the listing costs at
-/// most one root fan of hashes (~4.3 KB, and ~nothing for an empty tree) on
-/// a hop that exists anyway, versus saving a full one-way hop on every
-/// divergent session. Divergence is not knowable at greeting time, so there
-/// is nothing sound to gate the bytes on.
+/// it will win the initiator election, and a divergent session consumes
+/// both: the elected responder answers the initiator's listing, and the
+/// initiator merges the responder's against its own fan to ship its
+/// exclusive root children as the opening's early supplies. A converged
+/// session (equal versions) ends at the greeting and consumes neither.
+/// That is the trade, made knowingly: the listing costs at most one root
+/// fan of hashes (~4.3 KB, and ~nothing for an empty tree) on a hop that
+/// exists anyway, versus saving a full one-way hop on every divergent
+/// session. Divergence is not knowable at greeting time, so there is
+/// nothing sound to gate the bytes on.
 #[derive(Clone)]
 pub struct Handshake {
     pub version: Version,

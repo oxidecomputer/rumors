@@ -203,76 +203,103 @@ listing frame: 263 bytes
   00f0: b5 f9 31 6d a8 0f f9 7e
   00f8: cf 63 32 d1 34 ce d2 07
   0100: ed ef c7 45 8d 90 49
-Initiator stream 1 (height 30), epoch 0
-  frame 0: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
+Initiator stream 0 (height 31), epoch 0
+  frame 0: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
     0008: 0a d0 d0 1b 00 00 00 00
     0010: 00 00 00
+  frame 1: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a d0 a0 18 00 00 00 00
+    0010: 00 00 00
+  frame 2: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a d1 00 12 00 00 00 00
+    0010: 00 00 00
+  frame 3: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a d1 80 14 00 00 00 00
+    0010: 00 00 00
+  frame 4: Supply(Continue)
+    0000: 66 00 00 00 1c 00 00 00
+    0008: 0a d0 80 16 00 00 00 00
+    0010: 00 00 00 00 00 00 0a d0
+    0018: c0 1a 00 00 00 00 00 00
+    0020: 00
+  frame 5: Supply(Continue)
+    0000: 66 00 00 00 0d 00 00 00
+    0008: 09 d3 11 00 00 00 00 00
+    0010: 00 00
+  frame 6: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a d0 44 1f 00 00 00 00
+    0010: 00 00 00
+  frame 7: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a d0 b0 19 00 00 00 00
+    0010: 00 00 00
+  frame 8: Supply(Continue)
+    0000: 66 00 00 00 0d 00 00 00
+    0008: 09 d2 10 00 00 00 00 00
+    0010: 00 00
+  frame 9: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a d0 40 1e 00 00 00 00
+    0010: 00 00 00
+  frame 10: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a d0 f0 1d 00 00 00 00
+    0010: 00 00 00
+  frame 11: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a d0 e0 1c 00 00 00 00
+    0010: 00 00 00
+  frame 12: Supply(End)
+    0000: 77 00 00 00 0e 00 00 00
+    0008: 0a d1 40 13 00 00 00 00
+    0010: 00 00 00
+  frame 13: End(Stream)
+    0000: 99
+Initiator stream 1 (height 30), epoch 0
+  frame 0: End(Reply)
+    0000: 89
   frame 1: QueryEmpty(Continue)
     0000: 23
   frame 2: Supply(End)
     0000: 78 00 00 00 0e 00 00 00
     0008: 0a d0 90 17 00 00 00 00
     0010: 00 00 00
-  frame 3: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d0 a0 18 00 00 00 00
-    0010: 00 00 00
-  frame 4: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d1 00 12 00 00 00 00
-    0010: 00 00 00
-  frame 5: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d1 80 14 00 00 00 00
-    0010: 00 00 00
-  frame 6: Supply(Continue)
-    0000: 67 00 00 00 0e 00 00 00
-    0008: 0a d0 80 16 00 00 00 00
-    0010: 00 00 00
-  frame 7: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d0 c0 1a 00 00 00 00
-    0010: 00 00 00
-  frame 8: Supply(End)
-    0000: 78 00 00 00 0d 00 00 00
-    0008: 09 d3 11 00 00 00 00 00
-    0010: 00 00
-  frame 9: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d0 44 1f 00 00 00 00
-    0010: 00 00 00
-  frame 10: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d0 b0 19 00 00 00 00
-    0010: 00 00 00
-  frame 11: Supply(End)
-    0000: 78 00 00 00 0d 00 00 00
-    0008: 09 d2 10 00 00 00 00 00
-    0010: 00 00
-  frame 12: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d0 40 1e 00 00 00 00
-    0010: 00 00 00
-  frame 13: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d0 f0 1d 00 00 00 00
-    0010: 00 00 00
-  frame 14: QueryEmpty(Continue)
+  frame 3: End(Reply)
+    0000: 89
+  frame 4: End(Reply)
+    0000: 89
+  frame 5: End(Reply)
+    0000: 89
+  frame 6: End(Reply)
+    0000: 89
+  frame 7: End(Reply)
+    0000: 89
+  frame 8: End(Reply)
+    0000: 89
+  frame 9: End(Reply)
+    0000: 89
+  frame 10: End(Reply)
+    0000: 89
+  frame 11: End(Reply)
+    0000: 89
+  frame 12: End(Reply)
+    0000: 89
+  frame 13: QueryEmpty(Continue)
     0000: 23
-  frame 15: Supply(End)
+  frame 14: Supply(End)
     0000: 78 00 00 00 0e 00 00 00
     0008: 0a d1 c0 15 00 00 00 00
     0010: 00 00 00
-  frame 16: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d0 e0 1c 00 00 00 00
-    0010: 00 00 00
-  frame 17: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d1 40 13 00 00 00 00
-    0010: 00 00 00
-  frame 18: End(Stream)
+  frame 15: End(Reply)
+    0000: 89
+  frame 16: End(Reply)
+    0000: 89
+  frame 17: End(Stream)
     0000: 9a
 trailing frame: 1 bytes
   0000: 2e

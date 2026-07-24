@@ -15,9 +15,9 @@ use crate::tree::{
         Backend, Leaf,
         protocol::{BoxResponses, Responses},
         remote::{
-            codec::RunBudget,
+            codec::{Origin, RunBudget, Speaker},
             proxy::{Error, send_or_cancel},
-            streams::{AcceptDriver, FirstStreamError},
+            streams::{AcceptDriver, FirstStreamError, StreamError},
         },
         tasks::{complete, park_after_published_error},
         window::Window,
@@ -47,9 +47,13 @@ where
     window: Window,
     /// Byte budget for each outgoing supply run.
     budget: RunBudget,
-    /// The remote greeting's root-fan listing: the remote's opening
-    /// question, taken by [`initiator`](Self::initiator) when the remote
-    /// wins the election and left as dead weight otherwise.
+    /// The remote greeting's root-fan listing, consumed by whichever role
+    /// the election assigns.
+    ///
+    /// [`initiator`](Self::initiator) replays it as the remote's opening
+    /// question; [`opening_responder`](Self::opening_responder) merges the
+    /// local opening's listing against it to decide whether the
+    /// early-supply stream opens.
     peer_listing: Vec<(u8, Hash)>,
     physical: Physical<R, W, A>,
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
@@ -65,6 +69,9 @@ where
 {
     pub control_read: R,
     pub control_write: W,
+    /// The remote elected speaker: the direction whose failures the
+    /// terminal attributes when no single stream can be named.
+    pub remote: Speaker,
     pub accept: AcceptDriver<A>,
     pub errors: FirstStreamError,
 }
@@ -149,6 +156,14 @@ where
     /// in the same poll, and a protocol fault is reported as the cause it
     /// is. The accept driver and the incoming error route resolve only to
     /// errors, so neither can preempt a completion.
+    ///
+    /// One refinement on protocol *failure*: a supply failure the accept
+    /// driver deposited was observed in a strictly earlier poll wave, so a
+    /// protocol error found beside it is the dead transport's symptom
+    /// (writes to a peer that already tore down, decodes of severed
+    /// streams). The terminal then reports the supply failure as the
+    /// session's cause, at direction granularity, unless a stream that
+    /// provably needed the supply already claimed it.
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
@@ -159,17 +174,30 @@ where
         let Physical {
             control_read,
             control_write,
+            remote,
             accept,
             mut errors,
         } = physical;
-        let mut protocol = pin!(Box::pin(complete(tasks, finish)));
-        let mut accept = pin!(accept.run());
-        let mut stream_errors = pin!(errors.first());
-        tokio::select! {
-            biased;
-            output = &mut protocol => Ok((output?, control_read, control_write)),
-            error = &mut stream_errors => Err(Error::Stream(error)),
-            error = &mut accept => Err(Error::Accept(error)),
+        let outcome = {
+            let mut protocol = pin!(Box::pin(complete(tasks, finish)));
+            let mut accept = pin!(accept.run());
+            let mut stream_errors = pin!(errors.first());
+            tokio::select! {
+                biased;
+                output = &mut protocol => output,
+                error = &mut stream_errors => Err(Error::Stream(error)),
+                error = &mut accept => Err(Error::Accept(error)),
+            }
+        };
+        match outcome {
+            Ok(output) => Ok((output, control_read, control_write)),
+            Err(error) => match errors.take_supply_failure() {
+                Some(source) => Err(Error::Stream(StreamError::SupplyClosed {
+                    origin: Origin::direction(remote),
+                    source: Some(source),
+                })),
+                None => Err(error),
+            },
         }
     }
 }

@@ -302,9 +302,10 @@ where
 
 /// Allocate one session's claim table, error route, and accept driver.
 ///
-/// `peer_listing` is the remote greeting's root-fan listing: the remote's
-/// opening question, consumed only when the remote wins the initiator
-/// election (and dead weight otherwise, by design).
+/// `peer_listing` is the remote greeting's root-fan listing: replayed as
+/// the remote's opening question when the remote wins the initiator
+/// election, and merged against the local opening's listing to gate the
+/// early-supply stream when it loses.
 fn open<B, T, R, W, C, A>(
     backend: B,
     window: Window,
@@ -339,6 +340,7 @@ where
         Physical {
             control_read,
             control_write,
+            remote,
             accept,
             errors,
         },

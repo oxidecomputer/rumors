@@ -48,11 +48,16 @@ listing frame: 25 bytes
   0008: 2e 96 c2 0d f8 6b f9 97
   0010: 0a 5e 8d 65 b0 13 1d eb
   0018: ea
-Initiator stream 1 (height 30), epoch 0
+Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
-    0000: 78 00 00 00 0d 00 00 00
+    0000: 77 00 00 00 0d 00 00 00
     0008: 09 d2 01 00 00 00 00 00
     0010: 00 00
+  frame 1: End(Stream)
+    0000: 99
+Initiator stream 1 (height 30), epoch 0
+  frame 0: End(Reply)
+    0000: 89
   frame 1: End(Stream)
     0000: 9a
 trailing frame: 6 bytes

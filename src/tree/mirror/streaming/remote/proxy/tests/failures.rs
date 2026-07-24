@@ -304,7 +304,10 @@ fn every_transport_fault_surface_is_reachable() {
         };
         assert_eq!(outcome.left_io.snapshot().injected, Some(expected));
         let error = endpoint_error(&outcome, true).unwrap();
-        assert!(has_expected_surface(error, operation));
+        assert!(
+            has_expected_surface(error, operation),
+            "{operation:?}/{unit:?} surfaced as {error:?}"
+        );
         assert_eq!(injected(error), Some(expected));
         assert!(outcome.right.is_err());
     }

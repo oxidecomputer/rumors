@@ -3,13 +3,12 @@ source: src/tree/mirror/streaming/remote/codec/signal/tests.rs
 expression: rejected
 ---
 Initiator
-  00: stream 00 Match(Continue) -> OpeningQuestion
-  11: stream 00 Match(End) -> OpeningQuestion
-  22: stream 00 QueryEmpty(Continue) -> OpeningQuestion
-  44: stream 00 Query(Continue) -> OpeningQuestion
-  66: stream 00 Supply(Continue) -> OpeningQuestion
-  77: stream 00 Supply(End) -> OpeningQuestion
-  88: stream 00 End(Reply) -> OpeningQuestion
+  00: stream 00 Match(Continue) -> OpeningSupplies
+  11: stream 00 Match(End) -> OpeningSupplies
+  22: stream 00 QueryEmpty(Continue) -> OpeningSupplies
+  33: stream 00 QueryEmpty(End) -> OpeningSupplies
+  44: stream 00 Query(Continue) -> OpeningSupplies
+  55: stream 00 Query(End) -> OpeningSupplies
   54: stream 16 Query(Continue) -> LeafParentReplies
   65: stream 16 Query(End) -> LeafParentReplies
 Responder

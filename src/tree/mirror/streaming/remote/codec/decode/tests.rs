@@ -369,8 +369,8 @@ fn async_invalid_signal_does_not_consume_a_body() {
                 stream(0),
                 Speaker::Responder,
                 Signal::Match(Flow::Continue),
-                Signal::QueryEmpty(Flow::End),
-                Frame::Reaction(Reaction::Query(Vec::new()), Flow::End),
+                Signal::End(End::Stream),
+                Frame::End(End::Stream),
             ),
             Speaker::Responder => (
                 stream(Stream::MAX),

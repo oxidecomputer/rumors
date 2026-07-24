@@ -54,6 +54,7 @@ fn parked_session() -> ParkedSession {
         Physical {
             control_read: parts.control_read,
             control_write: parts.control_write,
+            remote: Speaker::Responder,
             accept,
             errors,
         },

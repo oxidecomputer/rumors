@@ -325,7 +325,7 @@ fn describe_leaf_kind(out: &mut String, kind: &DecodeLeafError) {
 fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame<u8>); 3] {
     [
         (
-            "placement/opening-question",
+            "placement/opening-supplies",
             Speaker::Initiator,
             Stream::new(0).unwrap(),
             Frame::Reaction(Reaction::Match, Flow::Continue),

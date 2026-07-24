@@ -83,10 +83,10 @@ fn reserved_signals_propagate_through_the_full_proxy() {
 
 /// A signal placed in a forbidden stream phase is a typed placement failure.
 ///
-/// The injected byte is a continuing `Match` aimed at the opening-question
-/// stream — which carries no frames at all (the opening's listing rides the
-/// greeting) — and the receiving proxy retains the exact placement rejection
-/// through the full stack.
+/// The injected byte is a continuing `Match` aimed at the opening-supply
+/// stream — whose grammar admits only supplies and ends — and the
+/// receiving proxy retains the exact placement rejection through the full
+/// stack.
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {
     const OPENING_MATCH_CONTINUE_SIGNAL: u8 = 0;

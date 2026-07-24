@@ -258,11 +258,11 @@ DECODE
     origin: Responder stream 8
     kind: TrailingBytes(count=1)
     source[0]: 1 trailing bytes follow the frame
-  placement/opening-question/decode
-    display: Initiator stream 0: signal byte 0x00 is invalid for the initiator's opening question
+  placement/opening-supplies/decode
+    display: Initiator stream 0: signal byte 0x00 is invalid for the initiator's opening supplies
     origin: Initiator stream 0
-    kind: InvalidSignal::Placement(byte=00, class=OpeningQuestion)
-    source[0]: signal byte 0x00 is invalid for the initiator's opening question
+    kind: InvalidSignal::Placement(byte=00, class=OpeningSupplies)
+    source[0]: signal byte 0x00 is invalid for the initiator's opening supplies
   placement/leaf-parent/decode
     display: Initiator stream 16: signal byte 0x54 is invalid for the initiator's leaf-parent replies
     origin: Initiator stream 16

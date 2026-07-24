@@ -20,19 +20,23 @@ pub enum ScopeError {
     NonemptyLeafQuery,
 }
 
-/// The initiator's distinguished opening reply did not contain its one query.
+/// The initiator's distinguished opening reply violated its canonical
+/// shape: one leading query, then only whole-subtree supplies.
 ///
-/// Local-only by construction: the peer's opening arrives as the greeting's
-/// listing, validated at greeting decode, so only the locally produced
-/// opening reply can still be malformed.
+/// Local-only by construction: the peer's opening question arrives as the
+/// greeting's listing, validated at greeting decode, so only the locally
+/// produced opening reply can still be malformed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum OpeningError {
-    /// The opening reply must contain exactly one reaction.
-    #[error("the opening reply contains {count} reactions instead of one")]
-    ReactionCount { count: usize },
-    /// The opening reaction must ask the implicit root question.
-    #[error("the opening reply does not contain a query")]
+    /// The opening reply must lead with the implicit root question.
+    #[error("the opening reply is empty")]
+    Empty,
+    /// The opening's first reaction must ask the implicit root question.
+    #[error("the opening reply does not lead with a query")]
     NotQuery,
+    /// Everything after the opening question must be an early supply.
+    #[error("opening reaction {index} is not a whole-subtree supply")]
+    NotSupply { index: usize },
 }
 
 /// A protocol reply could not be rendered faithfully as wire frames.
@@ -82,4 +86,7 @@ pub enum DecodeError<E> {
     /// A leaf record inside a supply run failed canonical decoding.
     #[error("a supplied leaf record is not canonical")]
     Record(#[source] DecodeLeafError),
+    /// The opening-supply stream carried frames after its one reply.
+    #[error("the opening-supply stream carried a second reply")]
+    ExtraOpeningReply,
 }
