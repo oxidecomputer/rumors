@@ -11,6 +11,7 @@ use tokio::runtime::Runtime;
 use crate::Network;
 use crate::tree::arb::{
     arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair, nth_party,
+    uncontained_supply_pair,
 };
 use crate::tree::mirror::framing::{FrameRead, FrameWrite};
 use crate::tree::traverse::{Action, act};
@@ -268,6 +269,65 @@ proptest! {
             let mirrored = mirror_via(tree_a.clone(), tree_b.clone(), scenario);
             prop_assert_eq!(mirrored, expected.clone());
         }
+    }
+}
+
+/// Pins the ingestion hole this branch closes: a supplied leaf whose version
+/// escapes the sender's declared version is absorbed without complaint, the
+/// receiver's redact of it is silently skipped, and it re-ships onward — an
+/// immortal, unredactable record.
+///
+/// Nothing validates that a provided subtree's versions are causally
+/// contained in the sender's declared handshake version, and the session
+/// ceiling is computed from the two declared versions alone, so the escaped
+/// leaf stays above every replica's ceiling forever: `traverse::act`'s
+/// causally-prior skip drops local forgets of it, and the deletion filter
+/// (`traverse::unknown`) never classifies it deleted. Both scenarios run so
+/// the wire decode path is pinned alongside the in-process one.
+#[test]
+fn uncontained_supply_is_absorbed_and_becomes_immortal() {
+    for scenario in SCENARIOS {
+        let (victim, poisoned, path, escaped) = uncontained_supply_pair();
+        let victim_party = nth_party(0);
+
+        // (a) The session absorbs the escaped leaf on both sides.
+        let out = mirror_via(victim, poisoned, scenario);
+        let key = crate::tree::Key::from(path);
+        assert!(
+            out.root
+                .as_ref()
+                .is_some_and(|root| root.get(key.as_bytes()).is_some()),
+            "{scenario:?}: the escaped leaf is absorbed",
+        );
+        // The escape mechanism: the converged ceiling is the join of the two
+        // *declared* versions, so it does not contain the leaf's version.
+        assert!(
+            !(escaped <= out.ceiling),
+            "{scenario:?}: the converged ceiling never covers the escaped leaf",
+        );
+
+        // (b) A local redact of the escaped key is a silent no-op: the
+        // redact's version ticks from the converged ceiling, which the
+        // escaped version strictly dominates, so the causally-prior skip in
+        // `traverse::act` drops the forget.
+        let mut tree = crate::tree::Tree { root: out };
+        tree.act(&victim_party, [crate::tree::Action::Forget(key)]);
+        assert!(
+            tree.get(&key).is_some(),
+            "{scenario:?}: redacting the escaped leaf is silently skipped",
+        );
+
+        // (c) The escaped leaf re-ships on the next session: a fresh replica
+        // that never held it receives it, because no declared version ever
+        // classifies it as already-seen-and-deleted.
+        let reshipped = mirror_via(tree.root, crate::tree::Root::default(), scenario);
+        assert!(
+            reshipped
+                .root
+                .as_ref()
+                .is_some_and(|root| root.get(key.as_bytes()).is_some()),
+            "{scenario:?}: the escaped leaf re-ships to a fresh replica",
+        );
     }
 }
 

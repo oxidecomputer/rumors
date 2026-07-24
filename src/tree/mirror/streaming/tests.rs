@@ -12,6 +12,7 @@ use super::driver::try_join_mapped;
 use crate::testing::run_to_quiescence;
 use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
+    uncontained_supply_pair,
 };
 use crate::tree::mirror::alternating;
 use crate::tree::mirror::streaming::backend::with_local_schedule;
@@ -232,6 +233,34 @@ fn honors_redaction_under_leaf_parent_dispute() {
             );
         }
     }
+}
+
+/// Pins the streaming half of the ingestion hole this branch closes: a
+/// supplied leaf whose version escapes the sender's declared greeting
+/// version is absorbed without complaint.
+///
+/// The supply/decode path validates leaf scope and ordering but never that
+/// a supplied subtree's versions are causally contained in the sender's
+/// declared version, and the session ceiling joins the two declared
+/// versions alone — so the escaped leaf lands above the receiver's ceiling,
+/// where no redact or deletion filter ever reaches it (the alternating
+/// twin, `uncontained_supply_is_absorbed_and_becomes_immortal`, pins those
+/// downstream legs).
+#[test]
+fn uncontained_supply_is_absorbed_by_streaming() {
+    let (victim, poisoned, path, escaped) = uncontained_supply_pair();
+    let (ours, _theirs) = streaming_mirror_sides(victim, poisoned);
+    let key = crate::tree::Key::from(path);
+    assert!(
+        ours.root
+            .as_ref()
+            .is_some_and(|root| root.get(key.as_bytes()).is_some()),
+        "the escaped leaf is absorbed",
+    );
+    assert!(
+        !(escaped <= ours.ceiling),
+        "the converged ceiling never covers the escaped leaf",
+    );
 }
 
 proptest! {

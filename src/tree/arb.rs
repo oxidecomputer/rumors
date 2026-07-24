@@ -355,6 +355,78 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
     unreachable!("the deterministic geometry search must terminate");
 }
 
+/// A `(victim, poisoned)` pair for version-containment tripwires: the
+/// poisoned tree holds one leaf whose version escapes its declared ceiling.
+///
+/// An honest tree cannot take this shape — its ceiling joins every version
+/// it applies — so transmitting it marks a nonconforming implementation.
+/// The escaped version is built to dominate the join of both declared
+/// ceilings by a 64-tick margin on *both* parties, so nothing derived from
+/// the declared versions within a test's horizon — the session ceiling the
+/// receiver adopts, or the receiver's own later redact ticks — ever
+/// contains it. Returns the two roots plus the escaped leaf's
+/// content-addressed path and its version.
+pub fn uncontained_supply_pair() -> (
+    crate::tree::Root<()>,
+    crate::tree::Root<()>,
+    Path,
+    Version,
+) {
+    /// How far the escaped version outruns both declared ceilings, per
+    /// party: an upper bound on the honest ticks a test performs after
+    /// the pair is built.
+    const ESCAPE_MARGIN: usize = 64;
+
+    // The victim's honest content: one leaf on its own party, ceiling
+    // covering it, exactly as `Tree::act` would leave it.
+    let victim_party = nth_party(0);
+    let mut victim_version = Version::new();
+    victim_version.tick(&victim_party);
+    let victim_message = Message::new(());
+    let victim_path = Path::for_leaf(&victim_version, victim_message.bytes());
+    let victim = root_with_ceiling(
+        act(
+            None,
+            vec![(
+                victim_path,
+                victim_version.clone(),
+                Action::Insert(victim_message),
+            )],
+            |_| (),
+        ),
+        victim_version.clone(),
+    );
+
+    // The sender's declared version: one tick on its own disjoint party.
+    let sender_party = nth_party(1);
+    let mut declared = Version::new();
+    declared.tick(&sender_party);
+
+    // The escaped version: strictly above everything either side declared,
+    // by a margin the test's own honest ticks never close.
+    let mut escaped = victim_version | &declared;
+    for _ in 0..ESCAPE_MARGIN {
+        escaped.tick(&victim_party);
+        escaped.tick(&sender_party);
+    }
+    assert!(
+        !(escaped <= declared),
+        "the escaped version must not be contained in the declared version",
+    );
+
+    let message = Message::new(());
+    let path = Path::for_leaf(&escaped, message.bytes());
+    let poisoned = root_with_ceiling(
+        act(
+            None,
+            vec![(path, escaped.clone(), Action::Insert(message))],
+            |_| (),
+        ),
+        declared,
+    );
+    (victim, poisoned, path, escaped)
+}
+
 /// A path all-zero except its final byte: siblings under a single leaf-parent
 /// (`S<Z>`) prefix.
 ///
