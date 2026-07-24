@@ -525,19 +525,29 @@ where
 ///
 /// # Panics
 ///
-/// If `elapsed` is off the delay lattice: exactness is the invariant the
-/// measurement model rests on (see the [module docs](self)), so drift
-/// fails loudly instead of rounding silently.
+/// If `delay` is zero or not a whole number of milliseconds — Tokio's
+/// timer wheel quantizes below the millisecond, so no lattice exists
+/// there — or if `elapsed` is off the delay lattice: exactness is the
+/// invariant the measurement model rests on (see the
+/// [module docs](self)), so drift fails loudly instead of rounding
+/// silently.
 // Used only by the window measurement suites and the harness pins; the
 // module is `#[path]`-included by several targets, each seeing its own
 // copy's usage.
 #[allow(dead_code)]
 pub fn hops_on_lattice(elapsed: Duration, delay: Duration) -> u32 {
+    // The timer wheel's grain: a lattice delay is a whole multiple.
+    const WHEEL_GRAIN: Duration = Duration::from_millis(1);
+    assert!(
+        !delay.is_zero() && delay.as_nanos().is_multiple_of(WHEEL_GRAIN.as_nanos()),
+        "the delay lattice needs a whole-millisecond one-way delay: \
+         got {delay:?}, and the timer wheel quantizes below {WHEEL_GRAIN:?}",
+    );
     assert_eq!(
-        elapsed.as_millis() % delay.as_millis(),
+        elapsed.as_nanos() % delay.as_nanos(),
         0,
         "virtual wire cost must land on the delay lattice: \
          {elapsed:?} at one-way delay {delay:?}",
     );
-    u32::try_from(elapsed.as_millis() / delay.as_millis()).expect("bounded hop count")
+    u32::try_from(elapsed.as_nanos() / delay.as_nanos()).expect("bounded hop count")
 }

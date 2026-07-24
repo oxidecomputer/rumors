@@ -36,8 +36,8 @@ const DELAY: Duration = Duration::from_millis(10);
 /// active levels); the bound's headroom admits a deeper engaged ladder,
 /// never wave costs. A floor-window descent pays one round trip per
 /// disputed scope — here ≥ ~250 scopes, hence ≥ 500 hops — so the bound
-/// separates the regimes by over an order of magnitude in both
-/// directions.
+/// sits 3.4× above the pipelined measurement and the serialized regime
+/// sits 20× above the bound.
 const HOP_BUDGET: u32 = 24;
 
 /// Per-stream in-flight window: far above this session's transfers, so
