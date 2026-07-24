@@ -87,3 +87,7 @@ import StreamingMirror.Mux.Statement
 import StreamingMirror.Mux.Charters
 import StreamingMirror.Proofs.Wide
 import StreamingMirror.Ord.Basic
+import StreamingMirror.Ord.Invariant
+import StreamingMirror.Ord.Wiring
+import StreamingMirror.Ord.Init
+import StreamingMirror.Ord.Preserve.Walk

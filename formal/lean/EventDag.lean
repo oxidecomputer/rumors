@@ -1228,6 +1228,326 @@ def weaveOrderE (sk : Skel) : Array Ev × Array String := Id.run do
   st := st.pump sk
   return (st.out, st.errs)
 
+-- ============== the dequeue-order (ord) tier (PROGRESS.md §13)
+-- Executable validation of the order-indifference metatheorem's class
+-- BEFORE kernel induction: per-loop assignments as `(ordW, ordA)` with
+-- `true` = query-first, the O trace families (per-channel projections
+-- unchanged; only each loop's two receives swap), the O edge set, the
+-- O merge candidate, the O eweave, and the replay under `Ord.applyO`.
+
+/-- Package an executable assignment as the kernel's `OrdMap`. -/
+def ordMapOf (ordW : Party × Nat → Bool) (ordA : Bool) : Ord.OrdMap :=
+  ⟨fun pk => if ordW pk then .queryFirst else .replyFirst,
+   if ordA then .queryFirst else .replyFirst⟩
+
+/-- Walk `pk`'s trace and E3 edges under a prologue assignment:
+`walkTrace` with the two-receive prologue swapped when `qf` (the
+receives trade places; every send still follows the second receive,
+and the next scope waits on the FIRST receive of the assignment). The
+d5 parent splice is retained — edges are placement-agnostic, and this
+trace's role is the O EDGE SET, not a merge input. -/
+def walkTraceO (sk : Skel) (qf : Bool) (pk : Party × Nat) :
+    Array Ev × Array (Ev × Ev) := Id.run do
+  let h := pk.2
+  let len := sk.stageLen h
+  let mut nodes : Array Ev := #[]
+  let mut edges : Array (Ev × Ev) := #[]
+  let mut wireCnt := 0
+  let mut resCnt := 0
+  let mut qCnt := 0
+  for k in [0:len] do
+    let s := sk.stageScope h k
+    let n := sk.nChildren h s
+    let rcvW : Ev := (wireIn pk, false, k)
+    let rcvA : Ev := (askedIn pk, false, k)
+    let (rcv1, rcv2) := if qf then (rcvA, rcvW) else (rcvW, rcvA)
+    nodes := nodes.push rcv1
+    nodes := nodes.push rcv2
+    edges := edges.push (rcv1, rcv2)
+    let mut sends : Array Ev := #[]
+    let mut wireEvs : Array Ev := #[]
+    let mut resEvs : Array (Option Ev) := #[]
+    let mut lastOfBlock : Array (Option Ev) := #[]
+    let mut lastResPos : Nat := 0
+    for i in [0:n] do
+      let wEv : Ev := (wireOut pk, true, wireCnt)
+      wireCnt := wireCnt + 1
+      wireEvs := wireEvs.push wEv
+      sends := sends.push wEv
+      if sk.childIsD h s i then
+        let rEv : Ev := (lowerOut pk, true, resCnt)
+        resCnt := resCnt + 1
+        sends := sends.push rEv
+        lastResPos := sends.size
+        edges := edges.push (wEv, rEv)
+        resEvs := resEvs.push (some rEv)
+        let q := sk.qCount h s i
+        let mut prev := rEv
+        for _t in [0:q] do
+          let qEv : Ev := (askedOut pk, true, qCnt)
+          qCnt := qCnt + 1
+          sends := sends.push qEv
+          edges := edges.push (prev, qEv)
+          prev := qEv
+        lastOfBlock := lastOfBlock.push (some prev)
+      else
+        resEvs := resEvs.push none
+        lastOfBlock := lastOfBlock.push none
+    let parentEv : Ev := (upperOut pk, true, k)
+    sends := sends.insertIdx! lastResPos parentEv
+    for i in [0:n] do
+      if i + 1 < n then
+        edges := edges.push (wireEvs[i]!, wireEvs[i+1]!)
+        match lastOfBlock[i]! with
+        | some lastEv => edges := edges.push (lastEv, wireEvs[i+1]!)
+        | none => pure ()
+    let mut prevRes : Option Ev := none
+    for i in [0:n] do
+      match resEvs[i]! with
+      | some rEv =>
+          match prevRes with
+          | some pr => edges := edges.push (pr, rEv)
+          | none => pure ()
+          prevRes := some rEv
+          edges := edges.push (rEv, parentEv)
+      | none => pure ()
+    for e in sends do
+      nodes := nodes.push e
+      edges := edges.push (rcv2, e)
+      if k + 1 < len then
+        edges := edges.push
+          (e, if qf then (askedIn pk, false, k + 1) else (wireIn pk, false, k + 1))
+  return (nodes, edges)
+
+/-- Absorb's trace and E3 edges under the absorber's assignment: per
+leaf request the two receives in assignment order, then the level-0
+return; the next request waits on the return. -/
+def absorbTraceO (sk : Skel) (qf : Bool) : Array Ev × Array (Ev × Ev) := Id.run do
+  let mut nodes : Array Ev := #[]
+  let mut edges : Array (Ev × Ev) := #[]
+  for j in [0:sk.totalLeafReqs] do
+    let rw : Ev := (Chan.wire Party.R 0, false, j)
+    let ra : Ev := (Chan.leafRequests, false, j)
+    let (r1, r2) := if qf then (ra, rw) else (rw, ra)
+    let sd : Ev := (Chan.level Party.I 0, true, j)
+    nodes := ((nodes.push r1).push r2).push sd
+    edges := edges.push (r1, r2)
+    edges := edges.push (r2, sd)
+    if j + 1 < sk.totalLeafReqs then
+      edges := edges.push
+        (sd, if qf then (Chan.leafRequests, false, j + 1)
+             else (Chan.wire Party.R 0, false, j + 1))
+  return (nodes, edges)
+
+/-- All process-side events and E3 edges under an assignment (cf.
+`procTraces`; only walk prologues and the absorber's pair order move,
+each per ITS loop's assignment). -/
+def procTracesO (sk : Skel) (ordW : Party × Nat → Bool) (ordA : Bool) :
+    Array Ev × Array (Ev × Ev) :=
+  let traces := #[iopenTrace sk, ropenTrace sk, absorbTraceO sk ordA, finTrace sk]
+    ++ (sk.walkKeys.map (fun pk => walkTraceO sk (ordW pk) pk)).toArray
+    ++ (sk.asmKeys.map (asmTrace sk)).toArray
+  traces.foldl (fun acc t => (acc.1 ++ t.1, acc.2 ++ t.2)) (#[], #[])
+
+/-- `validateSchedule` against the O event set and edge set: (a) the
+schedule is a permutation of the events, (b) every E1/E2/E3-O edge is
+respected. -/
+def validateScheduleO (sk : Skel) (ordW : Party × Nat → Bool) (ordA : Bool)
+    (sched : Array Ev) : Array String := Id.run do
+  let (nodes, procEdges) := procTracesO sk ordW ordA
+  let mut errs : Array String := #[]
+  let mut pos : Std.HashMap Nat Nat := {}
+  for i in [0:sched.size] do
+    let k := evKey sched[i]!
+    if pos.contains k then
+      errs := errs.push s!"duplicate event: {evStr sched[i]!}"
+    pos := pos.insert k i
+  if sched.size != nodes.size then
+    errs := errs.push s!"size mismatch: schedule {sched.size} vs event set {nodes.size}"
+  for e in nodes do
+    if !pos.contains (evKey e) then
+      errs := errs.push s!"missing event: {evStr e}"
+  for (u, v) in dagEdges sk nodes procEdges do
+    match pos.get? (evKey u), pos.get? (evKey v) with
+    | some pu, some pv =>
+        if pu ≥ pv then
+          errs := errs.push
+            s!"edge violated: [{evStr u}] @{pu} must precede [{evStr v}] @{pv}"
+    | _, _ => pure ()
+  return errs
+
+/-- Walk `pk`'s encoder-order trace under a prologue assignment:
+`walkTraceE` with the two receives per `qf`. This is the O merge
+input (nodes only; the O edge authority is `walkTraceO`). -/
+def walkTraceEO (sk : Skel) (qf : Bool) (pk : Party × Nat) : Array Ev := Id.run do
+  let h := pk.2
+  let mut nodes : Array Ev := #[]
+  let mut wireCnt := 0
+  let mut resCnt := 0
+  let mut qCnt := 0
+  for k in [0:sk.stageLen h] do
+    let s := sk.stageScope h k
+    if qf then
+      nodes := nodes.push (askedIn pk, false, k)
+      nodes := nodes.push (wireIn pk, false, k)
+    else
+      nodes := nodes.push (wireIn pk, false, k)
+      nodes := nodes.push (askedIn pk, false, k)
+    for i in [0:sk.nChildren h s] do
+      nodes := nodes.push (wireOut pk, true, wireCnt)
+      wireCnt := wireCnt + 1
+      if sk.childIsD h s i then
+        nodes := nodes.push (lowerOut pk, true, resCnt)
+        resCnt := resCnt + 1
+        for _t in [0:sk.qCount h s i] do
+          nodes := nodes.push (askedOut pk, true, qCnt)
+          qCnt := qCnt + 1
+    nodes := nodes.push (upperOut pk, true, k)
+  return nodes
+
+/-- The `.impl` merge candidate under an assignment: `schedCandidateE`
+with each walk's and the absorber's traces in assignment order. -/
+def schedCandidateO (sk : Skel) (ordW : Party × Nat → Bool) (ordA : Bool) :
+    Array Ev :=
+  let walkOrder : List (Party × Nat) :=
+    (List.range sk.rootH).map fun i =>
+      let h := sk.rootH - 1 - i
+      (if h % 2 == 1 then Party.I else Party.R, h)
+  let procs : Array (Array Ev) :=
+    #[(iopenTrace sk).1, (ropenTrace sk).1]
+    ++ (walkOrder.toArray.map (fun pk => walkTraceEO sk (ordW pk) pk))
+    ++ #[(absorbTraceO sk ordA).1]
+    ++ (sk.asmKeys.toArray.map (fun pk => (asmTrace sk pk).1))
+    ++ #[((finTrace sk).1.extract 0 1), ((finTrace sk).1.extract 1 ((finTrace sk).1.size))]
+  (mergeAll sk procs ⟨#[], {}, {}, Array.replicate procs.size 0⟩).out
+
+/-- Greedy drain under `Ord.applyO` (cf. `drainMode`): the close tier
+under a query-first loop waits on the flipped phases, so the O replay
+must drain with the O transition function. -/
+def drainModeO (sk : Skel) (ax : AxMode) (ord : Ord.OrdMap) :
+    Nat → State → State
+  | 0, s => s
+  | fuel + 1, s =>
+      match (allActions sk).firstM (fun a => Ord.applyO sk ax ord a s) with
+      | some s' => drainModeO sk ax ord fuel s'
+      | none => s
+
+/-- Replay a schedule as a real `Ord.applyO` run (cf. `replaySchedule`;
+`evActions` is order-blind — only the guard phases move — and the scope
+cursor may key off the wire receive in either order, since both
+receives precede the scope's sends). -/
+def replayScheduleO (sk : Skel) (ax : AxMode) (ord : Ord.OrdMap)
+    (sched : Array Ev) : Option Nat × Bool := Id.run do
+  let mut st := init sk
+  let mut walkScope : Std.HashMap (Nat × Nat) Nat := {}
+  let key := fun (pk : Party × Nat) => (pn pk.1, pk.2)
+  for i in [0:sched.size] do
+    let e := sched[i]!
+    let lookup := fun pk => walkScope.getD (key pk) 0
+    for a in evActions sk lookup e do
+      match Ord.applyO sk ax ord a st with
+      | some st' => st := st'
+      | none => return (some i, false)
+    if let (Chan.wire p h, false, sq) := e then
+      if h != sk.rootH && h != 0 then
+        walkScope := walkScope.insert (key (p.other, h - 1)) sq
+  return (none, terminal sk (drainModeO sk ax ord 10000 st))
+
+/-- The encoder-order descent under an assignment: `weaveScopeE` with
+each scope's two receives in ITS walk's assignment order. -/
+partial def weaveScopeEO (sk : Skel) (ordW : Party × Nat → Bool)
+    (h k : Nat) (feed : Array Ev) (st : WV) : WV := Id.run do
+  let pk : Party × Nat := (if h % 2 == 1 then Party.I else Party.R, h)
+  let mut st := st
+  if ordW pk then
+    st := st.emitP sk (askedIn pk, false, k)
+    st := st.emitP sk (wireIn pk, false, k)
+  else
+    st := st.emitP sk (wireIn pk, false, k)
+    st := st.emitP sk (askedIn pk, false, k)
+  let s := sk.stageScope h k
+  let n := sk.nChildren h s
+  let kidBase := (List.range k).foldl
+    (fun a k' => a + sk.nChildren h (sk.stageScope h k')) 0
+  let mut dSeen := 0
+  let mut qSeen := 0
+  for i in [0:n] do
+    st := st.emitP sk (wireOut pk, true, sk.wiresBefore h k + i)
+    if sk.childIsD h s i then
+      st := st.emitP sk (lowerOut pk, true, sk.dsBefore h k + dSeen)
+      dSeen := dSeen + 1
+      if h == 0 then
+        st := { st with errs := st.errs.push s!"oweave: D kid at h=0 (scope {k})" }
+      else
+        let myQ := (Array.range (sk.qCount h s i)).map fun t =>
+          ((askedOut pk, true, sk.qsBefore h k + qSeen + t) : Ev)
+        if i < feed.size then
+          st := st.emitP sk feed[i]!
+        st := weaveScopeEO sk ordW (h - 1) (kidBase + i) myQ st
+    else
+      if i < feed.size then
+        st := st.emitP sk feed[i]!
+      if h ≥ 1 then
+        st := weaveScopeEO sk ordW (h - 1) (kidBase + i) #[] st
+    qSeen := qSeen + sk.qCount h s i
+  st := st.emitP sk (upperOut pk, true, k)
+  return st
+
+/-- The `.impl` witness under an assignment: `weaveOrderE` over the
+O descent, with the absorber pump trace in ITS assignment order. -/
+def weaveOrderEO (sk : Skel) (ordW : Party × Nat → Bool) (ordA : Bool) :
+    Array Ev × Array String := Id.run do
+  let pumps : Array (Array Ev) :=
+    #[(absorbTraceO sk ordA).1]
+    ++ (sk.asmKeys.toArray.map fun pk => (Sched.asmEvents sk pk).toArray)
+    ++ #[#[(Chan.rootret, false, 0)], (Sched.finEvents sk).toArray]
+  let mut st : WV :=
+    { out := #[], sent := {}, rcvd := {}, pumps
+      pumpCur := Array.replicate pumps.size 0, errs := #[] }
+  for e in Sched.iopenEvents sk do
+    st := st.emitP sk e
+  for e in (Sched.ropenEvents sk).take 3 do
+    st := st.emitP sk e
+  let rootFeed := ((Sched.ropenEvents sk).drop 3).toArray
+  st := weaveScopeEO sk ordW (sk.rootH - 1) 0 rootFeed st
+  st := st.pump sk
+  return (st.out, st.errs)
+
+/-- One assignment's full O gate at margin 0: the merge candidate
+drains (validate catches a stall as size/missing errors), respects the
+O edge set, and replays to terminal under `Ord.applyO .impl`; the O
+eweave is a valid linearization. Returns error strings (empty = OK). -/
+def ordGate (skM : Skel) (label : String) (ordW : Party × Nat → Bool)
+    (ordA : Bool) : Array String := Id.run do
+  let mut errs : Array String := #[]
+  let cand := schedCandidateO skM ordW ordA
+  let vErrs := validateScheduleO skM ordW ordA cand
+  if !vErrs.isEmpty then
+    errs := errs.push
+      s!"ord[{label}] candidate invalid ({vErrs.size} errors, first: {vErrs[0]!})"
+  else
+    let (stuckAt, term) := replayScheduleO skM .impl (ordMapOf ordW ordA) cand
+    if let some i := stuckAt then
+      errs := errs.push s!"ord[{label}] replay refused at event {i}"
+    else if !term then
+      errs := errs.push s!"ord[{label}] replay missed terminal"
+  let (wEv, wErrs0) := weaveOrderEO skM ordW ordA
+  let wErrs := wErrs0 ++ validateScheduleO skM ordW ordA wEv
+  if !wErrs.isEmpty then
+    errs := errs.push
+      s!"ord[{label}] oweave invalid ({wErrs.size} errors, first: {wErrs[0]!})"
+  return errs
+
+/-- The pinned assignment matrix for `runAll`: the shipping all-QF
+corner, the two alternating mixtures, and one loop flipped alone
+(the absorber). All-RF is pinned separately as the exact-equality
+corner against the E tier. -/
+def ordMatrix : List (String × (Party × Nat → Bool) × Bool) :=
+  [("qf", fun _ => true, true),
+   ("altEven", fun pk => pk.2 % 2 == 0, true),
+   ("altOdd", fun pk => pk.2 % 2 == 1, false),
+   ("absorberOnly", fun _ => false, true)]
+
 /-- Trace labels in `Sched.procs` order, for the blame alphabet. -/
 def traceLabels (sk : Skel) : Array String :=
   #["iopen", "ropen"]
@@ -1457,6 +1777,25 @@ def runFuzz (n : Nat) : Array String := Id.run do
                   else if Sched.weaveE skM != weaveEv.toList then
                     errs := errs.push
                       s!"seed {seed}: WeaveE.lean transcription diverges from the tool eweave"
+                  else
+                    -- the ord tier (PROGRESS.md §13): the shipping
+                    -- all-QF corner plus a seed-derived mixed
+                    -- assignment, each candidate + oweave + replay at
+                    -- margin 0; the all-RF corner must reproduce the
+                    -- E tier event-for-event.
+                    let mixW := fun (pk : Party × Nat) => (seed + pk.2) % 2 == 0
+                    let mixA := seed % 3 == 0
+                    let ordRuns : List (String × (Party × Nat → Bool) × Bool) :=
+                      [("qf", fun _ => true, true), ("mix", mixW, mixA)]
+                    for (label, ow, oa) in ordRuns do
+                      for e in ordGate skM label ow oa do
+                        errs := errs.push s!"seed {seed}: {e}"
+                    if schedCandidateO skM (fun _ => false) false != candE then
+                      errs := errs.push
+                        s!"seed {seed}: ord rf-corner candidate diverges from the E candidate"
+                    else if (weaveOrderEO skM (fun _ => false) false).1 != weaveEv then
+                      errs := errs.push
+                        s!"seed {seed}: ord rf-corner oweave diverges from the eweave"
   if tested == 0 then
     errs := errs.push "fuzz generated zero well-formed skeletons"
   if advStalls.isEmpty then
@@ -1695,6 +2034,25 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       | none => IO.println s!"  EWEAVE TRANSCRIPTION DIVERGES in length: {(Sched.weaveE skM).length} vs {weaveEv.size}"
     else
       IO.println "  Proofs/Sched/WeaveE.lean transcription matches the eweave: OK"
+    -- the ord tier (PROGRESS.md §13): the pinned assignment matrix at
+    -- margin 0, plus the all-RF corner event-for-event against the E
+    -- tier (the calibration identity: reply-first IS the base model)
+    for (label, ow, oa) in ordMatrix do
+      let oErrs := ordGate skM label ow oa
+      if !oErrs.isEmpty then
+        allOk := false
+        for e in oErrs.toSubarray 0 (min oErrs.size 5) do
+          IO.println s!"  ORD GATE FAIL: {e}"
+      else
+        IO.println s!"  ord[{label}] (margin 0): candidate + oweave + replay: OK"
+    if schedCandidateO skM (fun _ => false) false != candE then
+      allOk := false
+      IO.println "  ORD rf-corner candidate DIVERGES from the E candidate"
+    else if (weaveOrderEO skM (fun _ => false) false).1 != weaveEv then
+      allOk := false
+      IO.println "  ORD rf-corner oweave DIVERGES from the eweave"
+    else
+      IO.println "  ord[rf] corner reproduces the E tier exactly: OK"
     if a.acyclic && cErrs.isEmpty then
       let f := outDir / s!"{name}.cand.tsv"
       IO.FS.writeFile f (String.intercalate "\n"
@@ -1777,6 +2135,22 @@ def runAll (outDir : System.FilePath) : IO Bool := do
   let wePErrs := wePErrs0 ++ validateSchedule pd0 weP
   IO.println s!"  pdelay margin-0 eweave valid: {wePErrs.isEmpty} (want true)"
   if !wePErrs.isEmpty then allOk := false
+  -- the O tier inherits the capacity boundary: the all-QF oweave is
+  -- rejected sub-margin (its tail-parent guard closes exactly as the
+  -- eweave's) and its full gate is clean at margin 0 — the O gate can
+  -- fail, and the capacity hypothesis is load-bearing per assignment
+  let (_, woNegErrs) := weaveOrderEO pdE (fun _ => true) true
+  IO.println s!"  pdelay all-QF oweave rejected sub-margin: {!woNegErrs.isEmpty} (want true)"
+  if woNegErrs.isEmpty then allOk := false
+  let oPd := ordGate pd0 "qf" (fun _ => true) true
+  IO.println s!"  pdelay margin-0 all-QF ord gate clean: {oPd.isEmpty} (want true)"
+  if !oPd.isEmpty then allOk := false
+  -- the O edge set is real: a reply-first schedule (the E candidate)
+  -- violates the all-QF prologue edges and must be flagged
+  let oMutSk := Pin.pyramid 2
+  let oMutNeg := validateScheduleO oMutSk (fun _ => true) true (schedCandidateE oMutSk)
+  IO.println s!"  RF schedule flagged against the QF edge set: {!oMutNeg.isEmpty} (want true)"
+  if oMutNeg.isEmpty then allOk := false
   -- Mutation controls run on pyramid2: its channels carry multiple
   -- messages (smokeChain's all carry one, leaving E2 nothing to swap).
   let mutSk := Pin.pyramid 2
@@ -1837,6 +2211,8 @@ def runAll (outDir : System.FilePath) : IO Bool := do
     let (stuckAtE, termE) := replaySchedule onM .impl candE
     let implOk := vErrsE.isEmpty && Sched.scheduleE onM == candE.toList
       && stuckAtE.isNone && termE
+    -- the all-QF ord gate on the boundary shape at margin 0
+    let ordOk := (ordGate onM "qf" (fun _ => true) true).isEmpty
     let (wOn, wOnErrs) := weaveOrder onB
     let (wOver, wOverErrs) := weaveOrder over
     let ok := onB.wellFormed && over.wellFormed
@@ -1857,6 +2233,8 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       -- the encoder-order merge drains, transcribes, and replays at
       -- margin 0 on the boundary shape
       && implOk
+      -- and so does the all-QF assignment's whole O gate
+      && ordOk
     IO.println s!"    capLevel={cl}: {if ok then "OK" else "FAIL"}"
     if !ok then allOk := false
   IO.println "=== verdict table ==="
