@@ -1689,8 +1689,9 @@ cure). The judge's contract is re-pinned:
 - **The fit-noise band, derived** (`FIT_NOISE_EXPONENT_BAND`,
   ≈ 0.052). The judgment floor binds the hi median only; the lo
   median is deliberately unfloored — flooring it at 10 µs would
-  evict 17 judged cells at this tip (the benign-family rows and
-  `clock_fork × cliff`, lo medians 2.45–9.7 µs) — so the honest
+  evict 18 judged cells at this tip (sixteen benign-family rows,
+  `version_project × dense`, and `clock_fork × cliff`; lo medians
+  2.45–9.72 µs) — so the honest
   resolution bound replaces the retired ~0.015 claim: a judged
   cell at the ceiling across the nominal ×4 span has
   median_hi ≥ 10 µs (≤ 1% timer error) and

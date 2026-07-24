@@ -120,9 +120,9 @@ CRITERION_TIMER_ERROR_NANOS = 100
 # factor. The floor binds the hi median only — the lo median is
 # deliberately unfloored, because a hi-side floor already excludes cells
 # too small to time and a lo-side floor would evict real judged coverage
-# (benign-family cells and the fork/cliff cells judge from lo medians of
-# 2-10 us). The honest resolution bound under that choice is
-# FIT_NOISE_EXPONENT_BAND, below.
+# (benign rows, the dense projection, and the cliff fork all judge from
+# lo medians of 2-10 us). The honest resolution bound under that choice
+# is FIT_NOISE_EXPONENT_BAND, below.
 RESOLUTION_DOMINANCE_FACTOR = 100
 
 # The judgment floor: cells whose larger-scale median sits below this are
