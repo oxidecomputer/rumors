@@ -135,9 +135,8 @@ fn bytes_after_the_marker_stay_untouched() {
 // ---- the greeting version of a bootstrap claimant --------------------------
 
 /// An empty tree root whose ceiling records `events` committed-then-redacted
-/// events: the exact shape a misdeclaring bootstrap claimant would present,
-/// nothing to provide plus a version that dominates any replica with fewer
-/// events.
+/// events: what a misdeclaring claimant presents, nothing to provide plus a
+/// version dominating any replica with fewer events.
 ///
 /// Built with real semantics rather than forged bytes: a redaction advances
 /// the ceiling and leaves no tombstone, so committing and then redacting
