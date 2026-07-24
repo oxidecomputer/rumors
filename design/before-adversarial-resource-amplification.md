@@ -1482,9 +1482,10 @@ e ≈ 1.51 asymptotically in the dependency-selection probe; the
 new floor reaches the microsecond cells where it shows), owner
 the text column's κ/C2 hand-off, exactly the row whose
 load-bearing limb NA names this leg as its judge. Until the C2
-cures land, `just all`'s bench-judge step reads red on the owned
-bigroot set: instruments before cures, the same posture as the
-gate's sixteen-test roster.
+cures land the owned bigroot set stays red under judgment;
+`just all`'s bench-judge step holds it through the expected-red
+roster (the 2026-07-24 review amendment below), the same posture
+as the gate's sixteen-test roster.
 
 The §14 tripwires: the floors tripwire stays committed in
 `meter/board/tests.rs`
@@ -1623,6 +1624,96 @@ at 11.4 s (the pre-flip cmp/join quadratics; its text conversions
 no longer dominate), cliff 8.1 s, every other family ≤ 3.5 s —
 against ~4.6 s for the whole default board **[measured** — the
 Legs A/B re-baseline runs**]**.
+
+Bench-judge review amendment (2026-07-24, the judge-track review's
+four blocking findings and seven advisories, all reproduced before
+cure). The judge's contract is re-pinned:
+
+- **Exit contract, pinned end-to-end.** `tools/benchjudge
+  --self-test` (the head of every bench-judge recipe) invokes
+  `main` on synthetic criterion trees and asserts the exit codes
+  themselves — 0 all-green, 1 on a red, 1 on a dark tripwire, 1
+  per roster violation, 2 per input error — so the
+  return-0-on-red mutation the review demonstrated against the
+  arithmetic-only self-test now refuses at every recipe head
+  \[demonstrated — the mutation dies on the exit-0-vs-1 pin\].
+- **Input-error discipline.** A nonpositive, NaN, infinite, or
+  non-numeric median at either scale is a `JudgeError` (exit 2,
+  cell named), checked before the judgment floor — never a
+  sub-floor SKIP (the review demonstrated a zero hi median
+  skipping silently) and never a scored verdict; a missing median
+  key or unreadable estimates file is a `JudgeError`, never a raw
+  traceback. Each case is pinned in the self-test.
+- **Stamped sidecars.** The bench harnesses (shared
+  `benches/common/sidecar.rs`) stamp each sidecar with the
+  resolved scale, the profile, the sampling mode, and the source
+  tip (`BOARD_BENCH_TIP`, the recipes pass `git rev-parse HEAD`);
+  the judge cross-checks the two stamps against each other and
+  `--tip`, exit 2 on mismatch — the demonstrated silent re-score
+  (a sidecar rewritten at another scale against stale medians)
+  and the interrupted-run leftover both refuse. The sidecar write
+  also creates its parent directory: on a fresh target directory
+  `target/criterion/` does not exist until criterion runs, and
+  the review's fresh-checkout repro panicked there.
+- **The expected-red roster** (`tools/benchjudge-expected.json`,
+  named as `benchjudge_roster` in the justfile): membership by
+  cell name, the board-side sibling of §14's sixteen-test roster,
+  emptied at C3. Classes: `red` (must be judged, must read RED —
+  GREEN is a verdict-flip/liveness signal and SKIP a drift out of
+  judgment, both exit 1 with the cell named), `boundary` (must be
+  judged, either verdict accepted while the fitted exponent stays
+  within the fit-noise band of the ceiling), and the implicit
+  green default (any unrostered RED fails; unrostered cells drift
+  between GREEN and SKIP freely — both non-red, the near-floor
+  cells cross the 10 µs floor with machine noise). The roster
+  pins its configuration — profile `optimized` (cargo's bench
+  profile, what the recipes run and what every judge record was
+  measured under; the board's counter records remain dev-profile,
+  each artifact pinning its own — the review measured verdict
+  flips across profiles, so the judge refuses a roster pinned to
+  a profile, sampling mode, or scale pair the stamps contradict,
+  exit 2). Population at this tip \[measured — quick mode\]: the
+  16 counter-red bigroot cells (cmp/eq/concurrent/join/
+  join_assign/meet/meet_assign/tick/batch_snapshot/distance/lag/
+  causally_contains/clock_tick/clock_join/clock_sync/clock_recv ×
+  bigroot) as `red`, and `version_display × hugeleaf` plus
+  `clock_display × hugeleaf` as `boundary` — the clock row
+  measured e 1.30 at this amendment's ground-truth run, inside
+  the band by the same mechanism as its version sibling (both
+  render the huge leaf through the backend's divide-and-conquer).
+  `just bench-judge` (and so `just all`) judges through the
+  roster and passes on the honest tree; `bench-judge-record`
+  stays rosterless (the roster pins quick-mode expectations) and
+  reads red until the C2 cures land. `bench-judge-tripwire`
+  joined `just all`, so the live red path rides every sweep.
+- **The fit-noise band, derived** (`FIT_NOISE_EXPONENT_BAND`,
+  ≈ 0.052). The judgment floor binds the hi median only; the lo
+  median is deliberately unfloored — flooring it at 10 µs would
+  evict 17 judged cells at this tip (the benign-family rows and
+  `clock_fork × cliff`, lo medians 2.45–9.7 µs) — so the honest
+  resolution bound replaces the retired ~0.015 claim: a judged
+  cell at the ceiling across the nominal ×4 span has
+  median_hi ≥ 10 µs (≤ 1% timer error) and
+  median_lo ≥ 10 µs / 4^1.3 ≈ 1.65 µs (≤ 6.1%), so resolution
+  pulls its fitted exponent by at most
+  (ln 1.01 + ln(1/(1−0.061))) / ln 4 ≈ 0.052 — the operative
+  bound, since only near-ceiling cells can flip. The roster's
+  boundary class reuses exactly this band: a boundary cell fitted
+  outside ceiling ± band has genuinely moved and fails (exit 1).
+- **The seven dual-leg sub-floor holes** (all-NA floors AND below
+  the judge's floor): cured for the four `clock_fork` cells by an
+  honest heap floor — the forked child carries its own copy of
+  the version's packed bits today (`Clock::fork`'s documented
+  clone), a deterministic-liveness floor at the version's stored
+  bytes, green at both scales with the board records unchanged
+  \[measured — 137/63 and 128/72, two byte-identical runs per
+  scale\]; the id-pair cross keeps NA around its empty version.
+  The three hash × benign cells are structurally unmeterable
+  (wholesale byte folds below every metered primitive) and stay
+  NA with the acceptance stated in the board module doc's floors
+  section: a bounded exposure of sub-10 µs word arithmetic over a
+  few hundred packed bytes, the same rows time-judged on every
+  larger family.
 
 ## 14. Execution plan
 
@@ -2611,6 +2702,24 @@ every recipe self-tests the judge first, and `bench-judge` joined
 `just all`. Readout at landing: §13's relocation record — 155
 green / 16 red / 29 sub-floor, every red a counter-red bigroot
 cell, zero verdict flips.
+
+Amended 2026-07-24 (the bench-judge review; §13's review amendment
+carries the full mechanism and derivations): the self-test pins
+the exit contract end-to-end on synthetic trees (0/1/2, the
+return-0-on-red mutation refuses); malformed medians — nonpositive,
+non-finite, or missing at either scale — are exit-2 input errors
+named per cell, never sub-floor skips, scored verdicts, or raw
+tracebacks; the sidecars are stamped (scale, profile, sampling,
+tip via `BOARD_BENCH_TIP`) and cross-checked against each other
+and `--tip`, exit 2 on mismatch, with the sidecar write creating
+`target/criterion/` on a fresh target directory; `just
+bench-judge` judges through the committed expected-red roster
+(`tools/benchjudge-expected.json`: the 16 bigroot reds by name,
+`version_display`/`clock_display` × hugeleaf as boundary within
+the derived ±0.052 fit-noise band, configuration pinned to
+optimized-profile quick mode at scales 1 → 4, emptied at C3) and
+passes on the honest tree; `bench-judge-tripwire` joined
+`just all`.
 
 **P3.6b — the full-surface dual-oracle coverage audit.**
 *What* (added 2026-07-23, discharging the §14 full-surface
@@ -3994,3 +4103,17 @@ re-derivation), C3, P4.1, the P4-tail text item, P5.
   Style and substance improvements to user-facing prose remain
   gated on the user's final say; a dedicated prose improvement
   pass is planned (P5's doc distillation is its slot).
+- Bench-judge roster convention (2026-07-24, bench-judge review):
+  the judge's expected-red roster (`tools/benchjudge-expected.json`,
+  path named as `benchjudge_roster` in the justfile) is the
+  board-side sibling of §14's sixteen-test roster — the same
+  membership-by-name philosophy, the same emptied-at-C3 endgame.
+  `just bench-judge` (and `just all` through it) enforces the
+  roster: rostered reds must read red (a green is a
+  verdict-flip/liveness signal, a sub-floor skip is a drift out of
+  judgment — both block by name), any unrostered red blocks, and a
+  cell whose cure lands leaves the roster in the same change, the
+  §14 amendment discipline. Boundary membership (either verdict
+  inside the derived fit-noise band) is for cells within ±0.052 of
+  the 1.3 ceiling only; §13's review amendment records the
+  derivation and the population of record.
