@@ -91,6 +91,11 @@ import StreamingMirror.Ord.Invariant
 import StreamingMirror.Ord.Wiring
 import StreamingMirror.Ord.Init
 import StreamingMirror.Ord.Preserve.Walk
+import StreamingMirror.Ord.Preserve.Top
+import StreamingMirror.Ord.Preserve.WalkFire
+import StreamingMirror.Ord.Preserve.Asm
+import StreamingMirror.Ord.Preserve.AbsorbFin
+import StreamingMirror.Ord.Preserve
 import StreamingMirror.Ord.Termination
 import StreamingMirror.Ord.Sched
 import StreamingMirror.Ord.Numbering
