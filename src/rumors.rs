@@ -402,7 +402,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// # let server = tokio::spawn(async move {
     /// #     serve.gossip(&mut far).await.unwrap();
     /// # });
-    /// let bob = Peer::<String>::bootstrap(&mut near)
+    /// let bob = Peer::<String>::bootstrap().join(&mut near)
     ///     .await?
     ///     .expect("alice is established")
     ///     .into_rumors();

@@ -45,7 +45,7 @@ async fn bootstrap_empty_fork(rumors: &Rumors<Entry>) -> Rumors<Entry> {
     let (mut parent_link, mut fork_link) = rumors::link::memory_with_capacity(64 * 1024);
     let (served, fork) = tokio::join!(
         rumors.gossip(&mut parent_link),
-        Peer::<Entry>::bootstrap(&mut fork_link),
+        Peer::<Entry>::bootstrap().join(&mut fork_link),
     );
     served.expect("serve the fork's bootstrap");
     fork.expect("bootstrap handshake")

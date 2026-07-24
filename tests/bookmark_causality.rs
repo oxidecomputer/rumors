@@ -573,7 +573,11 @@ impl World {
                 // `Ok(None)` cannot happen (the server is gossiping, not
                 // bootstrapping); a wire fault drops us to `None`, as does an
                 // injected persistence failure in the eager bookmark attach.
-                let peer = Peer::<Msg>::bootstrap(&mut link).await.ok().flatten()?;
+                let peer = Peer::<Msg>::bootstrap()
+                    .join(&mut link)
+                    .await
+                    .ok()
+                    .flatten()?;
                 peer.sync_window_floor().bookmark(bookmark).await.ok()
             });
             let serve = tokio::spawn(async move {
@@ -1139,7 +1143,8 @@ async fn boot_from_async(
     let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
     let boot = tokio::spawn(async move {
         let mut link = boot_side;
-        let peer = Peer::<Msg>::bootstrap(&mut link)
+        let peer = Peer::<Msg>::bootstrap()
+            .join(&mut link)
             .await
             .expect("bootstrap ok")
             .expect("got a peer")

@@ -54,7 +54,10 @@ fn spawn_node(known: Peer<Entry>, me: PeerId, name: &str) -> Node {
 async fn bootstrap_from(a: Peer<Entry>) -> (Peer<Entry>, Peer<Entry>) {
     let a = a.into_rumors();
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(64 * 1024);
-    let (served, b) = tokio::join!(a.gossip(&mut a_link), Peer::<Entry>::bootstrap(&mut b_link),);
+    let (served, b) = tokio::join!(
+        a.gossip(&mut a_link),
+        Peer::<Entry>::bootstrap().join(&mut b_link),
+    );
     served.unwrap();
     let a = a.try_into_peer().await.expect("ours is the sole handle");
     (a, b.unwrap().expect("peer served the bootstrap"))
@@ -292,7 +295,7 @@ async fn network_merge_resets_the_loser() {
     let (mut winner_link, mut loser_link) = rumors::link::memory_with_capacity(64 * 1024);
     let (served, fresh) = tokio::join!(
         serve.gossip(&mut winner_link),
-        Peer::<Entry>::bootstrap(&mut loser_link),
+        Peer::<Entry>::bootstrap().join(&mut loser_link),
     );
     served.unwrap();
     let fresh = fresh.unwrap().expect("winner served the bootstrap");

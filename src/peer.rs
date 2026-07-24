@@ -18,12 +18,14 @@ use crate::tree::mirror::streaming::remote::RunBudget;
 pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{
-    Batch, Bookmark, CausalMessages, Error, Key, Network, Protocol, Rumors, Snapshot,
-    UnorderedMessages, Version,
+    Batch, Bookmark, CausalMessages, Key, Network, Protocol, Rumors, Snapshot, UnorderedMessages,
+    Version,
 };
 
+mod bootstrap;
 mod gossip;
 
+pub use bootstrap::Bootstrap;
 pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 
 /// The start and end of the lifecycle of a [`Rumors`].
@@ -65,7 +67,7 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 /// # }
 /// // Join an existing universe through any connected peer. (The universe's
 /// // very first peer is created with `Peer::seed()` instead.)
-/// let peer = match Peer::<String>::bootstrap(&mut near).await? {
+/// let peer = match Peer::<String>::bootstrap().join(&mut near).await? {
 ///     Some(peer) => peer,
 ///     // The counterparty was *itself* bootstrapping: neither side holds
 ///     // a universe to share yet, and nothing was exchanged. Connect to a
@@ -122,12 +124,12 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 /// Absent any true consensus mechanism, another reasonable approach to
 /// bootstrapping a [`Network`] is for *every* [`Peer`] to initially call
 /// [`Peer::seed`] and attempt to [`gossip`](crate::Rumors::gossip) with all
-/// others. At first, this will lead to many [`Error::NetworkMismatch`]es;
+/// others. At first, this will lead to many [`Error::NetworkMismatch`](crate::Error::NetworkMismatch)es;
 /// whenever a peer observes one, it can use a deterministic metric to decide
 /// whether it or its peer should dominate.
 ///
 /// A reasonable such metric ships inside the error itself: compare
-/// [`Error::NetworkMismatch`]'s `local_min_events` against its
+/// [`Error::NetworkMismatch`](crate::Error::NetworkMismatch)'s `local_min_events` against its
 /// `remote_min_events`, so that whichever universe records the greater
 /// minimal event count wins, with total comparison on [`Network`] breaking
 /// ties. Both fields ride the one error — each side declared its count in
@@ -214,59 +216,20 @@ impl<T> Peer<T, NoBookmark> {
 }
 
 impl<T> Peer<T> {
-    /// Bootstrap a brand-new rumor set from a remote peer.
+    /// Begin joining an existing universe: the [`Bootstrap`] configuration
+    /// for one session against an established provider.
     ///
-    /// `Ok(None)` means the counterparty was itself still bootstrapping, so
-    /// neither side had anything to share and no identity moved. It is a
-    /// clean session boundary: the link remains usable. Connect to another
-    /// peer and try again.
-    ///
-    /// On `Ok(Some(peer))` the provider has confirmed committing its side of
-    /// the donation. The confirmation exchange leaves one irreducible
-    /// residue (the two-generals problem): if the session fails at the very
-    /// end with [`Error::Epilogue`], the provider may have committed while
-    /// our side reports an error, and the forked identity is lost. Losing a
-    /// fork is safe — no invariant depends on it arriving — but not free:
-    /// its id-region is identity space gone for good, unless coordination
-    /// outside this library reclaims it. What `Err` and cancellation leave
-    /// behind is stated in [what a session
-    /// promises](crate::link::Link#what-a-session-promises).
-    ///
-    /// The peer arrives unbookmarked: its identity has been forked away to us
-    /// but not yet persisted, so a crash before it is recorded strands it. To
-    /// make the received identity durable, attach a [`Bookmark`] with
-    /// [`bookmark`](Peer::bookmark) immediately.
-    pub async fn bootstrap<CR, CW, C, A>(
-        link: &mut Link<CR, CW, C, A>,
-    ) -> Result<Option<Self>, Error>
-    where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
-    {
-        Self::bootstrap_with_protocol(Protocol::V2, link).await
-    }
-
-    /// Bootstrap using an explicitly selected reconciliation protocol.
-    ///
-    /// Use this companion to [`protocol`](Peer::protocol) when joining through
-    /// a provider which selected a non-default dialect such as `Protocol::V1`
-    /// (behind the `protocol-v1` cargo feature). The returned peer retains
-    /// `protocol` for all later sessions.
-    pub async fn bootstrap_with_protocol<CR, CW, C, A>(
-        protocol: Protocol,
-        link: &mut Link<CR, CW, C, A>,
-    ) -> Result<Option<Self>, Error>
-    where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
-    {
-        Self::bootstrap_inner(protocol, link).await
+    /// [`Bootstrap::join`] runs the session and mints the brand-new peer;
+    /// its docs state the session contract (the mutual-bootstrap bail, the
+    /// epilogue residue, the unbookmarked arrival). The builder's knobs
+    /// are this peer-to-be's session knobs — [`Bootstrap::protocol`],
+    /// [`Bootstrap::sync_memory_budget`],
+    /// [`Bootstrap::target_message_size`] — selected before the peer
+    /// exists so the bootstrap session itself, and every session after
+    /// it, runs configured. The zero-configuration join is
+    /// `Peer::bootstrap().join(&mut link)`.
+    pub fn bootstrap() -> Bootstrap<T> {
+        Bootstrap::new()
     }
 
     /// Attach `bookmark` to this [`Peer`], persisting its identity before

@@ -171,7 +171,8 @@ fn retire_into_bootstrapper() {
 
     let capture = capture_session(
         |mut link| async move {
-            Peer::<u64>::bootstrap(&mut link)
+            Peer::<u64>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("bootstrap handshake")
                 .expect("the retiree served the bootstrap");

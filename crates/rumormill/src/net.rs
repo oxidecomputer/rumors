@@ -387,7 +387,7 @@ async fn request_merge(
     let mut link = quic_link(recv, send, conn);
     let known = timeout(
         timers::RECONCILE_TIMEOUT,
-        Peer::<Entry>::bootstrap(&mut link),
+        Peer::<Entry>::bootstrap().join(&mut link),
     )
     .await
     .context("merge bootstrap timed out")?

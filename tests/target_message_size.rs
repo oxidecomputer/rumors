@@ -1,5 +1,6 @@
-//! End-to-end coverage of [`rumors::Peer::target_message_size`]: the knob
-//! threads from the public builder into the greeting, the session runs at
+//! End-to-end coverage of [`rumors::Peer::target_message_size`] and its
+//! bootstrap-time twin [`rumors::Bootstrap::target_message_size`]: the knob
+//! threads from the public builders into the greeting, the session runs at
 //! the exchanged minimum of the two sides' settings, any minimum (including
 //! the degenerate zero) leaves reconciliation convergent, and the minimum
 //! binds both encoders regardless of which side advertised it.
@@ -8,9 +9,9 @@ mod common;
 
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::{DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
+use rumors::{Bootstrap, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
 
-use crate::common::gossip_snapshot::capture_gossip;
+use crate::common::gossip_snapshot::{capture_gossip, capture_session};
 use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 
 /// Messages each side originates after the fork: enough for multi-leaf
@@ -244,5 +245,70 @@ fn nonzero_minimum_binds_both_encoders() {
         "side A advertises the default but must supply at the remote small \
          minimum: under own-setting sizing this cell's a_to_b count would \
          match the uniform-default cell's"
+    );
+}
+
+/// A deterministically seeded, populated provider: the same corpus for
+/// every bootstrap capture, so their supply-frame counts are comparable.
+fn seeded_provider() -> Rumors<u64> {
+    let provider = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .sync_window_floor()
+        .into_rumors();
+    let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
+    for _ in 0..DIVERGENT_PER_SIDE {
+        provider.send(rng.next_u64());
+    }
+    provider
+}
+
+/// Capture one bootstrap session's wire traffic: `provider` serves via
+/// `gossip` while a newcomer joins under `config`.
+fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
+    capture_session(
+        move |mut link| async move {
+            provider
+                .gossip(&mut link)
+                .await
+                .expect("the provider serves the bootstrap");
+        },
+        move |mut link| async move {
+            config
+                .join(&mut link)
+                .await
+                .expect("the bootstrap session completes")
+                .expect("the provider is established, not itself bootstrapping");
+        },
+    )
+}
+
+/// A newcomer's [`Bootstrap::target_message_size`] genuinely reaches the
+/// bootstrap greeting and binds the *provider's* encoder, which no
+/// post-bootstrap knob could show.
+///
+/// The same seeded provider serves the same corpus twice: to a newcomer
+/// advertising a zero target (batching forbidden: one leaf per supply
+/// frame) and to an unconfigured newcomer (the default target batches each
+/// supplied subtree's leaves into runs). The zero-target join must draw
+/// strictly more supply frames out of the provider. The default-target
+/// capture is the negative control: if the builder's advertisement never
+/// reached the greeting, both sessions would run at the provider's own
+/// setting and the two counts would be equal, failing the strict
+/// inequality.
+#[test]
+fn bootstrap_advertisement_binds_the_provider() {
+    let unbatched = capture_bootstrap(
+        seeded_provider(),
+        Peer::<u64>::bootstrap().target_message_size(0),
+    );
+    let batched = capture_bootstrap(seeded_provider(), Peer::<u64>::bootstrap());
+    let (unbatched_frames, batched_frames) = (supply_frames(&unbatched), supply_frames(&batched));
+    assert!(
+        batched_frames > 0,
+        "a populated bootstrap must supply at least one run"
+    );
+    assert!(
+        unbatched_frames > batched_frames,
+        "a zero bootstrap advertisement must forbid the provider's batching: \
+         {unbatched_frames} supply frames vs {batched_frames} batched"
     );
 }

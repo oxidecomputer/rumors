@@ -170,7 +170,9 @@ where
 
     let (server_out, boot_out) = tokio::join!(
         parent.gossip(&mut parent_link),
-        Peer::<T>::bootstrap_with_protocol(protocol, &mut boot_link),
+        Peer::<T>::bootstrap()
+            .protocol(protocol)
+            .join(&mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
     // Test peers pin the serialization floor explicitly, keeping the

@@ -6,7 +6,7 @@
 //! their own limit. We defuse that by type-erasing inside the protocol and
 //! `tree::traverse::act`, which leaves
 //! the public futures (`Rumors::gossip`, `Peer::retire`,
-//! `Peer::bootstrap`) holding nothing more than a `Pin<Box<dyn Future>>`
+//! `Bootstrap::join`) holding nothing more than a `Pin<Box<dyn Future>>`
 //! plus a few locals.
 //!
 //! This test pins down that arrangement: if someone reintroduces the deep
@@ -72,14 +72,14 @@ fn retire_future_fits_budget() {
     );
 }
 
-/// `Peer::bootstrap` runs the same mirror descent from an empty tree.
+/// `Bootstrap::join` runs the same mirror descent from an empty tree.
 /// Same erasure boundary as `gossip`.
 #[test]
 fn bootstrap_future_fits_budget() {
     let (mut link, peer) = rumors::link::memory();
     drop(peer);
 
-    let fut = Peer::<()>::bootstrap(&mut link);
+    let fut = Peer::<()>::bootstrap().join(&mut link);
     let size = size_of_val(&fut);
 
     assert!(

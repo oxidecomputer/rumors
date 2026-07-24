@@ -155,7 +155,8 @@ async fn boot_from(
     let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
     let boot = tokio::spawn(async move {
         let mut link = boot_side;
-        let peer = Peer::<Msg>::bootstrap(&mut link)
+        let peer = Peer::<Msg>::bootstrap()
+            .join(&mut link)
             .await
             .expect("bootstrap ok")
             .expect("the server is established");
@@ -516,7 +517,7 @@ fn donation_persist_failure_aborts_before_the_wire() {
         let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
         let boot = tokio::spawn(async move {
             let mut link = boot_side;
-            Peer::<Msg>::bootstrap(&mut link).await
+            Peer::<Msg>::bootstrap().join(&mut link).await
         });
         let serve = {
             let a = a.clone();
@@ -592,7 +593,7 @@ fn repeated_donation_aborts_normalize() {
             let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
             let boot = tokio::spawn(async move {
                 let mut link = boot_side;
-                Peer::<Msg>::bootstrap(&mut link).await
+                Peer::<Msg>::bootstrap().join(&mut link).await
             });
             let serve = {
                 let a = a.clone();

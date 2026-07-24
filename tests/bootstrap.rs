@@ -31,7 +31,7 @@ where
 
         let (provider_out, bootstrap_out) = tokio::join!(
             provider.gossip(&mut a_link),
-            Peer::<T>::bootstrap(&mut b_link),
+            Peer::<T>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
         let minted = bootstrap_out
@@ -121,8 +121,8 @@ fn both_bootstrapping_bail_with_none() {
         let (mut a_link, mut b_link) = rumors::link::memory();
 
         let outcome = tokio::join!(
-            Peer::<u64>::bootstrap(&mut a_link),
-            Peer::<u64>::bootstrap(&mut b_link),
+            Peer::<u64>::bootstrap().join(&mut a_link),
+            Peer::<u64>::bootstrap().join(&mut b_link),
         );
         assert_control_drained(a_link, b_link);
         outcome
@@ -135,6 +135,51 @@ fn both_bootstrapping_bail_with_none() {
     assert!(
         b_out.expect("handshake ok").is_none(),
         "a mutually-bootstrapping peer must bail with None",
+    );
+}
+
+/// A zero sync memory budget selected at bootstrap can add latency, never
+/// break the session: the join completes, delivers the provider's whole
+/// set, and the minted peer — retaining the zero budget for its own
+/// sessions — still reconciles a fresh origination back into the provider.
+/// The budget's any-value safety therefore holds at the one entry point
+/// that runs before the peer exists, and the retained setting survives
+/// into the first session where it can bind.
+#[test]
+fn zero_budget_bootstrap_converges() {
+    let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    provider.batch().send(1).send(2).send(3);
+
+    let bootstrapped = block_on(async {
+        let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (served, joined) = tokio::join!(
+            provider.gossip(&mut provider_link),
+            Peer::<u64>::bootstrap()
+                .sync_memory_budget(0)
+                .join(&mut newcomer_link),
+        );
+        served.expect("the provider serves the zero-budget bootstrap");
+        let minted = joined
+            .expect("a zero budget must not fail the bootstrap handshake")
+            .expect("the provider is established")
+            .into_rumors();
+        assert_control_drained(provider_link, newcomer_link);
+        minted
+    });
+
+    assert_eq!(
+        readout(&bootstrapped.snapshot()),
+        readout(&provider.snapshot()),
+        "the zero-budget join must still deliver the provider's whole set",
+    );
+
+    // The minted peer gossips under its retained zero budget: every
+    // window edge at the liveness floor, and the session still converges.
+    bootstrapped.send(u64::MAX);
+    wire_gossip(&provider, &bootstrapped);
+    assert!(
+        provider.snapshot().iter().any(|(_, _, m)| **m == u64::MAX),
+        "the newcomer's origination must survive its zero-budget gossip",
     );
 }
 
@@ -154,7 +199,9 @@ fn v1_bootstrap_selection_persists_into_gossip() {
         let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let (served, joined) = tokio::join!(
             provider.gossip(&mut provider_link),
-            Peer::<u64>::bootstrap_with_protocol(Protocol::V1, &mut newcomer_link),
+            Peer::<u64>::bootstrap()
+                .protocol(Protocol::V1)
+                .join(&mut newcomer_link),
         );
         served.expect("V1 provider serves bootstrap");
         let minted = joined

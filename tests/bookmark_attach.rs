@@ -27,7 +27,7 @@ async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) 
     let (boot_link, serve_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let boot = tokio::spawn(async move {
         let mut link = boot_link;
-        Peer::<String>::bootstrap(&mut link).await
+        Peer::<String>::bootstrap().join(&mut link).await
     });
     let serve = tokio::spawn(async move {
         let mut link = serve_link;

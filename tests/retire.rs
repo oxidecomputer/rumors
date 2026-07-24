@@ -94,7 +94,7 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Option<Rumors<u6
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let (retire_out, boot_out) = tokio::join!(
             retiree.retire(&mut a_link),
-            Peer::<u64>::bootstrap(&mut b_link),
+            Peer::<u64>::bootstrap().join(&mut b_link),
         );
         assert_control_drained(a_link, b_link);
         (

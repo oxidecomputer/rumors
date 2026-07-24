@@ -1,4 +1,4 @@
-//! The wire-session drivers for [`Peer`]: [`bootstrap`](Peer::bootstrap),
+//! The wire-session drivers for [`Peer`]: [`bootstrap`](Bootstrap::join),
 //! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire).
 //!
 //! Plus the
@@ -33,14 +33,11 @@ use crate::{
     tree::mirror::{
         handshake::{self, Intent},
         party,
-        streaming::{
-            self, Local, materialized, remote as streaming_remote, remote::RunBudget,
-            window::WindowConfig,
-        },
+        streaming::{self, Local, materialized, remote as streaming_remote},
     },
 };
 
-use super::{Inner, Peer};
+use super::{Inner, Peer, bootstrap::Bootstrap};
 
 /// Magic bytes that open every `rumors` gossip session's preamble frame.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
@@ -189,7 +186,7 @@ impl<T> Peer<T, NoBookmark> {
     /// A thin generic funnel: the only monomorphized-per-link code is the
     /// erasure to [`DynLinkParts`] here.
     pub(crate) fn bootstrap_inner<'a, CR, CW, C, A>(
-        protocol: Protocol,
+        config: Bootstrap<T>,
         link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
@@ -201,7 +198,7 @@ impl<T> Peer<T, NoBookmark> {
     {
         Box::pin(async move {
             let parts = erase(&mut *link)?;
-            let result = Self::bootstrap_erased(protocol, parts).await;
+            let result = Self::bootstrap_erased(config, parts).await;
             // Un-poison on clean completion: both `Ok` arms — a completed
             // donation and a mutual-bootstrap bail — end with the epilogue
             // under V2, leaving the control stream at the session boundary.
@@ -216,7 +213,7 @@ impl<T> Peer<T, NoBookmark> {
     ///
     /// [`bootstrap_inner`]: Self::bootstrap_inner
     fn bootstrap_erased<'a>(
-        protocol: Protocol,
+        config: Bootstrap<T>,
         link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
@@ -228,7 +225,7 @@ impl<T> Peer<T, NoBookmark> {
             // is allowed to trust peer-declared frame lengths.
             let mut staged = handshake::Staged::new();
             let remote = handshake::preamble(
-                protocol,
+                config.protocol,
                 Network::BOOTSTRAP,
                 Intent::Remain,
                 &mut staged,
@@ -252,14 +249,22 @@ impl<T> Peer<T, NoBookmark> {
             let reconcile: BoxFuture<
                 '_,
                 Result<Option<(tree::Root<T>, DynRead<'a>, DynWrite<'a>)>, Error>,
-            > = match protocol {
+            > = match config.protocol {
                 Protocol::V2 => Box::pin(async move {
                     let local_root: streaming::Root<Local, T> = tree::Root::default().into();
+                    // The window choice is passed for uniformity with gossip,
+                    // but no choice can widen this session: disputes require
+                    // joint occupancy and this side's replica is empty, so
+                    // every derived capacity floors at one slot regardless.
+                    // The message-size target is the operative knob: the
+                    // greeting advertises it, and the provider's supply runs
+                    // are built at the exchanged minimum.
                     let local = materialized::Handshaking::start(Local, local_root)
-                        .window(WindowConfig::default());
+                        .window(config.window)
+                        .target_message_size(config.run_budget.bytes() as u64);
                     let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-                    let proxy = streaming_remote::Handshaking::start(Local, carrier)
-                        .window(WindowConfig::default());
+                    let proxy =
+                        streaming_remote::Handshaking::start(Local, carrier).window(config.window);
                     let handshaken = streaming::handshake(local, proxy)
                         .await
                         .map_err(streaming_error)?;
@@ -308,14 +313,14 @@ impl<T> Peer<T, NoBookmark> {
             // means it committed its donation. (V2 only; the V1 wire is
             // frozen.) On `Err` the received fork is dropped — its region
             // leaks, benignly, like any fork lost in flight.
-            if protocol == Protocol::V2 {
+            if config.protocol == Protocol::V2 {
                 epilogue(&mut read, &mut write).await?;
             }
             let peer = Self {
                 network: remote.network,
-                protocol,
-                window: WindowConfig::default(),
-                run_budget: RunBudget::default(),
+                protocol: config.protocol,
+                window: config.window,
+                run_budget: config.run_budget,
                 inner: watch::Sender::new(Inner {
                     party: Some(party),
                     tree: Tree { root },

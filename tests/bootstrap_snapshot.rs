@@ -54,7 +54,8 @@ where
             provider.gossip(&mut link).await.expect("provider gossip");
         },
         move |mut link| async move {
-            Peer::<T>::bootstrap(&mut link)
+            Peer::<T>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("bootstrap handshake")
                 .expect("provider served the bootstrap");
@@ -100,7 +101,9 @@ fn v1_populated_provider() {
                 .expect("V1 provider gossip");
         },
         move |mut link| async move {
-            Peer::<u64>::bootstrap_with_protocol(Protocol::V1, &mut link)
+            Peer::<u64>::bootstrap()
+                .protocol(Protocol::V1)
+                .join(&mut link)
                 .await
                 .expect("V1 bootstrap handshake")
                 .expect("V1 provider served the bootstrap");
@@ -131,7 +134,8 @@ fn string_payload() {
 fn mutual_bootstrap_bails() {
     let capture = capture_session(
         |mut link| async move {
-            let out = Peer::<u64>::bootstrap(&mut link)
+            let out = Peer::<u64>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("handshake A");
             assert!(
@@ -140,7 +144,8 @@ fn mutual_bootstrap_bails() {
             );
         },
         |mut link| async move {
-            let out = Peer::<u64>::bootstrap(&mut link)
+            let out = Peer::<u64>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("handshake B");
             assert!(

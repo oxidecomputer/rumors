@@ -250,7 +250,9 @@ async fn bootstrap(protocol: Protocol) {
     let (mut p_link, mut n_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
     let (served, joined) = tokio::join!(
         provider.gossip(&mut p_link),
-        Peer::<u64>::bootstrap_with_protocol(protocol, &mut n_link),
+        Peer::<u64>::bootstrap()
+            .protocol(protocol)
+            .join(&mut n_link),
     );
     served.expect("the serving session completes");
     let newcomer = joined
@@ -294,8 +296,12 @@ async fn retire(protocol: Protocol) {
 async fn mutual_bootstrap(protocol: Protocol) {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
     let (a_out, b_out) = tokio::join!(
-        Peer::<u64>::bootstrap_with_protocol(protocol, &mut a_link),
-        Peer::<u64>::bootstrap_with_protocol(protocol, &mut b_link),
+        Peer::<u64>::bootstrap()
+            .protocol(protocol)
+            .join(&mut a_link),
+        Peer::<u64>::bootstrap()
+            .protocol(protocol)
+            .join(&mut b_link),
     );
     assert!(
         a_out.expect("side A handshake completes").is_none(),
@@ -322,7 +328,9 @@ async fn retire_into_bootstrapper(protocol: Protocol) {
     let (mut r_link, mut n_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
     let (retired, joined) = tokio::join!(
         retiree.retire(&mut r_link),
-        Peer::<u64>::bootstrap_with_protocol(protocol, &mut n_link),
+        Peer::<u64>::bootstrap()
+            .protocol(protocol)
+            .join(&mut n_link),
     );
     assert!(
         matches!(retired, Retire::Retired),

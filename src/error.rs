@@ -100,7 +100,7 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// any [`Peer`](crate::Peer) exists, so the received identity is
     /// dropped and nothing is applied locally, while the provider may have
     /// committed — the forked id-region is then lost (see
-    /// [`Peer::bootstrap`](crate::Peer::bootstrap)). The source is the I/O
+    /// [`Bootstrap::join`](crate::Bootstrap::join)). The source is the I/O
     /// failure that cut the exchange short, or an invalid-data error if the
     /// peer wrote something other than the marker where it belonged.
     #[error("session epilogue failed after local commit: {0}")]

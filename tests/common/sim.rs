@@ -338,7 +338,7 @@ async fn run_boot(server: Rumors<u64>, fault: FaultPlan) -> Option<Peer<u64>> {
     });
     let boot = tokio::spawn(async move {
         let mut link = fault::faulty(boot_side, fault);
-        Peer::<u64>::bootstrap(&mut link).await
+        Peer::<u64>::bootstrap().join(&mut link).await
     });
     assert_honest_gossip(&serve.await.expect("bootstrap serve task"));
     match boot.await.expect("bootstrap join task") {
