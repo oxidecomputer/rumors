@@ -394,12 +394,15 @@ envelope to 4,865 B.** First, the per-child slot constant is now
 `(u8, Resolve)` resolution slot is 24 B, not 16 (`Option<Node>`
 consumes the handle's only null niche, so the `Ready`/`Pending` tag
 sits out of line), moving the slot family from 49 to 57 B/child.
-Second, the leaf-request edge is charged at exactly the width the
-capacity assignment grants it — `population[KEY_DEPTH]`, whose
-depth-31 joint quantile is zero for every representable corpus — in
-place of a corpus-wide `n × 40 B` term the assignment provably never
-granted (the phantom charge returned up to 2.5 MB at the design
-session to the real stages). Net: envelope 4,339 → 4,865 B, default
+Second, the leaf-request edge is charged at the width the capacity
+assignment grants it — `population[KEY_DEPTH]`, whose depth-30 joint
+quantile is zero for every representable corpus (nonzero needs
+pair ≥ 2¹⁹⁰; the leaf stage's own depth-31 statistic floors
+identically at pair ≥ 2¹⁹⁸) — in place of a corpus-wide `n × 40 B`
+term the assignment provably never granted (the phantom charge
+returned up to 2.5 MB at the design session to the real stages); the
+one-slot liveness floor stays granted-but-uncharged, like every other
+stage's floor slot. Net: envelope 4,339 → 4,865 B, default
 budget ~271 → ~304 MB, operator ratio `E/w` 22 → 25; all three
 remain pinned by the same recomputation tests.
 

@@ -379,22 +379,28 @@ impl Window {
         // handles, so per-queue multiplication would double-charge), plus
         // the leaf-request edge, plus the flat decode-fan term.
         //
-        // The leaf-request edge is charged at exactly the width the
-        // capacity assignment below grants it — `population[KEY_DEPTH]`,
-        // the same bound on both sides of the same function — because a
-        // bounded channel's residency never exceeds its own capacity, so
-        // capacity times item size is that edge's exact worst case. No
-        // wider charge buys anything: a leaf request is a listing entry
-        // of a disputed depth-31 leaf parent (`answer::leaf_parent`'s
-        // ask arm), so the entries that could ever occupy the edge are
-        // bounded by the leaf-stage statistic — jointly occupied
-        // depth-31 slots times their per-parent fan — and the depth-31
-        // joint quantile is zero for every representable corpus
-        // (`small_mean_quantile` at j = 31 has 249 denominator bits
-        // against at most 128 for a product of two u64 corpora; nonzero
-        // needs pair ≥ 2¹⁹⁹). Capacity beyond a population is physically
-        // idle, so the edge floors at one slot and the budget is spent
-        // where populations exist.
+        // The leaf-request edge is charged at the width the capacity
+        // assignment below grants it — `population[KEY_DEPTH]`, the same
+        // bound on both sides of the same function — because a bounded
+        // channel's residency never exceeds its own capacity, so
+        // capacity times item size covers that edge's worst case. The
+        // one divergence between the halves is the liveness floor: the
+        // assignment clamps the granted capacity to one slot even where
+        // the population (and so the charge) is zero, a 40-byte
+        // never-charged slot per session, priced like every other
+        // stage's uncharged floor slot. No wider charge buys anything:
+        // the granted statistic is `jointly_occupied(n, pair, 30)`
+        // times the per-parent fan, whose quantile is zero for every
+        // representable corpus (`small_mean_quantile` at j = 30 has 241
+        // denominator bits against at most 128 for a product of two u64
+        // corpora; nonzero needs pair ≥ 2¹⁹⁰). The entries that could
+        // ever occupy the edge are bounded the same way one stage
+        // deeper: a leaf request is a listing entry of a disputed
+        // depth-31 leaf parent (`answer::leaf_parent`'s ask arm), and
+        // the j = 31 quantile floors identically (249 denominator bits;
+        // nonzero needs pair ≥ 2¹⁹⁸). Capacity beyond a population is
+        // physically idle, so the edge floors at one slot and the
+        // budget is spent where populations exist.
         //
         // Saturating arithmetic keeps the solve total: a population near
         // 2⁶⁴ times a near-`usize::MAX` scope price passes u128, and a

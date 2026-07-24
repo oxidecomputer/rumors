@@ -17,9 +17,10 @@
 //! is affine in the record's encoded payload, [`FIXED_OVERHEAD_BYTES`]
 //! plus the payload's borsh encoding. The constant is that cost at the
 //! design point's [`DESIGN_ENCODED_PAYLOAD_BYTES`]-byte record; leaner
-//! records cost proportionally less wire per message. Two cells pin the
-//! line at both ends (intercept and design point), so a change to either
-//! the per-record framing or the record body moves at least one loudly.
+//! records cost proportionally less wire per message. Three cells pin
+//! the line — the intercept, an interior point, and the design point —
+//! so a change to the per-record framing or the record body moves at
+//! least one loudly, and the linearity claim is itself gated.
 
 mod common;
 
@@ -63,6 +64,11 @@ const FIXED_OVERHEAD_BYTES: usize = 28;
 /// `DISPUTE_WIRE_BYTES` under the current format: the record size the
 /// design-point constant is denominated in.
 const DESIGN_PAYLOAD_LEN: usize = 168;
+
+/// A mid-size `Vec<u8>` payload length (64 B encoded behind borsh's
+/// 4-byte length prefix): the interior cell that holds the affine law
+/// between the minimal and design endpoints.
+const MID_PAYLOAD_LEN: usize = 60;
 
 /// The design record's encoded payload: [`DESIGN_PAYLOAD_LEN`] bytes
 /// behind borsh's 4-byte length prefix.
@@ -260,6 +266,34 @@ fn minimal_records_pin_the_fixed_overhead() {
         expected.abs_diff(implied) <= TOLERANCE_BYTES,
         "the fixed per-message overhead moved: measured {implied} B at 8 B encoded \
          payloads against the pinned {expected} B",
+    );
+}
+
+/// A mid-size record cell holds the affine law between the endpoints:
+/// the cost is intercept-plus-payload in the interior, not just at the
+/// two pinned ends.
+///
+/// The invariant: a corpus of [`MID_PAYLOAD_LEN`]-byte payloads (64 B
+/// encoded) implies [`FIXED_OVERHEAD_BYTES`] + 64 bytes per disputed
+/// message, within [`TOLERANCE_BYTES`]. With the minimal and design
+/// cells this makes the linearity claim itself a committed, gated
+/// assertion — three collinear points — rather than a calibration-time
+/// observation.
+#[test]
+fn mid_size_records_ride_the_affine_law() {
+    let mut mint = |rng: &mut SmallRng| {
+        let mut payload = vec![0u8; MID_PAYLOAD_LEN];
+        rng.fill_bytes(&mut payload);
+        payload
+    };
+    let implied = implied_bytes_per_message::<Vec<u8>>(&mut mint);
+    let expected = FIXED_OVERHEAD_BYTES + 4 + MID_PAYLOAD_LEN;
+    eprintln!("mid-record cell: implied {implied} B/message (expected {expected})");
+    assert!(
+        expected.abs_diff(implied) <= TOLERANCE_BYTES,
+        "the affine cost law broke in the interior: measured {implied} B at \
+         {} B encoded payloads against the pinned {expected} B",
+        4 + MID_PAYLOAD_LEN,
     );
 }
 
