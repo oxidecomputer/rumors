@@ -1523,7 +1523,21 @@ not regressed (improvement expected at P1 and P3).
   telescoped rank sum runs on the §8.1/P3.2 balanced signed-digit
   form, under today's coding as under Tier 2, with H(d) as the
   regression witness — a plain-bignum telescoped fold re-imports the
-  quadratic. The rest of the Rank surface is clean **[measured]**:
+  quadratic. Landed 2026-07-24: the packed fold now merges each
+  child's numerator into its sibling's accumulator digit-routed at
+  the exponent gap (never a materialized shift of the accumulated
+  value; a u128 inline arm keeps all-small trees allocation-free),
+  and the exponent add is checked — the u32-wrap edge panics loudly.
+  RANK_HARMONIC's limb pin moved 134,740,995 → 1,025 **[measured**
+  — the enforced row, three identical runs**]**; the board's
+  `version_rank × harmonic` limb legs read exponent ~0.99 (its
+  remaining red is the recursion-frame segment leg, retired at C2 by
+  the skyline kernel). The rank envelope rows gained an
+  accumulator-touch column so the fold's arithmetic stays metered
+  (the limb column alone would read a vacuous near-zero); the
+  bigroot heap and dense segment columns re-pinned at the new
+  implementation's measured values (the container accumulator and
+  the wider fold frame). The rest of the Rank surface is clean **[measured]**:
   `cmp`/`checked_sub`/`+` materialize Θ(exp) transient bits
   (62.5 KB → 250 KB across exp = 5×10⁵ → 10⁶, doubling exactly) —
   four thousand times the 32-byte operands, but linear in the
@@ -2072,6 +2086,37 @@ C2 from the alternating oracle. The output builder's `leaf`
 interface is the piece fill reuses; nothing in this slice
 forecloses it.
 
+Landed 2026-07-24 (the query-fold slice). The linear functionals and
+projection landed module-private in `version/skyline/query.rs` on the
+comparison sweep's cursors: `rank` integrates the step function at a
+pre-scanned maximum depth on a frozen/live height split (live drift on
+the accumulator under an 8-digit freeze threshold; the frozen part
+contributes once per segment against its signed-compacted dyadic
+mass, so the boundary comb costs two frozen-width products for its
+one wide borrow and the wide-tooth comb never freezes at all);
+`distance`/`lag` are rank differences over the landed join/meet
+emitters through the class-first `checked_sub`; `min_ticks` folds
+leaf-heights-minus-subtree-minima on a `u64` word stack with an early
+exit the moment any height leaves the word range (the tick floor
+dominates every leaf height); `project` overlays the skyline against
+a packed id via an id-side leaf cursor (1-bit ownership payloads,
+synthetic unowned regions for absent children, exhaustion tracked by
+the path's left-branch count) and re-emits through the collapsing
+builder, materializing the height only at ownership transitions —
+priced by the mandatory output on the comb × scattered-party cross
+(262,976 output bytes from 2,178 input bytes, heap 1.6× output,
+I/O-linear). Differentials: exact agreement with the packed
+implementations over all families, arbitraries, organic histories,
+and the exhaustive small scope; rank additionally against the tree
+fold and the Riemann sum; projection additionally against the oracle
+mask. Envelope rows (`tests/meter.rs`, five columns with accumulator
+touches and scanned bits, measured ×1.25, three identical runs):
+rank × {dense, bigroot, harmonic, cliff, wide-tooth}, min_ticks ×
+{dense, cliff-early-exit}, project × comb-scatter. The public rank
+fold was cured in the same round (the §15 V6 entry); still open in
+this item: the §14 bench-surface constraint (untouched by this
+slice) and `fill` at C2 per the recorded amendment.
+
 **P3.6b — the full-surface dual-oracle coverage audit.**
 *What* (added 2026-07-23, discharging the §14 full-surface
 measurability constraint as a work item rather than a hope): every
@@ -2609,6 +2654,15 @@ separately before anything beyond this scope is planned.
   have no serde/borsh/encode surface, so the ideation starts green
   field.
 
+Landed 2026-07-24: every item above is in the tree. The kernel
+requirement and point fix landed with the fold cure (§15's dated
+note); the envelope rows carry their movements in place
+(`tests/meter.rs`, four-column rank harness); the proptests landed as
+`distance_and_lag_realize_both_oracles`, the Rank monoid/order law
+suite, and the cross-path normalization/Hash witness
+(`version/tests.rs`); the board's linear-functional × harmonic column
+reads limb exponent ~1 with the segment legs left for C2.
+
 ### 17.8 Rank representation (returned scope, recorded 2026-07-23)
 
 The §17.7 ideation returned; the finding is that no representation
@@ -2640,6 +2694,12 @@ change is warranted, and one algorithmic change is.
   RANK_PAIR_MISMATCH envelope pins at the new cost after this lands.
   Display, Eq/Hash, and the exp ≤ depth bound are untouched; the limb
   meter records streamed windows so the metered cost stays honest.
+  Landed 2026-07-24 as `Base::msb_cmp` plus the class-first `Ord`:
+  RANK_PAIR_MISMATCH's limb pin moved 54,710 → 39,078 (the remainder
+  is `checked_sub`'s `Some` arm and the addition, both the outputs'
+  own value content); the 25,000-pair alignment-oracle agreement
+  landed as a deterministic sweep with antisymmetry and the pre-check
+  consistency asserted on every pair.
 - **Representation changes rejected**: float-style re-denomination
   (the class is O(1)-derivable from the stored form; the field change
   buys nothing) **[derived]**; lazy unnormalized sums (Eq/Hash force
@@ -2688,7 +2748,15 @@ change is warranted, and one algorithmic change is.
   kernel and the class-first comparison; the §17.7 envelope list
   gains a RANK_SUM_MIXED row (n integer ranks + one dense-derived
   high-exp rank, high-first ordering) pinned at current cost ×1.25
-  before the cure and re-pinned after.
+  before the cure and re-pinned after. Landed 2026-07-24: both `Sum`
+  impls fold through one raw accumulator anchored at the running
+  maximum exponent (each summand digit-routed at its exponent gap;
+  one rescale per exponent raise, paid by the raising summand's own
+  exponent; one normalization at the end), value-identical to the
+  pairwise fold by proptest over arbitrary multisets in arbitrary
+  order. RANK_SUM_MIXED's limb pin moved 156,312,196 → 3,908
+  **[measured** — the enforced row, three identical runs**]**, peak
+  heap 125,032 → 62,512.
 
 ### 17.9 Public-API census (recorded 2026-07-23)
 
@@ -2735,6 +2803,29 @@ amplifier and two coverage gaps.
   Rank — is replaced at **P3.6b** with a `version_join_all` ×
   scatter row plus a wall-witnessed party-fold scenario beside the
   display canary, pinned red before the cure and re-pinned after.
+  Landed 2026-07-24 (the balanced-reduction arm): all five fold
+  surfaces reduce on a binary-counter stack (every input O(log n)
+  joins against similarly-sized partners; the fallible folds test
+  each input against the *fixed* `self` up front and join surviving
+  groups into `self` at the end — infallible on well-formed input,
+  with aliased inputs colliding pairwise on the way in), identical
+  results pinned by proptests against the sequential fold reference
+  over organic populations in both orders plus a deterministic
+  aliased-duplicate pin. Two enforced envelope rows land on the
+  scatter recipe at 1,024 clocks: version fold limb 690,310 against
+  the sequential 14,281,732 (20.7×), party fold scan 292,432 bits
+  against 3,284,952 (11.2×) **[measured** — `tests/meter.rs`, three
+  identical runs**]**. The board's scatter cells tighten from
+  exponent ~2 to the reduction's n·log n law but stay marginally red
+  at the default scale (version limb exponent 1.16 against the 1.15
+  ceiling; party scan constant 104.6/B against 96) — the flat
+  ceilings cannot certify an n·log n fold, so full green on these
+  two cells awaits an n-cursor merge over the skyline kernels after
+  the flip, recorded here as the C2-adjacent follow-up. One forced
+  public-prose touch, flagged at the commit: the two `join_all`
+  `# Errors` paragraphs now describe pairwise coalescing (the
+  running-union sentence described the left fold) and note that
+  aliased inputs may return already joined.
 - **serde forms are untested in-crate.** No roundtrip, no byte-form
   pin, no strict-reject test exists for the serde
   `Party`/`Version`/`Clock` impls (borsh has all three legs via its
