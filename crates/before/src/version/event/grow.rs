@@ -171,7 +171,7 @@ impl EvReader<'_> {
 /// Takes the source working form rather than a cursor: each pass builds its own
 /// fresh cursor from it (as `tick` does), so the one operation that reads a tree
 /// twice needs no cursor duplication.
-pub(super) fn grow(ev: &WorkingVersion, id_bits: &BitsSlice) -> WorkingVersion {
+pub(crate) fn grow(ev: &WorkingVersion, id_bits: &BitsSlice) -> WorkingVersion {
     let mut route = Route::new(id_bits.len(), ev.base.len());
     EvReader::working(ev).grow_probe(id_bits, &mut route);
     let mut out = Builder::new();
