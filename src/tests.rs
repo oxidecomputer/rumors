@@ -68,7 +68,7 @@ fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
         let (mut a_link, mut b_link) = memory();
         let (provider_out, boot_out) = tokio::join!(
             provider.gossip(&mut a_link),
-            Peer::<u64>::bootstrap(&mut b_link),
+            Peer::<u64>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
         (

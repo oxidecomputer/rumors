@@ -117,7 +117,7 @@ impl<T, R: Send, W: Send, V, H: Height> protocol::Stage for Exchange<T, R, W, V,
     ///
     /// A session that needs a trailing frame after
     /// the descent (the party hand-off when serving a
-    /// [bootstrapping](crate::Peer::bootstrap) peer or absorbing a
+    /// [bootstrapping](crate::Bootstrap) peer or absorbing a
     /// [retiring](crate::Peer::retire) one) reads it from the same
     /// [`FrameRead`] the descent used.
     type Output = (FrameRead<R>, FrameWrite<W>);

@@ -83,7 +83,7 @@ fn bootstrap_adopts_provider_network() {
         let (mut a_link, mut b_link) = rumors::link::memory();
         let (provider_out, bootstrap_out) = tokio::join!(
             provider.gossip(&mut a_link),
-            Peer::<u64>::bootstrap(&mut b_link),
+            Peer::<u64>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
         let minted = bootstrap_out

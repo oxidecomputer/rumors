@@ -172,7 +172,7 @@ fn bootstrap_fork(
     let (served, newcomer) = runtime.block_on(async {
         tokio::join!(
             parent.gossip(&mut parent_link),
-            Peer::<Payload>::bootstrap(&mut newcomer_link),
+            Peer::<Payload>::bootstrap().join(&mut newcomer_link),
         )
     });
     served.expect("serve bootstrap");

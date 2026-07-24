@@ -971,7 +971,7 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     let mut b = counting(b, b_opened.clone());
     let seed: Rumors<u64> = Peer::seed().into_rumors();
     // Session one: bootstrap the far side into the near side's universe.
-    let (served, joined) = join(seed.gossip(&mut a), Peer::<u64>::bootstrap(&mut b)).await;
+    let (served, joined) = join(seed.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b)).await;
     served.expect("contract: the bootstrap-serving session completes");
     let newcomer = joined
         .expect("contract: the bootstrap session completes")

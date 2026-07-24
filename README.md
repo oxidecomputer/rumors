@@ -139,7 +139,8 @@ tokio::spawn(async move {
 });
 
 // ...and Bob joins the universe through it, arriving as a full replica.
-let bob = Peer::<String>::bootstrap(&mut near)
+let bob = Peer::<String>::bootstrap()
+    .join(&mut near)
     .await?
     .expect("alice is established, not herself bootstrapping");
 let bob = bob.into_rumors();
@@ -208,7 +209,7 @@ version, is rejected before any peer-declared frame length is trusted
 `Protocol::V2` is the default; `Protocol::V1` (behind the `protocol-v1`
 cargo feature) can be selected on an established `Peer` with
 `Peer::protocol`, or while joining with
-`Peer::bootstrap_with_protocol`. Both endpoints must select the same
+`Bootstrap::protocol`. Both endpoints must select the same
 protocol.
 
 ## Stability and testing

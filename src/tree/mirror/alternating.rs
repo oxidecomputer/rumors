@@ -369,7 +369,7 @@ where
 /// them.
 ///
 /// A test convenience: the wire entry points
-/// ([`Peer::bootstrap`](crate::Peer::bootstrap),
+/// ([`Bootstrap::join`](crate::Bootstrap::join),
 /// [`Rumors::gossip`](crate::Rumors::gossip),
 /// [`Peer::retire`](crate::Peer::retire)) drive
 /// [`handshake`] and [`Handshaken::reconcile`] directly so they can dispatch

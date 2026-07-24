@@ -139,7 +139,8 @@
 //! });
 //!
 //! // ...and Bob joins the universe through it, arriving as a full replica.
-//! let bob = Peer::<String>::bootstrap(&mut near)
+//! let bob = Peer::<String>::bootstrap()
+//!     .join(&mut near)
 //!     .await?
 //!     .expect("alice is established, not herself bootstrapping");
 //! let bob = bob.into_rumors();
@@ -211,7 +212,7 @@
 //! [`Protocol::V2`] is the default; `Protocol::V1` (behind the `protocol-v1`
 //! cargo feature) can be selected on an established [`Peer`] with
 //! [`Peer::protocol`], or while joining with
-//! [`Peer::bootstrap_with_protocol`]. Both endpoints must select the same
+//! [`Bootstrap::protocol`]. Both endpoints must select the same
 //! protocol.
 //!
 //! # Stability and testing
@@ -266,8 +267,8 @@ pub use link::{Acceptor, Connector, Link};
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
-    DEFAULT_SYNC_MEMORY_BUDGET, DEFAULT_TARGET_MESSAGE_SIZE, Gossiped, Led, Peer, Retire,
-    Unbookmarked,
+    BookmarkedBootstrap, Bootstrap, DEFAULT_SYNC_MEMORY_BUDGET, DEFAULT_TARGET_MESSAGE_SIZE,
+    Gossiped, Joined, Led, Peer, Retire, Unbookmarked,
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};

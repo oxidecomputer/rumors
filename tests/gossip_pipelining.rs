@@ -73,7 +73,9 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<u64>::bootstrap_with_protocol(Protocol::V2, &mut newcomer),
+            Peer::<u64>::bootstrap()
+                .protocol(Protocol::V2)
+                .join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined

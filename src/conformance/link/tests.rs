@@ -1020,8 +1020,11 @@ fn starved_pool_degrades_latency_not_liveness() {
     let (mut a, mut b) = windowed_pair(64, POOLED_STREAM_CAPACITY);
     run_to_quiescence(async {
         let seed: crate::Rumors<u64> = crate::Peer::seed().sync_window_floor().into_rumors();
-        let (served, joined) =
-            futures::future::join(seed.gossip(&mut a), crate::Peer::<u64>::bootstrap(&mut b)).await;
+        let (served, joined) = futures::future::join(
+            seed.gossip(&mut a),
+            crate::Peer::<u64>::bootstrap().join(&mut b),
+        )
+        .await;
         served.expect("the bootstrap-serving session completes");
         let newcomer = joined
             .expect("the bootstrap session completes")

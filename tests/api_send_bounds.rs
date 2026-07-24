@@ -47,11 +47,11 @@ fn gossip_future_is_send() {
     drop(fut);
 }
 
-/// `Peer::bootstrap`'s future is `Send`: joining can be `tokio::spawn`ed.
+/// `Bootstrap::join`'s future is `Send`: joining can be `tokio::spawn`ed.
 #[test]
 fn bootstrap_future_is_send() {
     let (mut link, _peer) = rumors::link::memory();
-    let fut = Peer::<String>::bootstrap(&mut link);
+    let fut = Peer::<String>::bootstrap().join(&mut link);
     require_send(&fut);
     drop(fut);
 }

@@ -420,7 +420,7 @@ async fn child_main(addr: String) -> i32 {
             .expect("connect for faulty bootstrap");
         let link = tcp::link(socket).await.expect("swap listener ports");
         let mut link = fault::faulty_link(link, boot);
-        match Peer::<u64>::bootstrap(&mut link).await {
+        match Peer::<u64>::bootstrap().join(&mut link).await {
             Ok(Some(k)) => known = Some(k.sync_window_floor()),
             Ok(None) => panic!("the parent never bootstraps"),
             Err(e) => {
@@ -436,7 +436,8 @@ async fn child_main(addr: String) -> i32 {
                 .await
                 .expect("connect for bootstrap");
             let mut link = tcp::link(socket).await.expect("swap listener ports");
-            Peer::<u64>::bootstrap(&mut link)
+            Peer::<u64>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("clean bootstrap")
                 .expect("the parent serves every bootstrap")

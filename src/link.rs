@@ -3,7 +3,7 @@
 //! A [`Link`] is one long-lived connection between two replicas. Every wire
 //! session — [`gossip`](crate::Rumors::gossip), each session driven by
 //! [`gossip_when`](crate::Rumors::gossip_when),
-//! [`bootstrap`](crate::Peer::bootstrap), and
+//! [`bootstrap`](crate::Bootstrap::join), and
 //! [`retire`](crate::Peer::retire) — runs on a link, one session at a time.
 //!
 //! A link bundles three transport roles:
@@ -206,7 +206,7 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///   repair. "Unchanged" has three qualified exceptions, stated where they
 ///   arise: the post-commit [`Error::Epilogue`](crate::Error::Epilogue)
 ///   above; a bootstrap donation lost in flight, which costs the
-///   donated id-region ([`Peer::bootstrap`](crate::Peer::bootstrap)); and a
+///   donated id-region ([`Bootstrap::join`](crate::Bootstrap::join)); and a
 ///   bookmark persist failing after a retiring peer's identity is absorbed,
 ///   which leaves the session committed with the absorption not yet
 ///   crash-safe ([`Error::Bookmark`](crate::Error::Bookmark)).

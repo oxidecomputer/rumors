@@ -484,7 +484,9 @@ fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
         let (mut parent_link, mut newcomer_link) = rumors::link::memory_with_capacity(CAPACITY);
         let (served, newcomer) = tokio::join!(
             parent.gossip(&mut parent_link),
-            Peer::<u64>::bootstrap_with_protocol(Protocol::V2, &mut newcomer_link),
+            Peer::<u64>::bootstrap()
+                .protocol(Protocol::V2)
+                .join(&mut newcomer_link),
         );
         served.expect("serve bootstrap");
         newcomer

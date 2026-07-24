@@ -1,5 +1,6 @@
-//! End-to-end coverage of [`rumors::Peer::target_message_size`]: the knob
-//! threads from the public builder into the greeting, the session runs at
+//! End-to-end coverage of [`rumors::Peer::target_message_size`] and its
+//! bootstrap-time twin [`rumors::Bootstrap::target_message_size`]: the knob
+//! threads from the public builders into the greeting, the session runs at
 //! the exchanged minimum of the two sides' settings, any minimum (including
 //! the degenerate zero) leaves reconciliation convergent, and the minimum
 //! binds both encoders regardless of which side advertised it.
@@ -8,9 +9,9 @@ mod common;
 
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::{DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
+use rumors::{Bootstrap, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
 
-use crate::common::gossip_snapshot::capture_gossip;
+use crate::common::gossip_snapshot::{capture_gossip, capture_session};
 use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 
 /// Messages each side originates after the fork: enough for multi-leaf
@@ -244,5 +245,115 @@ fn nonzero_minimum_binds_both_encoders() {
         "side A advertises the default but must supply at the remote small \
          minimum: under own-setting sizing this cell's a_to_b count would \
          match the uniform-default cell's"
+    );
+}
+
+/// A deterministically seeded, populated provider: the same corpus for
+/// every bootstrap capture, so their supply-frame counts are comparable.
+fn seeded_provider() -> Rumors<u64> {
+    let provider = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .sync_window_floor()
+        .into_rumors();
+    let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
+    for _ in 0..DIVERGENT_PER_SIDE {
+        provider.send(rng.next_u64());
+    }
+    provider
+}
+
+/// Capture one bootstrap session's wire traffic: `provider` serves via
+/// `gossip` while a newcomer joins under `config`.
+fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
+    capture_session(
+        move |mut link| async move {
+            provider
+                .gossip(&mut link)
+                .await
+                .expect("the provider serves the bootstrap");
+        },
+        move |mut link| async move {
+            config
+                .join(&mut link)
+                .await
+                .expect("the bootstrap session completes")
+                .expect("the provider is established, not itself bootstrapping");
+        },
+    )
+}
+
+/// A budget far from [`rumors::DEFAULT_SYNC_MEMORY_BUDGET`]'s 512 MiB, so
+/// the wire-equality pin below cannot pass by the two configurations
+/// coinciding.
+const OFF_DEFAULT_BUDGET: usize = 1024 * 1024;
+
+/// A configured sync memory budget leaves the bootstrap wire byte-identical
+/// to the default's: the budget is deliberately not wire-visible, so peers
+/// with different budgets interoperate.
+///
+/// The same seeded provider serves the same corpus to a default-budget
+/// newcomer and to one advertising [`OFF_DEFAULT_BUDGET`]; the full wire
+/// capture (both directions) must be equal byte for byte. This pins the
+/// structural guarantee that the greeting does not carry the budget —
+/// each session derives its window locally from the exchanged sizes — so
+/// a regression that leaks the budget onto the wire fails here rather
+/// than surfacing as an interoperability break between fleets rolled out
+/// with different budgets. The negative control proves the comparator has
+/// teeth: under the identical harness, a knob that *is* wire-visible
+/// (the greeting carries the message-size target) must change the
+/// capture, so a comparator bug that always reports equality fails the
+/// control.
+#[test]
+fn sync_memory_budget_is_not_wire_visible() {
+    let default_budget = capture_bootstrap(seeded_provider(), Peer::<u64>::bootstrap());
+    let custom_budget = capture_bootstrap(
+        seeded_provider(),
+        Peer::<u64>::bootstrap().sync_memory_budget(OFF_DEFAULT_BUDGET),
+    );
+    assert_eq!(
+        default_budget, custom_budget,
+        "a configured sync memory budget must not change one wire byte of the session",
+    );
+
+    // Negative control: the same harness must be able to see a difference.
+    let custom_target = capture_bootstrap(
+        seeded_provider(),
+        Peer::<u64>::bootstrap().target_message_size(0),
+    );
+    assert_ne!(
+        default_budget, custom_target,
+        "the wire-visible target knob must change the capture: an equality here \
+         means the comparator cannot distinguish sessions at all",
+    );
+}
+
+/// A newcomer's [`Bootstrap::target_message_size`] genuinely reaches the
+/// bootstrap greeting and binds the *provider's* encoder, which no
+/// post-bootstrap knob could show.
+///
+/// The same seeded provider serves the same corpus twice: to a newcomer
+/// advertising a zero target (batching forbidden: one leaf per supply
+/// frame) and to an unconfigured newcomer (the default target batches each
+/// supplied subtree's leaves into runs). The zero-target join must draw
+/// strictly more supply frames out of the provider. The default-target
+/// capture is the negative control: if the builder's advertisement never
+/// reached the greeting, both sessions would run at the provider's own
+/// setting and the two counts would be equal, failing the strict
+/// inequality.
+#[test]
+fn bootstrap_advertisement_binds_the_provider() {
+    let unbatched = capture_bootstrap(
+        seeded_provider(),
+        Peer::<u64>::bootstrap().target_message_size(0),
+    );
+    let batched = capture_bootstrap(seeded_provider(), Peer::<u64>::bootstrap());
+    let (unbatched_frames, batched_frames) = (supply_frames(&unbatched), supply_frames(&batched));
+    assert!(
+        batched_frames > 0,
+        "a populated bootstrap must supply at least one run"
+    );
+    assert!(
+        unbatched_frames > batched_frames,
+        "a zero bootstrap advertisement must forbid the provider's batching: \
+         {unbatched_frames} supply frames vs {batched_frames} batched"
     );
 }

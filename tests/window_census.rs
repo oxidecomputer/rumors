@@ -54,7 +54,9 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<u64>::bootstrap_with_protocol(Protocol::V2, &mut newcomer),
+            Peer::<u64>::bootstrap()
+                .protocol(Protocol::V2)
+                .join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined
@@ -162,7 +164,9 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             right.gossip(&mut provider),
-            Peer::<u64>::bootstrap_with_protocol(Protocol::V2, &mut newcomer),
+            Peer::<u64>::bootstrap()
+                .protocol(Protocol::V2)
+                .join(&mut newcomer),
         );
         served.expect("serve third bootstrap");
         joined
@@ -195,7 +199,9 @@ fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
         let (mut serving, mut joining) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             provider.gossip(&mut serving),
-            Peer::<u64>::bootstrap_with_protocol(Protocol::V2, &mut joining),
+            Peer::<u64>::bootstrap()
+                .protocol(Protocol::V2)
+                .join(&mut joining),
         );
         served.expect("serve swarm bootstrap");
         joined

@@ -200,7 +200,7 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
     let (mut s_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (s, n) = tokio::join!(
         subject.gossip(&mut s_link),
-        Peer::<u64>::bootstrap(&mut n_link),
+        Peer::<u64>::bootstrap().join(&mut n_link),
     );
     s.expect("subject serve bootstrap");
     n.expect("bootstrap handshake")
@@ -216,7 +216,7 @@ async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
     let (mut o_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (o, n) = tokio::join!(
         origin.gossip(&mut o_link),
-        Peer::<u64>::bootstrap(&mut n_link),
+        Peer::<u64>::bootstrap().join(&mut n_link),
     );
     o.expect("origin serves the bootstrap");
     n.expect("bootstrap handshake")
