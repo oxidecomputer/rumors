@@ -2217,10 +2217,19 @@ identical runs): `skyline_grow_alt_spine` (125k alternating spine
 under the seed — the frame-count adversary: heap 276,252 B on a
 46,877 B input, ~5.9 B/B total transient including the route and
 the output stream, against ~32 B/B for one 16-byte machine frame
-per level), `skyline_grow_id_spine` (250k unary id over the empty
-version: the Expand scan plus mandatory chain output),
-`skyline_grow_cross` (both spines), all three at zero grown
-segments. Kills unchanged: the three grow cells stay red until C2
+per level), `skyline_grow_probe_alt_spine` (the probe alone, route
+pre-allocated outside the measurement through the meter-only
+`Probe` handle: heap 229,376 B, limb column 0, scan exactly 1.0×
+input bits — the deep-spine stack pin, landing at ~3.3 live stack
+bits per input bit / 4.9 B/B with allocator growth; a dated
+correction to this item's derived 0.5–3 b/b frame accounting and
+its ≤ ~1 B/B acceptance shorthand, whose low end assumed keyless
+frames — the stored key deltas plus the deferred costs price ~10
+bits against the adversary's ~3-bit levels, and the load-bearing
+16 B/B ceiling is cleared better than 3×), `skyline_grow_id_spine`
+(250k unary id over the empty version: the Expand scan plus
+mandatory chain output), `skyline_grow_cross` (both spines), all
+four at zero grown segments. Kills unchanged: the three grow cells stay red until C2
 routes `tick` here, per this item's realized-at-C2 recording;
 `fill` stays at C2 with the tick splice per P3.6's 2026-07-23
 amendment (grow rides alone pre-flip; at C2 `tick` = fill's sweep

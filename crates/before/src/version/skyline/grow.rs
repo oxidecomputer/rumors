@@ -167,6 +167,35 @@ pub fn grow(ev: &Encoded, id: &crate::Party) -> Encoded {
     }
 }
 
+/// A grow probe with its route storage pre-allocated, so the
+/// resource-envelope suite can measure the probe's transient frame
+/// stacks alone.
+///
+/// Production callers use [`grow`], which allocates and discards the
+/// route internally. This handle exists because the route — one bit per
+/// input bit, by design — would otherwise dominate a measurement whose
+/// subject is the probe's per-level frame state, the quantity the
+/// deep-spine stack pin bounds.
+pub struct Probe(Route);
+
+impl Probe {
+    /// Pre-allocate route storage sized to the two operands.
+    pub fn for_operands(ev: &Encoded, id: &crate::Party) -> Self {
+        Probe(Route::new(id.as_bits().len(), ev.bits))
+    }
+
+    /// Run the probe over the operands, filling the pre-allocated route.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the event operand is not a canonical skyline stream or
+    /// declares more live bits than its bytes hold, exactly as [`grow`]
+    /// does; the operands must be the pair the storage was sized for.
+    pub fn run(&mut self, ev: &Encoded, id: &crate::Party) {
+        probe(live_bits(&ev.bytes, ev.bits), id.as_bits(), &mut self.0);
+    }
+}
+
 /// Which `(id, event)` shape a `grow` branch node has — fixes its cost
 /// formula, its [`Route`] keying side, and the regime beneath it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

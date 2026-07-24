@@ -1311,6 +1311,7 @@ mod grow_env {
     use super::{sweep_envelope, SweepEnvelope};
     //                                                                peak heap, segments, limb ops,  scan bits            measured: peak heap, segments, limb ops, scan bits
     pub const SKYLINE_GROW_ALT_SPINE: SweepEnvelope  = sweep_envelope(  345_315,        0,        10, 1_406_282); //  276_252, 0,       8, 1_125_025
+    pub const SKYLINE_GROW_PROBE_ALT_SPINE: SweepEnvelope = sweep_envelope(286_720,      0,         0,   468_760); //  229_376, 0,       0,   375_008
     pub const SKYLINE_GROW_ID_SPINE: SweepEnvelope   = sweep_envelope(  487_727,        0,   625_015, 2_812_519); //  390_181, 0, 500_012, 2_250_015
     pub const SKYLINE_GROW_CROSS: SweepEnvelope      = sweep_envelope(  669_830,        0,   625_010, 4_218_777); //  535_864, 0, 500_008, 3_375_021
 }
@@ -1319,6 +1320,26 @@ mod grow_env {
 /// packed id.
 fn grow_input_bytes(ev: &meter::skyline::Encoded, id: &Party) -> usize {
     ev.bytes.len() + id.encoded_bits().div_ceil(8)
+}
+
+/// The probe alone on the frame-count adversary stays within its
+/// envelope: the alternating spine packs one branch node into ~4 stream
+/// bits, so this row's heap ceiling is the direct pin on the probe's
+/// per-level frame state (the route is pre-allocated outside the
+/// measurement) — bits per level, about one byte of stack per input
+/// byte, where machine-word frames would cost ~32.
+#[test]
+fn skyline_grow_probe_alt_spine_envelope() {
+    let v = version_of(&meter::alt_spine(DENSE_DEPTH));
+    let party = Party::seed();
+    let a = meter::skyline::encode(&v);
+    let mut probe = meter::skyline::grow::Probe::for_operands(&a, &party);
+    sweep_metered(
+        "skyline_grow_probe_alt_spine",
+        grow_input_bytes(&a, &party),
+        &grow_env::SKYLINE_GROW_PROBE_ALT_SPINE,
+        || probe.run(&a, &party),
+    );
 }
 
 /// Growing the alternating spine's skyline under the seed party stays
