@@ -18,7 +18,7 @@ fn mirror_merge(a: Root<()>, b: Root<()>) -> Root<()> {
         let r = local::Exchange::start(b);
         match mirror(l, r).await {
             Ok((merged, _)) => merged,
-            Err(e) => match e {},
+            Err(e) => panic!("honest oracle endpoints speak no violations: {e}"),
         }
     })
 }

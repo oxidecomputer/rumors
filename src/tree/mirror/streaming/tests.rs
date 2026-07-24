@@ -164,10 +164,9 @@ fn alternating_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
     pollster::block_on(async {
         let local_a = alternating::local::Exchange::start(a);
         let local_b = alternating::local::Exchange::start(b);
-        match alternating::mirror(local_a, local_b).await {
-            Err(e) => match e {},
-            Ok(pair) => pair,
-        }
+        alternating::mirror(local_a, local_b)
+            .await
+            .expect("two honest oracle endpoints speak no violations")
     })
 }
 
@@ -235,31 +234,36 @@ fn honors_redaction_under_leaf_parent_dispute() {
     }
 }
 
-/// Pins the streaming half of the ingestion hole this branch closes: a
-/// supplied leaf whose version escapes the sender's declared greeting
-/// version is absorbed without complaint.
+/// A supplied leaf whose version escapes the sender's declared greeting
+/// version fails the streaming session with a typed violation instead of
+/// being absorbed.
 ///
-/// The supply/decode path validates leaf scope and ordering but never that
-/// a supplied subtree's versions are causally contained in the sender's
-/// declared version, and the session ceiling joins the two declared
-/// versions alone — so the escaped leaf lands above the receiver's ceiling,
-/// where no redact or deletion filter ever reaches it (the alternating
-/// twin, `uncontained_supply_is_absorbed_and_becomes_immortal`, pins those
-/// downstream legs).
+/// The declared version of an honest replica contains every version it
+/// transmits, so this shape marks a nonconforming implementation. Absorbed,
+/// the escaped leaf would sit above every replica's session ceiling —
+/// unredactable and re-shipped forever (the mechanism is pinned at the
+/// tree tier by `escaped_version_defeats_redaction_in_a_poisoned_store`).
+/// The wire twin (`uncontained_supply_is_rejected_at_the_wire`) drives the
+/// same rejection through the frame codec and supply decoder.
 #[test]
-fn uncontained_supply_is_absorbed_by_streaming() {
-    let (victim, poisoned, path, escaped) = uncontained_supply_pair();
-    let (ours, _theirs) = streaming_mirror_sides(victim, poisoned);
-    let key = crate::tree::Key::from(path);
+fn uncontained_supply_is_rejected_by_streaming() {
+    use crate::tree::mirror::streaming::materialized::{Error, Violation};
+
+    let (victim, poisoned, _, _) = uncontained_supply_pair();
+    let (victim, poisoned): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
+        (victim.into(), poisoned.into());
+    let client = Handshaking::start(Local, victim).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(Local, poisoned).window(WindowConfig::FLOOR);
+    let result = run_to_quiescence(drive_streaming(client, server))
+        .expect("the rejecting session becomes quiescent");
     assert!(
-        ours.root
-            .as_ref()
-            .is_some_and(|root| root.get(key.as_bytes()).is_some()),
-        "the escaped leaf is absorbed",
-    );
-    assert!(
-        !(escaped <= ours.ceiling),
-        "the converged ceiling never covers the escaped leaf",
+        matches!(
+            result,
+            Err(MirrorError::Client(Error::Violation(
+                Violation::UncontainedSupply
+            ))),
+        ),
+        "the receiving side rejects the escaped leaf",
     );
 }
 

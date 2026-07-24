@@ -1222,11 +1222,20 @@ fn streaming_error(
     Error::Mirror(error)
 }
 
-/// Collapse the alternating oracle's infallible local side to its wire error.
+/// Route a V1 session failure to the public error surface.
+///
+/// The local participant's only failure mode is a diagnosed peer
+/// violation, which surfaces through the same
+/// [`MaterializedViolation`](crate::error::MaterializedViolation) taxonomy
+/// V2 sessions use; the wire proxy's errors are already public.
 #[cfg(any(test, feature = "protocol-v1"))]
-fn alternating_error(error: tree::mirror::Error<std::convert::Infallible, Error>) -> Error {
+fn alternating_error(
+    error: tree::mirror::Error<crate::error::MaterializedViolation, Error>,
+) -> Error {
     match error {
-        tree::mirror::Error::Client(never) => match never {},
+        tree::mirror::Error::Client(violation) => Error::Mirror(tree::mirror::Error::Client(
+            materialized::Error::Violation(violation),
+        )),
         tree::mirror::Error::Server(error) => error,
     }
 }

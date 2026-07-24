@@ -1083,3 +1083,49 @@ proptest! {
         prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
     }
 }
+
+/// An escaped version already resident in a store defeats redaction and
+/// survives every merge: the mechanism that session ingestion enforcement
+/// exists to keep out.
+///
+/// With a leaf whose version dominates the tree's ceiling (the shape only
+/// a nonconforming implementation can transmit, and which ingestion now
+/// rejects as `UncontainedSupply`), a forget of its key ticks from the
+/// ceiling and is dropped by the causally-prior skip in `traverse::act`,
+/// and the deletion filter never classifies the leaf deleted, so a merge
+/// re-plants it in a replica that lacks it. This pins why enforcement
+/// must happen at ingestion: once resident, the record is immortal.
+#[test]
+fn escaped_version_defeats_redaction_in_a_poisoned_store() {
+    let (victim, poisoned, path, escaped) = super::arb::uncontained_supply_pair();
+    let victim_party = super::arb::nth_party(0);
+    let key = Key::from(path);
+
+    // Plant the escaped leaf by in-memory join: `Tree::join` is a local
+    // merge, not wire ingestion, so no session tripwire guards it.
+    let mut tree = Tree { root: victim };
+    tree.join(Tree { root: poisoned });
+    assert!(tree.get(&key).is_some(), "the join plants the escaped leaf");
+    assert!(
+        !mirror::contained(&escaped, tree.latest()),
+        "the merged ceiling never covers the escaped version",
+    );
+
+    // Redaction is silently skipped: the forget's version ticks from the
+    // ceiling, which the escaped version strictly dominates.
+    tree.act(&victim_party, [Action::Forget(key)]);
+    assert!(
+        tree.get(&key).is_some(),
+        "redacting the escaped leaf is silently skipped",
+    );
+
+    // And the leaf re-propagates: a fresh replica that never held it
+    // receives it on merge, because no ceiling ever classifies it as
+    // already-seen-and-deleted.
+    let mut fresh: Tree<()> = Tree::new();
+    fresh.join(tree);
+    assert!(
+        fresh.get(&key).is_some(),
+        "the escaped leaf re-plants into a fresh replica",
+    );
+}

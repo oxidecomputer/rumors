@@ -26,6 +26,18 @@ pub(crate) mod framing;
 pub(crate) mod handshake;
 pub(crate) mod party;
 
+/// Whether `bound` is causally contained in `declared`: the version-
+/// containment predicate both protocols enforce on supplied subtrees at
+/// ingestion.
+///
+/// Named because version order is partial and the callers branch on the
+/// *negation*: a bound that is incomparable with the declared version is
+/// just as uncontained as one strictly above it, which a bare `!(a <= b)`
+/// reads as easily getting wrong.
+pub(crate) fn contained(bound: &crate::Version, declared: &crate::Version) -> bool {
+    bound <= declared
+}
+
 /// An error during mirroring, from either the client or the server position.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error<C, S> {

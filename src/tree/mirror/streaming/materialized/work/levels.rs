@@ -13,8 +13,9 @@ use super::{Work, answer, assembly::assemble, queues::*, resolver::Resolver};
 #[cfg(test)]
 use crate::tree::mirror::streaming::materialized::progress;
 use crate::tree::{
+    mirror::contained,
     mirror::streaming::{
-        Backend, Leaf, Root,
+        Backend, Leaf, Node, Root,
         materialized::{
             Error, OkReceiverStream, Query, Resolution, Resolve, Violation,
             channel::{Receiver, Sender},
@@ -190,6 +191,12 @@ where
                 let message::Reaction::Supply(radix, node) = reaction else {
                     return violation(Violation::UnexpectedQuery)?;
                 };
+                // Early supplies are absorbed here, ahead of the descent's
+                // resolver, so they pass the same containment check every
+                // other supply does.
+                if !contained(node.ceiling(), &their_version) {
+                    return violation(Violation::UncontainedSupply)?;
+                }
                 let children =
                     children_of(&backend, Prefix::new().push(radix), node).await?;
                 early.push((radix, children));
@@ -315,7 +322,7 @@ where
                     }
                 }
 
-                let mut resolver = Resolver::new(query);
+                let mut resolver = Resolver::new(query, &their_version);
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -428,7 +435,7 @@ where
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver = Resolver::new(query);
+                let mut resolver = Resolver::new(query, &their_version);
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -504,7 +511,7 @@ where
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver = Resolver::new(query);
+                let mut resolver = Resolver::new(query, &their_version);
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;

@@ -1,4 +1,4 @@
-//! Version-containment ingestion behavior over the full wire stack.
+//! Version-containment enforcement over the full wire stack.
 
 use futures::join;
 
@@ -8,11 +8,14 @@ use crate::tree::arb::uncontained_supply_pair;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
     Root as TreeRoot,
-    mirror::streaming::{
-        Local, Root,
-        materialized::Handshaking,
-        mirror,
-        remote::Handshaking as RemoteHandshaking,
+    mirror::{
+        Error as MirrorError,
+        streaming::{
+            Local, Root,
+            materialized::{Error as MaterializedError, Handshaking, Violation},
+            mirror,
+            remote::Handshaking as RemoteHandshaking,
+        },
     },
 };
 
@@ -42,29 +45,49 @@ async fn reconcile_results(
     )
 }
 
-/// Pins the wire half of the streaming ingestion hole this branch closes: a
-/// supplied leaf whose version escapes the sender's declared greeting
-/// version decodes and is absorbed on the receiving side.
+/// A supplied leaf whose version escapes the sender's declared greeting
+/// version fails the session with a typed violation after crossing a real
+/// link.
 ///
-/// The frame codec and the supply decoder validate leaf scope and ordering
-/// but never version containment against the greeting, so the escaped leaf
-/// crosses a real link intact; the in-process twin
-/// (`uncontained_supply_is_absorbed_by_streaming`) pins the same absorption
-/// without the wire, and the alternating oracle's twin pins the downstream
-/// immortality legs.
+/// The enforcement holds through the frame codec and supply decoder, not
+/// only in process. The victim's endpoint reports the violation from its own materialized
+/// participant in either endpoint position; the sender's endpoint is left
+/// to whatever its aborted transport surfaces, which is not this
+/// tripwire's concern. The in-process twin is
+/// `uncontained_supply_is_rejected_by_streaming`.
 #[test]
-fn uncontained_supply_crosses_the_wire() {
-    let (victim, poisoned, path, _escaped) = uncontained_supply_pair();
-    let key = crate::tree::Key::from(path);
-    let (victim_out, poisoned_out) = run_to_quiescence(reconcile_results(victim, poisoned))
-        .expect("the session becomes quiescent");
-    let victim_out = victim_out.expect("the victim's session completes");
-    let _ = poisoned_out.expect("the sender's session completes");
-    assert!(
-        victim_out
-            .root
-            .as_ref()
-            .is_some_and(|root| root.get(key.as_bytes()).is_some()),
-        "the escaped leaf decodes and is absorbed over the wire",
-    );
+fn uncontained_supply_is_rejected_at_the_wire() {
+    // Victim in the left endpoint position: its materialized participant
+    // is the mirror's client.
+    {
+        let (victim, poisoned, _, _) = uncontained_supply_pair();
+        let (victim_out, _poisoned_out) = run_to_quiescence(reconcile_results(victim, poisoned))
+            .expect("the rejecting session becomes quiescent");
+        assert!(
+            matches!(
+                victim_out,
+                Err(MirrorError::Client(MaterializedError::Violation(
+                    Violation::UncontainedSupply
+                ))),
+            ),
+            "the receiving side rejects the escaped leaf over the wire",
+        );
+    }
+
+    // Victim in the right endpoint position: its materialized participant
+    // is the mirror's server.
+    {
+        let (victim, poisoned, _, _) = uncontained_supply_pair();
+        let (_poisoned_out, victim_out) = run_to_quiescence(reconcile_results(poisoned, victim))
+            .expect("the rejecting session becomes quiescent");
+        assert!(
+            matches!(
+                victim_out,
+                Err(MirrorError::Server(MaterializedError::Violation(
+                    Violation::UncontainedSupply
+                ))),
+            ),
+            "the rejection is position-independent",
+        );
+    }
 }

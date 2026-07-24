@@ -36,6 +36,7 @@ enum Injection {
     UnexpectedQuery,
     UnexpectedSupply,
     InvalidSupply,
+    UncontainedSupply,
 }
 
 impl Injection {
@@ -48,6 +49,7 @@ impl Injection {
             Self::UnexpectedQuery => Violation::UnexpectedQuery,
             Self::UnexpectedSupply => Violation::UnexpectedSupply,
             Self::InvalidSupply => Violation::InvalidSupply,
+            Self::UncontainedSupply => Violation::UncontainedSupply,
         }
     }
 }
@@ -61,6 +63,7 @@ fn arb_injection() -> impl Strategy<Value = Injection> {
         Just(Injection::UnexpectedQuery),
         Just(Injection::UnexpectedSupply),
         Just(Injection::InvalidSupply),
+        Just(Injection::UncontainedSupply),
     ]
 }
 
@@ -84,12 +87,22 @@ where
     }
 }
 
-/// Build one malformed reply script at query height `H`.
+/// Build one malformed reply script at query height `H`, with the version
+/// the scripted counterparty is taken to have declared.
+///
+/// The declared version is snapshotted after every honest node is built,
+/// so containment never preempts the structural fault under injection; the
+/// `UncontainedSupply` script alone ticks past the snapshot.
+#[allow(clippy::type_complexity)]
 fn violation_script<H>(
     injection: Injection,
     parent: u8,
     radixes: &BTreeSet<u8>,
-) -> (Option<Query<Local, (), H>>, Vec<Reply<Local, (), H>>)
+) -> (
+    Option<Query<Local, (), H>>,
+    Vec<Reply<Local, (), H>>,
+    Version,
+)
 where
     H: TestHeight,
     S<H>: Height,
@@ -100,6 +113,8 @@ where
         .map(|&radix| (radix, H::node(&mut version)))
         .collect::<Vec<_>>();
     let supplied = H::node(&mut version);
+    let declared = version.clone();
+    let escaped = H::node(&mut version);
     let mut path = [0; 32];
     path[0] = parent;
     let prefix = Prefix::<S<H>>::containing(&Path::from(path));
@@ -113,7 +128,7 @@ where
             .take(ours.len())
             .collect::<Vec<_>>()
     };
-    match injection {
+    let (query, replies) = match injection {
         Injection::UnaskedReply => (
             None,
             vec![Reply {
@@ -163,7 +178,22 @@ where
                 }],
             )
         }
-    }
+        Injection::UncontainedSupply => {
+            // Structurally a legal supply — the query holds nothing, the
+            // radix is fresh — so only the version escape is at fault.
+            let radix = *radixes.first().expect("the strategy produces a child");
+            (
+                Some(Query {
+                    prefix,
+                    ours: Vec::new(),
+                }),
+                vec![Reply {
+                    replies: vec![Reaction::Supply(radix, escaped)],
+                }],
+            )
+        }
+    };
+    (query, replies, declared)
 }
 
 /// Put the script's optional outstanding query into the walk's pairing queue.
@@ -211,22 +241,21 @@ trait InjectHeight: TestHeight {
 
 impl InjectHeight for Z {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
-        let (query, requests) = violation_script::<Self>(injection, parent, radixes);
+        let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
         let mut work = Work::new(Local, Window::FLOOR);
-        let (responses, _resolutions) =
-            work.leaf_level(Version::new(), stream::iter(requests), queries);
+        let (responses, _resolutions) = work.leaf_level(declared, stream::iter(requests), queries);
         reported_violation(work, responses)
     }
 }
 
 impl InjectHeight for S<Z> {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
-        let (query, requests) = violation_script::<Self>(injection, parent, radixes);
+        let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
         let mut work = Work::new(Local, Window::FLOOR);
         let (responses, _asked, _upper, _lower) =
-            work.leaf_parent_level(Version::new(), stream::iter(requests), queries);
+            work.leaf_parent_level(declared, stream::iter(requests), queries);
         reported_violation(work, responses)
     }
 }
@@ -239,11 +268,11 @@ where
     S<S<S<H>>>: Height,
 {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
-        let (query, requests) = violation_script::<Self>(injection, parent, radixes);
+        let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
         let mut work = Work::new(Local, Window::FLOOR);
         let (responses, _asked, _upper, _lower) =
-            work.internal_level::<H>(Version::new(), None, None, stream::iter(requests), queries);
+            work.internal_level::<H>(declared, None, None, stream::iter(requests), queries);
         reported_violation(work, responses)
     }
 }

@@ -86,7 +86,7 @@ where
                 let local_a = local::Exchange::start(a);
                 let local_b = local::Exchange::start(b);
                 match mirror(local_a, local_b).await {
-                    Err(e) => match e {},
+                    Err(e) => panic!("honest endpoints speak no violations: {e}"),
                     Ok((ours, theirs)) => {
                         assert_eq!(ours, theirs, "local-local endpoints should converge");
                         theirs
@@ -272,62 +272,64 @@ proptest! {
     }
 }
 
-/// Pins the ingestion hole this branch closes: a supplied leaf whose version
-/// escapes the sender's declared version is absorbed without complaint, the
-/// receiver's redact of it is silently skipped, and it re-ships onward — an
-/// immortal, unredactable record.
+/// A supplied leaf whose version escapes the sender's declared handshake
+/// version fails the session with a typed violation instead of being
+/// absorbed, in process and over the framed wire alike.
 ///
-/// Nothing validates that a provided subtree's versions are causally
-/// contained in the sender's declared handshake version, and the session
-/// ceiling is computed from the two declared versions alone, so the escaped
-/// leaf stays above every replica's ceiling forever: `traverse::act`'s
-/// causally-prior skip drops local forgets of it, and the deletion filter
-/// (`traverse::unknown`) never classifies it deleted. Both scenarios run so
-/// the wire decode path is pinned alongside the in-process one.
+/// The declared version of an honest replica contains every version it
+/// transmits, so this shape marks a nonconforming implementation. Absorbed,
+/// the escaped leaf would sit above every replica's session ceiling —
+/// unredactable and re-shipped forever (the mechanism is pinned at the
+/// tree tier by `escaped_version_defeats_redaction_in_a_poisoned_store`);
+/// rejection at ingestion is what keeps a conforming replica's store
+/// honest.
 #[test]
-fn uncontained_supply_is_absorbed_and_becomes_immortal() {
-    for scenario in SCENARIOS {
-        let (victim, poisoned, path, escaped) = uncontained_supply_pair();
-        let victim_party = nth_party(0);
+fn uncontained_supply_is_rejected() {
+    use crate::tree::mirror::{Error, streaming::materialized::Violation};
 
-        // (a) The session absorbs the escaped leaf on both sides.
-        let out = mirror_via(victim, poisoned, scenario);
-        let key = crate::tree::Key::from(path);
+    // In process: the victim's local exchange diagnoses the violation.
+    {
+        let (victim, poisoned, _, _) = uncontained_supply_pair();
+        let result = block_on(mirror(
+            local::Exchange::start(victim),
+            local::Exchange::start(poisoned),
+        ));
         assert!(
-            out.root
-                .as_ref()
-                .is_some_and(|root| root.get(key.as_bytes()).is_some()),
-            "{scenario:?}: the escaped leaf is absorbed",
+            matches!(result, Err(Error::Client(Violation::UncontainedSupply))),
+            "the receiving side rejects the escaped leaf",
         );
-        // The escape mechanism: the converged ceiling is the join of the two
-        // *declared* versions, so it does not contain the leaf's version.
-        assert!(
-            !(escaped <= out.ceiling),
-            "{scenario:?}: the converged ceiling never covers the escaped leaf",
-        );
+    }
 
-        // (b) A local redact of the escaped key is a silent no-op: the
-        // redact's version ticks from the converged ceiling, which the
-        // escaped version strictly dominates, so the causally-prior skip in
-        // `traverse::act` drops the forget.
-        let mut tree = crate::tree::Tree { root: out };
-        tree.act(&victim_party, [crate::tree::Action::Forget(key)]);
-        assert!(
-            tree.get(&key).is_some(),
-            "{scenario:?}: redacting the escaped leaf is silently skipped",
-        );
+    // Over the wire: the victim's endpoint reports the violation; the
+    // sender's endpoint fails with whatever the aborted transport surfaces.
+    {
+        let (victim, poisoned, _, _) = uncontained_supply_pair();
+        block_on(async move {
+            let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
+            let (a_r, a_w) = tokio::io::split(a_side);
+            let (b_r, b_w) = tokio::io::split(b_side);
 
-        // (c) The escaped leaf re-ships on the next session: a fresh replica
-        // that never held it receives it, because no declared version ever
-        // classifies it as already-seen-and-deleted.
-        let reshipped = mirror_via(tree.root, crate::tree::Root::default(), scenario);
-        assert!(
-            reshipped
-                .root
-                .as_ref()
-                .is_some_and(|root| root.get(key.as_bytes()).is_some()),
-            "{scenario:?}: the escaped leaf re-ships to a fresh replica",
-        );
+            let local_victim = local::Exchange::start(victim);
+            let remote_b = remote::Exchange::start(FrameRead::new(a_r), FrameWrite::new(a_w));
+            let victim_side = mirror(local_victim, remote_b);
+
+            let local_poisoned = local::Exchange::start(poisoned);
+            let remote_a = remote::Exchange::start(FrameRead::new(b_r), FrameWrite::new(b_w));
+            let poisoned_side = mirror(local_poisoned, remote_a);
+
+            let (victim_result, poisoned_result) = tokio::join!(victim_side, poisoned_side);
+            assert!(
+                matches!(
+                    victim_result,
+                    Err(Error::Client(Violation::UncontainedSupply))
+                ),
+                "the receiving side rejects the escaped leaf over the wire",
+            );
+            assert!(
+                poisoned_result.is_err(),
+                "the sender's session dies with its counterparty",
+            );
+        });
     }
 }
 

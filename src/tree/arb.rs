@@ -366,12 +366,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
 /// receiver adopts, or the receiver's own later redact ticks — ever
 /// contains it. Returns the two roots plus the escaped leaf's
 /// content-addressed path and its version.
-pub fn uncontained_supply_pair() -> (
-    crate::tree::Root<()>,
-    crate::tree::Root<()>,
-    Path,
-    Version,
-) {
+pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>, Path, Version) {
     /// How far the escaped version outruns both declared ceilings, per
     /// party: an upper bound on the honest ticks a test performs after
     /// the pair is built.
@@ -410,7 +405,7 @@ pub fn uncontained_supply_pair() -> (
         escaped.tick(&sender_party);
     }
     assert!(
-        !(escaped <= declared),
+        !crate::tree::mirror::contained(&escaped, &declared),
         "the escaped version must not be contained in the declared version",
     );
 

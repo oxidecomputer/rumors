@@ -44,19 +44,48 @@ impl<P> Faulting<P> {
     }
 }
 
+/// One tick of the canonical test party: contained in any fixture ceiling
+/// whose tree ticked that party at least once.
+fn contained_version() -> Version {
+    let mut version = Version::new();
+    version.tick(&nth_party(0));
+    version
+}
+
+/// A version outside any fixture's declared ceiling: one tick on a party
+/// index no fixture ticks, so disjointness alone defeats containment.
+fn escaped_version() -> Version {
+    let mut version = Version::new();
+    version.tick(&nth_party(31));
+    version
+}
+
 /// Construct a valid supplied node at any reply height.
 trait FaultHeight: height::Height + Sized {
-    fn node() -> typed::Node<(), Self>;
+    /// A node whose single leaf carries `version`.
+    fn node_at(version: Version) -> typed::Node<(), Self>;
+
+    /// A node at the canonical contained version.
+    fn node() -> typed::Node<(), Self> {
+        Self::node_at(contained_version())
+    }
 }
 
 /// A backend whose test node handles can wrap the canonical local fixture.
 trait FaultBackend: Backend<(), Node<Z>: Leaf<()>> {
     fn node<H: FaultHeight>() -> Self::Node<H>;
+
+    /// A node whose version no fixture's declared ceiling contains.
+    fn escaped<H: FaultHeight>() -> Self::Node<H>;
 }
 
 impl FaultBackend for Local {
     fn node<H: FaultHeight>() -> Self::Node<H> {
         H::node()
+    }
+
+    fn escaped<H: FaultHeight>() -> Self::Node<H> {
+        H::node_at(escaped_version())
     }
 }
 
@@ -64,12 +93,14 @@ impl<B: FaultBackend> FaultBackend for Failing<B> {
     fn node<H: FaultHeight>() -> Self::Node<H> {
         FailingNode::new(B::node::<H>())
     }
+
+    fn escaped<H: FaultHeight>() -> Self::Node<H> {
+        FailingNode::new(B::escaped::<H>())
+    }
 }
 
 impl FaultHeight for height::Z {
-    fn node() -> typed::Node<(), Self> {
-        let mut version = Version::new();
-        version.tick(&nth_party(0));
+    fn node_at(version: Version) -> typed::Node<(), Self> {
         typed::Node::leaf(version, Message::new(()))
     }
 }
@@ -78,8 +109,8 @@ impl<H: FaultHeight> FaultHeight for height::S<H>
 where
     height::S<H>: height::Height,
 {
-    fn node() -> typed::Node<(), Self> {
-        typed::Node::beneath(H::node(), 0)
+    fn node_at(version: Version) -> typed::Node<(), Self> {
+        typed::Node::beneath(H::node_at(version), 0)
     }
 }
 
@@ -130,6 +161,16 @@ where
                 let node = B::node::<H>();
                 reply.replies.push(message::Reaction::Supply(0, node.clone()));
                 reply.replies.push(message::Reaction::Supply(0, node));
+            }
+            Violation::UncontainedSupply => {
+                // Appended past the honest reply, which covers the whole
+                // held fan, so the supply is structurally valid and only
+                // its escaped version is at fault. Radix 0xff assumes no
+                // fixture holds that child, which every current fixture
+                // satisfies.
+                reply
+                    .replies
+                    .push(message::Reaction::Supply(0xff, B::escaped::<H>()));
             }
             Violation::UnaskedReply | Violation::UnansweredQuery => unreachable!(),
         }

@@ -101,6 +101,7 @@
 use std::pin::pin;
 
 use crate::tree::{
+    mirror::contained,
     mirror::streaming::{
         Backend, Leaf, Node, Root,
         materialized::{unknown::Unknown, work::Work},
@@ -325,6 +326,10 @@ where
 /// themselves (height `Z`), not an assembled scope one height up, because
 /// nothing exists below a leaf to assemble from.
 pub struct Completing<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
+    /// The peer's declared greeting version: the containment bound every
+    /// supplied leaf is checked against
+    /// ([`Violation::UncontainedSupply`]).
+    their_version: Version,
     /// Where each requested leaf will sit, one per request, in order.
     queries: Receiver<Prefix<Z>>,
     /// The requested leaves' resolutions, in request order.
@@ -667,6 +672,7 @@ where
         (
             responses,
             Completing {
+                their_version: self.their_version,
                 queries,
                 returns,
                 work: self.work,
@@ -713,7 +719,12 @@ where
         self,
         requests: impl Requests<B, T, Z>,
     ) -> Result<Root<B, T>, Self::Error> {
-        let mut absorb = pin!(absorb(requests, self.queries, self.returns));
+        let mut absorb = pin!(absorb(
+            self.their_version,
+            requests,
+            self.queries,
+            self.returns
+        ));
         let mut finish = pin!(self.work.execute(self.finish));
 
         // Race rather than join: a violation in `absorb` must surface even
@@ -737,6 +748,7 @@ where
 /// final [`Reply`] and pass its provision up, prefix-less, like every
 /// return.
 async fn absorb<B, T>(
+    their_version: Version,
     requests: impl Requests<B, T, Z>,
     mut queries: Receiver<Prefix<Z>>,
     returns: Sender<Option<B::Node<Z>>>,
@@ -754,10 +766,16 @@ where
         // The last radix of the prefix is the one we expect to be supplied.
         let (_, expected) = prefix.pop();
 
-        // Only if we received exactly that radix paired with a leaf, do we absorb it.
+        // Only if we received exactly that radix paired with a leaf whose
+        // version the sender's declared version contains, do we absorb it.
         let supply = match replies.as_slice() {
             [] => None,
-            [Reaction::Supply(radix, leaf)] if *radix == expected => Some(leaf.clone()),
+            [Reaction::Supply(radix, leaf)] if *radix == expected => {
+                if !contained(leaf.ceiling(), &their_version) {
+                    return violation(Violation::UncontainedSupply);
+                }
+                Some(leaf.clone())
+            }
             [Reaction::Supply(_, _)] => return violation(Violation::InvalidSupply),
             _ => return violation(Violation::UnfinishedReply),
         };
