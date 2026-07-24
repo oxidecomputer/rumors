@@ -1,9 +1,10 @@
 use proptest::prelude::*;
 
 use super::{
-    DEFAULT_SYNC_MEMORY_BUDGET, FAN, FAN_SLOT_BYTES, KEY_DEPTH, LEAF_REQUEST_BYTES,
-    REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES, SCOPE_FIXED_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES,
-    Window, WindowConfig, children_quantile, jointly_occupied, occupied, stage_population,
+    DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_RECORD_BYTES, DISPUTE_OVERHEAD_BYTES, FAN, FAN_SLOT_BYTES,
+    KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES, SCOPE_FIXED_BYTES,
+    SPEC_BDP_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES, Window, WindowConfig, children_quantile,
+    jointly_occupied, occupied, stage_population,
 };
 use crate::link::STREAM_COUNT;
 
@@ -242,19 +243,68 @@ fn supply_decode_envelope_matches_the_charge() {
     );
 }
 
-/// The committed trade-off table is byte-identical to the closed form's
+/// The committed trade-off table is byte-identical to the derivation's
 /// rendering.
 ///
-/// Generation is deterministic pure arithmetic, so any drift between
-/// the pinned constants and the table the rustdoc includes fails here
-/// instead of shipping stale numbers; regenerate with
+/// Generation is deterministic — each row's window from the solve at
+/// the design session, each cell from the wave form — so any drift
+/// between the derivation and the table the rustdoc includes fails
+/// here instead of shipping stale numbers; regenerate with
 /// `just window-tradeoff`.
 #[test]
-fn tradeoff_table_matches_the_closed_form() {
+fn tradeoff_table_matches_the_derivation() {
     assert_eq!(
         include_str!("tradeoff.md"),
         crate::testing::window_tradeoff_table(),
         "src/tree/mirror/streaming/window/tradeoff.md is stale: run `just window-tradeoff`",
+    );
+}
+
+/// The crossover and BDP-scale u64 figures the docs quote are the
+/// solve's own numbers.
+///
+/// `m* = 51 B` (quoted at [`DEFAULT_SYNC_MEMORY_BUDGET`],
+/// `Peer::sync_memory_budget`, and the trade-off table header) is the
+/// smallest record size whose self-consistent corpus — the spec BDP in
+/// `m`-size records, per side — fits entirely inside the window the
+/// default budget derives at that corpus; the u64 column's BDP-scale
+/// corpus derives an 82,214-scope window, the quoted ~4.2× figure.
+/// Both are recomputed here from the derivation, so the quoted prose
+/// fails loudly instead of drifting when the solve or its constants
+/// change.
+#[test]
+fn default_crossover_matches_the_solve() {
+    let window_at = |corpus: u64| {
+        let window = Window::from_budget(
+            corpus,
+            corpus,
+            0,
+            0,
+            DEFAULT_SYNC_MEMORY_BUDGET,
+            local_node_bytes,
+        );
+        (0..=KEY_DEPTH)
+            .map(|height| window.capacity(height) as u64)
+            .max()
+            .expect("thirty-three heights")
+    };
+    let crossover = (1..=DESIGN_RECORD_BYTES).find(|&m| {
+        let corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + m)) as u64;
+        window_at(corpus) >= corpus
+    });
+    assert_eq!(
+        crossover,
+        Some(51),
+        "the default's self-consistent slowdown-1 crossover moved: update the figures \
+         quoted at DEFAULT_SYNC_MEMORY_BUDGET, Peer::sync_memory_budget, and the \
+         trade-off table header",
+    );
+    let u64_corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + 8)) as u64;
+    assert_eq!(
+        window_at(u64_corpus),
+        82_214,
+        "the u64 BDP-scale window moved: update the ~4.2x figure quoted at \
+         DEFAULT_SYNC_MEMORY_BUDGET and Peer::sync_memory_budget",
     );
 }
 

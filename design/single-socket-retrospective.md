@@ -49,7 +49,7 @@ wedges (every hard-stuck reproduced by the uncoupled control). A parallel Lean c
    decision.** Metering adapts within a stream; dividing one memory
    budget across seventeen per-stream windows requires a prior on
    level *simultaneity*. The uniformity analysis (harvested:
-   `b05-uniformity-envelope.md`) derives it — L(N) simultaneously
+   `examples/envelope_sim.rs`) derives it — L(N) simultaneously
    heavy levels for a declared set size N, smooth and monotone — and
    this applies directly to sizing the Link's per-stream transport
    receive windows, where the same division problem exists today

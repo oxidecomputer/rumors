@@ -451,11 +451,12 @@ two quantities a deployment can state directly, replacing the
 node-reference denomination — and the window is no longer one
 uniform per-edge width: each channel's capacity is a **static
 per-height bound** `min(K, S(depth))`, where `S` is the integer
-stage-population envelope imported from
-`design/b05-uniformity-envelope.md` §7 (deterministic occupied-slot
-caps, the joint-occupancy birthday quantile, and the per-parent
-children quantile, all in the sweep-certified integer forms; 2⁻⁴⁰
-per session jointly). Deep, sparse levels get capacities no budget
+stage-population envelope (deterministic occupied-slot caps, the
+joint-occupancy birthday quantile, and the per-parent children
+quantile, all in the sweep-certified integer forms; 2⁻⁴⁰ per session
+jointly — the derivation lives inline at the functions in
+`src/tree/mirror/streaming/window.rs`, certified by
+`examples/envelope_sim.rs`). Deep, sparse levels get capacities no budget
 can widen, because their populations cannot exist; the budget buys
 width only where population can. `K` is solved by binary search on
 the sum of per-level populations, each priced at the backend's
@@ -562,6 +563,22 @@ byte-compared in the gate. At the spec BDP the default's slowdown-1
 crossover is `m* ≈ 85.3 B`; the design-record anchor
 `DISPUTE_WIRE_BYTES` (m = 172) survives with nothing deriving from
 it (`design/sync-budget.md` §1.6's amendment records the details).
+
+**Amendment (2026-07-24, sixth wave): the table carries the solve's
+windows; the closed form is the estimation tier.** A hop-exact
+validation run measured constricted sessions at 1.33–1.45× the closed
+form's figures: the `K ≈ budget / 4,865` substitution overstates the
+window by ~`F / budget`, with `F` the corpus-fixed component of the
+real charge (4.7–7.9 MB at the design corpus, by verified
+decomposition). Adjudicated: the trade-off table is generated from
+the real derivation — each budget row's window solved by
+`Window::from_budget` at the design session, each cell the measured
+wave form — and the closed form survives in `sync_memory_budget`'s
+prose with its band stated. The default's slowdown-1 crossover,
+derived self-consistently from the solve and pinned, is `m* = 51 B`;
+the form's 85.3 B is its safe-side estimate (`design/sync-budget.md`
+§1.6's 2026-07-24 amendment records the details, including the
+decomposition).
 
 ### 5.3 The per-leaf compute follow-up
 

@@ -1,15 +1,18 @@
 //! The operator wave model held against measured sessions.
 //!
-//! `sync_memory_budget`'s docs publish one closed form,
-//! `slowdown(budget, m) = max(1, BDP × envelope / (budget × (28 + m)))`:
+//! `sync_memory_budget`'s docs publish the closed-form estimate,
+//! `slowdown(budget, m) ≈ max(1, BDP × envelope / (budget × (28 + m)))`:
 //! the large-window simplification of the exact wave-model form
 //! `slowdown = max(1, BDP_messages / K)` with `K` the derived window.
 //! The simplification substitutes `K ≈ (budget − fans) / envelope`
 //! (`fans` is the flat supply-decode pre-charge) and
 //! `BDP_messages = BDP / (28 + m)`, the calibrated per-message wire law
-//! `tests/dispute_wire.rs` pins. The `K` substitution holds once the
-//! window is past the near-root structural band (a few hundred scopes;
-//! small budgets pay full-fan prices the scalar undercounts).
+//! `tests/dispute_wire.rs` pins. The `K` substitution overstates the
+//! window by roughly `F / budget`, with `F` the corpus-fixed component
+//! of the real charge (4.7–7.9 MB at the design corpus; the band and
+//! its decomposition are worked at `Peer::sync_memory_budget`) — which
+//! is why the committed trade-off table carries the solve's own windows
+//! and the pins here hold the exact form, never the scalar.
 //!
 //! The pin here holds the *exact* wave form against sessions on a
 //! genuinely bandwidth-limited pipe, with the link rate self-calibrated

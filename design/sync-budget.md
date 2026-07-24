@@ -7,9 +7,10 @@ transcription deviations from the original spec text are recorded as
 dated amendments in place.
 Companions: `design/streaming-latency-serialization.md` (the
 serialization diagnosis this campaign grew from, amended in place as
-the knob evolved) and `design/b05-uniformity-envelope.md` (the
-occupancy mathematics imported here; its own header maps what was and
-was not adopted).
+the knob evolved). The occupancy mathematics lives inline at the
+functions that implement it
+(`src/tree/mirror/streaming/window.rs`), with
+`examples/envelope_sim.rs` as its certifying tool.
 
 **Model of record**: uniform-hash, authenticated-honest-peer. Content
 addresses are uniform 32-byte strings; hostile-peer regimes are
@@ -23,15 +24,18 @@ tagged \[derived\] (premises stated), \[measured\] (instrument named),
 
 One optional knob: `Peer::sync_memory_budget(budget_bytes)`, default
 `DEFAULT_SYNC_MEMORY_BUDGET` — 512 MiB, **a stated policy choice,
-minted from no expression**. What any budget buys is the derived
-closed form `slowdown(budget, m) = max(1, BDP × E / (budget ×
-(28 + m)))`, with `E = 4,865 B` the pinned per-scope envelope (§2.4's
-landed status records its derivation and pin), 28 B the calibrated
-per-message wire intercept, and `m` the mean encoded record size; at
-the spec BDP of 12.5 MB the default's slowdown-1 crossover is
-`m* ≈ 85.3 B`. The budget is a worst-case envelope per session, never
-an allocation; concurrent sessions on separate links each carry their
-own.
+minted from no expression**. What any budget buys is read off the
+window the derivation solves for it — the committed trade-off table
+renders that solve at the spec BDP — with the closed form
+`slowdown(budget, m) ≈ max(1, BDP × E / (budget × (28 + m)))` as the
+estimation tier (`E = 4,865 B` the pinned per-scope envelope, §2.4's
+landed status records its derivation and pin; 28 B the calibrated
+per-message wire intercept; `m` the mean encoded record size; §1.6's
+2026-07-24 amendment calibrates the form's band). At the spec BDP of
+12.5 MB the default's slowdown-1 crossover is `m* = 51 B`, pinned
+against the solve. The budget is a worst-case envelope per session,
+never an allocation; concurrent sessions on separate links each carry
+their own.
 
 Each session resolves the budget into **static per-height channel
 capacities** at handshake time, from the set sizes the two replicas
@@ -145,11 +149,11 @@ across samples.
   overcharges, never undercharges).
 - **`examples/window_tradeoff.rs`** → `just window-tradeoff` →
   `src/tree/mirror/streaming/window/tradeoff.md`, compiled into
-  `sync_memory_budget`'s rustdoc: the budget × divergence slowdown
-  grid, latency-only worst case (256 KiB at 50k mutual: ~500×; the
-  default at parity). The committed table is the figure of record;
-  run-to-run capacity derivations move the extreme cells by tens of
-  percent.
+  `sync_memory_budget`'s rustdoc: the budget × record-size slowdown
+  grid — each row's window solved by the real derivation at the
+  design corpus, each cell the measured wave form. Deterministic
+  arithmetic, byte-compared against the generator in the gate; the
+  committed table is the figure of record.
 - **`benches/window_wallclock.rs`**: criterion over the same delayed
   pipes on a running clock; cross-checks the virtual figures by eye
   (pipelined cell within noise; serialized cells 20–60 % under the
@@ -259,6 +263,63 @@ same ordering and the same parity knee between 64 MiB and the
 512 MiB row — the conservative direction expected of an envelope
 held against measurements a real pipe's transfer structure dilutes;
 exact agreement is not claimed.
+
+**Amendment (2026-07-24): the table carries the solve's own windows;
+the closed form is the estimation tier, its band calibrated.** A
+one-shot hop-exact validation run \[measured,
+`tests/tradeoff_probe.rs`, ignore-gated; virtual-clock counts,
+byte-identical across runs; design corpus; link BDP self-calibrated\]
+measured wire-time slowdowns of 1.33–1.45× the closed form's figures
+at 10–31 MB budgets (derived windows of 1,015–4,968 scopes), exactly
+1.00× at the comfortable cell, and at or inside the wave form
+evaluated at the actually derived window everywhere (to within one
+hop at the near-crossover cell). Adjudicated the same day: the
+trade-off table is now generated from the real derivation — each
+budget row's window solved by `Window::from_budget` at the design
+session, each cell the measured wave form `max(1, BDP_messages / K)`,
+the corpus assumption stated in the header — so the table asserts
+exactness where it is exact, and the closed form serves as the
+mental-arithmetic tier in `sync_memory_budget`'s prose with its band
+stated.
+
+The band, by verified decomposition rather than back-fit \[derived,
+recomputed from the solve at the design corpus\]: the real charge is
+piecewise affine, `charge(K) = F + K × marginal`. For windows between
+the deep-tail and depth-5 populations, `F` = 4.73 MB — 0.21 MB decode
+fans, 4.31 MB of root-adjacent stages at full-fan reference prices
+(257 scopes × 16,768 B), 0.21 MB of deep population tail — with
+marginal = 5,324 B/scope; depth-5 saturation (≈5,500 scopes) lifts
+`F` to 7.93 MB and settles the marginal at 4,741 B/scope, 2.5% under
+the 4,865 B saturation average, out to the population ceiling. The
+decomposition reproduces the measured budget/K gaps: the back-fit
+`budget − K × 4,865` at the probe cells (5.20 / 7.01 / 5.66 MB)
+equals `F + K × (marginal − 4,865)` — exactly at the first two cells
+(K = 1,015 and 4,968 sit below depth-5 saturation, where
+F = 4.73 MB is insensitive to the probe session's 2,048 common
+messages atop the design divergence), and at the third once `F` is
+taken at the session's own corpus (64,548 a side: depth-5 population
+5,782, F = 8.10 MB), giving 5.663 against the measured 5.664 MB —
+the residue is the solve's sub-scope slack. The closed
+form's window error is therefore ~`F/budget` (plus the ≤10% marginal
+offset): the slowdown it returns runs ~2× low at 10 MB, ~1.5× low at
+16 MiB, within a few percent past ~300 MB.
+
+Re-derived under the solve and pinned
+(`default_crossover_matches_the_solve`): the default's slowdown-1
+crossover, evaluated self-consistently (corpus = BDP/(28 + m) a
+side), is **m* = 51 B** — the closed form's 85.3 B estimate is its
+safe-side reading. u64 corpora at the default run ≈4.2× at a
+BDP-scale corpus (82,214-scope window), the factor growing with set
+size as the window narrows (~14.8× at 10⁷ messages, ~27.5× at 10¹⁰)
+\[derived\]. `budget*` for the design record is 304.2 MB by the solve
+(the form: ~304 MB — the design point is where the envelope is
+pinned); for u64, 1.11 GB by the solve against the form's ~1.7 GB
+(population caps thin the deep charge at BDP-scale corpora; the
+estimate is conservative in that direction). The 512 MiB and 2 GiB
+rows sit at the design session's population ceiling (62,500 scopes),
+where the stated corpus is never window-constricted and the
+sub-design-record cells are corpus-scale envelopes; the table header
+states this.
 
 ## 2. What remains: backend-priced budgeting (phase 4, spec-first)
 
@@ -531,8 +592,9 @@ is regenerated under the function-priced derivation.
 
 **Met, 2026-07-22**: every clause checked mechanically — no
 `NODE_BYTES` token survives in `src/` (the token lives on in this
-plan's sibling design documents and the B0.5 simulator, which speak
-about the rejected shape); the only "fitted" mentions in `src/` are
+plan's sibling design documents and the envelope simulator,
+`examples/envelope_sim.rs`, which speak about the rejected shape);
+the only "fitted" mentions in `src/` are
 the two negations documenting that the envelope no longer is; the
 pins run under the ordinary test gate; the committed table carries
 the function-priced default row.

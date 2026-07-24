@@ -85,7 +85,10 @@ where
         // The same reader/assembler split as `decode`, driven jointly so
         // completed groups surface while later frames are still arriving.
         let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
-        let leaves: BoxNodeStream<'static, B, T, Z> = Box::pin(ReceiverStream::new(rx));
+        let leaves = ReceiverStream::new(rx);
+        #[cfg(test)]
+        let leaves = leaves.inspect(|_| fan_probe::on_recv());
+        let leaves: BoxNodeStream<'static, B, T, Z> = Box::pin(leaves);
         let mut assembled = pin!(backend.clone().assemble::<G>(leaves));
         let mut read = pin!(read_early::<B, T, G, _>(parent, frames, tx));
         let mut read_result: Option<Result<(), DecodeError<B::Error>>> = None;
@@ -151,6 +154,8 @@ where
                     let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message)
                         .await
                         .map_err(DecodeError::Backend)?;
+                    #[cfg(test)]
+                    fan_probe::on_send();
                     if leaves.send(Ok((leaf_prefix, leaf))).await.is_err() {
                         return Ok(());
                     }
@@ -328,6 +333,8 @@ where
                     let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message)
                         .await
                         .map_err(DecodeError::Backend)?;
+                    #[cfg(test)]
+                    fan_probe::on_send();
                     if leaves.send(Ok((leaf_prefix, leaf))).await.is_err() {
                         return Ok(None);
                     }
@@ -352,7 +359,10 @@ where
     T: Send + Sync + 'static,
     H: Convert,
 {
-    let leaves: BoxNodeStream<'_, B, T, Z> = Box::pin(ReceiverStream::new(leaves));
+    let leaves = ReceiverStream::new(leaves);
+    #[cfg(test)]
+    let leaves = leaves.inspect(|_| fan_probe::on_recv());
+    let leaves: BoxNodeStream<'_, B, T, Z> = Box::pin(leaves);
     let mut assembled = pin!(backend.assemble::<H>(leaves));
     let mut nodes = Vec::new();
     while let Some(item) = assembled.next().await {
@@ -481,4 +491,49 @@ enum Skeleton<H: Height> {
     Match,
     Query(Vec<(u8, Hash)>),
     Supply { radix: u8, prefix: Prefix<H> },
+}
+
+/// Test-gated occupancy probe for the reader/assembler fan channels.
+///
+/// Counts the decoded leaf records resident between the reader's send
+/// ([`read_reply`] and [`read_early`] hook the same counter) and the
+/// assembler's pull, and the peak of that count. The adapter tests
+/// drive [`decode`] and [`early_supplies`] on a current-thread runtime
+/// and each channel is FIFO with one producer and one consumer, so a
+/// thread-local counter mirrors the occupancy exactly: incremented
+/// before the reader awaits the send (the record in the reader's hand
+/// is resident), decremented when the assembler's stream yields the
+/// record. Compiled only into test builds; release builds carry no
+/// trace of it.
+#[cfg(test)]
+pub(super) mod fan_probe {
+    use std::cell::Cell;
+
+    thread_local! {
+        static RESIDENT: Cell<usize> = const { Cell::new(0) };
+        static PEAK: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Zero the counters before a measured decode.
+    pub(in super::super) fn reset() {
+        RESIDENT.with(|cell| cell.set(0));
+        PEAK.with(|cell| cell.set(0));
+    }
+
+    pub(super) fn on_send() {
+        let resident = RESIDENT.with(|cell| {
+            cell.set(cell.get() + 1);
+            cell.get()
+        });
+        PEAK.with(|cell| cell.set(cell.get().max(resident)));
+    }
+
+    pub(super) fn on_recv() {
+        RESIDENT.with(|cell| cell.set(cell.get().saturating_sub(1)));
+    }
+
+    /// The peak resident record count since the last [`reset`].
+    pub(in super::super) fn peak() -> usize {
+        PEAK.with(Cell::get)
+    }
 }
