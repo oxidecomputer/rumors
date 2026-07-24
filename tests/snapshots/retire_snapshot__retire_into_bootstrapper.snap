@@ -16,13 +16,6 @@ version frame: 29 bytes
   0018: 00 00 00 00 40
 listing frame: 8 bytes
   0000: 00 00 00 04 00 00 00 00
-Responder stream 0 (height 31), epoch 0
-  frame 0: QueryEmpty(Continue)
-    0000: 22
-  frame 1: QueryEmpty(End)
-    0000: 33
-  frame 2: End(Stream)
-    0000: 99
 trailing frame: 1 bytes
   0000: 2e
 
@@ -45,16 +38,16 @@ listing frame: 42 bytes
   0018: ea 4a 19 86 5c 0e 1d a1
   0020: bb d3 f2 49 92 ee 2a 6d
   0028: 3f 11
-Initiator stream 1 (height 30), epoch 0
-  frame 0: Supply(End)
-    0000: 78 00 00 00 0d 00 00 00
+Responder stream 0 (height 31), epoch 0
+  frame 0: Supply(Continue)
+    0000: 66 00 00 00 0d 00 00 00
     0008: 09 d2 01 00 00 00 00 00
     0010: 00 00
   frame 1: Supply(End)
-    0000: 78 00 00 00 0d 00 00 00
+    0000: 77 00 00 00 0d 00 00 00
     0008: 09 d3 02 00 00 00 00 00
     0010: 00 00
   frame 2: End(Stream)
-    0000: 9a
+    0000: 99
 trailing frame: 6 bytes
   0000: 00 00 00 01 40 2e

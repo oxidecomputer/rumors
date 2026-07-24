@@ -138,18 +138,33 @@ pub(super) fn asks(p: Party, height: usize) -> bool {
 }
 
 /// The role the client (the driver's first argument) will play against
-/// `server`: a mirror of `streaming.rs::descend`'s canonical-byte tiebreak.
+/// `server`: a mirror of `streaming.rs::descend`'s election (the smaller
+/// set initiates, canonical version bytes break ties).
 ///
 /// # Panics
 ///
 /// If the advertised versions are equal: such a session short-circuits
 /// without descending, so it has no skeleton to talk about.
 pub(super) fn client_role<T>(client: &TreeRoot<T>, server: &TreeRoot<T>) -> Party {
-    match server.ceiling.as_bytes().cmp(client.ceiling.as_bytes()) {
-        std::cmp::Ordering::Less => Party::I,
-        std::cmp::Ordering::Greater => Party::R,
-        std::cmp::Ordering::Equal => panic!("equal versions short-circuit the descent"),
+    if crate::tree::mirror::streaming::message::initiates(
+        advertised_len(client),
+        &client.ceiling,
+        advertised_len(server),
+        &server.ceiling,
+    ) {
+        Party::I
+    } else {
+        Party::R
     }
+}
+
+/// The live message count a root advertises in its greeting: the election's
+/// primary key.
+fn advertised_len<T>(root: &TreeRoot<T>) -> u64 {
+    root.root
+        .as_ref()
+        .map(|node| node.len() as u64)
+        .unwrap_or_default()
 }
 
 // ------------------------------------------------------------ the projection
@@ -510,9 +525,17 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
         ROOT_H - 1,
         "the opening rides the top stream"
     );
-    let [Label::Query(root_radices)] = opening.labels.as_slice() else {
-        panic!("the opening is a single root-listing query: {opening:?}");
+    // The opening leads with the root-listing query; any trailing labels
+    // are the initiator's early supplies, which carry their own radices
+    // and consume no positions — exactly like supplies inside a dispute
+    // reply, they are `M` moves the skeleton drops.
+    let [Label::Query(root_radices), early @ ..] = opening.labels.as_slice() else {
+        panic!("the opening leads with the root-listing query: {opening:?}");
     };
+    assert!(
+        early.iter().all(|label| matches!(label, Label::Supply(_))),
+        "only early supplies trail the opening question: {opening:?}"
+    );
     let initiator = opening.work;
 
     let mut d = BTreeSet::from([Vec::new()]);

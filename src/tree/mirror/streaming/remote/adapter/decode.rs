@@ -1,6 +1,8 @@
 use std::pin::pin;
+use std::task::Poll;
 
-use futures::{Stream, StreamExt};
+use async_stream::try_stream;
+use futures::{FutureExt, Stream, StreamExt};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -54,6 +56,128 @@ where
         },
         scope,
     )
+}
+
+/// Incrementally decode the initiator's opening-supply reply into whole
+/// height-`G` nodes with their root radices, in ascending radix order.
+///
+/// The wire shape is one supplies-only reply — empty when deletion pruning
+/// left nothing to ship — whose leaf records group into height-`G`
+/// subtrees by their content-derived paths under `parent`, followed by the
+/// stream end. Unlike [`decode_reply`], which materializes one whole reply
+/// before yielding it, this stream yields each assembled node as soon as
+/// its group completes: the consumer pairs supplies with the responder's
+/// root-level requests one radix at a time, so a later group's bulk never
+/// gates an earlier group's absorption.
+pub fn early_supplies<B, T, G, F>(
+    backend: B,
+    parent: Prefix<S<G>>,
+    frames: F,
+) -> impl Stream<Item = Result<(u8, B::Node<G>), DecodeError<B::Error>>> + Send
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    G: Convert,
+    S<G>: Height,
+    F: Stream<Item = Frame<T>> + Unpin + Send + 'static,
+{
+    try_stream! {
+        // The same reader/assembler split as `decode`, driven jointly so
+        // completed groups surface while later frames are still arriving.
+        let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
+        let leaves: BoxNodeStream<'static, B, T, Z> = Box::pin(ReceiverStream::new(rx));
+        let mut assembled = pin!(backend.clone().assemble::<G>(leaves));
+        let mut read = pin!(read_early::<B, T, G, _>(parent, frames, tx));
+        let mut read_result: Option<Result<(), DecodeError<B::Error>>> = None;
+        loop {
+            let step = futures::future::poll_fn(|cx| {
+                if read_result.is_none()
+                    && let Poll::Ready(result) = read.poll_unpin(cx)
+                {
+                    read_result = Some(result);
+                }
+                // A reader error poisons everything after it: the group in
+                // assembly may be a truncation, so nothing more is yielded.
+                if matches!(read_result, Some(Err(_))) {
+                    return Poll::Ready(None);
+                }
+                assembled.as_mut().poll_next(cx)
+            })
+            .await;
+            match step {
+                Some(node) => {
+                    let (prefix, node) = node.map_err(DecodeError::Backend)?;
+                    let (actual, radix) = prefix.pop();
+                    debug_assert_eq!(actual, parent, "the reader validated every leaf's scope");
+                    yield (radix, node);
+                }
+                None => break,
+            }
+        }
+        match read_result {
+            Some(result) => result?,
+            None => read.await?,
+        }
+    }
+}
+
+/// Read the opening-supply reply's frames — supplies only, one reply,
+/// nothing after it — streaming its leaves to assembly.
+async fn read_early<B, T, G, F>(
+    parent: Prefix<S<G>>,
+    mut frames: F,
+    leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+) -> Result<(), DecodeError<B::Error>>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    G: Height,
+    S<G>: Height,
+    F: Stream<Item = Frame<T>> + Unpin,
+{
+    let mut supplies = SupplyRuns::<G>::new();
+    let mut any = false;
+    loop {
+        let Some(frame) = frames.next().await else {
+            return Err(DecodeError::TruncatedReply);
+        };
+        let flow = match frame {
+            Frame::Reaction(WireReaction::Supply(records), flow) => {
+                any = true;
+                for record in records.records() {
+                    let (version, message) = record.map_err(DecodeError::Record)?;
+                    let (leaf_prefix, _) =
+                        supplies.observe::<B::Error, T>(parent, &version, &message)?;
+                    let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message)
+                        .await
+                        .map_err(DecodeError::Backend)?;
+                    if leaves.send(Ok((leaf_prefix, leaf))).await.is_err() {
+                        return Ok(());
+                    }
+                }
+                flow
+            }
+            // The codec's per-stream grammar admits no other reaction here,
+            // so positional forms surface as their unpositioned rejections
+            // only when frames are constructed in process.
+            Frame::Reaction(WireReaction::Match, _) => {
+                return Err(ScopeError::UnpositionedMatch.into());
+            }
+            Frame::Reaction(WireReaction::Query(_), _) => {
+                return Err(ScopeError::UnpositionedQuery.into());
+            }
+            Frame::End(End::Reply) if !any => Flow::End,
+            Frame::End(End::Reply) => return Err(DecodeError::BareEndAfterReaction),
+            Frame::End(End::Stream) => return Err(DecodeError::UnexpectedStreamEnd),
+        };
+        if flow == Flow::End {
+            break;
+        }
+    }
+    if frames.next().await.is_some() {
+        return Err(DecodeError::ExtraOpeningReply);
+    }
+    Ok(())
 }
 
 /// Decode one non-leaf reply and derive the lower questions it asks.

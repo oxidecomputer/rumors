@@ -14,7 +14,7 @@ use crate::{
             framing,
             streaming::{
                 Backend, Leaf,
-                message::Handshake,
+                message::{Handshake, initiates},
                 protocol::{self, Accept, CompleteConnect, Connect},
                 remote::{
                     codec::{RunBudget, Speaker, validate_children},
@@ -154,7 +154,7 @@ where
             self.backend,
             window,
             budget,
-            theirs.version,
+            theirs,
             self.versions.remote,
             self.link,
         ))
@@ -186,14 +186,7 @@ where
             B::node_bytes,
         );
         let budget = run_budget(&request, &remote);
-        let next = connected(
-            self.backend,
-            window,
-            budget,
-            request.version,
-            remote,
-            self.link,
-        );
+        let next = connected(self.backend, window, budget, request, remote, self.link);
         Ok((handshake, next))
     }
 }
@@ -279,7 +272,7 @@ fn connected<B, T, R, W, C, A>(
     backend: B,
     window: Window,
     budget: RunBudget,
-    local_version: Version,
+    local: Handshake,
     remote: Handshake,
     link: Link<R, W, C, A>,
 ) -> Connected<B, T, R, W, C, A>
@@ -289,27 +282,30 @@ where
     C: Connector,
     A: Acceptor,
 {
-    if local_version == remote.version {
+    if local.version == remote.version {
         return Connected::equal(link.control_read, link.control_write);
     }
-    let local = local_speaker(&local_version, &remote.version);
+    // The role election of record: the smaller exchanged set initiates,
+    // canonical version bytes break ties (`message::initiates`).
+    let local = if initiates(
+        local.set_len,
+        &local.version,
+        remote.set_len,
+        &remote.version,
+    ) {
+        Speaker::Initiator
+    } else {
+        Speaker::Responder
+    };
     open(backend, window, budget, local, remote.listing, link)
-}
-
-/// Elect the local physical speaker from the total canonical version order.
-fn local_speaker(local: &Version, remote: &Version) -> Speaker {
-    match remote.as_bytes().cmp(local.as_bytes()) {
-        std::cmp::Ordering::Less => Speaker::Initiator,
-        std::cmp::Ordering::Greater => Speaker::Responder,
-        std::cmp::Ordering::Equal => unreachable!("equal versions do not open a session"),
-    }
 }
 
 /// Allocate one session's claim table, error route, and accept driver.
 ///
-/// `peer_listing` is the remote greeting's root-fan listing: the remote's
-/// opening question, consumed only when the remote wins the initiator
-/// election (and dead weight otherwise, by design).
+/// `peer_listing` is the remote greeting's root-fan listing: replayed as
+/// the remote's opening question when the remote wins the initiator
+/// election, and merged against the local opening's listing to gate the
+/// early-supply stream when it loses.
 fn open<B, T, R, W, C, A>(
     backend: B,
     window: Window,
@@ -344,6 +340,7 @@ where
         Physical {
             control_read,
             control_write,
+            remote,
             accept,
             errors,
         },

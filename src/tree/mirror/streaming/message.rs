@@ -16,6 +16,8 @@
 //! (≈ 2.2 MB while an encoded and a decoded copy coexist), transient, at
 //! most one in flight per stage.
 
+use std::cmp::Ordering;
+
 use crate::{
     Version,
     tree::{
@@ -42,14 +44,16 @@ use crate::{
 /// everything."
 ///
 /// Both sides carry a listing because neither knows at greeting time whether
-/// it will win the initiator election; the elected responder consumes the
-/// initiator's, and the responder's own listing is deliberately dead weight.
-/// Likewise a converged session (equal versions) ends at the greeting and
-/// consumes neither. That is the trade, made knowingly: the listing costs at
-/// most one root fan of hashes (~4.3 KB, and ~nothing for an empty tree) on
-/// a hop that exists anyway, versus saving a full one-way hop on every
-/// divergent session. Divergence is not knowable at greeting time, so there
-/// is nothing sound to gate the bytes on.
+/// it will win the initiator election, and a divergent session consumes
+/// both: the elected responder answers the initiator's listing, and the
+/// initiator merges the responder's against its own fan to ship its
+/// exclusive root children as the opening's early supplies. A converged
+/// session (equal versions) ends at the greeting and consumes neither.
+/// That is the trade, made knowingly: the listing costs at most one root
+/// fan of hashes (~4.3 KB, and ~nothing for an empty tree) on a hop that
+/// exists anyway, versus saving a full one-way hop on every divergent
+/// session. Divergence is not knowable at greeting time, so there is
+/// nothing sound to gate the bytes on.
 #[derive(Clone)]
 pub struct Handshake {
     pub version: Version,
@@ -58,6 +62,10 @@ pub struct Handshake {
     /// Both sides size their session window from the pair: dispute
     /// populations scale with the *product* of the two sizes (joint
     /// occupancy), so the window needs the peer's size, not an estimate.
+    /// The pair is also the role election's primary key ([`initiates`]):
+    /// the smaller set initiates, so the bulk holder lands in the
+    /// responder role, whose exclusive content ships as whole-subtree
+    /// supplies.
     pub set_len: u64,
     /// The largest canonical version-bound encoding the sender's tree
     /// holds — leaf versions and every interior ceiling and floor — in
@@ -86,6 +94,44 @@ pub struct Handshake {
     /// The sender's root children as `(radix, hash)` pairs in strictly
     /// ascending radix order; empty when the sender's tree is empty.
     pub listing: Vec<(u8, Hash)>,
+}
+
+/// Elect roles from the exchanged greetings: does the side advertising
+/// `(len, version)` initiate against a peer advertising `(peer_len,
+/// peer_version)`?
+///
+/// The smaller exchanged set initiates. The initiator's opening act is a
+/// pure question (its listing rides the greeting), while the elected
+/// responder answers that question directly with whole-subtree supplies
+/// for every root child the initiator lacks — so routing the bulk holder
+/// into the responder role ships its exclusive content at the coarsest
+/// granularity and on the earliest possible hop, no matter which side
+/// holds the bulk. Equal sizes fall back to the canonical version
+/// encodings' lexicographic order (the greater encoding initiates):
+/// causal versions are only partially ordered, and the byte order is an
+/// arbitrary but total, deterministic tiebreak. Both keys ride every
+/// greeting, so the two sides always elect complementary roles from the
+/// same exchanged pair.
+///
+/// # Panics
+///
+/// If the versions are equal: a converged session short-circuits at the
+/// greeting and never elects roles.
+pub(crate) fn initiates(
+    len: u64,
+    version: &Version,
+    peer_len: u64,
+    peer_version: &Version,
+) -> bool {
+    match len.cmp(&peer_len) {
+        Ordering::Less => true,
+        Ordering::Greater => false,
+        Ordering::Equal => match version.as_bytes().cmp(peer_version.as_bytes()) {
+            Ordering::Greater => true,
+            Ordering::Less => false,
+            Ordering::Equal => unreachable!("equal versions do not elect roles"),
+        },
+    }
 }
 
 /// The sole stream message.

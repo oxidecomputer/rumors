@@ -39,8 +39,6 @@ pub use backend::NodeStream;
 #[cfg(test)]
 pub use testing::{Failing, FailingNode, Failure, Faulting, Operation};
 
-use std::cmp::Ordering;
-
 use futures::future::BoxFuture;
 
 use super::Error;
@@ -61,6 +59,9 @@ where
     client: ClientConnected<C, B, T>,
     server: ServerConnected<S, B, T>,
     our_version: Version,
+    /// Our advertised live message count: our half of the role election's
+    /// primary key ([`message::initiates`]).
+    our_len: u64,
     peer: message::Handshake,
 }
 
@@ -91,9 +92,18 @@ where
                 client: local,
                 server: remote,
                 our_version,
+                our_len,
                 peer,
             } = self;
-            descend(local, remote, our_version, peer.version).await
+            descend(
+                local,
+                remote,
+                our_version,
+                our_len,
+                peer.version,
+                peer.set_len,
+            )
+            .await
         })
     }
 }
@@ -130,6 +140,7 @@ where
 {
     let (our_handshake, client) = client.connect().await.map_err(Error::Client)?;
     let our_version = our_handshake.version.clone();
+    let our_len = our_handshake.set_len;
     let (peer, server) = server.accept(our_handshake).await.map_err(Error::Server)?;
     let client = client
         .complete_connect(peer.clone())
@@ -140,16 +151,19 @@ where
         client,
         server,
         our_version,
+        our_len,
         peer,
     })
 }
 
-/// Elect the initiator from exchanged versions and reconcile or complete.
+/// Elect the initiator from the exchanged greetings and reconcile or complete.
 pub(crate) async fn descend<L, R, B, T>(
     local: L,
     remote: R,
     local_version: Version,
+    local_len: u64,
     remote_version: Version,
+    remote_len: u64,
 ) -> Result<(L::Output, R::Output), Error<L::Error, R::Error>>
 where
     T: Send + Sync + 'static,
@@ -157,24 +171,25 @@ where
     L: Peer<B, T>,
     R: Peer<B, T>,
 {
-    // Causal versions are only partially ordered, so canonical bytes provide
-    // an arbitrary but total and deterministic role tiebreak.
-    match remote_version.as_bytes().cmp(local_version.as_bytes()) {
-        Ordering::Less => mirror_connected(local, remote).await,
+    if local_version == remote_version {
+        return try_join_mapped(
+            local.complete_equal(),
+            Error::Client,
+            remote.complete_equal(),
+            Error::Server,
+        )
+        .await;
+    }
+    // The role election of record: the smaller exchanged set initiates,
+    // canonical version bytes break ties (`message::initiates`).
+    if message::initiates(local_len, &local_version, remote_len, &remote_version) {
+        mirror_connected(local, remote).await
+    } else {
         // Flip the remotely initiated result back into caller order.
-        Ordering::Greater => mirror_connected(remote, local)
+        mirror_connected(remote, local)
             .await
             .map(|(theirs, ours)| (ours, theirs))
-            .map_err(Error::flip),
-        Ordering::Equal => {
-            try_join_mapped(
-                local.complete_equal(),
-                Error::Client,
-                remote.complete_equal(),
-                Error::Server,
-            )
-            .await
-        }
+            .map_err(Error::flip)
     }
 }
 

@@ -10,7 +10,7 @@ use crate::tree::{
         message::{Reaction as ProtocolReaction, Reply},
     },
     typed::{
-        Path, Prefix,
+        Hash, Path, Prefix,
         height::{Height, S, UnderRoot, Z},
     },
 };
@@ -49,31 +49,40 @@ impl<T, Q> Encoded<T, Q> {
 pub type Frames<T, E, Q> =
     Pin<Box<dyn Stream<Item = Result<Encoded<T, Q>, EncodeError<E>>> + Send>>;
 
-/// Validate the initiator's distinguished opening question and derive its
-/// root scope.
+/// Validate the initiator's distinguished opening reply and split it into
+/// its question's listing and its early whole-subtree supplies.
 ///
-/// The opening writes no frame of its own — its content already crossed
-/// inside the greeting's root-fan listing — so all that remains of encoding
-/// it is checking the local reply's canonical one-query shape and retaining
-/// the scope which will interpret the responder's top-level reply.
-pub fn opening_scope<B, T>(reply: Reply<B, T, UnderRoot>) -> Result<Scope<UnderRoot>, OpeningError>
+/// The opening *question* writes no frame of its own — its content already
+/// crossed inside the greeting's root-fan listing — so its encoding reduces
+/// to checking the canonical shape (one leading query, then only supplies)
+/// and returning the listing whose scope will interpret the responder's
+/// top-level reply. The trailing supplies are the initiator's exclusive
+/// root children; they alone occupy wire frames, as the opening-supply
+/// reply on the initiator's first stream.
+#[allow(clippy::type_complexity)]
+pub fn opening_parts<B, T>(
+    reply: Reply<B, T, UnderRoot>,
+) -> Result<(Vec<(u8, Hash)>, Vec<ProtocolReaction<B, T, UnderRoot>>), OpeningError>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    let count = reply.replies.len();
-    if count != 1 {
-        return Err(OpeningError::ReactionCount { count });
-    }
-    let reaction = reply
-        .replies
-        .into_iter()
-        .next()
-        .expect("an opening reply checked to contain one reaction");
-    let ProtocolReaction::Query(listing) = reaction else {
+    let mut reactions = reply.replies.into_iter();
+    let Some(first) = reactions.next() else {
+        return Err(OpeningError::Empty);
+    };
+    let ProtocolReaction::Query(listing) = first else {
         return Err(OpeningError::NotQuery);
     };
-    Ok(Scope::opening(&listing))
+    let supplies: Vec<_> = reactions.collect();
+    if let Some(index) = supplies
+        .iter()
+        .position(|reaction| !matches!(reaction, ProtocolReaction::Supply(_, _)))
+    {
+        // Positions are reported in whole-reply terms; the query is 0.
+        return Err(OpeningError::NotSupply { index: index + 1 });
+    }
+    Ok((listing, supplies))
 }
 
 /// Encode one non-leaf reply and derive the lower questions it asks.

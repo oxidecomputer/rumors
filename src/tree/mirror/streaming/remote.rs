@@ -32,14 +32,18 @@
 //! incoming adapter decodes each backend-neutral pair exactly once,
 //! constructing a backend leaf and validating its content-derived path.
 //!
-//! The initiator's distinguished opening question is the one protocol reply
-//! with no wire frame at all: its content — the initiator's root-fan
-//! listing — rides the greeting on the control stream (see
-//! [`message::Handshake`](super::message::Handshake) for the trade), so
-//! the elected responder answers one hop earlier and the
-//! initiator-direction opening stream never opens. Its signal placements
-//! remain defined in the grammar above but nothing sends them: a stream
-//! carrying one answers no question, and parks in a claim nothing takes.
+//! The initiator's distinguished opening question needs no wire frame: its
+//! content — the initiator's root-fan listing — rides the greeting on the
+//! control stream (see [`message::Handshake`](super::message::Handshake)
+//! for the trade), so the elected responder answers one hop earlier. The
+//! initiator-direction opening stream instead carries the *early
+//! supplies*: the initiator's exclusive root children, shipped whole in
+//! one supplies-only reply the moment the greetings cross — the answers
+//! to root-level requests the responder is provably about to make, one
+//! hop and one decomposition level ahead of being asked. The stream opens
+//! exactly when that exclusive set is nonempty, and the responder's
+//! matching empty queries are answered by bare empty replies: pairing
+//! intact, content relocated.
 //!
 //! [`adapter`] retains the question scope omitted from protocol replies. It
 //! attaches each newly asked scope to the exact outgoing frame which makes the

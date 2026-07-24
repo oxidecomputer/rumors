@@ -81,7 +81,12 @@ fn wedge_generator_matches_the_lean_literal() {
 /// subtrees at root radices 1..=6. The chain side: the same shared leaf,
 /// plus one concurrent extra leaf that shares 31 path bytes with it — that
 /// single difference disputes every scope from the root down to their common
-/// height-1 parent, where it surfaces as exactly one leaf request.
+/// height-1 parent, where it surfaces as exactly one leaf request — plus
+/// seven ballast leaves at root radices 7..=13. The ballast makes the chain
+/// side the larger set, so the wall holder initiates under the
+/// smaller-set-initiates election; because the ballast is the *responder's*
+/// exclusive content, it ships as whole root-level supplies and never enters
+/// the dispute skeleton.
 fn wedge_trees() -> (Root<()>, Root<()>) {
     let shared = grown(None, 0, 1, &(), &[path_at(&[0u8; 32])]);
 
@@ -93,7 +98,11 @@ fn wedge_trees() -> (Root<()>, Root<()>) {
 
     let mut extra = [0u8; 32];
     extra[31] = 1;
-    let chain = grown(shared, 1, 1, &(), &[path_at(&extra)]);
+    let mut chain_paths = vec![path_at(&extra)];
+    for radix in 7..=13u8 {
+        chain_paths.push(path_at(&[radix]));
+    }
+    let chain = grown(shared, 1, 1, &(), &chain_paths);
 
     (rooted(wall), rooted(chain))
 }
@@ -118,8 +127,8 @@ fn session_realizes_the_wedge_shape() {
         client_role(&wall, &chain),
         Party::I,
         "the wall holder must win initiator election (the wedge's provisions \
-         are the responder's requests); tune wedge_trees' party indices or \
-         tick counts if tree construction changes"
+         are the responder's requests); tune wedge_trees' chain-side ballast \
+         if tree construction changes"
     );
 
     let (ours, theirs, trace, _) = transcribed_mirror_sides(wall, chain);

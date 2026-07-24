@@ -22,13 +22,17 @@
 //! its content-derived path recovers its child radix independently. The
 //! leaf-height exception is an empty `Query`: it consumes its leaf position and
 //! requests that leaf itself, creating a terminal scope at the same height
-//! rather than descending. The initiator's opening query is the sole exception
-//! to “one reply answers one earlier question,” so it seeds the root scope
-//! directly — and it is also the one reply with no wire frame at all: its
+//! rather than descending. The initiator's opening reply is the sole
+//! exception to “one reply answers one earlier question,” so it seeds the
+//! root scope directly — and its question occupies no wire frame: the
 //! listing rides the greeting
-//! ([`Handshake`](super::super::message::Handshake)), so [`opening_scope`]
-//! merely validates the local reply's shape and [`opening_reply`] replays the
-//! peer's listing as the message the responder answers.
+//! ([`Handshake`](super::super::message::Handshake)), so [`opening_parts`]
+//! validates the local reply's query-then-supplies shape and splits off
+//! the early supplies that do cross, while [`opening_reply`] replays the
+//! peer's listing as the message the responder answers. The early
+//! supplies travel as one supplies-only reply, decoded incrementally by
+//! [`early_supplies`] so each whole root child surfaces the moment its
+//! records complete.
 //!
 //! Encoding attaches a newly created scope to the exact frame containing its
 //! `Query`. [`Encoded::write_with`] releases that scope only after the supplied
@@ -74,8 +78,8 @@ mod encode;
 mod error;
 mod scope;
 
-pub use decode::{Decoded, decode_leaf_reply, decode_reply, opening_reply};
-pub use encode::{Encoded, encode_leaf_reply, encode_reply, opening_scope};
+pub use decode::{Decoded, decode_leaf_reply, decode_reply, early_supplies, opening_reply};
+pub use encode::{Encoded, encode_leaf_reply, encode_reply, opening_parts};
 pub use error::{DecodeError, EncodeError, OpeningError, ScopeError};
 pub use scope::Scope;
 

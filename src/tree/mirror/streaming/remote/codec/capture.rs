@@ -6,6 +6,7 @@ use borsh::BorshDeserialize;
 
 use crate::Version;
 use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
+use crate::tree::mirror::streaming::message::initiates;
 
 use super::{
     End, Speaker, Stream,
@@ -55,10 +56,18 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
             (None, None)
         }
         (Some(a_version), Some(b_version)) => {
-            let a_speaker = match b_version.as_bytes().cmp(a_version.as_bytes()) {
-                std::cmp::Ordering::Less => Speaker::Initiator,
-                std::cmp::Ordering::Greater => Speaker::Responder,
-                std::cmp::Ordering::Equal => unreachable!("equal versions handled above"),
+            // Mirror the session's role election: the smaller advertised
+            // set initiates, canonical version bytes break ties.
+            let a_len = a_control
+                .set_len
+                .expect("a version frame carries its set size");
+            let b_len = b_control
+                .set_len
+                .expect("a version frame carries its set size");
+            let a_speaker = if initiates(a_len, a_version, b_len, b_version) {
+                Speaker::Initiator
+            } else {
+                Speaker::Responder
             };
             (
                 Some(Streams::parse(a_speaker, &a.streams)),
@@ -81,6 +90,9 @@ struct Control {
     preamble: Vec<u8>,
     version_frame: Option<Vec<u8>>,
     version: Option<Version>,
+    /// The version frame's leading word: the sender's advertised set size,
+    /// the role election's primary key.
+    set_len: Option<u64>,
     /// The greeting's second frame: the sender's root-fan listing.
     listing_frame: Option<Vec<u8>>,
     trailing: Vec<u8>,
@@ -96,6 +108,7 @@ impl Control {
                 preamble: preamble.to_vec(),
                 version_frame: None,
                 version: None,
+                set_len: None,
                 listing_frame: None,
                 trailing: Vec::new(),
             };
@@ -110,6 +123,7 @@ impl Control {
                 preamble: preamble.to_vec(),
                 version_frame: None,
                 version: None,
+                set_len: None,
                 listing_frame: None,
                 trailing: rest.to_vec(),
             };
@@ -118,6 +132,12 @@ impl Control {
         // The version frame's body leads with the sender's eight-byte set
         // size, version-size bound, and message-size target; the version
         // encoding follows them.
+        let set_len = u64::from_le_bytes(
+            version_frame[LENGTH_HEADER_LEN
+                ..LENGTH_HEADER_LEN + crate::tree::mirror::framing::GREETING_WORD_LEN]
+                .try_into()
+                .expect("captured version frame carries its set-size word"),
+        );
         let version = Version::try_from_slice(
             &version_frame
                 [LENGTH_HEADER_LEN + crate::tree::mirror::framing::GREETING_SIZE_WORDS_LEN..],
@@ -130,6 +150,7 @@ impl Control {
             preamble: preamble.to_vec(),
             version_frame: Some(version_frame),
             version: Some(version),
+            set_len: Some(set_len),
             listing_frame: Some(listing_frame),
             trailing: rest.to_vec(),
         }

@@ -164,6 +164,12 @@ where
 {
     session: Session<B, T, R, W, C, A>,
     scopes: Receiver<Scope<H>>,
+    /// The remote initiator's opening-supply stream (`None` below the
+    /// stage right after the opening, the one whose scopes are root-level).
+    ///
+    /// The receiver claims its transport stream on first read, so a
+    /// session without early supplies never touches it.
+    early: Option<StreamReceiver<A::Rx, T>>,
 }
 
 /// The initiator proxy's leaf terminal and accumulated transport work.
@@ -238,14 +244,21 @@ where
 
     /// Replay the remote initiator's opening question from its greeting.
     ///
-    /// No stream is claimed here: the opening's content already crossed
-    /// inside the greeting's listing, and the initiator-direction opening
-    /// stream never exists on the wire.
+    /// The opening question's content already crossed inside the greeting's
+    /// listing, so no frame is read here. The initiator-direction opening
+    /// stream carries the remote's early supplies instead: its receiver is
+    /// bound now and handed to the next stage, which reads (and thereby
+    /// claims) it only when a root-level request needs an opening supply.
     fn initiator(self) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
         let mut session = self.diverged();
         debug_assert_eq!(session.remote, Speaker::Initiator);
+        let early = session.incoming::<UnderRoot>();
         let (responses, scopes) = session.work.initiator();
-        let next = Descending { session, scopes };
+        let next = Descending {
+            session,
+            scopes,
+            early: Some(early),
+        };
         (responses, next)
     }
 }
@@ -262,12 +275,15 @@ where
 {
     type Next = Descending<B, T, UnderUnderRoot, R, W, C, A>;
 
-    /// Proxy the opening: consume the local question, decode the remote's
-    /// top-level reply.
+    /// Proxy the opening: consume the local question, write the early
+    /// supplies, decode the remote's top-level reply.
     ///
-    /// Only the incoming (responder-spoken) opening-reply stream is bound;
-    /// the local opening question sends no frame of its own, its content
-    /// having ridden the greeting.
+    /// The incoming (responder-spoken) opening-reply stream is bound, and
+    /// so is the outgoing (initiator-spoken) opening-supply stream: the
+    /// local opening question sends no frame of its own, its content
+    /// having ridden the greeting, but its trailing supplies open the
+    /// outgoing stream when the local initiator holds exclusive root
+    /// children.
     fn responder(
         self,
         requests: impl Requests<B, T, UnderRoot>,
@@ -275,10 +291,12 @@ where
         let mut session = self.diverged();
         debug_assert_eq!(session.remote, Speaker::Responder);
         let incoming = session.incoming::<UnderRoot>();
-        let (responses, next_scopes) = session.work.opening_responder(requests, incoming);
+        let outgoing = session.outgoing::<UnderRoot>();
+        let (responses, next_scopes) = session.work.opening_responder(requests, incoming, outgoing);
         let next = Descending {
             session,
             scopes: next_scopes,
+            early: None,
         };
         (responses, next)
     }
@@ -306,13 +324,15 @@ where
     ) -> (BoxResponses<B, T, S<H>, Self::Error>, Self::Next) {
         let incoming = self.session.incoming::<S<H>>();
         let outgoing = self.session.outgoing::<S<S<H>>>();
+        let early = self.early.take();
         let (responses, next_scopes) =
             self.session
                 .work
-                .internal_replies(requests, self.scopes, incoming, outgoing);
+                .internal_replies(requests, self.scopes, incoming, outgoing, early);
         let next = Descending {
             session: self.session,
             scopes: next_scopes,
+            early: None,
         };
         (responses, next)
     }
@@ -334,6 +354,10 @@ where
         mut self,
         requests: impl Requests<B, T, S<Z>>,
     ) -> (BoxResponses<B, T, Z, Self::Error>, Self::Next) {
+        debug_assert!(
+            self.early.is_none(),
+            "the opening-supply stream is consumed by the first descending stage"
+        );
         let incoming = self.session.incoming::<Z>();
         let outgoing = self.session.outgoing::<S<Z>>();
         let (responses, next_scopes) =

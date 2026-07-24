@@ -243,7 +243,7 @@ where
         let queries = query_receiver(query);
         let mut work = Work::new(Local, Window::FLOOR);
         let (responses, _asked, _upper, _lower) =
-            work.internal_level::<H>(Version::new(), stream::iter(requests), queries);
+            work.internal_level::<H>(Version::new(), None, None, stream::iter(requests), queries);
         reported_violation(work, responses)
     }
 }

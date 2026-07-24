@@ -174,13 +174,11 @@ fn zero_target_emits_more_supply_frames_than_default() {
 const SMALL_TARGET: usize = 32;
 
 /// Messages each side originates for the binding-minimum capture: two per
-/// root-fan child on average. Measured at this shape, the two supply
-/// directions batch differently — the session's initiating side ships its
-/// exclusive root-fan subtrees as multi-record runs (dozens of batching
-/// events), while the other side's multi-record runs are only the rare
-/// sibling pairs sharing a two-byte key prefix (a handful) — so the margin
-/// self-checks hold per direction, with very different margins, and the
-/// tuple equalities discriminate in both directions.
+/// root-fan child on average. At this shape both supply directions ship
+/// their exclusive root-fan subtrees as whole multi-record runs — the
+/// responder in its opening reply, the initiator in its opening supplies —
+/// so the margin self-checks hold per direction and the tuple equalities
+/// discriminate in both directions.
 const BINDING_MESSAGES_PER_SIDE: usize = 512;
 
 /// The exchanged minimum binds both encoders when nonzero, which the

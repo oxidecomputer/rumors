@@ -112,6 +112,7 @@ use crate::tree::{
 };
 use before::Version;
 use futures::{StreamExt, future::BoxFuture};
+use tokio::sync::oneshot;
 
 /// Publish one disputed scope in its progress-critical order.
 ///
@@ -170,6 +171,9 @@ pub(super) mod unknown;
 mod work;
 use channel::{Receiver, Sender};
 use common::*;
+// The remote proxy explodes early-supplied whole root children into the
+// same per-child shape the walks consume, with the walks' own helper.
+pub(crate) use common::children_of;
 
 pub use error::{Error, Violation};
 
@@ -271,6 +275,10 @@ pub struct Connected<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> 
     /// The peer's largest live version-bound encoding in bytes, from
     /// its greeting.
     their_version_bytes: u64,
+    /// The peer's root-fan listing, from its greeting: what an elected
+    /// initiator merges its own fan against to ship its exclusive root
+    /// children as the opening's early supplies.
+    their_listing: Vec<(u8, Hash)>,
     fan: Vec<(u8, B::Node<UnderRoot>)>,
 }
 
@@ -286,6 +294,18 @@ where
     queries: Receiver<Query<B, T, H>>,
     /// One resolved scope per query, in query order, to the stage above.
     returns: Sender<Option<B::Node<S<H>>>>,
+    /// An elected initiator's opening hand-off: the early-supplied root
+    /// radices' survivors, consumed by the first descending stage to answer
+    /// the responder's empty queries about them (`None` below it).
+    early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Node<H>>)>>>,
+    /// An elected responder's opening hand-off (`None` below the first
+    /// descending stage).
+    ///
+    /// The root children the initiator supplied early, pre-exploded into
+    /// their own children, consumed by the first descending stage to
+    /// resolve its own root-level requests.
+    #[allow(clippy::type_complexity)]
+    early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Node<H>)>)>>>,
     /// The reassembly work accumulated so far; the terminals drive it to
     /// completion.
     work: Work<B, T>,
@@ -423,6 +443,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
                 their_version: theirs.version,
                 their_len: theirs.set_len,
                 their_version_bytes: theirs.max_version_bytes,
+                their_listing: theirs.listing,
                 fan: self.versions.fan,
             },
             root: self.root,
@@ -459,6 +480,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
                 their_version: request.version,
                 their_len: request.set_len,
                 their_version_bytes: request.max_version_bytes,
+                their_listing: request.listing,
                 fan,
             },
             root: self.root,
@@ -488,6 +510,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             their_version,
             their_len,
             their_version_bytes,
+            their_listing,
             fan,
         } = self.versions;
         let ceiling = our_version | &their_version;
@@ -500,7 +523,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             B::node_bytes,
         );
         let mut work = Work::new(self.backend, window);
-        let (responses, queries, returns, finish) = work.initiator_level(ceiling, fan);
+        let (responses, queries, returns, early, finish) =
+            work.initiator_level(their_version.clone(), ceiling, fan, their_listing);
 
         (
             responses,
@@ -508,6 +532,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
                 their_version,
                 queries,
                 returns,
+                early_survivors: Some(early),
+                early_supplies: None,
                 work,
                 finish,
             },
@@ -529,6 +555,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             their_version,
             their_len,
             their_version_bytes,
+            their_listing: _,
             fan,
         } = self.versions;
         let ceiling = our_version | &their_version;
@@ -541,7 +568,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             B::node_bytes,
         );
         let mut work = Work::new(self.backend, window);
-        let (responses, queries, returns, finish) =
+        let (responses, queries, returns, early, finish) =
             work.responder_level(their_version.clone(), ceiling, fan, requests);
 
         (
@@ -550,6 +577,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
                 their_version,
                 queries,
                 returns,
+                early_survivors: None,
+                early_supplies: Some(early),
                 work,
                 finish,
             },
@@ -582,9 +611,13 @@ where
         mut self,
         requests: impl Requests<B, T, S<S<H>>>,
     ) -> (BoxResponses<B, T, S<H>, Self::Error>, Self::Next) {
-        let (responses, queries, upper, lower) =
-            self.work
-                .internal_level(self.their_version.clone(), requests, self.queries);
+        let (responses, queries, upper, lower) = self.work.internal_level(
+            self.their_version.clone(),
+            self.early_survivors.take(),
+            self.early_supplies.take(),
+            requests,
+            self.queries,
+        );
         let returns = self.work.assemble(self.returns, upper);
         let returns = self.work.assemble(returns, lower);
 
@@ -594,6 +627,8 @@ where
                 their_version: self.their_version,
                 queries,
                 returns,
+                early_survivors: None,
+                early_supplies: None,
                 work: self.work,
                 finish: self.finish,
             },
@@ -612,6 +647,10 @@ where
         mut self,
         requests: impl Requests<B, T, S<Z>>,
     ) -> (BoxResponses<B, T, Z, Self::Error>, Self::Next) {
+        debug_assert!(
+            self.early_survivors.is_none() && self.early_supplies.is_none(),
+            "the opening hand-off is consumed by the first descending stage"
+        );
         let (responses, queries, upper, lower) =
             self.work
                 .leaf_parent_level(self.their_version.clone(), requests, self.queries);

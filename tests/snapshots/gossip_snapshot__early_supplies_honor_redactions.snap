@@ -1,0 +1,76 @@
+---
+source: tests/gossip_snapshot.rs
+expression: capture
+---
+direction A -> B
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 00
+version: (1, 1, 0)
+version frame: 30 bytes
+  0000: 00 00 00 1a 02 00 00 00
+  0008: 00 00 00 00 02 00 00 00
+  0010: 00 00 00 00 00 02 11 00
+  0018: 00 00 00 00 a2 40
+listing frame: 25 bytes
+  0000: 00 00 00 15 01 00 00 00
+  0008: b8 3e bc f9 6f af 13 31
+  0010: d5 08 a3 31 8b ab a5 9a
+  0018: db
+Initiator stream 0 (height 31), epoch 0
+  frame 0: Supply(End)
+    0000: 77 00 00 00 0e 00 00 00
+    0008: 0a a2 40 97 00 00 00 00
+    0010: 00 00 00
+  frame 1: End(Stream)
+    0000: 99
+Initiator stream 1 (height 30), epoch 0
+  frame 0: End(Reply)
+    0000: 89
+  frame 1: End(Stream)
+    0000: 9a
+trailing frame: 1 bytes
+  0000: 2e
+
+direction B -> A
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 00
+version: (1, 0, 4)
+version frame: 30 bytes
+  0000: 00 00 00 1a 03 00 00 00
+  0008: 00 00 00 00 02 00 00 00
+  0010: 00 00 00 00 00 02 11 00
+  0018: 00 00 00 00 a4 50
+listing frame: 59 bytes
+  0000: 00 00 00 37 03 00 00 00
+  0008: 24 e8 0e 50 3c 46 4f 42
+  0010: ac f6 ac 8c 54 60 07 bd
+  0018: 62 7a 3a 0f aa 94 b3 95
+  0020: 7e 8f 11 5d c0 d0 51 aa
+  0028: 21 1f b5 44 a2 0c 60 47
+  0030: 25 f9 1f 0d 3f de bf e0
+  0038: f2 1e a3
+Responder stream 0 (height 31), epoch 0
+  frame 0: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a a4 50 66 00 00 00 00
+    0010: 00 00 00
+  frame 1: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a a4 c0 64 00 00 00 00
+    0010: 00 00 00
+  frame 2: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a a4 40 65 00 00 00 00
+    0010: 00 00 00
+  frame 3: QueryEmpty(End)
+    0000: 33
+  frame 4: End(Stream)
+    0000: 99
+trailing frame: 1 bytes
+  0000: 2e

@@ -7,14 +7,16 @@
 //! channel arguments of the materialized walk rely on is supplied by the
 //! [link contract](crate::link), not reconstructed here.
 //!
-//! Streams are established lazily, on both sides, from the same local fact: a
-//! stream carries answers to questions its receiver asked, and each side
-//! learns whether any question exists at a level before it touches the
-//! stream. A [`StreamSender`] connects on its first frame — a level that
-//! produces no reply never opens its stream — and a [`StreamReceiver`]
-//! claims its accepted stream on its first read — a level that asks no
-//! question never claims one. Empty streams therefore never exist on the
-//! wire, rather than opening only to say so.
+//! Streams are established lazily, on both sides, from the same shared
+//! fact: a stream carries answers to questions its receiver asked — or,
+//! for the opening-supply stream, to the root-level requests the two
+//! exchanged listings prove are coming — and each side learns whether any
+//! such question exists at a level before it touches the stream. A
+//! [`StreamSender`] connects on its first frame — a level that produces no
+//! reply never opens its stream — and a [`StreamReceiver`] claims its
+//! accepted stream on its first read — a level that asks no question never
+//! claims one. Empty streams therefore never exist on the wire, rather
+//! than opening only to say so.
 //!
 //! Because transport streams arrive anonymously and in any order, the sender
 //! labels each opened stream with the session epoch and its logical stream
@@ -469,6 +471,9 @@ impl ErrorRoute {
 /// The observing half of the session's first-error route.
 pub struct FirstStreamError {
     receive: mpsc::Receiver<StreamError>,
+    /// The same deposit slot the route's reporters share, so the session
+    /// terminal can recover a supply failure no reporter claimed.
+    supply_failure: std::sync::Arc<std::sync::Mutex<Option<std::io::Error>>>,
 }
 
 impl FirstStreamError {
@@ -481,6 +486,18 @@ impl FirstStreamError {
             None => cancelled().await,
         }
     }
+
+    /// Claim the deposited supply failure, if no reporter beat us to it.
+    ///
+    /// A deposit strictly precedes the poll wave that observes it, so a
+    /// protocol error found alongside one is the *symptom* of the dead
+    /// supply: the terminal prefers the deposit as the session's cause.
+    pub fn take_supply_failure(&self) -> Option<std::io::Error> {
+        self.supply_failure
+            .lock()
+            .expect("supply failure lock")
+            .take()
+    }
 }
 
 /// One slot: the route keeps the first error and drops the rest, because
@@ -490,12 +507,16 @@ const ERROR_ROUTE_CAPACITY: usize = 1;
 /// Allocate the session's incoming-stream error route.
 pub fn error_route() -> (ErrorRoute, FirstStreamError) {
     let (send, receive) = mpsc::channel(ERROR_ROUTE_CAPACITY);
+    let supply_failure = std::sync::Arc::new(std::sync::Mutex::new(None));
     (
         ErrorRoute {
             send,
-            supply_failure: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            supply_failure: supply_failure.clone(),
         },
-        FirstStreamError { receive },
+        FirstStreamError {
+            receive,
+            supply_failure,
+        },
     )
 }
 
