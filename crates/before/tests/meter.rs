@@ -570,15 +570,20 @@ const fn rank_envelope(
 // `--all-features` and reading the MEASURED lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
 // module doc's liveness-floor convention).
+// One rise is recorded against the tightening rule: every limb ceiling
+// here rose 2026-07-24 when `Base::trailing_zeros` joined the metered
+// seam (rank normalization strips factors of two through it, so these
+// are the rows that gained counts) — a re-denomination of the column,
+// the same work newly counted, not a weakening.
 #[rustfmt::skip]
 mod rank_env {
     use super::{rank_envelope, RankEnvelope};
     //                                                            peak heap, segments,    limb ops, touches, limb floor       measured: peak heap, segments, limb ops (movement), touches
-    pub const RANK_DENSE: RankEnvelope         = rank_envelope(           0,      300,           3,      0, 1); //          0, 240, 1_250_002 -> 2, 0
-    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       1_762,  5_862, 1_056); //     40_088 -> 41_368 (2026-07-24, dashu-int backend),  16, 102_824 -> 1_409, 4_689
-    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       1_282, 84_403, 768); //     32_804 -> 33_840 (2026-07-24, dashu-int backend), 124, 134_740_995 -> 1_025, 67_522
-    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      48_848,      0, 29_308); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output), 0
-    pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(      78_140,        0,       4_885, 22_268, 2_931); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization), 17_814
+    pub const RANK_DENSE: RankEnvelope         = rank_envelope(           0,      300,           4,      0, 2); //          0, 240, 1_250_002 -> 2 -> 3 (2026-07-24, metered trailing_zeros), 0
+    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       2_739,  5_862, 1_643); //     40_088 -> 41_368 (2026-07-24, dashu-int backend),  16, 102_824 -> 1_409 -> 2_191 (2026-07-24, metered trailing_zeros), 4_689
+    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       2_562, 84_403, 1_536); //     32_804 -> 33_840 (2026-07-24, dashu-int backend), 124, 134_740_995 -> 1_025 -> 2_049 (2026-07-24, metered trailing_zeros), 67_522
+    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      68_380,      0, 41_028); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output) -> 54_704 (2026-07-24, metered trailing_zeros), 0
+    pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(      78_140,        0,       9_769, 22_268, 5_861); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization) -> 7_815 (2026-07-24, metered trailing_zeros), 17_814
 }
 
 /// Run one rank scenario body under all four meters and assert its
@@ -1720,9 +1725,10 @@ mod skyline_flatness {
     /// tightened from the retired quadratic baseline of record
     /// (101,716 → 396,126 touches, 145,680 → 564,784 limbs at these
     /// scales) in the commit that landed the cure, per the ratchet
-    /// convention. Measured: small 6,182 touches / 4,326 limbs on
-    /// 24,085 skyline bytes; large 12,390 touches / 8,662 limbs on
-    /// 48,245 bytes.
+    /// convention. Measured: small 6,182 touches / 4,326 → 4,479 limbs
+    /// on 24,085 skyline bytes; large 12,390 touches / 8,662 → 8,967
+    /// limbs on 48,245 bytes (limb movement 2026-07-24, metered
+    /// `trailing_zeros`, under the standing ceilings).
     const FREEZE_BAND_OVER_TOUCH_CEILINGS: (u64, u64) = (7_728, 15_488);
 
     /// The over-threshold limb ceilings paired with
@@ -1849,9 +1855,10 @@ mod skyline_flatness {
     /// identical runs): one eviction of the `k`-bit jump plus flat
     /// 3-bit-delta work — the un-evicted alternative reads the jump's
     /// width again on every following delta, ~15× these numbers at the
-    /// small scale alone. Measured: small 5,138 touches / 2,128 limbs
-    /// on 4,961 skyline bytes; large 10,272 touches / 4,250 limbs on
-    /// 9,921 bytes.
+    /// small scale alone. Measured: small 5,138 touches / 2,128 → 2,280
+    /// limbs on 4,961 skyline bytes; large 10,272 touches / 4,250 →
+    /// 4,554 limbs on 9,921 bytes (limb movement 2026-07-24, metered
+    /// `trailing_zeros`, under the standing ceilings).
     const RANK_JUMP_TOUCH_CEILINGS: (u64, u64) = (6_423, 12_840);
 
     /// The jump-comb limb ceilings paired with
@@ -2419,11 +2426,11 @@ const fn query_envelope(
 mod query_env {
     use super::{query_envelope, QueryEnvelope};
     //                                                                        peak heap, segments,  limb ops, scan bits,   touches, limb floor       measured: heap, seg, limb, scan, touches
-    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    81_950,        0,   312_505, 1_093_772,   156_259, 187_503); // 65_560, 0, 250_004, 875_017, 125_007
-    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199, 16_059); // 60_088 -> 61_516 (2026-07-24, dashu-int backend), 0, 21_413, 310_024, 17_194
-    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324, 99_072); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097, 458_763, 198_659
-    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008, 4_683); // 2_460 -> 2_540 (2026-07-24, dashu-int backend), 0, 6_244, 38_917, 6_406
-    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580, 17_730); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641, 2_397_055, 26_864
+    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    81_950,        0,   312_505, 1_093_772,   156_259, 187_503); // 65_560, 0, 250_004 -> 250_005 (2026-07-24, metered trailing_zeros), 875_017, 125_007
+    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199, 16_646); // 60_088 -> 61_516 (2026-07-24, dashu-int backend), 0, 21_413 -> 22_195 (2026-07-24, metered trailing_zeros), 310_024, 17_194
+    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324, 99_840); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097 -> 133_121 (2026-07-24, metered trailing_zeros), 458_763, 198_659
+    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008, 4_707); // 2_460 -> 2_540 (2026-07-24, dashu-int backend), 0, 6_244 -> 6_277 (2026-07-24, metered trailing_zeros), 38_917, 6_406
+    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580, 17_755); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641 -> 23_674 (2026-07-24, metered trailing_zeros), 2_397_055, 26_864
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255, 187_501); // 24_576, 0, 250_002, 375_006, 125_004
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62, 12); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924, 69_159); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806, 35_939
