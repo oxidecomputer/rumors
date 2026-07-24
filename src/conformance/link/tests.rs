@@ -1004,24 +1004,29 @@ fn never_binding_pooled_budget_conforms() {
 /// contract's bound: degradation is latency, never deadlock.
 ///
 /// This pins observed protocol behavior, deliberately stronger than the
-/// contract (the link docs promise only the never-binding bound): a deep,
-/// pipelined reconciliation — thousands of payloads, a multi-level trie,
-/// frames in flight on several streams at once — converges over a 64-byte
-/// pool per direction shared by the control stream and every data stream.
-/// If a protocol change trips this, sessions have begun *depending* on
-/// pooled headroom, and the link docs' measured-tolerance sentence must be
-/// re-derived before this pin is loosened.
+/// contract (the link docs promise only the never-binding bound): a deep
+/// reconciliation — thousands of payloads, a multi-level trie, frames in
+/// flight on several streams at once — converges over a 64-byte pool per
+/// direction shared by the control stream and every data stream. The
+/// sessions run at the serialization floor, the shape the link docs'
+/// measured-tolerance sentence is denominated in: a sub-bound pool couples
+/// streams, so a window wide enough to fill several streams at once can
+/// genuinely wait-cycle through it — exactly the coupling the contract's
+/// independence clause exists to exclude. If a protocol change trips
+/// this, floor sessions have begun *depending* on pooled headroom, and
+/// that sentence must be re-derived before this pin is loosened.
 #[test]
 fn starved_pool_degrades_latency_not_liveness() {
     let (mut a, mut b) = windowed_pair(64, POOLED_STREAM_CAPACITY);
     run_to_quiescence(async {
-        let seed: crate::Rumors<u64> = crate::Peer::seed().into_rumors();
+        let seed: crate::Rumors<u64> = crate::Peer::seed().sync_window_floor().into_rumors();
         let (served, joined) =
             futures::future::join(seed.gossip(&mut a), crate::Peer::<u64>::bootstrap(&mut b)).await;
         served.expect("the bootstrap-serving session completes");
         let newcomer = joined
             .expect("the bootstrap session completes")
             .expect("the seed serves the bootstrap")
+            .sync_window_floor()
             .into_rumors();
         {
             let mut batch = seed.batch();

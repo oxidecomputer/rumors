@@ -70,7 +70,7 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
 /// completed pass its checkpoint dominates every observed version.
 #[test]
 fn genesis_replay_observes_the_live_set_once() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
         let mut batch = rumors.batch();
         for v in 0..8u64 {
@@ -105,7 +105,7 @@ fn genesis_replay_observes_the_live_set_once() {
 /// messages `v_mid` does not causally contain.
 #[test]
 fn checkpoint_start_observes_only_what_it_does_not_contain() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2).send(3);
     let v_mid = rumors.snapshot().latest().clone();
     rumors.batch().send(4).send(5).send(6);
@@ -133,7 +133,7 @@ fn checkpoint_start_observes_only_what_it_does_not_contain() {
 /// after subscription are observed, as are messages learned via gossip.
 #[test]
 fn live_sends_and_gossip_learned_messages_are_observed() {
-    let a = Peer::<u64>::seed().into_rumors();
+    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     let sibling = a.clone();
@@ -162,7 +162,7 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
 /// does not see pre-subscription content.
 #[test]
 fn redactions_are_honored_silently() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
 
     // Redacted before subscription: never fires.
     let pre = rumors.snapshot().latest().clone();
@@ -209,7 +209,7 @@ fn redactions_are_honored_silently() {
 /// yields the complete final state and then ends.
 #[test]
 fn observer_drains_the_final_state_then_ends() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
     let expected = live_map(&rumors);
 
@@ -236,7 +236,7 @@ fn observer_drains_the_final_state_then_ends() {
 /// observer's final drain includes everything the session learned.
 #[test]
 fn retire_ends_the_observer() {
-    let survivor = Peer::<u64>::seed().into_rumors();
+    let survivor = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let retiree = bootstrap_fork(&survivor);
     retiree.send(7);
 
@@ -270,7 +270,7 @@ fn retire_ends_the_observer() {
 /// drained observer is quiet, not ended.
 #[test]
 fn observer_stays_quiet_while_actors_live() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.send(1);
 
     let mut obs = rumors.unordered_messages();
@@ -293,7 +293,7 @@ fn observer_stays_quiet_while_actors_live() {
 /// nor is ended by it, and it keeps observing across the round-trip.
 #[test]
 fn observer_does_not_block_reunite_and_survives_it() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
 
     let mut obs = rumors.unordered_messages();
     let (_, ended) = drain(&mut obs);
@@ -325,7 +325,7 @@ fn observer_does_not_block_reunite_and_survives_it() {
 /// observer sees their effects on its next passes.
 #[test]
 fn lent_borrows_do_not_block_senders() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
 
     let mut obs = rumors.unordered_messages();
@@ -352,7 +352,7 @@ fn lent_borrows_do_not_block_senders() {
 /// equal checkpoint.
 #[test]
 fn checkpoint_round_trips_on_an_unchanged_set() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2).send(3);
 
     let mut obs = rumors.unordered_messages();
@@ -375,7 +375,7 @@ fn checkpoint_round_trips_on_an_unchanged_set() {
 /// are skipped, messages B holds that A never saw fire.
 #[test]
 fn checkpoint_is_portable_across_replicas() {
-    let a = Peer::<u64>::seed().into_rumors();
+    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     a.send(1);
@@ -402,7 +402,7 @@ fn checkpoint_is_portable_across_replicas() {
 fn try_next_distinguishes_quiet_from_ended() {
     use rumors::TryNext;
 
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
 
     let mut obs = rumors.unordered_messages();
@@ -436,7 +436,7 @@ fn try_next_distinguishes_quiet_from_ended() {
 fn stream_face_matches_and_terminates() {
     use futures::StreamExt;
 
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
     let expected = live_map(&rumors);
 
@@ -469,7 +469,9 @@ fn folding_delivered_versions_can_lose_a_message() {
     // keys vs. causal versions disagree about order roughly half the time).
     let (rumors, later_value) = (1u64..256)
         .find_map(|candidate| {
-            let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors();
+            let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0))
+                .sync_window_floor()
+                .into_rumors();
             rumors.send(0);
             rumors.send(candidate);
             let snapshot = rumors.snapshot();
@@ -543,7 +545,7 @@ proptest! {
     /// the final live set.
     #[test]
     fn exactly_once_under_interleaving(ops in arb_ops()) {
-        let rumors = Peer::<u64>::seed().into_rumors();
+        let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let sibling = rumors.clone();
 
         let mut obs = rumors.unordered_messages();
@@ -603,7 +605,7 @@ proptest! {
         taken in any::<usize>(),
         complete_pass in any::<bool>(),
     ) {
-        let rumors = Peer::<u64>::seed().into_rumors();
+        let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
         {
             let mut batch = rumors.batch();
             for v in &phase_one {

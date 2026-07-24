@@ -319,7 +319,8 @@ fn window_stall_hides_under_bandwidth_bound_transfer() {
     let divergence = divergence_at_least(STALL_CELL);
     let capacity = binding_capacity_at(divergence);
     // 2 KiB in flight at 10 ms one-way models ~200 KB/s per stream: a
-    // BDP of ~2 KiB, tens of messages at the ~100 B floor — at or below
+    // BDP of ~2 KiB — ~57 messages at this corpus's measured ~36 B each
+    // (tests/dispute_wire.rs pins the affine per-message cost) — below
     // the binding capacity, so bandwidth binds before the window does.
     let bandwidth_bound = hops_over(divergence, 2 * 1024);
     let stall_bound = hops(divergence);

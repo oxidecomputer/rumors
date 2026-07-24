@@ -41,7 +41,9 @@ use crate::common::wire::{block_on, bootstrap_fork_async_with_protocol};
 /// The retiree is always a [`bootstrap_fork`] of this seed: a genuine disjoint
 /// originator, which is what retirement reclaims.
 fn seeded() -> Rumors<u64> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
+    Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .sync_window_floor()
+        .into_rumors()
 }
 
 /// Capture one successful retire: `retiree` runs [`Peer::retire`] (party B)
@@ -98,6 +100,7 @@ fn divergent_retire() {
 fn v1_divergent_retire() {
     let (absorber, retiree) = block_on(async {
         let absorber = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0))
+            .sync_window_floor()
             .protocol(Protocol::V1)
             .into_rumors();
         let retiree = bootstrap_fork_async_with_protocol(&absorber, Protocol::V1).await;

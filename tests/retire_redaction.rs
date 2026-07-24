@@ -17,7 +17,7 @@ use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire
 /// ordinary gossip: the redaction rides the retire session itself.
 #[test]
 fn retire_carries_last_minute_redactions() {
-    let a = Peer::<String>::seed().into_rumors();
+    let a = Peer::<String>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     // B originates an entry and A learns it through ordinary gossip.

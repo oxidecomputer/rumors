@@ -57,7 +57,7 @@ fn protocol_constants_match_spec() {
 async fn handshake_roundtrip_succeeds() {
     // Same universe: `bob` is a party-disjoint fork of `alice`, so their
     // networks match.
-    let alice: Rumors<String> = Peer::seed().into_rumors();
+    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
     let bob = bootstrap_fork_async(&alice).await;
 
     let (mut a_link, mut b_link) = rumors::link::memory();
@@ -88,7 +88,7 @@ async fn magic_mismatch_surfaces_error() {
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let alice: Rumors<String> = Peer::seed().into_rumors();
+    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
     let alice_fut = alice.gossip(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -120,7 +120,7 @@ async fn version_mismatch_surfaces_error() {
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let alice: Rumors<String> = Peer::seed().into_rumors();
+    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
     let alice_fut = alice.gossip(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -152,7 +152,10 @@ async fn selected_protocols_must_match() {
         let reply = preamble(PROTOCOL_MAGIC, Protocol::V2, INTENT_REMAIN);
         b_w.write_all(&reply).await.expect("fake peer write");
     };
-    let v1 = Peer::<String>::seed().protocol(Protocol::V1).into_rumors();
+    let v1 = Peer::<String>::seed()
+        .sync_window_floor()
+        .protocol(Protocol::V1)
+        .into_rumors();
 
     let (result, ()) = tokio::join!(v1.gossip(&mut a_link), fake_v2);
     assert!(matches!(
@@ -182,7 +185,7 @@ async fn invalid_intent_surfaces_error() {
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let alice: Rumors<String> = Peer::seed().into_rumors();
+    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
     let alice_fut = alice.gossip(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -214,7 +217,7 @@ async fn truncated_handshake_io_error() {
         drop(b_w);
     };
 
-    let alice: Rumors<String> = Peer::seed().into_rumors();
+    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
     let alice_fut = alice.gossip(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -249,7 +252,7 @@ async fn handshake_precedes_protocol_traffic() {
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let alice: Rumors<String> = Peer::seed().into_rumors();
+    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
     let alice_fut = alice.gossip(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);

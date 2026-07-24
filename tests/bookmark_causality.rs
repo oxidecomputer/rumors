@@ -282,7 +282,7 @@ impl World {
                     write_faults[label].clone(),
                 )));
                 let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
-                let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
+                let peer = block_on(Peer::<Msg>::seed().sync_window_floor().bookmark(bookmark))
                     .expect("a pristine seed attaches its bookmark without touching storage");
                 let network = peer.network();
                 Node {
@@ -321,7 +321,7 @@ impl World {
         let store = Arc::new(Mutex::new(None));
         let faults = reliable();
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), 0);
-        let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
+        let peer = block_on(Peer::<Msg>::seed().sync_window_floor().bookmark(bookmark))
             .expect("a pristine seed attaches its bookmark without touching storage");
         let network = peer.network();
         let mut nodes = vec![Node {
@@ -574,7 +574,7 @@ impl World {
                 // bootstrapping); a wire fault drops us to `None`, as does an
                 // injected persistence failure in the eager bookmark attach.
                 let peer = Peer::<Msg>::bootstrap(&mut link).await.ok().flatten()?;
-                peer.bookmark(bookmark).await.ok()
+                peer.sync_window_floor().bookmark(bookmark).await.ok()
             });
             let serve = tokio::spawn(async move {
                 let mut link = serve_side;
@@ -620,7 +620,7 @@ impl World {
         // vanishes, so secure what was persisted and lose the rest.
         self.secure_and_lose(who);
         let bookmark = self.nodes[who].bookmark();
-        let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
+        let peer = block_on(Peer::<Msg>::seed().sync_window_floor().bookmark(bookmark))
             .expect("a pristine seed attaches its bookmark without touching storage");
         self.nodes[who].network = peer.network();
         self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
@@ -1079,6 +1079,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
         // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; re-bootstrap = revive).
         let a = Peer::<Msg>::seed()
+            .sync_window_floor()
             .bookmark(bm_a())
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
@@ -1141,7 +1142,8 @@ async fn boot_from_async(
         let peer = Peer::<Msg>::bootstrap(&mut link)
             .await
             .expect("bootstrap ok")
-            .expect("got a peer");
+            .expect("got a peer")
+            .sync_window_floor();
         // Clean wires, reliable store: the eager persist of the reclaimed
         // identity must succeed.
         match peer.bookmark(bm).await {
@@ -1192,7 +1194,7 @@ fn run_reliable_plan(plan: Plan) -> World {
 #[should_panic(expected = "recycled version identifier")]
 fn negative_control_recycled_durable_emission_panics() {
     let log = EmissionLog::default();
-    let network = Peer::<Msg>::seed().network();
+    let network = Peer::<Msg>::seed().sync_window_floor().network();
     let mut version = Version::new();
     version.tick(&Party::seed());
 

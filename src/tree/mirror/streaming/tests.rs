@@ -18,6 +18,7 @@ use crate::tree::mirror::streaming::backend::with_local_schedule;
 use crate::tree::mirror::streaming::materialized::channel::with_schedule;
 use crate::tree::mirror::streaming::materialized::progress::{Trace, with_trace};
 use crate::tree::mirror::streaming::materialized::transcript::{Transcript, with_transcript};
+use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::streaming::{
     Local, Root as StreamingRoot, materialized::Handshaking, mirror as drive_streaming,
 };
@@ -80,8 +81,8 @@ fn streaming_mirror_sides_with_schedules(
     backend_schedule: Vec<u8>,
 ) -> (Root<()>, Root<()>) {
     let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
-    let client = Handshaking::start(Local, a.clone());
-    let server = Handshaking::start(Local, b.clone());
+    let client = Handshaking::start(Local, a.clone()).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(Local, b.clone()).window(WindowConfig::FLOOR);
     let (result, trace) = with_trace(|| {
         with_schedule(channel_schedule, || {
             with_local_schedule(backend_schedule, || {
@@ -109,8 +110,8 @@ fn transcribed_mirror_sides<T: Send + Sync + 'static>(
     b: Root<T>,
 ) -> (Root<T>, Root<T>, Trace, Transcript) {
     let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a.into(), b.into());
-    let client = Handshaking::start(Local, a);
-    let server = Handshaking::start(Local, b);
+    let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     let ((result, trace), transcript) =
         with_transcript(|| with_trace(|| run_to_quiescence(drive_streaming(client, server))));
     let (ours, theirs) = result

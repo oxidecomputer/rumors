@@ -528,6 +528,31 @@ throughput check is `budget / (22 × RTT)`. The constant is pinned by
 exact recomputation, and the regenerated table's default row sits at
 parity in every column.
 
+**Amendment (2026-07-23, fourth wave): two slot-pricing corrections.**
+The per-child slot constant is now `size_of` of the real container
+types — the `(u8, Resolve)` resolution slot is 24 B, not the
+hand-counted 16, because `Option<Node>` consumes the handle's only
+null niche — and the leaf-request edge is charged at exactly the
+width the capacity assignment grants it (its depth-31 joint quantile
+is zero for every representable corpus) instead of a corpus-wide
+term the assignment never granted. The derived per-scope envelope is
+4,865 B, the default budget ~304 MB, and the operator throughput
+check `budget / (25 × RTT)`; the pins are unchanged in kind
+(`design/sync-budget.md` §2.4 records the details).
+
+**Amendment (2026-07-23, fifth wave): the default budget is policy.**
+`DEFAULT_SYNC_MEMORY_BUDGET` is a stated 512 MiB, minted from no
+expression; what any budget buys is the closed form
+`slowdown(budget, m) = max(1, BDP × 4,865 / (budget × (28 + m)))` —
+the envelope pinned by recomputation, the 28 B intercept by
+deterministic byte-count calibration, `m` the mean encoded record
+size — and the trade-off table is that form tabulated at the spec BDP
+across budget × record size, generated deterministically and
+byte-compared in the gate. At the spec BDP the default's slowdown-1
+crossover is `m* ≈ 85.3 B`; the design-record anchor
+`DISPUTE_WIRE_BYTES` (m = 172) survives with nothing deriving from
+it (`design/sync-budget.md` §1.6's amendment records the details).
+
 ### 5.3 The per-leaf compute follow-up
 
 Chasing the zero-latency compute gap (§2, §7) surfaced a second

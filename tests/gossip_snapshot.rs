@@ -31,7 +31,9 @@ use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
 /// the preamble is deterministic and these byte-level captures stay
 /// reproducible across runs.
 fn seeded<T>() -> Rumors<T> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
+    Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .sync_window_floor()
+        .into_rumors()
 }
 
 /// The key of the live message holding `value`: how a scenario picks out a
@@ -347,6 +349,7 @@ fn early_supplies_honor_redactions() {
 fn v1_one_sided_transfer() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+            .sync_window_floor()
             .protocol(Protocol::V1)
             .into_rumors();
         let b = bootstrap_fork_async_with_protocol(&a, Protocol::V1).await;

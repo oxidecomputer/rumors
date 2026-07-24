@@ -41,7 +41,7 @@ fn gossip_future_fits_budget() {
     let (mut link, peer) = rumors::link::memory();
     drop(peer);
 
-    let alice: Rumors<()> = Peer::seed().into_rumors();
+    let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
     let fut = alice.gossip(&mut link);
     let size = size_of_val(&fut);
 
@@ -61,7 +61,7 @@ fn retire_future_fits_budget() {
     let (mut link, peer) = rumors::link::memory();
     drop(peer);
 
-    let alice: Peer<()> = Peer::seed();
+    let alice: Peer<()> = Peer::seed().sync_window_floor();
     let fut = alice.retire(&mut link);
     let size = size_of_val(&fut);
 

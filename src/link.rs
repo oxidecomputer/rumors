@@ -81,10 +81,12 @@
 //! pool shared by both directions needs the sum: twice the per-direction
 //! bound. The conformance suite exercises a pool exactly at the bound
 //! (passes the whole suite) and one far below the buffering it must cover
-//! (fails the independence check). Sessions measured over far smaller pools
-//! (down to tens of bytes) stay live with latency degradation, but that is
-//! observed behavior of the current protocol, not a promise: size pools to
-//! the bound.
+//! (fails the independence check). Sessions at the serialization floor
+//! measured over far smaller pools (down to tens of bytes) stay live with
+//! latency degradation, but that is observed behavior of the current
+//! protocol at that window shape, not a promise — a window wide enough to
+//! fill several streams at once can wait-cycle through a sub-bound pool:
+//! size pools to the bound.
 //!
 //! # Instantiations
 //!

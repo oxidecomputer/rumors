@@ -184,7 +184,7 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
 /// Run `ops` from a freshly seeded universe, invoking `check` on the live
 /// fleet at the baseline and after every step.
 fn run_schedule(ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
-    let mut fleet = vec![Peer::<u64>::seed().into_rumors()];
+    let mut fleet = vec![Peer::<u64>::seed().sync_window_floor().into_rumors()];
     check(&fleet);
     for &op in ops {
         apply(&mut fleet, op);
@@ -226,7 +226,7 @@ proptest! {
     /// identity moved, none was minted, none was lost.
     #[test]
     fn bootstrap_donates_exactly_once(actions in arb_local_actions()) {
-        let seed = Peer::<u64>::seed().into_rumors();
+        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
         // A provider holding a proper sub-share (not the whole seed), with
         // arbitrary content: the general donation case.
         let provider = build_local(bootstrap_fork(&seed), &actions);
@@ -261,7 +261,7 @@ proptest! {
         retiree_actions in arb_local_actions(),
         absorber_actions in arb_local_actions(),
     ) {
-        let seed = Peer::<u64>::seed().into_rumors();
+        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let absorber = build_local(bootstrap_fork(&seed), &absorber_actions);
         let retiree = build_local(bootstrap_fork(&seed), &retiree_actions);
 
@@ -294,7 +294,7 @@ proptest! {
     /// non-contiguous shards grows this measure permanently and fails here.
     #[test]
     fn party_returns_to_baseline_under_sequential_cycles(k in 1usize..=12) {
-        let seed = Peer::<u64>::seed().into_rumors();
+        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
         // The provider under test holds a proper sub-share, the general
         // case; the seed handle stays live holding the complement.
         let p = bootstrap_fork(&seed);
@@ -334,7 +334,7 @@ proptest! {
         order in (2usize..=4)
             .prop_flat_map(|m| Just((0..m).collect::<Vec<usize>>()).prop_shuffle()),
     ) {
-        let seed = Peer::<u64>::seed().into_rumors();
+        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let p = bootstrap_fork(&seed);
         let baseline = alias(&p);
 

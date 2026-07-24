@@ -47,7 +47,7 @@ const LINK_BUF: usize = 64 * 1024;
 /// A connected, party-disjoint pair: a freshly seeded peer and a bootstrap
 /// fork of it.
 async fn pair() -> (Rumors<u64>, Rumors<u64>) {
-    let a: Rumors<u64> = Peer::seed().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork_async(&a).await;
     (a, b)
 }
@@ -219,7 +219,7 @@ async fn heartbeat_ticks_are_free_until_divergence() {
 /// connection is exactly the news its C-side driver must push).
 #[tokio::test(flavor = "current_thread")]
 async fn changes_propagate_transitively_through_a_chain() {
-    let a: Rumors<u64> = Peer::seed().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork_async(&a).await;
     let c = bootstrap_fork_async(&b).await;
 
@@ -372,7 +372,7 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
 /// quietly parked driver.
 #[test]
 fn a_driver_on_a_poisoned_link_fails_fast() {
-    let a: Rumors<u64> = Peer::seed().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let (mut a_link, _b_link) = links();
 
     // Poison the link: cancel a one-shot session stalled on its silent
@@ -509,7 +509,7 @@ async fn a_clean_end_leaves_the_connection_reusable() {
 /// remaining handle reclaims the `Peer`.
 #[pollster::test]
 async fn a_dropped_driver_does_not_block_peer_reclaim() {
-    let rumors: Rumors<u64> = Peer::seed().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let (mut a_link, _b_link) = links();
     {
         let _driver = rumors.gossip_when(stream::pending::<()>(), &mut a_link);
@@ -716,7 +716,7 @@ proptest! {
 /// yields one terminal `Err` and then ends.
 #[tokio::test(flavor = "current_thread")]
 async fn truncated_initiation_is_a_terminal_error() {
-    let a: Rumors<u64> = Peer::seed().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let (mut a_link, b) = rumors::link::memory_with_capacity(LINK_BUF);
     // Drive the counterparty's control stream by hand: keep its read half (and
     // the data-stream connector/acceptor) alive so A's own writes succeed,
@@ -762,7 +762,7 @@ async fn truncated_initiation_is_a_terminal_error() {
 /// the read error comes from the fault harness with a zero-byte budget.)
 #[tokio::test(flavor = "current_thread")]
 async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
-    let a: Rumors<u64> = Peer::seed().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let (a_link, _b_link) = links();
     let mut a_link = faulty(
         a_link,

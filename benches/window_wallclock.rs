@@ -1,12 +1,13 @@
-//! Wall-clock cross-check of the window trade-off's virtual-time model.
+//! Wall-clock cross-check of the window suites' virtual-time model.
 //!
 //! Runs a small budget × divergence grid over the same delayed pipes as
-//! `examples/window_tradeoff.rs`, but on a running clock, so pipe delays
+//! the knee and operator suites (`tests/window_knee.rs`,
+//! `tests/window_operator.rs`), but on a running clock, so pipe delays
 //! burn real time under real timer scheduling. The virtual model predicts
-//! each cell's time as `hops × delay` plus compute; criterion's mean for a
-//! cell should land within a few percent of the generator's virtual figure
-//! for the same shape. Compare by eye after `just bench window_wallclock`;
-//! the grid is small because every wave here costs real milliseconds.
+//! each cell's time as `hops × delay` plus compute; criterion's mean for
+//! a cell should land within a few percent of the virtual figure for the
+//! same shape. Compare by eye after `just bench window_wallclock`; the
+//! grid is small because every wave here costs real milliseconds.
 
 #[allow(dead_code)]
 #[path = "support/latency.rs"]

@@ -35,7 +35,7 @@ proptest! {
     /// no duplicates, no omissions.
     #[test]
     fn batch_mints_once_per_value(values in vec(any::<u64>(), 0..=32)) {
-        let peer = Peer::<u64>::seed().into_rumors();
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), values.len());
         prop_assert_eq!(peer.snapshot().len(), values.len());
@@ -45,7 +45,7 @@ proptest! {
     /// several values in the batch are equal.
     #[test]
     fn distinct_keys_per_batch(values in vec(any::<u64>(), 1..=32)) {
-        let peer = Peer::<u64>::seed().into_rumors();
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), values.len());
         let unique: BTreeSet<_> = minted.iter().map(|(k, _)| *k).collect();
@@ -56,7 +56,7 @@ proptest! {
     /// `n` distinct `Key`s — content equality does not collapse keys.
     #[test]
     fn duplicate_values_get_distinct_keys(n in 1usize..=16, value in any::<u64>()) {
-        let peer = Peer::<u64>::seed().into_rumors();
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let values: Vec<u64> = std::iter::repeat_n(value, n).collect();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), n);
@@ -73,7 +73,7 @@ proptest! {
     fn local_versions_form_a_chain(
         batches in vec(vec(any::<u64>(), 1..=8), 1..=8),
     ) {
-        let peer = Peer::<u64>::seed().into_rumors();
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
 
         // Versions in commit order: per batch, the minted versions sorted
         // into their (total) causal order; batches concatenated in commit
@@ -128,7 +128,7 @@ proptest! {
         // need not share a universe). Read the live multiset directly off
         // the snapshot.
         let multiset_of = |values: &[u64]| -> BTreeMap<u64, usize> {
-            let peer = Peer::<u64>::seed().into_rumors();
+            let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
             batch_send(&peer, values);
             let mut out = BTreeMap::new();
             for (_, _, v) in peer.snapshot().iter() {

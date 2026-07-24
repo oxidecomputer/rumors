@@ -120,8 +120,8 @@
 //!   its own producer — the premise the session's whole liveness argument
 //!   already rests on.
 
+use super::{Local, materialized::Resolve};
 use crate::link::STREAM_COUNT;
-use crate::tree::MERKLE_HASH_LEN;
 use crate::tree::typed::{self, Prefix, height::Z};
 
 /// The tree's maximum branching factor: one child per radix byte.
@@ -136,12 +136,24 @@ pub(crate) const FAN: usize = 256;
 /// the *depth* of the children discussed at height `h` is `KEY_DEPTH − h`.
 const KEY_DEPTH: usize = 32;
 
-/// In-memory bytes of one child's slots in a level's in-flight containers.
+/// In-memory bytes of one child's slots in a level's in-flight
+/// containers: a query slot, a resolution slot, and a listing entry.
 ///
-/// One `(u8, node-handle)` query slot and one `(u8, resolve)` resolution
-/// slot (pointer-aligned pairs, 16 B each), plus one `(u8, Hash)` listing
-/// entry (byte-packed).
-const REFERENCE_SLOT_BYTES: usize = 16 + 16 + (1 + MERKLE_HASH_LEN);
+/// Derived from `size_of` of the real slot types under the in-memory
+/// backend, so a layout change moves the price with it instead of
+/// leaving a hand-counted byte total stale: the pointer-aligned
+/// `(u8, node-handle)` query slot (16 B); the `(u8, Resolve)` resolution
+/// slot (24 B — `Option<Node>` consumes the handle's only null niche, so
+/// the `Ready`/`Pending` tag sits out of line and the pair outgrows the
+/// query slot by a word); and the byte-packed `(u8, Hash)` listing entry
+/// (17 B). `Resolve`'s layout does not depend on the height or payload
+/// parameters, so the leaf instantiation prices every level. Exact for
+/// pointer-class node handles; a backend whose `Node` demands a wider
+/// layout pads the real slots beyond this constant and owes that padding
+/// to its own `node_bytes` price.
+const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<(), Z>)>()
+    + std::mem::size_of::<(u8, Resolve<Local, (), Z>)>()
+    + std::mem::size_of::<(u8, typed::Hash)>();
 
 /// Fixed in-memory bytes per buffered scope beyond its per-child slots:
 /// two inline prefixes (40 B each) and the container `Vec` headers.
@@ -173,63 +185,95 @@ const FAN_SLOT_BYTES: usize = std::mem::size_of::<(Prefix<Z>, typed::Node<(), Z>
 /// (pinned by the `Local` handle assertion) beside [`FAN_SLOT_BYTES`] of
 /// slot. [`from_budget`](Window::from_budget) charges the same shape
 /// through the live backend's own `node_bytes`; this constant is that
-/// charge at the design session, folded into
-/// [`DEFAULT_SYNC_MEMORY_BUDGET`] so the default still admits the design
-/// link's whole bandwidth-delay product in disputed scopes.
+/// charge under the in-memory backend, the flat pre-charge the operator
+/// docs quote.
 pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
     STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<(), Z>>() + FAN_SLOT_BYTES);
 
-/// Bandwidth of the design link the default budget is sized for:
-/// 100 Gbps, in bytes per millisecond.
-const DESIGN_LINK_BYTES_PER_MS: usize = 12_500_000;
+/// The specification link's bandwidth-delay product, in bytes: 12.5 MB,
+/// where the two spec links coincide.
+///
+/// 100 Gbps × 1 ms round trip and 1 Gbps × 100 ms are the same product;
+/// the trade-off table and the crossover figures in the budget docs are
+/// stated at it.
+pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 
-/// Round-trip latency of the design link, in milliseconds.
-const DESIGN_LINK_RTT_MS: usize = 1;
+/// End-to-end wire bytes of one disputed message beyond its record's
+/// encoded payload: its question share, reply share, and record framing.
+///
+/// Calibrated: `tests/dispute_wire.rs` counts every byte of
+/// deterministic in-memory sessions and pins the per-message cost as an
+/// affine law — this intercept plus the record's borsh-encoded
+/// payload — at three payload sizes. The closed form documented at
+/// [`DEFAULT_SYNC_MEMORY_BUDGET`] is denominated in it.
+pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 28;
 
-/// Wire bytes one disputed message costs end to end — its question,
-/// reply share, and leaf record. Measured: the knee suite's
-/// bandwidth-bound cell calibrates it.
-pub(crate) const DISPUTE_WIRE_BYTES: usize = 200;
+/// The design record's borsh-encoded payload size: the `m = 172` column
+/// of the trade-off table, and the record size the wire-cost anchor
+/// below is stated at.
+pub(crate) const DESIGN_RECORD_BYTES: usize = 172;
+
+/// Wire bytes one disputed message costs end to end at the design
+/// record size — its question share, reply share, and leaf record.
+///
+/// An anchor, not an input: nothing derives from it. The closed form
+/// takes the record size `m` directly ([`DISPUTE_OVERHEAD_BYTES`]
+/// `+ m` per message), and the default budget is a stated policy
+/// choice. Calibrated: `tests/dispute_wire.rs`'s design-record cell
+/// measures exactly this figure.
+pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + DESIGN_RECORD_BYTES;
 
 /// Session-envelope bytes one in-flight disputed scope is charged.
 ///
 /// Derived, not fitted: the per-scope charge of the *design session* —
-/// two corpora the size of the design link's bandwidth-delay product in
-/// messages, in full divergence, every stage population held in flight —
-/// under the in-memory backend's pricing, exactly as
+/// two corpora of 62,500 messages each (the spec BDP in design-size
+/// records), in full divergence, every stage population held in
+/// flight — under the in-memory backend's pricing, exactly as
 /// [`from_budget`](Window::from_budget) charges it. The recomputation is
 /// pinned by `scope_envelope_matches_the_derivation`, so this constant
 /// fails loudly instead of drifting when the pricing or the occupancy
 /// envelopes change.
-pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_339;
+pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
 
-/// Worst-case memory one synchronization may spend by default: the
-/// envelope that fills the design link's bandwidth-delay product with
-/// dispute traffic.
+/// Worst-case memory one synchronization may spend by default: 512 MiB.
 ///
-/// The design link is 100 Gbps (`DESIGN_LINK_BYTES_PER_MS`) at a 1 ms
-/// round trip (`DESIGN_LINK_RTT_MS`): a 12.5 MB bandwidth-delay
-/// product, kept full by one disputed scope in flight per
-/// `DISPUTE_WIRE_BYTES` of it, each charged `SCOPE_ENVELOPE_BYTES` of
-/// session envelope — 62,500 scopes, ~271 MB. On links whose product is
-/// at or under the design point's
-/// (equivalently, 1 Gbps × 100 ms), sessions are bandwidth-bound at
-/// every divergence and window serialization is unobservable; past it,
-/// sessions degrade by the small constant factors the trade-off table
-/// measures.
+/// Chosen, not derived: a round policy default. What any budget buys is
+/// stated by the closed form — derived, with both constants pinned (the
+/// 4865 B per-scope envelope by exact recomputation, the 28 B
+/// per-message wire intercept by byte-count calibration):
+///
+/// > `slowdown(budget, m) = max(1, BDP × 4865 / (budget × (28 + m)))`
+///
+/// with `m` the session's mean encoded record size and `BDP` the link's
+/// bandwidth-delay product in bytes.
+///
+/// The headline consequence — derived from three inputs, the spec BDP,
+/// this 512 MiB policy default, and the pinned per-scope envelope, so
+/// it re-derives if any of them move: at the spec BDP (12.5 MB —
+/// 1 Gbps × 100 ms and 100 Gbps × 1 ms coincide), the default imposes
+/// **no window-induced serialization for any corpus whose mean encoded
+/// record size is at least 86 B**. The crossover is
+/// `m* = BDP × 4865 / budget − 28 ≈ 85.3 B`, and above it the in-flight
+/// disputes' own transfer time covers the round trip. Slowdown 1 is
+/// wire-time-optimal: bandwidth-bound stays bandwidth-bound. The factor
+/// prices the interleaved dispute walk only — supply runs stream
+/// outside the window — and below the crossover degradation is smooth
+/// `1/(28 + m)` latency (minimal 8-byte records at worst ~3.1×), never
+/// memory: a session serializes into capacity-sized waves,
+/// deadlock-free at any budget.
 ///
 /// The budget is an envelope, not an allocation, and **per session**: a
 /// session approaches it only against wide mutual divergence, typical
 /// sessions hold kilobytes, and concurrent sessions on separate links
-/// each carry their own. The second term is the decode fans' flat
-/// residency (~0.21 MB under the in-memory backend's pricing), charged
-/// off the top because the fan channels exist at their
-/// correctness-floor capacity regardless of window width. See
+/// each carry their own. The decode fans' flat residency (~0.21 MB
+/// under the in-memory backend's pricing) comes off the budget before
+/// the solve because the fan channels exist at their correctness-floor
+/// capacity regardless of window width — negligible at this scale, and
+/// one reason the closed form understates the factor for budgets under
+/// a few MiB. See
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for
-/// the closed forms and the measured trade-off table.
-pub const DEFAULT_SYNC_MEMORY_BUDGET: usize =
-    DESIGN_LINK_BYTES_PER_MS * DESIGN_LINK_RTT_MS / DISPUTE_WIRE_BYTES * SCOPE_ENVELOPE_BYTES
-        + SUPPLY_DECODE_ENVELOPE_BYTES;
+/// the operator questions worked through and the tabulated trade-off.
+pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 
 /// Per-height channel capacities for one session, in disputed scopes.
 ///
@@ -331,7 +375,10 @@ impl Window {
         let mut scope_price = [0u128; KEY_DEPTH + 1];
         for depth in 1..=KEY_DEPTH {
             let held = children_quantile(n, depth).try_into().unwrap_or(usize::MAX);
-            let reference_bytes = (node_bytes(held, version_bound) + REFERENCE_SLOT_BYTES) as u128;
+            // Widened before the add: a backend pricing nodes near
+            // `usize::MAX` must not wrap the slot term away.
+            let reference_bytes =
+                node_bytes(held, version_bound) as u128 + REFERENCE_SLOT_BYTES as u128;
             population[depth] = stage_population(n, pair, depth);
             scope_price[depth] =
                 children_quantile(n, depth - 1) * reference_bytes + SCOPE_FIXED_BYTES as u128;
@@ -352,15 +399,42 @@ impl Window {
         // charged once (the level's queues hold overlapping views of the
         // same in-flight scopes, and their node references are shared
         // handles, so per-queue multiplication would double-charge), plus
-        // the leaf-request edge, whose items are bare prefixes bounded by
-        // the corpus rather than by dispute statistics, plus the flat
-        // decode-fan term.
+        // the leaf-request edge, plus the flat decode-fan term.
+        //
+        // The leaf-request edge is charged at the width the capacity
+        // assignment below grants it — `population[KEY_DEPTH]`, the same
+        // bound on both sides of the same function — because a bounded
+        // channel's residency never exceeds its own capacity, so
+        // capacity times item size covers that edge's worst case. The
+        // one divergence between the halves is the liveness floor: the
+        // assignment clamps the granted capacity to one slot even where
+        // the population (and so the charge) is zero, a 40-byte
+        // never-charged slot per session, priced like every other
+        // stage's uncharged floor slot. No wider charge buys anything:
+        // the granted statistic is `jointly_occupied(n, pair, 30)`
+        // times the per-parent fan, whose quantile is zero for every
+        // representable corpus (`small_mean_quantile` at j = 30 has 241
+        // denominator bits against at most 128 for a product of two u64
+        // corpora; nonzero needs pair ≥ 2¹⁹⁰). The entries that could
+        // ever occupy the edge are bounded the same way one stage
+        // deeper: a leaf request is a listing entry of a disputed
+        // depth-31 leaf parent (`answer::leaf_parent`'s ask arm), and
+        // the j = 31 quantile floors identically (249 denominator bits;
+        // nonzero needs pair ≥ 2¹⁹⁸). Capacity beyond a population is
+        // physically idle, so the edge floors at one slot and the
+        // budget is spent where populations exist.
+        //
+        // Saturating arithmetic keeps the solve total: a population near
+        // 2⁶⁴ times a near-`usize::MAX` scope price passes u128, and a
+        // saturated charge only overstates, failing `charge(mid) <= budget`
+        // and narrowing the window — the safe direction.
         let charge = |k: u128| -> u128 {
             let mut total = supply_fans;
             for depth in 1..=KEY_DEPTH {
-                total += population[depth].min(k) * scope_price[depth];
+                total = total
+                    .saturating_add(population[depth].min(k).saturating_mul(scope_price[depth]));
             }
-            total + n.min(k) * LEAF_REQUEST_BYTES as u128
+            total.saturating_add(population[KEY_DEPTH].min(k) * LEAF_REQUEST_BYTES as u128)
         };
 
         // Capacity beyond the widest population is physically idle, so
@@ -418,6 +492,15 @@ pub(crate) enum WindowConfig {
 }
 
 impl WindowConfig {
+    /// The one-slot serialization floor, pinned: every session edge at
+    /// the capacity where a bad ordering would deadlock.
+    ///
+    /// Tests opt in explicitly so the capacity-one orderings the
+    /// deadlock-freedom argument certifies stay exercised; the
+    /// [`Default`] is the budget and never depends on how the crate is
+    /// built (features are additive and must not change behavior).
+    pub(crate) const FLOOR: Self = Self::Fixed(Window::FLOOR);
+
     /// Resolve the session's window against the exchanged set sizes and
     /// version-size bounds.
     pub(crate) fn resolve(
@@ -444,17 +527,12 @@ impl WindowConfig {
 
 impl Default for WindowConfig {
     fn default() -> Self {
-        // Tests run at the floor so the capacity-one orderings the
-        // deadlock-freedom argument certifies stay exercised; production
-        // sessions derive from the greeting's sizes by default.
-        #[cfg(any(test, feature = "test-internals"))]
-        {
-            Self::Fixed(Window::FLOOR)
-        }
-        #[cfg(not(any(test, feature = "test-internals")))]
-        {
-            Self::Budget(DEFAULT_SYNC_MEMORY_BUDGET)
-        }
+        // Unconditional: cargo features are additive and unify across a
+        // build graph, so no feature may change what `Default` means —
+        // a harness crate enabling this crate's test feature must not
+        // put production sessions at the serialization floor. Tests pin
+        // [`FLOOR`](Self::FLOOR) explicitly instead.
+        Self::Budget(DEFAULT_SYNC_MEMORY_BUDGET)
     }
 }
 

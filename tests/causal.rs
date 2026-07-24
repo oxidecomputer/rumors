@@ -84,7 +84,7 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
 /// delivery scrambles roughly half the time.
 #[test]
 fn single_party_backlog_replays_in_send_order() {
-    let known = Peer::<u64>::seed().into_rumors();
+    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     for v in 0..8u64 {
         known.send(v); // one batch per send: strictly increasing versions
     }
@@ -105,7 +105,7 @@ fn single_party_backlog_replays_in_send_order() {
 /// come out in the deterministic `(rank, key)` order.
 #[test]
 fn converged_backlog_has_no_inversions() {
-    let a = Peer::<u64>::seed().into_rumors();
+    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     for v in 0..4u64 {
@@ -135,7 +135,7 @@ fn converged_backlog_has_no_inversions() {
 /// replica, the insertion order, or the gossip schedule.
 #[test]
 fn delivery_order_is_replica_independent() {
-    let a = Peer::<u64>::seed().into_rumors();
+    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     a.batch().send(1).send(2);
@@ -164,7 +164,7 @@ fn delivery_order_is_replica_independent() {
 /// contain a causal predecessor of an earlier pass's message.
 #[test]
 fn live_passes_preserve_causal_order_cumulatively() {
-    let a = Peer::<u64>::seed().into_rumors();
+    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     let mut obs = a.causal_messages();
@@ -193,7 +193,7 @@ fn live_passes_preserve_causal_order_cumulatively() {
 /// and a resume observes nothing.
 #[test]
 fn checkpoint_lags_until_the_backlog_drains() {
-    let known = Peer::<u64>::seed().into_rumors();
+    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let genesis = known.snapshot().latest().clone();
     known.send(1);
     known.send(2);
@@ -232,7 +232,7 @@ fn checkpoint_lags_until_the_backlog_drains() {
 /// wholly before its first ingest never appears.
 #[test]
 fn staged_then_redacted_is_still_delivered() {
-    let known = Peer::<u64>::seed().into_rumors();
+    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let pre = known.snapshot().latest().clone();
     known.send(1);
     let key_1 = minted_key(&known.snapshot(), &pre);
@@ -271,7 +271,7 @@ fn staged_then_redacted_is_still_delivered() {
 /// ends, and ended is terminal.
 #[test]
 fn observer_drains_the_final_state_causally_then_ends() {
-    let known = Peer::<u64>::seed().into_rumors();
+    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     known.batch().send(1).send(2).send(3);
     let expected = live_map(&known);
 
@@ -298,7 +298,7 @@ fn observer_drains_the_final_state_causally_then_ends() {
 fn stream_face_is_causal_and_terminates() {
     use futures::StreamExt;
 
-    let known = Peer::<u64>::seed().into_rumors();
+    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     for v in 0..6u64 {
         known.send(v);
     }
@@ -361,7 +361,7 @@ proptest! {
     /// costs nothing in coverage relative to the plain observer.
     #[test]
     fn causal_delivery_under_interleaving(ops in arb_ops()) {
-        let a = Peer::<u64>::seed().into_rumors();
+        let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork(&a);
 
         let mut obs = a.causal_messages();
@@ -423,7 +423,7 @@ proptest! {
         taken in any::<usize>(),
         complete_drain in any::<bool>(),
     ) {
-        let known = Peer::<u64>::seed().into_rumors();
+        let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
         for v in &phase_one {
             known.send(*v); // separate batches: a strict causal chain
         }

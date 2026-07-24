@@ -211,7 +211,7 @@ proptest! {
 async fn run_proc_plan(plan: ProcPlan) {
     // Parent fleet: the seed and its clean forks, as shared-state handles
     // so inbound sessions can overlap arbitrarily.
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
         let mut batch = seed.batch();
         for &v in &plan.seed_messages {
@@ -421,7 +421,7 @@ async fn child_main(addr: String) -> i32 {
         let link = tcp::link(socket).await.expect("swap listener ports");
         let mut link = fault::faulty_link(link, boot);
         match Peer::<u64>::bootstrap(&mut link).await {
-            Ok(Some(k)) => known = Some(k),
+            Ok(Some(k)) => known = Some(k.sync_window_floor()),
             Ok(None) => panic!("the parent never bootstraps"),
             Err(e) => {
                 assert_honest_error(&e);
@@ -440,6 +440,7 @@ async fn child_main(addr: String) -> i32 {
                 .await
                 .expect("clean bootstrap")
                 .expect("the parent serves every bootstrap")
+                .sync_window_floor()
         }
     };
 

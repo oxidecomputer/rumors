@@ -39,7 +39,7 @@ fn handle_types_are_send_sync() {
 /// `Rumors::gossip`'s future is `Send`: a session can be `tokio::spawn`ed.
 #[test]
 fn gossip_future_is_send() {
-    let alice = Peer::<String>::seed();
+    let alice = Peer::<String>::seed().sync_window_floor();
     let (mut link, _peer) = rumors::link::memory();
     let rumors = alice.into_rumors();
     let fut = rumors.gossip(&mut link);
@@ -59,7 +59,7 @@ fn bootstrap_future_is_send() {
 /// `Peer::retire`'s future is `Send`: leaving can be `tokio::spawn`ed.
 #[test]
 fn retire_future_is_send() {
-    let alice = Peer::<String>::seed();
+    let alice = Peer::<String>::seed().sync_window_floor();
     let (mut link, _peer) = rumors::link::memory();
     let fut = alice.retire(&mut link);
     require_send(&fut);
@@ -70,7 +70,7 @@ fn retire_future_is_send() {
 /// a spawned task.
 #[test]
 fn try_into_peer_future_is_send() {
-    let alice = Peer::<String>::seed();
+    let alice = Peer::<String>::seed().sync_window_floor();
     let rumors = alice.into_rumors();
     let fut = rumors.try_into_peer();
     require_send(&fut);
@@ -81,7 +81,7 @@ fn try_into_peer_future_is_send() {
 /// future — are `Send`, for spawned and `select!`-driven consumers.
 #[test]
 fn observer_futures_are_send() {
-    let alice = Peer::<String>::seed().into_rumors();
+    let alice = Peer::<String>::seed().sync_window_floor().into_rumors();
     let mut messages = alice.unordered_messages();
     {
         let fut = messages.borrow_next();

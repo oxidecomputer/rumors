@@ -36,7 +36,7 @@ where
         provider_out.expect("provider gossip");
         let minted = bootstrap_out
             .expect("bootstrap handshake")
-            .map(Peer::into_rumors);
+            .map(|peer| peer.sync_window_floor().into_rumors());
         assert_control_drained(a_link, b_link);
         minted
     })
@@ -51,7 +51,7 @@ proptest! {
     /// stale-floored party would silently destroy.
     #[test]
     fn bootstrap_reproduces_a_fork(actions in arb_local_actions()) {
-        let seed = Peer::<u64>::seed().into_rumors();
+        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let provider = build_local(bootstrap_fork(&seed), &actions);
 
         let control = readout(&provider.snapshot());
@@ -84,7 +84,7 @@ proptest! {
     /// round-trip of the whole-tree frame for `T = String`.
     #[test]
     fn bootstrap_reproduces_a_fork_string(actions in arb_string_actions()) {
-        let seed = Peer::<String>::seed().into_rumors();
+        let seed = Peer::<String>::seed().sync_window_floor().into_rumors();
         let provider = build_local(bootstrap_fork(&seed), &actions);
 
         let control = readout(&provider.snapshot());
@@ -144,7 +144,10 @@ fn both_bootstrapping_bail_with_none() {
 #[cfg(feature = "protocol-v1")]
 #[test]
 fn v1_bootstrap_selection_persists_into_gossip() {
-    let provider = Peer::<u64>::seed().protocol(Protocol::V1).into_rumors();
+    let provider = Peer::<u64>::seed()
+        .sync_window_floor()
+        .protocol(Protocol::V1)
+        .into_rumors();
     provider.send(1);
 
     let newcomer = block_on(async {

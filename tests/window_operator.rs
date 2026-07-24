@@ -1,27 +1,20 @@
-//! The operator equations held against measured sessions.
+//! The operator wave model held against measured sessions.
 //!
-//! `sync_memory_budget`'s docs publish two closed forms over a link's
-//! bandwidth-delay product, with `ratio = envelope / wire = 22` and
-//! `fans` the flat supply-decode envelope that comes off every budget
-//! before the dispute solve: worst-case slowdown under a budget,
-//! `max(1, 22 × BDP / (budget − fans))`, and the smallest budget for an
-//! acceptable slowdown, `fans + 22 × BDP / slowdown`. They are the
-//! large-window simplification of the exact wave-model form
-//! `slowdown = max(1, BDP_messages / K)` with `K` the derived window —
-//! the simplification substitutes `K ≈ (budget − fans) / envelope`,
-//! which holds once the window is past the near-root structural band (a
-//! few hundred scopes; small budgets pay full-fan prices the scalar
-//! undercounts).
+//! `sync_memory_budget`'s docs publish one closed form,
+//! `slowdown(budget, m) = max(1, BDP × envelope / (budget × (28 + m)))`:
+//! the large-window simplification of the exact wave-model form
+//! `slowdown = max(1, BDP_messages / K)` with `K` the derived window.
+//! The simplification substitutes `K ≈ (budget − fans) / envelope`
+//! (`fans` is the flat supply-decode pre-charge) and
+//! `BDP_messages = BDP / (28 + m)`, the calibrated per-message wire law
+//! `tests/dispute_wire.rs` pins. The `K` substitution holds once the
+//! window is past the near-root structural band (a few hundred scopes;
+//! small budgets pay full-fan prices the scalar undercounts).
 //!
-//! Two pins split the claim at that seam:
-//!
-//! - the *exact* form is held against sessions on a genuinely
-//!   bandwidth-limited pipe, with the link rate self-calibrated from the
-//!   unbounded-budget transfer (the pipe carries several concurrent
-//!   streams, so its effective rate is measured, not assumed);
-//! - the *scalar* form is held by identity at the design point, where
-//!   the default budget is its own inverse: `22 × BDP / 1` at the design
-//!   link is exactly `DEFAULT_SYNC_MEMORY_BUDGET`.
+//! The pin here holds the *exact* wave form against sessions on a
+//! genuinely bandwidth-limited pipe, with the link rate self-calibrated
+//! from the unbounded-budget transfer (the pipe carries several
+//! concurrent streams, so its effective rate is measured, not assumed).
 
 // Only the delayed wire is exercised here; the module's pipes and
 // conformance surface belong to the benches and `latency_link.rs`.
@@ -33,8 +26,8 @@ use std::time::Duration;
 
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::testing::{envelope_and_wire_bytes, supply_decode_envelope_bytes, window_capacities};
-use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Protocol, Rumors};
+use rumors::testing::{supply_decode_envelope_bytes, window_capacities};
+use rumors::{Peer, Protocol, Rumors};
 
 /// One-way delay for the virtual-time measurements (the timer grain).
 const DELAY: Duration = Duration::from_millis(10);
@@ -122,8 +115,7 @@ fn binding_capacity(budget: usize) -> usize {
         .expect("three engaged heights")
 }
 
-/// The exact operator equation holds on a bandwidth-limited link, and
-/// the scalar form is the design point's own identity.
+/// The exact wave-model equation holds on a bandwidth-limited link.
 ///
 /// The unbounded-budget run measures the link's effective rate (transfer
 /// hops for a known divergence), giving the link's BDP in messages
@@ -131,26 +123,13 @@ fn binding_capacity(budget: usize) -> usize {
 /// constricted budgets then measure real slowdowns against the exact
 /// form `max(1, BDP_messages / K)` with `K` the derived binding window,
 /// inside the same accuracy band the knee suite certifies for the wave
-/// model. The scalar form is pinned where it is exact: the inverse at
-/// slowdown one and the design link's BDP reproduces the default budget
-/// to the byte, because the default is that expression.
+/// model. The docs' closed form is this equation with `K` and
+/// `BDP_messages` substituted by their large-window laws.
 #[test]
-fn operator_equations_match_measured_sessions() {
-    // The scalar identity: budget(slowdown = 1) at the design link IS
-    // the default. 12.5 MB of BDP per millisecond of RTT is the design
-    // link's product; the docs' `fans + 22 × BDP / slowdown` is this
-    // expression with the ratio left as a quotient.
-    let (envelope, wire) = envelope_and_wire_bytes();
-    let design_bdp = 12_500_000usize;
-    assert_eq!(
-        supply_decode_envelope_bytes() + design_bdp / wire * envelope,
-        DEFAULT_SYNC_MEMORY_BUDGET,
-        "the inverse form at slowdown 1 must reproduce the default budget",
-    );
-
-    // The exact form, measured. Transfer baseline first: it calibrates
-    // the effective link rate, so BDP_messages = RTT × rate / wire
-    // = 2 × divergence / transfer_hops (both sides' divergences cross).
+fn wave_model_matches_measured_sessions() {
+    // Transfer baseline first: it calibrates the effective link rate,
+    // so BDP_messages = RTT × rate / wire = 2 × divergence /
+    // transfer_hops (both sides' divergences cross).
     let transfer = wire_slope(UNBOUNDED);
     // A degenerate slope means the delay sweep was swamped: compute time
     // under machine load dwarfed the virtual delay and the difference

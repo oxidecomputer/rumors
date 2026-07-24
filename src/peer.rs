@@ -368,40 +368,69 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// is not wire-visible: peers with different budgets interoperate.
     ///
     /// A budget can add latency, never break a session. A divergence
-    /// wider than the derived capacities drains in capacity-sized waves,
-    /// capping dispute throughput near `budget_bytes / (22 × RTT)` (each
-    /// ~200 wire bytes of dispute is charged a ~4.3 KB envelope); any
-    /// budget, including zero, leaves every session deadlock-free at one
-    /// disputed subtree in flight per level. The budget is per session:
-    /// concurrent gossip on separate links carries one envelope each. The
-    /// default, [`DEFAULT_SYNC_MEMORY_BUDGET`], keeps sessions
-    /// bandwidth-bound — serialization never observable — on links up to
-    /// its design point's 12.5 MB bandwidth-delay product (100 Gbps × 1 ms,
-    /// or 1 Gbps × 100 ms).
+    /// wider than the derived capacities drains in capacity-sized
+    /// waves, at the worst-case factor the closed form below prices;
+    /// any budget, including zero, leaves every session deadlock-free
+    /// at one disputed subtree in flight per level. The budget is per
+    /// session: concurrent gossip on separate links carries one
+    /// envelope each. The default, [`DEFAULT_SYNC_MEMORY_BUDGET`], is a
+    /// stated policy choice — 512 MiB, chosen round rather than derived
+    /// — and what it buys is read off the same form.
     ///
     /// # Choosing a budget
     ///
-    /// Let `BDP = bandwidth × RTT`, the link's bandwidth-delay product
-    /// in bytes, and `fans` the flat decode-fan pre-charge above. The
-    /// constants make the trade a pair of closed forms:
+    /// One closed form answers every question here, and you arrive
+    /// holding two of its three quantities. `BDP = bandwidth × RTT` is
+    /// your link's bandwidth-delay product in bytes — the one number
+    /// your link contributes; measure it. `m` is your corpus's mean
+    /// encoded record size, the borsh-encoded payload of a disputed
+    /// message's leaf record. `budget` is this setting. The two
+    /// constants are derived and pinned: the 4865 B per-scope session
+    /// envelope by exact recomputation, the 28 B per-message wire
+    /// overhead by deterministic byte-count calibration
+    /// (`tests/dispute_wire.rs`). Every figure below is derived from
+    /// those inputs and re-derives if any of them move; worked examples
+    /// are at the specification BDP of 12.5 MB, where 1 Gbps × 100 ms
+    /// and 100 Gbps × 1 ms coincide — substitute your own measurement.
     ///
-    /// - the worst-case slowdown a budget can cost is
-    ///   `max(1, 22 × BDP / (budget_bytes − fans))`;
-    /// - the smallest budget for an acceptable worst-case slowdown is
-    ///   `fans + 22 × BDP / slowdown`.
+    /// ## What minimal record size runs at minimal latency, given my BDP and budget?
     ///
-    /// The default is the second form at slowdown 1 on the design
-    /// link. Both are envelopes for the operating regime: budgets past
-    /// a few MB (a narrower window sits in the near-root band, where
-    /// scopes pay full-fan prices the flat ratio undercounts — the
-    /// table below is the record there) and sets up to roughly the
-    /// BDP in messages (the per-scope envelope grows slowly with set
-    /// size past it). `tests/window_operator.rs` holds both forms
-    /// against measured sessions on a bandwidth-limited link, and pins
-    /// the default as the inverse form's design-point value with the
-    /// ratio kept as the exact quotient (4,339/200); the rounded
-    /// 22-form written above is what an operator can apply, and it runs
-    /// ≲1.5% above the exact form — the conservative direction.
+    /// > `m* = BDP × 4865 / budget − 28`
+    ///
+    /// At the spec BDP and the default 512 MiB, `m* ≈ 85.3 B`: the
+    /// default imposes **no window-induced serialization for any corpus
+    /// whose mean encoded record size is at least 86 B** — above the
+    /// crossover, the in-flight disputes' own transfer time covers the
+    /// round trip.
+    ///
+    /// ## What budget ensures minimal latency, given my BDP and record size?
+    ///
+    /// > `budget* = BDP × 4865 / (28 + m)`
+    ///
+    /// At the spec BDP: a minimal 8-byte-record corpus (`m = 8`) needs
+    /// ~1.7 GB; the design record (`m = 172`) needs ~304 MB.
+    ///
+    /// ## What slowdown will I incur, given BDP, record size, and budget?
+    ///
+    /// > `slowdown = max(1, BDP × 4865 / (budget × (28 + m)))`
+    ///
+    /// relative to wire-time-optimal. At the spec BDP, `u64` records at
+    /// the default budget run at worst ~3.1×. The table below is this
+    /// question rendered at the spec BDP.
+    ///
+    /// Slowdown 1 is wire-time-optimal: bandwidth-bound stays
+    /// bandwidth-bound. The factor prices the interleaved dispute walk
+    /// only — supply runs stream outside the window — and degradation
+    /// below the crossover is smooth `1/(28 + m)` latency, never
+    /// memory. The form is an envelope for the operating regime:
+    /// budgets past a few MB (below that, the flat decode-fan
+    /// pre-charge above and the near-root band's full-fan scope prices
+    /// both bite, so the form understates the factor) and sets up to
+    /// roughly the BDP in messages (the per-scope envelope grows slowly
+    /// with set size past it). `tests/window_operator.rs` holds the
+    /// underlying wave model against measured sessions on a
+    /// bandwidth-limited link, and `tests/dispute_wire.rs` pins the
+    /// per-message wire law the record size `m` enters through.
     ///
     #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
     ///
@@ -413,6 +442,22 @@ impl<T, B: BookmarkError> Peer<T, B> {
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.window = WindowConfig::Budget(budget_bytes);
+        self
+    }
+
+    /// Pin every future session's pipeline window at the one-slot floor.
+    ///
+    /// Test-only: capacity one is the configuration the deadlock-freedom
+    /// argument certifies, so test suites opt in explicitly to keep the
+    /// capacity-one orderings exercised; the default derives capacities
+    /// from [`sync_memory_budget`](Self::sync_memory_budget)'s default
+    /// regardless of how the crate is built. Follows the peer exactly as
+    /// `sync_memory_budget` does.
+    #[cfg(any(test, feature = "test-internals"))]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn sync_window_floor(mut self) -> Self {
+        self.window = WindowConfig::FLOOR;
         self
     }
 
@@ -444,8 +489,10 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// The default, [`DEFAULT_TARGET_MESSAGE_SIZE`], is the byte size of
     /// the wire's maximally disputed reply — the decode side's documented
     /// per-reply memory unit — so default batching never raises the wire's
-    /// established memory ceiling. Any value is safe, including zero, which
-    /// degrades to one leaf per message.
+    /// established memory ceiling. Any value is safe: zero degrades to one
+    /// leaf per message, and values above the wire's framing ceiling
+    /// (`u32::MAX` less the frame envelope) saturate to it, so a run built
+    /// within the target always fits its length header.
     ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and reunion,

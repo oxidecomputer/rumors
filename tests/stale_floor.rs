@@ -30,7 +30,7 @@ use rumors::Peer;
 #[test]
 fn message_minted_after_bootstrap_survives_gossip() {
     block_on(async {
-        let f = Peer::<u64>::seed().into_rumors();
+        let f = Peer::<u64>::seed().sync_window_floor().into_rumors();
         // F ticks well past genesis before serving anyone.
         {
             let mut batch = f.batch();
