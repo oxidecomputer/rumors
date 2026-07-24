@@ -1,5 +1,5 @@
 {
-  "notes": "The bench judge's expected-verdict roster (tools/benchjudge --roster): membership by cell name, the board-side sibling of the gate's expected-failure test roster. `red` cells are the counter-red bigroot sweeps whose cures are owned by the C2 kernel flip; `boundary` cells fit within the fit-noise band of the 1.3 ceiling (FIT_NOISE_EXPONENT_BAND in tools/benchjudge states the derivation) and may read either verdict. The roster empties at C3.",
+  "notes": "The bench judge's expected-verdict roster (tools/benchjudge --roster): membership by cell name, the board-side sibling of the gate's expected-failure test roster. `red` cells are the counter-red bigroot sweeps whose cures are owned by the C2 kernel flip; `boundary` cells fit within the fit-noise band of the 1.3 ceiling (FIT_NOISE_EXPONENT_BAND in tools/benchjudge states the derivation) and may read either verdict. The `text_green`/`text_red` pair is judged at the text-conversion ceiling (MAX_TEXT_SCALING_EXPONENT states the derivation): the wide-display cell must fit under it, and the schoolbook tripwire must fit above it, every run. The red and boundary classes empty at C3; the text pair is permanent.",
   "configuration": {
     "profile": "optimized",
     "sampling": "quick",
@@ -27,5 +27,11 @@
   "boundary": [
     "version_display/hugeleaf",
     "clock_display/hugeleaf"
+  ],
+  "text_green": [
+    "version_display_wide/hugeleaf"
+  ],
+  "text_red": [
+    "display_schoolbook/hugeleaf"
   ]
 }
