@@ -185,73 +185,95 @@ const FAN_SLOT_BYTES: usize = std::mem::size_of::<(Prefix<Z>, typed::Node<(), Z>
 /// (pinned by the `Local` handle assertion) beside [`FAN_SLOT_BYTES`] of
 /// slot. [`from_budget`](Window::from_budget) charges the same shape
 /// through the live backend's own `node_bytes`; this constant is that
-/// charge at the design session, folded into
-/// [`DEFAULT_SYNC_MEMORY_BUDGET`] so the default still admits the design
-/// link's whole bandwidth-delay product in disputed scopes.
+/// charge under the in-memory backend, the flat pre-charge the operator
+/// docs quote.
 pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
     STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<(), Z>>() + FAN_SLOT_BYTES);
 
-/// Bandwidth of the design link the default budget is sized for:
-/// 100 Gbps, in bytes per millisecond.
-const DESIGN_LINK_BYTES_PER_MS: usize = 12_500_000;
+/// The specification link's bandwidth-delay product, in bytes: 12.5 MB,
+/// where the two spec links coincide.
+///
+/// 100 Gbps × 1 ms round trip and 1 Gbps × 100 ms are the same product;
+/// the trade-off table and the crossover figures in the budget docs are
+/// stated at it.
+pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 
-/// Round-trip latency of the design link, in milliseconds.
-const DESIGN_LINK_RTT_MS: usize = 1;
+/// End-to-end wire bytes of one disputed message beyond its record's
+/// encoded payload: its question share, reply share, and record framing.
+///
+/// Calibrated: `tests/dispute_wire.rs` counts every byte of
+/// deterministic in-memory sessions and pins the per-message cost as an
+/// affine law — this intercept plus the record's borsh-encoded
+/// payload — at three payload sizes. The closed form documented at
+/// [`DEFAULT_SYNC_MEMORY_BUDGET`] is denominated in it.
+pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 28;
+
+/// The design record's borsh-encoded payload size: the `m = 172` column
+/// of the trade-off table, and the record size the wire-cost anchor
+/// below is stated at.
+pub(crate) const DESIGN_RECORD_BYTES: usize = 172;
 
 /// Wire bytes one disputed message costs end to end at the design
 /// record size — its question share, reply share, and leaf record.
 ///
-/// Calibrated: `tests/dispute_wire.rs` counts every byte of a
-/// deterministic in-memory session and pins the current format's
-/// per-message cost as an affine law — 28 B of fixed overhead plus the
-/// record's borsh-encoded payload — with this constant as that cost at
-/// a 172-byte encoded payload, the design point's representative
-/// record. Leaner records cost proportionally less wire per message,
-/// raising a link's bandwidth-delay product in messages beyond what
-/// [`DEFAULT_SYNC_MEMORY_BUDGET`] admits in flight; the excess degrades
-/// as window serialization — latency, never memory.
-pub(crate) const DISPUTE_WIRE_BYTES: usize = 200;
+/// An anchor, not an input: nothing derives from it. The closed form
+/// takes the record size `m` directly ([`DISPUTE_OVERHEAD_BYTES`]
+/// `+ m` per message), and the default budget is a stated policy
+/// choice. Calibrated: `tests/dispute_wire.rs`'s design-record cell
+/// measures exactly this figure.
+pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + DESIGN_RECORD_BYTES;
 
 /// Session-envelope bytes one in-flight disputed scope is charged.
 ///
 /// Derived, not fitted: the per-scope charge of the *design session* —
-/// two corpora the size of the design link's bandwidth-delay product in
-/// messages, in full divergence, every stage population held in flight —
-/// under the in-memory backend's pricing, exactly as
+/// two corpora of 62,500 messages each (the spec BDP in design-size
+/// records), in full divergence, every stage population held in
+/// flight — under the in-memory backend's pricing, exactly as
 /// [`from_budget`](Window::from_budget) charges it. The recomputation is
 /// pinned by `scope_envelope_matches_the_derivation`, so this constant
 /// fails loudly instead of drifting when the pricing or the occupancy
 /// envelopes change.
 pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
 
-/// Worst-case memory one synchronization may spend by default: the
-/// envelope that fills the design link's bandwidth-delay product with
-/// dispute traffic.
+/// Worst-case memory one synchronization may spend by default: 512 MiB.
 ///
-/// The design link is 100 Gbps (`DESIGN_LINK_BYTES_PER_MS`) at a 1 ms
-/// round trip (`DESIGN_LINK_RTT_MS`): a 12.5 MB bandwidth-delay
-/// product, kept full by one disputed scope in flight per
-/// `DISPUTE_WIRE_BYTES` of it, each charged `SCOPE_ENVELOPE_BYTES` of
-/// session envelope — 62,500 scopes, ~304 MB. On links whose product is
-/// at or under the design point's
-/// (equivalently, 1 Gbps × 100 ms), sessions whose disputed records
-/// carry design-size payloads are bandwidth-bound at every divergence
-/// and window serialization is unobservable; leaner records raise the
-/// product in messages, and they, like links past the design product,
-/// degrade by the small constant factors the trade-off table measures.
+/// Chosen, not derived: a round policy default. What any budget buys is
+/// stated by the closed form — derived, with both constants pinned (the
+/// 4865 B per-scope envelope by exact recomputation, the 28 B
+/// per-message wire intercept by byte-count calibration):
+///
+/// > `slowdown(budget, m) = max(1, BDP × 4865 / (budget × (28 + m)))`
+///
+/// with `m` the session's mean encoded record size and `BDP` the link's
+/// bandwidth-delay product in bytes.
+///
+/// The headline consequence — derived from three inputs, the spec BDP,
+/// this 512 MiB policy default, and the pinned per-scope envelope, so
+/// it re-derives if any of them move: at the spec BDP (12.5 MB —
+/// 1 Gbps × 100 ms and 100 Gbps × 1 ms coincide), the default imposes
+/// **no window-induced serialization for any corpus whose mean encoded
+/// record size is at least 86 B**. The crossover is
+/// `m* = BDP × 4865 / budget − 28 ≈ 85.3 B`, and above it the in-flight
+/// disputes' own transfer time covers the round trip. Slowdown 1 is
+/// wire-time-optimal: bandwidth-bound stays bandwidth-bound. The factor
+/// prices the interleaved dispute walk only — supply runs stream
+/// outside the window — and below the crossover degradation is smooth
+/// `1/(28 + m)` latency (minimal 8-byte records at worst ~3.1×), never
+/// memory: a session serializes into capacity-sized waves,
+/// deadlock-free at any budget.
 ///
 /// The budget is an envelope, not an allocation, and **per session**: a
 /// session approaches it only against wide mutual divergence, typical
 /// sessions hold kilobytes, and concurrent sessions on separate links
-/// each carry their own. The second term is the decode fans' flat
-/// residency (~0.21 MB under the in-memory backend's pricing), charged
-/// off the top because the fan channels exist at their
-/// correctness-floor capacity regardless of window width. See
+/// each carry their own. The decode fans' flat residency (~0.21 MB
+/// under the in-memory backend's pricing) comes off the budget before
+/// the solve because the fan channels exist at their correctness-floor
+/// capacity regardless of window width — negligible at this scale, and
+/// one reason the closed form understates the factor for budgets under
+/// a few MiB. See
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for
-/// the closed forms and the measured trade-off table.
-pub const DEFAULT_SYNC_MEMORY_BUDGET: usize =
-    DESIGN_LINK_BYTES_PER_MS * DESIGN_LINK_RTT_MS / DISPUTE_WIRE_BYTES * SCOPE_ENVELOPE_BYTES
-        + SUPPLY_DECODE_ENVELOPE_BYTES;
+/// the operator questions worked through and the tabulated trade-off.
+pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 
 /// Per-height channel capacities for one session, in disputed scopes.
 ///

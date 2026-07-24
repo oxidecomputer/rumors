@@ -206,11 +206,13 @@ muxprobe rand_seeds="25":
 
 # ── conveniences ─────────────────────────────────────────────────────────────
 
-# Regenerate the sync-budget trade-off table compiled into the rustdoc.
-# Written to a temp file and moved into place on success, so a failed
-# build or a mid-run panic cannot truncate the tracked table.
+# Regenerate the sync-budget trade-off table compiled into the rustdoc:
+# deterministic closed-form arithmetic, no sessions. Written to a temp
+# file and moved into place on success, so a failed build cannot truncate
+# the tracked table; the window suite byte-compares the committed file
+# against the same rendering, so drift fails the gate.
 window-tradeoff:
-    cargo run --release --example window_tradeoff > src/tree/mirror/streaming/window/tradeoff.md.tmp
+    cargo run --example window_tradeoff > src/tree/mirror/streaming/window/tradeoff.md.tmp
     mv src/tree/mirror/streaming/window/tradeoff.md.tmp src/tree/mirror/streaming/window/tradeoff.md
 
 # Run benches, e.g. `just bench -p before party` or `just bench gossip_grid`.

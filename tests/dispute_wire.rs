@@ -1,20 +1,19 @@
-//! Deterministic calibration pins for the dispute wire-cost constant.
+//! Deterministic calibration pins for the dispute wire-cost law.
 //!
-//! The window derivation converts a link's bandwidth-delay product into
-//! scopes at one disputed message per `DISPUTE_WIRE_BYTES` of it, and the
-//! operator equations quote the envelope-to-wire ratio built on the same
-//! constant. Nothing else in the suite ties that constant to actual wire
-//! bytes: its other consumers are self-referential (the ratio pin divides
-//! by it; the operator suite self-calibrates BDP). These pins close the
-//! loop with pure byte counts — every write on the control stream and on
-//! every data stream of an in-memory session is tallied, no timing
-//! anywhere — so a wire-format change that moves the real cost of a
-//! disputed message fails here instead of silently letting the default
-//! budget derive from a stale premise.
+//! The closed form in `Peer::sync_memory_budget`'s docs takes a
+//! session's mean encoded record size through the per-message wire law
+//! pinned here, and the design-record anchor (`DISPUTE_WIRE_BYTES`) is
+//! that law's value at one stated record size. Nothing else in the
+//! suite ties either to actual wire bytes (the operator suite
+//! self-calibrates its link rate). These pins close the loop with pure
+//! byte counts — every write on the control stream and on every data
+//! stream of an in-memory session is tallied, no timing anywhere — so a
+//! wire-format change that moves the real cost of a disputed message
+//! fails here instead of silently letting the documented law go stale.
 //!
 //! What the counts establish: the current format's end-to-end cost of one
 //! disputed message — its question share, reply share, and leaf record —
-//! is affine in the record's encoded payload, [`FIXED_OVERHEAD_BYTES`]
+//! is affine in the record's encoded payload, the calibrated intercept
 //! plus the payload's borsh encoding. The constant is that cost at the
 //! design point's [`DESIGN_ENCODED_PAYLOAD_BYTES`]-byte record; leaner
 //! records cost proportionally less wire per message. Three cells pin
@@ -34,7 +33,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use rumors::link::{Connector, Link, LinkParts, MemoryLink};
-use rumors::testing::envelope_and_wire_bytes;
+use rumors::testing::{dispute_overhead_bytes, envelope_and_wire_bytes};
 use rumors::{Peer, Rumors};
 use tokio::io::AsyncWrite;
 
@@ -55,9 +54,12 @@ const DIVERGENT: usize = 8_192;
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// End-to-end wire bytes of one disputed message beyond its record's
-/// encoded payload: the question share, reply share, and the record's
-/// own framing, measured by the minimal-payload cell.
-const FIXED_OVERHEAD_BYTES: usize = 28;
+/// encoded payload — the crate's calibrated intercept, read through
+/// [`dispute_overhead_bytes`] so the cells here pin the constant the
+/// closed form quotes, not a test-local copy of it.
+fn fixed_overhead_bytes() -> usize {
+    dispute_overhead_bytes()
+}
 
 /// The `Vec<u8>` payload length whose borsh encoding (a 4-byte length
 /// prefix plus the bytes, 172 B) prices a disputed message at exactly
@@ -250,7 +252,7 @@ fn dispute_wire_bytes_is_the_design_record_cost() {
 /// minimal-payload end of the line.
 ///
 /// The invariant: a `u64` corpus (8 B encoded payloads) implies
-/// [`FIXED_OVERHEAD_BYTES`] + 8 bytes per disputed message. Together
+/// the calibrated intercept + 8 bytes per disputed message. Together
 /// with the design-record cell this pins both parameters of the affine
 /// cost `overhead + encoded_payload`, so framing drift cannot hide
 /// inside the design cell's payload term. It is also the honest floor:
@@ -260,7 +262,7 @@ fn dispute_wire_bytes_is_the_design_record_cost() {
 #[test]
 fn minimal_records_pin_the_fixed_overhead() {
     let implied = implied_bytes_per_message::<u64>(|rng| rng.next_u64());
-    let expected = FIXED_OVERHEAD_BYTES + std::mem::size_of::<u64>();
+    let expected = fixed_overhead_bytes() + std::mem::size_of::<u64>();
     eprintln!("minimal-record cell: implied {implied} B/message (expected {expected})");
     assert!(
         expected.abs_diff(implied) <= TOLERANCE_BYTES,
@@ -274,7 +276,7 @@ fn minimal_records_pin_the_fixed_overhead() {
 /// two pinned ends.
 ///
 /// The invariant: a corpus of [`MID_PAYLOAD_LEN`]-byte payloads (64 B
-/// encoded) implies [`FIXED_OVERHEAD_BYTES`] + 64 bytes per disputed
+/// encoded) implies the calibrated intercept + 64 bytes per disputed
 /// message, within [`TOLERANCE_BYTES`]. With the minimal and design
 /// cells this makes the linearity claim itself a committed, gated
 /// assertion — three collinear points — rather than a calibration-time
@@ -287,7 +289,7 @@ fn mid_size_records_ride_the_affine_law() {
         payload
     };
     let implied = implied_bytes_per_message::<Vec<u8>>(&mut mint);
-    let expected = FIXED_OVERHEAD_BYTES + 4 + MID_PAYLOAD_LEN;
+    let expected = fixed_overhead_bytes() + 4 + MID_PAYLOAD_LEN;
     eprintln!("mid-record cell: implied {implied} B/message (expected {expected})");
     assert!(
         expected.abs_diff(implied) <= TOLERANCE_BYTES,

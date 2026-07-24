@@ -1,16 +1,23 @@
 use proptest::prelude::*;
 
 use super::{
-    DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_LINK_BYTES_PER_MS, DESIGN_LINK_RTT_MS, DISPUTE_WIRE_BYTES,
-    FAN, FAN_SLOT_BYTES, KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES,
-    SCOPE_FIXED_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES, Window, WindowConfig, children_quantile,
-    jointly_occupied, occupied, stage_population,
+    DEFAULT_SYNC_MEMORY_BUDGET, FAN, FAN_SLOT_BYTES, KEY_DEPTH, LEAF_REQUEST_BYTES,
+    REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES, SCOPE_FIXED_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES,
+    Window, WindowConfig, children_quantile, jointly_occupied, occupied, stage_population,
 };
 use crate::link::STREAM_COUNT;
 
 /// The symmetric set size the fixed-scale tests derive against: both
 /// replicas at a terabyte-scale corpus.
 const SYMMETRIC: u64 = 10_000_000_000;
+
+/// The design session's corpus scale: the spec BDP in design-size
+/// records — 12.5 MB at 200 B end to end per message.
+///
+/// Stated, not minted: the budget default is policy, so nothing here
+/// derives from the wire-cost anchor at compile time; this constant
+/// names the session shape [`SCOPE_ENVELOPE_BYTES`] prices.
+const DESIGN_SESSION_MESSAGES: u64 = 62_500;
 
 /// The in-memory backend's pricing, for tests that recompute the charge
 /// the solve stayed inside: one pointer per reference at every fan and
@@ -177,19 +184,18 @@ fn deep_levels_are_sparse() {
 /// The scope envelope is the derivation's own number, not a hand-fitted
 /// one.
 ///
-/// `SCOPE_ENVELOPE_BYTES` converts the design link's bandwidth-delay
-/// product in scopes into the default budget. Its value must equal the
-/// per-scope charge of the design session — BDP-scale corpora in full
-/// divergence, every stage population held in flight, priced through the
-/// in-memory backend's function — recomputed here exactly as the solve
-/// charges it, so the constant fails loudly instead of drifting when the
-/// pricing or the envelopes change. The end-to-end statement is asserted
-/// too: the default budget admits the whole BDP in flight at the design
-/// session.
+/// `SCOPE_ENVELOPE_BYTES` is the closed form's numerator: the per-scope
+/// charge of the design session — [`DESIGN_SESSION_MESSAGES`]-message
+/// corpora in full divergence, every stage population held in flight,
+/// priced through the in-memory backend's function — recomputed here
+/// exactly as the solve charges it, so the constant fails loudly
+/// instead of drifting when the pricing or the envelopes change. The
+/// end-to-end statement is asserted too: the policy default admits the
+/// design session's whole population in flight, the table's 1.0× cell
+/// at the default row and the design-record column.
 #[test]
 fn scope_envelope_matches_the_derivation() {
-    let bdp = (DESIGN_LINK_BYTES_PER_MS * DESIGN_LINK_RTT_MS / DISPUTE_WIRE_BYTES) as u64;
-    let n = u128::from(bdp);
+    let n = u128::from(DESIGN_SESSION_MESSAGES);
     let mut total = 0u128;
     for depth in 1..=KEY_DEPTH {
         let held = usize::try_from(children_quantile(n, depth)).unwrap_or(usize::MAX);
@@ -204,22 +210,27 @@ fn scope_envelope_matches_the_derivation() {
         "SCOPE_ENVELOPE_BYTES must equal the design session's per-scope charge",
     );
 
-    let window = Window::from_budget(bdp, bdp, 0, 0, DEFAULT_SYNC_MEMORY_BUDGET, local_node_bytes);
+    let window = Window::from_budget(
+        DESIGN_SESSION_MESSAGES,
+        DESIGN_SESSION_MESSAGES,
+        0,
+        0,
+        DEFAULT_SYNC_MEMORY_BUDGET,
+        local_node_bytes,
+    );
     assert!(
-        (0..=KEY_DEPTH).any(|height| window.capacity(height) as u64 >= bdp),
-        "the default budget must admit the design link's BDP in flight",
+        (0..=KEY_DEPTH).any(|height| window.capacity(height) as u64 >= DESIGN_SESSION_MESSAGES),
+        "the policy default must admit the design session's whole population in flight",
     );
 }
 
-/// The supply-decode envelope is the charge's own shape at the design
-/// session, and the default budget is the scope term plus exactly it.
+/// The supply-decode envelope is the solve's own flat decode-fan term.
 ///
-/// `SUPPLY_DECODE_ENVELOPE_BYTES` must equal the flat decode-fan term
+/// `SUPPLY_DECODE_ENVELOPE_BYTES` must equal the flat term
 /// `from_budget` charges under the in-memory backend's pricing — one
 /// fan channel plus one in-hand record per reply stream, each occupant
-/// a pointer-priced leaf in its slot — and the default budget must
-/// decompose into the dispute-scope product plus this envelope, so
-/// neither constant can drift from the solve it feeds.
+/// a pointer-priced leaf in its slot — so the pre-charge the operator
+/// docs quote cannot drift from the solve.
 #[test]
 fn supply_decode_envelope_matches_the_charge() {
     let flat = (STREAM_COUNT as u128)
@@ -229,25 +240,22 @@ fn supply_decode_envelope_matches_the_charge() {
         SUPPLY_DECODE_ENVELOPE_BYTES as u128, flat,
         "SUPPLY_DECODE_ENVELOPE_BYTES must equal the solve's flat decode-fan term",
     );
-    assert_eq!(
-        DEFAULT_SYNC_MEMORY_BUDGET,
-        DESIGN_LINK_BYTES_PER_MS * DESIGN_LINK_RTT_MS / DISPUTE_WIRE_BYTES * SCOPE_ENVELOPE_BYTES
-            + SUPPLY_DECODE_ENVELOPE_BYTES,
-        "the default budget is the scope term plus the supply-decode envelope",
-    );
 }
 
-/// The envelope-to-wire ratio the operator equations quote is exactly
-/// this quotient.
+/// The committed trade-off table is byte-identical to the closed form's
+/// rendering.
 ///
-/// `sync_memory_budget`'s docs state `slowdown ≈ max(1, 25 × BDP /
-/// budget)` and `budget ≈ 25 × BDP / slowdown`; the 25 is
-/// `SCOPE_ENVELOPE_BYTES / DISPUTE_WIRE_BYTES` rounded up. Pinning the
-/// quotient keeps the quoted figure and the constants from drifting
-/// apart.
+/// Generation is deterministic pure arithmetic, so any drift between
+/// the pinned constants and the table the rustdoc includes fails here
+/// instead of shipping stale numbers; regenerate with
+/// `just window-tradeoff`.
 #[test]
-fn envelope_to_wire_ratio_matches_the_operator_docs() {
-    assert_eq!(SCOPE_ENVELOPE_BYTES.div_ceil(DISPUTE_WIRE_BYTES), 25);
+fn tradeoff_table_matches_the_closed_form() {
+    assert_eq!(
+        include_str!("tradeoff.md"),
+        crate::testing::window_tradeoff_table(),
+        "src/tree/mirror/streaming/window/tradeoff.md is stale: run `just window-tradeoff`",
+    );
 }
 
 /// A materializing backend's node price, shaped like a database

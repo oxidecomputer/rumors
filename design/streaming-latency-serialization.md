@@ -540,6 +540,19 @@ term the assignment never granted. The derived per-scope envelope is
 check `budget / (25 × RTT)`; the pins are unchanged in kind
 (`design/sync-budget.md` §2.4 records the details).
 
+**Amendment (2026-07-23, fifth wave): the default budget is policy.**
+`DEFAULT_SYNC_MEMORY_BUDGET` is a stated 512 MiB, minted from no
+expression; what any budget buys is the closed form
+`slowdown(budget, m) = max(1, BDP × 4,865 / (budget × (28 + m)))` —
+the envelope pinned by recomputation, the 28 B intercept by
+deterministic byte-count calibration, `m` the mean encoded record
+size — and the trade-off table is that form tabulated at the spec BDP
+across budget × record size, generated deterministically and
+byte-compared in the gate. At the spec BDP the default's slowdown-1
+crossover is `m* ≈ 85.3 B`; the design-record anchor
+`DISPUTE_WIRE_BYTES` (m = 172) survives with nothing deriving from
+it (`design/sync-budget.md` §1.6's amendment records the details).
+
 ### 5.3 The per-leaf compute follow-up
 
 Chasing the zero-latency compute gap (§2, §7) surfaced a second

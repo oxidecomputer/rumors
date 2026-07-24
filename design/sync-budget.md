@@ -22,15 +22,16 @@ tagged \[derived\] (premises stated), \[measured\] (instrument named),
 ### 1.1 The interface
 
 One optional knob: `Peer::sync_memory_budget(budget_bytes)`, default
-`DEFAULT_SYNC_MEMORY_BUDGET` — ~304 MB, **computed in-code from its
-premises** (a 100 Gbps × 1 ms-RTT design link's 12.5 MB
-bandwidth-delay product, filled at one disputed scope per 200 measured
-wire bytes, each charged the design session's derived per-scope
-envelope of 4,865 B; `window.rs` holds the constants and the
-multiplication, and §2.4's landed status records the envelope's
-derivation and pin). The budget is a worst-case envelope per session,
-never an allocation; concurrent sessions on separate links each carry
-their own.
+`DEFAULT_SYNC_MEMORY_BUDGET` — 512 MiB, **a stated policy choice,
+minted from no expression**. What any budget buys is the derived
+closed form `slowdown(budget, m) = max(1, BDP × E / (budget ×
+(28 + m)))`, with `E = 4,865 B` the pinned per-scope envelope (§2.4's
+landed status records its derivation and pin), 28 B the calibrated
+per-message wire intercept, and `m` the mean encoded record size; at
+the spec BDP of 12.5 MB the default's slowdown-1 crossover is
+`m* ≈ 85.3 B`. The budget is a worst-case envelope per session, never
+an allocation; concurrent sessions on separate links each carry their
+own.
 
 Each session resolves the budget into **static per-height channel
 capacities** at handshake time, from the set sizes the two replicas
@@ -203,6 +204,35 @@ trade-off table's cells are worst-case factors a real link's
 bandwidth absorbs; and the delayed-pipe harness's per-stream
 capacity understates a session's aggregate rate (supplies ride
 several streams), which is what forced self-calibration.
+
+**Amendment (2026-07-23): the default is policy; the equations
+re-denominate in record size.** `DEFAULT_SYNC_MEMORY_BUDGET` is a
+stated round choice — 512 MiB — minted from no expression; the
+derivation chain above becomes documentation. The operator form
+carries the record size explicitly: `slowdown(budget, m) = max(1,
+BDP × E / (budget × (28 + m)))`, with `E = 4,865 B` pinned by
+recomputation and the 28 B per-message intercept pinned by
+deterministic byte-count calibration (`tests/dispute_wire.rs`, three
+collinear cells). Its inversions answer the three operator questions
+— minimum record size at a budget, minimum budget at a record size,
+slowdown given both — worked in `Peer::sync_memory_budget`'s docs;
+at the spec BDP (12.5 MB, where 1 Gbps × 100 ms and 100 Gbps × 1 ms
+coincide) the default's slowdown-1 crossover is `m* = BDP × E /
+budget − 28 ≈ 85.3 B`, and u64 corpora serialize at worst ~3.1×,
+latency never memory. The ratio pin retires with the ratio (no
+quoted `E/w` remains to hold); `DISPUTE_WIRE_BYTES` survives only as
+the design-record anchor (`28 + 172 = 200`), with nothing deriving
+from it. The trade-off table is re-axed to budget × m and generated
+deterministically from the closed form (`just window-tradeoff`,
+byte-compared in the gate); the superseded measured
+budget × divergence table lives in git history. Sanity, before its
+deletion: the closed form's m = 172 column against the measured
+table's 50k-divergence column (nearest regime: 62,500 vs 50,000
+crossing messages) runs 2–5× above the wall-clock factors with the
+same ordering and the same parity knee between 64 MiB and the
+512 MiB row — the conservative direction expected of an envelope
+held against measurements a real pipe's transfer structure dilutes;
+exact agreement is not claimed.
 
 ## 2. What remains: backend-priced budgeting (phase 4, spec-first)
 
