@@ -113,6 +113,7 @@ fn recode(frames: Vec<Frame<u64>>, budget: RunBudget) -> Vec<Frame<u64>> {
         let mut input = stream::iter(frames);
         let decoded = decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
+            u64::MAX,
             Scope::<UnderRoot>::opening(&[]),
             &mut input,
         )
@@ -267,6 +268,7 @@ fn a_batched_run_round_trips_the_reply() {
         let mut input = stream::iter(frames);
         decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
+            u64::MAX,
             Scope::<UnderRoot>::opening(&[]),
             &mut input,
         )

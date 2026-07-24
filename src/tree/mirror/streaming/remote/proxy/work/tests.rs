@@ -50,6 +50,7 @@ fn parked_session() -> ParkedSession {
         Failing::after(Local, usize::MAX),
         Window::FLOOR,
         RunBudget::default(),
+        u64::MAX,
         Vec::new(),
         Physical {
             control_read: parts.control_read,

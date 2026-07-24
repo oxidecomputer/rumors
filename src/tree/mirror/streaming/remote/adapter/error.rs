@@ -80,6 +80,21 @@ pub enum DecodeError<E> {
     /// A later supplied run reused or preceded an earlier run's radix.
     #[error("supplied radix {radix:#04x} does not follow {previous:#04x}")]
     SupplyOrder { previous: u8, radix: u8 },
+    /// A supplied version's encoding exceeds the peer's declared `max_version_bytes`.
+    ///
+    /// Every leaf version a peer supplies is one its own tree
+    /// materializes, so the aggregate its greeting declared must cover
+    /// it. The local window solve priced node residency from that
+    /// declaration; a version arriving over it voids the pricing
+    /// premise, so the session fails fast instead of running outside
+    /// its memory envelope. The greeting's own causal version is *not*
+    /// held to the declaration — an empty tree honestly declares a
+    /// zero aggregate while its redaction-advanced version is nonempty
+    /// — so only supplied leaf records are checked.
+    #[error(
+        "supplied version encodes {actual} bytes, over the peer's declared {declared}-byte bound"
+    )]
+    OversizedVersion { declared: u64, actual: usize },
     /// A positional wire reaction cannot be scoped without another child.
     #[error(transparent)]
     Scope(#[from] ScopeError),

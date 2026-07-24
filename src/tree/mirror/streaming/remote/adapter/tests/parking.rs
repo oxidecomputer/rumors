@@ -126,6 +126,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     let decoded = runtime
         .block_on(decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
+            u64::MAX,
             scope,
             &mut frames,
         ))
@@ -211,6 +212,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     let decoded = runtime
         .block_on(decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
+            u64::MAX,
             Scope::<UnderRoot>::opening(&listing),
             &mut frames,
         ))

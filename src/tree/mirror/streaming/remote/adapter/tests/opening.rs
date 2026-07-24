@@ -146,8 +146,13 @@ fn opening_supplies_decode_by_radix_group() {
 
     let decoded: Vec<(u8, _)> = runtime()
         .block_on(
-            early_supplies::<Local, u64, UnderRoot, _>(Local, Prefix::new(), stream::iter(frames))
-                .try_collect(),
+            early_supplies::<Local, u64, UnderRoot, _>(
+                Local,
+                u64::MAX,
+                Prefix::new(),
+                stream::iter(frames),
+            )
+            .try_collect(),
         )
         .expect("a canonical opening-supply reply decodes");
     let radices: Vec<u8> = decoded.iter().map(|(radix, _)| *radix).collect();
@@ -169,8 +174,13 @@ fn empty_opening_supply_reply_decodes_to_nothing() {
     let frames: Vec<Frame<u64>> = vec![Frame::End(End::Reply)];
     let decoded: Vec<(u8, _)> = runtime()
         .block_on(
-            early_supplies::<Local, u64, UnderRoot, _>(Local, Prefix::new(), stream::iter(frames))
-                .try_collect(),
+            early_supplies::<Local, u64, UnderRoot, _>(
+                Local,
+                u64::MAX,
+                Prefix::new(),
+                stream::iter(frames),
+            )
+            .try_collect(),
         )
         .expect("an empty batch decodes cleanly");
     assert!(decoded.is_empty());
@@ -183,9 +193,14 @@ fn second_opening_supply_reply_is_rejected() {
     let frames: Vec<Frame<u64>> = vec![Frame::End(End::Reply), Frame::End(End::Reply)];
     let error = runtime()
         .block_on(async {
-            early_supplies::<Local, u64, UnderRoot, _>(Local, Prefix::new(), stream::iter(frames))
-                .try_collect::<Vec<_>>()
-                .await
+            early_supplies::<Local, u64, UnderRoot, _>(
+                Local,
+                u64::MAX,
+                Prefix::new(),
+                stream::iter(frames),
+            )
+            .try_collect::<Vec<_>>()
+            .await
         })
         .expect_err("a second reply on the opening-supply stream is invalid");
     assert!(matches!(error, DecodeError::ExtraOpeningReply));
@@ -198,9 +213,14 @@ fn positional_reaction_in_opening_supplies_is_rejected() {
     let frames: Vec<Frame<u64>> = vec![Frame::Reaction(WireReaction::Match, Flow::End)];
     let error = runtime()
         .block_on(async {
-            early_supplies::<Local, u64, UnderRoot, _>(Local, Prefix::new(), stream::iter(frames))
-                .try_collect::<Vec<_>>()
-                .await
+            early_supplies::<Local, u64, UnderRoot, _>(
+                Local,
+                u64::MAX,
+                Prefix::new(),
+                stream::iter(frames),
+            )
+            .try_collect::<Vec<_>>()
+            .await
         })
         .expect_err("the opening supplies admit no positional reaction");
     assert!(matches!(

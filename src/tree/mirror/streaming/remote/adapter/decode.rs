@@ -69,8 +69,13 @@ where
 /// its group completes: the consumer pairs supplies with the responder's
 /// root-level requests one radix at a time, so a later group's bulk never
 /// gates an earlier group's absorption.
+///
+/// `version_bytes` is the peer's greeting-declared `max_version_bytes`:
+/// a supplied version encoding over it is a
+/// [`DecodeError::OversizedVersion`] session violation.
 pub fn early_supplies<B, T, G, F>(
     backend: B,
+    version_bytes: u64,
     parent: Prefix<S<G>>,
     frames: F,
 ) -> impl Stream<Item = Result<(u8, B::Node<G>), DecodeError<B::Error>>> + Send
@@ -90,7 +95,7 @@ where
         let leaves = leaves.inspect(|_| fan_probe::on_recv());
         let leaves: BoxNodeStream<'static, B, T, Z> = Box::pin(leaves);
         let mut assembled = pin!(backend.clone().assemble::<G>(leaves));
-        let mut read = pin!(read_early::<B, T, G, _>(parent, frames, tx));
+        let mut read = pin!(read_early::<B, T, G, _>(version_bytes, parent, frames, tx));
         let mut read_result: Option<Result<(), DecodeError<B::Error>>> = None;
         loop {
             let step = futures::future::poll_fn(|cx| {
@@ -127,6 +132,7 @@ where
 /// Read the opening-supply reply's frames — supplies only, one reply,
 /// nothing after it — streaming its leaves to assembly.
 async fn read_early<B, T, G, F>(
+    version_bytes: u64,
     parent: Prefix<S<G>>,
     mut frames: F,
     leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
@@ -138,7 +144,7 @@ where
     S<G>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
 {
-    let mut supplies = SupplyRuns::<G>::new();
+    let mut supplies = SupplyRuns::<G>::new(version_bytes);
     let mut any = false;
     loop {
         let Some(frame) = frames.next().await else {
@@ -188,6 +194,7 @@ where
 /// Decode one non-leaf reply and derive the lower questions it asks.
 pub async fn decode_reply<B, T, H, F>(
     backend: B,
+    version_bytes: u64,
     scope: Scope<S<H>>,
     frames: &mut F,
 ) -> Result<Decoded<B, T, S<H>, Vec<Scope<H>>>, DecodeError<B::Error>>
@@ -199,7 +206,7 @@ where
     S<S<H>>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
 {
-    decode(backend, scope, frames, |scope, listing| {
+    decode(backend, version_bytes, scope, frames, |scope, listing| {
         let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
         Ok(Scope::new(prefix, listing))
     })
@@ -209,6 +216,7 @@ where
 /// Decode one leaf-height reply, where only an empty request for the leaf is valid.
 pub async fn decode_leaf_reply<B, T, F>(
     backend: B,
+    version_bytes: u64,
     scope: Scope<Z>,
     frames: &mut F,
 ) -> Result<Decoded<B, T, Z, Vec<Scope<Z>>>, DecodeError<B::Error>>
@@ -217,7 +225,7 @@ where
     T: borsh::BorshDeserialize + Send + Sync + 'static,
     F: Stream<Item = Frame<T>> + Unpin,
 {
-    decode(backend, scope, frames, |scope, listing| {
+    decode(backend, version_bytes, scope, frames, |scope, listing| {
         if !listing.is_empty() {
             return Err(ScopeError::NonemptyLeafQuery);
         }
@@ -229,6 +237,7 @@ where
 
 async fn decode<B, T, H, F, Q, N>(
     backend: B,
+    version_bytes: u64,
     scope: Scope<H>,
     frames: &mut F,
     question: Q,
@@ -252,7 +261,7 @@ where
     // reader's hand per reply stream, at `node_bytes(0, version_bound)`
     // plus the slot itself (the window's supply-decode envelope).
     let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
-    let read = read_reply::<B, T, H, _, _, _>(scope, frames, question, tx);
+    let read = read_reply::<B, T, H, _, _, _>(version_bytes, scope, frames, question, tx);
     let assemble = assemble_supplies::<B, T, H>(backend, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
     let Some(ReadReply {
@@ -270,6 +279,7 @@ where
 
 /// Read and validate exactly one reply while streaming its leaves to assembly.
 async fn read_reply<B, T, H, F, Q, N>(
+    version_bytes: u64,
     mut scope: Scope<H>,
     frames: &mut F,
     mut question: Q,
@@ -283,7 +293,7 @@ where
     F: Stream<Item = Frame<T>> + Unpin,
     Q: FnMut(&mut Scope<H>, &[(u8, Hash)]) -> Result<N, ScopeError>,
 {
-    let mut read = ReadReply::new();
+    let mut read = ReadReply::new(version_bytes);
     loop {
         let Some(frame) = frames.next().await else {
             return Err(DecodeError::TruncatedReply);
@@ -410,24 +420,28 @@ struct ReadReply<H: Height, N> {
 }
 
 impl<H: Height, N> ReadReply<H, N> {
-    fn new() -> Self {
+    fn new(version_bytes: u64) -> Self {
         Self {
             skeleton: Vec::new(),
             questions: Vec::new(),
-            supplies: SupplyRuns::new(),
+            supplies: SupplyRuns::new(version_bytes),
         }
     }
 }
 
 struct SupplyRuns<H: Height> {
+    /// The peer's greeting-declared `max_version_bytes`, covering every
+    /// version its tree materializes and so every version it may supply.
+    version_bytes: u64,
     previous_leaf: Option<Prefix<Z>>,
     current: Option<Prefix<H>>,
     previous_radix: Option<u8>,
 }
 
 impl<H: Height> SupplyRuns<H> {
-    fn new() -> Self {
+    fn new(version_bytes: u64) -> Self {
         Self {
+            version_bytes,
             previous_leaf: None,
             current: None,
             previous_radix: None,
@@ -449,6 +463,18 @@ impl<H: Height> SupplyRuns<H> {
         T: Send + Sync + 'static,
         S<H>: Height,
     {
+        // The declared aggregate covers every version the peer's tree
+        // materializes, so every version it supplies must encode within
+        // it; one arriving over the declaration voids the premise the
+        // window solve priced this session with, and fails the session
+        // before the record is admitted.
+        let actual = version.as_bytes().len();
+        if actual as u64 > self.version_bytes {
+            return Err(DecodeError::OversizedVersion {
+                declared: self.version_bytes,
+                actual,
+            });
+        }
         let path = Path::for_leaf(version, message.as_slice());
         let leaf_prefix = Prefix::<Z>::containing(&path);
         let node_prefix = Prefix::<H>::containing(&path);

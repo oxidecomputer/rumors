@@ -104,7 +104,12 @@ impl AdapterHeight for Z {
         let frame = supplied_frame(leaf, Flow::End);
         let mut frames = stream::iter([frame.clone()]);
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, scope.clone(), &mut frames))
+            .block_on(decode_leaf_reply(
+                Local,
+                u64::MAX,
+                scope.clone(),
+                &mut frames,
+            ))
             .expect("an in-scope leaf decodes");
 
         prop_assert!(decoded.questions.is_empty(), "height 0");
@@ -147,7 +152,7 @@ impl AdapterHeight for Z {
                 .chain([sentinel.clone()]),
         );
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, scope, &mut frames))
+            .block_on(decode_leaf_reply(Local, u64::MAX, scope, &mut frames))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height 0");
         assert_matches(&decoded.reply, radixes.len(), 0)?;
@@ -218,7 +223,7 @@ impl AdapterHeight for Z {
 
         let mut frames = stream::iter(actual_frames);
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, scope, &mut frames))
+            .block_on(decode_leaf_reply(Local, u64::MAX, scope, &mut frames))
             .expect("canonical leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
         assert_positional_reply(&decoded.reply, &leaf_case, 0)
@@ -262,7 +267,7 @@ impl AdapterHeight for Z {
         let sentinel = Frame::End(End::Reply);
         let mut frames = stream::iter(actual_frames.into_iter().chain([sentinel.clone()]));
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, scope, &mut frames))
+            .block_on(decode_leaf_reply(Local, u64::MAX, scope, &mut frames))
             .expect("canonical mixed leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
         assert_mixed_reply(
@@ -287,6 +292,7 @@ impl AdapterHeight for Z {
         let error = runtime
             .block_on(decode_leaf_reply(
                 Local,
+                u64::MAX,
                 Scope::new(parent, &[]),
                 &mut frames,
             ))
@@ -305,6 +311,7 @@ impl AdapterHeight for Z {
         let error = runtime
             .block_on(decode_leaf_reply(
                 Local,
+                u64::MAX,
                 Scope::new(foreign, &[]),
                 &mut frames,
             ))
@@ -336,6 +343,7 @@ where
         let decoded = runtime
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
+                u64::MAX,
                 scope.clone(),
                 &mut frames,
             ))
@@ -381,7 +389,12 @@ where
                 .chain([sentinel.clone()]),
         );
         let decoded = runtime
-            .block_on(decode_reply::<Local, (), H, _>(Local, scope, &mut frames))
+            .block_on(decode_reply::<Local, (), H, _>(
+                Local,
+                u64::MAX,
+                scope,
+                &mut frames,
+            ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height {}", Self::HEIGHT);
         assert_matches(&decoded.reply, radixes.len(), Self::HEIGHT)?;
@@ -458,7 +471,12 @@ where
 
         let mut frames = stream::iter(actual_frames);
         let decoded = runtime
-            .block_on(decode_reply::<Local, (), H, _>(Local, scope, &mut frames))
+            .block_on(decode_reply::<Local, (), H, _>(
+                Local,
+                u64::MAX,
+                scope,
+                &mut frames,
+            ))
             .expect("canonical positional reactions decode");
         prop_assert_eq!(
             &decoded.questions,
@@ -519,7 +537,12 @@ where
         let sentinel = Frame::End(End::Reply);
         let mut frames = stream::iter(actual_frames.into_iter().chain([sentinel.clone()]));
         let decoded = runtime
-            .block_on(decode_reply::<Local, u64, H, _>(Local, scope, &mut frames))
+            .block_on(decode_reply::<Local, u64, H, _>(
+                Local,
+                u64::MAX,
+                scope,
+                &mut frames,
+            ))
             .expect("canonical mixed reactions decode");
         prop_assert_eq!(
             &decoded.questions,
@@ -554,6 +577,7 @@ where
         let error = runtime
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
+                u64::MAX,
                 Scope::new(parent, &[]),
                 &mut frames,
             ))
@@ -578,6 +602,7 @@ where
         let error = runtime
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
+                u64::MAX,
                 Scope::new(foreign, &[]),
                 &mut frames,
             ))

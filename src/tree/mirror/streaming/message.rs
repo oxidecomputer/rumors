@@ -86,6 +86,12 @@ pub struct Greeting {
     /// contribution to a survivor subset whose recomputed bound neither
     /// input materialized; the pair sum there is an envelope, pinned by
     /// the census suite's reconciled-bound measurements.
+    ///
+    /// The declaration is enforced at ingress: every version the sender
+    /// supplies is one its tree materializes, so it must encode within
+    /// this bound, and a session that receives one over it fails with a
+    /// typed violation
+    /// ([`DecodeError::OversizedVersion`](crate::tree::mirror::streaming::remote::DecodeError::OversizedVersion)).
     pub max_version_bytes: u64,
     /// The sender's supply-run byte target
     /// ([`Peer::target_message_size`](crate::Peer::target_message_size)).

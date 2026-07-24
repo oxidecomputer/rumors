@@ -84,6 +84,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame<u64>> + Unpin) -> usize {
     runtime.block_on(async {
         decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
+            u64::MAX,
             Scope::<UnderRoot>::opening(&[]),
             &mut input,
         )
@@ -134,6 +135,7 @@ fn eager_early_supplies_ride_the_same_ceiling() {
     runtime.block_on(async {
         let assembled: Vec<_> = early_supplies::<Local, u64, UnderRoot, _>(
             Local,
+            u64::MAX,
             Prefix::new(),
             stream::iter(frames(&leaves)),
         )

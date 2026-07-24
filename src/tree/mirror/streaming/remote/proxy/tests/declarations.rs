@@ -15,6 +15,10 @@ use crate::testing::run_to_quiescence;
 use crate::tree::{
     Action, Tree,
     arb::{early_first_child_dispute_pair, nth_party},
+    mirror::{
+        Error as MirrorError,
+        streaming::remote::{DecodeError, Error as RemoteError},
+    },
 };
 
 use super::harness::{self, GreetingRewrite};
@@ -46,16 +50,16 @@ fn uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
 }
 
 /// A peer whose supplied versions exceed its greeting-declared
-/// `max_version_bytes` is absorbed silently: the declaration feeds only
-/// the window solve and no ingress path re-checks arriving versions
-/// against it, so a session whose received declaration is rewritten to
-/// zero still converges on the union while every supplied version
-/// arrives over the declared bound.
+/// `max_version_bytes` fails the session with a typed violation: the
+/// receiving side reports `OversizedVersion` at the first offending
+/// record — the declared aggregate covers every version the peer's tree
+/// materializes, so an arriving version over it voids the premise the
+/// window solve priced the session with — and both endpoints terminate
+/// (link poisoning rides any session error).
 #[test]
-fn understated_version_bytes_are_absorbed_silently() {
+fn understated_version_bytes_fail_the_session() {
     for victim_left in [false, true] {
         let (left, right) = early_first_child_dispute_pair();
-        let expected = union_hash(&left, &right);
         let rewrite = GreetingRewrite::max_version_bytes(0);
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
             left,
@@ -63,11 +67,24 @@ fn understated_version_bytes_are_absorbed_silently() {
             victim_left.then_some(rewrite),
             (!victim_left).then_some(rewrite),
         ))
-        .expect("the session must terminate");
-        let left = left.expect("left endpoint reconciles despite the understated bound");
-        let right = right.expect("right endpoint reconciles despite the understated bound");
-        assert_eq!(hash_of(&left), expected);
-        assert_eq!(hash_of(&right), expected);
+        .expect("an oversized supplied version must terminate both sessions");
+        let victim = if victim_left {
+            match &left {
+                Err(MirrorError::Server(error)) => error,
+                other => panic!("the left proxy did not report the violation: {other:?}"),
+            }
+        } else {
+            match &right {
+                Err(MirrorError::Client(error)) => error,
+                other => panic!("the right proxy did not report the violation: {other:?}"),
+            }
+        };
+        assert!(matches!(
+            victim,
+            RemoteError::Decode(DecodeError::OversizedVersion { declared: 0, .. })
+        ));
+        assert!(left.is_err());
+        assert!(right.is_err());
     }
 }
 

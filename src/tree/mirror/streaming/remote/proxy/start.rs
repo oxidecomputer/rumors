@@ -299,7 +299,15 @@ where
     } else {
         Speaker::Responder
     };
-    open(backend, window, budget, local, remote.listing, link)
+    open(
+        backend,
+        window,
+        budget,
+        local,
+        remote.max_version_bytes,
+        remote.listing,
+        link,
+    )
 }
 
 /// Allocate one session's claim table, error route, and accept driver.
@@ -307,12 +315,15 @@ where
 /// `peer_listing` is the remote greeting's root-fan listing: replayed as
 /// the remote's opening question when the remote wins the initiator
 /// election, and merged against the local opening's listing to gate the
-/// early-supply stream when it loses.
+/// early-supply stream when it loses. `peer_version_bytes` is the remote
+/// greeting's `max_version_bytes`, which the session enforces on every
+/// version the remote supplies.
 fn open<B, T, R, W, C, A>(
     backend: B,
     window: Window,
     budget: RunBudget,
     local: Speaker,
+    peer_version_bytes: u64,
     peer_listing: Vec<(u8, Hash)>,
     link: Link<R, W, C, A>,
 ) -> Connected<B, T, R, W, C, A>
@@ -338,6 +349,7 @@ where
         backend,
         window,
         budget,
+        peer_version_bytes,
         peer_listing,
         Physical {
             control_read,

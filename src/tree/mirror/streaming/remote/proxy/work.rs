@@ -47,6 +47,9 @@ where
     window: Window,
     /// Byte budget for each outgoing supply run.
     budget: RunBudget,
+    /// The remote greeting's `max_version_bytes` declaration, enforced
+    /// against every supplied version this session decodes.
+    peer_version_bytes: u64,
     /// The remote greeting's root-fan listing, consumed by whichever role
     /// the election assigns.
     ///
@@ -87,6 +90,7 @@ where
         backend: B,
         window: Window,
         budget: RunBudget,
+        peer_version_bytes: u64,
         peer_listing: Vec<(u8, Hash)>,
         physical: Physical<R, W, A>,
     ) -> Self {
@@ -94,6 +98,7 @@ where
             backend,
             window,
             budget,
+            peer_version_bytes,
             peer_listing,
             physical,
             tasks: Vec::new(),

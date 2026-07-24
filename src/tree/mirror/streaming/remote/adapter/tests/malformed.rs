@@ -40,10 +40,15 @@ fn bare_end_cannot_follow_reactions() {
 
     let error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
-        decode_leaf_reply(Local, Scope::new(parent, &[(0, hash(0))]), &mut frames)
-            .await
-            .err()
-            .expect("nonempty replies carry their end on the last reaction")
+        decode_leaf_reply(
+            Local,
+            u64::MAX,
+            Scope::new(parent, &[(0, hash(0))]),
+            &mut frames,
+        )
+        .await
+        .err()
+        .expect("nonempty replies carry their end on the last reaction")
     });
     assert!(matches!(error, DecodeError::BareEndAfterReaction));
 }
@@ -56,10 +61,15 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
     let mut frames = stream::iter([Frame::<()>::Reaction(WireReaction::Match, Flow::Continue)]);
 
     let error = runtime().block_on(async {
-        decode_leaf_reply(Local, Scope::new(parent, &[(0, hash(0))]), &mut frames)
-            .await
-            .err()
-            .expect("reply without a boundary is truncated")
+        decode_leaf_reply(
+            Local,
+            u64::MAX,
+            Scope::new(parent, &[(0, hash(0))]),
+            &mut frames,
+        )
+        .await
+        .err()
+        .expect("reply without a boundary is truncated")
     });
     assert!(matches!(error, DecodeError::TruncatedReply));
 }
@@ -83,10 +93,15 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
 
     let decode_error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
-        decode_reply::<Local, (), Z, _>(Local, Scope::new(parent, &[(1, hash(1))]), &mut frames)
-            .await
-            .err()
-            .expect("a match without a remaining child cannot be scoped")
+        decode_reply::<Local, (), Z, _>(
+            Local,
+            u64::MAX,
+            Scope::new(parent, &[(1, hash(1))]),
+            &mut frames,
+        )
+        .await
+        .err()
+        .expect("a match without a remaining child cannot be scoped")
     });
     assert!(matches!(
         decode_error,
@@ -127,7 +142,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
 
     let decode_error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
-        decode_reply::<Local, (), Z, _>(Local, Scope::new(parent, &[]), &mut frames)
+        decode_reply::<Local, (), Z, _>(Local, u64::MAX, Scope::new(parent, &[]), &mut frames)
             .await
             .err()
             .expect("a query without a child has no derivable scope")
@@ -215,7 +230,13 @@ fn leaf_query_matrix_is_exhaustive() {
 
             let decoded = runtime().block_on(async {
                 let mut frames = stream::iter([expected_frame]);
-                decode_leaf_reply(Local, Scope::new(parent, &scope_listing), &mut frames).await
+                decode_leaf_reply(
+                    Local,
+                    u64::MAX,
+                    Scope::new(parent, &scope_listing),
+                    &mut frames,
+                )
+                .await
             });
             match expected_error {
                 Some(expected) => {
@@ -247,6 +268,7 @@ fn stream_end_is_not_a_protocol_reply() {
     let error = runtime()
         .block_on(decode_leaf_reply(
             Local,
+            u64::MAX,
             Scope::new(parent, &[]),
             &mut frames,
         ))
@@ -304,10 +326,14 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
 
     let reencoded = runtime().block_on(async {
         let mut input = stream::iter(frames.clone());
-        let decoded =
-            decode_reply::<Local, u64, UnderUnderRoot, _>(Local, scope.clone(), &mut input)
-                .await
-                .expect("ascending in-scope leaves assemble");
+        let decoded = decode_reply::<Local, u64, UnderUnderRoot, _>(
+            Local,
+            u64::MAX,
+            scope.clone(),
+            &mut input,
+        )
+        .await
+        .expect("ascending in-scope leaves assemble");
         assert_eq!(decoded.reply.replies.len(), 1);
         let [Reaction::Supply(_, node)] = decoded.reply.replies.as_slice() else {
             panic!("one leaf run must become one supplied node")
@@ -357,10 +383,15 @@ fn leaf_order_is_enforced_within_one_run() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, u64, UnderUnderRoot, _>(Local, Scope::opening(&[]), &mut input)
-            .await
-            .err()
-            .expect("descending records within one run violate leaf ordering")
+        decode_reply::<Local, u64, UnderUnderRoot, _>(
+            Local,
+            u64::MAX,
+            Scope::opening(&[]),
+            &mut input,
+        )
+        .await
+        .err()
+        .expect("descending records within one run violate leaf ordering")
     });
     let DecodeError::LeafOrder { previous, current } = error else {
         panic!("expected LeafOrder, got {error:?}");
@@ -392,7 +423,7 @@ fn leaf_scope_is_enforced_within_one_run() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_leaf_reply(Local, Scope::new(parent, &[]), &mut input)
+        decode_leaf_reply(Local, u64::MAX, Scope::new(parent, &[]), &mut input)
             .await
             .err()
             .expect("a record escaping the reply scope must fail")
@@ -422,15 +453,63 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, u64, UnderUnderRoot, _>(Local, Scope::opening(&[]), &mut input)
-            .await
-            .err()
-            .expect("an empty record body cannot decode a version")
+        decode_reply::<Local, u64, UnderUnderRoot, _>(
+            Local,
+            u64::MAX,
+            Scope::opening(&[]),
+            &mut input,
+        )
+        .await
+        .err()
+        .expect("an empty record body cannot decode a version")
     });
     let DecodeError::Record(DecodeLeafError::Version(source)) = error else {
         panic!("expected a version decode error, got {error:?}");
     };
     assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
+}
+
+/// The declared version bound admits exactly the versions it covers.
+///
+/// A supplied version encoding exactly at the peer's declared
+/// `max_version_bytes` decodes, and the same record under a declaration
+/// one byte smaller is rejected as `OversizedVersion` carrying both the
+/// declaration and the offending encoding's size.
+#[test]
+fn a_version_over_the_declared_bound_is_rejected() {
+    let leaf = LeafCase::new(0, 0);
+    let parent = Prefix::<Z>::containing(&leaf.path()).pop().0;
+    let declared = leaf.version.as_bytes().len() as u64;
+    let frames = || {
+        vec![Frame::Reaction(
+            WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
+            Flow::End,
+        )]
+    };
+
+    runtime().block_on(async {
+        let mut input = stream::iter(frames());
+        decode_leaf_reply(Local, declared, Scope::new(parent, &[]), &mut input)
+            .await
+            .expect("a version exactly at the declared bound is admitted");
+    });
+
+    let error = runtime().block_on(async {
+        let mut input = stream::iter(frames());
+        decode_leaf_reply(Local, declared - 1, Scope::new(parent, &[]), &mut input)
+            .await
+            .err()
+            .expect("a version over the declared bound must be rejected")
+    });
+    let DecodeError::OversizedVersion {
+        declared: bound,
+        actual,
+    } = error
+    else {
+        panic!("expected OversizedVersion, got {error:?}");
+    };
+    assert_eq!(bound, declared - 1);
+    assert_eq!(actual as u64, declared);
 }
 
 /// Interrupting a supply run finalizes its radix, so later resumption is rejected as reordering.
@@ -456,6 +535,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
         let mut input = stream::iter(frames);
         decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
+            u64::MAX,
             Scope::opening(&[(1, hash(1))]),
             &mut input,
         )
