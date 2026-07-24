@@ -7,9 +7,10 @@ transcription deviations from the original spec text are recorded as
 dated amendments in place.
 Companions: `design/streaming-latency-serialization.md` (the
 serialization diagnosis this campaign grew from, amended in place as
-the knob evolved) and `design/b05-uniformity-envelope.md` (the
-occupancy mathematics imported here; its own header maps what was and
-was not adopted).
+the knob evolved). The occupancy mathematics lives inline at the
+functions that implement it
+(`src/tree/mirror/streaming/window.rs`), with
+`examples/envelope_sim.rs` as its certifying tool.
 
 **Model of record**: uniform-hash, authenticated-honest-peer. Content
 addresses are uniform 32-byte strings; hostile-peer regimes are
@@ -505,8 +506,9 @@ is regenerated under the function-priced derivation.
 
 **Met, 2026-07-22**: every clause checked mechanically — no
 `NODE_BYTES` token survives in `src/` (the token lives on in this
-plan's sibling design documents and the B0.5 simulator, which speak
-about the rejected shape); the only "fitted" mentions in `src/` are
+plan's sibling design documents and the envelope simulator,
+`examples/envelope_sim.rs`, which speak about the rejected shape);
+the only "fitted" mentions in `src/` are
 the two negations documenting that the envelope no longer is; the
 pins run under the ordinary test gate; the committed table carries
 the function-priced default row.

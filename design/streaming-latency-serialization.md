@@ -441,11 +441,12 @@ two quantities a deployment can state directly, replacing the
 node-reference denomination — and the window is no longer one
 uniform per-edge width: each channel's capacity is a **static
 per-height bound** `min(K, S(depth))`, where `S` is the integer
-stage-population envelope imported from
-`design/b05-uniformity-envelope.md` §7 (deterministic occupied-slot
-caps, the joint-occupancy birthday quantile, and the per-parent
-children quantile, all in the sweep-certified integer forms; 2⁻⁴⁰
-per session jointly). Deep, sparse levels get capacities no budget
+stage-population envelope (deterministic occupied-slot caps, the
+joint-occupancy birthday quantile, and the per-parent children
+quantile, all in the sweep-certified integer forms; 2⁻⁴⁰ per session
+jointly — the derivation lives inline at the functions in
+`src/tree/mirror/streaming/window.rs`, certified by
+`examples/envelope_sim.rs`). Deep, sparse levels get capacities no budget
 can widen, because their populations cannot exist; the budget buys
 width only where population can. `K` is solved by binary search on
 the sum of per-level populations, each priced at the backend's

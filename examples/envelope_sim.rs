@@ -36,15 +36,14 @@
 //!   cargo run --release --example envelope_sim -- --fast    # fewer seeds
 //!   cargo run --release --example envelope_sim -- --manifest # machine-readable dump
 //!
-//! Numeric representation: the reference implementation this port was
-//! checked against runs on arbitrary-precision integers. Every operand
-//! that outgrows `u128` here is a power of 256, so slot counts are
-//! carried as exponents (`j` in `256^j`) and each crossover is guarded:
-//! quantile searches run in `u128` where `256^j` fits and collapse to
-//! their deterministic caps where it does not (proved where used).
-//! Float paths call the system libm (`powf`, `ln_1p`, `exp_m1`) — the
-//! same functions the reference calls — and the `--manifest` mode
-//! exists so the two implementations can be diffed value-for-value.
+//! Numeric representation: every operand that outgrows `u128` is a
+//! power of 256, so slot counts are carried as exponents (`j` in
+//! `256^j`) and each crossover is guarded: quantile searches run in
+//! `u128` where `256^j` fits and collapse to their deterministic caps
+//! where it does not (proved where used). Float paths call the system
+//! libm (`powf`, `ln_1p`, `exp_m1`), and the `--manifest` mode dumps
+//! every deterministic quantity so an independent implementation —
+//! arbitrary-precision, say — can be diffed value-for-value.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -775,9 +774,8 @@ fn heavy_count(n: u64, theta: f64) -> u128 {
 
 // ---------------------------------------------------------------------
 // Monte Carlo tiers (--full): brute-force tries over uniform keys and
-// the conditional layer sampler. Statistically equivalent to the
-// reference implementation (different RNG streams); the envelope
-// assertions carry the validation, not the exact samples.
+// the conditional layer sampler. The envelope assertions carry the
+// validation, not the exact samples, so the RNG streams are arbitrary.
 // ---------------------------------------------------------------------
 
 const BRUTE_MAX_D: i32 = 6;
@@ -1088,7 +1086,7 @@ fn section(title: &str) {
 }
 
 /// Machine-readable dump of every deterministic quantity, for
-/// value-for-value comparison against the reference implementation.
+/// value-for-value comparison against an independent implementation.
 fn manifest() {
     let sweep_ns: [u64; 13] = [
         2,
