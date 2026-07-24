@@ -218,6 +218,16 @@ impl Accum {
         }
     }
 
+    /// Subtract a stored magnitude times `2^shift`: O(operand limbs),
+    /// independent of the shift.
+    pub(crate) fn sub_base_shl(&mut self, delta: &Base, shift: u64) {
+        match delta {
+            Base::Small(0) => {}
+            Base::Small(n) => self.add_shifted_word(*n, true, shift),
+            Base::Big(n) => self.apply_limbs(n.iter_u64_digits(), true, shift),
+        }
+    }
+
     /// Add another accumulator's held value times `2^shift` into this one:
     /// O(the operand's held digits), independent of the shift.
     ///
@@ -248,6 +258,14 @@ impl Accum {
         }
         let held = core::mem::take(self);
         self.add_accum_shl(&held, shift);
+    }
+
+    /// Whether the held value is zero, without any scan or rewrite.
+    ///
+    /// Exact: every write keeps `top` on the highest nonzero digit, so a
+    /// zero value is always the single zero digit at index 0.
+    pub(crate) fn is_zero(&self) -> bool {
+        self.top == 0 && self.digits[0] == 0
     }
 
     /// The number of digits up to and including the highest nonzero one.
