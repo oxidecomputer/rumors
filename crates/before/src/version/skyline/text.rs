@@ -104,9 +104,9 @@ enum Frame {
 /// Render a skyline stream as the paper notation, byte-identical to the
 /// production `Display` of the version the stream codes.
 ///
-/// Two passes. The finalize pass walks the stream once, merging subtree
-/// summaries bottom-up (see [`Summary`]) to derive every node's printed
-/// base — rendered into one preorder-indexed digit arena as it finalizes —
+/// Two passes. The finalize pass walks the stream once, merging the
+/// module doc's relative subtree summaries bottom-up to derive every
+/// node's printed base — rendered into one preorder-indexed digit arena —
 /// and sizes the output exactly from the arena and the topology. The emit
 /// pass writes the sized output straight through: one phase bit per open
 /// node, no recursion, and the exactness of the sizing is asserted.
