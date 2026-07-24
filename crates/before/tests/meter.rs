@@ -32,6 +32,17 @@
 //!   the only column that sees a magnitude-quadratic regression. Without
 //!   the feature the scenarios still run and assert the other two columns.
 //!
+//! Every row whose measured limb count is nonzero also carries a limb
+//! *liveness floor* — the measured value ×0.75, rounded down, a column in
+//! the same tables as the ceilings. A limb ceiling passes vacuously when
+//! the counter stops counting (a meter hook deleted from one `Base`
+//! operation reads a near-zero column with every ceiling green), and the
+//! floor is what fails instead. Like the board's floors, these detect
+//! *total* bypass, not partial rerouting: an implementation that routes
+//! some width-scale work through metered operations and the rest around
+//! them still reads green, so a floor is a bypass tripwire, never a
+//! full-liveness proof.
+//!
 //! Wall time is deliberately never asserted *in this suite*: it is the one
 //! number here that is not deterministic (the amplification board judges the
 //! wall-time *exponent* above a minimum-time threshold — see
@@ -97,7 +108,8 @@ const RANK_SUM_EXP_DEPTH: usize = 250_000;
 
 // ─── pinned envelopes ───────────────────────────────────────────────────────
 
-/// One scenario's pinned ceilings: the measured value ×1.25, rounded up.
+/// One scenario's pinned ceilings (the measured value ×1.25, rounded up)
+/// and its limb liveness floor (measured ×0.75, rounded down).
 struct Envelope {
     /// Peak heap delta over the scenario body, in bytes.
     peak_heap: usize,
@@ -106,19 +118,26 @@ struct Envelope {
     /// Big-integer limb operations counted during the scenario body.
     #[cfg(feature = "limb-meter")]
     limb_ops: u64,
+    /// Liveness floor under the limb column: a reading below it means the
+    /// meter is not watching this work (zero where the measured count is
+    /// zero, under which the floor asserts nothing).
+    #[cfg(feature = "limb-meter")]
+    limb_floor: u64,
 }
 
-/// Build an [`Envelope`] from the three pinned columns.
+/// Build an [`Envelope`] from the three pinned columns and the limb floor.
 ///
-/// The limb column is carried only when the `limb-meter` feature compiles
-/// the counter into the arithmetic; the leading underscore keeps the
-/// parameter warning-free in the other configuration.
-const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64) -> Envelope {
+/// The limb columns are carried only when the `limb-meter` feature
+/// compiles the counter into the arithmetic; the leading underscores keep
+/// the parameters warning-free in the other configuration.
+const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64, _limb_floor: u64) -> Envelope {
     Envelope {
         peak_heap,
         segments,
         #[cfg(feature = "limb-meter")]
         limb_ops: _limb_ops,
+        #[cfg(feature = "limb-meter")]
+        limb_floor: _limb_floor,
     }
 }
 
@@ -134,45 +153,47 @@ const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64) -> Envelope {
 // new value. Re-pin by rerunning this binary under `--no-capture` and
 // reading the MEASURED lines (the limb column needs `--all-features` or
 // `--features limb-meter`).
+// The limb floor column is the measured value ×0.75, rounded down (the
+// module doc's liveness-floor convention).
 #[rustfmt::skip]
 mod envelope {
     use super::{envelope, Envelope};
-    //                                              peak heap,  segments, limb ops                      measured: peak heap, segments, limb ops
-    pub const DECODE_DENSE: Envelope    = envelope(13_840_687,        0,       312_503); // 11_072_549,   0, 0 -> 250_002 (2026-07-23, metered Base equality)
-    pub const CMP_DENSE: Envelope       = envelope(        10,      240,     2_500_013); //          8, 192,   2_000_010
-    pub const JOIN_DENSE: Envelope      = envelope( 5_996_847,      300,     3_750_010); //  6_093_856 -> 4_797_477, 240, 2_750_008 -> 3_000_008 (2026-07-23, push-grow Builder; metered Base equality)
-    pub const TICK_DENSE: Envelope      = envelope(11_837_440,      165,     1_250_005); // 12_355_499 -> 9_469_952, 132, 1_000_004 (2026-07-23, push-grow Builder)
-    pub const DECODE_BIGROOT: Envelope  = envelope( 1_745_332,        0,        25_788); //  1_399_449 -> 1_396_265 -> 1_396_905 (2026-07-24, dashu-int backend), 0, 12_520_000 -> 626 -> 20_630 (2026-07-23, limb-wise wide-gamma decode; metered Base equality)
-    pub const CMP_BIGROOT: Envelope     = envelope(62_531_270,       15,    47_007_838); // 50_028_232 -> 50_025_016 -> 56_416_936 (2026-07-24, dashu-int backend), 12, 50_125_644 -> 37_606_270 (2026-07-23, limb-wise wide-gamma decode + clone-free mixed add)
-    pub const JOIN_BIGROOT: Envelope    = envelope(63_075_342,       20,   109_539_093); // 51_515_838 -> 50_460_273 -> 56_849_753 (2026-07-24, dashu-int backend), 16, 100_150_646 -> 87_631_272 -> 87_631_274 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder; metered Base equality)
-    pub const DECODE_HUGELEAF: Envelope = envelope(    58_604,        0,         2_443); //     55_827 -> 46_883 -> 48_851 (2026-07-24, dashu-int backend), 0, 122_132_816 -> 1_954 (2026-07-23, limb-wise wide-gamma decode)
-    pub const JOIN_HUGELEAF: Envelope   = envelope(   139_714,        0,         9_777); //  3_127_365 -> 111_771 -> 115_707 (2026-07-24, dashu-int backend), 0, 122_138_683 -> 7_821 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder)
-    pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0); //    125_001 -> 223_305, 202 -> 0, 0 (2026-07-24, iterative id walks: frame bits on the heap, no grown segments)
-    pub const ID_COVERS: Envelope       = envelope(        10,        0,             0); //          0 -> 8,  85 -> 0, 0 (2026-07-24, iterative id walks)
-    pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
-    pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
-    pub const DECODE_CLIFF: Envelope    = envelope(   718_402,        0,        51_200); //    574_721 -> 607_489 (2026-07-24, dashu-int backend),   0,        40_960 (2026-07-23, new scenario)
-    pub const CMP_CLIFF: Envelope       = envelope(       620,        0,       238_093); //        656 -> 496 (2026-07-24, dashu-int backend),   0,       190_474 (2026-07-23, new scenario)
-    pub const JOIN_CLIFF: Envelope      = envelope( 1_723_362,        0,       480_010); //  1_378_689 -> 1_411_489 (2026-07-24, dashu-int backend),   0,       384_008 (2026-07-23, new scenario)
+    //                                              peak heap,  segments, limb ops, limb floor           measured: peak heap, segments, limb ops
+    pub const DECODE_DENSE: Envelope    = envelope(13_840_687,        0,       312_503, 187_501); // 11_072_549,   0, 0 -> 250_002 (2026-07-23, metered Base equality)
+    pub const CMP_DENSE: Envelope       = envelope(        10,      240,     2_500_013, 1_500_007); //          8, 192,   2_000_010
+    pub const JOIN_DENSE: Envelope      = envelope( 5_996_847,      300,     3_750_010, 2_250_006); //  6_093_856 -> 4_797_477, 240, 2_750_008 -> 3_000_008 (2026-07-23, push-grow Builder; metered Base equality)
+    pub const TICK_DENSE: Envelope      = envelope(11_837_440,      165,     1_250_005, 750_003); // 12_355_499 -> 9_469_952, 132, 1_000_004 (2026-07-23, push-grow Builder)
+    pub const DECODE_BIGROOT: Envelope  = envelope( 1_745_332,        0,        25_788, 15_472); //  1_399_449 -> 1_396_265 -> 1_396_905 (2026-07-24, dashu-int backend), 0, 12_520_000 -> 626 -> 20_630 (2026-07-23, limb-wise wide-gamma decode; metered Base equality)
+    pub const CMP_BIGROOT: Envelope     = envelope(62_531_270,       15,    47_007_838, 28_204_702); // 50_028_232 -> 50_025_016 -> 56_416_936 (2026-07-24, dashu-int backend), 12, 50_125_644 -> 37_606_270 (2026-07-23, limb-wise wide-gamma decode + clone-free mixed add)
+    pub const JOIN_BIGROOT: Envelope    = envelope(63_075_342,       20,   109_539_093, 65_723_455); // 51_515_838 -> 50_460_273 -> 56_849_753 (2026-07-24, dashu-int backend), 16, 100_150_646 -> 87_631_272 -> 87_631_274 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder; metered Base equality)
+    pub const DECODE_HUGELEAF: Envelope = envelope(    58_604,        0,         2_443, 1_465); //     55_827 -> 46_883 -> 48_851 (2026-07-24, dashu-int backend), 0, 122_132_816 -> 1_954 (2026-07-23, limb-wise wide-gamma decode)
+    pub const JOIN_HUGELEAF: Envelope   = envelope(   139_714,        0,         9_777, 5_865); //  3_127_365 -> 111_771 -> 115_707 (2026-07-24, dashu-int backend), 0, 122_138_683 -> 7_821 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder)
+    pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0, 0); //    125_001 -> 223_305, 202 -> 0, 0 (2026-07-24, iterative id walks: frame bits on the heap, no grown segments)
+    pub const ID_COVERS: Envelope       = envelope(        10,        0,             0, 0); //          0 -> 8,  85 -> 0, 0 (2026-07-24, iterative id walks)
+    pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
+    pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0, 0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
+    pub const DECODE_CLIFF: Envelope    = envelope(   718_402,        0,        51_200, 30_720); //    574_721 -> 607_489 (2026-07-24, dashu-int backend),   0,        40_960 (2026-07-23, new scenario)
+    pub const CMP_CLIFF: Envelope       = envelope(       620,        0,       238_093, 142_855); //        656 -> 496 (2026-07-24, dashu-int backend),   0,       190_474 (2026-07-23, new scenario)
+    pub const JOIN_CLIFF: Envelope      = envelope( 1_723_362,        0,       480_010, 288_006); //  1_378_689 -> 1_411_489 (2026-07-24, dashu-int backend),   0,       384_008 (2026-07-23, new scenario)
     // Skyline validator rows (2026-07-23, new scenarios): the V5
     // replacement's transient, achieved — the dense row's 49 KB peak over
     // 125k levels is ~3.1 bits per open ancestor (bit stack plus
     // reallocation growth) against DECODE_DENSE's 11 MB parse frames on
     // the same tree, ~56 B per level.
-    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope(    61_450,        0,       625_003); //     49_160, 0,   500_002
-    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(     1_770,        0,        12_903); //      1_416 -> 1_448 (2026-07-24, dashu-int backend), 0,    10_322
-    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(     1_520,        0,        42_325); //      1_216, 0,    33_860
-    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope(    80_980,        0,         2_443); //     64_784 -> 66_752 (2026-07-24, dashu-int backend), 0,     1_954
-    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope(    61_450,        0,       625_003); //     49_160, 0,   500_002
+    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope(    61_450,        0,       625_003, 375_001); //     49_160, 0,   500_002
+    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(     1_770,        0,        12_903, 7_741); //      1_416 -> 1_448 (2026-07-24, dashu-int backend), 0,    10_322
+    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(     1_520,        0,        42_325, 25_395); //      1_216, 0,    33_860
+    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope(    80_980,        0,         2_443, 1_465); //     64_784 -> 66_752 (2026-07-24, dashu-int backend), 0,     1_954
+    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope(    61_450,        0,       625_003, 375_001); //     49_160, 0,   500_002
     // Skyline decoder rows (2026-07-23, new scenarios): validate plus the
     // transcode back to the packed form, whose materialized heights and
     // floors price these against the packed output rather than the skyline
     // input (the module doc's cost section).
-    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope(22_672_865,        0,     3_437_515); // 18_138_292, 0, 2_750_012
-    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope( 2_193_750,        0,       397_033); //  1_755_000 -> 1_787_704 (2026-07-24, dashu-int backend), 0,   317_626
-    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope( 2_083_300,        0,       463_554); //  1_666_640 -> 1_699_472 (2026-07-24, dashu-int backend), 0,   370_843
-    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(   117_414,        0,        12_217); //     93_931 -> 101_803 (2026-07-24, dashu-int backend), 0,     9_773
-    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope(19_723_745,        0,     3_437_515); // 15_778_996, 0, 2_750_012
+    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope(22_672_865,        0,     3_437_515, 2_062_509); // 18_138_292, 0, 2_750_012
+    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope( 2_193_750,        0,       397_033, 238_219); //  1_755_000 -> 1_787_704 (2026-07-24, dashu-int backend), 0,   317_626
+    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope( 2_083_300,        0,       463_554, 278_132); //  1_666_640 -> 1_699_472 (2026-07-24, dashu-int backend), 0,   370_843
+    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(   117_414,        0,        12_217, 7_329); //     93_931 -> 101_803 (2026-07-24, dashu-int backend), 0,     9_773
+    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope(19_723_745,        0,     3_437_515, 2_062_509); // 15_778_996, 0, 2_750_012
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -266,6 +287,13 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
         limb_ops <= env.limb_ops,
         "{name}: {limb_ops} limb operations exceed the pinned envelope {}: {ISOLATION_NOTE}",
         env.limb_ops,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        limb_ops >= env.limb_floor,
+        "{name}: limb counter reads {limb_ops}, below the {} liveness floor: \
+         the meter is not watching this work",
+        env.limb_floor,
     );
     r
 }
@@ -499,9 +527,14 @@ struct RankEnvelope {
     /// Accumulator digit touches counted during the scenario body.
     #[cfg(feature = "limb-meter")]
     touches: u64,
+    /// Liveness floor under the limb column: measured ×0.75, per the
+    /// module doc's floor convention.
+    #[cfg(feature = "limb-meter")]
+    limb_floor: u64,
 }
 
-/// Build a [`RankEnvelope`] from the four pinned columns.
+/// Build a [`RankEnvelope`] from the four pinned columns and the limb
+/// floor.
 ///
 /// The limb and touch columns are carried only when the `limb-meter`
 /// feature compiles their counters in; the leading underscores keep the
@@ -511,6 +544,7 @@ const fn rank_envelope(
     segments: u64,
     _limb_ops: u64,
     _touches: u64,
+    _limb_floor: u64,
 ) -> RankEnvelope {
     RankEnvelope {
         peak_heap,
@@ -519,6 +553,8 @@ const fn rank_envelope(
         limb_ops: _limb_ops,
         #[cfg(feature = "limb-meter")]
         touches: _touches,
+        #[cfg(feature = "limb-meter")]
+        limb_floor: _limb_floor,
     }
 }
 
@@ -532,15 +568,17 @@ const fn rank_envelope(
 // the ceiling derives from; a re-pinned column records the movement as
 // `old -> new`. Re-pin by rerunning under `--no-capture` with
 // `--all-features` and reading the MEASURED lines.
+// The limb floor column is the measured value ×0.75, rounded down (the
+// module doc's liveness-floor convention).
 #[rustfmt::skip]
 mod rank_env {
     use super::{rank_envelope, RankEnvelope};
-    //                                                            peak heap, segments,    limb ops, touches       measured: peak heap, segments, limb ops (movement), touches
-    pub const RANK_DENSE: RankEnvelope         = rank_envelope(           0,      300,           3,      0); //          0, 240, 1_250_002 -> 2, 0
-    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       1_762,  5_862); //     40_088 -> 41_368 (2026-07-24, dashu-int backend),  16, 102_824 -> 1_409, 4_689
-    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       1_282, 84_403); //     32_804 -> 33_840 (2026-07-24, dashu-int backend), 124, 134_740_995 -> 1_025, 67_522
-    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      48_848,      0); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output), 0
-    pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(      78_140,        0,       4_885, 22_268); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization), 17_814
+    //                                                            peak heap, segments,    limb ops, touches, limb floor       measured: peak heap, segments, limb ops (movement), touches
+    pub const RANK_DENSE: RankEnvelope         = rank_envelope(           0,      300,           3,      0, 1); //          0, 240, 1_250_002 -> 2, 0
+    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       1_762,  5_862, 1_056); //     40_088 -> 41_368 (2026-07-24, dashu-int backend),  16, 102_824 -> 1_409, 4_689
+    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       1_282, 84_403, 768); //     32_804 -> 33_840 (2026-07-24, dashu-int backend), 124, 134_740_995 -> 1_025, 67_522
+    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      48_848,      0, 29_308); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output), 0
+    pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(      78_140,        0,       4_885, 22_268, 2_931); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization), 17_814
 }
 
 /// Run one rank scenario body under all four meters and assert its
@@ -592,6 +630,13 @@ fn rank_metered<R>(name: &str, input_bytes: usize, env: &RankEnvelope, f: impl F
         touches <= env.touches,
         "{name}: {touches} accumulator digit touches exceed the pinned envelope {}: {ISOLATION_NOTE}",
         env.touches,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        limb_ops >= env.limb_floor,
+        "{name}: limb counter reads {limb_ops}, below the {} liveness floor: \
+         the meter is not watching this work",
+        env.limb_floor,
     );
     r
 }
@@ -919,9 +964,14 @@ struct SweepEnvelope {
     /// Packed-stream bits scanned during the scenario body.
     #[cfg(feature = "scan-meter")]
     scan_bits: u64,
+    /// Liveness floor under the limb column: measured ×0.75, per the
+    /// module doc's floor convention.
+    #[cfg(feature = "limb-meter")]
+    limb_floor: u64,
 }
 
-/// Build a [`SweepEnvelope`] from the four pinned columns.
+/// Build a [`SweepEnvelope`] from the four pinned columns and the limb
+/// floor.
 ///
 /// The limb and scan columns are carried only when their features
 /// compile the counters in; the leading underscores keep the parameters
@@ -931,6 +981,7 @@ const fn sweep_envelope(
     segments: u64,
     _limb_ops: u64,
     _scan_bits: u64,
+    _limb_floor: u64,
 ) -> SweepEnvelope {
     SweepEnvelope {
         peak_heap,
@@ -939,6 +990,8 @@ const fn sweep_envelope(
         limb_ops: _limb_ops,
         #[cfg(feature = "scan-meter")]
         scan_bits: _scan_bits,
+        #[cfg(feature = "limb-meter")]
+        limb_floor: _limb_floor,
     }
 }
 
@@ -950,20 +1003,22 @@ const fn sweep_envelope(
 // (2026-07-23, aarch64-apple-darwin, dev profile, three identical runs)
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
+// The limb floor column is the measured value ×0.75, rounded down (the
+// module doc's liveness-floor convention).
 #[rustfmt::skip]
 mod sweep_env {
     use super::{sweep_envelope, SweepEnvelope};
-    //                                                               peak heap, segments, limb ops,  scan bits            measured: peak heap, segments, limb ops, scan bits
-    pub const SKYLINE_CMP_DENSE: SweepEnvelope      = sweep_envelope(   30_730,        0,   312_503,   468_760); //   24_584, 0, 250_002, 375_008
-    pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(   51_210,        0,   625_005,   937_515); //   40_968, 0, 500_004, 750_012
-    pub const SKYLINE_CMP_BIGROOT: SweepEnvelope    = sweep_envelope(   39_540,        0,    25_788,   137_514); //   31_632 -> 32_272 (2026-07-24, dashu-int backend), 0,  20_630, 110_011
-    pub const SKYLINE_CMP_CLIFF: SweepEnvelope      = sweep_envelope(    1_450,        0,     7_763,    17_925); //    1_160 -> 1_296 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_360 (2026-07-24, dashu-int backend), 0,   6_210,  14_340
+    //                                                               peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
+    pub const SKYLINE_CMP_DENSE: SweepEnvelope      = sweep_envelope(   30_730,        0,   312_503,   468_760, 187_501); //   24_584, 0, 250_002, 375_008
+    pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(   51_210,        0,   625_005,   937_515, 375_003); //   40_968, 0, 500_004, 750_012
+    pub const SKYLINE_CMP_BIGROOT: SweepEnvelope    = sweep_envelope(   39_540,        0,    25_788,   137_514, 15_472); //   31_632 -> 32_272 (2026-07-24, dashu-int backend), 0,  20_630, 110_011
+    pub const SKYLINE_CMP_CLIFF: SweepEnvelope      = sweep_envelope(    1_450,        0,     7_763,    17_925, 4_657); //    1_160 -> 1_296 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_360 (2026-07-24, dashu-int backend), 0,   6_210,  14_340
     // SKYLINE_CMP_WIDE_TOOTH's 1_032-under-1_050 margin is a deliberate
     // change-detector on the backend's allocation policy: the committed
     // Cargo.lock (dashu-int 0.5.0 exact) is what makes the measurement
     // deterministic, and a cargo update to any other 0.5.x is a deliberate
     // re-measure event, not noise.
-    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_050,        0,    29_509, 1_000_483); //      840 -> 968 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_032 (2026-07-24, dashu-int backend), 0,  23_607, 800_386
+    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_050,        0,    29_509, 1_000_483, 17_705); //      840 -> 968 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_032 (2026-07-24, dashu-int backend), 0,  23_607, 800_386
 }
 
 /// Run one sweep scenario body under all four meters and assert its
@@ -1023,6 +1078,13 @@ fn sweep_metered<R>(
         scan_bits <= env.scan_bits,
         "{name}: {scan_bits} scanned bits exceed the pinned envelope {}: {ISOLATION_NOTE}",
         env.scan_bits,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        limb_ops >= env.limb_floor,
+        "{name}: limb counter reads {limb_ops}, below the {} liveness floor: \
+         the meter is not watching this work",
+        env.limb_floor,
     );
     r
 }
@@ -1165,17 +1227,19 @@ fn skyline_cmp_wide_tooth_envelope() {
 // (2026-07-23, aarch64-apple-darwin, dev profile, three identical runs)
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
+// The limb floor column is the measured value ×0.75, rounded down (the
+// module doc's liveness-floor convention).
 #[rustfmt::skip]
 mod emit_env {
     use super::{sweep_envelope, SweepEnvelope};
-    //                                                                peak heap, segments, limb ops,  scan bits            measured: peak heap, segments, limb ops, scan bits
-    pub const SKYLINE_JOIN_DENSE: SweepEnvelope      = sweep_envelope(  130_297,        0,   937_505,   625_018); //  104_237, 0, 750_004,   500_014
-    pub const SKYLINE_JOIN_ABSORB: SweepEnvelope     = sweep_envelope(  270_798,        0,   942_389, 1_250_013); //  216_638 -> 218_606 (2026-07-24, dashu-int backend), 0, 753_911, 1_000_010
-    pub const SKYLINE_JOIN_BIGROOT: SweepEnvelope    = sweep_envelope(   85_060,        0,    76_583,   275_028); //   71_768 -> 68_048 (2026-07-24, dashu-int backend), 0,  61_266,   220_022
-    pub const SKYLINE_JOIN_CLIFF: SweepEnvelope      = sweep_envelope(    5_512,        0,    25_869,    35_848); //    4_409 -> 4_537 (2026-07-24, dashu-int backend), 0,  20_695,    28_678
-    pub const SKYLINE_JOIN_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  128_312,        0,    74_477, 2_000_963); //  102_649 -> 102_777 (2026-07-24, dashu-int backend), 0,  59_581, 1_600_770
-    pub const SKYLINE_MEET_CLIFF: SweepEnvelope      = sweep_envelope(    5_002,        0,    18_020,    23_055); //    4_001 -> 4_065 (2026-07-24, dashu-int backend), 0,  14_416,    18_444
-    pub const SKYLINE_MEET_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  127_732,        0,    39_767, 1_005_613); //  102_185 -> 102_249 (2026-07-24, dashu-int backend), 0,  31_813,   804_490
+    //                                                                peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
+    pub const SKYLINE_JOIN_DENSE: SweepEnvelope      = sweep_envelope(  130_297,        0,   937_505,   625_018, 562_503); //  104_237, 0, 750_004,   500_014
+    pub const SKYLINE_JOIN_ABSORB: SweepEnvelope     = sweep_envelope(  270_798,        0,   942_389, 1_250_013, 565_433); //  216_638 -> 218_606 (2026-07-24, dashu-int backend), 0, 753_911, 1_000_010
+    pub const SKYLINE_JOIN_BIGROOT: SweepEnvelope    = sweep_envelope(   85_060,        0,    76_583,   275_028, 45_949); //   71_768 -> 68_048 (2026-07-24, dashu-int backend), 0,  61_266,   220_022
+    pub const SKYLINE_JOIN_CLIFF: SweepEnvelope      = sweep_envelope(    5_512,        0,    25_869,    35_848, 15_521); //    4_409 -> 4_537 (2026-07-24, dashu-int backend), 0,  20_695,    28_678
+    pub const SKYLINE_JOIN_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  128_312,        0,    74_477, 2_000_963, 44_685); //  102_649 -> 102_777 (2026-07-24, dashu-int backend), 0,  59_581, 1_600_770
+    pub const SKYLINE_MEET_CLIFF: SweepEnvelope      = sweep_envelope(    5_002,        0,    18_020,    23_055, 10_812); //    4_001 -> 4_065 (2026-07-24, dashu-int backend), 0,  14_416,    18_444
+    pub const SKYLINE_MEET_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  127_732,        0,    39_767, 1_005_613, 23_859); //  102_185 -> 102_249 (2026-07-24, dashu-int backend), 0,  31_813,   804_490
 }
 
 /// The one-tick version's skyline stream: the shallow operand of the
@@ -1329,14 +1393,16 @@ fn skyline_meet_wide_tooth_envelope() {
 // (2026-07-23, aarch64-apple-darwin, dev profile, three identical runs)
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
+// The limb floor column is the measured value ×0.75, rounded down (the
+// module doc's liveness-floor convention).
 #[rustfmt::skip]
 mod grow_env {
     use super::{sweep_envelope, SweepEnvelope};
-    //                                                                peak heap, segments, limb ops,  scan bits            measured: peak heap, segments, limb ops, scan bits
-    pub const SKYLINE_GROW_ALT_SPINE: SweepEnvelope  = sweep_envelope(  345_315,        0,        10, 1_406_282); //  276_252, 0,       8, 1_125_025
-    pub const SKYLINE_GROW_PROBE_ALT_SPINE: SweepEnvelope = sweep_envelope(286_720,      0,         0,   468_760); //  229_376, 0,       0,   375_008
-    pub const SKYLINE_GROW_ID_SPINE: SweepEnvelope   = sweep_envelope(  487_727,        0,   625_015, 2_812_519); //  390_181, 0, 500_012, 2_250_015
-    pub const SKYLINE_GROW_CROSS: SweepEnvelope      = sweep_envelope(  669_830,        0,   625_010, 4_218_777); //  535_864, 0, 500_008, 3_375_021
+    //                                                                peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
+    pub const SKYLINE_GROW_ALT_SPINE: SweepEnvelope  = sweep_envelope(  345_315,        0,        10, 1_406_282, 6); //  276_252, 0,       8, 1_125_025
+    pub const SKYLINE_GROW_PROBE_ALT_SPINE: SweepEnvelope = sweep_envelope(286_720,      0,         0,   468_760, 0); //  229_376, 0,       0,   375_008
+    pub const SKYLINE_GROW_ID_SPINE: SweepEnvelope   = sweep_envelope(  487_727,        0,   625_015, 2_812_519, 375_009); //  390_181, 0, 500_012, 2_250_015
+    pub const SKYLINE_GROW_CROSS: SweepEnvelope      = sweep_envelope(  669_830,        0,   625_010, 4_218_777, 375_006); //  535_864, 0, 500_008, 3_375_021
 }
 
 /// One grow scenario's operand bytes: the skyline event stream plus the
@@ -2305,9 +2371,14 @@ struct QueryEnvelope {
     /// Accumulator digit touches counted during the scenario body.
     #[cfg(feature = "limb-meter")]
     touches: u64,
+    /// Liveness floor under the limb column: measured ×0.75, per the
+    /// module doc's floor convention.
+    #[cfg(feature = "limb-meter")]
+    limb_floor: u64,
 }
 
-/// Build a [`QueryEnvelope`] from the five pinned columns.
+/// Build a [`QueryEnvelope`] from the five pinned columns and the limb
+/// floor.
 ///
 /// The limb, scan, and touch columns are carried only when their features
 /// compile the counters in; the leading underscores keep the parameters
@@ -2318,6 +2389,7 @@ const fn query_envelope(
     _limb_ops: u64,
     _scan_bits: u64,
     _touches: u64,
+    _limb_floor: u64,
 ) -> QueryEnvelope {
     QueryEnvelope {
         peak_heap,
@@ -2328,6 +2400,8 @@ const fn query_envelope(
         scan_bits: _scan_bits,
         #[cfg(feature = "limb-meter")]
         touches: _touches,
+        #[cfg(feature = "limb-meter")]
+        limb_floor: _limb_floor,
     }
 }
 
@@ -2339,20 +2413,22 @@ const fn query_envelope(
 // (2026-07-24, aarch64-apple-darwin, dev profile, three identical runs)
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
+// The limb floor column is the measured value ×0.75, rounded down (the
+// module doc's liveness-floor convention).
 #[rustfmt::skip]
 mod query_env {
     use super::{query_envelope, QueryEnvelope};
-    //                                                                        peak heap, segments,  limb ops, scan bits,   touches       measured: heap, seg, limb, scan, touches
-    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    81_950,        0,   312_505, 1_093_772,   156_259); // 65_560, 0, 250_004, 875_017, 125_007
-    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199); // 60_088 -> 61_516 (2026-07-24, dashu-int backend), 0, 21_413, 310_024, 17_194
-    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097, 458_763, 198_659
-    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008); // 2_460 -> 2_540 (2026-07-24, dashu-int backend), 0, 6_244, 38_917, 6_406
-    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641, 2_397_055, 26_864
-    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255); // 24_576, 0, 250_002, 375_006, 125_004
-    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
-    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806, 35_939
-    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(    91_520,        0,   862_888,   204_833,         0); // 73_216, 0, 690_310 (sequential 14_281_732), 163_866, 0
-    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   365_540,         0); // 336, 0, 0, 292_432 (sequential 3_284_952), 0
+    //                                                                        peak heap, segments,  limb ops, scan bits,   touches, limb floor       measured: heap, seg, limb, scan, touches
+    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    81_950,        0,   312_505, 1_093_772,   156_259, 187_503); // 65_560, 0, 250_004, 875_017, 125_007
+    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199, 16_059); // 60_088 -> 61_516 (2026-07-24, dashu-int backend), 0, 21_413, 310_024, 17_194
+    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324, 99_072); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097, 458_763, 198_659
+    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008, 4_683); // 2_460 -> 2_540 (2026-07-24, dashu-int backend), 0, 6_244, 38_917, 6_406
+    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580, 17_730); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641, 2_397_055, 26_864
+    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255, 187_501); // 24_576, 0, 250_002, 375_006, 125_004
+    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62, 12); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
+    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924, 69_159); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806, 35_939
+    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(    91_520,        0,   862_888,   204_833,         0, 517_732); // 73_216, 0, 690_310 (sequential 14_281_732), 163_866, 0
+    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   365_540,         0, 0); // 336, 0, 0, 292_432 (sequential 3_284_952), 0
 }
 
 /// Run one query scenario body under all five meters and assert its
@@ -2422,6 +2498,13 @@ fn query_metered<R>(
         touches <= env.touches,
         "{name}: {touches} accumulator digit touches exceed the pinned envelope {}: {ISOLATION_NOTE}",
         env.touches,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        limb_ops >= env.limb_floor,
+        "{name}: limb counter reads {limb_ops}, below the {} liveness floor: \
+         the meter is not watching this work",
+        env.limb_floor,
     );
     r
 }
