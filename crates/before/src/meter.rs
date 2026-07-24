@@ -32,6 +32,18 @@ pub use crate::version::skyline;
 
 use crate::codec::{self, Base, Bits};
 
+/// The packed-form grow lifted to stored versions: the skyline grow
+/// kernel's behavioral oracle, exported so the resource-envelope suite
+/// can assert byte identity around its measurements.
+///
+/// The party must own at least one region, exactly as
+/// [`skyline::grow::grow`] requires.
+pub fn packed_grow(version: &crate::Version, party: &crate::Party) -> crate::Version {
+    let working = crate::version::working::WorkingVersion::unpack(version.as_bits());
+    let grown = crate::version::event::grow::grow(&working, party.as_bits());
+    crate::Version::from_bits(grown.repack())
+}
+
 /// A generator's output: canonical packed bytes plus the exact bit length.
 ///
 /// `bytes` is what `decode` accepts and `encode` reproduces (final partial
