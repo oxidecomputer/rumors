@@ -145,10 +145,12 @@ proptest! {
         assert_value(&acc, &oracle);
     }
 
-    /// The shifted entry points hold `x · 2^s` exactly: a stream applied
-    /// through `add_base_shl` at arbitrary sub-digit and multi-digit
-    /// shifts, mixed with unshifted subtractions, matches the oracle's
-    /// explicitly shifted value at every sign and at the final value.
+    /// The shifted entry points hold `x · 2^s` exactly.
+    ///
+    /// A stream applied through `add_base_shl` at arbitrary sub-digit and
+    /// multi-digit shifts, mixed with unshifted subtractions, matches the
+    /// oracle's explicitly shifted value at every sign and at the final
+    /// value.
     #[test]
     fn shifted_entry_points_match_the_oracle(
         ops in proptest::collection::vec(

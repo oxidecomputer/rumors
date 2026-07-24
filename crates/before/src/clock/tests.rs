@@ -23,11 +23,12 @@ fn world_clocks(ops: &[Op]) -> Vec<Clock> {
 }
 
 proptest! {
-    /// The balanced `join_all` is the sequential fold: over one organic
-    /// history's pairwise-disjoint clocks, folding the rest into any
-    /// member returns `Ok` with exactly the clock (party and version
-    /// both) the sequential `join`-per-input reference produces, in both
-    /// input orders.
+    /// The balanced `join_all` is the sequential fold on clocks.
+    ///
+    /// Over one organic history's pairwise-disjoint clocks, folding the
+    /// rest into any member returns `Ok` with exactly the clock (party
+    /// and version both) the sequential `join`-per-input reference
+    /// produces, in both input orders.
     #[test]
     fn join_all_matches_the_sequential_fold(ops in world_strategy(), i in 0usize..64, reverse in any::<bool>()) {
         let mut reference_pool = world_clocks(&ops);

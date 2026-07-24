@@ -1,8 +1,10 @@
-//! Differential pins for the query folds: the packed-form implementations
-//! are the behavioral oracle over the adversarial families, arbitrary
-//! trees, organic histories, and the exhaustive small scope; rank is
-//! additionally pinned against the recursive tree oracle and the semantic
-//! Riemann-sum oracle, which share no structure with the sweep.
+//! Differential pins for the query folds against the packed forms.
+//!
+//! The packed-form implementations are the behavioral oracle over the
+//! adversarial families, arbitrary trees, organic histories, and the
+//! exhaustive small scope; rank is additionally pinned against the
+//! recursive tree oracle and the semantic Riemann-sum oracle, which
+//! share no structure with the sweep.
 //!
 //! Every equality here is exact — `Rank` equality is structural on the
 //! normalized form, projection agreement is byte identity of the emitted
@@ -157,10 +159,12 @@ fn exhaustive_small_scope_agrees() {
 
 proptest! {
     /// Arbitrary normal-form trees agree with the packed forms on every
-    /// query fold, with rank additionally realized by the semantic
-    /// oracle's Riemann sum over the resolving grid — the geometric
-    /// ground truth that shares no recursion, no delta, and no
-    /// accumulator with either implementation.
+    /// query fold.
+    ///
+    /// Rank is additionally realized by the semantic oracle's Riemann sum
+    /// over the resolving grid — the geometric ground truth that shares
+    /// no recursion, no delta, and no accumulator with either
+    /// implementation.
     #[test]
     fn arbitrary_trees_agree(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let a = from_oracle_version(&oa);
@@ -181,10 +185,11 @@ proptest! {
         );
     }
 
-    /// Versions and parties produced by one organic
-    /// fork/tick/send/sync/join history agree with the packed forms on
-    /// every query fold, including projection onto the history's own
-    /// parties — the operand pairing production code actually builds.
+    /// One organic fork/tick/send/sync/join history agrees with the
+    /// packed forms on every query fold.
+    ///
+    /// Projection runs onto the history's own parties — the operand
+    /// pairing production code actually builds.
     #[test]
     fn organic_histories_agree(ops in optrace::world_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];

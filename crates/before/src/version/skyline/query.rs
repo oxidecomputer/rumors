@@ -4,7 +4,7 @@
 //!
 //! Every fold here is a linear functional or a masking of the version's
 //! step function, so each rides the same machinery as the comparison
-//! sweep — one forward pass of [`LeafCursor`]s with the running height
+//! sweep — one forward pass of its leaf cursors with the running height
 //! state on the cliff-immune [`Accum`] — plus the piece its own question
 //! needs:
 //!
@@ -39,9 +39,9 @@
 //! behind 3-bit stored deltas. The sweep therefore splits the height as
 //! `F + L`: `F` (*frozen*) a stored magnitude touched only at freeze
 //! events, `L` (*live*) an accumulator holding the drift since the last
-//! freeze, kept under [`FREEZE_DIGITS`] digits. Per leaf the sweep adds
-//! only `L`'s digits — O(1) by the width bound — and `F`'s contribution
-//! telescopes per *segment*: `F` is constant between freezes, so it
+//! freeze, kept under the freeze threshold's digit bound. Per leaf the
+//! sweep adds only `L`'s digits — O(1) by the width bound — and `F`'s
+//! contribution telescopes per *segment*: `F` is constant between freezes, so it
 //! contributes `F · (mass of the segment's leaves)`, one product per
 //! freeze against the segment's dyadic mass. The mass difference is
 //! compacted to signed digits first (an all-ones run — the usual shape of
@@ -438,10 +438,12 @@ fn absolute_height(height: &mut Accum) -> Base {
     Base::from(magnitude)
 }
 
-/// Advance the skyline × id overlay one boundary: the deeper cursor
-/// steps, and the other in the same step on a tie (the comparison
-/// sweep's bookkeeping, with the id side's flip levels playing the same
-/// role). Returns the skyline's consumed delta when that side stepped.
+/// Advance the skyline × id overlay one boundary.
+///
+/// The deeper cursor steps, and the other in the same step on a tie
+/// (the comparison sweep's bookkeeping, with the id side's flip levels
+/// playing the same role). Returns the skyline's consumed delta when
+/// that side stepped.
 fn advance_overlay(
     sc: &mut LeafCursor<'_>,
     ic: &mut IdLeafCursor<'_>,
