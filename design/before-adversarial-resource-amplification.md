@@ -1475,6 +1475,18 @@ above. §17.3's record-scale ownership table is unchanged (the
 flip's owner is this finding, P3.8's text column owns the cure
 alongside the id renderer's metering).
 
+Re-baselined 2026-07-24 (P4.1 landed, §17.2's landed entry):
+**128 green / 72 red at the default scale (unchanged); 121 green /
+79 red at ×4** **[measured** — dev profile, limb-meter and
+scan-meter lit; each scale run twice, judged enumerations
+byte-identical**]**. The ×4 red set shrinks by exactly P4.1's five
+segment-onset cells —
+`party_join`/`party_covers`/`party_disjoint`/`clock_join`/
+`clock_sync` × id-pair, each now reading segments 0 with its scan
+constant unchanged (8.0 bits/B on the predicate rows, 20.0/B on
+the join rows) and its wall exponent ≤ 1.03 — and no other verdict
+moves at either scale.
+
 ## 14. Execution plan
 
 Dependency-ordered; each phase `just gate`-clean; wire bytes are
@@ -2878,6 +2890,41 @@ differential and algebraic suites unchanged. *Risk*: low
 (mechanical; id frames carry no values) → existing proptests.
 *Deps*: none hard (scheduled P4 to keep P3 single-purpose).
 
+*Landed 2026-07-24* (commit 2ded2fd9; this records commit) —
+pulled forward ahead of C2 per this entry's deps (none hard; C2
+still awaits the `link-transport` rebase). What landed: the three
+walks iterate; the two consuming cursors carry the traversal, and
+the per-open-node control state is 2–3 bits on one bit stack —
+no cursor positions after all, because the readers advance in
+place and nothing needs re-decoding on unwind. The predicates
+(`covers`/`is_disjoint`) queue only nontrivial right child pairs
+(two presence bits each; a pair absent on both sides is walked by
+neither predicate), so unary lockstep chains keep the stack empty
+and their d = 250k scenarios peak at 8 B of heap. `sum` writes
+each output tag final at descent — an output child is nonempty
+exactly when either input child is present, since a disjoint
+union of nonempty regions is nonempty — so the builder's
+reserve/patch pair stays `diff`-only, and the one close-time
+repair, `(1, 1) → 1`, retracts a fixed-width output suffix
+(`IdBuilder::collapse_terminal_pair`); its frames are a 3-bit
+pending-right or 2-bit pending-close per open output node. All
+reads stay on the metered `IdReader` primitives: the board's
+id-pair scan constants are unchanged (8.0 bits/B on the predicate
+rows, 20.0/B on the join rows, flat across both scales). Measured
+re-pins **[measured** — d = 250k spines, three byte-identical
+runs, aarch64 dev profile**]**: `ID_JOIN` segments 202 → 0, heap
+125_001 → 223_305 (the builder's 125 KB capacity plus ~62.5 KB of
+pending-close frame bits and their growth transient — the
+explicit stack that replaces 202 grown megabyte-scale segments);
+`ID_COVERS` segments 85 → 0, heap 0 → 8; `ID_DISJOINT` segments
+170 → 0, heap 0 → 8; limb 0 on all three rows, unchanged. Board:
+the five record-scale cells flip green at ×4 and no other verdict
+moves at either scale — default 128/72 unchanged, ×4 116/84 →
+121/79, each scale run twice with judged enumerations
+byte-identical (§13's re-baseline amendment; §17.3's restated
+sums). The party differential, algebraic-law, and exhaustive
+small-scope suites pass unchanged, per this entry's acceptance.
+
 **P4.2 — residual recursion and word-scale scanning.**
 *What*: audit every remaining `recurse::descend!` site after C2
 (expected survivors: test-only walks, the C2 correctness-port text
@@ -3099,6 +3146,16 @@ green at ×4 per the non-monotonicity note) + P5.5's 1
 C2 realizes 54 + P3.6's four additions above = 58 of the ×4 set;
 the P4-tail P3.8 its 18; P4.1 its 5; the C2-adjacent merge its 2
 (1 of which is red at ×4); P5.5 its 1.
+
+Amended 2026-07-24 (P4.1 landed): P4.1's five record-scale cells
+and its three enforced envelope rows are realized (§17.2's landed
+entry; §13's re-baseline records the board runs). The ×4 sums
+close as 78 owned kills (the 83 above less P4.1's realized 5) +
+the §13 scan-vacuity red (`party_display × benign`) + 121 green =
+200; the default-scale sums are untouched (71 owned kills + the
+scan-vacuity red + 128 green = 200). Remaining realization
+staging: C2 its 58; the P4-tail P3.8 its 18; the C2-adjacent
+merge its 2; P5.5 its 1.
 
 ### 17.4 Commit choreography summary
 
