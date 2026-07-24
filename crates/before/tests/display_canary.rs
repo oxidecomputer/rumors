@@ -17,7 +17,8 @@
 //! with slack in both directions. Across the 8× width jump asserted here,
 //! the quadratic class measures ~36× (schoolbook conversion, this
 //! machine, dev profile) and divide-and-conquer implementations measure
-//! 18–25×; the ceiling sits between the bands.
+//! in a session-dependent band from the high teens to the mid-20s; the
+//! ceiling sits between that band and the quadratic reading.
 
 use std::time::{Duration, Instant};
 
@@ -37,11 +38,15 @@ const WIDTH_JUMP: usize = 8;
 ///
 /// Measured at these sizes (aarch64-apple-darwin, dev profile): the
 /// quadratic rendering class reads 36.1× (asymptote 64×), and the
-/// divide-and-conquer band spans 18.4–24.8× across implementations
-/// (`dashu`'s conversion reads 24.8×, 2026-07-24). The pin sits between
-/// the bands — ~1.05× above the D&C band's top, ~1.39× below the
-/// quadratic reading — so it separates the complexity classes rather
-/// than benchmarks the machine.
+/// divide-and-conquer band is session-dependent — `dashu`'s conversion
+/// read 20.35–21.62× in one session and 24.8× in another (both
+/// 2026-07-24), against 18.4–19.4× across the other probed
+/// implementations — so the headroom under the ceiling is a per-session
+/// quantity, never a fixed margin. The pin separates the complexity
+/// classes rather than benchmarks the machine: every observed D&C
+/// session sits under it while the quadratic reading sits ~1.39× over
+/// it, and the reserved-runner nextest wiring is load-bearing for
+/// keeping a session's reading inside its band.
 const RATIO_CEILING_TENTHS: u128 = 260;
 
 /// Render the value `2^bits − 1` (one hugeleaf) to its decimal string and
