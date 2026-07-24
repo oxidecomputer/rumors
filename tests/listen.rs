@@ -1,8 +1,9 @@
-//! The [`Messages`] observer: delivery contract (exactly-once, redaction
-//! honored, cursor resume and portability), checkpoint semantics,
-//! termination, and non-interference with the actor handles. (The
-//! `Snapshot::range` differential proptest lives with the walk machinery
-//! in `src/tree/tests.rs`.)
+//! The [`UnorderedMessages`] observer: delivery contract (exactly-once,
+//! redaction honored, cursor resume and portability), checkpoint semantics,
+//! termination, and non-interference with the actor handles.
+//!
+//! (The `Snapshot::range` differential proptest lives with the walk
+//! machinery in `src/tree/tests.rs`.)
 //!
 //! The observer is pull-based, so "the listener is parked" is simply "the
 //! caller has not asked": these tests drive observers step-by-step with
@@ -101,8 +102,8 @@ fn genesis_replay_observes_the_live_set_once() {
     }
 }
 
-/// §6.2 Arbitrary start: `messages_from(v_mid)` observes exactly the
-/// messages `v_mid` does not causally contain.
+/// §6.2 Arbitrary start: `unordered_messages_since(v_mid)` observes exactly
+/// the messages `v_mid` does not causally contain.
 #[test]
 fn checkpoint_start_observes_only_what_it_does_not_contain() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -347,9 +348,9 @@ fn lent_borrows_do_not_block_senders() {
     );
 }
 
-/// §6.7 Checkpoint round-trip: a checkpoint earned by a completed pass, fed to a
-/// fresh `messages_from` on an unchanged set, observes nothing and earns an
-/// equal checkpoint.
+/// §6.7 Checkpoint round-trip: a checkpoint earned by a completed pass, fed
+/// to a fresh `unordered_messages_since` on an unchanged set, observes
+/// nothing and earns an equal checkpoint.
 #[test]
 fn checkpoint_round_trips_on_an_unchanged_set() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -459,9 +460,9 @@ fn stream_face_matches_and_terminates() {
 /// resume point. Delivery is in key order, not causal order, so a stopped
 /// pass can have delivered `m2` (later version) but not `m1` (earlier);
 /// the fold then causally contains `m1`, and resuming from it skips `m1`
-/// forever — loss, not re-delivery. `Messages::checkpoint()` (the last
-/// *completed* pass's frontier) re-delivers instead, which is why the API
-/// exposes the pass checkpoint and not a per-item fold.
+/// forever — loss, not re-delivery. `UnorderedMessages::checkpoint()` (the
+/// last *completed* pass's frontier) re-delivers instead, which is why the
+/// API exposes the pass checkpoint and not a per-item fold.
 #[test]
 fn folding_delivered_versions_can_lose_a_message() {
     // Search deterministic universes for the counterexample shape: the

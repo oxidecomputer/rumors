@@ -1,9 +1,11 @@
 //! The [`CausalMessages`] observer: the causal-delivery contract on top of
-//! everything [`Messages`](rumors::Messages) already promises (exercised in
-//! `tests/listen.rs`) — no message is ever delivered before a delivered
-//! message it causally depends on, within a backlog and across live passes,
-//! with the resume checkpoint lagging the staged backlog so resumption never
-//! skips an undelivered message.
+//! everything [`UnorderedMessages`](rumors::UnorderedMessages) already
+//! promises (exercised in `tests/listen.rs`).
+//!
+//! The contract: no message is ever delivered before a delivered message it
+//! causally depends on, within a backlog and across live passes, and the
+//! resume checkpoint lags the staged backlog so resumption never skips an
+//! undelivered message.
 //!
 //! Driven step-by-step with `now_or_never`, as in `tests/listen.rs`: an
 //! *item*, a *quiet* observer (no change to report, actors live), or an

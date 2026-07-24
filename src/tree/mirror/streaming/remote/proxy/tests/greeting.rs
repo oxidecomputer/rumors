@@ -2,10 +2,10 @@
 //!
 //! The V2 greeting carries each side's root-fan listing so the elected
 //! responder answers the opening question without a dedicated wire hop.
-//! These sessions pin the behaviors that design bought: both election
-//! directions consume a carried listing correctly, an empty carried listing
-//! means "send everything", a converged session carries its listings
-//! entirely unused, and a mixed empty/populated pair converges one-sidedly.
+//! These sessions pin what that design bought: both election directions
+//! consume a carried listing correctly, an empty carried listing means
+//! "send everything", a converged session carries its listings entirely
+//! unused, and a mixed empty/populated pair converges one-sidedly.
 
 use crate::message::Message;
 use crate::testing::{IoPlan, run_to_quiescence};

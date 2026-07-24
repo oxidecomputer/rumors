@@ -15,7 +15,7 @@
 //! - [`announced`] reads the payload-erased wire [`Transcript`] alone — no
 //!   tree, no internal events — and rebuilds the *announced* skeleton by
 //!   replaying the protocol's positional pairing, which is exactly the
-//!   reconstruction bridge B5 asks for: payload-decoded frame contents
+//!   reconstruction bridge B5 asks for: payload-erased frame contents
 //!   determine the announced skeleton, the fact charter locality rests on.
 //!
 //! Deviations from the Lean, recorded: the mirror carries `scopes` and

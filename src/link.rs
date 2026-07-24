@@ -21,6 +21,18 @@
 //! every one before it completes. Only the control stream survives into
 //! the next session.
 //!
+//! The shape is minimal demand, not deep design. Data streams are
+//! unidirectional because that is all the protocol needs: an
+//! implementation may split one bidirectional transport stream into two
+//! unidirectional ones and nothing would be wrong. The control stream is
+//! persistent because it is the one stream every session unconditionally
+//! demands, so it is the one worth holding open, while data streams may
+//! never be needed at all and may be recycled back to a transport
+//! connection pool between sessions — keep warm what is always needed,
+//! lazily open and recycle what is conditional. The persistent control
+//! stream is also what gives the link a stable identity for its epoch and
+//! poison bookkeeping ([`SessionState`]).
+//!
 //! # The contract
 //!
 //! The protocol's deadlock-freedom argument rests on stream independence, so
@@ -66,27 +78,56 @@
 //! first bytes) and validates the label on the accepting side, so an
 //! [`Acceptor`] may yield streams in any order and needs no routing logic.
 //!
-//! One consequence worth deriving once: a transport that pools flow control
-//! across streams — a connection-level window layered over per-stream
-//! windows — satisfies every clause by sizing alone, provided the pool,
-//! like each per-stream window, is credited back as the receiver consumes.
-//! A pooled write budget of at least **([`STREAM_COUNT`] + 1) × B** per
-//! direction, where B is the per-stream buffering the transport grants and
-//! the +1 covers the control stream, can never become the binding
-//! constraint: no stream ever holds more unread bytes than its own buffer,
-//! so the pool always retains headroom and each clause reduces to the
-//! per-stream case. The premise is load-bearing — a pool credited only when
-//! streams *close* deadlocks at any size, because the control stream never
-//! closes and its cumulative traffic exhausts any budget — and a single
-//! pool shared by both directions needs the sum: twice the per-direction
-//! bound. The conformance suite exercises a pool exactly at the bound
-//! (passes the whole suite) and one far below the buffering it must cover
-//! (fails the independence check). Sessions at the serialization floor
-//! measured over far smaller pools (down to tens of bytes) stay live with
-//! latency degradation, but that is observed behavior of the current
-//! protocol at that window shape, not a promise — a window wide enough to
-//! fill several streams at once can wait-cycle through a sub-bound pool:
-//! size pools to the bound.
+//! ## Pooled flow control
+//!
+//! A transport that layers a connection-level window over per-stream
+//! windows (QUIC's shape) satisfies every clause by sizing alone, provided
+//! two things:
+//!
+//! - the pool is at least **([`STREAM_COUNT`] + 1) × B** per direction,
+//!   where B is the per-stream buffering the transport grants (the +1 is
+//!   the control stream); one pool shared by both directions needs the
+//!   sum: twice that;
+//! - the pool is credited back as the receiver consumes, not when streams
+//!   close — the control stream never closes, so a close-credited pool
+//!   deadlocks at any size once its cumulative traffic exhausts the
+//!   budget.
+//!
+//! Sized so, the pool can never bind: no stream holds more unread bytes
+//! than its own buffer, so the pool always retains headroom and every
+//! clause reduces to the per-stream case. The conformance suite exercises
+//! a pool exactly at the bound (passes the whole suite) and one far below
+//! the buffering it must cover (fails the independence check).
+//!
+//! Sessions at the serialization floor have been *observed* live over far
+//! smaller pools — down to tens of bytes, with latency degradation — but
+//! that is observed behavior of the current protocol at that window shape,
+//! not a promise: a window wide enough to fill several streams at once can
+//! wait-cycle through a sub-bound pool. Size pools to the bound.
+//!
+//! # What securing the transport means
+//!
+//! The trust model (see the [crate docs](crate)) leaves authenticating
+//! peers and securing the transport to the application. These are the
+//! properties the protocol leans on, stated as requirements — the
+//! protocol's own validation rejects malformed and mismatched sessions
+//! with typed errors (nothing peer-declared is trusted before the fixed
+//! preamble validates, and the caller's timeout is the sole liveness
+//! backstop against a silent peer), but that machinery is a conformance
+//! tripwire, never a security boundary:
+//!
+//! - **Authentication is authorization.** Any counterparty that can
+//!   complete a session holds full write authority over the set; the
+//!   protocol makes no finer-grained access decision.
+//! - **Integrity.** The wire decoders detect malformed frames, not
+//!   tampering: a transport that lets a third party modify bytes in
+//!   flight has granted that party the session.
+//! - **Confidentiality.** Session traffic — message bodies, set sizes,
+//!   version structure, the greeting's metadata — crosses this boundary
+//!   in cleartext; the protocol adds no encryption of its own.
+//! - **Freshness.** The protocol does not authenticate a connection or a
+//!   session as new; a transport that could replay recorded traffic into
+//!   a live connection must rule that out itself.
 //!
 //! # Instantiations
 //!
@@ -98,6 +139,22 @@
 //! streams 1:1, or TCP with one connection per stream behind a routing
 //! listener, are the natural shapes) and validates the result with the
 //! `conformance` feature's link suite.
+//!
+//! ## Binding TCP
+//!
+//! A sketch of the TCP shape, since its design problems are the caller's:
+//! one long-lived connection carries the control stream, and
+//! [`Connector::connect`] dials a fresh connection per data stream. Two
+//! pieces of choreography follow. *Routing*: the session labels its
+//! streams itself, but nothing names the **link** a new connection belongs
+//! to — open each data-stream connection with a short preface naming it,
+//! and demultiplex arrivals by that preface to the right [`Acceptor`].
+//! *Reconnection is both-ends-fresh*: a failed session poisons the link,
+//! and both ends must discard the whole bundle and rebuild around a fresh
+//! control connection at the same time ([`Link::new`]) — one end quietly
+//! keeping its old state would fall out of step with the other's session
+//! counting. Validate the result with the conformance suite like any
+//! other instantiation.
 
 use std::future::Future;
 use std::io;
@@ -109,8 +166,10 @@ use tokio::sync::mpsc;
 ///
 /// The protocol never opens more, and instantiations must admit this many
 /// concurrently (per direction, plus the control stream). The value is the
-/// protocol's own — fixed by its wire schedule and pinned against the wire
-/// codec by test, so it cannot drift silently.
+/// protocol's own, fixed by its wire schedule — the descent's 32 tree
+/// heights at a two-height stride per stream, plus the shared opening
+/// stream: `ceil(32 / 2) + 1 = 17` — and pinned against the wire codec by
+/// test, so it cannot drift silently.
 pub const STREAM_COUNT: usize = 17;
 
 /// Opens outgoing unidirectional data streams for one link.
@@ -178,10 +237,10 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///
 /// Construct one with [`Link::new`] around an implementation of the
 /// [module-level contract](self), or use [`memory`] for the in-memory
-/// instantiation. The link owns its [`SessionState`] — the session counter
-/// used to label data streams, and the poison latch — which is why sessions
-/// take the link by `&mut`: sessions on one link must be serialized, and
-/// the borrow enforces it.
+/// instantiation. Sessions on one link run one at a time: each takes the
+/// link by `&mut`, and the borrow enforces the serialization. Wrappers
+/// that decorate a link carry its [`SessionState`] across the rebuild
+/// ([`Link::into_parts`]).
 ///
 /// # What a session promises
 ///
@@ -193,23 +252,26 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///   certifies that the *peer* completed and committed too — every message
 ///   and identity the session moved is applied on both ends. The link rests
 ///   at the session boundary, ready for this pair's next session. One
-///   residue is irreducible (the two-generals problem): the confirmation
-///   itself can be lost, in which case that side observes
-///   [`Error::Epilogue`](crate::Error::Epilogue) — an `Err` whose local
-///   replica is nonetheless fully committed. (The frozen `V1` oracle wire
-///   has no marker exchange; its `Ok` certifies only the local commit.)
+///   residue is irreducible — the confirmation itself can be lost — in
+///   which case that side observes
+///   [`Error::Epilogue`](crate::Error::Epilogue), an `Err` whose local
+///   replica is nonetheless fully committed (the error's docs explain why
+///   the gap cannot be closed). (The frozen `V1` oracle wire has no marker
+///   exchange; its `Ok` certifies only the local commit.)
 /// - **`Err`: the local replica is unchanged, and the link is poisoned.**
 ///   The failed session leaves the control stream mid-frame, so every later
 ///   session on the link fails fast with
 ///   [`Error::LinkPoisoned`](crate::Error::LinkPoisoned) rather than
 ///   misreading leftover bytes: discard the link and reconnect; there is no
 ///   repair. "Unchanged" has three qualified exceptions, stated where they
-///   arise: the post-commit [`Error::Epilogue`](crate::Error::Epilogue)
-///   above; a bootstrap donation lost in flight, which costs the
-///   donated id-region ([`Bootstrap::join`](crate::Bootstrap::join)); and a
-///   bookmark persist failing after a retiring peer's identity is absorbed,
-///   which leaves the session committed with the absorption not yet
-///   crash-safe ([`Error::Bookmark`](crate::Error::Bookmark)).
+///   arise:
+///   - the post-commit [`Error::Epilogue`](crate::Error::Epilogue) above;
+///   - a bootstrap donation lost in flight, which costs the donated
+///     identity space ([`Bootstrap::join`](crate::Bootstrap::join));
+///   - a bookmark persist failing after a retiring peer's identity is
+///     absorbed, which leaves the session committed with the absorption
+///     not yet crash-safe ([`Error::Bookmark`](crate::Error::Bookmark)).
+///
 ///   `retire` reports failure through [`Retire`](crate::Retire)'s variants
 ///   — stating which side of the identity hand-off the failure landed on —
 ///   with the same link consequences.
@@ -238,15 +300,16 @@ pub struct Link<CR, CW, C, A> {
 /// latch.
 ///
 /// Owned by [`Link`] and exposed through [`LinkParts::session`], so a link
-/// wrapper can carry it across decoration. The epoch advances in lockstep
-/// at both ends of a connection — sessions are serialized and both ends run
-/// each session — but the poison latch is local by design: one end can
-/// conclude a session `Ok` while its peer fails post-commit
-/// ([`Error::Epilogue`](crate::Error::Epilogue)), so between sessions the
-/// two ends' latches may legitimately disagree. The state is sealed: a
-/// wrapper carries the value whole (it is `Copy`), and only the link's own
-/// sessions advance the counter or clear the latch. Never mirror one end's
-/// carried state onto the other.
+/// wrapper can carry it across decoration. The state is sealed: a wrapper
+/// carries the value whole (it is `Copy`), and only the link's own sessions
+/// advance the counter or clear the latch.
+///
+/// The epoch advances in lockstep at both ends of a connection — sessions
+/// are serialized and both ends run each session — but the poison latch is
+/// local by design: one end can conclude a session `Ok` while its peer
+/// fails post-commit ([`Error::Epilogue`](crate::Error::Epilogue)), so
+/// between sessions the two ends' latches may legitimately disagree. Never
+/// mirror one end's carried state onto the other.
 #[derive(Clone, Copy, Debug)]
 pub struct SessionState {
     /// The next session's epoch.
@@ -320,9 +383,9 @@ where
 {
     /// Bundle a link from its control halves and stream supply.
     ///
-    /// Both ends of a connection must construct their links from the same
-    /// underlying transport at the same time: the epoch counters start at
-    /// zero on both sides and advance in lockstep with each session.
+    /// Both ends of a connection must construct their links around the
+    /// same fresh transport at the same time; the bookkeeping the two ends
+    /// then keep in step is [`SessionState`]'s.
     pub fn new(control_read: CR, control_write: CW, connector: C, acceptor: A) -> Self {
         Self {
             control_read,

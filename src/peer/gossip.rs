@@ -1,9 +1,9 @@
 //! The wire-session drivers for [`Peer`]: [`bootstrap`](Bootstrap::join),
 //! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire).
 //!
-//! Plus the
-//! preamble constants every session leads with and the [`PartyGuard`]
-//! that snaps a speculatively-donated party back in place on failure.
+//! Also here: the preamble constants every session leads with, and the
+//! [`PartyGuard`] that snaps a speculatively donated party back in place
+//! on failure.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -124,8 +124,9 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// poisoned; discard it.
     ///
     /// In flight covers the party frame itself and everything after it:
-    /// a failure while awaiting the peer's commit confirmation (the
-    /// two-generals residue) lands here too.
+    /// a failure while awaiting the peer's commit confirmation lands here
+    /// too — the confirmation was lost and cannot be re-fetched
+    /// ([`Error::Epilogue`] explains why that gap cannot be closed).
     Uncertain {
         /// What failed the session.
         error: Error<B>,
@@ -157,9 +158,8 @@ pub struct Unbookmarked<T, B: BookmarkError> {
 
 /// One completed session of [`gossip_when`](crate::Rumors::gossip_when).
 ///
-/// The output stream from [`gossip_when`](crate::Rumors::gossip_when) yields
-/// one of these each time a successful gossip session occurs (a failed session
-/// is the stream's terminal `Err`).
+/// The output stream yields one of these per successful session; a failed
+/// session is the stream's terminal `Err`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Gossiped {
@@ -395,8 +395,7 @@ impl<T> Peer<T, NoBookmark> {
 // entry points bind the public `Bookmark` trait.
 #[allow(private_bounds)]
 impl<T, B: Persist> Peer<T, B> {
-    /// Retire this rumor set into a remote peer, handing it our identity so
-    /// that it can be recycled by the network.
+    /// Runs the transactional body behind [`retire`](Peer::retire).
     ///
     /// The session begins with a round of gossip: the two peers reconcile
     /// content exactly as [`gossip`](crate::Rumors::gossip) would, so
@@ -409,8 +408,6 @@ impl<T, B: Persist> Peer<T, B> {
     /// retiring set ([`UnorderedMessages`](crate::UnorderedMessages),
     /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled* final
     /// state — everything the session learned included — before they end.
-    ///
-    /// The shared transactional body behind [`retire`](Peer::retire).
     pub(crate) async fn retire_inner<CR, CW, C, A>(
         self,
         link: &mut Link<CR, CW, C, A>,
@@ -558,13 +555,11 @@ impl<T, B: Persist> Peer<T, B> {
 
     /// Synchronize with a remote peer, optionally trying to retire afterwards.
     ///
-    /// The returned `Intent` is *always* `Intent::Remain` if the provided
-    /// intent is `Intent::Remain`, and is `Intent::Retire` *only if* the result
-    /// of the gossip was the hand-off of the entire local party via retirement
-    /// to the remote counterparty. It is possible to return `Intent::Retire`
-    /// *and also* an error, in the case that donating our local party itself
-    /// fails with an error -- we can't know whether the remote received it or
-    /// not, so we have to assume they might have.
+    /// The returned `Intent` is `Intent::Remain` whenever the provided intent
+    /// was, and `Intent::Retire` *only if* the entire local party was handed
+    /// off to the counterparty via retirement. `Intent::Retire` can arrive
+    /// *with* an error: when sending the party itself fails, we cannot know
+    /// whether the remote received it, so we must assume it might have.
     ///
     /// On success, returns the *converged* version: the causal frontier of
     /// the reconciled tree both replicas now hold, before any commits that

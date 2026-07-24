@@ -229,15 +229,19 @@ where
     ///
     /// The two `early_*` channels are the opening exchange's hand-off into
     /// the one instance that resolves root scopes; every deeper instance
-    /// receives `None`. An initiator's `early_survivors` answers the
-    /// responder's root-level empty queries with empty replies (their
-    /// content shipped at the opening) while resolving the radices from the
-    /// retained survivors; a responder's `early_supplies` resolves its own
-    /// root-level requests from the pre-exploded children the opening
-    /// carried when the initiator's matching replies arrive empty. Both
-    /// hand-offs resolve without backend calls: a mid-loop failure here
-    /// would strand the counterparty's reply pump on a full slot, ahead of
-    /// the error's own publication.
+    /// receives `None`:
+    ///
+    /// - an initiator's `early_survivors` answers the responder's
+    ///   root-level empty queries with empty replies (their content shipped
+    ///   at the opening) while resolving the radices from the retained
+    ///   survivors;
+    /// - a responder's `early_supplies` resolves its own root-level
+    ///   requests from the pre-exploded children the opening carried when
+    ///   the initiator's matching replies arrive empty.
+    ///
+    /// Both hand-offs resolve without backend calls: a mid-loop failure
+    /// here would strand the counterparty's reply pump on a full slot,
+    /// ahead of the error's own publication.
     #[allow(clippy::type_complexity)]
     pub fn internal_level<H>(
         &mut self,

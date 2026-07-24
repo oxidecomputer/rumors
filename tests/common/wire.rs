@@ -1,8 +1,9 @@
-//! Wire helpers for the *asynchronous* gossip path: drive
-//! `rumors::Rumors::gossip` over an in-memory [`rumors::link`] pair with
-//! both peers polled concurrently via `tokio::join!`. The two tasks progress
-//! directly against each other through the link's streams; no runtime is
-//! required unless a caller explicitly spawns a task.
+//! Wire helpers for the *asynchronous* gossip path.
+//!
+//! These drive `rumors::Rumors::gossip` over an in-memory [`rumors::link`]
+//! pair with both peers polled concurrently via `tokio::join!`. The two
+//! tasks progress directly against each other through the link's streams;
+//! no runtime is required unless a caller explicitly spawns a task.
 
 use std::cell::OnceCell;
 use std::future::Future;

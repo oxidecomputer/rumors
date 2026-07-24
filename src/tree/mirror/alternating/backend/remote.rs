@@ -33,8 +33,7 @@
 //! the time any length is trusted, the preamble has already vetted the
 //! counterparty. The reader never consumes a byte past the frame it was
 //! asked for; [`crate::tree::mirror::framing`]'s docs explain how that
-//! guarantee is what lets one
-//! connection host back-to-back sessions.
+//! guarantee lets one connection host back-to-back sessions.
 //!
 //! # In-band termination
 //!
@@ -245,10 +244,10 @@ where
     ) -> Result<Step<message::Opening, Self::Next, Self::Output>, Error> {
         send_msg(&mut self.writer, &request).await?;
 
-        // The responder always emits an `Opening`, possibly empty. We can no
-        // longer infer termination from an empty `Opening` alone: it can mean
-        // either "the trees are equal" or "the responder has no children but
-        // we (the initiator) might still have data to provide." Always
+        // The responder always emits an `Opening`, possibly empty. An empty
+        // `Opening` alone does not decide termination: it can mean either
+        // "the trees are equal" or "the responder has no children but we
+        // (the initiator) might still have data to provide." Always
         // `Continue` and let the next stage's `open_initiator` decide.
         let response: message::Opening = recv_msg(&mut self.reader).await?;
         Ok(Step::Continue {

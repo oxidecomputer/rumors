@@ -205,7 +205,8 @@ pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 /// deterministic in-memory sessions and pins the per-message cost as an
 /// affine law — this intercept plus the record's borsh-encoded
 /// payload — at three payload sizes. The closed form documented at
-/// [`DEFAULT_SYNC_MEMORY_BUDGET`] is denominated in it.
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) is
+/// denominated in it.
 pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 28;
 
 /// The design record's borsh-encoded payload size: the `m = 172` column
@@ -233,53 +234,28 @@ pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + DESIGN_REC
 /// pinned by `scope_envelope_matches_the_derivation`, so this constant
 /// fails loudly instead of drifting when the pricing or the occupancy
 /// envelopes change.
+///
+/// Maintainer calibration evidence for the closed form's accuracy band
+/// (worked at
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)): the
+/// band is governed by `F`, the corpus-fixed component of the real
+/// charge, which decomposes — verified at the design corpus — into the
+/// ~0.21 MB decode-fan pre-charge ([`SUPPLY_DECODE_ENVELOPE_BYTES`]),
+/// 4.3 MB of root-adjacent stages at full-fan reference prices
+/// (257 scopes at 16,768 B each), and a ~0.2 MB deep population tail:
+/// 4.7 MB in all, stepping to 7.9 MB once the depth-5 stage saturates
+/// near 5,500 scopes, past which the marginal scope price settles at
+/// 4741 B, 2.5% under the average this constant carries.
 pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
 
 /// Worst-case memory one synchronization may spend by default: 512 MiB.
 ///
-/// Chosen, not derived: a round policy default. What any budget buys
-/// is the window the session derivation (`Window::from_budget`) solves
-/// for it; the committed trade-off table renders that solve at the
-/// spec BDP, and the closed form
-///
-/// > `slowdown(budget, m) ≈ max(1, BDP × 4865 / (budget × (28 + m)))`
-///
-/// approximates it for mental arithmetic — 4865 B is the pinned
-/// per-scope envelope, 28 B the calibrated per-message wire intercept,
-/// `m` the session's mean encoded record size, `BDP` the link's
-/// bandwidth-delay product in bytes. Its accuracy band and the
-/// decomposition behind it are worked at
-/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget).
-///
-/// The headline consequence, derived from the solve itself and pinned
-/// by `default_crossover_matches_the_solve`: at the spec BDP (12.5 MB,
-/// where 1 Gbps × 100 ms and 100 Gbps × 1 ms coincide), the default
-/// imposes **no window-induced serialization for any corpus whose mean
-/// encoded record size is at least 51 B**, each record size evaluated
-/// at its own BDP-scale corpus (the closed form's estimate, `m* =
-/// BDP × 4865 / budget − 28 ≈ 85.3 B`, is the safe-side reading).
-/// Above the crossover the in-flight disputes' own transfer time
-/// covers the round trip; slowdown 1 is wire-time-optimal:
-/// bandwidth-bound stays bandwidth-bound. The factor prices the
-/// interleaved dispute walk only — supply runs stream outside the
-/// window — and below the crossover degradation is smooth latency
-/// (minimal 8-byte records at a BDP-scale corpus: ~4.2×, the factor
-/// growing slowly with set size as the derived window narrows), never
-/// memory: a session serializes into capacity-sized waves,
-/// deadlock-free at any budget.
-///
-/// The budget is an envelope, not an allocation, and **per session**: a
-/// session approaches it only against wide mutual divergence, typical
-/// sessions hold kilobytes, and concurrent sessions on separate links
-/// each carry their own. The decode fans' flat residency (~0.21 MB
-/// under the in-memory backend's pricing) comes off the budget before
-/// the solve because the fan channels exist at their correctness-floor
-/// capacity regardless of window width — negligible at this scale, and
-/// the smallest term of the corpus-fixed component `F` that sets the
-/// closed form's accuracy band. See
-/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for
-/// the operator questions worked through, the band's decomposition,
-/// and the tabulated trade-off.
+/// Chosen, not derived: a round policy default. What any budget buys —
+/// the operator questions worked through, the closed form with its
+/// accuracy band, and the tabulated trade-off — is documented at
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget); the
+/// decomposition behind the accuracy band is recorded beside the pinned
+/// per-scope envelope (`SCOPE_ENVELOPE_BYTES`).
 pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 
 /// Per-height channel capacities for one session, in disputed scopes.
@@ -314,13 +290,14 @@ impl Window {
     /// charging each level's population once at its own occupancy-thinned
     /// fan, after the decode fans' flat residency
     /// ([`SUPPLY_DECODE_ENVELOPE_BYTES`]'s shape, priced through this
-    /// session's own `node_bytes`) comes off the top. Disputes require joint occupancy, so the joint terms take the
-    /// *pair product* of the two sizes — an asymmetric session (bootstrap
-    /// catch-up) disputes almost nothing and gets narrow dispute windows,
-    /// while its supplies stream outside the window — where the
-    /// occupied-slot and per-parent fan terms bound the replier's listed
-    /// children and take the larger side. Any budget, including zero,
-    /// keeps every capacity at least one: liveness outranks the budget.
+    /// session's own `node_bytes`) comes off the top. Disputes require
+    /// joint occupancy, so the joint terms take the *pair product* of the
+    /// two sizes — an asymmetric session (bootstrap catch-up) disputes
+    /// almost nothing and gets narrow dispute windows, while its supplies
+    /// stream outside the window — where the occupied-slot and per-parent
+    /// fan terms bound the replier's listed children and take the larger
+    /// side. Any budget, including zero, keeps every capacity at least
+    /// one: liveness outranks the budget.
     ///
     /// A held reference at depth `d` is priced by
     /// `node_bytes(c_q(d), version_bound)`: its own children quantile,
@@ -403,10 +380,12 @@ impl Window {
             * (node_bytes(0, version_bound) as u128 + FAN_SLOT_BYTES as u128);
 
         // The worst case a width-k window admits: each level's population
-        // charged once (the level's queues hold overlapping views of the
-        // same in-flight scopes, and their node references are shared
-        // handles, so per-queue multiplication would double-charge), plus
-        // the leaf-request edge, plus the flat decode-fan term.
+        // charged once (the level's queues — the walk's query and
+        // resolution queues and the proxy's flushed-question and
+        // next-scope queues — hold overlapping views of the same
+        // in-flight scopes, and their node references are shared handles,
+        // so per-queue multiplication would double-charge), plus the
+        // leaf-request edge, plus the flat decode-fan term.
         //
         // The leaf-request edge is charged at the width the capacity
         // assignment below grants it — `population[KEY_DEPTH]`, the same

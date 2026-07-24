@@ -20,12 +20,12 @@
 //!    key it already knows about.
 //!
 //! Each party keeps its *own* `Vec<Key>` of every key it has observed — fed
-//! by a [`Messages`] observer that replays its rumor set from genesis and
-//! then yields its own inserts and everything learned over the wire alike —
-//! so redactions may evict messages originally published by *other* parties,
-//! and the contagion spreads on the next sync. The key vector is strictly
-//! per-thread: there is no shared rumor-set state and therefore no lock
-//! contention on the hot path.
+//! by an [`UnorderedMessages`] observer that replays its rumor set from
+//! genesis and then yields its own inserts and everything learned over the
+//! wire alike — so redactions may evict messages originally published by
+//! *other* parties, and the contagion spreads on the next sync. The key
+//! vector is per-thread: no shared rumor-set state, no lock contention on
+//! the hot path.
 //!
 //! # Steady-state controller
 //!
@@ -325,7 +325,7 @@ impl Metrics {
 /// the in-flight counter to zero before letting threads exit, so the slot
 /// must be released on every exit from a session — including a panic
 /// unwinding out of `gossip` — or shutdown spins forever on a slot no one
-/// holds. RAII is what makes the release unconditional.
+/// holds. RAII makes the release unconditional.
 struct InflightGuard<'a>(&'a Metrics);
 
 impl<'a> InflightGuard<'a> {
@@ -378,7 +378,7 @@ enum Command {
 
 /// A party's [`Rumors`] handed back to the coordinator. The key pool is not
 /// carried along: the receiving thread rebuilds it by replaying the set
-/// through a fresh [`Messages`] observer.
+/// through a fresh [`UnorderedMessages`] observer.
 struct Donation {
     rumors: Rumors<Payload>,
 }
@@ -515,10 +515,11 @@ const SHUTDOWN_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
 /// `me` is this party's own directory entry, held directly so the hot path
 /// never has to look itself up.
 ///
-/// The redaction key pool is fed by a [`Messages`] observer from genesis: the
-/// initial drain replays everything the party inherited (the seed content, or
-/// a fork parent's whole set), and each loop's drain picks up its own inserts
-/// and everything learned over the wire, exactly once each.
+/// The redaction key pool is fed by an [`UnorderedMessages`] observer from
+/// genesis: the initial drain replays everything the party inherited (the
+/// seed content, or a fork parent's whole set), and each loop's drain picks
+/// up its own inserts and everything learned over the wire, exactly once
+/// each.
 fn run_party(
     net: Arc<Net>,
     me: Arc<SwarmPeer>,

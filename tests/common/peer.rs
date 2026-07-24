@@ -3,14 +3,15 @@
 //! wire gossip session, `quiesce` for full-mesh convergence to a fixed
 //! point).
 //!
-//! Observation is pull-based, mirroring the `Messages` observer one pass at
-//! a time: a [`drain`](Peer::drain) snapshots the peer and records exactly
-//! the live leaves its causal checkpoint does not contain — local sends and
-//! gossip-learned messages alike — then absorbs the snapshot's ceiling.
+//! Observation is pull-based, mirroring the `UnorderedMessages` observer
+//! one pass at a time: a [`drain`](Peer::drain) snapshots the peer and
+//! records exactly the live leaves its causal checkpoint does not contain
+//! — local sends and gossip-learned messages alike — then absorbs the
+//! snapshot's ceiling.
 //! Every helper drains after the operation it performs, so the log stays in
 //! event order and a message redacted before it was ever drained is never
-//! observed, matching both the `Messages` delivery contract and the shadow
-//! simulator's model in `schedule::arb`.
+//! observed, matching both the `UnorderedMessages` delivery contract and
+//! the shadow simulator's model in `schedule::arb`.
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::{Key, Rumors, Version, causally};
@@ -26,9 +27,11 @@ pub struct Peer<T> {
     /// covered too).
     checkpoint: Version,
     /// All observations this peer has accumulated, across `insert_one`,
-    /// `gossip_step`, and `quiesce` calls. Drain order within a pass is the
-    /// tree's iteration order; in practice it is deterministic across runs,
-    /// so the log is reproducible inside a counterexample.
+    /// `gossip_step`, and `quiesce` calls.
+    ///
+    /// Drain order within a pass is the tree's iteration order; in practice
+    /// it is deterministic across runs, so the log is reproducible inside a
+    /// counterexample.
     pub observations: Vec<(Key, Version, T)>,
 }
 
@@ -102,9 +105,10 @@ where
     b.drain();
 }
 
-/// Drive every pair toward convergence by repeatedly running
-/// `gossip_step` over all pairs in a fixed order until no peer's
-/// live content (`hash`) or causal version (`latest`) changes for a
+/// Drive every peer to a full-mesh fixed point.
+///
+/// Repeatedly runs `gossip_step` over all pairs in a fixed order until no
+/// peer's live content (`hash`) or causal version (`latest`) changes for a
 /// full round. A bounded outer loop guards against pathological
 /// non-termination (which would itself be a bug the test should catch).
 pub fn quiesce<T>(peers: &mut [Peer<T>])
@@ -149,8 +153,9 @@ where
     );
 }
 
-/// Headroom on the convergence loop: a single piece of information
-/// needs at most O(diameter) rounds to reach every peer over a
-/// full-mesh schedule, so 16 rounds per peer is dramatically more than
-/// enough. Used only to bound test pathologies.
+/// Headroom on the convergence loop, used only to bound test pathologies.
+///
+/// A single piece of information needs at most O(diameter) rounds to reach
+/// every peer over a full-mesh schedule, so 16 rounds per peer is
+/// dramatically more than enough.
 const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;

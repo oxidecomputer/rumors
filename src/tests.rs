@@ -497,8 +497,8 @@ fn retire_on_a_poisoned_link_recovers_the_peer() {
     );
 }
 
-/// A session severed on the trailing party frame itself is the irreducible
-/// two-generals window.
+/// A session severed on the trailing party frame itself leaves delivery
+/// irreducibly uncertain.
 ///
 /// The retiree cannot know whether the peer received its
 /// party, so it is consumed ([`Retire::Uncertain`]) rather than risk

@@ -2,8 +2,8 @@
 //!
 //! Like the materialized implementation's work context, this stores every
 //! independently runnable pump as the type-level schedule advances. The final
-//! protocol operation drives all stored pumps, the final operation, the
-//! session's accept driver, and its incoming-stream error route concurrently.
+//! protocol operation concurrently drives the stored pumps, its own terminal
+//! work, the session's accept driver, and the incoming-stream error route.
 
 use std::pin::pin;
 

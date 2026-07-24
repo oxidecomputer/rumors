@@ -503,8 +503,7 @@ enum Skeleton<H: Height> {
 /// thread-local counter mirrors the occupancy exactly: incremented
 /// before the reader awaits the send (the record in the reader's hand
 /// is resident), decremented when the assembler's stream yields the
-/// record. Compiled only into test builds; release builds carry no
-/// trace of it.
+/// record.
 #[cfg(test)]
 pub(super) mod fan_probe {
     use std::cell::Cell;

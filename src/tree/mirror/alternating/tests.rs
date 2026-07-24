@@ -31,7 +31,7 @@ thread_local! {
 }
 
 /// Drive an async future to completion on the per-thread runtime. Used to
-/// bridge proptest's synchronous body with the now-async `mirror` driver.
+/// bridge proptest's synchronous body with the async `mirror` driver.
 fn block_on<F: Future>(fut: F) -> F::Output {
     RT.with(|cell| {
         cell.get_or_init(|| {
@@ -219,8 +219,7 @@ proptest! {
     ) {
         // Tick the party's disjoint clock once per action so every action
         // carries a strictly-increasing version on that party: inserts take
-        // the first `len` ticks, forgets the ticks after them, mirroring the
-        // old `(party, scalar)` numbering with distinct, ascending versions.
+        // the first `len` ticks, forgets the ticks after them.
         // Each leaf goes to its content-addressed path (as a real insert does),
         // and a forget targets the path of the insert it cancels — matching how
         // `redact` reuses the key surfaced by the original insert.

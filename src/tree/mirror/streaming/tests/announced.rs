@@ -1,16 +1,11 @@
 //! Bridge 3: announced-skeleton reconstruction — the payload-independence
 //! bridge B5.
 //!
-//! The announced skeleton is reconstructible from the frame transcript
-//! alone: payload contents carry the announcements charter locality
-//! rests on, per channel (never globally — the terminal select draws
-//! scheduler randomness).
-//!
 //! The formal model's payload-independence premise — the count and order
 //! of channel operations depend only on each child's merge-join arm,
-//! never on payloads — is the premise the skeleton abstraction rests on,
-//! and it holds only if every consumption-order discriminator is announced
-//! in-band. This bridge checks both halves against real sessions:
+//! never on payloads — underpins the skeleton abstraction, and holds only
+//! if every consumption-order discriminator is announced in-band. This
+//! bridge checks both halves against real sessions:
 //!
 //! - the *announced* skeleton, reconstructed from the payload-erased frame
 //!   transcript alone (no tree access, no internal events — [`announced`]),

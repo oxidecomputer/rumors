@@ -2,8 +2,7 @@
 //! any divergent pair it produces the same merged tree, including honoring
 //! deletions by version dominance.
 //!
-//! The oracle is the mirror engine driven directly (not `Known::join_then`,
-//! which *is* `Tree::join` now).
+//! The oracle is the mirror engine driven directly.
 
 use proptest::prelude::*;
 
@@ -11,15 +10,10 @@ use crate::tree::arb::{arb_divergent_pair, arb_tree_root};
 use crate::tree::mirror::alternating::{local, mirror};
 use crate::tree::{Root, Tree};
 
-/// Drive the local-local mirror directly. This is the oracle: the merge
-/// engine `Tree::join` must match, invoked without going through `Known`
-/// (whose `join_then` now delegates to `Tree::join`).
+/// Drives the local-local mirror directly: the oracle that `Tree::join`
+/// must match.
 fn mirror_merge(a: Root<()>, b: Root<()>) -> Root<()> {
     pollster::block_on(async {
-        // Local-local oracle: the network/intent greeting fields are inert
-        // here (no lib-level dispatch runs), so a placeholder network and
-        // `Remain` intent suffice — only the version the handshake carries
-        // is consumed.
         let l = local::Exchange::start(a);
         let r = local::Exchange::start(b);
         match mirror(l, r).await {
@@ -29,7 +23,7 @@ fn mirror_merge(a: Root<()>, b: Root<()>) -> Root<()> {
     })
 }
 
-/// Merge via `Tree::join`.
+/// Merges via `Tree::join`.
 fn join_tree(a: Root<()>, b: Root<()>) -> Root<()> {
     let mut a = Tree { root: a };
     a.join(Tree { root: b });

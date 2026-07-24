@@ -1,11 +1,11 @@
 //! Protocol preamble exchange (`mirror::remote::preamble`).
 //!
-//! Drives [`rumors::Rumors::gossip`] against a hand-crafted peer over the
-//! control stream of an in-memory [`rumors::link`] pair — the counterparty's
-//! control halves are driven by hand — asserting that a mismatched magic,
-//! version, or intent byte surfaces as the typed error variant rather than
-//! corrupting the local rumor set. The preamble is exactly 25 bytes, with no redundant
-//! length: `magic(6) | proto_version(2 BE) | network(16) | intent(1)`.
+//! Drives [`rumors::Rumors::gossip`] against a counterparty whose control
+//! halves are driven by hand over an in-memory [`rumors::link`] pair,
+//! asserting that a mismatched magic, version, or intent byte surfaces as
+//! the typed error variant rather than corrupting the local rumor set. The
+//! preamble is exactly 25 bytes with no redundant length:
+//! `magic(6) | proto_version(2 BE) | network(16) | intent(1)`.
 //! Network mismatch rejection rides the same preamble but needs
 //! a real peer in a different universe, so it is exercised separately in
 //! `tests/network.rs`.
@@ -24,10 +24,10 @@ const PREAMBLE_LEN: usize = 25;
 /// Intent byte for a peer that participates and remains.
 const INTENT_REMAIN: u8 = 0;
 
-/// Assemble a preamble frame by hand, matching the layout the protocol
-/// encodes: `magic(6) | version(BE u16) | network(16) | intent(1)`.
-/// The network bytes are arbitrary: every scenario below fails
-/// (or completes) before the network would be consulted.
+/// Assemble a preamble frame by hand, matching the layout in the module doc.
+///
+/// The network bytes are arbitrary: every scenario below fails (or
+/// completes) before the network would be consulted.
 fn preamble(magic: [u8; 6], protocol: Protocol, intent: u8) -> [u8; PREAMBLE_LEN] {
     preamble_with_version(magic, protocol as u16, intent)
 }

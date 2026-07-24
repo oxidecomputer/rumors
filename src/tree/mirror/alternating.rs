@@ -44,14 +44,14 @@
 //! 256² per round — while shipping only the disputed frontier's actual
 //! children, pruned by hash agreement every half-round, up to ~5 KB per
 //! disputed node — finishing the descent in ~2 exchanges at scales where
-//! a binary Merkle descent would take ~30 rounds. The protocol assumes the link's
-//! bandwidth-delay product dwarfs `r̄·W` per session; on a bandwidth-bound
-//! link the trade runs backwards (the crate docs' "Should you use it?"
-//! says so to users). With the descent this short, a session's remaining
-//! latency sits mostly in the fixed phases — preamble, handshake, open,
-//! close — which is where any future round-trip work should aim
-//! (piggybacking the root fan on the handshake, pipelining the
-//! alternation) rather than at the tree.
+//! a binary Merkle descent would take ~30 rounds. The protocol assumes the
+//! link's bandwidth-delay product dwarfs the per-session frontier bytes; on
+//! a bandwidth-bound link the trade runs backwards (the crate docs' "When
+//! *shouldn't* you use it?" says so to users). With the descent this short,
+//! a session's remaining latency sits mostly in the fixed phases —
+//! preamble, handshake, open, close. The streaming protocol
+//! ([`streaming`](super::streaming)) attacks exactly those: its root fan
+//! rides the greeting and its descent pipelines instead of alternating.
 
 use std::cmp::Ordering;
 
@@ -102,7 +102,7 @@ macro_rules! x {
     // This feeds the existing binding of `message` into the initiator method,
     // and rebinds `message` to the output. The expected next responder method
     // is specified so that if the initiator signals it is done, the responder
-    // can be immediately be given the final message and closed out.
+    // can immediately be given the final message and closed out.
     ($initiator:ident . $initiator_method:ident == $msg:ident => $responder:ident . $responder_method:ident) => {
         #[allow(unused)]
         let ($msg, $responder, $initiator) =
@@ -126,7 +126,7 @@ macro_rules! x {
                 }
             };
     };
-    // An responder step in the protocol:
+    // A responder step in the protocol:
     //
     // ```
     // x! { initiator.method <=message== responder.method }
@@ -135,7 +135,7 @@ macro_rules! x {
     // This feeds the existing binding of `message` into the responder method
     // (on the *RIGHT HAND SIDE*), and rebinds `message` to the output. The
     // expected next initiator method is specified so that if the responder
-    // signals it is done, the initiator can be immediately be given the final
+    // signals it is done, the initiator can immediately be given the final
     // message and closed out.
     ($initiator:ident . $initiator_method:ident <= $msg:ident == $responder:ident . $responder_method:ident) => {
         #[allow(unused)]
@@ -373,8 +373,8 @@ where
 /// [`Rumors::gossip`](crate::Rumors::gossip),
 /// [`Peer::retire`](crate::Peer::retire)) drive
 /// [`handshake`] and [`Handshaken::reconcile`] directly so they can dispatch
-/// on the peer's [`Handshake`] in between, so this whole-session shortcut is
-/// only used by the in-process protocol tests.
+/// on the peer's [`Handshake`] in between; this whole-session shortcut serves
+/// only the in-process protocol tests.
 #[cfg(test)]
 pub async fn mirror<'a, C, S, T>(
     c: C,

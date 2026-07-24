@@ -61,20 +61,26 @@ impl Trace {
 
     /// Check the publication-order invariants for every traced scope.
     ///
-    /// Seven checks: every internal publication consumes a prior wire
-    /// action for its scope (wire before internal publication); dependent
-    /// work follows its scope's resolution, exactly `pending` items per
-    /// resolution (resolution before dependent work); a parent resolution
-    /// follows the lower resolutions it counts; a resolution may not
-    /// arrive while an already-resolved sibling still owes dependent work
-    /// (sibling contiguity); a wire may not depart while an earlier
-    /// disputed sibling is unresolved or any resolved sibling still owes
-    /// dependent work (wire contiguity); each event kind leaves a
-    /// parent scope in strictly increasing radix order (radix order);
-    /// and a parent resolution is its scope's last publication (parent
-    /// placement): it may not depart while any wire of its scope is
-    /// unsent, any disputed child's resolution is unsent, or any resolved
-    /// child's dependent-work quota is unfilled.
+    /// Seven checks:
+    ///
+    /// - **wire before internal publication**: every internal publication
+    ///   consumes a prior wire action for its scope;
+    /// - **resolution before dependent work**: dependent work follows its
+    ///   scope's resolution, exactly `pending` items per resolution;
+    /// - **lower resolutions before parent**: a parent resolution follows
+    ///   the lower resolutions it counts;
+    /// - **sibling contiguity**: a resolution may not arrive while an
+    ///   already-resolved sibling still owes dependent work;
+    /// - **wire contiguity**: a wire may not depart while an earlier
+    ///   disputed sibling is unresolved or any resolved sibling still owes
+    ///   dependent work;
+    /// - **radix order**: each event kind leaves a parent scope in strictly
+    ///   increasing radix order;
+    /// - **parent placement**: a parent resolution is its scope's last
+    ///   publication — it may not depart while any wire of its scope is
+    ///   unsent, any disputed child's resolution is unsent, or any
+    ///   resolved child's dependent-work quota is unfilled.
+    ///
     /// Sibling contiguity is what makes one slot sufficient for the
     /// child-resolution queues: without it, a walk that published all its
     /// resolutions before any of their queries would satisfy the other
@@ -85,17 +91,17 @@ impl Trace {
     /// kernel-checked witness is the Lean control theorem
     /// `Control.jam_not_deadlockFree`, a well-formed skeleton whose
     /// greedy run wedges once the wire-contiguity axiom is dropped from
-    /// the mode. On wire-disciplined
-    /// traces wire contiguity subsumes sibling contiguity; both stay, as
-    /// independent statements of intent. Radix order is what positional
-    /// pairing rests on: no message or return carries a key, so a
-    /// consumer's only way to know which scope the k-th item describes is
-    /// that producers never reorder within a channel. Parent placement
-    /// (finding #7) is the `d6` (parent-last) ordering axiom of the
-    /// formal model: the local invariant under which the Lean flagship
-    /// deadlock-freedom theorem (`Sched.deadlock_free`, mode
-    /// `AxMode.impl`) holds, mirrored here so the
-    /// encoder's traces pin exactly the discipline the proof consumes.
+    /// the mode. On wire-disciplined traces wire contiguity subsumes
+    /// sibling contiguity; both stay, as independent statements of
+    /// intent. Radix order is what positional pairing rests on: no
+    /// message or return carries a key, so a consumer's only way to know
+    /// which scope the k-th item describes is that producers never
+    /// reorder within a channel. Parent placement (finding #7) is the
+    /// `d6` (parent-last) ordering axiom of the formal model: the local
+    /// invariant under which the Lean flagship deadlock-freedom theorem
+    /// (`Sched.deadlock_free`, mode `AxMode.impl`) holds, mirrored here
+    /// so the encoder's traces pin exactly the discipline the proof
+    /// consumes.
     pub fn assert_valid(&self) {
         self.assert_valid_with_wire_contiguity(true);
         self.assert_parent_last();

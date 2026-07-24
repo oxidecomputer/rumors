@@ -4,22 +4,31 @@
 //! Every test drives the policy stream by hand — a `futures` mpsc channel
 //! whose receiver is the `when` stream — so initiation timing is fully
 //! deterministic with no timers anywhere. The suite pins the driver's whole
-//! contract: the reduction to one-shot `gossip`, remote-led serving,
-//! suppression exactness (the echo a naive driver would produce does not
-//! happen, while real changes always do), transitive propagation across a
-//! chain of connections, who-led attribution, clean shutdown on both the
-//! `when` stream ending and the peer hanging up, and the error terminal.
+//! contract:
+//!
+//! - the reduction to one-shot `gossip`, and remote-led serving;
+//! - suppression exactness: the echo a naive driver would produce does not
+//!   happen, while real changes always do;
+//! - transitive propagation across a chain of connections, and who-led
+//!   attribution;
+//! - clean shutdown on both the `when` stream ending and the peer hanging
+//!   up, and the error terminal.
 //!
 //! The adversarial half pins the cancellation and reuse contract from the
-//! hostile side: a driver dropped mid-session commits nothing and forfeits
-//! the connection — the price the crate docs' "What a session promises"
-//! section documents, enforced by link poisoning; a driver started on an
-//! already-poisoned link fails fast without waiting for a tick; a consumer
-//! that drops every `next()` future loses nothing (poll cancel-safety); a
-//! cleanly ended driver hands the connection back usable; and two proptest
-//! suites — random tick/commit/yield interleavings, and connections severed
-//! at arbitrary byte offsets — require error-free convergence and
-//! loud-but-recoverable failure respectively, under every sequencing.
+//! hostile side:
+//!
+//! - a driver dropped mid-session commits nothing and forfeits the
+//!   connection — the price the crate docs' "What a session promises"
+//!   section documents, enforced by link poisoning;
+//! - a driver started on an already-poisoned link fails fast without
+//!   waiting for a tick;
+//! - a consumer that drops every `next()` future loses nothing (poll
+//!   cancel-safety);
+//! - a cleanly ended driver hands the connection back usable;
+//! - two proptest suites — random tick/commit/yield interleavings, and
+//!   connections severed at arbitrary byte offsets — require error-free
+//!   convergence and loud-but-recoverable failure respectively, under
+//!   every sequencing.
 
 mod common;
 

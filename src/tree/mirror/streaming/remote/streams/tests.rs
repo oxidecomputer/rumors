@@ -445,9 +445,9 @@ fn accept_driver_rejects_unknown_stream_index() {
 /// `SupplyClosed` carrying the deposited I/O cause.
 ///
 /// This pins the deferred-supply semantics deterministically: the parked
-/// accept driver deposits the
-/// transport failure, and the first `SupplyClosed` reporter — the consumer
-/// that provably needed a stream — claims it as its `source`.
+/// accept driver deposits the transport failure, and the first
+/// `SupplyClosed` reporter — the consumer that provably needed a stream —
+/// claims it as its `source`.
 #[test]
 fn supply_failure_reaches_the_awaiting_receiver() {
     let (a, mut b) = memory();
@@ -475,10 +475,10 @@ fn supply_failure_reaches_the_awaiting_receiver() {
 /// A supply failure after every needed stream was delivered leaves the
 /// session to complete cleanly on the streams it holds.
 ///
-/// The park path: a peer that
-/// finished cleanly may drop its link while this side still reads, so the
-/// accept driver parks on the failure instead of failing the session, and
-/// nothing surfaces through the error route.
+/// The park path: a peer that finished cleanly may drop its link while
+/// this side still reads, so the accept driver parks on the failure
+/// instead of failing the session, and nothing surfaces through the error
+/// route.
 #[test]
 fn supply_failure_after_delivery_lets_the_session_finish() {
     let (a, mut b) = memory();

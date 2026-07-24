@@ -10,10 +10,16 @@
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Protocol {
-    /// The original materialized, strictly alternating wire protocol.
+    /// The original strictly alternating wire protocol.
     ///
-    /// Behind the `protocol-v1` cargo feature: kept for comparative
-    /// measurement, and off by default.
+    /// V1 alternates sending full levels of the tree, and each level
+    /// message must be assembled whole in memory before it is sent: at
+    /// high divergence the level message is unboundedly large, so a
+    /// session can duplicate the set's own memory footprint. That
+    /// unbounded term is what [`V2`](Protocol::V2) removes — streaming reconciliation
+    /// under a fixed memory upper bound. V1 is kept for comparative
+    /// measurement, behind the `protocol-v1` cargo feature, off by
+    /// default.
     ///
     /// V1 has no session epilogue, so its `Ok` is weaker than
     /// [`V2`](Protocol::V2)'s: it certifies only the local commit, not the

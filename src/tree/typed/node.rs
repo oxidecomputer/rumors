@@ -224,9 +224,10 @@ impl<T, H: Height> Node<T, H> {
     /// Whether this node's content is a single leaf, regardless of any
     /// path-compressed prefix above it.
     ///
-    /// For such a node `version` is also the meet of its leaves, so a single
-    /// version comparison decides whether the whole (compressed) subtree is
-    /// kept or dropped — no need to explode it.
+    /// A leaf carries exactly one version, so its [`floor`](Self::floor) and
+    /// [`ceiling`](Self::ceiling) coincide: a single version comparison
+    /// decides whether the whole (compressed) subtree is kept or dropped —
+    /// no need to explode it.
     pub fn is_leaf(&self) -> bool {
         self.inner.is_leaf()
     }

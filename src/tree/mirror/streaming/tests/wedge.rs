@@ -117,9 +117,10 @@ fn wedge_trees() -> (Root<()>, Root<()>) {
 ///
 /// This is the T3 Rust corollary's bridge: the
 /// impossibility's ∃-witness is realizable, so `wc_impossibility` indicts a
-/// transport, not a phantom shape. On this branch (link-transport) the
-/// session completes — the wedge jams only the retired single-pipe mux — so
-/// the pin is shape realizability plus convergence, not a stall.
+/// transport, not a phantom shape. Over the link transport the session
+/// completes — the wedge jams only the single-pipe mux `wc_impossibility`
+/// models, under work-conserving senders — so the pin is shape realizability
+/// plus convergence, not a stall.
 #[test]
 fn session_realizes_the_wedge_shape() {
     let (wall, chain) = wedge_trees();

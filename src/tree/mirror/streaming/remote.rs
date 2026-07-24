@@ -1,20 +1,26 @@
 //! Wire-bound proxy for the streaming mirror.
 //!
+//! The submodule roles: [`codec`] owns the frame grammar; [`proxy`] the
+//! session state machine and its work loops; [`adapter`] scope retention
+//! and leaf reconstruction; [`streams`] the binding of logical streams to
+//! the link's transport streams.
+//!
 //! The transport is a [`Link`](crate::link): 17 logical streams in each
 //! direction, each carried by its own independently flow-controlled
-//! transport stream, lazily established as the descent needs it. [`codec`]
-//! defines the common frame grammar: the signal densely encodes the product
-//! of ten frame states and 17 stream ids as `state * 17 + stream`. The
-//! states are each of the four reaction forms (`Match`, empty/nonempty
-//! `Query`, and `Supply`) either continuing or ending its reply, plus bare
-//! `ReplyEnd` and `StreamEnd`. Values 170 through 255 are reserved. The
-//! phase schedule narrows that syntactic product further: the initiator
-//! admits 161 placements and the responder 163, rejecting the rest
-//! immediately after the signal byte, before any frame body is read. Every
-//! frame's signal names the stream it rides, so the signal's stream
-//! component is redundant with the stream's label — deliberately:
-//! [`streams`] holds every frame to exact agreement with the label, so a
-//! miswired link surfaces at the first frame.
+//! transport stream, lazily established as the descent needs it.
+//!
+//! [`codec`] defines the common frame grammar: the signal densely encodes
+//! the product of ten frame states and 17 stream ids as
+//! `state * 17 + stream`. The states are each of the four reaction forms
+//! (`Match`, empty/nonempty `Query`, and `Supply`) either continuing or
+//! ending its reply, plus bare `ReplyEnd` and `StreamEnd`. Values 170
+//! through 255 are reserved. The phase schedule narrows that syntactic
+//! product further: the initiator admits 162 placements and the responder
+//! 163, rejecting the rest immediately after the signal byte, before any
+//! frame body is read. Every frame's signal names the stream it rides, so
+//! the signal's stream component is redundant with the stream's label —
+//! deliberately: [`streams`] holds every frame to exact agreement with the
+//! label, so a miswired link surfaces at the first frame.
 //!
 //! Reply and stream ends are separate events. A reaction or bare `ReplyEnd`
 //! completes a reply; a later bare `StreamEnd` closes the logical stream
@@ -22,10 +28,11 @@
 //! control instead of exposing it to the protocol adapter as an empty reply.
 //!
 //! An empty query occupies its signal alone; a nonempty query's one-byte
-//! count-minus-one admits every fan from 1 through 256. Supplied leaves ship
-//! in *runs*: one exact-length-delimited body carrying one or more leaf
-//! records, each itself an exact-length-delimited canonical borsh encoding
-//! of its [`Version`](crate::Version) and
+//! count-minus-one admits every fan from 1 through 256.
+//!
+//! Supplied leaves ship in *runs*: one exact-length-delimited body carrying
+//! one or more leaf records, each itself an exact-length-delimited
+//! canonical borsh encoding of its [`Version`](crate::Version) and
 //! [`Message<T>`](crate::message::Message). The encoder chunks a supplied
 //! subtree's leaves into runs by a byte budget ([`RunBudget`]); once a run's
 //! whole body arrives, the frame codec validates its record framing and the
@@ -34,7 +41,7 @@
 //!
 //! The initiator's distinguished opening question needs no wire frame: its
 //! content — the initiator's root-fan listing — rides the greeting on the
-//! control stream (see [`message::Handshake`](super::message::Handshake)
+//! control stream (see [`message::Greeting`](super::message::Greeting)
 //! for the trade), so the elected responder answers one hop earlier. The
 //! initiator-direction opening stream instead carries the *early
 //! supplies*: the initiator's exclusive root children, shipped whole in

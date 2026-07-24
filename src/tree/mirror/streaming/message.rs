@@ -31,6 +31,10 @@ use crate::{
 
 /// The greeting exchanged after the fixed transport preamble.
 ///
+/// Three terms, three things: the *preamble* is the fixed transport bytes
+/// that precede any message, the *handshake* is the act of exchanging
+/// greetings, and a `Greeting` is the message each side contributes to it.
+///
 /// It carries everything a session must know about a sender before the
 /// descent — its causal position, its negotiation inputs, and its opening
 /// question's content; the fields below are the inventory.
@@ -39,9 +43,9 @@ use crate::{
 /// [`Reaction::Query`] carries — and that is the point: the opening
 /// question's content depends only on the sender's own tree, so carrying it
 /// here lets the elected responder answer immediately instead of waiting one
-/// wire hop for a standalone opening frame. An empty tree carries an empty listing, which at the root means
-/// exactly what an empty opening `Query` means: "I lack this node, send
-/// everything."
+/// wire hop for a standalone opening frame. An empty tree carries an empty
+/// listing, which at the root means exactly what an empty opening `Query`
+/// means: "I lack this node, send everything."
 ///
 /// Both sides carry a listing because neither knows at greeting time whether
 /// it will win the initiator election, and a divergent session consumes
@@ -55,7 +59,7 @@ use crate::{
 /// session. Divergence is not knowable at greeting time, so there is
 /// nothing sound to gate the bytes on.
 #[derive(Clone)]
-pub struct Handshake {
+pub struct Greeting {
     pub version: Version,
     /// The sender's live message count, exact (an O(1) read of its set).
     ///
@@ -105,13 +109,12 @@ pub struct Handshake {
 /// responder answers that question directly with whole-subtree supplies
 /// for every root child the initiator lacks — so routing the bulk holder
 /// into the responder role ships its exclusive content at the coarsest
-/// granularity and on the earliest possible hop, no matter which side
-/// holds the bulk. Equal sizes fall back to the canonical version
-/// encodings' lexicographic order (the greater encoding initiates):
-/// causal versions are only partially ordered, and the byte order is an
-/// arbitrary but total, deterministic tiebreak. Both keys ride every
-/// greeting, so the two sides always elect complementary roles from the
-/// same exchanged pair.
+/// granularity and on the earliest possible hop. Equal sizes fall back
+/// to the canonical version encodings' lexicographic order (the greater
+/// encoding initiates): causal versions are only partially ordered, and
+/// the byte order is an arbitrary but total, deterministic tiebreak.
+/// Both keys ride every greeting, so the two sides always elect
+/// complementary roles from the same exchanged pair.
 ///
 /// # Panics
 ///

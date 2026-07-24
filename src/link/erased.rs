@@ -7,11 +7,13 @@
 //! tower instantiation — the reason this funnel is load-bearing. Every
 //! session entry point therefore erases the link's stream supply here
 //! — mirroring the `DynRead`/`DynWrite` erasure of the control halves — and
-//! the towers instantiate once per payload type. The price is one vtable
-//! call per `poll_read`/`poll_write` beneath the frame codec, and — per
-//! stream open/accept — a vtable call plus two allocations: the fresh
-//! `Box::pin` for the [`BoxFuture`] each erased `connect`/`accept` returns,
-//! and the box that erases the stream half it yields.
+//! the towers instantiate once per payload type.
+//!
+//! The price is one vtable call per `poll_read`/`poll_write` beneath the
+//! frame codec, and — per stream open/accept — a vtable call plus two
+//! allocations: the fresh `Box::pin` for the [`BoxFuture`] each erased
+//! `connect`/`accept` returns, and the box that erases the stream half it
+//! yields.
 
 use std::io;
 

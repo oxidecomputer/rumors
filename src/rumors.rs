@@ -21,9 +21,9 @@ use tokio::{
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
 ///
-/// Unlike [`Peer`], [`Rumors`] is [`Clone`], which means that any number of
-/// tasks may concurrently interact with the set of rumors, arbitrarily.
-/// Synchronization is internal: anything one clone learns, all do.
+/// Unlike [`Peer`], [`Rumors`] is [`Clone`]: any number of tasks may
+/// interact with the set concurrently. Synchronization is internal:
+/// anything one clone learns, all do.
 pub struct Rumors<T, B: BookmarkError = NoBookmark> {
     peer: Peer<T, B>,
     /// This handle's claim to existence; see [`Extant`].
@@ -137,6 +137,26 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit.
     ///
+    /// `send` does not return the message's [`Key`]: keys come back through
+    /// observation — [`redact`](Self::redact) states the intended pattern
+    /// and why the write path carries no key.
+    ///
+    /// # Observe-then-send is domination
+    ///
+    /// A send's version causally dominates everything this replica had
+    /// observed at the moment its batch commits. This is the supersession
+    /// contract last-write-wins patterns lean on: if your application
+    /// observes a message through this replica and subsequently sends, the
+    /// observation is definitely in the causal past of the send — an update
+    /// issued after seeing a prior value dominates that value, and
+    /// concurrency arises only between writers that had not observed each
+    /// other. The boundary: a batch is composed without holding the lock,
+    /// and concurrent synchronization can land before it commits (the
+    /// commit takes only a very short lock on the set's internal state), so
+    /// sends from different threads or different batches carry **no**
+    /// guaranteed causal relationship to one another unless the application
+    /// synchronizes them itself.
+    ///
     /// # Panics
     ///
     /// If `message` fails to serialize (see [`Batch::send`]).
@@ -155,6 +175,35 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// `rumors.redact(key);` commits at the end of the statement, and chaining
     /// further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit.
+    ///
+    /// # Deletion is honored
+    ///
+    /// Once a redaction commits anywhere, no gossip schedule re-establishes
+    /// the redacted message from replicas that still hold it. No redaction
+    /// object exists to make that so — nothing crosses the wire to
+    /// represent a deletion — because reconciliation infers deletions from
+    /// the causal frontiers the two sides exchange: a message the
+    /// counterparty's version shows it must already have seen, yet it no
+    /// longer holds, was deleted there, so the holder drops its own copy
+    /// instead of transmitting it. ("A redaction arriving before its
+    /// message" is not even representable.) And because every send mints a
+    /// fresh [`Key`] (a key binds the send's version to the content),
+    /// re-sending byte-identical content after a redaction is a *new*
+    /// message: it neither resurrects the old one nor is suppressed by its
+    /// redaction. For the same reason, two identical sends are two
+    /// messages, and redacting one never touches the other.
+    ///
+    /// # Where the key comes from
+    ///
+    /// [`send`](Self::send) does not return a [`Key`], deliberately, for
+    /// two reasons. The intended shape of an application is a state machine
+    /// driven from observed messages — the observers and [`Snapshot`]
+    /// attach every message to its `Key`, so the read path, not the write
+    /// path, is where a key-holding workflow like send-then-redact lives:
+    /// observe your own message back out, keep its key, redact it later.
+    /// And batching breaks the correspondence anyway: sends are not 1:1
+    /// with insertions — a batch inserts all its messages at once, and a
+    /// message's `Key` is not knowable until insertion.
     pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
         T: Send + Sync,
@@ -199,7 +248,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         self.peer.snapshot()
     }
 
-    /// Monitor every message sent to in this [`Rumors`], in arbitrary
+    /// Monitor every message sent to this [`Rumors`], in arbitrary
     /// (*non-causal*) order.
     ///
     /// See [`UnorderedMessages`] for details.
@@ -269,9 +318,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
 }
 
 impl<T, B: Bookmark> Rumors<T, B> {
-    /// Give up this handle and reclaim the [`Peer`] once no more other handles
-    /// exist: resolves when no [`Rumors`] for this set remains, handing the
-    /// `Peer` to exactly one caller.
+    /// Give up this handle and reclaim the [`Peer`]: resolves when no
+    /// [`Rumors`] for this set remains, handing the `Peer` to exactly one
+    /// caller.
     ///
     /// Cancelling a pending [`try_into_peer`](Self::try_into_peer) abandons its
     /// claim: the handle was already consumed, so dropping the future is no
@@ -286,39 +335,46 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// [`Link`].
     ///
     /// On `Ok`, both replicas hold every message either one held when the
-    /// session began, and — under [`Protocol::V2`](crate::Protocol::V2) —
-    /// the peer has confirmed that it completed and committed the session
-    /// too. The frozen [`Protocol::V1`](crate::Protocol::V1) oracle wire has
-    /// no confirmation exchange, so a V1 session's `Ok` certifies only the
-    /// local commit. What `Err` and cancellation leave behind is stated in
-    /// [what a session
-    /// promises](crate::link::Link#what-a-session-promises).
+    /// session began **and neither had deleted**, and — under
+    /// [`Protocol::V2`](crate::Protocol::V2) — the peer has confirmed that
+    /// it completed and committed the session too (the frozen
+    /// [`Protocol::V1`](crate::Protocol::V1) oracle wire has no
+    /// confirmation exchange, so a V1 session's `Ok` certifies only the
+    /// local commit). The link rests exactly at the session boundary,
+    /// ready to host this pair's next session.
     ///
-    /// Gossip sessions may run concurrently on different clones of the same
-    /// [`Rumors`], each over its own link; each commits atomically when it
-    /// completes. Sessions on one link are serialized, which the `&mut`
-    /// borrow enforces.
+    /// On `Err`, the replica is unchanged and the link is poisoned:
+    /// discard it and reconnect — this is enforced, not advisory, since
+    /// every subsequent session on the link fails fast with
+    /// [`Error::LinkPoisoned`] rather than misreading its mid-frame
+    /// control stream. Cancellation counts as `Err` ([what a session
+    /// promises](crate::link::Link#what-a-session-promises)).
+    /// "Unchanged" has three qualified exceptions:
     ///
-    /// On `Ok`, the link rests exactly at the session boundary, ready to
-    /// host this pair's next session. On `Err`, discard the link — and this
-    /// is enforced, not advisory: a failed (or cancelled) session poisons
-    /// the link, and every subsequent session on it fails fast with
-    /// [`Error::LinkPoisoned`] rather than misreading its mid-frame control
-    /// stream. The replica is unchanged by an `Err`, with three qualified
-    /// exceptions: on [`Error::Epilogue`] every local effect of the session
-    /// is already committed, and only the confirmation of the *peer's*
-    /// completion failed (the two-generals residue; the error's docs carry
-    /// the mechanism); a failure while donating a bootstrap fork leaks
-    /// that fork's id-region (deliberately — the newcomer may hold it),
-    /// narrowing this replica's identity without touching its content; and
-    /// an [`Error::Bookmark`] raised after absorbing a retiring peer leaves
-    /// the session fully committed — reconciled content *and* the absorbed
-    /// identity — with only its durable record unwritten (the error's docs
-    /// carry the crash-safety consequence). Independently of these, any
-    /// session's `Err` may leave this peer's identity *wider* than before:
-    /// stranded identity reclaimed from the bookmark grows the live party in
-    /// memory before the record persists, and a reclaimed region is never
-    /// rolled back — the next successful persist records it.
+    /// - On [`Error::Epilogue`], every local effect of the session is
+    ///   already committed; only the confirmation of the *peer's*
+    ///   completion was lost ([`Error::Epilogue`] explains why that gap
+    ///   cannot be closed).
+    /// - A failure while donating a bootstrap fork costs that fork's
+    ///   identity space (deliberately — the newcomer may hold it),
+    ///   narrowing this replica's identity without touching its content.
+    /// - An [`Error::Bookmark`] raised after absorbing a retiring peer
+    ///   leaves the session fully committed — reconciled content *and* the
+    ///   absorbed identity — with only its durable record unwritten (the
+    ///   error's docs carry the crash-safety consequence).
+    ///
+    /// Independently of these, an `Err` never rolls back identity the
+    /// session reclaimed from the bookmark: it stays live in memory, and
+    /// the next successful persist records it
+    /// ([`Error::Bookmark`](crate::Error::Bookmark) carries the
+    /// mechanism).
+    ///
+    /// Gossip sessions may run concurrently through any handles — the
+    /// same clone or different ones — each over its own link; each commits
+    /// atomically when it completes. Sessions on one link are serialized,
+    /// which the `&mut` borrow enforces; a bookmarked peer's sessions also
+    /// queue at the bookmark lock before any wire traffic
+    /// ([`Bookmark`]).
     pub async fn gossip<CR, CW, C, A>(&self, link: &mut Link<CR, CW, C, A>) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
@@ -344,9 +400,9 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// [`stream::repeat`](futures::stream::repeat)), because this would
     /// busy-loop: `when` should go quiet between reasons to gossip.
     ///
-    /// The returned stream from this method *must be polled* for gossip to
-    /// continue. It yields one [`Gossiped`] per completed gossip session. It
-    /// terminates in one of three ways:
+    /// The returned stream *must be polled* for gossip to continue. It
+    /// yields one [`Gossiped`] per completed gossip session. It terminates
+    /// in one of three ways:
     ///
     /// - the connection fails: one final `Err` — the replica unchanged,
     ///   subject to the same qualified exceptions as [`gossip`](Self::gossip)
@@ -377,11 +433,15 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// probing a silent connection for liveness must be the transport's job
     /// (e.g. TCP keepalives), not the `when`-stream's.
     ///
-    /// # Cancellation and connection reuse
+    /// # Cancellation
     ///
     /// Futures derived from polling the result-stream are cancel-safe: all
     /// driver state lives in the stream itself. Dropping the result stream,
-    /// however, is *not* cancellation-safe.
+    /// however, is *not* cancellation-safe: a session in flight is
+    /// cancelled with it, poisoning the link exactly as dropping a
+    /// [`gossip`](Self::gossip) future would. To stop cleanly, end the
+    /// `when` stream and poll the driver to completion; what the link
+    /// remains good for after each clean termination is stated above.
     ///
     /// # Examples
     ///
@@ -397,7 +457,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// #     .unwrap()
     /// #     .block_on(async {
     /// let alice = Peer::<String>::seed().into_rumors();
-    /// # let (mut near, mut far) = rumors::link::memory();
+    /// let (mut near, mut far) = rumors::link::memory();
     /// # let serve = alice.clone();
     /// # let server = tokio::spawn(async move {
     /// #     serve.gossip(&mut far).await.unwrap();

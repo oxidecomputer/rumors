@@ -14,11 +14,11 @@
 //! single recursing node, so it stays constant-memory and reusable across the
 //! in-memory and persistent backends alike.
 //!
-//! Every level returns a [`BoxFuture`]. The descent is only 32 deep, but an
-//! `impl Future` return would nest each level's `async` type inside the next;
-//! erasing to a trait object at each step keeps that type flat (and its
-//! `Send`-ness asserted rather than proven through the whole tower). An `impl
-//! Future` return here makes the compiler's type balloon exponentially.
+//! Every level returns a [`BoxFuture`]: an `impl Future` return would nest
+//! each level's `async` type inside the next, ballooning the compiler's type
+//! exponentially over the 32-level descent. Erasing to a trait object at each
+//! step keeps the type flat, and its `Send`-ness asserted rather than proven
+//! through the whole tower.
 
 use std::cmp::Ordering;
 

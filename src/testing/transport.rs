@@ -484,14 +484,15 @@ fn wrap_write<W>(write: W, state: Arc<Mutex<State>>) -> AdversarialWrite<W> {
     }
 }
 
-/// Wrap one endpoint's whole [`Link`](crate::link::Link): the control
-/// halves and every data
-/// stream the link ever supplies share one plan and one report.
+/// Wrap one endpoint's whole [`Link`](crate::link::Link) under one plan and
+/// one report.
 ///
-/// Delay schedules and fault thresholds count operations across all of the
-/// side's streams in poll order, so a single plan exercises (or fails)
-/// whichever surface reaches the threshold first — the same single-threshold
-/// coverage [`wrap_io`] gives one ordered pipe, extended over a whole link.
+/// The control halves and every data stream the link ever supplies share
+/// the plan. Delay schedules and fault thresholds count operations across
+/// all of the side's streams in poll order, so a single plan exercises (or
+/// fails) whichever surface reaches the threshold first — the same
+/// single-threshold coverage [`wrap_io`] gives one ordered pipe, extended
+/// over a whole link.
 pub fn wrap_link<CR, CW, C, A>(
     side: Side,
     plan: IoPlan,
@@ -639,12 +640,12 @@ const REORDER_PATIENCE: u8 = 32;
 ///
 /// The link contract leaves cross-stream arrival order unspecified, so a
 /// session must pair streams by label alone; this decorator inverts arrival
-/// order whenever the traffic admits it. Each accept awaits one arrival and
-/// then *holds it*, genuinely waiting — bounded by a patience budget of
-/// cooperative yields (`REORDER_PATIENCE`), so a lone final stream still
-/// flows and a peer wedged behind the held stream cannot deadlock the
-/// harness — for further arrivals, up to `batch` in total, and releases the
-/// accumulated batch newest-first.
+/// order whenever the traffic admits it. Each accept awaits one arrival,
+/// then *holds it* and genuinely waits for further arrivals — up to `batch`
+/// in total — before releasing the accumulated batch newest-first. The wait
+/// is bounded by a patience budget of cooperative yields
+/// (`REORDER_PATIENCE`), so a lone final stream still flows and a peer
+/// wedged behind the held stream cannot deadlock the harness.
 ///
 /// Every batch of two or more is a genuine inversion, recorded in the
 /// shared `reordered` counter so a test can assert the adversity's actual

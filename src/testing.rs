@@ -44,14 +44,13 @@ pub fn node_census_reset() {
     crate::tree::typed::untyped::census::reset_peak();
 }
 
-/// The two wire-cost constants of the dispute walk, as
-/// `(envelope, wire)`: session-envelope bytes one in-flight disputed
-/// scope is charged, and the end-to-end wire bytes of one disputed
-/// message at the design record size.
+/// The two wire-cost constants of the dispute walk, as `(envelope, wire)`.
 ///
-/// The wire figure is an anchor, not an input — nothing derives from
-/// it; exposed so the calibration suite (`tests/dispute_wire.rs`) can
-/// hold it against deterministic byte counts.
+/// The envelope is the session-envelope bytes one in-flight disputed scope
+/// is charged; the wire figure is the end-to-end wire bytes of one disputed
+/// message at the design record size. The wire figure is an anchor, not an
+/// input — nothing derives from it; it is exposed so the calibration suite
+/// (`tests/dispute_wire.rs`) can hold it against deterministic byte counts.
 pub fn envelope_and_wire_bytes() -> (usize, usize) {
     (
         crate::tree::mirror::streaming::window::SCOPE_ENVELOPE_BYTES,
@@ -70,18 +69,19 @@ pub fn dispute_overhead_bytes() -> usize {
     crate::tree::mirror::streaming::window::DISPUTE_OVERHEAD_BYTES
 }
 
-/// Worst-case bytes one session's decode fans keep resident under the
-/// in-memory backend's pricing: the flat pre-charge that comes off a
-/// budget before the dispute-scope solve.
+/// Worst-case bytes one session's decode fans keep resident, under the
+/// in-memory backend's pricing.
 ///
-/// The operator suite denominates its measured cells in a budget's
-/// dispute share, so it needs the pre-charge to add back.
+/// This is the flat pre-charge that comes off a budget before the
+/// dispute-scope solve. The operator suite denominates its measured cells
+/// in a budget's dispute share, so it needs the pre-charge to add back.
 pub fn supply_decode_envelope_bytes() -> usize {
     crate::tree::mirror::streaming::window::SUPPLY_DECODE_ENVELOPE_BYTES
 }
 
-/// Render the sync-budget trade-off table the rustdoc includes, from
-/// the real window derivation.
+/// Renders the sync-budget trade-off table that
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)'s docs
+/// include, from the real window derivation.
 ///
 /// Each budget row's window comes from the same solve sessions run at
 /// handshake time ([`window_capacities`]'s derivation), evaluated at
@@ -179,26 +179,38 @@ pub fn window_tradeoff_table() -> String {
          same solve sessions run at handshake time, evaluated at the design session — \
          {design}-message corpora a side, the scale the pinned per-scope envelope is \
          denominated at; larger corpora derive narrower windows. `BDP_messages = BDP / \
-         ({overhead} + m)`, with the {overhead} B per-message wire cost calibrated by \
-         deterministic byte counts (`tests/dispute_wire.rs`); the wave form is measured \
-         (`tests/window_knee.rs`, `tests/window_operator.rs`). Cells are clamped at 1.0×, \
-         which is wire-time-optimal (bandwidth-bound stays bandwidth-bound). Rows whose window \
-         reaches the design session's population ceiling ({ceiling} scopes: every stage \
-         granted its full population envelope, so the stated corpus itself is never \
-         window-constricted) carry the wave-form ratio as a corpus-scale envelope in their \
-         sub-design-record cells; a corpus at such a column's own BDP scale re-derives its \
-         window (`m = 8` at the default: {u64_window} scopes, ≈{u64_slowdown:.1}×). The \
+         ({overhead} + m)`. Cells are clamped at 1.0×, which is wire-time-optimal \
+         (bandwidth-bound stays bandwidth-bound).",
+        design = DESIGN_SESSION_MESSAGES,
+        overhead = DISPUTE_OVERHEAD_BYTES,
+    );
+    let _ = writeln!(table);
+    let _ = writeln!(
+        table,
+        "Provenance: the {overhead} B per-message wire cost is calibrated by deterministic \
+         byte counts (`tests/dispute_wire.rs`); the wave form is measured \
+         (`tests/window_knee.rs`, `tests/window_operator.rs`).",
+        overhead = DISPUTE_OVERHEAD_BYTES,
+    );
+    let _ = writeln!(table);
+    let _ = writeln!(
+        table,
+        "Two subtleties. Rows whose window reaches the design session's population ceiling \
+         ({ceiling} scopes: every stage granted its full population envelope, so the stated \
+         corpus itself is never window-constricted) read differently: in those rows the \
+         sub-design-record cells are upper envelopes at the stated corpus, not predictions \
+         for yours — a corpus at such a column's own BDP scale derives its own, wider window \
+         (`m = 8` at the default: {u64_window} scopes, ≈{u64_slowdown:.1}×). And the \
          default's slowdown-1 crossover, derived self-consistently from the solve (corpus = \
          BDP / ({overhead} + m) a side), is m* = {crossover} B. The factor prices the \
          interleaved dispute walk only — supply runs stream outside the window — and costs \
          latency, never memory: a session serializes into capacity-sized waves, deadlock-free \
          at any budget.",
-        design = DESIGN_SESSION_MESSAGES,
         overhead = DISPUTE_OVERHEAD_BYTES,
     );
     let _ = writeln!(table);
 
-    let mut header = String::from("| budget | window |");
+    let mut header = String::from("| budget | window (scopes) |");
     let mut rule = String::from("|---|---|");
     for (_, label) in RECORD_SIZES {
         let _ = write!(header, " {label} |");
@@ -225,17 +237,18 @@ pub fn window_tradeoff_table() -> String {
     table
 }
 
-/// The largest canonical encoding among every version bound a
-/// snapshot's tree holds — leaf versions and every interior ceiling and
-/// floor — in bytes: the exact per-node aggregate the greeting
-/// exchanges.
+/// The largest canonical version-bound encoding in a snapshot's tree, in
+/// bytes.
+///
+/// Covers every bound the tree holds (leaf versions and every interior
+/// ceiling and floor); the result is the exact per-node aggregate the
+/// greeting exchanges.
 pub fn max_version_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
     snapshot.tree().max_version_bytes()
 }
 
-/// The largest canonical encoding among every per-node version bound in
-/// a snapshot's tree, recomputed by direct walk with no aggregate memo
-/// consulted.
+/// The largest canonical per-node version-bound encoding in a snapshot's
+/// tree, recomputed by direct walk with no aggregate memo consulted.
 ///
 /// The session memory model prices every bound a session can hold
 /// within the exchanged pair sum (`local_max + remote_max`), and
@@ -248,13 +261,12 @@ pub fn max_bound_bytes<T>(snapshot: &crate::Snapshot<T>) -> usize {
 }
 
 /// The per-height channel capacities a session derives from its budget
-/// and the two replicas' exchanged set sizes, indexed by typed height
-/// (`0` = leaves, `32` = root).
+/// and the two replicas' exchanged set sizes.
 ///
-/// Priced as the in-memory backend prices its nodes: one pointer per
-/// handle at any version bound. Exposed so integration suites can
-/// compute, from the same derivation sessions use, where a divergence
-/// must saturate and serialize.
+/// Indexed by typed height (`0` = leaves, `32` = root) and priced as the
+/// in-memory backend prices its nodes: one pointer per handle at any
+/// version bound. Exposed so integration suites can compute, from the same
+/// derivation sessions use, where a divergence must saturate and serialize.
 pub fn window_capacities(local_len: u64, remote_len: u64, budget_bytes: usize) -> Vec<usize> {
     let window = crate::tree::mirror::streaming::window::Window::from_budget(
         local_len,

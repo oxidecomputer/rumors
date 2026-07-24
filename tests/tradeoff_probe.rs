@@ -1,26 +1,30 @@
 //! One-shot validation instrument, ignore-gated: the solve-derived
 //! trade-off predictions held against measured wire-time slowdowns.
 //!
-//! Not part of the suite; it validates, deterministically, that
-//! measured slowdowns stay at or inside the wave form evaluated at the
-//! window the real derivation grants — the quantity the committed
-//! trade-off table tabulates — and it runs only by explicit request:
+//! It validates, deterministically, that measured slowdowns stay at or
+//! inside the wave form evaluated at the window the real derivation
+//! grants — the quantity the committed trade-off table tabulates — and
+//! runs only by explicit request:
 //!
 //!     cargo nextest run --release --test tradeoff_probe \
 //!         --run-ignored all --no-capture
 //!
 //! Method (window_operator.rs's session shape, generalized over record
-//! size): for each record size `m`, measure the transfer-bound baseline
-//! (an unbounded budget) in exact one-way hops, self-calibrating the
-//! link's BDP in messages; then measure budgets spanning a constricted,
-//! a near-crossover, and a comfortable cell, all at the design corpus
-//! (62,500 divergent messages a side, the scale the per-scope envelope
-//! is pinned at). Observed slowdown = hops(budget) / hops(unbounded),
-//! asserted at or inside the solve-derived wave form to within hop
-//! quantization; the closed-form estimate is printed beside it for the
-//! record. Deterministic counts only: under the paused clock virtual
-//! time advances only while every task is blocked on the wire, so the
-//! hop counts are exact and wall compute is excluded.
+//! size), per record size `m`:
+//!
+//! 1. Measure the transfer-bound baseline (an unbounded budget) in exact
+//!    one-way hops, self-calibrating the link's BDP in messages.
+//! 2. Measure budgets spanning a constricted, a near-crossover, and a
+//!    comfortable cell, all at the design corpus (62,500 divergent
+//!    messages a side, the scale the per-scope envelope is pinned at).
+//! 3. Assert the observed slowdown — hops(budget) / hops(unbounded) —
+//!    at or inside the solve-derived wave form to within hop
+//!    quantization; the closed-form estimate is printed beside it for
+//!    the record.
+//!
+//! Deterministic counts only: under the paused clock virtual time
+//! advances only while every task is blocked on the wire, so the hop
+//! counts are exact and wall compute is excluded.
 
 // Only the delayed wire is exercised here.
 #[allow(dead_code)]

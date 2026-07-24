@@ -2,12 +2,12 @@
 //! and the early supplies that trail it.
 //!
 //! No wire frame exists for the opening question: [`opening_parts`]
-//! validates the locally produced opening reply, splitting the listing the
-//! root scope derives from off the early supplies that do cross, while
-//! [`opening_reply`] replays the peer greeting's listing as the message the
-//! responder answers. The two must agree on the scope, since one side
-//! builds it from its own message and the other from the listing that
-//! crossed the wire.
+//! validates the locally produced opening reply and splits it into the
+//! listing the root scope derives from and the early supplies that do
+//! cross, while [`opening_reply`] replays the peer greeting's listing as
+//! the message the responder answers. The two must agree on the scope,
+//! since one side builds it from its own message and the other from the
+//! listing that crossed the wire.
 
 use before::Version;
 use futures::{TryStreamExt, stream};

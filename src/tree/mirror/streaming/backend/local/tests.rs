@@ -1,11 +1,11 @@
 //! `Local`'s bulk `leaves`/`assemble` overrides against the default chain.
 //!
-//! The overrides exist purely as a cost optimization (skip the per-virtual-
-//! level unwrapping of path-compressed spines), so the property that keeps
-//! them honest is *observational equivalence*: over arbitrary leaf runs —
-//! deep compressed spines, dense branch points, multiple same-height runs —
-//! the override and the level-by-level [`Convert`] default must produce
-//! identical streams.
+//! The overrides exist purely as a cost optimization (skip the
+//! per-virtual-level unwrapping of path-compressed spines), so the property
+//! that keeps them honest is *observational equivalence*: over arbitrary
+//! leaf runs — deep compressed spines, dense branch points, multiple
+//! same-height runs — the override and the level-by-level [`Convert`]
+//! default must produce identical streams.
 
 use std::convert::Infallible;
 

@@ -26,7 +26,7 @@ pub(crate) mod framing;
 pub(crate) mod handshake;
 pub(crate) mod party;
 
-/// An error which can occur during mirroring: either a client error or a server one.
+/// An error during mirroring, from either the client or the server position.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error<C, S> {
     /// The protocol participant supplied in the client position failed.

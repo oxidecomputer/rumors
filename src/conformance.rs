@@ -8,12 +8,12 @@
 //! dev-dependency with the `conformance` cargo feature enabled.
 //!
 //! A second suite validates a storage backend's session-memory pricing;
-//! it runs as this crate's own gate today and becomes caller-visible with
-//! the storage-backend boundary itself.
+//! the storage boundary is crate-internal, so that suite runs as this
+//! crate's own test gate rather than as a public entry point.
 
 pub mod link;
 
-// Compiled as this crate's own gate until the storage-backend boundary
-// ships; see the module docs' visibility section.
+// Compiled as this crate's own gate: the storage-backend boundary is
+// crate-internal; see the module docs' visibility section.
 #[cfg(test)]
 pub(crate) mod backend;

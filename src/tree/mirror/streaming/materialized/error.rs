@@ -1,3 +1,4 @@
+/// A session-fatal failure: a backend error or a counterparty [`Violation`].
 #[derive(Debug, thiserror::Error)]
 pub enum Error<E> {
     #[error(transparent)]

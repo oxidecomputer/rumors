@@ -65,7 +65,7 @@ pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 
     fn connect(
         self,
-    ) -> impl Future<Output = Result<(message::Handshake, Self::Next), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(message::Greeting, Self::Next), Self::Error>> + Send;
 }
 
 pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
@@ -78,8 +78,8 @@ pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 
     fn accept(
         self,
-        request: message::Handshake,
-    ) -> impl Future<Output = Result<(message::Handshake, Self::Next), Self::Error>> + Send;
+        request: message::Greeting,
+    ) -> impl Future<Output = Result<(message::Greeting, Self::Next), Self::Error>> + Send;
 }
 
 pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
@@ -92,7 +92,7 @@ pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'sta
 
     fn complete_connect(
         self,
-        theirs: message::Handshake,
+        theirs: message::Greeting,
     ) -> impl Future<Output = Result<Self::Next, Self::Error>> + Send;
 }
 
@@ -115,7 +115,7 @@ pub trait CompleteEqual<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'stati
 /// equal only when their versions are equal, and equal versions
 /// short-circuit the session before it reaches the protocol at all. So the
 /// initiator skips straight to its root's children — the same root-fan
-/// listing its [`Handshake`](message::Handshake) already carried. On the
+/// listing its [`Greeting`](message::Greeting) already carried. On the
 /// wire that makes this stage free: the remote proxy replays the greeting's
 /// listing instead of spending a hop on a standalone opening frame, and only
 /// the in-process message below actually flows.

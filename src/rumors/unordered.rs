@@ -34,12 +34,11 @@ use tokio::sync::watch;
 pub struct UnorderedMessages<T> {
     /// The watch channel, or the in-flight wait for it to change.
     ///
-    /// The wait
-    /// future owns the receiver and hands it back: the `Stream` face cannot
-    /// hold a borrowing `changed()` future across polls (recreating one per
-    /// poll would drop its waker registration and lose the wakeup), so the
-    /// wait is materialized; `borrow_next` enters it only to finish what a
-    /// `Stream` poll started.
+    /// The wait future owns the receiver and hands it back: the `Stream`
+    /// face cannot hold a borrowing `changed()` future across polls
+    /// (recreating one per poll would drop its waker registration and lose
+    /// the wakeup), so the wait is materialized; `borrow_next` enters it
+    /// only to finish what a `Stream` poll started.
     channel: Option<Channel<T>>,
     checkpoint: Version,
     pass: Option<Pass<T>>,
@@ -165,6 +164,12 @@ impl<T> UnorderedMessages<T> {
     /// Resuming from this checkpoint will never skip messages, but it may
     /// replay an arbitrary number of them.
     ///
+    /// Folding the yielded versions yourself is not a substitute: the
+    /// causal order is partial, not total, so "the last version I saw" is
+    /// not well-defined, and such a fold is not a causally closed
+    /// boundary — resuming from it could skip messages. This checkpoint
+    /// moves only at pass boundaries, which are.
+    ///
     /// After the observer ends (`None`), this is the complete final
     /// frontier. To merely pause in-process, just hold the observer: its
     /// idle state is constant-size, and the checkpoint stays inside it.
@@ -240,7 +245,7 @@ impl<T> UnorderedMessages<T> {
 /// the same engine [`borrow_next`](UnorderedMessages::borrow_next) lends from.
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an owned
-/// future (see the `channel` field).
+/// future.
 impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
     type Item = (Key, Version, Arc<T>);
 

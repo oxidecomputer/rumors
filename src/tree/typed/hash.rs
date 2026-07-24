@@ -5,14 +5,15 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Width in bytes of the tree's Merkle hashes.
 ///
-/// The subtree-comparison digests gossip exchanges, surfaced as
+/// The subtree-comparison digests that gossip exchanges, surfaced as
 /// [`Snapshot::hash`](crate::Snapshot::hash). Half the width of a
 /// [`Key`](crate::Key).
 pub const MERKLE_HASH_LEN: usize = 16;
 
-/// 16-byte Merkle hash newtype. Wraps a fixed-size byte array so borsh can be
-/// derived without a length prefix and so the rest of the crate does not depend
-/// on the underlying hash crate.
+/// A 16-byte Merkle hash.
+///
+/// A newtype over a fixed-size byte array, so borsh can be derived without a
+/// length prefix.
 ///
 /// The underlying primitive is [`blake3`], truncated to its leading
 /// [`MERKLE_HASH_LEN`] bytes — BLAKE3 is an extendable-output function, so

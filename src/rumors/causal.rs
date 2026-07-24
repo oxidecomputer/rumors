@@ -97,9 +97,9 @@ impl<T> CausalMessages<T> {
     /// Pop the causally least staged message, parking it in `current` so
     /// its borrows survive the return.
     ///
-    /// Lets the resume point catch up
-    /// when this empties the backlog (the popped message is in the caller's
-    /// hands by the time the checkpoint can be read).
+    /// Lets the resume point catch up when this empties the backlog (the
+    /// popped message is in the caller's hands by the time the checkpoint
+    /// can be read).
     fn pop(&mut self) -> Option<(Key, &Version, &Arc<T>)> {
         let ((_, key), leaf) = self.staged.pop_first()?;
         if self.staged.is_empty() {
@@ -154,6 +154,10 @@ impl<T> CausalMessages<T> {
     ///
     /// It is guaranteed that resuming from this [`Version`] will never skip
     /// messages; however, it may replay an arbitrary number of them.
+    /// Folding the yielded versions yourself is not a substitute: the
+    /// causal order is partial, not total, so "the last version I saw" is
+    /// not well-defined, and such a fold is not a causally closed
+    /// boundary.
     ///
     /// After the observer ends (`None`), this is the final [`Version`] of the
     /// [`Rumors`](crate::Rumors).
@@ -166,9 +170,8 @@ impl<T> CausalMessages<T> {
     /// Advance to the next message in causal order, lending its version and
     /// value until the following call.
     ///
-    /// Awaits quietly while the set is
-    /// unchanged; resolves [`None`] once no further change is possible and
-    /// the backlog has drained.
+    /// Awaits quietly while the set is unchanged; resolves [`None`] once no
+    /// further change is possible and the backlog has drained.
     pub async fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
@@ -198,7 +201,7 @@ impl<T> CausalMessages<T> {
 /// from.
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an
-/// owned future (see [`UnorderedMessages`](super::UnorderedMessages)' `channel` field).
+/// owned future, exactly as in [`UnorderedMessages`](super::UnorderedMessages).
 impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
     type Item = (Key, Version, Arc<T>);
 

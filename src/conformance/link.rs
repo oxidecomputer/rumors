@@ -239,19 +239,17 @@ pub async fn check_control<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     join(ping, pong).await;
 }
 
-/// The control stream's two directions are independent full-duplex pipes:
-/// both sides write a buffer-exceeding payload concurrently, and each
-/// side's read drains the peer's payload while its own write is still in
-/// flight.
+/// The control stream's two directions are independent full-duplex pipes.
 ///
-/// This is the control-duplex clause. The protocol's largest control
-/// frames (the greeting, the epilogue) are exchanged as concurrent
+/// This validates the control-duplex clause. The protocol exchanges its
+/// largest control frames (the greeting, the epilogue) as concurrent
 /// write-and-read on both ends because such a frame may exceed any
-/// buffer; a carrier that couples the directions — a half-duplex turn
+/// buffer, so a carrier that couples the directions — a half-duplex turn
 /// protocol, a shared lock across read and write, a read that waits for
-/// this side's own write to drain — wedges with both writers blocked and
-/// neither reader progressing, and fails here as a hang. Inherently
-/// bidirectional, so one pass probes both directions.
+/// this side's own write to drain — wedges with both writers blocked, and
+/// fails here as a hang. A pass proves independence only up to
+/// [`CONTROL_DUPLEX_FILL`] of hidden buffering (see the module docs).
+/// Inherently bidirectional, so one pass probes both directions.
 pub async fn check_control_duplex<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     a: Link<CRa, CWa, Ca, Aa>,
     b: Link<CRb, CWb, Cb, Ab>,
@@ -284,6 +282,11 @@ pub async fn check_control_duplex<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
 
 /// One side of [`check_control_duplex`]: write this side's fill while
 /// concurrently draining the peer's.
+///
+/// Both sides write a buffer-exceeding payload concurrently, and each
+/// side's read must drain the peer's payload while its own write is still
+/// in flight — the exact shape of the protocol's oversized control
+/// exchanges.
 async fn duplex_exchange<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     read: &mut R,
     write: &mut W,
@@ -370,22 +373,19 @@ async fn probe_stream<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A
     join(send, receive).await;
 }
 
-/// Streams are independent: with streams' receivers never draining, the
-/// rest of a full protocol complement still delivers and closes.
+/// Streams are independent: a stream whose receiver never drains blocks
+/// nothing but itself.
 ///
-/// This is the clause the deadlock-freedom argument rests on, probed in
-/// two shapes and both directions. The single-stalled shape opens one
-/// stream whose receiver never drains it past an identifying first byte,
-/// keeps writing into it for as long as the live complement runs, and
-/// requires every live stream to deliver and close meanwhile: a shared
-/// reader, a shared window, or head-of-line coupling anywhere in the
-/// implementation must reveal itself as a hang once the buffering
-/// concealing it fills. The pooled shape inverts the ratio — every stream
-/// but one stalled under sustained pressure, the last required to flow —
-/// so a budget pooled across streams (connection-level flow control)
-/// sized below the buffering it must cover exhausts and starves the live
-/// stream. Streams are classified by their first byte, never by accept
-/// order — the contract lets an acceptor yield them in any order.
+/// This validates the independence clause — the one the deadlock-freedom
+/// argument rests on — in two shapes, each probed in both directions: one
+/// stalled stream beside a live complement that must all deliver and
+/// close, and the inversion (every stream but one stalled), which
+/// exhausts a budget pooled across streams — connection-level flow
+/// control — sized below the buffering it must cover. Coupling anywhere —
+/// a shared reader, a shared window, head-of-line blocking, an
+/// under-sized pool — reveals itself as a hang once the buffering
+/// concealing it fills; coupling hidden behind more buffering than the
+/// probes write passes anyway (see the module docs).
 pub async fn check_independence<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     a: Link<CRa, CWa, Ca, Aa>,
     b: Link<CRb, CWb, Cb, Ab>,
@@ -409,6 +409,13 @@ pub async fn check_independence<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
 
 /// One direction of [`check_independence`]: a stalled stream under
 /// sustained writes beside a live complement.
+///
+/// The stalled stream is held unread past an identifying first byte while
+/// its writer keeps pressuring it for as long as the live complement
+/// runs, so per-stream buffering that hides cross-stream coupling fills
+/// while the probe is still watching. Streams are classified by their
+/// first byte, never by accept order: the contract lets an acceptor yield
+/// them in any order.
 async fn probe_independence<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
     let send = async {
         // The stalled stream: tagged so the receiver can hold it unread
@@ -644,17 +651,15 @@ async fn yield_once() {
 
 /// The transport admits a full complement of concurrently open streams.
 ///
-/// All [`STREAM_COUNT`] are held open at once — every write and read half
-/// alive — while the last-opened stream's bytes flow to completion past
-/// its still-open, backpressured elders. This is the concurrency clause's
-/// quantitative bound. The opens are
-/// sequential with every earlier stream still open, so a supply that caps
-/// concurrent streams below the complement — or serializes an open behind
-/// an earlier stream's progress or closure — hangs at the capped open. The
-/// drain then reads the last-opened stream to end-of-stream first, while
-/// every other writer sits mid-write on an undrained stream: progress on
-/// one stream beside backpressured siblings is what the session's lazily
-/// held reply streams require. Probed in both directions.
+/// This validates the concurrency clause's quantitative bound: all
+/// [`STREAM_COUNT`] streams held open at once, with the last-opened
+/// stream's bytes flowing to completion past its still-open,
+/// backpressured elders — the progress-beside-siblings the session's
+/// lazily held reply streams require. A supply that caps concurrent
+/// streams below the complement, or serializes an open behind an earlier
+/// stream's progress or closure, fails here as a hang at the capped open;
+/// sibling coupling hangs the youngest stream's drain. Probed in both
+/// directions.
 pub async fn check_concurrency<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     a: Link<CRa, CWa, Ca, Aa>,
     b: Link<CRb, CWb, Cb, Ab>,
@@ -676,6 +681,11 @@ pub async fn check_concurrency<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
 
 /// One direction of [`check_concurrency`]: the full complement held open at
 /// once.
+///
+/// Opens run sequentially with every earlier stream still open — every
+/// write and read half alive — then the drain reads the last-opened
+/// stream to end-of-stream first, while every elder writer sits mid-write
+/// on an undrained stream.
 async fn probe_concurrency<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
     let send = async {
         // Open the whole complement with every earlier stream still open:
@@ -749,14 +759,14 @@ async fn probe_concurrency<C: Connector, A: Acceptor>(connector: &C, acceptor: &
 /// A pending `accept` dropped mid-wait does not lose a stream: every
 /// delivery still surfaces from later `accept` calls.
 ///
-/// The probe puts deliveries genuinely in flight — the sender connects
-/// every stream and signals the receiving half before writing — then
-/// collects the first delivery with a real accept, so the poll-once-drop
-/// cycles that follow run inside the observed delivery window on any
-/// transport rather than racing ahead of arrival. An acceptor that
-/// internally dequeues a delivery and then awaits before returning it
-/// drops the dequeued stream with the cancelled future and fails here as
-/// a hang on the collecting accept. Probed in both directions.
+/// This validates the cancellation clause with the shape session teardown
+/// produces: accept futures polled once and dropped while deliveries are
+/// in flight. An acceptor that internally dequeues a delivery and then
+/// awaits before returning it drops the dequeued stream with the
+/// cancelled future, and fails here as a hang on a collecting accept. A
+/// pass catches such an acceptor only when its internal dequeue is
+/// reachable within the probed window (see the module docs). Probed in
+/// both directions.
 pub async fn check_accept_cancellation<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     a: Link<CRa, CWa, Ca, Aa>,
     b: Link<CRb, CWb, Cb, Ab>,
@@ -778,6 +788,12 @@ pub async fn check_accept_cancellation<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
 
 /// One direction of [`check_accept_cancellation`]: dropped accepts around
 /// in-flight deliveries.
+///
+/// The sender connects every stream and signals the receiving half before
+/// writing, and the receiver collects the first delivery with a real
+/// accept, so the poll-once-drop cycles that follow run inside the
+/// observed delivery window on any transport rather than racing ahead of
+/// arrival.
 async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
     {
         // Poll a pending accept once, then drop it before anything arrives —
@@ -942,13 +958,13 @@ where
     .into_link()
 }
 
-/// Full protocol sessions run over the pair: a bootstrap, then divergent
-/// gossip wide enough to open data streams in each direction, then a
-/// convergence-check session, all serialized on the one link pair.
+/// Full protocol sessions converge over the pair.
 ///
-/// This is the end-to-end check: if the implementation violates a clause in
-/// a way the focused probes miss, reconciliation deadlocks (hangs) or
-/// fails here. The two replicas must converge on the *same set* — asserted
+/// The end-to-end check: a bootstrap, then divergent gossip wide enough
+/// to open data streams in each direction, then a convergence-check
+/// session, all serialized on the one link pair. A clause violated in a
+/// way the focused probes miss makes reconciliation deadlock (a hang) or
+/// fail here. The two replicas must converge on the *same set* — asserted
 /// by snapshot equality, not merely equal sizes — and each direction must
 /// have opened data streams in-session, so the check cannot silently
 /// degenerate into control-stream-only traffic.

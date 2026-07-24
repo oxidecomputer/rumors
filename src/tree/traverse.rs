@@ -1,9 +1,8 @@
-//! A collection of traversals over the typed tree structure, each of which is
-//! inductive over the height.
+//! Traversals over the typed tree structure, each inductive over the height.
 //!
-//! Traversals are exposed as free functions to avoid the necessity of the
-//! caller importing a trait, even though under the hood they are implemented
-//! using polymorphic recursion through traits.
+//! Each traversal is exposed as a free function so callers need not import a
+//! trait, though under the hood all are implemented by polymorphic recursion
+//! through traits.
 
 use super::*;
 

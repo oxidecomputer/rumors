@@ -4,17 +4,15 @@
 //! enough that any layout query that traverses it inline blows past the
 //! default `recursion_limit = 128` and forces downstream crates to bump
 //! their own limit. We defuse that by type-erasing inside the protocol and
-//! `tree::traverse::act`, which leaves
-//! the public futures (`Rumors::gossip`, `Peer::retire`,
-//! `Bootstrap::join`) holding nothing more than a `Pin<Box<dyn Future>>`
-//! plus a few locals.
+//! `tree::traverse::act`, which leaves the public futures (`Rumors::gossip`,
+//! `Peer::retire`, `Bootstrap::join`) holding nothing more than a
+//! `Pin<Box<dyn Future>>` plus a few locals.
 //!
-//! This test pins down that arrangement: if someone reintroduces the deep
-//! chain inline (e.g. by removing the `Box::pin` indirection or by adding
-//! a new public future that drives the protocol directly), the future
-//! size jumps from a couple hundred bytes to tens of KiB and trips the
-//! budget — alerting us before downstream crates discover the
-//! `recursion_limit` regression.
+//! If the deep chain is reintroduced inline (say, the `Box::pin` indirection
+//! removed, or a new public future driving the protocol directly), the
+//! future size jumps from a couple hundred bytes to tens of KiB and trips
+//! the budget — before downstream crates discover the `recursion_limit`
+//! regression.
 //!
 //! The budget is enforced only in release builds: debug layouts carry
 //! additional state, and they are not what users ship.

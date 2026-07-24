@@ -5,7 +5,7 @@
 //! continuing or ending its reply, plus a bare empty-reply end and a bare
 //! stream-end control — and 17 streams. `state * 17 + stream` occupies values 0
 //! through 169; the other 86 byte values are reserved. Speaker and stream then
-//! select a phase-specific subset: the initiator admits 161 placements and the
+//! select a phase-specific subset: the initiator admits 162 placements and the
 //! responder 163, rejecting the rest before their frame body is read.
 //!
 //! Reply and stream lifetimes are deliberately orthogonal. Every nonempty

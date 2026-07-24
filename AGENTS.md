@@ -23,10 +23,10 @@ Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
   leaves, the memo/version-bounds design): module docs in `src/tree.rs` and
   `src/tree/typed/`.
 - The mirror protocols: module docs in `src/tree/mirror/` — `alternating/`
-  (the materialized implementation, the streaming protocol's behavioral
-  oracle) and `streaming/` (fixed-memory streams; its module doc maps the
-  layers: backend materiality, type-level phase schedule, session walks,
-  the conversion boundary at the leaves).
+  (V1, full-level alternation; the streaming protocol's behavioral oracle)
+  and `streaming/` (V2, fixed-memory; its module doc maps the layers:
+  backend materiality, the type-level phase schedule, the walk and the
+  proxy, the window, the wire vocabulary, the leaf conversion boundary).
 - ITC semantics (`Party`, `Version`, `Clock`, the Law of Disjointness):
   `before`'s crate docs and `crates/before/CLAUDE.md`.
 

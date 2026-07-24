@@ -22,7 +22,8 @@
 //!    the snapshot-and-fork critical section under concurrent sends from
 //!    sibling handles (see [`run_boot`]); a failed attempt may orphan the
 //!    served fork's id-region — counted, see below. Each peer also carries
-//!    one observer of each kind ([`Messages`](rumors::Messages) and
+//!    one observer of each kind
+//!    ([`UnorderedMessages`](rumors::UnorderedMessages) and
 //!    [`CausalMessages`](rumors::CausalMessages)), drained concurrently
 //!    with the chaos and asserting the delivery contracts inline — no key
 //!    twice, no causal inversion, and full coverage of the peer's live set
@@ -80,9 +81,10 @@ pub struct Plan {
     /// Messages inserted at the seed before any fork.
     pub seed_messages: Vec<u64>,
     /// Extra joiners bootstrapped *during* the chaos phase, one per entry;
-    /// the entry is the fault plan for the *bootstrapping* endpoint. Even
-    /// a clean entry matters: it serves the party-fork critical section
-    /// while sibling handles are mid-send (see [`run_boot`]).
+    /// the entry is the fault plan for the *bootstrapping* endpoint.
+    ///
+    /// Even a clean entry matters: it serves the party-fork critical
+    /// section while sibling handles are mid-send (see [`run_boot`]).
     pub faulty_boots: Vec<FaultPlan>,
     /// Per-peer scripts (length `n_peers`) of local sends and redactions,
     /// run concurrently with every session.
@@ -135,10 +137,11 @@ pub struct SimOutcome {
 
 // ---- strategies ------------------------------------------------------------
 
-/// Strategy for one endpoint's fault plan. With `faults` disabled it is
-/// always clean, so a whole plan generated under `false` is loss-free by
-/// construction; enabled, each direction independently stays clean or cuts
-/// at an arbitrary offset.
+/// Strategy for one endpoint's fault plan.
+///
+/// With `faults` disabled it is always clean, so a whole plan generated
+/// under `false` is loss-free by construction; enabled, each direction
+/// independently stays clean or cuts at an arbitrary offset.
 pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
     if !faults {
         return Just(FaultPlan::NONE).boxed();
@@ -180,10 +183,12 @@ fn arb_retire(n: usize, faults: bool) -> impl Strategy<Value = RetireOp> {
     })
 }
 
-/// A whole plan. The leading `bool` decides fault injection for the entire
-/// plan: half of all generated plans are loss-free by construction, so the
-/// sharp seed-reconstitution invariant is exercised as often as the
-/// disruption paths.
+/// A whole plan.
+///
+/// The leading `bool` decides fault injection for the entire plan: half of
+/// all generated plans are loss-free by construction, so the sharp
+/// seed-reconstitution invariant is exercised as often as the disruption
+/// paths.
 pub fn arb_plan() -> impl Strategy<Value = Plan> {
     (any::<bool>(), 2usize..=5).prop_flat_map(|(faults, n)| {
         (
@@ -208,11 +213,12 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
 
 // ---- honesty of failures ---------------------------------------------------
 
-/// Every error an honest, single-universe simulation can surface is an
-/// injected I/O fault that *truncated* a frame. Anything else —
-/// [`Error::PartyOverlap`] above all, network/protocol mismatches, or a frame
-/// that arrived whole but failed to parse — is an invariant violation, not a
-/// disruption, and fails the test on the spot.
+/// Assert `e` is an injected I/O fault that *truncated* a frame: the only
+/// error an honest, single-universe simulation can surface.
+///
+/// Anything else — [`Error::PartyOverlap`] above all, network/protocol
+/// mismatches, or a frame that arrived whole but failed to parse — is an
+/// invariant violation, not a disruption, and fails the test on the spot.
 ///
 /// A wire cut stops the byte stream mid-frame, so a faulted read surfaces as an
 /// I/O error whose kind is `UnexpectedEof` (or a write/broken-pipe variant) —
@@ -297,9 +303,10 @@ pub fn assert_honest_gossip(out: &Result<(), Error>) {
 // ---- the engine ------------------------------------------------------------
 
 /// Run one gossip session between two handles over a fault-injected
-/// in-memory wire. Each side's halves are owned by its own task, so the
-/// failing side's drop surfaces as EOF to its counterparty instead of
-/// wedging the session.
+/// in-memory wire.
+///
+/// Each side's halves are owned by its own task, so the failing side's
+/// drop surfaces as EOF to its counterparty instead of wedging the session.
 async fn run_session(a: Rumors<u64>, b: Rumors<u64>, fault_a: FaultPlan, fault_b: FaultPlan) {
     let (link_a, link_b) = rumors::link::memory();
     let task_a = tokio::spawn(async move {

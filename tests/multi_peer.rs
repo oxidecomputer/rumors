@@ -30,11 +30,12 @@ fn schedule_string() -> impl Strategy<Value = Schedule<String>> {
 }
 
 proptest! {
-    /// After the final quiesce phase, every peer's live content (per
-    /// `readout`) matches every other's. Compared via `readout` — the
-    /// `(Key, value)` lens the oracle checks also use — so the
-    /// assertion is directly about live content, independent of the
-    /// per-peer party state.
+    /// After the final quiesce phase, every peer's live content matches
+    /// every other's.
+    ///
+    /// Compared via `readout` — the `(Key, value)` lens the oracle checks
+    /// also use — so the assertion is about live content alone, independent
+    /// of the per-peer party state.
     #[test]
     fn all_peers_converge_after_quiesce(
         schedule in schedule_u64(),

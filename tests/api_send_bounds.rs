@@ -4,9 +4,9 @@
 //!
 //! The motivating use case is `tokio::spawn(...)` on a multi-threaded
 //! runtime, which requires its argument to be `Send`. Each test compiles
-//! iff the relevant future (or type) is `Send`; the runtime body just
-//! drops the future without awaiting. If any of the async methods
-//! regresses to a `!Send` return, this crate fails to compile.
+//! iff the relevant future (or type) is `Send` — the body just drops the
+//! future without awaiting — so a regression to a `!Send` return fails
+//! this crate's compilation.
 
 use futures::StreamExt;
 use rumors::{Peer, Rumors, Snapshot, UnorderedMessages};
@@ -22,15 +22,16 @@ fn require_send_sync<T: Send + Sync>() {}
 fn require_send_type<T: Send>() {}
 
 /// The handle types are `Send + Sync` (and the exclusively-driven
-/// `Messages` observer is `Send`), so handles can be shared and moved
+/// `UnorderedMessages` observer is `Send`), so handles can be shared and moved
 /// across tasks.
 #[test]
 fn handle_types_are_send_sync() {
     require_send_sync::<Peer<String>>();
     require_send_sync::<Rumors<String>>();
     require_send_sync::<Snapshot<String>>();
-    // `Messages` is an exclusively-driven observer: it must move into a
-    // spawned task (`Send`), but `&Messages` has no concurrent use, so
+    // `UnorderedMessages` is an exclusively-driven observer: it must move
+    // into a spawned task (`Send`), but `&UnorderedMessages` has no
+    // concurrent use, so
     // `Sync` is not part of its contract (the materialized quiet-period
     // wait future is `Send`-only).
     require_send_type::<UnorderedMessages<String>>();

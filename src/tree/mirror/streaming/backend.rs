@@ -1,3 +1,23 @@
+//! The materiality boundary: what a session's node *is* and what it costs.
+//!
+//! A [`Backend`] decides what a tree node physically is — a value carried
+//! in the node's handle, or a reference into storage the backend owns —
+//! and the streaming protocol is generic over that decision: an
+//! implementation may hold its tree entirely in memory or in a storage
+//! engine of its own, and the session schedule is identical either way.
+//! [`Local`] is the reference implementation: its nodes are handles into
+//! the crate's own in-memory tree, resident regardless of the session, so
+//! custody costs it nothing new.
+//!
+//! Materiality has a price only the backend can state:
+//! [`Backend::node_bytes`] declares what one node handle keeps resident,
+//! and the session window prices every in-flight reference through it.
+//! The obligation is sharp because its failure mode is the odd one out:
+//! everywhere else in the budget derivation a mis-estimate costs latency,
+//! while an underpriced node breaches the *memory* envelope instead. The
+//! backend conformance suite ([`crate::conformance::backend`]) is how an
+//! implementation proves its account.
+
 use std::pin::Pin;
 
 use futures::{Stream, stream};
@@ -37,13 +57,14 @@ where
     ///
     /// This prices the session window's in-flight references and the
     /// decode fan's buffered leaves
-    /// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)):
+    /// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)).
     /// [`Local`]'s nodes are handles into a tree that is resident
     /// regardless, so its price is one pointer at every argument; a
     /// backend without an always-resident tree must charge everything its
     /// `Node` values own — at minimum the hash, the child table, and the
-    /// two version bounds its [`Node`] accessors return by reference. A
-    /// leaf is priced at `children = 0`: what its handle keeps resident
+    /// two version bounds its [`Node`] accessors return by reference.
+    ///
+    /// A leaf is priced at `children = 0`: what its handle keeps resident
     /// after [`Leaf::leaf`] has had its chance to persist the payload.
     /// Payload bytes still in flight inside one wire message are priced
     /// by [`target_message_size`](crate::Peer::target_message_size), not
@@ -64,12 +85,12 @@ where
     /// The group is the parent's entire child set, in strictly increasing radix
     /// order. A `None` entry is an explicit child *deletion*: the child does
     /// not join the parent, and the backend may drop whatever it stores beneath
-    /// that radix. A `None` return means no child survived, should propagate as
-    /// a `None` entry one level up, cascading deletion to parents whose entire
-    /// child set was deleted. The group may also be empty outright — a scope
-    /// that resolved to nothing at all, such as the pruned-to-nothing reply to
-    /// a request — and resolves to `None` the same way. Given at least one
-    /// real child, construction should always yield a parent.
+    /// that radix. A `None` return means no child survived and should propagate
+    /// as a `None` entry one level up, cascading deletion to parents whose
+    /// entire child set was deleted. The group may also be empty outright — a
+    /// scope that resolved to nothing at all, such as the pruned-to-nothing
+    /// reply to a request — and resolves to `None` the same way. Given at least
+    /// one real child, construction should always yield a parent.
     fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
@@ -168,8 +189,9 @@ pub trait Node<T: Send + Sync + 'static> {
     /// that carries it resizes the aggregate *down* with no separate
     /// invalidation. Interior bounds must be covered: a ceiling joins
     /// every leaf version below it, and a join of many small concurrent
-    /// stamps can encode several times larger than any one of them. The
-    /// root's value is the version-size bound the session greeting
+    /// stamps can encode several times larger than any one of them.
+    ///
+    /// The root's value is the version-size bound the session greeting
     /// carries, which the memory budget prices nodes with — an inflated
     /// value costs latency, a deflated one breaches the memory envelope.
     fn version_bytes(&self) -> usize;

@@ -5,6 +5,10 @@
 //!
 //! # The session dataflow
 //!
+//! Two terms carry everything below. A *scope* is the subtree one question
+//! names — a prefix and whatever both sides hold under it; a *stage* is one
+//! height's pairing loop over such scopes.
+//!
 //! Each stage runs a loop pairing the counterparty's reply messages, in order,
 //! with the stage's queue of pending [`Query`]s — and two [`Work::assemble`]
 //! instances recombining what the walk resolves. Three item kinds connect
@@ -100,7 +104,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf, Node, Root,
         materialized::{unknown::Unknown, work::Work},
-        message::{Handshake, Reaction, Reply},
+        message::{Greeting, Reaction, Reply},
         protocol::{self, BoxResponses, Requests},
         remote::DEFAULT_TARGET_MESSAGE_SIZE,
         window::WindowConfig,
@@ -213,6 +217,7 @@ where
     resolved: Vec<(u8, Resolve<B, T, H>)>,
 }
 
+/// One child's slot in a [`Resolution`].
 pub enum Resolve<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
     /// Resolved at the current level: kept, absorbed, or pruned (`None` = gone;
     /// flows into `Backend::parent` as its deletion vocabulary).
@@ -331,6 +336,8 @@ pub struct Completing<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T, Start> {
+    /// Construct the session in its opening phase, at the default window
+    /// and message-size target.
     pub fn start(backend: B, root: Root<B, T>) -> Self {
         Self {
             backend,
@@ -370,7 +377,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, V: Send> protoco
 ///
 /// Runs unconditionally at greeting time — before versions compare — because
 /// the listing must ride the greeting regardless of how the session resolves
-/// (see [`Handshake`] for the trade). The fan itself is retained through
+/// (see [`Greeting`] for the trade). The fan itself is retained through
 /// [`Connecting`]/[`Connected`] so the descent never re-asks the backend for
 /// the root's children.
 pub(crate) async fn greeting_fan<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>(
@@ -404,13 +411,13 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
 {
     type Next = Handshaking<B, T, Connecting<B, T>>;
 
-    async fn connect(self) -> Result<(Handshake, Self::Next), Self::Error> {
+    async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
 
         let fan = greeting_fan(&self.backend, self.root.root.clone())
             .await
             .map_err(Error::Backend)?;
-        let handshake = Handshake {
+        let greeting = Greeting {
             version: our_version.clone(),
             // The greeting's sizes come from the root's own aggregates,
             // so they cannot drift from the tree they describe.
@@ -426,7 +433,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
             window: self.window,
             target_message_size: self.target_message_size,
         };
-        Ok((handshake, next))
+        Ok((greeting, next))
     }
 }
 
@@ -435,7 +442,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
 {
     type Next = Handshaking<B, T, Connected<B, T>>;
 
-    async fn complete_connect(self, theirs: Handshake) -> Result<Self::Next, Self::Error> {
+    async fn complete_connect(self, theirs: Greeting) -> Result<Self::Next, Self::Error> {
         Ok(Handshaking {
             backend: self.backend,
             versions: Connected {
@@ -458,13 +465,13 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
 {
     type Next = Handshaking<B, T, Connected<B, T>>;
 
-    async fn accept(self, request: Handshake) -> Result<(Handshake, Self::Next), Self::Error> {
+    async fn accept(self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
 
         let fan = greeting_fan(&self.backend, self.root.root.clone())
             .await
             .map_err(Error::Backend)?;
-        let handshake = Handshake {
+        let greeting = Greeting {
             version: our_version.clone(),
             // The greeting's sizes come from the root's own aggregates,
             // so they cannot drift from the tree they describe.
@@ -487,7 +494,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
             window: self.window,
             target_message_size: self.target_message_size,
         };
-        Ok((handshake, next))
+        Ok((greeting, next))
     }
 }
 
@@ -744,7 +751,7 @@ where
             return violation(Violation::UnansweredQuery);
         };
 
-        // The last radix of the prefix is the one we expect should be supplied.
+        // The last radix of the prefix is the one we expect to be supplied.
         let (_, expected) = prefix.pop();
 
         // Only if we received exactly that radix paired with a leaf, do we absorb it.

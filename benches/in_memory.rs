@@ -7,10 +7,9 @@
 //! measurement reflects the tree / clock / hashing work rather than the cost
 //! of serializing a payload.
 //!
-//! The handles here are the asynchronous [`rumors::Rumors`] and its
-//! [`Messages`] observer: every operation measured is synchronous on that
-//! surface (batches commit on drop; observer drains are polled without an
-//! executor via `now_or_never`), so no runtime is involved.
+//! The handles here are the asynchronous [`rumors::Rumors`] and its message
+//! observers: every operation measured is synchronous on that surface
+//! (batches commit on drop), so no runtime is involved.
 //!
 //! # Fixture discipline
 //!
@@ -30,8 +29,8 @@
 //! - `range_delta`: iterate the causal delta of size D above a checkpoint in a
 //!   size-N set — the version-bounds pruning claim: cost should track D
 //!   plus the pruning frontier, not N.
-//! - `observer_replay`: drain a fresh [`Messages`] observer over a size-N
-//!   set (the genesis-replay pass every new observer pays).
+//! - `observer_replay`: drain a fresh [`UnorderedMessages`] observer over a
+//!   size-N set (the genesis-replay pass every new observer pays).
 //! - `observer_delta`: one observer pass over a size-D delta in a size-N
 //!   set (the steady-state cost of an up-to-date observer catching up).
 //! - `causal_replay` / `causal_delta`: the same two sweeps through a

@@ -19,20 +19,9 @@ use super::{Children, Node};
 ///
 /// On the partially ordered [`Version`]s, a range denotes a *difference of
 /// causal down-sets*: keep the leaves contained in the end bound, subtract
-/// the leaves contained in the start bound. Per leaf version `v`:
-///
-/// - start [`Unbounded`](Bound::Unbounded): subtract nothing;
-///   [`Excluded(s)`](Bound::Excluded): subtract `v <= s`;
-///   [`Included(s)`](Bound::Included): subtract `v < s`, so `s` itself
-///   survives.
-/// - end [`Unbounded`](Bound::Unbounded): keep everything;
-///   [`Included(e)`](Bound::Included): keep `v <= e`;
-///   [`Excluded(e)`](Bound::Excluded): keep `v < e`.
-///
-/// Note the asymmetry inherent to the partial order: a start bound of
-/// either kind keeps versions *concurrent* to it (subtraction removes only
-/// the bound's causal past), while an end bound of either kind drops them
-/// (keeping demands containment).
+/// the leaves contained in the start bound. [`Range`] states the per-bound
+/// semantics; the checks below resolve them against a subtree's memoized
+/// version bounds.
 struct Bounds<'a> {
     start: Bound<&'a Version>,
     end: Bound<&'a Version>,
@@ -113,9 +102,10 @@ struct Frame<'a, T> {
 /// depth-first walk over a subtree's live leaves, filtered by a causal
 /// [`RangeBounds<Version>`] range.
 ///
-/// See [`Bounds`] for the semantics; [`RangeFull`] is the unfiltered walk and
-/// never touches a version. The walk yields each leaf's reconstructed 32-byte
-/// path [`Key`], its [`Version`], and a borrowed handle to its [`Message`].
+/// See [`Range`] for the per-bound semantics; [`RangeFull`] is the unfiltered
+/// walk and never touches a version. The walk yields each leaf's reconstructed
+/// 32-byte path [`Key`], its [`Version`], and a borrowed handle to its
+/// [`Message`].
 ///
 /// The walk is lazy: a single step descends only far enough to reach the
 /// next leaf, so the first item is produced after walking one root-to-leaf
@@ -427,8 +417,10 @@ impl<'a, T, R: RangeBounds<Version>> DoubleEndedIterator for Range<'a, T, R> {
 /// only the current path's ancestors; everything already walked past is
 /// released.
 ///
-/// Same range semantics and prune/promote logic as the borrowing walk (see
-/// [`Bounds`]); forward-only, since its consumers are subscription drains.
+/// Same range semantics as the borrowing walk (see [`Range`] for the
+/// per-bound rules) and the same prune/promote logic ([`Bounds::prunes`] /
+/// [`Bounds::promotes`]); forward-only, since its consumers are subscription
+/// drains.
 /// Yields each passing leaf as an owned [`Leaf`] handle alongside its
 /// reconstructed [`Key`](crate::tree::key::Key), which is what lets a caller
 /// lend `&Version` / `&Arc<T>` out of a leaf it keeps.

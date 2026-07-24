@@ -1405,7 +1405,7 @@ Classification:
   nonempty-converged case pays at most one root fan of hashes
   (~4.3 KB) on a hop that exists anyway — versus a full one-way
   hop saved whenever there *is* divergence (the trade is
-  documented on `streaming::message::Handshake`). The hop table
+  documented on `streaming::message::Greeting`). The hop table
   above reads one lower from hop 3 on: the responder's top-level
   reply now lands at hop 3 and **hops = 2 + L + 1**. The
   hop-trace instrument pins the drop — insertions and redactions

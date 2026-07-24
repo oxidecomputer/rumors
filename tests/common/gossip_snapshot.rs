@@ -2,31 +2,30 @@
 //! session between two peers.
 //!
 //! Where [`super::wire`] only checks that the two peers *converge*, this
-//! helper records the *entire conversation*: every byte each peer puts on the
-//! wire. V2 traffic rides a [`rumors::Link`], which keeps logical streams
+//! helper records the *entire conversation*: every byte each peer puts on
+//! the wire. Re-accept a snapshot only after a deliberate protocol change.
+//!
+//! # What a capture pins, and what it discards
+//!
+//! V2 traffic rides a [`rumors::Link`], which keeps logical streams
 //! physically separate, so a capture is already demultiplexed: the control
-//! stream's exact bytes plus each opened data stream's exact bytes. Ordering
-//! within each stream is exact, while incidental scheduling between
-//! independent streams is discarded (the renderer sorts stream groups by
-//! their labeled index). Representative V1 tests retain the control stream's
-//! strict send/receive timeline. Re-accept a snapshot only after a
-//! deliberate protocol change.
+//! stream's exact bytes plus each opened data stream's exact bytes. Two
+//! kinds of incidental nondeterminism are erased so snapshots stay stable:
 //!
-//! # Robustness to read/write framing
+//! - **Read/write framing**: neither representation retains incidental
+//!   boundaries between individual `poll_write` or `poll_read` calls — each V2
+//!   capture concatenates every byte sent per stream before parsing, and
+//!   V1 collapses consecutive events in the same direction.
+//! - **Cross-stream scheduling**: independent streams may be polled in
+//!   different orders, so the V2 renderer keys stream groups by their
+//!   labeled index — the protocol's deterministic observable ordering —
+//!   while preserving every exact byte and the complete order within each
+//!   group.
 //!
-//! Each capture concatenates every byte sent per stream before parsing, so
-//! neither representation retains incidental boundaries between individual
-//! `poll_write` or `poll_read` calls. V1 collapses consecutive events in the
-//! same direction.
-//!
-//! # Determinism
-//!
-//! V2's independent streams may be scheduled in different orders, so its
-//! renderer keys stream groups by stream index while preserving every exact
-//! byte and the complete order within each group. V1 is strictly
-//! alternating, and its two peers are driven by `tokio::join!` on a
-//! deterministic executor so its direction-switching timeline is
-//! reproducible.
+//! Representative V1 tests instead retain the control stream's strict
+//! send/receive timeline: V1 is strictly alternating, and its two peers are
+//! driven by `tokio::join!` on a deterministic executor, so the
+//! direction-switching timeline is reproducible.
 //!
 //! # Interposition
 //!
@@ -418,10 +417,11 @@ fn received(peer: &str, events: &[Event]) -> Vec<u8> {
         .collect()
 }
 
-/// Build one party's transcript as a list of text lines: a column header and
-/// rule, then one stanza per direction-run. Consecutive same-direction events
-/// are coalesced into a single block before rendering, so buffer-level chunk
-/// boundaries leave no trace.
+/// Build one party's transcript as a list of text lines: a column header
+/// and rule, then one stanza per direction-run.
+///
+/// Consecutive same-direction events are coalesced into a single block
+/// before rendering, so buffer-level chunk boundaries leave no trace.
 fn transcript(peer: &str, events: &[Event]) -> Vec<String> {
     // Coalesce consecutive same-`Op` events for this party into runs.
     let mut runs: Vec<(Op, Vec<u8>)> = Vec::new();

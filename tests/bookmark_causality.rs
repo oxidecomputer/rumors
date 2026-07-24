@@ -89,14 +89,13 @@ const MAX_HEAL_ROUNDS_PER_PEER: usize = 16;
 /// One emitted message: the network it entered, its real-time emission order,
 /// and the event [`Version`] stamped on its leaf.
 ///
-/// The [`Version`] alone is the whole identifier we guard. Within a single
-/// network every party is a fork of one seed, so all versions are causally
-/// comparable, and two *distinct* emissions are either ordered (one truly
-/// after the other) or concurrent ([`None`]). A later emission can therefore be
-/// `<=` an earlier one only by rolling backwards over a version the network
-/// already durably held — exactly a recycle. (The emitting party's id-region is
-/// deliberately *not* recorded: it would only ever rule out collisions the
-/// version order already proves impossible.)
+/// The [`Version`] alone is the whole identifier we guard: within one network
+/// all versions are causally comparable or concurrent (every party forks one
+/// seed; concurrent pairs compare [`None`]), so a later emission can be `<=`
+/// an earlier one only by rolling backwards over a version the network
+/// already durably held — exactly a recycle. The emitting party's id-region
+/// is deliberately *not* recorded: as the module docs argue, it would only
+/// rule out collisions the version order already forbids.
 struct Emission {
     network: Network,
     seq: u64,
@@ -107,12 +106,11 @@ struct Emission {
 /// persisted by its emitter's bookmark *or* propagated to another peer —
 /// grouped by network and the judge of the causality property.
 ///
-/// A purely local send that is lost to a crash before it is ever persisted or
-/// reaches another peer never enters here: the network never knew it, so reusing
-/// its version is not a recycle. Emissions are held *pending* on their node
-/// ([`Node::pending`]) until [`secure`] promotes them here.
+/// Emissions are held *pending* on their node ([`Node::pending`]) until
+/// [`secure`] promotes them here; a local send lost to a crash before being
+/// secured was never known to the network, so reusing its version is not a
+/// recycle.
 ///
-/// [`promote`]: EmissionLog::promote
 /// [`secure`]: World::secure
 #[derive(Default)]
 struct EmissionLog {

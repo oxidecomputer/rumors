@@ -30,7 +30,7 @@ impl Network {
     /// am bootstrapping" on the wire and suppresses the network-match check.
     pub(crate) const BOOTSTRAP: Network = Network([0u8; 16]);
 
-    /// Mint a fresh random identifier by drawing 16 bytes from `rng`.
+    /// Mints a fresh random identifier by drawing 16 bytes from `rng`.
     ///
     /// Re-draws in the (cryptographically impossible, `2^-128`) event of the
     /// all-zero value, keeping [`BOOTSTRAP`](Self::BOOTSTRAP) reserved as the
@@ -57,7 +57,7 @@ impl Network {
         self.0
     }
 
-    /// Reconstruct a network from 16 bytes read off the greeting frame.
+    /// Reconstructs a network from 16 bytes read off the greeting frame.
     pub(crate) fn from_bytes(bytes: [u8; 16]) -> Self {
         Network(bytes)
     }

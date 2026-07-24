@@ -79,12 +79,14 @@ where
     })
 }
 
-/// Fold raw entropy into a valid fork tree: peer `i` (for `i >= 1`) forks from
-/// `raw[i - 1] % i`, which is always an already-existing peer, so the whole
-/// fleet descends from peer 0 (the seed) and every pair of peers is disjoint.
-/// `fork_parents[0]` is a placeholder `0` (peer 0 is the seed itself). Because
-/// `raw` shrinks toward `0`, the topology shrinks toward a star rooted at
-/// peer 0 — the simplest reproduction of any failure.
+/// Fold raw entropy into a valid fork tree.
+///
+/// Peer `i` (for `i >= 1`) forks from `raw[i - 1] % i`, which is always an
+/// already-existing peer, so the whole fleet descends from peer 0 (the
+/// seed) and every pair of peers is disjoint. `fork_parents[0]` is a
+/// placeholder `0` (peer 0 is the seed itself). Because `raw` shrinks
+/// toward `0`, the topology shrinks toward a star rooted at peer 0 — the
+/// simplest reproduction of any failure.
 fn fork_tree(n_peers: usize, raw: &[usize]) -> Vec<usize> {
     (0..n_peers)
         .map(|i| if i == 0 { 0 } else { raw[i - 1] % i })

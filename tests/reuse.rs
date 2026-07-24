@@ -220,14 +220,13 @@ async fn epoch_wrap_keeps_the_pair_in_lockstep() {
 /// Negative control for `assert_control_drained`: the assert must catch the
 /// class it gates.
 ///
-/// A pre-drain bug leaves peer-sent control bytes the session never
-/// consumed — the hazard class reviews of the V2 second greeting frame had
-/// to rule out by hand-tracing every early-out path — buffered ahead of
-/// the next read. This test manufactures exactly that shape: a clean
-/// session runs to `Ok` on both sides, then one stray byte is planted on
-/// B's control write half (landing unread in front of A), and the drain
-/// assert must fail. If this test ever passes with the helper silent, the
-/// gate's drain coverage has rotted to a no-op.
+/// A pre-drain bug leaves peer-sent control bytes, never consumed by the
+/// session, buffered ahead of the next read — a class that otherwise only
+/// hand-tracing every early-out path catches. This test manufactures
+/// exactly that shape: a clean session runs to `Ok` on both sides, then
+/// one stray byte is planted on B's control write half (landing unread in
+/// front of A), and the drain assert must fail. If this test ever passes
+/// with the helper silent, the gate's drain coverage has rotted to a no-op.
 #[tokio::test(flavor = "current_thread")]
 async fn drain_assert_catches_a_planted_leftover_byte() {
     let (a, b) = pair().await;

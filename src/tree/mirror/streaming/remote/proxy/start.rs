@@ -14,7 +14,7 @@ use crate::{
             framing,
             streaming::{
                 Backend, Leaf,
-                message::{Handshake, initiates},
+                message::{Greeting, initiates},
                 protocol::{self, Accept, CompleteConnect, Connect},
                 remote::{
                     codec::{RunBudget, Speaker, validate_children},
@@ -84,7 +84,7 @@ pub struct Start;
 
 /// The peer greeting received before the local server produces its response.
 pub struct Connecting {
-    remote: Handshake,
+    remote: Greeting,
 }
 
 impl<B, T, R, W, C, A, V> protocol::Protocol for Handshaking<B, T, R, W, C, A, V>
@@ -114,9 +114,9 @@ where
     type Next = Handshaking<B, T, R, W, C, A, Connecting>;
 
     /// Receive the remote greeting before asking the local server to answer it.
-    async fn connect(mut self) -> Result<(Handshake, Self::Next), Self::Error> {
+    async fn connect(mut self) -> Result<(Greeting, Self::Next), Self::Error> {
         let remote = receive::<B::Error, _>(&mut self.link.control_read).await?;
-        let handshake = remote.clone();
+        let greeting = remote.clone();
         let next = Handshaking {
             backend: self.backend,
             link: self.link,
@@ -124,7 +124,7 @@ where
             window: self.window,
             marker: PhantomData,
         };
-        Ok((handshake, next))
+        Ok((greeting, next))
     }
 }
 
@@ -140,7 +140,7 @@ where
     type Next = Connected<B, T, R, W, C, A>;
 
     /// Send the local server's greeting, then open only if versions differ.
-    async fn complete_connect(mut self, theirs: Handshake) -> Result<Self::Next, Self::Error> {
+    async fn complete_connect(mut self, theirs: Greeting) -> Result<Self::Next, Self::Error> {
         send::<B::Error, _>(&theirs, &mut self.link.control_write).await?;
         let window = self.window.resolve(
             theirs.set_len,
@@ -173,11 +173,11 @@ where
     type Next = Connected<B, T, R, W, C, A>;
 
     /// Exchange greetings concurrently, then open only if versions differ.
-    async fn accept(mut self, request: Handshake) -> Result<(Handshake, Self::Next), Self::Error> {
+    async fn accept(mut self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
         let send = send::<B::Error, _>(&request, &mut self.link.control_write);
         let receive = receive::<B::Error, _>(&mut self.link.control_read);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
-        let handshake = remote.clone();
+        let greeting = remote.clone();
         let window = self.window.resolve(
             request.set_len,
             remote.set_len,
@@ -187,14 +187,16 @@ where
         );
         let budget = run_budget(&request, &remote);
         let next = connected(self.backend, window, budget, request, remote, self.link);
-        Ok((handshake, next))
+        Ok((greeting, next))
     }
 }
 
-/// The session's supply-run budget: the smaller of the two greetings'
-/// targets, so each side's setting bounds both what it builds and what
-/// is built for it, and the more memory-constrained end sets the pace.
-fn run_budget(ours: &Handshake, theirs: &Handshake) -> RunBudget {
+/// Compute the session's supply-run budget.
+///
+/// The budget is the smaller of the two greetings' targets, so each
+/// side's setting bounds both what it builds and what is built for it,
+/// and the more memory-constrained end sets the pace.
+fn run_budget(ours: &Greeting, theirs: &Greeting) -> RunBudget {
     let bytes = ours.target_message_size.min(theirs.target_message_size);
     RunBudget::from_bytes(usize::try_from(bytes).unwrap_or(usize::MAX))
 }
@@ -205,9 +207,9 @@ fn run_budget(ours: &Handshake, theirs: &Handshake) -> RunBudget {
 /// The first frame's body is `set_len (8 B LE) ‖ max_version_bytes
 /// (8 B LE) ‖ target_message_size (8 B LE) ‖ version`. Both frames flush
 /// on the same hop; the listing frame is the wire carriage of the
-/// opening question's content (see [`Handshake`] for the always-carry
+/// opening question's content (see [`Greeting`] for the always-carry
 /// trade).
-async fn send<E, W>(greeting: &Handshake, write: &mut W) -> Result<(), Error<E>>
+async fn send<E, W>(greeting: &Greeting, write: &mut W) -> Result<(), Error<E>>
 where
     W: AsyncWrite + Unpin,
 {
@@ -229,7 +231,7 @@ where
 /// The listing is peer-controlled, so its canonical strictly-ascending radix
 /// order is enforced here — the same rule the frame codec applies to a wire
 /// query — before any scope is built from it.
-async fn receive<E, R>(read: &mut R) -> Result<Handshake, Error<E>>
+async fn receive<E, R>(read: &mut R) -> Result<Greeting, Error<E>>
 where
     R: AsyncRead + Unpin,
 {
@@ -255,7 +257,7 @@ where
     let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
     let listing = Vec::<(u8, Hash)>::try_from_slice(&bytes).map_err(Error::HandshakeDecode)?;
     validate_children(&listing).map_err(Error::HandshakeListing)?;
-    Ok(Handshake {
+    Ok(Greeting {
         version,
         set_len,
         max_version_bytes,
@@ -272,8 +274,8 @@ fn connected<B, T, R, W, C, A>(
     backend: B,
     window: Window,
     budget: RunBudget,
-    local: Handshake,
-    remote: Handshake,
+    local: Greeting,
+    remote: Greeting,
     link: Link<R, W, C, A>,
 ) -> Connected<B, T, R, W, C, A>
 where

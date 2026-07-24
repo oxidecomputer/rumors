@@ -12,6 +12,9 @@ use crate::tree::{
     },
 };
 
+/// One query's reaction loop: pairs the held children against the reply's
+/// reactions in order, accumulating the scope's [`Resolution`] and reporting
+/// each counterparty fault as its exact [`Violation`].
 pub struct Resolver<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
 where
     S<H>: Height,

@@ -96,7 +96,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
 
     fn query(&mut self) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
         let count = usize::from(self.byte(FramePart::QueryCount)?) + QUERY_COUNT_BIAS;
-        // Preserve one bulk read for the whole listing rather than one call per child.
+        // One bulk read for the whole listing rather than one call per child.
         let mut listing = vec![0; count * QUERY_CHILD_LEN];
         self.read_exact(&mut listing, FramePart::QueryChildren)?;
 

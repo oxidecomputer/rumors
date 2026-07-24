@@ -18,7 +18,7 @@ pub fn levels<T>(root: Option<Node<T, Root>>) -> Top<T> {
     }
 }
 
-/// An abstract type which represents a multi-zipper into a tree.
+/// A multi-zipper into a tree.
 pub trait Levels: Default + Clone + sealed::Sealed {
     /// The message type of the underlying nodes.
     ///
@@ -46,8 +46,6 @@ pub trait Levels: Default + Clone + sealed::Sealed {
     fn level_mut(&mut self) -> &mut Level<Self::Message, Self::Height>;
 
     /// Tack a new level onto the bottom of this [`Levels`], decreasing its height by one.
-    ///
-    /// This can only be called on a [`Levels`] whose height is more than zero.
     fn down<H>(self, below: Level<Self::Message, H>) -> Below<H, Self>
     where
         S<H>: Height,

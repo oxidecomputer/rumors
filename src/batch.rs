@@ -17,6 +17,14 @@ use crate::{Inner, Key};
 ///
 /// Building a [`Batch`] holds no lock; the rumor set is locked momentarily when
 /// the batch commits.
+///
+/// Commit is the causal moment: a sent message's version dominates
+/// everything this replica had observed when the batch committed, not when
+/// the batch was built ([`Rumors::send`](crate::Rumors::send) states the
+/// contract and its boundary). Because composition holds no lock,
+/// concurrent synchronization can land between building and committing,
+/// and two batches carry no guaranteed causal relationship to one another
+/// unless the application synchronizes them itself.
 pub struct Batch<'a, T: Send + Sync> {
     inner: &'a watch::Sender<Inner<T>>,
     actions: Vec<Action<T>>,
@@ -30,7 +38,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         }
     }
 
-    /// Send a message as part of this batch.
+    /// Sends a message as part of this batch.
     ///
     /// # Panics
     ///
@@ -44,8 +52,9 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         self
     }
 
-    /// Redact a [`Key`] as part of this batch. Redacting a key not held at
-    /// commit time is a no-op.
+    /// Redacts a [`Key`] as part of this batch.
+    ///
+    /// Redacting a key not held at commit time is a no-op.
     pub fn redact(&mut self, key: Key) -> &mut Self {
         self.actions.push(Action::Forget(key));
         self

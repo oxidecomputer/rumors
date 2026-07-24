@@ -32,16 +32,14 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 ///
 /// A [`Peer`] is the unique `!Clone` anchor for the identity of a participant
 /// in the gossip protocol. Peer identity in [`rumors`](crate) is *not*
-/// self-sovereign; you might say that in order to have a sense of `self`, you
-/// must derive it from your community of [`Peer`]s. Exactly *one* [`Peer`]
-/// should call [`Peer::seed`] to establish the unique [`Network`]; peers whose
-/// identity descends ultimately from different initial calls to [`Peer::seed`]
-/// will never be able to [`gossip`](Rumors::gossip) with one another.
+/// self-sovereign: it descends from the community of [`Peer`]s. Exactly *one*
+/// [`Peer`] should call [`Peer::seed`] to establish the unique [`Network`];
+/// peers whose identities descend from different calls to [`Peer::seed`] can
+/// never [`gossip`](Rumors::gossip) with one another.
 ///
-/// You can only get your hands on a [`Peer`] when there are no existing
-/// [`Rumors`] handles outstanding, which ensures that it is statically
-/// impossible to [`retire`](Peer::retire) a [`Peer`] out from under another
-/// extant handle to the same identity.
+/// A [`Peer`] can exist only while no [`Rumors`] handles to the same identity
+/// are outstanding, so it is statically impossible to
+/// [`retire`](Peer::retire) one out from under another handle.
 ///
 /// # Example
 ///
@@ -54,17 +52,20 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 /// #     .build()
 /// #     .unwrap()
 /// #     .block_on(async {
-/// # // The counterparty this example talks to: the universe's seed, serving
-/// # // the bootstrap and later absorbing the retirement, over in-memory links.
-/// # let counterparty = Peer::<String>::seed().into_rumors();
-/// # let (mut near, mut far) = rumors::link::memory();
+/// // The counterparty this example talks to: the universe's seed, serving
+/// // the bootstrap and later absorbing the retirement, over in-memory links.
+/// let counterparty = Peer::<String>::seed().into_rumors();
+/// let (mut near, mut far) = rumors::link::memory();
 /// # let serve = counterparty.clone();
 /// # tokio::spawn(async move {
 /// #     serve.gossip(&mut far).await.unwrap();
 /// # });
-/// # async fn bootstrap_from_another_peer() -> Result<Peer<String>, rumors::Error> {
-/// #     unreachable!("the example's counterparty is the established seed")
-/// # }
+/// // A real deployment would dial a different provider here; this example's
+/// // counterparty is established, so the retry path is never taken.
+/// async fn bootstrap_from_another_peer() -> Result<Peer<String>, rumors::Error> {
+///     unreachable!("the example's counterparty is the established seed")
+/// }
+///
 /// // Join an existing universe through any connected peer. (The universe's
 /// // very first peer is created with `Peer::seed()` instead.)
 /// let peer = match Peer::<String>::bootstrap().join(&mut near).await? {
@@ -88,14 +89,10 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 ///
 /// // Leave the universe, donating our identity to any gossiping peer (it
 /// // does not need to be the one we bootstrapped from).
-/// # let (mut near, mut far) = rumors::link::memory();
+/// let (mut near, mut far) = rumors::link::memory();
 /// # tokio::spawn(async move {
 /// #     counterparty.gossip(&mut far).await.unwrap();
 /// # });
-/// //
-/// // Each outcome tells us whether our identity survived the attempt:
-/// // `Declined` and `Recovered` hand the peer back to retry elsewhere,
-/// // while `Retired` and `Uncertain` consume it.
 /// let retry = match peer.retire(&mut near).await {
 ///     // The peer absorbed our identity; nothing more to do.
 ///     Retire::Retired => None,
@@ -128,22 +125,20 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 /// whenever a peer observes one, it can use a deterministic metric to decide
 /// whether it or its peer should dominate.
 ///
-/// A reasonable such metric ships inside the error itself: compare
-/// [`Error::NetworkMismatch`](crate::Error::NetworkMismatch)'s `local_min_events` against its
-/// `remote_min_events`, so that whichever universe records the greater
-/// minimal event count wins, with total comparison on [`Network`] breaking
-/// ties. Both fields ride the one error — each side declared its count in
-/// the session's handshake — so both sides apply the rule from the error
-/// alone, with nothing further to fetch or race. Based on this comparison,
-/// both come to uncoordinated consensus on which will persist in its
-/// [`Peer`] identity (the greater), and which will attempt to
+/// A reasonable such metric ships inside the error itself: compare its
+/// `local_min_events` against its `remote_min_events` — the greater minimal
+/// event count wins, with total comparison on [`Network`] breaking ties.
+/// Each side declared its count in the session's handshake, so both apply
+/// the rule from the one error alone, with nothing further to fetch or
+/// race, and agree without coordination on which will persist in its
+/// [`Peer`] identity (the greater) and which will attempt to
 /// re-[`bootstrap`](Peer::bootstrap) into the dominating [`Network`] (the
 /// lesser).
 ///
-/// If peers are reasonably well-connected to one another as the network gets
-/// started, this will quickly lead to a stable and steady state which can only
-/// be disrupted if a group of new peers join only with one another and spend a
-/// long time partitioned from the rest of the network before reuniting with it.
+/// If peers are reasonably well-connected as the network gets started, this
+/// quickly reaches a stable steady state, disrupted only if a group of new
+/// peers joins only with one another and spends a long time partitioned
+/// before reuniting with the rest of the network.
 pub struct Peer<T, B: BookmarkError = NoBookmark> {
     pub(crate) network: Network,
     pub(crate) protocol: Protocol,
@@ -220,13 +215,13 @@ impl<T> Peer<T> {
     /// for one session against an established provider.
     ///
     /// [`Bootstrap::join`] runs the session and mints the brand-new peer;
-    /// its docs state the session contract (the mutual-bootstrap bail, the
-    /// epilogue residue, the unbookmarked arrival). The builder's knobs
-    /// are this peer-to-be's session knobs — [`Bootstrap::protocol`],
+    /// its docs state the session contract (the mutual-bootstrap bail, what
+    /// a failure at the very end can cost, the unbookmarked arrival). The
+    /// builder's settings — [`Bootstrap::protocol`],
     /// [`Bootstrap::sync_memory_budget`],
-    /// [`Bootstrap::target_message_size`] — selected before the peer
-    /// exists so the bootstrap session itself, and every session after
-    /// it, runs configured. The zero-configuration join is
+    /// [`Bootstrap::target_message_size`] — are the peer-to-be's own,
+    /// selected before it exists so the bootstrap session and every
+    /// session after it run configured. The zero-configuration join is
     /// `Peer::bootstrap().join(&mut link)`.
     pub fn bootstrap() -> Bootstrap<T> {
         Bootstrap::new()
@@ -257,8 +252,8 @@ impl<T> Peer<T> {
     /// If the bookmark cannot be read or written, nothing reaches storage and
     /// the peer is handed back **untouched**, still unbookmarked, inside
     /// [`Unbookmarked`], to drop or retry. Because the attach never reclaims, the
-    /// live party is exactly as it was: a failed attach cannot leave a reclaimed
-    /// region live in this peer yet stranded on disk.
+    /// live party is exactly as it was: a failed attach cannot leave reclaimed
+    /// identity live in this peer yet stranded on disk.
     pub async fn bookmark<B: Bookmark>(
         self,
         bookmark: B,
@@ -317,14 +312,24 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// session holds only what it actually disputes, typically
     /// kilobytes. The budget also pre-charges the decode fans' flat
     /// residency (one fan of backend-priced leaves plus an in-hand
-    /// record per reply stream — `fans` in the forms below, ~0.2 MB
-    /// under the in-memory backend). Encoded wire messages in hand are
-    /// the one term this setting does not govern: derived from the
+    /// record per reply stream — ~0.2 MB under the in-memory backend, a
+    /// term of the corpus-fixed charge `F` in the accuracy band below).
+    /// Encoded wire messages in hand are not governed by this setting:
+    /// derived from the
     /// stream schedule, at most one run per stream per direction, so up
     /// to [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
     /// [`target_message_size`](Self::target_message_size) — ~19 MB per
     /// direction at the defaults, plus a lone over-target record's
     /// overhang.
+    ///
+    /// A budget can add latency, never break a session. A divergence
+    /// wider than the derived capacities drains in capacity-sized
+    /// waves, at the worst-case factor the trade-off table below
+    /// prices; any budget, including zero, leaves every session
+    /// deadlock-free at one disputed subtree in flight per level.
+    /// The budget is per session: concurrent gossip on separate links
+    /// carries one envelope each. The default,
+    /// [`DEFAULT_SYNC_MEMORY_BUDGET`], is 512 MiB.
     ///
     /// Each session divides the budget into fixed per-level channel
     /// capacities from what the two replicas exchange at session start:
@@ -335,16 +340,25 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// the budget buys width only where disputes can exist. The setting
     /// is not wire-visible: peers with different budgets interoperate.
     ///
-    /// A budget can add latency, never break a session. A divergence
-    /// wider than the derived capacities drains in capacity-sized
-    /// waves, at the worst-case factor the trade-off table below
-    /// prices;
-    /// any budget, including zero, leaves every session deadlock-free
-    /// at one disputed subtree in flight per level. The budget is per
-    /// session: concurrent gossip on separate links carries one
-    /// envelope each. The default, [`DEFAULT_SYNC_MEMORY_BUDGET`], is a
-    /// stated policy choice — 512 MiB, chosen round rather than derived
-    /// — and what it buys is read off the same form.
+    /// # What this does not bound
+    ///
+    /// - **Encoded wire messages in hand**: the run buffers stated
+    ///   above, priced by
+    ///   [`target_message_size`](Self::target_message_size) — up to
+    ///   [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
+    ///   `target_message_size` per direction.
+    /// - **The replica itself.** The live set's resident bytes are the
+    ///   application's to provision; the budget prices only what a
+    ///   session holds in flight.
+    /// - **Observers.** [`CausalMessages`] stages an internal backlog
+    ///   with bursts up to the size of the set (its docs state the
+    ///   cost); no observer's memory is charged here.
+    /// - **Other sessions.** The budget is per session, so a peer
+    ///   gossiping over `K` links at once can hold up to
+    ///   `K × (budget + 2 × STREAM_COUNT × target_message_size)`
+    ///   across them in the worst case
+    ///   ([`STREAM_COUNT`](crate::link::STREAM_COUNT) counting each
+    ///   direction's streams once).
     ///
     /// # Choosing a budget
     ///
@@ -369,22 +383,15 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// > `slowdown ≈ max(1, BDP × 4865 / (budget × (28 + m)))`
     ///
     /// It prices every in-flight scope at the envelope's saturation
-    /// average, and its accuracy is governed by `F`, the corpus-fixed
-    /// component of the real charge — by verified decomposition at the
-    /// design corpus: the ~0.21 MB decode-fan pre-charge, 4.3 MB of
-    /// root-adjacent stages at full-fan reference prices (257 scopes
-    /// at 16,768 B each), and a ~0.2 MB deep population tail, 4.7 MB
-    /// in all, stepping to 7.9 MB once the depth-5 stage saturates
-    /// near 5,500 scopes (past which the marginal scope price settles
-    /// at 4741 B, 2.5% under the average). The form overstates the
-    /// window by roughly `F / budget`: the slowdown it returns runs
-    /// ~2× low at a 10 MB budget, ~1.5× low at 16 MiB, and within a
-    /// few percent past ~300 MB. It also prices no population ceiling,
-    /// so where windows reach corpus scale the solve's own numbers —
-    /// the table and the pinned crossover — replace it. Measured:
-    /// hop-exact sessions at 10–31 MB budgets on the design corpus ran
-    /// 1.3–1.45× the form's figure, matching the solve-derived wave
-    /// form to within hop quantization (`tests/tradeoff_probe.rs`).
+    /// average. The form overstates the window by roughly
+    /// `F / budget`, where `F` is the corpus-fixed component of the
+    /// real charge: the slowdown it returns runs ~2× low at a 10 MB
+    /// budget, ~1.5× low at 16 MiB, and within a few percent past
+    /// ~300 MB. It prices no population ceiling, so where windows
+    /// reach corpus scale the solve's own numbers — the table and the
+    /// pinned crossover — replace it. Measured: hop-exact sessions at
+    /// 10–31 MB budgets on the design corpus ran 1.3–1.45× the form's
+    /// figure (`tests/tradeoff_probe.rs`).
     ///
     /// ## What minimal record size runs at minimal latency, given my BDP and budget?
     ///
@@ -472,10 +479,12 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// (the constructed leaves it holds in flight are charged against
     /// [`sync_memory_budget`](Self::sync_memory_budget), not this
     /// setting). Each session therefore runs at
-    /// the **minimum** of the two ends' targets — the greeting carries
-    /// each side's setting, so yours bounds both the frames you build
-    /// and the frames built for you, and the more memory-constrained
-    /// peer sets the pace. Peers with different settings interoperate.
+    /// the **minimum** of the two ends' targets: the greeting carries
+    /// each side's setting, and each side's *encoder* batches within
+    /// that minimum — yours bounds the frames you build, and a
+    /// conforming peer builds the frames it sends you within it too —
+    /// so the more memory-constrained peer sets the pace. Peers with
+    /// different settings interoperate.
     ///
     /// The default, [`DEFAULT_TARGET_MESSAGE_SIZE`], is the byte size of
     /// the wire's maximally disputed reply — the decode side's documented
@@ -500,9 +509,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// [`redact`](Rumors::redact), and [`gossip`](Rumors::gossip).
     ///
     /// Unlike [`Peer`], [`Rumors`] is [`Clone`], so that gossip may proceed
-    /// concurrently. Once only one remaining [`Rumors`] exists again, it can be
-    /// converted back into a [`Peer`] using
-    /// [`try_into_peer`](Rumors::try_into_peer).
+    /// concurrently. Once a single [`Rumors`] handle remains,
+    /// [`try_into_peer`](Rumors::try_into_peer) converts it back into a
+    /// [`Peer`].
     pub fn into_rumors(self) -> Rumors<T, B> {
         Rumors::new(self)
     }
@@ -576,9 +585,10 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// compare it, [`join`](Party::join) it into an accounting fold, or test
     /// [`is_disjoint`](Party::is_disjoint) — never use it as an identity.
     ///
-    /// The alias shares the live party's id-region without forking it, so
-    /// treating it as a participant violates the linearity everything else
-    /// rests on. `None` only while a retirement has the party in flight.
+    /// The alias shares the live party's identity space without forking it,
+    /// so treating it as a participant violates the linearity everything
+    /// else rests on. `None` only while a retirement has the party in
+    /// flight.
     #[cfg(any(test, feature = "test-internals"))]
     #[doc(hidden)]
     pub fn dangerously_alias_party(&self) -> Option<Party> {

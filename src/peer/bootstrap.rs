@@ -18,37 +18,39 @@ use super::gossip::Unbookmarked;
 /// Configuration for joining an existing universe: the builder behind
 /// [`Peer::bootstrap`].
 ///
-/// A bootstrap session is the one session a replica runs *before* it
-/// exists: [`join`](Self::join) reconciles an empty replica against an
-/// established provider, receives the provider's whole live set, and mints
-/// the [`Peer`] holding the identity the provider donates. The knobs here
-/// are the peer's own session knobs, applied one session early: each
-/// governs the bootstrap session where it can act (stated per method), and
-/// the minted peer retains every choice for all of its later sessions,
-/// exactly as if it had been selected through the matching [`Peer`] method
-/// ([`protocol`](Peer::protocol),
-/// [`sync_memory_budget`](Peer::sync_memory_budget),
-/// [`target_message_size`](Peer::target_message_size)).
+/// [`join`](Self::join) runs one session against an established peer over
+/// a [`Link`], receives that provider's whole live set, and mints the
+/// [`Peer`] holding the identity the provider donates. The link chooses
+/// the provider — a [`Link`] is a conduit to exactly one counterparty —
+/// and joining lands you in whichever [`Network`](crate::Network) the
+/// provider belongs to.
 ///
-/// Whom you bootstrap toward is not a knob: a [`Link`] is a conduit to
-/// exactly one counterparty, so the provider is chosen by the link handed
-/// to [`join`](Self::join). Nor is the universe: membership is identity
-/// custody (see the [crate docs](crate)), so joining hands you whichever
-/// [`Network`](crate::Network) the provider itself belongs to — there is
-/// nothing to request. And nothing here configures the provider: its
-/// budget and window are its own, and the one setting the session
-/// negotiates — the message-size target — can only *lower* what the
-/// provider builds, never raise what it offered.
+/// Every setting here is the minted peer's own, selected one session
+/// early: [`protocol`](Self::protocol),
+/// [`sync_memory_budget`](Self::sync_memory_budget), and
+/// [`target_message_size`](Self::target_message_size) each state what they
+/// change about the bootstrap session itself, and the minted peer keeps
+/// the choice exactly as if selected through the matching [`Peer`] method.
+/// [`bookmark`](Self::bookmark) additionally persists the received
+/// identity before `join` returns, moving the builder to its
+/// [`BookmarkedBootstrap`] state (whose `join` reports outcomes as a
+/// [`Joined`], since a persist can fail while the peer lives).
 ///
-/// One selection is not a peer knob: [`bookmark`](Self::bookmark) supplies
-/// the storage the received identity persists into before `join` returns,
-/// moving the builder to its [`BookmarkedBootstrap`] state (whose `join`
-/// reports outcomes as a [`Joined`], since a persist can fail while the
-/// peer lives).
+/// The builder is `Copy`: after a mutual-bootstrap bail
+/// ([`join`](Self::join)'s `Ok(None)`) or a failed session, the same
+/// configuration retries against another provider as-is.
 ///
-/// The builder is `Copy`, so one configuration can serve several attempts:
-/// a mutual-bootstrap bail ([`join`](Self::join)'s `Ok(None)`) or a failed
-/// session retries against another provider without rebuilding it.
+/// # The provider's side
+///
+/// Serving a bootstrap takes no provider-side call of its own: it happens
+/// automatically inside an ordinary [`gossip`](crate::Rumors::gossip),
+/// which forks the provider's identity and donates the fork. The provider
+/// neither schedules nor manages the donation — party donation is
+/// automatic, and its atomicity is handled internally — and concurrent
+/// serves over separate links are legal, like any concurrent gossip.
+/// Donation commits on the donor's side before the fork crosses the wire,
+/// so a failed serve can leave identity held by no one, never by both
+/// sides.
 #[must_use = "a `Bootstrap` does nothing until `join` runs it against a link"]
 pub struct Bootstrap<T> {
     pub(crate) protocol: Protocol,
@@ -110,19 +112,14 @@ impl<T> Bootstrap<T> {
     /// Bound the memory the minted peer's synchronizations may spend on
     /// pipelining.
     ///
-    /// The setting cannot change the bootstrap session itself, and no
-    /// budget could: pipelining memory is spent on *disputed* subtrees,
-    /// disputes require both replicas to hold something under the same
-    /// prefix, and a joining replica holds nothing — the provider's
-    /// whole-set transfer streams as supply runs outside the dispute
-    /// window (its memory is [`target_message_size`](Self::target_message_size)'s
-    /// concern). The knob exists here so the constraint is in force from
-    /// the minted peer's *first* post-bootstrap session: the earliest
-    /// session at which its replica can dispute is the earliest at which
-    /// a budget can bind, and this peer never runs one unbudgeted.
+    /// The bootstrap session itself never disputes — a joining replica
+    /// holds nothing yet, so there is nothing to reconcile subtree by
+    /// subtree — and this setting cannot change it (the transfer's memory
+    /// is [`target_message_size`](Self::target_message_size)'s concern).
+    /// Selecting it here means the minted peer's very first
+    /// synchronization already runs budgeted.
     ///
-    /// The default and the full contract — what the budget prices, the
-    /// closed form for choosing one, and the trade-off table — are
+    /// The default, what the budget prices, and how to choose one are
     /// [`Peer::sync_memory_budget`]'s, which the minted peer behaves
     /// exactly as if it had called. `Protocol::V1` sessions ignore it:
     /// the alternating protocol batches whole levels instead of
@@ -133,17 +130,15 @@ impl<T> Bootstrap<T> {
     }
 
     /// Bound the encoded size of the batched messages the bootstrap
-    /// session — and every later session — builds and receives.
+    /// session — and every later session — sends.
     ///
-    /// This is the knob with immediate effect on the bootstrap session,
-    /// the one session that transfers the provider's entire set: the set
-    /// arrives as supply *runs* (batched leaf-record messages), the
-    /// greeting carries each side's target, and the session runs at the
-    /// **minimum** of the two — so a memory-constrained newcomer's
-    /// setting bounds the frames the provider builds *for* it, and one
-    /// run's encoded bytes is the newcomer's per-message buffering unit
-    /// for the whole transfer. Any value is safe, including zero (one
-    /// leaf per message).
+    /// This is the one setting with immediate effect on the bootstrap
+    /// session, the session that transfers the provider's entire set as
+    /// supply *runs* (batched leaf-record messages). The greeting carries
+    /// each side's target and each side's encoder batches within the
+    /// **minimum** of the two, so a memory-constrained newcomer's setting
+    /// is what the provider's encoder builds the whole transfer within.
+    /// Any value is safe, including zero (one leaf per message).
     ///
     /// The default and the full contract — flush accounting, the memory
     /// unit on each side, and the framing ceiling — are
@@ -169,20 +164,19 @@ impl<T> Bootstrap<T> {
     /// the undivided seed), so the persist always touches storage.
     ///
     /// One bookmark records one peer, handled linearly; the sharing rules
-    /// are [`Bookmark`]'s. Like every knob, this may be selected in any
-    /// order with the others.
+    /// are [`Bookmark`]'s. Like the session settings, this may be selected
+    /// in any order with the others.
     ///
     /// # What the bookmark does not protect
     ///
-    /// Arrival and persistence remain two steps, not one atomic step: a
-    /// process crash after the provider commits its donation but before
-    /// the store commits still strands the fork, exactly as
-    /// [`join`](Self::join)'s two-generals residue describes. What this
-    /// knob removes is the *unbounded* application-side window after a
-    /// bare `join` returns. A failed session is beyond its reach — an
-    /// identity lost in flight was never the bookmark's to record — and a
-    /// bookmark records identity, never content: messages are recovered
-    /// by [`gossip`](crate::Rumors::gossip)ing, like any peer's.
+    /// Arrival and persistence remain two steps: a process crash after
+    /// the provider commits its donation but before the store commits
+    /// still loses the identity. What this removes is the *unbounded*
+    /// application-side window after a bare `join` returns. A failed
+    /// session is beyond its reach — an identity lost in flight was never
+    /// the bookmark's to record — and a bookmark records identity, never
+    /// content: messages are recovered by
+    /// [`gossip`](crate::Rumors::gossip)ing, like any peer's.
     pub fn bookmark<B: Bookmark>(self, bookmark: B) -> BookmarkedBootstrap<T, B> {
         BookmarkedBootstrap {
             config: self,
@@ -202,13 +196,14 @@ impl<T> Bootstrap<T> {
     ///
     /// On `Ok(Some(peer))` the provider has confirmed committing its side
     /// of the donation. The confirmation exchange leaves one irreducible
-    /// residue (the two-generals problem): if the session fails at the
-    /// very end with [`Error::Epilogue`], the provider may have committed
-    /// while our side reports an error, and the forked identity is lost.
-    /// Losing a fork is safe — no invariant depends on it arriving — but
-    /// not free: its id-region is identity space gone for good, unless
-    /// coordination outside this library reclaims it. What `Err` and
-    /// cancellation leave behind is stated in [what a session
+    /// residue — the confirmation itself can be lost, a gap
+    /// [`Error::Epilogue`] explains cannot be closed: if the session
+    /// fails at the very end with that error, the provider may have
+    /// committed while our side reports an error, and the forked identity
+    /// is lost. Losing a fork is safe — no invariant depends on it
+    /// arriving — but not free: it is identity space gone for good,
+    /// unless coordination outside this library reclaims it. What `Err`
+    /// and cancellation leave behind is stated in [what a session
     /// promises](crate::link::Link#what-a-session-promises).
     ///
     /// The peer arrives unbookmarked: its identity has been forked away
@@ -238,25 +233,25 @@ impl<T> Bootstrap<T> {
 /// [`join`](Self::join) runs the same session the plain builder's
 /// [`join`](Bootstrap::join) does, then attaches the bookmark and eagerly
 /// persists — the exact [`Peer::bookmark`] step, with no room for caller
-/// code between the identity's arrival and the persist attempt. It is a
-/// distinct type rather than a fourth knob value so each state's `join`
-/// states only its own outcomes: without a bookmark, nothing can fail
-/// *after* the session, and the plain `Result` says so; with one, the
-/// persist can fail while the peer lives, and the [`Joined`] outcome
-/// carries that arm where it cannot be ignored.
+/// code between the identity's arrival and the persist attempt. A distinct
+/// type, rather than a fourth setting, lets each state's `join` state only
+/// its own outcomes: without a bookmark, nothing can fail *after* the
+/// session, and the plain `Result` says so; with one, the persist can fail
+/// while the peer lives, and [`Joined`] carries that arm where it cannot
+/// be ignored.
 ///
-/// The session knobs remain selectable in this state, order-free; the
+/// The session settings remain selectable in this state, order-free; the
 /// bookmark itself does not — one bookmark records one peer, so there is
 /// nothing coherent for a second selection to mean.
 #[must_use = "a `BookmarkedBootstrap` does nothing until `join` runs it against a link"]
 pub struct BookmarkedBootstrap<T, B> {
-    /// The session knobs, exactly as the plain builder holds them.
+    /// The session settings, exactly as the plain builder holds them.
     config: Bootstrap<T>,
     /// The storage the minted peer's identity will be recorded in.
     bookmark: B,
 }
 
-/// The session knobs; the bookmark is shown by its type only, since
+/// The session settings; the bookmark is shown by its type only, since
 /// [`Bookmark`] does not require `Debug`.
 impl<T, B> std::fmt::Debug for BookmarkedBootstrap<T, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -293,8 +288,8 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     /// identity, reporting what survived as a [`Joined`].
     ///
     /// The session itself is exactly [`Bootstrap::join`]'s — see it for
-    /// the session contract (whom the link chooses, the epilogue's
-    /// two-generals residue, what `Err` and cancellation leave behind).
+    /// the session contract (whom the link chooses, what a failure at the
+    /// very end can cost, what `Err` and cancellation leave behind).
     /// This method adds one step after a successful session: the minted
     /// peer takes the bookmark through [`Peer::bookmark`], persisting the
     /// received identity before anything is handed back. Each of the four
@@ -360,8 +355,8 @@ pub enum Joined<T, B: BookmarkError> {
     /// bookmark never touched storage and comes back for the retry.
     ///
     /// The link is poisoned — an identity that was in flight when the
-    /// session failed is lost, leaking its id-region benignly, exactly as
-    /// [`Bootstrap::join`]'s `Err` describes.
+    /// session failed is lost, leaking its identity space benignly,
+    /// exactly as [`Bootstrap::join`]'s `Err` describes.
     Failed {
         /// What failed the session.
         error: Error,

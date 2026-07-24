@@ -32,19 +32,19 @@
 //! budget charges every decode-fan slot. Payload bytes still crossing
 //! inside one wire message are priced by
 //! [`target_message_size`](crate::Peer::target_message_size), not here.
-//! The ledger is process-global — checks in one process must not overlap,
-//! which this module's tests guarantee by holding one lock across each
-//! test body — and the differencing baseline absorbs what exists
-//! regardless of the window: the resting corpora, the assembly fans'
-//! correctness floor, and the commit join's transients.
+//! The ledger is process-global, so checks in one process must not
+//! overlap (this module's tests hold one lock across each test body).
+//! The differencing baseline absorbs what exists regardless of the
+//! window: the resting corpora, the assembly fans' correctness floor,
+//! and the commit join's transients.
 //!
 //! # Visibility
 //!
-//! The backend boundary is crate-internal today, so this suite runs as
-//! this crate's own gate over its backends; the entry point goes public
-//! with the [`Backend`] trait when a deployment-implementable storage
-//! boundary ships, the way [`conformance::link`](super::link) shipped
-//! with the [`Link`](crate::link::Link) boundary.
+//! The backend boundary is crate-internal, so this suite runs as this
+//! crate's own gate over its backends rather than as a public entry
+//! point — a suite is caller-visible exactly where its boundary is
+//! caller-implementable, as [`conformance::link`](super::link) is for
+//! the [`Link`](crate::link::Link) boundary.
 
 use std::collections::BTreeMap;
 use std::pin::pin;
@@ -555,11 +555,12 @@ fn sweep_bounds() -> Vec<usize> {
 /// the window derivation evaluates the cost at per-depth quantiles and
 /// monotonicity is what keeps a quantile evaluation an upper bound: a
 /// pointwise-honest function with a dip between evaluation points
-/// under-prices every in-flight reference. The derivation's own check
-/// is a four-point `debug_assert`, compiled out of release, so the
-/// suite sweeps the grid: every adjacent fan pair up to the radix
-/// ([`FAN`]), crossed with [`sweep_bounds`]'s version bounds, and every
-/// adjacent bound pair at each swept fan.
+/// under-prices every in-flight reference.
+///
+/// The derivation's own check is a four-point `debug_assert`, compiled
+/// out of release, so the suite sweeps the grid: every adjacent fan pair
+/// up to the radix ([`FAN`]), crossed with [`sweep_bounds`]'s version
+/// bounds, and every adjacent bound pair at each swept fan.
 fn node_bytes_monotone<B>()
 where
     B: Measure<u64> + Clone,
@@ -604,16 +605,24 @@ const DIVERGENT: usize = 1_024;
 /// Sweeps the cost function for monotonicity, then builds two corpora
 /// sharing [`COMMON`] messages and diverging by [`DIVERGENT`] more on
 /// each side, walks each corpus through the bulk leaf seam, and
-/// reconciles them twice — once at the zero-budget floor, once under
-/// `budget_bytes` — panicking with the violated clause if the cost
-/// function dips anywhere on the swept fan and version-bound grid, if
-/// any constructed, walked, or assembled node was underpriced, if a
-/// bulk seam mis-answered an aggregate, if the window's measured byte
-/// admittance exceeded the budget, or if the session failed to converge
-/// the corpora. Checks in one process must not overlap: the
-/// census ledger is process-global, so callers serialize (this module's
-/// tests hold one static lock per test; nextest's process-per-test
-/// isolates them regardless).
+/// reconciles them twice: once at the zero-budget floor, once under
+/// `budget_bytes`.
+///
+/// Checks in one process must not overlap: the census ledger is
+/// process-global, so callers serialize (this module's tests hold one
+/// static lock per test; nextest's process-per-test isolates them
+/// regardless).
+///
+/// # Panics
+///
+/// Panics with the violated clause if:
+///
+/// - the cost function dips anywhere on the swept fan and version-bound
+///   grid;
+/// - any constructed, walked, or assembled node was underpriced;
+/// - a bulk seam mis-answered an aggregate;
+/// - the window's measured byte admittance exceeded the budget; or
+/// - the session failed to converge the corpora.
 pub(crate) async fn check<B>(backend: B, budget_bytes: usize)
 where
     B: Measure<u64> + Clone,

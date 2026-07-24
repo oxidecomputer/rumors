@@ -396,10 +396,9 @@ proptest! {
     /// via `into_children`; at every position — materialized or mid-spine —
     /// the exploded node's hash must equal `from_sorted_leaves` rebuilt
     /// from scratch over the leaves beneath it at that depth. This is the
-    /// property mixed-shape peer comparison rests on: under the old
-    /// per-byte wrap rule it held by construction, and under the
-    /// single-preimage rule it rests on canonical shape, so it is pinned
-    /// here rather than left untested.
+    /// property mixed-shape peer comparison rests on: under the
+    /// single-preimage rule it rests on canonical shape, not on the hash
+    /// construction itself, so it is pinned here rather than left untested.
     #[test]
     fn every_virtual_level_hashes_canonically(paths in full_depth_paths()) {
         let paths: Vec<[u8; 32]> = paths.into_iter().collect();

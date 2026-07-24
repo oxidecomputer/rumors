@@ -23,12 +23,12 @@
 //! leaf-height exception is an empty `Query`: it consumes its leaf position and
 //! requests that leaf itself, creating a terminal scope at the same height
 //! rather than descending. The initiator's opening reply is the sole
-//! exception to “one reply answers one earlier question,” so it seeds the
-//! root scope directly — and its question occupies no wire frame: the
-//! listing rides the greeting
-//! ([`Handshake`](super::super::message::Handshake)), so [`opening_parts`]
+//! exception to “one reply answers one earlier question”: it seeds the
+//! root scope directly, and its question occupies no wire frame because
+//! the listing rides the greeting
+//! ([`Greeting`](super::super::message::Greeting)). [`opening_parts`]
 //! validates the local reply's query-then-supplies shape and splits off
-//! the early supplies that do cross, while [`opening_reply`] replays the
+//! the early supplies that do cross; [`opening_reply`] replays the
 //! peer's listing as the message the responder answers. The early
 //! supplies travel as one supplies-only reply, decoded incrementally by
 //! [`early_supplies`] so each whole root child surfaces the moment its

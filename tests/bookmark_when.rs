@@ -15,9 +15,9 @@
 //!    identity work to checkpoint: it has never persisted, or has emitted a local
 //!    change (a [`send`](rumors::Rumors::send) or
 //!    [`redact`](rumors::Rumors::redact)) or moved a party (donated a fork,
-//!    absorbed a retiree) since its last persist. Merely *incorporating* content
-//!    learned over gossip — whatever it may be — advances only other parties'
-//!    regions, never the peer's own, so it triggers no write at all.
+//!    absorbed a retiree) since its last persist. Merely *incorporating*
+//!    content learned over gossip advances only other parties' regions, never
+//!    the peer's own, so it triggers no write at all.
 //!
 //! The distinction in (2) is the whole point: a local change ticks the peer's
 //! *own* identity region, and a checkpoint of that region must reach storage

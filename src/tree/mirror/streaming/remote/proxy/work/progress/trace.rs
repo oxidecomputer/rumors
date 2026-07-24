@@ -59,18 +59,23 @@ impl Trace {
     ///
     /// Decoding pairs replies with scopes positionally off a FIFO whose
     /// entries are registered at encode time, after the question's complete
-    /// wire reply flushed — so at every trace prefix, per endpoint, the
+    /// wire reply flushed. So at every trace prefix, per endpoint, the
     /// decode count at a height is bounded by the flushed-question count at
-    /// the height it consumes scopes from: a reply decoded at height `h`
-    /// consumed a question at `h + 1` (the scope it was asked under);
-    /// leaf-height decodes drain both the last internal stage's height-1
-    /// scopes and the terminal height-0 leaf questions, so their bound is
-    /// the sum; and the single greeting-seeded opening (recorded at the
-    /// under-root height, the one reply with no wire frame at all) is
-    /// scoped by the greeting itself. A violation here means a reply was
-    /// interpreted by a scope that its own question had not yet made
-    /// publishable: the receive-side complement of the wire-before-question
-    /// ordering [`assert_valid`](Self::assert_valid) pins on the send side.
+    /// the height it consumes scopes from:
+    ///
+    /// - a reply decoded at height `h` consumed a question at `h + 1` (the
+    ///   scope it was asked under);
+    /// - leaf-height decodes drain both the last internal stage's height-1
+    ///   scopes and the terminal height-0 leaf questions, so their bound is
+    ///   the sum;
+    /// - the single greeting-seeded opening (recorded at the under-root
+    ///   height, the one reply with no wire frame at all) is scoped by the
+    ///   greeting itself.
+    ///
+    /// A violation means a reply was interpreted by a scope its own
+    /// question had not yet made publishable: the receive-side complement
+    /// of the wire-before-question ordering
+    /// [`assert_valid`](Self::assert_valid) pins on the send side.
     pub fn assert_registration_causality(&self) {
         let mut questions = BTreeMap::<(usize, usize), usize>::new();
         let mut decoded = BTreeMap::<(usize, usize), usize>::new();

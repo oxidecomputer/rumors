@@ -14,10 +14,9 @@
 //!   checked against the literal leaf-path set the tree was built from;
 //! - **nondegeneracy** (`free_insertions_are_invisible_to_the_local_view`,
 //!   `leaf_requests_are_erased_from_the_view`): the full skeletons CAN
-//!   differ while the p-views agree — the free-insertion moves of the
-//!   corrected fooling alphabet (R children at p-answerer
-//!   scopes; leaf requests) realized by concrete trees, occurring in every
-//!   constructed case.
+//!   differ while the p-views agree — the fooling alphabet's free-insertion
+//!   moves (R children at p-answerer scopes; leaf requests) realized by
+//!   concrete trees, occurring in every constructed case.
 
 use std::collections::BTreeSet;
 

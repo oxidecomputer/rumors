@@ -182,7 +182,7 @@ where
 {
     type Next = Faulting<P::Next>;
 
-    async fn connect(self) -> Result<(message::Handshake, Self::Next), Self::Error> {
+    async fn connect(self) -> Result<(message::Greeting, Self::Next), Self::Error> {
         let Faulting {
             inner,
             remaining,
@@ -200,7 +200,7 @@ where
 {
     type Next = Faulting<P::Next>;
 
-    async fn complete_connect(self, theirs: message::Handshake) -> Result<Self::Next, Self::Error> {
+    async fn complete_connect(self, theirs: message::Greeting) -> Result<Self::Next, Self::Error> {
         let Faulting {
             inner,
             remaining,
@@ -220,8 +220,8 @@ where
 
     async fn accept(
         self,
-        request: message::Handshake,
-    ) -> Result<(message::Handshake, Self::Next), Self::Error> {
+        request: message::Greeting,
+    ) -> Result<(message::Greeting, Self::Next), Self::Error> {
         let Faulting {
             inner,
             remaining,

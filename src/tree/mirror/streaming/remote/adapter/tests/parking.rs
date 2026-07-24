@@ -7,6 +7,7 @@
 //! stage, and any wire backlog behind that slot sits in the transport's
 //! own buffers as encoded bytes; both charges price a parked reply at its
 //! decoded size, so that size must not scale with the subtree it names.
+//!
 //! Supplied payloads stream through `Convert::assemble` into backend
 //! custody while the reply retains one pointer-sized handle per supplied
 //! node, and a maximally disputed reply retains a pure skeleton of at most

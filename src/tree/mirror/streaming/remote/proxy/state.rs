@@ -278,12 +278,12 @@ where
     /// Proxy the opening: consume the local question, write the early
     /// supplies, decode the remote's top-level reply.
     ///
-    /// The incoming (responder-spoken) opening-reply stream is bound, and
-    /// so is the outgoing (initiator-spoken) opening-supply stream: the
-    /// local opening question sends no frame of its own, its content
-    /// having ridden the greeting, but its trailing supplies open the
-    /// outgoing stream when the local initiator holds exclusive root
-    /// children.
+    /// Binds both opening streams: the incoming (responder-spoken)
+    /// opening-reply stream and the outgoing (initiator-spoken)
+    /// opening-supply stream. The local opening question sends no frame of
+    /// its own — its content rode the greeting — but its trailing supplies
+    /// open the outgoing stream when the local initiator holds exclusive
+    /// root children.
     fn responder(
         self,
         requests: impl Requests<B, T, UnderRoot>,

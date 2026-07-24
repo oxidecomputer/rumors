@@ -108,11 +108,10 @@ proptest! {
     ) {
         let shuffled = {
             let mut v = values.clone();
-            // Inline PCG-derived shuffle: deterministic from `seed`,
-            // no extra dependency. The two `wrapping_mul` /
-            // `wrapping_add` lines step a 64-bit LCG; any decent step
-            // function works — we just need a uniform-enough draw
-            // over `0..=i` at each Fisher-Yates iteration.
+            // Fisher-Yates over an inline 64-bit LCG: deterministic
+            // from `seed`, no extra dependency; any step function whose
+            // high bits reduce to a uniform-enough draw over `0..=i`
+            // would do.
             let mut state = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
             for i in (1..v.len()).rev() {
                 state = state

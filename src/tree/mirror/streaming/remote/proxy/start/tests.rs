@@ -4,19 +4,21 @@
 //! stream — first the causal-version frame, then the root-fan listing frame,
 //! whose structural validation lives in [`receive`]: the same canonical-order
 //! rule the frame codec applies to a wire query, applied at the greeting
-//! ingress. The scripted-fault harness wraps only data streams, so this
-//! ingress is exercised here directly: crafted control-stream bytes must
-//! surface the typed greeting errors ([`Error::HandshakeRead`] for
-//! truncation and length lies, [`Error::HandshakeListing`] for
-//! canonical-order violations, [`Error::HandshakeDecode`] for malformed
-//! bodies), never a panic, and a canonical greeting must decode intact.
+//! ingress.
+//!
+//! The scripted-fault harness wraps only data streams, so this ingress is
+//! exercised here directly: crafted control-stream bytes must surface the
+//! typed greeting errors ([`Error::HandshakeRead`] for truncation and
+//! length lies, [`Error::HandshakeListing`] for canonical-order violations,
+//! [`Error::HandshakeDecode`] for malformed bodies), never a panic, and a
+//! canonical greeting must decode intact.
 
 use std::convert::Infallible;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
 
-use super::{Error, Handshake, receive};
+use super::{Error, Greeting, receive};
 use crate::Version;
 use crate::tree::arb::nth_party;
 use crate::tree::mirror::streaming::remote::codec::QueryOrderError;
@@ -48,7 +50,7 @@ fn greeting(listing_body: &[u8]) -> Vec<u8> {
 }
 
 /// Decode crafted greeting bytes through the production ingress.
-async fn receive_greeting(bytes: &[u8]) -> Result<Handshake, Error<Infallible>> {
+async fn receive_greeting(bytes: &[u8]) -> Result<Greeting, Error<Infallible>> {
     receive(&mut &bytes[..]).await
 }
 

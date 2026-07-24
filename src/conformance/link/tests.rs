@@ -30,8 +30,8 @@ fn memory_link_conforms() {
     run_to_quiescence(super::check(async || memory())).expect("the suite stays live");
 }
 
-/// A one-byte-buffered instantiation is legal: tiny windows slow streams
-/// down but violate no clause, and full sessions still converge over it.
+/// One-byte stream buffers are legal: window size affects latency, never
+/// conformance. The full suite passes at capacity one.
 #[test]
 fn one_byte_windows_conform() {
     run_to_quiescence(super::check(async || memory_with_capacity(1)))
@@ -40,14 +40,13 @@ fn one_byte_windows_conform() {
 
 /// An acceptor that delivers arrivals in batches of reversed order.
 ///
-/// Legal under the contract — arrival order is whatever the transport says
-/// it is, and no cross-stream ordering may be assumed — so the protocol
-/// must tolerate it: the session's claim table pairs streams by label, not
-/// position. Each batch of two or more released is a genuine inversion,
-/// counted into the shared `reordered` counter; tests assert it is nonzero
-/// across their run, because a reordering decorator that never reorders
-/// silently degenerates to pass-through — the counter is what keeps that
-/// degeneration loud.
+/// Legal under the contract — arrival order is the transport's own, and
+/// no cross-stream ordering may be assumed — so the protocol must
+/// tolerate it: the session's claim table pairs streams by label, not
+/// position. Each released batch of two or more is a genuine inversion,
+/// counted into the shared `reordered` counter; tests assert it is
+/// nonzero, so degeneration to pass-through (reordering nothing) fails
+/// loudly instead of silently.
 struct ReversingAcceptor<A: Acceptor> {
     inner: A,
     held: VecDeque<A::Rx>,
@@ -1007,8 +1006,9 @@ fn never_binding_pooled_budget_conforms() {
 /// contract (the link docs promise only the never-binding bound): a deep
 /// reconciliation — thousands of payloads, a multi-level trie, frames in
 /// flight on several streams at once — converges over a 64-byte pool per
-/// direction shared by the control stream and every data stream. The
-/// sessions run at the serialization floor, the shape the link docs'
+/// direction shared by the control stream and every data stream.
+///
+/// The sessions run at the serialization floor, the shape the link docs'
 /// measured-tolerance sentence is denominated in: a sub-bound pool couples
 /// streams, so a window wide enough to fill several streams at once can
 /// genuinely wait-cycle through it — exactly the coupling the contract's

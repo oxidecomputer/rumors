@@ -2,10 +2,9 @@
 //!
 //! A [`Bookmark`] is application-supplied persistent storage for *who* a
 //! [`Peer`](crate::Peer) is and how far it has advanced, so a peer that crashed
-//! can recover its identity instead of leaking it. The crate drives it through
-//! [`Bookmarked`], the in-memory cache that folds the live party into the stored
-//! record before each gossip round and slices a donated party back out before it
-//! crosses the wire.
+//! can recover its identity instead of leaking it. You supply raw byte
+//! storage; the crate owns the format, decides when to load and store, and
+//! keeps the record in step with the live identity.
 //!
 //! The default [`NoBookmark`] persists nothing: a peer that never retires simply
 //! strands its identity, which costs a few bits of timestamp width but corrupts
@@ -53,6 +52,34 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// bookmark lock before any wire traffic — never a `send` and never a
 /// session's in-flight wire progress.
 ///
+/// # Restart
+///
+/// A restarted process does not resurrect its old [`Peer`](crate::Peer):
+/// it re-bootstraps as a new peer with the *same* bookmark attached
+/// ([`Bootstrap::bookmark`](crate::Bootstrap::bookmark), or
+/// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining).
+/// The prior incarnation's identity is then reclaimed out of the record at
+/// the first gossip that causally dominates everything that incarnation
+/// had itself recorded — its own writes, not everything it had observed:
+/// gossiping with a counterparty that has not yet obtained everything the
+/// prior incarnation wrote does not reclaim it yet, and the identity waits
+/// in the record until one does.
+///
+/// A record that is stale but was stored atomically is always safe: the
+/// crate persists the record exactly when it must be persisted, so honest
+/// staleness is covered by design ([`store`](Self::store) states why
+/// atomicity, by contrast, is load-bearing). Every unreclaimed incarnation
+/// stays in the record, so under repeated restarts the bookmark can in
+/// principle grow arbitrarily large; in practice that takes an extremely
+/// churny network and is hard to hit.
+///
+/// The record is partitioned by universe: it keeps every identity from
+/// every [`Network`](crate::Network) it has seen, each filed under its
+/// originating universe. Loading a bookmark whose record belongs to a
+/// different universe is not an error — the foreign identities simply lie
+/// dormant, unusable unless and until the peer joins that universe again —
+/// and joining ever more universes accumulates an ever bigger bookmark.
+///
 /// # One bookmark per peer, handled linearly
 ///
 /// A bookmark is the durable identity of a *single* peer across *its own*
@@ -95,18 +122,15 @@ pub trait Bookmark: BookmarkError {
 }
 
 /// What a bookmark round trip failed at: I/O, or stored format.
-///
-/// [`Io`](Self::Io) is the implementor's [`Error`](BookmarkError::Error),
-/// recording failures opening, staging, or committing the storage.
-/// [`Format`](Self::Format) is this crate's: a stream fault while reading the
-/// lent bytes, or a format that is foreign or corrupt (see [`FormatError`]).
 #[derive(Debug, thiserror::Error)]
 pub enum BookmarkIo<E> {
-    /// The backend could not open, stage, or commit its storage.
+    /// The implementor's [`Error`](BookmarkError::Error): the backend could
+    /// not open, stage, or commit its storage.
     #[error(transparent)]
     Io(E),
 
-    /// The crate could not read or validate the stored frame.
+    /// This crate's [`FormatError`]: a stream fault while reading the lent
+    /// bytes, or a format that is foreign or corrupt.
     #[error(transparent)]
     Format(#[from] FormatError),
 }
@@ -185,8 +209,8 @@ impl Bookmark for NoBookmark {
     where
         F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send,
     {
-        // Persisting nothing: the serializer is never invoked, so the in-memory
-        // record stays exactly as it was — the same no-op as before.
+        // Persisting nothing: the serializer is never invoked, so the
+        // in-memory record is untouched.
         Ok(())
     }
 }
@@ -196,7 +220,7 @@ impl Bookmark for NoBookmark {
 ///
 /// It does not live in the `watch`-guarded [`Inner`](crate::Inner) because its
 /// [`load`](Bookmark::load)/[`store`](Bookmark::store) are `async` and the
-/// record's [`Clock`]s are `!Clone` (a clock owns an identity region), so the
+/// record's [`Clock`]s are `!Clone` (a clock owns identity space), so the
 /// record can be neither borrowed across an `.await` from under a `watch` guard
 /// nor copied out to persist outside one. Instead a session locks this mutex,
 /// reflects the live party into the record — [`reclaim`](Self::reclaim)ing
@@ -263,8 +287,8 @@ impl<B> Bookmarked<B> {
             // our current party* are not equal, because we're trying to ensure
             // that we persist prior to gossiping any messages which originate
             // from our own party (there's no risk of causal violation in a
-            // non-owned identity interval). If the version advances solely in a
-            // region that is non-overlapping with our party, then this change
+            // non-owned identity interval). If the version advances solely in
+            // identity space non-overlapping with our party, then this change
             // is irrelevant for bookmarking: it would be *correct* to persist
             // then, but it is *unnecessary*.
             p == party && v / p == version / p
@@ -385,7 +409,7 @@ impl<B: Persist> Bookmarked<B> {
     ///
     /// The suppression token is deliberately *not* staged: the next
     /// [`reclaim`](Self::reclaim) must run rather than be suppressed against
-    /// this record, so any stranded region this peer already dominates is
+    /// this record, so any stranded identity this peer already dominates is
     /// folded back in at the first gossip rather than stranded until the next
     /// event. Any token an earlier, never-persisted reclaim left staged is
     /// discarded for the same reason.
@@ -400,7 +424,7 @@ impl<B: Persist> Bookmarked<B> {
 
     /// Fold the live `party` and `version` into the record, reclaiming every
     /// stored identity that `version` has caught up to and growing `party` in
-    /// place by the (disjoint) reclaimed regions.
+    /// place by the (disjoint) reclaimed identities.
     ///
     /// The synchronous half of an update, run inside the caller's `watch`
     /// critical section (so the party grows atomically with the record); the
@@ -412,15 +436,16 @@ impl<B: Persist> Bookmarked<B> {
         // Get the clocks for this network
         let clocks = inner.entry(network).or_default();
 
-        // Reclaim every dominated region disjoint from our party by joining it
-        // back in, setting aside any that overlap.
+        // Reclaim every dominated identity disjoint from our party by joining
+        // it back in, setting aside any that overlap.
         let mut overlapping = Vec::new();
         // We use `.own_version()` because we can more-eagerly reclaim a `Party`
-        // if only the region *it owns* is causally dominated by the current
-        // version: we just need to guarantee that any events we generate using
-        // that identity region will be causally future to any previously
-        // generated by it, which does not require knowing *everything it knew*;
-        // it merely requires knowing *everything it did*.
+        // if only the identity space *it owns* is causally dominated by the
+        // current version: we just need to guarantee that any events we
+        // generate using that identity will be causally future to any
+        // previously generated by it, which does not require knowing
+        // *everything it knew*; it merely requires knowing *everything it
+        // did*.
         for clock in clocks.extract_if(.., |clock| clock.own_version() <= *version) {
             let (p, v) = clock.into_parts();
             if let Err(p) = party.join(p) {
@@ -429,7 +454,7 @@ impl<B: Persist> Bookmarked<B> {
         }
 
         // Retain only the overlapping clocks the *fully-grown* party does not
-        // already cover: regions still outstanding *above* us (a strict
+        // already cover: identities still outstanding *above* us (a strict
         // superset of our party), which we must never drop on the floor.
         clocks.extend(
             overlapping
