@@ -26,9 +26,14 @@
 //! [`Peer::target_message_size`](crate::Peer::target_message_size).
 //!
 //! Framing headroom: runs ride the wire's `u32` length header
-//! ([`framing`](crate::tree::mirror::framing)), so budgets up to
-//! `u32::MAX` bytes are representable; the encoder rejects a frame beyond
-//! that before writing anything.
+//! ([`framing`](crate::tree::mirror::framing)), so
+//! [`from_bytes`](RunBudget::from_bytes) saturates every budget at
+//! [`MAX_RUN_BUDGET_BYTES`] — a run flushed within budget always fits the
+//! header. The one frame that can still outgrow it is a *single record*
+//! larger than the header's ceiling (the minimum-one-record rule ships it
+//! alone): that is a record-size limit of the wire, which no budget
+//! setting can lift, and the encoder rejects it at the header before
+//! writing anything.
 
 use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
 use crate::tree::mirror::streaming::window::FAN;
@@ -58,13 +63,28 @@ pub const DEFAULT_TARGET_MESSAGE_SIZE: usize =
 /// exceeds it.
 pub const SUPPLY_FRAME_OVERHEAD: usize = WireSignal::ENCODED_LEN + LENGTH_HEADER_LEN;
 
+/// The largest supply-run budget the wire's framing can honor: budgets
+/// saturate here at construction.
+///
+/// A frame's full wire size is its [`SUPPLY_FRAME_OVERHEAD`] envelope
+/// plus the run body, and the body's length must encode in the `u32`
+/// header ([`framing`](crate::tree::mirror::framing)). Capping the
+/// whole-frame budget at `u32::MAX` less the envelope keeps every
+/// within-budget flush under the header's ceiling with the envelope
+/// already paid; without the cap, an over-ceiling budget lets a run
+/// grow past 4 GiB in RAM and then deterministically fail at the length
+/// header, re-failing every retry while the divergence persists.
+pub const MAX_RUN_BUDGET_BYTES: usize = u32::MAX as usize - SUPPLY_FRAME_OVERHEAD;
+
 /// The byte budget one supply frame may grow to before the encoder flushes it.
 ///
 /// Constructed from the public knob by [`from_bytes`](Self::from_bytes);
 /// consumed by the outgoing adapter's supply-run accumulation through
 /// [`admits`](Self::admits). Any value, including zero, is safe: the
 /// minimum-one-record rule keeps every leaf shippable, degrading a zero
-/// budget to the pre-batching one-leaf-per-frame wire traffic.
+/// budget to the pre-batching one-leaf-per-frame wire traffic, and the
+/// constructor's [`MAX_RUN_BUDGET_BYTES`] ceiling keeps every
+/// within-budget flush inside the wire's length header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RunBudget {
     /// Wire-frame bytes admitted before the next record forces a flush.
@@ -72,9 +92,18 @@ pub struct RunBudget {
 }
 
 impl RunBudget {
-    /// Adopt a caller-selected byte budget.
+    /// Adopt a caller-selected byte budget, saturated at
+    /// [`MAX_RUN_BUDGET_BYTES`].
+    ///
+    /// Saturation here is what makes every value safe: this is the single
+    /// constructor — the default, the public knob, and the negotiated
+    /// session minimum all pass through it — so no stored budget exceeds
+    /// what the framing can flush, and the greeting advertises the
+    /// saturated value.
     pub fn from_bytes(bytes: usize) -> Self {
-        Self { bytes }
+        Self {
+            bytes: bytes.min(MAX_RUN_BUDGET_BYTES),
+        }
     }
 
     /// The byte budget, as the greeting carries it.

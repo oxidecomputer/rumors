@@ -462,8 +462,10 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// The default, [`DEFAULT_TARGET_MESSAGE_SIZE`], is the byte size of
     /// the wire's maximally disputed reply — the decode side's documented
     /// per-reply memory unit — so default batching never raises the wire's
-    /// established memory ceiling. Any value is safe, including zero, which
-    /// degrades to one leaf per message.
+    /// established memory ceiling. Any value is safe: zero degrades to one
+    /// leaf per message, and values above the wire's framing ceiling
+    /// (`u32::MAX` less the frame envelope) saturate to it, so a run built
+    /// within the target always fits its length header.
     ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and reunion,

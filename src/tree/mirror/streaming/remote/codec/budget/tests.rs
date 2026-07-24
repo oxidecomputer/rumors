@@ -36,3 +36,30 @@ fn admission_charges_the_frame_envelope() {
 fn default_budget_fits_the_framing_header() {
     assert!(u32::try_from(DEFAULT_TARGET_MESSAGE_SIZE).is_ok());
 }
+
+/// Budgets above the wire's framing ceiling saturate to it, so a run the
+/// budget admits always flushes within the `u32` length header instead
+/// of buffering past 4 GiB and deterministically failing the flush.
+///
+/// The boundary is checked at the admitted maximum: the largest
+/// body-plus-record the saturated budget accepts still leaves the
+/// flushed frame's body encodable in the header, envelope included. The
+/// negative control shows the ceiling binds: one byte past the admitted
+/// maximum is refused, so the saturated budget is a real bound, not a
+/// pass-through.
+#[test]
+fn over_ceiling_budgets_saturate_to_the_framing_ceiling() {
+    let budget = RunBudget::from_bytes(usize::MAX);
+    assert_eq!(budget.bytes(), MAX_RUN_BUDGET_BYTES);
+
+    // The admitted maximum: envelope + body + record == the saturated
+    // budget exactly.
+    let body = MAX_RUN_BUDGET_BYTES - SUPPLY_FRAME_OVERHEAD - 1;
+    assert!(budget.admits(body, 1));
+    assert!(
+        crate::tree::mirror::framing::length_header(body + 1).is_ok(),
+        "an admitted flush must encode in the u32 length header",
+    );
+    // Negative control: the ceiling genuinely binds.
+    assert!(!budget.admits(body + 1, 1));
+}
