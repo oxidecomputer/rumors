@@ -47,7 +47,7 @@
 //! ```
 //!
 //! `cargo run` should compile and print nothing. That empty program is
-//! where every following step builds.
+//! the foundation every following step builds on.
 //!
 //! # Step 2: seed a universe
 //!
@@ -164,7 +164,7 @@
 //! # Step 5: keep the pair converged
 //!
 //! One session moves one moment's difference. To *keep* the pair
-//! converged, each end drives its own end of a long-lived link — the
+//! converged, each side drives its own end of a long-lived link — the
 //! *bridge* — with [`gossip_when`](crate::Rumors::gossip_when): the
 //! driver initiates a session whenever its `when` stream ticks (if
 //! there's been local change since the last gossip), and serves whatever

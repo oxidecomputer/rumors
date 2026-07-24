@@ -45,14 +45,13 @@
 //! **At the limits:** A link up to roughly an order of magnitude thinner (or a
 //! message rate an order of magnitude faster) than these bounds degrades
 //! gracefully rather than failing outright: peers may still converge, but may
-//! run stale proportionately to approximately the square of the bandwidth
+//! run stale in proportion to approximately the square of the bandwidth
 //! shortfall (derived: a session's metadata amortizes, falling roughly as the
 //! inverse square root of the backlog at realistic scales, so equilibrium
 //! repays a bandwidth deficit with its square in staleness). Past that, they
-//! will likely fall behind regardless of gossip
-//! frequency. In the other direction, past ~10 Gb/s, the network ceases to be
-//! the limit at all: message rate becomes limited by CPU, and set size becomes
-//! limited by RAM.
+//! will likely fall behind regardless of gossip frequency. In the other
+//! direction, past ~10 Gb/s, the network ceases to be the limit at all:
+//! message rate becomes limited by CPU, and set size becomes limited by RAM.
 //!
 //! # When *shouldn't* you use it?
 //!
@@ -62,8 +61,8 @@
 //!   gives you sequencing; `rumors` only gives you causal ordering, which may
 //!   be linearized differently between peers.
 //! - **If you don't control the peers.** Peers trust one another: the protocol
-//!   rejects malformed and mismatched sessions, but it is not Byzantine-tolerant:
-//!   a compromised member can fabricate, redact, deny service, and violate the
+//!   rejects malformed and mismatched sessions, but it is not Byzantine-tolerant.
+//!   A compromised member can fabricate, redact, deny service, and violate the
 //!   linearity of peer identities that everything rests on — a violation the
 //!   model assumes absent, and which is mostly undetectable and unrecoverable.
 //!   Authenticating peers and securing the transport are the application's job;
@@ -73,18 +72,18 @@
 //!   divergences, payloads under ~10 KB use more bandwidth for metadata than for
 //!   messages. On the bright side, reconciling larger divergences amortizes much
 //!   of this cost: the more catching-up there is to do, the higher throughput
-//!   `rumors` can deliver. That notwithstanding, on metered, narrow, or high-loss
-//!   links, this crate strikes the wrong balance.
+//!   `rumors` can deliver. Even so, on metered, narrow, or high-loss links,
+//!   this crate strikes the wrong balance.
 //!
 //! One boundary of the trust model is worth naming precisely. Message keys
 //! and subtree digests are BLAKE3: a [`Key`] binds a message's send version to
 //! its content at the full 32-byte width, while the reconciliation tree
 //! compares 16-byte truncated digests to save wire bytes. A *peer* never needs
 //! a hash collision — it holds write authority outright — so the residual
-//! adversary is a content author outside the peer set, who controls message
-//! content but never the version: every send is stamped with a fresh causal
-//! version whose value under concurrent gossip churn is unpredictable, so
-//! mining a collision against the truncated digest would require predicting
+//! adversary is a content author outside the peer set: someone who controls
+//! message content but never the version. Every send is stamped with a fresh
+//! causal version whose value under concurrent gossip churn is unpredictable,
+//! so mining a collision against the truncated digest would require predicting
 //! the exact insertion version fast. The version stamp is what denies
 //! precomputation.
 //!
@@ -101,7 +100,7 @@
 //! discarded because peer identity consumes *identity space*: a peer's
 //! identity is a point in that shared space — a set of non-overlapping
 //! intervals — and every message's [`Version`] is expressed in terms of the
-//! tree of bootstrapped identities, so each [`Peer::bootstrap`] widens
+//! tree of bootstrapped identities. Each [`Peer::bootstrap`] therefore widens
 //! timestamps a little, and each [`Peer::retire`] narrows them again. A peer
 //! that drops off without retiring strands its identity, and the universe's
 //! timestamps stay a little wider forever, wasting a few bits of space but not
@@ -133,9 +132,9 @@
 //!
 //! Trading the anchor away ([`Peer::into_rumors`]) opens the working state:
 //! [`Rumors`] clones freely, and cloned handles may [`send`](Rumors::send),
-//! [`redact`](Rumors::redact), observe [`messages`](Rumors::unordered_messages), and
-//! [`gossip`](Rumors::gossip) concurrently with one another, among other
-//! operations. When all other clones are gone, [`Rumors::try_into_peer`]
+//! [`redact`](Rumors::redact), observe [`messages`](Rumors::unordered_messages),
+//! and [`gossip`](Rumors::gossip) — among other operations — concurrently
+//! with one another. When all other clones are gone, [`Rumors::try_into_peer`]
 //! recovers the anchor. This temporal partitioning lets the compiler guarantee
 //! that your whole peer identity moves in or out only when you own it
 //! exclusively.
@@ -166,9 +165,9 @@
 //!     // A bare `send` statement commits when its `Batch` drops, right here.
 //!     alice.send("the meeting is at noon".to_string());
 //!
-//!     // A session runs over a `Link`: a control byte stream plus a supply of
-//!     // per-level data streams (see the `link` module); here, the in-memory
-//!     // pair. Alice serves one gossip session...
+//!     // A session runs over a `Link`: a control byte stream plus a supply
+//!     // of independent data streams (see the `link` module); here, the
+//!     // in-memory pair. Alice serves one gossip session...
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
 //!     tokio::spawn(async move {
@@ -223,7 +222,7 @@
 //! anywhere for an observer to yield ([`Rumors::redact`] explains why none is
 //! needed). A consumer maintaining a projection of the live set should
 //! therefore wake on [`Changes`] and diff the keys it tracks against a fresh
-//! [`Snapshot`]'s ([`Snapshot::get`] or [`Snapshot::iter`]); that same read
+//! [`Snapshot`]'s ([`Snapshot::get`] or [`Snapshot::iter`]). That same read
 //! path — observation, not [`send`](Rumors::send) — is also where the keys
 //! for your own messages come back.
 //!
@@ -262,10 +261,10 @@
 //!
 //! Every session opens with a fixed 25-byte preamble carrying
 //! [`PROTOCOL_MAGIC`], the selected [`Protocol`]'s version, the network, and
-//! session intent.
-//! The session rejects a counterparty that is not speaking `rumors`, or
-//! speaks an incompatible version, before trusting any peer-declared frame
-//! length ([`Error::MagicMismatch`], [`Error::VersionMismatch`]).
+//! the session intent. It rejects a counterparty that does not speak
+//! `rumors`, or speaks an incompatible version, before trusting any
+//! peer-declared frame length ([`Error::MagicMismatch`],
+//! [`Error::VersionMismatch`]).
 //! [`Protocol::V2`] is the default; `Protocol::V1` (behind the `protocol-v1`
 //! cargo feature) can be selected on an established [`Peer`] with
 //! [`Peer::protocol`], or while joining with

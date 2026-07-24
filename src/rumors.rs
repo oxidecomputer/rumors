@@ -181,10 +181,10 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// Once a redaction commits anywhere, no gossip schedule re-establishes
     /// the redacted message from replicas that still hold it. No redaction
     /// object exists to make that so — nothing crosses the wire to
-    /// represent a deletion — because reconciliation infers deletions from
+    /// represent a deletion. Reconciliation instead infers deletions from
     /// the causal frontiers the two sides exchange: a message the
     /// counterparty's version shows it must already have seen, yet it no
-    /// longer holds, was deleted there, so the holder drops its own copy
+    /// longer holds, was deleted there — so the holder drops its own copy
     /// instead of transmitting it. ("A redaction arriving before its
     /// message" is not even representable.) And because every send mints a
     /// fresh [`Key`] (a key binds the send's version to the content),

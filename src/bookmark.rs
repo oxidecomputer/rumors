@@ -60,9 +60,9 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining).
 /// The prior incarnation's identity is then reclaimed out of the record at
 /// the first gossip that causally dominates everything that incarnation
-/// had itself recorded — its own writes, not everything it had observed:
-/// gossiping with a counterparty that has not yet obtained everything the
-/// prior incarnation wrote does not reclaim it yet, and the identity waits
+/// had itself recorded — its own writes, not everything it had observed.
+/// A counterparty that has not yet obtained everything the prior
+/// incarnation wrote does not trigger the reclamation; the identity waits
 /// in the record until one does.
 ///
 /// A record that is stale but was stored atomically is always safe: the

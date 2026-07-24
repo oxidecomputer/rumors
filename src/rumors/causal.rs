@@ -20,10 +20,11 @@ use super::unordered::{Channel, TryNext};
 /// order, which may differ between [`gossip`](crate::Rumors::gossip)ing
 /// replicas of the same [`Rumors`](crate::Rumors).
 ///
-/// Unlike [`UnorderedMessages`](super::UnorderedMessages), this imposes an additional logarithmic
-/// cost in amortized memory and in the time to retrieve each message, both of
-/// which may have arbitrarily large bursts, up to the total size of the
-/// messages stored in the underlying [`Rumors`](crate::Rumors).
+/// Unlike [`UnorderedMessages`](super::UnorderedMessages), this costs an
+/// additional amortized logarithm — in memory and in the time to retrieve
+/// each message — and both costs may burst arbitrarily large, up to the
+/// total size of the messages stored in the underlying
+/// [`Rumors`](crate::Rumors).
 ///
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
@@ -154,6 +155,7 @@ impl<T> CausalMessages<T> {
     ///
     /// Resuming from this [`Version`] will never skip messages, but it may
     /// replay an arbitrary number of them.
+    ///
     /// Folding the yielded versions yourself is not a substitute: the
     /// causal order is partial, not total, so "the last version I saw" is
     /// not well-defined, and such a fold is not a causally closed

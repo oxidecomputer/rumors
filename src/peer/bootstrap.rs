@@ -114,9 +114,9 @@ impl<T> Bootstrap<T> {
     ///
     /// The bootstrap session itself never disputes — a joining replica
     /// holds nothing yet, so there is nothing to reconcile subtree by
-    /// subtree — and this setting cannot change it (the transfer's memory
-    /// is [`target_message_size`](Self::target_message_size)'s concern).
-    /// Selecting it here means the minted peer's very first
+    /// subtree, and nothing for this setting to bound (the transfer's
+    /// memory is [`target_message_size`](Self::target_message_size)'s
+    /// concern). Selecting it here means the minted peer's very first
     /// synchronization already runs budgeted.
     ///
     /// The default, what the budget prices, and how to choose one are
@@ -199,7 +199,7 @@ impl<T> Bootstrap<T> {
     /// residue — the confirmation itself can be lost, a gap
     /// [`Error::Epilogue`] explains cannot be closed: if the session
     /// fails at the very end with that error, the provider may have
-    /// committed while our side reports an error, and the forked identity
+    /// committed while our side reports failure, and the forked identity
     /// is lost. Losing a fork is safe — no invariant depends on it
     /// arriving — but not free: it is identity space gone for good,
     /// unless coordination outside this library reclaims it. What `Err`

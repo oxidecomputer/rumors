@@ -146,10 +146,10 @@ const SESSION_PAYLOADS: u64 = 48;
 
 /// Run the whole conformance suite against fresh pairs from `pair`.
 ///
-/// Each check consumes one fresh pair; `pair` is called once per check, and
-/// every focused check probes both directions of its pair, so the suite
-/// validates an asymmetric implementation on each side's connector and
-/// acceptor. See the [module docs](self) for executor and timeout
+/// Each check consumes one fresh pair (`pair` is called once per check),
+/// and every focused check probes both directions of its pair, so the
+/// suite validates an asymmetric implementation on each side's connector
+/// and acceptor. See the [module docs](self) for executor and timeout
 /// requirements.
 ///
 /// # Panics

@@ -136,8 +136,8 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 ///
 /// If peers are reasonably well-connected as the network gets started, this
 /// quickly reaches a stable steady state, disrupted only if a group of new
-/// peers joins only with one another and spends a long time partitioned
-/// before reuniting with the rest of the network.
+/// peers joins exclusively with one another and spends a long time
+/// partitioned before reuniting with the rest of the network.
 pub struct Peer<T, B: BookmarkError = NoBookmark> {
     pub(crate) network: Network,
     pub(crate) protocol: Protocol,
@@ -267,8 +267,8 @@ impl<T, B: Bookmark> Peer<T, B> {
     ///
     /// See the [type-level lifecycle example](Peer) for how to handle the
     /// four [`Retire`] outcomes; in brief, a session reconciles content
-    /// exactly as [`gossip`](crate::Rumors::gossip) would and then the peer
-    /// absorbs our identity, with the outcome reporting what survived. What
+    /// exactly as [`gossip`](crate::Rumors::gossip) would, then the peer
+    /// absorbs our identity, and the outcome reports what survived. What
     /// `Ok`, `Err`, and cancellation promise is stated in [what a session
     /// promises](crate::link::Link#what-a-session-promises).
     pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
@@ -314,7 +314,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// record per reply stream — ~0.2 MB under the in-memory backend, a
     /// term of the corpus-fixed charge `F` in the accuracy band below).
     /// This setting does not govern encoded wire messages in hand: the
-    /// stream schedule bounds those, at most one run per stream per
+    /// wire schedule bounds those, at most one run per stream per
     /// direction, so up to
     /// [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
     /// [`target_message_size`](Self::target_message_size) — ~19 MB per
@@ -480,9 +480,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// setting). Each session therefore runs at
     /// the **minimum** of the two ends' targets: the greeting carries
     /// each side's setting, and each side's *encoder* batches within
-    /// that minimum — your setting bounds the frames you build and,
-    /// through that minimum, the frames a conforming peer sends you —
-    /// so the more memory-constrained peer sets the pace. Peers with
+    /// that minimum. Your setting thus bounds the frames you build and,
+    /// through the minimum, the frames a conforming peer sends you:
+    /// the more memory-constrained peer sets the pace. Peers with
     /// different settings interoperate.
     ///
     /// The default, [`DEFAULT_TARGET_MESSAGE_SIZE`], is the byte size of

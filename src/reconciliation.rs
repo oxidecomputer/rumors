@@ -116,10 +116,10 @@
 //! descend toward individual leaves. This subtree-wise pruning is
 //! semantically identical to sieving each leaf one by one; what it changes
 //! is the price, keeping deletion honoring divergence-proportional rather
-//! than holdings-proportional. Note the pruning rule is exactly the plain
-//! Merkle repair's blind spot: a protocol comparing digests alone would
-//! recurse into a dominated subtree and faithfully resurrect the
-//! counterparty's deletions.
+//! than holdings-proportional. Note that what the pruning rule handles is
+//! exactly the plain Merkle repair's blind spot: a protocol comparing
+//! digests alone would recurse into a dominated subtree and faithfully
+//! resurrect the counterparty's deletions.
 //!
 //! The outcome of a session, stated once: both replicas hold every message
 //! either one held when the session began and neither had deleted.

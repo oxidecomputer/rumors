@@ -109,8 +109,9 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// the exchange pins is *reporting*: without it, a donor completing an
     /// identity hand-off (retire, or serving a bootstrap) could report
     /// success while its counterparty failed before committing — identity
-    /// space irreparably lost behind an `Ok`. Confirmed, identity can be
-    /// lost only inside this explicitly reported window.
+    /// space irreparably lost behind an `Ok`. With the exchange in place,
+    /// identity can be lost only inside this one window — and the window
+    /// always announces itself as this error, never hides behind an `Ok`.
     ///
     /// For a session on an existing replica — gossip, retire, or the side
     /// serving a bootstrap — the local replica **is** committed on this

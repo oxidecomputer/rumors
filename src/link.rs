@@ -26,12 +26,12 @@
 //! implementation may split one bidirectional transport stream into two
 //! unidirectional ones and nothing would be wrong. The control stream is
 //! persistent because it is the one stream every session unconditionally
-//! demands, so it is the one worth holding open, while data streams may
-//! never be needed at all and may be recycled back to a transport
-//! connection pool between sessions — keep warm what is always needed,
-//! lazily open and recycle what is conditional. The persistent control
-//! stream is also what gives the link a stable identity for its epoch and
-//! poison bookkeeping ([`SessionState`]).
+//! demands, so it is the one worth holding open; data streams may never
+//! be needed at all, and may be recycled back to a transport connection
+//! pool between sessions. The persistent control stream is also what
+//! gives the link a stable identity for its epoch and poison bookkeeping
+//! ([`SessionState`]). Keep warm what is always needed; lazily open and
+//! recycle what is conditional.
 //!
 //! # The contract
 //!
@@ -108,13 +108,13 @@
 //! # What securing the transport means
 //!
 //! The trust model (see the [crate docs](crate)) leaves authenticating
-//! peers and securing the transport to the application. These are the
-//! properties the protocol leans on, stated as requirements — the
-//! protocol's own validation rejects malformed and mismatched sessions
-//! with typed errors (nothing peer-declared is trusted before the fixed
-//! preamble validates, and the caller's timeout is the sole liveness
-//! backstop against a silent peer), but that machinery is a conformance
-//! tripwire, never a security boundary:
+//! peers and securing the transport to the application. The protocol's
+//! own validation rejects malformed and mismatched sessions with typed
+//! errors — nothing peer-declared is trusted before the fixed preamble
+//! validates, and the caller's timeout is the sole liveness backstop
+//! against a silent peer — but that machinery is a conformance tripwire,
+//! never a security boundary. These are the properties the protocol
+//! leans on, stated as requirements:
 //!
 //! - **Authentication is authorization.** Any counterparty that can
 //!   complete a session holds full write authority over the set; the
@@ -131,14 +131,14 @@
 //!
 //! # Instantiations
 //!
-//! [`memory`] builds the in-memory instantiation both ends of a test or an
-//! in-process pairing use; it is also the reference implementation of the
-//! contract. No network instantiation ships with the crate — the core stays
-//! free of network dependencies — so a real-network deployment implements
-//! the two traits against its own transport (QUIC connections mapping
-//! streams 1:1, or TCP with one connection per stream behind a routing
-//! listener, are the natural shapes) and validates the result with the
-//! `conformance` feature's link suite.
+//! [`memory`] mints the in-memory instantiation, both ends at once, for
+//! tests and in-process pairings; it is also the reference implementation
+//! of the contract. No network instantiation ships with the crate — the
+//! core stays free of network dependencies — so a real-network deployment
+//! implements the two traits against its own transport (QUIC connections
+//! mapping streams 1:1, or TCP with one connection per stream behind a
+//! routing listener, are the natural shapes) and validates the result
+//! with the `conformance` feature's link suite.
 //!
 //! ## Binding TCP
 //!
