@@ -1490,12 +1490,15 @@ recorded scan constants read 8.0 bits/B on the predicate rows
 charges builder writes uniformly, and `sum`'s final-at-descent tag
 write records 2 bits per output node where the reserve/patch pair
 recorded 4, so the drop is a real recorded-work reduction (two
-fewer builder touches per node), not a metering gap. The join
-rows' wall exponents stay judged and under
+fewer builder touches per node), not a metering gap. Only the
+join rows' wall exponents are judged, and only at ×4 — the one
+scale where their larger walls reach
+`board::MIN_JUDGED_WALL_MILLIS` — where they sit under
 `board::MAX_WALL_SCALING_EXPONENT` (the value within the ceiling
-is run-to-run noise; the sub-100-ms predicate cells sit below the
-judgment threshold, displayed and never judged). No other verdict
-moves at either scale.
+is run-to-run noise); every other P4.1 wall — the predicate cells
+at both scales, all five cells at the default scale — sits below
+the judgment threshold, displayed and never judged. No other
+verdict moves at either scale.
 
 ## 14. Execution plan
 
