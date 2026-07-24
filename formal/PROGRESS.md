@@ -1674,3 +1674,35 @@ receives live on distinct channels, so per-channel projections are
 order-invariant — the Numbering/canon layer transfers by a
 proj-equality bridge exactly as `proj_walkEventsE_eq` carried the d6
 climb).
+
+**Executable tier LANDED and GREEN (2026-07-23).** The eventdag oracle
+gained the full ord tier: O trace families and their E3 edge set
+(`walkTraceO`/`absorbTraceO`/`procTracesO`), the O validator, the
+`.impl` O merge candidate (`schedCandidateO`), the O eweave
+(`weaveScopeEO`/`weaveOrderEO`, absorber pump in its own assignment
+order), and the replay under `Ord.applyO` with the O close drain.
+Gates, all green at exit 0: the four-assignment matrix (all-QF, two
+alternating mixtures, absorber-only) per pin at margin 0 — candidate
+drains + validates + replays to terminal, oweave valid; the all-RF
+corner reproduces the E tier EVENT-FOR-EVENT (the calibration
+identity); per acyclic fuzz seed (300), all-QF plus a seed-derived
+mixed assignment, same checks, plus the rf-corner equality; the
+boundary matrix carries an all-QF conjunct at every capLevel probed;
+negative controls — the all-QF oweave is REJECTED sub-margin on
+`pdelay` (the capacity hypothesis is load-bearing per assignment) and
+a reply-first schedule is flagged against the QF edge set (the O edge
+set is real). Kernel-side equality pins (Sched-side `scheduleO`/O
+weave vs the tool) land with the Ord/Sched unit.
+
+**Kernel stage A/B LANDED (2026-07-23, the risk-register probe):**
+`Ord/Basic.lean` (applyO + `applyO_rf` rfl-per-arm + the reply-first
+transport `deadlockFreeO_rf_iff`), `Ord/Invariant.lean` (`InvPO`; each
+O receive count SELECTS between the two existing base formulas per the
+loop's assignment — never a new formula — so the local fragments and
+the decode hypothesis `InvL` are shared verbatim), `Ord/Wiring.lean`
+(O routing/frames + the `_congr` reuse workhorses: both base formulas
+unchanged ⟹ the O count unchanged at any assignment),
+`Ord/Init.lean`, `Ord/Preserve/Walk.lean` (the five walk-family
+preservation twins; the phase-0/1 count coupling resolved by
+first/second-receive cores with call-site `hrise`/`hkeep` routing —
+no coupling wider than scoped surfaced).
