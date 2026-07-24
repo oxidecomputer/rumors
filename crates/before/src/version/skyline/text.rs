@@ -24,7 +24,10 @@
 //!   exactly the leaf-to-leaf delta the skyline payload codes — extracted,
 //!   zigzag-coded, and fed to the collapsing output builder. The
 //!   accumulator is the cliff-immune [`Accum`]: a plain big-integer running
-//!   value re-imports the boundary comb's quadratic carry genre.
+//!   value re-imports the boundary comb's quadratic carry genre. The ≤2×
+//!   charge is enforced structurally (one join, one leave per base) plus
+//!   the `SKYLINE_PARSE_*` aggregate ceilings and floors in
+//!   `tests/meter.rs`, not by a per-base assertion.
 //!
 //! Both walks are iterative — explicit frame vectors and a phase bit
 //! stack, never the call stack — so depth grows no stack segments at any
