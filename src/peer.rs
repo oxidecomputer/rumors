@@ -377,7 +377,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// default, [`DEFAULT_SYNC_MEMORY_BUDGET`], keeps sessions
     /// bandwidth-bound — serialization never observable — on links up to
     /// its design point's 12.5 MB bandwidth-delay product (100 Gbps × 1 ms,
-    /// or 1 Gbps × 100 ms).
+    /// or 1 Gbps × 100 ms), for disputed records at the design ~200
+    /// wire-byte size; leaner records raise the link's product in
+    /// messages and degrade by the same latency-only factors.
     ///
     /// # Choosing a budget
     ///

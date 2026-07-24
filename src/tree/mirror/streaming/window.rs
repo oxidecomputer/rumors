@@ -198,9 +198,18 @@ const DESIGN_LINK_BYTES_PER_MS: usize = 12_500_000;
 /// Round-trip latency of the design link, in milliseconds.
 const DESIGN_LINK_RTT_MS: usize = 1;
 
-/// Wire bytes one disputed message costs end to end — its question,
-/// reply share, and leaf record. Measured: the knee suite's
-/// bandwidth-bound cell calibrates it.
+/// Wire bytes one disputed message costs end to end at the design
+/// record size — its question share, reply share, and leaf record.
+///
+/// Calibrated: `tests/dispute_wire.rs` counts every byte of a
+/// deterministic in-memory session and pins the current format's
+/// per-message cost as an affine law — 28 B of fixed overhead plus the
+/// record's borsh-encoded payload — with this constant as that cost at
+/// a 172-byte encoded payload, the design point's representative
+/// record. Leaner records cost proportionally less wire per message,
+/// raising a link's bandwidth-delay product in messages beyond what
+/// [`DEFAULT_SYNC_MEMORY_BUDGET`] admits in flight; the excess degrades
+/// as window serialization — latency, never memory.
 pub(crate) const DISPUTE_WIRE_BYTES: usize = 200;
 
 /// Session-envelope bytes one in-flight disputed scope is charged.
@@ -225,10 +234,11 @@ pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
 /// `DISPUTE_WIRE_BYTES` of it, each charged `SCOPE_ENVELOPE_BYTES` of
 /// session envelope — 62,500 scopes, ~304 MB. On links whose product is
 /// at or under the design point's
-/// (equivalently, 1 Gbps × 100 ms), sessions are bandwidth-bound at
-/// every divergence and window serialization is unobservable; past it,
-/// sessions degrade by the small constant factors the trade-off table
-/// measures.
+/// (equivalently, 1 Gbps × 100 ms), sessions whose disputed records
+/// carry design-size payloads are bandwidth-bound at every divergence
+/// and window serialization is unobservable; leaner records raise the
+/// product in messages, and they, like links past the design product,
+/// degrade by the small constant factors the trade-off table measures.
 ///
 /// The budget is an envelope, not an allocation, and **per session**: a
 /// session approaches it only against wide mutual divergence, typical
