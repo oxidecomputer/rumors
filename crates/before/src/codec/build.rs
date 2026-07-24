@@ -42,6 +42,9 @@ impl PackedBuilder {
     /// The current output length in bits: the position the next append
     /// lands at, and the coordinate [`truncate`](Self::truncate) rolls
     /// back to.
+    // Reached only from the skyline builder, which compiles under `test`
+    // and `meter`; still type-checked in every build.
+    #[cfg_attr(not(any(test, feature = "meter")), allow(dead_code))]
     pub(crate) fn len(&self) -> usize {
         self.bits.len()
     }
@@ -57,6 +60,9 @@ impl PackedBuilder {
     ///
     /// Collapse repairs re-anchor a surviving code before truncating the
     /// region it sits in; this is the read half of that repair.
+    // Reached only from the skyline builder, which compiles under `test`
+    // and `meter`; still type-checked in every build.
+    #[cfg_attr(not(any(test, feature = "meter")), allow(dead_code))]
     pub(crate) fn extract(&self, start: usize) -> Bits {
         super::scan::record_bits(self.bits.len() - start);
         self.bits[start..].to_bitvec()
