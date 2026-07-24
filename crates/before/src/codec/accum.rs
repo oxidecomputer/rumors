@@ -188,13 +188,74 @@ impl Accum {
 
     /// Add a wide delta: O(operand limbs), paid by the operand's own width.
     pub fn add_wide(&mut self, delta: &BigUint) {
-        self.apply_limbs(delta.iter_u64_digits(), false);
+        self.apply_limbs(delta.iter_u64_digits(), false, 0);
     }
 
     /// Subtract a wide delta: O(operand limbs), paid by the operand's own
     /// width.
     pub fn sub_wide(&mut self, delta: &BigUint) {
-        self.apply_limbs(delta.iter_u64_digits(), true);
+        self.apply_limbs(delta.iter_u64_digits(), true, 0);
+    }
+
+    /// Add `delta · 2^shift`: O(operand limbs), independent of the shift.
+    ///
+    /// The scaled entry point behind every weighted fold (a leaf's height
+    /// times its dyadic interval width, a rank numerator aligned to a
+    /// larger exponent): the shift routes each operand limb to its target
+    /// digit position directly, so a wide shift costs no more than an
+    /// unshifted add of the same operand.
+    pub(crate) fn add_wide_shl(&mut self, delta: &BigUint, shift: u64) {
+        self.apply_limbs(delta.iter_u64_digits(), false, shift);
+    }
+
+    /// Add a stored magnitude times `2^shift`, at the width it is stored
+    /// at: O(operand limbs), independent of the shift.
+    pub(crate) fn add_base_shl(&mut self, delta: &Base, shift: u64) {
+        match delta {
+            Base::Small(0) => {}
+            Base::Small(n) => self.add_shifted_word(*n, false, shift),
+            Base::Big(n) => self.add_wide_shl(n, shift),
+        }
+    }
+
+    /// Add another accumulator's held value times `2^shift` into this one:
+    /// O(the operand's held digits), independent of the shift.
+    ///
+    /// The merge move of the weighted folds: a subtree's finished partial
+    /// sum lands in its parent's accumulator at the exponent gap between
+    /// their scales, each digit routed to its target position directly.
+    pub(crate) fn add_accum_shl(&mut self, other: &Accum, shift: u64) {
+        let (digit_shift, bit_shift) =
+            (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
+        let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
+        for (i, &digit) in other.digits[..=other.top].iter().enumerate() {
+            touch(1);
+            if digit != 0 {
+                self.add_at(i + digit_shift, i128::from(digit) << bit_shift);
+            }
+        }
+    }
+
+    /// The number of digits up to and including the highest nonzero one.
+    ///
+    /// The size a merge or a per-leaf scaled add will read: the weighted
+    /// folds compare it against their spill thresholds and merge the
+    /// smaller operand into the larger.
+    pub(crate) fn digit_count(&self) -> usize {
+        self.top + 1
+    }
+
+    /// Add or subtract one machine word times `2^shift`: amortized O(1).
+    fn add_shifted_word(&mut self, word: u64, negative: bool, shift: u64) {
+        if word == 0 {
+            return;
+        }
+        let (digit_shift, bit_shift) =
+            (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
+        let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
+        // At most 96 bits after the sub-digit shift: well inside `i128`.
+        let value = i128::from(word) << bit_shift;
+        self.add_at(digit_shift, if negative { -value } else { value });
     }
 
     /// Add a stored magnitude, at the width it is stored at.
@@ -325,9 +386,10 @@ impl Accum {
         }
     }
 
-    /// Add `value` (any sign, any magnitude up to a small multiple of
-    /// `2^64`) into the digit at `pos`, carrying upward until every touched
-    /// digit is back in the lazy zone.
+    /// Add `value` (any sign, any `i128` magnitude) into the digit at
+    /// `pos`, carrying upward until every touched digit is back in the
+    /// lazy zone: O(value bits / 32) digit touches, amortized O(1) for
+    /// word-scale values.
     fn add_at(&mut self, mut pos: usize, mut value: i128) {
         while value != 0 {
             if pos >= self.digits.len() {
@@ -358,19 +420,25 @@ impl Accum {
         }
     }
 
-    /// Apply a little-endian 64-bit limb stream, digit-aligned: each limb
-    /// lands as two independent 32-bit contributions at its own position,
-    /// so a wide operand costs O(its limbs) regardless of the held width.
-    fn apply_limbs<I: Iterator<Item = u64>>(&mut self, limbs: I, negative: bool) {
+    /// Apply a little-endian 64-bit limb stream scaled by `2^shift`,
+    /// digit-aligned: each limb lands as two independent 32-bit
+    /// contributions at its own shifted position, so a wide operand costs
+    /// O(its limbs) regardless of the held width or the shift.
+    fn apply_limbs<I: Iterator<Item = u64>>(&mut self, limbs: I, negative: bool, shift: u64) {
+        let (digit_shift, bit_shift) =
+            (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
+        let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
         for (i, limb) in limbs.enumerate() {
             touch(1);
-            let low = i128::from(limb & DIGIT_MASK);
-            let high = i128::from(limb >> DIGIT_BITS);
+            // At most 33 + 31 bits per contribution after the sub-digit
+            // shift: well inside the `i128` `add_at` carries from.
+            let low = i128::from(limb & DIGIT_MASK) << bit_shift;
+            let high = i128::from(limb >> DIGIT_BITS) << bit_shift;
             if low != 0 {
-                self.add_at(2 * i, if negative { -low } else { low });
+                self.add_at(2 * i + digit_shift, if negative { -low } else { low });
             }
             if high != 0 {
-                self.add_at(2 * i + 1, if negative { -high } else { high });
+                self.add_at(2 * i + 1 + digit_shift, if negative { -high } else { high });
             }
         }
     }
