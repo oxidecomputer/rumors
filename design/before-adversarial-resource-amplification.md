@@ -3256,6 +3256,69 @@ scales, envelopes, byte-pinned snapshots):
   swap commit; wasm32 word width is u32, so the limb-touch
   denominator pairs words on 32-bit targets; bus factor 1,
   mitigated by pinning and the small oracle-tested surface.
+
+  *Amended 2026-07-24 — landing shape superseded: the `Small(u64)`
+  arm is deleted, not retained.* The user rejected the retained arm
+  as duplicative: dashu stores up to double-word values inline (no
+  allocation), its equality is value equality by contract, and the
+  four-arm operator matrix plus boundary promote/demote
+  normalization is exactly the owned bug surface the swap exists to
+  delete — keeping the arm would nest a hand-rolled small-value
+  dispatch on top of dashu's own. `Base` is a thin metered newtype
+  over `UBig` that delegates whole; the meter convention survives at
+  the seam as a bit-width derivation (`bits.div_ceil(64).max(1)`,
+  value-determined, so every limb count is unchanged by
+  construction); the deletion is verified by the differential
+  suites, the byte-identical counter columns, and the board pins
+  rather than argued.
+
+  *Landed 2026-07-24 (commit e05e3c4d, this worktree).* What landed:
+  `dashu-int = { version = "0.5", default-features = false,
+  features = ["std"] }` replaces the num-bigint dependency entirely;
+  `Base(UBig)` newtype with the manual metered
+  `PartialEq`/`Hash`/`Ord` (semantics pinned against a derived
+  mirror); `U64Limbs` packs stored words into 64-bit limbs
+  (`WORDS_PER_LIMB = 64 / Word::BITS`, so wasm32's u32 words pair
+  and every limb-denominated count is target-invariant; wasm32
+  check green); the accumulator's wide entry points take `&UBig`
+  and stream borrowed words, its differential oracle is `IBig`, and
+  `sign_magnitude` drains through a byte image consumed
+  buffer-first so peak transient stays at two width-proportional
+  buffers; the wide-gamma decode sizes storage once via `set_bit`
+  top-bit-first, unchanged in shape.
+  - Verification of record: full crate suite green under the
+    pre-swap pins before any re-pin; limb, touch, scan, and segment
+    columns byte-identical to the measurements of record (three
+    identical runs); wire bytes, snapshots, and doctests untouched;
+    board at default scale 128 green / 72 red twice, verdicts and
+    reason lists and all non-heap columns byte-identical to a
+    same-machine merge-base baseline (wall legs excluded per §17.10;
+    under concurrent load both tips flicker identically on
+    wall-only cells).
+  - Envelope movements (heap only; mechanism: dashu allocates
+    `len/8 + 2` words of growth headroom per spilled buffer, so
+    magnitude-dominated peaks read up to +12.8%): tightened
+    CMP_CLIFF 820 → 620 (measured 656 → 496) and
+    SKYLINE_JOIN_BIGROOT 89,710 → 85,060 (measured 71,768 →
+    68,048); risen-in-place movements recorded per row (largest:
+    CMP_BIGROOT 50.0 MB → 56.4 MB, JOIN_BIGROOT 50.5 MB → 56.8 MB,
+    RANK_PAIR_MISMATCH 187,520 → 211,016, all under their standing
+    ceilings, which the tables now state are only ever tightened).
+  - Display canary: untouched as the pin; dashu's divide-and-conquer
+    conversion reads 24.8× against the 26.0× ceiling at the pinned
+    sizes (the num-bigint-era D&C band read 18.4–19.4×), so the
+    class margin narrowed to ~5% on the subquadratic side while the
+    quadratic class still reads ~36×; the canary's reserved-runner
+    nextest wiring is what protects that margin under load.
+  - Surprises: (1) the heap churn ran *upward* on spilled-magnitude
+    shapes, not downward — the predicted 65–128-bit allocation win
+    is real but those values were already inline in the retired
+    representation's `Small`-adjacent paths, while the headroom
+    overhead applies to every spilled buffer; (2) the
+    FOLD_PARTY_SCATTER scan measurement of record (292,432) was
+    already stale at the merge base (both tips measure 276,044,
+    byte-identical across the swap) — a pre-existing comment drift,
+    left for the owning track to re-pin.
 - **Upstream the divide-and-conquer radix parsing to `num-bigint`.**
   The rendering direction landed upstream in 0.4.7; the parsing
   direction (this campaign's D&C parse and its measured exponent)
