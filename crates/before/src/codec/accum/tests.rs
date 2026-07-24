@@ -144,6 +144,78 @@ proptest! {
         }
         assert_value(&acc, &oracle);
     }
+
+    /// The shifted entry points hold `x · 2^s` exactly: a stream applied
+    /// through `add_base_shl` at arbitrary sub-digit and multi-digit
+    /// shifts, mixed with unshifted subtractions, matches the oracle's
+    /// explicitly shifted value at every sign and at the final value.
+    #[test]
+    fn shifted_entry_points_match_the_oracle(
+        ops in proptest::collection::vec(
+            (any::<bool>(), proptest::collection::vec(any::<u64>(), 1..=3), 0u64..200),
+            1..200,
+        ),
+    ) {
+        let mut acc = Accum::new();
+        let mut oracle = BigInt::from(0);
+        for (negative, limbs, shift) in &ops {
+            let value = from_limbs(limbs);
+            if *negative {
+                acc.sub_wide(&value);
+                oracle -= BigInt::from(value);
+            } else {
+                let base = Base::from(value.clone());
+                acc.add_base_shl(&base, *shift);
+                oracle += BigInt::from(value << shift);
+            }
+            prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
+        }
+        assert_value(&acc, &oracle);
+    }
+
+    /// Accumulator-into-accumulator merges preserve the value: building two
+    /// operands from independent streams and merging one into the other at
+    /// an arbitrary shift equals the oracle's `x + y · 2^s`.
+    #[test]
+    fn merges_match_the_oracle(
+        x_ops in proptest::collection::vec(arb_op(), 1..60),
+        y_ops in proptest::collection::vec(arb_op(), 1..60),
+        merge_shift in 0u64..200,
+    ) {
+        let mut x = Accum::new();
+        let mut x_oracle = BigInt::from(0);
+        for op in &x_ops {
+            apply(&mut x, &mut x_oracle, op);
+        }
+        let mut y = Accum::new();
+        let mut y_oracle = BigInt::from(0);
+        for op in &y_ops {
+            apply(&mut y, &mut y_oracle, op);
+        }
+        x.add_accum_shl(&y, merge_shift);
+        x_oracle += y_oracle << merge_shift;
+        assert_value(&x, &x_oracle);
+    }
+
+    /// `digit_count` covers the held width: after any stream, the value's
+    /// magnitude fits inside the counted digits (each digit spans 32 bits
+    /// plus one lazy-zone bit of overhang).
+    #[test]
+    fn size_probe_covers_the_value(
+        ops in proptest::collection::vec(arb_op(), 1..120),
+    ) {
+        let mut acc = Accum::new();
+        let mut oracle = BigInt::from(0);
+        for op in &ops {
+            apply(&mut acc, &mut oracle, op);
+            let (_, magnitude) = acc.sign_magnitude();
+            prop_assert!(
+                u64::try_from(acc.digit_count()).expect("digit counts fit u64") * 32 + 33
+                    >= magnitude.bits(),
+                "digit_count misses value width"
+            );
+        }
+    }
 }
 
 /// The boundary-comb stream: a ±1 oscillation across the `2^k` carry cliff

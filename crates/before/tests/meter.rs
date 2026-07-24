@@ -165,15 +165,6 @@ mod envelope {
     pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope( 2_083_300,        0,       463_554); //  1_666_640, 0,   370_843
     pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(   117_414,        0,        12_217); //     93_931, 0,     9_773
     pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope(19_723_745,        0,     3_437_515); // 15_778_996, 0, 2_750_012
-    // Rank rows (2026-07-23, new scenarios). RANK_HARMONIC,
-    // RANK_PAIR_MISMATCH, and RANK_SUM_MIXED are deliberate red baselines
-    // (the scenario section doc carries the mechanism each pins); the
-    // other two are the linear controls.
-    pub const RANK_DENSE: Envelope         = envelope(         0,      240,     1_562_503); //          0,  192,     1_250_002
-    pub const RANK_BIGROOT: Envelope       = envelope(    21_900,       15,       128_530); //     17_520,   12,       102_824
-    pub const RANK_HARMONIC: Envelope      = envelope(    30_730,      123,   168_426_244); //     24_584,   98,   134_740_995
-    pub const RANK_PAIR_MISMATCH: Envelope = envelope(   234_400,        0,        68_388); //    187_520,    0,        54_710
-    pub const RANK_SUM_MIXED: Envelope     = envelope(   156_290,        0,   195_390_245); //    125_032,    0,   156_312_196
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -469,23 +460,135 @@ fn join_cliff_envelope() {
 
 // ─── rank scenarios ─────────────────────────────────────────────────────────
 //
-// The rank fold and the Rank operations, pinned at their current measured
-// cost per the ×1.25 convention. Three of these rows are deliberate red
-// baselines in the ratchet sense — the pinned number is the *amplified*
-// cost the current implementation pays, recorded so the telescoped rank
-// kernel, the class-first comparison, and the raw-accumulator Sum fold
+// The rank fold and the Rank operations. The fold rows run on the
+// digit-routed merge fold (child numerators land in their sibling's
+// accumulator at the exponent gap, never through a materialized shift of
+// the accumulated value), so their arithmetic shows up in the accumulator
+// touch column; the limb column keeps the `Base` work (decode, the final
+// conversion) honest, and the touch column is the liveness floor for the
+// fold itself. RANK_HARMONIC is the fold's separating family — a
+// numerator as wide as the depth already walked at every level — pinned
+// linear (its limb column moved 134,740,995 -> 1,025 when the digit-routed
+// fold landed). RANK_DENSE and RANK_BIGROOT are the controls: one-bit and
+// root-heavy numerators respectively.
+//
+// Two rows remain deliberate red baselines in the ratchet sense — the
+// pinned number is the *amplified* cost the current implementation pays,
+// recorded so the class-first comparison and the raw-accumulator Sum fold
 // each land as a tightening of a committed constant rather than an
 // unwitnessed claim:
 //
-// - RANK_HARMONIC: the fold re-shifts a numerator as wide as the depth
-//   already walked at every level, Θ(d²) limb work in Θ(d) input bits.
 // - RANK_PAIR_MISMATCH: cmp and checked_sub materialize a full alignment
 //   shift of the mismatched exponents on every call.
 // - RANK_SUM_MIXED: the Sum fold renormalizes a high-exponent accumulator
 //   once per folded element, Θ(n·exp) limb work in Θ(n + exp) content.
-//
-// RANK_DENSE and RANK_BIGROOT are the controls: one-bit and root-heavy
-// numerators respectively, on which the same fold is linear.
+
+/// One rank scenario's pinned ceilings: [`Envelope`]'s three columns plus
+/// accumulator digit touches, asserted when the `limb-meter` feature is
+/// lit.
+struct RankEnvelope {
+    /// Peak heap delta over the scenario body, in bytes.
+    peak_heap: usize,
+    /// Stack segments grown during the scenario body.
+    segments: u64,
+    /// Big-integer limb operations counted during the scenario body.
+    #[cfg(feature = "limb-meter")]
+    limb_ops: u64,
+    /// Accumulator digit touches counted during the scenario body.
+    #[cfg(feature = "limb-meter")]
+    touches: u64,
+}
+
+/// Build a [`RankEnvelope`] from the four pinned columns.
+///
+/// The limb and touch columns are carried only when the `limb-meter`
+/// feature compiles their counters in; the leading underscores keep the
+/// parameters warning-free in the other configuration.
+const fn rank_envelope(
+    peak_heap: usize,
+    segments: u64,
+    _limb_ops: u64,
+    _touches: u64,
+) -> RankEnvelope {
+    RankEnvelope {
+        peak_heap,
+        segments,
+        #[cfg(feature = "limb-meter")]
+        limb_ops: _limb_ops,
+        #[cfg(feature = "limb-meter")]
+        touches: _touches,
+    }
+}
+
+// The rank envelope table: pinned ceiling = measured ×1.25, rounded up.
+// The trailing comment on each line is the measurement of record
+// (2026-07-24, aarch64-apple-darwin, dev profile, three identical runs)
+// the ceiling derives from; a re-pinned column records the movement as
+// `old -> new`. Re-pin by rerunning under `--no-capture` with
+// `--all-features` and reading the MEASURED lines.
+#[rustfmt::skip]
+mod rank_env {
+    use super::{rank_envelope, RankEnvelope};
+    //                                                            peak heap, segments,    limb ops, touches       measured: peak heap, segments, limb ops (movement), touches
+    pub const RANK_DENSE: RankEnvelope         = rank_envelope(           0,      300,           3,      0); //          0, 240, 1_250_002 -> 2, 0
+    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       1_762,  5_862); //     40_088,  16, 102_824 -> 1_409, 4_689
+    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       1_282, 84_403); //     32_804, 124, 134_740_995 -> 1_025, 67_522
+    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      68_388,      0); //    187_520,   0, 54_710, 0
+    pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(     156_290,        0, 195_390_245,      0); //    125_032,   0, 156_312_196, 0
+}
+
+/// Run one rank scenario body under all four meters and assert its
+/// envelope.
+///
+/// [`metered`]'s harness plus the accumulator touch column; prints the
+/// measured numbers so re-pinning never requires editing the harness.
+fn rank_metered<R>(name: &str, input_bytes: usize, env: &RankEnvelope, f: impl FnOnce() -> R) -> R {
+    meter::reset_stack_segments();
+    #[cfg(feature = "limb-meter")]
+    meter::reset_limb_ops();
+    #[cfg(feature = "limb-meter")]
+    meter::accum::touch_meter::reset();
+    HEAP.reset_peak_usage();
+    let baseline = HEAP.current_usage();
+    let r = f();
+    let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
+    let segments = meter::stack_segments();
+    #[cfg(feature = "limb-meter")]
+    let limb_ops = meter::limb_ops();
+    #[cfg(feature = "limb-meter")]
+    let touches = meter::accum::touch_meter::touches();
+    #[cfg(feature = "limb-meter")]
+    eprintln!(
+        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments} limb_ops={limb_ops} touches={touches}"
+    );
+    #[cfg(not(feature = "limb-meter"))]
+    eprintln!(
+        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments}"
+    );
+    assert!(
+        peak_heap <= env.peak_heap,
+        "{name}: peak heap {peak_heap} B exceeds the pinned envelope {} B (input {input_bytes} B): {ISOLATION_NOTE}",
+        env.peak_heap,
+    );
+    assert!(
+        segments <= env.segments,
+        "{name}: {segments} grown stack segments exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.segments,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        limb_ops <= env.limb_ops,
+        "{name}: {limb_ops} limb operations exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.limb_ops,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        touches <= env.touches,
+        "{name}: {touches} accumulator digit touches exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.touches,
+    );
+    r
+}
 
 /// The rank fold on the dense spine stays within its envelope (the
 /// control: the spine's numerator stays one bit wide, so the fold's
@@ -494,7 +597,7 @@ fn join_cliff_envelope() {
 fn rank_dense_envelope() {
     let p = meter::dense(DENSE_DEPTH);
     let v = version_of(&p);
-    let r = metered("rank_dense", p.bytes.len(), &envelope::RANK_DENSE, || {
+    let r = rank_metered("rank_dense", p.bytes.len(), &rank_env::RANK_DENSE, || {
         v.rank()
     });
     consumed(r);
@@ -506,28 +609,28 @@ fn rank_dense_envelope() {
 fn rank_bigroot_envelope() {
     let p = meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
     let v = version_of(&p);
-    let r = metered(
+    let r = rank_metered(
         "rank_bigroot",
         p.bytes.len(),
-        &envelope::RANK_BIGROOT,
+        &rank_env::RANK_BIGROOT,
         || v.rank(),
     );
     consumed(r);
 }
 
-/// The rank fold on the harmonic spine stays within its envelope — a
-/// deliberate red baseline: the pinned cost is quadratic (the fold
-/// re-shifts an accumulated numerator as wide as the depth already walked
-/// at every level), recorded so the telescoped delta-algebra kernel
-/// retires it by moving this committed number.
+/// The rank fold on the harmonic spine stays within its envelope — the
+/// fold's separating family, pinned linear: the accumulated numerator is
+/// as wide as the depth already walked at every level, and the
+/// digit-routed merge folds each level's one-leaf sibling into it at the
+/// exponent gap instead of re-shifting it.
 #[test]
 fn rank_harmonic_envelope() {
     let p = meter::harmonic(RANK_HARMONIC_DEPTH);
     let v = version_of(&p);
-    let r = metered(
+    let r = rank_metered(
         "rank_harmonic",
         p.bytes.len(),
-        &envelope::RANK_HARMONIC,
+        &rank_env::RANK_HARMONIC,
         || v.rank(),
     );
     consumed(r);
@@ -552,10 +655,10 @@ fn rank_pair_mismatch_envelope() {
     // Informational denominator: the pair's value content in bytes
     // (numerator bits + exponent, over eight).
     let content_bytes = RANK_PAIR_DEPTH / 8 + 1;
-    let r = metered(
+    let r = rank_metered(
         "rank_pair_mismatch",
         content_bytes,
-        &envelope::RANK_PAIR_MISMATCH,
+        &rank_env::RANK_PAIR_MISMATCH,
         || {
             let ord = a.cmp(&b);
             let diff = b.checked_sub(&a);
@@ -593,10 +696,10 @@ fn rank_sum_mixed_envelope() {
         .collect();
     let content_bytes = RANK_SUM_EXP_DEPTH / 8 + RANK_SUM_COUNT;
     let ranks: Vec<before::Rank> = std::iter::once(high).chain(ones).collect();
-    let r = metered(
+    let r = rank_metered(
         "rank_sum_mixed",
         content_bytes,
-        &envelope::RANK_SUM_MIXED,
+        &rank_env::RANK_SUM_MIXED,
         || ranks.into_iter().sum::<before::Rank>(),
     );
     consumed(r);
