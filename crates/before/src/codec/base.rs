@@ -156,8 +156,8 @@ impl Base {
     /// over doubling digit counts\]. The conversion therefore runs inside
     /// the dependency, below the limb shim, so this records one
     /// width-proportional limb count for the materialized value — the
-    /// same convention as the wide-gamma decode — and the board's wall
-    /// leg is what judges the conversion's complexity class.
+    /// same convention as the wide-gamma decode — and the bench judge's
+    /// time leg is what judges the conversion's complexity class.
     ///
     /// The caller guarantees `digits` is nonempty pure ASCII digits;
     /// leading zeros are value-preserving (`"007"` is 7).

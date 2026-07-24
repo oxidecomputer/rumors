@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""Judge time-scaling exponents over the board benches' criterion medians.
+
+The amplification board (before::meter::board) judges deterministic
+counters and liveness floors only, so its output is byte-identical under
+any machine load. The implementation-agnostic witness for *time* — work in
+plain machine words that no counter column can see — is judged here
+instead, where timing belongs to a harness built for it: criterion owns
+warmup, sampling, and outlier rejection, and this tool is plain
+deterministic arithmetic over criterion's saved estimates.
+
+The pipeline (`just bench-judge`): run `benches/board.rs` at two scales
+with `--save-baseline` per scale, each run writing a denominator sidecar
+(cell ID -> the board's denominator bytes at that scale, the board's own
+denomination read back from actual results); then, per cell, fit
+
+    e = ln(median_hi / median_lo) / ln(denom_hi / denom_lo)
+
+and hold every judged cell to MAX_WALL_SCALING_EXPONENT. The fit is the
+board's own scaling-exponent form (board.rs `exponent()`: log of the
+measurement ratio over log of the denominator-bytes ratio) at the ceiling
+that moved here with the leg — the same convention, not a new one; the
+board's zero-count clamps have no analogue because a criterion median is a
+positive float, so a nonpositive median or a non-growing denominator is an
+input error, never a score. A cell is judged only when its larger-scale
+median reaches MIN_JUDGED_MEDIAN_NANOS (derivation at the constant);
+sub-floor cells are enumerated as SKIP, never judged. Output is a red/green
+table in the board's style (red rows first); exit is nonzero on any red.
+
+Usage:
+    benchjudge --criterion-dir DIR --lo NAME --hi NAME \\
+        --denoms-lo FILE --denoms-hi FILE [--expect-red]
+    benchjudge --self-test
+
+`--expect-red` inverts the bottom line for tripwire runs (`just
+bench-judge-tripwire`): exit 0 iff at least one judged cell is red.
+"""
+
+import argparse
+import json
+import math
+import sys
+from pathlib import Path
+
+# The ceiling on every judged cell's fitted time exponent. Generous so
+# scheduler noise on a linear cell cannot trip it, impassable for a
+# quadratic's ~2.0.
+MAX_WALL_SCALING_EXPONENT = 1.3
+
+# Criterion's own resolution: its smallest timed unit is one batch of at
+# least one iteration, read with a pair of monotonic-clock samples — two
+# timer reads (~25 ns each) against a tick no coarser than ~42 ns on the
+# deployed hosts (the 24 MHz Apple Silicon timebase) bound the per-batch
+# measurement error at ~100 ns. Not a number invented here: it is the
+# harness's floor, restated.
+CRITERION_TIMER_ERROR_NANOS = 100
+
+# The judged median must dominate the timer error by this factor, so
+# resolution moves a fitted exponent across a x4 denominator span by at
+# most ln(1.01/0.99)/ln 4 ~ 0.015 — far inside the 0.3 gap between the
+# linear band and the ceiling.
+RESOLUTION_DOMINANCE_FACTOR = 100
+
+# The judgment floor: cells whose larger-scale median sits below this are
+# enumerated but never judged. Derived, not calibrated:
+# CRITERION_TIMER_ERROR_NANOS x RESOLUTION_DOMINANCE_FACTOR = 10 us.
+MIN_JUDGED_MEDIAN_NANOS = CRITERION_TIMER_ERROR_NANOS * RESOLUTION_DOMINANCE_FACTOR
+
+
+class JudgeError(Exception):
+    """A malformed input: missing estimates, bad denominators, bad medians."""
+
+
+def fit_exponent(median_lo, median_hi, denom_lo, denom_hi, name):
+    """The board's scaling-exponent fit over one cell's two medians."""
+    if median_lo <= 0 or median_hi <= 0:
+        raise JudgeError(f"{name}: nonpositive median ({median_lo}, {median_hi})")
+    if denom_lo <= 0 or denom_hi <= denom_lo:
+        raise JudgeError(
+            f"{name}: denominator bytes must grow across the scales, "
+            f"got {denom_lo} -> {denom_hi}"
+        )
+    return math.log(median_hi / median_lo) / math.log(denom_hi / denom_lo)
+
+
+def judge_cells(cells):
+    """Judge `(name, median_lo, median_hi, denom_lo, denom_hi)` rows.
+
+    Returns `(verdict, name, exponent, row)` tuples where verdict is one of
+    GREEN, RED, SKIP; the exponent is None for SKIP (a sub-floor median has
+    no judged exponent).
+    """
+    rows = []
+    for name, median_lo, median_hi, denom_lo, denom_hi in cells:
+        if median_hi < MIN_JUDGED_MEDIAN_NANOS:
+            rows.append(
+                (
+                    "SKIP",
+                    name,
+                    None,
+                    f"SKIP  {label(name)}  hi median {nanos(median_hi)} below the "
+                    f"{nanos(MIN_JUDGED_MEDIAN_NANOS)} judgment floor",
+                )
+            )
+            continue
+        exponent = fit_exponent(median_lo, median_hi, denom_lo, denom_hi, name)
+        verdict = "GREEN" if exponent <= MAX_WALL_SCALING_EXPONENT else "RED"
+        rows.append(
+            (
+                verdict,
+                name,
+                exponent,
+                f"{verdict:<5} {label(name)}  e {exponent:5.2f}  "
+                f"n {denom_lo}->{denom_hi} B  "
+                f"median {nanos(median_lo)}->{nanos(median_hi)}",
+            )
+        )
+    return rows
+
+
+def label(name):
+    """Pad a cell ID into the board's op/family column widths."""
+    op, _, family = name.partition("/")
+    return f"{op:<24} {family:<12}"
+
+
+def nanos(value):
+    """Format a nanosecond reading compactly (ns/us/ms/s)."""
+    for unit, scale in (("s", 1e9), ("ms", 1e6), ("us", 1e3)):
+        if value >= scale:
+            return f"{value / scale:.2f}{unit}"
+    return f"{value:.0f}ns"
+
+
+def read_denoms(path):
+    """Read a denominator sidecar: cell ID -> denominator bytes."""
+    denoms = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(denoms, dict) or not denoms:
+        raise JudgeError(f"{path}: expected a nonempty JSON object")
+    return denoms
+
+
+def read_median(criterion_dir, name, baseline):
+    """Read one cell's median point estimate (ns) from a saved baseline."""
+    op, _, family = name.partition("/")
+    path = Path(criterion_dir, op, family, baseline, "estimates.json")
+    if not path.is_file():
+        raise JudgeError(f"{name}: no saved estimates at {path}")
+    estimates = json.loads(path.read_text(encoding="utf-8"))
+    return estimates["median"]["point_estimate"]
+
+
+def load_cells(criterion_dir, lo, hi, denoms_lo_path, denoms_hi_path):
+    """Assemble the judged rows from the two baselines and two sidecars."""
+    denoms_lo = read_denoms(denoms_lo_path)
+    denoms_hi = read_denoms(denoms_hi_path)
+    if denoms_lo.keys() != denoms_hi.keys():
+        difference = sorted(denoms_lo.keys() ^ denoms_hi.keys())
+        raise JudgeError(f"the two sidecars disagree on the cell set: {difference}")
+    return [
+        (
+            name,
+            read_median(criterion_dir, name, lo),
+            read_median(criterion_dir, name, hi),
+            denoms_lo[name],
+            denoms_hi[name],
+        )
+        for name in denoms_lo
+    ]
+
+
+def render(rows, out):
+    """Print the verdict table, red rows first, and the bottom line."""
+    print(
+        "bench-judge: time-scaling exponents over criterion medians "
+        "(the amplification board's time leg)",
+        file=out,
+    )
+    print(
+        f"green iff fitted exponent <= {MAX_WALL_SCALING_EXPONENT} against the "
+        f"board's denominator bytes; judged once the larger-scale median reaches "
+        f"{nanos(MIN_JUDGED_MEDIAN_NANOS)} ({RESOLUTION_DOMINANCE_FACTOR} x the "
+        f"~{CRITERION_TIMER_ERROR_NANOS} ns per-batch timer error)",
+        file=out,
+    )
+    print(file=out)
+    # Red rows first (the board's convention), then green, then sub-floor;
+    # cell order within a verdict stays the sidecar's (board row order).
+    order = ("RED", "GREEN", "SKIP")
+    for wanted in order:
+        for verdict, _, _, line in rows:
+            if verdict == wanted:
+                print(line, file=out)
+    counts = {verdict: 0 for verdict in order}
+    for verdict, _, _, _ in rows:
+        counts[verdict] += 1
+    print(file=out)
+    print(
+        f"bench-judge: {counts['GREEN']} green / {counts['RED']} red / "
+        f"{counts['SKIP']} sub-floor ({len(rows)} cells)",
+        file=out,
+    )
+    return counts
+
+
+def self_test():
+    """Pin the judging arithmetic on synthetic estimates."""
+    floor = MIN_JUDGED_MEDIAN_NANOS
+
+    def verdicts(cells):
+        return [(verdict, name) for verdict, name, _, _ in judge_cells(cells)]
+
+    # A linear cell reads green: medians scale with the denominator.
+    assert verdicts([("op/linear", 1e6, 4e6, 1000, 4000)]) == [("GREEN", "op/linear")]
+    # A quadratic reads red: medians scale with the denominator squared.
+    assert verdicts([("op/quad", 1e6, 16e6, 1000, 4000)]) == [("RED", "op/quad")]
+    # A sub-floor cell is skipped, never judged, even at a quadratic ratio.
+    assert verdicts([("op/tiny", floor / 32, floor / 2, 1000, 4000)]) == [
+        ("SKIP", "op/tiny")
+    ]
+    # The ceiling binds tightly: a hair under 1.3 is green, a hair over red.
+    under = floor * 4 ** (MAX_WALL_SCALING_EXPONENT - 0.01)
+    over = floor * 4 ** (MAX_WALL_SCALING_EXPONENT + 0.01)
+    assert verdicts([("op/under", floor, under, 1000, 4000)]) == [("GREEN", "op/under")]
+    assert verdicts([("op/over", floor, over, 1000, 4000)]) == [("RED", "op/over")]
+    # The denominator, not the scale knob, is the fit's base: a family whose
+    # bytes grow x16 across a x4 knob (the cliff genre) reads its honest
+    # linear exponent against those bytes.
+    assert verdicts([("op/cliff", 1e6, 16e6, 1000, 16000)]) == [("GREEN", "op/cliff")]
+    # The committed tripwire's measured shape (benches/tripwire.rs via
+    # `just bench-judge-tripwire`, quick mode, 2026-07-24: the machine-word
+    # quadratic every board counter reads zero on — medians 239.39 us ->
+    # 3.84 ms across n 512 -> 2048): red on the fitted exponent, ~2.0
+    # against the 1.3 ceiling.
+    rows = judge_cells(
+        [("tripwire_unmetered_quadratic/quadratic", 239.39e3, 3.84e6, 512, 2048)]
+    )
+    [(verdict, _, exponent, _)] = rows
+    assert verdict == "RED" and 1.8 <= exponent <= 2.2, rows
+    # Malformed inputs are errors, never scores.
+    for bad in [
+        ("op/shrunk", 1e6, 4e6, 4000, 1000),
+        ("op/flat", 1e6, 4e6, 1000, 1000),
+        ("op/negative", -1.0, 4e6, 1000, 4000),
+    ]:
+        try:
+            judge_cells([bad])
+        except JudgeError:
+            pass
+        else:
+            raise AssertionError(f"expected a JudgeError for {bad}")
+
+
+def main(argv):
+    if argv[1:] == ["--self-test"]:
+        self_test()
+        return 0
+    parser = argparse.ArgumentParser(
+        prog="benchjudge", description=__doc__.splitlines()[0]
+    )
+    parser.add_argument("--criterion-dir", required=True)
+    parser.add_argument("--lo", required=True, help="smaller-scale baseline name")
+    parser.add_argument("--hi", required=True, help="larger-scale baseline name")
+    parser.add_argument("--denoms-lo", required=True)
+    parser.add_argument("--denoms-hi", required=True)
+    parser.add_argument(
+        "--expect-red",
+        action="store_true",
+        help="tripwire mode: succeed iff at least one judged cell is red",
+    )
+    args = parser.parse_args(argv[1:])
+    try:
+        cells = load_cells(
+            args.criterion_dir, args.lo, args.hi, args.denoms_lo, args.denoms_hi
+        )
+        rows = judge_cells(cells)
+    except JudgeError as error:
+        print(f"benchjudge: {error}", file=sys.stderr)
+        return 2
+    counts = render(rows, sys.stdout)
+    if args.expect_red:
+        if counts["RED"] == 0:
+            print(
+                "benchjudge: --expect-red: no judged cell read red; "
+                "the tripwire has gone dark",
+                file=sys.stderr,
+            )
+            return 1
+        return 0
+    return 1 if counts["RED"] > 0 else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

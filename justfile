@@ -248,6 +248,39 @@ bench target *filter:
 bench-quick target *filter:
     cargo bench --workspace --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
+# The amplification board's time leg: the board itself judges deterministic
+# counters and floors only (its output is byte-identical under any machine
+# load), so the time-exponent judgment runs here, over criterion medians.
+# Each recipe runs the board benches at the default scale and the record
+# scale (x4), saves a criterion baseline and a denominator sidecar per
+# scale, and tools/benchjudge fits every cell's exponent across the two
+# (denominated against the board's own per-cell bytes) at the 1.3 ceiling,
+# red/green table, nonzero exit on any red.
+
+# Judge the board bench exponents across both scales (quick mode: iteration only).
+bench-judge:
+    ./tools/benchjudge --self-test
+    BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/board-denoms-lo.json cargo bench -p before --bench board -- --sample-size 10 --measurement-time 1 --save-baseline board-judge-lo
+    BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/board-denoms-hi.json cargo bench -p before --bench board -- --sample-size 10 --measurement-time 1 --save-baseline board-judge-hi
+    ./tools/benchjudge --criterion-dir {{ justfile_directory() }}/target/criterion --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ justfile_directory() }}/target/criterion/board-denoms-lo.json --denoms-hi {{ justfile_directory() }}/target/criterion/board-denoms-hi.json
+
+# `bench-judge` at full sampling: the mode required for numbers of record.
+bench-judge-record:
+    ./tools/benchjudge --self-test
+    BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/board-denoms-lo.json cargo bench -p before --bench board -- --save-baseline board-judge-lo
+    BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/board-denoms-hi.json cargo bench -p before --bench board -- --save-baseline board-judge-hi
+    ./tools/benchjudge --criterion-dir {{ justfile_directory() }}/target/criterion --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ justfile_directory() }}/target/criterion/board-denoms-lo.json --denoms-hi {{ justfile_directory() }}/target/criterion/board-denoms-hi.json
+
+# The judge's live tripwire: an unmetered machine-word quadratic (green on
+# every board counter column) must read RED through the judge; the recipe
+# succeeds exactly when it does. The same measured shape is pinned in
+# tools/benchjudge --self-test, which every bench-judge recipe runs first.
+bench-judge-tripwire:
+    ./tools/benchjudge --self-test
+    BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/tripwire-denoms-lo.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-lo
+    BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/tripwire-denoms-hi.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-hi
+    ./tools/benchjudge --expect-red --criterion-dir {{ justfile_directory() }}/target/criterion --lo tripwire-judge-lo --hi tripwire-judge-hi --denoms-lo {{ justfile_directory() }}/target/criterion/tripwire-denoms-lo.json --denoms-hi {{ justfile_directory() }}/target/criterion/tripwire-denoms-hi.json
+
 # Run the amplification board: the red-green resource-proportionality matrix
 # over before's public operations × adversarial input families. Each cell
 # judges deterministic work counters (limbs, scans, segments, heap) against
@@ -280,12 +313,13 @@ rumormill *args:
 # network-touching viz bundle. GitHub CI runs exactly this.
 #
 # `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor
-# per-commit spend) and the formal tier (the runner has no Lean toolchain) —
+# per-commit spend), the formal tier (the runner has no Lean toolchain) —
 # the kernel-checked proofs, the eventdag oracle/schedule gate, and the
-# muxprobe matrix gate.
+# muxprobe matrix gate — and the bench judge (minutes of criterion runs at
+# two scales; quick mode, so its exponents are judged but never quoted).
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
 ci: fmt-check doclint testdoc readme-check clippy features wasm-check docs docs-internal test-all doctest bench-build fuzz-build viz
 
-# Everything: the no-rot sweep, plus the fuzz smoke and the formal tier.
-all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe
+# Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
+all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge

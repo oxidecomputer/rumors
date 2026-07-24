@@ -49,14 +49,3 @@ slow-timeout = { period = "60s", terminate-after = 3 }
 [[profile.default.overrides]]
 filter = 'binary(display_canary)'
 threads-required = "num-test-threads"
-
-# The wall-exponent tripwire (before::meter::board::tests) is the board's
-# one wall-clock assertion: an unmetered quadratic must read red on the
-# judged time exponent while every counter column stays green. Its margin
-# (~2.0 measured against the 1.3 ceiling) is wide, but both measured
-# intervals should face the same quiet conditions for the fitted exponent
-# to mean a complexity class; reserve the runner exactly as the display
-# canary does.
-[[profile.default.overrides]]
-filter = 'test(unmetered_quadratic_reads_red_on_the_wall_exponent_leg)'
-threads-required = "num-test-threads"
