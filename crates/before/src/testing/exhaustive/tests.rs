@@ -116,8 +116,11 @@ fn check_id_split(ids: &[oracle::Party], imp: &[Party]) {
     });
 }
 
-/// `is_disjoint` and `sum` over every *ordered pair* of ids agree with the oracle —
-/// reaching the overlap (`is_disjoint == false`) and overlap-sum (`None`) arms
+/// `is_disjoint`, `covers`, and `sum` over every *ordered pair* of ids agree
+/// with the oracle.
+///
+/// The cross-product reaches the overlap (`is_disjoint == false`), partial-
+/// and non-overlap (`covers == false`), and overlap-sum (`None`) arms
 /// exhaustively.
 fn check_id_pairs(ids: &[oracle::Party], imp: &[Party]) {
     par_for_pairs(ids.len(), |i, j| {
@@ -126,6 +129,8 @@ fn check_id_pairs(ids: &[oracle::Party], imp: &[Party]) {
 
         let disjoint = oa.is_disjoint(ob);
         assert_eq!(ia.is_disjoint(ib), disjoint, "is_disjoint {oa:?} {ob:?}");
+
+        assert_eq!(ia.covers(ib), oa.covers(ob), "covers {oa:?} {ob:?}");
 
         let summed = IdReader::root(ia.as_bits()).sum(IdReader::root(ib.as_bits()));
         if disjoint {
