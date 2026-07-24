@@ -132,7 +132,12 @@ impl Base {
     /// The number of trailing zero bits, or `None` for zero (which has no
     /// lowest set bit). Used by [`Rank`](crate::Rank) normalization to strip
     /// factors of two out of a dyadic numerator.
+    ///
+    /// Width-scale work — the backend scans limbs bottom-up for the lowest
+    /// set bit — so the limb meter records the operand's width like every
+    /// other width-scale operation here.
     pub(crate) fn trailing_zeros(&self) -> Option<u64> {
+        meter_limbs_solo(self);
         self.0.trailing_zeros().map(|n| n as u64)
     }
 
