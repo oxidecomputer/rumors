@@ -233,10 +233,11 @@ use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use crate::codec;
-use crate::{causally, Clock, Party, Version};
+use crate::{causally, Clock, Party, Rank, Version};
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
 
@@ -491,6 +492,14 @@ struct FamilyData {
     /// scatter family only, reached by nothing but the two fold rows.
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+    /// The mismatched rank pair — the `rank_pair_ops` families only.
+    ///
+    /// Precomputed here (family-derived rank, small integer rank) so that
+    /// row's prepare clones the pair instead of re-running the rank fold:
+    /// the bench harness calls prepare once per timed iteration, and the
+    /// fold costs orders of magnitude more than the pair operations it
+    /// feeds.
+    rank_pair: Option<(Rank, Rank)>,
 }
 
 impl FamilyData {
@@ -502,7 +511,7 @@ impl FamilyData {
             let scaled = ((base as f64) * scale).round() as usize;
             scaled.max(MIN_SIZE_PARAM) << level
         };
-        match kind {
+        let mut data = match kind {
             FamilyKind::Dense => {
                 Self::event(kind, "dense", super::dense(size(DENSE_BASE_DEPTH)).bytes)
             }
@@ -532,6 +541,7 @@ impl FamilyData {
                 cross: None,
                 measure: None,
                 fold: None,
+                rank_pair: None,
             },
             FamilyKind::CombScatter => {
                 let teeth = size(CROSS_BASE_TEETH);
@@ -547,6 +557,7 @@ impl FamilyData {
                     )),
                     measure: None,
                     fold: None,
+                    rank_pair: None,
                 }
             }
             FamilyKind::Harmonic => {
@@ -563,11 +574,29 @@ impl FamilyData {
                     cross: None,
                     measure: Some((bytes, w.encode())),
                     fold: None,
+                    rank_pair: None,
                 }
             }
             FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
+        };
+        // The rank-pair families: the spine shapes that maximize the
+        // exponent mismatch, plus the benign control (the `rank_pair_ops`
+        // row's applicability set).
+        if matches!(
+            kind,
+            FamilyKind::Dense | FamilyKind::Harmonic | FamilyKind::Benign
+        ) {
+            let (v, _) = data
+                .measure_version()
+                .expect("the rank-pair families all carry a measure operand");
+            let a = v.rank();
+            let b = Version::try_from(RANK_PAIR_INTEGER_TICKS)
+                .expect("a small integer version is valid")
+                .rank();
+            data.rank_pair = Some((a, b));
         }
+        data
     }
 
     /// Build the scatter fold population: `n` balanced-forked parties, one
@@ -616,6 +645,7 @@ impl FamilyData {
             cross: None,
             measure: None,
             fold: Some((versions, parties)),
+            rank_pair: None,
         }
     }
 
@@ -633,6 +663,7 @@ impl FamilyData {
             cross: None,
             measure: None,
             fold: None,
+            rank_pair: None,
         }
     }
 
@@ -675,6 +706,7 @@ impl FamilyData {
             cross: None,
             measure: None,
             fold: None,
+            rank_pair: None,
         }
     }
 
@@ -1109,20 +1141,10 @@ fn ops() -> Vec<Op> {
                 // The mismatched pair: a family-derived rank (maximal
                 // exponent on the spines) against a small integer rank, on
                 // the spine families that maximize the mismatch plus the
-                // benign control. Ranks are built at prepare, outside
-                // measurement; the denominator is the pair's value content
-                // (the module doc's rank denomination).
-                if !matches!(
-                    f.kind,
-                    FamilyKind::Dense | FamilyKind::Harmonic | FamilyKind::Benign
-                ) {
-                    return None;
-                }
-                let (v, _) = f.measure_version()?;
-                let a = v.rank();
-                let b = Version::try_from(RANK_PAIR_INTEGER_TICKS)
-                    .expect("a small integer version is valid")
-                    .rank();
+                // benign control. Ranks are built at family construction,
+                // outside measurement; the denominator is the pair's value
+                // content (the module doc's rank denomination).
+                let (a, b) = f.rank_pair.clone()?;
                 let n = (a.content_bits() + b.content_bits()).div_ceil(8) as usize;
                 Some(Cell::new(n, move || {
                     let ord = a.cmp(&b);
@@ -1926,4 +1948,72 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
         green: green.len(),
         red: red.len(),
     })
+}
+
+// ─── the bench export ───────────────────────────────────────────────────────
+
+/// One board cell exposed for wall-clock benchmarking.
+///
+/// The bench suite (`benches/board.rs`) is the board's wall-time shadow: its
+/// criterion group and function IDs are exactly [`BenchCell::op`] and
+/// [`BenchCell::family`], so a board cell names the bench that times it and
+/// a criterion filter selects a cell.
+pub struct BenchCell {
+    /// The board row's operation name: the bench group ID.
+    pub op: &'static str,
+    /// The input family's name: the bench function ID within the group.
+    pub family: &'static str,
+    /// The family operands the row's prepare reads, shared across cells.
+    data: Rc<FamilyData>,
+    /// The board row's prepare, re-run per measured body.
+    prepare: fn(&FamilyData) -> Option<Cell>,
+}
+
+impl BenchCell {
+    /// Build one fresh run of the cell's measured body.
+    ///
+    /// Operands are decoded anew on every call — the board's prepare
+    /// discipline — so a bench harness rebuilds destructive operands in its
+    /// untimed setup and times the returned closure alone. The closure is
+    /// exactly what the board meters: same operands, same operation, same
+    /// kept-alive result.
+    pub fn body(&self) -> Box<dyn FnOnce() -> Box<dyn Any>> {
+        (self.prepare)(&self.data)
+            .expect("cell applicability was settled at construction")
+            .body
+    }
+}
+
+/// Every applicable board cell at `scale`, in board row order.
+///
+/// `scale` multiplies the family base sizes exactly as [`run`]'s does; the
+/// cells are the applicable op × family pairings at that scale, at one
+/// measurement level (a bench varies repetition, not size).
+///
+/// # Panics
+///
+/// Panics if `scale` is not a strictly positive finite number.
+pub fn bench_cells(scale: f64) -> Vec<BenchCell> {
+    assert!(
+        scale > 0.0 && scale.is_finite(),
+        "bench cells: scale must be a positive finite number"
+    );
+    let families: Vec<Rc<FamilyData>> = FAMILIES
+        .iter()
+        .map(|&kind| Rc::new(FamilyData::build(kind, scale, 0)))
+        .collect();
+    let mut cells = Vec::new();
+    for op in ops() {
+        for family in &families {
+            if (op.prepare)(family).is_some() {
+                cells.push(BenchCell {
+                    op: op.name,
+                    family: family.name,
+                    data: Rc::clone(family),
+                    prepare: op.prepare,
+                });
+            }
+        }
+    }
+    cells
 }
