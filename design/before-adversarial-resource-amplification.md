@@ -2179,6 +2179,53 @@ bit-for-bit `Route` assertion during development. *Deps*: P3.5
 (topology cursor), P3.6 (builder for the emit), P3.2 (boundary
 repair arithmetic).
 
+Landed 2026-07-23, module-private (`version/skyline/grow.rs`; wire
+bytes untouched, the packed grow stays the production path and the
+byte-level oracle, exported crate-internally and as
+`meter::packed_grow` for the differential and envelope asserts — a
+C2 deletion alongside the old path). The probe landed as sketched:
+one loop, two parallel bit stacks — 3 control bits per frame (kind,
+phase flipped in place), and a pop-able unary+value integer stack
+(reverse-readable, the same width class as gamma) holding each
+frame's key delta against the two per-regime last-key registers plus
+the deferred left cost behind one infeasibility flag — with id-child
+presence re-read O(1) at the frame key, the Expand arm running as
+the id-only iterative scan inside the same loop, `Route`'s
+position-keyed bit vector unchanged (event keys are skyline bit
+positions), and the probe topology-only (payload codes skipped by
+width: the alt-spine envelope row's whole limb column is 8). The
+emit landed as the §11.3 splice through the P3.6 builder: a
+`continue_verbatim` move splices a canonical subtree's remainder in
+one copy around the held-leaf discipline (interior collapse records
+are placeholders — canonicity rules out any merge they could
+suppress, pinned by per-leaf-equivalence builder tests); exactly two
+payload codes are re-derived per grow (the grown leaf's `+1`, the
+successor's `−1` when the grown leaf is its preorder predecessor);
+expansion chains code fresh `0`/`±1` sibling deltas directly; the
+inflation-point collapse (both directions) rides the builder's
+absorb/re-anchor cascade with no new machinery. Differentials, all
+green: byte identity against the packed grow over family × party
+grids, arbitraries, organic histories, and the exhaustive small
+scope (events at depth 2 × owning ids at depth 3); the `Route`
+bit-vector and root-cost equality against a reference recursive
+probe on every one of those pairs (the named tie-break/coordinate
+risk, retired); and the brute-force right-favoring minimal
+inflation held *directly* on the kernel — stronger than the
+planned transitive claim through the packed impl. Envelope rows
+(`tests/meter.rs::grow_env`, four columns, measured ×1.25, three
+identical runs): `skyline_grow_alt_spine` (125k alternating spine
+under the seed — the frame-count adversary: heap 276,252 B on a
+46,877 B input, ~5.9 B/B total transient including the route and
+the output stream, against ~32 B/B for one 16-byte machine frame
+per level), `skyline_grow_id_spine` (250k unary id over the empty
+version: the Expand scan plus mandatory chain output),
+`skyline_grow_cross` (both spines), all three at zero grown
+segments. Kills unchanged: the three grow cells stay red until C2
+routes `tick` here, per this item's realized-at-C2 recording;
+`fill` stays at C2 with the tick splice per P3.6's 2026-07-23
+amendment (grow rides alone pre-flip; at C2 `tick` = fill's sweep
+else this emit).
+
 **P3.8 — text: sweep writers/parsers and the shared radix core
 (resequenced to the P4 tail).**
 Resequenced 2026-07-23 by the user's ruling: `Display`/`FromStr`
