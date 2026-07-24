@@ -253,15 +253,47 @@ impl AddAssign<Rank> for Rank {
 /// The empty sum is [`Rank::ZERO`], the additive identity.
 impl Sum<Rank> for Rank {
     fn sum<I: Iterator<Item = Rank>>(iter: I) -> Rank {
-        iter.fold(Rank::ZERO, |acc, r| acc + r)
+        sum_ranks(iter)
     }
 }
 
 /// The empty sum is [`Rank::ZERO`], the additive identity.
 impl<'a> Sum<&'a Rank> for Rank {
     fn sum<I: Iterator<Item = &'a Rank>>(iter: I) -> Rank {
-        iter.fold(Rank::ZERO, |acc, r| acc + r)
+        sum_ranks(iter)
     }
+}
+
+/// Sum ranks through one raw accumulator with a single final
+/// normalization.
+///
+/// The accumulator holds the running numerator at the largest exponent
+/// seen so far: a summand at a smaller exponent is digit-routed in at the
+/// exponent gap (O(its own limbs), independent of the gap), and a summand
+/// raising the maximum rescales the accumulator once, O(held digits) —
+/// paid by the exponent the summand itself carries. Nothing renormalizes
+/// per element, so a high-exponent summand costs its own width once
+/// instead of once per later element, and the result is the identical
+/// [`Rank`] the pairwise fold produces (one exact value, one shared
+/// normalization at the end).
+fn sum_ranks<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
+    let mut acc = Accum::new();
+    let mut exp = 0u32;
+    for rank in iter {
+        let rank = rank.borrow();
+        if rank.exp > exp {
+            acc.shl(u64::from(rank.exp - exp));
+            exp = rank.exp;
+        }
+        acc.add_base_shl(&rank.num, u64::from(exp - rank.exp));
+    }
+    let (sign, magnitude) = acc.sign_magnitude();
+    debug_assert_ne!(
+        sign,
+        Ordering::Less,
+        "a sum of nonnegative ranks is nonnegative"
+    );
+    Rank::from_raw(Base::from(magnitude), exp)
 }
 
 /// [`Rank::ZERO`], the additive identity.
