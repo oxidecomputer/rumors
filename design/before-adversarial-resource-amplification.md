@@ -3308,6 +3308,15 @@ scales, envelopes, byte-pinned snapshots):
     CMP_BIGROOT 50.0 MB → 56.4 MB, JOIN_BIGROOT 50.5 MB → 56.8 MB,
     RANK_PAIR_MISMATCH 187,520 → 211,016, all under their standing
     ceilings, which the tables now state are only ever tightened).
+    *Corrected 2026-07-24 (review, measured at the swap's parent
+    48b73491, 3/3 deterministic):* two comparison-sweep rows'
+    movements are split, not dashu-owned whole — SKYLINE_CMP_WIDE_TOOTH
+    840 → 968 and SKYLINE_CMP_CLIFF 1,160 → 1,296 were pre-existing
+    drift owned by commit 7e0e5546 (2026-07-23, the emission sweep:
+    its shared overlay step holds each consumed delta as an owned
+    magnitude; the drift went unrecorded when it landed), and the
+    dashu growth-headroom share is 968 → 1,032 and 1,296 → 1,360.
+    The row annotations record the same split.
   - Display canary: untouched as the pin; dashu's divide-and-conquer
     conversion reads 24.8× against the 26.0× ceiling at the pinned
     sizes (the num-bigint-era D&C band read 18.4–19.4×), so the

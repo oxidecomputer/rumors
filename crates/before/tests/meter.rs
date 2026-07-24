@@ -957,8 +957,13 @@ mod sweep_env {
     pub const SKYLINE_CMP_DENSE: SweepEnvelope      = sweep_envelope(   30_730,        0,   312_503,   468_760); //   24_584, 0, 250_002, 375_008
     pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(   51_210,        0,   625_005,   937_515); //   40_968, 0, 500_004, 750_012
     pub const SKYLINE_CMP_BIGROOT: SweepEnvelope    = sweep_envelope(   39_540,        0,    25_788,   137_514); //   31_632 -> 32_272 (2026-07-24, dashu-int backend), 0,  20_630, 110_011
-    pub const SKYLINE_CMP_CLIFF: SweepEnvelope      = sweep_envelope(    1_450,        0,     7_763,    17_925); //    1_160 -> 1_360 (2026-07-24, dashu-int backend), 0,   6_210,  14_340
-    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_050,        0,    29_509, 1_000_483); //      840 -> 1_032 (2026-07-24, dashu-int backend), 0,  23_607, 800_386
+    pub const SKYLINE_CMP_CLIFF: SweepEnvelope      = sweep_envelope(    1_450,        0,     7_763,    17_925); //    1_160 -> 1_296 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_360 (2026-07-24, dashu-int backend), 0,   6_210,  14_340
+    // SKYLINE_CMP_WIDE_TOOTH's 1_032-under-1_050 margin is a deliberate
+    // change-detector on the backend's allocation policy: the committed
+    // Cargo.lock (dashu-int 0.5.0 exact) is what makes the measurement
+    // deterministic, and a cargo update to any other 0.5.x is a deliberate
+    // re-measure event, not noise.
+    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_050,        0,    29_509, 1_000_483); //      840 -> 968 (2026-07-23, emission-sweep shared step holds each consumed delta) -> 1_032 (2026-07-24, dashu-int backend), 0,  23_607, 800_386
 }
 
 /// Run one sweep scenario body under all four meters and assert its
