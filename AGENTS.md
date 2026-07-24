@@ -59,8 +59,8 @@ workspace has a recipe there; `just --list` shows them all. The tiers:
 - Code may cite the Lean artifact by *theorem or definition name* (never
   by file path — Lean refactors orphan paths) when a kernel-checked
   statement backs the claim, with the invariant still stated inline;
-  proof-effort progress notes (`formal/PROGRESS.md`) are never cited
-  from code.
+  the model's design document (`formal/MODEL.md`) and proof-effort
+  progress notes (`formal/PROGRESS.md`) are never cited from code.
 - The model of record is uniform-hash, authenticated-honest-peer:
   transport is pre-authenticated and authorized, and an authorized peer
   already holds write authority over the set, so hostile-peer regimes

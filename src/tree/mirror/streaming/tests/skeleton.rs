@@ -10,8 +10,8 @@
 //! - [`decode`] reads the materialized progress [`Trace`] (both endpoints'
 //!   internal publications) and rebuilds the session's dispute skeleton,
 //!   cross-checking every resolution's `pending` count and every event's
-//!   endpoint against the model's role-parity and count laws (MODEL.md
-//!   §3–§4) as it goes;
+//!   endpoint against the model's role-parity and count laws (the Lean
+//!   `asks` and `Skel.asmResList`) as it goes;
 //! - [`announced`] reads the payload-erased wire [`Transcript`] alone — no
 //!   tree, no internal events — and rebuilds the *announced* skeleton by
 //!   replaying the protocol's positional pairing, which is exactly the
@@ -128,8 +128,8 @@ impl Party {
 
 /// Does party `p` ask (pair reply with query) for scopes at this height?
 ///
-/// Initiator asks even heights, responder odd (the Lean `asks`;
-/// MODEL.md §3's height-parity theorem).
+/// Initiator asks even heights, responder odd (the Lean `asks`; the
+/// schedule obeys it by the kernel theorem `Sched.walkKeys_parity`).
 pub(super) fn asks(p: Party, height: usize) -> bool {
     match p {
         Party::I => height.is_multiple_of(2),
@@ -236,7 +236,7 @@ fn assemble(
 ) -> (Skel, Vec<Vec<u8>>) {
     assert!(
         d.contains(&Vec::new()),
-        "the root scope is always disputed (MODEL.md §2)"
+        "the root scope is always disputed (a conjunct of the Lean `Skel.wellFormed`)"
     );
     assert!(
         d.intersection(r).next().is_none(),
@@ -325,11 +325,13 @@ pub(super) struct Decoded {
 /// Classification: a scope is `D` iff its answerer published a `Resolution`
 /// for it; `R` iff its supplier published a `Ready` at an internal prefix;
 /// a `Ready` at a full 32-byte path is a supplied leaf request. On the way
-/// out, every event is audited against MODEL.md: `Resolution` pending counts
-/// are `d + r` (height ≥ 2) or `leafReqs` (height 1) and come from the
-/// scope's answerer; `ParentResolution` pending counts are `d` and come from
-/// the asker; suppliers, requesters, and dependent-work issuers land on the
-/// endpoint the height-parity theorem (§3) assigns them.
+/// out, every event is audited against the model's count and parity laws:
+/// `Resolution` pending counts are `d + r` (height ≥ 2) or `leafReqs`
+/// (height 1) and come from the scope's answerer; `ParentResolution` pending
+/// counts are `d` and come from the asker (the two arms of the Lean
+/// `Skel.asmResList`); suppliers, requesters, and dependent-work issuers
+/// land on the endpoint the height parity (the Lean `asks`, kernel-pinned by
+/// `Sched.walkKeys_parity`) assigns them.
 pub(super) fn decode(trace: &Trace) -> Decoded {
     let events = trace.events();
     let works: BTreeSet<usize> = events.iter().map(|event| event.work).collect();
@@ -410,7 +412,7 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
                     resolutions[prefix],
                     (answerer_at(h), expected),
                     "answerer-side resolution of {prefix:02x?} (h={h}): pending = d + r, \
-                     or leafReqs at height 1 (MODEL.md §4)"
+                     or leafReqs at height 1 (the answerer arm of the Lean Skel.asmResList)"
                 );
                 assert_eq!(
                     parents[prefix],
@@ -448,7 +450,8 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
         "the root is never dependent work"
     );
     for leaf in &leaf_requests {
-        // Height-1 scopes are answered by the initiator (MODEL.md §4): it
+        // Height-1 scopes are answered by the initiator (height 1 is odd,
+        // and the Lean `asks` gives odd heights to the responder to ask): it
         // issues the leaf requests, and the responder supplies them.
         assert_eq!(
             dependents.get(leaf).map(|&(work, _)| work),
@@ -635,11 +638,12 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
 /// A trace's per-channel projection: for each (endpoint, event kind, scope
 /// depth) — one model channel instance — the ordered publications on it.
 ///
-/// This is the granularity at which MODEL.md §1's payload-independence
-/// premise speaks ("the count and order of CHANNEL operations"): the
-/// cross-channel interleaving of one run is scheduler freedom the model
-/// already quantifies over adversarially, and empirically it is not even a
-/// function of the trees — the terminal `tokio::select!` in
+/// This is the granularity at which the payload-independence premise speaks:
+/// the count and order of CHANNEL operations depend only on each child's
+/// merge-join arm, never on payloads. The cross-channel interleaving of one
+/// run is scheduler freedom the model already quantifies over adversarially,
+/// and empirically it is not even a function of the trees — the terminal
+/// `tokio::select!` in
 /// `complete_initiator` is unbiased, so its branch order draws tokio's
 /// thread-local RNG and varies run to run.
 pub(super) fn trace_channels(
