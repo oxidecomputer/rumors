@@ -72,6 +72,18 @@ two classes:
     (derivation at the constant). Outside the band the cell has genuinely
     moved and the roster entry is stale (exit 1). Reading SKIP is a
     violation, as above.
+  - "text_green" / "text_red": the conversion-class cells, judged at
+    MAX_TEXT_SCALING_EXPONENT instead of the default ceiling (derivation
+    at the constant: rendering wide magnitudes to decimal is honestly
+    superlinear, and the text ceiling is what separates the
+    divide-and-conquer class from the schoolbook class). A text_green
+    cell must fit at or under the text ceiling; over it, the display
+    path's complexity class has moved (exit 1). A text_red cell (the
+    committed schoolbook tripwire) must fit above the text ceiling; at
+    or under it, the tripwire has gone dark or its renderer's class
+    changed (exit 1). Reading SKIP is a violation for both, as above.
+    The table's per-row verdicts stay at the default ceiling; the text
+    classes' judgment is the roster's.
 
 Any unrostered cell reading RED is a violation (exit 1). Unrostered cells
 may drift between GREEN and SKIP freely — both are non-red, and
@@ -108,6 +120,21 @@ from pathlib import Path
 # quadratic's ~2.0.
 MAX_WALL_SCALING_EXPONENT = 1.3
 
+# The ceiling on the roster's text-conversion cells (the "text_green" /
+# "text_red" classes): rendering a wide magnitude to decimal is honestly
+# superlinear — divide-and-conquer conversion is ~O(n^1.5) — so the
+# default ceiling would read the honest class red. This ceiling separates
+# the honest class from the schoolbook (quadratic) class it replaces the
+# retired wall-ratio canary in catching. Placement is derived from the
+# measured classes at the wide-display pair's widths (128k -> 512k bits,
+# n_io span x4.0, quick mode, bench profile, 2026-07-24): the crate's
+# divide-and-conquer render fitted e 1.47 and the schoolbook renderer
+# fitted e 1.99, and each sits more than twice the fit-noise band at this
+# ceiling (TEXT_FIT_NOISE_EXPONENT_BAND ~ 0.088, so 2x ~ 0.175) away from
+# it: 1.7 - 1.47 = 0.23 and 1.99 - 1.7 = 0.29. Resolution alone can
+# therefore never move either class across the ceiling.
+MAX_TEXT_SCALING_EXPONENT = 1.7
+
 # Criterion's own resolution: its smallest timed unit is one batch of at
 # least one iteration, read with a pair of monotonic-clock samples — two
 # timer reads (~25 ns each) against a tick no coarser than ~42 ns on the
@@ -137,23 +164,34 @@ MIN_JUDGED_MEDIAN_NANOS = CRITERION_TIMER_ERROR_NANOS * RESOLUTION_DOMINANCE_FAC
 NOMINAL_DENOMINATOR_SPAN = 4.0
 
 # How far timer resolution alone can pull a fitted exponent that sits at
-# the ceiling — the fit-noise band the roster's boundary class accepts.
-# Derived, not calibrated: a judged cell has median_hi >= the floor, so
-# the hi-side relative error is at most 1/RESOLUTION_DOMINANCE_FACTOR
-# (1%); a cell fitted AT the ceiling across the nominal x4 span has
-# median_lo >= floor / 4^1.3, so its lo-side relative error is at most
-# 4^1.3 / RESOLUTION_DOMINANCE_FACTOR (~6.1%). Worst one-direction pull:
-#   ( ln(1 + 0.01) + ln(1 / (1 - 0.061)) ) / ln 4  ~ 0.052.
+# `ceiling` — the fit-noise band around that ceiling. Derived, not
+# calibrated: a judged cell has median_hi >= the floor, so the hi-side
+# relative error is at most 1/RESOLUTION_DOMINANCE_FACTOR (1%); a cell
+# fitted AT the ceiling across the nominal x4 span has
+# median_lo >= floor / 4^ceiling, so its lo-side relative error is at
+# most 4^ceiling / RESOLUTION_DOMINANCE_FACTOR. Worst one-direction pull:
+#   ( ln(1 + 0.01) + ln(1 / (1 - 4^ceiling / 100)) ) / ln 4.
 # Only near-ceiling cells matter for a verdict, so this is the operative
 # bound: a cell whose true exponent sits farther than the band from the
 # ceiling cannot be flipped by resolution.
-FIT_NOISE_EXPONENT_BAND = (
-    math.log1p(1.0 / RESOLUTION_DOMINANCE_FACTOR)
-    - math.log1p(
-        -(NOMINAL_DENOMINATOR_SPAN**MAX_WALL_SCALING_EXPONENT)
-        / RESOLUTION_DOMINANCE_FACTOR
-    )
-) / math.log(NOMINAL_DENOMINATOR_SPAN)
+def fit_noise_band(ceiling):
+    """The resolution-derived exponent band around `ceiling` (see above)."""
+    return (
+        math.log1p(1.0 / RESOLUTION_DOMINANCE_FACTOR)
+        - math.log1p(
+            -(NOMINAL_DENOMINATOR_SPAN**ceiling) / RESOLUTION_DOMINANCE_FACTOR
+        )
+    ) / math.log(NOMINAL_DENOMINATOR_SPAN)
+
+
+# The band at the default ceiling (~0.052), the boundary class's
+# acceptance width.
+FIT_NOISE_EXPONENT_BAND = fit_noise_band(MAX_WALL_SCALING_EXPONENT)
+
+# The band at the text ceiling (~0.088): 4^1.7 is a deeper lo-side reach,
+# so the band is wider. The text ceiling's derivation (at the constant)
+# holds each measured conversion class more than twice this band away.
+TEXT_FIT_NOISE_EXPONENT_BAND = fit_noise_band(MAX_TEXT_SCALING_EXPONENT)
 
 # The stamp fields a sidecar must carry, and the vocabularies of the two
 # enumerated ones (the profile vocabulary is the harness's observable:
@@ -353,26 +391,31 @@ def load_roster(path):
         raise JudgeError(f"{path}: cannot read the roster: {error}") from error
     except json.JSONDecodeError as error:
         raise JudgeError(f"{path}: the roster is not JSON: {error}") from error
+    classes = ("red", "boundary", "text_green", "text_red")
     if not isinstance(roster, dict) or not {"configuration", "red", "boundary"} <= set(
         roster
-    ) <= {"configuration", "red", "boundary", "notes"}:
+    ) <= {"configuration", "notes", *classes}:
         raise JudgeError(
             f"{path}: expected a JSON object with `configuration`, `red`, "
-            f"`boundary`, and optionally `notes`"
+            f"`boundary`, and optionally `text_green`, `text_red`, and `notes`"
         )
     configuration = roster["configuration"]
     wanted = {"profile", "sampling", "scale_lo", "scale_hi"}
     if not isinstance(configuration, dict) or set(configuration) != wanted:
         raise JudgeError(f"{path}: the configuration must pin exactly {sorted(wanted)}")
-    for cls in ("red", "boundary"):
-        names = roster[cls]
+    for cls in classes:
+        names = roster.setdefault(cls, [])
         if not isinstance(names, list) or not all(
             isinstance(name, str) for name in names
         ):
             raise JudgeError(f"{path}: `{cls}` must be a list of cell IDs")
-    overlap = sorted(set(roster["red"]) & set(roster["boundary"]))
-    if overlap:
-        raise JudgeError(f"{path}: cells rostered both red and boundary: {overlap}")
+    for i, first in enumerate(classes):
+        for second in classes[i + 1 :]:
+            overlap = sorted(set(roster[first]) & set(roster[second]))
+            if overlap:
+                raise JudgeError(
+                    f"{path}: cells rostered both {first} and {second}: {overlap}"
+                )
     return roster
 
 
@@ -403,8 +446,10 @@ def roster_violations(roster, rows):
     """
     red = set(roster["red"])
     boundary = set(roster["boundary"])
+    text_green = set(roster["text_green"])
+    text_red = set(roster["text_red"])
     names = {name for _, name, _, _ in rows}
-    missing = sorted((red | boundary) - names)
+    missing = sorted((red | boundary | text_green | text_red) - names)
     if missing:
         raise JudgeError(f"the roster names cells this run does not contain: {missing}")
     violations = []
@@ -433,6 +478,31 @@ def roster_violations(roster, rows):
                     f"the +-{FIT_NOISE_EXPONENT_BAND:.3f} fit-noise band around "
                     f"the {MAX_WALL_SCALING_EXPONENT} ceiling: the cell has "
                     f"genuinely moved; re-roster it deliberately"
+                )
+        elif name in text_green:
+            if verdict == "SKIP":
+                violations.append(
+                    f"{name}: rostered text-green fell below the judgment floor: "
+                    f"drifting out of judgment is a change, not a pass"
+                )
+            elif exponent > MAX_TEXT_SCALING_EXPONENT:
+                violations.append(
+                    f"{name}: rostered text-green fitted e {exponent:.2f}, above "
+                    f"the {MAX_TEXT_SCALING_EXPONENT} text-conversion ceiling: "
+                    f"the display path's complexity class has moved"
+                )
+        elif name in text_red:
+            if verdict == "SKIP":
+                violations.append(
+                    f"{name}: rostered text-red fell below the judgment floor: "
+                    f"drifting out of judgment is a change, not a pass"
+                )
+            elif exponent <= MAX_TEXT_SCALING_EXPONENT:
+                violations.append(
+                    f"{name}: rostered text-red fitted e {exponent:.2f}, at or "
+                    f"under the {MAX_TEXT_SCALING_EXPONENT} text-conversion "
+                    f"ceiling: the schoolbook tripwire has gone dark or its "
+                    f"renderer's class changed"
                 )
         elif verdict == "RED":
             violations.append(f"{name}: unrostered cell read RED (e {exponent:.2f})")
@@ -509,6 +579,27 @@ def self_test():
     )
     [(verdict, _, exponent, _)] = rows
     assert verdict == "RED" and 1.8 <= exponent <= 2.2, rows
+    # The committed schoolbook display tripwire's measured shape
+    # (benches/board.rs `display_schoolbook/hugeleaf`, quick mode,
+    # 2026-07-24: medians 27.80 ms -> 440.09 ms across n_io
+    # 70533 -> 282129 B) fits above the text ceiling by more than twice
+    # the text fit-noise band, while the honest divide-and-conquer render
+    # at the same widths (`version_display_wide/hugeleaf`, medians
+    # 1.17 ms -> 8.93 ms) fits below it by more than the same margin —
+    # the separation the text ceiling's placement rests on. Both read RED
+    # at the default ceiling: superlinear conversion is the honest class,
+    # which is why these cells are judged at the text ceiling at all.
+    rows = judge_cells(
+        [
+            ("display_schoolbook/hugeleaf", 27.7975e6, 440.0891e6, 70533, 282129),
+            ("version_display_wide/hugeleaf", 1.1670e6, 8.9303e6, 70533, 282129),
+        ]
+    )
+    [(sb_verdict, _, sb_e, _), (dc_verdict, _, dc_e, _)] = rows
+    assert sb_verdict == "RED", rows
+    assert sb_e - MAX_TEXT_SCALING_EXPONENT > 2 * TEXT_FIT_NOISE_EXPONENT_BAND, rows
+    assert dc_verdict == "RED", rows
+    assert MAX_TEXT_SCALING_EXPONENT - dc_e > 2 * TEXT_FIT_NOISE_EXPONENT_BAND, rows
     # Malformed inputs are errors, never scores and never sub-floor skips:
     # a shrinking or flat denominator; a nonpositive median at either
     # scale (the hi side must NOT fall through to SKIP); a NaN or infinite
@@ -629,7 +720,7 @@ def self_test():
     assert judged({"op/a": linear}, "--tip", "newer") == 2
     assert judged({"op/a": linear}, "--tip", "selftest") == 0
 
-    def roster(red=(), boundary=(), sampling="quick"):
+    def roster(red=(), boundary=(), text_green=(), text_red=(), sampling="quick"):
         return {
             "configuration": {
                 "profile": "optimized",
@@ -639,6 +730,8 @@ def self_test():
             },
             "red": list(red),
             "boundary": list(boundary),
+            "text_green": list(text_green),
+            "text_red": list(text_red),
         }
 
     # Roster mode: exit 0 iff the verdict map matches the roster exactly.
@@ -660,6 +753,36 @@ def self_test():
     assert judged({"op/edge": sub_floor}, roster=roster(boundary=["op/edge"])) == 1
     # Unrostered cells drift between GREEN and SKIP freely: both non-red.
     assert judged({"op/a": linear, "op/tiny": sub_floor}, roster=roster()) == 0
+    # The text classes are judged at the text ceiling: a text_green cell
+    # passes at the honest divide-and-conquer shape (e ~1.5 — RED at the
+    # default ceiling, so this also pins that a rostered text cell never
+    # trips the unrostered-red check)...
+    dc_shape = (floor * 10.0, floor * 10.0 * 4**1.5)
+    school_shape = (floor * 10.0, floor * 10.0 * 4**2.0)
+    assert judged({"op/dc": dc_shape}, roster=roster(text_green=["op/dc"])) == 0
+    # ...and fails at the schoolbook shape (the class moved).
+    assert judged({"op/school": school_shape}, roster=roster(text_green=["op/school"])) == 1
+    # A text_red cell (the schoolbook tripwire) passes at the schoolbook
+    # shape and fails when it fits under the text ceiling (gone dark).
+    assert judged({"op/school": school_shape}, roster=roster(text_red=["op/school"])) == 0
+    assert judged({"op/dc": dc_shape}, roster=roster(text_red=["op/dc"])) == 1
+    # A text cell drifting below the judgment floor is a violation.
+    assert judged({"op/dc": sub_floor}, roster=roster(text_green=["op/dc"])) == 1
+    assert judged({"op/school": sub_floor}, roster=roster(text_red=["op/school"])) == 1
+    # A text cell the run does not contain is an input error.
+    assert judged({"op/a": linear}, roster=roster(text_green=["op/gone"])) == 2
+    # A cell rostered in two classes is an input error.
+    assert (
+        judged(
+            {"op/school": school_shape},
+            roster=roster(red=["op/school"], text_red=["op/school"]),
+        )
+        == 2
+    )
+    # A roster without the optional text classes stays valid.
+    minimal = roster()
+    del minimal["text_green"], minimal["text_red"]
+    assert judged({"op/a": linear}, roster=minimal) == 0
     # A roster pinned to a different configuration is refused: exit 2.
     assert judged({"op/a": linear}, roster=roster(sampling="record")) == 2
     # A roster naming a cell the run does not contain is an input error.
@@ -732,7 +855,9 @@ def main(argv):
         print(
             f"benchjudge: roster {args.roster} satisfied "
             f"({len(roster['red'])} expected red, "
-            f"{len(roster['boundary'])} boundary)",
+            f"{len(roster['boundary'])} boundary, "
+            f"{len(roster['text_green'])} text-green, "
+            f"{len(roster['text_red'])} text-red)",
             file=sys.stdout,
         )
         return 0
