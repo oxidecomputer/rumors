@@ -287,11 +287,12 @@ proptest! {
 fn uncontained_supply_is_rejected() {
     use crate::tree::mirror::{Error, streaming::materialized::Violation};
 
-    // In process: the victim's local exchange diagnoses the violation.
+    // In process: the receiving side's local exchange diagnoses the
+    // violation.
     {
-        let (victim, poisoned, _, _) = uncontained_supply_pair();
+        let (receiver, poisoned, _, _) = uncontained_supply_pair();
         let result = block_on(mirror(
-            local::Exchange::start(victim),
+            local::Exchange::start(receiver),
             local::Exchange::start(poisoned),
         ));
         assert!(
@@ -300,27 +301,27 @@ fn uncontained_supply_is_rejected() {
         );
     }
 
-    // Over the wire: the victim's endpoint reports the violation; the
+    // Over the wire: the receiving endpoint reports the violation; the
     // sender's endpoint fails with whatever the aborted transport surfaces.
     {
-        let (victim, poisoned, _, _) = uncontained_supply_pair();
+        let (receiver, poisoned, _, _) = uncontained_supply_pair();
         block_on(async move {
             let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
             let (a_r, a_w) = tokio::io::split(a_side);
             let (b_r, b_w) = tokio::io::split(b_side);
 
-            let local_victim = local::Exchange::start(victim);
+            let local_receiver = local::Exchange::start(receiver);
             let remote_b = remote::Exchange::start(FrameRead::new(a_r), FrameWrite::new(a_w));
-            let victim_side = mirror(local_victim, remote_b);
+            let receiver_side = mirror(local_receiver, remote_b);
 
             let local_poisoned = local::Exchange::start(poisoned);
             let remote_a = remote::Exchange::start(FrameRead::new(b_r), FrameWrite::new(b_w));
             let poisoned_side = mirror(local_poisoned, remote_a);
 
-            let (victim_result, poisoned_result) = tokio::join!(victim_side, poisoned_side);
+            let (receiver_result, poisoned_result) = tokio::join!(receiver_side, poisoned_side);
             assert!(
                 matches!(
-                    victim_result,
+                    receiver_result,
                     Err(Error::Client(Violation::UncontainedSupply))
                 ),
                 "the receiving side rejects the escaped leaf over the wire",

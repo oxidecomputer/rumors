@@ -249,10 +249,10 @@ fn honors_redaction_under_leaf_parent_dispute() {
 fn uncontained_supply_is_rejected_by_streaming() {
     use crate::tree::mirror::streaming::materialized::{Error, Violation};
 
-    let (victim, poisoned, _, _) = uncontained_supply_pair();
-    let (victim, poisoned): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
-        (victim.into(), poisoned.into());
-    let client = Handshaking::start(Local, victim).window(WindowConfig::FLOOR);
+    let (receiver, poisoned, _, _) = uncontained_supply_pair();
+    let (receiver, poisoned): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
+        (receiver.into(), poisoned.into());
+    let client = Handshaking::start(Local, receiver).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, poisoned).window(WindowConfig::FLOOR);
     let result = run_to_quiescence(drive_streaming(client, server))
         .expect("the rejecting session becomes quiescent");

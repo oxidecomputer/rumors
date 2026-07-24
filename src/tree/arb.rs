@@ -355,7 +355,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
     unreachable!("the deterministic geometry search must terminate");
 }
 
-/// A `(victim, poisoned)` pair for version-containment tripwires: the
+/// A `(receiver, poisoned)` pair for version-containment tripwires: the
 /// poisoned tree holds one leaf whose version escapes its declared ceiling.
 ///
 /// An honest tree cannot take this shape — its ceiling joins every version
@@ -372,24 +372,24 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
     /// the pair is built.
     const ESCAPE_MARGIN: usize = 64;
 
-    // The victim's honest content: one leaf on its own party, ceiling
-    // covering it, exactly as `Tree::act` would leave it.
-    let victim_party = nth_party(0);
-    let mut victim_version = Version::new();
-    victim_version.tick(&victim_party);
-    let victim_message = Message::new(());
-    let victim_path = Path::for_leaf(&victim_version, victim_message.bytes());
-    let victim = root_with_ceiling(
+    // The receiving side's honest content: one leaf on its own party,
+    // ceiling covering it, exactly as `Tree::act` would leave it.
+    let receiver_party = nth_party(0);
+    let mut receiver_version = Version::new();
+    receiver_version.tick(&receiver_party);
+    let receiver_message = Message::new(());
+    let receiver_path = Path::for_leaf(&receiver_version, receiver_message.bytes());
+    let receiver = root_with_ceiling(
         act(
             None,
             vec![(
-                victim_path,
-                victim_version.clone(),
-                Action::Insert(victim_message),
+                receiver_path,
+                receiver_version.clone(),
+                Action::Insert(receiver_message),
             )],
             |_| (),
         ),
-        victim_version.clone(),
+        receiver_version.clone(),
     );
 
     // The sender's declared version: one tick on its own disjoint party.
@@ -399,9 +399,9 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
 
     // The escaped version: strictly above everything either side declared,
     // by a margin the test's own honest ticks never close.
-    let mut escaped = victim_version | &declared;
+    let mut escaped = receiver_version | &declared;
     for _ in 0..ESCAPE_MARGIN {
-        escaped.tick(&victim_party);
+        escaped.tick(&receiver_party);
         escaped.tick(&sender_party);
     }
     assert!(
@@ -419,7 +419,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
         ),
         declared,
     );
-    (victim, poisoned, path, escaped)
+    (receiver, poisoned, path, escaped)
 }
 
 /// A path all-zero except its final byte: siblings under a single leaf-parent

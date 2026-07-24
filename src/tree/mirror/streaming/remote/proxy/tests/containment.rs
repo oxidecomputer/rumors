@@ -50,22 +50,22 @@ async fn reconcile_results(
 /// link.
 ///
 /// The enforcement holds through the frame codec and supply decoder, not
-/// only in process. The victim's endpoint reports the violation from its own materialized
+/// only in process. The receiving endpoint reports the violation from its own materialized
 /// participant in either endpoint position; the sender's endpoint is left
 /// to whatever its aborted transport surfaces, which is not this
 /// tripwire's concern. The in-process twin is
 /// `uncontained_supply_is_rejected_by_streaming`.
 #[test]
 fn uncontained_supply_is_rejected_at_the_wire() {
-    // Victim in the left endpoint position: its materialized participant
-    // is the mirror's client.
+    // Receiving side in the left endpoint position: its materialized
+    // participant is the mirror's client.
     {
-        let (victim, poisoned, _, _) = uncontained_supply_pair();
-        let (victim_out, _poisoned_out) = run_to_quiescence(reconcile_results(victim, poisoned))
+        let (receiver, poisoned, _, _) = uncontained_supply_pair();
+        let (receiver_out, _poisoned_out) = run_to_quiescence(reconcile_results(receiver, poisoned))
             .expect("the rejecting session becomes quiescent");
         assert!(
             matches!(
-                victim_out,
+                receiver_out,
                 Err(MirrorError::Client(MaterializedError::Violation(
                     Violation::UncontainedSupply
                 ))),
@@ -74,15 +74,15 @@ fn uncontained_supply_is_rejected_at_the_wire() {
         );
     }
 
-    // Victim in the right endpoint position: its materialized participant
-    // is the mirror's server.
+    // Receiving side in the right endpoint position: its materialized
+    // participant is the mirror's server.
     {
-        let (victim, poisoned, _, _) = uncontained_supply_pair();
-        let (_poisoned_out, victim_out) = run_to_quiescence(reconcile_results(poisoned, victim))
+        let (receiver, poisoned, _, _) = uncontained_supply_pair();
+        let (_poisoned_out, receiver_out) = run_to_quiescence(reconcile_results(poisoned, receiver))
             .expect("the rejecting session becomes quiescent");
         assert!(
             matches!(
-                victim_out,
+                receiver_out,
                 Err(MirrorError::Server(MaterializedError::Violation(
                     Violation::UncontainedSupply
                 ))),

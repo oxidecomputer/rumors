@@ -1097,13 +1097,13 @@ proptest! {
 /// must happen at ingestion: once resident, the record is immortal.
 #[test]
 fn escaped_version_defeats_redaction_in_a_poisoned_store() {
-    let (victim, poisoned, path, escaped) = super::arb::uncontained_supply_pair();
-    let victim_party = super::arb::nth_party(0);
+    let (receiver, poisoned, path, escaped) = super::arb::uncontained_supply_pair();
+    let receiver_party = super::arb::nth_party(0);
     let key = Key::from(path);
 
     // Plant the escaped leaf by in-memory join: `Tree::join` is a local
     // merge, not wire ingestion, so no session tripwire guards it.
-    let mut tree = Tree { root: victim };
+    let mut tree = Tree { root: receiver };
     tree.join(Tree { root: poisoned });
     assert!(tree.get(&key).is_some(), "the join plants the escaped leaf");
     assert!(
@@ -1113,7 +1113,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 
     // Redaction is silently skipped: the forget's version ticks from the
     // ceiling, which the escaped version strictly dominates.
-    tree.act(&victim_party, [Action::Forget(key)]);
+    tree.act(&receiver_party, [Action::Forget(key)]);
     assert!(
         tree.get(&key).is_some(),
         "redacting the escaped leaf is silently skipped",
