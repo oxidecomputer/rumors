@@ -1,6 +1,6 @@
 # Opening-supply symmetrization: whole-subtree batching for the initiator's exclusive content
 
-**Status (2026-07-23): designed, not implemented.** Approved for
+**Status (2026-07-23): implemented — see Amendments.** Approved for
 implementation by design review after the link-transport review campaign
 integrates; this document is the specification a fresh implementation
 context starts from. Every file:line below was verified at commit
@@ -493,3 +493,15 @@ and confirm whether the §4.4 election-bias ruling happened — it changes
 your step 1 fixture rigging and step 9's scope. The red fixture from §6
 step 1 is the first commit; nothing else lands until it fails for the
 documented reason.
+
+## Amendments (2026-07-23, post-implementation review)
+
+Both levers landed, election bias first, as the §6 ordering note prescribed — that is the §4.4 ruling of record. The sections above are the specification the implementation was built from; where the landed shape diverges, the entries below govern.
+
+**A1 (§4.3, departure arithmetic).** "One full RTT earlier" compared the new *departure* (t≈0.5) against the old *landing* (t≈1.5). Like for like: departure t≈1.0 → t≈0.5, landing t≈1.5 → t≈1.0 — **one hop (half an RTT) earlier**, not a full RTT. The pinned trace (`tests/hop_trace.rs::trace_bulk_initiator_session`) confirms: opening supplies written at hop 2 where the decomposed answer would be written at hop 3, with the session's total hops unchanged at 5 — the closing hop is still bounded by the empty-reply pairing round. On latency-only links the lever buys earlier bulk *departure* (bandwidth overlap), not a shorter critical path; the frame-count win (§1.1) is unaffected.
+
+**A2 (§6 step 1, red-fixture recipe).** The recipe ("≥2048 messages against ≤1, rig via version bytes") predates the §4.4 lever landing first: under the `(set_len, bytes)` election a 2048-vs-1 corpus routes the bulk side into the responder role, so no version rigging can produce a bulk *initiator* at that shape. The landed red fixture makes the initiator the *smaller* set holding one exclusive root child (two leaves splitting at the second key byte) against three ballast messages, and pins the *shape* — one batched two-record Supply run on `Initiator stream 0 (height 31)`, bare `End(Reply)` at height 30 — rather than a probe-arithmetic frame count (`tests/gossip_snapshot.rs::bulk_initiator_ships_opening_supplies`). §1.1's counts remain the motivation, not the pin.
+
+**A3 (§6 step 9, which commit carries the retire diff).** The into-bootstrapper "diff is the win" expectation landed with the *election* commit, not this design's change: the size election flips the retiree into the responder role, whose exclusives already ship whole, so the supply-only opening leaves that snapshot byte-identical. The byte-visible height-31 relocation is pinned in the election commit's re-accept of `retire_snapshot__retire_into_bootstrapper.snap`.
+
+**A4 (§6 step 4, landed API name).** The opening's encode-side helper landed as `opening_parts` — it splits the canonical query-then-supplies reply into the question's listing and the early supplies — with the supplies sharing the opening protocol reply (the step 3 latitude), published question-first at the proxy so the responder's root reply stays decodable while supply bulk flushes.

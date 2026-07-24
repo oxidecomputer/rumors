@@ -183,10 +183,10 @@ in two known directions, both measured:
 - **Corpus and backend growth** \[derived, §2.4\]: `E` is really
   `E(n, f)` — it grows slowly with set size through the children
   quantiles and directly with the backend's `node_bytes`, so the
-  22 is the design-corpus, in-memory-backend evaluation.
+  pinned `E = 4,865 B` is the design-corpus, in-memory-backend
+  evaluation.
 
-Pins: `envelope_to_wire_ratio_is_the_documented_22` (the quoted
-ratio is the constants' quotient); `tests/window_operator.rs` (the
+Pins: `tests/window_operator.rs` (the
 exact form against measured sessions on a bandwidth-limited pipe,
 within the knee suite's accuracy band, and the parity direction —
 the inverse-form budget measured 94 hops against a 96-hop transfer

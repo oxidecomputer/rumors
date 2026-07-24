@@ -565,7 +565,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
 /// reply to the responder's one whole-subtree request lands at hop 4, and
 /// the session epilogue closes at hop 5. The pinned departure is the win:
 /// the initiator's exclusive content is written at hop 2, in the greeting
-/// response window, rather than waiting a further round trip for the
+/// response window, rather than waiting a further hop for the
 /// responder's request to arrive.
 #[test]
 fn trace_bulk_initiator_session() {

@@ -247,9 +247,10 @@ pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
 /// with `m` the session's mean encoded record size and `BDP` the link's
 /// bandwidth-delay product in bytes.
 ///
-/// The headline consequence — derived from three inputs, the spec BDP,
-/// this 512 MiB policy default, and the pinned per-scope envelope, so
-/// it re-derives if any of them move: at the spec BDP (12.5 MB —
+/// The headline consequence — derived from four inputs, the spec BDP,
+/// this 512 MiB policy default, the pinned per-scope envelope, and the
+/// calibrated 28 B per-message wire intercept, so it re-derives if any
+/// of them move: at the spec BDP (12.5 MB —
 /// 1 Gbps × 100 ms and 100 Gbps × 1 ms coincide), the default imposes
 /// **no window-induced serialization for any corpus whose mean encoded
 /// record size is at least 86 B**. The crossover is
