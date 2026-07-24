@@ -1541,6 +1541,9 @@ def ordGate (skM : Skel) (label : String) (ordW : Party × Nat → Bool)
   if !wErrs.isEmpty then
     errs := errs.push
       s!"ord[{label}] oweave invalid ({wErrs.size} errors, first: {wErrs[0]!})"
+  else if Ord.weaveO skM (ordMapOf ordW ordA) != wEv.toList then
+    errs := errs.push
+      s!"ord[{label}] Ord/Weave.lean weaveO transcription diverges from the tool oweave"
   return errs
 
 /-- The pinned assignment matrix for `runAll`: the shipping all-QF
