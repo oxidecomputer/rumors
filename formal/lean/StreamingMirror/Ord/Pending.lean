@@ -246,8 +246,10 @@ theorem tau_le_of_pendO (hwf : sk.wellFormed = true)
 -- ==================================== walk-trace micro-bricks
 
 /-- Membership shape of an ordered prologue: one of the two receives,
-whichever the assignment dequeues first. -/
-theorem mem_prologueO {pk : Party × Nat} {k : Nat} {e : Ev}
+whichever the assignment dequeues first (a private twin of
+Ord/Align.lean's `mem_prologueO` — this module does not import the
+weave chain). -/
+private theorem mem_prologueO {pk : Party × Nat} {k : Nat} {e : Ev}
     (he : e ∈ prologueO ord pk k) :
     e = (wireIn pk, false, k) ∨ e = (askedIn pk, false, k) := by
   unfold prologueO at he
