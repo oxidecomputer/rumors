@@ -22,6 +22,17 @@ nightly_toolchain := "nightly"
 
 fuzz_smoke_secs := "20"
 
+# Criterion's output root: the bench-judge recipes save baselines and
+# denominator sidecars here, honoring CARGO_TARGET_DIR so a fresh or
+# redirected target directory keeps the baselines and the sidecars together.
+
+criterion_dir := env_var_or_default("CARGO_TARGET_DIR", justfile_directory() + "/target") + "/criterion"
+
+# The bench judge's committed expected-verdict roster (membership by cell
+# name; tools/benchjudge documents the classes and the enforcement).
+
+benchjudge_roster := justfile_directory() + "/tools/benchjudge-expected.json"
+
 # List recipes.
 default:
     @just --list --unsorted
@@ -252,24 +263,32 @@ bench-quick target *filter:
 # counters and floors only (its output is byte-identical under any machine
 # load), so the time-exponent judgment runs here, over criterion medians.
 # Each recipe runs the board benches at the default scale and the record
-# scale (x4), saves a criterion baseline and a denominator sidecar per
-# scale, and tools/benchjudge fits every cell's exponent across the two
-# (denominated against the board's own per-cell bytes) at the 1.3 ceiling,
-# red/green table, nonzero exit on any red.
+# scale (x4), saves a criterion baseline and a stamped denominator sidecar
+# per scale (the stamp binds sidecar to run: scale, profile, sampling,
+# git tip — the judge refuses mismatched pairs), and tools/benchjudge fits
+# every cell's exponent across the two (denominated against the board's own
+# per-cell bytes) at the 1.3 ceiling, red/green table. The quick recipe
+# judges through the committed roster (tools/benchjudge-expected.json:
+# expected reds and boundary cells by name, emptied at C3), so it passes on
+# the honest tree while the owned reds await their cures and fails on any
+# unexpected red OR unexpected green.
 
-# Judge the board bench exponents across both scales (quick mode: iteration only).
+# Judge the board bench exponents across both scales through the roster (quick mode: iteration only).
 bench-judge:
     ./tools/benchjudge --self-test
-    BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/board-denoms-lo.json cargo bench -p before --bench board -- --sample-size 10 --measurement-time 1 --save-baseline board-judge-lo
-    BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/board-denoms-hi.json cargo bench -p before --bench board -- --sample-size 10 --measurement-time 1 --save-baseline board-judge-hi
-    ./tools/benchjudge --criterion-dir {{ justfile_directory() }}/target/criterion --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ justfile_directory() }}/target/criterion/board-denoms-lo.json --denoms-hi {{ justfile_directory() }}/target/criterion/board-denoms-hi.json
+    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- --sample-size 10 --measurement-time 1 --save-baseline board-judge-lo
+    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --sample-size 10 --measurement-time 1 --save-baseline board-judge-hi
+    ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
 
 # `bench-judge` at full sampling: the mode required for numbers of record.
+# Rosterless: the roster pins quick-mode expectations, so this renders the
+# honest all-green judgment and exits nonzero on any red (red until the
+# C2 cures land — instruments before cures).
 bench-judge-record:
     ./tools/benchjudge --self-test
-    BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/board-denoms-lo.json cargo bench -p before --bench board -- --save-baseline board-judge-lo
-    BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/board-denoms-hi.json cargo bench -p before --bench board -- --save-baseline board-judge-hi
-    ./tools/benchjudge --criterion-dir {{ justfile_directory() }}/target/criterion --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ justfile_directory() }}/target/criterion/board-denoms-lo.json --denoms-hi {{ justfile_directory() }}/target/criterion/board-denoms-hi.json
+    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- --save-baseline board-judge-lo
+    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --save-baseline board-judge-hi
+    ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD)
 
 # The judge's live tripwire: an unmetered machine-word quadratic (green on
 # every board counter column) must read RED through the judge; the recipe
@@ -277,9 +296,9 @@ bench-judge-record:
 # tools/benchjudge --self-test, which every bench-judge recipe runs first.
 bench-judge-tripwire:
     ./tools/benchjudge --self-test
-    BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/tripwire-denoms-lo.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-lo
-    BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ justfile_directory() }}/target/criterion/tripwire-denoms-hi.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-hi
-    ./tools/benchjudge --expect-red --criterion-dir {{ justfile_directory() }}/target/criterion --lo tripwire-judge-lo --hi tripwire-judge-hi --denoms-lo {{ justfile_directory() }}/target/criterion/tripwire-denoms-lo.json --denoms-hi {{ justfile_directory() }}/target/criterion/tripwire-denoms-hi.json
+    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/tripwire-denoms-lo.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-lo
+    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/tripwire-denoms-hi.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-hi
+    ./tools/benchjudge --expect-red --criterion-dir {{ criterion_dir }} --lo tripwire-judge-lo --hi tripwire-judge-hi --denoms-lo {{ criterion_dir }}/tripwire-denoms-lo.json --denoms-hi {{ criterion_dir }}/tripwire-denoms-hi.json --tip $(git rev-parse HEAD)
 
 # Run the amplification board: the red-green resource-proportionality matrix
 # over before's public operations × adversarial input families. Each cell
@@ -315,11 +334,13 @@ rumormill *args:
 # `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor
 # per-commit spend), the formal tier (the runner has no Lean toolchain) —
 # the kernel-checked proofs, the eventdag oracle/schedule gate, and the
-# muxprobe matrix gate — and the bench judge (minutes of criterion runs at
-# two scales; quick mode, so its exponents are judged but never quoted).
+# muxprobe matrix gate — and the bench judge's two legs: the roster-mode
+# judgment (minutes of criterion runs at two scales; quick mode, so its
+# exponents are judged but never quoted) and the seconds-scale live
+# tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
 ci: fmt-check doclint testdoc readme-check clippy features wasm-check docs docs-internal test-all doctest bench-build fuzz-build viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
-all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge
+all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire

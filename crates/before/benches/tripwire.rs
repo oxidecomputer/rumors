@@ -13,13 +13,16 @@
 //! pinned deterministically in the judge's `--self-test`, so the criterion
 //! cannot soften silently between live demonstrations.
 //!
-//! The target honors the same knobs as `benches/board.rs`:
-//! `BOARD_BENCH_SCALE` sizes the probe (`record` maps to the board's ×4)
-//! and `BOARD_BENCH_DENOMS` writes the denominator sidecar the judge
-//! divides by (here the probe's size parameter: its work is `n²` in it).
+//! The target honors the same knobs as `benches/board.rs`, shared and
+//! documented in `common::sidecar`: `BOARD_BENCH_SCALE` sizes the probe
+//! (`record` maps to the board's ×4) and `BOARD_BENCH_DENOMS` writes the
+//! stamped denominator sidecar the judge divides by (here the probe's
+//! size parameter: its work is `n²` in it).
 
-use before::meter::board;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+mod common;
+use common::sidecar;
 
 /// The probe's size parameter at scale 1; the scale knob multiplies it.
 ///
@@ -48,36 +51,12 @@ fn unmetered_quadratic(n: usize) -> u64 {
     acc
 }
 
-/// The probe's size parameter under `BOARD_BENCH_SCALE` (unset means 1,
-/// `record` means `board::RECORD_SCALE`).
-fn size_from_env() -> usize {
-    let scale = match std::env::var("BOARD_BENCH_SCALE") {
-        Err(std::env::VarError::NotPresent) => 1.0,
-        Ok(raw) if raw == "record" => board::RECORD_SCALE,
-        Ok(raw) => raw.parse().unwrap_or_else(|_| {
-            panic!("BOARD_BENCH_SCALE must be a positive number or `record`, got {raw:?}")
-        }),
-        Err(err) => panic!("BOARD_BENCH_SCALE is not valid UTF-8: {err}"),
-    };
-    ((TRIPWIRE_BASE as f64) * scale).round() as usize
-}
-
-/// Write the one-cell denominator sidecar to `BOARD_BENCH_DENOMS`, if set.
-fn write_denoms(n: usize) {
-    let path = match std::env::var("BOARD_BENCH_DENOMS") {
-        Err(std::env::VarError::NotPresent) => return,
-        Ok(path) => path,
-        Err(err) => panic!("BOARD_BENCH_DENOMS is not valid UTF-8: {err}"),
-    };
-    let json = format!("{{\n  \"{GROUP}/{FUNCTION}\": {n}\n}}\n");
-    std::fs::write(&path, json)
-        .unwrap_or_else(|err| panic!("writing the denominator sidecar {path:?} failed: {err}"));
-}
-
 /// Time the quadratic probe at the scaled size.
 fn bench_tripwire(c: &mut Criterion) {
-    let n = size_from_env();
-    write_denoms(n);
+    let scale = sidecar::scale_from_env();
+    let n = ((TRIPWIRE_BASE as f64) * scale).round() as usize;
+    let id = format!("{GROUP}/{FUNCTION}");
+    sidecar::write_denoms(scale, [(id.as_str(), n)]);
     let mut group = c.benchmark_group(GROUP);
     group.bench_function(FUNCTION, |b| b.iter(|| unmetered_quadratic(black_box(n))));
     group.finish();
