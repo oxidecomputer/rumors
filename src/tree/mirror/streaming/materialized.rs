@@ -169,6 +169,8 @@ pub(super) mod channel;
 mod common;
 mod error;
 #[cfg(test)]
+mod tests;
+#[cfg(test)]
 pub(super) mod progress;
 #[cfg(test)]
 pub(super) mod transcript;
