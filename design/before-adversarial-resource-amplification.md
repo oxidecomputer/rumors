@@ -947,7 +947,13 @@ design work that does not exist yet.
 ## 11. Cross-pollination between the two sides
 
 Each side already contains the solution to the other side's
-problems; this section makes the directions explicit.
+problems; this section makes the directions explicit. Their common
+endpoint is recorded as the §17.5 boolean-skyline docket item
+(2026-07-24): under Tier 2 a `Party` is a boolean skyline — the same
+canonical step-function structure at a different value type — and
+the id operations are sweep kernels over the boolean semiring, so
+the directions below converge on one shared walk machinery,
+probe-gated after C3.
 
 ### 11.1 id → event: `IdBuilder` is the existence proof
 
@@ -3228,12 +3234,70 @@ scales, envelopes, byte-pinned snapshots):
   through the wrapper, dependency health/MSRV, and the no-unsafe
   policy read (internal `unsafe` in a dependency is acceptable;
   owned `unsafe` is not).
+
+  *Amended 2026-07-24 — pulled forward and DECIDED: swap to
+  `dashu-int` 0.5.* The user pulled the evaluation into the
+  link-transport window; the probe (scratchpad `probe-bignum`,
+  measured min-over-runs) settled it: dashu converts radix-10
+  subquadratically in BOTH directions (parse exponent 1.49, render
+  1.51, best constants; at 2^24 bits parse is ~25× num-bigint),
+  where num-bigint parses quadratically (2.07; its 0.4.7 D&C work
+  covered render only) and ibig is disqualified twice (no borrowed
+  word access — `msb_cmp` and the accumulator's wide path would
+  allocate — and no release since 2022). dashu: `as_words()`/
+  `from_words()` borrowed slices, double-word inline (u128 never
+  allocates; the probe also found num-bigint 0.4.8 ships a one-limb
+  inline arm, so the decisive criterion was conversion complexity,
+  not small-value storage), MIT/Apache, wasm-clean, released
+  2026-07. Landing shape as above (thin metered newtype; the
+  `Small(u64)` arm stays — it carries the canonical-form invariant
+  and the meter hooks). Recorded risks: heap-envelope churn mostly
+  downward (65–128-bit values stop allocating) re-pinned in the
+  swap commit; wasm32 word width is u32, so the limb-touch
+  denominator pairs words on 32-bit targets; bus factor 1,
+  mitigated by pinning and the small oracle-tested surface.
 - **Upstream the divide-and-conquer radix parsing to `num-bigint`.**
   The rendering direction landed upstream in 0.4.7; the parsing
   direction (this campaign's D&C parse and its measured exponent)
   is a natural PR. Prep after the text item (P4-tail P3.8) lands
   the local implementation; after an upstream release ships it,
   bump the dependency floor and delete the local copy.
+
+  *Retired 2026-07-24 (user concurrence with the dashu decision
+  above):* the local D&C parse is never written at all — the text
+  item's parse leg becomes delegation to `UBig::from_str` (measured
+  exponent 1.49) — so there is nothing to upstream from this
+  codebase. A parse-direction num-bigint PR remains a courtesy
+  anyone may do independently; nothing here depends on it.
+- **Unify the id walks onto the sweep kernels (a `Party` is a
+  boolean skyline).** Recorded 2026-07-24 (user observation). Under
+  the skyline encoding both types are canonical step functions over
+  [0,1) as preorder binary trees, and the canonicity rule is one
+  rule at two value types: no equal sibling leaves (the id normal
+  form's (0,0)/(1,1) collapse; the skyline's zero right-sibling-leaf
+  delta, the same statement in delta coding). Every id operation is
+  a sweep kernel over the boolean semiring: covers = le,
+  is_disjoint = meet-is-empty with early exit, join = pointwise sum
+  plus the disjointness check, without/complement = pointwise
+  difference/negation; fill/grow/project already walk paired
+  id × event cursors. Evaluate immediately after C3, PROBE-GATED:
+  measure what fraction of the comparison sweep is boundary
+  bookkeeping (shared) versus accumulator plumbing (event-only);
+  proceed only if bookkeeping dominates — two legible concrete
+  kernels beat one generic one. If confirmed: a leaf-cursor
+  abstraction (next boundary + value; id reads values from tags,
+  event folds deltas through the accumulator), the sweep's
+  boundary/flip-level algebra written once, id ops as boolean
+  instantiations. Non-goals: the encodings stay distinct, the
+  accumulator stays event-only, the held-leaf discipline stays
+  event-specific (id tags are fixed-width), the public types and
+  linearity semantics are untouched. P4.1's iterative conversion is
+  the staging step — unification merges parallel iterative kernels
+  rather than rewriting recursion generically. If the probe
+  confirms early enough, land before P5's doc distillation so the
+  crate docs present the unified model once (doc edits gated on
+  user sign-off). See §11, whose cross-pollination items this
+  completes.
 
 ### 17.6 Representation pins for all exposed types (recorded 2026-07-23, user directive)
 
@@ -3540,3 +3604,26 @@ re-derivation), C3, P4.1, the P4-tail text item, P5.
   commit, resume from the run id (completed agents replay from
   cache); instruments and red baselines land before the cures that
   retire them.
+- Staging convention (amended 2026-07-24, user preference): stages
+  run as individually spawned subagents rather than workflow
+  scripts — the user watches each agent's progress live. The same
+  agent charters apply; the coordinator sequences by hand.
+- Agent wall-clock discipline (2026-07-24, user directive, goes in
+  every charter): the 120-second cap applies to test EXECUTION,
+  never compilation — split slow commands into an uncapped build
+  step (`--no-run`) and a capped run; no `#[ignore]`d deep suites
+  in any profile and no release builds unless the charter demands
+  them; no background commands or polling loops (a poll that must
+  exist also checks the awaited process is alive); exactly one full
+  gate invocation per agent (plus the separate doctest leg and one
+  `--no-fail-fast` sweep). The spirit: never sit in a long test run
+  that is not the gate, and never iterate on timing measurements.
+- Board wall-leg under load (observed 2026-07-24, P4.1 final
+  verification): on a non-quiet machine the wall exponent flickers
+  (two counter-green cells read e ≈ 1.5 under load vs 0.85 quiet;
+  ×4 split read 120/80 vs the recorded 121/79; counter-judged
+  content reproduced the records byte-for-byte at both scales).
+  The records of record remain quiet-machine runs per §13's
+  calibration. Queued hardening: min-of-K wall sampling per cell
+  (the probe's min-over-runs technique) to make the leg
+  load-tolerant without weakening the judgment.
