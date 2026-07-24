@@ -269,12 +269,23 @@ theorem procsO_canon (c : Chan) (b : Bool) :
 
 -- =================================== the family instances (FamOK)
 
+/-- At a reply-first ABSORBER the O absorb block is the base block,
+literally: the dispatch collapses to the E order. -/
+theorem absorbBlockO_rf_absorb (h : ord.absorb = .replyFirst) (j : Nat) :
+    absorbBlockO ord j
+      = [(Chan.wire Party.R 0, false, j), (Chan.leafRequests, false, j),
+          (Chan.level Party.I 0, true, j)] := by
+  simp only [absorbBlockO, h, List.cons_append, List.nil_append]
+
 /-- At a reply-first ABSORBER the O absorb trace is the base absorb
-trace, literally: the block dispatch collapses to the E order. -/
+trace, literally: every block dispatch collapses to the E order. -/
 theorem absorbEventsO_rf_absorb (h : ord.absorb = .replyFirst) :
     absorbEventsO sk ord = absorbEvents sk := by
-  simp only [absorbEventsO, absorbBlockO, h]
-  rfl
+  simp only [absorbEventsO, absorbEvents]
+  induction (List.range sk.totalLeafReqs) with
+  | nil => rfl
+  | cons j js ih =>
+      simp only [List.flatMap_cons, absorbBlockO_rf_absorb ord h, ih]
 
 /-- The O family's pump suffix at a reply-first absorber is
 `weavePumps`: walks are manual, and the absorb trace collapses. -/
