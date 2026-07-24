@@ -472,14 +472,13 @@ fn join_cliff_envelope() {
 // fold landed). RANK_DENSE and RANK_BIGROOT are the controls: one-bit and
 // root-heavy numerators respectively.
 //
-// Two rows remain deliberate red baselines in the ratchet sense — the
-// pinned number is the *amplified* cost the current implementation pays,
-// recorded so the class-first comparison and the raw-accumulator Sum fold
-// each land as a tightening of a committed constant rather than an
-// unwitnessed claim:
+// RANK_PAIR_MISMATCH pins the class-first comparison's honest remainder
+// (the subtraction and addition outputs' own content). One row remains a
+// deliberate red baseline in the ratchet sense — the pinned number is the
+// *amplified* cost the current implementation pays, recorded so the
+// raw-accumulator Sum fold lands as a tightening of a committed constant
+// rather than an unwitnessed claim:
 //
-// - RANK_PAIR_MISMATCH: cmp and checked_sub materialize a full alignment
-//   shift of the mismatched exponents on every call.
 // - RANK_SUM_MIXED: the Sum fold renormalizes a high-exponent accumulator
 //   once per folded element, Θ(n·exp) limb work in Θ(n + exp) content.
 
@@ -533,7 +532,7 @@ mod rank_env {
     pub const RANK_DENSE: RankEnvelope         = rank_envelope(           0,      300,           3,      0); //          0, 240, 1_250_002 -> 2, 0
     pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       1_762,  5_862); //     40_088,  16, 102_824 -> 1_409, 4_689
     pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       1_282, 84_403); //     32_804, 124, 134_740_995 -> 1_025, 67_522
-    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      68_388,      0); //    187_520,   0, 54_710, 0
+    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      48_848,      0); //    187_520,   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output), 0
     pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(     156_290,        0, 195_390_245,      0); //    125_032,   0, 156_312_196, 0
 }
 
@@ -637,10 +636,10 @@ fn rank_harmonic_envelope() {
 }
 
 /// `Rank::cmp` + `checked_sub` + `+` on the mismatched-exponent pair stay
-/// within their envelope — a deliberate red baseline: every call
-/// materializes a full alignment shift of the half-million-bit exponent
-/// gap, recorded so the class-first comparison retires the cmp and
-/// pre-check share of this committed number.
+/// within their envelope: the class-first comparison decides the order
+/// and the pre-check in O(1), so the pinned cost is the `Some`-arm
+/// subtraction and the addition — transients that are the outputs' own
+/// value content, not amplification.
 ///
 /// The pair is built through the public API outside measurement: the
 /// dense spine's rank is the maximal-exponent operand (`1/2^d`, a

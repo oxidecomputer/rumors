@@ -44,9 +44,11 @@ use super::compare::EvReader;
 /// — `(0, 1, 0) < 1`, yet both count one tick. The rank separates every
 /// such pair exactly.
 ///
-/// Totally ordered ([`Ord`]), unlike the versions it ranks. Comparison
-/// aligns the two exponents and compares numerators, exact at any
-/// magnitude; equality is structural (the stored form is normalized, so
+/// Totally ordered ([`Ord`]), unlike the versions it ranks. Comparison is
+/// exact at any magnitude: mismatched magnitude classes are decided from
+/// the stored widths in O(1), and class ties stream the numerators
+/// most-significant-first, so no alignment of the exponents is ever
+/// materialized; equality is structural (the stored form is normalized, so
 /// equal values are identical representations, consistent with [`Hash`]).
 ///
 /// ```
@@ -100,12 +102,20 @@ impl Rank {
     /// assert!(three.checked_sub(&five).is_none()); // 3 - 5 has no nonnegative value
     /// ```
     pub fn checked_sub(&self, rhs: &Rank) -> Option<Rank> {
-        // Align to the common exponent, then subtract numerators; below it,
-        // `self < rhs` and the difference would be negative (not a `Rank`).
-        let e = self.exp.max(rhs.exp);
-        let a = self.num.clone() << (e - self.exp);
-        let b = rhs.num.clone() << (e - rhs.exp);
-        (a >= b).then(|| Rank::from_raw(a - &b, e))
+        // The ordering pre-check rides the class-first comparison, so the
+        // `None` and zero arms cost no alignment at all; only a strictly
+        // positive difference aligns to the common exponent and subtracts,
+        // and that transient is the output's own value content.
+        match self.cmp(rhs) {
+            Ordering::Less => None,
+            Ordering::Equal => Some(Rank::ZERO),
+            Ordering::Greater => {
+                let e = self.exp.max(rhs.exp);
+                let a = self.num.clone() << (e - self.exp);
+                let b = rhs.num.clone() << (e - rhs.exp);
+                Some(Rank::from_raw(a - &b, e))
+            }
+        }
     }
 
     /// The rank's value content in bits: `bits(num) + exp`.
@@ -119,6 +129,14 @@ impl Rank {
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn content_bits(&self) -> u64 {
         self.num.bits() + u64::from(self.exp)
+    }
+
+    /// The stored parts `(numerator, exponent)`, for the reference
+    /// computations and differential oracles that re-derive the order and
+    /// the arithmetic from the raw normalized form.
+    #[cfg(test)]
+    pub(crate) fn raw_parts(&self) -> (&Base, u32) {
+        (&self.num, self.exp)
     }
 
     /// Normalize raw fold output `num · 2⁻ᵉˣᵖ` into canonical form: strip
@@ -146,20 +164,29 @@ impl Rank {
 
 impl Ord for Rank {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Align the exponents, then compare numerators: `a/2^x` versus
-        // `b/2^y` is `a·2^(e−x)` versus `b·2^(e−y)` at the common `e`. The
-        // shift is exact at any magnitude (`Base` spills to a bignum), so
-        // the order is never approximated — a false tie here would let a
-        // consumer deliver an effect before its cause.
-        match self.exp.cmp(&other.exp) {
-            Ordering::Equal => self.num.cmp(&other.num),
-            _ => {
-                let e = self.exp.max(other.exp);
-                let a = self.num.clone() << (e - self.exp);
-                let b = other.num.clone() << (e - other.exp);
-                a.cmp(&b)
-            }
+        // Class first: `bits(num) − exp` is `floor(log2 value) + 1`, so
+        // unequal classes order the values in O(1) — value ranges
+        // `[2^(c−1), 2^c)` at distinct `c` never overlap. A class tie
+        // means the two numerators' bit strings are already MSB-aligned
+        // as binary fractions, and the streamed window comparison settles
+        // them without materializing an alignment shift; its
+        // longer-string-wins tail rule is sound because normalization
+        // keeps numerators odd (the longer string ends in a set bit). The
+        // order is exact at any magnitude — a false tie here would let a
+        // consumer deliver an effect before its cause. Zero (the one
+        // even-numerator form, pinned to exponent zero) is settled before
+        // classes: its class value would collide with genuine
+        // `(0, 1]`-range ranks.
+        match (self.num.bits() == 0, other.num.bits() == 0) {
+            (true, true) => return Ordering::Equal,
+            (true, false) => return Ordering::Less,
+            (false, true) => return Ordering::Greater,
+            (false, false) => {}
         }
+        let class = |r: &Rank| i128::from(r.num.bits()) - i128::from(r.exp);
+        class(self)
+            .cmp(&class(other))
+            .then_with(|| Base::msb_cmp(&self.num, &other.num))
     }
 }
 

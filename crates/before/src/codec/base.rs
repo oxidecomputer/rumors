@@ -157,6 +157,38 @@ impl Base {
         self.bits().div_ceil(64).max(1)
     }
 
+    /// Compare two magnitudes as MSB-aligned bit strings: the order of
+    /// `a · 2^x` versus `b · 2^y` whenever the two values share a magnitude
+    /// class (`bits(a) − x == bits(b) − y`).
+    ///
+    /// Streams 64-bit windows most-significant-first — no alignment shift
+    /// is ever materialized — and stops at the first differing window, so
+    /// the cost is O(shared-prefix limbs) with zero allocation. When every
+    /// shared window agrees, the longer bit string is the larger value:
+    /// this rides on the caller's normalization invariant that the strings
+    /// end in a set bit (an odd numerator), so the longer string's
+    /// extension is nonzero. The limb meter records one limb per streamed
+    /// window, keeping the metered cost honest about the scan.
+    pub(crate) fn msb_cmp(a: &Base, b: &Base) -> Ordering {
+        let mut wa = MsbWindows::new(a);
+        let mut wb = MsbWindows::new(b);
+        loop {
+            match (wa.next(), wb.next()) {
+                (Some(x), Some(y)) => {
+                    #[cfg(feature = "limb-meter")]
+                    limb_meter::record(2);
+                    match x.cmp(&y) {
+                        Ordering::Equal => continue,
+                        decided => return decided,
+                    }
+                }
+                (Some(_), None) => return Ordering::Greater,
+                (None, Some(_)) => return Ordering::Less,
+                (None, None) => return Ordering::Equal,
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn to_bytes_le(&self) -> Vec<u8> {
         match self {
@@ -165,6 +197,87 @@ impl Base {
                 n.to_le_bytes()[..n.to_le_bytes().len() - (n.leading_zeros() as usize / 8)].to_vec()
             }
             Base::Big(n) => n.to_bytes_le(),
+        }
+    }
+}
+
+/// The 64-bit windows of a magnitude's bit string, most-significant first.
+///
+/// The first window is the value's top 64 bits left-aligned (the MSB in
+/// bit 63); the last is zero-padded below the final significant bit. A
+/// zero value has no windows. Streams the stored limbs top-down with one
+/// register of carry, so a window costs O(1) and no shifted copy of the
+/// value ever exists.
+struct MsbWindows<'a> {
+    /// Remaining limbs, top first; `None` once the inline arm or the tail
+    /// is consumed.
+    limbs: MsbLimbs<'a>,
+    /// The previously consumed limb, still owed its low bits.
+    held: Option<u64>,
+    /// The left-alignment shift: `64 − (bits mod 64)`, zero for a
+    /// limb-aligned width.
+    shift: u32,
+}
+
+/// The limb stream behind [`MsbWindows`]: one inline word, or a spilled
+/// value's limbs reversed.
+enum MsbLimbs<'a> {
+    Small(Option<u64>),
+    Big(core::iter::Rev<num_bigint::U64Digits<'a>>),
+}
+
+impl<'a> MsbLimbs<'a> {
+    fn next(&mut self) -> Option<u64> {
+        match self {
+            MsbLimbs::Small(word) => word.take(),
+            MsbLimbs::Big(rev) => rev.next(),
+        }
+    }
+}
+
+impl<'a> MsbWindows<'a> {
+    fn new(value: &'a Base) -> Self {
+        let bits = value.bits();
+        let limbs = match value {
+            Base::Small(0) => MsbLimbs::Small(None),
+            Base::Small(n) => MsbLimbs::Small(Some(*n)),
+            Base::Big(n) => MsbLimbs::Big(n.iter_u64_digits().rev()),
+        };
+        MsbWindows {
+            limbs,
+            held: None,
+            shift: ((64 - bits % 64) % 64) as u32,
+        }
+    }
+}
+
+impl Iterator for MsbWindows<'_> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<u64> {
+        if self.shift == 0 {
+            // Limb-aligned: every window is a stored limb verbatim.
+            return self.limbs.next();
+        }
+        match (self.held.take(), self.limbs.next()) {
+            // The first window: the top limb left-aligned, topped up from
+            // the next limb if there is one.
+            (None, Some(top)) => match self.limbs.next() {
+                Some(next) => {
+                    self.held = Some(next);
+                    Some((top << self.shift) | (next >> (64 - self.shift)))
+                }
+                None => Some(top << self.shift),
+            },
+            // A middle window: the held limb's low bits over the next
+            // limb's high bits.
+            (Some(held), Some(next)) => {
+                self.held = Some(next);
+                Some((held << self.shift) | (next >> (64 - self.shift)))
+            }
+            // The final window: the last held limb's low bits, zero-padded.
+            (Some(held), None) => Some(held << self.shift),
+            (None, None) => None,
         }
     }
 }

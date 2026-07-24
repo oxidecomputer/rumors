@@ -1599,6 +1599,128 @@ proptest! {
     }
 }
 
+/// The alignment oracle for `Rank` order: shift both numerators to the
+/// common exponent and compare — the definitionally correct order the
+/// class-first streamed comparison must reproduce.
+fn alignment_cmp(a: &super::Rank, b: &super::Rank) -> core::cmp::Ordering {
+    let (an, ae) = rank_parts(a);
+    let (bn, be) = rank_parts(b);
+    let e = ae.max(be);
+    (an << (e - ae)).cmp(&(bn << (e - be)))
+}
+
+/// A rank's raw parts for the oracle, as plain `BigUint` arithmetic
+/// operands.
+fn rank_parts(r: &super::Rank) -> (num_bigint::BigUint, u32) {
+    let (num, exp) = r.raw_parts();
+    let bytes = match num {
+        crate::codec::Base::Small(n) => n.to_le_bytes().to_vec(),
+        crate::codec::Base::Big(n) => n.to_bytes_le(),
+    };
+    (num_bigint::BigUint::from_bytes_le(&bytes), exp)
+}
+
+/// One adversarial `Rank` for the 25k-pair order agreement sweep, from a
+/// deterministic word stream: odd numerators from one to a few hundred
+/// limbs wide (with all-ones runs so shared prefixes go deep), exponents
+/// from zero to well past any numerator width.
+fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
+    let limbs = match next() % 8 {
+        0..=3 => 1,
+        4..=5 => 1 + (next() % 4) as usize,
+        6 => 8 + (next() % 8) as usize,
+        _ => 64 + (next() % 200) as usize,
+    };
+    let mut words: Vec<u64> = (0..limbs)
+        .map(|_| match next() % 4 {
+            0 => u64::MAX,
+            1 => 0,
+            _ => next(),
+        })
+        .collect();
+    if let Some(top) = words.last_mut() {
+        if *top == 0 {
+            *top = 1;
+        }
+    }
+    words[0] |= 1; // odd: the stored normalization invariant
+    let num = crate::codec::Base::from(num_bigint::BigUint::new(
+        words
+            .iter()
+            .flat_map(|w| [(*w & 0xFFFF_FFFF) as u32, (*w >> 32) as u32])
+            .collect(),
+    ));
+    let exp = (next() % 100_000) as u32;
+    super::Rank::from_raw(num, exp)
+}
+
+/// The class-first streamed `Rank` order agrees with the alignment oracle
+/// on 25,000 adversarial pairs: random wide/narrow numerators crossed
+/// with far-apart exponents (the mismatched-class fast path), forced
+/// class ties with deep shared prefixes (the streamed-window path), and
+/// exact duplicates (the equality path). `checked_sub`'s pre-check is
+/// asserted consistent on every pair: `Some` exactly when `rhs <= self`.
+#[test]
+fn rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs() {
+    // A fixed splitmix64 stream: deterministic, dependency-free.
+    let mut state = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = move || {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    for case in 0..25_000u32 {
+        let a = stream_rank(&mut next);
+        let b = match next() % 4 {
+            // An unrelated rank: usually a mismatched class.
+            0 => stream_rank(&mut next),
+            // An exact duplicate: the equality path.
+            1 => a.clone(),
+            // The same value at a perturbed exponent: a guaranteed class
+            // mismatch with an identical mantissa.
+            2 => {
+                let (num, exp) = rank_parts(&a);
+                super::Rank::from_raw(
+                    crate::codec::Base::from(num),
+                    exp.saturating_add((next() % 64) as u32 + 1),
+                )
+            }
+            // A forced class tie: same exponent, same width, a low bit
+            // perturbed, so the streamed windows share a deep prefix.
+            _ => {
+                let (num, exp) = rank_parts(&a);
+                let flipped = num ^ (num_bigint::BigUint::from(2u8) << (next() % 16));
+                let bits_kept = flipped.bits() == a_bits(&a);
+                let candidate = super::Rank::from_raw(crate::codec::Base::from(flipped), exp);
+                if bits_kept {
+                    candidate
+                } else {
+                    a.clone()
+                }
+            }
+        };
+        let want = alignment_cmp(&a, &b);
+        assert_eq!(a.cmp(&b), want, "case {case}: order disagrees: {a} vs {b}");
+        assert_eq!(
+            b.cmp(&a),
+            want.reverse(),
+            "case {case}: antisymmetry breaks: {b} vs {a}"
+        );
+        assert_eq!(
+            a.checked_sub(&b).is_some(),
+            want != core::cmp::Ordering::Less,
+            "case {case}: checked_sub pre-check disagrees with the order"
+        );
+    }
+}
+
+/// A rank's numerator width for the tie construction above.
+fn a_bits(r: &super::Rank) -> u64 {
+    rank_parts(r).0.bits()
+}
+
 // ─────────────────────────────── ranked ───────────────────────────────
 
 /// `Ranked` known values: a concurrent pair sharing a rank (half vs. the
