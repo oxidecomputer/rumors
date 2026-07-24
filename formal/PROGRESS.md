@@ -1706,3 +1706,20 @@ unchanged ⟹ the O count unchanged at any assignment),
 preservation twins; the phase-0/1 count coupling resolved by
 first/second-receive cores with call-site `hrise`/`hkeep` routing —
 no coupling wider than scoped surfaced).
+
+**Scoping deviation, recorded 2026-07-23 (the FamOK lever is only
+half a lever).** The scoping register listed the FamOK pump layer as
+reuse-without-change. Half true: the merge/canon/ownership halves ride
+the proj bridges, and `wPump` is family-agnostic (it pumps whatever
+`rem` holds). But `FamOK.pumps` is a LITERAL list equality
+`P.drop manCount = weavePumps`, and `weavePumps`' absorber row is the
+reply-first `absorbEvents` — while the shipping absorber is
+query-first (`materialized.rs::absorb`: `queries.recv().await` before
+`requests.next().await`), so the class's QF-absorber assignments
+cannot inhabit `FamOK`, and every `hfam`-consuming lemma (the stuck
+trichotomies, the four windows, the drain ladder's absorber cases)
+needs an Ord/ twin over a `weavePumpsO`-pumped bundle. The absorber
+row is ONE row and its channel-side projections are unchanged, so the
+twins are transcriptions, not new mathematics — but they are a unit of
+work the scoping priced at zero. Base files stay untouched (the
+zero-edits rule); the cost is absorbed as one extra fork-sized unit.
