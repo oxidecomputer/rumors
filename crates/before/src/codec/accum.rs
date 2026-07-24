@@ -58,6 +58,13 @@
 //! into [`touch_meter`], and the resource-envelope suite pins the per-delta
 //! touch cost flat across size doublings on those same streams.
 
+// The rank fold uses the additive half of the accumulator in every build;
+// the difference/sign half is reached only from the skyline sweeps, which
+// compile under `test` and `meter`. Everything here still type-checks in
+// every build — only the dead-code lint is scoped, so the gate's
+// `--all-features` passes keep catching code that is dead everywhere.
+#![cfg_attr(not(any(test, feature = "meter")), allow(dead_code))]
+
 use core::cmp::Ordering;
 
 use num_bigint::BigUint;

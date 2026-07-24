@@ -9,9 +9,12 @@ use crate::meter::{bigroot, dense, hugeleaf, Packed};
 use crate::{Party, Version};
 
 use super::{
-    assert_honest_text, radix_units_party, radix_units_version, version_output_bytes,
-    MAX_SCALING_EXPONENT, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, TEXT_BYTES_PER_CONTENT_BIT,
+    assert_honest_text, radix_units_party, radix_units_version, TEXT_BYTES_PER_CONTENT_BIT,
 };
+// The limb-priced tripwires read the touch counter, so they compile only
+// with the `limb-meter` feature; these names have no ungated user.
+#[cfg(feature = "limb-meter")]
+use super::{version_output_bytes, MAX_SCALING_EXPONENT, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT};
 
 /// Decode a meter-generated packed event shape.
 fn version_of(p: &Packed) -> Version {
