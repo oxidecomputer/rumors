@@ -19,7 +19,9 @@ by the link conformance suite and the trace bridges instead. Structural
 claims below were extracted from the Rust (2026-07-15, re-audited
 2026-07-23) and adversarially cross-checked; the load-bearing citations
 are repeated here as durable anchors (file and item — the 07-15 line
-numbers rotted within days). **One open divergence is flagged in §5.1.**
+numbers rotted within days). The one divergence the 07-23 re-audit
+flagged (the pairing loops' dequeue order) is resolved by the
+dequeue-order class amendment in §5.
 
 ## 1. What is proved, what is assumed
 
@@ -72,6 +74,14 @@ implementation whose traces satisfy the tightened `assert_valid`.
   definitionally, and ρ never reads occupancy, so the run bound is the
   floor's. The `d5` corner's wire-widening remains on the informal
   Kahn argument (Statement.lean, "Assumed, not proven").
+- (v) **Dequeue-order indifference** (for the `.impl` flagship): (i),
+  (ii), and (iv) hold at EVERY assignment of the two-point per-loop
+  dequeue-order class (each walk stage and the absorber independently
+  reply-first or query-first, closes tied to the prologue choice —
+  the shipping Rust is the all-query-first instance). Kernel-proven
+  since 2026-07-24 (`Sched.deadlock_free_anyOrder`,
+  `Sched.deadlock_free_wide_anyOrder`; the class, its exclusions, and
+  the reply-first residue: §5's dequeue-order subsection).
 
 **Explicitly not modeled** (modeled-world premises, each with its Rust
 anchor):
@@ -302,24 +312,23 @@ Commitment steps are counted in the run-length bound (§7).
 Per-scope structure of a walk stage, for each scope σ it processes in
 order (scope order = query order = BFS/radix order of the skeleton):
 
-1. **Prologue** (fixed order, program structure). The model transcribes
-   `recv wire` then `recv asked` — reply first, then query, the order
-   the Rust had at extraction. **OPEN DIVERGENCE (2026-07-23 re-audit):
-   since fd36bb65 ("Dequeue query-first in the pairing loops") the
-   shipping walk dequeues the query first and then awaits the wire
-   reply (`work/levels.rs`), freeing the queue slot one reply earlier
-   so the window accounting is exact; the end-of-stream checks flipped
-   with it (loop exit on the closed query queue, leftover-reply check
+1. **Prologue** (fixed order, program structure). The model's baseline
+   transcription is `recv wire` then `recv asked` — reply first, then
+   query, the order the Rust had at extraction. Since fd36bb65
+   ("Dequeue query-first in the pairing loops") the shipping walk
+   dequeues the query first and then awaits the wire reply
+   (`work/levels.rs`), freeing the queue slot one reply earlier so the
+   window accounting is exact; the end-of-stream checks flipped with
+   it (loop exit on the closed query queue, leftover-reply check
    after). The pairing is unchanged — the k-th query still meets the
-   k-th reply — but the prologue's I/O order is not the one the
-   kernel-checked theorems transcribe, and that commit's own record
-   notes capacity monotonicity does not cover an order change. Until
-   the model is re-run with the flipped prologue (or order-indifference
-   is proved), the theorems' coverage of the shipping prologue is an
-   open transcription gap, evidenced empirically meanwhile (the full
-   suite at the floor window, adversarial schedules included). Per this
-   file's discipline, the disagreement is recorded here and stands
-   until resolved.**
+   k-th reply — but the prologue's I/O order is not the baseline
+   transcription's, and capacity monotonicity does not cover an order
+   change. **RESOLVED (2026-07-23, the order-indifference amendment):
+   the divergence flagged here by the 07-23 re-audit is closed by
+   quantifying the `.impl` theorems over the prologue order itself
+   rather than re-pinning the model to one order — the dequeue-order
+   class subsection below states the class, the claim of record, and
+   the reply-first residue.**
 2. **Publication obligations** (the poset the axioms guard): per D child c —
    `send wire(c)`, `send lowerRes(c)`, `send asked(g)` for each child g of
    c; per R child c — `send wire(c)` only; plus one `send upperRes(σ)`
@@ -338,10 +347,13 @@ order (scope order = query order = BFS/radix order of the skeleton):
    sequential across scopes — a modeled-world premise slightly stronger than
    the ledgers, which would tolerate cross-scope pipelining; the Rust walk
    is a single sequential loop).
-5. After the last scope: `recvClose wire`, then `recvClose asked` (the
-   model's order; the shipping loop since fd36bb65 exits on the closed
-   query queue and then checks the reply stream for a leftover — part of
-   the §5.1 open divergence).
+5. After the last scope: `recvClose wire`, then `recvClose asked` in
+   the baseline (reply-first) transcription. The query-first member of
+   the dequeue-order class closes `asked` then `wire` — the shipping
+   loop since fd36bb65 exits on the closed query queue and then checks
+   the reply stream for a leftover. The close order is tied to the
+   loop's prologue choice, never a separate choice point (the
+   dequeue-order class subsection below).
 
 Within step 2 there is **no fixed cross-channel program order** among the
 obligations of one scope: beyond the per-channel child order of step 3, the
@@ -356,6 +368,71 @@ can never produce.
 `rootRes` with `pending = d + r`, one `asked` send per D/R root child), with
 one prologue recv (the opening wire message). `IOpen` has two ops:
 `wire-yield` then `send rootQuery` — the `InitialQuery` wire-ledger edge.
+
+### The dequeue-order class (§5.1 resolution, 2026-07-23)
+
+Each pairing loop of the session — each walk stage `S(p, h)`, and the
+absorber — is a two-receive loop: per scope (per leaf request, for the
+absorber) it dequeues one wire reply and one queued query, then (for
+walks) publishes. The order-indifference metatheorem quantifies over
+the **two-point per-loop dequeue choice**:
+
+- **reply-first** (`PairOrder.replyFirst`): recv wire at phase 0, recv
+  asked at phase 1; end-of-stream closes wire at phase 3, asked at
+  phase 4 — the baseline transcription of §5.1/§5.5;
+- **query-first** (`PairOrder.queryFirst`): recv asked at phase 0,
+  recv wire at phase 1; closes asked at phase 3, wire at phase 4 — the
+  shipping order since fd36bb65. The close order is **tied** to the
+  loop's prologue choice (the Rust loop exits on whichever queue it
+  dequeues first going closed); the model does not treat closes as a
+  separate choice point.
+
+An `OrdMap` assigns one `PairOrder` to every walk stage and one to the
+absorber, each independently — 2^(#stages + 1) assignments per
+skeleton. `applyO` is the ord-parameterized transition function;
+`applyO_rf` pins its all-reply-first instance to `Model.apply`
+definitionally, so the baseline theorems are the `ord = .rf` instances
+of the quantified ones and the shipping Rust is the all-query-first
+instance.
+
+**Explicitly outside the class** (loop shapes that are not a two-point
+dequeue choice; none is the shipping Rust, and none is covered):
+
+- racing both inputs (a `select!` over reply queue and query queue,
+  order resolved per message at runtime);
+- cross-scope prefetching (dequeuing scope k+1's inputs before scope
+  k's obligations complete — the §5.4 sequential-scope premise, still
+  in force);
+- a prologue interleaved with the scope's sends (both receives always
+  precede every publication of the scope).
+
+**Claim of record** (fixed 2026-07-23, before any Lean transcription;
+kernel-proven 2026-07-24): under `wellFormed` and margin 0
+(`∀ σ, dCount σ ≤ capLevel`), every assignment's `.impl` session is
+deadlock-free and terminating, at the floor capacities and at every
+pointwise-widened capacity vector κ ≥ floor —
+`Sched.deadlock_free_anyOrder` (Ord/Endgame.lean),
+`Sched.deadlock_free_wide_anyOrder` (Ord/WideEndgame.lean),
+`Ord.rho_decreasesO` / `Ord.terminatingO` (Ord/Termination.lean),
+each at kernel axioms `[propext, Classical.choice, Quot.sound]`; the
+audit surface is Ord/Statement.lean. This is per-loop dequeue-order
+indifference over the two-point class above, NOT arbitrary-order
+indifference: nothing is claimed for the excluded loop shapes.
+
+**Reply-first residue** (each theorem below stays certifying the
+baseline reply-first order only; dated notes, deliberate scope
+decisions of 2026-07-23, not gaps discovered later):
+
+- `Sched.deadlock_free_d5` (2026-07-23): the parent-early corner is a
+  design-space record, not the shipping encoder; its proof chain (the
+  spliced weave, the AscCover/DescSupply telescopes) stays reply-first
+  and no claim is made about a query-first `d5` corner.
+- The mux layer (2026-07-23): `wc_impossibility`,
+  `wc_impossibility_K`, `sigmaStar_deadlock_free`,
+  `sigmaStarK_deadlock_free`, `sigmaStarCausal_deadlock_free`,
+  `oracle_deadlock_free`, `elastic_deadlock_free`, `mux_terminating`,
+  and their kin build on the baseline `Model.apply` and stay
+  reply-first.
 
 ## 6. The axioms: the ledgers of `Trace::assert_valid`
 

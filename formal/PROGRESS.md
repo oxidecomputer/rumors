@@ -1622,3 +1622,202 @@ economics) → the Rust chain → process (one section, honest failures) →
 a nine-entry errata ledger → closing reflections. §7 items 1–6, §8,
 §9, and tasks #12–#20 are hereby the complete campaign record; nothing
 remains open.
+
+## 13. The order-indifference metatheorem (candidate A, 2026-07-23)
+
+Decision of record (Finch, 2026-07-23): GO on the ord-parameterized
+re-derivation of the `.impl` flagship chain — the two-point per-loop
+dequeue class, stated in MODEL.md's dequeue-order class subsection
+(the §5.1 resolution, written and committed BEFORE any Lean, per the
+spec-first discipline). The `d5` corner and the mux flagships stay
+reply-first; MODEL.md's residue table names them explicitly, dated.
+
+Targets (the landing shape, typechecked by the scoping pass):
+`PairOrder`/`OrdMap`/`applyO` with `applyO_rf : applyO sk ax .rf a s =
+Model.apply sk ax a s` (rfl per arm); `Sched.deadlock_free_anyOrder :
+wellFormed → margin 0 → DeadlockFreeO sk .impl ord` for every `ord`;
+plus `rho_decreasesO`/`terminatingO` and
+`deadlock_free_wide_anyOrder`. Statement-faithfulness binding: the
+claim is the TWO-POINT class, never arbitrary-order indifference.
+Non-destructive, absolutely: a new `Ord/` module family, zero edits to
+existing proof files (the Mux campaign imports the base files); the
+executable tier extends the eventdag oracle only.
+
+**Probe inventory carried in** (the scoping session's exhaustive-BFS
+harness, calibrated against the kernel-pinned reply-first facts)
+[checked]:
+
+- Exhaustive BFS, QF `apply`, `.impl`: pyramid2 (814,686 states),
+  pyramid4 (1,945,994), rMix (9,989,206 / 10,067,318 across two
+  fingerprint revisions) — complete, stuck=0, one terminal each.
+  Reply-first calibration on the same harness: stuck=0 (pyramid2,
+  pyramid4, rMix), agreeing with the kernel theorems.
+- `pdelay` (the sub-margin parent-delay control, dCount = capLevel+2):
+  stuck=1 under BOTH orders — the d6 capacity boundary is
+  order-indifferent at the witness, and the QF run reaches the
+  candidate wait cycle (cycExact=792 configurations) without any new
+  stuck state above margin.
+- **comb6: NO completed exhaustive result exists.** All three comb6
+  output files in the scoping scratchpad are empty (0 bytes) — the
+  runs never completed. Recorded honestly; the in-repo eventdag gate
+  additions below re-establish comb6 coverage at the trace/weave tier,
+  and a bounded comb6 BFS re-run is queued as executable evidence.
+
+Execution order (binding, from the scoping's risk register): spec
+(done, this entry + MODEL.md) → executable QF trace/weave gates in the
+eventdag oracle → ord-parameterized Invariant + ONE Preserve file (to
+expose phase-0/1 count coupling before fanning out) → the chain.
+Reuse levers scoped as no-change: the publication axiom guards, the
+Progress pillar, walkRho, the merge engine (generic over trace lists),
+the FamOK pump layer, every per-channel projection (the two prologue
+receives live on distinct channels, so per-channel projections are
+order-invariant — the Numbering/canon layer transfers by a
+proj-equality bridge exactly as `proj_walkEventsE_eq` carried the d6
+climb).
+
+**Executable tier LANDED and GREEN (2026-07-23).** The eventdag oracle
+gained the full ord tier: O trace families and their E3 edge set
+(`walkTraceO`/`absorbTraceO`/`procTracesO`), the O validator, the
+`.impl` O merge candidate (`schedCandidateO`), the O eweave
+(`weaveScopeEO`/`weaveOrderEO`, absorber pump in its own assignment
+order), and the replay under `Ord.applyO` with the O close drain.
+Gates, all green at exit 0: the four-assignment matrix (all-QF, two
+alternating mixtures, absorber-only) per pin at margin 0 — candidate
+drains + validates + replays to terminal, oweave valid; the all-RF
+corner reproduces the E tier EVENT-FOR-EVENT (the calibration
+identity); per acyclic fuzz seed (300), all-QF plus a seed-derived
+mixed assignment, same checks, plus the rf-corner equality; the
+boundary matrix carries an all-QF conjunct at every capLevel probed;
+negative controls — the all-QF oweave is REJECTED sub-margin on
+`pdelay` (the capacity hypothesis is load-bearing per assignment) and
+a reply-first schedule is flagged against the QF edge set (the O edge
+set is real). Kernel-side equality pins (Sched-side `scheduleO`/O
+weave vs the tool) land with the Ord/Sched unit.
+
+**Kernel stage A/B LANDED (2026-07-23, the risk-register probe):**
+`Ord/Basic.lean` (applyO + `applyO_rf` rfl-per-arm + the reply-first
+transport `deadlockFreeO_rf_iff`), `Ord/Invariant.lean` (`InvPO`; each
+O receive count SELECTS between the two existing base formulas per the
+loop's assignment — never a new formula — so the local fragments and
+the decode hypothesis `InvL` are shared verbatim), `Ord/Wiring.lean`
+(O routing/frames + the `_congr` reuse workhorses: both base formulas
+unchanged ⟹ the O count unchanged at any assignment),
+`Ord/Init.lean`, `Ord/Preserve/Walk.lean` (the five walk-family
+preservation twins; the phase-0/1 count coupling resolved by
+first/second-receive cores with call-site `hrise`/`hkeep` routing —
+no coupling wider than scoped surfaced).
+
+**Scoping deviation, recorded 2026-07-23 (the FamOK lever is only
+half a lever).** The scoping register listed the FamOK pump layer as
+reuse-without-change. Half true: the merge/canon/ownership halves ride
+the proj bridges, and `wPump` is family-agnostic (it pumps whatever
+`rem` holds). But `FamOK.pumps` is a LITERAL list equality
+`P.drop manCount = weavePumps`, and `weavePumps`' absorber row is the
+reply-first `absorbEvents` — while the shipping absorber is
+query-first (`materialized.rs::absorb`: `queries.recv().await` before
+`requests.next().await`), so the class's QF-absorber assignments
+cannot inhabit `FamOK`, and every `hfam`-consuming lemma (the stuck
+trichotomies, the four windows, the drain ladder's absorber cases)
+needs an Ord/ twin over a `weavePumpsO`-pumped bundle. The absorber
+row is ONE row and its channel-side projections are unchanged, so the
+twins are transcriptions, not new mathematics — but they are a unit of
+work the scoping priced at zero. Base files stay untouched (the
+zero-edits rule); the cost is absorbed as one extra fork-sized unit.
+
+**The chain through merge completeness, LANDED (2026-07-23/24, six
+fork units, all green at every commit):**
+
+- *Stage B (safety)*: `invO_preserved`/`invO_reachable`
+  (Ord/Preserve.lean + the five per-family twin files; the four
+  absorber arms partner-arm dispatched, flow re-plumbed through the
+  `recvdOfO` frames).
+- *Stage C (traces)*: `procsO`/`scheduleO` with the reply-first
+  collapse pins landing as `rfl`; the proj/perm bridges
+  (`proj_pair_swap` the one workhorse: swapping adjacent events on
+  distinct channels is projection-invisible); canon + ownership +
+  `ManRows` unconditional over the class; the merge wrappers. The
+  eventdag gate pins BOTH kernel transcriptions (`Ord.scheduleO`,
+  `Ord.weaveO`) to the tool event-for-event per pin and per acyclic
+  seed.
+- *Stage D (witness + edge respect)*: `weaveGoO` over ord-dispatched
+  scope expanders (kernel anchors at `.qf` by `decide`);
+  `align_scopeO`/`weaveO_wcount` unconditional; the dep layer
+  transfers PER CHANNEL (`manDep` never crosses channels —
+  `depOK_transfer_chan`); the FamOKO pump layer (the priced
+  deviation) with the absorber trichotomy's starved arms phrased by
+  `wirePhase` offsets so downstream consumers never dispatch; the O
+  windows, with ONE statement deviation — `wire0_windowO`'s
+  request-feed slack is `1 − wirePhase` (the base hypothesis at
+  reply-first, NO slack at query-first; the site derivation keeps
+  the exact feed count the E proof had before weakening, so the
+  master induction closes it by omega); `weaveO_wedge` CLOSED for
+  every assignment — the prologue delta packaged as one rest-generic
+  `emitOK_prologueO`, the entire post-prologue body shared between
+  the orders.
+- *Stage E (decode)*: Ord/Pending.lean re-denominates the pend layer
+  (`performedO`/`PendOkO`): base `recvdOf` factually mis-counts a
+  query-first loop mid-prologue, so the E decode statements are
+  unprovable over O states as-is — the five placement-independent
+  decodes transfer through bridges, the walk/absorb decodes dispatch
+  over `walkEventsO`/`absorbEventsO`.
+- *Stage D exit*: `merge_completeO` CLOSED (standard axiom set), the
+  argmin over `weaveO` positions; 20 FamOKO signature-swap twins in
+  the drain ladder, no per-assignment dispatch anywhere.
+- *Stage F*: `rho_decreasesO` (15 arms delegated by iota, 8 re-phased
+  arms priced by the CROSSED walkRho step lemmas — the measure is
+  order-blind by design), `run_length_leO`/`terminatingO`,
+  `drainO`/`drain_quiescentO`.
+
+One merge-seam finding from the parallel fan-out, fixed: two units
+independently minted `mem_prologueO` (Align exports it; Pending's
+went private). The duplicate sweep is now part of the close-out.
+
+**§13 CLOSED (2026-07-24): the claim of record is kernel-proven in
+full.** `Sched.deadlock_free_anyOrder` (Ord/Endgame.lean),
+`Sched.deadlock_free_wide_anyOrder` (Ord/WideEndgame.lean),
+`Ord.rho_decreasesO`/`Ord.terminatingO`/`Ord.terminatingWO`, and the
+run-level corollaries (`maximal_run_terminal_anyOrder`,
+`greedy_run_terminal_anyOrder`, `maximal_run_terminal_wide_anyOrder`)
+all check at `[propext, Classical.choice, Quot.sound]`; the base and
+mux flagships are byte-untouched and re-audited at their original
+axiom sets. The endgame's close cascade hoists producer-done facts
+for BOTH prologue channels at the sweep frontier, so the four
+(phase × order) close branches are one-liners; the Pending `hrem`
+seams discharge through `merge_completeO` and never reach the
+flagship statements. The wide corner closed by the audited minus-cap
+route (WidePreserve/, 3.9k lines; the predicted frozen-count lemma
+was already Ord/Wiring's `_congr` workhorses), and the consistency
+square is pinned both ways (`deadlock_free_wide_rf_corner` = the base
+wide flagship; `deadlock_free_anyOrder_cap_corner` = the floor
+metatheorem). Ord/Statement.lean is the audit surface: the class, the
+exclusions quoted from MODEL.md, the reply-first residue, and the
+executable anchors (`invAlongO` on the positive matrix at `.qf` and a
+mixed literal; greedy QF drains complete; `pdelay` sticks sub-margin
+at `.qf` AND at the mix — the capacity hypothesis is load-bearing per
+assignment). MODEL.md's claim-of-record paragraph and §1 item (v) now
+record the kernel status, dated.
+
+Campaign accounting: ten subagent units (PreserveO, SchedO,
+TerminationO, pumpO, weaveO, pendingO, masterO, finalO, endgameO,
+wideO) within the 8–12 budget; 21,417 new Lean lines under Ord/ (wc -l), zero
+edits to existing proof files, zero sorries at every commit; the
+eventdag ord tier green — the four-assignment matrix + rf-corner
+identity at 300 fuzz seeds, and the kernel-transcription equality
+pins (`scheduleO`, `weaveO`) at their landing runs on the final
+oracle code (nothing the oracle audits moved afterward); the Rust
+`just gate` green (the formal work touched no Rust). Statement deviations from the scoped shape: NONE —
+every landed statement is the scoped landing shape or stronger
+(ManRows/canon unconditional; the flagship exactly as drafted).
+
+**comb6 exhaustive-BFS status (honest, at close):** the scoping
+session's 200M-state query-first BFS on comb6 was found still IN
+FLIGHT during this campaign (>10 CPU-hours, no emitted result; the
+three comb6 output files remain empty) and had not completed when the
+campaign closed. comb6's ord coverage of record is therefore the
+oracle tier — the comb6 pin runs the full four-assignment matrix
+(candidate drains + validates + replays to TERMINAL under
+`Ord.applyO .impl`, oweave valid, rf corner event-identical to the E
+tier) — plus the kernel theorems themselves, which quantify over all
+skeletons and subsume the pin. The exhaustive-BFS run, if it ever
+completes, lands as a dated addendum here; nothing in the record
+depends on it.
