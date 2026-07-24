@@ -1723,20 +1723,7 @@ proptest! {
     /// final normalization changes the cost, never the result.
     #[test]
     fn rank_sum_equals_the_pairwise_fold(seeds in proptest::collection::vec(any::<u64>(), 0..24)) {
-        let ranks: Vec<super::Rank> = seeds
-            .iter()
-            .map(|&seed| {
-                let mut state = seed;
-                let mut next = move || {
-                    state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-                    let mut z = state;
-                    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-                    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-                    z ^ (z >> 31)
-                };
-                stream_rank(&mut next)
-            })
-            .collect();
+        let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
         let reference = ranks
             .iter()
             .fold(super::Rank::ZERO, |acc, r| acc + r);
@@ -1748,6 +1735,128 @@ proptest! {
 /// A rank's numerator width for the tie construction above.
 fn a_bits(r: &super::Rank) -> u64 {
     rank_parts(r).0.bits()
+}
+
+proptest! {
+    /// `distance` and `lag` realize both reference oracles: the recursive
+    /// tree fold's rank differences pin the arithmetic, and the semantic
+    /// oracle's Riemann sums over join/meet events pin the meaning — the
+    /// three computations share no walk, no accumulator, and no
+    /// normalization sink.
+    #[test]
+    fn distance_and_lag_realize_both_oracles(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+    ) {
+        use crate::testing::semantic_oracle;
+
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let d = a.distance(&b);
+        let l = a.lag(&b);
+
+        // The tree oracle: rank differences over its own join and meet.
+        let tree_join = (oa.clone() | ob.clone()).rank();
+        let tree_meet = (oa.clone() & ob.clone()).rank();
+        prop_assert_eq!(
+            tree_join.checked_sub(&tree_meet).expect("join dominates meet"),
+            d.clone(),
+            "tree-fold distance disagrees: {} vs {}", a, b
+        );
+        prop_assert_eq!(
+            tree_join.checked_sub(&oa.rank()).expect("join dominates self"),
+            l.clone(),
+            "tree-fold lag disagrees: {} vs {}", a, b
+        );
+
+        // The semantic oracle: Riemann sums over the function space.
+        let ea = semantic_oracle::lift_ev(oa);
+        let eb = semantic_oracle::lift_ev(ob);
+        let joined = semantic_oracle::join(ea.clone(), eb.clone());
+        let met = semantic_oracle::meet(ea.clone(), eb);
+        let gj = semantic_oracle::ev_res(&joined);
+        let gm = semantic_oracle::ev_res(&met);
+        let ga = semantic_oracle::ev_res(&ea);
+        prop_assert_eq!(
+            semantic_oracle::rank(&joined, gj)
+                .checked_sub(&semantic_oracle::rank(&met, gm))
+                .expect("join dominates meet"),
+            d,
+            "Riemann-sum distance disagrees: {} vs {}", a, b
+        );
+        prop_assert_eq!(
+            semantic_oracle::rank(&joined, gj)
+                .checked_sub(&semantic_oracle::rank(&ea, ga))
+                .expect("join dominates self"),
+            l,
+            "Riemann-sum lag disagrees: {} vs {}", a, b
+        );
+    }
+
+    /// `Rank` is a totally ordered commutative monoid and its own laws
+    /// say so: commutativity, associativity, the `ZERO` identity,
+    /// add-monotonicity, and `checked_sub` as the partial inverse with
+    /// `Some` exactly on `rhs <= self`.
+    #[test]
+    fn rank_monoid_and_order_laws(seeds in proptest::collection::vec(any::<u64>(), 3)) {
+        let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
+        let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
+        prop_assert_eq!(a + b, b + a);
+        prop_assert_eq!(&(a + b) + c, a + &(b + c));
+        prop_assert_eq!(a + &super::Rank::ZERO, a.clone());
+        prop_assert!(&(a + b) >= a, "addition never shrinks a rank");
+        prop_assert_eq!(
+            (a + b).checked_sub(b).expect("a + b dominates b"),
+            a.clone()
+        );
+        prop_assert_eq!(a.checked_sub(b).is_some(), b <= a);
+        if let Some(d) = a.checked_sub(b) {
+            prop_assert_eq!(&d + b, a.clone());
+        }
+    }
+
+    /// Value-equal ranks built along different operation paths are one
+    /// structural value: pairwise addition, `Sum`, and add-then-subtract
+    /// land on identical representations, equal under `Eq` and under
+    /// `Hash` — the normalization invariant `Ord`'s class-first fast path
+    /// and every container key rest on.
+    #[test]
+    fn rank_cross_path_normalization_and_hash(seeds in proptest::collection::vec(any::<u64>(), 3)) {
+        use core::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+
+        fn hash_of(r: &super::Rank) -> u64 {
+            let mut h = DefaultHasher::new();
+            r.hash(&mut h);
+            h.finish()
+        }
+
+        let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
+        let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
+        let via_add = a + b;
+        let via_sum = [a.clone(), b.clone()].into_iter().sum::<super::Rank>();
+        let via_sub = (&(a + b) + c)
+            .checked_sub(c)
+            .expect("the sum dominates its summand");
+        prop_assert_eq!(&via_add, &via_sum);
+        prop_assert_eq!(&via_add, &via_sub);
+        prop_assert_eq!(hash_of(&via_add), hash_of(&via_sum));
+        prop_assert_eq!(hash_of(&via_add), hash_of(&via_sub));
+    }
+}
+
+/// One deterministic adversarial rank from a word seed, via the shared
+/// splitmix stream.
+fn seeded_rank(seed: u64) -> super::Rank {
+    let mut state = seed;
+    let mut next = move || {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    stream_rank(&mut next)
 }
 
 // ─────────────────────────────── the join fold ───────────────────────────────
