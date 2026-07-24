@@ -8,7 +8,8 @@
 //! rest on: every builder knob reaches the builder's state, and every
 //! stored choice reaches the minted peer unchanged.
 
-use super::Bootstrap;
+use super::{Bootstrap, Joined};
+use crate::bookmark::NoBookmark;
 use crate::tree::mirror::streaming::remote::RunBudget;
 use crate::tree::mirror::streaming::window::{DEFAULT_SYNC_MEMORY_BUDGET, WindowConfig};
 use crate::{Peer, Protocol};
@@ -107,4 +108,49 @@ fn unconfigured_join_mints_the_defaults() {
     assert_eq!(peer.run_budget, RunBudget::default());
     assert_ne!(budget_bytes(peer.window), CUSTOM_BUDGET);
     assert_ne!(peer.run_budget, RunBudget::from_bytes(CUSTOM_TARGET));
+}
+
+/// The bookmark transition is knob-transparent and order-free: session
+/// knobs selected before [`Bootstrap::bookmark`] and after it land in the
+/// same stored configuration.
+#[test]
+fn bookmark_transition_preserves_and_accepts_knobs() {
+    let before = Peer::<u64>::bootstrap()
+        .protocol(Protocol::V1)
+        .sync_memory_budget(CUSTOM_BUDGET)
+        .target_message_size(CUSTOM_TARGET)
+        .bookmark(NoBookmark);
+    let after = Peer::<u64>::bootstrap()
+        .bookmark(NoBookmark)
+        .protocol(Protocol::V1)
+        .sync_memory_budget(CUSTOM_BUDGET)
+        .target_message_size(CUSTOM_TARGET);
+    for config in [before.config, after.config] {
+        assert_eq!(config.protocol, Protocol::V1);
+        assert_eq!(budget_bytes(config.window), CUSTOM_BUDGET);
+        assert_eq!(config.run_budget, RunBudget::from_bytes(CUSTOM_TARGET));
+    }
+}
+
+/// A bookmarked join drives the same session plumbing: the minted peer
+/// retains the session knobs exactly as an unbookmarked join's would,
+/// arriving through the [`Joined::Joined`] arm.
+#[test]
+fn bookmarked_join_retains_the_configuration() {
+    let outcome = pollster::block_on(async {
+        let provider = Peer::<u64>::seed().into_rumors();
+        let (mut near, mut far) = crate::link::memory();
+        let config = Peer::<u64>::bootstrap()
+            .sync_memory_budget(CUSTOM_BUDGET)
+            .target_message_size(CUSTOM_TARGET)
+            .bookmark(NoBookmark);
+        let (served, joined) = tokio::join!(provider.gossip(&mut far), config.join(&mut near));
+        served.expect("the provider serves the bookmarked bootstrap");
+        joined
+    });
+    let Joined::Joined { peer } = outcome else {
+        panic!("an established provider and infallible bookmark must mint a joined peer");
+    };
+    assert_eq!(budget_bytes(peer.window), CUSTOM_BUDGET);
+    assert_eq!(peer.run_budget, RunBudget::from_bytes(CUSTOM_TARGET));
 }

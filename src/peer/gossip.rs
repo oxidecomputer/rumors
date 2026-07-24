@@ -132,10 +132,14 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     },
 }
 
-/// The failure outcome of [`Peer::bookmark`].
+/// A failed bookmark attach: the [`Peer`] handed back unchanged, still
+/// unbookmarked.
 ///
-/// This indicates that the bookmark could not be read or persisted, so the
-/// [`Peer`] is handed back unchanged and still unbookmarked.
+/// The bookmark could not be read or persisted. Produced by
+/// [`Peer::bookmark`] as its `Err`, and by a bookmarked bootstrap as
+/// [`Joined::Unbookmarked`](super::Joined::Unbookmarked) — the same
+/// failure at the same step, differing only in when the bookmark was
+/// selected.
 ///
 /// Marked `must_use` because dropping it discards the [`Peer`], the very
 /// identity the failed call was trying to make durable. Take

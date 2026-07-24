@@ -25,7 +25,7 @@ use crate::{
 mod bootstrap;
 mod gossip;
 
-pub use bootstrap::Bootstrap;
+pub use bootstrap::{BookmarkedBootstrap, Bootstrap, Joined};
 pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 
 /// The start and end of the lifecycle of a [`Rumors`].
@@ -234,6 +234,11 @@ impl<T> Peer<T> {
 
     /// Attach `bookmark` to this [`Peer`], persisting its identity before
     /// returning.
+    ///
+    /// A joining peer can skip this step: selecting the bookmark on the
+    /// builder ([`Bootstrap::bookmark`]) mints the peer already attached,
+    /// with no window in which a crash could strand the received
+    /// identity unrecorded.
     ///
     /// This peer's own identity is [`load`](crate::Bookmark::load)ed into the
     /// record and [`store`](crate::Bookmark::store)d back *eagerly*, here, so a
