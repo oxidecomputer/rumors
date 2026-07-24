@@ -52,10 +52,11 @@ where
     /// The result must be an **upper bound**, monotone in both arguments
     /// — the derivation evaluates it at per-depth quantiles, and
     /// monotonicity is what keeps a quantile evaluation an upper bound
-    /// (debug-asserted when a session derives its window). Everywhere
-    /// else in the budget derivation, mis-estimation costs latency; an
-    /// underpriced node is the one input that breaches the *memory*
-    /// envelope instead.
+    /// (debug-asserted when a session derives its window, and swept over
+    /// a fan and version-bound grid by the crate's backend conformance
+    /// suite). Everywhere else in the budget derivation, mis-estimation
+    /// costs latency; an underpriced node is the one input that breaches
+    /// the *memory* envelope instead.
     fn node_bytes(children: usize, version_bound: usize) -> usize;
 
     /// Assemble one parent node at `prefix` from one radix-keyed child group.
@@ -230,7 +231,7 @@ where
 }
 
 /// A [`NodeStream`] erased to one level of type depth.
-pub(super) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
+pub(crate) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
 
 /// A backend's whole tree at rest: what a mirror session consumes and produces.
 ///

@@ -20,7 +20,7 @@
 
 mod backend;
 mod channel;
-mod convert;
+pub(crate) mod convert;
 mod driver;
 pub mod materialized;
 mod message;
@@ -34,6 +34,8 @@ pub(crate) mod window;
 pub use backend::{Backend, Leaf, Local, Node, Root};
 // The stream vocabulary the backend conformance suite decorates with;
 // crate-visible alongside the suite itself.
+#[cfg(test)]
+pub(crate) use backend::BoxNodeStream;
 #[cfg(test)]
 pub use backend::NodeStream;
 #[cfg(test)]
