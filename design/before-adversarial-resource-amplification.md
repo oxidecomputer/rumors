@@ -2871,14 +2871,62 @@ P3.3, and P3.9 (it hardens the post-flip skyline text module);
 scheduled after P4.2, and nothing waits on it except P5's
 closeout.
 
+*Amended 2026-07-24 — realization staging: Legs A/B realized
+pre-flip, the walk kernels land now and route at C2.* Pulled
+forward by the user into the link-transport window, in three legs.
+**Leg A (landed)**: part (c) becomes pure delegation — `parse_base`
+slices the digit run whole and hands it to the backend's
+divide-and-conquer parser through `Base::parse_decimal` (measured
+parse exponent 1.49; the §17.5 dashu decision record), recording
+one width-proportional limb count per materialized value; the D&C
+parse and the chunked converter of the original part (c) are never
+written. Six default-scale text cells and four ×4 cells realized
+(§13's Legs A/B re-baseline; §17.3's amendment carries the sums).
+**Leg B (landed)**: `write_id` routes through the metered id
+cursor and walks iteratively — the §13 scan-vacuity cure — three
+more cells at each scale. **Leg C (landed, module-private)**: the
+walk kernels, `skyline::text::render` and `skyline::text::parse`,
+awaiting the C2 routing. `render` supersedes part (a)'s
+pending-min design without its probe precondition: printed bases
+derive in *relative* coordinates (per completed subtree: the drop
+to its floor, the signed span, and the entry delta — every
+summary a sum of the subtree's own leaf deltas, so bigroot's wide
+heights never materialize per level), a preorder digit arena
+sizes the output exactly, and an emit pass writes it with one
+phase bit per open node. `parse` is part (b) as designed:
+per-leaf delta accumulation on the cliff-immune `Accum` (each
+base charged ≤ 2×), payloads through the collapsing
+`SkylineBuilder`, canonicality checked at each close and reported
+with the production parser's exact error precedence, the built
+stream gated through the strict validator. Differential pins:
+`render` byte-identical to `Display` and `parse` byte-identical
+to the transcoder over every generator family + arbitraries + the
+exhaustive small scope + organic histories, plus a reject-parity
+corpus. Envelope rows (`tests/meter.rs`, `SKYLINE_RENDER_*` /
+`SKYLINE_PARSE_*` × {dense, bigroot, hugeleaf, cliff}): measured
+×1.25 ceilings, limb floors at measured ×0.75, segments 0 on all
+eight, three byte-identical runs — bigroot render at 2.95 MB
+transient against the packed-era 50 MB genre. Still owed at C2:
+the routing itself; the remaining reds' verdicts (the recursion
+cells flip on the kernels' segments-0 by mechanism; the
+dense/benign κ cells need κ's re-derivation against the kernels'
+observed meter at record scale — their per-value delta-algebra
+ops price higher than the retired per-digit loop's κ share, so
+the constant leg's calibration is a C2-routing deliverable, per
+the κ rustdoc's hand-off); and the clock composition (the party
+half rides Leg B's iterative renderer).
+
 **P3.9 — C2: the flag day (one commit).**
 *What*: flip `Version`'s storage to skyline bits; route every
 algorithm to the P3.5–P3.7 implementations; serde/borsh/encode/
-decode emit skyline bytes; `Display`/`FromStr` swap to a
-correctness-only port over the skyline form — the simplest
-`descend!`-routed walk, behavior-preserving on the text bytes; its
-board cells stay red, owned by the P4-tail P3.8 (the 2026-07-23
-ruling); and in the
+decode emit skyline bytes; `Display`/`FromStr` route to the P3.8
+walk kernels — `skyline::text::render`/`parse`, landed
+module-private 2026-07-24 with byte-identical differential pins
+and enforced envelope rows (the plan of record, amended
+2026-07-24 from a correctness-only port when P3.8's Legs A–C
+landed ahead of the flip; P3.8's staging amendment carries what
+the routing still owes: the κ re-derivation for the dense/benign
+limb-constant cells and the clock composition); and in the
 same commit delete `WorkingVersion`, the event `Builder`,
 `EvReader`'s form split and `Zero` broadcast, the deferred leaf,
 and the old event codec — deferred deletion is impossible
