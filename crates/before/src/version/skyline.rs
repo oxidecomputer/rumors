@@ -28,7 +28,10 @@
 //! comparison; the [`emit`] submodule runs the same merge as join and
 //! meet, re-delta-coding pointwise max/min into a canonical stream
 //! through the collapsing output builder, differentially pinned against
-//! the packed-form operators byte for byte. The module is test- and
+//! the packed-form operators byte for byte; the [`query`] submodule
+//! answers the linear functionals (rank, distance, lag, min_ticks) and
+//! projection from the same leaf sweeps, differentially pinned against
+//! the packed-form implementations. The module is test- and
 //! meter-visible only, via [`crate::meter::skyline`].
 //!
 //! # Canonical form
@@ -124,6 +127,7 @@ mod build;
 mod decode;
 pub mod emit;
 mod encode;
+pub mod query;
 pub mod sweep;
 mod validate;
 

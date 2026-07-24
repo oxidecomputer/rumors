@@ -203,8 +203,10 @@ fn switch_delta(diff: &Accum, new_side: Side, old_delta: (bool, Base)) -> (bool,
 /// The sign and magnitude of a sum of two signed magnitudes.
 ///
 /// Never yields a negative zero: a cancelling pair returns the positive
-/// zero, so the zigzag coding downstream stays canonical.
-fn signed_sum(x_neg: bool, x: Base, y_neg: bool, y: &Base) -> (bool, Base) {
+/// zero, so the zigzag coding downstream stays canonical. Shared with the
+/// projection sweep, whose leaving-the-owned-region delta is the same
+/// signed combination.
+pub(super) fn signed_sum(x_neg: bool, x: Base, y_neg: bool, y: &Base) -> (bool, Base) {
     if x_neg == y_neg {
         return (x_neg, &x + y);
     }

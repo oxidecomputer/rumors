@@ -190,7 +190,7 @@ impl Version {
     /// `self / id` — the part of the version contributed within `id`'s region,
     /// zero everywhere `id` does not own. The reference for the impl's quotient
     /// [`Version / &Party`](crate::Version).
-    fn project(&self, id: &Party) -> Version {
+    pub(crate) fn project(&self, id: &Party) -> Version {
         self.project_off(id, &Base::ZERO)
     }
 

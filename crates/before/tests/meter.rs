@@ -1805,3 +1805,307 @@ mod accum_streams {
         pub const STATIC_PREFIX_MILLI_PER_READ: u64    = 2_509; // 2_006.50 at k=2048/n=10_000; 2_006.45 at k=4096/n=20_000
     }
 }
+
+// ─── skyline query-fold scenarios ───────────────────────────────────────────
+//
+// The query kernels over skyline streams: rank on the frozen/live height
+// split, min_ticks on the word stack with its early saturation exit, and
+// projection against a packed id. Streams are transcoded outside
+// measurement. These rows carry all five columns — heap, segments, limbs,
+// scanned bits, and accumulator touches — because the kernels' arithmetic
+// lives in digit touches (the limb column alone would read a vacuous
+// near-zero), while their stream work lives in the scan column. The cliff
+// and wide-tooth rank rows are the load-bearing pins: the boundary comb
+// exercises the freeze machinery (one wide segment flush paid by the wide
+// final borrow), the wide-tooth comb the no-freeze live path (192-bit
+// deltas held under the freeze threshold, each fold paid by its own
+// code). The projection row is I/O-denominated per the board's criterion:
+// its output is mandatory and dominates its input, so the pinned ceilings
+// price input + output bytes (the MEASURED line prints both).
+
+/// One query scenario's pinned ceilings: [`Envelope`]'s three columns
+/// plus scanned bits and accumulator touches, asserted when their
+/// features are lit.
+struct QueryEnvelope {
+    /// Peak heap delta over the scenario body, in bytes.
+    peak_heap: usize,
+    /// Stack segments grown during the scenario body.
+    segments: u64,
+    /// Big-integer limb operations counted during the scenario body.
+    #[cfg(feature = "limb-meter")]
+    limb_ops: u64,
+    /// Packed-stream bits scanned during the scenario body.
+    #[cfg(feature = "scan-meter")]
+    scan_bits: u64,
+    /// Accumulator digit touches counted during the scenario body.
+    #[cfg(feature = "limb-meter")]
+    touches: u64,
+}
+
+/// Build a [`QueryEnvelope`] from the five pinned columns.
+///
+/// The limb, scan, and touch columns are carried only when their features
+/// compile the counters in; the leading underscores keep the parameters
+/// warning-free in the other configurations.
+const fn query_envelope(
+    peak_heap: usize,
+    segments: u64,
+    _limb_ops: u64,
+    _scan_bits: u64,
+    _touches: u64,
+) -> QueryEnvelope {
+    QueryEnvelope {
+        peak_heap,
+        segments,
+        #[cfg(feature = "limb-meter")]
+        limb_ops: _limb_ops,
+        #[cfg(feature = "scan-meter")]
+        scan_bits: _scan_bits,
+        #[cfg(feature = "limb-meter")]
+        touches: _touches,
+    }
+}
+
+// The query envelope table: pinned ceiling = measured ×1.25, rounded up.
+// The trailing comment on each line is the measurement of record
+// (2026-07-24, aarch64-apple-darwin, dev profile, three identical runs)
+// the ceiling derives from. Re-pin by rerunning under `--no-capture`
+// with `--all-features` and reading the MEASURED lines.
+#[rustfmt::skip]
+mod query_env {
+    use super::{query_envelope, QueryEnvelope};
+    //                                                                        peak heap, segments,  limb ops, scan bits,   touches       measured: heap, seg, limb, scan, touches
+    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(   100_540,        0,   317_395, 1_093_772,   161_142); // 80_432, 0, 253_916, 875_017, 128_913
+    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    28_924,   387_530,    17_199); // 53_716, 0, 23_139, 310_024, 13_759
+    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_710,        0,   167_689,   573_454,   250_884); // 57_368, 0, 134_151, 458_763, 200_707
+    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_885,        0,     8_104,    48_647,     8_153); // 3_108, 0, 6_483, 38_917, 6_522
+    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_850, 2_996_319,    33_687); // 2_476, 0, 23_880, 2_397_055, 26_949
+    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255); // 24_576, 0, 250_002, 375_006, 125_004
+    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62); // 528, 0, 17, 2_052, 49
+    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924); // 420_560, 0, 92_212, 2_124_806, 35_939
+}
+
+/// Run one query scenario body under all five meters and assert its
+/// envelope.
+///
+/// [`sweep_metered`]'s harness plus the accumulator touch column; prints
+/// the measured numbers so re-pinning never requires editing the harness.
+fn query_metered<R>(
+    name: &str,
+    input_bytes: usize,
+    env: &QueryEnvelope,
+    f: impl FnOnce() -> R,
+) -> R {
+    meter::reset_stack_segments();
+    #[cfg(feature = "limb-meter")]
+    meter::reset_limb_ops();
+    #[cfg(feature = "limb-meter")]
+    meter::accum::touch_meter::reset();
+    #[cfg(feature = "scan-meter")]
+    meter::reset_scan_bits();
+    HEAP.reset_peak_usage();
+    let baseline = HEAP.current_usage();
+    let r = f();
+    let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
+    let segments = meter::stack_segments();
+    #[cfg(feature = "limb-meter")]
+    let limb_ops = meter::limb_ops();
+    #[cfg(feature = "limb-meter")]
+    let touches = meter::accum::touch_meter::touches();
+    #[cfg(feature = "scan-meter")]
+    let scan_bits = meter::scan_bits();
+    #[cfg(feature = "limb-meter")]
+    let limb_col = format!(" limb_ops={limb_ops} touches={touches}");
+    #[cfg(not(feature = "limb-meter"))]
+    let limb_col = "";
+    #[cfg(feature = "scan-meter")]
+    let scan_col = format!(" scan_bits={scan_bits}");
+    #[cfg(not(feature = "scan-meter"))]
+    let scan_col = "";
+    eprintln!(
+        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments}{limb_col}{scan_col}"
+    );
+    assert!(
+        peak_heap <= env.peak_heap,
+        "{name}: peak heap {peak_heap} B exceeds the pinned envelope {} B (input {input_bytes} B): {ISOLATION_NOTE}",
+        env.peak_heap,
+    );
+    assert!(
+        segments <= env.segments,
+        "{name}: {segments} grown stack segments exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.segments,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        limb_ops <= env.limb_ops,
+        "{name}: {limb_ops} limb operations exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.limb_ops,
+    );
+    #[cfg(feature = "scan-meter")]
+    assert!(
+        scan_bits <= env.scan_bits,
+        "{name}: {scan_bits} scanned bits exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.scan_bits,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        touches <= env.touches,
+        "{name}: {touches} accumulator digit touches exceed the pinned envelope {}: {ISOLATION_NOTE}",
+        env.touches,
+    );
+    r
+}
+
+/// The rank kernel on the dense spine's skyline stays within its
+/// envelope (the depth control: 125k levels of path bits, near-zero
+/// arithmetic).
+#[test]
+fn skyline_rank_dense_envelope() {
+    let p = meter::dense(DENSE_DEPTH);
+    let v = version_of(&p);
+    let enc = skyline_of(&p);
+    let r = query_metered(
+        "skyline_rank_dense",
+        enc.bytes.len(),
+        &query_env::SKYLINE_RANK_DENSE,
+        || meter::skyline::query::rank(&enc),
+    );
+    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+}
+
+/// The rank kernel on the bigroot skyline stays within its envelope (the
+/// wide-magnitude control: the first leaf's magnitude freezes once at
+/// position zero and flushes once against the whole interval).
+#[test]
+fn skyline_rank_bigroot_envelope() {
+    let p = meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
+    let v = version_of(&p);
+    let enc = skyline_of(&p);
+    let r = query_metered(
+        "skyline_rank_bigroot",
+        enc.bytes.len(),
+        &query_env::SKYLINE_RANK_BIGROOT,
+        || meter::skyline::query::rank(&enc),
+    );
+    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+}
+
+/// The rank kernel on the harmonic spine stays within its envelope — the
+/// rank fold's separating family, linear here because each level's
+/// one-leaf delta lands in the accumulator at its own weight instead of
+/// re-shifting an accumulated numerator.
+#[test]
+fn skyline_rank_harmonic_envelope() {
+    let p = meter::harmonic(RANK_HARMONIC_DEPTH);
+    let v = version_of(&p);
+    let enc = skyline_of(&p);
+    let r = query_metered(
+        "skyline_rank_harmonic",
+        enc.bytes.len(),
+        &query_env::SKYLINE_RANK_HARMONIC,
+        || meter::skyline::query::rank(&enc),
+    );
+    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+}
+
+/// The rank kernel on the boundary comb's skyline stays within its
+/// envelope — the freeze machinery's load-bearing pin: the heights are
+/// `2^k`-scale behind 3-bit deltas, the live component absorbs the
+/// oscillation at O(1) digits per fold, and the one wide segment flush
+/// (triggered by the terminal borrow) costs two frozen-width products
+/// against the compacted mass.
+#[test]
+fn skyline_rank_cliff_envelope() {
+    let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
+    let v = version_of(&p);
+    let enc = skyline_of(&p);
+    let r = query_metered(
+        "skyline_rank_cliff",
+        enc.bytes.len(),
+        &query_env::SKYLINE_RANK_CLIFF,
+        || meter::skyline::query::rank(&enc),
+    );
+    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+}
+
+/// The rank kernel on the wide-tooth comb's skyline stays within its
+/// envelope — the no-freeze pin: 192-bit deltas stay under the freeze
+/// threshold, so every fold and every per-leaf add is paid by the
+/// tooth's own wide code and the frozen component never churns.
+#[test]
+fn skyline_rank_wide_tooth_envelope() {
+    let p = meter::wide_tooth_comb(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let v = version_of(&p);
+    let enc = skyline_of(&p);
+    let r = query_metered(
+        "skyline_rank_wide_tooth",
+        enc.bytes.len(),
+        &query_env::SKYLINE_RANK_WIDE_TOOTH,
+        || meter::skyline::query::rank(&enc),
+    );
+    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+}
+
+/// The min_ticks kernel on the dense spine stays within its envelope:
+/// one `u64` min-merge per node, heights on the accumulator, zero grown
+/// segments at 125k levels.
+#[test]
+fn skyline_min_ticks_dense_envelope() {
+    let p = meter::dense(DENSE_DEPTH);
+    let v = version_of(&p);
+    let enc = skyline_of(&p);
+    let r = query_metered(
+        "skyline_min_ticks_dense",
+        enc.bytes.len(),
+        &query_env::SKYLINE_MIN_TICKS_DENSE,
+        || meter::skyline::query::min_ticks(&enc),
+    );
+    assert_eq!(r, v.min_ticks(), "the kernel must match the packed fold");
+}
+
+/// The min_ticks kernel on the boundary comb stays within its envelope:
+/// the first `2^k`-scale height saturates the answer immediately, so the
+/// early exit reads one leaf and no wide arithmetic ever reaches the
+/// sums.
+#[test]
+fn skyline_min_ticks_cliff_envelope() {
+    let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
+    let v = version_of(&p);
+    let enc = skyline_of(&p);
+    let r = query_metered(
+        "skyline_min_ticks_cliff",
+        enc.bytes.len(),
+        &query_env::SKYLINE_MIN_TICKS_CLIFF,
+        || meter::skyline::query::min_ticks(&enc),
+    );
+    assert_eq!(r, u64::MAX, "a comb height saturates the tick floor");
+    assert_eq!(r, v.min_ticks(), "the kernel must match the packed fold");
+}
+
+/// The projection kernel on the comb × scattered-party cross stays
+/// within its envelope — the output-dominated case: every kept tooth
+/// boundary forces a fresh `2^k`-scale magnitude into the output, so the
+/// mandatory output dominates the linear input and the pinned ceilings
+/// price input + output bytes (the denomination the board's criterion
+/// records for exactly this cross).
+#[test]
+fn skyline_project_comb_scatter_envelope() {
+    let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
+    let v = version_of(&p);
+    let party = before::Party::decode(&meter::scattered_id(CLIFF_SCALE / 2).bytes[..])
+        .expect("scattered id is strict normal form");
+    let enc = skyline_of(&p);
+    let io_bytes_in = enc.bytes.len() + meter::scattered_id(CLIFF_SCALE / 2).bytes.len();
+    let out = query_metered(
+        "skyline_project_comb_scatter",
+        io_bytes_in,
+        &query_env::SKYLINE_PROJECT_COMB_SCATTER,
+        || meter::skyline::query::project(&enc, &party),
+    );
+    eprintln!(
+        "MEASURED skyline_project_comb_scatter: output_bytes={}",
+        out.bytes.len()
+    );
+    let expected = meter::skyline::encode(&(&v / &party));
+    assert_eq!(out, expected, "the kernel must match the packed quotient");
+}
