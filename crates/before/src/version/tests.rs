@@ -1716,6 +1716,35 @@ fn rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs() {
     }
 }
 
+proptest! {
+    /// `Sum` is the pairwise fold: over an arbitrary multiset of ranks in
+    /// arbitrary order, both `Sum` impls return exactly the value the
+    /// reference `fold(ZERO, +)` produces — one raw accumulation with a
+    /// final normalization changes the cost, never the result.
+    #[test]
+    fn rank_sum_equals_the_pairwise_fold(seeds in proptest::collection::vec(any::<u64>(), 0..24)) {
+        let ranks: Vec<super::Rank> = seeds
+            .iter()
+            .map(|&seed| {
+                let mut state = seed;
+                let mut next = move || {
+                    state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+                    let mut z = state;
+                    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                    z ^ (z >> 31)
+                };
+                stream_rank(&mut next)
+            })
+            .collect();
+        let reference = ranks
+            .iter()
+            .fold(super::Rank::ZERO, |acc, r| acc + r);
+        prop_assert_eq!(&ranks.iter().sum::<super::Rank>(), &reference);
+        prop_assert_eq!(&ranks.into_iter().sum::<super::Rank>(), &reference);
+    }
+}
+
 /// A rank's numerator width for the tie construction above.
 fn a_bits(r: &super::Rank) -> u64 {
     rank_parts(r).0.bits()

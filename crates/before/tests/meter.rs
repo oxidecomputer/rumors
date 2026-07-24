@@ -473,14 +473,9 @@ fn join_cliff_envelope() {
 // root-heavy numerators respectively.
 //
 // RANK_PAIR_MISMATCH pins the class-first comparison's honest remainder
-// (the subtraction and addition outputs' own content). One row remains a
-// deliberate red baseline in the ratchet sense — the pinned number is the
-// *amplified* cost the current implementation pays, recorded so the
-// raw-accumulator Sum fold lands as a tightening of a committed constant
-// rather than an unwitnessed claim:
-//
-// - RANK_SUM_MIXED: the Sum fold renormalizes a high-exponent accumulator
-//   once per folded element, Θ(n·exp) limb work in Θ(n + exp) content.
+// (the subtraction and addition outputs' own content), and RANK_SUM_MIXED
+// the raw-accumulator Sum (one normalization at the end; its limb column
+// moved 156,312,196 -> 3,908 when the fold landed).
 
 /// One rank scenario's pinned ceilings: [`Envelope`]'s three columns plus
 /// accumulator digit touches, asserted when the `limb-meter` feature is
@@ -533,7 +528,7 @@ mod rank_env {
     pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       1_762,  5_862); //     40_088,  16, 102_824 -> 1_409, 4_689
     pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       1_282, 84_403); //     32_804, 124, 134_740_995 -> 1_025, 67_522
     pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      48_848,      0); //    187_520,   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output), 0
-    pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(     156_290,        0, 195_390_245,      0); //    125_032,   0, 156_312_196, 0
+    pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(      78_140,        0,       4_885, 22_268); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization), 17_814
 }
 
 /// Run one rank scenario body under all four meters and assert its
@@ -675,14 +670,16 @@ fn rank_pair_mismatch_envelope() {
 }
 
 /// `Sum` over one high-exponent rank followed by many integer ranks stays
-/// within its envelope — a deliberate red baseline: the fold renormalizes
-/// the high-exponent accumulator once per folded element (Θ(n·exp) limb
-/// work in Θ(n + exp) value content), recorded so a raw-accumulator Sum
-/// with a single final normalization retires this committed number.
+/// within its envelope: the raw accumulator anchors at the largest
+/// exponent seen and digit-routes each summand in at its exponent gap,
+/// normalizing once at the end, so the high-exponent operand costs its
+/// own width once instead of once per later element.
 ///
-/// High-first ordering is the adversarial arm of the fold's
-/// order-dependence: `Sum` accepts arbitrary order, so the worst order is
-/// the honest pin.
+/// High-first ordering was the adversarial arm of the fold's
+/// order-dependence (`Sum` accepts arbitrary order, so the worst order is
+/// the honest pin); under the raw accumulator it is the order that makes
+/// every later add a shifted word, which is why the pin stays the
+/// scenario of record.
 #[test]
 fn rank_sum_mixed_envelope() {
     let high = version_of(&meter::dense(RANK_SUM_EXP_DEPTH)).rank();

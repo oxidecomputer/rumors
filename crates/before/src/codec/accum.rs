@@ -236,6 +236,20 @@ impl Accum {
         }
     }
 
+    /// Scale the held value by `2^shift` in place: O(held digits).
+    ///
+    /// Rewrites every held digit to its shifted position. A fold that
+    /// anchors its accumulator at a running maximum exponent pays one
+    /// shift per exponent raise, each bounded by the operand that raised
+    /// it.
+    pub(crate) fn shl(&mut self, shift: u64) {
+        if shift == 0 || (self.top == 0 && self.digits[0] == 0) {
+            return;
+        }
+        let held = core::mem::take(self);
+        self.add_accum_shl(&held, shift);
+    }
+
     /// The number of digits up to and including the highest nonzero one.
     ///
     /// The size a merge or a per-leaf scaled add will read: the weighted
