@@ -12,6 +12,44 @@ use crate::testing::generators::deep_left_spine_party;
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::{error::Parse, Clock, Party, Version};
 
+/// Build one organic history's clock population, deterministically
+/// reproducible from the same ops.
+fn world_clocks(ops: &[Op]) -> Vec<Clock> {
+    let mut clocks = vec![Clock::seed()];
+    for op in ops {
+        step_impl(&mut clocks, op);
+    }
+    clocks
+}
+
+proptest! {
+    /// The balanced `join_all` is the sequential fold: over one organic
+    /// history's pairwise-disjoint clocks, folding the rest into any
+    /// member returns `Ok` with exactly the clock (party and version
+    /// both) the sequential `join`-per-input reference produces, in both
+    /// input orders.
+    #[test]
+    fn join_all_matches_the_sequential_fold(ops in world_strategy(), i in 0usize..64, reverse in any::<bool>()) {
+        let mut reference_pool = world_clocks(&ops);
+        let n = reference_pool.len();
+        let mut reference = reference_pool.remove(i % n);
+        if reverse {
+            reference_pool.reverse();
+        }
+        for c in reference_pool {
+            reference.join(c).expect("one world's clocks are pairwise disjoint");
+        }
+
+        let mut pool = world_clocks(&ops);
+        let mut acc = pool.remove(i % n);
+        if reverse {
+            pool.reverse();
+        }
+        acc.join_all(pool).expect("one world's clocks are pairwise disjoint");
+        prop_assert_eq!(acc, reference);
+    }
+}
+
 proptest! {
     /// The clock observers match the oracle's: `has_seen` is `msg <= version`,
     /// `happens_before` is the strict causal order, and `concurrent_with` is

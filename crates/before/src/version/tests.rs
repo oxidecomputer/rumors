@@ -1750,6 +1750,39 @@ fn a_bits(r: &super::Rank) -> u64 {
     rank_parts(r).0.bits()
 }
 
+// ─────────────────────────────── the join fold ───────────────────────────────
+
+/// Build one organic history's version population.
+fn world_versions(ops: &[Op]) -> Vec<Version> {
+    let mut clocks = vec![crate::Clock::seed()];
+    for op in ops {
+        step_impl(&mut clocks, op);
+    }
+    clocks.iter().map(|c| c.version().clone()).collect()
+}
+
+proptest! {
+    /// The balanced `join_all` is the sequential fold: over organic
+    /// version populations in both orders, `join_all`, both `Sum` forms,
+    /// and both `FromIterator` forms all return exactly the left fold's
+    /// join — the reduction changes the grouping, never the value.
+    #[test]
+    fn join_all_equals_the_sequential_fold(ops in world_strategy()) {
+        let pool = world_versions(&ops);
+        let reference = pool
+            .iter()
+            .fold(Version::new(), |acc, v| acc | v);
+        prop_assert_eq!(&Version::join_all(pool.clone()), &reference);
+        let mut reversed = pool.clone();
+        reversed.reverse();
+        prop_assert_eq!(&Version::join_all(reversed), &reference);
+        prop_assert_eq!(&pool.clone().into_iter().sum::<Version>(), &reference);
+        prop_assert_eq!(&pool.iter().sum::<Version>(), &reference);
+        prop_assert_eq!(&pool.clone().into_iter().collect::<Version>(), &reference);
+        prop_assert_eq!(&pool.iter().collect::<Version>(), &reference);
+    }
+}
+
 // ─────────────────────────────── ranked ───────────────────────────────
 
 /// `Ranked` known values: a concurrent pair sharing a rank (half vs. the

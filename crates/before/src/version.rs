@@ -276,7 +276,28 @@ impl Version {
     /// assert_eq!(Version::join_all(Vec::<Version>::new()), Version::new());
     /// ```
     pub fn join_all<I: IntoIterator<Item = Version>>(iter: I) -> Version {
-        iter.into_iter().fold(Version::new(), |acc, v| acc | v)
+        // Balanced reduction on a binary-counter stack: an incoming
+        // version merges upward while the top entry holds as many inputs
+        // as it does, so every input passes through O(log n) joins and no
+        // join's operand is more than a bounded factor larger than its
+        // partner. A left fold instead joins each input into the whole
+        // accumulated union — quadratic scan work on populations whose
+        // accumulator never coalesces (interleaved single-tick versions).
+        // Associativity makes the two groupings value-identical.
+        let mut stack: Vec<(Version, u32)> = Vec::new();
+        for v in iter {
+            let mut merged = v;
+            let mut weight = 0u32;
+            while stack.last().is_some_and(|(_, w)| *w == weight) {
+                let (top, _) = stack.pop().expect("the loop condition saw a top entry");
+                merged = top | merged;
+                weight += 1;
+            }
+            stack.push((merged, weight));
+        }
+        stack
+            .into_iter()
+            .fold(Version::new(), |acc, (v, _)| acc | v)
     }
 
     /// The meet (greatest lower bound) of every version in `iter`, or [`None`]
@@ -464,7 +485,7 @@ impl Sum<Version> for Version {
 /// Joins the iterator's versions; the empty sum is [`Version::new`].
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
-        iter.fold(Version::new(), |acc, v| acc | v)
+        Version::join_all(iter.cloned())
     }
 }
 
@@ -478,7 +499,7 @@ impl FromIterator<Version> for Version {
 /// Collects by joining; the empty collection is [`Version::new`].
 impl<'a> FromIterator<&'a Version> for Version {
     fn from_iter<I: IntoIterator<Item = &'a Version>>(iter: I) -> Version {
-        iter.into_iter().fold(Version::new(), |acc, v| acc | v)
+        Version::join_all(iter.into_iter().cloned())
     }
 }
 

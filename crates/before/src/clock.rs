@@ -167,11 +167,13 @@ impl Clock {
     ///
     /// # Errors
     ///
-    /// Returns the clocks whose parties *overlapped* `self`'s growing region and
-    /// so could not be folded in, dropping nothing: each input is either merged
-    /// into `self` or handed back. Overlap is tested against the running union,
-    /// so for malformed (aliased) input which clocks come back can depend on
-    /// iteration order. Unreachable for clocks descended from one
+    /// Returns the clocks whose parties *overlapped* and so could not be
+    /// folded in, dropping nothing: every input's party region and version
+    /// are either merged into `self` or handed back. Overlap is tested
+    /// against `self` and against the groups the inputs coalesce into on
+    /// the way in, so for malformed (aliased) input which clocks come back
+    /// — and whether some return already joined with each other — can
+    /// depend on iteration order. Unreachable for clocks descended from one
     /// [`seed`](Clock::seed): their parties are pairwise disjoint.
     ///
     /// ```
@@ -185,9 +187,50 @@ impl Clock {
         &mut self,
         iter: I,
     ) -> Result<&Version, Vec<Clock>> {
+        // Balanced reduction on a binary-counter stack, one join into
+        // `self` per surviving group at the end — the same discipline as
+        // [`Party::join_all`], because both of this fold's halves (the
+        // party union and the version join) pay per-input scans of the
+        // whole accumulated value under a left fold. Inputs overlapping
+        // `self` are handed back against the *fixed* `self` up front;
+        // parties disjoint from `self` stay disjoint from it however they
+        // coalesce, so the final joins cannot fail on well-formed input.
         let mut overlapping = Vec::new();
+        let mut stack: Vec<(Clock, u32)> = Vec::new();
         for other in iter {
-            if let Err(back) = self.join(other) {
+            if !self.party().is_disjoint(other.party()) {
+                overlapping.push(other);
+                continue;
+            }
+            let mut merged = Some(other);
+            let mut weight = 0u32;
+            while stack.last().is_some_and(|(_, w)| *w == weight) {
+                let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
+                match top.join(merged.take().expect("the operand is held while merging up")) {
+                    Ok(_) => {
+                        merged = Some(top);
+                        weight += 1;
+                    }
+                    Err(back) => {
+                        // Aliased inputs: the operands overlap. A lone
+                        // input is handed back; a group that already
+                        // coalesced stays on the stack unmerged.
+                        stack.push((top, weight));
+                        if weight == 0 {
+                            overlapping.push(back);
+                        } else {
+                            stack.push((back, weight));
+                        }
+                        break;
+                    }
+                }
+            }
+            if let Some(merged) = merged {
+                stack.push((merged, weight));
+            }
+        }
+        for (group, _) in stack {
+            if let Err(back) = self.join(group) {
                 overlapping.push(back);
             }
         }

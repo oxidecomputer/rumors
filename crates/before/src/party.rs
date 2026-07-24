@@ -204,13 +204,15 @@ impl Party {
     ///
     /// # Errors
     ///
-    /// Returns the parties that *overlapped* — those that intersect `self`'s
-    /// growing region and so cannot be folded in — and drops nothing: each input
-    /// is either joined into `self` or handed back. Overlap is tested against
-    /// the running union, so for a malformed (aliased) input which parties come
-    /// back can depend on iteration order. For parties descended from one
-    /// [`seed`](Party::seed) the error is unreachable — they are pairwise
-    /// disjoint — and the returned `Vec` is then never allocated.
+    /// Returns the parties that *overlapped* and so could not be folded in,
+    /// dropping nothing: every input's region is either joined into `self`
+    /// or handed back. Overlap is tested against `self` and against the
+    /// groups the inputs coalesce into on the way in, so for a malformed
+    /// (aliased) input which parties come back — and whether some come back
+    /// already reunited with each other — can depend on iteration order.
+    /// For parties descended from one [`seed`](Party::seed) the error is
+    /// unreachable — they are pairwise disjoint — and the returned `Vec` is
+    /// then never allocated.
     ///
     /// ```
     /// use before::Party;
@@ -220,9 +222,52 @@ impl Party {
     /// assert!(p.is_seed());
     /// ```
     pub fn join_all<I: IntoIterator<Item = Party>>(&mut self, iter: I) -> Result<(), Vec<Party>> {
+        // Balanced reduction on a binary-counter stack, one join into
+        // `self` per surviving group at the end: a left fold into `self`
+        // re-walks the whole growing union per input — quadratic scan work
+        // on scattered populations — while the counter gives every input
+        // O(log n) joins against similarly-sized partners. Inputs
+        // overlapping `self` can never merge (the union only grows), so
+        // the up-front test against the *fixed* `self` hands them back
+        // exactly as the growing-union fold would; regions disjoint from
+        // `self` stay disjoint from it however they coalesce, so the
+        // final joins cannot fail on well-formed input.
         let mut overlapping = Vec::new();
+        let mut stack: Vec<(Party, u32)> = Vec::new();
         for other in iter {
-            if let Err(back) = self.join(other) {
+            if !self.is_disjoint(&other) {
+                overlapping.push(other);
+                continue;
+            }
+            let mut merged = Some(other);
+            let mut weight = 0u32;
+            while stack.last().is_some_and(|(_, w)| *w == weight) {
+                let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
+                match top.join(merged.take().expect("the operand is held while merging up")) {
+                    Ok(()) => {
+                        merged = Some(top);
+                        weight += 1;
+                    }
+                    Err(back) => {
+                        // Aliased inputs: the operands overlap. A lone
+                        // input is handed back; a group that already
+                        // coalesced stays on the stack unmerged.
+                        stack.push((top, weight));
+                        if weight == 0 {
+                            overlapping.push(back);
+                        } else {
+                            stack.push((back, weight));
+                        }
+                        break;
+                    }
+                }
+            }
+            if let Some(merged) = merged {
+                stack.push((merged, weight));
+            }
+        }
+        for (group, _) in stack {
+            if let Err(back) = self.join(group) {
                 overlapping.push(back);
             }
         }
