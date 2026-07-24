@@ -5,7 +5,7 @@ use crate::{Party, Version};
 
 use super::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    id_spine, scattered_id, wide_tooth_comb, Packed,
+    id_spine, jump_comb, scattered_id, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -79,6 +79,26 @@ fn cliff_comb_decodes_canonically_at_predicted_length() {
     let p = cliff_comb(3, 2);
     let v = Version::decode(&p.bytes[..]).expect("comb is strict normal form");
     assert_eq!(v.to_string(), "(0, (7, 0, 1), (0, (7, 0, 1), 0))");
+}
+
+/// `jump_comb(k, n)` is canonical normal form at exactly
+/// `(n − 1)(2k + 10) + 14` bits, and its preorder leaf values run `1, 2`,
+/// jump to `2^k − 1`, then oscillate across the `2^k` boundary.
+///
+/// The sizes cover a cliff magnitude wide enough to spill machine-word
+/// gamma decoding; the low-tooth-then-jump structure is pinned via the
+/// paper notation on a hand-checkable size (leaf values are absolute
+/// there).
+#[test]
+fn jump_comb_decodes_canonically_at_predicted_length() {
+    for (k, n) in [(2, 2), (3, 4), (200, 50)] {
+        check_version(&jump_comb(k, n), (n - 1) * (2 * k + 10) + 14);
+    }
+    // The jump the family exists for: tooth (1, 0, 1), then teeth
+    // (2^3 − 1, 0, 1).
+    let p = jump_comb(3, 2);
+    let v = Version::decode(&p.bytes[..]).expect("jump comb is strict normal form");
+    assert_eq!(v.to_string(), "(0, (1, 0, 1), (0, (7, 0, 1), 0))");
 }
 
 /// `wide_tooth_comb(k, w, n)` is canonical normal form at exactly

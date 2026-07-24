@@ -37,28 +37,48 @@
 //! per-leaf read of the full height re-imports the quadratic the delta
 //! coding invites: on the boundary comb the height is a `2^k`-scale value
 //! behind 3-bit stored deltas. The sweep therefore splits the height as
-//! `F + L`: `F` (*frozen*) a stored magnitude touched only at freeze
-//! events, `L` (*live*) an accumulator holding the drift since the last
-//! freeze, kept under the freeze threshold's digit bound. Per leaf the
-//! sweep adds only `L`'s digits — O(1) by the width bound — and `F`'s
-//! contribution telescopes per *segment*: `F` is constant between freezes, so it
-//! contributes `F · (mass of the segment's leaves)`, one product per
-//! freeze against the segment's dyadic mass. The mass difference is
-//! compacted to signed digits first (an all-ones run — the usual shape of
-//! a long segment's mass — becomes one subtract and one carry), so the
-//! comb's single wide segment costs two `F`-wide products, paid by the
-//! wide code that triggered the freeze. A freeze happens exactly when a
-//! folded delta leaves `L` wider than the threshold, so freezes are
-//! funded by wide input codes or by `2^33`-scale drift per digit — never
-//! by the 3-bit oscillation itself.
+//! `F + L`: `L` (*live*) an accumulator holding the drift since the last
+//! freeze, `F` (*frozen*) the rest — an accumulator touched only when a
+//! freeze evicts `L` into it. Per leaf the sweep adds only `L`'s digits,
+//! and `F` reaches the total through summation by parts rather than
+//! through per-leaf or per-segment products:
+//!
+//! `Σᵢ F(i) · massᵢ = F_final · 2^S − Σ_freezes drift · position`
+//!
+//! — one `F_final`-wide shifted add when the stream ends (the leaf
+//! masses tile the interval, so the closing weight is exactly `2^S`)
+//! plus one correction per freeze, priced by the *drift* being evicted:
+//! a drift-wide product per nonzero signed digit of the compacted freeze
+//! position (a ones-run position — every comb's shape — compacts to two
+//! digits) and one position-wide read. Nothing ever multiplies by `F`'s
+//! width, so a wide frozen value set once is never re-read per freeze.
+//!
+//! A freeze fires exactly when a folded delta leaves `L` more than
+//! `FREEZE_ALLOWANCE_DIGITS` digits wider than that delta's own code:
+//! stale wide drift is about to ride under cheaper codes, so the sweep
+//! evicts it once — charged to the codes that built the drift, which the
+//! freeze consumes and resets — and the cheap codes continue on an
+//! emptied `L`. Bounded oscillation at *any* width keeps `L` within its
+//! own codes' width and never freezes: every wide-tooth fold is paid by
+//! the tooth's own code, on either side of any fixed width.
 //!
 //! # Cost
 //!
 //! Derived, with the constants pinned by the `skyline_rank_*`,
 //! `skyline_min_ticks_*`, and `skyline_project_*` rows of the
 //! resource-envelope suite (`tests/meter.rs`): the cursor scan, decode,
-//! and fold bounds are the comparison sweep's; rank adds O(`L` digits) =
-//! O(1) per leaf plus one segment product per freeze; min_ticks adds one
+//! and fold bounds are the comparison sweep's; rank adds O(`L` digits)
+//! per leaf — bounded by the freeze allowance plus the width of the
+//! delta folded at the previous boundary, so each per-leaf add is paid
+//! by the code that set `L`'s width — plus the freeze corrections: one
+//! position read and one drift-wide product per nonzero compacted
+//! position digit each, funded by the codes that built the drift
+//! wherever the freeze position compacts to O(1) digits (every comb: its
+//! freeze positions are ones-runs). A stream that re-arms wide drift
+//! under cheap codes *at a dense position* — deep alternating topology
+//! around every freeze — still pays its corrections at position density,
+//! the one shape whose funding the freeze discipline does not certify.
+//! min_ticks adds one
 //! machine-word min-merge per node on a `u64` pending stack (the one
 //! per-level word this module keeps — 8 bytes against the level's ≥ 3
 //! stream bits); projection adds one height materialization per
@@ -89,13 +109,17 @@ use super::emit::{self, signed_sum};
 use super::sweep::{LeafCursor, Side, Step};
 use super::{gamma_code, zigzag_signed, Encoded};
 
-/// The live accumulator's width bound, in base-2^32 digits: a folded
-/// delta leaving `L` wider than this freezes the height split.
+/// The live accumulator's tolerated width overshoot, in base-2^32
+/// digits, over the just-folded delta's own width: a fold that leaves
+/// `L` wider than its delta by more than this freezes the height split.
 ///
-/// 256 bits: wide enough that the wide-tooth comb's 192-bit oscillation
-/// never freezes (its deltas stay in `L`, each fold paid by its own
-/// code), narrow enough that the per-leaf `L` add stays O(1).
-const FREEZE_DIGITS: usize = 8;
+/// Relative to the delta, so bounded oscillation never freezes at any
+/// width — a tooth's fold is paid by the tooth's own code — while stale
+/// drift under cheaper codes is evicted at the first such code. 8 digits
+/// (256 bits) of slack: reaching it from the codes' own widths would
+/// take more small folds than any real stream holds, and it caps how far
+/// a per-leaf `L` add can outgrow the code that last set `L`'s width.
+const FREEZE_ALLOWANCE_DIGITS: usize = 8;
 
 /// Bits per packed id node: one 2-bit child-presence tag.
 const ID_TAG_BITS: usize = 2;
@@ -123,9 +147,9 @@ pub fn rank(enc: &Encoded) -> Rank {
     let (mut cursor, first) = LeafCursor::open(bits);
     let mut total = Accum::new();
     let mut live_height = Accum::new();
-    let mut frozen = first;
+    let mut frozen = Accum::new();
+    frozen.add_base(&first);
     let mut position = Accum::new();
-    let mut segment_start = Base::ZERO;
     let one = Base::from(1u8);
     loop {
         // Per-leaf: the live component's contribution and the leaf's mass.
@@ -137,59 +161,64 @@ pub fn rank(enc: &Encoded) -> Rank {
         if cursor.done() {
             break;
         }
-        cursor.step(&mut live_height, Side::A);
-        if live_height.digit_count() > FREEZE_DIGITS {
-            freeze(
-                &mut total,
-                &mut frozen,
-                &mut live_height,
-                &mut position,
-                &mut segment_start,
-            );
+        let step = cursor.step(&mut live_height, Side::A);
+        if live_height.digit_count() > base_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
+            freeze(&mut total, &mut frozen, &mut live_height, &position);
         }
     }
-    // The final segment: the frozen component's mass runs to the interval
-    // end, which the accumulated position now equals (Σ leaf widths = 1).
-    let (sign, end) = position.sign_magnitude();
-    debug_assert_eq!(sign, Ordering::Greater, "a stream tiles a positive mass");
-    flush_segment(&mut total, &frozen, &(Base::from(end) - &segment_start));
+    // The closing term: the frozen component weighted by the whole
+    // interval — the leaf masses tile it, so the weight is exactly 2^S.
+    total.add_accum_shl(&frozen, max_depth as u64);
     let (sign, num) = total.sign_magnitude();
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
     Rank::from_raw(Base::from(num), scale)
 }
 
-/// Freeze the height split: flush the frozen component's finished
-/// segment into the total and fold the live drift into the frozen value.
-fn freeze(
-    total: &mut Accum,
-    frozen: &mut Base,
-    live_height: &mut Accum,
-    position: &mut Accum,
-    segment_start: &mut Base,
-) {
-    let (sign, now) = position.sign_magnitude();
-    debug_assert_ne!(sign, Ordering::Less, "leaf masses only accumulate");
-    let now = Base::from(now);
-    flush_segment(total, frozen, &(now.clone() - &*segment_start));
-    let (sign, drift) = live_height.sign_magnitude();
+/// Freeze the height split: evict the live drift into the frozen
+/// component and debit the eviction's correction from the total.
+///
+/// The closing `F_final · 2^S` term will credit the evicted drift across
+/// the *whole* interval, but the drift belongs only to the leaves after
+/// this freeze, so the sweep debits `drift · position` here — the
+/// summation-by-parts correction, priced by the drift's own width times
+/// the compacted position's nonzero digits, never by the frozen width.
+fn freeze(total: &mut Accum, frozen: &mut Accum, live_height: &mut Accum, position: &Accum) {
+    let (drift_sign, drift) = live_height.sign_magnitude();
+    debug_assert_ne!(
+        drift_sign,
+        Ordering::Equal,
+        "a freeze evicts a nonzero drift: the trigger requires a wide live component"
+    );
+    let (position_sign, position) = position.sign_magnitude();
+    debug_assert_eq!(
+        position_sign,
+        Ordering::Greater,
+        "leaf masses only accumulate"
+    );
     let drift = Base::from(drift);
-    *frozen = match sign {
-        Ordering::Less => frozen.clone() - &drift,
-        _ => frozen.clone() + &drift,
-    };
+    mul_into(
+        total,
+        &drift,
+        &Base::from(position),
+        drift_sign == Ordering::Greater,
+    );
+    match drift_sign {
+        Ordering::Less => frozen.sub_base(&drift),
+        _ => frozen.add_base(&drift),
+    }
     *live_height = Accum::new();
-    *segment_start = now;
 }
 
-/// Add `frozen · span` into the total: one `frozen`-wide product per
-/// nonzero signed digit of the compacted span.
+/// Add (or, with `subtract`, remove) `factor · digits` in the total: one
+/// `factor`-wide product per nonzero signed digit of the compacted
+/// `digits` operand.
 ///
-/// The span's base-2^32 digits are compacted greedily into balanced
-/// signed digits, so an all-ones run — a long segment's usual mass shape
-/// — costs one subtract at its floor and one carry past its top instead
-/// of a product per digit.
-fn flush_segment(total: &mut Accum, frozen: &Base, span: &Base) {
-    if *frozen == Base::ZERO || *span == Base::ZERO {
+/// The `digits` operand's base-2^32 digits are compacted greedily into
+/// balanced signed digits, so an all-ones run — the usual shape of a
+/// freeze position's dyadic mass — costs one subtract at its floor and
+/// one carry past its top instead of a product per digit.
+fn mul_into(total: &mut Accum, factor: &Base, digits: &Base, subtract: bool) {
+    if *factor == Base::ZERO || *digits == Base::ZERO {
         return;
     }
     let mut carry = 0u64;
@@ -197,16 +226,16 @@ fn flush_segment(total: &mut Accum, frozen: &Base, span: &Base) {
         if digit == 0 {
             return;
         }
-        let mut product = frozen.clone();
+        let mut product = factor.clone();
         product *= u32::try_from(digit).expect("a compacted signed digit fits 32 bits");
-        if negative {
-            total.sub_base_shl(&product, shift);
-        } else {
+        if negative == subtract {
             total.add_base_shl(&product, shift);
+        } else {
+            total.sub_base_shl(&product, shift);
         }
     };
     let mut shift = 0u64;
-    for digit in u32_digits(span) {
+    for digit in u32_digits(digits) {
         let t = u64::from(digit) + carry;
         if t > 1 << 31 {
             // Balanced arm: `t − 2^32` with a carry, so ones-runs cancel.
@@ -221,6 +250,12 @@ fn flush_segment(total: &mut Accum, frozen: &Base, span: &Base) {
     if carry == 1 {
         add_term(1, false, shift);
     }
+}
+
+/// A stored magnitude's width in base-2^32 digits (minimum 1).
+fn base_digits(value: &Base) -> usize {
+    let digits = usize::try_from(value.bits().div_ceil(32)).expect("digit counts fit usize");
+    digits.max(1)
 }
 
 /// A magnitude's little-endian base-2^32 digits.

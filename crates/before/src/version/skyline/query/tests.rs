@@ -15,7 +15,7 @@ use proptest::prelude::*;
 
 use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    wide_tooth_comb, Packed,
+    jump_comb, wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
@@ -84,6 +84,13 @@ fn family_pool() -> Vec<Version> {
         version_of(&cliff_comb(3, 2)),
         version_of(&cliff_comb(16, 16)),
         version_of(&wide_tooth_comb(16, 8, 8)),
+        // Wide teeth over the freeze allowance: bounded oscillation that
+        // must ride the live component without freezing.
+        version_of(&wide_tooth_comb(320, 300, 6)),
+        // The stale-drift shape: the mid-stream jump is wide enough that
+        // the first cheap delta behind it fires a freeze.
+        version_of(&jump_comb(16, 8)),
+        version_of(&jump_comb(320, 4)),
         version_of(&cliff_fan(16, 8)),
         version_of(&cancelling_chain(16, 8)),
         version_of(&alt_spine(3)),
