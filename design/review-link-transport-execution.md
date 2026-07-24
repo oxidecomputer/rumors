@@ -269,6 +269,19 @@ Finch and re-denominated as a counterfactual hazard statement (706352a3).
    vs <=24), window_knee::above_the_knee_hops_grow, window_operator and
    window_knee full-suite flakes during the pricing wave.
 
+**Wave-3 integration outcome (2026-07-24) — CAMPAIGN COMPLETE**:
+`link-transport` fast-forwarded to `b19c7b16` (executor a4d2e546 + tradeoff
+6bac3e1a + R79 e43fe79f + metatheorem d6515dd2, all sealed INTEGRATION-READY
+through review/fix cycles; two integration fixes: the predicted
+bootstrap_with_protocol call in tradeoff_probe.rs, and one pre-existing
+ghost phrase in retire.rs). Zero merge conflicts; both design-doc amendment
+chains intact. Authoritative clean-target gate: 938/938, window suites
+passing FIRST TIME under fleet load (the deterministic readout paying off);
+lake build green (315 jobs). Cleanup done: all campaign worktrees removed,
+all branches deleted (including the R8 exploratory branch, its pin landed
+as fan_occupancy.rs), the orphaned qfprobe process killed. Docket:
+retrospective only (design/review-link-transport-retrospective.md).
+
 ## 5. Open decisions (Finch)
 
 1. Lean option-1 go/no-go (§4.2).
