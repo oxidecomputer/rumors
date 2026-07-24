@@ -716,8 +716,9 @@ theorem weave_events_lengthO (hwf : sk.wellFormed = true) :
   omega
 
 /-- The O weave's state carries the counting invariant at the O
-family, hypothesis-free: the O initial alignment discharges
-`weaveStateO_wcount` — every assignment of the class. -/
+family, with no per-assignment condition: the O initial alignment
+discharges `weaveStateO_wcount` — every assignment of the class,
+under `wellFormed` alone. -/
 theorem weaveO_wcount (hwf : sk.wellFormed = true) :
     WCountP sk (procsO sk ord) [] (weaveStateO sk ord) := by
   have hgo := goEventsO_weave sk ord (weave_events_lengthO sk ord hwf)

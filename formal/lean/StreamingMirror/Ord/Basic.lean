@@ -8,7 +8,7 @@ dequeues one wire reply and one queued query per scope (per leaf
 request, for the absorber), and the class quantified over is the
 TWO-POINT per-loop choice of which comes first: reply-first (the
 baseline transcription, `Model.apply`'s order) or query-first (the
-shipping Rust's order since fd36bb65). The end-of-stream close order
+shipping Rust's pairing-loop order). The end-of-stream close order
 is TIED to the loop's prologue choice — the Rust loop exits on
 whichever queue it dequeues first going closed — so a `PairOrder`
 fixes both. Everything else (`walkCommit`/`walkFire`, the publication
@@ -37,11 +37,11 @@ namespace StreamingMirror.Ord
 
 open Model
 
-/-- Which end of a pairing loop dequeues first (fd36bb65's flip):
-reply-first awaits the wire reply then dequeues the paired query;
-query-first dequeues the query then awaits the reply, with the
-end-of-stream checks flipped to match. One value per pairing loop
-(each walk stage, and the absorber). -/
+/-- Which end of a pairing loop dequeues first: reply-first awaits
+the wire reply then dequeues the paired query; query-first — the
+shipping pairing loops' order — dequeues the query then awaits the
+reply, with the end-of-stream checks flipped to match. One value per
+pairing loop (each walk stage, and the absorber). -/
 inductive PairOrder | replyFirst | queryFirst
   deriving DecidableEq, Repr
 

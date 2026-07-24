@@ -1799,7 +1799,7 @@ record the kernel status, dated.
 
 Campaign accounting: ten subagent units (PreserveO, SchedO,
 TerminationO, pumpO, weaveO, pendingO, masterO, finalO, endgameO,
-wideO) within the 8–12 budget; ~13.5k new Lean lines under Ord/, zero
+wideO) within the 8–12 budget; 21,417 new Lean lines under Ord/ (wc -l), zero
 edits to existing proof files, zero sorries at every commit; the
 eventdag ord tier green — the four-assignment matrix + rf-corner
 identity at 300 fuzz seeds, and the kernel-transcription equality

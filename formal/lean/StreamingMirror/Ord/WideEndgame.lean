@@ -144,10 +144,12 @@ at 1, widening wires, or any mix, are all instances — and covers
 exactly the pointwise κ ≥ `sk.cap`, never more. The margin-0
 hypothesis stays denominated at the FLOOR `capLevel` — the strongest
 honest form, since widening never re-tightens it. The corners recover
-the landed flagships definitionally: κ = `sk.cap` is
-`Sched.deadlock_free_anyOrder` (`deadlock_free_anyOrder_cap_corner`),
-`ord = .rf` is `Sched.deadlock_free_wide`
-(`deadlock_free_wide_rf_corner`). Termination rides along at every κ
+the landed flagships exactly: at `ord = .rf` the recovery is
+definitional (`applyWO_rf` is `rfl` per arm) and gives
+`Sched.deadlock_free_wide` (`deadlock_free_wide_rf_corner`); at
+κ = `sk.cap` the floor recovery is a theorem (`applyWO_cap`) and
+gives `Sched.deadlock_free_anyOrder`
+(`deadlock_free_anyOrder_cap_corner`). Termination rides along at every κ
 and every assignment: wide-O runs are ρ(init)-bounded
 (`terminatingWO`). -/
 theorem deadlock_free_wide_anyOrder (sk : Skel) (κ : Chan → Nat)
