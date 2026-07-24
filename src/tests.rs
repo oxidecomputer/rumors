@@ -527,10 +527,11 @@ fn severed_party_frame_is_uncertain() {
 }
 
 /// An uncontained supply crossing a real peer session surfaces through
-/// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation
-/// ([`Error::Mirror`] carrying `UncontainedSupply`), leaves the replica's
-/// content untouched, and poisons the link so the next session on it fails
-/// fast with [`Error::LinkPoisoned`].
+/// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation.
+///
+/// The error is [`Error::Mirror`] carrying `UncontainedSupply`; the
+/// replica's content is untouched, and the link is poisoned so the next
+/// session on it fails fast with [`Error::LinkPoisoned`].
 ///
 /// The peer-tier parity leg of the containment tripwires: the same
 /// rejection the mirror tiers pin in process and over their wires, here

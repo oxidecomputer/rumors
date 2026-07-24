@@ -61,8 +61,9 @@ fn uncontained_supply_is_rejected_at_the_wire() {
     // participant is the mirror's client.
     {
         let (receiver, poisoned, _, _) = uncontained_supply_pair();
-        let (receiver_out, _poisoned_out) = run_to_quiescence(reconcile_results(receiver, poisoned))
-            .expect("the rejecting session becomes quiescent");
+        let (receiver_out, _poisoned_out) =
+            run_to_quiescence(reconcile_results(receiver, poisoned))
+                .expect("the rejecting session becomes quiescent");
         assert!(
             matches!(
                 receiver_out,
@@ -78,8 +79,9 @@ fn uncontained_supply_is_rejected_at_the_wire() {
     // participant is the mirror's server.
     {
         let (receiver, poisoned, _, _) = uncontained_supply_pair();
-        let (_poisoned_out, receiver_out) = run_to_quiescence(reconcile_results(poisoned, receiver))
-            .expect("the rejecting session becomes quiescent");
+        let (_poisoned_out, receiver_out) =
+            run_to_quiescence(reconcile_results(poisoned, receiver))
+                .expect("the rejecting session becomes quiescent");
         assert!(
             matches!(
                 receiver_out,
