@@ -7,11 +7,11 @@
 //! over the same `(id, event)` shape, each `O(n + m)` in the two streams'
 //! bits:
 //!
-//! 1. [`probe`] — a read-only, *topology-only* cost walk (leaf payload
+//! 1. `probe` — a read-only, *topology-only* cost walk (leaf payload
 //!    codes are skipped, never decoded) that records which child the
 //!    cheapest inflation descends into at every branch node, into the
-//!    position-keyed [`Route`].
-//! 2. [`emit`] — a replay of the route along the one chosen path: every
+//!    position-keyed `Route`.
+//! 2. `emit` — a replay of the route along the one chosen path: every
 //!    off-path subtree is copied as a verbatim bit range, the inflation
 //!    point is re-coded, and the two payload codes the height change can
 //!    reach — the grown leaf's own delta and its preorder successor's —
@@ -48,7 +48,7 @@
 //!
 //! - **kind** (2 control bits) and **phase** (1 control bit, flipped in
 //!   place when the left child's cost returns);
-//! - **key delta** (value stack): the branch's [`Route`] key, coded
+//! - **key delta** (value stack): the branch's `Route` key, coded
 //!   relative to the nearest same-regime ancestor's key. Two registers —
 //!   one per keying regime — carry the running keys: a push stores
 //!   `key − register` and overwrites the register, a pop restores it by
@@ -92,7 +92,7 @@
 //! topology bit of both streams at most once and skips payload codes by
 //! width; frames cost bits per level as above; the emit's splices copy
 //! each off-path bit once and its repairs decode/re-code two payload
-//! codes. Transient state is the frame stacks, the [`Route`] (one bit
+//! codes. Transient state is the frame stacks, the `Route` (one bit
 //! per input bit), the emit's pending-sibling path bits, and the
 //! builder's per-level stacks — no node array, no per-level machine
 //! word, zero grown stack segments.
@@ -104,7 +104,7 @@
 //! adversarial families crossed with adversarial parties, arbitrary
 //! pairs, organic histories, and the exhaustive small scope; the same
 //! pool is held to the brute-force minimal-inflation search directly.
-//! The [`Route`] contract is pinned separately: the iterative probe's
+//! The `Route` contract is pinned separately: the iterative probe's
 //! bit vector must equal a reference recursive probe's on every pair —
 //! the explicit guard against a probe/emit coordinate drift, which would
 //! misread a direction silently rather than panic.
@@ -739,9 +739,11 @@ fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
 }
 
 /// Feed one whole off-path subtree from the cursor into the builder,
-/// rooted at `depth`: the first leaf through the builder's collapse
-/// checks (with the successor repair when the grown leaf precedes it),
-/// the remainder as one verbatim splice.
+/// rooted at `depth`.
+///
+/// The first leaf goes through the builder's collapse checks (with the
+/// successor repair when the grown leaf precedes it); the remainder is
+/// one verbatim splice.
 fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, repair: Repair) {
     let info = scan_subtree(ev.bits, ev.pos);
     let orig = &ev.bits[info.first_code.clone()];
