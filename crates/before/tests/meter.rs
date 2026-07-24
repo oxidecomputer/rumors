@@ -1574,6 +1574,158 @@ mod skyline_flatness {
             (large.limb_ops, large.bytes),
         );
     }
+
+    /// Tooth width (bits) one notch under the rank freeze threshold's
+    /// 256-bit digit bound: the band's flat side.
+    const FREEZE_BAND_UNDER_BITS: usize = 192;
+
+    /// Tooth width (bits) one notch over the rank freeze threshold's
+    /// 256-bit digit bound: every fold evicts the live component.
+    const FREEZE_BAND_OVER_BITS: usize = 300;
+
+    /// Cliff magnitude (bits) of the small freeze-band run; the frozen
+    /// component's width, which the over-threshold regime re-reads per
+    /// tooth.
+    const FREEZE_BAND_SMALL_K: usize = 9_600;
+
+    /// Tooth count of the small freeze-band run.
+    const FREEZE_BAND_SMALL_N: usize = 128;
+
+    /// One rank run over the wide-tooth comb `W(k, w, n)`'s skyline
+    /// stream: the per-unit denominators (deltas, skyline bytes) and
+    /// both counters over the rank body alone.
+    ///
+    /// Enforces the touch-meter liveness floor before returning — every
+    /// delta code writes at least one accumulator digit, so a rank whose
+    /// height state runs on anything but the metered accumulator fails
+    /// loudly instead of passing a per-unit bound vacuously at zero
+    /// touches — and pins the result against the packed rank, so the
+    /// measured body is proven to compute the right answer.
+    fn rank_wide_tooth_run(k: usize, w: usize, n: usize) -> Run {
+        let packed = meter::wide_tooth_comb(k, w, n);
+        let v = before::Version::decode(&packed.bytes[..]).expect("the comb is strict normal form");
+        let enc = meter::skyline::encode(&v);
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let r = meter::skyline::query::rank(&enc);
+        let run = Run {
+            // Each tooth's two leaves follow the first leaf as deltas.
+            deltas: 2 * n as u64,
+            bytes: enc.bytes.len() as u64,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert_eq!(r, v.rank(), "the kernel must match the packed rank");
+        assert!(
+            run.touches >= run.deltas,
+            "skyline_rank_wide_tooth w={w}: {} digit touches under the {}-delta floor: \
+             the rank height state is not running on the metered accumulator",
+            run.touches,
+            run.deltas,
+        );
+        run
+    }
+
+    /// Absolute over-threshold ceilings, measured 2026-07-24 ×1.25
+    /// (three identical runs): the CURRENT quadratic baseline of record,
+    /// deliberately red per the ratchet convention — the freeze
+    /// discipline cure retires these by re-pinning the whole band flat.
+    /// Measured: small 101,716 touches / 145,680 limbs on 24,085 skyline
+    /// bytes; large 396,126 touches / 564,784 limbs on 48,245 bytes.
+    const FREEZE_BAND_OVER_TOUCH_CEILINGS: (u64, u64) = (127_145, 495_158);
+
+    /// The over-threshold limb ceilings paired with
+    /// [`FREEZE_BAND_OVER_TOUCH_CEILINGS`].
+    const FREEZE_BAND_OVER_LIMB_CEILINGS: (u64, u64) = (182_100, 705_980);
+
+    /// The rank kernel's freeze band on the wide-tooth comb, both sides
+    /// pinned: one notch under the freeze threshold (192-bit teeth) the
+    /// per-byte cost is flat across a doubling of `k` and `n`; one notch
+    /// over it (300-bit teeth) the current discipline freezes on every
+    /// tooth and each freeze re-reads the `k`-bit frozen component, so
+    /// per-byte cost doubles per input doubling — quadratic in skyline
+    /// bytes, refuting the funded-freeze cost claim for this band.
+    ///
+    /// The over-threshold side is pinned at the measured quadratic
+    /// baseline (absolute ceilings above) **plus a ×1.8 per-byte growth
+    /// floor proving the defect reproduces**: this test is the ratchet's
+    /// deliberately-red instrument, and the freeze-discipline cure must
+    /// replace the growth floor with the ×1.25 flatness bound and
+    /// tighten the ceilings in the same commit that lands it.
+    #[test]
+    fn skyline_rank_wide_tooth_freeze_band() {
+        let under_small = rank_wide_tooth_run(
+            FREEZE_BAND_SMALL_K,
+            FREEZE_BAND_UNDER_BITS,
+            FREEZE_BAND_SMALL_N,
+        );
+        let under_large = rank_wide_tooth_run(
+            2 * FREEZE_BAND_SMALL_K,
+            FREEZE_BAND_UNDER_BITS,
+            2 * FREEZE_BAND_SMALL_N,
+        );
+        assert_flat(
+            "rank_under_threshold_touches",
+            "byte",
+            (under_small.touches, under_small.bytes),
+            (under_large.touches, under_large.bytes),
+        );
+        let over_small = rank_wide_tooth_run(
+            FREEZE_BAND_SMALL_K,
+            FREEZE_BAND_OVER_BITS,
+            FREEZE_BAND_SMALL_N,
+        );
+        let over_large = rank_wide_tooth_run(
+            2 * FREEZE_BAND_SMALL_K,
+            FREEZE_BAND_OVER_BITS,
+            2 * FREEZE_BAND_SMALL_N,
+        );
+        for (run, (touch_ceiling, limb_ceiling), scale) in [
+            (
+                &over_small,
+                (
+                    FREEZE_BAND_OVER_TOUCH_CEILINGS.0,
+                    FREEZE_BAND_OVER_LIMB_CEILINGS.0,
+                ),
+                "small",
+            ),
+            (
+                &over_large,
+                (
+                    FREEZE_BAND_OVER_TOUCH_CEILINGS.1,
+                    FREEZE_BAND_OVER_LIMB_CEILINGS.1,
+                ),
+                "large",
+            ),
+        ] {
+            eprintln!(
+                "MEASURED skyline_rank_over_threshold_{scale}: bytes={} touches={} limb_ops={}",
+                run.bytes, run.touches, run.limb_ops,
+            );
+            assert!(
+                run.touches <= touch_ceiling,
+                "skyline_rank_over_threshold_{scale}: {} touches exceed the pinned \
+                 baseline {touch_ceiling}",
+                run.touches,
+            );
+            assert!(
+                run.limb_ops <= limb_ceiling,
+                "skyline_rank_over_threshold_{scale}: {} limb ops exceed the pinned \
+                 baseline {limb_ceiling}",
+                run.limb_ops,
+            );
+        }
+        // The deliberate red: per-byte touches grow at least ×1.8 across
+        // the doubling under the current freeze discipline. The cure
+        // deletes this floor in favor of the ×1.25 flatness bound.
+        assert!(
+            u128::from(over_large.touches) * u128::from(over_small.bytes) * 10
+                >= u128::from(over_small.touches) * u128::from(over_large.bytes) * 18,
+            "skyline_rank_over_threshold: per-byte touches read flat across the \
+             doubling: the freeze discipline changed; re-pin this band as a \
+             flatness row and retire the growth floor"
+        );
+    }
 }
 
 // ─── id spine pair scenarios ────────────────────────────────────────────────
