@@ -5,13 +5,16 @@ use super::{encode_int, validate_ev, validate_id, Base, Bits};
 
 /// A whitespace-skipping byte cursor over the input string. The grammar is pure
 /// ASCII (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
-struct Cur<'a> {
+///
+/// Shared with the skyline text kernel (`version::skyline::text`), whose
+/// parser must make byte-identical grammar decisions to this module's.
+pub(crate) struct Cur<'a> {
     bytes: &'a [u8],
     pos: usize,
 }
 
 impl<'a> Cur<'a> {
-    fn new(s: &'a str) -> Self {
+    pub(crate) fn new(s: &'a str) -> Self {
         Cur {
             bytes: s.as_bytes(),
             pos: 0,
@@ -25,13 +28,13 @@ impl<'a> Cur<'a> {
     }
 
     /// The next non-whitespace byte, without consuming it.
-    fn peek(&mut self) -> Option<u8> {
+    pub(crate) fn peek(&mut self) -> Option<u8> {
         self.skip_ws();
         self.bytes.get(self.pos).copied()
     }
 
     /// Consume and return the next non-whitespace byte.
-    fn bump(&mut self) -> Option<u8> {
+    pub(crate) fn bump(&mut self) -> Option<u8> {
         self.skip_ws();
         let c = self.bytes.get(self.pos).copied();
         if c.is_some() {
@@ -50,7 +53,7 @@ impl<'a> Cur<'a> {
 /// backend's subquadratic divide-and-conquer parser; leading zeros are
 /// value-preserving (`"007"` is 7), exactly as digit-at-a-time
 /// accumulation would read them.
-fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
+pub(crate) fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
     cur.skip_ws();
     let start = cur.pos;
     while cur.bytes.get(cur.pos).is_some_and(|d| d.is_ascii_digit()) {

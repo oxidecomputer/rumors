@@ -35,7 +35,10 @@
 //! registers an event by the cheapest inflation — an iterative
 //! topology-only probe, then a splice emit that rebuilds one
 //! root-to-leaf path — differentially pinned against the packed-form
-//! `grow` byte for byte. The module is test- and
+//! `grow` byte for byte; the [`text`] submodule renders and parses the
+//! paper's text notation directly on skyline streams, differentially
+//! pinned byte for byte against the production `Display`/`FromStr`
+//! path. The module is test- and
 //! meter-visible only, via [`crate::meter::skyline`].
 //!
 //! # Canonical form
@@ -134,6 +137,7 @@ mod encode;
 pub mod grow;
 pub mod query;
 pub mod sweep;
+pub mod text;
 mod validate;
 
 #[cfg(test)]
