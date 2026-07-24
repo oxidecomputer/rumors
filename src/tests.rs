@@ -525,3 +525,86 @@ fn severed_party_frame_is_uncertain() {
     );
     drop(survivor);
 }
+
+/// An uncontained supply crossing a real peer session surfaces through
+/// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation
+/// ([`Error::Mirror`] carrying `UncontainedSupply`), leaves the replica's
+/// content untouched, and poisons the link so the next session on it fails
+/// fast with [`Error::LinkPoisoned`].
+///
+/// The peer-tier parity leg of the containment tripwires: the same
+/// rejection the mirror tiers pin in process and over their wires, here
+/// observed at the public API. The poisoned store is forged through the
+/// local `Tree::join` seam — no session tripwire guards an in-memory join —
+/// the residency mechanism the tree tier pins in
+/// `escaped_version_defeats_redaction_in_a_poisoned_store`.
+#[test]
+fn uncontained_supply_fails_gossip_and_poisons_the_link() {
+    use crate::error::{MaterializedError, MaterializedViolation};
+    use crate::message::Message;
+    use crate::tree::mirror::Error as MirrorError;
+
+    let survivor = Peer::<u64>::seed();
+    let (survivor, child) = bootstrap_from(survivor);
+
+    // Honest, causally concurrent divergence on both sides, so the session
+    // descends instead of short-circuiting on equal declared versions.
+    let receiver = with_messages(survivor, &[1]);
+    let poisoned = with_messages(child, &[2]);
+
+    // Poison the serving peer's store: the escaped leaf plants above the
+    // declared ceiling, which stays honest — the store an authorized but
+    // nonconforming implementation would then serve.
+    let base = poisoned.inner.borrow().tree.latest().clone();
+    let (escaped_root, _, escaped) =
+        crate::tree::arb::poisoned_root(&party_of(&poisoned), &base, Message::new(0u64));
+    poisoned
+        .inner
+        .send_modify(|inner| inner.tree.join(Tree { root: escaped_root }));
+    assert!(
+        !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),
+        "the planted leaf's version escapes the declared ceiling",
+    );
+
+    let receiver = receiver.into_rumors();
+    let before = receiver.snapshot().hash();
+
+    // The receiving side's own materialized participant diagnoses the
+    // violation mid-session, so the poisoned counterparty never reaches a
+    // session boundary; racing the two sides lets the receiver's typed
+    // error surface without waiting on the abandoned peer.
+    let (mut a_link, mut b_link) = memory();
+    let receiver_out = run_to_quiescence(async {
+        tokio::select! {
+            out = receiver.gossip(&mut a_link) => out,
+            out = poisoned.gossip(&mut b_link) => {
+                panic!("the poisoned side must not complete a session, got {out:?}")
+            }
+        }
+    })
+    .expect("the rejecting session becomes quiescent");
+    assert!(
+        matches!(
+            receiver_out,
+            Err(Error::Mirror(MirrorError::Client(
+                MaterializedError::Violation(MaterializedViolation::UncontainedSupply)
+            ))),
+        ),
+        "the receiving peer rejects the escaped leaf with its typed violation, got {receiver_out:?}",
+    );
+
+    // Nothing of the failed session reached the replica.
+    assert_eq!(
+        receiver.snapshot().hash(),
+        before,
+        "the replica's content is unchanged by the rejected session",
+    );
+
+    // The failed session poisoned the link: the next session on it fails
+    // fast, before any wire traffic — no counterparty is even present.
+    let retry = run_to_quiescence(receiver.gossip(&mut a_link)).expect("fail-fast needs no peer");
+    assert!(
+        matches!(retry, Err(Error::LinkPoisoned)),
+        "a poisoned link must fail the next gossip fast, got {retry:?}",
+    );
+}

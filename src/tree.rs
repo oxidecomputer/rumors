@@ -493,7 +493,7 @@ impl<T> Tree<T> {
 }
 
 #[cfg(test)]
-mod arb;
+pub(crate) mod arb;
 
 #[cfg(test)]
 mod tests;

@@ -436,11 +436,46 @@ fn leaf_sibling_path(last: u8) -> Path {
 
 /// Wrap an optional root node in a [`tree::Root`](crate::tree::Root) with the
 /// given ceiling.
-fn root_with_ceiling(node: Option<Node<(), Root>>, ceiling: Version) -> crate::tree::Root<()> {
+fn root_with_ceiling<T>(node: Option<Node<T, Root>>, ceiling: Version) -> crate::tree::Root<T> {
     crate::tree::Root {
         ceiling,
         root: node,
     }
+}
+
+/// A poisoned root for the local join seam: one leaf whose version escapes
+/// `base` by a 64-tick margin on `party`, declared at the empty ceiling.
+///
+/// Joining it into a store whose ceiling is at or above `base` plants the
+/// leaf (the escaped version defeats the join's deletion filter) while
+/// leaving the store's own declared ceiling untouched — the shape only a
+/// nonconforming implementation can then transmit. The margin bounds the
+/// honest ticks a test may perform afterward without containing the
+/// escape. Returns the root plus the escaped leaf's content-addressed path
+/// and its version.
+pub fn poisoned_root<T: Send + Sync>(
+    party: &Party,
+    base: &Version,
+    message: Message<T>,
+) -> (crate::tree::Root<T>, Path, Version) {
+    /// How far the escaped version outruns `base`: an upper bound on the
+    /// honest ticks a test performs after the root is planted.
+    const ESCAPE_MARGIN: usize = 64;
+
+    let mut escaped = base.clone();
+    for _ in 0..ESCAPE_MARGIN {
+        escaped.tick(party);
+    }
+    let path = Path::for_leaf(&escaped, message.bytes());
+    let root = root_with_ceiling(
+        act(
+            None,
+            vec![(path, escaped.clone(), Action::Insert(message))],
+            |_| (),
+        ),
+        Version::new(),
+    );
+    (root, path, escaped)
 }
 
 /// A pair of trees sharing one leaf and each holding one more, all under the
