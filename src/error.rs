@@ -148,6 +148,33 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     #[error("peer claimed to bootstrap and retire in the same session")]
     BootstrapRetireConflict,
 
+    /// A bootstrap claimant declared a non-empty causal version.
+    ///
+    /// A bootstrap claimant is definitionally a newborn replica with no
+    /// causal history, so its greeting version must be empty. The declared
+    /// version feeds the deletion-honoring filter as the claimant's causal
+    /// frontier, and a fabricated frontier would make established content
+    /// read as deleted-there; the conflict between the two claims —
+    /// newborn, yet with history — is rejected here, after the greeting
+    /// and before reconciliation moves anything.
+    ///
+    /// Detected by whichever side faces the claimant: a provider serving
+    /// the bootstrap, or a bootstrapping peer whose counterparty is itself
+    /// a claimant (the mutual-bootstrap encounter). The detecting side's
+    /// replica is unchanged — no content, identity, or bookmark state
+    /// moved — and its link is poisoned like any failed session's. The
+    /// recovery is the claimant's: rejoin with a genuinely newborn
+    /// replica, whose version is empty by construction.
+    #[error(
+        "peer claimed to bootstrap while declaring causal history (at least {claimed_min_events} events): a bootstrap claimant is a newborn replica whose version is empty"
+    )]
+    BootstrapHistoryConflict {
+        /// A lower bound on events recorded in the claimant's declared
+        /// version, as [`NetworkMismatch`](Self::NetworkMismatch) counts
+        /// them.
+        claimed_min_events: u64,
+    },
+
     /// The application's bookmark failed to load, persist, or decode.
     ///
     /// The replica's content is never affected; fix or replace the storage
@@ -225,6 +252,9 @@ impl Error<NoBookmark> {
             Error::LinkPoisoned => Error::LinkPoisoned,
             Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
+            Error::BootstrapHistoryConflict { claimed_min_events } => {
+                Error::BootstrapHistoryConflict { claimed_min_events }
+            }
             Error::Mirror(error) => Error::Mirror(error),
             Error::Bookmark(error) => match error {
                 BookmarkIo::Io(never) => match never {},

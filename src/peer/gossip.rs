@@ -278,7 +278,12 @@ impl<T> Peer<T, NoBookmark> {
                     // equal and `reconcile` resolves to the untouched control
                     // halves without opening a data stream; the marker
                     // exchange then certifies the mutual bail to both sides.
+                    // The equal-version resolution is itself guarded: a
+                    // fellow claimant must be as newborn as we are.
                     let both_bootstrapping = remote.network.is_bootstrap();
+                    if both_bootstrapping {
+                        bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
+                    }
                     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
                     let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
                     if both_bootstrapping {
@@ -298,8 +303,10 @@ impl<T> Peer<T, NoBookmark> {
                         .await
                         .map_err(alternating_error)?;
                     // The frozen V1 wire has no epilogue: a mutual bootstrap
-                    // bails right here, exactly as V1 always has.
+                    // bails right here, exactly as V1 always has — once the
+                    // fellow claimant proves as newborn as we are.
                     if remote.network.is_bootstrap() {
+                        bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
                         return Ok(None);
                     }
                     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
@@ -712,7 +719,9 @@ impl<T, B: Persist> Peer<T, B> {
                 let handshaken = streaming::handshake(local, proxy)
                     .await
                     .map_err(streaming_error)?;
-                if !peer_bootstrapping && remote.network != network {
+                if peer_bootstrapping {
+                    bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
+                } else if remote.network != network {
                     return Err(Error::NetworkMismatch {
                         remote_network: remote.network,
                         remote_min_events: handshaken.peer().version.min_ticks(),
@@ -733,7 +742,9 @@ impl<T, B: Persist> Peer<T, B> {
                 let handshaken = alternating::handshake(local, proxy)
                     .await
                     .map_err(alternating_error)?;
-                if !peer_bootstrapping && remote.network != network {
+                if peer_bootstrapping {
+                    bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
+                } else if remote.network != network {
                     return Err(Error::NetworkMismatch {
                         remote_network: remote.network,
                         remote_min_events: handshaken.peer().version.min_ticks(),
@@ -1050,6 +1061,26 @@ where
         &mut link.acceptor as DynAcceptor<'a>,
         epoch,
     ))
+}
+
+/// Require a bootstrap claimant's greeting version to be empty, the version
+/// a newborn replica has by construction.
+///
+/// A bootstrap claimant is definitionally a newborn replica with no causal
+/// history, yet its greeting version feeds the deletion-honoring filter as
+/// its causal frontier — a fabricated frontier would make established
+/// content read as deleted-there on both sides of the descent. Every
+/// session facing a claimant runs this after the greeting and before
+/// reconciliation, whichever protocol carries it: a failing session moves
+/// nothing and poisons its link like any other pre-descent failure.
+fn bootstrap_claimant_is_newborn(claimed: &Version) -> Result<(), Error> {
+    if claimed.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::BootstrapHistoryConflict {
+            claimed_min_events: claimed.min_ticks(),
+        })
+    }
 }
 
 /// Exchange the V2 session epilogue: write our completion marker, flush, and

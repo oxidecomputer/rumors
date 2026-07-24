@@ -17,11 +17,15 @@
 //!   declares [`Network::BOOTSTRAP`] is definitionally a newborn replica
 //!   with no causal history, so its greeting version must be empty. The
 //!   deletion-honoring filter trusts the greeting version as the
-//!   counterparty's causal frontier, so a claimant misdeclaring history
-//!   it cannot have would otherwise cause the provider to drop — as
+//!   counterparty's causal frontier, so a claimant declaring history it
+//!   cannot have would otherwise make the provider drop — as
 //!   deleted-there — every subtree that version dominates. The claimant
 //!   here is driven by the crate's own protocol machinery handed a
-//!   non-newborn root, standing in for a misbehaving implementation.
+//!   non-newborn root, standing in for a misbehaving implementation; the
+//!   suite pins the rejection ([`Error::BootstrapHistoryConflict`]) on
+//!   whichever side faces the claimant — the serving provider, and the
+//!   joining side of a mutual-bootstrap encounter — with the detecting
+//!   replica unchanged and its link poisoned.
 //!
 //! [`gossip_inner`]: super::Peer::gossip_inner
 //! [`Network::BOOTSTRAP`]: Network
@@ -245,59 +249,215 @@ fn provider_with(values: &[u64]) -> Peer<u64> {
     provider
 }
 
-/// Demonstrates, under V2: a bootstrap claimant that provides nothing but
-/// declares a dominating greeting version empties the provider's replica.
+/// Read a provider's live party for before/after comparison.
+fn party_of(provider: &Peer<u64>) -> Party {
+    provider
+        .inner
+        .borrow()
+        .party
+        .as_ref()
+        .expect("a live Peer holds its party")
+        .dangerously_alias()
+}
+
+/// A provider serving a bootstrap rejects, under V2, a claimant whose
+/// greeting declares causal history: [`Error::BootstrapHistoryConflict`],
+/// nothing moved.
 ///
-/// The provider trusts the declared version as the claimant's causal
-/// frontier, so every local subtree it dominates is dropped as
-/// deleted-there; the session commits the emptied tree with the merged
-/// ceiling and reports success. The claimant meanwhile receives a forked
-/// party but none of the content — the same filter prunes everything the
-/// provider would have supplied. This pins the mechanism the bootstrap
-/// greeting check must close: a claimant is definitionally newborn, so a
-/// non-empty declared version can only be a misbehaving implementation.
+/// The declared version would otherwise drive the deletion-honoring filter
+/// as the claimant's causal frontier, making every dominated local subtree
+/// read as deleted-there — a claimant providing nothing while declaring a
+/// dominating version would empty the provider's replica. The rejection
+/// runs after the greeting and before the descent: the provider's content,
+/// version, and party are unchanged, the speculative bootstrap fork is
+/// re-joined, the error names the claimed history's event floor, and the
+/// link is poisoned like any failed session's, so the next session on it
+/// fails fast.
 #[test]
-fn v2_bootstrap_claimant_declaring_history_empties_the_provider() {
+fn v2_bootstrap_claimant_declaring_history_is_rejected() {
     let provider = provider_with(&[1, 2, 3]);
+    let hash_before = provider.snapshot().hash();
+    let party_before = party_of(&provider);
     let claimant_tree = Tree {
         root: redacted_history_root(8),
     };
+    let claimed_min_events = claimant_tree.latest().min_ticks();
     assert!(
         provider.snapshot().latest() < claimant_tree.latest(),
         "the claimed version dominates the provider's frontier",
     );
 
-    let (claim_out, provider_out) = pollster::block_on(async {
+    let provider_ref = &provider;
+    let (claim_out, (first, second)) = pollster::block_on(async {
         let (mut a_link, mut b_link) = memory();
         tokio::join!(
-            claim_bootstrap_v2(&mut a_link, claimant_tree.root),
-            provider.gossip(&mut b_link),
+            async move { claim_bootstrap_v2(&mut a_link, claimant_tree.root).await },
+            async move {
+                let first = provider_ref.gossip(&mut b_link).await;
+                // The second session on the same link must fail fast,
+                // before any wire traffic: the rejection poisoned it.
+                let second = provider_ref.gossip(&mut b_link).await;
+                (first, second)
+            },
         )
     });
 
-    provider_out.expect("the provider serves the session to completion");
+    match first {
+        Err(Error::BootstrapHistoryConflict {
+            claimed_min_events: reported,
+        }) => assert_eq!(
+            reported, claimed_min_events,
+            "the error carries the claimed history's event floor",
+        ),
+        other => panic!("the provider rejects the claimant, got {other:?}"),
+    }
     assert!(
-        provider.snapshot().is_empty(),
-        "the provider's replica is emptied by the claimed version",
+        matches!(second, Err(Error::LinkPoisoned)),
+        "the failed session poisons the link, got {second:?}",
     );
-    let (_party, tree) = claim_out.expect("the claimant completes the session");
     assert!(
-        tree.is_empty(),
-        "the claimant receives no content: the same filter prunes the supply",
+        claim_out.is_err(),
+        "the rejected claimant's session fails, got {claim_out:?}",
+    );
+    assert_eq!(
+        provider.snapshot().hash(),
+        hash_before,
+        "the provider's content is unchanged",
+    );
+    assert_eq!(
+        party_of(&provider),
+        party_before,
+        "the speculative bootstrap fork snapped back in place",
     );
 }
 
-/// Demonstrates, under V2: the emptying committed by a misdeclaring
-/// bootstrap claimant propagates through later honest sessions.
+/// A provider serving a bootstrap rejects, under V1, a claimant whose
+/// greeting declares causal history: [`Error::BootstrapHistoryConflict`],
+/// nothing moved.
 ///
-/// A peer bootstrapped from the provider *before* the misdeclared session
-/// holds the full content; one honest gossip with the emptied provider —
-/// whose ceiling now dominates that content — drops it there too.
+/// The alternating protocol's deletion-honoring filter trusts the greeting
+/// version exactly as the streaming protocol's does, so the newborn
+/// requirement is enforced protocol-independently, above both descents.
 #[test]
-fn v2_bootstrap_claimant_wipe_propagates_through_honest_gossip() {
+fn v1_bootstrap_claimant_declaring_history_is_rejected() {
+    let provider = provider_with(&[1, 2, 3]).protocol(Protocol::V1);
+    let hash_before = provider.snapshot().hash();
+    let party_before = party_of(&provider);
+    let claimant_root = redacted_history_root(8);
+
+    let provider_ref = &provider;
+    let (claim_out, provider_out) = pollster::block_on(async {
+        let (mut a_link, mut b_link) = memory();
+        tokio::join!(
+            async move { claim_bootstrap_v1(&mut a_link, claimant_root).await },
+            async move { provider_ref.gossip(&mut b_link).await },
+        )
+    });
+
+    assert!(
+        matches!(provider_out, Err(Error::BootstrapHistoryConflict { .. })),
+        "the provider rejects the claimant, got {provider_out:?}",
+    );
+    assert!(
+        claim_out.is_err(),
+        "the rejected claimant's session fails, got {claim_out:?}",
+    );
+    assert_eq!(
+        provider.snapshot().hash(),
+        hash_before,
+        "the provider's content is unchanged",
+    );
+    assert_eq!(
+        party_of(&provider),
+        party_before,
+        "the speculative bootstrap fork snapped back in place",
+    );
+}
+
+/// A joining peer rejects, under V2, a mutual-bootstrap counterparty whose
+/// greeting declares causal history, instead of bailing as if the
+/// encounter were two honest newborns.
+///
+/// The newborn requirement binds every bootstrap claimant, and in a
+/// mutual-bootstrap encounter the joining side is the side facing one: it
+/// surfaces the same [`Error::BootstrapHistoryConflict`] a serving
+/// provider would, rather than certifying a clean mutual bail against a
+/// counterparty that is neither newborn nor a provider.
+#[test]
+fn v2_mutual_bootstrap_counterparty_with_history_is_rejected() {
+    let (join_out, claim_out) = pollster::block_on(async {
+        let (mut a_link, mut b_link) = memory();
+        tokio::join!(
+            async move { Peer::<u64>::bootstrap().join(&mut a_link).await },
+            async move { claim_bootstrap_v2(&mut b_link, redacted_history_root(8)).await },
+        )
+    });
+
+    assert!(
+        matches!(join_out, Err(Error::BootstrapHistoryConflict { .. })),
+        "the joining side rejects the counterparty's claimed history, got {join_out:?}",
+    );
+    assert!(
+        claim_out.is_err(),
+        "the rejected counterparty's session fails, got {claim_out:?}",
+    );
+}
+
+/// A joining peer rejects, under V1, a mutual-bootstrap counterparty whose
+/// greeting declares causal history.
+///
+/// [`v2_mutual_bootstrap_counterparty_with_history_is_rejected`]'s
+/// alternating-protocol twin: the rejection replaces the mutual bail on
+/// the frozen V1 wire too.
+#[test]
+fn v1_mutual_bootstrap_counterparty_with_history_is_rejected() {
+    let (join_out, claim_out) = pollster::block_on(async {
+        let (mut a_link, mut b_link) = memory();
+        tokio::join!(
+            async move {
+                Peer::<u64>::bootstrap()
+                    .protocol(Protocol::V1)
+                    .join(&mut a_link)
+                    .await
+            },
+            async move { claim_bootstrap_v1(&mut b_link, redacted_history_root(8)).await },
+        )
+    });
+
+    assert!(
+        matches!(join_out, Err(Error::BootstrapHistoryConflict { .. })),
+        "the joining side rejects the counterparty's claimed history, got {join_out:?}",
+    );
+    assert!(
+        claim_out.is_err(),
+        "the rejected counterparty's session fails, got {claim_out:?}",
+    );
+}
+
+/// A rejected claimant costs the provider nothing: an honest bootstrap
+/// over a fresh link afterwards succeeds and replicates the full content.
+///
+/// The rejection's recovery contract is the claimant's alone — the
+/// provider needs no repair beyond a fresh link, and a genuinely newborn
+/// claimant (empty greeting version) is served exactly as before.
+#[test]
+fn rejected_claimant_leaves_the_provider_serviceable() {
     let provider = provider_with(&[1, 2, 3]);
 
-    // An honest peer joins first and replicates the full content.
+    let provider_ref = &provider;
+    pollster::block_on(async {
+        let (mut a_link, mut b_link) = memory();
+        let (claim_out, provider_out) = tokio::join!(
+            async move { claim_bootstrap_v2(&mut a_link, redacted_history_root(8)).await },
+            async move { provider_ref.gossip(&mut b_link).await },
+        );
+        assert!(
+            matches!(provider_out, Err(Error::BootstrapHistoryConflict { .. })),
+            "the provider rejects the claimant, got {provider_out:?}",
+        );
+        assert!(claim_out.is_err());
+    });
+
     let witness = pollster::block_on(async {
         let (mut a_link, mut b_link) = memory();
         let (witness_out, provider_out) = tokio::join!(
@@ -309,61 +469,9 @@ fn v2_bootstrap_claimant_wipe_propagates_through_honest_gossip() {
             .expect("the honest bootstrap completes")
             .expect("the provider donates")
     });
-    assert_eq!(witness.snapshot().len(), 3);
-
-    // The misdeclaring claimant empties the provider.
-    pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
-        let (claim_out, provider_out) = tokio::join!(
-            claim_bootstrap_v2(&mut a_link, redacted_history_root(8)),
-            provider.gossip(&mut b_link),
-        );
-        provider_out.expect("the provider serves the session to completion");
-        claim_out.expect("the claimant completes the session");
-    });
-    assert!(provider.snapshot().is_empty());
-
-    // One honest session later, the witness's copy is gone too.
-    pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
-        let (witness_out, provider_out) =
-            tokio::join!(witness.gossip(&mut a_link), provider.gossip(&mut b_link),);
-        witness_out.expect("honest gossip completes");
-        provider_out.expect("honest gossip completes");
-    });
-    assert!(
-        witness.snapshot().is_empty(),
-        "the inflated ceiling dominates the witness's content, dropping it",
-    );
-}
-
-/// Demonstrates, under V1: a bootstrap claimant that provides nothing but
-/// declares a dominating greeting version empties the provider's replica.
-///
-/// The alternating protocol's deletion-honoring filter trusts the greeting
-/// version exactly as the streaming protocol's does, so the mechanism is
-/// protocol-independent: the check must live above both.
-#[test]
-fn v1_bootstrap_claimant_declaring_history_empties_the_provider() {
-    let provider = provider_with(&[1, 2, 3]).protocol(Protocol::V1);
-    let claimant_root = redacted_history_root(8);
-
-    let (claim_out, provider_out) = pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
-        tokio::join!(
-            claim_bootstrap_v1(&mut a_link, claimant_root),
-            provider.gossip(&mut b_link),
-        )
-    });
-
-    provider_out.expect("the provider serves the session to completion");
-    assert!(
-        provider.snapshot().is_empty(),
-        "the provider's replica is emptied by the claimed version",
-    );
-    let (_party, tree) = claim_out.expect("the claimant completes the session");
-    assert!(
-        tree.is_empty(),
-        "the claimant receives no content: the same filter prunes the supply",
+    assert_eq!(
+        witness.snapshot().len(),
+        3,
+        "the honest newcomer replicates the provider's full content",
     );
 }
