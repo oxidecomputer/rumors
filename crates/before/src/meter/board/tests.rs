@@ -2,10 +2,11 @@
 //! output-honesty ceiling, and the tripwires that prove each judgment leg
 //! catches what the others cannot.
 //!
-//! The tripwires: κ against the digit-by-digit parser; the `n_io` exponent
-//! leg against a chunked schoolbook converter; the liveness floors against
-//! a meter-bypassing walk; the wall-exponent leg against an unmetered
-//! quadratic.
+//! The tripwires: κ against a digit-by-digit schoolbook probe (and the
+//! production delegating parser pinned under κ with a live counter); the
+//! `n_io` exponent leg against a chunked schoolbook converter; the
+//! liveness floors against a meter-bypassing walk; the wall-exponent leg
+//! against an unmetered quadratic.
 
 use crate::meter::{bigroot, dense, hugeleaf, Packed};
 use crate::{Party, Version};
@@ -67,19 +68,19 @@ fn rendered_text_is_honest_and_padding_trips() {
     );
 }
 
-/// The current digit-by-digit parser's limb work exceeds the text-row limb
-/// ceiling κ: the amended criterion cannot be satisfied by re-denomination
-/// alone.
+/// The production parser's recorded limb work sits under the text-row limb
+/// ceiling κ on the wide-magnitude families, with a live counter.
 ///
-/// Those cells stay red until a subquadratic chunked converter lands (flip
-/// this pin to a `<= κ` envelope in the same change).
-/// `R = n_io + Σ digits × limbs` is the schoolbook cost law itself, so the
-/// parser scores ~1 limb per `R` unit on the magnitude families — about 4×
-/// the pinned κ. This pin is the constant leg's anti-softening tripwire: it
-/// fails if κ drifts up to where the digit-by-digit parser passes.
+/// The parse delegates radix conversion to the backend's subquadratic
+/// divide-and-conquer parser and records one width-proportional limb count
+/// per materialized value (the wide-gamma decode's convention), so its
+/// score against `R = n_io + Σ digits × limbs` is far under κ where
+/// conversion work dominates. The ceiling leg alone would pass vacuously
+/// if the parse path stopped recording, so the pin pairs it with a
+/// liveness floor: the recorded ops cover the values' mandatory limbs.
 #[cfg(feature = "limb-meter")]
 #[test]
-fn schoolbook_parser_exceeds_the_text_limb_ceiling() {
+fn delegating_parser_stays_under_the_text_limb_ceiling() {
     for (packed, name) in [
         (hugeleaf(16_000), "hugeleaf"),
         (bigroot(8_000, 2_000), "bigroot"),
@@ -92,10 +93,46 @@ fn schoolbook_parser_exceeds_the_text_limb_ceiling() {
         let parsed: Version = s.parse().expect("a displayed version parses back");
         let ops = crate::meter::limb_ops();
         assert_eq!(parsed, v, "the parse round-trips");
+        let floor = mandatory_limbs_version(&v);
+        assert!(
+            ops >= floor,
+            "{name}: the parse recorded {ops} limb ops under its {floor}-limb liveness \
+             floor: the limb meter is not watching the parse path"
+        );
+        let score = ops as f64 / r as f64;
+        assert!(
+            score <= MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT,
+            "{name}: the delegating parser scored {score:.3} limb/R, over the text ceiling \
+             {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT}: width-scale work re-entered the parse path"
+        );
+    }
+}
+
+/// A schoolbook conversion probe exceeds the text-row limb ceiling κ: the
+/// constant leg still excludes the digit-by-digit strategy.
+///
+/// The probe folds each digit through one metered `mul; add` pair —
+/// `Θ(digits × limbs)` at the largest constant the strategy admits — and
+/// scores ~1 limb per `R` unit on the magnitude families, about 4× the
+/// pinned κ (`R` is the schoolbook cost law itself). This pin is the
+/// constant leg's anti-softening tripwire: it fails if κ drifts up to
+/// where digit-by-digit conversion passes.
+#[cfg(feature = "limb-meter")]
+#[test]
+fn schoolbook_probe_exceeds_the_text_limb_ceiling() {
+    for (packed, name) in [
+        (hugeleaf(16_000), "hugeleaf"),
+        (bigroot(8_000, 2_000), "bigroot"),
+    ] {
+        let v = version_of(&packed);
+        let s = v.to_string();
+        let n_io = s.len() + version_output_bytes(&v);
+        let r = n_io as u64 + radix_units_version(&v);
+        let ops = schoolbook_limb_ops(&s, 1);
         let score = ops as f64 / r as f64;
         assert!(
             score > MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT,
-            "{name}: the schoolbook parser scored {score:.3} limb/R, at or under the text \
+            "{name}: the schoolbook probe scored {score:.3} limb/R, at or under the text \
              ceiling {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT}: the criterion softened (either κ \
              drifted up or the denominator over-counts)"
         );
@@ -113,18 +150,24 @@ fn schoolbook_parser_exceeds_the_text_limb_ceiling() {
 const SCHOOLBOOK_CHUNK_DIGITS: usize = 9;
 
 /// Fold every decimal run of `text` through the crate's metered `Base`
-/// arithmetic in [`SCHOOLBOOK_CHUNK_DIGITS`]-digit chunks and return the
-/// recorded limb operations.
+/// arithmetic in `chunk_digits`-digit chunks and return the recorded limb
+/// operations.
 ///
 /// This is chunked schoolbook conversion: per run, `acc = acc·10^len + chunk`
-/// left to right — still `Θ(digits × limbs)`, quadratic in the value's bits,
-/// only with a ~`SCHOOLBOOK_CHUNK_DIGITS`× smaller constant than the
-/// digit-by-digit parser. Each accumulated value is checked exact against
-/// its run (outside the metered window), so the probe's cost is the cost of
-/// the whole conversion, never of a sampled fraction.
+/// left to right — `Θ(digits × limbs)`, quadratic in the value's bits, with
+/// a constant that shrinks as the chunks widen (`chunk_digits` 1 is the
+/// digit-by-digit strategy at the genre's largest constant; at most
+/// [`SCHOOLBOOK_CHUNK_DIGITS`], so every chunk fits a `u32`). Each
+/// accumulated value is checked exact against its run (outside the metered
+/// window), so the probe's cost is the cost of the whole conversion, never
+/// of a sampled fraction.
 #[cfg(feature = "limb-meter")]
-fn chunked_schoolbook_limb_ops(text: &str) -> u64 {
+fn schoolbook_limb_ops(text: &str, chunk_digits: usize) -> u64 {
     use crate::codec::Base;
+    assert!(
+        (1..=SCHOOLBOOK_CHUNK_DIGITS).contains(&chunk_digits),
+        "a schoolbook chunk is one to nine digits: a u32 covers it"
+    );
     let mut values = Vec::new();
     crate::meter::reset_limb_ops();
     for run in text.split(|c: char| !c.is_ascii_digit()) {
@@ -132,7 +175,7 @@ fn chunked_schoolbook_limb_ops(text: &str) -> u64 {
             continue;
         }
         let mut acc = Base::from(0u32);
-        for chunk in run.as_bytes().chunks(SCHOOLBOOK_CHUNK_DIGITS) {
+        for chunk in run.as_bytes().chunks(chunk_digits) {
             let chunk = std::str::from_utf8(chunk).expect("a decimal run is ASCII");
             acc *= 10u32.pow(chunk.len() as u32);
             acc += chunk.parse::<u32>().expect("a 9-digit chunk fits u32");
@@ -180,7 +223,7 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
         let s = v.to_string();
         let n_io = s.len() + version_output_bytes(&v);
         let r = n_io as u64 + radix_units_version(&v);
-        let ops = chunked_schoolbook_limb_ops(&s);
+        let ops = schoolbook_limb_ops(&s, SCHOOLBOOK_CHUNK_DIGITS);
         let score = ops as f64 / r as f64;
         assert!(
             score < MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT,

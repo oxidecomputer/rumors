@@ -148,6 +148,32 @@ impl Base {
         self.bits().div_ceil(64).max(1)
     }
 
+    /// Parse a run of ASCII decimal digits into a magnitude.
+    ///
+    /// The radix conversion is delegated whole to the backend, whose
+    /// divide-and-conquer parser is subquadratic in the digit count
+    /// \[measured — the dependency-selection probe: parse exponent 1.49
+    /// over doubling digit counts\]. The conversion therefore runs inside
+    /// the dependency, below the limb shim, so this records one
+    /// width-proportional limb count for the materialized value — the
+    /// same convention as the wide-gamma decode — and the board's wall
+    /// leg is what judges the conversion's complexity class.
+    ///
+    /// The caller guarantees `digits` is nonempty pure ASCII digits;
+    /// leading zeros are value-preserving (`"007"` is 7).
+    pub(crate) fn parse_decimal(digits: &str) -> Base {
+        debug_assert!(
+            !digits.is_empty() && digits.bytes().all(|d| d.is_ascii_digit()),
+            "parse_decimal takes a nonempty ASCII digit run"
+        );
+        let value: UBig = digits
+            .parse()
+            .expect("a nonempty ASCII digit run is a valid decimal magnitude");
+        #[cfg(feature = "limb-meter")]
+        limb_meter::record_wide(&value);
+        Base(value)
+    }
+
     /// Compare two magnitudes as MSB-aligned bit strings: the order of
     /// `a · 2^x` versus `b · 2^y` whenever the two values share a magnitude
     /// class (`bits(a) − x == bits(b) − y`).

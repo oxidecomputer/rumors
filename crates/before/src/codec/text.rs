@@ -44,24 +44,24 @@ impl<'a> Cur<'a> {
 /// Read a run of ASCII digits as a [`Base`] magnitude (no surrounding
 /// whitespace consumed except a leading skip). Arbitrary width: an event base
 /// has no value cap. Empty input is a syntax error.
+///
+/// The cursor slices the whole digit run and hands it to
+/// [`Base::parse_decimal`], which delegates the radix conversion to the
+/// backend's subquadratic divide-and-conquer parser; leading zeros are
+/// value-preserving (`"007"` is 7), exactly as digit-at-a-time
+/// accumulation would read them.
 fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
     cur.skip_ws();
-    let mut n = Base::ZERO;
-    let mut any = false;
-    while let Some(&d) = cur.bytes.get(cur.pos) {
-        if !d.is_ascii_digit() {
-            break;
-        }
-        any = true;
-        n *= 10u32;
-        n += u32::from(d - b'0');
+    let start = cur.pos;
+    while cur.bytes.get(cur.pos).is_some_and(|d| d.is_ascii_digit()) {
         cur.pos += 1;
     }
-    if any {
-        Ok(n)
-    } else {
-        Err(Parse::Syntax)
+    if cur.pos == start {
+        return Err(Parse::Syntax);
     }
+    let digits = core::str::from_utf8(&cur.bytes[start..cur.pos])
+        .expect("an ASCII digit run is valid UTF-8");
+    Ok(Base::parse_decimal(digits))
 }
 
 /// Parse one id tree in the paper's grammar (`0 | 1 | (i1, i2)`) into canonical
