@@ -259,11 +259,13 @@ fn base_digits(value: &Base) -> usize {
 }
 
 /// A magnitude's little-endian base-2^32 digits.
+///
+/// The top digit of the top limb may be zero (the compaction loop skips
+/// zero digits, so the padding is free).
 fn u32_digits(value: &Base) -> Vec<u32> {
-    match value {
-        Base::Small(n) => vec![(*n & 0xFFFF_FFFF) as u32, (*n >> 32) as u32],
-        Base::Big(n) => n.iter_u32_digits().collect(),
-    }
+    crate::codec::base::U64Limbs::new(&value.0)
+        .flat_map(|limb| [(limb & 0xFFFF_FFFF) as u32, (limb >> 32) as u32])
+        .collect()
 }
 
 /// The causal distance between the versions two skyline streams denote:

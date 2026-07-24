@@ -122,7 +122,11 @@ const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64) -> Envelope {
     }
 }
 
-// The envelope table: pinned ceiling = measured ×1.25, rounded up. The
+// The envelope table: pinned ceiling = measured ×1.25, rounded up, and
+// only ever tightened: where a remeasure rises while staying inside an
+// existing ceiling (the spilled-magnitude heap cells, which carry the
+// backend's `len/8 + 2` words of growth headroom per heap allocation),
+// the older, tighter ceiling stands over the recorded movement. The
 // trailing comment on each line is the measurement of record (2026-07-22,
 // aarch64-apple-darwin, dev profile, three identical runs) the ceiling
 // derives from; a row re-pinned after an improvement records the movement
@@ -138,36 +142,36 @@ mod envelope {
     pub const CMP_DENSE: Envelope       = envelope(        10,      240,     2_500_013); //          8, 192,   2_000_010
     pub const JOIN_DENSE: Envelope      = envelope( 5_996_847,      300,     3_750_010); //  6_093_856 -> 4_797_477, 240, 2_750_008 -> 3_000_008 (2026-07-23, push-grow Builder; metered Base equality)
     pub const TICK_DENSE: Envelope      = envelope(11_837_440,      165,     1_250_005); // 12_355_499 -> 9_469_952, 132, 1_000_004 (2026-07-23, push-grow Builder)
-    pub const DECODE_BIGROOT: Envelope  = envelope( 1_745_332,        0,        25_788); //  1_399_449 -> 1_396_265, 0, 12_520_000 -> 626 -> 20_630 (2026-07-23, limb-wise wide-gamma decode; metered Base equality)
-    pub const CMP_BIGROOT: Envelope     = envelope(62_531_270,       15,    47_007_838); // 50_028_232 -> 50_025_016, 12, 50_125_644 -> 37_606_270 (2026-07-23, limb-wise wide-gamma decode + clone-free mixed add)
-    pub const JOIN_BIGROOT: Envelope    = envelope(63_075_342,       20,   109_539_093); // 51_515_838 -> 50_460_273, 16, 100_150_646 -> 87_631_272 -> 87_631_274 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder; metered Base equality)
-    pub const DECODE_HUGELEAF: Envelope = envelope(    58_604,        0,         2_443); //     55_827 -> 46_883, 0, 122_132_816 -> 1_954 (2026-07-23, limb-wise wide-gamma decode)
-    pub const JOIN_HUGELEAF: Envelope   = envelope(   139_714,        0,         9_777); //  3_127_365 -> 111_771, 0, 122_138_683 -> 7_821 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder)
+    pub const DECODE_BIGROOT: Envelope  = envelope( 1_745_332,        0,        25_788); //  1_399_449 -> 1_396_265 -> 1_396_905 (2026-07-24, dashu-int backend), 0, 12_520_000 -> 626 -> 20_630 (2026-07-23, limb-wise wide-gamma decode; metered Base equality)
+    pub const CMP_BIGROOT: Envelope     = envelope(62_531_270,       15,    47_007_838); // 50_028_232 -> 50_025_016 -> 56_416_936 (2026-07-24, dashu-int backend), 12, 50_125_644 -> 37_606_270 (2026-07-23, limb-wise wide-gamma decode + clone-free mixed add)
+    pub const JOIN_BIGROOT: Envelope    = envelope(63_075_342,       20,   109_539_093); // 51_515_838 -> 50_460_273 -> 56_849_753 (2026-07-24, dashu-int backend), 16, 100_150_646 -> 87_631_272 -> 87_631_274 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder; metered Base equality)
+    pub const DECODE_HUGELEAF: Envelope = envelope(    58_604,        0,         2_443); //     55_827 -> 46_883 -> 48_851 (2026-07-24, dashu-int backend), 0, 122_132_816 -> 1_954 (2026-07-23, limb-wise wide-gamma decode)
+    pub const JOIN_HUGELEAF: Envelope   = envelope(   139_714,        0,         9_777); //  3_127_365 -> 111_771 -> 115_707 (2026-07-24, dashu-int backend), 0, 122_138_683 -> 7_821 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder)
     pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0); //    125_001 -> 223_305, 202 -> 0, 0 (2026-07-24, iterative id walks: frame bits on the heap, no grown segments)
     pub const ID_COVERS: Envelope       = envelope(        10,        0,             0); //          0 -> 8,  85 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
-    pub const DECODE_CLIFF: Envelope    = envelope(   718_402,        0,        51_200); //    574_721,   0,        40_960 (2026-07-23, new scenario)
-    pub const CMP_CLIFF: Envelope       = envelope(       820,        0,       238_093); //        656,   0,       190_474 (2026-07-23, new scenario)
-    pub const JOIN_CLIFF: Envelope      = envelope( 1_723_362,        0,       480_010); //  1_378_689,   0,       384_008 (2026-07-23, new scenario)
+    pub const DECODE_CLIFF: Envelope    = envelope(   718_402,        0,        51_200); //    574_721 -> 607_489 (2026-07-24, dashu-int backend),   0,        40_960 (2026-07-23, new scenario)
+    pub const CMP_CLIFF: Envelope       = envelope(       620,        0,       238_093); //        656 -> 496 (2026-07-24, dashu-int backend),   0,       190_474 (2026-07-23, new scenario)
+    pub const JOIN_CLIFF: Envelope      = envelope( 1_723_362,        0,       480_010); //  1_378_689 -> 1_411_489 (2026-07-24, dashu-int backend),   0,       384_008 (2026-07-23, new scenario)
     // Skyline validator rows (2026-07-23, new scenarios): the V5
     // replacement's transient, achieved — the dense row's 49 KB peak over
     // 125k levels is ~3.1 bits per open ancestor (bit stack plus
     // reallocation growth) against DECODE_DENSE's 11 MB parse frames on
     // the same tree, ~56 B per level.
     pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope(    61_450,        0,       625_003); //     49_160, 0,   500_002
-    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(     1_770,        0,        12_903); //      1_416, 0,    10_322
+    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(     1_770,        0,        12_903); //      1_416 -> 1_448 (2026-07-24, dashu-int backend), 0,    10_322
     pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(     1_520,        0,        42_325); //      1_216, 0,    33_860
-    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope(    80_980,        0,         2_443); //     64_784, 0,     1_954
+    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope(    80_980,        0,         2_443); //     64_784 -> 66_752 (2026-07-24, dashu-int backend), 0,     1_954
     pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope(    61_450,        0,       625_003); //     49_160, 0,   500_002
     // Skyline decoder rows (2026-07-23, new scenarios): validate plus the
     // transcode back to the packed form, whose materialized heights and
     // floors price these against the packed output rather than the skyline
     // input (the module doc's cost section).
     pub const SKYLINE_DECODE_DENSE: Envelope        = envelope(22_672_865,        0,     3_437_515); // 18_138_292, 0, 2_750_012
-    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope( 2_193_750,        0,       397_033); //  1_755_000, 0,   317_626
-    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope( 2_083_300,        0,       463_554); //  1_666_640, 0,   370_843
-    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(   117_414,        0,        12_217); //     93_931, 0,     9_773
+    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope( 2_193_750,        0,       397_033); //  1_755_000 -> 1_787_704 (2026-07-24, dashu-int backend), 0,   317_626
+    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope( 2_083_300,        0,       463_554); //  1_666_640 -> 1_699_472 (2026-07-24, dashu-int backend), 0,   370_843
+    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(   117_414,        0,        12_217); //     93_931 -> 101_803 (2026-07-24, dashu-int backend), 0,     9_773
     pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope(19_723_745,        0,     3_437_515); // 15_778_996, 0, 2_750_012
 }
 
@@ -518,8 +522,12 @@ const fn rank_envelope(
     }
 }
 
-// The rank envelope table: pinned ceiling = measured ×1.25, rounded up.
-// The trailing comment on each line is the measurement of record
+// The rank envelope table: pinned ceiling = measured ×1.25, rounded up,
+// and only ever tightened: where a remeasure rises while staying inside
+// an existing ceiling (the spilled-numerator heap cells, which carry the
+// backend's `len/8 + 2` words of growth headroom per heap allocation),
+// the older, tighter ceiling stands over the recorded movement. The
+// trailing comment on each line is the measurement of record
 // (2026-07-24, aarch64-apple-darwin, dev profile, three identical runs)
 // the ceiling derives from; a re-pinned column records the movement as
 // `old -> new`. Re-pin by rerunning under `--no-capture` with
@@ -529,9 +537,9 @@ mod rank_env {
     use super::{rank_envelope, RankEnvelope};
     //                                                            peak heap, segments,    limb ops, touches       measured: peak heap, segments, limb ops (movement), touches
     pub const RANK_DENSE: RankEnvelope         = rank_envelope(           0,      300,           3,      0); //          0, 240, 1_250_002 -> 2, 0
-    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       1_762,  5_862); //     40_088,  16, 102_824 -> 1_409, 4_689
-    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       1_282, 84_403); //     32_804, 124, 134_740_995 -> 1_025, 67_522
-    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      48_848,      0); //    187_520,   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output), 0
+    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       1_762,  5_862); //     40_088 -> 41_368 (2026-07-24, dashu-int backend),  16, 102_824 -> 1_409, 4_689
+    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       1_282, 84_403); //     32_804 -> 33_840 (2026-07-24, dashu-int backend), 124, 134_740_995 -> 1_025, 67_522
+    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      48_848,      0); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output), 0
     pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(      78_140,        0,       4_885, 22_268); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization), 17_814
 }
 
@@ -934,8 +942,11 @@ const fn sweep_envelope(
     }
 }
 
-// The sweep envelope table: pinned ceiling = measured ×1.25, rounded up.
-// The trailing comment on each line is the measurement of record
+// The sweep envelope table: pinned ceiling = measured ×1.25, rounded
+// up, and only ever tightened: where a remeasure rises while staying
+// inside an existing ceiling (spilled-magnitude heap cells and their
+// backend growth headroom), the older, tighter ceiling stands over the
+// recorded movement. The trailing comment on each line is the measurement of record
 // (2026-07-23, aarch64-apple-darwin, dev profile, three identical runs)
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
@@ -945,9 +956,9 @@ mod sweep_env {
     //                                                               peak heap, segments, limb ops,  scan bits            measured: peak heap, segments, limb ops, scan bits
     pub const SKYLINE_CMP_DENSE: SweepEnvelope      = sweep_envelope(   30_730,        0,   312_503,   468_760); //   24_584, 0, 250_002, 375_008
     pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(   51_210,        0,   625_005,   937_515); //   40_968, 0, 500_004, 750_012
-    pub const SKYLINE_CMP_BIGROOT: SweepEnvelope    = sweep_envelope(   39_540,        0,    25_788,   137_514); //   31_632, 0,  20_630, 110_011
-    pub const SKYLINE_CMP_CLIFF: SweepEnvelope      = sweep_envelope(    1_450,        0,     7_763,    17_925); //    1_160, 0,   6_210,  14_340
-    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_050,        0,    29_509, 1_000_483); //      840, 0,  23_607, 800_386
+    pub const SKYLINE_CMP_BIGROOT: SweepEnvelope    = sweep_envelope(   39_540,        0,    25_788,   137_514); //   31_632 -> 32_272 (2026-07-24, dashu-int backend), 0,  20_630, 110_011
+    pub const SKYLINE_CMP_CLIFF: SweepEnvelope      = sweep_envelope(    1_450,        0,     7_763,    17_925); //    1_160 -> 1_360 (2026-07-24, dashu-int backend), 0,   6_210,  14_340
+    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_050,        0,    29_509, 1_000_483); //      840 -> 1_032 (2026-07-24, dashu-int backend), 0,  23_607, 800_386
 }
 
 /// Run one sweep scenario body under all four meters and assert its
@@ -1142,7 +1153,10 @@ fn skyline_cmp_wide_tooth_envelope() {
 // collapse discipline would make quadratic in depth times code width.
 
 // The emission envelope table: pinned ceiling = measured ×1.25, rounded
-// up. The trailing comment on each line is the measurement of record
+// up, and only ever tightened: where a remeasure rises while staying
+// inside an existing ceiling (spilled-magnitude heap cells and their
+// backend growth headroom), the older, tighter ceiling stands over the
+// recorded movement. The trailing comment on each line is the measurement of record
 // (2026-07-23, aarch64-apple-darwin, dev profile, three identical runs)
 // the ceiling derives from. Re-pin by rerunning under `--no-capture`
 // with `--all-features` and reading the MEASURED lines.
@@ -1151,12 +1165,12 @@ mod emit_env {
     use super::{sweep_envelope, SweepEnvelope};
     //                                                                peak heap, segments, limb ops,  scan bits            measured: peak heap, segments, limb ops, scan bits
     pub const SKYLINE_JOIN_DENSE: SweepEnvelope      = sweep_envelope(  130_297,        0,   937_505,   625_018); //  104_237, 0, 750_004,   500_014
-    pub const SKYLINE_JOIN_ABSORB: SweepEnvelope     = sweep_envelope(  270_798,        0,   942_389, 1_250_013); //  216_638, 0, 753_911, 1_000_010
-    pub const SKYLINE_JOIN_BIGROOT: SweepEnvelope    = sweep_envelope(   89_710,        0,    76_583,   275_028); //   71_768, 0,  61_266,   220_022
-    pub const SKYLINE_JOIN_CLIFF: SweepEnvelope      = sweep_envelope(    5_512,        0,    25_869,    35_848); //    4_409, 0,  20_695,    28_678
-    pub const SKYLINE_JOIN_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  128_312,        0,    74_477, 2_000_963); //  102_649, 0,  59_581, 1_600_770
-    pub const SKYLINE_MEET_CLIFF: SweepEnvelope      = sweep_envelope(    5_002,        0,    18_020,    23_055); //    4_001, 0,  14_416,    18_444
-    pub const SKYLINE_MEET_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  127_732,        0,    39_767, 1_005_613); //  102_185, 0,  31_813,   804_490
+    pub const SKYLINE_JOIN_ABSORB: SweepEnvelope     = sweep_envelope(  270_798,        0,   942_389, 1_250_013); //  216_638 -> 218_606 (2026-07-24, dashu-int backend), 0, 753_911, 1_000_010
+    pub const SKYLINE_JOIN_BIGROOT: SweepEnvelope    = sweep_envelope(   85_060,        0,    76_583,   275_028); //   71_768 -> 68_048 (2026-07-24, dashu-int backend), 0,  61_266,   220_022
+    pub const SKYLINE_JOIN_CLIFF: SweepEnvelope      = sweep_envelope(    5_512,        0,    25_869,    35_848); //    4_409 -> 4_537 (2026-07-24, dashu-int backend), 0,  20_695,    28_678
+    pub const SKYLINE_JOIN_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  128_312,        0,    74_477, 2_000_963); //  102_649 -> 102_777 (2026-07-24, dashu-int backend), 0,  59_581, 1_600_770
+    pub const SKYLINE_MEET_CLIFF: SweepEnvelope      = sweep_envelope(    5_002,        0,    18_020,    23_055); //    4_001 -> 4_065 (2026-07-24, dashu-int backend), 0,  14_416,    18_444
+    pub const SKYLINE_MEET_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  127_732,        0,    39_767, 1_005_613); //  102_185 -> 102_249 (2026-07-24, dashu-int backend), 0,  31_813,   804_490
 }
 
 /// The one-tick version's skyline stream: the shallow operand of the
@@ -2011,7 +2025,7 @@ mod accum_streams {
     use std::cmp::Ordering;
 
     use before::meter::accum::{touch_meter, Accum};
-    use num_bigint::BigUint;
+    use dashu_int::UBig;
 
     /// Slack numerator over the measured value, matching the ×1.25 envelope
     /// convention (denominator [`SLACK_DEN`]).
@@ -2066,7 +2080,7 @@ mod accum_streams {
     /// `±1` oscillating across the `2^k` cliff, sign read after each.
     fn comb_run(k: u32, n: usize) -> Run {
         let mut acc = Accum::new();
-        acc.add_wide(&((BigUint::from(1u8) << k) - 1u8));
+        acc.add_wide(&((UBig::from(1u8) << k as usize) - 1u8));
         touch_meter::reset();
         for _ in 0..n {
             acc.add_small(1);
@@ -2083,9 +2097,9 @@ mod accum_streams {
     /// The wide-tooth delta stream: setup `2^k`, then `2n` deltas of `±2^w`
     /// oscillating across the `2^k` cliff, sign read after each.
     fn wide_tooth_run(k: u32, w: u32, n: usize) -> Run {
-        let tooth = BigUint::from(1u8) << w;
+        let tooth = UBig::from(1u8) << w as usize;
         let mut acc = Accum::new();
-        acc.add_wide(&(BigUint::from(1u8) << k));
+        acc.add_wide(&(UBig::from(1u8) << k as usize));
         touch_meter::reset();
         for _ in 0..n {
             acc.sub_wide(&tooth);
@@ -2106,9 +2120,9 @@ mod accum_streams {
     /// denominator is the stream's own coded size — `2n` zigzag-gamma codes
     /// of `2k + 3` bits each — in bytes, not the delta count.
     fn cancelling_run(k: u32, n: usize) -> Run {
-        let drop = (BigUint::from(1u8) << k) - 1u8;
+        let drop = (UBig::from(1u8) << k as usize) - 1u8;
         let mut acc = Accum::new();
-        acc.add_wide(&(BigUint::from(1u8) << k));
+        acc.add_wide(&(UBig::from(1u8) << k as usize));
         touch_meter::reset();
         for _ in 0..n {
             acc.sub_wide(&drop);
@@ -2135,9 +2149,9 @@ mod accum_streams {
     /// here, so its per-read cost grows linearly with `k` instead of
     /// staying flat.
     fn static_prefix_run(k: u32, n: usize) -> Run {
-        let drop = (BigUint::from(1u8) << k) - 1u8;
+        let drop = (UBig::from(1u8) << k as usize) - 1u8;
         let mut acc = Accum::new();
-        acc.add_wide(&(BigUint::from(1u8) << k));
+        acc.add_wide(&(UBig::from(1u8) << k as usize));
         acc.sub_wide(&drop);
         touch_meter::reset();
         for _ in 0..n {
@@ -2325,13 +2339,13 @@ mod query_env {
     use super::{query_envelope, QueryEnvelope};
     //                                                                        peak heap, segments,  limb ops, scan bits,   touches       measured: heap, seg, limb, scan, touches
     pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    81_950,        0,   312_505, 1_093_772,   156_259); // 65_560, 0, 250_004, 875_017, 125_007
-    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199); // 60_088, 0, 21_413, 310_024, 17_194
-    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324); // 57_364, 0, 132_097, 458_763, 198_659
-    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008); // 2_460, 0, 6_244, 38_917, 6_406
-    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580); // 2_740, 0, 23_641, 2_397_055, 26_864
+    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199); // 60_088 -> 61_516 (2026-07-24, dashu-int backend), 0, 21_413, 310_024, 17_194
+    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097, 458_763, 198_659
+    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008); // 2_460 -> 2_540 (2026-07-24, dashu-int backend), 0, 6_244, 38_917, 6_406
+    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641, 2_397_055, 26_864
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255); // 24_576, 0, 250_002, 375_006, 125_004
-    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62); // 528, 0, 17, 2_052, 49
-    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924); // 420_560, 0, 92_212, 2_124_806, 35_939
+    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
+    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806, 35_939
     pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(    91_520,        0,   862_888,   204_833,         0); // 73_216, 0, 690_310 (sequential 14_281_732), 163_866, 0
     pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   365_540,         0); // 336, 0, 0, 292_432 (sequential 3_284_952), 0
 }

@@ -1,10 +1,11 @@
 //! A complexity-class canary on big-magnitude decimal rendering.
 //!
-//! `Display` on a spilled magnitude delegates to `num-bigint`'s
-//! binary-to-decimal conversion, whose cost class is set by the dependency
-//! floor (0.4.7 ships divide-and-conquer `to_radix_digits`; 0.4.8 fixes its
-//! Burnikel–Ziegler division regression; 0.4.6's rendering is quadratic in
-//! the magnitude width). That work happens entirely inside `num-bigint`, so
+//! `Display` on a spilled magnitude delegates to the bignum backend's
+//! binary-to-decimal conversion, so the ceiling here is what pins that
+//! path's complexity class: subquadratic in the magnitude width —
+//! `dashu`'s divide-and-conquer radix conversion is what satisfies the
+//! pin, and a schoolbook conversion (quadratic in the width) is what it
+//! exists to catch. That work happens entirely inside the backend, so
 //! the deterministic limb meter cannot observe it — the crate's `Display`
 //! records nothing while the conversion runs, and the board's display rows
 //! declare that limb column not-applicable for exactly this reason. This
@@ -14,9 +15,9 @@
 //! machine speed and build profile cancel, sized so the larger interval is
 //! seconds-scale against scheduler noise, taken best-of-three, and bounded
 //! with slack in both directions. Across the 8× width jump asserted here,
-//! the quadratic class measures ~36× (0.4.6, this machine, dev profile)
-//! and the divide-and-conquer class ~19×; the ceiling sits at their
-//! geometric midpoint.
+//! the quadratic class measures ~36× (schoolbook conversion, this
+//! machine, dev profile) and divide-and-conquer implementations measure
+//! 18–25×; the ceiling sits between the bands.
 
 use std::time::{Duration, Instant};
 
@@ -34,12 +35,13 @@ const WIDTH_JUMP: usize = 8;
 
 /// Ceiling on the rendering-time ratio across the width jump, in tenths.
 ///
-/// Measured at these sizes (2026-07-23, aarch64-apple-darwin, dev
-/// profile): the quadratic rendering class reads 36.1× (asymptote 64×) and
-/// the divide-and-conquer class 18.4–19.4× over three runs. The pin is
-/// their geometric midpoint — ~1.35× above the D&C band, ~1.39× below the
-/// quadratic reading — so it separates the complexity classes rather than
-/// benchmarks the machine.
+/// Measured at these sizes (aarch64-apple-darwin, dev profile): the
+/// quadratic rendering class reads 36.1× (asymptote 64×), and the
+/// divide-and-conquer band spans 18.4–24.8× across implementations
+/// (`dashu`'s conversion reads 24.8×, 2026-07-24). The pin sits between
+/// the bands — ~1.05× above the D&C band's top, ~1.39× below the
+/// quadratic reading — so it separates the complexity classes rather
+/// than benchmarks the machine.
 const RATIO_CEILING_TENTHS: u128 = 260;
 
 /// Render the value `2^bits − 1` (one hugeleaf) to its decimal string and

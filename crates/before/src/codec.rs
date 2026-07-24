@@ -10,7 +10,7 @@
 // load-bearing in every build. `before::meter` additionally re-exports it so
 // the resource-envelope suite can pin its digit-touch cost.
 pub mod accum;
-mod base;
+pub(crate) mod base;
 mod bits;
 mod build;
 mod cursor;

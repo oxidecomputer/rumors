@@ -199,10 +199,9 @@ fn zigzag_is_a_bijection_without_negative_zero() {
     let mut seen: BTreeSet<(bool, u64)> = BTreeSet::new();
     for m in 0..=100u64 {
         let (negative, magnitude) = unzigzag(Base::from(m));
-        let mag = match magnitude {
-            Base::Small(n) => n,
-            Base::Big(_) => unreachable!("small codes decode to small magnitudes"),
-        };
+        let mag = magnitude
+            .to_u64()
+            .expect("small codes decode to small magnitudes");
         assert!(!(negative && mag == 0), "no code may spell a negative zero");
         assert!(
             seen.insert((negative, mag)),
