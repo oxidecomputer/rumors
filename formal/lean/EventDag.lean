@@ -1515,8 +1515,10 @@ def weaveOrderEO (sk : Skel) (ordW : Party × Nat → Bool) (ordA : Bool) :
 
 /-- One assignment's full O gate at margin 0: the merge candidate
 drains (validate catches a stall as size/missing errors), respects the
-O edge set, and replays to terminal under `Ord.applyO .impl`; the O
-eweave is a valid linearization. Returns error strings (empty = OK). -/
+O edge set, matches the proof layer's `Ord.scheduleO` transcription
+event-for-event, and replays to terminal under `Ord.applyO .impl`;
+the O eweave is a valid linearization. Returns error strings
+(empty = OK). -/
 def ordGate (skM : Skel) (label : String) (ordW : Party × Nat → Bool)
     (ordA : Bool) : Array String := Id.run do
   let mut errs : Array String := #[]
@@ -1525,6 +1527,9 @@ def ordGate (skM : Skel) (label : String) (ordW : Party × Nat → Bool)
   if !vErrs.isEmpty then
     errs := errs.push
       s!"ord[{label}] candidate invalid ({vErrs.size} errors, first: {vErrs[0]!})"
+  else if Ord.scheduleO skM (ordMapOf ordW ordA) != cand.toList then
+    errs := errs.push
+      s!"ord[{label}] Ord/Sched.lean scheduleO transcription diverges from the candidate"
   else
     let (stuckAt, term) := replayScheduleO skM .impl (ordMapOf ordW ordA) cand
     if let some i := stuckAt then
