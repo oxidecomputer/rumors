@@ -70,7 +70,9 @@ where
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(BUILD_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<T>::bootstrap_with_protocol(Protocol::V2, &mut newcomer),
+            Peer::<T>::bootstrap()
+                .protocol(Protocol::V2)
+                .join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined
