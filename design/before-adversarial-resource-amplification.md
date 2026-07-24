@@ -2916,6 +2916,11 @@ the constant leg's calibration is a C2-routing deliverable, per
 the κ rustdoc's hand-off); and the clock composition (the party
 half rides Leg B's iterative renderer).
 
+Amended 2026-07-24: commit c57d7aad, beyond its stated link fix,
+also corrected a sequencing clause in `render`'s public rustdoc —
+the digit arena is rendered after the summary merges complete,
+not during them, and the prose now follows the code.
+
 **P3.9 — C2: the flag day (one commit).**
 *What*: flip `Version`'s storage to skyline bits; route every
 algorithm to the P3.5–P3.7 implementations; serde/borsh/encode/
