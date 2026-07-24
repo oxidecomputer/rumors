@@ -717,6 +717,30 @@ fn reject_noncanonical_event() {
     ));
 }
 
+/// The text grammar reads a base as one ASCII digit run: value-preserving
+/// under leading zeros, ended by the first non-digit, unbounded in width.
+///
+/// The digit run is handed whole to the delegated radix conversion, so this
+/// pins the run-level grammar the delegation must preserve: exactly what
+/// digit-at-a-time accumulation accepts, nothing more.
+#[test]
+fn parse_base_digit_run_grammar() {
+    use crate::error::Parse;
+
+    // Leading zeros are value-preserving, not canonical-form violations.
+    let v: Version = "007".parse().expect("leading zeros are value-preserving");
+    assert_eq!(v.to_string(), "7");
+    // A digit run ends at the first non-digit: "1 2" is a leaf `1` with
+    // trailing junk, never a two-digit value.
+    assert_eq!("1 2".parse::<Version>(), Err(Parse::Syntax));
+    // An absent digit run where a base is required is a syntax error.
+    assert_eq!("(, 0, 1)".parse::<Version>(), Err(Parse::Syntax));
+    // Width is unbounded: a 201-bit magnitude round-trips exactly.
+    let wide = "1606938044258990275541962092341162602522202993782792835301376"; // 2^200
+    let v: Version = wide.parse().expect("an arbitrary-width base parses");
+    assert_eq!(v.to_string(), wide);
+}
+
 /// The byte `decode` paths are the only ones that yield a top-level `Party`
 /// without passing through `finish_id`; both reject the anonymous identity `0`,
 /// so an empty-region `Party`/`Clock` cannot be constructed.

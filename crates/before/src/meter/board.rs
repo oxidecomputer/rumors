@@ -143,9 +143,10 @@
 //!   `R = n_io + Σ digitsᵢ × limbsᵢ` over the values the text spells, the
 //!   schoolbook cost law itself, at the divide-and-conquer target
 //!   [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`] — is what excludes a wasteful
-//!   constant: the digit-by-digit parser scores ~1 limb per `R` unit,
-//!   ~4× over it \[measured\]. Only a converter whose recorded limb work is
-//!   near-linear in `n_io` with a D&C-class constant reads green.
+//!   constant: a digit-by-digit schoolbook probe scores ~1 limb per `R`
+//!   unit, ~4× over it \[measured — the test suite's tripwire\]. Only a
+//!   converter whose recorded limb work is near-linear in `n_io` with a
+//!   D&C-class constant reads green.
 //! - **Output-dominated projection** (`version_project` and
 //!   `clock_own_version` on the comb × scattered-party cross): `n_io` is
 //!   packed input + packed output. The cross exists because a scattered
@@ -410,13 +411,19 @@ pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 /// stays quadratic in the value bits and reads exponent ~2 against `n_io`
 /// \[measured — the chunked tripwire in the test suite\]; the exponent leg
 /// is what excludes it. What κ excludes is a wasteful constant: it sits 4×
-/// under the digit-by-digit parser's measured ~1 limb per `R` unit and ~4×
-/// over the divide-and-conquer ratio extrapolated at the default hugeleaf
-/// scale \[derived\]. Provisional until such a converter lands: re-pin it
-/// from the observed meter then, and verify it at record scale before any
-/// envelope enforces it. The test suite pins both legs — the digit-by-digit
-/// parser exceeds κ; the chunked probe slips under κ and trips the exponent
-/// leg — so neither can silently soften.
+/// under a digit-by-digit schoolbook probe's measured ~1 limb per `R` unit,
+/// and the production parser — radix conversion delegated to the backend's
+/// divide-and-conquer parser, one width-proportional limb record per
+/// materialized value — reads far under it on the conversion-dominated
+/// families \[measured — the delegating-parser pin in the test suite\].
+/// The organic and dense `FromStr` cells still read over κ on per-value
+/// gamma-encode arithmetic (an honest per-node cost `R` under-weights on
+/// small values); those cells' owner re-derives κ against the skyline text
+/// kernels' observed meter at record scale before any envelope enforces
+/// it. The test suite pins three legs — the schoolbook probe exceeds κ;
+/// the delegating parser stays under κ over a liveness floor; the chunked
+/// probe slips under κ and trips the exponent leg — so none can silently
+/// soften.
 pub const MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT: f64 = 0.25;
 
 /// Any text stream entering a denominator must hold at most this many bytes
