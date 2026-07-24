@@ -5,8 +5,8 @@
 use proptest::prelude::*;
 
 use crate::meter::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, wide_tooth_comb,
-    Packed,
+    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
+    jump_comb, wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
@@ -64,6 +64,12 @@ fn generator_families_render_and_parse_identically() {
         cliff_fan(512, 128),
         cancelling_chain(64, 64),
         cancelling_chain(512, 128),
+        jump_comb(1, 2),
+        jump_comb(64, 64),
+        jump_comb(512, 128),
+        harmonic(1),
+        harmonic(64),
+        harmonic(1_000),
         alt_spine(1),
         alt_spine(2),
         alt_spine(3),
