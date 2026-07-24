@@ -28,15 +28,32 @@ fn failing_root(root: crate::tree::Root<()>) -> StreamingRoot<Failing<Local>, ()
     }
 }
 
+/// The connected abort suite's injected faults: one structural shape
+/// (a reply reaction the pairing never asked for) and one content shape
+/// (a structurally legal supply whose version escapes the declared
+/// greeting version).
+///
+/// The escape rides a party no fixture ticks
+/// ([`Faulting`]'s injection machinery), so the supplied ceiling is
+/// *incomparable* with the declared version: the containment
+/// predicate's hard case crosses the connected driver end to end, not
+/// only the dominating regime the deterministic tripwires build.
+fn arb_connected_violation() -> impl Strategy<Value = Violation> {
+    prop_oneof![
+        Just(Violation::UnexpectedQuery),
+        Just(Violation::UncontainedSupply),
+    ]
+}
+
 proptest! {
     /// A genuine malformed reply crosses the fully connected driver as its
     /// detected violation while both materialized input roots remain untouched.
     #[test]
     fn connected_violation_aborts_without_mutating_root(
+        violation in arb_connected_violation(),
         server_steps in 0usize..=15,
         client_steps in 0usize..=15,
     ) {
-        let violation = Violation::UnexpectedQuery;
         let (client_root, server_root) =
             full_depth_comb_pair(2, LeafOrder::Interleaved);
         let before = (client_root.clone(), server_root.clone());

@@ -22,6 +22,9 @@
 pub(crate) mod alternating;
 pub mod streaming;
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) mod framing;
 pub(crate) mod handshake;
 pub(crate) mod party;
