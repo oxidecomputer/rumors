@@ -68,6 +68,21 @@ fn rendered_text_is_honest_and_padding_trips() {
     );
 }
 
+/// Pinned liveness floors for the delegating-parser pin, one per family:
+/// the whole `FromStr` pipeline's measured limb records × 0.85.
+///
+/// The pipeline records from three sites — the delegated radix conversion
+/// (one width-proportional count per materialized value), the gamma
+/// encoder's arithmetic, and the validator's wide decodes — and the radix
+/// site alone contributes ~33% on hugeleaf and ~25% on bigroot \[measured
+/// — pipeline totals 752 and 16_387; 502 and 12_260 with the radix
+/// recording deleted\]. A floor at ×0.85 (639 and 13_928) therefore sits
+/// above what the other two sites can reach, so a parse path that stops
+/// recording trips it; the values' mandatory limbs alone cannot separate
+/// that bypass (the encode-side arithmetic already covers them).
+#[cfg(feature = "limb-meter")]
+const DELEGATING_PARSE_LIMB_FLOORS: [(&str, u64); 2] = [("hugeleaf", 639), ("bigroot", 13_928)];
+
 /// The production parser's recorded limb work sits under the text-row limb
 /// ceiling κ on the wide-magnitude families, with a live counter.
 ///
@@ -76,15 +91,23 @@ fn rendered_text_is_honest_and_padding_trips() {
 /// per materialized value (the wide-gamma decode's convention), so its
 /// score against `R = n_io + Σ digits × limbs` is far under κ where
 /// conversion work dominates. The ceiling leg alone would pass vacuously
-/// if the parse path stopped recording, so the pin pairs it with a
-/// liveness floor: the recorded ops cover the values' mandatory limbs.
+/// if the parse path stopped recording, so the pin pairs it with two
+/// liveness floors: the derived one (the recorded ops cover the values'
+/// mandatory limbs) and the pinned per-family
+/// [`DELEGATING_PARSE_LIMB_FLOORS`], set above what the pipeline's
+/// non-radix recording sites reach so the radix delegation's own
+/// recording is required to pass.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn delegating_parser_stays_under_the_text_limb_ceiling() {
-    for (packed, name) in [
+    for ((packed, name), (floor_name, pinned_floor)) in [
         (hugeleaf(16_000), "hugeleaf"),
         (bigroot(8_000, 2_000), "bigroot"),
-    ] {
+    ]
+    .into_iter()
+    .zip(DELEGATING_PARSE_LIMB_FLOORS)
+    {
+        assert_eq!(name, floor_name, "the pinned floors mirror the family list");
         let v = version_of(&packed);
         let s = v.to_string();
         let n_io = s.len() + version_output_bytes(&v);
@@ -98,6 +121,11 @@ fn delegating_parser_stays_under_the_text_limb_ceiling() {
             ops >= floor,
             "{name}: the parse recorded {ops} limb ops under its {floor}-limb liveness \
              floor: the limb meter is not watching the parse path"
+        );
+        assert!(
+            ops >= pinned_floor,
+            "{name}: the parse recorded {ops} limb ops under the pinned {pinned_floor}-op \
+             floor: the radix delegation is not recording its materialized values"
         );
         let score = ops as f64 / r as f64;
         assert!(
