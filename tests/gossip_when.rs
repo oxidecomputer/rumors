@@ -14,8 +14,8 @@
 //! - clean shutdown on both the `when` stream ending and the peer hanging
 //!   up, and the error terminal.
 //!
-//! The adversarial half pins the cancellation and reuse contract from the
-//! hostile side:
+//! The second half pins the cancellation and reuse contract from the
+//! misbehaving side:
 //!
 //! - a driver dropped mid-session commits nothing and forfeits the
 //!   connection — the price the crate docs' "What a session promises"

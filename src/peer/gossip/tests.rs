@@ -105,7 +105,7 @@ fn marker_byte_space_is_exhaustive() {
 /// A peer that closes before its marker is a typed EOF, not a hang.
 ///
 /// The honest wire cut must surface [`Error::Epilogue`] with
-/// `UnexpectedEof` — the arm the two-generals residue lands on — kept
+/// `UnexpectedEof` — the arm the peer-committed-or-not residue lands on — kept
 /// distinct from the `InvalidData` violation above so operators can tell a
 /// dead link from a desynchronized peer.
 #[test]

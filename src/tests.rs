@@ -357,8 +357,8 @@ fn severed_retire(
 /// The trailing party frame was provably never sent, so the retiree comes back
 /// intact ([`Retire::Recovered`]) — same content, still-live party — and a
 /// subsequent clean retire of the recovered set reconstitutes the seed's whole
-/// id-space. This pins retire's fork-last ordering: the id-region is never in
-/// limbo during the descent.
+/// identity space. This pins retire's fork-last ordering: the identity is
+/// never in limbo during the descent.
 #[test]
 fn severed_descent_recovers_the_retiree() {
     let survivor = Peer::<u64>::seed();

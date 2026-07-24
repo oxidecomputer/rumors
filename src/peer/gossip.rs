@@ -537,7 +537,7 @@ impl<T, B: Persist> Peer<T, B> {
                     persist = true;
                 }
             }
-            // Reclaiming widens the party's id-region but records no new event,
+            // Reclaiming widens the party's identity but records no new event,
             // so the observable frontier is unchanged: no observer wakeup is due.
             false
         });

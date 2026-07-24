@@ -457,7 +457,9 @@ fn stream_face_matches_and_terminates() {
 }
 
 /// §6.6 (negative control): folding *delivered* versions is not a sound
-/// resume point. Delivery is in key order, not causal order, so a stopped
+/// resume point.
+///
+/// Delivery is in key order, not causal order, so a stopped
 /// pass can have delivered `m2` (later version) but not `m1` (earlier);
 /// the fold then causally contains `m1`, and resuming from it skips `m1`
 /// forever — loss, not re-delivery. `UnorderedMessages::checkpoint()` (the

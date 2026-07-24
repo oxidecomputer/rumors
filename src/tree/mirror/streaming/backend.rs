@@ -15,7 +15,8 @@
 //! The obligation is sharp because its failure mode is the odd one out:
 //! everywhere else in the budget derivation a mis-estimate costs latency,
 //! while an underpriced node breaches the *memory* envelope instead. The
-//! backend conformance suite ([`crate::conformance::backend`]) is how an
+//! backend conformance suite (`crate::conformance::backend`, compiled as
+//! this crate's own test gate; see [`crate::conformance`]) is how an
 //! implementation proves its account.
 
 use std::pin::Pin;

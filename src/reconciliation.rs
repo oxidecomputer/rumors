@@ -11,7 +11,7 @@
 //!
 //! Every message is stored under a [`Key`](crate::Key): the BLAKE3 hash
 //! binding the [`Version`](crate::Version) at which the message was sent to
-//! the message's canonical [`borsh`](crate::borsh) encoding. Both inputs are
+//! the message's canonical [`borsh`] encoding. Both inputs are
 //! deliberate.
 //!
 //! - **The version makes every send unique.** A replica's version advances

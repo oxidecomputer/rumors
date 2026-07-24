@@ -93,7 +93,7 @@ const MAX_HEAL_ROUNDS_PER_PEER: usize = 16;
 /// all versions are causally comparable or concurrent (every party forks one
 /// seed; concurrent pairs compare [`None`]), so a later emission can be `<=`
 /// an earlier one only by rolling backwards over a version the network
-/// already durably held — exactly a recycle. The emitting party's id-region
+/// already durably held — exactly a recycle. The emitting party's identity
 /// is deliberately *not* recorded: as the module docs argue, it would only
 /// rule out collisions the version order already forbids.
 struct Emission {

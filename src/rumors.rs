@@ -366,7 +366,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// Independently of these, an `Err` never rolls back identity the
     /// session reclaimed from the bookmark: it stays live in memory, and
     /// the next successful persist records it
-    /// ([`Error::Bookmark`](crate::Error::Bookmark) carries the
+    /// ([`Error::Bookmark`] carries the
     /// mechanism).
     ///
     /// Gossip sessions may run concurrently through any handles — the

@@ -1,5 +1,6 @@
 //! Integration tests for `rumors::Peer::retire`: a peer hands its ITC party
-//! to a counterparty, so its id-region is reclaimed rather than leaked.
+//! to a counterparty, so the identity space it held is reclaimed rather
+//! than leaked.
 //!
 //! A retire session begins with a round of gossip — the ordinary mirror
 //! descent — so the absorbing peer comes to causally dominate the retiree

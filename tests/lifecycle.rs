@@ -151,9 +151,10 @@ fn dropping_the_link_immediately_after_ok_is_clean() {
     assert_eq!(a.snapshot().len(), 2 * DIVERGENT_MESSAGES as usize);
 }
 
-/// The two-generals residue is distinguished and post-commit: with A's
-/// final epilogue marker lost — B's incoming bytes cut exactly one byte
-/// short of a clean session, measured from a byte-identical probe run —
+/// The peer-committed-or-not residue is distinguished and post-commit.
+///
+/// With A's final epilogue marker lost — B's incoming bytes cut exactly one
+/// byte short of a clean session, measured from a byte-identical probe run —
 /// A's `Ok` still lands, while B fails with [`Error::Epilogue`] rather
 /// than any pre-commit class, and B's replica nonetheless holds the fully
 /// reconciled content. A cut landing anywhere earlier would fail these

@@ -74,7 +74,7 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// churny network and is hard to hit.
 ///
 /// The record is partitioned by universe: it keeps every identity from
-/// every [`Network`](crate::Network) it has seen, each filed under its
+/// every [`Network`] it has seen, each filed under its
 /// originating universe. Loading a bookmark whose record belongs to a
 /// different universe is not an error — the foreign identities simply lie
 /// dormant, unusable unless and until the peer joins that universe again —
