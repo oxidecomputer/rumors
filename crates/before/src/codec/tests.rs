@@ -722,9 +722,14 @@ fn reject_noncanonical_event() {
 ///
 /// The digit run is handed whole to the delegated radix conversion, so this
 /// pins the run-level grammar the delegation must preserve: exactly what
-/// digit-at-a-time accumulation accepts, nothing more.
+/// digit-at-a-time accumulation accepts, nothing more — ASCII digits only
+/// (a Unicode digit is a syntax error wherever it touches a run), exact
+/// across the `u64` and `u128` representation boundaries, at any width,
+/// and identically at every syntax position of the event grammar.
 #[test]
 fn parse_base_digit_run_grammar() {
+    use dashu_int::UBig;
+
     use crate::error::Parse;
 
     // Leading zeros are value-preserving, not canonical-form violations.
@@ -739,6 +744,56 @@ fn parse_base_digit_run_grammar() {
     let wide = "1606938044258990275541962092341162602522202993782792835301376"; // 2^200
     let v: Version = wide.parse().expect("an arbitrary-width base parses");
     assert_eq!(v.to_string(), wide);
+
+    // A run is ASCII digits only: a Unicode digit (here arabic-indic ٧,
+    // U+0667) never joins a run — before, inside, or after one, at leaf
+    // and at node-base position alike, it is a syntax error.
+    for text in ["٧", "٧7", "1٧", "1٧2", "(٧, 0, 1)", "(1٧, 0, 1)"] {
+        assert_eq!(
+            text.parse::<Version>(),
+            Err(Parse::Syntax),
+            "a Unicode digit must not extend or form a run: {text:?}"
+        );
+    }
+
+    // The u64 and u128 representation boundaries: 2^64 ± 1 and 2^128 ± 1
+    // (with the powers themselves) round-trip exactly on both sides.
+    for boundary in [
+        "18446744073709551615",                    // 2^64 − 1
+        "18446744073709551616",                    // 2^64
+        "18446744073709551617",                    // 2^64 + 1
+        "340282366920938463463374607431768211455", // 2^128 − 1
+        "340282366920938463463374607431768211456", // 2^128
+        "340282366920938463463374607431768211457", // 2^128 + 1
+    ] {
+        let v: Version = boundary.parse().expect("a boundary magnitude parses");
+        assert_eq!(v.to_string(), boundary, "exact across the width boundary");
+    }
+
+    // A huge run: 10^10_000 spelled as 10_001 digits, value-checked
+    // against the backend's independent power construction and unchanged
+    // by a run of leading zeros.
+    let huge = format!("1{}", "0".repeat(10_000));
+    assert_eq!(
+        huge,
+        Base(UBig::from(10u8).pow(10_000)).to_string(),
+        "the spelled digits are the independently constructed 10^10000"
+    );
+    let v: Version = huge.parse().expect("a 10k-digit run parses");
+    assert_eq!(v.to_string(), huge);
+    let zero_padded: Version = format!("000{huge}")
+        .parse()
+        .expect("leading zeros on a huge run are value-preserving");
+    assert_eq!(zero_padded, v);
+
+    // The same wide run embedded at every syntax position of the event
+    // grammar at once: root base, nested node base, and leaf.
+    let b = "18446744073709551616"; // 2^64
+    let embedded = format!("({b}, ({b}, 0, {b}), 0)");
+    let v: Version = embedded
+        .parse()
+        .expect("wide bases parse at every position");
+    assert_eq!(v.to_string(), embedded);
 }
 
 /// The byte `decode` paths are the only ones that yield a top-level `Party`
