@@ -1,0 +1,372 @@
+//! Differential pins for the skyline grow against three witnesses.
+//!
+//! The packed-form `grow` is the byte-level oracle (canonical uniqueness
+//! makes the differential total: the grown stream must equal the
+//! transcoded packed-form result byte for byte), a reference *recursive*
+//! probe pins the iterative probe's [`Route`] bit vector — the explicit
+//! guard against a probe/emit coordinate drift, which would misread a
+//! direction silently rather than panic — and the brute-force
+//! minimal-inflation search holds the whole kernel to `grow`'s defining
+//! optimality directly, not merely to another implementation of the same
+//! dynamic program.
+
+use proptest::prelude::*;
+use rayon::prelude::*;
+
+use crate::codec::BitsSlice;
+use crate::meter::{
+    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
+    id_spine, scattered_id, wide_tooth_comb, Packed,
+};
+use crate::recurse::descend;
+use crate::testing::bridge::{
+    from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
+};
+use crate::testing::exhaustive::{
+    all_normal_events, all_normal_ids, EV_SMALL_DEPTH, ID_SMALL_DEPTH,
+};
+use crate::testing::grow_brute_force::best_inflation;
+use crate::testing::{generators, optrace};
+use crate::version::skyline::{encode, live_bits, validate, Encoded};
+use crate::version::working::WorkingVersion;
+use crate::{Clock, Party, Version};
+
+use super::{grow, id_tag, probe, Cost, EvScan, Kind, Route, COST_MAX};
+
+/// Decode a meter-generated packed event shape as a [`Version`].
+fn version_of(p: &Packed) -> Version {
+    Version::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+}
+
+/// Decode a meter-generated packed id shape as a [`Party`].
+fn party_of(p: &Packed) -> Party {
+    Party::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+}
+
+/// The packed-form grow, lifted to stored versions: the behavioral
+/// oracle the skyline kernel must transcode-commute with.
+fn packed_grow(v: &Version, p: &Party) -> Version {
+    let working = WorkingVersion::unpack(v.as_bits());
+    let grown = crate::version::event::grow::grow(&working, p.as_bits());
+    Version::from_bits(grown.repack())
+}
+
+/// Assert the kernel against the packed-form oracle on one pair, check
+/// the output validates as canonical, and pin the iterative probe's
+/// route against the reference recursive probe bit for bit.
+fn assert_grow(v: &Version, p: &Party) {
+    let enc = encode(v);
+    let out = grow(&enc, p);
+    let expected = encode(&packed_grow(v, p));
+    assert_eq!(out, expected, "grow must transcode-commute: {v} with {p}");
+    validate(&out.bytes, out.bits).expect("a grown stream is canonical");
+
+    let ev_bits = live_bits(&enc.bytes, enc.bits);
+    let id_bits = p.as_bits();
+    let mut iterative = Route::new(id_bits.len(), ev_bits.len());
+    let iterative_cost = probe(ev_bits, id_bits, &mut iterative);
+    let (reference, reference_cost) = reference_probe(ev_bits, id_bits);
+    assert_eq!(
+        iterative_cost, reference_cost,
+        "the iterative probe's root cost must match the recursive reference: {v} with {p}"
+    );
+    assert_eq!(
+        iterative.dirs, reference.dirs,
+        "the iterative probe's route must match the recursive reference bit for bit: {v} with {p}"
+    );
+}
+
+// ───────────── the reference recursive probe ─────────────
+
+/// The id side of a reference descent: a real node, the full regime, or
+/// an absent (infeasible) child.
+#[derive(Clone, Copy)]
+enum RefId {
+    At,
+    Full,
+    Empty,
+}
+
+/// Probe the cheapest inflation by direct recursion over the `(id, ev)`
+/// shape — the transliteration of the recursive walk the iterative probe
+/// replaces, kept as its structural witness.
+fn reference_probe(ev_bits: &BitsSlice, id_bits: &BitsSlice) -> (Route, Cost) {
+    let mut route = Route::new(id_bits.len(), ev_bits.len());
+    let mut ev = EvScan::new(ev_bits);
+    let mut id_pos = 0usize;
+    let root = if id_bits.is_empty() {
+        RefId::Empty
+    } else {
+        RefId::At
+    };
+    let cost = descend!(
+        0,
+        rec(&mut route, &mut ev, id_bits, &mut id_pos, root, false, 0)
+    );
+    (route, cost)
+}
+
+/// One reference recursion step; `ev_zero` marks the virtual zero leaf
+/// below an expanded event leaf.
+#[allow(clippy::too_many_arguments)]
+fn rec(
+    route: &mut Route,
+    ev: &mut EvScan<'_>,
+    id_bits: &BitsSlice,
+    id_pos: &mut usize,
+    id: RefId,
+    ev_zero: bool,
+    depth: usize,
+) -> Cost {
+    match id {
+        RefId::Empty => {
+            if !ev_zero {
+                ev.skip();
+            }
+            COST_MAX
+        }
+        RefId::Full => {
+            if ev_zero {
+                return (0, 0);
+            }
+            let key = ev.pos();
+            if ev.read().is_none() {
+                let l = descend!(
+                    depth + 1,
+                    rec(route, ev, id_bits, id_pos, RefId::Full, false, depth + 1)
+                );
+                let r = descend!(
+                    depth + 1,
+                    rec(route, ev, id_bits, id_pos, RefId::Full, false, depth + 1)
+                );
+                combine(route, Kind::FullEvNode, key, l, r)
+            } else {
+                (0, 0)
+            }
+        }
+        RefId::At => {
+            let key = *id_pos;
+            let (l, r) = id_tag(id_bits, *id_pos);
+            *id_pos += 2;
+            if !l && !r {
+                return rec(route, ev, id_bits, id_pos, RefId::Full, ev_zero, depth);
+            }
+            let kind = if ev_zero || ev.read().is_some() {
+                Kind::Expand
+            } else {
+                Kind::Both
+            };
+            let zero = kind == Kind::Expand;
+            let la = if l { RefId::At } else { RefId::Empty };
+            let lc = descend!(
+                depth + 1,
+                rec(route, ev, id_bits, id_pos, la, zero, depth + 1)
+            );
+            let ra = if r { RefId::At } else { RefId::Empty };
+            let rc = descend!(
+                depth + 1,
+                rec(route, ev, id_bits, id_pos, ra, zero, depth + 1)
+            );
+            combine(route, kind, key, lc, rc)
+        }
+    }
+}
+
+/// Pick the cheaper child, record the direction, and fold the branch
+/// cost, exactly as the iterative probe's pop arm does.
+fn combine(route: &mut Route, kind: Kind, key: usize, left: Cost, right: Cost) -> Cost {
+    let left_chosen = left < right;
+    route.record(kind, key, left_chosen);
+    let m = if left_chosen { left } else { right };
+    match kind {
+        Kind::Expand => (m.0.saturating_add(1), m.1.saturating_add(1)),
+        Kind::Both | Kind::FullEvNode => (m.0, m.1.saturating_add(1)),
+    }
+}
+
+// ───────────── deterministic grids ─────────────
+
+/// The adversarial event pool the deterministic grids run over.
+fn event_pool() -> Vec<Version> {
+    vec![
+        Version::new(),
+        version_of(&dense(1)),
+        version_of(&dense(2)),
+        version_of(&dense(64)),
+        version_of(&bigroot(7, 3)),
+        version_of(&bigroot(64, 16)),
+        version_of(&hugeleaf(1)),
+        version_of(&hugeleaf(64)),
+        version_of(&cliff_comb(3, 2)),
+        version_of(&cliff_comb(16, 16)),
+        version_of(&wide_tooth_comb(16, 8, 8)),
+        version_of(&cliff_fan(16, 8)),
+        version_of(&cancelling_chain(16, 8)),
+        version_of(&alt_spine(3)),
+        version_of(&alt_spine(64)),
+        version_of(&harmonic(16)),
+    ]
+}
+
+/// The adversarial party pool: the seed, deep and diverted unary
+/// spines, scattered ownership, and every exhaustive small-scope id
+/// that owns anything.
+fn party_pool() -> Vec<Party> {
+    let mut pool = vec![
+        Party::seed(),
+        party_of(&id_spine(1, false)),
+        party_of(&id_spine(3, false)),
+        party_of(&id_spine(3, true)),
+        party_of(&id_spine(64, false)),
+        party_of(&id_spine(64, true)),
+        party_of(&scattered_id(1)),
+        party_of(&scattered_id(16)),
+    ];
+    for oid in all_normal_ids(2) {
+        let p = from_oracle_party(&oid);
+        if !p.as_bits().is_empty() {
+            pool.push(p);
+        }
+    }
+    pool
+}
+
+/// Every event-family × party-family pair grows byte-identically to
+/// the packed-form oracle, validates, and probes route-identically to
+/// the recursive reference.
+#[test]
+fn family_pairs_grow_identically() {
+    let events = event_pool();
+    let parties = party_pool();
+    events.par_iter().for_each(|v| {
+        for p in &parties {
+            assert_grow(v, p);
+        }
+    });
+}
+
+/// Exhaustive small scope: every normal-form event tree × every
+/// owning normal-form id grows byte-identically to the oracle AND to
+/// the brute-force right-favoring minimal inflation.
+///
+/// Brute force reaches every branch genre — increments, expansions at
+/// every depth, both collapse directions at the inflation point, ties
+/// in both cost components — deterministically rather than by
+/// sampling.
+#[test]
+fn exhaustive_small_scope_grows_identically() {
+    let events: Vec<(Version, Encoded)> = all_normal_events(EV_SMALL_DEPTH)
+        .iter()
+        .map(|t| {
+            let v = from_oracle_version(t);
+            let e = encode(&v);
+            (v, e)
+        })
+        .collect();
+    let parties: Vec<Party> = all_normal_ids(ID_SMALL_DEPTH)
+        .iter()
+        .map(from_oracle_party)
+        .filter(|p| !p.as_bits().is_empty())
+        .collect();
+    events.par_iter().for_each(|(v, enc)| {
+        for p in &parties {
+            assert_grow(v, p);
+            let (best, _) = best_inflation(&to_oracle_party(p), &to_oracle_version(v))
+                .expect("an owning id always inflates");
+            let minimal = from_oracle_version(&best.normalized_for_test());
+            assert_eq!(
+                grow(enc, p),
+                encode(&minimal),
+                "grow must register the brute-force minimal inflation: {v} with {p}"
+            );
+        }
+    });
+}
+
+/// The worked examples, pinned end to end: a plain increment, both
+/// collapse directions at the inflation point, and one- and two-level
+/// expansion chains.
+#[test]
+fn worked_examples_grow_exactly() {
+    let cases: [(&str, &str, &str); 6] = [
+        // The id owns the left half: the free increment.
+        ("(1, 0)", "(0, 1, 0)", "(0, 2, 0)"),
+        // Incrementing the right leaf equalizes the pair: collapse.
+        ("(0, 1)", "(1, 1, 0)", "2"),
+        // Incrementing the left leaf equalizes the pair: collapse.
+        ("(1, 0)", "(1, 0, 1)", "2"),
+        // An id node over a leaf: one expansion, grown side left.
+        ("(1, 0)", "3", "(3, 1, 0)"),
+        // Mirrored: grown side right.
+        ("(0, 1)", "3", "(3, 0, 1)"),
+        // A two-level chain, all left.
+        ("((1, 0), 0)", "0", "(0, (0, 1, 0), 0)"),
+    ];
+    for (party, before, after) in cases {
+        let p: Party = party.parse().expect("test party literals parse");
+        let v: Version = before.parse().expect("test version literals parse");
+        let expected: Version = after.parse().expect("test version literals parse");
+        assert_eq!(
+            grow(&encode(&v), &p),
+            encode(&expected),
+            "grow of {before} with {party} must yield {after}"
+        );
+        assert_grow(&v, &p);
+    }
+}
+
+/// Deep spines in every regime stay correct at depths that would
+/// overflow a native-frame walk long before the resource envelopes
+/// notice: the frame-count adversary (alternating spine under the full
+/// id), a deep expansion chain (unary id spine over one leaf), and a
+/// deep two-cursor descent (both spines together).
+#[test]
+fn deep_spines_grow_identically() {
+    let deep_ev = version_of(&alt_spine(4096));
+    assert_grow(&deep_ev, &Party::seed());
+    let deep_id = party_of(&id_spine(4096, false));
+    assert_grow(&Version::new(), &deep_id);
+    assert_grow(&deep_ev, &deep_id);
+}
+
+proptest! {
+    /// Arbitrary owning parties over arbitrary normal-form versions
+    /// (magnitudes past `u64::MAX` included) grow byte-identically to
+    /// the packed-form oracle, validate, and probe route-identically —
+    /// and register exactly the brute-force minimal inflation.
+    #[test]
+    fn arbitrary_pairs_grow_identically(
+        op in generators::arb_oracle_party_nonempty(),
+        ov in generators::arb_oracle_version(),
+    ) {
+        let p = from_oracle_party(&op);
+        let v = from_oracle_version(&ov);
+        assert_grow(&v, &p);
+        let (best, _) = best_inflation(&op, &ov).expect("an owning id always inflates");
+        let minimal = from_oracle_version(&best.normalized_for_test());
+        prop_assert_eq!(
+            grow(&encode(&v), &p),
+            encode(&minimal),
+            "grow must register the brute-force minimal inflation: {} with {}", v, p
+        );
+    }
+
+    /// Every clock produced by one organic fork/tick/send/sync/join
+    /// history grows its version from its own party byte-identically
+    /// to the packed-form oracle — and from every *other* clock's
+    /// party, the concurrent-editor shape.
+    #[test]
+    fn organic_histories_grow_identically(ops in optrace::world_strategy_up_to(40)) {
+        let mut clocks = vec![Clock::seed()];
+        for op in &ops {
+            optrace::step_impl(&mut clocks, op);
+        }
+        for a in &clocks {
+            for b in &clocks {
+                if !b.party().as_bits().is_empty() {
+                    assert_grow(a.version(), b.party());
+                }
+            }
+        }
+    }
+}

@@ -82,7 +82,7 @@ use super::working::WorkingVersion;
 mod builder;
 mod combine;
 mod fill;
-mod grow;
+pub(crate) mod grow;
 mod max;
 mod min_ticks;
 mod project;

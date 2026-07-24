@@ -31,7 +31,11 @@
 //! the packed-form operators byte for byte; the [`query`] submodule
 //! answers the linear functionals (rank, distance, lag, min_ticks) and
 //! projection from the same leaf sweeps, differentially pinned against
-//! the packed-form implementations. The module is test- and
+//! the packed-form implementations; the [`grow`](mod@grow) submodule
+//! registers an event by the cheapest inflation — an iterative
+//! topology-only probe, then a splice emit that rebuilds one
+//! root-to-leaf path — differentially pinned against the packed-form
+//! `grow` byte for byte. The module is test- and
 //! meter-visible only, via [`crate::meter::skyline`].
 //!
 //! # Canonical form
@@ -119,7 +123,7 @@
 //!   segment, limb, and accumulator-touch envelopes on the adversarial
 //!   families.
 
-use crate::codec::{self, Base, BitsSlice};
+use crate::codec::{self, Base, Bits, BitsSlice};
 use crate::error::Decode;
 use crate::Version;
 
@@ -127,6 +131,7 @@ mod build;
 mod decode;
 pub mod emit;
 mod encode;
+pub mod grow;
 pub mod query;
 pub mod sweep;
 mod validate;
@@ -252,4 +257,11 @@ fn unzigzag(code: Base) -> (bool, Base) {
     } else {
         (false, code >> 1u32)
     }
+}
+
+/// A value's gamma code as a fresh payload-code buffer.
+fn gamma_code(value: &Base) -> Bits {
+    let mut code = Bits::new();
+    codec::encode_int(&mut code, value);
+    code
 }

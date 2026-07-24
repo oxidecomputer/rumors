@@ -65,11 +65,11 @@
 use core::cmp::Ordering;
 
 use crate::codec::accum::Accum;
-use crate::codec::{self, Base, Bits, BitsSlice};
+use crate::codec::{self, Base, BitsSlice};
 
 use super::build::SkylineBuilder;
 use super::sweep::{advance, LeafCursor, Side, Step};
-use super::{zigzag_signed, Encoded};
+use super::{gamma_code, zigzag_signed, Encoded};
 
 /// The join (pointwise max) of the versions two skyline streams denote,
 /// as a canonical skyline stream.
@@ -215,13 +215,6 @@ pub(super) fn signed_sum(x_neg: bool, x: Base, y_neg: bool, y: &Base) -> (bool, 
         Ordering::Less => (y_neg, y.clone() - &x),
         Ordering::Equal => (false, Base::ZERO),
     }
-}
-
-/// A value's gamma code as a fresh payload-code buffer.
-fn gamma_code(value: &Base) -> Bits {
-    let mut code = Bits::new();
-    codec::encode_int(&mut code, value);
-    code
 }
 
 #[cfg(test)]

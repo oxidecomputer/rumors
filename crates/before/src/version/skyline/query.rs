@@ -87,7 +87,7 @@ use crate::Rank;
 use super::build::SkylineBuilder;
 use super::emit::{self, signed_sum};
 use super::sweep::{LeafCursor, Side, Step};
-use super::{zigzag_signed, Encoded};
+use super::{gamma_code, zigzag_signed, Encoded};
 
 /// The live accumulator's width bound, in base-2^32 digits: a folded
 /// delta leaving `L` wider than this freezes the height split.
@@ -662,13 +662,6 @@ fn max_depth(bits: &BitsSlice) -> usize {
             }
         }
     }
-}
-
-/// A value's gamma code as a fresh payload-code buffer.
-fn gamma_code(value: &Base) -> Bits {
-    let mut code = Bits::new();
-    codec::encode_int(&mut code, value);
-    code
 }
 
 #[cfg(test)]
