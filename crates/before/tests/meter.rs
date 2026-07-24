@@ -143,9 +143,9 @@ mod envelope {
     pub const JOIN_BIGROOT: Envelope    = envelope(63_075_342,       20,   109_539_093); // 51_515_838 -> 50_460_273, 16, 100_150_646 -> 87_631_272 -> 87_631_274 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder; metered Base equality)
     pub const DECODE_HUGELEAF: Envelope = envelope(    58_604,        0,         2_443); //     55_827 -> 46_883, 0, 122_132_816 -> 1_954 (2026-07-23, limb-wise wide-gamma decode)
     pub const JOIN_HUGELEAF: Envelope   = envelope(   139_714,        0,         9_777); //  3_127_365 -> 111_771, 0, 122_138_683 -> 7_821 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder)
-    pub const ID_JOIN: Envelope         = envelope(   156_252,      253,             0); //    125_001, 202,           0
-    pub const ID_COVERS: Envelope       = envelope(         0,      107,             0); //          0,  85,           0
-    pub const ID_DISJOINT: Envelope     = envelope(         0,      213,             0); //          0, 170,           0
+    pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0); //    125_001 -> 223_305, 202 -> 0, 0 (2026-07-24, iterative id walks: frame bits on the heap, no grown segments)
+    pub const ID_COVERS: Envelope       = envelope(        10,        0,             0); //          0 -> 8,  85 -> 0, 0 (2026-07-24, iterative id walks)
+    pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
     pub const DECODE_CLIFF: Envelope    = envelope(   718_402,        0,        51_200); //    574_721,   0,        40_960 (2026-07-23, new scenario)
     pub const CMP_CLIFF: Envelope       = envelope(       820,        0,       238_093); //        656,   0,       190_474 (2026-07-23, new scenario)
@@ -1837,7 +1837,8 @@ fn id_pair_input_bytes(a: &meter::Packed, b: &meter::Packed) -> usize {
 }
 
 /// Joining the diverted id-spine pair stays within its envelope (the
-/// two-tree walk recurses to full lockstep depth).
+/// two-tree walk runs to full lockstep depth; its iterative frames must
+/// grow no stack segments).
 #[test]
 fn id_join_envelope() {
     let pa = meter::id_spine(ID_DEPTH, false);
@@ -1854,7 +1855,8 @@ fn id_join_envelope() {
 }
 
 /// `covers` over the diverted id-spine pair stays within its envelope (the
-/// two-tree walk recurses to full lockstep depth).
+/// two-tree walk runs to full lockstep depth; its iterative frames must
+/// grow no stack segments).
 #[test]
 fn id_covers_envelope() {
     let pa = meter::id_spine(ID_DEPTH, false);

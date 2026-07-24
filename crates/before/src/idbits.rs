@@ -16,13 +16,13 @@
 //!
 //! The bit stream is wrapped in [`IdReader`] — a consuming cursor that parallels
 //! the event side's [`EvReader`](crate::version::compare) — so the operations
-//! read as the paper's recursive `match` over [`IdNode`].
+//! read as the paper's `match` over [`IdNode`].
 //!
 //! **Normal-form precondition.** Every `Party` is in canonical normal form
 //! (`decode` rejects anything else; every op produces normal form), and so is
 //! every subtree of one. Because `0` is structural absence and `(1, 1)` cannot
-//! appear, an empty region is *exactly* an absent child ([`IdNode::Empty`], only
-//! ever yielded by a synthetic reader) and a full region is *exactly* a terminal
+//! appear, an empty region is *exactly* an absent child ([`IdNode::Empty`],
+//! only ever synthesized, never stored) and a full region is *exactly* a terminal
 //! ([`IdNode::Full`]), so emptiness/fullness are `O(1)` checks on a decoded node
 //! rather than subtree scans. Callers must only pass normal-form id bits.
 
@@ -33,15 +33,16 @@ use crate::step;
 /// node tagged with which of its children are present.
 ///
 /// The id-side analogue of the event side's `EvNode` — the clean shape the
-/// operations recurse on (the paper's id grammar `i ::= 0 | 1 | (i1, i2)`).
+/// operations match on (the paper's id grammar `i ::= 0 | 1 | (i1, i2)`).
 ///
 /// `Empty` is never decoded from the stream — a `0` occupies no bits — so it
-/// arises only from the synthetic [`IdReader::Empty`], handed in for an absent
-/// child. `Internal` always has at least one present child (a node with neither
+/// is only ever synthesized for an absent child: by the
+/// [`IdReader::Empty`] reader, or directly by a walk threading presence
+/// bits. `Internal` always has at least one present child (a node with neither
 /// would be `(0, 0)`, which collapses to `0`).
 #[derive(Clone, Copy)]
 pub(crate) enum IdNode {
-    /// The `0` leaf: an unowned region. Only ever from a synthetic reader.
+    /// The `0` leaf: an unowned region. Only ever synthesized, never stored.
     Empty,
     /// The `1` leaf: a fully-owned region (a terminal, tag `00`).
     Full,
@@ -56,7 +57,7 @@ pub(crate) enum IdNode {
 /// [`EvReader`](crate::version::compare): it *consumes* —
 /// [`read`](IdReader::read) decodes the node at the cursor and advances it in
 /// place — so operations thread `&mut` readers and read as the paper's
-/// recursive `match`.
+/// `match`.
 ///
 /// - `At`: a bit offset into the packed id stream.
 /// - `Full`: a synthetic terminal that consumes nothing — the id-side analogue

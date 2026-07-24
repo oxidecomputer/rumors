@@ -27,11 +27,11 @@ impl IdReader<'_> {
     /// `diff(1, b)` complements `b`, each bounded by the output size.
     ///
     /// The cursor form of `oracle::Party::without`. It recurses only where
-    /// *both* operands are internal — so, as in [`sum`](IdReader::sum), one
-    /// shallow operand caps the recursion depth, and [`crate::recurse`]
-    /// guards what remains. The one-sided `diff(1, b)` arm emits
-    /// `complement(b)` iteratively (see [`DiffWalk::complement`]), so a deep
-    /// subtrahend under a full region drives no recursion at all.
+    /// *both* operands are internal — so one shallow operand caps the
+    /// recursion depth, and [`crate::recurse`] guards what remains. The
+    /// one-sided `diff(1, b)` arm emits `complement(b)` iteratively (see
+    /// [`DiffWalk::complement`]), so a deep subtrahend under a full region
+    /// drives no recursion at all.
     pub(crate) fn diff(mut self, mut other: IdReader) -> Bits {
         let mut walk = DiffWalk {
             // `self \ other` is a subregion of `self`, but `diff(1, b)` emits
