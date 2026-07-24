@@ -8,8 +8,8 @@ use rand::RngCore;
 /// The identifier shared by every [`Rumors`](crate::Rumors) that descends from
 /// the same [`seed`](crate::Peer::seed).
 ///
-/// When two [`Rumors`](crate::Rumors) [`gossip`](crate::Rumors::gossip), it is
-/// essential that they belong to the same causal universe. Two
+/// When two [`Rumors`](crate::Rumors) [`gossip`](crate::Rumors::gossip), they
+/// must belong to the same causal universe. Two
 /// [`Peer`](crate::Peer)s from *independent* [`seed`](crate::Peer::seed)s can
 /// end up with coincidentally and transiently compatible causal state despite
 /// sharing no true causal history. Such peers must never combine, and the

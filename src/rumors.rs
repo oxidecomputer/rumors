@@ -150,8 +150,8 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// observation is definitely in the causal past of the send — an update
     /// issued after seeing a prior value dominates that value, and
     /// concurrency arises only between writers that had not observed each
-    /// other. The boundary: a batch is composed without holding the lock,
-    /// and concurrent synchronization can land before it commits (the
+    /// other. The boundary: building a batch holds no lock, and
+    /// concurrent synchronization can land before the batch commits (the
     /// commit takes only a very short lock on the set's internal state), so
     /// sends from different threads or different batches carry **no**
     /// guaranteed causal relationship to one another unless the application

@@ -82,8 +82,8 @@ const CONTROL_PROBE_BA: &[u8] = b"rumors-conformance-control:b>a";
 /// Bytes each side writes concurrently in the control-duplex probe.
 ///
 /// The fill must overrun the transport's control buffering, so a carrier
-/// that couples the two directions is forced to wedge instead of absorbing
-/// the whole exchange: the probe proves direction independence only up to
+/// that couples the two directions wedges instead of absorbing the whole
+/// exchange: the probe proves direction independence only up to
 /// this much hidden buffering (see the module docs). 32 KiB is four times
 /// the in-memory reference's buffer and past common transport defaults,
 /// while staying affordable for a deterministic single-poll driver at
@@ -147,9 +147,10 @@ const SESSION_PAYLOADS: u64 = 48;
 /// Run the whole conformance suite against fresh pairs from `pair`.
 ///
 /// Each check consumes one fresh pair; `pair` is called once per check, and
-/// every focused check probes both directions of its pair, so an asymmetric
-/// implementation is validated on each side's connector and acceptor. See
-/// the [module docs](self) for executor and timeout requirements.
+/// every focused check probes both directions of its pair, so the suite
+/// validates an asymmetric implementation on each side's connector and
+/// acceptor. See the [module docs](self) for executor and timeout
+/// requirements.
 ///
 /// # Panics
 ///

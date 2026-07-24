@@ -11,10 +11,10 @@ use tokio::sync::watch;
 ///
 /// This enumerates every message not causally contained in the starting
 /// checkpoint, then every message learned afterwards — by local
-/// [`send`](crate::Rumors::send), by gossip, from any handle — and `None` once
-/// the [`Peer`](crate::Peer) and every [`Rumors`](crate::Rumors) have dropped
-/// and no further change is possible, after yielding every message learned
-/// prior.
+/// [`send`](crate::Rumors::send), by gossip, from any handle — and, after
+/// yielding every message learned prior, `None` once the [`Peer`](crate::Peer)
+/// and every [`Rumors`](crate::Rumors) have dropped and no further change is
+/// possible.
 ///
 /// There are two ways to use it:
 ///

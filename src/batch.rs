@@ -15,13 +15,13 @@ use crate::{Inner, Key};
 /// the statement), and chaining accumulates
 /// (`rumors.batch().send(a).send(b).redact(key);`) into one commit.
 ///
-/// Building a [`Batch`] holds no lock; the rumor set is locked momentarily when
-/// the batch commits.
+/// Building a [`Batch`] holds no lock; committing locks the rumor set
+/// momentarily.
 ///
 /// Commit is the causal moment: a sent message's version dominates
 /// everything this replica had observed when the batch committed, not when
 /// the batch was built ([`Rumors::send`](crate::Rumors::send) states the
-/// contract and its boundary). Because composition holds no lock,
+/// contract and its boundary). Because building holds no lock,
 /// concurrent synchronization can land between building and committing,
 /// and two batches carry no guaranteed causal relationship to one another
 /// unless the application synchronizes them itself.

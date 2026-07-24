@@ -28,10 +28,10 @@ mod gossip;
 pub use bootstrap::{BookmarkedBootstrap, Bootstrap, Joined};
 pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 
-/// The start and end of the lifecycle of a [`Rumors`].
+/// The start and end of a [`Rumors`]'s lifecycle.
 ///
-/// A [`Peer`] is the unique `!Clone` anchor for the identity of a participant
-/// in the gossip protocol. Peer identity in [`rumors`](crate) is *not*
+/// A [`Peer`] is the unique `!Clone` anchor for a participant's identity in
+/// the gossip protocol. Peer identity in [`rumors`](crate) is *not*
 /// self-sovereign: it descends from the community of [`Peer`]s. Exactly *one*
 /// [`Peer`] should call [`Peer::seed`] to establish the unique [`Network`];
 /// peers whose identities descend from different calls to [`Peer::seed`] can
@@ -130,10 +130,9 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 /// event count wins, with total comparison on [`Network`] breaking ties.
 /// Each side declared its count in the session's handshake, so both apply
 /// the rule from the one error alone, with nothing further to fetch or
-/// race, and agree without coordination on which will persist in its
-/// [`Peer`] identity (the greater) and which will attempt to
-/// re-[`bootstrap`](Peer::bootstrap) into the dominating [`Network`] (the
-/// lesser).
+/// race, and agree without coordination: the greater persists in its
+/// [`Peer`] identity, and the lesser attempts to
+/// re-[`bootstrap`](Peer::bootstrap) into the dominating [`Network`].
 ///
 /// If peers are reasonably well-connected as the network gets started, this
 /// quickly reaches a stable steady state, disrupted only if a group of new
@@ -266,8 +265,8 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// Retire this rumor set into a remote peer, handing it our identity so
     /// that it can be recycled by the network.
     ///
-    /// See the [type-level lifecycle example](Peer) for how the four
-    /// [`Retire`] outcomes are handled; in brief, a session reconciles content
+    /// See the [type-level lifecycle example](Peer) for how to handle the
+    /// four [`Retire`] outcomes; in brief, a session reconciles content
     /// exactly as [`gossip`](crate::Rumors::gossip) would and then the peer
     /// absorbs our identity, with the outcome reporting what survived. What
     /// `Ok`, `Err`, and cancellation promise is stated in [what a session
@@ -304,8 +303,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
 
     /// Bound the memory a synchronization may spend on pipelining.
     ///
-    /// Reconciliation pipelines disputed subtrees so wire latency is paid
-    /// per tree level rather than per disputed subtree. Pipelining is
+    /// Reconciliation pipelines disputed subtrees to pay wire latency per
+    /// tree level rather than per disputed subtree. Pipelining is
     /// what costs memory — kilobytes per disputed subtree in flight,
     /// priced by the storage backend's own cost function — and
     /// `budget_bytes` is its worst-case envelope, not an allocation: a
@@ -314,10 +313,10 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// residency (one fan of backend-priced leaves plus an in-hand
     /// record per reply stream — ~0.2 MB under the in-memory backend, a
     /// term of the corpus-fixed charge `F` in the accuracy band below).
-    /// Encoded wire messages in hand are not governed by this setting:
-    /// derived from the
-    /// stream schedule, at most one run per stream per direction, so up
-    /// to [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
+    /// This setting does not govern encoded wire messages in hand: the
+    /// stream schedule bounds those, at most one run per stream per
+    /// direction, so up to
+    /// [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
     /// [`target_message_size`](Self::target_message_size) — ~19 MB per
     /// direction at the defaults, plus a lone over-target record's
     /// overhang.
@@ -481,8 +480,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// setting). Each session therefore runs at
     /// the **minimum** of the two ends' targets: the greeting carries
     /// each side's setting, and each side's *encoder* batches within
-    /// that minimum — yours bounds the frames you build, and a
-    /// conforming peer builds the frames it sends you within it too —
+    /// that minimum — your setting bounds the frames you build and,
+    /// through that minimum, the frames a conforming peer sends you —
     /// so the more memory-constrained peer sets the pace. Peers with
     /// different settings interoperate.
     ///

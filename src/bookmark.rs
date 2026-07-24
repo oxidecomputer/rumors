@@ -66,7 +66,7 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// in the record until one does.
 ///
 /// A record that is stale but was stored atomically is always safe: the
-/// crate persists the record exactly when it must be persisted, so honest
+/// crate persists the record exactly when it must, so honest
 /// staleness is covered by design ([`store`](Self::store) states why
 /// atomicity, by contrast, is load-bearing). Every unreclaimed incarnation
 /// stays in the record, so under repeated restarts the bookmark can in

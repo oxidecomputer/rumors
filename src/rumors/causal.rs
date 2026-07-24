@@ -152,8 +152,8 @@ impl<T> CausalMessages<T> {
     /// staged backlog, suitable for persisting across processes or handing to
     /// another replica of the same network.
     ///
-    /// It is guaranteed that resuming from this [`Version`] will never skip
-    /// messages; however, it may replay an arbitrary number of them.
+    /// Resuming from this [`Version`] will never skip messages, but it may
+    /// replay an arbitrary number of them.
     /// Folding the yielded versions yourself is not a substitute: the
     /// causal order is partial, not total, so "the last version I saw" is
     /// not well-defined, and such a fold is not a causally closed

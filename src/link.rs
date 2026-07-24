@@ -174,7 +174,7 @@ pub const STREAM_COUNT: usize = 17;
 
 /// Opens outgoing unidirectional data streams for one link.
 ///
-/// Opens may be requested concurrently, through clones and through shared
+/// Opens may arrive concurrently, through clones and through shared
 /// references alike — hence `Clone + Send + Sync + 'static` — and every
 /// clone must reach the same peer: clones are handles onto one stream
 /// supply, never isolated sub-connections with their own state. Natural

@@ -234,7 +234,7 @@ impl<T> Bootstrap<T> {
 /// [`join`](Bootstrap::join) does, then attaches the bookmark and eagerly
 /// persists — the exact [`Peer::bookmark`] step, with no room for caller
 /// code between the identity's arrival and the persist attempt. A distinct
-/// type, rather than a fourth setting, lets each state's `join` state only
+/// type, rather than a fourth setting, lets each state's `join` declare only
 /// its own outcomes: without a bookmark, nothing can fail *after* the
 /// session, and the plain `Result` says so; with one, the persist can fail
 /// while the peer lives, and [`Joined`] carries that arm where it cannot

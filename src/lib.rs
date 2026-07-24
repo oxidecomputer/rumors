@@ -91,11 +91,10 @@
 //! # Network membership is identity custody
 //!
 //! No global shared secret initiates a peer into a gossip network. Instead,
-//! membership in the network is contagious, just like messages. Initially, a new
-//! gossip network is created by some single call to [`Peer::seed`], and then all
-//! other members join via [`Peer::bootstrap`]ping themselves from some
-//! already-bootstrapped peer, back along a chain of introductions that ends at the
-//! seed.
+//! membership in the network is contagious, just like messages. A single call
+//! to [`Peer::seed`] creates a new gossip network, and every other member
+//! joins by [`Peer::bootstrap`]ping from some already-bootstrapped peer, back
+//! along a chain of introductions that ends at the seed.
 //!
 //! Peers may also [`Peer::retire`] from the network, donating their identity to
 //! an arbitrary recipient. Identities are returned to circulation rather than
@@ -138,8 +137,8 @@
 //! [`gossip`](Rumors::gossip) concurrently with one another, among other
 //! operations. When all other clones are gone, [`Rumors::try_into_peer`]
 //! recovers the anchor. This temporal partitioning lets the compiler guarantee
-//! that your whole peer identity is transferred in or out only when you have
-//! exclusive ownership of it.
+//! that your whole peer identity moves in or out only when you own it
+//! exclusively.
 //!
 //! The [`Peer`] docs walk the full lifecycle as one runnable example,
 //! including every retirement outcome and bootstrapping a universe without
@@ -248,9 +247,9 @@
 //! Sessions and observers are plain futures and streams, driven entirely by
 //! the caller. The I/O traits are Tokio's runtime-independent
 //! [`AsyncRead`](tokio::io::AsyncRead) and [`AsyncWrite`](tokio::io::AsyncWrite);
-//! no Tokio runtime, spawning, sockets, or timers are required by this crate.
-//! The examples spawn with Tokio for convenience; the crate itself never
-//! requires it. Runtime-independent is not thread-model-independent, though:
+//! the crate itself requires no Tokio runtime, spawning, sockets, or timers —
+//! the examples spawn with Tokio for convenience only. Runtime-independent is
+//! not thread-model-independent, though:
 //! the [`link`] traits require `Send` (and [`Connector`] additionally
 //! `Sync + 'static`) of a transport and its stream halves.
 //!
@@ -264,9 +263,9 @@
 //! Every session opens with a fixed 25-byte preamble carrying
 //! [`PROTOCOL_MAGIC`], the selected [`Protocol`]'s version, the network, and
 //! session intent.
-//! A counterparty that is not speaking `rumors`, or speaks an incompatible
-//! version, is rejected before any peer-declared frame length is trusted
-//! ([`Error::MagicMismatch`], [`Error::VersionMismatch`]).
+//! The session rejects a counterparty that is not speaking `rumors`, or
+//! speaks an incompatible version, before trusting any peer-declared frame
+//! length ([`Error::MagicMismatch`], [`Error::VersionMismatch`]).
 //! [`Protocol::V2`] is the default; `Protocol::V1` (behind the `protocol-v1`
 //! cargo feature) can be selected on an established [`Peer`] with
 //! [`Peer::protocol`], or while joining with
