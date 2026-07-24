@@ -1622,3 +1622,55 @@ economics) → the Rust chain → process (one section, honest failures) →
 a nine-entry errata ledger → closing reflections. §7 items 1–6, §8,
 §9, and tasks #12–#20 are hereby the complete campaign record; nothing
 remains open.
+
+## 13. The order-indifference metatheorem (candidate A, 2026-07-23)
+
+Decision of record (Finch, 2026-07-23): GO on the ord-parameterized
+re-derivation of the `.impl` flagship chain — the two-point per-loop
+dequeue class, stated in MODEL.md's dequeue-order class subsection
+(the §5.1 resolution, written and committed BEFORE any Lean, per the
+spec-first discipline). The `d5` corner and the mux flagships stay
+reply-first; MODEL.md's residue table names them explicitly, dated.
+
+Targets (the landing shape, typechecked by the scoping pass):
+`PairOrder`/`OrdMap`/`applyO` with `applyO_rf : applyO sk ax .rf a s =
+Model.apply sk ax a s` (rfl per arm); `Sched.deadlock_free_anyOrder :
+wellFormed → margin 0 → DeadlockFreeO sk .impl ord` for every `ord`;
+plus `rho_decreasesO`/`terminatingO` and
+`deadlock_free_wide_anyOrder`. Statement-faithfulness binding: the
+claim is the TWO-POINT class, never arbitrary-order indifference.
+Non-destructive, absolutely: a new `Ord/` module family, zero edits to
+existing proof files (the Mux campaign imports the base files); the
+executable tier extends the eventdag oracle only.
+
+**Probe inventory carried in** (the scoping session's exhaustive-BFS
+harness, calibrated against the kernel-pinned reply-first facts)
+[checked]:
+
+- Exhaustive BFS, QF `apply`, `.impl`: pyramid2 (814,686 states),
+  pyramid4 (1,945,994), rMix (9,989,206 / 10,067,318 across two
+  fingerprint revisions) — complete, stuck=0, one terminal each.
+  Reply-first calibration on the same harness: stuck=0 (pyramid2,
+  pyramid4, rMix), agreeing with the kernel theorems.
+- `pdelay` (the sub-margin parent-delay control, dCount = capLevel+2):
+  stuck=1 under BOTH orders — the d6 capacity boundary is
+  order-indifferent at the witness, and the QF run reaches the
+  candidate wait cycle (cycExact=792 configurations) without any new
+  stuck state above margin.
+- **comb6: NO completed exhaustive result exists.** All three comb6
+  output files in the scoping scratchpad are empty (0 bytes) — the
+  runs never completed. Recorded honestly; the in-repo eventdag gate
+  additions below re-establish comb6 coverage at the trace/weave tier,
+  and a bounded comb6 BFS re-run is queued as executable evidence.
+
+Execution order (binding, from the scoping's risk register): spec
+(done, this entry + MODEL.md) → executable QF trace/weave gates in the
+eventdag oracle → ord-parameterized Invariant + ONE Preserve file (to
+expose phase-0/1 count coupling before fanning out) → the chain.
+Reuse levers scoped as no-change: the publication axiom guards, the
+Progress pillar, walkRho, the merge engine (generic over trace lists),
+the FamOK pump layer, every per-channel projection (the two prologue
+receives live on distinct channels, so per-channel projections are
+order-invariant — the Numbering/canon layer transfers by a
+proj-equality bridge exactly as `proj_walkEventsE_eq` carried the d6
+climb).
