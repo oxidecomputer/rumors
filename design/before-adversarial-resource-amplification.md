@@ -1263,6 +1263,33 @@ Pin the §6 invariant the way `step!` pins time complexity:
   pinned) so that regression becomes board-visible the moment the
   flip lands. Realization staging is unchanged: the 29 green cliff
   cells must stay green through C2 on the new codec's sweeps.
+
+  Landed 2026-07-24 (the 200-cell re-baseline; P3.6 fix round — the
+  both-scale record the board extension landed without). The
+  §17.7/§17.9 additions — the harmonic column on the four
+  linear-functional rows, the `rank_pair_ops` row × {dense,
+  harmonic, benign}, and the `version_join_all`/`party_join_all`
+  fold rows on the scatter recipe — grew the board to 45 rows and
+  **200 cells**, pinned by the smoke test. Both-scale baseline of
+  record over the enlarged board **[measured** — 2026-07-24, dev
+  profile, limb-meter and scan-meter lit; each scale run twice,
+  red enumerations byte-identical**]**: **129 green / 71 red at
+  the default scale; 117 green / 83 red at ×4**. Against the
+  191-cell record: the 66 default reds reproduce unchanged plus
+  exactly the five new-family cells (`version_rank`/
+  `version_distance`/`version_lag` × harmonic — V6's remaining
+  segment legs; `version_join_all`/`party_join_all` × scatter —
+  the §17.9 n·log n marginals); at ×4 the §17.3 eleven reproduce
+  plus two record-scale-only reds owned by §17.3's dated amendment
+  (`version_min_ticks × harmonic`, segments 24 at exponent 3.59;
+  `rank_pair_ops × benign`, limb exponent 1.87 over a 6 → 7-byte
+  input), and one default red flips green: `party_join_all ×
+  scatter` reads scan 104.6/B against the 96 ceiling at the default
+  scale but 92.5/B at ×4 — a **non-monotone verdict** (the
+  reduction's n·log n constant meets a flat per-byte ceiling whose
+  slack grows with the operand), so the default scale is the
+  binding witness for this cell and the ×4 witness under-detects
+  it: record-scale greenness must never be read as clearing it.
 - **Peak-heap meter**: counting `GlobalAlloc` in a dedicated test
   binary (one global allocator per binary; nextest's
   process-per-test isolation applies). Assert per operation ×
@@ -2833,6 +2860,57 @@ P3.6's 45 + P3.7's 3 + P3.8's 14) + 125 default-green = 191, and
 75 → 77 at ×4 (P3.5's 4 + P3.6's 47 + P3.7's 3 + P3.8's 18 +
 P4.1's 5) + 114 = 191. Realization staging is unchanged: C2
 realizes 54; the P4-tail P3.8 its 18; P4.1 its 5.
+
+Amended 2026-07-24 (P3.6 fix round: the 200-cell restatement this
+section's convention requires, skipped when the board grew). The
+board is 200 cells — the §17.7 harmonic column on the four
+linear-functional rows (4), the §17.7 `rank_pair_ops` row ×
+{dense, harmonic, benign} (3), and the §17.9 fold rows
+`version_join_all`/`party_join_all` × scatter (2) — and the sums
+are restated over it at both scales from §13's 2026-07-24 landed
+record (each scale run twice, byte-identical enumerations):
+**71 kills + 129 default-green = 200; 83 + 117 = 200 at ×4.**
+
+Default-scale movements: **P3.6** gains `version_rank`/
+`version_distance`/`version_lag` × harmonic (V6's remaining
+segment legs, retired with the query kernels at C2), 45 → 48; a
+new **C2-adjacent** line owns `version_join_all`/`party_join_all`
+× scatter — the §17.9 n·log n marginals, cured only by the
+post-flip n-cursor merge, so their realization sits beside C2
+rather than inside P3.6's count — for 2. Total 66 + 5 = 71.
+
+Record-scale additions beyond the eleven, each owned here by this
+dated amendment: `version_min_ticks × harmonic` (segments 24,
+exponent 3.59 at ×4) is the min_ticks event-walk recursion-frame
+onset — its dense sibling's mechanism on the deeper harmonic
+operand — owner **P3.6**, retired at C2 by the same iterative
+sweep (P3.6's record-scale additions 2 → 3). `rank_pair_ops ×
+benign` (limb exponent 1.87 over a 6 → 7-byte input at ×4) is the
+recorded sub-KiB artifact genre, red at the acceptance scale
+because the benign rank pair's packed operand grows by one byte
+per size doubling: the exponent leg divides by a near-constant
+denominator and reads rounding noise, not law (absolute work is
+tens of limb ops; the row's dense and harmonic cells, whose
+operands scale, read exponent ~0.98). Owner **P5.5**: the
+acceptance sweep scales the benign rank-pair operand with the
+board's size knob so the leg reads law — a one-line population
+change deliberately deferred so this baseline stays comparable
+across the C2 flip — expected green by mechanism once the
+denominator moves. One verdict is non-monotone and recorded as
+such: `party_join_all × scatter` is red at the default scale
+(scan 104.6/B against 96) and green at ×4 (92.5/B), so the ×4
+witness under-detects this cell, the default scale is its binding
+witness, and it stays in the C2-adjacent line's default count.
+
+The ×4 sums close as 83 = P3.5's 4 + P3.6's 51 (47 + the three
+harmonic linear-functional cells + `version_min_ticks ×
+harmonic`) + P3.7's 3 + P3.8's 18 + P4.1's 5 + the C2-adjacent
+line's 1 (`version_join_all × scatter`; its party sibling is
+green at ×4 per the non-monotonicity note) + P5.5's 1
+(`rank_pair_ops × benign`); 83 + 117 = 200. Realization staging:
+C2 realizes 54 + P3.6's four additions above = 58 of the ×4 set;
+the P4-tail P3.8 its 18; P4.1 its 5; the C2-adjacent merge its 2
+(1 of which is red at ×4); P5.5 its 1.
 
 ### 17.4 Commit choreography summary
 
