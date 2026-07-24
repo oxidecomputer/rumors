@@ -27,7 +27,7 @@ mod ranked;
 // the resource-envelope suite can pin its validator).
 #[cfg(any(test, feature = "meter"))]
 pub mod skyline;
-mod working;
+pub(crate) mod working;
 
 pub use batch::Batch;
 pub use rank::Rank;

@@ -1301,6 +1301,84 @@ fn skyline_meet_wide_tooth_envelope() {
     assert_eq!(out, expected, "the emitted meet must match the oracle");
 }
 
+// The grow envelope table: pinned ceiling = measured ×1.25, rounded up.
+// The trailing comment on each line is the measurement of record
+// (2026-07-23, aarch64-apple-darwin, dev profile, three identical runs)
+// the ceiling derives from. Re-pin by rerunning under `--no-capture`
+// with `--all-features` and reading the MEASURED lines.
+#[rustfmt::skip]
+mod grow_env {
+    use super::{sweep_envelope, SweepEnvelope};
+    //                                                                peak heap, segments, limb ops,  scan bits            measured: peak heap, segments, limb ops, scan bits
+    pub const SKYLINE_GROW_ALT_SPINE: SweepEnvelope  = sweep_envelope(  345_315,        0,        10, 1_406_282); //  276_252, 0,       8, 1_125_025
+    pub const SKYLINE_GROW_ID_SPINE: SweepEnvelope   = sweep_envelope(  487_727,        0,   625_015, 2_812_519); //  390_181, 0, 500_012, 2_250_015
+    pub const SKYLINE_GROW_CROSS: SweepEnvelope      = sweep_envelope(  669_830,        0,   625_010, 4_218_777); //  535_864, 0, 500_008, 3_375_021
+}
+
+/// One grow scenario's operand bytes: the skyline event stream plus the
+/// packed id.
+fn grow_input_bytes(ev: &meter::skyline::Encoded, id: &Party) -> usize {
+    ev.bytes.len() + id.encoded_bits().div_ceil(8)
+}
+
+/// Growing the alternating spine's skyline under the seed party stays
+/// within its envelope: the full id puts every one of the ~125k branch
+/// nodes on the probe's frame stack at peak — the shape where one
+/// machine-word frame per level would dwarf the ~4-bit-per-level input —
+/// with zero grown segments and the frames held in bit stacks.
+#[test]
+fn skyline_grow_alt_spine_envelope() {
+    let v = version_of(&meter::alt_spine(DENSE_DEPTH));
+    let party = Party::seed();
+    let a = meter::skyline::encode(&v);
+    let expected = meter::skyline::encode(&meter::packed_grow(&v, &party));
+    let out = sweep_metered(
+        "skyline_grow_alt_spine",
+        grow_input_bytes(&a, &party),
+        &grow_env::SKYLINE_GROW_ALT_SPINE,
+        || meter::skyline::grow::grow(&a, &party),
+    );
+    assert_eq!(out, expected, "the grown stream must match the oracle");
+}
+
+/// Growing the empty version under a 250k-deep unary id spine stays
+/// within its envelope: the probe degenerates to the iterative id scan
+/// (one Expand frame per level), the emit codes the whole expansion
+/// chain as fresh one-bit deltas, and nothing recurses.
+#[test]
+fn skyline_grow_id_spine_envelope() {
+    let v = Version::new();
+    let party = party_of(&meter::id_spine(ID_DEPTH, false));
+    let a = meter::skyline::encode(&v);
+    let expected = meter::skyline::encode(&meter::packed_grow(&v, &party));
+    let out = sweep_metered(
+        "skyline_grow_id_spine",
+        grow_input_bytes(&a, &party),
+        &grow_env::SKYLINE_GROW_ID_SPINE,
+        || meter::skyline::grow::grow(&a, &party),
+    );
+    assert_eq!(out, expected, "the grown stream must match the oracle");
+}
+
+/// Growing the alternating spine under a deep unary id spine stays
+/// within its envelope: mixed regimes — two-cursor branch frames down
+/// the shared spine, an id-only expansion where the id outruns the
+/// event — with the same bit-stack ceilings as the pure shapes.
+#[test]
+fn skyline_grow_cross_envelope() {
+    let v = version_of(&meter::alt_spine(DENSE_DEPTH));
+    let party = party_of(&meter::id_spine(ID_DEPTH, false));
+    let a = meter::skyline::encode(&v);
+    let expected = meter::skyline::encode(&meter::packed_grow(&v, &party));
+    let out = sweep_metered(
+        "skyline_grow_cross",
+        grow_input_bytes(&a, &party),
+        &grow_env::SKYLINE_GROW_CROSS,
+        || meter::skyline::grow::grow(&a, &party),
+    );
+    assert_eq!(out, expected, "the grown stream must match the oracle");
+}
+
 // ─── skyline cliff-immunity flatness ────────────────────────────────────────
 //
 // The cross-scale witness that the validator's nonnegativity state is
