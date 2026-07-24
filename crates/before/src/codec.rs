@@ -18,7 +18,7 @@ mod display;
 mod gamma;
 mod literal;
 pub(crate) mod scan;
-mod text;
+pub(crate) mod text;
 mod tree;
 
 #[cfg(test)]
