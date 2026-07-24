@@ -177,6 +177,40 @@ theorem recvdOfO_ext {s s' : State}
   | rootrets => simp [recvdOfO, recvdOf, hrgot]
   | rootres => simp [recvdOfO, recvdOf, hrres]
 
+-- ===================== both-formula congruence (the reuse workhorse)
+
+/-- Both base formulas unchanged ⟹ the O wire count unchanged, at any
+assignment. Wherever a base preservation proof establishes the two
+base receive counts invariant, the O counts follow — no per-assignment
+reasoning at the consumption site. -/
+theorem wkWireRecvdO_congr {s s' : State} (pk : Party × Nat)
+    (hW : wkWireRecvd sk s' pk = wkWireRecvd sk s pk)
+    (hA : wkAskedRecvd sk s' pk = wkAskedRecvd sk s pk) :
+    wkWireRecvdO sk ord s' pk = wkWireRecvdO sk ord s pk := by
+  cases hord : ord.walk pk <;> simp [wkWireRecvdO, hord, hW, hA]
+
+/-- Both base formulas unchanged ⟹ the O query count unchanged. -/
+theorem wkAskedRecvdO_congr {s s' : State} (pk : Party × Nat)
+    (hW : wkWireRecvd sk s' pk = wkWireRecvd sk s pk)
+    (hA : wkAskedRecvd sk s' pk = wkAskedRecvd sk s pk) :
+    wkAskedRecvdO sk ord s' pk = wkAskedRecvdO sk ord s pk := by
+  cases hord : ord.walk pk <;> simp [wkAskedRecvdO, hord, hW, hA]
+
+/-- Both base absorber counts unchanged ⟹ the O wire count unchanged. -/
+theorem absorbWireRecvdO_congr {s s' : State}
+    (hW : absorbWireRecvd sk s' = absorbWireRecvd sk s)
+    (hA : absorbAskedRecvd sk s' = absorbAskedRecvd sk s) :
+    absorbWireRecvdO sk ord s' = absorbWireRecvdO sk ord s := by
+  cases hord : ord.absorb <;> simp [absorbWireRecvdO, hord, hW, hA]
+
+/-- Both base absorber counts unchanged ⟹ the O request count
+unchanged. -/
+theorem absorbAskedRecvdO_congr {s s' : State}
+    (hW : absorbWireRecvd sk s' = absorbWireRecvd sk s)
+    (hA : absorbAskedRecvd sk s' = absorbAskedRecvd sk s) :
+    absorbAskedRecvdO sk ord s' = absorbAskedRecvdO sk ord s := by
+  cases hord : ord.absorb <;> simp [absorbAskedRecvdO, hord, hW, hA]
+
 /-- A committed-choice update is invisible to every O consumer count
 (cf. `recvdOf_setWalk_committed`). -/
 theorem recvdOfO_setWalk_committed (s : State)
