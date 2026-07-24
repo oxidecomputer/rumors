@@ -233,9 +233,20 @@ window-tradeoff:
     cargo run --example window_tradeoff > src/tree/mirror/streaming/window/tradeoff.md.tmp
     mv src/tree/mirror/streaming/window/tradeoff.md.tmp src/tree/mirror/streaming/window/tradeoff.md
 
-# Run benches, e.g. `just bench -p before party` or `just bench gossip_grid`.
-bench *args:
-    cargo bench {{ args }}
+# Full sampling is the mode required for any number quoted as a result of
+# record. The filter matches criterion IDs (`group/function`), so one
+# operation or one cell is a run: `just bench board version_rank`,
+# `just bench board version_rank/harmonic`, `just bench version merge`,
+# `just bench gossip_grid`. The board target's IDs mirror the amplification
+# board's op x family names cell for cell.
+
+# Run one bench target through a criterion filter, at full sampling.
+bench target *filter:
+    cargo bench --workspace --bench {{ target }} -- {{ filter }}
+
+# The reduced-sampling inner loop: `bench` at 10 samples x 1 s. Never quoted.
+bench-quick target *filter:
+    cargo bench --workspace --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
 # Run the amplification board: the red-green resource-proportionality matrix
 # over before's public operations × adversarial input families. Each cell
