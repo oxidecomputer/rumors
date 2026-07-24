@@ -1482,9 +1482,19 @@ scan-meter lit; each scale run twice, judged enumerations
 byte-identical**]**. The ×4 red set shrinks by exactly P4.1's five
 segment-onset cells —
 `party_join`/`party_covers`/`party_disjoint`/`clock_join`/
-`clock_sync` × id-pair, each now reading segments 0 with its scan
-constant unchanged (8.0 bits/B on the predicate rows, 20.0/B on
-the join rows) and its wall exponent ≤ 1.03 — and no other verdict
+`clock_sync` × id-pair, each now reading segments 0. Scan reads
+are identical to before the change and identically metered; the
+recorded scan constants read 8.0 bits/B on the predicate rows
+(unchanged) and 20.0/B on the join rows, down from 24.0/B
+**[measured** — both tips run at both scales**]**: the scan meter
+charges builder writes uniformly, and `sum`'s final-at-descent tag
+write records 2 bits per output node where the reserve/patch pair
+recorded 4, so the drop is a real recorded-work reduction (two
+fewer builder touches per node), not a metering gap. The join
+rows' wall exponents stay judged and under
+`board::MAX_WALL_SCALING_EXPONENT` (the value within the ceiling
+is run-to-run noise; the sub-100-ms predicate cells sit below the
+judgment threshold, displayed and never judged). No other verdict
 moves at either scale.
 
 ## 14. Execution plan
@@ -2908,9 +2918,16 @@ reserve/patch pair stays `diff`-only, and the one close-time
 repair, `(1, 1) → 1`, retracts a fixed-width output suffix
 (`IdBuilder::collapse_terminal_pair`); its frames are a 3-bit
 pending-right or 2-bit pending-close per open output node. All
-reads stay on the metered `IdReader` primitives: the board's
-id-pair scan constants are unchanged (8.0 bits/B on the predicate
-rows, 20.0/B on the join rows, flat across both scales). Measured
+reads stay on the metered `IdReader` primitives and are identical
+to the recursive walks' reads; the board's id-pair scan constants
+read 8.0 bits/B on the predicate rows (unchanged) and 20.0/B on
+the join rows, down from 24.0/B, flat across both scales
+**[measured** — both tips run at both scales**]**. The join-row
+drop is recorded builder work, not scanning: the scan meter
+charges builder writes uniformly, and the final-at-descent tag
+write records 2 bits per output node where the reserve/patch pair
+recorded 4 (the reserve's 2-bit placeholder plus two patched
+bits) — two fewer recorded builder touches per node. Measured
 re-pins **[measured** — d = 250k spines, three byte-identical
 runs, aarch64 dev profile**]**: `ID_JOIN` segments 202 → 0, heap
 125_001 → 223_305 (the builder's 125 KB capacity plus ~62.5 KB of
