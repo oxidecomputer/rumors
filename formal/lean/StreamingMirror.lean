@@ -106,3 +106,4 @@ import StreamingMirror.Ord.Align
 import StreamingMirror.Ord.Prec
 import StreamingMirror.Ord.Pump
 import StreamingMirror.Ord.Window
+import StreamingMirror.Ord.Pending
