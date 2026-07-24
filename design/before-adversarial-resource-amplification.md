@@ -1091,10 +1091,10 @@ Pin the §6 invariant the way `step!` pins time complexity:
   `min_ticks`, `project`, `fork`/`forks`/`join_all`, `Clock::sync`,
   and both codec directions) × §2's input families. Each cell runs at
   two scales and reports, from the deterministic meters below (peak
-  heap, stacker segments, limb ops; wall constants shown but never
-  asserted — the wall *exponent* is judged above a minimum-time
-  threshold per this section's surface-judgment addendum), a scaling
-  exponent and a per-input-byte constant. Green
+  heap, stacker segments, limb ops; wall time is neither rendered
+  nor judged on the board — the time-exponent leg lives in the
+  bench judge per this section's surface-judgment addendum), a
+  scaling exponent and a per-input-byte constant. Green
   = exponent ~≤ 1.15 with constants under pinned ceilings; red
   otherwise. Default sizes keep the whole board at seconds of
   runtime — the fast-iteration loop — with a size knob for records
@@ -1358,10 +1358,36 @@ as well as its implementation. Two legs, both landing before C2:
    a designed stop-and-look: an implementation that legitimately
    does less work lowers the floor deliberately — the ceilings'
    ratchet discipline pointed the other way.
-2. **The wall-time exponent leg.** Judge the time exponent fitted
-   across the board's two scales at a generous ceiling (≤ 1.3:
-   robust to scheduler noise, impassable for a quadratic's ~2.0);
-   constants stay displayed-never-judged. Heap is the
+2. **The time-exponent leg** (re-denominated 2026-07-24, user
+   decision of record: the board's hand-rolled wall judgment is
+   abandoned in favor of criterion, which already solves timing
+   stability — warmup, sampling, outlier rejection). The board
+   itself judges deterministic counters and floors ONLY, and
+   renders no wall reading at all: what the board now guarantees is
+   byte-identical enumerations at a given scale under any machine
+   load, with no conditioning on timing and no comparison
+   carve-outs. The time leg lives in the bench judge
+   (`tools/benchjudge` over `benches/board.rs`, `just
+   bench-judge`): run the board benches at the default and record
+   scales with a saved criterion baseline and a denominator sidecar
+   per scale, fit each cell's exponent across the two median point
+   estimates with the board's own scaling-exponent form —
+   `ln(median_hi/median_lo) / ln(denom_hi/denom_lo)`, denominated
+   against the board's per-cell denominator bytes
+   (`BenchCell::denominator_bytes`, output read back from actual
+   results), never against the scale knob — and judge every cell
+   whose larger-scale median reaches the resolution-derived floor
+   at the same generous ceiling (≤ 1.3: robust to scheduler noise,
+   impassable for a quadratic's ~2.0; the constant moved from the
+   board with the leg). Wall constants stay displayed-never-judged,
+   in criterion's own reports. The judgment floor is derived from
+   criterion's resolution, not invented: criterion's smallest timed
+   unit is one batch of at least one iteration read with a
+   monotonic-clock pair (~100 ns of per-batch error: two ~25 ns
+   timer reads against a ~42 ns tick, the 24 MHz Apple Silicon
+   timebase), and the floor demands the judged median dominate that
+   error ×100 — 10 µs, which bounds resolution's pull on an
+   exponent fitted across a ×4 span at ~0.015. Heap is the
    implementation-agnostic witness for space; this leg is the same
    witness for time.
 
@@ -1369,13 +1395,16 @@ Tripwires per §14's rule (every criterion needs a demonstration
 that the status quo fails it): a test-only implementation that
 does its work outside the metered primitives must read green under
 ceilings alone and red under the committed floors; the time leg's
-tripwire is an unmetered quadratic reading red on the exponent.
+tripwire is an unmetered quadratic reading red on the fitted
+exponent through the judge.
 
-Acceptance is re-denominated: the all-green board of record means
-ceilings AND floors AND the time-exponent leg, at both scales.
+Acceptance is re-denominated: all-green means the board green on
+counters and floors at both scales AND the bench judge green at
+both scales.
 
-Landed 2026-07-24 (both legs, this directive's implementation).
-Every board cell now carries a `Floors` declaration the type
+Landed 2026-07-24 (both legs, this directive's implementation;
+the time leg's landed home is the bench judge — the relocation
+record below). Every board cell now carries a `Floors` declaration the type
 demands: `Cell` cannot be constructed without a floor-or-NA answer
 per judged column (`board::Liveness`, `Floor { min, why } |
 NotApplicable { reason }`), rendered per cell (`flr[...]`) with the
@@ -1408,49 +1437,74 @@ work"). The floor-derivation conventions of record:
   content bits of the wider operand (the sum's numerator spans
   it). The display rows are the load-bearing NA: their conversion
   runs inside the bignum dependency, below the limb shim — the
-  display canary and the wall leg judge them, and the declaration
-  now says so on the board face.
+  display canary and the bench judge's time leg judge them, and
+  the declaration now says so on the board face.
 - **Heap**: floors on the codec and text rows (the result
   materializes at least its packed bytes); NA elsewhere
   (allocation is not semantically forced, and the process
   allocator cannot be re-routed around).
 
-The wall leg: `MAX_WALL_SCALING_EXPONENT` = 1.3 judges the wall
-exponent fitted across the two scales, only when the larger
-scale's wall reaches `MIN_JUDGED_WALL_MILLIS` = 100 (marked `*` on
-the board); wall constants stay displayed-never-judged. The
-threshold is the calibrated determinism point **[measured** —
-2026-07-24, two runs per scale, dev profile**]**: a 50 ms draft
-left three bigroot cells' smaller-scale walls (24–35 ms) noise-
-dominated and their "wall exponent" reason flickering across
-runs; at 100 ms every judged cell reads ~1.9 (the bigroot
-quadratics) or ≤ ~1.13 (the linear controls), and both scales'
-judged enumerations — verdicts, all counter columns, floors, and
-red reasons, wall text excluded — are byte-identical across two
-consecutive runs. The calibration holds on a quiet machine, and
-board runs of record (the acceptance protocol's identical-runs
-requirement included) are quiet-machine runs — at record scale a
-~16% asymmetric slowdown between the two scales' measurement
-windows sits within one green cell's headroom (`party_join_all ×
-scatter`, fitted 1.09 vs the 1.3 ceiling), the same discipline
-`.config/nextest.toml` reserves for the display canary. Today's
-wall-exponent reds are all cells already
-red on their counters (default: `version_distance × bigroot`;
-record: the nine bigroot join/meet/sync/recv/distance/lag legs plus
-`version_from_str`/`clock_from_str` × hugeleaf): the leg adds no
-verdict flip, exactly as a deterministic-first suite should read.
+The time leg's relocation record (2026-07-24, user decision of
+record; the board-side wall judgment this addendum first landed —
+a raw-wall judgment threshold, a per-cell `*` marker, wall text in
+the rendering — is superseded whole). The red baseline the
+relocation retires is §17.10's "board wall-leg under load"
+history: judged-set boundary churn at the raw-wall threshold,
+escalated to the default scale under session load, with
+byte-identical-under-load enumerations as the recorded acceptance
+criterion for any hardening. The cure is deletion, not
+calibration: the board reads no clock at all — counters, ceilings,
+and floors only — so identical-runs comparisons are the whole
+rendered output, byte for byte, on any machine at any load.
+Demonstrated **[measured** — 2026-07-24, dev profile, limb-meter
+and scan-meter lit, under a sustained parallel-build load
+generator (six concurrent from-scratch release builds, ~6 s of
+codegen each, looping for the duration): two consecutive runs per
+scale byte-identical with NO stripping, **137 green / 63 red** at
+the default scale and **128 green / 72 red** at ×4 — the records
+of record, reproduced under load**]**.
 
-Both §14 tripwires are committed in `meter/board/tests.rs`:
-`bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors`
-(an index-walk over the stored bits — real linear work, every
+The relocated leg's readout on the same tree **[measured** —
+2026-07-24, `just bench-judge` quick mode, bench profile**]**:
+**155 green / 16 red / 29 sub-floor** over the 200 cells. All 16
+reds are bigroot cells already red on their counters (the
+pre-flip cmp/eq/concurrent/join/meet/tick/snapshot/sync/recv/
+distance/lag sweeps, fitted e 1.48–2.29 against the 1.3 ceiling;
+owners P3.5–P3.7, realized at C2): zero verdict flips, the
+deterministic-first reading the original leg's record also made.
+The resolution-derived 10 µs floor judges 171 of the 200 cells
+where the raw-wall 100 ms threshold judged a handful; the green
+band tops out near e ≈ 1.26, with one recorded boundary case:
+`version_display × hugeleaf` fitted e 1.30/1.31 across
+consecutive quick runs — a real mild superlinearity newly under
+judgment (the backend's divide-and-conquer render measured
+e ≈ 1.51 asymptotically in the dependency-selection probe; the
+new floor reaches the microsecond cells where it shows), owner
+the text column's κ/C2 hand-off, exactly the row whose
+load-bearing limb NA names this leg as its judge. Until the C2
+cures land, `just all`'s bench-judge step reads red on the owned
+bigroot set: instruments before cures, the same posture as the
+gate's sixteen-test roster.
+
+The §14 tripwires: the floors tripwire stays committed in
+`meter/board/tests.rs`
+(`bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors`:
+an index-walk over the stored bits — real linear work, every
 counter near zero — green through `evaluate` under all-NA
 declarations, red on exactly the scan floor under the committed
-walk convention) and
-`unmetered_quadratic_reads_red_on_the_wall_exponent_leg_alone`
-(plain machine-word arithmetic, walls measured live, red on
-exactly the wall exponent with all four counter columns green;
-runner-reserved in `.config/nextest.toml` on the display canary's
-idiom).
+walk convention). The time tripwire relocated with the leg: the
+same unmetered machine-word quadratic is now `benches/tripwire.rs`,
+read RED by the judge live (`just bench-judge-tripwire`,
+`--expect-red`; measured e = 2.00, medians 239.39 µs → 3.84 ms
+over n 512 → 2048, quick mode) and pinned deterministically at
+the judge's unit-test level (`tools/benchjudge --self-test`, run
+at the head of every bench-judge recipe, judges that measured
+shape red on synthetic estimates, beside linear-green,
+sub-floor-skipped, ceiling-boundary, denominator-not-knob, and
+malformed-input pins). The board-side test and its
+`.config/nextest.toml` runner reservation are retired by this
+relocation — never-weaken satisfied by same-commit relocation;
+the display canary's reservation stays, untouched.
 
 **Vacuity finding (real, predicted by this directive's mechanism):
 the id text renderer walks its operand outside the scan meter.**
@@ -1496,14 +1550,15 @@ recorded scan constants read 8.0 bits/B on the predicate rows
 charges builder writes uniformly, and `sum`'s final-at-descent tag
 write records 2 bits per output node where the reserve/patch pair
 recorded 4, so the drop is a real recorded-work reduction (two
-fewer builder touches per node), not a metering gap. Only the
-join rows' wall exponents are judged, and only at ×4 — the one
-scale where their larger walls reach
-`board::MIN_JUDGED_WALL_MILLIS` — where they sit under
-`board::MAX_WALL_SCALING_EXPONENT` (the value within the ceiling
-is run-to-run noise); every other P4.1 wall — the predicate cells
-at both scales, all five cells at the default scale — sits below
-the judgment threshold, displayed and never judged. No other
+fewer builder touches per node), not a metering gap. The wall
+readings at this re-baseline were made under the board-side time
+leg the relocation record above supersedes: only the join rows'
+wall exponents were judged, and only at ×4 (the one scale where
+their larger walls reached the then-pinned 100 ms threshold),
+where they sat under the 1.3 ceiling, the value within it
+run-to-run noise; every other P4.1 wall — the predicate cells at
+both scales, all five cells at the default scale — sat below
+judgment, displayed and never judged. No other
 verdict moves at either scale. The Legs A/B re-baseline below is
 the record of the id renderer's metering cure this finding
 anticipated.
@@ -1526,9 +1581,10 @@ flip green, split by mechanism:
   limb exponents 1.92/1.99/1.27 → 1.00/1.00/0.75 and constants
   1.0/1.0/1.2 limb/`R` → 0.0/0.0/0.1 — realized kills from P3.8's
   text column. At ×4 the hugeleaf and cliff pairs flip likewise
-  (hugeleaf limb exponent 2.00 → 1.00, its judged wall exponent
+  (hugeleaf limb exponent 2.00 → 1.00, its wall exponent — judged
+  under the board-side leg then in force —
   1.64/1.68 → 1.07/1.06, retiring the two `from_str` wall reds the
-  wall-leg record above names); the bigroot pair's limb legs read
+  original leg's record named); the bigroot pair's limb legs read
   the same movement but the cells stay red on parser recursion
   (segments 2), owner P3.8-at-C2.
 - **Leg B** (`write_id` reads its 2-bit tags through the metered
@@ -2495,9 +2551,11 @@ op list (compare/join/meet/tick/rank/distance/lag/min_ticks/project/
 decode/encode × representative + adversarial). The party, text, hash,
 fork, and rank-pair rows this table omits ran in the same 200-cell
 sweep and rerun with `just bench board`; the text rows' deltas land
-with the P4-tail P3.8, the party rows' with P4.1. Wall time is
-displayed, never judged — the deterministic record stays with the
-board and the envelope suite:
+with the P4-tail P3.8, the party rows' with P4.1. Wall *constants*
+are displayed, never judged — the deterministic record stays with
+the board and the envelope suite, and the wall *exponents* are
+judged over these benches by `tools/benchjudge` (the §13 time
+leg's landed home; the landed entry after the table):
 
 | op | dense | bigroot | hugeleaf | cliff | harmonic | id-pair | scatter | comb-scatter | benign |
 |---|---|---|---|---|---|---|---|---|---|
@@ -2527,6 +2585,32 @@ board and the envelope suite:
 | `clock_sync` | 1.45 ms | 6.62 ms | 196 µs | 212 µs | — | 605 µs | — | — | 35.9 µs |
 | `clock_recv` | 1.18 ms | 4.24 ms | 125 µs | 133 µs | — | 2.50 ms | — | — | 29.9 µs |
 | `clock_own_version` | 382 µs | 158 µs | 111 µs | 139 µs | — | 638 µs | — | 463 µs | 11.8 µs |
+
+Landed 2026-07-24 (the bench judge: §13's time leg relocated onto
+criterion, user decision of record — the board judges counters and
+floors only and renders no wall reading; §13's relocation record
+carries the acceptance runs). What landed: `benches/board.rs`
+gains the scale knob (`BOARD_BENCH_SCALE`; `record` maps to
+`board::RECORD_SCALE`) and writes a per-scale denominator sidecar
+(`BOARD_BENCH_DENOMS`) from the new
+`board::BenchCell::denominator_bytes` — the board's own
+denomination, output sides read back from actual results, text
+honesty asserted on the way. `tools/benchjudge` (the `tools/`
+pattern: stdlib Python, `--self-test`) fits
+`ln(median_hi/median_lo) / ln(denom_hi/denom_lo)` per cell over
+two saved criterion baselines — the board's `exponent()`
+convention at the 1.3 ceiling that moved with the leg, not a new
+fit — judging every cell whose larger-scale median reaches the
+resolution-derived 10 µs floor (§13 states the derivation),
+red/green table in the board's style, nonzero exit on any red.
+Recipes: `just bench-judge` (quick mode, iteration),
+`just bench-judge-record` (full sampling, numbers of record),
+`just bench-judge-tripwire` (the relocated unmetered-quadratic
+tripwire, `benches/tripwire.rs`, expected RED via `--expect-red`);
+every recipe self-tests the judge first, and `bench-judge` joined
+`just all`. Readout at landing: §13's relocation record — 155
+green / 16 red / 29 sub-floor, every red a counter-red bigroot
+cell, zero verdict flips.
 
 **P3.6b — the full-surface dual-oracle coverage audit.**
 *What* (added 2026-07-23, discharging the §14 full-surface
@@ -2976,11 +3060,12 @@ front-loading and the review pass; Gate B's sign-offs are recorded
 *before* this commit (the DECIDED entry precedes C2 by
 definition). *Deps*: P3.1–P3.7 (P3.8 deferred to the P4 tail),
 Gate A GO, Gate B, the user's DECIDED entry, and §13's
-surface-judgment legs (uniform liveness floors and the judged
-wall-time exponent, the 2026-07-24 ruling) green on the pre-flip
-board — the flip is the moment every operation walks out from
-under its old sensors at once, so the floors must be watching
-before it lands.
+surface-judgment legs (the 2026-07-24 ruling: uniform liveness
+floors on the board, the time exponent in the bench judge)
+watching the pre-flip tree — the flip is the moment every
+operation walks out from under its old sensors at once, so the
+floors must be watching and the judge's owned-red enumeration
+must be on record before it lands.
 
 **P3.10 — C3: board and envelope re-pin; bench deltas.**
 *What*: board re-run at default and record scale — the 54
@@ -3125,8 +3210,10 @@ everything prior.
 
 **P5.5 — acceptance sweep of record.**
 *What*: `just all` clean (feature matrix, wasm, bench builds, fuzz
-targets, viz bundle); the board all green at default and record
-scale, three identical runs; the bench before/after table of
+targets, viz bundle, the bench judge); the board all green at
+default and record scale, three identical runs; the bench judge
+green at both scales (`just bench-judge-record` for the numbers
+of record); the bench before/after table of
 record showing no regression and improvement on every touched
 operation; the P3.6b coverage audit re-run with an empty gap list
 (every public operation proptested against both reference oracles
@@ -3319,6 +3406,18 @@ the C2-adjacent line's 1 + P5.5's 1) + 128 green = 200. Remaining
 realization staging: C2 its 58; the P4-tail P3.8 its 12 (6 at the
 default scale); the C2-adjacent merge its 2; P5.5 its 1.
 
+Amended 2026-07-24 (the time leg's relocation; §13's relocation
+record): the acceptance criterion of record is re-denominated —
+**all-green means the board green on counters and floors at both
+scales AND the bench judge green at both scales** (`just
+bench-judge`). The judge's reds at this tip are 16 bigroot cells,
+every one already counter-red and owned in the tables above
+(P3.5/P3.6/P3.7, realized at C2) — zero verdict flips, so the
+kill lists and sums are untouched by the re-denomination; the one
+judge-only boundary case on record (`version_display × hugeleaf`,
+fitted e 1.30/1.31 across consecutive quick runs) is owned by the
+text column's κ/C2 hand-off per §13's relocation record.
+
 ### 17.4 Commit choreography summary
 
 - **C0** (P3.1): rebase onto post-`link-transport` main; seam
@@ -3349,7 +3448,8 @@ section is the plan it points at.
 Adjacent work that deliberately waits for the P5 acceptance gate —
 each item is a pure refactor or an upstream contribution whose
 safety argument IS the finished gate (all-green board at both
-scales, envelopes, byte-pinned snapshots):
+scales, the bench judge green at both, envelopes, byte-pinned
+snapshots):
 
 - **Extract the accumulator as a workspace crate.** The balanced
   signed-digit accumulator's natural API (add-small, add-wide, sign,
@@ -3873,6 +3973,19 @@ re-derivation), C3, P4.1, the P4-tail text item, P5.
   the 63 of record, byte-identical, all churn wall-only — so the
   hardening's acceptance criterion is byte-identical enumerations
   including wall judgments at BOTH scales under load.
+  Resolved 2026-07-24 (relocation, user decision of record; §13's
+  relocation record, §17.2's bench-judge landed entry): the
+  board-side wall judgment is deleted rather than hardened — the
+  board judges counters and floors only and renders no wall
+  reading, so a board run's ENTIRE output is deterministic and the
+  acceptance criterion above is met with no exclusions
+  (demonstrated under a parallel-build load generator: two runs
+  per scale, 137/63 default and 128/72 at ×4, byte-for-byte with
+  no stripping). The time-exponent judgment runs over criterion
+  medians in `tools/benchjudge` (`just bench-judge`), where
+  warmup, sampling, and outlier rejection retire the churn
+  mechanism; the min-of-K hardening queued above is superseded by
+  the relocation.
 - Frozen-docs convention refined (2026-07-24, user ruling): agent
   charters permit correcting user-facing rustdoc that is
   *factually wrong* (prose contradicting the code), always
