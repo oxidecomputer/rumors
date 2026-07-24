@@ -6,9 +6,10 @@
 //! Burnikel–Ziegler division regression; 0.4.6's rendering is quadratic in
 //! the magnitude width). That work happens entirely inside `num-bigint`, so
 //! the deterministic limb meter cannot observe it — the crate's `Display`
-//! records nothing while the conversion runs — and the resource board is
-//! structurally blind to a rendering-class regression. This canary is
-//! therefore the one deliberately *wall-clock* assertion in the test suite:
+//! records nothing while the conversion runs, and the board's display rows
+//! declare that limb column not-applicable for exactly this reason. This
+//! canary is therefore a deliberate *wall-clock* assertion (the board's
+//! judged wall-exponent leg and its tripwire are the suite's only others):
 //! a ratio of two measurements taken in the same process and profile, so
 //! machine speed and build profile cancel, sized so the larger interval is
 //! seconds-scale against scheduler noise, taken best-of-three, and bounded
@@ -69,8 +70,9 @@ fn render_time(bits: usize) -> Duration {
 /// time of an 8× wider rendering stays under 26× (the quadratic class
 /// reads ~36× at these sizes).
 ///
-/// Wall time is asserted nowhere else in the suite; the module doc carries
-/// why it is tolerable here and how the ratio is made robust.
+/// Wall time is otherwise asserted only by the board's judged wall-exponent
+/// leg and its tripwire; the module doc carries why it is tolerable here and
+/// how the ratio is made robust.
 #[test]
 fn big_magnitude_rendering_stays_subquadratic() {
     let small = render_time(BASE_MAGNITUDE_BITS);

@@ -34,15 +34,71 @@
 //! every exponent, on every column) and a **per-denominator-byte constant**
 //! at the larger scale (the one constant not per denominator byte: the text
 //! rows' limb constant is per `R` unit, below). A cell is
-//! **GREEN** iff every meter's exponent is at most [`MAX_SCALING_EXPONENT`]
-//! *and* every constant is under its pinned ceiling
+//! **GREEN** iff every meter's exponent is at most [`MAX_SCALING_EXPONENT`],
+//! every constant is under its pinned ceiling
 //! ([`MAX_HEAP_BYTES_PER_INPUT_BYTE`] over [`HEAP_FLAT_ALLOWANCE_BYTES`],
 //! [`MAX_GROWN_STACK_SEGMENTS`], [`MAX_LIMB_OPS_PER_INPUT_BYTE`],
 //! [`MAX_SCAN_BITS_PER_INPUT_BYTE`] — or, on
-//! the text rows' limb column, [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]); **RED**
-//! otherwise, with the offending meters named. Wall time is displayed per
-//! scale but never judged: it is the one number here that is not
-//! deterministic.
+//! the text rows' limb column, [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]), every
+//! committed liveness floor is met, and the judged wall exponent (below) is
+//! within [`MAX_WALL_SCALING_EXPONENT`]; **RED** otherwise, with the
+//! offending meters named.
+//!
+//! # Liveness floors
+//!
+//! A ceiling over a counter proves the *instrumented* work is small, not
+//! that the operation is cheap: three of the four judged columns are sensors
+//! inside the implementation, and an implementation change can re-route work
+//! around them, leaving the ceiling green over a counter that reads nothing.
+//! Every cell therefore carries, per judged column, a [`Liveness`]
+//! declaration the type demands at construction: either a **floor** — the
+//! least the counter must read if the meter is watching the work, derived
+//! from what the operation must do, never from how it does it — or an
+//! explicit **not-applicable** with the reason no floor can bind. Floors
+//! bind in the same pass the ceilings do, at both scales; a counter reading
+//! below its floor is red, named as the column's floor with the vacuity
+//! mechanism (the meter is not watching that work). The declarations render
+//! per cell (`flr[...]`) and their derivations print as a legend above the
+//! matrix. The conventions:
+//!
+//! - **Scan** is the universal leg: an operation that must examine its
+//!   packed operands scans at least
+//!   [`SCAN_FLOOR_BITS_PER_INPUT_BYTE`] bit per packed byte (an eighth of
+//!   the stored bits); operations that may legitimately exit at the first
+//!   divergence still read the root codes, floored at
+//!   [`SCAN_TOUCH_FLOOR_BITS`]. Not-applicable is reserved for operations
+//!   whose contract is a wholesale byte move (encode, hash) or whose
+//!   operands have no packed stream at all (the rank pair).
+//! - **Limb** floors bind where big-integer arithmetic is semantically
+//!   mandatory: an operation that must materialize or fold a magnitude
+//!   wider than [`MACHINE_WORD_MAGNITUDE_BITS`] touches at least one limb
+//!   per 64 bits of that magnitude. Narrow-magnitude cells are
+//!   not-applicable (machine words suffice), as are operations whose
+//!   contract forces no arithmetic at all.
+//! - **Heap** floors bind on the codec and text rows, whose results must
+//!   materialize at least their packed bytes; everywhere else allocation is
+//!   not semantically forced (and the heap meter reads the process
+//!   allocator, which no re-routing inside the crate can bypass).
+//! - **Segments** is ceiling-only by policy: the target is walks that never
+//!   grow the stack, so its honest floor is zero and a zero floor asserts
+//!   nothing.
+//!
+//! A floor trip is a designed stop-and-look: an implementation that
+//! legitimately does less work lowers the floor deliberately, in a change
+//! whose diff shows the new derivation.
+//!
+//! # The judged time exponent
+//!
+//! Wall time is the one implementation-agnostic witness for *time*, exactly
+//! as heap is for space: a kernel doing quadratic work in plain machine-word
+//! arithmetic — no allocation, no recursion, no metered reads — is invisible
+//! to all four counters and visible to the clock. The board therefore fits
+//! the wall exponent across its two scales and judges it at
+//! [`MAX_WALL_SCALING_EXPONENT`] — generous against scheduler noise,
+//! impassable for a quadratic's ~2.0. Wall **constants** stay
+//! displayed-never-judged, and the exponent is judged only when the larger
+//! scale's wall reaches [`MIN_JUDGED_WALL_MILLIS`] (microsecond cells have
+//! meaningless exponents); a judged cell's wall column is marked `*`.
 //!
 //! # Acceptance scales
 //!
@@ -285,6 +341,52 @@ pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 /// only a walk that re-scans state growing with the input — the fold genre,
 /// which reads exponent ~2 here — goes red on this column.
 pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
+
+/// Green requires the wall-time scaling exponent at or below this, judged
+/// only above the [`MIN_JUDGED_WALL_MILLIS`] threshold.
+///
+/// Wall time is the one implementation-agnostic witness for time (as heap
+/// is for space): work done in plain machine words — no allocation, no
+/// recursion, no metered reads — is invisible to every counter column and
+/// visible here. The ceiling is generous so scheduler noise on a
+/// deterministic linear cell (measured ≤ ~1.15 across the board) cannot
+/// trip it, while a quadratic's ~2.0 cannot slip under it. Wall *constants*
+/// are displayed, never judged: machine speed is not a contract.
+pub const MAX_WALL_SCALING_EXPONENT: f64 = 1.3;
+
+/// The wall exponent is judged only when the larger scale's measured wall
+/// reaches this many milliseconds.
+///
+/// A microsecond-scale cell's wall ratio is timer and scheduler noise, not
+/// a complexity class. The threshold is calibrated on the two-runs-per-scale
+/// determinism check \[measured — 2026-07-24, both scales twice, dev
+/// profile\]: at 100 ms every judged cell reads either ~1.9 (the bigroot
+/// quadratics, red on their counters too) or at most ~1.13 (the linear
+/// controls) — margins a quiet run cannot cross — while the cells whose
+/// smaller-scale wall is noise-dominated (tens of milliseconds) fall below
+/// judgment and stop flickering their verdict reasons. The smoke test's
+/// tiny scale keeps every cell far below this threshold, so the parallel
+/// test suite never judges time; the board runners (default and record
+/// scale) and the dedicated reserved-runner tripwire are where the leg
+/// binds.
+pub const MIN_JUDGED_WALL_MILLIS: u64 = 100;
+
+/// Scan liveness floor: an operation that must examine its packed operands
+/// scans at least this many bits per packed input byte.
+///
+/// One bit per byte is an eighth of the stored bits: far below any honest
+/// full walk (measured ~8 bits per byte across the board), and far above a
+/// counter that has stopped watching (which reads ~0).
+pub const SCAN_FLOOR_BITS_PER_INPUT_BYTE: f64 = 1.0;
+
+/// Scan liveness floor for legitimate early-exit operations: even an
+/// immediate divergence answer reads the operands' root codes.
+pub const SCAN_TOUCH_FLOOR_BITS: u64 = 2;
+
+/// Magnitudes at most this wide may legitimately be handled in machine
+/// words; wider values force big-integer arithmetic, so limb floors bind
+/// only on them.
+pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 
 /// Text rows only: green requires at most this many limb operations per
 /// radix-work unit `R = n_io + Σ digitsᵢ × limbsᵢ` (κ).
@@ -823,6 +925,180 @@ impl XorShift {
     }
 }
 
+// ─── liveness floors ────────────────────────────────────────────────────────
+
+/// One judged column's liveness declaration for one cell: the least the
+/// counter must read if the meter is watching the work, or the reason no
+/// floor can bind.
+///
+/// Every cell carries one per floored column (see [`Floors`]); the module
+/// doc's Liveness floors section records the derivation conventions.
+#[derive(Clone, Copy)]
+pub enum Liveness {
+    /// The counter must read at least `min`; `why` is the semantic
+    /// derivation (or the documented deterministic-liveness rationale).
+    Floor {
+        /// The least count a watching meter can honestly read.
+        min: u64,
+        /// The derivation, rendered in the board's legend.
+        why: &'static str,
+    },
+    /// No floor can bind on this cell; the reason renders in the legend.
+    NotApplicable {
+        /// Why the column cannot be floored here.
+        reason: &'static str,
+    },
+}
+
+/// A cell's floor-or-NA declarations, one per floored column.
+///
+/// Constructing a board cell requires answering the floor question for
+/// heap, limb, and scan — a cell cannot enter the board without the
+/// answers.
+/// Segments has no field: it is ceiling-only by policy (the target is walks
+/// that never grow the stack, so its honest floor is zero, and a zero floor
+/// asserts nothing).
+#[derive(Clone, Copy)]
+pub struct Floors {
+    /// The peak-heap column's declaration.
+    pub heap: Liveness,
+    /// The limb column's declaration (checked only when the counter is
+    /// compiled in).
+    pub limb: Liveness,
+    /// The scan column's declaration (checked only when the counter is
+    /// compiled in).
+    pub scan: Liveness,
+}
+
+// The floor derivations and not-applicable reasons, shared across rows so
+// the rendered legend stays small and uniform.
+
+/// Scan floor: the operation must examine its packed operands in full.
+const WHY_SCAN_EXAMINES: &str =
+    "must examine its packed operands: at least one scanned bit per packed byte";
+/// Scan floor: early exit is legitimate, but the root codes are still read.
+const WHY_SCAN_TOUCH: &str =
+    "may answer at the first divergence: still reads the operands' root codes";
+/// Scan floor (deterministic-liveness): equality walks its operands today.
+const WHY_SCAN_EQ: &str = "deterministic-liveness: the causal equality walk reads its operands \
+     in full; a bytewise equality would lower this floor deliberately";
+/// Scan NA: the contract is a wholesale byte move.
+const NA_SCAN_BYTE_COPY: &str =
+    "moves or hashes the stored canonical bytes wholesale: no stream walk is in the contract";
+/// Scan NA: the operands carry no packed stream.
+const NA_SCAN_NO_STREAM: &str = "operands are decoded rank values: no packed stream exists";
+/// Scan NA: a trivial (seed) operand stores no bits to scan.
+const NA_SCAN_SEED_PARTY: &str = "the forked party is the seed: its packed form is empty";
+/// Limb floor: wide magnitudes are folded limb by limb.
+const WHY_LIMB_WIDE: &str = "a magnitude wider than the machine-word bound must be materialized \
+     or folded limb by limb: one op per 64 magnitude bits";
+/// Limb floor: the rank pair's sum spans the wider operand's content.
+const WHY_LIMB_RANK_PAIR: &str = "the mismatched pair's sum carries a numerator as wide as the \
+     wider operand's value content: one limb write per 64 content bits";
+/// Limb NA: every operand magnitude fits machine words.
+const NA_LIMB_NARROW: &str =
+    "no operand magnitude exceeds the machine-word bound: word arithmetic suffices";
+/// Limb NA: the contract forces no arithmetic.
+const NA_LIMB_NOT_FORCED: &str =
+    "magnitudes may be moved or compared without arithmetic: no limb work is in the contract";
+/// Limb NA: id trees have no magnitudes at all.
+const NA_LIMB_ID_TREE: &str = "id trees store no magnitudes: there is no arithmetic to meter";
+/// Limb NA: the contract is a machine-word fold.
+const NA_LIMB_WORD_FOLD: &str = "a machine-word fold: no big-integer arithmetic in the contract";
+/// Limb NA: the work runs below the shim, in the dependency.
+const NA_LIMB_DEPENDENCY: &str = "the decimal conversion runs inside the bignum dependency, \
+     below the limb shim: the display canary and the wall leg judge this row";
+/// Heap floor: the result materializes at least its packed bytes.
+const WHY_HEAP_MATERIALIZES: &str =
+    "materializes a result at least as large as the packed bytes it codes";
+/// Heap NA: allocation is not semantically forced.
+const NA_HEAP_IN_PLACE: &str = "may compute in place or return word-scale results: allocation \
+     is not semantically forced (the process allocator itself cannot be re-routed around)";
+
+/// A full-examination scan floor over `packed_bytes` of operand.
+fn scan_examines(packed_bytes: usize) -> Liveness {
+    Liveness::Floor {
+        min: (packed_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
+        why: WHY_SCAN_EXAMINES,
+    }
+}
+
+/// The early-exit scan floor: the root codes are always read.
+fn scan_touch() -> Liveness {
+    Liveness::Floor {
+        min: SCAN_TOUCH_FLOOR_BITS,
+        why: WHY_SCAN_TOUCH,
+    }
+}
+
+/// A wide-magnitude limb floor, or NA when every magnitude fits machine
+/// words.
+fn limb_wide(mandatory_limbs: u64) -> Liveness {
+    if mandatory_limbs == 0 {
+        Liveness::NotApplicable {
+            reason: NA_LIMB_NARROW,
+        }
+    } else {
+        Liveness::Floor {
+            min: mandatory_limbs,
+            why: WHY_LIMB_WIDE,
+        }
+    }
+}
+
+/// A materialization heap floor over `packed_bytes`.
+fn heap_materializes(packed_bytes: usize) -> Liveness {
+    Liveness::Floor {
+        min: packed_bytes as u64,
+        why: WHY_HEAP_MATERIALIZES,
+    }
+}
+
+/// Shorthand for a not-applicable declaration.
+fn na(reason: &'static str) -> Liveness {
+    Liveness::NotApplicable { reason }
+}
+
+/// The floors of the many rows that must walk their operands but are forced
+/// into neither allocation nor arithmetic: scan floored, heap and limb NA.
+fn walk_floors(packed_bytes: usize) -> Floors {
+    Floors {
+        heap: na(NA_HEAP_IN_PLACE),
+        limb: na(NA_LIMB_NOT_FORCED),
+        scan: scan_examines(packed_bytes),
+    }
+}
+
+/// The mandatory limb count of a version's stored magnitudes: one limb per
+/// 64 bits of every base wider than [`MACHINE_WORD_MAGNITUDE_BITS`].
+///
+/// Materializing or folding such a value cannot touch fewer limbs than the
+/// value has, whatever the representation; narrower values may legitimately
+/// live in machine words and count zero. The walk mirrors
+/// [`radix_units_version`]: iterative over the packed form, outside any
+/// measurement.
+fn mandatory_limbs_version(v: &Version) -> u64 {
+    let bits = v.as_bits();
+    let mut pos = 0usize;
+    let mut pending = 1u64;
+    let mut limbs = 0u64;
+    while pending > 0 {
+        pending -= 1;
+        let internal = bits[pos];
+        let (base, next) =
+            codec::decode_int(bits, pos + 1).expect("a stored event tree is canonical");
+        pos = next;
+        if internal {
+            pending += 2;
+        }
+        let width = base.bits();
+        if width > MACHINE_WORD_MAGNITUDE_BITS {
+            limbs += width.div_ceil(64);
+        }
+    }
+    limbs
+}
+
 // ─── operations ─────────────────────────────────────────────────────────────
 
 /// One prepared cell run: the operand bytes it charges against, the
@@ -836,6 +1112,8 @@ struct Cell {
     input_bytes: usize,
     /// How the meters are denominated (the module doc's criterion).
     denom: Denom,
+    /// The cell's liveness declarations, one per floored column.
+    floors: Floors,
     /// The measured body; its result stays alive until the meters are read.
     #[allow(clippy::type_complexity)]
     body: Box<dyn FnOnce() -> Box<dyn Any>>,
@@ -873,11 +1151,13 @@ struct TextSpec {
 }
 
 impl Cell {
-    /// Package an input-denominated body with its operand byte count.
-    fn new<R: Any>(input_bytes: usize, body: impl FnOnce() -> R + 'static) -> Cell {
+    /// Package an input-denominated body with its operand byte count and its
+    /// liveness declarations.
+    fn new<R: Any>(input_bytes: usize, floors: Floors, body: impl FnOnce() -> R + 'static) -> Cell {
         Cell {
             input_bytes,
             denom: Denom::Input,
+            floors,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -886,6 +1166,7 @@ impl Cell {
     /// `n_io` is read back from the actual result.
     fn io<R: Any>(
         input_bytes: usize,
+        floors: Floors,
         output_bytes: fn(&dyn Any) -> usize,
         body: impl FnOnce() -> R + 'static,
     ) -> Cell {
@@ -895,6 +1176,7 @@ impl Cell {
                 output_bytes,
                 text: None,
             }),
+            floors,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -903,6 +1185,7 @@ impl Cell {
     /// against the radix-work denominator.
     fn text<R: Any>(
         input_bytes: usize,
+        floors: Floors,
         output_bytes: fn(&dyn Any) -> usize,
         spec: TextSpec,
         body: impl FnOnce() -> R + 'static,
@@ -913,6 +1196,7 @@ impl Cell {
                 output_bytes,
                 text: Some(spec),
             }),
+            floors,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -1022,21 +1306,33 @@ fn ops() -> Vec<Op> {
             name: "version_decode",
             prepare: |f| {
                 let bytes = f.version.clone()?;
-                Some(Cell::new(bytes.len(), move || decode_version(&bytes)))
+                let floors = Floors {
+                    heap: heap_materializes(bytes.len()),
+                    limb: limb_wide(mandatory_limbs_version(&decode_version(&bytes))),
+                    scan: scan_examines(bytes.len()),
+                };
+                Some(Cell::new(bytes.len(), floors, move || {
+                    decode_version(&bytes)
+                }))
             },
         },
         Op {
             name: "version_encode",
             prepare: |f| {
                 let (v, n) = f.version()?;
-                Some(Cell::new(n, move || (v.encode(), v)))
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: na(NA_LIMB_NOT_FORCED),
+                    scan: na(NA_SCAN_BYTE_COPY),
+                };
+                Some(Cell::new(n, floors, move || (v.encode(), v)))
             },
         },
         Op {
             name: "version_cmp",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, move || {
+                Some(Cell::new(n, walk_floors(n), move || {
                     let ord: Option<Ordering> = v.partial_cmp(&w);
                     (ord, v, w)
                 }))
@@ -1046,28 +1342,38 @@ fn ops() -> Vec<Op> {
             name: "version_eq",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, move || (v == w, v, w)))
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_NOT_FORCED),
+                    scan: Liveness::Floor {
+                        min: (n as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
+                        why: WHY_SCAN_EQ,
+                    },
+                };
+                Some(Cell::new(n, floors, move || (v == w, v, w)))
             },
         },
         Op {
             name: "version_concurrent",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, move || (v.concurrent(&w), v, w)))
+                Some(Cell::new(n, walk_floors(n), move || {
+                    (v.concurrent(&w), v, w)
+                }))
             },
         },
         Op {
             name: "version_join",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, move || (&v | &w, v, w)))
+                Some(Cell::new(n, walk_floors(n), move || (&v | &w, v, w)))
             },
         },
         Op {
             name: "version_join_assign",
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, move || {
+                Some(Cell::new(n, walk_floors(n), move || {
                     v |= &w;
                     (v, w)
                 }))
@@ -1077,14 +1383,14 @@ fn ops() -> Vec<Op> {
             name: "version_meet",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, move || (&v & &w, v, w)))
+                Some(Cell::new(n, walk_floors(n), move || (&v & &w, v, w)))
             },
         },
         Op {
             name: "version_meet_assign",
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, move || {
+                Some(Cell::new(n, walk_floors(n), move || {
                     v &= &w;
                     (v, w)
                 }))
@@ -1095,7 +1401,7 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
-                Some(Cell::new(n + 1, move || {
+                Some(Cell::new(n + 1, walk_floors(n), move || {
                     v.tick(&party);
                     v
                 }))
@@ -1107,7 +1413,7 @@ fn ops() -> Vec<Op> {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let mut v = Version::new();
-                Some(Cell::new(n + 1, move || {
+                Some(Cell::new(n + 1, walk_floors(n), move || {
                     v.tick(&a);
                     (v, a)
                 }))
@@ -1118,7 +1424,7 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
-                Some(Cell::new(n + 1, move || {
+                Some(Cell::new(n + 1, walk_floors(n), move || {
                     let snap = {
                         let mut batch = v.batch();
                         batch.tick(&party);
@@ -1132,7 +1438,12 @@ fn ops() -> Vec<Op> {
             name: "version_rank",
             prepare: |f| {
                 let (v, n) = f.measure_version()?;
-                Some(Cell::new(n, move || (v.rank(), v)))
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: limb_wide(mandatory_limbs_version(&v)),
+                    scan: scan_examines(n),
+                };
+                Some(Cell::new(n, floors, move || (v.rank(), v)))
             },
         },
         Op {
@@ -1146,7 +1457,15 @@ fn ops() -> Vec<Op> {
                 // content (the module doc's rank denomination).
                 let (a, b) = f.rank_pair.clone()?;
                 let n = (a.content_bits() + b.content_bits()).div_ceil(8) as usize;
-                Some(Cell::new(n, move || {
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: Liveness::Floor {
+                        min: a.content_bits().max(b.content_bits()).div_ceil(64),
+                        why: WHY_LIMB_RANK_PAIR,
+                    },
+                    scan: na(NA_SCAN_NO_STREAM),
+                };
+                Some(Cell::new(n, floors, move || {
                     let ord = a.cmp(&b);
                     // One direction of the pair dominates; keep whichever
                     // difference exists so the subtraction always runs.
@@ -1160,21 +1479,36 @@ fn ops() -> Vec<Op> {
             name: "version_distance",
             prepare: |f| {
                 let (v, w, n) = f.measure_version_pair()?;
-                Some(Cell::new(n, move || (v.distance(&w), v, w)))
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
+                    scan: scan_examines(n),
+                };
+                Some(Cell::new(n, floors, move || (v.distance(&w), v, w)))
             },
         },
         Op {
             name: "version_lag",
             prepare: |f| {
                 let (v, w, n) = f.measure_version_pair()?;
-                Some(Cell::new(n, move || (v.lag(&w), v, w)))
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
+                    scan: scan_examines(n),
+                };
+                Some(Cell::new(n, floors, move || (v.lag(&w), v, w)))
             },
         },
         Op {
             name: "version_min_ticks",
             prepare: |f| {
                 let (v, n) = f.measure_version()?;
-                Some(Cell::new(n, move || (v.min_ticks(), v)))
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_WORD_FOLD),
+                    scan: scan_examines(n),
+                };
+                Some(Cell::new(n, floors, move || (v.min_ticks(), v)))
             },
         },
         Op {
@@ -1183,7 +1517,9 @@ fn ops() -> Vec<Op> {
                 let (versions, _) = f.fold.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
                 let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
-                Some(Cell::new(n, move || Version::join_all(versions)))
+                Some(Cell::new(n, walk_floors(n), move || {
+                    Version::join_all(versions)
+                }))
             },
         },
         Op {
@@ -1195,7 +1531,10 @@ fn ops() -> Vec<Op> {
                     let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                     let mut v = Version::new();
                     v.tick(&a);
-                    Some(Cell::new(n + v.encode().len(), move || (&v / &a, v, a)))
+                    let input = n + v.encode().len();
+                    Some(Cell::new(input, walk_floors(input), move || {
+                        (&v / &a, v, a)
+                    }))
                 }
                 // Adversarial × adversarial: comb version × scattered party,
                 // I/O-denominated (the output is mandatory and dominates).
@@ -1206,6 +1545,7 @@ fn ops() -> Vec<Op> {
                     let p = decode_party(p_bytes);
                     Some(Cell::io(
                         n,
+                        walk_floors(n),
                         |r| {
                             let (out, _, _) = r
                                 .downcast_ref::<(Version, Version, Party)>()
@@ -1219,7 +1559,9 @@ fn ops() -> Vec<Op> {
                 _ => {
                     let (v, n) = f.version()?;
                     let half = Party::seed().fork();
-                    Some(Cell::new(n + 1, move || (&v / &half, v, half)))
+                    Some(Cell::new(n + 1, walk_floors(n), move || {
+                        (&v / &half, v, half)
+                    }))
                 }
             },
         },
@@ -1232,8 +1574,14 @@ fn ops() -> Vec<Op> {
                     content_bits: v.encoded_bits() as u64,
                     output_is_text: true,
                 };
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: na(NA_LIMB_DEPENDENCY),
+                    scan: scan_examines(n),
+                };
                 Some(Cell::text(
                     n,
+                    floors,
                     |r| {
                         r.downcast_ref::<(String, Version)>()
                             .expect("the display body yields (text, v)")
@@ -1256,8 +1604,15 @@ fn ops() -> Vec<Op> {
                     output_is_text: false,
                 };
                 assert_honest_text("version_from_str input", s.len(), spec.content_bits);
+                let packed = version_output_bytes(&v);
+                let floors = Floors {
+                    heap: heap_materializes(packed),
+                    limb: limb_wide(mandatory_limbs_version(&v)),
+                    scan: scan_examines(packed),
+                };
                 Some(Cell::text(
                     s.len(),
+                    floors,
                     |r| {
                         version_output_bytes(
                             r.downcast_ref::<Version>()
@@ -1276,7 +1631,12 @@ fn ops() -> Vec<Op> {
             name: "version_hash",
             prepare: |f| {
                 let (v, n) = f.version()?;
-                Some(Cell::new(n, move || {
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_NOT_FORCED),
+                    scan: na(NA_SCAN_BYTE_COPY),
+                };
+                Some(Cell::new(n, floors, move || {
                     let mut hasher = DefaultHasher::new();
                     v.hash(&mut hasher);
                     (hasher.finish(), v)
@@ -1287,7 +1647,7 @@ fn ops() -> Vec<Op> {
             name: "causally_contains",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, move || {
+                Some(Cell::new(n, walk_floors(n), move || {
                     let hit = causally::since(&v).contains(&w);
                     (hit, v, w)
                 }))
@@ -1298,7 +1658,13 @@ fn ops() -> Vec<Op> {
             name: "party_decode",
             prepare: |f| {
                 let (a, b) = f.parties.clone()?;
-                Some(Cell::new(a.len() + b.len(), move || {
+                let n = a.len() + b.len();
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: scan_examines(n),
+                };
+                Some(Cell::new(n, floors, move || {
                     (decode_party(&a), decode_party(&b))
                 }))
             },
@@ -1308,7 +1674,12 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
-                Some(Cell::new(n, move || (a.encode(), a)))
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: na(NA_SCAN_BYTE_COPY),
+                };
+                Some(Cell::new(n, floors, move || (a.encode(), a)))
             },
         },
         Op {
@@ -1316,7 +1687,16 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (mut a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
-                Some(Cell::new(n, move || {
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: if a.is_seed() {
+                        na(NA_SCAN_SEED_PARTY)
+                    } else {
+                        scan_touch()
+                    },
+                };
+                Some(Cell::new(n, floors, move || {
                     let child = a.fork();
                     (a, child)
                 }))
@@ -1326,7 +1706,12 @@ fn ops() -> Vec<Op> {
             name: "party_join",
             prepare: |f| {
                 let (mut a, b, n) = f.party_pair()?;
-                Some(Cell::new(n, move || {
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: scan_examines(n),
+                };
+                Some(Cell::new(n, floors, move || {
                     let joined = a.join(b).is_ok();
                     (joined, a)
                 }))
@@ -1340,7 +1725,12 @@ fn ops() -> Vec<Op> {
                 let mut parties = parties.iter().map(|b| decode_party(b));
                 let acc = parties.next().expect("the scatter population is nonempty");
                 let rest: Vec<Party> = parties.collect();
-                Some(Cell::new(n, move || {
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: scan_examines(n),
+                };
+                Some(Cell::new(n, floors, move || {
                     let mut acc = acc;
                     acc.join_all(rest)
                         .expect("balanced forks are pairwise disjoint");
@@ -1352,14 +1742,24 @@ fn ops() -> Vec<Op> {
             name: "party_covers",
             prepare: |f| {
                 let (a, b, n) = f.party_pair()?;
-                Some(Cell::new(n, move || (a.covers(&b), a, b)))
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: scan_touch(),
+                };
+                Some(Cell::new(n, floors, move || (a.covers(&b), a, b)))
             },
         },
         Op {
             name: "party_disjoint",
             prepare: |f| {
                 let (a, b, n) = f.party_pair()?;
-                Some(Cell::new(n, move || (a.is_disjoint(&b), a, b)))
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: scan_examines(n),
+                };
+                Some(Cell::new(n, floors, move || (a.is_disjoint(&b), a, b)))
             },
         },
         Op {
@@ -1367,7 +1767,14 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (_, b, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(_, b)| b.len())?;
-                Some(Cell::new(n + 1, move || (Party::seed().without(&b), b)))
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: scan_examines(n),
+                };
+                Some(Cell::new(n + 1, floors, move || {
+                    (Party::seed().without(&b), b)
+                }))
             },
         },
         Op {
@@ -1380,8 +1787,14 @@ fn ops() -> Vec<Op> {
                     content_bits: a.encoded_bits() as u64,
                     output_is_text: true,
                 };
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: scan_examines(n),
+                };
                 Some(Cell::text(
                     n,
+                    floors,
                     |r| {
                         r.downcast_ref::<(String, Party)>()
                             .expect("the display body yields (text, party)")
@@ -1404,8 +1817,15 @@ fn ops() -> Vec<Op> {
                     output_is_text: false,
                 };
                 assert_honest_text("party_from_str input", s.len(), spec.content_bits);
+                let packed = a.encoded_bits().div_ceil(8);
+                let floors = Floors {
+                    heap: heap_materializes(packed),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: scan_examines(packed),
+                };
                 Some(Cell::text(
                     s.len(),
+                    floors,
                     |r| {
                         r.downcast_ref::<Party>()
                             .expect("the parse body yields a party")
@@ -1422,7 +1842,12 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
-                Some(Cell::new(n, move || {
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_ID_TREE),
+                    scan: na(NA_SCAN_BYTE_COPY),
+                };
+                Some(Cell::new(n, floors, move || {
                     let mut hasher = DefaultHasher::new();
                     a.hash(&mut hasher);
                     (hasher.finish(), a)
@@ -1435,7 +1860,12 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (clock, _) = f.clock()?;
                 let bytes = clock.encode();
-                Some(Cell::new(bytes.len(), move || {
+                let floors = Floors {
+                    heap: heap_materializes(bytes.len()),
+                    limb: limb_wide(mandatory_limbs_version(clock.version())),
+                    scan: scan_examines(bytes.len()),
+                };
+                Some(Cell::new(bytes.len(), floors, move || {
                     Clock::decode(&bytes[..]).expect("an encoded clock decodes back")
                 }))
             },
@@ -1444,14 +1874,19 @@ fn ops() -> Vec<Op> {
             name: "clock_encode",
             prepare: |f| {
                 let (clock, n) = f.clock()?;
-                Some(Cell::new(n, move || (clock.encode(), clock)))
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: na(NA_LIMB_NOT_FORCED),
+                    scan: na(NA_SCAN_BYTE_COPY),
+                };
+                Some(Cell::new(n, floors, move || (clock.encode(), clock)))
             },
         },
         Op {
             name: "clock_tick",
             prepare: |f| {
                 let (mut clock, n) = f.clock()?;
-                Some(Cell::new(n, move || {
+                Some(Cell::new(n, walk_floors(n), move || {
                     clock.tick();
                     clock
                 }))
@@ -1461,7 +1896,16 @@ fn ops() -> Vec<Op> {
             name: "clock_fork",
             prepare: |f| {
                 let (mut clock, n) = f.clock()?;
-                Some(Cell::new(n, move || {
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_NOT_FORCED),
+                    scan: if clock.party().is_seed() {
+                        na(NA_SCAN_SEED_PARTY)
+                    } else {
+                        scan_touch()
+                    },
+                };
+                Some(Cell::new(n, floors, move || {
                     let child = clock.fork();
                     (clock, child)
                 }))
@@ -1471,7 +1915,7 @@ fn ops() -> Vec<Op> {
             name: "clock_join",
             prepare: |f| {
                 let (mut a, b, n) = f.clock_pair()?;
-                Some(Cell::new(n, move || {
+                Some(Cell::new(n, walk_floors(n), move || {
                     let joined = a.join(b).is_ok();
                     (joined, a)
                 }))
@@ -1481,7 +1925,7 @@ fn ops() -> Vec<Op> {
             name: "clock_sync",
             prepare: |f| {
                 let (mut a, mut b, n) = f.clock_pair()?;
-                Some(Cell::new(n, move || {
+                Some(Cell::new(n, walk_floors(n), move || {
                     let synced = a.sync(&mut b).is_ok();
                     (synced, a, b)
                 }))
@@ -1496,7 +1940,7 @@ fn ops() -> Vec<Op> {
                     let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                     let mut clock = Clock::from_parts(a, Version::new());
                     let msg = Version::try_from(1u64).expect("a one-tick version is valid");
-                    Some(Cell::new(n + 2, move || {
+                    Some(Cell::new(n + 2, walk_floors(n), move || {
                         clock.recv(&msg);
                         (clock, msg)
                     }))
@@ -1505,7 +1949,7 @@ fn ops() -> Vec<Op> {
                 _ => {
                     let (v, n) = f.version()?;
                     let mut clock = Clock::seed();
-                    Some(Cell::new(n + 2, move || {
+                    Some(Cell::new(n + 2, walk_floors(n), move || {
                         clock.recv(&v);
                         (clock, v)
                     }))
@@ -1524,6 +1968,7 @@ fn ops() -> Vec<Op> {
                     let clock = Clock::from_parts(decode_party(p_bytes), decode_version(v_bytes));
                     Some(Cell::io(
                         n,
+                        walk_floors(n),
                         |r| {
                             let (out, _) = r
                                 .downcast_ref::<(Version, Clock)>()
@@ -1535,7 +1980,9 @@ fn ops() -> Vec<Op> {
                 }
                 _ => {
                     let (clock, n) = f.clock()?;
-                    Some(Cell::new(n, move || (clock.own_version(), clock)))
+                    Some(Cell::new(n, walk_floors(n), move || {
+                        (clock.own_version(), clock)
+                    }))
                 }
             },
         },
@@ -1548,8 +1995,14 @@ fn ops() -> Vec<Op> {
                     content_bits: clock.encoded_bits() as u64,
                     output_is_text: true,
                 };
+                let floors = Floors {
+                    heap: heap_materializes(n),
+                    limb: na(NA_LIMB_DEPENDENCY),
+                    scan: scan_examines(n),
+                };
                 Some(Cell::text(
                     n,
+                    floors,
                     |r| {
                         r.downcast_ref::<(String, Clock)>()
                             .expect("the display body yields (text, clock)")
@@ -1572,8 +2025,15 @@ fn ops() -> Vec<Op> {
                     output_is_text: false,
                 };
                 assert_honest_text("clock_from_str input", s.len(), spec.content_bits);
+                let packed = clock.encoded_bits().div_ceil(8);
+                let floors = Floors {
+                    heap: heap_materializes(packed),
+                    limb: limb_wide(mandatory_limbs_version(clock.version())),
+                    scan: scan_examines(packed),
+                };
                 Some(Cell::text(
                     s.len(),
+                    floors,
                     |r| {
                         r.downcast_ref::<Clock>()
                             .expect("the parse body yields a clock")
@@ -1589,7 +2049,12 @@ fn ops() -> Vec<Op> {
             name: "clock_hash",
             prepare: |f| {
                 let (clock, n) = f.clock()?;
-                Some(Cell::new(n, move || {
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb: na(NA_LIMB_NOT_FORCED),
+                    scan: na(NA_SCAN_BYTE_COPY),
+                };
+                Some(Cell::new(n, floors, move || {
                     let mut hasher = DefaultHasher::new();
                     clock.hash(&mut hasher);
                     (hasher.finish(), clock)
@@ -1614,6 +2079,9 @@ struct Sample {
     limb_denom: u64,
     /// Whether the limb column is judged at the text ceiling κ.
     text_row: bool,
+    /// The cell's liveness declarations; each sample carries its own since
+    /// floors scale with the sample's operands.
+    floors: Floors,
     peak_heap: usize,
     segments: u64,
     limb: Option<u64>,
@@ -1661,6 +2129,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
         denom_bytes,
         limb_denom,
         text_row,
+        floors: cell.floors,
         peak_heap,
         segments,
         limb,
@@ -1727,6 +2196,26 @@ fn exponent(m1: u64, m2: u64, n1: usize, n2: usize) -> f64 {
     growth.ln() / ((n2 as f64) / (n1 as f64)).ln()
 }
 
+/// A liveness-floor trip's rendered message: the column and the vacuity
+/// mechanism.
+const HEAP_FLOOR_TRIP: &str =
+    "heap floor: counter reads below floor: the meter is not watching this work";
+/// The limb column's floor-trip message.
+const LIMB_FLOOR_TRIP: &str =
+    "limb floor: counter reads below floor: the meter is not watching this work";
+/// The scan column's floor-trip message.
+const SCAN_FLOOR_TRIP: &str =
+    "scan floor: counter reads below floor: the meter is not watching this work";
+
+/// Whether `count` sits below a committed floor (an NA declaration never
+/// trips).
+fn below_floor(liveness: Liveness, count: u64) -> bool {
+    match liveness {
+        Liveness::Floor { min, .. } => count < min,
+        Liveness::NotApplicable { .. } => false,
+    }
+}
+
 /// One evaluated cell: both samples, derived scores, and the verdict.
 struct CellResult {
     op: &'static str,
@@ -1740,6 +2229,12 @@ struct CellResult {
     limb_per_byte: Option<f64>,
     scan_exp: Option<f64>,
     scan_per_byte: Option<f64>,
+    /// The wall-time scaling exponent across the two samples (always
+    /// computed, judged only when `wall_judged`).
+    wall_exp: f64,
+    /// Whether the larger scale's wall reached [`MIN_JUDGED_WALL_MILLIS`],
+    /// putting the wall exponent under judgment.
+    wall_judged: bool,
     /// The meters over their bounds; empty means green.
     red: Vec<&'static str>,
 }
@@ -1783,6 +2278,14 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         _ => (None, None),
     };
 
+    let wall_exp = exponent(
+        s1.wall.as_nanos().try_into().unwrap_or(u64::MAX),
+        s2.wall.as_nanos().try_into().unwrap_or(u64::MAX),
+        s1.denom_bytes,
+        s2.denom_bytes,
+    );
+    let wall_judged = s2.wall >= Duration::from_millis(MIN_JUDGED_WALL_MILLIS);
+
     let mut red = Vec::new();
     if heap_exp > MAX_SCALING_EXPONENT {
         red.push("heap exponent");
@@ -1808,6 +2311,32 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
     if scan_per_byte.is_some_and(|c| c > MAX_SCAN_BITS_PER_INPUT_BYTE) {
         red.push("scan constant");
     }
+    // The liveness floors bind in this same pass, at both scales: a counter
+    // reading below the least a watching meter could honestly read means the
+    // meter is not watching the work the ceilings claim to bound.
+    if [&s1, &s2]
+        .iter()
+        .any(|s| below_floor(s.floors.heap, s.peak_heap as u64))
+    {
+        red.push(HEAP_FLOOR_TRIP);
+    }
+    if [&s1, &s2]
+        .iter()
+        .any(|s| s.limb.is_some_and(|l| below_floor(s.floors.limb, l)))
+    {
+        red.push(LIMB_FLOOR_TRIP);
+    }
+    if [&s1, &s2]
+        .iter()
+        .any(|s| s.scan.is_some_and(|b| below_floor(s.floors.scan, b)))
+    {
+        red.push(SCAN_FLOOR_TRIP);
+    }
+    // The judged time exponent: wall constants are displayed, never judged;
+    // the exponent is judged once the larger scale's wall is above noise.
+    if wall_judged && wall_exp > MAX_WALL_SCALING_EXPONENT {
+        red.push("wall exponent");
+    }
 
     CellResult {
         op,
@@ -1821,6 +2350,8 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         limb_per_byte,
         scan_exp,
         scan_per_byte,
+        wall_exp,
+        wall_judged,
         red,
     }
 }
@@ -1832,12 +2363,24 @@ fn wall(d: Duration) -> String {
     format!("{:.2}ms", d.as_secs_f64() * 1e3)
 }
 
+/// Render one liveness declaration's floor value: the committed minimum, or
+/// `-` for a not-applicable column.
+fn floor_value(liveness: Liveness) -> String {
+    match liveness {
+        Liveness::Floor { min, .. } => min.to_string(),
+        Liveness::NotApplicable { .. } => "-".to_string(),
+    }
+}
+
 /// Render one result row.
 ///
 /// The byte range is the cell's denominator (packed input, or `n_io` on the
 /// I/O-denominated cells); a text row's limb constant reads `/R` (its
 /// exponent, like every exponent, is against the denominator bytes),
-/// everything else `/B`.
+/// everything else `/B`. The `flr` column shows the larger scale's committed
+/// liveness floors per judged column (`-` where not applicable; derivations
+/// in the legend above the matrix); the wall exponent's `*` marks a cell
+/// under time judgment.
 fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     let verdict = if r.red.is_empty() { "GREEN" } else { "RED" };
     let limb = match (r.limb_exp, r.limb_per_byte) {
@@ -1860,7 +2403,8 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         out,
         "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
          heap[e{he:5.2} {hc:>10.1}/B]  seg[e{se:5.2} {sc:>4}]  {limb}  {scan}  \
-         wall {w1:>9}->{w2:<9}{reasons}",
+         flr[h {fh:>6} l {fl:>6} s {fs:>6}]  \
+         wall[e{we:5.2}{judged} {w1:>9}->{w2:<9}]{reasons}",
         op = r.op,
         family = r.family,
         n1 = r.s1.denom_bytes,
@@ -1869,6 +2413,11 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         hc = r.heap_per_byte,
         se = r.seg_exp,
         sc = r.s2.segments,
+        fh = floor_value(r.s2.floors.heap),
+        fl = floor_value(r.s2.floors.limb),
+        fs = floor_value(r.s2.floors.scan),
+        we = r.wall_exp,
+        judged = if r.wall_judged { "*" } else { " " },
         w1 = wall(r.s1.wall),
         w2 = wall(r.s2.wall),
     )
@@ -1920,14 +2469,36 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
     )?;
     writeln!(
         out,
-        "green iff every meter's exponent <= {MAX_SCALING_EXPONENT} and constants within: \
+        "green iff every meter's exponent <= {MAX_SCALING_EXPONENT}, constants within: \
          heap <= {MAX_HEAP_BYTES_PER_INPUT_BYTE} B/B over {HEAP_FLAT_ALLOWANCE_BYTES} B flat, \
          segments <= {MAX_GROWN_STACK_SEGMENTS}, \
          limb <= {MAX_LIMB_OPS_PER_INPUT_BYTE} ops/B \
          (text rows: <= {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT} ops/R), \
          scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B; \
-         wall time shown, never judged"
+         every committed liveness floor met (flr[...]: a counter below its floor is red: \
+         the meter is not watching that work; segments is ceiling-only by policy, its honest \
+         floor is zero); and wall exponent <= {MAX_WALL_SCALING_EXPONENT} once the larger \
+         scale's wall reaches {MIN_JUDGED_WALL_MILLIS} ms (marked *; wall constants are \
+         displayed, never judged)"
     )?;
+    writeln!(out)?;
+    writeln!(out, "liveness declarations on this board:")?;
+    let mut legend = std::collections::BTreeSet::new();
+    for r in &results {
+        for (column, liveness) in [
+            ("heap", r.s2.floors.heap),
+            ("limb", r.s2.floors.limb),
+            ("scan", r.s2.floors.scan),
+        ] {
+            legend.insert(match liveness {
+                Liveness::Floor { why, .. } => format!("  {column} floor: {why}"),
+                Liveness::NotApplicable { reason } => format!("  {column} n/a: {reason}"),
+            });
+        }
+    }
+    for line in &legend {
+        writeln!(out, "{line}")?;
+    }
     writeln!(out)?;
 
     let red: Vec<&CellResult> = results.iter().filter(|r| !r.red.is_empty()).collect();
