@@ -369,7 +369,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// A budget can add latency, never break a session. A divergence
     /// wider than the derived capacities drains in capacity-sized
-    /// waves, at the worst-case factor the closed form below prices;
+    /// waves, at the worst-case factor the trade-off table below
+    /// prices;
     /// any budget, including zero, leaves every session deadlock-free
     /// at one disputed subtree in flight per level. The budget is per
     /// session: concurrent gossip on separate links carries one
@@ -379,58 +380,80 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// # Choosing a budget
     ///
-    /// One closed form answers every question here, and you arrive
-    /// holding two of its three quantities. `BDP = bandwidth × RTT` is
-    /// your link's bandwidth-delay product in bytes — the one number
-    /// your link contributes; measure it. `m` is your corpus's mean
-    /// encoded record size, the borsh-encoded payload of a disputed
-    /// message's leaf record. `budget` is this setting. The two
-    /// constants are derived and pinned: the 4865 B per-scope session
-    /// envelope by exact recomputation, the 28 B per-message wire
-    /// overhead by deterministic byte-count calibration
-    /// (`tests/dispute_wire.rs`). Every figure below is derived from
-    /// those inputs and re-derives if any of them move; worked examples
-    /// are at the specification BDP of 12.5 MB, where 1 Gbps × 100 ms
-    /// and 100 Gbps × 1 ms coincide — substitute your own measurement.
+    /// You arrive holding two numbers. `BDP = bandwidth × RTT` is your
+    /// link's bandwidth-delay product in bytes — the one number your
+    /// link contributes; measure it. `m` is your corpus's mean encoded
+    /// record size, the borsh-encoded payload of a disputed message's
+    /// leaf record. Two constants are derived and pinned: the 4865 B
+    /// per-scope session envelope by exact recomputation, the 28 B
+    /// per-message wire overhead by deterministic byte-count
+    /// calibration (`tests/dispute_wire.rs`). Worked figures below are
+    /// at the specification BDP of 12.5 MB, where 1 Gbps × 100 ms and
+    /// 100 Gbps × 1 ms coincide — substitute your own measurement.
+    ///
+    /// The table at the bottom is the sizing reference: each row's
+    /// window comes from the session derivation itself, and each cell
+    /// applies the measured wave form `slowdown = max(1,
+    /// BDP_messages / K)` at `BDP_messages = BDP / (28 + m)`. For
+    /// mental arithmetic, one closed form approximates the whole
+    /// table:
+    ///
+    /// > `slowdown ≈ max(1, BDP × 4865 / (budget × (28 + m)))`
+    ///
+    /// It prices every in-flight scope at the envelope's saturation
+    /// average, and its accuracy is governed by `F`, the corpus-fixed
+    /// component of the real charge — by verified decomposition at the
+    /// design corpus: the ~0.21 MB decode-fan pre-charge, 4.3 MB of
+    /// root-adjacent stages at full-fan reference prices (257 scopes
+    /// at 16,768 B each), and a ~0.2 MB deep population tail, 4.7 MB
+    /// in all, stepping to 7.9 MB once the depth-5 stage saturates
+    /// near 5,500 scopes (past which the marginal scope price settles
+    /// at 4741 B, 2.5% under the average). The form overstates the
+    /// window by roughly `F / budget`: the slowdown it returns runs
+    /// ~2× low at a 10 MB budget, ~1.5× low at 16 MiB, and within a
+    /// few percent past ~300 MB. It also prices no population ceiling,
+    /// so where windows reach corpus scale the solve's own numbers —
+    /// the table and the pinned crossover — replace it. Measured:
+    /// hop-exact sessions at 10–31 MB budgets on the design corpus ran
+    /// 1.3–1.45× the form's figure, matching the solve-derived wave
+    /// form to within hop quantization (`tests/tradeoff_probe.rs`).
     ///
     /// ## What minimal record size runs at minimal latency, given my BDP and budget?
     ///
-    /// > `m* = BDP × 4865 / budget − 28`
-    ///
-    /// At the spec BDP and the default 512 MiB, `m* ≈ 85.3 B`: the
-    /// default imposes **no window-induced serialization for any corpus
-    /// whose mean encoded record size is at least 86 B** — above the
+    /// The closed-form estimate is `m* ≈ BDP × 4865 / budget − 28`,
+    /// about 85 B at the default and spec BDP. The solve itself,
+    /// evaluated self-consistently — each record size at its own
+    /// BDP-scale corpus — puts the default's crossover at **m* =
+    /// 51 B**, pinned by `default_crossover_matches_the_solve`: the
+    /// default imposes no window-induced serialization for any corpus
+    /// whose mean encoded record size is at least 51 B. Above the
     /// crossover, the in-flight disputes' own transfer time covers the
-    /// round trip.
+    /// round trip; the estimate is the safe-side reading.
     ///
     /// ## What budget ensures minimal latency, given my BDP and record size?
     ///
-    /// > `budget* = BDP × 4865 / (28 + m)`
-    ///
-    /// At the spec BDP: a minimal 8-byte-record corpus (`m = 8`) needs
-    /// ~1.7 GB; the design record (`m = 172`) needs ~304 MB.
+    /// The closed-form estimate is `budget* ≈ BDP × 4865 / (28 + m)`.
+    /// At the spec BDP the design record (`m = 172`) needs ~304 MB —
+    /// the solve agrees to three digits, this being the design point
+    /// the envelope is pinned at — and a minimal 8-byte-record corpus
+    /// needs ~1.7 GB by the form, ~1.11 GB by the solve (population
+    /// caps thin the deep charge at BDP-scale corpora, so the estimate
+    /// is conservative here).
     ///
     /// ## What slowdown will I incur, given BDP, record size, and budget?
     ///
-    /// > `slowdown = max(1, BDP × 4865 / (budget × (28 + m)))`
-    ///
-    /// relative to wire-time-optimal. At the spec BDP, `u64` records at
-    /// the default budget run at worst ~3.1×. The table below is this
-    /// question rendered at the spec BDP.
-    ///
-    /// Slowdown 1 is wire-time-optimal: bandwidth-bound stays
-    /// bandwidth-bound. The factor prices the interleaved dispute walk
-    /// only — supply runs stream outside the window — and degradation
-    /// below the crossover is smooth `1/(28 + m)` latency, never
-    /// memory. The form is an envelope for the operating regime:
-    /// budgets past a few MB (below that, the flat decode-fan
-    /// pre-charge above and the near-root band's full-fan scope prices
-    /// both bite, so the form understates the factor) and sets up to
-    /// roughly the BDP in messages (the per-scope envelope grows slowly
-    /// with set size past it). `tests/window_operator.rs` holds the
-    /// underlying wave model against measured sessions on a
-    /// bandwidth-limited link, and `tests/dispute_wire.rs` pins the
-    /// per-message wire law the record size `m` enters through.
+    /// Read your budget's table row (or the form, within its band),
+    /// relative to wire-time-optimal: slowdown 1 means bandwidth-bound
+    /// stays bandwidth-bound. At the spec BDP, `u64` records at the
+    /// default run at ~4.2× for a BDP-scale corpus, and the factor
+    /// grows slowly with set size as the derived window narrows (~15×
+    /// at 10⁷ messages, ~28× at 10¹⁰; all derived from the solve). The
+    /// factor prices the interleaved dispute walk only — supply runs
+    /// stream outside the window — and costs smooth latency, never
+    /// memory. `tests/window_operator.rs` holds the wave model against
+    /// measured sessions on a bandwidth-limited link, and
+    /// `tests/dispute_wire.rs` pins the per-message wire law the
+    /// record size `m` enters through.
     ///
     #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
     ///

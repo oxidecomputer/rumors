@@ -237,29 +237,34 @@ pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
 
 /// Worst-case memory one synchronization may spend by default: 512 MiB.
 ///
-/// Chosen, not derived: a round policy default. What any budget buys is
-/// stated by the closed form — derived, with both constants pinned (the
-/// 4865 B per-scope envelope by exact recomputation, the 28 B
-/// per-message wire intercept by byte-count calibration):
+/// Chosen, not derived: a round policy default. What any budget buys
+/// is the window the session derivation (`Window::from_budget`) solves
+/// for it; the committed trade-off table renders that solve at the
+/// spec BDP, and the closed form
 ///
-/// > `slowdown(budget, m) = max(1, BDP × 4865 / (budget × (28 + m)))`
+/// > `slowdown(budget, m) ≈ max(1, BDP × 4865 / (budget × (28 + m)))`
 ///
-/// with `m` the session's mean encoded record size and `BDP` the link's
-/// bandwidth-delay product in bytes.
+/// approximates it for mental arithmetic — 4865 B is the pinned
+/// per-scope envelope, 28 B the calibrated per-message wire intercept,
+/// `m` the session's mean encoded record size, `BDP` the link's
+/// bandwidth-delay product in bytes. Its accuracy band and the
+/// decomposition behind it are worked at
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget).
 ///
-/// The headline consequence — derived from four inputs, the spec BDP,
-/// this 512 MiB policy default, the pinned per-scope envelope, and the
-/// calibrated 28 B per-message wire intercept, so it re-derives if any
-/// of them move: at the spec BDP (12.5 MB —
-/// 1 Gbps × 100 ms and 100 Gbps × 1 ms coincide), the default imposes
-/// **no window-induced serialization for any corpus whose mean encoded
-/// record size is at least 86 B**. The crossover is
-/// `m* = BDP × 4865 / budget − 28 ≈ 85.3 B`, and above it the in-flight
-/// disputes' own transfer time covers the round trip. Slowdown 1 is
-/// wire-time-optimal: bandwidth-bound stays bandwidth-bound. The factor
-/// prices the interleaved dispute walk only — supply runs stream
-/// outside the window — and below the crossover degradation is smooth
-/// `1/(28 + m)` latency (minimal 8-byte records at worst ~3.1×), never
+/// The headline consequence, derived from the solve itself and pinned
+/// by `default_crossover_matches_the_solve`: at the spec BDP (12.5 MB,
+/// where 1 Gbps × 100 ms and 100 Gbps × 1 ms coincide), the default
+/// imposes **no window-induced serialization for any corpus whose mean
+/// encoded record size is at least 51 B**, each record size evaluated
+/// at its own BDP-scale corpus (the closed form's estimate, `m* =
+/// BDP × 4865 / budget − 28 ≈ 85.3 B`, is the safe-side reading).
+/// Above the crossover the in-flight disputes' own transfer time
+/// covers the round trip; slowdown 1 is wire-time-optimal:
+/// bandwidth-bound stays bandwidth-bound. The factor prices the
+/// interleaved dispute walk only — supply runs stream outside the
+/// window — and below the crossover degradation is smooth latency
+/// (minimal 8-byte records at a BDP-scale corpus: ~4.2×, the factor
+/// growing slowly with set size as the derived window narrows), never
 /// memory: a session serializes into capacity-sized waves,
 /// deadlock-free at any budget.
 ///
@@ -270,10 +275,11 @@ pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
 /// under the in-memory backend's pricing) comes off the budget before
 /// the solve because the fan channels exist at their correctness-floor
 /// capacity regardless of window width — negligible at this scale, and
-/// one reason the closed form understates the factor for budgets under
-/// a few MiB. See
+/// the smallest term of the corpus-fixed component `F` that sets the
+/// closed form's accuracy band. See
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for
-/// the operator questions worked through and the tabulated trade-off.
+/// the operator questions worked through, the band's decomposition,
+/// and the tabulated trade-off.
 pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 
 /// Per-height channel capacities for one session, in disputed scopes.

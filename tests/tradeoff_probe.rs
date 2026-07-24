@@ -1,9 +1,10 @@
-//! One-shot validation instrument, ignore-gated: the committed
-//! trade-off table's closed form held against measured wire-time
-//! slowdowns.
+//! One-shot validation instrument, ignore-gated: the solve-derived
+//! trade-off predictions held against measured wire-time slowdowns.
 //!
-//! Not part of the suite; it reproduces (deterministically) the finding
-//! its commit records, and runs only by explicit request:
+//! Not part of the suite; it validates, deterministically, that
+//! measured slowdowns stay at or inside the wave form evaluated at the
+//! window the real derivation grants — the quantity the committed
+//! trade-off table tabulates — and it runs only by explicit request:
 //!
 //!     cargo nextest run --release --test tradeoff_probe \
 //!         --run-ignored all --no-capture
@@ -11,15 +12,15 @@
 //! Method (window_operator.rs's session shape, generalized over record
 //! size): for each record size `m`, measure the transfer-bound baseline
 //! (an unbounded budget) in exact one-way hops, self-calibrating the
-//! link's BDP in messages; then measure budgets chosen so the closed
-//! form `slowdown = max(1, BDP x E / (budget x (28+m)))` predicts a
-//! constricted, a near-crossover, and a comfortable cell, all at the
-//! design corpus (62,500 divergent messages a side, where `E` is
-//! pinned) and at derived windows past the documented near-root band.
-//! Observed slowdown = hops(budget) / hops(unbounded). Deterministic
-//! counts only: under the paused clock virtual time advances only while
-//! every task is blocked on the wire, so the hop counts are exact and
-//! wall compute is excluded.
+//! link's BDP in messages; then measure budgets spanning a constricted,
+//! a near-crossover, and a comfortable cell, all at the design corpus
+//! (62,500 divergent messages a side, the scale the per-scope envelope
+//! is pinned at). Observed slowdown = hops(budget) / hops(unbounded),
+//! asserted at or inside the solve-derived wave form to within hop
+//! quantization; the closed-form estimate is printed beside it for the
+//! record. Deterministic counts only: under the paused clock virtual
+//! time advances only while every task is blocked on the wire, so the
+//! hop counts are exact and wall compute is excluded.
 
 // Only the delayed wire is exercised here.
 #[allow(dead_code)]
@@ -153,26 +154,35 @@ fn run_cells<T>(
         let fans = supply_decode_envelope_bytes();
         eprintln!(
             "[{label}] budget {budget} (dispute share {}): K {k_max}, \
-             closed-form predicted {closed:.2}x, exact-form-at-K {exact:.2}x, \
+             closed-form estimate {closed:.2}x, solve-derived {exact:.2}x, \
              observed {observed:.2}x ({hops} hops vs {transfer})",
             budget.saturating_sub(fans),
+        );
+        // The comparison of record: the measured session stays at or
+        // inside the wave form at the actually derived window, in hops
+        // (the ratio's native integer unit, so quantization cannot
+        // manufacture an excess).
+        assert!(
+            hops as f64 <= (exact * f64::from(u32::try_from(transfer).expect("small"))).ceil(),
+            "[{label}] observed {hops} hops exceed the solve-derived wave envelope \
+             ({exact:.2}x of {transfer} transfer hops): a finding, not noise",
         );
     }
 }
 
 /// The validation run (see the module docs).
 ///
-/// Prints, per cell, the closed form's prediction, the exact wave form
-/// at the actually derived window, and the observed hop-count slowdown.
-/// It asserts convergence and calibration health only — the comparison
-/// it exists for is the printed record.
+/// Prints, per cell, the closed-form estimate, the wave form at the
+/// actually derived window, and the observed hop-count slowdown; the
+/// assertion of record holds the observation at or inside the
+/// solve-derived wave form, in hops.
 #[test]
 #[ignore = "one-shot validation instrument: run explicitly with --run-ignored"]
 fn tradeoff_closed_form_validation_run() {
     // m = 8: minimal u64 records (the table's first column). Targets
-    // chosen so the derived windows sit past the near-root structural
-    // band (thousands of scopes), where the closed form claims accuracy:
-    // a constricted cell, a near-crossover cell, and a comfortable cell.
+    // (denominated in the closed-form estimate, a budget-choosing
+    // device only) span a constricted, a near-crossover, and a
+    // comfortable cell at derived windows of a thousand scopes and up.
     run_cells(
         "u64",
         8,

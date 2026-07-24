@@ -81,22 +81,46 @@ pub fn supply_decode_envelope_bytes() -> usize {
 }
 
 /// Render the sync-budget trade-off table the rustdoc includes, from
-/// the closed form.
+/// the real window derivation.
 ///
-/// Pure arithmetic — `slowdown(budget, m) = max(1, BDP × envelope /
-/// (budget × (overhead + m)))` at the spec bandwidth-delay product — so
-/// the rendering is deterministic. `examples/window_tradeoff.rs` prints
-/// it (`just window-tradeoff` moves the output into place atomically),
-/// and the window suite byte-compares the committed file against this
-/// rendering, so the table cannot drift from the constants it
-/// tabulates.
+/// Each budget row's window comes from the same solve sessions run at
+/// handshake time ([`window_capacities`]'s derivation), evaluated at
+/// the design session, and each record-size column applies the
+/// measured wave form `slowdown = max(1, BDP_messages / K)` at the
+/// spec bandwidth-delay product. Pure deterministic arithmetic:
+/// `examples/window_tradeoff.rs` prints it (`just window-tradeoff`
+/// moves the output into place atomically), and the window suite
+/// byte-compares the committed file against this rendering, so the
+/// table cannot drift from the derivation it tabulates.
 pub fn window_tradeoff_table() -> String {
     use std::fmt::Write;
 
     use crate::tree::mirror::streaming::window::{
-        DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_RECORD_BYTES, DISPUTE_OVERHEAD_BYTES,
-        SCOPE_ENVELOPE_BYTES, SPEC_BDP_BYTES,
+        DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_RECORD_BYTES, DISPUTE_OVERHEAD_BYTES, SPEC_BDP_BYTES,
+        Window,
     };
+
+    /// The design session's corpus scale per side: the spec BDP in
+    /// design-size records, the scale `SCOPE_ENVELOPE_BYTES` is pinned
+    /// at.
+    const DESIGN_SESSION_MESSAGES: u64 = 62_500;
+
+    /// The widest window the solve grants `budget` at a symmetric
+    /// `corpus`-message session under the in-memory backend's pricing.
+    fn solve_window(corpus: u64, budget: usize) -> u64 {
+        let window = Window::from_budget(
+            corpus,
+            corpus,
+            0,
+            0,
+            budget,
+            crate::tree::mirror::streaming::Local::node_bytes,
+        );
+        (0..=32)
+            .map(|height| window.capacity(height) as u64)
+            .max()
+            .expect("thirty-three heights")
+    }
 
     /// The budget rows, smallest to largest; the default is labeled at
     /// render time so the table cannot go stale against it.
@@ -120,9 +144,27 @@ pub fn window_tradeoff_table() -> String {
         (1024, "m = 1024"),
     ];
 
-    let crossover = SPEC_BDP_BYTES as f64 * SCOPE_ENVELOPE_BYTES as f64
-        / DEFAULT_SYNC_MEMORY_BUDGET as f64
-        - DISPUTE_OVERHEAD_BYTES as f64;
+    // The design session's population ceiling: the widest window any
+    // budget can occupy at the stated corpus.
+    let ceiling = solve_window(DESIGN_SESSION_MESSAGES, usize::MAX);
+
+    // The default's slowdown-1 crossover, derived self-consistently
+    // from the solve: the smallest record size whose own BDP-scale
+    // corpus (BDP / (28 + m) messages a side) fits entirely inside the
+    // window the default budget derives at that corpus.
+    let crossover = (1..=DESIGN_RECORD_BYTES)
+        .find(|&m| {
+            let corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + m)) as u64;
+            solve_window(corpus, DEFAULT_SYNC_MEMORY_BUDGET) >= corpus
+        })
+        .expect("the design record reaches parity at the default (pinned end to end)");
+
+    // The u64 column's self-consistent evaluation at the default: its
+    // BDP-scale corpus and the window the default derives there.
+    let u64_corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + 8)) as u64;
+    let u64_window = solve_window(u64_corpus, DEFAULT_SYNC_MEMORY_BUDGET);
+    let u64_slowdown = (u64_corpus as f64 / u64_window as f64).max(1.0);
+
     let mut table = String::new();
     let _ = writeln!(
         table,
@@ -131,24 +173,33 @@ pub fn window_tradeoff_table() -> String {
     let _ = writeln!(
         table,
         "Worst-case wire-time slowdown by budget and mean encoded record size `m`, from the \
-         closed form `slowdown = max(1, BDP × {envelope} / (budget × ({overhead} + m)))` at the \
-         specification bandwidth-delay product of 12.5 MB (1 Gbps × 100 ms and 100 Gbps × 1 ms \
-         coincide there): {envelope} B is the pinned per-scope session envelope and {overhead} B \
-         the calibrated per-message wire cost beyond the record's encoded payload. A link's \
-         slowdown-1 crossover is `m* = BDP × {envelope} / budget − {overhead}`; the default \
-         row's, at the spec BDP, is m* ≈ {crossover:.1} B. The factor prices the interleaved \
-         dispute walk only — supply runs stream outside the window — and costs latency, never \
-         memory: a session serializes into capacity-sized waves, deadlock-free at any budget. \
-         Cells are clamped at 1.0×, which is wire-time-optimal (bandwidth-bound stays \
-         bandwidth-bound); rows under a few MiB understate the true factor (the flat ~0.21 MB \
-         decode-fan pre-charge and the near-root band's full-fan scope prices both bite there).",
-        envelope = SCOPE_ENVELOPE_BYTES,
+         measured wave form `slowdown = max(1, BDP_messages / K)` at the specification \
+         bandwidth-delay product of 12.5 MB (1 Gbps × 100 ms and 100 Gbps × 1 ms coincide \
+         there). Each row's window `K` (second column, in disputed scopes) is derived by the \
+         same solve sessions run at handshake time, evaluated at the design session — \
+         {design}-message corpora a side, the scale the pinned per-scope envelope is \
+         denominated at; larger corpora derive narrower windows. `BDP_messages = BDP / \
+         ({overhead} + m)`, with the {overhead} B per-message wire cost calibrated by \
+         deterministic byte counts (`tests/dispute_wire.rs`); the wave form is measured \
+         (`tests/window_knee.rs`, `tests/window_operator.rs`). Cells are clamped at 1.0×, \
+         which is wire-time-optimal (bandwidth-bound stays bandwidth-bound). Rows whose window \
+         reaches the design session's population ceiling ({ceiling} scopes: every stage \
+         granted its full population envelope, so the stated corpus itself is never \
+         window-constricted) carry the wave-form ratio as a corpus-scale envelope in their \
+         sub-design-record cells; a corpus at such a column's own BDP scale re-derives its \
+         window (`m = 8` at the default: {u64_window} scopes, ≈{u64_slowdown:.1}×). The \
+         default's slowdown-1 crossover, derived self-consistently from the solve (corpus = \
+         BDP / ({overhead} + m) a side), is m* = {crossover} B. The factor prices the \
+         interleaved dispute walk only — supply runs stream outside the window — and costs \
+         latency, never memory: a session serializes into capacity-sized waves, deadlock-free \
+         at any budget.",
+        design = DESIGN_SESSION_MESSAGES,
         overhead = DISPUTE_OVERHEAD_BYTES,
     );
     let _ = writeln!(table);
 
-    let mut header = String::from("| budget |");
-    let mut rule = String::from("|---|");
+    let mut header = String::from("| budget | window |");
+    let mut rule = String::from("|---|---|");
     for (_, label) in RECORD_SIZES {
         let _ = write!(header, " {label} |");
         rule.push_str("---|");
@@ -162,11 +213,11 @@ pub fn window_tradeoff_table() -> String {
         } else {
             ""
         };
-        let _ = write!(table, "| {label}{default} |");
+        let window = solve_window(DESIGN_SESSION_MESSAGES, budget);
+        let _ = write!(table, "| {label}{default} | {window} |");
         for &(m, _) in RECORD_SIZES {
-            let slowdown = (SPEC_BDP_BYTES as f64 * SCOPE_ENVELOPE_BYTES as f64
-                / (budget as f64 * (DISPUTE_OVERHEAD_BYTES + m) as f64))
-                .max(1.0);
+            let bdp_messages = SPEC_BDP_BYTES as f64 / (DISPUTE_OVERHEAD_BYTES + m) as f64;
+            let slowdown = (bdp_messages / window as f64).max(1.0);
             let _ = write!(table, " {slowdown:.1}× |");
         }
         let _ = writeln!(table);
