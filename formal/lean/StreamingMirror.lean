@@ -104,3 +104,5 @@ import StreamingMirror.Ord.Weave
 import StreamingMirror.Ord.Expand
 import StreamingMirror.Ord.Align
 import StreamingMirror.Ord.Prec
+import StreamingMirror.Ord.Pump
+import StreamingMirror.Ord.Window
