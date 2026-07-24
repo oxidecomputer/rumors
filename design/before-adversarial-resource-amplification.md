@@ -1085,8 +1085,10 @@ Pin the §6 invariant the way `step!` pins time complexity:
   `min_ticks`, `project`, `fork`/`forks`/`join_all`, `Clock::sync`,
   and both codec directions) × §2's input families. Each cell runs at
   two scales and reports, from the deterministic meters below (peak
-  heap, stacker segments, limb ops; wall time shown but never
-  asserted), a scaling exponent and a per-input-byte constant. Green
+  heap, stacker segments, limb ops; wall constants shown but never
+  asserted — the wall *exponent* is judged above a minimum-time
+  threshold per this section's surface-judgment addendum), a scaling
+  exponent and a per-input-byte constant. Green
   = exponent ~≤ 1.15 with constants under pinned ceilings; red
   otherwise. Default sizes keep the whole board at seconds of
   runtime — the fast-iteration loop — with a size knob for records
@@ -1419,7 +1421,14 @@ runs; at 100 ms every judged cell reads ~1.9 (the bigroot
 quadratics) or ≤ ~1.13 (the linear controls), and both scales'
 judged enumerations — verdicts, all counter columns, floors, and
 red reasons, wall text excluded — are byte-identical across two
-consecutive runs. Today's wall-exponent reds are all cells already
+consecutive runs. The calibration holds on a quiet machine, and
+board runs of record (the acceptance protocol's identical-runs
+requirement included) are quiet-machine runs — at record scale a
+~16% asymmetric slowdown between the two scales' measurement
+windows sits within one green cell's headroom (`party_join_all ×
+scatter`, fitted 1.09 vs the 1.3 ceiling), the same discipline
+`.config/nextest.toml` reserves for the display canary. Today's
+wall-exponent reds are all cells already
 red on their counters (default: `version_distance × bigroot`;
 record: the nine bigroot join/meet/sync/recv/distance/lag legs plus
 `version_from_str`/`clock_from_str` × hugeleaf): the leg adds no

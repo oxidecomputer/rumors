@@ -87,6 +87,15 @@
 //! legitimately does less work lowers the floor deliberately, in a change
 //! whose diff shows the new derivation.
 //!
+//! Floors detect *total* vacuity, not partial rerouting: the scan floor is
+//! deliberately an eighth of an honest walk's reading, so an implementation
+//! that routes exactly the floor through metered primitives and the rest
+//! around them still reads green. That is the derivation rule's designed
+//! limit — a floor states what the operation *must* do, and partial
+//! rerouting still does it — so the floors are a bypass tripwire, never a
+//! full-liveness proof; the judged time exponent below is the leg that
+//! bounds work no counter sees.
+//!
 //! # The judged time exponent
 //!
 //! Wall time is the one implementation-agnostic witness for *time*, exactly

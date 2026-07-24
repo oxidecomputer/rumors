@@ -32,8 +32,12 @@
 //!   the only column that sees a magnitude-quadratic regression. Without
 //!   the feature the scenarios still run and assert the other two columns.
 //!
-//! Wall time is deliberately never asserted: it is the one number here that
-//! is not deterministic. The envelope constants are **measured** on the
+//! Wall time is deliberately never asserted *in this suite*: it is the one
+//! number here that is not deterministic (the amplification board judges the
+//! wall-time *exponent* above a minimum-time threshold — see
+//! `meter::board`'s module docs — and the display canary asserts a
+//! wall-clock ratio in a reserved runner; those two are the wall legs of
+//! record). The envelope constants are **measured** on the
 //! development target (aarch64-apple-darwin, dev profile); heap byte counts
 //! and limb counts are deterministic and portable across 64-bit targets
 //! (limb counts shrink under release, where `debug_assert!` comparisons
