@@ -43,6 +43,10 @@ pub(super) struct Open(usize);
 /// The width of an id node's presence tag: one bit per child.
 const TAG_BITS: usize = 2;
 
+/// The output width of a node whose two children are both terminals: its
+/// own tag followed by the two terminal tags.
+const TERMINAL_PAIR_BITS: usize = 3 * TAG_BITS;
+
 impl IdBuilder {
     pub(super) fn with_capacity(capacity: usize) -> Self {
         IdBuilder {
@@ -122,6 +126,21 @@ impl IdBuilder {
                 Built::Node
             }
         }
+    }
+
+    /// Normalize the node just completed with two terminal children:
+    /// retract its tag and both terminals — the trailing
+    /// [`TERMINAL_PAIR_BITS`] of the output — and emit the single terminal
+    /// the pair collapses to (`(1, 1) → 1`).
+    ///
+    /// The truncation twin of [`close_node`](Self::close_node)'s
+    /// terminal-collapse arm, for an emitter that writes final tags at
+    /// descent ([`sum`](crate::idbits::IdReader::sum)): such a node's tag
+    /// and children are the last three tags in the output, so no recorded
+    /// position is needed.
+    pub(super) fn collapse_terminal_pair(&mut self) -> Built {
+        self.out.truncate(self.out.len() - TERMINAL_PAIR_BITS);
+        self.terminal()
     }
 
     pub(super) fn finish(self) -> Bits {

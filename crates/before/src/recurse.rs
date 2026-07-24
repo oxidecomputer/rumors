@@ -1,9 +1,10 @@
 //! Stack-growth guard for the recursive tree traversals.
 //!
-//! Every traversal in this crate recurses on tree depth. A shallow,
-//! near-balanced tree recurses on the program stack at native speed; before a
-//! deep, unbalanced tree can approach the stack limit, [`grow`] extends the
-//! stack onto the heap (via `stacker`), so deep inputs cannot overflow.
+//! A traversal that recurses on tree depth routes each recursive call
+//! through here. A shallow, near-balanced tree recurses on the program
+//! stack at native speed; before a deep, unbalanced tree can approach the
+//! stack limit, [`grow`] extends the stack onto the heap (via `stacker`),
+//! so deep inputs cannot overflow.
 //!
 //! The headroom probe is amortized: a traversal routes each recursive call
 //! through the [`descend!`] macro, which probes only once every [`STRIDE`]

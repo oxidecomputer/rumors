@@ -3,19 +3,27 @@
 //! stream.
 //!
 //! Each node is a 2-bit presence tag (see [`idbits`](crate::idbits)): a `0` is
-//! the *absence* of a child, never a node. Every traversal recurses on depth —
-//! guarded against overflow by [`crate::recurse`] — and is `O(n + m)` in its
-//! inputs, with no re-scan to find a right child. The same single-use-cursor
-//! discipline as the event side governs them (see the [traversal
-//! overview](crate::version::event)); two points are specific to ids:
+//! the *absence* of a child, never a node. Every operation is `O(n + m)` in
+//! its inputs, with no re-scan to find a right child. `sum`, `covers`, and
+//! `is_disjoint` walk iteratively: the consuming cursors carry the
+//! traversal and the per-node control state is two or three bits on a bit
+//! stack, so a deep operand costs bits, not stack frames or grown
+//! segments. `split` walks its spine by bit position in a loop, and
+//! `diff`'s complement arm emits iteratively; `diff`'s both-internal walk
+//! recurses on depth, guarded against overflow by [`crate::recurse`]. The
+//! same single-use-cursor discipline as the event side governs them all
+//! (see the [traversal overview](crate::version::event)); two points are
+//! specific to ids:
 //!
 //! - **Threading via the cursor.** A child is a single-use `&mut`
 //!   [`IdReader`](crate::idbits::IdReader): reading a node advances it in place,
 //!   so finishing one present child leaves the cursor at the next. An *absent*
-//!   child (a pruned `0`) is threaded as a synthetic
-//!   [`Empty`](crate::idbits::IdReader::Empty), so the `(Empty, …)` arms fire
-//!   for it exactly as for a stored `0`. (`split` is the exception: it walks the
-//!   spine by bit *position* and splices the input on the branch.)
+//!   child (a pruned `0`) is stood in by a synthetic empty — the
+//!   [`Empty`](crate::idbits::IdReader::Empty) reader in `diff`'s recursive
+//!   walk, an [`Empty`](crate::idbits::IdNode::Empty) node directly in the
+//!   iterative ones — so the `(Empty, …)` arms fire for it exactly as for a
+//!   stored `0`. (`split` is the exception: it walks the spine by bit
+//!   *position* and splices the input on the branch.)
 //!
 //! - **Bounded lazy-skip.** Where one side prunes early (a leaf dominates the
 //!   other's whole subtree), the dominated subtree is skipped *once*, at the

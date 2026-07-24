@@ -25,9 +25,11 @@ inner loop:
 - Every traversal that recurses on tree depth must route each recursive call
   through `crate::recurse::descend!`, which grows the stack onto the heap
   before a deep input can overflow. The deliberate exceptions are iterative
-  with `O(1)` or heap stacks and documented where they live
-  (`idbits::skip_subtree`, the `codec::tree` parsers, test-only walks). The
-  depth-100k `clock::tests::deep_tree_stack_safety` test is the proof.
+  with `O(1)`, bit, or heap stacks and documented where they live
+  (`idbits::skip_subtree`, the `codec::tree` parsers, the id walks `sum`/
+  `covers`/`is_disjoint` and `diff`'s complement arm in `party::ops`, the
+  skyline kernels, test-only walks). The depth-100k
+  `clock::tests::deep_tree_stack_safety` test is the proof.
 - `decode` strictly rejects non-canonical input; byte-equality is what
   `Eq`/`Hash` rest on.
 - `Party`/`Clock` are `!Clone`; `Version` is `Clone`. Don't add `Clone` to
