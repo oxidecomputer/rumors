@@ -226,7 +226,7 @@ proptest! {
     /// The word-wise `encode_int` is byte-identical to the per-bit emitter.
     ///
     /// Holds for every value — `u64`-range codes (the `store_be` path) and
-    /// spilled `Base::Big` values alike — even appending at an unaligned
+    /// spilled wide values alike — even appending at an unaligned
     /// mid-stream position; and the windowed decoder reads its output back
     /// exactly.
     #[test]
@@ -412,18 +412,12 @@ fn gamma_truncated_inside_wide_mantissa() {
 /// semantics of record that `Base`'s manual limb-metered impls must
 /// reproduce exactly.
 #[derive(PartialEq, Hash)]
-enum DerivedBase {
-    Small(u64),
-    Big(num_bigint::BigUint),
-}
+struct DerivedBase(dashu_int::UBig);
 
 impl DerivedBase {
     /// The same value as `b`, carried by the derived-impl mirror.
     fn of(b: &Base) -> DerivedBase {
-        match b {
-            Base::Small(n) => DerivedBase::Small(*n),
-            Base::Big(n) => DerivedBase::Big(n.clone()),
-        }
+        DerivedBase(b.0.clone())
     }
 }
 
@@ -437,7 +431,7 @@ fn default_hash<T: std::hash::Hash>(v: &T) -> u64 {
 }
 
 /// The manual (limb-metered) `PartialEq` and `Hash` on `Base` agree with the
-/// compiler-derived semantics over a value grid spanning the `Small`/`Big`
+/// compiler-derived semantics over a value grid spanning the `u64::MAX`
 /// boundary.
 ///
 /// Every pairwise equality answer matches the derived impl's, every hash
@@ -451,7 +445,7 @@ fn base_eq_hash_agree_with_derived_semantics() {
         Base::from(2u8),
         Base::from(u64::MAX - 1),
         Base::from(u64::MAX),
-        // The first spilled value, spelled two ways: an equal `Big` pair.
+        // The first value past `u64::MAX`, spelled two ways: an equal pair.
         Base::from(u64::MAX) + 1u64,
         Base::from(1u128 << 64),
         Base::from(u128::MAX),

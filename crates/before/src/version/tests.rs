@@ -1606,18 +1606,14 @@ fn alignment_cmp(a: &super::Rank, b: &super::Rank) -> core::cmp::Ordering {
     let (an, ae) = rank_parts(a);
     let (bn, be) = rank_parts(b);
     let e = ae.max(be);
-    (an << (e - ae)).cmp(&(bn << (e - be)))
+    (an << ((e - ae) as usize)).cmp(&(bn << ((e - be) as usize)))
 }
 
-/// A rank's raw parts for the oracle, as plain `BigUint` arithmetic
+/// A rank's raw parts for the oracle, as plain `UBig` arithmetic
 /// operands.
-fn rank_parts(r: &super::Rank) -> (num_bigint::BigUint, u32) {
+fn rank_parts(r: &super::Rank) -> (dashu_int::UBig, u32) {
     let (num, exp) = r.raw_parts();
-    let bytes = match num {
-        crate::codec::Base::Small(n) => n.to_le_bytes().to_vec(),
-        crate::codec::Base::Big(n) => n.to_bytes_le(),
-    };
-    (num_bigint::BigUint::from_bytes_le(&bytes), exp)
+    (dashu_int::UBig::from_le_bytes(&num.to_bytes_le()), exp)
 }
 
 /// One adversarial `Rank` for the order-agreement sweeps, from a
@@ -1646,12 +1642,8 @@ fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
         }
     }
     words[0] |= 1; // odd: the stored normalization invariant
-    let num = crate::codec::Base::from(num_bigint::BigUint::new(
-        words
-            .iter()
-            .flat_map(|w| [(*w & 0xFFFF_FFFF) as u32, (*w >> 32) as u32])
-            .collect(),
-    ));
+    let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+    let num = crate::codec::Base::from(dashu_int::UBig::from_le_bytes(&bytes));
     let exp = (next() % 100_000) as u32;
     super::Rank::from_raw(num, exp)
 }
@@ -1696,8 +1688,9 @@ fn rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs() {
             // perturbed, so the streamed windows share a deep prefix.
             _ => {
                 let (num, exp) = rank_parts(&a);
-                let flipped = num ^ (num_bigint::BigUint::from(2u8) << (next() % 16));
-                let bits_kept = flipped.bits() == a_bits(&a);
+                use dashu_int::ops::BitTest;
+                let flipped = num ^ (dashu_int::UBig::from(2u8) << ((next() % 16) as usize));
+                let bits_kept = flipped.bit_len() as u64 == a_bits(&a);
                 let candidate = super::Rank::from_raw(crate::codec::Base::from(flipped), exp);
                 if bits_kept {
                     candidate
@@ -1741,7 +1734,8 @@ proptest! {
 
 /// A rank's numerator width for the tie construction above.
 fn a_bits(r: &super::Rank) -> u64 {
-    rank_parts(r).0.bits()
+    use dashu_int::ops::BitTest;
+    rank_parts(r).0.bit_len() as u64
 }
 
 proptest! {

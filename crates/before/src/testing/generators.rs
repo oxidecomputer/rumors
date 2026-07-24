@@ -249,7 +249,7 @@ const ARB_NODES: u32 = 16;
 /// Mixes a dense small range (where collapses and `one_zero` corners live) with
 /// values straddling `u64::MAX`, so a generated event tree can have
 /// root-to-leaf path sums that would overflow `u64`. The big-value arms are
-/// built from `u128`/shifted `BigUint` literals, well beyond `u64`.
+/// built from `u128` conversions and shifted powers, well beyond `u64`.
 pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
     prop_oneof![
         6 => (0u64..6).prop_map(codec::Base::from),

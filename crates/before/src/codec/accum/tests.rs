@@ -1,4 +1,4 @@
-//! Differential tests for the accumulator against an exact `BigInt` oracle.
+//! Differential tests for the accumulator against an exact `IBig` oracle.
 //!
 //! Every stream compares the sign after every operation — the read the
 //! sweeps depend on — and snapshots the full value periodically through
@@ -10,7 +10,8 @@
 
 use core::cmp::Ordering;
 
-use num_bigint::{BigInt, BigUint, Sign};
+use dashu_int::ops::BitTest;
+use dashu_int::{IBig, Sign, UBig};
 use proptest::prelude::*;
 
 use super::Accum;
@@ -22,11 +23,11 @@ enum Op {
     /// A signed machine-word delta.
     Small(i64),
     /// A wide delta with an explicit sign.
-    Wide { negative: bool, value: BigUint },
+    Wide { negative: bool, value: UBig },
 }
 
 /// Apply one operation to the accumulator and the oracle in lockstep.
-fn apply(acc: &mut Accum, oracle: &mut BigInt, op: &Op) {
+fn apply(acc: &mut Accum, oracle: &mut IBig, op: &Op) {
     match op {
         Op::Small(delta) => {
             acc.add_small(*delta);
@@ -35,36 +36,45 @@ fn apply(acc: &mut Accum, oracle: &mut BigInt, op: &Op) {
         Op::Wide { negative, value } => {
             if *negative {
                 acc.sub_wide(value);
-                *oracle -= BigInt::from(value.clone());
+                *oracle -= IBig::from(value.clone());
             } else {
                 acc.add_wide(value);
-                *oracle += BigInt::from(value.clone());
+                *oracle += IBig::from(value.clone());
             }
         }
     }
 }
 
 /// The oracle's sign as the accumulator reports it.
-fn oracle_sign(oracle: &BigInt) -> Ordering {
-    match oracle.sign() {
-        Sign::Minus => Ordering::Less,
-        Sign::NoSign => Ordering::Equal,
-        Sign::Plus => Ordering::Greater,
+fn oracle_sign(oracle: &IBig) -> Ordering {
+    if *oracle == IBig::ZERO {
+        Ordering::Equal
+    } else {
+        match oracle.sign() {
+            Sign::Negative => Ordering::Less,
+            Sign::Positive => Ordering::Greater,
+        }
     }
 }
 
 /// Assert the accumulator's full value equals the oracle's, sign and
 /// magnitude both.
-fn assert_value(acc: &Accum, oracle: &BigInt) {
+fn assert_value(acc: &Accum, oracle: &IBig) {
     let (sign, magnitude) = acc.sign_magnitude();
     assert_eq!(sign, oracle_sign(oracle), "sign_magnitude sign");
-    assert_eq!(&magnitude, oracle.magnitude(), "sign_magnitude magnitude");
+    // The sign was just asserted, so signing the magnitude with it makes
+    // the magnitude comparison exact.
+    let rebuilt = match sign {
+        Ordering::Less => -IBig::from(magnitude),
+        _ => IBig::from(magnitude),
+    };
+    assert_eq!(&rebuilt, oracle, "sign_magnitude magnitude");
 }
 
 /// A wide magnitude from little-endian 64-bit limbs.
-fn from_limbs(limbs: &[u64]) -> BigUint {
+fn from_limbs(limbs: &[u64]) -> UBig {
     let bytes: Vec<u8> = limbs.iter().flat_map(|l| l.to_le_bytes()).collect();
-    BigUint::from_bytes_le(&bytes)
+    UBig::from_le_bytes(&bytes)
 }
 
 /// A mixed operation stream: mostly small deltas of varying width, some
@@ -97,14 +107,14 @@ fn arb_op() -> impl Strategy<Value = Op> {
 
 proptest! {
     /// On random mixed small/wide streams the accumulator's sign matches an
-    /// exact `BigInt` oracle after every single operation, and the full
+    /// exact `IBig` oracle after every single operation, and the full
     /// value matches at periodic snapshots and at the end.
     #[test]
     fn mixed_streams_match_the_bigint_oracle(
         ops in proptest::collection::vec(arb_op(), 1..300),
     ) {
         let mut acc = Accum::new();
-        let mut oracle = BigInt::from(0);
+        let mut oracle = IBig::from(0);
         for (step, op) in ops.iter().enumerate() {
             apply(&mut acc, &mut oracle, op);
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle), "sign at step {}", step);
@@ -127,18 +137,18 @@ proptest! {
         ),
     ) {
         let mut acc = Accum::new();
-        let mut oracle = BigInt::from(0);
+        let mut oracle = IBig::from(0);
         for (negative, limbs) in &ops {
             let value = from_limbs(limbs);
-            // `Base::from` keeps inline-range values in the `Small` arm, so
-            // the stream exercises both match arms.
+            // One to three limbs per value, so the stream exercises the
+            // word-sized dispatch path and the wide one both.
             let base = Base::from(value.clone());
             if *negative {
                 acc.sub_base(&base);
-                oracle -= BigInt::from(value);
+                oracle -= IBig::from(value);
             } else {
                 acc.add_base(&base);
-                oracle += BigInt::from(value);
+                oracle += IBig::from(value);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
         }
@@ -159,16 +169,16 @@ proptest! {
         ),
     ) {
         let mut acc = Accum::new();
-        let mut oracle = BigInt::from(0);
+        let mut oracle = IBig::from(0);
         for (negative, limbs, shift) in &ops {
             let value = from_limbs(limbs);
             if *negative {
                 acc.sub_wide(&value);
-                oracle -= BigInt::from(value);
+                oracle -= IBig::from(value);
             } else {
                 let base = Base::from(value.clone());
                 acc.add_base_shl(&base, *shift);
-                oracle += BigInt::from(value << shift);
+                oracle += IBig::from(value << *shift as usize);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
         }
@@ -185,17 +195,17 @@ proptest! {
         merge_shift in 0u64..200,
     ) {
         let mut x = Accum::new();
-        let mut x_oracle = BigInt::from(0);
+        let mut x_oracle = IBig::from(0);
         for op in &x_ops {
             apply(&mut x, &mut x_oracle, op);
         }
         let mut y = Accum::new();
-        let mut y_oracle = BigInt::from(0);
+        let mut y_oracle = IBig::from(0);
         for op in &y_ops {
             apply(&mut y, &mut y_oracle, op);
         }
         x.add_accum_shl(&y, merge_shift);
-        x_oracle += y_oracle << merge_shift;
+        x_oracle += y_oracle << merge_shift as usize;
         assert_value(&x, &x_oracle);
     }
 
@@ -207,13 +217,13 @@ proptest! {
         ops in proptest::collection::vec(arb_op(), 1..120),
     ) {
         let mut acc = Accum::new();
-        let mut oracle = BigInt::from(0);
+        let mut oracle = IBig::from(0);
         for op in &ops {
             apply(&mut acc, &mut oracle, op);
             let (_, magnitude) = acc.sign_magnitude();
             prop_assert!(
                 u64::try_from(acc.digit_count()).expect("digit counts fit u64") * 32 + 33
-                    >= magnitude.bits(),
+                    >= magnitude.bit_len() as u64,
                 "digit_count misses value width"
             );
         }
@@ -228,11 +238,11 @@ proptest! {
 #[test]
 fn boundary_comb_oscillation_matches_the_oracle() {
     let k = 512u32;
-    let below_cliff = (BigUint::from(1u8) << k) - 1u8;
+    let below_cliff = (UBig::from(1u8) << k as usize) - 1u8;
     let mut acc = Accum::new();
-    let mut oracle = BigInt::from(0);
+    let mut oracle = IBig::from(0);
     acc.add_wide(&below_cliff);
-    oracle += BigInt::from(below_cliff);
+    oracle += IBig::from(below_cliff);
     for _ in 0..2_000 {
         acc.add_small(1);
         oracle += 1;
@@ -250,18 +260,18 @@ fn boundary_comb_oscillation_matches_the_oracle() {
 #[test]
 fn wide_teeth_across_the_cliff_match_the_oracle() {
     let (k, w) = (512u32, 192u32);
-    let cliff = BigUint::from(1u8) << k;
-    let tooth = BigUint::from(1u8) << w;
+    let cliff = UBig::from(1u8) << k as usize;
+    let tooth = UBig::from(1u8) << w as usize;
     let mut acc = Accum::new();
-    let mut oracle = BigInt::from(0);
+    let mut oracle = IBig::from(0);
     acc.add_wide(&cliff);
-    oracle += BigInt::from(cliff);
+    oracle += IBig::from(cliff);
     for _ in 0..500 {
         acc.sub_wide(&tooth);
-        oracle -= BigInt::from(tooth.clone());
+        oracle -= IBig::from(tooth.clone());
         assert_eq!(acc.sign(), Ordering::Greater, "below the cliff");
         acc.add_wide(&tooth);
-        oracle += BigInt::from(tooth.clone());
+        oracle += IBig::from(tooth.clone());
         assert_eq!(acc.sign(), Ordering::Greater, "back at the cliff");
     }
     assert_value(&acc, &oracle);
@@ -275,19 +285,19 @@ fn wide_teeth_across_the_cliff_match_the_oracle() {
 #[test]
 fn cancelling_prefix_chain_matches_the_oracle() {
     let k = 512u32;
-    let peak = BigUint::from(1u8) << k;
-    let drop = (BigUint::from(1u8) << k) - 1u8;
+    let peak = UBig::from(1u8) << k as usize;
+    let drop = (UBig::from(1u8) << k as usize) - 1u8;
     let mut acc = Accum::new();
-    let mut oracle = BigInt::from(0);
+    let mut oracle = IBig::from(0);
     acc.add_wide(&peak);
-    oracle += BigInt::from(peak);
+    oracle += IBig::from(peak);
     assert_eq!(acc.sign(), Ordering::Greater);
     for cycle in 0..200 {
         acc.sub_wide(&drop);
-        oracle -= BigInt::from(drop.clone());
+        oracle -= IBig::from(drop.clone());
         assert_eq!(acc.sign(), Ordering::Greater, "down at 1");
         acc.add_wide(&drop);
-        oracle += BigInt::from(drop.clone());
+        oracle += IBig::from(drop.clone());
         assert_eq!(acc.sign(), Ordering::Greater, "back at the peak");
         if cycle % 16 == 0 {
             assert_value(&acc, &oracle);
@@ -301,13 +311,13 @@ fn cancelling_prefix_chain_matches_the_oracle() {
 /// threshold must not blur.
 #[test]
 fn exact_cancellation_and_unit_nudges_read_correctly() {
-    let wide = BigUint::from(1u8) << 512u32;
+    let wide = UBig::from(1u8) << 512usize;
     let mut acc = Accum::new();
-    let mut oracle = BigInt::from(0);
+    let mut oracle = IBig::from(0);
     acc.add_wide(&wide);
-    oracle += BigInt::from(wide.clone());
+    oracle += IBig::from(wide.clone());
     acc.sub_wide(&wide);
-    oracle -= BigInt::from(wide);
+    oracle -= IBig::from(wide);
     assert_eq!(acc.sign(), Ordering::Equal, "exact cancellation is zero");
     assert_value(&acc, &oracle);
     acc.sub_small(1);
@@ -329,18 +339,18 @@ fn exact_cancellation_and_unit_nudges_read_correctly() {
 fn negative_magnitudes_convert_through_both_arms() {
     // Nonzero low part: −(2^192 − 5).
     let mut acc = Accum::new();
-    let mut oracle = BigInt::from(0);
-    let wide = (BigUint::from(1u8) << 192u32) - 5u8;
+    let mut oracle = IBig::from(0);
+    let wide = (UBig::from(1u8) << 192usize) - 5u8;
     acc.sub_wide(&wide);
-    oracle -= BigInt::from(wide);
+    oracle -= IBig::from(wide);
     assert_eq!(acc.sign(), Ordering::Less);
     assert_value(&acc, &oracle);
     // Exact multiple of 2^32: −2^96.
     let mut acc = Accum::new();
-    let mut oracle = BigInt::from(0);
-    let aligned = BigUint::from(1u8) << 96u32;
+    let mut oracle = IBig::from(0);
+    let aligned = UBig::from(1u8) << 96usize;
     acc.sub_wide(&aligned);
-    oracle -= BigInt::from(aligned);
+    oracle -= IBig::from(aligned);
     assert_eq!(acc.sign(), Ordering::Less);
     assert_value(&acc, &oracle);
 }
@@ -350,7 +360,7 @@ fn negative_magnitudes_convert_through_both_arms() {
 #[test]
 fn u64_entry_points_cover_the_full_range() {
     let mut acc = Accum::new();
-    let mut oracle = BigInt::from(0);
+    let mut oracle = IBig::from(0);
     acc.add_u64(u64::MAX);
     oracle += u64::MAX;
     assert_eq!(acc.sign(), Ordering::Greater);
@@ -372,6 +382,6 @@ fn new_and_default_hold_zero() {
         assert_eq!(acc.sign(), Ordering::Equal);
         let (sign, magnitude) = acc.sign_magnitude();
         assert_eq!(sign, Ordering::Equal);
-        assert_eq!(magnitude, BigUint::from(0u8));
+        assert_eq!(magnitude, UBig::from(0u8));
     }
 }

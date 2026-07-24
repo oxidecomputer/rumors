@@ -45,7 +45,10 @@ pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
 /// sibling pair (an internal node's two leaf children with a zero right
 /// delta) or a delta driving the running leaf height negative is
 /// [`Decode::NotCanonical`].
-fn validate_from(cursor: &mut impl BitCursor) -> Result<(), Decode> {
+fn validate_from<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
+where
+    Decode: From<C::Error>,
+{
     // Two bits per open ancestor, pushed [left-complete, left-was-leaf]
     // and popped in reverse order below. A packed bit stack, so depth
     // costs bits, not frames.
@@ -70,20 +73,16 @@ fn validate_from(cursor: &mut impl BitCursor) -> Result<(), Decode> {
         if seen_leaf {
             zero_delta = code == Base::ZERO;
             let (negative, magnitude) = unzigzag(code);
-            match (negative, &magnitude) {
-                (false, Base::Small(n)) => height.add_u64(*n),
-                (false, Base::Big(n)) => height.add_wide(n),
-                (true, Base::Small(n)) => height.sub_u64(*n),
-                (true, Base::Big(n)) => height.sub_wide(n),
+            if negative {
+                height.sub_base(&magnitude);
+            } else {
+                height.add_base(&magnitude);
             }
             if negative && height.sign() == Ordering::Less {
                 return Err(Decode::NotCanonical); // a leaf height fell below zero
             }
         } else {
-            match &code {
-                Base::Small(n) => height.add_u64(*n),
-                Base::Big(n) => height.add_wide(n),
-            }
+            height.add_base(&code);
             seen_leaf = true;
         }
 

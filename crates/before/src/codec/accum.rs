@@ -50,7 +50,8 @@
 //! # Testing
 //!
 //! Differential proptests drive mixed small/wide streams against an exact
-//! `BigInt` oracle with the sign compared after every operation and the
+//! signed big-integer (`IBig`) oracle with the sign compared after every
+//! operation and the
 //! full value snapshotted periodically; deterministic adversarial streams
 //! (boundary-comb oscillation, wide teeth across a high carry cliff,
 //! cancelling-prefix chains) pin the shapes the representation exists to
@@ -67,8 +68,9 @@
 
 use core::cmp::Ordering;
 
-use num_bigint::BigUint;
+use dashu_int::UBig;
 
+use super::base::U64Limbs;
 use super::Base;
 
 /// Process-global counter of accumulator digit touches.
@@ -194,14 +196,14 @@ impl Accum {
     }
 
     /// Add a wide delta: O(operand limbs), paid by the operand's own width.
-    pub fn add_wide(&mut self, delta: &BigUint) {
-        self.apply_limbs(delta.iter_u64_digits(), false, 0);
+    pub fn add_wide(&mut self, delta: &UBig) {
+        self.apply_limbs(U64Limbs::new(delta), false, 0);
     }
 
     /// Subtract a wide delta: O(operand limbs), paid by the operand's own
     /// width.
-    pub fn sub_wide(&mut self, delta: &BigUint) {
-        self.apply_limbs(delta.iter_u64_digits(), true, 0);
+    pub fn sub_wide(&mut self, delta: &UBig) {
+        self.apply_limbs(U64Limbs::new(delta), true, 0);
     }
 
     /// Add `delta · 2^shift`: O(operand limbs), independent of the shift.
@@ -211,27 +213,27 @@ impl Accum {
     /// larger exponent): the shift routes each operand limb to its target
     /// digit position directly, so a wide shift costs no more than an
     /// unshifted add of the same operand.
-    pub(crate) fn add_wide_shl(&mut self, delta: &BigUint, shift: u64) {
-        self.apply_limbs(delta.iter_u64_digits(), false, shift);
+    pub(crate) fn add_wide_shl(&mut self, delta: &UBig, shift: u64) {
+        self.apply_limbs(U64Limbs::new(delta), false, shift);
     }
 
     /// Add a stored magnitude times `2^shift`, at the width it is stored
     /// at: O(operand limbs), independent of the shift.
     pub(crate) fn add_base_shl(&mut self, delta: &Base, shift: u64) {
-        match delta {
-            Base::Small(0) => {}
-            Base::Small(n) => self.add_shifted_word(*n, false, shift),
-            Base::Big(n) => self.add_wide_shl(n, shift),
+        match delta.to_u64() {
+            Some(0) => {}
+            Some(n) => self.add_shifted_word(n, false, shift),
+            None => self.add_wide_shl(&delta.0, shift),
         }
     }
 
     /// Subtract a stored magnitude times `2^shift`: O(operand limbs),
     /// independent of the shift.
     pub(crate) fn sub_base_shl(&mut self, delta: &Base, shift: u64) {
-        match delta {
-            Base::Small(0) => {}
-            Base::Small(n) => self.add_shifted_word(*n, true, shift),
-            Base::Big(n) => self.apply_limbs(n.iter_u64_digits(), true, shift),
+        match delta.to_u64() {
+            Some(0) => {}
+            Some(n) => self.add_shifted_word(n, true, shift),
+            None => self.apply_limbs(U64Limbs::new(&delta.0), true, shift),
         }
     }
 
@@ -303,17 +305,17 @@ impl Accum {
     /// heights and deltas into the accumulator: a word-scale magnitude
     /// takes the small path, a spilled one the wide path.
     pub(crate) fn add_base(&mut self, delta: &Base) {
-        match delta {
-            Base::Small(n) => self.add_u64(*n),
-            Base::Big(n) => self.add_wide(n),
+        match delta.to_u64() {
+            Some(n) => self.add_u64(n),
+            None => self.add_wide(&delta.0),
         }
     }
 
     /// Subtract a stored magnitude, at the width it is stored at.
     pub(crate) fn sub_base(&mut self, delta: &Base) {
-        match delta {
-            Base::Small(n) => self.sub_u64(*n),
-            Base::Big(n) => self.sub_wide(n),
+        match delta.to_u64() {
+            Some(n) => self.sub_u64(n),
+            None => self.sub_wide(&delta.0),
         }
     }
 
@@ -367,9 +369,9 @@ impl Accum {
     /// One low-to-high pass with a signed carry: O(held digits). The
     /// magnitude is zero exactly when the sign is [`Ordering::Equal`], and
     /// converts onto the crate's stored-magnitude type through its
-    /// `From<BigUint>` impl, which is where inline-range normalization
-    /// happens.
-    pub fn sign_magnitude(&self) -> (Ordering, BigUint) {
+    /// `From<UBig>` impl; values up to two machine words stay inline in
+    /// the magnitude's own representation.
+    pub fn sign_magnitude(&self) -> (Ordering, UBig) {
         // Low-to-high signed carry: after the pass, the collected unsigned
         // digits hold `M` with `value = carry · 2^(32·len) + M`,
         // `0 ≤ M < 2^(32·len)`.
@@ -407,7 +409,7 @@ impl Accum {
                 high >>= DIGIT_BITS;
             }
             // |carry| ≥ 1 makes |value| ≥ 2^(32·len) − M > 0: never zero.
-            (Ordering::Less, BigUint::new(collected))
+            (Ordering::Less, magnitude_from_digits(collected))
         } else {
             let mut high = carry as u128;
             while high > 0 {
@@ -415,8 +417,8 @@ impl Accum {
                 collected.push((high & u128::from(DIGIT_MASK)) as u32);
                 high >>= DIGIT_BITS;
             }
-            let magnitude = BigUint::new(collected);
-            let sign = if magnitude.bits() == 0 {
+            let magnitude = magnitude_from_digits(collected);
+            let sign = if magnitude == UBig::ZERO {
                 Ordering::Equal
             } else {
                 Ordering::Greater
@@ -464,7 +466,9 @@ impl Accum {
     ///
     /// Digit-aligned: each limb lands as two independent 32-bit
     /// contributions at its own shifted position, so a wide operand costs
-    /// O(its limbs) regardless of the held width or the shift.
+    /// O(its limbs) regardless of the held width or the shift. The wide
+    /// entry points feed this from a borrowed word slice, so streaming a
+    /// stored operand allocates nothing.
     fn apply_limbs<I: Iterator<Item = u64>>(&mut self, limbs: I, negative: bool, shift: u64) {
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
@@ -489,6 +493,18 @@ impl Default for Accum {
     fn default() -> Accum {
         Accum::new()
     }
+}
+
+/// Pack little-endian base-2^32 digits into a magnitude.
+///
+/// Consumes the digit buffer so the peak transient during a drain is two
+/// width-proportional buffers — the digits and the byte image the
+/// magnitude is built from — never three. Byte-denominated so one code
+/// path serves every storage word width.
+fn magnitude_from_digits(digits: Vec<u32>) -> UBig {
+    let bytes: Vec<u8> = digits.iter().flat_map(|d| d.to_le_bytes()).collect();
+    drop(digits);
+    UBig::from_le_bytes(&bytes)
 }
 
 #[cfg(test)]

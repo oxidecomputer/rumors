@@ -36,13 +36,14 @@ slow-timeout = { period = "60s", terminate-after = 3 }
 
 # The display canary (crates/before/tests/display_canary.rs) is the test
 # suite's one deliberate wall-clock assertion: a rendering-time ratio whose
-# ceiling separates num-bigint's divide-and-conquer complexity class from
-# the quadratic one. The ratio's class margin (~1.4x on each side) assumes
+# ceiling separates the bignum backend's divide-and-conquer complexity
+# class from the quadratic one. The ratio's class margin assumes
 # both measured intervals see a quiet machine: under a fully parallel
 # workspace run, scheduler contention stretches the seconds-scale interval
 # more than the milliseconds-scale one and inflates the ratio into the
-# quadratic band (36x observed under gate load against ~19x quiet, dev
-# profile, aarch64-apple-darwin). Reserving every runner thread makes the
+# quadratic band (36x observed under gate load against a quiet 18-25x
+# divide-and-conquer band, dev profile, aarch64-apple-darwin). Reserving
+# every runner thread makes the
 # canary run alone, so the two intervals face the same conditions and the
 # ceiling keeps measuring the complexity class, not the scheduler.
 [[profile.default.overrides]]

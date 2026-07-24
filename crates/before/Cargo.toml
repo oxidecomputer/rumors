@@ -8,12 +8,15 @@ readme = "README.md"
 
 [dependencies]
 bitvec = "1"
-# Floor 0.4.8: 0.4.7 ships divide-and-conquer to_radix_digits (rendering a
-# b-bit magnitude stops being quadratic in b) and 0.4.8 fixes its
-# Burnikel-Ziegler division regression. `Display` on spilled magnitudes
-# delegates to `BigUint`'s rendering, so this floor is what fixes that
-# path's complexity class; tests/display_canary.rs pins it.
-num-bigint = "0.4.8"
+# Arbitrary-precision magnitudes behind `Base` (a thin metered newtype over
+# `UBig`): values up to two machine words stay inline, stored words are
+# borrowable as slices (the streamed comparisons and the accumulator's wide
+# path allocate nothing), and binary<->decimal conversion runs
+# divide-and-conquer in both directions. `Display` on spilled magnitudes
+# delegates to that conversion; tests/display_canary.rs pins its complexity
+# class, and dashu's divide-and-conquer rendering is what satisfies the pin.
+# Default features stay off: `std` alone covers this crate's use.
+dashu-int = { version = "0.5", default-features = false, features = ["std"] }
 # Stack-growth guard for the recursive traversals: recurse natively on shallow
 # trees; grow the stack onto the heap before a deep one can overflow. The crate
 # stays `#![forbid(unsafe_code)]`; the platform stack manipulation lives here.

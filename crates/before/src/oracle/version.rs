@@ -11,7 +11,7 @@ type Cost = (u32, u32); // (#expansions, depth), lexicographic
 
 /// Event component.
 ///
-/// Bases are arbitrary-precision `Base` (`num_bigint::BigUint`), matching the
+/// Bases are the arbitrary-precision `Base`, matching the
 /// implementation's working form, so large-base differentials lower losslessly
 /// — there is no `u64` truncation point. Literal/`u64` construction still works
 /// via `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and the

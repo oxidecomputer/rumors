@@ -18,7 +18,7 @@
 
 use bitvec::domain::Domain;
 use bitvec::field::BitField;
-use num_bigint::BigUint;
+use dashu_int::UBig;
 
 use crate::error::Decode;
 
@@ -31,12 +31,13 @@ use super::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
 /// prefix-free, for an arbitrary-width non-negative `n` (there is no value
 /// cap).
 pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
-    match n + 1u32 {
-        // Inline case: the mantissa fits a machine word, so append the whole
+    let m = n + 1u32;
+    match m.to_u64() {
+        // Word case: the mantissa fits a machine word, so append the whole
         // code word-wise — the `2k+1` bits (zeros and all) in one `resize`,
         // then the `k+1` mantissa bits in one `store_be` — instead of one
         // `push` per bit. Byte-identical to the per-bit emit below.
-        Base::Small(m) => {
+        Some(m) => {
             // m >= 1, so `leading_zeros < 64` and `k = floor(log2(m))` never
             // underflows.
             let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
@@ -44,8 +45,8 @@ pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
             out.resize(start + 2 * k + 1, false);
             out[start + k..].store_be::<u64>(m);
         }
-        // Spilled case (`n >= u64::MAX`): per-bit emit of the wide mantissa.
-        m @ Base::Big(_) => {
+        // Wide case (`n >= u64::MAX`): per-bit emit of the wide mantissa.
+        None => {
             // m >= 1, so `m.bits() >= 1` and computing `k = floor(log2(m)) =
             // bit_length(m) - 1` never underflows. `k` is a bit count and fits
             // a `u64` even when `m` itself does not.
@@ -98,10 +99,9 @@ const WINDOW_BITS: usize = u64::BITS as usize;
 /// - `pos` lies past the end of the stream (the bit loop reports `Truncated`);
 /// - the `2k+1`-bit code overruns the window's proven bits, either because the
 ///   stream ends first (the bit loop reports `Truncated`) or because the code
-///   is wider than the window (the bit loop decodes it: codes up through 127
-///   bits still land in [`Base::Small`] — their `k + 1`-bit mantissa is the
-///   value itself and fits `u64` at every `k ≤ 63` — and only wider codes
-///   spill to [`Base::Big`]).
+///   is wider than the window (the bit loop decodes it: its machine-word path
+///   reads every `k ≤ 63` mantissa — the `k + 1`-bit mantissa is the value
+///   itself and fits `u64` — and only wider codes take the wide fallback).
 ///
 /// The conditions are conservative, never guesses: `Some` is returned only
 /// when every bit of the code lies within the window *and* within the stream,
@@ -204,17 +204,17 @@ where
     // width and the only allocation is the value itself. A truncated stream
     // still fails at the same `read_bit` position it would reading into an
     // accumulator, so the accept/reject boundary is unchanged.
-    let mut m = BigUint::default();
-    m.set_bit(k as u64, true);
-    for i in (0..k as u64).rev() {
+    let mut m = UBig::ZERO;
+    m.set_bit(k);
+    for i in (0..k).rev() {
         if cursor.read_bit()? {
-            m.set_bit(i, true);
+            m.set_bit(i);
         }
     }
     // One width-proportional record per wide value: sizing `m`'s storage and
     // decrementing it below each cost one pass over its limbs.
     #[cfg(feature = "limb-meter")]
-    super::base::limb_meter::record_biguint(&m);
+    super::base::limb_meter::record_wide(&m);
     Ok(Base::from(m - 1u32))
 }
 

@@ -38,7 +38,7 @@ fn gamma_row(n: u64) -> String {
 ///
 /// The golden table pins the layout across
 /// magnitudes — powers of two and their neighbours (where the unary prefix grows), plus
-/// a value past `u64::MAX` to witness the arbitrary-width (`BigUint`) code: the integer
+/// a value past `u64::MAX` to witness the arbitrary-width code: the integer
 /// magnitude has no cap, so the code must extend cleanly beyond 64 bits.
 #[test]
 fn gamma_bit_layout_table() {
@@ -201,8 +201,8 @@ fn rank_row(label: &str, r: &Rank) -> String {
 /// observable representation is exactly this text (and the `Ord`
 /// contract) — so this block is the type's representation pin, and every
 /// row also witnesses `Debug ≡ Display`. The spilled row's digits are the
-/// literal decimal of `2^100 + 1`: the rendering of a `BigUint`-backed
-/// numerator must not differ from the machine-word rendering in anything
+/// literal decimal of `2^100 + 1`: the rendering of a numerator wider
+/// than `u64` must not differ from the machine-word rendering in anything
 /// but length.
 #[test]
 fn rank_rendered_forms() {

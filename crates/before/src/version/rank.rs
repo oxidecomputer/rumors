@@ -447,11 +447,11 @@ fn rank_rec(ev: &mut EvReader, depth: usize) -> RawArea {
     let node = ev.read();
     let base = node.base().clone();
     if !node.is_internal() {
-        let num = match base {
-            Base::Small(n) => Area::Small(n),
-            wide => {
+        let num = match base.to_u64() {
+            Some(n) => Area::Small(n),
+            None => {
                 let mut acc = Box::new(Accum::new());
-                acc.add_base_shl(&wide, 0);
+                acc.add_base_shl(&base, 0);
                 Area::Wide(acc)
             }
         };
@@ -466,9 +466,9 @@ fn rank_rec(ev: &mut EvReader, depth: usize) -> RawArea {
         .checked_add(1)
         .expect("rank exponent overflows u32: event tree deeper than 2^32 levels");
     // Inline fast path: all three terms fit one u128 without spilling.
-    if let (Base::Small(b), Area::Small(ln), Area::Small(rn)) = (&base, &l.num, &r.num) {
+    if let (Some(b), Area::Small(ln), Area::Small(rn)) = (base.to_u64(), &l.num, &r.num) {
         let total = (|| {
-            let base_term = inline_term(*b, exp1)?;
+            let base_term = inline_term(b, exp1)?;
             let left_term = inline_term(*ln, exp - l.exp)?;
             let right_term = inline_term(*rn, exp - r.exp)?;
             base_term.checked_add(left_term)?.checked_add(right_term)
