@@ -38,14 +38,17 @@ const COMMON: usize = 2_048;
 /// One-way link delay, in whole milliseconds (the timer wheel's grain).
 const DELAY: Duration = Duration::from_millis(10);
 
-/// Serialized one-way hops a fully pipelined session may spend: the
-/// phase ladder's few active levels, with margin for scheduling noise.
-const PIPELINED_HOPS: u32 = 24;
+/// Serialized one-way hops a fully pipelined session may spend.
+///
+/// The below-knee cells measure 7 exact hops (the phase ladder's few
+/// active levels); the bound's headroom admits a deeper engaged ladder,
+/// never wave costs — the growth cell already exceeds it.
+const PIPELINED_HOPS: u32 = 12;
 
 /// Extra hops the above-knee session must show beyond the below-knee
-/// one: at eight waves per engaged level the prediction is well past
-/// this, and scheduling noise is well under it.
-const KNEE_MARGIN: u32 = 6;
+/// one: the wave prediction at the growth cell is well past this, and a
+/// pipelined ladder's shape-to-shape drift is well under it.
+const KNEE_MARGIN: u32 = 12;
 
 /// Per-stream in-flight window: far above this test's transfers, so only
 /// round-trip structure is measured.
@@ -54,9 +57,9 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 /// The linearity suite's cells, in eighths of each cell's own capacity.
 ///
 /// Widely spaced: each marginal spans at least eight capacities of
-/// divergence (~16 hops of signal), so wall-compute noise under a loaded
-/// test machine — which the two-point sweep cannot fully cancel — stays
-/// far below the signal it is differenced against.
+/// divergence (~16 hops of signal), so the ladder constants that shift
+/// between session shapes stay far below the wave signal they are
+/// differenced against.
 const LINEAR_CELLS: [usize; 3] = [32, 96, 288];
 
 /// The above-knee wave-growth cell, in eighths of its own capacity.
@@ -173,22 +176,13 @@ fn hops(divergent_per_side: usize) -> u32 {
 /// [`hops`], with the pipe's per-stream in-flight window chosen by the
 /// caller.
 ///
-/// Measured as the delay-sweep slope — the same shape at two delays,
-/// divided by the delay difference — which isolates wire structure from
-/// compute; a single-point division would count the session's compute
-/// as phantom hops. The pipe stays fixed across the sweep, so a tight
-/// pipe's transfer time (`bytes × delay / capacity`) scales with the
-/// delay and survives the slope in hop units, exactly like wave stall.
+/// Measured in exact virtual time: compute costs zero virtual time on
+/// the paused clock, and a tight pipe's transfer time (`bytes × delay /
+/// capacity`) is delay-denominated, so it lands in hop units exactly
+/// like wave stall. The count is a deterministic function of the
+/// session shape — machine load cannot move it.
 fn hops_over(divergent_per_side: usize, pipe_capacity: usize) -> u32 {
-    let elapsed_at = |delay: Duration| {
-        let (left, right) = diverged(divergent_per_side);
-        let mut wire = latency::DelayedWire::new(pipe_capacity, delay);
-        let (_pair, elapsed) = wire.round_trip(left, right);
-        elapsed
-    };
-    let (short, long) = (elapsed_at(DELAY), elapsed_at(2 * DELAY));
-    u32::try_from(long.saturating_sub(short).as_millis() / DELAY.as_millis())
-        .expect("bounded hop count")
+    latency::session_hops(pipe_capacity, DELAY, diverged(divergent_per_side))
 }
 
 /// Two peers with a shared prefix, diverged by `divergent` messages each.
@@ -291,12 +285,12 @@ fn above_the_knee_cost_is_linear_in_divergence() {
     );
     // Each marginal slope must sit in a band around its own predicted
     // marginal — the direct statement of constant-per-message cost. The
-    // band absorbs the sweep's quantization noise (each cell differences
-    // two sessions at millisecond timer grain), which a cell-to-cell
-    // spread bound would amplify instead.
+    // band absorbs what the exact counts still carry: the ladder
+    // constants that shift between the two shapes each marginal
+    // differences, and the wave model's own approximation error.
     for (&slope, &predicted) in slopes.iter().zip(&predicted) {
         assert!(
-            slope / predicted > 0.4 && slope / predicted < 2.5,
+            slope / predicted > 0.5 && slope / predicted < 2.0,
             "marginal cost per message must track the wave model's \
              {predicted:.4}: slopes {slopes:?}",
         );
@@ -329,7 +323,7 @@ fn window_stall_hides_under_bandwidth_bound_transfer() {
          latency-only {stall_bound} hops, bandwidth-bound {bandwidth_bound} hops",
     );
     assert!(
-        stall_bound <= bandwidth_bound + bandwidth_bound / 4 + 4,
+        stall_bound <= bandwidth_bound,
         "window stall ({stall_bound} hops) must hide inside the \
          bandwidth-bound transfer ({bandwidth_bound} hops) once the pipe's \
          BDP in messages is below the window",

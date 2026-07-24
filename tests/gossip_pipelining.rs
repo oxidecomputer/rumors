@@ -30,13 +30,15 @@ const DIVERGENT_PER_SIDE: usize = 512;
 /// One-way link delay, in whole milliseconds (the timer wheel's grain).
 const DELAY: Duration = Duration::from_millis(10);
 
-/// Serialized one-way hops a pipelined session may spend, with margin.
+/// Serialized one-way hops a pipelined session may spend.
 ///
-/// A pipelined descent costs a handful of hops (~7 measured; the phase
-/// ladder's few active levels). A floor-window descent pays one round
-/// trip per disputed scope — here ≥ ~250 scopes, hence ≥ 2.8 s of stall —
-/// so the bound separates the regimes by well over 2× in both directions.
-const HOP_BUDGET: u32 = 64;
+/// A pipelined descent measures 7 exact hops (the phase ladder's few
+/// active levels); the bound's headroom admits a deeper engaged ladder,
+/// never wave costs. A floor-window descent pays one round trip per
+/// disputed scope — here ≥ ~250 scopes, hence ≥ 500 hops — so the bound
+/// sits 3.4× above the pipelined measurement and the serialized regime
+/// sits 20× above the bound.
+const HOP_BUDGET: u32 = 24;
 
 /// Per-stream in-flight window: far above this session's transfers, so
 /// only round-trip structure is measured (see the module docs).
@@ -47,22 +49,14 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 /// disputed scopes, which is an order of magnitude larger here.
 #[test]
 fn window_pipelines_disputed_scopes() {
-    // The delay-sweep slope isolates wire hops from compute: the same
-    // shape runs at two delays, and their difference is pure wire
-    // structure.
-    let elapsed_at = |delay: Duration| {
-        let (left, right) = diverged_pair();
-        let mut wire = latency::DelayedWire::new(LINK_CAPACITY, delay);
-        let (_pair, elapsed) = wire.round_trip(left, right);
-        elapsed
-    };
-    let (short, long) = (elapsed_at(DELAY), elapsed_at(2 * DELAY));
-    let wire_cost = long.saturating_sub(short);
-
-    let budget = DELAY * HOP_BUDGET;
+    // Exact virtual time is pure wire structure: compute costs zero
+    // virtual time on the paused clock, so the count is a deterministic
+    // function of the session shape.
+    let measured = latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair());
+    eprintln!("pipelined divergent session: {measured} hops");
     assert!(
-        wire_cost < budget,
-        "session wire cost {wire_cost:?} exceeds the pipelined budget {budget:?}: \
+        measured < HOP_BUDGET,
+        "session wire cost {measured} hops exceeds the pipelined budget {HOP_BUDGET}: \
          the descent is serializing per disputed scope again"
     );
 }
