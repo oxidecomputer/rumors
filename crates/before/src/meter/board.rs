@@ -95,6 +95,18 @@
 //! full-liveness proof; the leg that bounds work no counter sees is the
 //! time exponent judged over the bench suite (below).
 //!
+//! Three cells are watched by neither leg, an exposure accepted here so it
+//! is stated rather than silent: `version_hash`, `party_hash`, and
+//! `clock_hash` on the benign family. Hashing folds the stored canonical
+//! bytes wholesale, below every metered primitive — no stream walk, no
+//! forced arithmetic, no forced allocation — so every floor column is
+//! honestly not-applicable, and the benign operands are small enough (a
+//! few hundred packed bytes across both scales) that the body never
+//! reaches the bench judge's 10 µs judgment floor. The exposure is
+//! bounded by exactly those two facts: sub-10 µs of word arithmetic per
+//! call over a few-hundred-byte operand, with the same hash rows judged
+//! by the time leg on every larger family.
+//!
 //! # Determinism and the time leg
 //!
 //! Every quantity the board judges or renders is a deterministic counter,
@@ -1003,6 +1015,10 @@ const NA_LIMB_DEPENDENCY: &str = "the decimal conversion runs inside the bignum 
 /// Heap floor: the result materializes at least its packed bytes.
 const WHY_HEAP_MATERIALIZES: &str =
     "materializes a result at least as large as the packed bytes it codes";
+/// Heap floor (deterministic-liveness): a forked child copies the version.
+const WHY_HEAP_FORK_CHILD: &str = "deterministic-liveness: the forked child carries its own \
+     copy of the version's packed bits today; a shared-buffer representation would lower this \
+     floor deliberately";
 /// Heap NA: allocation is not semantically forced.
 const NA_HEAP_IN_PLACE: &str = "may compute in place or return word-scale results: allocation \
      is not semantically forced (the process allocator itself cannot be re-routed around)";
@@ -1043,6 +1059,21 @@ fn heap_materializes(packed_bytes: usize) -> Liveness {
     Liveness::Floor {
         min: packed_bytes as u64,
         why: WHY_HEAP_MATERIALIZES,
+    }
+}
+
+/// The fork rows' heap declaration: the child clock's version copy floors
+/// the heap at the version's whole stored bytes, or NA when the version is
+/// word-scale (the id-pair cross forks around an empty version).
+fn heap_fork_child(version: &Version) -> Liveness {
+    let stored_bytes = (version.encoded_bits() / 8) as u64;
+    if stored_bytes == 0 {
+        na(NA_HEAP_IN_PLACE)
+    } else {
+        Liveness::Floor {
+            min: stored_bytes,
+            why: WHY_HEAP_FORK_CHILD,
+        }
     }
 }
 
@@ -1889,7 +1920,7 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (mut clock, n) = f.clock()?;
                 let floors = Floors {
-                    heap: na(NA_HEAP_IN_PLACE),
+                    heap: heap_fork_child(clock.version()),
                     limb: na(NA_LIMB_NOT_FORCED),
                     scan: if clock.party().is_seed() {
                         na(NA_SCAN_SEED_PARTY)
