@@ -100,3 +100,7 @@ import StreamingMirror.Ord.Termination
 import StreamingMirror.Ord.Sched
 import StreamingMirror.Ord.Numbering
 import StreamingMirror.Ord.Pumps
+import StreamingMirror.Ord.Weave
+import StreamingMirror.Ord.Expand
+import StreamingMirror.Ord.Align
+import StreamingMirror.Ord.Prec
