@@ -21,10 +21,11 @@ R81 fixed, R82 amended). Standing rules issued during triage:
   re-report; the ban stands).
 - Code may cite **Lean theorem/definition names** (abstractly, never file
   paths); never proof-progress documentation (formal/PROGRESS.md). Codified in
-  AGENTS.md by the escalations branch. **Open sub-question**: whether
-  MODEL.md-*section* citations are permitted (escalations agent's read: yes,
-  spec-of-record; ~8 sites in streaming tests/skeleton.rs affected if Finch
-  rules stricter).
+  AGENTS.md by the escalations branch. Sub-question RESOLVED (Finch,
+  2026-07-23): code never cites MODEL.md either — cite the Lean artifact
+  directly by theorem/definition name, or state assumed premises inline; a
+  worktree agent is re-denominating the 9 affected sites and the AGENTS.md
+  policy line.
 - Measurement doctrine: this workstation is never quiet; measured pins must be
   load-tolerant by design (floors/best-of-N, nextest `threads-required`
   exclusivity, virtual-time exactness, or full determinism). Deterministic
@@ -117,7 +118,24 @@ findings document committed as close-out (punch item 9).
    bootstrap-good-path is an encoding accident; retire-into-bootstrapper
    CONFIRMED decomposed). Wire change; snapshots + hop-trace re-pins are
    deliberate commits.
-2. **Lean query-first repair (option 1)** — **AWAITING FINCH GO/NO-GO**.
+2. **Lean divergence repair** — Finch directed scoping of OPTION 2 (the
+   order-indifference metatheorem) before any go/no-go; a read-only scoping
+   agent is assessing it (candidate statements, executable probe of the
+   committed-choice candidate cycle at small rootH, effort in option-1
+   denomination, interaction/subsumption analysis). SCOPING DELIVERED
+   (2026-07-23): recommendation GO on the ord-parameterized candidate A
+   (8-12 runs, 2-3 agent-days, ~0.7 confidence), which subsumes option 1;
+   simulation route rejected as unsound (stuckness does not reflect).
+   Option 1's census below was found INCOMPLETE: five pairing loops flipped
+   (walk x3 + terminal absorb + proxy encoder), 8 step constructors, plus
+   Mux-campaign import coupling that makes any destructive in-place repair
+   poisonous - non-destructive parallel definitions are mandatory. Probe:
+   QF deadlock-free on all flagship-class pins; candidate cycle unreachable
+   in-hypothesis; sibling back-pressure configuration reachable-but-harmless
+   under both orders (witness re-earned from capacity facts). Open box:
+   comb6 exhaustive BFS outstanding (random sweeps clean; rMix closed
+   exhaustively post-report: ~10M states, stuck=0). AWAITING
+   FINCH: go/no-go on candidate A vs B, and the d5-corner scope ruling.
    Census: order lives in 4 places (Sched.lean:106/:258 prologue, 4 step
    constructors, Invariant.lean:33-39 counts, Pending.lean decode tables);
    ~15 trivial definition lines + ~150 mechanical repairs + ~20 genuine
@@ -134,7 +152,7 @@ findings document committed as close-out (punch item 9).
    R5 (fold b05 math into window.rs comments, carrying R69's sampled-sweep
    honesty; then delete design/b05-uniformity-envelope.md AND
    design/b05-envelope-sim.py — the Rust example is the tool of record),
-   R10 (backend/tests.rs design-citation), R12 (PRICED_HEADER premise +
+   R12 (PRICED_HEADER premise +
    serialization + honest default — must also cover the async-leaf branch's
    new third store in leaf_underpricing_fails_at_construction), R14 (version_bytes equivalence asserts),
    R15 full delegation (leaves/assemble through Charged), R16 (size_of pins
@@ -150,13 +168,76 @@ findings document committed as close-out (punch item 9).
    seeded corpora shared per cell pair; retires the 1.0× clamp and turns
    R28/R29 into a byte-compare gate test; one validation run against the
    measured table before the measured methodology retires).
+3a. **Default-budget policy rework** (RULED, Finch 2026-07-23; implement as
+   the window branch's post-review fix round): DEFAULT_SYNC_MEMORY_BUDGET
+   becomes an arbitrary stated policy choice of 512 MiB (536,870,912); the
+   compile-time BDP/DISPUTE_WIRE minting expression retires. Docs derive
+   behavior in closed form instead: slowdown(budget, m) = max(1, BDP x
+   SCOPE_ENVELOPE_BYTES / (budget x (28 + m))), m = mean encoded record
+   size, 28 B = the calibrated intercept; spec BDP = 12.5 MB (1 Gbps x
+   100 ms and 100 Gbps x 1 ms coincide). Ship a deterministic budget x
+   mean-record tradeoff table (byte-compare gate test, per the R28/R29
+   plan); DISPUTE_WIRE_BYTES = 200 survives only as the m=172 design-record
+   column. Spot check: at 512 MiB, slowdown-1 crossover is m* = BDP x
+   ENVELOPE/budget - 28 ~ 85.3 B (docs state m >= 86 B; never round the
+   inequality across its own boundary); u64 corpora ~ 3.1x (latency only,
+   never memory). Blessed headline (Finch): at the spec BDP, the default
+   budget imposes no window-induced serialization for mean encoded record
+   size >= 86 B — the in-flight disputes' own transfer covers the RTT. This supersedes the
+   deterministic hop-ratio generator's role for THIS table; the hop-ratio
+   validation run (one, against the closed form) is retained.
+
+3b. **R8 occupancy-ceiling pin** (queued, small): promote the exploratory
+   fan-probe (branch worktree-agent-a6d879fe6a15c3053 @ e7f72447, kept as
+   reference until this lands, then delete) into an invariant test: an eager
+   source drives reader/assembler channel occupancy TO FAN+1 (regime
+   reachable) and never PAST it (the premise under the flat supply-decode
+   envelope charge, 209,712 = 257 x 816); deterministic count, probe stays
+   test-gated.
+
+**Wave-2 integration outcome (2026-07-23)**: complete; `link-transport`
+fast-forwarded to `8b7c4607` (symmetrization 55d76d5c + window 4d0b3db2 +
+backend 8d959048 + citation 07f33b0c, all skeptically reviewed to
+INTEGRATION-READY, + one integration-pass commit: hop-denominated departure
+prose, the symmetrization design's A1-A4 amendments, sync-budget §1.6
+consistency, the crossover's fourth input). Zero textual conflicts; seams
+verified function-level. Clean-target gate green, 918/918 (first run flaked
+on a test whose identity was lost to output truncation under fleet load; two
+subsequent full passes; the deterministic-executor task is the cure).
+Flagged for Finch: tests/stale_floor.rs:3 "Under the old API" (pre-existing
+regression-pin module doc, not merge-introduced).
+
+3c. **Post-wave-2 dispatch set (RULED, Finch 2026-07-23)** — all launch on
+   the integrated base without further adjudication:
+   - Deterministic executor for the load-sensitive sweep pins (the named
+     offenders in §4.4): single-threaded deterministic executor or
+     exact-advance, retiring the paused-clock auto-advance sensitivity.
+     Own agent, reviewed.
+   - Swarm above-target offset: re-observe under the production-default
+     regime (post-R20); characterize only if it persists. Own agent.
+   - R79 bootstrap builder API: implement in a subagent, BUT the merge
+     waits on Finch's approval of the API design — present the design
+     with the report before integrating.
+   - Small combined agent: R5 (b05 fold + delete doc AND Python sim) +
+     the one-shot hop-ratio validation of the closed-form table + R8
+     occupancy pin (3b). (R6: untracked by Finch's ruling — the doc is
+     honest at first outside read; no change, no follow-up.)
+   - Metatheorem (§4.2): Finch pre-authorized merge on completion; still
+     gets the standing skeptical review, but no adjudication pause.
+   - Wave-2 close-out mechanics (worktree/branch cleanup, ledger commit)
+     proceed autonomously as they become applicable.
+
 4. **Low-prio ledger**: swarm's above-target population offset (session-
    coupling effect, wrong-sign vs propagation-lag model; needs quiet
    characterization); R11's timing residual on real transports (admitted in
    "cannot see"); R32/R70 load-tolerant retuning if sweeps flake at the final
    gate (mechanism: paused-clock auto-advance manufactures idle under OS
    descheduling — durable fix is exact-advance or single-threaded
-   deterministic executor for those pins).
+   deterministic executor for those pins). Named offenders observed under
+   fleet contention, passing in isolation and uncontended gates:
+   window_corners::asymmetric_catch_up_is_ladder_bound_at_the_floor (31 hops
+   vs <=24), window_knee::above_the_knee_hops_grow, window_operator and
+   window_knee full-suite flakes during the pricing wave.
 
 ## 5. Open decisions (Finch)
 
@@ -193,6 +274,16 @@ findings document committed as close-out (punch item 9).
 - The flake-attribution discipline that held all day: binaries byte-identical
   to base + a base control run under identical load, before attributing any
   timing failure.
+- Worktree spawn base is NOT guaranteed to be the current HEAD: three agent
+  worktrees in one session spawned at a stale ancestor (fab65c2c); two
+  self-corrected (integration fast-forwarded, window-pricing hard-reset its
+  clean tree to the briefed base), one did not (citation branch). Every worktree-agent brief must open
+  with: verify HEAD is the briefed base SHA; if it is an ancestor,
+  fast-forward before any work; if divergent, stop and report. The
+  citation-policy branch (5d135a21) was built on the stale base and needs a
+  mechanical rebase onto adbb4462 before integration (routing decisions
+  unaffected; its two "Stalled" gate failures are the stale base's, absent
+  on the landed head).
 - Poisoned incremental artifacts: the SIGKILL/disk-full chaos left corrupt
   incremental state that produced impossible test failures (degenerate inf,
   phantom multi-suite failures) tracking innocuous diffs; vanished on
