@@ -60,7 +60,7 @@ membership-by-name philosophy — makes the judge enforce a *fixed* verdict
 map instead of all-green, so `just all` stays meaningful while owned reds
 await their cures. The file pins the configuration it was recorded under
 (profile, sampling, scale pair; mismatch is exit 2) and lists cells in
-two classes:
+four classes:
 
   - "red": must be judged and must read RED. Reading GREEN is a
     verdict-flip or liveness signal (exit 1, cell named): either the cure
