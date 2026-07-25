@@ -41,8 +41,8 @@ doc = false
 bench = false
 
 # Decode-then-operate target: decode a `Clock` (or `Version`) from the input, then drive
-# the full op set (tick/fork/join/sync/send/receive + observers) so the working-form
-# arithmetic and repack run on adversarially-shaped trees, not just op-generated ones.
+# the full op set (tick/fork/join/sync/send/receive + observers) so the skyline kernels
+# run on adversarially-shaped trees, not just op-generated ones.
 [[bin]]
 name = "fuzz_decode_ops"
 path = "fuzz_targets/fuzz_decode_ops.rs"

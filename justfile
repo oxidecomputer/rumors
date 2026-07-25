@@ -201,13 +201,17 @@ fuzz-build:
     {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
-# itself) is asserted inline in the targets, so any hit is a crash.
+# itself) is asserted inline in the targets, so any hit is a crash. Each run
+# names two corpus directories: libFuzzer reads seeds from both and writes new
+# discoveries to the first, so the committed `seeds/<target>/` corpus (derived
+# from the live API; `tests/fuzz_seeds.rs` gates it) actually seeds every run
+# while staying pristine.
 
 # Short fuzz smoke: run each libFuzzer target for `secs` seconds.
 [working-directory("crates/before/fuzz")]
 fuzz secs=fuzz_smoke_secs:
-    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode corpus/fuzz_decode seeds/fuzz_decode -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
 
 # ── the formal tier (formal/lean; needs elan) ────────────────────────────────
 # The proofs are kernel-checked by `lake build` (pins, negative controls,

@@ -103,7 +103,11 @@ pub fn seed_set() -> Vec<Seed> {
     let _ = y.version();
 
     // Decode-then-ops scripts, in fuzz_decode_ops framing: flavour byte,
-    // 1-byte length prefix, the value bytes, then the op script.
+    // 1-byte length prefix, the value bytes, then the op script. The
+    // framing and the op indices below are a wire contract with
+    // `fuzz/fuzz_targets/fuzz_decode_ops.rs` (its `run` carves the value,
+    // its `drive_clock` op table is the `% 7` dispatch the script bytes
+    // select from); a change on either side means regenerating the seeds.
     let mut clock = Clock::seed();
     let mut sibling = clock.fork();
     clock.tick();
