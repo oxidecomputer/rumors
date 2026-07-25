@@ -1648,6 +1648,10 @@ fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
     super::Rank::from_raw(num, exp)
 }
 
+/// The order-agreement sweep's fixed PRNG seed: every run replays the
+/// same 25,000-pair corpus.
+const RANK_CMP_SWEEP_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
+
 /// The class-first streamed `Rank` order agrees with the alignment
 /// oracle on 25,000 adversarial pairs.
 ///
@@ -1659,15 +1663,7 @@ fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
 /// `rhs <= self`.
 #[test]
 fn rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs() {
-    // A fixed splitmix64 stream: deterministic, dependency-free.
-    let mut state = 0x9E37_79B9_7F4A_7C15u64;
-    let mut next = move || {
-        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    };
+    let mut next = crate::testing::rng::word_stream(RANK_CMP_SWEEP_SEED);
     for case in 0..25_000u32 {
         let a = stream_rank(&mut next);
         let b = match next() % 4 {
@@ -1850,17 +1846,9 @@ proptest! {
 }
 
 /// One deterministic adversarial rank from a word seed, via the shared
-/// splitmix stream.
+/// test word stream.
 fn seeded_rank(seed: u64) -> super::Rank {
-    let mut state = seed;
-    let mut next = move || {
-        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    };
-    stream_rank(&mut next)
+    stream_rank(&mut crate::testing::rng::word_stream(seed))
 }
 
 // ─────────────────────────────── the join fold ───────────────────────────────

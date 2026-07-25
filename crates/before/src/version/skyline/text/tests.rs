@@ -137,15 +137,6 @@ const REJECT_PARITY_FUZZ_SEED: u64 = 0x5EED_CA5E_0B57_AC1E;
 /// whole alphabet plus one byte outside it.
 const MUTATION_ALPHABET: &[u8] = b"0123456789(), x";
 
-/// One step of SplitMix64: the mutation sweep's deterministic randomness.
-fn splitmix64(state: &mut u64) -> u64 {
-    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    let mut z = *state;
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
-
 /// A deterministic byte-mutation sweep holds accept/reject parity between
 /// the kernel and the production parser.
 ///
@@ -170,8 +161,8 @@ fn mutated_texts_hold_reject_parity_with_the_production_parser() {
     .iter()
     .map(|p| version_of(p).to_string())
     .collect();
-    let mut rng = REJECT_PARITY_FUZZ_SEED;
-    let mut pick = |n: usize| (splitmix64(&mut rng) % n as u64) as usize;
+    let mut next = crate::testing::rng::word_stream(REJECT_PARITY_FUZZ_SEED);
+    let mut pick = move |n: usize| (next() % n as u64) as usize;
     for _ in 0..REJECT_PARITY_FUZZ_CASES {
         let mut bytes = seeds[pick(seeds.len())].clone().into_bytes();
         match pick(4) {

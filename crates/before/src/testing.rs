@@ -17,6 +17,7 @@ pub(crate) mod generators;
 pub(crate) mod grow_brute_force;
 pub(crate) mod metrics;
 pub(crate) mod optrace;
+pub(crate) mod rng;
 
 mod algebraic_laws;
 pub(crate) mod compactness;
