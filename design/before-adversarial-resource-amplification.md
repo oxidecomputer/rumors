@@ -68,7 +68,7 @@ share:
 | scatter | n single-tick organic versions, evens before odds | fold accumulator growth (V7) |
 | comb-scatter | cliff comb × scattered party | output-dominated projection |
 | benign | small organic values | the control; the parity floor's referent |
-| nested-full-sibling | `(x,1)` repeated down a spine × matching event spine | fill's pre-scan/lookahead terms (#33's adversary; the fill red pin's family) |
+| nested-full-sibling | `(x,1)` repeated down a spine × matching event spine | the paired tick walk at maximal shortcut depth (the fill red pin's family; scan-linear since the cure) |
 
 ## 3. Findings ledger
 
@@ -108,11 +108,23 @@ the enforced envelopes and board cells named.
   spines with zero shortcut sites; the multiplier is the LOCAL
   id's depth — not wire-suppliable by a hostile peer): cured
   2026-07-25 under the nested-full red pin — the right-full arm
-  deferred to an O(1) peek at the cursor's arrival (killing the
-  lookahead and its drift accumulators), the left-full pre-scan
-  memoized (no position scanned twice), per-node O(1) signed
-  combination for the emitted minima. Work columns e 1.00; the
-  recursion-depth segments residual rides P4.2's pin (§17.3).
+  deferred to an O(1) peek at the cursor's arrival, the left-full
+  pre-scan memoized (no position scanned twice). Scan columns
+  e 1.00 both arms; the recursion-depth segments residual rides
+  P4.2's pin (§17.3).
+- **Fill/tick's limb-dimension re-touching** (2026-07-25; found
+  by the linearization's adversarial review, widened by the spec
+  probes): the cured walk's per-subtree `(min, net)` returns are
+  materialized `Base` magnitudes combined at every paired node —
+  Θ(width) limb work per ancestor, quadratic on wide × deep
+  crosses through BOTH shortcut arms [measured: the right-full
+  net chain at limb e → 2, crossing the 128/B ceiling at
+  b = d = 8000; the left-full memoized arm worse, e 1.92–1.97,
+  over the ceiling at d = 1000]. A pricing obligation under §6,
+  not an exploit (local-depth multiplier). The cure of record is
+  the anchor-web/watermark discipline specified in
+  `design/before-tick-cost-spec.md` (converged revision 3), with
+  fused tick adopted — the #34 item.
 
 ## 6. The design invariant and the denomination criterion
 
@@ -284,6 +296,26 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   resolved GO — the lemma of record (§10).
 - **GO-WITH-SHAPE 2026-07-24: boolean-skyline unification probe**
   (§17.5; the user's decision, post-C3).
+- **DECIDED 2026-07-25 (Finch): the tick/fill cost effort runs
+  spec-first under an adversarial design loop** — attack/fix
+  rounds on the design document itself until convergence (a round
+  with no falsifications), a lateral-redesign fork on
+  unsatisfying local optima. Performance within the campaign's
+  bars decides the design; readability is a tie-breaker, never a
+  veto (the recursive oracle is the readable paper-faithful
+  reference, the differential suite carries semantics, the
+  kernel's prose explains the walk against the oracle's
+  equations). **Fused tick is pre-approved** given linearity with
+  small constants. Confer-with-Finch stop conditions: a
+  superlinear honest optimum; a §6 denomination change; linear
+  achievable only via an at-rest representation change (the
+  discovery is welcome and reported — obstruction, sketch, blast
+  radius — the action always held). The spec of record:
+  `design/before-tick-cost-spec.md`, converged at revision 3
+  after two rounds (round 1 FALSIFIED two clauses, fixes
+  validated in-harness; round 2 HOLDS with the emission
+  discipline validated on the limb-faithful composed model);
+  Finch's ratification lands there as a dated amendment.
 
 ## 13. The metering gate
 
@@ -478,12 +510,27 @@ commits):
   `benches/COVERAGE.md` — the census's living home; `rank_sum`
   row + fold benign controls; NA-prose repairs), re-adjudicated
   against the flipped tree. Board 188/17 and 187/18 over 205.
-- **Post-flip fix rounds** (2026-07-25, in flight — §17.2).
+- **Post-flip fix round** (2026-07-25, `606e8f54`..`72f4a780`):
+  every flip-review finding addressed — real oracle witnesses
+  restored, the D2 window fast path restored on the flipped hot
+  paths (board byte-identical proof), the `clippy-default` gate
+  recipe (nine warnings caught on landing), scan double-records
+  fixed with measured splits, fuzz seeds consumed, snapshot
+  hexes corrected from measurement. Gate green.
+- **The fill linearization** (2026-07-25, red pin `36c9339b` +
+  cure `92d2fc31`): the nested-full-sibling family pinned the
+  re-scan genres quadratic (scan/limb e 2.00), the cure flipped
+  them (scan e 1.00 both arms, deep-4096 differential 67.4 s →
+  1.3 s); board 190/17 default, 187/20 record over 207. Its
+  adversarial review then REFUTED the limb-dimension O(n+m)
+  claim (§3's re-touching entry) — the finding that opened #34
+  and the tick cost spec's design loop (two attack/fix rounds to
+  convergence; the loop record is the spec's §9).
 
-Remaining plan: **C3** (§17.2) → **P4.2** residual audit →
-**P5.1–P5.5** closeout, with the fill linearization (#33)
-sequenced after its red pin and the boolean-skyline decision
-(#24, the user's) after C3.
+Remaining plan: **#34** (the tick limb cure + fusion per
+`design/before-tick-cost-spec.md`, red pin first) → **C3**
+(§17.2) → **P4.2** residual audit → **P5.1–P5.5** closeout, with
+the boolean-skyline decision (#24, the user's) after C3.
 
 Acceptance for the effort: the §13 acceptance criterion; plus the
 two 2026-07-25 user rulings:
@@ -502,37 +549,28 @@ subquadratic in its total input, worst case; linear is the
 ideal.** Fundamentally-superlinear problems (radix conversion,
 multiplication-equivalent up to log factors; n log n
 comparison-ordered n-way folds) satisfy the bar at their
-problem's own optimum, stated and priced. The fill/tick kernel as
-first built — O(|ev| × local-id-depth) — is below the bar; its
-linearization is committed (#33).
+problem's own optimum, stated and priced. The tick kernel's
+limb dimension — quadratic on wide × deep crosses (§3) — is
+below the bar; its cure is committed (#34, the tick cost spec).
 
 ## 17. Work items of record
 
 ### 17.2 Open items, with acceptance contracts
 
-**In flight (2026-07-25): the post-flip fix round.** Two of its
-commits are landed (`606e8f54` ghosts + false rustdoc;
-`0e52d550` tautologies relabeled, real witnesses restored — the
-recursive oracle is the fill differential's witness, deep values
-in closed form); the remainder is uncommitted at this writing:
-default-feature warning gating + the gate hole (clippy is
---all-features only; the features recipe gains warnings
-enforcement), the D2 window fast-path restoration on the flipped
-hot paths (sweep/validate/text/literal call the per-bit loop
-directly — one line per site routes through `read_int`; board and
-meter must read unchanged, scan widths identical by
-construction), the `IdLeafCursor` scan double-record disposition
-(fix-with-remeasure preferred; TODO-recalibrate fallback per the
-max_depth precedent), `packed_grow` rename, the fuzz-seed
-consumption fix (the corpus is gated but never passed to
-libFuzzer: the `fuzz` recipe gains the seeds dir per target, the
-README sentence corrected), the stray-seed-DIRECTORY gate hole,
-the fuzz framing cross-pointers, fill's cost-doc restatement to
-the id-depth bound, the tick/grow empty-id `# Panics` sentences,
-the stale re-seeded key hex in `gossip_snapshot.rs`, and a
-non-degenerate skyline payload for the bookmark-v2 pin.
-*Acceptance*: each finding addressed or explicitly disputed; the
-window restoration's no-movement proof; one full gate.
+**In flight (2026-07-25): #34's red-pin round.** The fill
+linearization's review bookkeeping rides it: the ghost prose
+re-denominated to the deferral design (`fill.rs`'s
+drift-accumulator sentence, the tests' drift-stack phrasing,
+`nested_full_id`'s and the board family's
+lookahead-and-pre-scan present-tense rustdoc); `fill.rs`'s
+`# Cost` restated to the measured truth (scan linear; limb
+quadratic both arms, red-pinned, cure committed) until the cure
+re-derives it; the tick cells' floors raised from the generic
+walk floors toward honest measured counts; #33's acceptance
+deviation (the ×4 segments residual, P4.2-owned) recorded as a
+dated amendment here. *Acceptance*: the red-pin contract in
+`design/before-tick-cost-spec.md` §7 plus these ride-alongs;
+one full gate.
 
 **C3 — P3.10: realization verification, re-pins, and the
 before/after table.**
@@ -596,36 +634,27 @@ before/after table.**
 constants). *Risk*: a cell green at default but red at record —
 that is the two-scale design working; the cell's owner reopens.
 
-**#33 — the fill/tick linearization (committed, user ruling; the
-hot path — every tick calls fill).**
-Step 1, the RED PIN (instruments before cures): verify the
-probe cursors meter (the right-full lookahead's topology skip and
-the `min_fill` pre-scans are "reader untouched" — if their reads
-do not record scan bits, meter them first, else the pin is
-vacuous); land the nested-full-sibling family (§2) as generators
-+ board cells for `version_tick`/`clock_tick` with a LINEAR
-envelope (ceiling and constant derived from the two-pass design's
-budget; liveness floor above the linear walk's count on this
-shape); the current kernel must read RED on those cells at both
-scales — committed with the measured exponent; the same family's
-judge cells rostered expected-red owned by this item. The family
-also closes the fill differentials' deep-regime coverage gap
-(deep drift-stack, multi-level raise cascades, deep × wide).
-Step 2, the cure, two independent terms: (a) defer the
-right-full decision to the cursor's arrival at the right child
-(arm C's raise value is the max of the left event range, which
-the consuming walk computes in-pass) — the whole-left-subtree
-topology skip becomes an O(1) peek; (b) one backward pass
-computes every node's min-fill bottom-up (memoized, each
-position once), the forward pass emits with all raise values in
-hand — the two-pass/parent-close genre.
-*Acceptance*: the pinned cells flip GREEN at both scales; the
-roster entry leaves with the measured linear exponent recorded;
-byte-identity against the current kernel via the existing dual
-oracles + the new family; fill's cost doc re-derives to O(n+m).
-No green, no merge. *Deps*: the fix round; sequenced before or
-with C3 at the coordinator's choice (the red pin must precede the
-rewrite in any ordering).
+**#34 — the tick limb cure and fusion (committed, user rulings;
+the hot path — every tick calls fill).**
+The statement of record is `design/before-tick-cost-spec.md`
+(converged revision 3); its §7 acceptance contract is binding and
+this entry only sequences it. Target: T-tick — amortized
+O(n + m) Accum digit touches — via the anchor-web discipline
+(the zero-run-compressed watermark stack, anchored entries,
+per-operand lifetime pricing, the L2×L6 pricing chain), then
+fused tick (one walk carrying fill emission, the changed flag,
+and grow's route DP; copy-on-first-divergence) as a separate
+post-cure commit. Sequencing: red pin first (four wide×deep
+cells through both shortcut arms + descending-staircase cells,
+measured not assumed + mirror-narrow green memo cells with
+honest floors + judge roster entries owned here), then the
+watermark rewrite (right-full arm first), then the pre-scan/memo
+conversion, then fusion. Byte-identity at every stage; all
+pinned cells green at both scales; the L6 output-bound proptest
+pin lands with the cure; `fill.rs # Cost` restates exactly what
+is proven; §13/§17.3 amendments with sums restated; Accum
+pooling per the spec's §6 constants note. No green, no merge.
+*Deps*: none open; sequenced before C3's before/after table.
 
 **P4.2 — residual recursion and word-scale scanning.**
 Audit every remaining `recurse::descend!` site post-C2; convert
