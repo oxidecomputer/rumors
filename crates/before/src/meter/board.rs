@@ -524,6 +524,12 @@ const HARMONIC_BASE_DEPTH: usize = 8_000;
 /// each (~10 KiB of packed single-tick versions).
 const SCATTER_BASE_CLOCKS: usize = 1_024;
 
+/// Nested-full-sibling depth at scale 1.0 (packed pair ~1.5 KiB): deep
+/// enough that a per-level re-scan genre reads its exponent across the
+/// level doubling, small enough that the quadratic pin stays inside the
+/// board's runtime budget at the record scale.
+const NESTED_BASE_DEPTH: usize = 1_500;
+
 /// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops`
 /// row: small, so the pair's cost is carried entirely by the mismatch.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
@@ -570,7 +576,7 @@ pub struct Summary {
 
 // ─── input families ─────────────────────────────────────────────────────────
 
-/// The five input families, one column group of the matrix.
+/// The input families, one column group of the matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FamilyKind {
     /// The dense event spine `S(d)`: node count and depth maximizer.
@@ -594,12 +600,17 @@ enum FamilyKind {
     /// operands whose join accumulator never coalesces, reached only by
     /// the fold rows.
     Scatter,
+    /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`:
+    /// every level a right-full shortcut site, the deepest nesting of
+    /// fill's lookahead and pre-scan re-scans — reached only by the two
+    /// tick rows.
+    NestedFull,
     /// The fixed-seed organic control population.
     Benign,
 }
 
 /// Every family, in display order.
-const FAMILIES: [FamilyKind; 9] = [
+const FAMILIES: [FamilyKind; 10] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -608,6 +619,7 @@ const FAMILIES: [FamilyKind; 9] = [
     FamilyKind::CombScatter,
     FamilyKind::Harmonic,
     FamilyKind::Scatter,
+    FamilyKind::NestedFull,
     FamilyKind::Benign,
 ];
 
@@ -635,6 +647,11 @@ struct FamilyData {
     /// population and the benign family's organic control.
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+    /// The tick cross's packed (event spine, nested-full-sibling id) —
+    /// the nested-full family only, reached by nothing but the two tick
+    /// rows: the version is the matched dense spine, the party the
+    /// `(x, 1)` id whose every level is a right-full shortcut site.
+    tick_cross: Option<(Vec<u8>, Vec<u8>)>,
     /// The mismatched rank pair — the rank-row families only.
     ///
     /// Precomputed here (family-derived rank, small integer rank) so the
@@ -695,6 +712,7 @@ impl FamilyData {
                 cross: None,
                 measure: None,
                 fold: None,
+                tick_cross: None,
                 rank_pair: None,
             },
             FamilyKind::CombScatter => {
@@ -713,6 +731,7 @@ impl FamilyData {
                     )),
                     measure: None,
                     fold: None,
+                    tick_cross: None,
                     rank_pair: None,
                 }
             }
@@ -732,10 +751,29 @@ impl FamilyData {
                     cross: None,
                     measure: Some((bytes, w.encode())),
                     fold: None,
+                    tick_cross: None,
                     rank_pair: None,
                 }
             }
             FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
+            FamilyKind::NestedFull => {
+                let d = size(NESTED_BASE_DEPTH);
+                FamilyData {
+                    kind,
+                    name: "nested-full",
+                    version: None,
+                    version2: None,
+                    parties: None,
+                    cross: None,
+                    measure: None,
+                    fold: None,
+                    tick_cross: Some((
+                        super::dense(d).version().encode(),
+                        super::nested_full_id(d).bytes,
+                    )),
+                    rank_pair: None,
+                }
+            }
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
         };
         // The rank-row families: the spine shapes that maximize the
@@ -803,6 +841,7 @@ impl FamilyData {
             cross: None,
             measure: None,
             fold: Some((versions, parties)),
+            tick_cross: None,
             rank_pair: None,
         }
     }
@@ -821,6 +860,7 @@ impl FamilyData {
             cross: None,
             measure: None,
             fold: None,
+            tick_cross: None,
             rank_pair: None,
         }
     }
@@ -871,6 +911,7 @@ impl FamilyData {
             cross: None,
             measure: None,
             fold,
+            tick_cross: None,
             rank_pair: None,
         }
     }
@@ -921,6 +962,14 @@ impl FamilyData {
         Some((decode_party(a), decode_party(b), a.len() + b.len()))
     }
 
+    /// The tick cross decoded fresh (event spine version, nested-full
+    /// id), with combined packed byte length — the nested-full family
+    /// only, so the tick rows alone gain its column.
+    fn tick_cross(&self) -> Option<(Version, Party, usize)> {
+        let (v, p) = self.tick_cross.as_ref()?;
+        Some((decode_version(v), decode_party(p), v.len() + p.len()))
+    }
+
     /// One clock per family: small party × adversarial version for the
     /// event families, adversarial party × small version for the id pair
     /// and the benign halves.
@@ -931,6 +980,7 @@ impl FamilyData {
                 let n = self.parties.as_ref().map(|(a, _)| a.len())?;
                 Some((Clock::from_parts(a, Version::new()), n + 1))
             }
+
             _ => {
                 let (v, n) = self.version()?;
                 Some((Clock::from_parts(Party::seed(), v), n + 1))
@@ -1551,6 +1601,14 @@ fn ops() -> Vec<Op> {
         Op {
             name: "version_tick",
             prepare: |f| {
+                // The nested-full cross carries its own (spine, id) pair;
+                // every other family ticks its version with the seed.
+                if let Some((mut v, party, n)) = f.tick_cross() {
+                    return Some(Cell::new(n, walk_floors(n), move || {
+                        v.tick(&party);
+                        (v, party)
+                    }));
+                }
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
                 Some(Cell::new(n + 1, walk_floors(n), move || {
@@ -2078,6 +2136,15 @@ fn ops() -> Vec<Op> {
         Op {
             name: "clock_tick",
             prepare: |f| {
+                // The nested-full cross ticks its own (id, spine) clock;
+                // it reaches no other clock row.
+                if let Some((v, p, n)) = f.tick_cross() {
+                    let mut clock = Clock::from_parts(p, v);
+                    return Some(Cell::new(n, walk_floors(n), move || {
+                        clock.tick();
+                        clock
+                    }));
+                }
                 let (mut clock, n) = f.clock()?;
                 Some(Cell::new(n, walk_floors(n), move || {
                     clock.tick();

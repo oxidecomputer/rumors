@@ -530,6 +530,39 @@ pub fn id_spine(d: usize, divert: bool) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The nested-full-sibling id `N(d)`: `(x, 1)` repeated down a left
+/// spine, `4d + 4` bits.
+///
+/// Layout: `d` both-children tags (`11`) descending left, then the
+/// left-only terminus `(1, 0)` (`10 · 00`; a `(1, 1)` terminus would
+/// break normal form), then the `d` right-child terminals (`00`),
+/// innermost first — preorder closes the spine's right children in
+/// reverse. Every level is a right-full shortcut site over a matching
+/// event spine, so the fill walk runs its right-full lookahead and its
+/// sibling pre-scan at every level: the deepest nesting of both of
+/// fill's local re-scan genres per input bit.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn nested_full_id(d: usize) -> Packed {
+    assert!(d >= 1, "nested-full id needs at least one shortcut level");
+    let mut bits = Bits::with_capacity(4 * d + 4);
+    for _ in 0..d {
+        bits.push(true); // left child present (the spine continues) ...
+        bits.push(true); // ... and a right child follows it
+    }
+    bits.push(true); // the terminus: left-only node `(1, 0)` ...
+    bits.push(false);
+    bits.push(false); // ... whose left child is the terminal
+    bits.push(false);
+    for _ in 0..d {
+        bits.push(false); // each level's right child: the full terminal
+        bits.push(false);
+    }
+    Packed::from_bits(bits)
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> Base {
     pow2(b) - &Base::from(1u8)
