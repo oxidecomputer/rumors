@@ -625,29 +625,34 @@ enum FamilyKind {
     /// operands whose join accumulator never coalesces, reached only by
     /// the fold rows.
     Scatter,
-    /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`:
-    /// every level a right-full shortcut site, the deepest stacking of
+    /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`.
+    ///
+    /// Every level a right-full shortcut site, the deepest stacking of
     /// the walk's deferred right-full decisions and raise bookkeeping
     /// on narrow values — reached only by the two tick rows.
     NestedFull,
-    /// The wide right-full cross: `bigroot(b, d)` × `N(d)`. The stream's
-    /// first payload is coded absolute, so the deepest subtree's net
-    /// movement carries the root's full magnitude and every level's
-    /// bookkeeping meets it — width × depth through the right-full arm.
-    /// Reached only by the two tick rows.
+    /// The wide right-full cross: `bigroot(b, d)` × `N(d)`.
+    ///
+    /// The stream's first payload is coded absolute, so the deepest
+    /// subtree's net movement carries the root's full magnitude and
+    /// every level's bookkeeping meets it — width × depth through the
+    /// right-full arm. Reached only by the two tick rows.
     NestedWide,
     /// The wide left-full (memo) cross: `wide_tail(b, d)` × `M(d)`.
+    ///
     /// Every proper subtree nets the tail's full magnitude while every
     /// level is a memoized pre-scan site — width × depth through the
     /// left-full arm and the pre-scan's own chains. Reached only by the
     /// two tick rows.
     MirrorWide,
-    /// The narrow left-full (memo) cross: `wide_tail(1, d)` × `M(d)` —
-    /// the memoized pre-scan machinery itself, all values word-scale.
+    /// The narrow left-full (memo) cross: `wide_tail(1, d)` × `M(d)`.
+    ///
+    /// The memoized pre-scan machinery itself, all values word-scale.
     /// Reached only by the two tick rows.
     MirrorNarrow,
-    /// The descending staircase `D(d)` × the unary id spine `I(d)`:
-    /// every consumed leaf undercuts every open range's minimum —
+    /// The descending staircase `D(d)` × the unary id spine `I(d)`.
+    ///
+    /// Every consumed leaf undercuts every open range's minimum —
     /// full-penetration minimum updates at every level, all values
     /// word-scale. Reached only by the two tick rows.
     Staircase,
@@ -698,10 +703,11 @@ struct FamilyData {
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
     /// The tick cross's packed (event, id) pair — the tick-walk
-    /// families only (nested-full and -wide, both mirrors, the
-    /// staircase), reached by nothing but the two tick rows. Each
-    /// family's variant doc states the arm and cost genre its cross
-    /// drives.
+    /// families only, reached by nothing but the two tick rows.
+    ///
+    /// Each tick-walk family's variant doc (nested-full and -wide,
+    /// both mirrors, the staircase) states the arm and cost genre its
+    /// cross drives.
     tick_cross: Option<(Vec<u8>, Vec<u8>)>,
     /// The mismatched rank pair — the rank-row families only.
     ///
@@ -1314,11 +1320,14 @@ fn walk_floors(packed_bytes: usize) -> Floors {
     }
 }
 
-/// The tick-cross rows' floors: the paired fill walk examines every bit
-/// of both packed operands (a full-examination scan floor, 8 bits per
-/// byte — the measured tick-walk constants sit 2–5× above it), and a
-/// wide stored magnitude must be re-materialized into the output's own
-/// code (the mandatory limb floor; NA on the word-scale families).
+/// The tick-cross rows' floors: full-examination scan, mandatory-width
+/// limb, in-place heap.
+///
+/// The paired fill walk examines every bit of both packed operands (a
+/// full-examination scan floor, 8 bits per byte — the measured
+/// tick-walk constants sit 2–5× above it), and a wide stored magnitude
+/// must be re-materialized into the output's own code (the mandatory
+/// limb floor; NA on the word-scale families).
 fn tick_walk_floors(version: &Version, packed_bytes: usize) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
