@@ -98,6 +98,11 @@ impl BitCursor for SliceCursor<'_> {
         // every reject included — is decided by the default per-bit loop, so
         // the two paths accept and reject identically by construction.
         if let Some((n, next)) = gamma::decode_int_window(self.bits, self.position) {
+            // The window proves the same `2k + 1` code bits the per-bit loop
+            // reads one at a time, so it records the same count: the scan
+            // meter prices work by bits examined, not by how the examining
+            // path batches them.
+            super::scan::record_bits(next - self.position);
             self.position = next;
             return Ok(Base::from(n));
         }

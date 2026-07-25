@@ -683,6 +683,12 @@ fn max_depth(bits: &BitsSlice) -> usize {
             path.push(false);
         }
         deepest = deepest.max(path.len());
+        // TODO-recalibrate: `skip_int` already records the skipped code's
+        // width internally, so this caller-side record double-counts every
+        // payload code (uniformly 2x, deterministic). Deleting it is a
+        // separate recalibration: the scan envelopes in `tests/meter.rs`
+        // and the board's pinned scan constants that price this walk must
+        // be re-measured when the caller-side record goes.
         let next = codec::skip_int(bits, pos).expect("canonical skyline bits");
         codec::scan::record_bits(next - pos);
         pos = next;

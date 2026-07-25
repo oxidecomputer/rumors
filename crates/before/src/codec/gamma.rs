@@ -227,6 +227,9 @@ where
 /// cannot prove, rejects included.
 pub(crate) fn skip_int(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
     if let Some((_, end)) = decode_int_window(bits, pos) {
+        // Same record as the bit-counting arm below: the skip must price
+        // the same bits a read would, however the code's width was proven.
+        super::scan::record_bits(end - pos);
         return Ok(end);
     }
     let mut k = 0usize;
