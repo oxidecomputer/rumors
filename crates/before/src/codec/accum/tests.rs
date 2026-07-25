@@ -387,11 +387,12 @@ fn new_and_default_hold_zero() {
 }
 
 proptest! {
-    /// The walk-discipline primitives match the oracle: `add_accum`
-    /// and `sub_accum` fold one accumulator's held value into another
-    /// at any interleaving, `negate` flips the value exactly, and
-    /// `reset` returns to exact zero — all with the sign readable
-    /// afterward.
+    /// The walk-discipline primitives match the oracle.
+    ///
+    /// `add_accum` and `sub_accum` fold one accumulator's held value
+    /// into another at any interleaving, `negate` flips the value
+    /// exactly, and `reset` returns to exact zero — all with the sign
+    /// readable afterward.
     #[test]
     fn fold_primitives_match_the_oracle(
         x_ops in proptest::collection::vec(arb_op(), 1..60),
