@@ -96,7 +96,9 @@ fn scan(enc: &Encoded) -> (Bits, Vec<Base>) {
             pending += 2;
             continue;
         }
-        let code = codec::decode_int_from(&mut cursor)
+        // The cursor's own `read_int`: word-wise payload decode.
+        let code = cursor
+            .read_int()
             .expect("a canonical stream holds a complete payload per leaf");
         let value = match heights.last() {
             None => code,

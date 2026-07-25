@@ -19,7 +19,7 @@
 use core::cmp::Ordering;
 
 use crate::codec::accum::Accum;
-use crate::codec::{decode_int_from, Base, BitCursor, Bits, BitsSlice, SliceCursor};
+use crate::codec::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
 use crate::error::Decode;
 
 use super::unzigzag;
@@ -79,8 +79,11 @@ where
             continue;
         }
 
-        // A leaf: decode its payload and update the running height.
-        let code = decode_int_from(cursor)?;
+        // A leaf: decode its payload and update the running height,
+        // through the cursor's own `read_int` so a windowing cursor
+        // (the slice cursor; the wire-side reader) takes its word-wise
+        // fast path.
+        let code = cursor.read_int()?;
         let mut zero_delta = false;
         if seen_leaf {
             zero_delta = code == Base::ZERO;
