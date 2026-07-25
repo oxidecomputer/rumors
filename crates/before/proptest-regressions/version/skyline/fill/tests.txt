@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e59f413a6787b49e8e0c4cb7f81d6c9549a5af8444b33b13937c8dec1dd7d40f # shrinks to ops = [Fork(0), Send(0, 0)]
+cc cb304ccb9e073530a07f2a2e6222cc7462053f444eb7f55fc9ec55c1328f5eee # shrinks to op = Node(Leaf(false), Leaf(true)), ov = Node(Base(0), Leaf(Base(0)), Leaf(Base(4573656454951532677435675716)))
+cc dabbfbb9d4f5ffb5c0c654e09b90cd802540c650a6cde5233277e6c5415c1b2a # shrinks to ops = [Fork(0), Fork(2), Tick(0), Join(1, 0), Fork(0), Fork(0), Join(0, 1), Tick(0), Tick(0), Tick(0)]
+cc 6cb246f7652025bc8692cf219c509371aff2f0a2086f8e1d506043e4635f0bc8 # shrinks to op = Node(Leaf(false), Leaf(true)), ov = Node(Base(6), Node(Base(18446744073709551605), Leaf(Base(8)), Leaf(Base(0))), Node(Base(0), Leaf(Base(0)), Leaf(Base(8567160207010827017))))
