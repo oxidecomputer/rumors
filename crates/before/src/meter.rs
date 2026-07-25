@@ -538,9 +538,8 @@ pub fn id_spine(d: usize, divert: bool) -> Packed {
 /// break normal form), then the `d` right-child terminals (`00`),
 /// innermost first — preorder closes the spine's right children in
 /// reverse. Every level is a right-full shortcut site over a matching
-/// event spine, so the fill walk runs its right-full lookahead and its
-/// sibling pre-scan at every level: the deepest nesting of both of
-/// fill's local re-scan genres per input bit.
+/// event spine: the deepest stacking of the fill walk's deferred
+/// right-full decisions and per-level raise bookkeeping per input bit.
 ///
 /// # Panics
 ///
@@ -559,6 +558,105 @@ pub fn nested_full_id(d: usize) -> Packed {
     for _ in 0..d {
         bits.push(false); // each level's right child: the full terminal
         bits.push(false);
+    }
+    Packed::from_bits(bits)
+}
+
+/// The mirror nested-full id `M(d)`: `(1, x)` repeated down a right
+/// spine, `4d + 4` bits.
+///
+/// Layout: `d` both-children tags (`11`) descending right, each followed
+/// immediately by its full left terminal (`00` — preorder visits the left
+/// child first, so the terminals interleave with the spine tags instead
+/// of trailing them), then the right-only terminus `(0, 1)` (`01 · 00`;
+/// a `(1, 1)` terminus would break normal form). Every level is a
+/// left-full shortcut site over a right-leaning event spine: the raised
+/// leaf precedes the range its minimum comes from at every level, so the
+/// walk's memoized pre-scan (and the pre-scan's own per-level
+/// bookkeeping) runs at maximal nesting per input bit.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn nested_left_full_id(d: usize) -> Packed {
+    assert!(
+        d >= 1,
+        "nested-left-full id needs at least one shortcut level"
+    );
+    let mut bits = Bits::with_capacity(4 * d + 4);
+    for _ in 0..d {
+        bits.push(true); // left child present (the full terminal) ...
+        bits.push(true); // ... and the spine continues right
+        bits.push(false); // the left child: the full terminal
+        bits.push(false);
+    }
+    bits.push(false); // the terminus: right-only node `(0, 1)` ...
+    bits.push(true);
+    bits.push(false); // ... whose right child is the terminal
+    bits.push(false);
+    Packed::from_bits(bits)
+}
+
+/// A right-leaning spine of zero leaves with one `2^b − 1` tail leaf:
+/// depth `d`, `4d + 2b + 3` bits.
+///
+/// Layout: `d` × (`1 · gamma(0) · 0 · gamma(0)`) — each spine node's
+/// zero-base flag and its zero left leaf — then the bottom node's wide
+/// right leaf `0 · gamma(2^b − 1)`. Preorder leaf heights are
+/// `0, 0, …, 0, 2^b − 1`: every proper subtree of the spine nets
+/// `+(2^b − 1)` from entry to exit while all minima stay at zero, so any
+/// per-level bookkeeping that materializes subtree nets (rather than
+/// carrying them relative to a shared anchor) re-touches the tail's
+/// width once per level. Crossed with [`nested_left_full_id`], every
+/// level is additionally a left-full pre-scan site.
+///
+/// # Panics
+///
+/// Panics if `b == 0` or `d == 0`.
+pub fn wide_tail(b: usize, d: usize) -> Packed {
+    assert!(b >= 1, "wide tail needs a nonzero magnitude");
+    assert!(d >= 1, "wide tail needs a nonzero spine depth");
+    let mut bits = Bits::with_capacity(4 * d + 2 * b + 3);
+    for _ in 0..d {
+        bits.push(true); // spine node flag ...
+        codec::encode_int(&mut bits, &Base::from(0u8)); // ... base 0
+        ev_leaf(&mut bits, 0); // its zero left leaf
+    }
+    ev_leaf_wide(&mut bits, &pow2_minus_1(b)); // the bottom's wide tail
+    Packed::from_bits(bits)
+}
+
+/// The descending staircase `D(d)`: the dense left spine whose preorder
+/// leaf heights descend `d, d − 1, …, 0` by unit deltas; `~5d` bits.
+///
+/// Layout: the root `1 · gamma(0)`, then `d − 1` × (`1 · gamma(1)`)
+/// (each deeper spine node lifts its subtree's minimum by one), the
+/// bottom pair `0 · gamma(1) · 0 · gamma(0)`, then `d − 1` right-sibling
+/// zero leaves (`0 · gamma(0)`), innermost first. Min-lifted normal form
+/// holds at every node (each node's right leaf sits exactly at its
+/// subtree's minimum), and no leaf pair is equal. Every preorder leaf
+/// undercuts every leaf before it, so under an id that pairs internal
+/// down the whole spine (`id_spine`), every consumed leaf is a
+/// full-penetration minimum update through all open ranges — the shape
+/// that separates per-level minimum bookkeeping (quadratic) from
+/// run-compressed propagation (linear), independent of value width.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn staircase(d: usize) -> Packed {
+    assert!(d >= 1, "the staircase needs at least one internal node");
+    let mut bits = Bits::with_capacity(5 * d + 8);
+    bits.push(true); // the root: base 0 (the whole tree's minimum)
+    codec::encode_int(&mut bits, &Base::from(0u8));
+    for _ in 1..d {
+        bits.push(true); // each deeper spine node ...
+        codec::encode_int(&mut bits, &Base::from(1u8)); // ... lifts by 1
+    }
+    ev_leaf(&mut bits, 1); // bottom-left leaf: the staircase's top
+    ev_leaf(&mut bits, 0); // bottom-right leaf: one step down
+    for _ in 1..d {
+        ev_leaf(&mut bits, 0); // each ancestor's right leaf: its floor
     }
     Packed::from_bits(bits)
 }

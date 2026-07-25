@@ -69,6 +69,9 @@ share:
 | comb-scatter | cliff comb × scattered party | output-dominated projection |
 | benign | small organic values | the control; the parity floor's referent |
 | nested-full-sibling | `(x,1)` repeated down a spine × matching event spine | the paired tick walk at maximal shortcut depth (the fill red pin's family; scan-linear since the cure) |
+| nested-wide | bigroot magnitude × the nested-full id | the wide right-full chain: the absolute first payload nets the deepest subtree and every ancestor's materialized sum re-touches it (#34) |
+| mirror / wide tail | `(1,x)` down a right spine × a zero spine with one wide tail leaf | the memoized pre-scan at full depth — wide minima in every memo entry, wide nets per level (#34); the unit-tail cross is the memo machinery's own cell |
+| descending staircase | monotone-descending unit-delta leaves × the unary id spine | full-penetration minimum updates at every level, width-independent (the cure's propagation witness) |
 
 ## 3. Findings ledger
 
@@ -438,18 +441,25 @@ DESIGN — that failure is C3's realization evidence, banked
 verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-25, the
-bench-coverage integration record; dev profile, limb+scan meters
-lit]: board **190 green / 17 red at the default scale; 187 / 20
-at ×4** over 207 cells (amended 2026-07-25: the fill
-linearization turned its red pin green — the nested-full tick
-cells read scan/limb e 1.00 at 37.7 and 20.6 per byte, heap
-0.3/B, from e 2.00 at 25,742 and 10,297 [measured both states];
-at ×4 the pair stays red on the segments column alone, e 1.49 /
-28 grown segments against the flat ceiling — the walk still
-recurses to pairing depth, and that residual is owned by P4.2's
-iterative-walk rewrite under the stack-container seam directive,
-pinned red in advance exactly as this cure was). The judge's
-last honest reading, at the
+#34 red-pin record; dev profile, limb+scan meters lit]: board
+**192 green / 23 red at the default scale; 187 / 28 at ×4** over
+**215 cells** (amended 2026-07-25, the #34 red pin: four new
+tick-walk families — nested-wide, mirror-wide, mirror-narrow,
+staircase — land as board columns with full-examination scan
+floors (8 bits/B) and mandatory-width limb floors on the wide
+crosses; the wide×deep cells read the kernel limb-quadratic
+through both shortcut arms and the memo's owned entries read a
+per-site heap constant, all red with owner #34; §17.3 enumerates.
+Earlier the same day the fill linearization turned its own red
+pin green — the nested-full tick cells read scan/limb e 1.00 at
+37.7 and 20.6 per byte, heap 0.3/B, from e 2.00 at 25,742 and
+10,297 [measured both states]; at ×4 that pair stays red on the
+segments column alone, e 1.49 / 28 grown segments — the walk
+still recurses to pairing depth, and that residual is owned by
+P4.2's iterative-walk rewrite under the stack-container seam
+directive, pinned red in advance exactly as this cure was; the
+new families pin the same segments genre in advance at ×4). The
+judge's last honest reading, at the
 flip commit over 202 cells: **157 green / 3 red / 42 sub-floor**,
 exit 1 on exactly the fifteen banked realization violations; the
 three reds all rostered-expected. Workspace sweep at C0:
@@ -525,7 +535,10 @@ commits):
   adversarial review then REFUTED the limb-dimension O(n+m)
   claim (§3's re-touching entry) — the finding that opened #34
   and the tick cost spec's design loop (two attack/fix rounds to
-  convergence; the loop record is the spec's §9).
+  convergence; the loop record is the spec's §9). Acceptance
+  deviation of record (2026-07-25): the ×4 segments leg stayed
+  red, P4.2-owned — the linear acceptance was met on the work
+  columns.
 
 Remaining plan: **#34** (the tick limb cure + fusion per
 `design/before-tick-cost-spec.md`, red pin first) → **C3**
@@ -708,7 +721,7 @@ exposed type's bytes/text/serde forms snapshot-pinned in-crate);
 the benign rank-pair operand scaling if C3 chose that arm; the
 §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over 207 cells)
+### 17.3 Owned-red accounting (current; over 215 cells)
 
 Reconciled 2026-07-25 from a fresh board reading at the fix-round
 tip (both scales enumerated cell by cell; the apparent
@@ -731,13 +744,47 @@ directive), red in advance by this same family. The judge legs
 left the roster with the cure (C3's run verifies the wall).
 Heap constants on width-carrying families moved +0.3–0.5/B, all
 green: the walk's per-subtree signed returns materialize wide
-magnitudes once per node — the content-genre arithmetic the
-module doc prices, and the wide×deep cross residual C3 should
-consider pricing as its own cell. Sums: default 190 + 17 = 207;
-record 187 + 20 = 207 (the record red set swaps the two
-seven-leg pin cells for two segments-only cells).
+magnitudes once per node — the limb-dimension re-touching §3
+records and the #34 red pin below prices.
 
-Default, 17 pre-pin = 188 green + 17: **ten κ-text constants**
+Amended 2026-07-25 (the #34 red pin): four tick-walk families
+join the board (eight cells; smoke pin 207 → 215, derivation
+restated there), all measured on the landed kernel, twice per
+scale byte-identical, no movement on any pre-existing cell:
+
+- `version_tick`/`clock_tick` × **nested-wide**: RED, limb
+  exponent 1.57 at 43.6/B (default) and 1.83 at 126.3/B (×4) —
+  the wide right-full return chain; owner **#34**. At ×4 also
+  segments e 2.42 / 16 grown — owner **P4.2**.
+- `version_tick`/`clock_tick` × **mirror-wide**: RED, limb
+  e 1.86 at 142.9/B and heap e 1.63 at 352.9/B (default); limb
+  e 1.94 at 518.9/B, heap e 1.84 at 1,098.1/B (×4) — the memo
+  arm's wide chains and wide owned entries; owner **#34**. At ×4
+  also segments e 2.00 / 4 — owner **P4.2**.
+- `version_tick`/`clock_tick` × **mirror-narrow**: RED, heap
+  constant 93.2/B default / 95.6/B ×4 at exponent 1.00 — the
+  memo's one owned heap entry per left-full site, linear in
+  count but a constant the ceiling honestly rejects; owner
+  **#34** (the diff-coded memo). At ×4 also segments e 1.64 /
+  50 — owner **P4.2**. Deviation from the spec's §7 expectation
+  (green with honest floors) recorded there as a dated
+  amendment: the meters read the memo's constant, and the pin
+  keeps the honest reading.
+- `version_tick`/`clock_tick` × **staircase**: GREEN at the
+  default scale on every work column (limb 29.7/B, scan 40.0/B,
+  e 1.00 — the landed kernel is linear on narrow
+  full-penetration schedules; the cell holds the cure's
+  propagation to the same reading); at ×4 RED on segments only,
+  e 1.49 / 56 — owner **P4.2**.
+
+The four wide×deep judge cells are rostered expected-red owned
+by #34 (`version_tick`/`clock_tick` × nested-wide, mirror-wide);
+mirror-narrow and staircase are not rostered — their wall legs
+are linear, and the board columns above carry their reds. Sums:
+default 192 + 23 = 215; record 187 + 28 = 215.
+
+Default, 23 = 192 green + 23: the six #34 wide×deep and
+memo-constant reds above + **ten κ-text constants**
 (`version_display`/`clock_display` × {dense, bigroot, benign},
 `version_from_str`/`clock_from_str` × {dense, benign} — limb/`R`
 vs κ; the κ/C3 re-derivation) + **four fold marginals**
@@ -748,7 +795,9 @@ reduction's n·log n; the C2-adjacent n-cursor merge) + **three
 comb-scatter`; single-cell column attribution at C3 BEFORE the
 classification is accepted).
 
-Record scale, 18 = 187 green + 18: **the ten κ-text constants**
+Record scale, 28 = 187 green + 28: the eight #34/P4.2 tick-walk
+legs above (nested-wide ×2, mirror-wide ×2, mirror-narrow ×2,
+staircase ×2) + **the ten κ-text constants**
 (as above) + **two id-side parser recursion cells**
 (`party_from_str`/`clock_from_str` × id-pair — segments e 1.78,
 count 48: the text parser's remaining recursive walk; owner

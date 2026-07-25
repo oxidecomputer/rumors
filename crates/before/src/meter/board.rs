@@ -531,6 +531,30 @@ const SCATTER_BASE_CLOCKS: usize = 1_024;
 /// stays inside the board's runtime budget at the record scale.
 const NESTED_BASE_DEPTH: usize = 1_500;
 
+/// Nested-wide depth and root-magnitude bits at scale 1.0 (equal, so
+/// the doubling scales width and depth together — the cross's cost
+/// genre is their product; packed pair ~1.5 KiB).
+///
+/// Small enough that even a width × depth kernel stays inside the
+/// record-scale runtime budget; the red reading rides the exponent
+/// leg, not the constant ceiling.
+const NESTED_WIDE_BASE: usize = 1_000;
+
+/// Mirror-wide depth and tail-magnitude bits at scale 1.0 (equal, as
+/// above; packed pair ~1 KiB). The memo arm's chains grow steeper than
+/// the right-full arm's, so the base sits lower.
+const MIRROR_WIDE_BASE: usize = 500;
+
+/// Mirror-narrow depth at scale 1.0 (packed pair ~1.5 KiB): the
+/// nested-full base, mirrored — the memo machinery at the same depth
+/// the right-full cells walk.
+const MIRROR_NARROW_BASE_DEPTH: usize = 1_500;
+
+/// Staircase depth at scale 1.0 (packed pair ~2 KiB): deep enough that
+/// per-level minimum bookkeeping would read its exponent across the
+/// doubling, all values word-scale.
+const STAIRCASE_BASE_DEPTH: usize = 1_500;
+
 /// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops`
 /// row: small, so the pair's cost is carried entirely by the mismatch.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
@@ -602,16 +626,37 @@ enum FamilyKind {
     /// the fold rows.
     Scatter,
     /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`:
-    /// every level a right-full shortcut site, the deepest nesting of
-    /// fill's lookahead and pre-scan re-scans — reached only by the two
-    /// tick rows.
+    /// every level a right-full shortcut site, the deepest stacking of
+    /// the walk's deferred right-full decisions and raise bookkeeping
+    /// on narrow values — reached only by the two tick rows.
     NestedFull,
+    /// The wide right-full cross: `bigroot(b, d)` × `N(d)`. The stream's
+    /// first payload is coded absolute, so the deepest subtree's net
+    /// movement carries the root's full magnitude and every level's
+    /// bookkeeping meets it — width × depth through the right-full arm.
+    /// Reached only by the two tick rows.
+    NestedWide,
+    /// The wide left-full (memo) cross: `wide_tail(b, d)` × `M(d)`.
+    /// Every proper subtree nets the tail's full magnitude while every
+    /// level is a memoized pre-scan site — width × depth through the
+    /// left-full arm and the pre-scan's own chains. Reached only by the
+    /// two tick rows.
+    MirrorWide,
+    /// The narrow left-full (memo) cross: `wide_tail(1, d)` × `M(d)` —
+    /// the memoized pre-scan machinery itself, all values word-scale.
+    /// Reached only by the two tick rows.
+    MirrorNarrow,
+    /// The descending staircase `D(d)` × the unary id spine `I(d)`:
+    /// every consumed leaf undercuts every open range's minimum —
+    /// full-penetration minimum updates at every level, all values
+    /// word-scale. Reached only by the two tick rows.
+    Staircase,
     /// The fixed-seed organic control population.
     Benign,
 }
 
 /// Every family, in display order.
-const FAMILIES: [FamilyKind; 10] = [
+const FAMILIES: [FamilyKind; 14] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -621,6 +666,10 @@ const FAMILIES: [FamilyKind; 10] = [
     FamilyKind::Harmonic,
     FamilyKind::Scatter,
     FamilyKind::NestedFull,
+    FamilyKind::NestedWide,
+    FamilyKind::MirrorWide,
+    FamilyKind::MirrorNarrow,
+    FamilyKind::Staircase,
     FamilyKind::Benign,
 ];
 
@@ -648,12 +697,11 @@ struct FamilyData {
     /// population and the benign family's organic control.
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
-    /// The tick cross's packed (event spine, nested-full-sibling id).
-    ///
-    /// The nested-full family only, reached by nothing but the two
-    /// tick rows: the version is the matched dense spine, the party
-    /// the `(x, 1)` id whose every level is a right-full shortcut
-    /// site.
+    /// The tick cross's packed (event, id) pair — the tick-walk
+    /// families only (nested-full and -wide, both mirrors, the
+    /// staircase), reached by nothing but the two tick rows. Each
+    /// family's variant doc states the arm and cost genre its cross
+    /// drives.
     tick_cross: Option<(Vec<u8>, Vec<u8>)>,
     /// The mismatched rank pair — the rank-row families only.
     ///
@@ -761,21 +809,48 @@ impl FamilyData {
             FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
             FamilyKind::NestedFull => {
                 let d = size(NESTED_BASE_DEPTH);
-                FamilyData {
+                Self::tick_cross_family(
                     kind,
-                    name: "nested-full",
-                    version: None,
-                    version2: None,
-                    parties: None,
-                    cross: None,
-                    measure: None,
-                    fold: None,
-                    tick_cross: Some((
-                        super::dense(d).version().encode(),
-                        super::nested_full_id(d).bytes,
-                    )),
-                    rank_pair: None,
-                }
+                    "nested-full",
+                    super::dense(d).version().encode(),
+                    super::nested_full_id(d).bytes,
+                )
+            }
+            FamilyKind::NestedWide => {
+                let s = size(NESTED_WIDE_BASE);
+                Self::tick_cross_family(
+                    kind,
+                    "nested-wide",
+                    super::bigroot(s, s).version().encode(),
+                    super::nested_full_id(s).bytes,
+                )
+            }
+            FamilyKind::MirrorWide => {
+                let s = size(MIRROR_WIDE_BASE);
+                Self::tick_cross_family(
+                    kind,
+                    "mirror-wide",
+                    super::wide_tail(s, s).version().encode(),
+                    super::nested_left_full_id(s).bytes,
+                )
+            }
+            FamilyKind::MirrorNarrow => {
+                let d = size(MIRROR_NARROW_BASE_DEPTH);
+                Self::tick_cross_family(
+                    kind,
+                    "mirror-narrow",
+                    super::wide_tail(1, d).version().encode(),
+                    super::nested_left_full_id(d).bytes,
+                )
+            }
+            FamilyKind::Staircase => {
+                let d = size(STAIRCASE_BASE_DEPTH);
+                Self::tick_cross_family(
+                    kind,
+                    "staircase",
+                    super::staircase(d).version().encode(),
+                    super::id_spine(d, false).bytes,
+                )
             }
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
         };
@@ -845,6 +920,28 @@ impl FamilyData {
             measure: None,
             fold: Some((versions, parties)),
             tick_cross: None,
+            rank_pair: None,
+        }
+    }
+
+    /// Wrap a tick-cross-only family: a packed (event, id) pair reached
+    /// by nothing but the two tick rows.
+    fn tick_cross_family(
+        kind: FamilyKind,
+        name: &'static str,
+        version: Vec<u8>,
+        id: Vec<u8>,
+    ) -> FamilyData {
+        FamilyData {
+            kind,
+            name,
+            version: None,
+            version2: None,
+            parties: None,
+            cross: None,
+            measure: None,
+            fold: None,
+            tick_cross: Some((version, id)),
             rank_pair: None,
         }
     }
@@ -965,9 +1062,9 @@ impl FamilyData {
         Some((decode_party(a), decode_party(b), a.len() + b.len()))
     }
 
-    /// The tick cross decoded fresh (event spine version, nested-full
-    /// id), with combined packed byte length — the nested-full family
-    /// only, so the tick rows alone gain its column.
+    /// The tick cross decoded fresh (event version, id party), with
+    /// combined packed byte length — the tick-walk families only, so
+    /// the tick rows alone gain their columns.
     fn tick_cross(&self) -> Option<(Version, Party, usize)> {
         let (v, p) = self.tick_cross.as_ref()?;
         Some((decode_version(v), decode_party(p), v.len() + p.len()))
@@ -1141,6 +1238,12 @@ const WHY_HEAP_FORK_CHILD: &str = "deterministic-liveness: the forked child carr
 /// Heap NA: allocation is not semantically forced.
 const NA_HEAP_IN_PLACE: &str = "may compute in place or return word-scale results: allocation \
      is not semantically forced (the process allocator itself cannot be re-routed around)";
+/// Scan floor: the tick walk examines its whole input.
+const WHY_SCAN_TICK_WALK: &str = "the paired fill walk examines every topology bit and payload \
+     code of both operands at least once: 8 bits per input byte, with the measured tick-walk \
+     constants 2–5× above";
+/// The tick-cross scan floor: full examination of every input bit.
+const TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE: u64 = 8;
 
 /// A full-examination scan floor over `packed_bytes` of operand.
 fn scan_examines(packed_bytes: usize) -> Liveness {
@@ -1208,6 +1311,22 @@ fn walk_floors(packed_bytes: usize) -> Floors {
         heap: na(NA_HEAP_IN_PLACE),
         limb: na(NA_LIMB_NOT_FORCED),
         scan: scan_examines(packed_bytes),
+    }
+}
+
+/// The tick-cross rows' floors: the paired fill walk examines every bit
+/// of both packed operands (a full-examination scan floor, 8 bits per
+/// byte — the measured tick-walk constants sit 2–5× above it), and a
+/// wide stored magnitude must be re-materialized into the output's own
+/// code (the mandatory limb floor; NA on the word-scale families).
+fn tick_walk_floors(version: &Version, packed_bytes: usize) -> Floors {
+    Floors {
+        heap: na(NA_HEAP_IN_PLACE),
+        limb: limb_wide(mandatory_limbs_version(version)),
+        scan: Liveness::Floor {
+            min: (packed_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),
+            why: WHY_SCAN_TICK_WALK,
+        },
     }
 }
 
@@ -1604,10 +1723,12 @@ fn ops() -> Vec<Op> {
         Op {
             name: "version_tick",
             prepare: |f| {
-                // The nested-full cross carries its own (spine, id) pair;
-                // every other family ticks its version with the seed.
+                // The tick-walk families carry their own (event, id)
+                // pair; every other family ticks its version with the
+                // seed.
                 if let Some((mut v, party, n)) = f.tick_cross() {
-                    return Some(Cell::new(n, walk_floors(n), move || {
+                    let floors = tick_walk_floors(&v, n);
+                    return Some(Cell::new(n, floors, move || {
                         v.tick(&party);
                         (v, party)
                     }));
@@ -2139,11 +2260,12 @@ fn ops() -> Vec<Op> {
         Op {
             name: "clock_tick",
             prepare: |f| {
-                // The nested-full cross ticks its own (id, spine) clock;
-                // it reaches no other clock row.
+                // The tick-walk families tick their own (id, event)
+                // clock; they reach no other clock row.
                 if let Some((v, p, n)) = f.tick_cross() {
+                    let floors = tick_walk_floors(&v, n);
                     let mut clock = Clock::from_parts(p, v);
-                    return Some(Cell::new(n, walk_floors(n), move || {
+                    return Some(Cell::new(n, floors, move || {
                         clock.tick();
                         clock
                     }));
