@@ -43,10 +43,12 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
 }
 
 /// The roster's red set is exactly the sixteen counter-red bigroot sweeps
-/// (owned by the C2 kernel flip, emptied at C3) plus the permanent
-/// schoolbook display tripwire: removing an owned red silences a standing
-/// judgment and adding one launders a new regression as expected, so both
-/// directions must show up as a diff of this pin.
+/// plus the permanent schoolbook display tripwire.
+///
+/// The sixteen sweeps are owned by the C2 kernel flip and emptied at C3.
+/// Removing an owned red silences a standing judgment and adding one
+/// launders a new regression as expected, so both directions must show up
+/// as a diff of this pin.
 #[test]
 fn roster_red_membership_is_pinned() {
     let mut expected = vec![
@@ -72,10 +74,12 @@ fn roster_red_membership_is_pinned() {
     assert_eq!(class(&roster(), "red"), expected);
 }
 
-/// The roster's boundary set is exactly the two hugeleaf display rows
-/// (fitted within the fit-noise band of the general ceiling, emptied at
-/// C3): boundary membership accepts either verdict, so widening it would
-/// exempt a cell from judgment — any change must be a reviewed diff here.
+/// The roster's boundary set is exactly the two hugeleaf display rows.
+///
+/// Both rows are fitted within the fit-noise band of the general ceiling
+/// and emptied at C3. Boundary membership accepts either verdict, so
+/// widening it would exempt a cell from judgment — any change must be a
+/// reviewed diff here.
 #[test]
 fn roster_boundary_membership_is_pinned() {
     assert_eq!(
@@ -85,9 +89,11 @@ fn roster_boundary_membership_is_pinned() {
 }
 
 /// The roster carries only the two expectation classes plus configuration
-/// and notes: a new member would be a new enforcement vocabulary (the
-/// judge refuses unknown members at runtime; this pin catches the edit at
-/// test time, before any bench runs).
+/// and notes.
+///
+/// A new member would be a new enforcement vocabulary (the judge refuses
+/// unknown members at runtime; this pin catches the edit at test time,
+/// before any bench runs).
 #[test]
 fn roster_schema_carries_expectations_only() {
     let roster = roster();
@@ -101,9 +107,10 @@ fn roster_schema_carries_expectations_only() {
     assert_eq!(keys, ["boundary", "configuration", "notes", "red"]);
 }
 
-/// The sidecar's text-ceiling set is exactly the wide-display pair: the
-/// text ceiling (1.7) exists for conversion-dominated rendering only, and
-/// every other cell must stay judged at the general ceiling — widening
+/// The sidecar's text-ceiling set is exactly the wide-display pair.
+///
+/// The text ceiling (1.7) exists for conversion-dominated rendering only,
+/// and every other cell must stay judged at the general ceiling — widening
 /// this set is the one remaining way to move a cell's ceiling, so it is
 /// pinned here and asserted again at every sidecar write.
 #[test]
@@ -118,9 +125,11 @@ fn sidecar_text_ceiling_set_is_the_wide_display_pair() {
 }
 
 /// The schoolbook tripwire is rostered red and the honest wide-display
-/// cell is unrostered (green by default at its text ceiling): the pair
-/// separates the conversion classes only while the quadratic member is
-/// required red and the divide-and-conquer member is required green.
+/// cell is unrostered (green by default at its text ceiling).
+///
+/// The pair separates the conversion classes only while the quadratic
+/// member is required red and the divide-and-conquer member is required
+/// green.
 #[test]
 fn wide_display_pair_expectations_are_split() {
     let roster = roster();

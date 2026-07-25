@@ -1,8 +1,10 @@
 //! Adversarial-shape benchmarks: the `before::meter` generator inputs, timed
 //! at small sizes so the resource-proportionality paths register as
-//! wall-clock numbers. No oracle comparison: these rows exist to make a
-//! superlinear regression on a worst-case shape visible in `cargo bench`,
-//! complementing the deterministic envelopes in `tests/meter.rs`.
+//! wall-clock numbers.
+//!
+//! No oracle comparison: these rows exist to make a superlinear regression
+//! on a worst-case shape visible in `cargo bench`, complementing the
+//! deterministic envelopes in `tests/meter.rs`.
 
 use before::{meter, Party, Version};
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};

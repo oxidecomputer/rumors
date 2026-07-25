@@ -201,10 +201,12 @@ mod envelope {
 /// Size of the canary allocation that proves the heap meter is live.
 const CANARY_ALLOC_BYTES: usize = 1 << 20;
 
-/// The heap meter registers a known allocation: a canary buffer reads back
-/// a peak delta at least its own size, so a lost `#[global_allocator]` line
-/// or a broken peak reader (either of which would pass every upper-bound
-/// envelope vacuously at zero) fails loudly here instead.
+/// The heap meter registers a known allocation.
+///
+/// A canary buffer reads back a peak delta at least its own size, so a lost
+/// `#[global_allocator]` line or a broken peak reader (either of which
+/// would pass every upper-bound envelope vacuously at zero) fails loudly
+/// here instead.
 #[test]
 fn heap_meter_registers_known_allocation() {
     HEAP.reset_peak_usage();
@@ -219,10 +221,11 @@ fn heap_meter_registers_known_allocation() {
     drop(buf);
 }
 
-/// The dense-spine decode registers at least its packed input size: the
-/// decoded version owns a copy of the packed bits, so the one big scenario
-/// here has a floor as well as a ceiling, and a dead heap meter cannot
-/// slide a big scenario under its envelope at zero.
+/// The dense-spine decode registers at least its packed input size.
+///
+/// The decoded version owns a copy of the packed bits, so the one big
+/// scenario here has a floor as well as a ceiling, and a dead heap meter
+/// cannot slide a big scenario under its envelope at zero.
 #[test]
 fn heap_meter_floor_on_decode_dense() {
     let p = meter::dense(DENSE_DEPTH);
@@ -430,10 +433,11 @@ fn decode_hugeleaf_envelope() {
     drop(v);
 }
 
-/// Joining hugeleaf with a one-tick version stays within its envelope (the
-/// emit path grows by push, so the peak tracks the result's node count;
-/// the limb column tracks decode's, because reading the stored spilled
-/// base runs the same linear wide-gamma decode).
+/// Joining hugeleaf with a one-tick version stays within its envelope.
+///
+/// The emit path grows by push, so the peak tracks the result's node
+/// count; the limb column tracks decode's, because reading the stored
+/// spilled base runs the same linear wide-gamma decode.
 #[test]
 fn join_hugeleaf_envelope() {
     let p = meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS);
@@ -466,10 +470,12 @@ fn decode_cliff_envelope() {
 }
 
 /// Comparing the boundary comb against the empty version stays within its
-/// envelope (each tooth's cliff excursion costs `Θ(k)` limb work bought by
-/// its own `2k + 1`-bit stored magnitude, so the walk stays linear per
-/// input bit — the property the comb exists to separate from codings that
-/// store 3-bit deltas per crossing).
+/// envelope.
+///
+/// Each tooth's cliff excursion costs `Θ(k)` limb work bought by its own
+/// `2k + 1`-bit stored magnitude, so the walk stays linear per input bit —
+/// the property the comb exists to separate from codings that store 3-bit
+/// deltas per crossing.
 #[test]
 fn cmp_cliff_envelope() {
     let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
@@ -675,10 +681,11 @@ fn rank_bigroot_envelope() {
 }
 
 /// The rank fold on the harmonic spine stays within its envelope — the
-/// fold's separating family, pinned linear: the accumulated numerator is
-/// as wide as the depth already walked at every level, and the
-/// digit-routed merge folds each level's one-leaf sibling into it at the
-/// exponent gap instead of re-shifting it.
+/// fold's separating family, pinned linear.
+///
+/// The accumulated numerator is as wide as the depth already walked at
+/// every level, and the digit-routed merge folds each level's one-leaf
+/// sibling into it at the exponent gap instead of re-shifting it.
 #[test]
 fn rank_harmonic_envelope() {
     let p = meter::harmonic(RANK_HARMONIC_DEPTH);
@@ -693,10 +700,11 @@ fn rank_harmonic_envelope() {
 }
 
 /// `Rank::cmp` + `checked_sub` + `+` on the mismatched-exponent pair stay
-/// within their envelope: the class-first comparison decides the order
-/// and the pre-check in O(1), so the pinned cost is the `Some`-arm
-/// subtraction and the addition — transients that are the outputs' own
-/// value content, not amplification.
+/// within their envelope.
+///
+/// The class-first comparison decides the order and the pre-check in O(1),
+/// so the pinned cost is the `Some`-arm subtraction and the addition —
+/// transients that are the outputs' own value content, not amplification.
 ///
 /// The pair is built through the public API outside measurement: the
 /// dense spine's rank is the maximal-exponent operand (`1/2^d`, a
@@ -732,10 +740,12 @@ fn rank_pair_mismatch_envelope() {
 }
 
 /// `Sum` over one high-exponent rank followed by many integer ranks stays
-/// within its envelope: the raw accumulator anchors at the largest
-/// exponent seen and digit-routes each summand in at its exponent gap,
-/// normalizing once at the end, so the high-exponent operand costs its
-/// own width once instead of once per later element.
+/// within its envelope.
+///
+/// The raw accumulator anchors at the largest exponent seen and
+/// digit-routes each summand in at its exponent gap, normalizing once at
+/// the end, so the high-exponent operand costs its own width once instead
+/// of once per later element.
 ///
 /// High-first ordering was the adversarial arm of the fold's
 /// order-dependence (`Sum` accepts arbitrary order, so the worst order is
@@ -780,10 +790,11 @@ fn skyline_of(p: &meter::Packed) -> meter::skyline::Encoded {
     meter::skyline::encode(&version_of(p))
 }
 
-/// The skyline validator on the dense spine stays within its envelope:
-/// ~2 bits of transient per open ancestor (measured ~3.1 bits per level
-/// including reallocation growth, against the old parse stack's ~56 bytes
-/// per level on the same tree), zero grown segments.
+/// The skyline validator on the dense spine stays within its envelope.
+///
+/// The transient is ~2 bits per open ancestor (measured ~3.1 bits per
+/// level including reallocation growth, against the old parse stack's ~56
+/// bytes per level on the same tree), with zero grown segments.
 #[test]
 fn skyline_validate_dense_envelope() {
     let enc = skyline_of(&meter::dense(DENSE_DEPTH));
@@ -796,8 +807,9 @@ fn skyline_validate_dense_envelope() {
     assert!(r.is_ok(), "the transcoded dense spine is canonical");
 }
 
-/// The skyline validator on the boundary comb stays within its envelope:
-/// every 3-bit `±1` delta sits on the `2^k` carry boundary, and the
+/// The skyline validator on the boundary comb stays within its envelope.
+///
+/// Every 3-bit `±1` delta sits on the `2^k` carry boundary, and the
 /// accumulator's redundant representation keeps the nonnegativity check
 /// amortized O(1) per delta (the flatness pin below is the cross-scale
 /// witness; a plain big-integer accumulator is quadratic here).
@@ -834,8 +846,10 @@ fn skyline_validate_wide_tooth_envelope() {
 
 /// The skyline validator on the hugeleaf analog — a single huge first
 /// leaf, the whole stream one absolute gamma code — stays within its
-/// envelope: one wide decode plus one wide accumulator load, both linear
-/// in the code's own width.
+/// envelope.
+///
+/// The cost is one wide decode plus one wide accumulator load, both
+/// linear in the code's own width.
 #[test]
 fn skyline_validate_hugeleaf_envelope() {
     let enc = skyline_of(&meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS));
@@ -879,8 +893,9 @@ fn skyline_decode_dense_envelope() {
     assert_eq!(v, version_of(&p), "the transcode round-trips");
 }
 
-/// The skyline decoder on the boundary comb stays within its envelope:
-/// the packed output stores a fresh `gamma(2^k − 1)` per tooth, so the
+/// The skyline decoder on the boundary comb stays within its envelope.
+///
+/// The packed output stores a fresh `gamma(2^k − 1)` per tooth, so the
 /// materialized heights and floors are output-sized — quadratically above
 /// the skyline input, linearly within the packed form being rebuilt.
 #[test]
@@ -1106,9 +1121,10 @@ fn sweep_input_bytes(a: &meter::skyline::Encoded, b: &meter::skyline::Encoded) -
 }
 
 /// The sweep on the dense spine against the empty version stays within
-/// its envelope: the deep side's 125k levels cost path *bits* (no grown
-/// segments, heap in the path stack), consumed iteratively against one
-/// depth-0 plateau.
+/// its envelope.
+///
+/// The deep side's 125k levels cost path *bits* (no grown segments, heap
+/// in the path stack), consumed iteratively against one depth-0 plateau.
 #[test]
 fn skyline_cmp_dense_envelope() {
     let a = skyline_of(&meter::dense(DENSE_DEPTH));
@@ -1126,8 +1142,9 @@ fn skyline_cmp_dense_envelope() {
     );
 }
 
-/// The sweep on two identical dense streams stays within its envelope:
-/// every boundary is an aligned tie, both cursors advance in lockstep to
+/// The sweep on two identical dense streams stays within its envelope.
+///
+/// Every boundary is an aligned tie, both cursors advance in lockstep to
 /// full depth, and the verdict is Equal only after both streams are
 /// wholly consumed (no early exit anywhere).
 #[test]
@@ -1164,10 +1181,11 @@ fn skyline_cmp_bigroot_envelope() {
 }
 
 /// The sweep on the boundary comb against the empty version stays within
-/// its envelope: every 3-bit `±1` delta drives the running difference
-/// across the `2^k` carry boundary, and the accumulator keeps each
-/// crossing amortized O(1) (the flatness pin below is the cross-scale
-/// witness).
+/// its envelope.
+///
+/// Every 3-bit `±1` delta drives the running difference across the `2^k`
+/// carry boundary, and the accumulator keeps each crossing amortized O(1)
+/// (the flatness pin below is the cross-scale witness).
 #[test]
 fn skyline_cmp_cliff_envelope() {
     let a = skyline_of(&meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE));
@@ -1186,9 +1204,10 @@ fn skyline_cmp_cliff_envelope() {
 }
 
 /// The sweep on the wide-tooth comb against the empty version stays
-/// within its envelope: each `±2^w` delta is a genuinely wide operand
-/// paid by its own zigzag code, so limb work stays linear per input bit
-/// at every tooth width.
+/// within its envelope.
+///
+/// Each `±2^w` delta is a genuinely wide operand paid by its own zigzag
+/// code, so limb work stays linear per input bit at every tooth width.
 #[test]
 fn skyline_cmp_wide_tooth_envelope() {
     let a = skyline_of(&meter::wide_tooth_comb(
@@ -1268,9 +1287,11 @@ fn skyline_oracle(
 }
 
 /// Joining the dense spine's skyline with a one-tick stream stays within
-/// its envelope: the 125k-level walk emits and collapses on path-bit
-/// stacks and one accumulator, with zero grown segments and the peak in
-/// the emitted stream itself.
+/// its envelope.
+///
+/// The 125k-level walk emits and collapses on path-bit stacks and one
+/// accumulator, with zero grown segments and the peak in the emitted
+/// stream itself.
 #[test]
 fn skyline_join_dense_envelope() {
     let p = meter::dense(DENSE_DEPTH);
@@ -1286,9 +1307,11 @@ fn skyline_join_dense_envelope() {
 }
 
 /// Joining the dense spine's skyline with a dominating flat operand
-/// stays within its envelope: the whole output collapses to one leaf
-/// through 125k absorb steps around a held 125k-bit code, so this row
-/// is linear only because absorb never moves the held code.
+/// stays within its envelope.
+///
+/// The whole output collapses to one leaf through 125k absorb steps
+/// around a held 125k-bit code, so this row is linear only because absorb
+/// never moves the held code.
 #[test]
 fn skyline_join_absorb_envelope() {
     let p = meter::dense(DENSE_DEPTH);
@@ -1358,9 +1381,11 @@ fn skyline_join_wide_tooth_envelope() {
 }
 
 /// Meeting the boundary comb's skyline with a one-tick stream stays
-/// within its envelope: the output collapses to the flat one-tick leaf
-/// through the absorb cascade while every comb delta still crosses the
-/// carry boundary in the accumulator.
+/// within its envelope.
+///
+/// The output collapses to the flat one-tick leaf through the absorb
+/// cascade while every comb delta still crosses the carry boundary in the
+/// accumulator.
 #[test]
 fn skyline_meet_cliff_envelope() {
     let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
@@ -1376,9 +1401,11 @@ fn skyline_meet_cliff_envelope() {
 }
 
 /// Meeting the wide-tooth comb's skyline with a one-tick stream stays
-/// within its envelope: wide deltas are folded but never re-emitted
-/// (the flat side wins everywhere), so the collapse discipline runs at
-/// spilled operand widths.
+/// within its envelope.
+///
+/// Wide deltas are folded but never re-emitted (the flat side wins
+/// everywhere), so the collapse discipline runs at spilled operand
+/// widths.
 #[test]
 fn skyline_meet_wide_tooth_envelope() {
     let p = meter::wide_tooth_comb(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
@@ -1417,11 +1444,13 @@ fn grow_input_bytes(ev: &meter::skyline::Encoded, id: &Party) -> usize {
 }
 
 /// The probe alone on the frame-count adversary stays within its
-/// envelope: the alternating spine packs one branch node into ~4 stream
-/// bits, so this row's heap ceiling is the direct pin on the probe's
-/// per-level frame state (the route is pre-allocated outside the
-/// measurement) — bits per level, about one byte of stack per input
-/// byte, where machine-word frames would cost ~32.
+/// envelope.
+///
+/// The alternating spine packs one branch node into ~4 stream bits, so
+/// this row's heap ceiling is the direct pin on the probe's per-level
+/// frame state (the route is pre-allocated outside the measurement) —
+/// bits per level, about one byte of stack per input byte, where
+/// machine-word frames would cost ~32.
 #[test]
 fn skyline_grow_probe_alt_spine_envelope() {
     let v = version_of(&meter::alt_spine(DENSE_DEPTH));
@@ -1437,10 +1466,12 @@ fn skyline_grow_probe_alt_spine_envelope() {
 }
 
 /// Growing the alternating spine's skyline under the seed party stays
-/// within its envelope: the full id puts every one of the ~125k branch
-/// nodes on the probe's frame stack at peak — the shape where one
-/// machine-word frame per level would dwarf the ~4-bit-per-level input —
-/// with zero grown segments and the frames held in bit stacks.
+/// within its envelope.
+///
+/// The full id puts every one of the ~125k branch nodes on the probe's
+/// frame stack at peak — the shape where one machine-word frame per level
+/// would dwarf the ~4-bit-per-level input — with zero grown segments and
+/// the frames held in bit stacks.
 #[test]
 fn skyline_grow_alt_spine_envelope() {
     let v = version_of(&meter::alt_spine(DENSE_DEPTH));
@@ -1457,9 +1488,11 @@ fn skyline_grow_alt_spine_envelope() {
 }
 
 /// Growing the empty version under a 250k-deep unary id spine stays
-/// within its envelope: the probe degenerates to the iterative id scan
-/// (one Expand frame per level), the emit codes the whole expansion
-/// chain as fresh one-bit deltas, and nothing recurses.
+/// within its envelope.
+///
+/// The probe degenerates to the iterative id scan (one Expand frame per
+/// level), the emit codes the whole expansion chain as fresh one-bit
+/// deltas, and nothing recurses.
 #[test]
 fn skyline_grow_id_spine_envelope() {
     let v = Version::new();
@@ -1476,9 +1509,11 @@ fn skyline_grow_id_spine_envelope() {
 }
 
 /// Growing the alternating spine under a deep unary id spine stays
-/// within its envelope: mixed regimes — two-cursor branch frames down
-/// the shared spine, an id-only expansion where the id outruns the
-/// event — with the same bit-stack ceilings as the pure shapes.
+/// within its envelope.
+///
+/// The regimes mix — two-cursor branch frames down the shared spine, an
+/// id-only expansion where the id outruns the event — with the same
+/// bit-stack ceilings as the pure shapes.
 #[test]
 fn skyline_grow_cross_envelope() {
     let v = version_of(&meter::alt_spine(DENSE_DEPTH));
@@ -1531,8 +1566,9 @@ mod text_env {
     pub const SKYLINE_PARSE_CLIFF: SweepEnvelope     = sweep_envelope(   482_592,        0,    84_705,    35_845, 50_823); //    386_073, 0,    67_764, 28_676
 }
 
-/// Rendering the dense spine's skyline stays within its envelope: 125k
-/// levels of frames and ~250k single-digit printed bases finalize
+/// Rendering the dense spine's skyline stays within its envelope.
+///
+/// 125k levels of frames and ~250k single-digit printed bases finalize
 /// through word-sized summaries, the output is sized exactly before one
 /// byte is written, and nothing recurses.
 #[test]
@@ -1549,11 +1585,13 @@ fn skyline_render_dense_envelope() {
     assert_eq!(out, expected, "the kernel must render Display's bytes");
 }
 
-/// Rendering bigroot's skyline stays within its envelope: the width
-/// separator — every leaf height carries the 40k-bit root magnitude,
-/// but the finalize pass's summaries are leaf-delta-sized, so the deep
-/// spine's transient holds no per-level copy of the wide value and the
-/// one wide printed base is paid by its own rendered digits.
+/// Rendering bigroot's skyline stays within its envelope — the width
+/// separator.
+///
+/// Every leaf height carries the 40k-bit root magnitude, but the finalize
+/// pass's summaries are leaf-delta-sized, so the deep spine's transient
+/// holds no per-level copy of the wide value and the one wide printed
+/// base is paid by its own rendered digits.
 #[test]
 fn skyline_render_bigroot_envelope() {
     let v = version_of(&meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
@@ -1623,10 +1661,12 @@ fn skyline_parse_dense_envelope() {
     );
 }
 
-/// Parsing bigroot's text stays within its envelope: the 12k-digit root
-/// base converts once through the backend's divide-and-conquer parser,
-/// joins and leaves the delta accumulator exactly twice, and every
-/// spine base is word-sized — no per-level copy of the wide value.
+/// Parsing bigroot's text stays within its envelope.
+///
+/// The 12k-digit root base converts once through the backend's
+/// divide-and-conquer parser, joins and leaves the delta accumulator
+/// exactly twice, and every spine base is word-sized — no per-level copy
+/// of the wide value.
 #[test]
 fn skyline_parse_bigroot_envelope() {
     let v = version_of(&meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
@@ -1664,9 +1704,10 @@ fn skyline_parse_hugeleaf_envelope() {
     );
 }
 
-/// Parsing the boundary comb's text stays within its envelope: every
-/// tooth's wide base enters and leaves the cliff-immune accumulator paid
-/// by its own digit run, so the `2^k` carry boundary costs amortized
+/// Parsing the boundary comb's text stays within its envelope.
+///
+/// Every tooth's wide base enters and leaves the cliff-immune accumulator
+/// paid by its own digit run, so the `2^k` carry boundary costs amortized
 /// O(1) digit touches per crossing.
 #[test]
 fn skyline_parse_cliff_envelope() {
@@ -1835,9 +1876,11 @@ mod skyline_flatness {
 
     /// The sweep's per-delta accumulator touches and per-byte limb work
     /// stay flat across a `k = n` doubling of the boundary comb compared
-    /// against the empty version: the running difference crosses the
-    /// `2^k` carry boundary at every delta and each crossing stays
-    /// amortized O(1) — the comparison-side cliff-immunity witness.
+    /// against the empty version.
+    ///
+    /// The running difference crosses the `2^k` carry boundary at every
+    /// delta and each crossing stays amortized O(1) — the comparison-side
+    /// cliff-immunity witness.
     ///
     /// Each run also carries the one-touch-per-delta liveness floor (in
     /// [`comb_cmp_run`]), so flatness is asserted over a meter proven
@@ -1912,14 +1955,16 @@ mod skyline_flatness {
     }
 
     /// Absolute over-threshold ceilings, measured 2026-07-24 ×1.25
-    /// (three identical runs): the cured freeze discipline's numbers,
-    /// tightened from the retired quadratic baseline of record
-    /// (101,716 → 396,126 touches, 145,680 → 564,784 limbs at these
-    /// scales) in the commit that landed the cure, per the ratchet
-    /// convention. Measured: small 6,182 touches / 4,326 → 4,479 limbs
-    /// on 24,085 skyline bytes; large 12,390 touches / 8,662 → 8,967
-    /// limbs on 48,245 bytes (limb movement 2026-07-24, metered
-    /// `trailing_zeros`, under the standing ceilings).
+    /// (three identical runs).
+    ///
+    /// These are the cured freeze discipline's numbers, tightened from
+    /// the retired quadratic baseline of record (101,716 → 396,126
+    /// touches, 145,680 → 564,784 limbs at these scales) in the commit
+    /// that landed the cure, per the ratchet convention. Measured: small
+    /// 6,182 touches / 4,326 → 4,479 limbs on 24,085 skyline bytes;
+    /// large 12,390 touches / 8,662 → 8,967 limbs on 48,245 bytes (limb
+    /// movement 2026-07-24, metered `trailing_zeros`, under the standing
+    /// ceilings).
     const FREEZE_BAND_OVER_TOUCH_CEILINGS: (u64, u64) = (7_728, 15_488);
 
     /// The over-threshold limb ceilings paired with
@@ -1927,9 +1972,10 @@ mod skyline_flatness {
     const FREEZE_BAND_OVER_LIMB_CEILINGS: (u64, u64) = (5_408, 10_828);
 
     /// The rank kernel's freeze band on the wide-tooth comb, both sides
-    /// flat: bounded oscillation never freezes at any tooth width — a
-    /// fold's cost rides the live component, paid by the tooth's own
-    /// code — so per-byte cost stays flat (×1.25) across a doubling of
+    /// flat: bounded oscillation never freezes at any tooth width.
+    ///
+    /// A fold's cost rides the live component, paid by the tooth's own
+    /// code, so per-byte cost stays flat (×1.25) across a doubling of
     /// `k` and `n` one notch under the freeze allowance's 256-bit digit
     /// bound (192-bit teeth) and one notch over it (300-bit teeth)
     /// alike, with the over side's absolute ceilings pinned as the
@@ -2043,7 +2089,9 @@ mod skyline_flatness {
     }
 
     /// Absolute jump-comb ceilings, measured 2026-07-24 ×1.25 (three
-    /// identical runs): one eviction of the `k`-bit jump plus flat
+    /// identical runs).
+    ///
+    /// The ceilings price one eviction of the `k`-bit jump plus flat
     /// 3-bit-delta work — the un-evicted alternative reads the jump's
     /// width again on every following delta, ~15× these numbers at the
     /// small scale alone. Measured: small 5,138 touches / 2,128 → 2,280
@@ -2057,13 +2105,15 @@ mod skyline_flatness {
     const RANK_JUMP_LIMB_CEILINGS: (u64, u64) = (2_660, 5_313);
 
     /// The rank kernel's freeze eviction on the jump comb is funded and
-    /// flat: the mid-stream `k`-bit jump lands in the live component,
-    /// the first cheap delta behind it fires the one freeze — priced by
-    /// the drift the jump's own code paid for, never by the frozen
-    /// width — and every later 3-bit delta rides an emptied live
-    /// component, so per-byte cost stays flat (×1.25) across a doubling
-    /// of `k` and `n` under absolute ceilings a stale-drift regression
-    /// (the jump re-read per delta) exceeds ~15-fold.
+    /// flat.
+    ///
+    /// The mid-stream `k`-bit jump lands in the live component, the
+    /// first cheap delta behind it fires the one freeze — priced by the
+    /// drift the jump's own code paid for, never by the frozen width —
+    /// and every later 3-bit delta rides an emptied live component, so
+    /// per-byte cost stays flat (×1.25) across a doubling of `k` and `n`
+    /// under absolute ceilings a stale-drift regression (the jump
+    /// re-read per delta) exceeds ~15-fold.
     #[test]
     fn skyline_rank_jump_eviction_is_flat_per_unit() {
         let small = rank_jump_run(FREEZE_BAND_SMALL_K, FREEZE_BAND_SMALL_N);
@@ -2405,10 +2455,11 @@ mod accum_streams {
         }
     }
 
-    /// The static-prefix read stream: a cancelling prefix built once
-    /// (`+2^k` then `−(2^k − 1)`, leaving value 1 spelled across `k/32`
-    /// wide digits), then `n` cycles of `add_small(1)` / sign /
-    /// `sub_small(1)` / sign. Setup is excluded from the count; the
+    /// The static-prefix read stream: a cancelling prefix built once,
+    /// then `n` cycles of `add_small(1)` / sign / `sub_small(1)` / sign.
+    ///
+    /// The prefix is `+2^k` then `−(2^k − 1)`, leaving value 1 spelled
+    /// across `k/32` wide digits. Setup is excluded from the count; the
     /// linearity denominator is the `2n` sign reads.
     ///
     /// Unlike [`cancelling_run`], no wide write precedes the reads: the
@@ -2461,8 +2512,10 @@ mod accum_streams {
 
     /// The wide-tooth stream's per-delta digit-touch cost (tooth width
     /// fixed, cliff height and tooth count doubling) stays under its pinned
-    /// ceiling at both scales and flat across the doubling — the stream on
-    /// which any normalized-prefix-plus-window form is quadratic.
+    /// ceiling at both scales and flat across the doubling.
+    ///
+    /// This is the stream on which any normalized-prefix-plus-window form
+    /// is quadratic.
     #[test]
     fn accum_wide_tooth_touches_flat() {
         let small = wide_tooth_run(4_096, 192, 25_000);
@@ -2477,11 +2530,12 @@ mod accum_streams {
 
     /// The cancelling-prefix chain's digit-touch cost per coded byte of its
     /// own wide deltas stays under its pinned ceiling at both scales and
-    /// flat across the doubling: every deep sign scan here is funded by the
-    /// wide delta immediately preceding it, so the stream's cost tracks its
-    /// own coded size (the collapse itself is priced by
-    /// `accum_static_prefix_touches_flat`, where no adjacent write funds
-    /// the scans).
+    /// flat across the doubling.
+    ///
+    /// Every deep sign scan here is funded by the wide delta immediately
+    /// preceding it, so the stream's cost tracks its own coded size (the
+    /// collapse itself is priced by `accum_static_prefix_touches_flat`,
+    /// where no adjacent write funds the scans).
     #[test]
     fn accum_cancelling_touches_flat() {
         let small = cancelling_run(2_048, 4_096);
@@ -2496,9 +2550,11 @@ mod accum_streams {
 
     /// The static-prefix read stream's digit-touch cost per sign read
     /// stays under its pinned ceiling at both scales and flat across the
-    /// `k`, `n` doubling: the sign fold's collapse pays for the deep scan
-    /// exactly once, so a cancelling prefix built once and then read many
-    /// times costs O(1) digit touches per read.
+    /// `k`, `n` doubling.
+    ///
+    /// The sign fold's collapse pays for the deep scan exactly once, so a
+    /// cancelling prefix built once and then read many times costs O(1)
+    /// digit touches per read.
     ///
     /// This is the pin that makes the collapse load-bearing: the other
     /// three streams fund every deep scan with an immediately preceding
@@ -2725,9 +2781,10 @@ fn skyline_rank_dense_envelope() {
 }
 
 /// The rank kernel on the bigroot skyline stays within its envelope (the
-/// wide-magnitude control: the first leaf's magnitude seeds the frozen
-/// component and is read exactly once, in the closing shifted add
-/// against the whole interval).
+/// wide-magnitude control).
+///
+/// The first leaf's magnitude seeds the frozen component and is read
+/// exactly once, in the closing shifted add against the whole interval.
 #[test]
 fn skyline_rank_bigroot_envelope() {
     let p = meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
@@ -2743,9 +2800,11 @@ fn skyline_rank_bigroot_envelope() {
 }
 
 /// The rank kernel on the harmonic spine stays within its envelope — the
-/// rank fold's separating family, linear here because each level's
-/// one-leaf delta lands in the accumulator at its own weight instead of
-/// re-shifting an accumulated numerator.
+/// rank fold's separating family.
+///
+/// The fold is linear here because each level's one-leaf delta lands in
+/// the accumulator at its own weight instead of re-shifting an
+/// accumulated numerator.
 #[test]
 fn skyline_rank_harmonic_envelope() {
     let p = meter::harmonic(RANK_HARMONIC_DEPTH);
@@ -2761,10 +2820,12 @@ fn skyline_rank_harmonic_envelope() {
 }
 
 /// The rank kernel on the boundary comb's skyline stays within its
-/// envelope: the heights are `2^k`-scale behind 3-bit deltas, the live
-/// component absorbs the oscillation at O(1) digits per fold, and the
-/// terminal borrow — as wide as its own code — rides the live component
-/// into the last leaf's single wide add, no freeze anywhere.
+/// envelope.
+///
+/// The heights are `2^k`-scale behind 3-bit deltas, the live component
+/// absorbs the oscillation at O(1) digits per fold, and the terminal
+/// borrow — as wide as its own code — rides the live component into the
+/// last leaf's single wide add, no freeze anywhere.
 #[test]
 fn skyline_rank_cliff_envelope() {
     let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
@@ -2780,11 +2841,13 @@ fn skyline_rank_cliff_envelope() {
 }
 
 /// The rank kernel on the wide-tooth comb's skyline stays within its
-/// envelope — the no-freeze pin: bounded 192-bit oscillation keeps the
-/// live component exactly as wide as each tooth's own code, so every
-/// fold and every per-leaf add is paid by that code and the frozen
-/// component never churns (the `skyline_flatness` freeze-band row pins
-/// the same shape above the freeze allowance).
+/// envelope — the no-freeze pin.
+///
+/// Bounded 192-bit oscillation keeps the live component exactly as wide
+/// as each tooth's own code, so every fold and every per-leaf add is paid
+/// by that code and the frozen component never churns (the
+/// `skyline_flatness` freeze-band row pins the same shape above the
+/// freeze allowance).
 #[test]
 fn skyline_rank_wide_tooth_envelope() {
     let p = meter::wide_tooth_comb(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
@@ -2836,11 +2899,12 @@ fn skyline_min_ticks_cliff_envelope() {
 }
 
 /// The projection kernel on the comb × scattered-party cross stays
-/// within its envelope — the output-dominated case: every kept tooth
-/// boundary forces a fresh `2^k`-scale magnitude into the output, so the
-/// mandatory output dominates the linear input and the pinned ceilings
-/// price input + output bytes (the denomination the board's criterion
-/// records for exactly this cross).
+/// within its envelope — the output-dominated case.
+///
+/// Every kept tooth boundary forces a fresh `2^k`-scale magnitude into
+/// the output, so the mandatory output dominates the linear input and the
+/// pinned ceilings price input + output bytes (the denomination the
+/// board's criterion records for exactly this cross).
 #[test]
 fn skyline_project_comb_scatter_envelope() {
     let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
@@ -2915,10 +2979,11 @@ fn scatter_population() -> (Vec<Version>, Vec<before::Party>) {
 }
 
 /// `Version::join_all` over the scatter population stays within its
-/// envelope: the balanced reduction keeps every join's operands
-/// comparably sized, so the fold is near-linear in the population's
-/// packed bytes where the left fold re-scanned its whole accumulator per
-/// input.
+/// envelope.
+///
+/// The balanced reduction keeps every join's operands comparably sized,
+/// so the fold is near-linear in the population's packed bytes where the
+/// left fold re-scanned its whole accumulator per input.
 #[test]
 fn fold_version_scatter_envelope() {
     let (versions, _) = scatter_population();
@@ -2934,10 +2999,12 @@ fn fold_version_scatter_envelope() {
 }
 
 /// `Party::join_all` over the scatter population stays within its
-/// envelope: the id-side fold's work is pure stream scanning, and the
-/// balanced reduction keeps the scanned bits near-linear in the
-/// population's packed bytes where the left fold re-walked its whole
-/// accumulated region per input.
+/// envelope.
+///
+/// The id-side fold's work is pure stream scanning, and the balanced
+/// reduction keeps the scanned bits near-linear in the population's
+/// packed bytes where the left fold re-walked its whole accumulated
+/// region per input.
 #[test]
 fn fold_party_scatter_envelope() {
     let (_, mut parties) = scatter_population();
