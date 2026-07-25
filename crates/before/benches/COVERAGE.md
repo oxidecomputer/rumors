@@ -13,8 +13,8 @@ This file indexes the *time leg* only.
 
 1. Enumerate the public API: rustdoc JSON (nightly, `--all-features`,
    `--no-deps`), walked from the crate root along public reachability.
-   At this tree the walk yields 514 impl-level entries: 16 modules,
-   27 types, 113 methods, 48 free functions, 12 associated/module
+   At this tree the walk yields 520 impl-level entries: 18 modules,
+   27 types, 115 methods, 50 free functions, 12 associated/module
    constants, 298 trait impls (169 name-level, deduplicating borrow
    shapes).
 2. Enumerate the bench surface: `cargo bench -p before --bench board --
@@ -38,7 +38,7 @@ the judge-only wide-display pair (2). Families: `dense`, `bigroot`,
 | `version_decode` | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` (and the serde/borsh deserialize wrappers) |
 | `version_encode` | dense, bigroot, hugeleaf, cliff, benign | `Version::encode` (and `encode_to`, `as_bytes` materialization, serialize wrappers) |
 | `version_cmp` | dense, bigroot, hugeleaf, cliff, benign | `PartialOrd` on `Version`/`batch::Version`, every borrow shape |
-| `version_eq` | dense, bigroot, hugeleaf, cliff, benign | `PartialEq` on `Version` (mixed-form walk; same-form is a byte compare) |
+| `version_eq` | dense, bigroot, hugeleaf, cliff, benign | `PartialEq` on `Version` (a wholesale byte compare of the canonical streams; the time leg backstops that it stays linear) |
 | `version_concurrent` | dense, bigroot, hugeleaf, cliff, benign | `Version::concurrent`, `batch::Version::concurrent` |
 | `version_join` | dense, bigroot, hugeleaf, cliff, benign | `BitOr` on `Version`/`batch::Version` |
 | `version_join_assign` | dense, bigroot, hugeleaf, cliff, benign | `BitOrAssign` |
@@ -99,21 +99,25 @@ and aliases (batch operator matrix, `send`, `Debug`); folds priced by
 their measured cells (`Clock::join_all`, `meet_all`'s bounded
 accumulator, `forks`); bounded or trivial inputs (constructors, seed
 predicates, `TryFrom` literals); moves, borrows, and byte copies
-(`is_empty`, `as_bytes`, accessors, `Clone`, same-form `Eq`); derived
+(`is_empty`, `as_bytes`, accessors, `Clone`, the byte-compare `Eq`s);
+derived
 pairings (`Ranked`, `Rank::Display`); `causally`'s constructors and
 refinements; serde/borsh wrappers over the codec rows; and test support.
 
 Deliberately not benched, with the reason stated here so the skip is a
 decision and not an oversight:
 
-- **`meter`'s own surface** (the generators, the counters, the
-  `skyline` and `accum` kernels, the board and tier2 instruments): the
-  measurement instrument itself, feature-gated out of production builds.
-  The kernels' resources are pinned by their envelope scenarios in
-  `tests/meter.rs` and their packed-implementation differentials; when
-  the public operations route through them, every board cell above times
-  them at the public boundary. Direct criterion cells on the staging
-  entry points would time a surface no consumer calls.
+- **`meter`'s own surface** (the generators, the counters, the board
+  and tier2 instruments, and its `skyline`/`accum` re-exports): the
+  instrument surface is the measurement apparatus itself, feature-gated
+  out of production builds; the re-exported kernels are the
+  implementation under every public operation, public only so the
+  envelope suite can pin their internals. The kernels' resources are
+  pinned by their envelope scenarios in `tests/meter.rs`, their
+  agreement with the recursive oracle by their differential suites, and
+  every public operation routes through them, so every board cell above
+  times them at the public boundary. Direct criterion cells on the
+  re-exported entry points would time a surface no consumer calls.
 - **`oracle`** and the `error`/`iter` data types: reference and plumbing
   types with no packed-input computation of their own.
 
@@ -123,5 +127,6 @@ Cells whose bodies sit under the bench judge's 10 µs judgment floor at
 the high scale are SKIPped by the judge, not judged green; the coverage
 they provide is the documented fact that the operation is cheap at board
 sizes. Known members: the hash rows and `version_eq` on `benign` (the
-board doc's stated exposure), `rank_pair_ops/benign`, and
-`rank_sum/benign` (~0.6 µs at scale 1).
+board doc's stated exposure), plus `rank_pair_ops/benign` and
+`rank_sum/benign` (word-scale rank arithmetic over a few hundred
+content bytes).

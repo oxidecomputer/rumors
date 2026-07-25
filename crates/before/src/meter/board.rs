@@ -194,11 +194,11 @@
 //!
 //! **Rank operands** (`rank_pair_ops`, `rank_sum`) have no packed encoding
 //! to charge against; their denominator of record is the operands' **value
-//! content** `bits(num) + exp` in bytes. That content is wire-bounded: every public
-//! construction path (the `rank`/`distance`/`lag` folds) emits a rank
-//! whose numerator width and exponent are each linear in the packed bits
-//! the fold read, so a ceiling per content byte is a ceiling per wire byte
-//! up to the fold's own constant.
+//! content** `bits(num) + exp` in bytes. That content is wire-bounded:
+//! every public construction path (the `rank`/`distance`/`lag` folds)
+//! emits a rank whose numerator width and exponent are each linear in the
+//! packed bits the fold read, so a ceiling per content byte is a ceiling
+//! per wire byte up to the fold's own constant.
 //!
 //! # Reading the numbers
 //!
@@ -331,12 +331,15 @@
 //!   encoding and deserialize through the strict decoder — the
 //!   `encode`/`decode` rows.
 //! - **Test support**: `oracle` and the `error`/`iter` modules' data types
-//!   perform no computation over packed inputs; `meter`'s own surface — the
-//!   generators, the counters, this board, and the `skyline`/`accum`
-//!   kernels — is the measurement instrument itself, feature-gated out of
-//!   production builds, with the kernels' resources pinned by their
-//!   envelope scenarios in `tests/meter.rs` and their agreement with the
-//!   packed implementation pinned by their differential suites.
+//!   perform no computation over packed inputs; `meter`'s own surface —
+//!   the generators, the counters, this board — is the measurement
+//!   instrument itself, feature-gated out of production builds. The
+//!   `skyline`/`accum` kernels `meter` re-exports are the implementation
+//!   under every public operation, public only so the envelope suite can
+//!   pin their internals: every cell of this board already times them at
+//!   the public boundary, their resources are pinned by the envelope
+//!   scenarios in `tests/meter.rs`, and their agreement with the
+//!   recursive oracle is pinned by their differential suites.
 
 #[cfg(test)]
 mod tests;
