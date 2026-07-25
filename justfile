@@ -76,6 +76,20 @@ doctest:
 clippy:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+# `clippy` above lints under --all-features, and the dev-dependency cycle
+# forces the meter/oracle features onto the lib for every test build — so a
+# surface that is dead under *default* features (test-only helpers left
+# ungated) never trips it. These are the default-feature library builds,
+# exactly what `cargo build -p <crate>` compiles, warnings denied: test- and
+# meter-only surface must be cfg-gated, not left dangling. Each package is
+# linted alone so workspace feature unification cannot re-light the gated
+# features.
+
+# Lint the default-feature library builds, warnings denied.
+clippy-default:
+    cargo clippy -p before -- -D warnings
+    cargo clippy -p rumors -- -D warnings
+
 # Format the whole workspace.
 fmt:
     cargo fmt --all
@@ -123,7 +137,7 @@ readme-check:
 # failure, then the builds, then the full-feature tests and doctests.
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check clippy docs docs-internal test-all doctest
+gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -351,7 +365,7 @@ rumormill *args:
 # tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc readme-check clippy features wasm-check docs docs-internal test-all doctest bench-build fuzz-build viz
+ci: fmt-check doclint testdoc readme-check clippy clippy-default features wasm-check docs docs-internal test-all doctest bench-build fuzz-build viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire

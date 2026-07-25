@@ -418,7 +418,11 @@ impl Version {
         &self.0.bytes
     }
 
-    /// The stored skyline stream. Internal.
+    /// The stored skyline stream, borrowed. Test- and meter-only: the
+    /// meter surface's `skyline::encode` and the differential bridges
+    /// read it; production code goes through [`Self::as_bytes`] or the
+    /// crate-internal `view`.
+    #[cfg(any(test, feature = "meter"))]
     pub(crate) fn as_encoded(&self) -> &Encoded {
         &self.0
     }

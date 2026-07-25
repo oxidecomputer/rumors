@@ -141,6 +141,10 @@ pub fn causal_cmp(a: &Encoded, b: &Encoded) -> Option<Ordering> {
 ///
 /// Panics on a non-canonical operand or an overrunning live-bit count,
 /// exactly as [`causal_cmp`] does.
+///
+/// Test- and meter-only: production equality is the stored forms' byte
+/// equality (canonical uniqueness makes them the same test).
+#[cfg(any(test, feature = "meter"))]
 pub fn eq(a: &Encoded, b: &Encoded) -> bool {
     let (le, ge) = sweep(live(a), live(b), Mode::Equality);
     le && ge
@@ -157,6 +161,11 @@ pub fn eq(a: &Encoded, b: &Encoded) -> bool {
 ///
 /// Panics on a non-canonical operand or an overrunning live-bit count,
 /// exactly as [`causal_cmp`] does.
+///
+/// Test- and meter-only: production concurrency checks go through
+/// [`Version::concurrent`](crate::Version::concurrent) over the same
+/// sweep.
+#[cfg(any(test, feature = "meter"))]
 pub fn concurrent(a: &Encoded, b: &Encoded) -> bool {
     causal_cmp(a, b).is_none()
 }
@@ -171,6 +180,10 @@ pub fn concurrent(a: &Encoded, b: &Encoded) -> bool {
 ///
 /// Panics on a non-canonical operand or an overrunning live-bit count,
 /// exactly as [`causal_cmp`] does.
+///
+/// Test- and meter-only: production ordering goes through the
+/// `PartialOrd` surface over [`causal_cmp`].
+#[cfg(any(test, feature = "meter"))]
 pub fn le(a: &Encoded, b: &Encoded) -> bool {
     sweep(live(a), live(b), Mode::Domination).0
 }
@@ -191,9 +204,12 @@ enum Mode {
     /// strict mix that reads concurrent).
     Order,
     /// Equality: stop when either direction is excluded — any nonzero
-    /// difference refutes it.
+    /// difference refutes it. Only [`eq`] asks it.
+    #[cfg(any(test, feature = "meter"))]
     Equality,
     /// Domination `a <= b`: stop when that one direction is excluded.
+    /// Only [`le`] asks it.
+    #[cfg(any(test, feature = "meter"))]
     Domination,
 }
 
@@ -203,7 +219,9 @@ impl Mode {
     fn decided(self, le: bool, ge: bool) -> bool {
         match self {
             Mode::Order => !le && !ge,
+            #[cfg(any(test, feature = "meter"))]
             Mode::Equality => !le || !ge,
+            #[cfg(any(test, feature = "meter"))]
             Mode::Domination => !le,
         }
     }

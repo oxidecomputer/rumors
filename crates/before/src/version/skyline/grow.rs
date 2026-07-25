@@ -178,8 +178,10 @@ pub fn grow(ev: &Encoded, id: &crate::Party) -> Encoded {
 /// input bit, by design — would otherwise dominate a measurement whose
 /// subject is the probe's per-level frame state, the quantity the
 /// deep-spine stack pin bounds.
+#[cfg(any(test, feature = "meter"))]
 pub struct Probe(Route);
 
+#[cfg(any(test, feature = "meter"))]
 impl Probe {
     /// Pre-allocate route storage sized to the two operands.
     pub fn for_operands(ev: &Encoded, id: &crate::Party) -> Self {
