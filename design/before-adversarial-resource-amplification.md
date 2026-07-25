@@ -555,7 +555,9 @@ before/after table.**
   ~150× collapse of cliff's packed size. Re-derive from what the
   operation must do on the NEW coding; floors keep their
   derivation rationale.
-- **The §17.3 reconciliation** (open discrepancy, marked below).
+- **The §17.3 reconciliation**: done 2026-07-25 (the accounting
+  there is cell-exact at both scales); C3 re-enumerates after its
+  re-pins and restates the sums.
 - **The judgment-layer question**: `rank_sum × benign` (record)
   and `rank_pair_ops × benign` read manufactured exponents over
   sub-allowance heap / near-constant denominators. Either the
@@ -666,30 +668,38 @@ the benign rank-pair operand scaling if C3 chose that arm; the
 
 ### 17.3 Owned-red accounting (current; over 205 cells)
 
-Default scale, 17 red: ten κ-owned text cells (the κ/C3
-re-derivation); two fold marginals (`version_join_all × scatter`,
-`party_join_all × scatter` — the balanced reduction's n·log n
-against flat ceilings; cure = the C2-adjacent n-cursor merge over
-the skyline kernels); two fold benign controls
-(`version_join_all × benign` scale-1-only after the flip cut its
-constant ~3×; `party_join_all × benign` — same genre, party folds
-never routed through the version kernels); the three
-newly-κ-genre cells pending C3's adjudication. At ×4, 18 red: as
-above with `version_join_all × benign` green (its exponent falls
-with scale — the log factor shrinking, the n·log n signature) and
-`rank_sum × benign` + `rank_pair_ops × benign` red on the
-judgment-layer artifact genre (C3 decides the criterion arm).
+Reconciled 2026-07-25 from a fresh board reading at the fix-round
+tip (both scales enumerated cell by cell; the apparent
+discrepancy dissolved — the flip entry's ×4 categories contained
+the cliff and id-pair cells without enumerating them). Every red
+has exactly one owner and the sums close:
 
-**Marked open reconciliation (the coordinator's C3-entry
-amendment; do not resolve by transcription)**: the flip's landed
-entry categorized its 15 default reds as 10 text + 2 fold
-marginals + 3 κ-genre, but the integration record separately
-names `version_decode`/`version_rank`/`clock_decode` × cliff as
-floor-liveness trips (the cliff floor re-derivation item) —
-three cells that do not obviously sit inside those categories.
-Reconcile from a fresh board reading at C3: enumerate the actual
-red list, assign every cell exactly one owner, and restate the
-sums so they close (N owned + M green = 205 at each scale).
+Default, 17 = 188 green + 17: **ten κ-text constants**
+(`version_display`/`clock_display` × {dense, bigroot, benign},
+`version_from_str`/`clock_from_str` × {dense, benign} — limb/`R`
+vs κ; the κ/C3 re-derivation) + **four fold marginals**
+(`version_join_all`/`party_join_all` × {scatter, benign} — the
+reduction's n·log n; the C2-adjacent n-cursor merge) + **three
+κ-genre exponents** (`version_min_ticks × cliff`,
+`version_project × comb-scatter`, `clock_own_version ×
+comb-scatter`; single-cell column attribution at C3 BEFORE the
+classification is accepted).
+
+Record scale, 18 = 187 green + 18: **the ten κ-text constants**
+(as above) + **two id-side parser recursion cells**
+(`party_from_str`/`clock_from_str` × id-pair — segments e 1.78,
+count 48: the text parser's remaining recursive walk; owner
+**P4.2**, the explicit-stack residual) + **three cliff
+limb-floor liveness trips** (`version_decode`/`version_rank`/
+`clock_decode` × cliff — measured ~10.4k limbs against a floor
+of 16384 derived before the coding collapsed cliff's packed size
+~150×; owner: C3's floor re-derivation) + **two judgment-layer
+artifacts** (`rank_sum`/`rank_pair_ops` × benign — exponent legs
+over near-zero denominators under flat allowances; owner: C3's
+criterion question) + **one fold marginal**
+(`party_join_all × benign`; the version-side pair reads green at
+×4, the n·log n signature). `version_join_all × scatter` is also
+green at ×4 (same signature).
 
 ### 17.5 Post-campaign docket (user directives)
 
