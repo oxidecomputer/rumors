@@ -714,6 +714,29 @@ sums so they close (N owned + M green = 205 at each scale).
 - **Extract the accumulator as a workspace crate** (unpublished
   until a second consumer stabilizes the API; its amortization
   contract is subtle — reads mutate).
+- **Stack-container decision: `SmallVec<[T; N]>` vs
+  `Vec::with_capacity(N)`, measured, per site** (user directive
+  2026-07-25). It is not a priori clear that smallvec's constants
+  beat Vec's: the inline path saves one small call-scoped
+  allocation (tens of ns on a thread-cached allocator, paid once
+  per op) but pays a per-access discriminant branch
+  (well-predicted when never spilling, yet real in code size and
+  inlining pressure), a fatter struct (locality when embedded or
+  moved), and a spill memcpy at exactly the deep input. The
+  pre-sized Vec is the honest competitor — no realloc chain, so
+  the trade isolates to one allocation vs zero-alloc + branching.
+  Discipline: every explicit stack from the P4 residual audit
+  (and the D3-inherited `PARSE_STACK_INLINE` stacks) is
+  implemented behind ONE type seam (a module-local alias or
+  newtype, one line to swap); a measured phase — C3-adjacent,
+  under the final harness, benign AND deep families, both
+  scales — benches the other container and decides per site;
+  the losing container's numbers ride the DECIDED entry. The
+  choice is not judgment-neutral: shallow walks on smallvec are
+  allocation-free and heap columns pin that — a Vec win on time
+  re-pins those rows deliberately (the parity-floor ruling's
+  genre). Where a packed bit-stack (2 bits/level) suffices,
+  neither applies and the bit-stack stays.
 - **Defended keeps (2026-07-24 This-Nature sweep) — adjudicated
   once, not relitigated**: the limb/scan/segment/touch meters and
   their floors (domain-semantic; no external tool can produce
