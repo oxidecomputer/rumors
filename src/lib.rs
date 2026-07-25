@@ -280,10 +280,6 @@
 //! (convergence under arbitrary gossip schedules, deletion honoring, observer
 //! soundness) and by the wire-format snapshots. Found a gap? An issue or a
 //! test is very welcome.
-//!
-//! Contributing? Conventions, hard rules, and the pre-commit checklist live
-//! in `AGENTS.md` at the repository root; `just gate` must pass before every
-//! commit.
 
 // Static assertions uses #[allow(unsafe_code)], so we allow it only in tests
 #![cfg_attr(not(test), forbid(unsafe_code))]

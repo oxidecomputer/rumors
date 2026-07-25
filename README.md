@@ -285,8 +285,4 @@ The crate is validated by property tests stating the model's invariants
 soundness) and by the wire-format snapshots. Found a gap? An issue or a
 test is very welcome.
 
-Contributing? Conventions, hard rules, and the pre-commit checklist live
-in `AGENTS.md` at the repository root; `just gate` must pass before every
-commit.
-
 <!-- cargo-rdme end -->
