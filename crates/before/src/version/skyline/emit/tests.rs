@@ -33,7 +33,7 @@ use super::{join, meet};
 
 /// Decode a meter-generated packed shape as a [`Version`].
 fn version_of(p: &Packed) -> Version {
-    Version::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+    p.version()
 }
 
 /// Assert both emitters against the packed-form oracle on one pair, in

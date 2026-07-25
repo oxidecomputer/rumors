@@ -25,7 +25,7 @@ use super::{causal_cmp, concurrent, eq, le};
 
 /// Decode a meter-generated packed shape as a [`Version`].
 fn version_of(p: &Packed) -> Version {
-    Version::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+    p.version()
 }
 
 /// The sweep's causal order of two versions, through the transcoder.

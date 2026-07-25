@@ -15,16 +15,16 @@ use crate::{Party, Version};
 
 use super::{
     assert_honest_text, mandatory_limbs_version, radix_units_party, radix_units_version,
-    TEXT_BYTES_PER_CONTENT_BIT,
+    TEXT_BYTES_PER_RADIX_UNIT,
 };
 // The limb-priced tripwires read the touch counter, so they compile only
 // with the `limb-meter` feature; these names have no ungated user.
 #[cfg(feature = "limb-meter")]
 use super::{version_output_bytes, MAX_SCALING_EXPONENT, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT};
 
-/// Decode a meter-generated packed event shape.
+/// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
-    Version::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+    p.version()
 }
 
 /// The radix-work term is exact on shapes whose digit and limb counts are
@@ -48,7 +48,7 @@ fn radix_units_match_hand_counts() {
 
 /// Every family's rendered text sits under the output-honesty ceiling, and
 /// the ceiling is tight enough that a text stream padded past
-/// [`TEXT_BYTES_PER_CONTENT_BIT`] bytes per content bit trips it.
+/// [`TEXT_BYTES_PER_RADIX_UNIT`] bytes per radix unit trips it.
 #[test]
 fn rendered_text_is_honest_and_padding_trips() {
     for (v, name) in [
@@ -58,12 +58,12 @@ fn rendered_text_is_honest_and_padding_trips() {
         (version_of(&hugeleaf(4000)), "hugeleaf"),
     ] {
         let s = v.to_string();
-        assert_honest_text(name, s.len(), v.encoded_bits() as u64);
+        assert_honest_text(name, s.len(), radix_units_version(&v));
     }
     let v = version_of(&dense(500));
-    let padded = (TEXT_BYTES_PER_CONTENT_BIT * v.encoded_bits() as f64) as usize + 1;
-    let trips =
-        std::panic::catch_unwind(|| assert_honest_text("padded", padded, v.encoded_bits() as u64));
+    let units = radix_units_version(&v);
+    let padded = (TEXT_BYTES_PER_RADIX_UNIT * units as f64) as usize + 1;
+    let trips = std::panic::catch_unwind(|| assert_honest_text("padded", padded, units));
     assert!(
         trips.is_err(),
         "a text stream past the honesty ceiling must trip the assertion"
@@ -313,7 +313,9 @@ fn mandatory_limbs_match_hand_counts() {
 /// no arithmetic, no allocation).
 #[cfg(feature = "scan-meter")]
 fn bypass_walk(v: &Version) -> usize {
-    let bits = v.as_bits();
+    let enc = v.as_encoded();
+    let all = crate::codec::bytes_as_bits(&enc.bytes);
+    let bits = &all[..enc.bits];
     (0..bits.len()).filter(|&i| bits[i]).count()
 }
 

@@ -109,6 +109,19 @@ fn unknown_version_is_rejected() {
     ));
 }
 
+/// A version-1 frame — the packed per-node payload coding — is strictly
+/// rejected: the version-2 skyline payloads share no decoder with it, and
+/// there is deliberately no migration path.
+#[test]
+fn version_one_is_rejected() {
+    let mut framed = encode(&sample_record());
+    framed[VERSION_OFFSET..HASH_OFFSET].copy_from_slice(&1u16.to_be_bytes());
+    assert!(matches!(
+        unframe(&framed),
+        Err(FormatError::VersionMismatch { found: 1 }),
+    ));
+}
+
 /// A frame whose payload no longer matches its stored hash is rejected as
 /// corrupt.
 #[test]

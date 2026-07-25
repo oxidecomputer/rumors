@@ -92,7 +92,7 @@ fn one_sided_transfer() {
 /// shared leading byte places both leaves inside one supplied subtree (the
 /// two-byte collision is stronger than that supply needs, and keeps the
 /// pair inside one subtree at height 30 as well).
-const COLLIDING_VALUES: (u64, u64) = (1, 15123);
+const COLLIDING_VALUES: (u64, u64) = (1, 32430);
 
 /// One supplied subtree holding two leaves pins a batched run on the wire.
 ///
@@ -182,13 +182,13 @@ fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
 /// A shared
 /// first byte and distinct second bytes, so the initiator's one exclusive
 /// root child holds a two-leaf subtree whose leaves split one level down.
-const INITIATOR_SUBTREE_VALUES: (u64, u64) = (1, 336);
+const INITIATOR_SUBTREE_VALUES: (u64, u64) = (1, 522);
 
 /// First of three consecutive ballast values for the responder of
 /// [`bulk_initiator_ships_opening_supplies`].
 ///
 /// Their keys' first bytes
-/// (`21`, `2b`, `54`) avoid the initiator's exclusive radix (`67`), and the
+/// (`5b`, `41`, `b9`) avoid the initiator's exclusive radix (`4c`), and the
 /// extra message makes the responder the larger set, so the subtree holder
 /// wins the initiator election.
 const RESPONDER_BALLAST_FROM: u64 = 100;
@@ -265,11 +265,11 @@ fn bulk_initiator_ships_opening_supplies() {
 /// Values for [`early_supplies_honor_redactions`]: the second, sent after
 /// the responder forks, lands its key (`b8 bc`) under the same root radix
 /// as the first's (`b8 11`), found by search.
-const REDACTION_SUBTREE_VALUE: u64 = 151;
+const REDACTION_SUBTREE_VALUE: u64 = 542;
 
 /// First of three consecutive ballast values for the responder of
-/// [`early_supplies_honor_redactions`]: their keys' first bytes (`24`,
-/// `7a`, `b5`) avoid the shared radix (`b8`), and they make the responder
+/// [`early_supplies_honor_redactions`]: their keys' first bytes (`25`,
+/// `5b`, `51`) avoid the shared radix (`b8`), and they make the responder
 /// the larger set.
 const REDACTION_BALLAST_FROM: u64 = 100;
 

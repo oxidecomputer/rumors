@@ -16,6 +16,7 @@ use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, wide_tooth_comb,
 };
 use crate::testing::bridge::from_oracle_version;
+use crate::testing::bridge::{packed_bits_of, to_oracle_version};
 use crate::testing::compactness::{arb_comb_params, comb};
 use crate::testing::{generators, optrace};
 use crate::version::skyline;
@@ -44,11 +45,11 @@ const JOIN_MEET_BOUNDARY_SLACK_BITS: u64 = 4;
 /// the inputs', and total Tier 2 bits within
 /// [`JOIN_MEET_BOUNDARY_SLACK_BITS`] per input leaf of the inputs' sum.
 fn check_join_meet_lipschitz(a: &Version, b: &Version) {
-    let sa = tier2_size(a);
-    let sb = tier2_size(b);
+    let sa = tier2_size(&packed_bits_of(&to_oracle_version(a)));
+    let sb = tier2_size(&packed_bits_of(&to_oracle_version(b)));
     for (name, emit) in EMITTERS {
         let out = emit(a, b);
-        let so = tier2_size(&out);
+        let so = tier2_size(&packed_bits_of(&to_oracle_version(&out)));
         assert!(
             so.leaves < sa.leaves + sb.leaves,
             "{name}: {} output leaves reach the input leaf total {} + {}: \
@@ -77,7 +78,7 @@ fn check_join_meet_lipschitz(a: &Version, b: &Version) {
 #[test]
 fn empty_version_is_two_bits() {
     let v = Version::new();
-    let size = tier2_size(&v);
+    let size = tier2_size(&packed_bits_of(&to_oracle_version(&v)));
     assert_eq!(
         size,
         Tier2Size {
@@ -92,36 +93,37 @@ fn empty_version_is_two_bits() {
 }
 
 /// A single ticked leaf (value 1) is one topology bit plus `gamma(1) = 3`,
-/// 4 bits in both encodings.
+/// 4 bits in both codings (stored Tier 2 and the packed spelling alike).
 #[test]
 fn single_small_leaf_matches_current_size() {
     let mut v = Version::new();
     v.tick(&Party::seed());
-    let size = tier2_size(&v);
+    let size = tier2_size(&packed_bits_of(&to_oracle_version(&v)));
     assert_eq!(size.total_bits, 4);
     assert_eq!((size.nodes, size.leaves), (1, 1));
     assert_eq!(size.total_bits, v.encoded_bits() as u64);
 }
 
 /// A single huge leaf `2^b - 1` is one topology bit plus `gamma(2^b - 1) =
-/// 2b + 1`: Tier 2 equals the current `2b + 2` bits exactly, at a magnitude
+/// 2b + 1`: Tier 2 equals the min-lifted packed spelling's `2b + 2` bits exactly, at a magnitude
 /// wide enough to spill machine-word arithmetic.
 #[test]
 fn single_big_leaf_matches_current_size() {
     for b in [7, 200] {
         let packed = hugeleaf(b);
-        let v = Version::decode(&packed.bytes[..]).expect("hugeleaf is strict normal form");
-        let size = tier2_size(&v);
+        let size = tier2_size(packed.as_bits());
         assert_eq!(size.total_bits as usize, 2 * b + 2);
         assert_eq!((size.nodes, size.leaves), (1, 1));
         assert_eq!(size.first_leaf_bits as usize, 2 * b + 1);
-        assert_eq!(size.total_bits, v.encoded_bits() as u64);
+        assert_eq!(size.total_bits, packed.version().encoded_bits() as u64);
     }
 }
 
-/// One fork `(1, 0, 2)`: leaves are 1 and 3 absolute, so Tier 2 is 3 topology
-/// bits + `gamma(1) = 3` + `zigzag(+2) = 4 -> gamma(4) = 5`, 11 bits against
-/// today's 10 (`3 + gamma(1) + gamma(0) + gamma(2) = 3 + 3 + 1 + 3`).
+/// One fork `(1, 0, 2)` sizes to 11 Tier 2 bits, hand-derived.
+///
+/// Leaves are 1 and 3 absolute: 3 topology bits + `gamma(1) = 3` +
+/// `zigzag(+2) = 4 -> gamma(4) = 5`, against the min-lifted packed
+/// spelling's 10 (`3 + gamma(1) + gamma(0) + gamma(2) = 3 + 3 + 1 + 3`).
 #[test]
 fn one_fork_matches_hand_computation() {
     let v = from_oracle_version(&oracle::Version::node(
@@ -129,8 +131,9 @@ fn one_fork_matches_hand_computation() {
         oracle::Version::leaf(0u64),
         oracle::Version::leaf(2u64),
     ));
-    assert_eq!(v.encoded_bits(), 10);
-    let size = tier2_size(&v);
+    assert_eq!(packed_bits_of(&to_oracle_version(&v)).len(), 10);
+    assert_eq!(v.encoded_bits(), 11, "the stored coding is Tier 2 itself");
+    let size = tier2_size(&packed_bits_of(&to_oracle_version(&v)));
     assert_eq!(
         size,
         Tier2Size {
@@ -145,13 +148,12 @@ fn one_fork_matches_hand_computation() {
 
 /// The dense spine `S(2)` has preorder leaves 0, 1, 0: Tier 2 is 5 topology
 /// bits + `gamma(0) = 1` + `zigzag(+1) = 2 -> 3` + `zigzag(-1) = 1 -> 3`,
-/// 12 bits, exactly today's `4d + 4 = 12`.
+/// 12 bits, exactly the min-lifted packed spelling’s `4d + 4 = 12`.
 #[test]
 fn dense_spine_matches_hand_computation() {
     let packed = crate::meter::dense(2);
-    let v = Version::decode(&packed.bytes[..]).expect("dense spine is strict normal form");
-    assert_eq!(v.encoded_bits(), 12);
-    let size = tier2_size(&v);
+    assert_eq!(packed.bits, 12);
+    let size = tier2_size(packed.as_bits());
     assert_eq!(
         size,
         Tier2Size {
@@ -162,12 +164,13 @@ fn dense_spine_matches_hand_computation() {
             delta_bits: 6,
         }
     );
+    assert_eq!(size.total_bits, packed.version().encoded_bits() as u64);
 }
 
 /// The boundary comb's Tier 2 size is exactly `10n + 4k + 2` bits against
-/// today's `n(2k + 10) + 2`: Tier 2 wire bits do not bound value content.
+/// the min-lifted packed spelling's `n(2k + 10) + 2`: Tier 2 wire bits do not bound value content.
 ///
-/// `cliff_comb(k, n)` codes each `±1` leaf delta in 3 bits where today's
+/// `cliff_comb(k, n)` codes each `±1` leaf delta in 3 bits where the packed spelling's
 /// form stores a fresh `gamma(2^k − 1)` per tooth, so the current/Tier 2
 /// size ratio grows without bound in `k` — the `≤ 2×` compactness envelope
 /// holds in the useless direction while the comb's `2n + 1` leaves carry
@@ -181,8 +184,7 @@ fn dense_spine_matches_hand_computation() {
 fn cliff_comb_tier2_size_is_linear_while_current_is_quadratic() {
     for (k, n) in [(3, 2), (64, 64), (200, 50), (1024, 1024), (4096, 4096)] {
         let packed = cliff_comb(k, n);
-        let v = Version::decode(&packed.bytes[..]).expect("comb is strict normal form");
-        let size = tier2_size(&v);
+        let size = tier2_size(packed.as_bits());
         assert_eq!(
             size,
             Tier2Size {
@@ -193,7 +195,7 @@ fn cliff_comb_tier2_size_is_linear_while_current_is_quadratic() {
                 delta_bits: (6 * n + 2 * k) as u64,
             }
         );
-        assert_eq!(v.encoded_bits(), n * (2 * k + 10) + 2);
+        assert_eq!(packed.bits, n * (2 * k + 10) + 2);
     }
     for (n, ratio_floor) in [(64, 9.83), (1024, 146.97), (4096, 585.83)] {
         let current = (n * (2 * n + 10) + 2) as f64;
@@ -297,13 +299,11 @@ proptest! {
 /// on every cross of the family grid.
 #[test]
 fn adversarial_crosses_hold_the_lipschitz_pin() {
-    let decode =
-        |bytes: &[u8]| Version::decode(bytes).expect("meter shapes are strict normal form");
     let shapes = [
-        decode(&dense(512).bytes),
-        decode(&bigroot(200, 100).bytes),
-        decode(&hugeleaf(500).bytes),
-        decode(&cliff_comb(64, 64).bytes),
+        dense(512).version(),
+        bigroot(200, 100).version(),
+        hugeleaf(500).version(),
+        cliff_comb(64, 64).version(),
     ];
     for a in &shapes {
         for b in &shapes {
@@ -343,23 +343,25 @@ const JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS: u64 = 2;
 /// packed-form operators established.
 #[allow(clippy::type_complexity)]
 const EMITTERS: [(&str, fn(&Version, &Version) -> Version); 4] = [
-    ("packed join", packed_join),
-    ("packed meet", packed_meet),
-    ("skyline join", skyline_join),
-    ("skyline meet", skyline_meet),
+    ("operator join", operator_join),
+    ("operator meet", operator_meet),
+    ("kernel join", skyline_join),
+    ("kernel meet", skyline_meet),
 ];
 
-/// The packed-form join: the subadditivity pins' first emitter of record.
-fn packed_join(a: &Version, b: &Version) -> Version {
+/// The public `|` operator: the subadditivity pins' first emitter of record
+/// (the kernel plus its short-circuits).
+fn operator_join(a: &Version, b: &Version) -> Version {
     a | b
 }
 
-/// The packed-form meet: the subadditivity pins' first emitter of record.
-fn packed_meet(a: &Version, b: &Version) -> Version {
+/// The public `&` operator: the subadditivity pins' first emitter of record
+/// (the kernel plus its short-circuits).
+fn operator_meet(a: &Version, b: &Version) -> Version {
     a & b
 }
 
-/// The skyline emission kernel's join, through the transcoders.
+/// The emission kernel's join, called directly (no short-circuits).
 ///
 /// Also asserts the emitted stream's exact length agreement with
 /// [`tier2_size`] on the result: the pins then price the kernel's own
@@ -369,19 +371,19 @@ fn skyline_join(a: &Version, b: &Version) -> Version {
     let decoded = skyline::decode(&out.bytes, out.bits).expect("an emitted join is canonical");
     assert_eq!(
         out.bits as u64,
-        tier2_size(&decoded).total_bits,
+        tier2_size(&packed_bits_of(&to_oracle_version(&decoded))).total_bits,
         "the emitted join stream must be exactly the canonical coded size"
     );
     decoded
 }
 
-/// The skyline emission kernel's meet, through the transcoders.
+/// The emission kernel's meet, called directly (no short-circuits).
 fn skyline_meet(a: &Version, b: &Version) -> Version {
     let out = skyline::emit::meet(&skyline::encode(a), &skyline::encode(b));
     let decoded = skyline::decode(&out.bytes, out.bits).expect("an emitted meet is canonical");
     assert_eq!(
         out.bits as u64,
-        tier2_size(&decoded).total_bits,
+        tier2_size(&packed_bits_of(&to_oracle_version(&decoded))).total_bits,
         "the emitted meet stream must be exactly the canonical coded size"
     );
     decoded
@@ -398,9 +400,9 @@ fn check_subadditive(
     a: &Version,
     b: &Version,
 ) {
-    let sa = tier2_size(a);
-    let sb = tier2_size(b);
-    let so = tier2_size(&emit(a, b));
+    let sa = tier2_size(&packed_bits_of(&to_oracle_version(a)));
+    let sb = tier2_size(&packed_bits_of(&to_oracle_version(b)));
+    let so = tier2_size(&packed_bits_of(&to_oracle_version(&emit(a, b))));
     assert!(
         so.total_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS <= sa.total_bits + sb.total_bits,
         "{name}: subadditivity violated: {} output bits > {} + {} input bits - {} pinned savings",
@@ -464,10 +466,11 @@ fn magnitude_bits() -> impl Strategy<Value = usize> {
 fn empty_pair_is_the_subadditivity_equality_case() {
     let (a, b) = (Version::new(), Version::new());
     for (name, emit) in EMITTERS {
-        let so = tier2_size(&emit(&a, &b));
+        let so = tier2_size(&packed_bits_of(&to_oracle_version(&emit(&a, &b))));
         assert_eq!(
             so.total_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS,
-            tier2_size(&a).total_bits + tier2_size(&b).total_bits,
+            tier2_size(&packed_bits_of(&to_oracle_version(&a))).total_bits
+                + tier2_size(&packed_bits_of(&to_oracle_version(&b))).total_bits,
             "{name} of two empty versions must realize the savings margin exactly",
         );
     }
@@ -480,17 +483,15 @@ fn empty_pair_is_the_subadditivity_equality_case() {
 /// comb, cliff fan, cancelling chain, alternating spine.
 #[test]
 fn adversarial_crosses_hold_subadditivity() {
-    let decode =
-        |bytes: &[u8]| Version::decode(bytes).expect("meter shapes are strict normal form");
     let shapes = [
-        decode(&dense(256).bytes),
-        decode(&bigroot(128, 64).bytes),
-        decode(&hugeleaf(300).bytes),
-        decode(&cliff_comb(48, 48).bytes),
-        decode(&wide_tooth_comb(96, 32, 32).bytes),
-        decode(&cliff_fan(48, 32).bytes),
-        decode(&cancelling_chain(48, 32).bytes),
-        decode(&alt_spine(128).bytes),
+        dense(256).version(),
+        bigroot(128, 64).version(),
+        hugeleaf(300).version(),
+        cliff_comb(48, 48).version(),
+        wide_tooth_comb(96, 32, 32).version(),
+        cliff_fan(48, 32).version(),
+        cancelling_chain(48, 32).version(),
+        alt_spine(128).version(),
     ];
     for a in &shapes {
         for b in &shapes {
@@ -514,8 +515,7 @@ fn hugeleaf_vs_step_holds_subadditivity() {
             oracle::Version::leaf(all_ones(b)),
             oracle::Version::leaf(0u64),
         ));
-        let flat =
-            Version::decode(&hugeleaf(b - 1).bytes[..]).expect("hugeleaf is strict normal form");
+        let flat = hugeleaf(b - 1).version();
         check_join_meet_subadditive(&step, &flat);
         check_join_meet_subadditive(&flat, &step);
     }
@@ -529,8 +529,7 @@ fn hugeleaf_vs_step_holds_subadditivity() {
 #[test]
 fn comb_vs_flat_holds_subadditivity() {
     for (k, n) in [(3usize, 2usize), (48, 48)] {
-        let comb_version =
-            Version::decode(&cliff_comb(k, n).bytes[..]).expect("comb is strict normal form");
+        let comb_version = cliff_comb(k, n).version();
         let cliff = Base::from(1u8) << u32::try_from(k).expect("cliff bit count fits u32");
         let heights = [
             all_ones(k),     // the valleys' height: join is the comb, meet is flat
@@ -680,8 +679,8 @@ fn cross_boundary_equal_leaves_are_smaller_in_tier2() {
         ),
         oracle::Version::leaf(1u64),
     ));
-    assert_eq!(v.encoded_bits(), 14);
-    let size = tier2_size(&v);
+    assert_eq!(packed_bits_of(&to_oracle_version(&v)).len(), 14);
+    let size = tier2_size(&packed_bits_of(&to_oracle_version(&v)));
     assert_eq!(
         size,
         Tier2Size {

@@ -1,6 +1,8 @@
-//! The causal rank: [`Rank`], the exact measure of an event tree, and the
-//! fold that computes it. The public contract lives on the type and on
-//! [`Version::rank`](crate::Version::rank); this module is private.
+//! The causal rank: [`Rank`], the exact measure of an event tree.
+//!
+//! The public contract lives on the type and on
+//! [`Version::rank`](crate::Version::rank); the fold that computes it is
+//! the skyline query kernel. This module is private.
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -9,9 +11,6 @@ use core::ops::{Add, AddAssign};
 
 use crate::codec::accum::Accum;
 use crate::codec::Base;
-use crate::recurse::descend;
-
-use super::compare::EvReader;
 
 /// The causal rank of a [`Version`](crate::Version).
 ///
@@ -325,176 +324,5 @@ impl fmt::Display for Rank {
 impl fmt::Debug for Rank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <Self as fmt::Display>::fmt(self, f)
-    }
-}
-
-impl EvReader<'_> {
-    /// The exact area under this event subtree, in units of its own
-    /// interval width (see [`Version::rank`](crate::Version::rank)).
-    /// Advances the cursor past the subtree. `O(n)` node visits.
-    pub(in crate::version) fn rank(&mut self) -> Rank {
-        let area = descend!(0, rank_rec(self, 0));
-        Rank::from_raw(area.num.into_base(), area.exp)
-    }
-}
-
-/// A subtree's raw area `num · 2⁻ᵉˣᵖ` during the fold, numerator held as
-/// an [`Area`].
-struct RawArea {
-    num: Area,
-    exp: u32,
-}
-
-/// A fold numerator: a machine word inline, or spilled to the cliff-immune
-/// accumulator.
-///
-/// The spilled arm is what makes the fold linear where a normalized
-/// numerator is quadratic: merging a child's finished numerator into its
-/// parent's is a digit-routed add at the exponent gap
-/// ([`Accum::add_accum_shl`]), never a materialized shift of the
-/// accumulated value. The inline arm keeps the common all-small tree
-/// allocation-free.
-enum Area {
-    Small(u64),
-    Wide(Box<Accum>),
-}
-
-impl Area {
-    /// The finished numerator as a stored magnitude.
-    ///
-    /// A spilled numerator converts through one low-to-high carry pass;
-    /// the fold only ever accumulates nonnegative contributions, so the
-    /// sign is never negative.
-    fn into_base(self) -> Base {
-        match self {
-            Area::Small(n) => Base::from(n),
-            Area::Wide(acc) => {
-                let (sign, magnitude) = acc.sign_magnitude();
-                debug_assert_ne!(
-                    sign,
-                    core::cmp::Ordering::Less,
-                    "a rank numerator accumulates nonnegative areas"
-                );
-                Base::from(magnitude)
-            }
-        }
-    }
-
-    /// This numerator's digit count once spilled (1 for the inline arm),
-    /// the size a merge into a sibling would read.
-    fn digit_count(&self) -> usize {
-        match self {
-            Area::Small(_) => 1,
-            Area::Wide(acc) => acc.digit_count(),
-        }
-    }
-
-    /// Fold `self · 2^shift` into `acc`: O(self's digits), independent of
-    /// the shift.
-    fn add_into(&self, acc: &mut Accum, shift: u64) {
-        match self {
-            Area::Small(n) => acc.add_base_shl(&Base::from(*n), shift),
-            Area::Wide(other) => acc.add_accum_shl(other, shift),
-        }
-    }
-
-    /// Spill the inline arm to an accumulator; a no-op on the wide arm.
-    fn spill(self) -> Box<Accum> {
-        match self {
-            Area::Small(n) => {
-                let mut acc = Box::new(Accum::new());
-                acc.add_u64(n);
-                acc
-            }
-            Area::Wide(acc) => acc,
-        }
-    }
-}
-
-/// A `value · 2^shift` term of the inline fast path, or [`None`] when it
-/// cannot be formed within a `u128`.
-fn inline_term(value: u64, shift: u32) -> Option<u128> {
-    if value == 0 {
-        Some(0)
-    } else if shift < u64::BITS {
-        Some(u128::from(value) << shift)
-    } else {
-        None
-    }
-}
-
-/// The area of the subtree at `ev` as a [`RawArea`] in subtree-relative
-/// units (the subtree's interval has width 1), advancing `ev` past it.
-///
-/// A leaf is its base; a node is its base plus half the sum of its
-/// children's areas: `num = base · 2^(e+1) + num_l · 2^(e−e_l) +
-/// num_r · 2^(e−e_r)` at exponent `e + 1`, `e` the children's larger
-/// exponent. The child whose exponent *is* `e` needs no shift, so its
-/// numerator is reused as the merge container and the other two terms are
-/// digit-routed into it at their exponent gaps — each merge costs the
-/// folded-in side's digits, never the accumulated width, which is what
-/// keeps the fold linear on the harmonic spine (whose accumulated
-/// numerator is as wide as the depth already walked at every level). The
-/// recursive form, routed through the amortized stack-growth guard so a
-/// deep tree grows the stack onto the heap rather than overflowing.
-///
-/// # Panics
-///
-/// Panics if the tree's depth overflows the `u32` exponent (the input
-/// would have to exceed 2 GiB of wire): the checked add turns a silently
-/// wrapped, causally wrong rank into a loud failure.
-fn rank_rec(ev: &mut EvReader, depth: usize) -> RawArea {
-    let node = ev.read();
-    let base = node.base().clone();
-    if !node.is_internal() {
-        let num = match base.to_u64() {
-            Some(n) => Area::Small(n),
-            None => {
-                let mut acc = Box::new(Accum::new());
-                acc.add_base_shl(&base, 0);
-                Area::Wide(acc)
-            }
-        };
-        return RawArea { num, exp: 0 };
-    }
-    // Internal: the `&mut` advances through the left subtree, then the
-    // right resumes from it.
-    let l = descend!(depth + 1, rank_rec(ev, depth + 1));
-    let r = descend!(depth + 1, rank_rec(ev, depth + 1));
-    let exp = l.exp.max(r.exp);
-    let exp1 = exp
-        .checked_add(1)
-        .expect("rank exponent overflows u32: event tree deeper than 2^32 levels");
-    // Inline fast path: all three terms fit one u128 without spilling.
-    if let (Some(b), Area::Small(ln), Area::Small(rn)) = (base.to_u64(), &l.num, &r.num) {
-        let total = (|| {
-            let base_term = inline_term(b, exp1)?;
-            let left_term = inline_term(*ln, exp - l.exp)?;
-            let right_term = inline_term(*rn, exp - r.exp)?;
-            base_term.checked_add(left_term)?.checked_add(right_term)
-        })();
-        if let Some(total) = total {
-            if let Ok(num) = u64::try_from(total) {
-                return RawArea {
-                    num: Area::Small(num),
-                    exp: exp1,
-                };
-            }
-        }
-    }
-    // Wide path: the child at the larger exponent (ties: the wider one)
-    // is the container; the other child and the base are digit-routed in.
-    let (container, other, other_shift) =
-        if r.exp > l.exp || (r.exp == l.exp && r.num.digit_count() >= l.num.digit_count()) {
-            (r.num, l.num, exp - l.exp)
-        } else {
-            (l.num, r.num, exp - r.exp)
-        };
-    let mut acc = container.spill();
-    other.add_into(&mut acc, u64::from(other_shift));
-    acc.add_base_shl(&base, u64::from(exp1));
-    RawArea {
-        num: Area::Wide(acc),
-        exp: exp1,
     }
 }

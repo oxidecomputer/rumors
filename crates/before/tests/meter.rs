@@ -159,22 +159,22 @@ const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64, _limb_floor: 
 mod envelope {
     use super::{envelope, Envelope};
     //                                              peak heap,  segments, limb ops, limb floor           measured: peak heap, segments, limb ops
-    pub const DECODE_DENSE: Envelope    = envelope(13_840_687,        0,       312_503, 187_501); // 11_072_549,   0, 0 -> 250_002 (2026-07-23, metered Base equality)
-    pub const CMP_DENSE: Envelope       = envelope(        10,      240,     2_500_013, 1_500_007); //          8, 192,   2_000_010
-    pub const JOIN_DENSE: Envelope      = envelope( 5_996_847,      300,     3_750_010, 2_250_006); //  6_093_856 -> 4_797_477, 240, 2_750_008 -> 3_000_008 (2026-07-23, push-grow Builder; metered Base equality)
-    pub const TICK_DENSE: Envelope      = envelope(11_837_440,      165,     1_250_005, 750_003); // 12_355_499 -> 9_469_952, 132, 1_000_004 (2026-07-23, push-grow Builder)
-    pub const DECODE_BIGROOT: Envelope  = envelope( 1_745_332,        0,        25_788, 15_472); //  1_399_449 -> 1_396_265 -> 1_396_905 (2026-07-24, dashu-int backend), 0, 12_520_000 -> 626 -> 20_630 (2026-07-23, limb-wise wide-gamma decode; metered Base equality)
-    pub const CMP_BIGROOT: Envelope     = envelope(62_531_270,       15,    47_007_838, 28_204_702); // 50_028_232 -> 50_025_016 -> 56_416_936 (2026-07-24, dashu-int backend), 12, 50_125_644 -> 37_606_270 (2026-07-23, limb-wise wide-gamma decode + clone-free mixed add)
-    pub const JOIN_BIGROOT: Envelope    = envelope(63_075_342,       20,   109_539_093, 65_723_455); // 51_515_838 -> 50_460_273 -> 56_849_753 (2026-07-24, dashu-int backend), 16, 100_150_646 -> 87_631_272 -> 87_631_274 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder; metered Base equality)
-    pub const DECODE_HUGELEAF: Envelope = envelope(    58_604,        0,         2_443, 1_465); //     55_827 -> 46_883 -> 48_851 (2026-07-24, dashu-int backend), 0, 122_132_816 -> 1_954 (2026-07-23, limb-wise wide-gamma decode)
-    pub const JOIN_HUGELEAF: Envelope   = envelope(   139_714,        0,         9_777, 5_865); //  3_127_365 -> 111_771 -> 115_707 (2026-07-24, dashu-int backend), 0, 122_138_683 -> 7_821 (2026-07-23, limb-wise wide-gamma decode + push-grow Builder)
+    pub const DECODE_DENSE: Envelope    = envelope(   120_045,        0,       625_003, 375_001); // 11_072_549 -> 96_036 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 250_002 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels)
+    pub const CMP_DENSE: Envelope       = envelope(    30_740,        0,       312_505, 187_503); //          8 -> 24_592, 192 -> 0, 2_000_010 -> 250_004 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep)
+    pub const JOIN_DENSE: Envelope      = envelope(   188_892,        0,       937_505, 562_503); //  4_797_477 -> 151_113, 240 -> 0, 3_000_008 -> 750_004 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
+    pub const TICK_DENSE: Envelope      = envelope(    89_345,      165,       312_508, 187_504); //  9_469_952 -> 71_476, 132 (the fill splice recurses), 1_000_004 -> 250_006 (2026-07-25, C2: operations route to the skyline kernels: the fill splice)
+    pub const DECODE_BIGROOT: Envelope  = envelope(    60_090,        0,        50_790, 30_474); //  1_396_905 -> 48_072 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 20_630 -> 40_632 (2026-07-25, C2: operations route to the skyline kernels)
+    pub const CMP_BIGROOT: Envelope     = envelope(    40_350,        0,        25_790, 15_474); // 56_416_936 -> 32_280, 12 -> 0, 37_606_270 -> 20_632 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep; the V1 kill realized)
+    pub const JOIN_BIGROOT: Envelope    = envelope(   102_250,        0,        76_583, 45_949); // 56_849_753 -> 81_800, 16 -> 0, 87_631_274 -> 61_266 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel; the V1 kill realized)
+    pub const DECODE_HUGELEAF: Envelope = envelope(   122_504,        0,         2_443, 1_465); //     48_851 -> 98_003 (2026-07-25, C2: operations route to the skyline kernels: the validating wire decode holds the running height), 0, 1_954
+    pub const JOIN_HUGELEAF: Envelope   = envelope(   224_528,        0,         4_887, 2_931); //    115_707 -> 179_622 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel holds both payload buffers), 0, 7_821 -> 3_909 (2026-07-25, C2: operations route to the skyline kernels)
     pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0, 0); //    125_001 -> 223_305, 202 -> 0, 0 (2026-07-24, iterative id walks: frame bits on the heap, no grown segments)
     pub const ID_COVERS: Envelope       = envelope(        10,        0,             0, 0); //          0 -> 8,  85 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0, 0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
-    pub const DECODE_CLIFF: Envelope    = envelope(   718_402,        0,        51_200, 30_720); //    574_721 -> 607_489 (2026-07-24, dashu-int backend),   0,        40_960 (2026-07-23, new scenario)
-    pub const CMP_CLIFF: Envelope       = envelope(       620,        0,       238_093, 142_855); //        656 -> 496 (2026-07-24, dashu-int backend),   0,       190_474 (2026-07-23, new scenario)
-    pub const JOIN_CLIFF: Envelope      = envelope( 1_723_362,        0,       480_010, 288_006); //  1_378_689 -> 1_411_489 (2026-07-24, dashu-int backend),   0,       384_008 (2026-07-23, new scenario)
+    pub const DECODE_CLIFF: Envelope    = envelope(     4_052,        0,        12_903, 7_741); //    607_489 -> 3_241 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 40_960 -> 10_322 (2026-07-25, C2: operations route to the skyline kernels)
+    pub const CMP_CLIFF: Envelope       = envelope(     1_710,        0,         7_765, 4_659); //        496 -> 1_368 (2026-07-25, C2: operations route to the skyline kernels: the sweep holds two accumulators), 0, 190_474 -> 6_212 (2026-07-25, C2: operations route to the skyline kernels: the cliff-immune sweep)
+    pub const JOIN_CLIFF: Envelope      = envelope(     7_913,        0,        25_869, 15_521); //  1_411_489 -> 6_330, 0, 384_008 -> 20_695 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
     // Skyline validator rows (2026-07-23, new scenarios): the V5
     // replacement's transient, achieved — the dense row's 49 KB peak over
     // 125k levels is ~3.1 bits per open ancestor (bit stack plus
@@ -185,15 +185,14 @@ mod envelope {
     pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(     1_520,        0,        42_325, 25_395); //      1_216, 0,    33_860
     pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope(    80_980,        0,         2_443, 1_465); //     64_784 -> 66_752 (2026-07-24, dashu-int backend), 0,     1_954
     pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope(    61_450,        0,       625_003, 375_001); //     49_160, 0,   500_002
-    // Skyline decoder rows (2026-07-23, new scenarios): validate plus the
-    // transcode back to the packed form, whose materialized heights and
-    // floors price these against the packed output rather than the skyline
-    // input (the module doc's cost section).
-    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope(22_672_865,        0,     3_437_515, 2_062_509); // 18_138_292, 0, 2_750_012
-    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope( 2_193_750,        0,       397_033, 238_219); //  1_755_000 -> 1_787_704 (2026-07-24, dashu-int backend), 0,   317_626
-    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope( 2_083_300,        0,       463_554, 278_132); //  1_666_640 -> 1_699_472 (2026-07-24, dashu-int backend), 0,   370_843
-    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(   117_414,        0,        12_217, 7_329); //     93_931 -> 101_803 (2026-07-24, dashu-int backend), 0,     9_773
-    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope(19_723_745,        0,     3_437_515, 2_062_509); // 15_778_996, 0, 2_750_012
+    // Skyline decoder rows: validation plus the wrap into storage — the
+    // stored coding is the skyline stream itself, so decode materializes
+    // nothing beyond the copy and stays priced by the wire input.
+    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope(   122_880,        0,       625_003, 375_001); // 18_138_292 -> 98_304, 0, 2_750_012 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
+    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope(     3_840,        0,        12_903, 7_741); //  1_787_704 -> 3_072, 0, 317_626 -> 10_322 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
+    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope(   245_760,        0,        42_325, 25_395); //  1_699_472 -> 196_608, 0, 370_843 -> 33_860 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
+    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope(    83_440,        0,         2_443, 1_465); //    101_803 -> 66_752, 0, 9_773 -> 1_954 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
+    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope(   122_880,        0,       625_003, 375_001); // 15_778_996 -> 98_304, 0, 2_750_012 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels: decode is validate + wrap)
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -301,9 +300,9 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
     r
 }
 
-/// Decode a generated shape as a [`Version`], outside any measurement.
+/// Lift a generated shape into a [`Version`], outside any measurement.
 fn version_of(p: &meter::Packed) -> Version {
-    Version::decode(&p.bytes[..]).expect("generated shape is strict normal form")
+    p.version()
 }
 
 /// Decode a generated shape as a [`Party`], outside any measurement.
@@ -324,12 +323,10 @@ fn consumed<T: Debug>(v: T) -> String {
 #[test]
 fn decode_dense_envelope() {
     let p = meter::dense(DENSE_DEPTH);
-    let v = metered(
-        "decode_dense",
-        p.bytes.len(),
-        &envelope::DECODE_DENSE,
-        || version_of(&p),
-    );
+    let wire = version_of(&p).encode();
+    let v = metered("decode_dense", wire.len(), &envelope::DECODE_DENSE, || {
+        Version::decode(&wire[..]).expect("a stored version's wire bytes decode")
+    });
     drop(v);
 }
 
@@ -346,7 +343,7 @@ fn cmp_dense_envelope() {
 }
 
 /// Joining the dense spine with a one-tick version stays within its envelope
-/// (the working-form and emit-path cost, linear in nodes today).
+/// (the emit-path cost, linear in nodes).
 #[test]
 fn join_dense_envelope() {
     let p = meter::dense(DENSE_DEPTH);
@@ -358,7 +355,7 @@ fn join_dense_envelope() {
     drop(joined);
 }
 
-/// Ticking the dense spine stays within its envelope (the working-form
+/// Ticking the dense spine stays within its envelope (the fill-splice
 /// round-trip cost, linear in nodes today).
 #[test]
 fn tick_dense_envelope() {
@@ -378,11 +375,12 @@ fn tick_dense_envelope() {
 #[test]
 fn decode_bigroot_envelope() {
     let p = meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
+    let wire = version_of(&p).encode();
     let v = metered(
         "decode_bigroot",
-        p.bytes.len(),
+        wire.len(),
         &envelope::DECODE_BIGROOT,
-        || version_of(&p),
+        || Version::decode(&wire[..]).expect("a stored version's wire bytes decode"),
     );
     drop(v);
 }
@@ -424,11 +422,12 @@ fn join_bigroot_envelope() {
 #[test]
 fn decode_hugeleaf_envelope() {
     let p = meter::hugeleaf(HUGELEAF_MAGNITUDE_BITS);
+    let wire = version_of(&p).encode();
     let v = metered(
         "decode_hugeleaf",
-        p.bytes.len(),
+        wire.len(),
         &envelope::DECODE_HUGELEAF,
-        || version_of(&p),
+        || Version::decode(&wire[..]).expect("a stored version's wire bytes decode"),
     );
     drop(v);
 }
@@ -460,12 +459,10 @@ fn join_hugeleaf_envelope() {
 #[test]
 fn decode_cliff_envelope() {
     let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
-    let v = metered(
-        "decode_cliff",
-        p.bytes.len(),
-        &envelope::DECODE_CLIFF,
-        || version_of(&p),
-    );
+    let wire = version_of(&p).encode();
+    let v = metered("decode_cliff", wire.len(), &envelope::DECODE_CLIFF, || {
+        Version::decode(&wire[..]).expect("a stored version's wire bytes decode")
+    });
     drop(v);
 }
 
@@ -585,9 +582,9 @@ const fn rank_envelope(
 mod rank_env {
     use super::{rank_envelope, RankEnvelope};
     //                                                            peak heap, segments,    limb ops, touches, limb floor       measured: peak heap, segments, limb ops (movement), touches
-    pub const RANK_DENSE: RankEnvelope         = rank_envelope(           0,      300,           4,      0, 2); //          0, 240, 1_250_002 -> 2 -> 3 (2026-07-24, metered trailing_zeros), 0
-    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      50_110,       20,       2_739,  5_862, 1_643); //     40_088 -> 41_368 (2026-07-24, dashu-int backend),  16, 102_824 -> 1_409 -> 2_191 (2026-07-24, metered trailing_zeros), 4_689
-    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      41_005,      155,       2_562, 84_403, 1_536); //     32_804 -> 33_840 (2026-07-24, dashu-int backend), 124, 134_740_995 -> 1_025 -> 2_049 (2026-07-24, metered trailing_zeros), 67_522
+    pub const RANK_DENSE: RankEnvelope         = rank_envelope(      81_950,        0,     312_507, 156_259, 187_503); //          0 -> 65_560, 240 -> 0, 3 -> 250_005, 0 -> 125_007 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
+    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      76_895,        0,      27_744, 21_493, 16_646); //     41_368 -> 61_516, 16 -> 0, 2_191 -> 22_195, 4_689 -> 17_194 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
+    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      73_000,        0,     166_402, 248_324, 99_840); //     33_840 -> 58_400, 124 -> 0, 2_049 -> 133_121, 67_522 -> 198_659 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
     pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      68_380,      0, 41_028); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output) -> 54_704 (2026-07-24, metered trailing_zeros), 0
     pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(      78_140,        0,       9_769, 22_268, 5_861); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization) -> 7_815 (2026-07-24, metered trailing_zeros), 17_814
 }
@@ -1772,7 +1769,7 @@ mod skyline_flatness {
     /// comfortable.
     fn comb_run(scale: usize) -> Run {
         let packed = meter::cliff_comb(scale, scale);
-        let v = before::Version::decode(&packed.bytes[..]).expect("comb is strict normal form");
+        let v = packed.version();
         let enc = meter::skyline::encode(&v);
         touch_meter::reset();
         meter::reset_limb_ops();
@@ -1846,7 +1843,7 @@ mod skyline_flatness {
     /// instead of passing the flatness ratio vacuously at zero touches.
     fn comb_cmp_run(scale: usize) -> Run {
         let packed = meter::cliff_comb(scale, scale);
-        let v = before::Version::decode(&packed.bytes[..]).expect("comb is strict normal form");
+        let v = packed.version();
         let a = meter::skyline::encode(&v);
         let b = meter::skyline::encode(&before::Version::new());
         touch_meter::reset();
@@ -1931,7 +1928,7 @@ mod skyline_flatness {
     /// measured body is proven to compute the right answer.
     fn rank_wide_tooth_run(k: usize, w: usize, n: usize) -> Run {
         let packed = meter::wide_tooth_comb(k, w, n);
-        let v = before::Version::decode(&packed.bytes[..]).expect("the comb is strict normal form");
+        let v = packed.version();
         let enc = meter::skyline::encode(&v);
         touch_meter::reset();
         meter::reset_limb_ops();
@@ -2065,7 +2062,7 @@ mod skyline_flatness {
     /// [`rank_wide_tooth_run`].
     fn rank_jump_run(k: usize, n: usize) -> Run {
         let packed = meter::jump_comb(k, n);
-        let v = before::Version::decode(&packed.bytes[..]).expect("the comb is strict normal form");
+        let v = packed.version();
         let enc = meter::skyline::encode(&v);
         touch_meter::reset();
         meter::reset_limb_ops();
@@ -2681,7 +2678,7 @@ mod query_env {
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255, 187_501); // 24_576, 0, 250_002, 375_006, 125_004
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62, 12); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924, 69_159); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806, 35_939
-    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(    91_520,        0,   862_888,   204_833,         0, 517_732); // 73_216, 0, 690_310 (sequential 14_281_732), 163_866, 0
+    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       488,        0,   317_380,   330_913,    63_347, 190_428); // 73_216 -> 390, 0, 690_310 -> 253_904 (sequential 14_281_732), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
     pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   365_540,         0, 0); // 336, 0, 0, 292_432 (sequential 3_284_952), 0
 }
 

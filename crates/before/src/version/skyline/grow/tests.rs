@@ -28,14 +28,13 @@ use crate::testing::exhaustive::{
 use crate::testing::grow_brute_force::best_inflation;
 use crate::testing::{generators, optrace};
 use crate::version::skyline::{encode, live_bits, validate, Encoded};
-use crate::version::working::WorkingVersion;
 use crate::{Clock, Party, Version};
 
 use super::{grow, id_tag, probe, Cost, EvScan, Kind, Route, COST_MAX};
 
-/// Decode a meter-generated packed event shape as a [`Version`].
+/// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
-    Version::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+    p.version()
 }
 
 /// Decode a meter-generated packed id shape as a [`Party`].
@@ -43,22 +42,14 @@ fn party_of(p: &Packed) -> Party {
     Party::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
 }
 
-/// The packed-form grow, lifted to stored versions: the behavioral
-/// oracle the skyline kernel must transcode-commute with.
-fn packed_grow(v: &Version, p: &Party) -> Version {
-    let working = WorkingVersion::unpack(v.as_bits());
-    let grown = crate::version::event::grow::grow(&working, p.as_bits());
-    Version::from_bits(grown.repack())
-}
-
-/// Assert the kernel against the packed-form oracle on one pair, check
-/// the output validates as canonical, and pin the iterative probe's
-/// route against the reference recursive probe bit for bit.
+/// Assert the kernel's output validates as canonical on one pair, and pin
+/// the iterative probe's route against the recursive reference bit for bit.
+///
+/// Value correctness is held by the brute-force optimality pins below and
+/// the tick differentials against the recursive oracle.
 fn assert_grow(v: &Version, p: &Party) {
     let enc = encode(v);
     let out = grow(&enc, p);
-    let expected = encode(&packed_grow(v, p));
-    assert_eq!(out, expected, "grow must transcode-commute: {v} with {p}");
     validate(&out.bytes, out.bits).expect("a grown stream is canonical");
 
     let ev_bits = live_bits(&enc.bytes, enc.bits);

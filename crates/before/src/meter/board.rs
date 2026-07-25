@@ -179,8 +179,8 @@
 //!
 //! The **output-honesty assertion** closes the pad-the-output door on the
 //! text side: any text stream entering a denominator must satisfy
-//! `text_bytes ≤` [`TEXT_BYTES_PER_CONTENT_BIT`] `× packed content bits` of
-//! the value it spells, checked against the actual bytes.
+//! `text_bytes ≤` [`TEXT_BYTES_PER_RADIX_UNIT`] `× radix units` of the
+//! values it spells, checked against the actual bytes.
 //!
 //! **Do not re-denominate** (these stay input-denominated): both binary
 //! codec directions (the coding is canonical 1:1, so input bytes are the
@@ -326,7 +326,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::rc::Rc;
 
-use crate::codec;
+use crate::codec::{self, Base};
 use crate::{causally, Clock, Party, Rank, Version};
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
@@ -422,17 +422,20 @@ pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 pub const MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT: f64 = 0.25;
 
 /// Any text stream entering a denominator must hold at most this many bytes
-/// per packed content bit of the value it spells (the output-honesty
-/// ceiling).
+/// per radix unit of the values it spells (the output-honesty ceiling).
 ///
 /// Denominating against I/O bytes opens a door: pad the output, inflate the
-/// denominator, read green. The ceiling closes it \[derived\]: the grammar
-/// spends at most 6 syntax bytes per node against at least 2 packed bits per
-/// node (id spines approach 3 bytes per bit, the worst case), and decimal
-/// digits cost ~0.302 bytes per magnitude bit against ~2 packed bits per
-/// magnitude bit — so honest text stays under 3.2 bytes per content bit and
+/// denominator, read green. The ceiling closes it \[derived\], and its
+/// basis is the radix-unit sum (`Σ digits × limbs`, computed from the
+/// values outside the render) rather than wire bits, because the skyline
+/// wire coding spends O(1) bits on a leaf whose spelled value is wide —
+/// no constant per wire bit bounds honest text. Per rendered value the
+/// grammar spends its exact decimal digits (`digits ≤ digits × limbs`, one
+/// radix unit minimum per value) plus at most 6 syntax bytes (`(`, `)`,
+/// and two `, ` separators), and every value contributes at least one
+/// radix unit — so honest text stays under 7 bytes per radix unit and
 /// padding trips the assertion.
-pub const TEXT_BYTES_PER_CONTENT_BIT: f64 = 4.0;
+pub const TEXT_BYTES_PER_RADIX_UNIT: f64 = 8.0;
 
 /// The acceptance scale of record: the size multiplier of the record-mode
 /// board run (`just amp-board-record`).
@@ -625,22 +628,32 @@ impl FamilyData {
             scaled.max(MIN_SIZE_PARAM) << level
         };
         let mut data = match kind {
-            FamilyKind::Dense => {
-                Self::event(kind, "dense", super::dense(size(DENSE_BASE_DEPTH)).bytes)
-            }
+            FamilyKind::Dense => Self::event(
+                kind,
+                "dense",
+                super::dense(size(DENSE_BASE_DEPTH)).version().encode(),
+            ),
             FamilyKind::Bigroot => Self::event(
                 kind,
                 "bigroot",
-                super::bigroot(size(BIGROOT_BASE_MAGNITUDE_BITS), size(BIGROOT_BASE_DEPTH)).bytes,
+                super::bigroot(size(BIGROOT_BASE_MAGNITUDE_BITS), size(BIGROOT_BASE_DEPTH))
+                    .version()
+                    .encode(),
             ),
             FamilyKind::Hugeleaf => Self::event(
                 kind,
                 "hugeleaf",
-                super::hugeleaf(size(HUGELEAF_BASE_MAGNITUDE_BITS)).bytes,
+                super::hugeleaf(size(HUGELEAF_BASE_MAGNITUDE_BITS))
+                    .version()
+                    .encode(),
             ),
             FamilyKind::Cliff => {
                 let scale = size(CLIFF_BASE_SCALE);
-                Self::event(kind, "cliff", super::cliff_comb(scale, scale).bytes)
+                Self::event(
+                    kind,
+                    "cliff",
+                    super::cliff_comb(scale, scale).version().encode(),
+                )
             }
             FamilyKind::IdPair => FamilyData {
                 kind,
@@ -665,7 +678,9 @@ impl FamilyData {
                     version2: None,
                     parties: None,
                     cross: Some((
-                        super::cliff_comb(CROSS_TOOTH_MAGNITUDE_BITS, teeth).bytes,
+                        super::cliff_comb(CROSS_TOOTH_MAGNITUDE_BITS, teeth)
+                            .version()
+                            .encode(),
                         super::scattered_id(teeth / 2).bytes,
                     )),
                     measure: None,
@@ -674,7 +689,9 @@ impl FamilyData {
                 }
             }
             FamilyKind::Harmonic => {
-                let bytes = super::harmonic(size(HARMONIC_BASE_DEPTH)).bytes;
+                let bytes = super::harmonic(size(HARMONIC_BASE_DEPTH))
+                    .version()
+                    .encode();
                 let v = decode_version(&bytes);
                 let mut w = v;
                 w.tick(&Party::seed());
@@ -762,7 +779,7 @@ impl FamilyData {
         }
     }
 
-    /// Wrap a packed event shape and derive its ticked counterpart.
+    /// Wrap an event shape's wire bytes and derive its ticked counterpart.
     fn event(kind: FamilyKind, name: &'static str, bytes: Vec<u8>) -> FamilyData {
         let v = decode_version(&bytes);
         let mut w = v;
@@ -1112,25 +1129,103 @@ fn walk_floors(packed_bytes: usize) -> Floors {
 /// [`radix_units_version`]: iterative over the packed form, outside any
 /// measurement.
 fn mandatory_limbs_version(v: &Version) -> u64 {
-    let bits = v.as_bits();
-    let mut pos = 0usize;
-    let mut pending = 1u64;
     let mut limbs = 0u64;
-    while pending > 0 {
-        pending -= 1;
-        let internal = bits[pos];
-        let (base, next) =
-            codec::decode_int(bits, pos + 1).expect("a stored event tree is canonical");
-        pos = next;
-        if internal {
-            pending += 2;
-        }
+    for base in stored_bases(v) {
         let width = base.bits();
         if width > MACHINE_WORD_MAGNITUDE_BITS {
             limbs += width.div_ceil(64);
         }
     }
     limbs
+}
+
+/// The min-lifted stored bases of a version's canonical event tree, in
+/// preorder: the values the paper notation renders and any base-per-node
+/// representation must hold.
+///
+/// Reconstructed from the stored skyline stream in three linear passes
+/// (absolute leaf heights, bottom-up subtree floors, per-node relative
+/// bases), entirely outside any measurement.
+fn stored_bases(v: &Version) -> Vec<Base> {
+    let all = codec::bytes_as_bits(v.as_bytes());
+    let bits = &all[..v.encoded_bits()];
+    // Pass 1: topology flags and absolute leaf heights.
+    let mut pos = 0usize;
+    let mut topology: Vec<bool> = Vec::new();
+    let mut heights: Vec<Base> = Vec::new();
+    let mut pending = 1usize;
+    while pending > 0 {
+        pending -= 1;
+        let internal = bits[pos];
+        pos += 1;
+        topology.push(internal);
+        if internal {
+            pending += 2;
+            continue;
+        }
+        let (code, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        pos = next;
+        let value = match heights.last() {
+            None => code,
+            Some(prev) => {
+                let odd = code.bit(0);
+                let magnitude = if odd {
+                    (code + 1u32) >> 1u32
+                } else {
+                    code >> 1u32
+                };
+                if odd {
+                    prev.clone() - &magnitude
+                } else {
+                    prev + &magnitude
+                }
+            }
+        };
+        heights.push(value);
+    }
+    // Pass 2: per-node floors (minimum leaf height in the subtree),
+    // bottom-up over the preorder topology.
+    let nodes = topology.len();
+    let mut floors: Vec<Base> = vec![Base::ZERO; nodes];
+    let mut open: Vec<(usize, Option<Base>)> = Vec::new();
+    let mut next_leaf = 0usize;
+    for (index, &internal) in topology.iter().enumerate() {
+        if internal {
+            open.push((index, None));
+            continue;
+        }
+        floors[index] = heights[next_leaf].clone();
+        next_leaf += 1;
+        let mut summary = floors[index].clone();
+        loop {
+            match open.pop() {
+                None => break,
+                Some((parent, None)) => {
+                    open.push((parent, Some(summary)));
+                    break;
+                }
+                Some((parent, Some(left))) => {
+                    let floor = if left <= summary { left } else { summary };
+                    floors[parent] = floor.clone();
+                    summary = floor;
+                }
+            }
+        }
+    }
+    // Pass 3: each node's stored base is its floor minus its parent's.
+    let mut bases = Vec::with_capacity(nodes);
+    let mut parent_floors: Vec<Base> = vec![Base::ZERO];
+    for (index, &internal) in topology.iter().enumerate() {
+        let parent = parent_floors
+            .pop()
+            .expect("preorder supplies one inherited floor per node");
+        bases.push(floors[index].clone() - &parent);
+        if internal {
+            parent_floors.push(floors[index].clone());
+            parent_floors.push(floors[index].clone());
+        }
+    }
+    bases
 }
 
 // ─── operations ─────────────────────────────────────────────────────────────
@@ -1174,10 +1269,9 @@ struct IoSpec {
 /// The text rows' radix-work term and output-honesty data.
 struct TextSpec {
     /// `Σ digitsᵢ × limbsᵢ` over the values the text spells; the limb column
-    /// is judged against `R = n_io +` this, at the κ ceiling.
+    /// is judged against `R = n_io +` this, at the κ ceiling, and the
+    /// output-honesty ceiling is asserted against the same units.
     radix_units: u64,
-    /// Packed content bits behind the text: the honesty ceiling's basis.
-    content_bits: u64,
     /// Whether the measured *output* is the text side (`Display`); the
     /// honesty assertion then runs against the actual output bytes.
     /// `FromStr`'s text is input and is asserted at prepare.
@@ -1239,14 +1333,14 @@ impl Cell {
 /// Assert the output-honesty ceiling on one text stream.
 ///
 /// Every text stream entering a denominator passes through here: text bytes
-/// at most [`TEXT_BYTES_PER_CONTENT_BIT`] per packed content bit of the
-/// value the text spells, so padding the text side of `n_io` trips the run
-/// instead of greening a cell.
-fn assert_honest_text(what: &'static str, text_bytes: usize, content_bits: u64) {
+/// at most [`TEXT_BYTES_PER_RADIX_UNIT`] per radix unit of the values the
+/// text spells, so padding the text side of `n_io` trips the run instead
+/// of greening a cell.
+fn assert_honest_text(what: &'static str, text_bytes: usize, radix_units: u64) {
     assert!(
-        text_bytes as f64 <= TEXT_BYTES_PER_CONTENT_BIT * content_bits as f64,
+        text_bytes as f64 <= TEXT_BYTES_PER_RADIX_UNIT * radix_units as f64,
         "output honesty: {what}: {text_bytes} text bytes exceed \
-         {TEXT_BYTES_PER_CONTENT_BIT} per content bit over {content_bits} bits"
+         {TEXT_BYTES_PER_RADIX_UNIT} per radix unit over {radix_units} units"
     );
 }
 
@@ -1260,19 +1354,8 @@ fn assert_honest_text(what: &'static str, text_bytes: usize, content_bits: u64) 
 /// products enter the denominator, so the term prices schoolbook conversion
 /// work without assuming any converter.
 fn radix_units_version(v: &Version) -> u64 {
-    let bits = v.as_bits();
-    let mut pos = 0usize;
-    let mut pending = 1u64;
     let mut units = 0u64;
-    while pending > 0 {
-        pending -= 1;
-        let internal = bits[pos];
-        let (base, next) =
-            codec::decode_int(bits, pos + 1).expect("a stored event tree is canonical");
-        pos = next;
-        if internal {
-            pending += 2;
-        }
+    for base in stored_bases(v) {
         let digits = base.to_string().len() as u64;
         let limbs = base.bits().div_ceil(64).max(1);
         units += digits * limbs;
@@ -1602,7 +1685,6 @@ fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let spec = TextSpec {
                     radix_units: radix_units_version(&v),
-                    content_bits: v.encoded_bits() as u64,
                     output_is_text: true,
                 };
                 let floors = Floors {
@@ -1631,10 +1713,9 @@ fn ops() -> Vec<Op> {
                 let s = v.to_string();
                 let spec = TextSpec {
                     radix_units: radix_units_version(&v),
-                    content_bits: v.encoded_bits() as u64,
                     output_is_text: false,
                 };
-                assert_honest_text("version_from_str input", s.len(), spec.content_bits);
+                assert_honest_text("version_from_str input", s.len(), spec.radix_units);
                 let packed = version_output_bytes(&v);
                 let floors = Floors {
                     heap: heap_materializes(packed),
@@ -1815,7 +1896,6 @@ fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let spec = TextSpec {
                     radix_units: radix_units_party(&a),
-                    content_bits: a.encoded_bits() as u64,
                     output_is_text: true,
                 };
                 let floors = Floors {
@@ -1844,10 +1924,9 @@ fn ops() -> Vec<Op> {
                 let s = a.to_string();
                 let spec = TextSpec {
                     radix_units: radix_units_party(&a),
-                    content_bits: a.encoded_bits() as u64,
                     output_is_text: false,
                 };
-                assert_honest_text("party_from_str input", s.len(), spec.content_bits);
+                assert_honest_text("party_from_str input", s.len(), spec.radix_units);
                 let packed = a.encoded_bits().div_ceil(8);
                 let floors = Floors {
                     heap: heap_materializes(packed),
@@ -2023,7 +2102,6 @@ fn ops() -> Vec<Op> {
                 let (clock, n) = f.clock()?;
                 let spec = TextSpec {
                     radix_units: radix_units_clock(&clock),
-                    content_bits: clock.encoded_bits() as u64,
                     output_is_text: true,
                 };
                 let floors = Floors {
@@ -2052,10 +2130,9 @@ fn ops() -> Vec<Op> {
                 let s = clock.to_string();
                 let spec = TextSpec {
                     radix_units: radix_units_clock(&clock),
-                    content_bits: clock.encoded_bits() as u64,
                     output_is_text: false,
                 };
-                assert_honest_text("clock_from_str input", s.len(), spec.content_bits);
+                assert_honest_text("clock_from_str input", s.len(), spec.radix_units);
                 let packed = clock.encoded_bits().div_ceil(8);
                 let floors = Floors {
                     heap: heap_materializes(packed),
@@ -2144,7 +2221,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
                 None => (n_io, n_io as u64, false),
                 Some(text) => {
                     if text.output_is_text {
-                        assert_honest_text(op, output_bytes, text.content_bits);
+                        assert_honest_text(op, output_bytes, text.radix_units);
                     }
                     (n_io, n_io as u64 + text.radix_units, true)
                 }
@@ -2571,7 +2648,7 @@ impl BenchCell {
                 let output_bytes = (spec.output_bytes)(result.as_ref());
                 if let Some(text) = spec.text {
                     if text.output_is_text {
-                        assert_honest_text(self.op, output_bytes, text.content_bits);
+                        assert_honest_text(self.op, output_bytes, text.radix_units);
                     }
                 }
                 cell.input_bytes + output_bytes

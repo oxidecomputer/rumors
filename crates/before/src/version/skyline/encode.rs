@@ -1,11 +1,12 @@
-//! The packed-form-to-skyline transcoder.
+//! The packed-form-to-skyline transcoder: the bridge from the adversarial
+//! generators' construction language (min-lifted preorder packed streams,
+//! one gamma-coded base per node) to the stored skyline coding.
 
-use crate::codec::{self, Base, Bits};
-use crate::Version;
+use crate::codec::{self, Base, Bits, BitsSlice};
 
 use super::zigzag;
 
-/// Transcode a stored [`Version`]'s packed bits into its skyline stream.
+/// Transcode a min-lifted packed preorder stream into its skyline stream.
 ///
 /// One preorder pass: each node contributes its topology flag, and each
 /// leaf's absolute height — the root-to-leaf path sum of stored bases — is
@@ -17,10 +18,9 @@ use super::zigzag;
 ///
 /// # Panics
 ///
-/// Panics if the packed form does not parse cleanly, which a [`Version`]'s
-/// canonical-storage invariant rules out.
-pub(crate) fn encode_bits(version: &Version) -> Bits {
-    let bits = version.as_bits();
+/// Panics if the packed form does not parse cleanly; callers hand in
+/// generator-built canonical streams.
+pub(crate) fn encode_bits(bits: &BitsSlice) -> Bits {
     let mut out = Bits::with_capacity(bits.len());
     let mut pos = 0usize;
     // Inherited root-to-node path sums for the nodes not yet visited, top
@@ -52,7 +52,7 @@ pub(crate) fn encode_bits(version: &Version) -> Bits {
     assert_eq!(
         pos,
         bits.len(),
-        "canonical Version walk consumes every packed bit"
+        "a canonical packed walk consumes every input bit"
     );
     out
 }

@@ -22,15 +22,14 @@ use crate::testing::exhaustive::{
     all_normal_events, all_normal_ids, EV_SMALL_DEPTH, ID_SMALL_DEPTH,
 };
 use crate::testing::{generators, optrace};
-use crate::version::compare::EvReader;
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Version};
 
 use super::{fill, tick};
 
-/// Decode a meter-generated packed event shape as a [`Version`].
+/// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
-    Version::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+    p.version()
 }
 
 /// Decode a meter-generated packed id shape as a [`Party`].
@@ -38,20 +37,11 @@ fn party_of(p: &Packed) -> Party {
     Party::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
 }
 
-/// The packed-form fill, lifted to stored versions: the byte-level
-/// oracle the skyline kernel must transcode-commute with.
-fn packed_fill(v: &Version, p: &Party) -> Version {
-    let filled = EvReader::packed(v.as_bits()).fill(p.as_bits());
-    Version::from_bits(filled.repack())
-}
-
-/// Assert the fill kernel against both witnesses on one pair, and that
-/// its output validates as canonical.
+/// Assert the fill kernel against the recursive oracle on one pair, and
+/// that its output validates as canonical.
 fn assert_fill(v: &Version, p: &Party) {
     let enc = encode(v);
     let out = fill(&enc, p);
-    let expected = encode(&packed_fill(v, p));
-    assert_eq!(out, expected, "fill must transcode-commute: {v} with {p}");
     validate(&out.bytes, out.bits).expect("a filled stream is canonical");
     let oracle = to_oracle_version(v).fill_for_test(&to_oracle_party(p));
     assert_eq!(
@@ -70,7 +60,7 @@ fn assert_tick(v: &Version, p: &Party) {
     assert_eq!(
         out,
         encode(&expected),
-        "tick must transcode-commute with the public tick: {v} with {p}"
+        "the tick splice and the public tick must agree: {v} with {p}"
     );
     validate(&out.bytes, out.bits).expect("a ticked stream is canonical");
 }
@@ -211,19 +201,17 @@ fn tick_splices_fill_and_grow() {
 /// overflow a native-frame walk: the collapse scan, the pass-through
 /// copy, and the two-cursor descent.
 ///
-/// Held to the packed-form witness only: the recursive `oracle` enums
-/// walk on native frames (they are the small-scope reference, not a
-/// deep-input one), so the second witness stays with the shallow pools.
+/// Held to depth-safe witnesses only: the recursive `oracle` enums walk
+/// on native frames (they are the small-scope reference, not a deep-input
+/// one), so the deep pins are canonicality, fill's idempotence (a filled
+/// tree re-fills to itself), and tick agreement through both entries.
 #[test]
 fn deep_spines_fill_and_tick_identically() {
     let assert_deep = |v: &Version, p: &Party| {
         let out = fill(&encode(v), p);
-        assert_eq!(
-            out,
-            encode(&packed_fill(v, p)),
-            "deep fill must transcode-commute"
-        );
         validate(&out.bytes, out.bits).expect("a filled stream is canonical");
+        let again = fill(&out, p);
+        assert_eq!(again, out, "deep fill must be idempotent");
         assert_tick(v, p);
     };
     let deep_ev = version_of(&alt_spine(4096));

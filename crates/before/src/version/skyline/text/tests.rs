@@ -17,7 +17,7 @@ use super::{parse, render};
 
 /// Decode a meter-generated packed shape as a [`Version`].
 fn version_of(p: &Packed) -> Version {
-    Version::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+    p.version()
 }
 
 /// The full differential pin on one version, over transcoded operands.

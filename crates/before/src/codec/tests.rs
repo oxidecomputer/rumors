@@ -686,34 +686,47 @@ fn reject_intra_byte_padding() {
     }
 }
 
-/// An event node with no zero-base child, and a collapsible `(n,m,m)` node, are
-/// both non-canonical.
+/// Non-normal event spellings are refused where they can be spelled at all.
+///
+/// The skyline wire coding is a function of the step function alone, so a
+/// hoarded liftable minimum *cannot be spelled on the wire*: transcoding a
+/// non-min-lifted tree lands on the same stream as its normalized form.
+/// The literal surface can still spell both non-normal shapes, and rejects
+/// them; the one wire-expressible non-canonicality (a collapsible sibling
+/// pair, a zero right delta) is rejected by strict decode — the skyline
+/// suite's reject corpus holds that pin.
 #[test]
 fn reject_noncanonical_event() {
     use oracle::Version::{Leaf, Node};
 
-    // No child has base 0: violates the one-child-min-is-zero invariant.
+    // No child has base 0: unspellable on the wire — the transcoding
+    // quotients the spelling onto the normalized tree's stream.
     let no_zero = Node(
         0u64.into(),
         Box::new(Leaf(1u64.into())),
         Box::new(Leaf(2u64.into())),
     );
-    let bytes = from_oracle_version(&no_zero).encode();
+    let normalized = Node(
+        1u64.into(),
+        Box::new(Leaf(0u64.into())),
+        Box::new(Leaf(1u64.into())),
+    );
+    assert_eq!(
+        from_oracle_version(&no_zero).encode(),
+        from_oracle_version(&normalized).encode(),
+        "the wire coding admits exactly one spelling per value",
+    );
+    // The literal surface rejects the non-normal spelling outright.
     assert!(matches!(
-        Version::decode(&bytes[..]),
-        Err(Decode::NotCanonical)
+        Version::try_from((0u64, 1u64, 2u64)),
+        Err(crate::error::Parse::NotCanonical)
     ));
 
-    // Two equal-valued leaf children: collapsible to a single integer.
-    let collapsible = Node(
-        0u64.into(),
-        Box::new(Leaf(5u64.into())),
-        Box::new(Leaf(5u64.into())),
-    );
-    let bytes = from_oracle_version(&collapsible).encode();
+    // Two equal-valued leaf children: collapsible, rejected at the literal
+    // surface and (as a zero sibling delta) by strict wire decode.
     assert!(matches!(
-        Version::decode(&bytes[..]),
-        Err(Decode::NotCanonical)
+        Version::try_from((0u64, 5u64, 5u64)),
+        Err(crate::error::Parse::NotCanonical)
     ));
 }
 
@@ -1042,7 +1055,7 @@ proptest! {
 fn trailing_zero_byte_rejected_witness() {
     // Canonical encoding of the event `(2, 0, 1)` is exactly two bytes.
     let canonical = Version::try_from((2u64, 0u64, 1u64)).unwrap().encode();
-    assert_eq!(canonical, vec![180, 128], "witness canonical encoding");
+    assert_eq!(canonical, vec![153, 128], "witness canonical encoding");
 
     // Appending a whole zero byte must be rejected as TrailingBits — it is NOT
     // padding, because the canonical stream already ended on a byte boundary.

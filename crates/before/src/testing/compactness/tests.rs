@@ -19,7 +19,7 @@ use super::{arb_comb_params, check_sample, comb};
 
 /// Decode a meter-generated packed shape into a `Version`.
 fn decode(packed: &meter::Packed) -> Version {
-    Version::decode(&packed.bytes[..]).expect("meter shapes are strict normal form")
+    packed.version()
 }
 
 proptest! {

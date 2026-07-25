@@ -108,10 +108,10 @@ fn deserialize_id<R: Read>(reader: &mut R) -> borsh::io::Result<Bits> {
     cursor.finish().map_err(decode_error)
 }
 
-/// Read and validate one byte-aligned canonical event tree.
+/// Read and validate one byte-aligned canonical skyline event stream.
 fn deserialize_event<R: Read>(reader: &mut R) -> borsh::io::Result<Bits> {
     let mut cursor = ReaderCursor::new(reader);
-    codec::parse_ev_from(&mut cursor).map_err(decode_error)?;
+    crate::version::skyline::validate_from(&mut cursor).map_err(decode_error)?;
     cursor.finish().map_err(decode_error)
 }
 

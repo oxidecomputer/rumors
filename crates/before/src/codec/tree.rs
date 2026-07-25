@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 
 use crate::error::{Decode, Parse};
 
-use super::{Base, BitCursor, BitsSlice, SliceCursor};
+use super::{BitCursor, BitsSlice, SliceCursor};
 
 /// Inline capacity, in frames, of the parsers' explicit stacks.
 ///
@@ -93,100 +93,11 @@ where
     }
 }
 
-/// What a parsed event subtree contributes to its parent's normal-form check:
-/// its stored (relative) base, and whether it is a leaf.
-#[derive(Clone)]
-struct EvChild {
-    base: Base,
-    is_leaf: bool,
-}
-
-/// While building an event node bottom-up, what we still need from the stream.
-enum EvFrame {
-    /// Parsed the node's flag and base; the next subtree is the left child.
-    NeedLeft { base: Base },
-    /// Parsed the left child; the next subtree is the right child. `base` is the node's
-    /// own (relative) base; `left` is what the left child contributes to the checks.
-    NeedRight { base: Base, left: EvChild },
-}
-
-/// Parse one `enc_ev` tree at `pos`, validating event normal form: every node
-/// has at least one child with base `0`, and no node's two children are
-/// equal-valued leaves. Returns the position just past the tree. Iterative.
-pub(crate) fn parse_ev(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
-    let mut cursor = SliceCursor::new(bits, pos);
-    parse_ev_from(&mut cursor)
-}
-
-/// Parse and validate one event tree from a sequential bit cursor.
-pub(crate) fn parse_ev_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decode>
-where
-    Decode: From<C::Error>,
-{
-    let mut stack: SmallVec<[EvFrame; PARSE_STACK_INLINE]> = SmallVec::new();
-    loop {
-        let flag = cursor.read_bit()?;
-        let base = cursor.read_int()?;
-
-        // `enc_ev(Leaf n) = 0, gamma(n)`; `enc_ev(Node n l r) = 1, gamma(n), l, r`.
-        let mut summary = if flag {
-            stack.push(EvFrame::NeedLeft { base });
-            continue; // descend into the left child
-        } else {
-            EvChild {
-                base,
-                is_leaf: true,
-            }
-        };
-
-        loop {
-            match stack.pop() {
-                None => return Ok(cursor.position()),
-                Some(EvFrame::NeedLeft { base: node_base }) => {
-                    stack.push(EvFrame::NeedRight {
-                        base: node_base,
-                        left: summary,
-                    });
-                    break;
-                }
-                Some(EvFrame::NeedRight {
-                    base: node_base,
-                    left,
-                }) => {
-                    let right = summary;
-                    if left.base != Base::ZERO && right.base != Base::ZERO {
-                        return Err(Decode::NotCanonical); // no child at base 0
-                    }
-                    if left.is_leaf && right.is_leaf && left.base == right.base {
-                        return Err(Decode::NotCanonical); // collapsible (n,m,m)
-                    }
-                    summary = EvChild {
-                        base: node_base,
-                        is_leaf: false,
-                    };
-                }
-            }
-        }
-    }
-}
-
 /// Confirm a freshly built id bit stream is exactly one canonical-normal-form
 /// tree. Wraps [`parse_id`] (the single source of truth for id normal form),
 /// mapping its outcome onto [`Parse`].
 pub(crate) fn validate_id(bits: &BitsSlice) -> Result<(), Parse> {
     match parse_id(bits, 0) {
-        Ok(end) if end == bits.len() => Ok(()),
-        Ok(_) => Err(Parse::Syntax),
-        Err(Decode::NotCanonical) => Err(Parse::NotCanonical),
-        Err(_) => Err(Parse::Syntax),
-    }
-}
-
-/// Confirm a freshly built event bit stream is exactly one
-/// canonical-normal-form tree. Wraps [`parse_ev`], mapping its outcome onto
-/// [`Parse`].
-pub(crate) fn validate_ev(bits: &BitsSlice) -> Result<(), Parse> {
-    match parse_ev(bits, 0) {
         Ok(end) if end == bits.len() => Ok(()),
         Ok(_) => Err(Parse::Syntax),
         Err(Decode::NotCanonical) => Err(Parse::NotCanonical),

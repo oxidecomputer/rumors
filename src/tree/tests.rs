@@ -78,11 +78,12 @@ fn party_of(label: impl AsRef<[u8]>) -> before::Party {
 fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
     let p = party_of(party);
     let mut v = Version::new();
-    let mut batch = v.batch();
-    for _ in 0..ticks {
-        batch.tick(&p);
+    {
+        let mut batch = v.batch();
+        for _ in 0..ticks {
+            batch.tick(&p);
+        }
     }
-    drop(batch);
     v
 }
 

@@ -28,7 +28,7 @@ use super::{distance, lag, min_ticks, project, rank};
 
 /// Decode a meter-generated packed shape as a [`Version`].
 fn version_of(p: &Packed) -> Version {
-    Version::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+    p.version()
 }
 
 /// Assert the single-operand folds against the packed-form oracle and,

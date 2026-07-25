@@ -203,7 +203,7 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
         bits: Bits::new(),
         position: 0,
     };
-    codec::parse_ev_from(&mut cursor)?;
+    crate::version::skyline::validate_from(&mut cursor)?;
     codec::require_zero_padding(&cursor.bits, cursor.position)?;
     let position = cursor.position;
     let mut bits = cursor.bits;
