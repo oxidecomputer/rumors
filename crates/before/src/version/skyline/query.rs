@@ -122,9 +122,6 @@ use super::{gamma_code, zigzag_signed, Encoded};
 /// a per-leaf `L` add can outgrow the code that last set `L`'s width.
 const FREEZE_ALLOWANCE_DIGITS: usize = 8;
 
-/// Bits per packed id node: one 2-bit child-presence tag.
-const ID_TAG_BITS: usize = 2;
-
 /// The exact causal rank of the version a skyline stream denotes.
 ///
 /// One topology pre-scan for the maximum depth, then one leaf sweep
@@ -631,7 +628,9 @@ impl<'a> IdLeafCursor<'a> {
     fn descend(&mut self) {
         loop {
             step!();
-            codec::scan::record_bits(ID_TAG_BITS);
+            // The two tag-bit reads below record themselves through the
+            // cursor's recording `read_bit`: no separate tag record, or
+            // every 2-bit tag would count twice.
             let left = self.cursor.read_bit().expect("canonical id bits");
             let right = self.cursor.read_bit().expect("canonical id bits");
             if !left && !right {

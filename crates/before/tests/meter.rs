@@ -2710,7 +2710,7 @@ mod query_env {
     pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580, 17_755); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641 -> 23_674 (2026-07-24, metered trailing_zeros), 2_397_055, 26_864
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255, 187_501); // 24_576, 0, 250_002, 375_006, 125_004
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62, 12); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
-    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_656_008,    44_924, 69_159); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806, 35_939
+    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (2026-07-25, single-record id tags), 35_939
     pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       488,        0,   317_380,   330_913,    63_347, 190_428); // 73_216 -> 390, 0, 690_310 -> 253_904 (sequential 14_281_732), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
     pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   365_540,         0, 0); // 336, 0, 0, 292_432 (sequential 3_284_952), 0
 }
