@@ -4157,6 +4157,31 @@ kernels workflow (P3.6/P3.6b/P3.7), then C2 (awaits the user's
 link-transport-landed signal, the C0 rebase, and the artifact-list
 re-derivation), C3, P4.1, the P4-tail text item, P5.
 
+Checkpoint (2026-07-24, the pre-flip window complete): landed,
+reviewed, and verified since the checkpoint above — the
+P3.6/P3.6b/P3.7 kernels (V1, V2-event, V6, V7 cures; the
+coverage-audit gap list empty), the surface-judgment floors, P4.1's
+iterative id walks, the dashu-int swap (Small arm deleted, wire
+bytes untouched), the P3.8 pull-forward (parse delegation,
+id-renderer cure, skyline text kernels; C2 routes rather than
+ports), the bench judge with its expected-red roster (the board
+reads no clock; ceilings ride the sidecar; the schoolbook display
+cell is a standing tripwire), the canary retirement under the
+dissolution ratchet, and the RNG consolidation. Records of record:
+board 137/63 default and 128/72 ×4 (byte-identical under load, no
+stripping); the judge exit 0 through the roster in both modes (17
+red expectations + 2 boundary); sweep failures exactly the §14
+sixteen-test roster by name; crates/before 100% green both feature
+sets. Every remaining board red is owned by the C2 realization set
+or the P3.8-at-C2 κ re-derivation. Execution parks at the C0
+trigger: the user's link-transport announcement. Then C0 (rebase;
+the §14 roster retires; the artifact list re-derives; the c4af36ea
+memwatch patch drops by patch-id) → C2 (§17.2 P3.9 as amended) →
+C3 (re-pins; the judge roster's bigroot set empties;
+full-sampling record numbers captured) → the P4 residual audit
+(sequenced against the §17.5 boolean-skyline decision, the user's,
+post-C3) → P5.
+
 - Pending micro-item: §13's record-scale runtime note predates the
   cliff family's board landing (P3.5 review advisory); correct at the
   next §13 touch.
