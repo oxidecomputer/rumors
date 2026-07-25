@@ -10,11 +10,15 @@
 //! recursively and streams one `(depth, payload code)` plateau per
 //! output leaf to the collapsing builder, which derives the union
 //! topology and performs the equal-sibling normalization. A shortcut
-//! raise needs no builder repair: the raised value is computed *before*
-//! its leaf is emitted, by a local pre-scan of the range the minimum
-//! comes from (`min_fill_from`) — for the right-full arm the id is
-//! peeked one subtree ahead (a topology-only skip over the left id
-//! child) so the pre-scan runs before the left child is walked.
+//! raise needs no builder repair: the raised value is known before its
+//! leaf is emitted. The right-full arm gets it by deferral — the raised
+//! leaf is the *right* child's output, so the walk fills the left child
+//! first (returning the emitted minimum), and the id cursor then sits
+//! exactly at the right child's tag: one `O(1)` peek decides the arm.
+//! The left-full arm's raised leaf precedes the range its minimum comes
+//! from, so it alone pre-scans (`min_fill_from`) — memoized: the scan
+//! records every interior left-full site's minimum, so no stream
+//! position is ever pre-scanned twice.
 //!
 //! # Heights stay relative
 //!
@@ -34,21 +38,19 @@
 //!
 //! # Cost
 //!
-//! Derived: one pass over both streams, plus two local re-scan genres.
-//! The *right-full lookahead*: at every id-node-over-event-node site
-//! whose right id child is present, one topology-only skip of the left
-//! id subtree decides the right-full arm — the skip runs whether or not
-//! the arm fires, and the skipped subtree is exactly the one the walk
-//! descends into next, so the lookaheads nest: a left-leaning id over a
-//! matching event spine pays `Θ(d²)` id bits with zero shortcut sites.
-//! The *shortcut pre-scan*: per shortcut site (an event node one of
-//! whose id children is the full leaf), one extra local scan of the
-//! event range its minimum comes from, nesting the same way where the
-//! id alternates full children down a spine. The worst case is
-//! `O(input × paired-descent depth)` (the deepest chain of
-//! node-over-node sites, at most the shallower operand's depth); the
-//! walk is linear in the two streams when that chain is bounded. The
-//! C3 envelope round prices the constants (the tick rows of
+//! Derived: `O(n + m)` in the two packed streams. The walk consumes
+//! every position once; the left-full pre-scan reads a position at
+//! most once more (the memo turns every interior left-full site into
+//! a lookup, and distinct fresh scans cover disjoint sibling ranges);
+//! the absent-sibling extremum scans read their range once ahead of
+//! the walk's own copy (a flat ×2, never nesting); and each paired
+//! node combines its children's returned quantities with `O(1)`
+//! signed operations. Auxiliary state is the memo (one entry per
+//! left-full site whose scan ran ahead of the walk, bounded by the
+//! id's node count) and the output builder. Signed per-node sums are
+//! content-genre arithmetic: wide only when the deltas that built
+//! them were, the same regime as the emit kernel's accumulator work.
+//! The C3 envelope round prices the constants (the tick rows of
 //! `tests/meter.rs`); recursion is guarded by `crate::recurse`
 //! throughout.
 //!
@@ -66,6 +68,7 @@
 //! expected values.
 
 use core::cmp::Ordering;
+use std::collections::HashMap;
 
 use crate::codec::accum::Accum;
 use crate::codec::{self, Base, Bits, BitsSlice};
@@ -125,12 +128,16 @@ pub fn fill(ev: &Encoded, id: &crate::Party) -> Encoded {
         h: Accum::new(),
         gap: Accum::new(),
         started: false,
-        drifts: Vec::new(),
+        memo: HashMap::new(),
         out: SkylineBuilder::with_capacity(ev_bits.len()),
     };
     let mut id = IdReader::root(id_bits);
     descend!(0, walk.rec(&mut id, 0));
     debug_assert_eq!(walk.pos, ev_bits.len(), "fill consumes its whole input");
+    debug_assert!(
+        walk.memo.is_empty(),
+        "the walk consumes every memoized minimum"
+    );
     let mut bits = walk.out.finish();
     let live = bits.len();
     codec::zero_dead_bits(&mut bits);
@@ -163,26 +170,41 @@ struct FillWalk<'a> {
     /// Whether any output leaf has been emitted (the first is coded
     /// absolute).
     started: bool,
-    /// Re-anchoring accumulators for suspended right-full arms, one per
-    /// nesting level: each folds every consumed input delta, measuring
-    /// how far `h` has moved since its arm's pre-scan anchored.
-    drifts: Vec<Accum>,
+    /// Left-full minima computed ahead of the walk, keyed by the event
+    /// range's start position.
+    ///
+    /// A fresh pre-scan records every interior left-full site it
+    /// evaluates, and the walk consumes each entry exactly once on
+    /// arrival — so no position is pre-scanned twice.
+    memo: HashMap<usize, Signed>,
     /// The collapsing output builder.
     out: SkylineBuilder,
 }
 
+/// A filled subtree's contribution to its parent's bookkeeping.
+///
+/// The minimum leaf value this subtree *emitted*, relative to `h` at
+/// the subtree's exit, and the net input-height movement its
+/// consumption caused; both combine upward with `O(1)` signed
+/// operations per node.
+type SubtreeOut = (Signed, Signed);
+
 impl FillWalk<'_> {
     /// Fill the event subtree at the cursor under the id subtree at
-    /// `id`, emitting this subtree's plateaus and advancing both
-    /// cursors past their subtrees.
-    fn rec(&mut self, id: &mut IdReader, depth: usize) {
+    /// `id`, returning the subtree's [`SubtreeOut`].
+    ///
+    /// Emits this subtree's plateaus and advances both cursors past
+    /// their subtrees; the parent combines the returned quantities in
+    /// `O(1)` signed operations.
+    fn rec(&mut self, id: &mut IdReader, depth: usize) -> SubtreeOut {
         let (left, right) = match id.read() {
             // fill(0, e) = e: the id owns nothing here.
             IdNode::Empty => return self.copy_subtree(depth),
             // fill(1, e) = max(e): a fully-owned region collapses.
             IdNode::Full => {
-                let below_max = self.scan_max_consuming();
-                return self.emit_offset(depth, below_max);
+                let (below_max, net) = self.scan_max_consuming();
+                self.emit_offset(depth, below_max.clone());
+                return (below_max, net);
             }
             IdNode::Internal { left, right } => (left, right),
         };
@@ -190,14 +212,15 @@ impl FillWalk<'_> {
             // fill((il, ir), Leaf n) = Leaf n: an event leaf is already
             // simple; lazy-skip the dominated id children.
             let (neg, mag) = self.consume_payload();
-            self.emit_step(depth, neg, mag);
+            self.emit_step(depth, neg, mag.clone());
             if left {
                 id.skip();
             }
             if right {
                 id.skip();
             }
-            return;
+            // The one emitted leaf sits exactly at `h`.
+            return ((false, Base::ZERO), (neg, mag));
         }
 
         // An id node over an event node: the shortcut arms collapse a
@@ -205,104 +228,73 @@ impl FillWalk<'_> {
         if left && matches!(id.peek(), IdNode::Full) {
             // `il` full: the left child collapses to
             // `max(max(el), min(fill(ir, er)))`. The max comes from the
-            // consuming scan of `el`; the min from a local pre-scan of
-            // the right sibling, anchored at `h` (which sits at `el`'s
-            // last leaf, exactly the pre-scan's entry) — both known
-            // before the collapsed leaf is emitted, so no repair.
+            // consuming scan of `el`; the min — needed before the
+            // raised leaf is emitted, ahead of `er`'s walk — from the
+            // memo when an enclosing pre-scan already evaluated this
+            // site, else from one fresh (and recording) pre-scan of the
+            // right sibling, anchored at `h` (which sits at `el`'s last
+            // leaf, exactly the pre-scan's entry).
             id.skip();
-            let below_max = self.scan_max_consuming();
-            let raise = if right {
-                min_fill_from(
-                    self.ev,
-                    self.pos,
-                    self.first_read,
-                    id.bits(),
-                    id.pos(),
-                    depth,
-                )
-                .0
-            } else {
+            let (below_max, net_el) = self.scan_max_consuming();
+            let raise = match self.memo.remove(&self.pos) {
+                Some(min) => min,
+                None if right => {
+                    min_fill_from(
+                        self.ev,
+                        self.pos,
+                        self.first_read,
+                        id.bits(),
+                        id.pos(),
+                        depth,
+                        &mut self.memo,
+                    )
+                    .0
+                }
                 // An absent right child is fill(0, er): its minimum is
                 // min(er).
-                scan_extremum_from(self.ev, self.pos, self.first_read, Extremum::Min).0
+                None => scan_extremum_from(self.ev, self.pos, self.first_read, Extremum::Min).0,
             };
             let value_off = signed_max(&below_max, &raise);
-            self.emit_offset(depth + 1, value_off);
-            self.child(id, right, depth);
-            return;
+            self.emit_offset(depth + 1, value_off.clone());
+            let (min_r, net_er) = self.child(id, right, depth);
+            // The raised leaf, re-anchored past `er`'s consumption.
+            let raised = signed_sum_base(value_off, &signed_neg(net_er.clone()));
+            let min = signed_min(&raised, &min_r).clone();
+            let net = signed_sum_base(net_el, &net_er);
+            return (min, net);
         }
-        if right && self.right_id_child_is_full(id, left) {
+        // Fill the left child first; the id cursor then sits exactly at
+        // the right child's tag, so the right-full arm is one `O(1)`
+        // peek — no lookahead over the left id subtree.
+        let (min_l, net_el) = self.child(id, left, depth);
+        if right && matches!(id.peek(), IdNode::Full) {
             // `ir` full: the right child collapses to
-            // `max(max(er), min(fill(il, el)))`. The minimum is
-            // pre-scanned over the still-unconsumed left range, anchored
-            // at `h` here; a drift accumulator re-anchors it to where
-            // `h` stands once `el` and `er` have actually been walked.
-            let min_left = if left {
-                min_fill_from(
-                    self.ev,
-                    self.pos,
-                    self.first_read,
-                    id.bits(),
-                    id.pos(),
-                    depth,
-                )
-                .0
-            } else {
-                // An absent left child is fill(0, el): its minimum is
-                // min(el).
-                scan_extremum_from(self.ev, self.pos, self.first_read, Extremum::Min).0
-            };
-            self.drifts.push(Accum::new());
-            self.child(id, left, depth);
-            debug_assert!(
-                matches!(id.peek(), IdNode::Full),
-                "the lookahead promised a full right id child"
-            );
+            // `max(max(er), min(fill(il, el)))`. The minimum is the
+            // left walk's own emitted minimum — the walk just produced
+            // `fill(il, el)` — re-anchored past `er`'s consumption.
             id.skip();
-            let below_max = self.scan_max_consuming();
-            let drift = self
-                .drifts
-                .pop()
-                .expect("the arm pushed its drift accumulator");
-            let (sign, magnitude) = drift.sign_magnitude();
-            // Re-anchor: the pre-scanned minimum was relative to `h` at
-            // `el`'s entry; `h` has since moved by `drift`, so the
-            // minimum now sits at `min_left − drift` from `h`.
-            let min_off = signed_sum_base(
-                min_left,
-                &signed_neg((sign == Ordering::Less, Base::from(magnitude))),
-            );
+            let (below_max, net_er) = self.scan_max_consuming();
+            let min_off = signed_sum_base(min_l, &signed_neg(net_er.clone()));
             let value_off = signed_max(&below_max, &min_off);
-            self.emit_offset(depth + 1, value_off);
-            return;
+            self.emit_offset(depth + 1, value_off.clone());
+            let min = signed_min(&min_off, &value_off).clone();
+            let net = signed_sum_base(net_el, &net_er);
+            return (min, net);
         }
-        self.child(id, left, depth);
-        self.child(id, right, depth);
-    }
-
-    /// Whether the id node's right child (known present) is the full
-    /// leaf: a topology-only lookahead over the left id subtree, the
-    /// reader untouched.
-    fn right_id_child_is_full(&self, id: &IdReader, left_present: bool) -> bool {
-        let bits = id.bits();
-        let pos = id.pos();
-        let right_pos = if left_present {
-            let mut probe = IdReader::at(bits, pos);
-            probe.skip();
-            probe.pos()
-        } else {
-            pos
-        };
-        matches!(IdReader::at(bits, right_pos).peek(), IdNode::Full)
+        let (min_r, net_er) = self.child(id, right, depth);
+        let min_l = signed_sum_base(min_l, &signed_neg(net_er.clone()));
+        let min = signed_min(&min_l, &min_r).clone();
+        let net = signed_sum_base(net_el, &net_er);
+        (min, net)
     }
 
     /// Fill one id child over its event child: thread the real cursor
     /// where the child is present, a synthetic [`IdReader::Empty`] (the
     /// `fill(0, e) = e` arm) where it is absent.
-    fn child(&mut self, id: &mut IdReader, present: bool, depth: usize) {
+    fn child(&mut self, id: &mut IdReader, present: bool, depth: usize) -> SubtreeOut {
         let mut empty = IdReader::Empty;
         let c = if present { &mut *id } else { &mut empty };
-        descend!(depth + 1, self.rec(c, depth + 1));
+        descend!(depth + 1, self.rec(c, depth + 1))
     }
 
     /// Read one topology flag at the cursor, recording the scanned bit.
@@ -316,8 +308,7 @@ impl FillWalk<'_> {
 
     /// Decode the payload at the cursor as a signed step (the stream's
     /// first payload is its absolute height, a step from zero), folding
-    /// it into `h`, the live `gap`, and every suspended arm's drift,
-    /// and advancing the cursor.
+    /// it into `h` and the live `gap`, and advancing the cursor.
     fn consume_payload(&mut self) -> Signed {
         let (code, next) = codec::decode_int(self.ev, self.pos).expect("canonical skyline bits");
         self.pos = next;
@@ -329,9 +320,6 @@ impl FillWalk<'_> {
         };
         fold(&mut self.h, neg, &mag);
         fold(&mut self.gap, neg, &mag);
-        for drift in &mut self.drifts {
-            fold(drift, neg, &mag);
-        }
         (neg, mag)
     }
 
@@ -388,16 +376,34 @@ impl FillWalk<'_> {
         fold(&mut self.gap, !off.0, &off.1);
     }
 
-    /// Copy the event subtree at the cursor unchanged: every leaf
-    /// re-emitted at its own depth, deltas passing straight through
-    /// (the first through the divergence gap, if live).
-    fn copy_subtree(&mut self, depth: usize) {
+    /// Copy the event subtree at the cursor unchanged, returning its
+    /// minimum and net movement.
+    ///
+    /// Every leaf is re-emitted at its own depth, deltas passing
+    /// straight through (the first through the divergence gap, if
+    /// live); the returned quantities fold as the copy streams.
+    fn copy_subtree(&mut self, depth: usize) -> SubtreeOut {
         let mut path = Bits::new();
+        // `min − h`, reset whenever the running height crosses below it
+        // (the copied minimum follows `h` down), and the range's net
+        // movement; the first leaf arms the offset at zero.
+        let mut off = Accum::new();
+        let mut net = Accum::new();
+        let mut armed = false;
         loop {
             while self.read_flag() {
                 path.push(false);
             }
             let (neg, mag) = self.consume_payload();
+            fold(&mut net, neg, &mag);
+            if !armed {
+                armed = true;
+            } else {
+                fold(&mut off, !neg, &mag);
+                if off.sign() == Ordering::Greater {
+                    off = Accum::new();
+                }
+            }
             self.emit_step(depth + path.len(), neg, mag);
             loop {
                 match path.pop() {
@@ -406,27 +412,39 @@ impl FillWalk<'_> {
                         path.push(true);
                         break;
                     }
-                    None => return,
+                    None => {
+                        let (o_sign, o_mag) = off.sign_magnitude();
+                        let (n_sign, n_mag) = net.sign_magnitude();
+                        return (
+                            (o_sign == Ordering::Less, Base::from(o_mag)),
+                            (n_sign == Ordering::Less, Base::from(n_mag)),
+                        );
+                    }
                 }
             }
         }
     }
 
-    /// Consume the event subtree at the cursor, folding the streaming
-    /// maximum of its leaf heights; returns `max − h` (`h` then sits at
-    /// the subtree's last leaf), a nonnegative offset.
-    fn scan_max_consuming(&mut self) -> Signed {
+    /// Consume the event subtree at the cursor, returning its maximum
+    /// and net movement.
+    ///
+    /// Folds the streaming maximum of the subtree's leaf heights:
+    /// `max − h` (`h` then sits at the subtree's last leaf), a
+    /// nonnegative offset, alongside the range's net height movement.
+    fn scan_max_consuming(&mut self) -> (Signed, Signed) {
         let mut path = Bits::new();
         // `max − h`, maintained by subtracting each step and resetting
         // to zero whenever the running height overtakes it. The first
         // leaf arms it at zero: the maximum over one leaf is that leaf.
         let mut above = Accum::new();
+        let mut net = Accum::new();
         let mut armed = false;
         loop {
             while self.read_flag() {
                 path.push(false);
             }
             let (neg, mag) = self.consume_payload();
+            fold(&mut net, neg, &mag);
             if !armed {
                 armed = true;
             } else {
@@ -445,7 +463,11 @@ impl FillWalk<'_> {
                     None => {
                         let (sign, magnitude) = above.sign_magnitude();
                         debug_assert_ne!(sign, Ordering::Less, "the fold floors at zero");
-                        return (false, Base::from(magnitude));
+                        let (n_sign, n_mag) = net.sign_magnitude();
+                        return (
+                            (false, Base::from(magnitude)),
+                            (n_sign == Ordering::Less, Base::from(n_mag)),
+                        );
                     }
                 }
             }
@@ -562,9 +584,13 @@ fn min_fill_from(
     id: &BitsSlice,
     id_pos: usize,
     depth: usize,
+    memo: &mut HashMap<usize, Signed>,
 ) -> (Signed, Signed, usize) {
     let mut reader = IdReader::at(id, id_pos);
-    descend!(depth, min_fill_rec(ev, pos, first, &mut reader, depth))
+    descend!(
+        depth,
+        min_fill_rec(ev, pos, first, &mut reader, depth, memo)
+    )
 }
 
 /// [`min_fill_from`]'s recursion, threading a live id reader; returns
@@ -576,6 +602,7 @@ fn min_fill_rec(
     first: bool,
     id: &mut IdReader,
     depth: usize,
+    memo: &mut HashMap<usize, Signed>,
 ) -> (Signed, Signed, usize) {
     let (left, right) = match id.read() {
         IdNode::Empty => return scan_extremum_from(ev, pos, first, Extremum::Min),
@@ -614,10 +641,17 @@ fn min_fill_rec(
         // movement still re-anchors the right.
         let (_, l_net, l_end) = scan_extremum_from(ev, pos, first, Extremum::Max);
         let (r_min, r_net, ev_end) = if right {
-            descend!(depth + 1, min_fill_rec(ev, l_end, false, id, depth + 1))
+            descend!(
+                depth + 1,
+                min_fill_rec(ev, l_end, false, id, depth + 1, memo)
+            )
         } else {
             scan_extremum_from(ev, l_end, false, Extremum::Min)
         };
+        // Record this left-full site's minimum for the walk, which
+        // will need it before walking the same range: the memo is what
+        // keeps every position pre-scanned at most once.
+        memo.insert(l_end, r_min.clone());
         let min = signed_sum_base(l_net.clone(), &r_min);
         let net = signed_sum_base(l_net, &r_net);
         return (min, net, ev_end);
@@ -626,7 +660,7 @@ fn min_fill_rec(
     let (l_min, l_net, l_end) = {
         let mut empty = IdReader::Empty;
         let c = if left { &mut *id } else { &mut empty };
-        descend!(depth + 1, min_fill_rec(ev, pos, first, c, depth + 1))
+        descend!(depth + 1, min_fill_rec(ev, pos, first, c, depth + 1, memo))
     };
     if right && matches!(id.peek(), IdNode::Full) {
         id.skip();
@@ -639,7 +673,10 @@ fn min_fill_rec(
     let (r_min, r_net, ev_end) = {
         let mut empty = IdReader::Empty;
         let c = if right { &mut *id } else { &mut empty };
-        descend!(depth + 1, min_fill_rec(ev, l_end, false, c, depth + 1))
+        descend!(
+            depth + 1,
+            min_fill_rec(ev, l_end, false, c, depth + 1, memo)
+        )
     };
     let r_min = signed_sum_base(l_net.clone(), &r_min);
     let min = signed_min(&l_min, &r_min);
