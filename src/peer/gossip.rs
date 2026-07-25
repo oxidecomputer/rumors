@@ -179,7 +179,7 @@ pub struct Gossiped {
     ///
     /// See [`SessionStats`] for each field's mechanism and the seam it is
     /// counted at. Sessions under
-    /// [`Protocol::V1`](crate::Protocol::V1) report zero in every field.
+    /// [`Protocol::V1`] report zero in every field.
     pub stats: SessionStats,
 }
 
