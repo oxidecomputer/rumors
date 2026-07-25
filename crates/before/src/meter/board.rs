@@ -192,9 +192,9 @@
 //! join/meet as the 1-Lipschitz proptest in
 //! [`tier2`](crate::meter::tier2)'s test suite rather than assumed.
 //!
-//! **Rank operands** (`rank_pair_ops`) have no packed encoding to charge
-//! against; their denominator of record is the pair's **value content**
-//! `bits(num) + exp` in bytes. That content is wire-bounded: every public
+//! **Rank operands** (`rank_pair_ops`, `rank_sum`) have no packed encoding
+//! to charge against; their denominator of record is the operands' **value
+//! content** `bits(num) + exp` in bytes. That content is wire-bounded: every public
 //! construction path (the `rank`/`distance`/`lag` folds) emits a rank
 //! whose numerator width and exponent are each linear in the packed bits
 //! the fold read, so a ceiling per content byte is a ceiling per wire byte
@@ -232,15 +232,16 @@
 //!   mandatory output dominates its input — the case the small-operand
 //!   crosses above cannot exhibit.
 //! - `harmonic` (`meter::harmonic`, a 1-leaf at every depth), for the
-//!   linear-functional rows (`rank`/`distance`/`lag`/`min_ticks`) and
-//!   `rank_pair_ops`: its rank's numerator is as wide as the depth already
+//!   linear-functional rows (`rank`/`distance`/`lag`/`min_ticks`),
+//!   `rank_pair_ops`, and `rank_sum`: its rank's numerator is as wide as the depth already
 //!   walked at every level, so a fold that re-shifts its accumulated
 //!   numerator per level reads limb exponent ~2 here while `dense` (a
 //!   one-bit numerator) stays the linear control. The red
 //!   `version_rank × harmonic` cell is a pinned honest baseline; the
 //!   telescoped delta-algebra fold is what retires it.
 //! - `scatter`, for the two fold rows (`version_join_all`,
-//!   `party_join_all`): balanced-forked single-tick operands ordered evens
+//!   `party_join_all`; both also keep a `benign` control cell, folding the
+//!   organic population in construction order): balanced-forked single-tick operands ordered evens
 //!   before odds, so a sequential fold's accumulator holds every other
 //!   leaf and never coalesces. Both cells read exponent ~2 — the version
 //!   fold on the limb column, the party fold on the scan column (its walk
@@ -269,10 +270,11 @@
 //!   `tick_adv_party` row); `Debug` for all three types delegates to
 //!   `Display`.
 //! - **Folds over measured operations**: `Version::join_all` has its own
-//!   row (the `scatter` cell), and `Version::Sum`/`FromIterator` are that
+//!   row (the `scatter` cell plus the `benign` control), and
+//!   `Version::Sum`/`FromIterator` are that
 //!   fold by definition; `Party::join_all` likewise (the party fold's
-//!   `scatter` cell); `Clock::join_all` is the party fold and the version
-//!   fold run side by side, so the two `scatter` cells price both of its
+//!   cells); `Clock::join_all` is the party fold and the version
+//!   fold run side by side, so the two fold rows price both of its
 //!   halves. `Version::meet_all` stays NA by mechanism: meet only shrinks,
 //!   so its running accumulator is bounded by the *smaller* operand at
 //!   every step — the fold does at most `Σ min(|acc|, |vᵢ|)` work and
@@ -289,7 +291,10 @@
 //! - **Moves, borrows, and byte copies**: `is_empty`, `as_bytes`,
 //!   `encoded_bits`, `encode_to` (the `encode` row's path into a writer),
 //!   `dangerously_alias` (a byte copy), `Clock::from_parts`/`into_parts`,
-//!   `Clock::party`/`version`, `Version::batch`; `Party`'s and `Clock`'s
+//!   `Clock::party`/`version`, `Version::batch`,
+//!   `Ranked::rank`/`version`/`into_parts` (borrows and moves); `Clone`
+//!   (`Version`, `Rank`, `Ranked`) copies the stored bits or value content
+//!   wholesale, with no walk or arithmetic in the contract; `Party`'s and `Clock`'s
 //!   derived `PartialEq`/`Eq` are one bit-slice compare of the stored
 //!   canonical bits (`Version`'s `==` decides same-form operands by the
 //!   same wholesale compare and walks only mixed storage forms — it keeps
@@ -301,7 +306,9 @@
 //!   comparisons are `Rank` comparisons plus byte equality; `Rank::cmp`,
 //!   `checked_sub`, and `+` have their own row (`rank_pair_ops`, on the
 //!   mismatched-exponent pair, value-content-denominated per the
-//!   Denomination section); `Rank`'s `Display` (its `Debug` delegates)
+//!   Denomination section); `Rank::AddAssign` is `+` in place, and the
+//!   `Sum` fold has its own row (`rank_sum`, the mixed high-first
+//!   population, denominated the same way); `Rank`'s `Display` (its `Debug` delegates)
 //!   prints the `rank` row's output — a derived value with no packed
 //!   encoding to normalize against, rendered by the same per-`Base` decimal
 //!   print the `version_display` row drives.
@@ -313,8 +320,13 @@
 //! - **Wrappers**: the `serde`/`borsh` impls serialize as the canonical
 //!   encoding and deserialize through the strict decoder — the
 //!   `encode`/`decode` rows.
-//! - **Test support**: `oracle`, `meter`, and the `error`/`iter` modules'
-//!   data types perform no computation over packed inputs.
+//! - **Test support**: `oracle` and the `error`/`iter` modules' data types
+//!   perform no computation over packed inputs; `meter`'s own surface — the
+//!   generators, the counters, this board, and the `skyline`/`accum`
+//!   kernels — is the measurement instrument itself, feature-gated out of
+//!   production builds, with the kernels' resources pinned by their
+//!   envelope scenarios in `tests/meter.rs` and their agreement with the
+//!   packed implementation pinned by their differential suites.
 
 #[cfg(test)]
 mod tests;
@@ -599,16 +611,19 @@ struct FamilyData {
     cross: Option<(Vec<u8>, Vec<u8>)>,
     /// The measure operand and its ticked counterpart — the harmonic family
     /// only, reached by nothing but the linear-functional rows
-    /// (`rank`/`distance`/`lag`/`min_ticks`) and `rank_pair_ops`.
+    /// (`rank`/`distance`/`lag`/`min_ticks`) and the rank rows
+    /// (`rank_pair_ops`, `rank_sum`).
     measure: Option<(Vec<u8>, Vec<u8>)>,
-    /// The scatter-ordered packed fold operands (versions, parties) — the
-    /// scatter family only, reached by nothing but the two fold rows.
+    /// The packed fold operands (versions, parties), reached by nothing but
+    /// the two fold rows: the scatter family's adversarially ordered
+    /// population and the benign family's organic control.
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
-    /// The mismatched rank pair — the `rank_pair_ops` families only.
+    /// The mismatched rank pair — the rank-row families only.
     ///
-    /// Precomputed here (family-derived rank, small integer rank) so that
-    /// row's prepare clones the pair instead of re-running the rank fold:
+    /// Precomputed here (family-derived rank, small integer rank) so the
+    /// `rank_pair_ops` and `rank_sum` prepares clone their operands instead
+    /// of re-running the rank fold:
     /// the bench harness calls prepare once per timed iteration, and the
     /// fold costs orders of magnitude more than the pair operations it
     /// feeds.
@@ -693,9 +708,9 @@ impl FamilyData {
             FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
         };
-        // The rank-pair families: the spine shapes that maximize the
+        // The rank-row families: the spine shapes that maximize the
         // exponent mismatch, plus the benign control (the `rank_pair_ops`
-        // row's applicability set).
+        // and `rank_sum` rows' applicability set).
         if matches!(
             kind,
             FamilyKind::Dense | FamilyKind::Harmonic | FamilyKind::Benign
@@ -799,6 +814,13 @@ impl FamilyData {
         let version = Version::join_all(clocks.iter().map(|c| c.version().clone()));
         let mut version2 = version.clone();
         version2.tick(&Party::seed());
+        // The fold rows' organic control: the population's own versions and
+        // parties in construction order (the adversarial ordering belongs to
+        // the scatter family alone).
+        let fold = Some((
+            clocks.iter().map(|c| c.version().encode()).collect(),
+            clocks.iter().map(|c| c.party().encode()).collect(),
+        ));
         let mut parties = clocks.into_iter().map(|c| c.into_parts().0);
         let mut a = parties.next().expect("the population is nonempty");
         let mut b = parties
@@ -818,7 +840,7 @@ impl FamilyData {
             parties: Some((a.encode(), b.encode())),
             cross: None,
             measure: None,
-            fold: None,
+            fold,
             rank_pair: None,
         }
     }
@@ -839,7 +861,7 @@ impl FamilyData {
     /// The linear-functional measure operand: the family's packed version,
     /// or the harmonic spine on the measure family.
     ///
-    /// The `rank`/`distance`/`lag`/`min_ticks` rows (and the rank pair)
+    /// The `rank`/`distance`/`lag`/`min_ticks` rows (and the rank rows)
     /// read operands through this, so they alone gain the harmonic column;
     /// every other row sees the harmonic family as inapplicable.
     fn measure_version(&self) -> Option<(Version, usize)> {
@@ -1009,6 +1031,9 @@ const WHY_LIMB_WIDE: &str = "a magnitude wider than the machine-word bound must 
 /// Limb floor: the rank pair's sum spans the wider operand's content.
 const WHY_LIMB_RANK_PAIR: &str = "the mismatched pair's sum carries a numerator as wide as the \
      wider operand's value content: one limb write per 64 content bits";
+/// Limb floor: the rank fold's sum spans its widest summand's content.
+const WHY_LIMB_RANK_SUM: &str = "the fold's sum carries a numerator as wide as its widest \
+     summand's value content: one limb write per 64 content bits";
 /// Limb NA: every operand magnitude fits machine words.
 const NA_LIMB_NARROW: &str =
     "no operand magnitude exceeds the machine-word bound: word arithmetic suffices";
@@ -1507,6 +1532,51 @@ fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "rank_sum",
+            prepare: |f| {
+                // The mixed fold: the family-derived rank (maximal exponent
+                // on the spines) summed high-first with one small integer
+                // rank per packed byte of the family's measure operand, so
+                // both sides of the value content scale together. High-first
+                // is the adversarial order of record: `Sum` accepts arbitrary
+                // order, and under a fold that re-normalizes per element it
+                // is the order that makes every later add a full-width
+                // operation. The denominator is the summands' total value
+                // content (the module doc's rank denomination).
+                let (a, _) = f.rank_pair.clone()?;
+                let (_, k) = f.measure_version()?;
+                let ones: Vec<Rank> = (0..k)
+                    .map(|i| {
+                        Version::try_from(i as u64 % 7 + 1)
+                            .expect("a small integer version is valid")
+                            .rank()
+                    })
+                    .collect();
+                let n = (a.content_bits().div_ceil(8) as usize)
+                    + ones
+                        .iter()
+                        .map(|r| r.content_bits().div_ceil(8) as usize)
+                        .sum::<usize>();
+                let wide = a.content_bits();
+                let limb = if wide > MACHINE_WORD_MAGNITUDE_BITS {
+                    Liveness::Floor {
+                        min: wide.div_ceil(64),
+                        why: WHY_LIMB_RANK_SUM,
+                    }
+                } else {
+                    na(NA_LIMB_NARROW)
+                };
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    limb,
+                    scan: na(NA_SCAN_NO_STREAM),
+                };
+                Some(Cell::new(n, floors, move || {
+                    std::iter::once(a).chain(ones).sum::<Rank>()
+                }))
+            },
+        },
+        Op {
             name: "version_distance",
             prepare: |f| {
                 let (v, w, n) = f.measure_version_pair()?;
@@ -1764,7 +1834,7 @@ fn ops() -> Vec<Op> {
                 Some(Cell::new(n, floors, move || {
                     let mut acc = acc;
                     acc.join_all(rest)
-                        .expect("balanced forks are pairwise disjoint");
+                        .expect("fold operands are forked parties, pairwise disjoint");
                     acc
                 }))
             },
