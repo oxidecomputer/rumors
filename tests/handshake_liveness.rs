@@ -36,7 +36,9 @@ const MIN_CAPACITY: usize = 1;
 const FIXTURE_CAPACITY: usize = 64 * 1024;
 
 /// Disjoint originators forked into a seasoned universe, each contributing
-/// its own events; they stay live through seasoning, so their regions'
+/// its own events.
+///
+/// They stay live through seasoning, so their regions'
 /// uneven tick counts keep the version's event tree branchy (a fully
 /// rejoined, uniformly ticked universe would normalize back to a
 /// one-or-two-byte version).
@@ -49,7 +51,9 @@ const MESSAGES_PER_ORIGINATOR: u64 = 2;
 
 /// Minimum ratio of a seasoned greeting version's encoded width to the
 /// link window: the fixture self-check that the greeting overflows the
-/// window many times over, without pinning its layout. ITC versions are
+/// window many times over, without pinning its layout.
+///
+/// ITC versions are
 /// bit-packed and stay compact even across many parties, so the one-byte
 /// window is what guarantees a multi-fill greeting; this floor guards the
 /// fixture against normalizing back to a trivial frame.
@@ -72,7 +76,9 @@ async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
 
 /// Widen `rumors`'s causal version over roomy links: fork [`ORIGINATORS`]
 /// disjoint peers with pairwise-distinct commit counts, gossip each back,
-/// and run one bootstrap→retire cycle, so the version spans several party
+/// and run one bootstrap→retire cycle.
+///
+/// The version then spans several party
 /// regions whose uneven tick counts defeat event-tree normalization.
 ///
 /// `payload_base` keeps distinct seasoned replicas' payloads disjoint.
@@ -288,9 +294,12 @@ async fn retire(protocol: Protocol) {
 }
 
 /// Mutual bootstrap: both sides are identity-less newcomers, so the session
-/// bails with `None` on both ends — but only after the bail is certified
+/// bails with `None` on both ends.
+///
+/// The bail lands only after it is certified
 /// through a symmetric greeting exchange whose fixed-width frames overflow
-/// the one-byte window many times over. No seasoning is possible here: a
+/// the one-byte window many times over.
+/// No seasoning is possible here: a
 /// bootstrapping peer holds no identity to widen, so the fixed frames are
 /// the whole hazard.
 async fn mutual_bootstrap(protocol: Protocol) {
@@ -315,7 +324,9 @@ async fn mutual_bootstrap(protocol: Protocol) {
 }
 
 /// Retire into a bootstrapper: a seasoned retiree hands its whole tree and
-/// then its whole party to an identity-less newcomer — the maximally
+/// then its whole party to an identity-less newcomer.
+///
+/// This is the maximally
 /// asymmetric greetings of bootstrap plus the trailing donation of retire,
 /// all through the minimal link.
 async fn retire_into_bootstrapper(protocol: Protocol) {

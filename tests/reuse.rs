@@ -34,7 +34,9 @@ const LINK_BUF: usize = 64 * 1024;
 const ROUNDS: u64 = 3;
 
 /// Converged no-op sessions run before the divergent rounds in the epoch
-/// wrap test: with the [`WRAP_ROUNDS`] divergent rounds after them, the
+/// wrap test.
+///
+/// With the [`WRAP_ROUNDS`] divergent rounds after them, the
 /// link's u8 session counter crosses 255 and wraps to 0 mid-way through
 /// the divergent rounds.
 const PRE_WRAP_SESSIONS: usize = 253;
@@ -84,9 +86,11 @@ async fn barriered_sessions_reuse_the_connection() {
 }
 
 /// An eagerly re-initiating side loses nothing: each peer runs its
-/// `send; gossip` rounds on its own schedule with no cross-peer barrier, so
-/// the faster side's next preamble goes on the wire while the slower side is
-/// still consuming the previous session's trailing frames. Those preamble
+/// `send; gossip` rounds on its own schedule with no cross-peer barrier.
+///
+/// The faster side's next preamble goes on the wire while the slower side is
+/// still consuming the previous session's trailing frames.
+/// Those preamble
 /// bytes must survive to start the next session — a session reader that
 /// buffers past the frames it consumes would swallow them and wedge both
 /// peers.
@@ -120,7 +124,9 @@ async fn eager_reinitiation_reuses_the_connection() {
 }
 
 /// An epilogue-only session still advances the link's session epoch on
-/// both ends: a converged pair runs a zero-data-stream session (nothing
+/// both ends.
+///
+/// A converged pair runs a zero-data-stream session (nothing
 /// differs, so reconciliation opens no streams — asserted through the
 /// wrapped links' stream counters, not assumed), then diverges and
 /// reconciles again over the same link. The second session's data streams
@@ -178,7 +184,9 @@ async fn empty_sessions_advance_epochs_in_lockstep() {
 /// The u8 session epoch wraps while both ends stay in lockstep: after
 /// enough sessions on one link the counter crosses 255 back to 0, and
 /// sessions spanning the wrap still label their streams consistently and
-/// converge. Strategy: converged no-op sessions burn epochs cheaply (they
+/// converge.
+///
+/// Strategy: converged no-op sessions burn epochs cheaply (they
 /// open no data streams but still count — the lockstep the test above
 /// pins), then divergent rounds bracket the wrap itself, running at
 /// epochs 253 through 255 and the wrapped 0 through 2.

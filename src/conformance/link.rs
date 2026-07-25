@@ -4,12 +4,12 @@
 //! contract](crate::link): a full-duplex control stream, independent
 //! receiver-paced streams, half-close, and accept-cancellation tolerance.
 //! This crate validates its own in-memory instantiation with these checks;
-//! a deployment that builds its own `Link` — over QUIC, TCP, or anything
-//! else — should validate it the same way.
+//! a deployment that builds its own `Link` (over QUIC, TCP, or anything
+//! else) should validate it the same way.
 //!
 //! # Using the suite
 //!
-//! Provide a factory that mints a *fresh, connected* pair of link ends per
+//! Provide a factory that builds a *fresh, connected* pair of link ends per
 //! call, then run [`check`]:
 //!
 //! ```
@@ -35,8 +35,8 @@
 //!   stalled stream the whole time the live complement takes to finish,
 //!   and the control-duplex probe writes [`CONTROL_DUPLEX_FILL`] bytes
 //!   each way. Coupling concealed behind more buffering than a probe
-//!   writes — in the limit, an implementation that never backpressures at
-//!   all — passes anyway.
+//!   writes (in the limit, an implementation that never backpressures at
+//!   all) passes anyway.
 //! - **Cancellation mid-delivery.** The probe drops `accept` futures only
 //!   after a first delivery has genuinely surfaced, so an acceptor that
 //!   internally dequeues and then awaits is caught whenever that dequeue
@@ -116,8 +116,8 @@ const STALL_FILL: &[u8] = &[STALLED_TAG; 512];
 
 /// Streams the sender puts in flight for the cancellation probe.
 ///
-/// The first bridges arrival — collected by a real accept, proving
-/// deliveries are surfacing — and the remainder is what the poll-and-drop
+/// The first bridges arrival (collected by a real accept, proving
+/// deliveries are surfacing) and the remainder is what the poll-and-drop
 /// cycles catch a lossy acceptor holding.
 const CANCELLED_DELIVERIES: usize = 2;
 
@@ -139,8 +139,8 @@ const CANCEL_DROP_PATIENCE: usize = 32;
 /// Stream count follows the reconciled tree's depth, not the payload
 /// count: content-addressed keys keep a corpus this size one or two levels
 /// deep, opening one or two streams per direction. The check's final
-/// assertion pins exactly what the sizing buys — every direction opened at
-/// least one data stream in-session — so it cannot rot silently; the
+/// assertion pins exactly what the sizing buys (every direction opened at
+/// least one data stream in-session), so it cannot rot silently; the
 /// many-streams regime is [`check_concurrency`]'s job.
 const SESSION_PAYLOADS: u64 = 48;
 
@@ -245,9 +245,9 @@ pub async fn check_control<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
 /// This validates the control-duplex clause. The protocol exchanges its
 /// largest control frames (the greeting, the epilogue) as concurrent
 /// write-and-read on both ends because such a frame may exceed any
-/// buffer, so a carrier that couples the directions — a half-duplex turn
+/// buffer, so a carrier that couples the directions (a half-duplex turn
 /// protocol, a shared lock across read and write, a read that waits for
-/// this side's own write to drain — wedges with both writers blocked, and
+/// this side's own write to drain) wedges with both writers blocked, and
 /// fails here as a hang. A pass proves independence only up to
 /// [`CONTROL_DUPLEX_FILL`] of hidden buffering (see the module docs).
 /// Inherently bidirectional, so one pass probes both directions.
@@ -286,7 +286,7 @@ pub async fn check_control_duplex<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
 ///
 /// Both sides write a buffer-exceeding payload concurrently, and each
 /// side's read must drain the peer's payload while its own write is still
-/// in flight — the exact shape of the protocol's oversized control
+/// in flight: the exact shape of the protocol's oversized control
 /// exchanges.
 async fn duplex_exchange<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     read: &mut R,
@@ -377,14 +377,14 @@ async fn probe_stream<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A
 /// Streams are independent: a stream whose receiver never drains blocks
 /// nothing but itself.
 ///
-/// This validates the independence clause — the one the deadlock-freedom
-/// argument rests on — in two shapes, each probed in both directions: one
+/// This validates the independence clause, the one the deadlock-freedom
+/// argument rests on, in two shapes, each probed in both directions: one
 /// stalled stream beside a live complement that must all deliver and
 /// close, and the inversion (every stream but one stalled), which
-/// exhausts a budget pooled across streams — connection-level flow
-/// control — sized below the buffering it must cover. Coupling anywhere —
-/// a shared reader, a shared window, head-of-line blocking, an
-/// under-sized pool — reveals itself as a hang once the buffering
+/// exhausts a budget pooled across streams (connection-level flow
+/// control) sized below the buffering it must cover. Coupling anywhere
+/// (a shared reader, a shared window, head-of-line blocking, an
+/// under-sized pool) reveals itself as a hang once the buffering
 /// concealing it fills; coupling hidden behind more buffering than the
 /// probes write passes anyway (see the module docs).
 pub async fn check_independence<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
@@ -435,7 +435,7 @@ async fn probe_independence<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         // shared machinery can hide the coupling in per-stream buffers,
         // and only sustained undrained writes force those buffers full
         // while the probe is still watching. A conforming implementation
-        // simply backpressures this loop — blocking, not failing — and
+        // simply backpressures this loop (blocking, not failing), and
         // only this stream blocks with it.
         let pressure = async {
             loop {
@@ -450,8 +450,8 @@ async fn probe_independence<C: Connector, A: Acceptor>(connector: &C, acceptor: 
                 // Yield between fills: against an implementation that never
                 // backpressures (in the limit, an unbounded buffer), nothing
                 // above ever returns `Pending`, and without the yield this
-                // loop would spin inside a single poll — starving the live
-                // arm and any in-task timeout — instead of letting the live
+                // loop would spin inside a single poll, starving the live
+                // arm and any in-task timeout, instead of letting the live
                 // complement finish and the probe pass.
                 yield_once().await;
             }
@@ -655,7 +655,7 @@ async fn yield_once() {
 /// This validates the concurrency clause's quantitative bound: all
 /// [`STREAM_COUNT`] streams held open at once, with the last-opened
 /// stream's bytes flowing to completion past its still-open,
-/// backpressured elders — the progress-beside-siblings the session's
+/// backpressured elders: the progress-beside-siblings the session's
 /// lazily held reply streams require. A supply that caps concurrent
 /// streams below the complement, or serializes an open behind an earlier
 /// stream's progress or closure, fails here as a hang at the capped open;
@@ -683,8 +683,8 @@ pub async fn check_concurrency<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
 /// One direction of [`check_concurrency`]: the full complement held open at
 /// once.
 ///
-/// Opens run sequentially with every earlier stream still open — every
-/// write and read half alive — then the drain reads the last-opened
+/// Opens run sequentially with every earlier stream still open (every
+/// write and read half alive), then the drain reads the last-opened
 /// stream to end-of-stream first, while every elder writer sits mid-write
 /// on an undrained stream.
 async fn probe_concurrency<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
@@ -705,7 +705,7 @@ async fn probe_concurrency<C: Connector, A: Acceptor>(connector: &C, acceptor: &
         }
         // Every stream then writes its payload concurrently. The receiver
         // drains the last-opened stream first, so at small windows the
-        // elder writers sit backpressured — on their own streams only —
+        // elder writers sit backpressured, on their own streams only,
         // while the youngest completes.
         join_all(held.into_iter().map(|mut tx| async move {
             tx.write_all(PROBE).await.expect("contract: stream write");
@@ -716,7 +716,7 @@ async fn probe_concurrency<C: Connector, A: Acceptor>(connector: &C, acceptor: &
     };
     let receive = async {
         // Accept the whole complement, holding every read half open and
-        // pairing streams by their in-band index byte — never by accept
+        // pairing streams by their in-band index byte, never by accept
         // order, which the contract leaves to the transport.
         let mut held: Vec<Option<A::Rx>> =
             std::iter::repeat_with(|| None).take(STREAM_COUNT).collect();
@@ -797,7 +797,7 @@ pub async fn check_accept_cancellation<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
 /// arrival.
 async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
     {
-        // Poll a pending accept once, then drop it before anything arrives —
+        // Poll a pending accept once, then drop it before anything arrives:
         // the trivial case of the teardown shape.
         let mut pending = pin!(acceptor.accept());
         let waker = futures::task::noop_waker();
@@ -810,14 +810,14 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
     // Orders the halves across any executor: the poll-drop cycles must not
     // run until every delivery is connected, or a scheduler that lets the
     // receiving half run first (real sockets, one RTT away) would drop its
-    // accepts before anything could be lost — and the probe would pass a
+    // accepts before anything could be lost, and the probe would pass a
     // lossy acceptor.
     let (connected, in_flight) = futures::channel::oneshot::channel();
     let send = async {
         // Connect every stream before writing to any. The signal goes out
         // after the connects but before the writes: a write cannot finish
         // through a one-byte window until the receiver drains it, and the
-        // receiver drains nothing until signalled — a post-write signal
+        // receiver drains nothing until signalled: a post-write signal
         // would deadlock the probe itself.
         let mut streams = Vec::with_capacity(CANCELLED_DELIVERIES);
         for _ in 0..CANCELLED_DELIVERIES {
@@ -934,7 +934,7 @@ impl<C: Connector> Connector for CountingConnector<C> {
 }
 
 /// Wrap a link's connector so successful opens count into `opened`,
-/// preserving every other part — the session state included.
+/// preserving every other part, the session state included.
 fn counting<CR, CW, C, A>(
     link: Link<CR, CW, C, A>,
     opened: Arc<AtomicUsize>,
@@ -965,8 +965,8 @@ where
 /// to open data streams in each direction, then a convergence-check
 /// session, all serialized on the one link pair. A clause violated in a
 /// way the focused probes miss makes reconciliation deadlock (a hang) or
-/// fail here. The two replicas must converge on the *same set* — asserted
-/// by snapshot equality, not merely equal sizes — and each direction must
+/// fail here. The two replicas must converge on the *same set* (asserted
+/// by snapshot equality, not merely equal sizes), and each direction must
 /// have opened data streams in-session, so the check cannot silently
 /// degenerate into control-stream-only traffic.
 pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(

@@ -59,7 +59,9 @@ use crate::view::View;
 pub const ALPN: &[u8] = b"rumormill/0";
 
 /// Concurrent inbound connections held at once; excess waits behind a
-/// blocked accept loop. A permit lives as long as its connection, and
+/// blocked accept loop.
+///
+/// A permit lives as long as its connection, and
 /// connections are long-lived, so this bounds the inbound half of the
 /// mesh — and under the smaller-id-dials rule the largest endpoint id
 /// accepts nearly every roster pair. The cap must therefore comfortably
@@ -73,7 +75,9 @@ const MAX_INBOUND: usize = 256;
 const TEARDOWN_GRACE: Duration = Duration::from_secs(5);
 
 /// How many concurrent incoming unidirectional data streams a peer may open on
-/// one connection. The limit binds *incoming* streams only, so the requirement
+/// one connection.
+///
+/// The limit binds *incoming* streams only, so the requirement
 /// is the 17 ([`STREAM_COUNT`](rumors::link::STREAM_COUNT)) data streams the
 /// peer's half of one session may open toward us — not 34: our own opens count
 /// against the peer's limit, not ours. Nor do sessions overlap on one
@@ -151,7 +155,9 @@ impl Acceptor for QuicAcceptor {
 type QuicLink = Link<RecvStream, SendStream, QuicConnector, QuicAcceptor>;
 
 /// Bundle one connection's gossip stream pair and its uni-stream supply into a
-/// [`Link`]. The `recv`/`send` pair — opened with `open_bi`/`accept_bi` — is
+/// [`Link`].
+///
+/// The `recv`/`send` pair — opened with `open_bi`/`accept_bi` — is
 /// the control stream; `conn` supplies the data streams for the session's
 /// mirror descent.
 fn quic_link(recv: RecvStream, send: SendStream, conn: &Connection) -> QuicLink {
@@ -173,7 +179,9 @@ pub enum Verdict {
 }
 
 /// The merge rule: the universe with the greater event floor wins, ties
-/// broken by the greater [`Network`] id. Pure and symmetric — both sides
+/// broken by the greater [`Network`] id.
+///
+/// Pure and symmetric — both sides
 /// evaluate it on the same two `(min_events, network)` pairs, both taken
 /// from [`Error::NetworkMismatch`] (the floors each side *declared* in the
 /// session's handshake), and reach opposite verdicts, so exactly one side
@@ -196,7 +204,9 @@ enum End {
     /// The peer said goodbye at a session boundary.
     Clean,
     /// A local reset made this drive's handle stale: it was gossiping a
-    /// universe the owner has abandoned. Tear the connection down so the
+    /// universe the owner has abandoned.
+    ///
+    /// Tear the connection down so the
     /// pair re-arbitrates on fresh handles — a stale drive never raises
     /// `NetworkMismatch` (both ends *agree* on the dead universe), so left
     /// alone it strands the remote in a world nobody else inhabits.
@@ -370,7 +380,9 @@ async fn serve_merge(conn: &Connection, cmd: &mpsc::Sender<Command>) -> anyhow::
 
 /// Merge, losing side: bootstrap a brand-new `Peer` from the winner over a
 /// fresh stream (the mismatched one died mid-protocol) and hand it to the
-/// owner as a [`Command::Reset`]. `abandoned` is the universe the verdict
+/// owner as a [`Command::Reset`].
+///
+/// `abandoned` is the universe the verdict
 /// was computed against; the owner adopts only while it is still in it, and
 /// observes the adopted content by replaying it through a fresh observer.
 async fn request_merge(
@@ -406,7 +418,9 @@ async fn request_merge(
 }
 
 /// Conclude a session stream gracefully: send our FIN, then wait for the
-/// peer's. EOF from the peer proves it finished writing and QUIC delivered
+/// peer's.
+///
+/// EOF from the peer proves it finished writing and QUIC delivered
 /// everything; only then is it safe for either side to close the
 /// connection. The in-session frames are already protected by the protocol's
 /// own epilogue exchange; this grace period exists so a clean teardown does
@@ -499,7 +513,9 @@ pub fn spawn_accept_loop(
 
 /// Maintain one live, change-driven connection per dialable peer: spawn a
 /// [`dial_and_drive`] for every candidate not already connected, and react
-/// to roster changes, finished drivers, and backoff expiry. A peer whose
+/// to roster changes, finished drivers, and backoff expiry.
+///
+/// A peer whose
 /// connection ends — failure or goodbye — is left alone for
 /// [`timers::PEER_BACKOFF`] before redialing, so a flapping peer cannot
 /// induce a dial storm.
@@ -557,7 +573,9 @@ pub fn spawn_connector(
 
 /// Everyone we should be dialing right now: for roster pairs, the smaller
 /// endpoint id dials (exactly one side of each pair, so the mesh settles on
-/// one connection per pair); manual dial targets are always ours to dial
+/// one connection per pair).
+///
+/// Manual dial targets are always ours to dial
 /// (the other side may not know us yet). Excludes ourselves, live
 /// connections, and backed-off peers.
 fn dial_candidates(
@@ -586,7 +604,9 @@ pub enum Departure {
         into: EndpointId,
     },
     /// The failure struck during the party hand-off itself: the peer may
-    /// hold our party, so we must not retry (two generals). At worst the
+    /// hold our party, so we must not retry (two generals).
+    ///
+    /// At worst the
     /// region leaks; it is never duplicated. A retire attempt that outruns
     /// [`timers::RECONCILE_TIMEOUT`] lands here too: from outside the
     /// dropped session we cannot tell which phase it stalled in, so the
@@ -597,7 +617,9 @@ pub enum Departure {
 }
 
 /// Retire into the first willing candidate, walking the list in presence
-/// recency order. The caller hands us the unique `Peer` — the
+/// recency order.
+///
+/// The caller hands us the unique `Peer` — the
 /// `Peer`/`Rumors` XOR means no session can be using the set while we
 /// hold it, so retirement's exclusivity holds by construction. Every wait
 /// is bounded: retirement runs on the daemon's shutdown path, and a

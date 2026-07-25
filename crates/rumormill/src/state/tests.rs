@@ -15,7 +15,9 @@ const ALICE: PeerId = [0xaa; 32];
 const BOB: PeerId = [0xbb; 32];
 
 /// Insert `entries` into `rumors` as one batch and return each one's
-/// `(key, version)` in insertion order. Insertion order is causal order
+/// `(key, version)` in insertion order.
+///
+/// Insertion order is causal order
 /// here: every insert ticks the same party, so the minted versions come
 /// back totally ordered and sorting by them recovers the batch order.
 fn mint(rumors: &Rumors<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
@@ -102,7 +104,9 @@ async fn expiry_policy_on_arrival() {
 /// A message that causally follows the channel tail extends the
 /// conversation unflagged; one delivered from a *concurrent* line of
 /// history is flagged as a [`Effect::ConcurrentArrival`] for the UI to
-/// highlight. Display order is plain arrival order — sound because the
+/// highlight.
+///
+/// Display order is plain arrival order — sound because the
 /// owner feeds `observe` from a `CausalMessages` observer.
 #[pollster::test]
 async fn concurrent_arrival_is_flagged() {

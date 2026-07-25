@@ -158,7 +158,9 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
 }
 
 /// §6.4 Redaction honored: an observed-then-redacted message fires nothing
-/// further; one redacted before subscription never fires; one inserted and
+/// further; one redacted before subscription never fires.
+///
+/// Further: one inserted and
 /// redacted wholly between passes is never delivered; a from-now observer
 /// does not see pre-subscription content.
 #[test]
@@ -596,7 +598,9 @@ proptest! {
 
     /// §6.6 Checkpoint-resume: stop an observer at an arbitrary point and
     /// resume a fresh one from its `checkpoint()`; the union of observations
-    /// covers every message that survived to the end (nothing lost). If the
+    /// covers every message that survived to the end (nothing lost).
+    ///
+    /// If the
     /// stop fell *mid-pass*, re-deliveries are permitted but only for
     /// messages the interrupted pass already delivered (at-least-once); if
     /// the observer had *completed* its pass, nothing from it is

@@ -2,23 +2,23 @@
 //!
 //! You handle [`Error`]; everything else on this page is the diagnostic
 //! taxonomy reachable through [`Error::Mirror`], for matching and bug
-//! reports. Every session `Err` poisons its link — discard it and
-//! reconnect ([`Error::LinkPoisoned`]) — so the table below states what
+//! reports. Every session `Err` poisons its link (discard it and
+//! reconnect, [`Error::LinkPoisoned`]), so the table below states what
 //! each variant means *beyond* that:
 //!
 //! | Variant | Replica | Beyond reconnecting |
 //! |---|---|---|
 //! | [`Error::Io`] | unchanged | transport failure (retry over a fresh link), or a Borsh framing fault outside the streaming mirror (counterparty bug: report it) |
 //! | [`Error::MagicMismatch`] | unchanged | the counterparty is not speaking rumors: fix the dial target |
-//! | [`Error::VersionMismatch`] | unchanged | select the same [`Protocol`] at both ends; if both already do, the wire-format constant was bumped across a release: align crate versions |
+//! | [`Error::VersionMismatch`] | unchanged | select the same [`Protocol`] at both ends; if both already do, the selected protocol's wire version differs across the two releases: align crate versions |
 //! | [`Error::NetworkMismatch`] | unchanged | unrelated universes: apply the dominance rule ([`Peer`](crate::Peer)'s "Bootstrapping without consensus") |
 //! | [`Error::PartyOverlap`] | unchanged | nothing was absorbed: the retiring peer's identity overlaps ours |
-//! | [`Error::Epilogue`] | **committed** (a bootstrapping side instead mints nothing) | none: only the peer's confirmation was lost |
-//! | [`Error::LinkPoisoned`] | unchanged | handle the first non-poisoned error; repeats mean the reconnect is not minting a fresh link |
+//! | [`Error::Epilogue`] | **committed** (a bootstrapping side instead applies nothing) | none locally: what was certainly lost is the peer's confirmation (a donor's identity may be lost with it: see the variant) |
+//! | [`Error::LinkPoisoned`] | unchanged | handle the first non-poisoned error; repeats mean the reconnect is not producing a fresh link |
 //! | [`Error::IntentInvalid`] | unchanged | counterparty bug: report it |
 //! | [`Error::BootstrapRetireConflict`] | unchanged | counterparty bug: report it |
 //! | [`Error::BootstrapHistoryConflict`] | unchanged | counterparty bug: report it |
-//! | [`Error::Bookmark`] | unchanged — committed if raised after absorbing a retirement | fix or replace the bookmark storage, then retry |
+//! | [`Error::Bookmark`] | unchanged (committed if raised after absorbing a retirement) | fix or replace the bookmark storage, then retry |
 //! | [`Error::Mirror`] | unchanged | reconciliation failed: the nested source names the detecting side and the fault |
 
 use std::convert::Infallible;
@@ -106,20 +106,22 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// join whatever either side believes, and a donated identity is
     /// committed out of the donor before it crosses the wire, so a failed
     /// session can leave an identity held by no one, never by both. What
-    /// the exchange pins is *reporting*: without it, a donor completing an
-    /// identity hand-off (retire, or serving a bootstrap) could report
-    /// success while its counterparty failed before committing — identity
-    /// space irreparably lost behind an `Ok`. With the exchange in place,
-    /// identity can be lost only inside this one window — and the window
-    /// always announces itself as this error, never hides behind an `Ok`.
+    /// the exchange protects is the *success report*. A donor completing
+    /// an identity hand-off (retire, or serving a bootstrap) loses the
+    /// donated identity irreparably whenever its counterparty fails
+    /// before committing; that loss happens with or without a
+    /// confirmation exchange, but without one, the donor would report
+    /// success anyway. With the exchange in place, identity can be lost
+    /// only inside this one window, and the window always announces
+    /// itself as this error, never as an `Ok`.
     ///
-    /// For a session on an existing replica — gossip, retire, or the side
-    /// serving a bootstrap — the local replica **is** committed on this
+    /// For a session on an existing replica (gossip, retire, or the side
+    /// serving a bootstrap), the local replica **is** committed on this
     /// error: every message and identity the session moved is applied here.
     /// The bootstrapping side is the exception: its epilogue runs before
     /// any [`Peer`](crate::Peer) exists, so the received identity is
     /// dropped and nothing is applied locally, while the provider may have
-    /// committed — the forked identity is then lost (see
+    /// committed; the forked identity is then lost (see
     /// [`Bootstrap::join`](crate::Bootstrap::join)). The source is the I/O
     /// failure that cut the exchange short, or an invalid-data error if the
     /// peer wrote something other than the marker where it belonged.
@@ -135,8 +137,8 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// ([`SessionState`](crate::link::SessionState)) and every subsequent
     /// session fails here, before any wire traffic. Discard the link and
     /// reconnect; the replica itself is unharmed. Seeing this repeatedly
-    /// means the reconnect path is not actually minting a fresh link; the
-    /// root cause is the first non-poisoned error.
+    /// means the reconnect path is not actually producing a fresh link;
+    /// the root cause is the first non-poisoned error.
     #[error(
         "link is poisoned: an earlier session on it was interrupted before completing; discard the link and reconnect"
     )]
@@ -156,15 +158,15 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// causal history, so its greeting version must be empty. The declared
     /// version feeds the deletion-honoring filter as the claimant's causal
     /// frontier, and a mis-declared frontier would make established content
-    /// read as deleted-there; the conflict between the two claims —
-    /// newborn, yet with history — is rejected here, after the greeting
+    /// read as deleted-there; the conflict between the two claims
+    /// (newborn, yet with history) is rejected here, after the greeting
     /// and before reconciliation moves anything.
     ///
     /// Detected by whichever side faces the claimant: a provider serving
     /// the bootstrap, or a bootstrapping peer whose counterparty is itself
     /// a claimant (the mutual-bootstrap encounter). The detecting side's
-    /// replica is unchanged — no content, identity, or bookmark state
-    /// moved — and its link is poisoned like any failed session's. The
+    /// replica is unchanged (no content, identity, or bookmark state
+    /// moved) and its link is poisoned like any failed session's. The
     /// recovery is the claimant's: rejoin with a genuinely newborn
     /// replica, whose version is empty by construction.
     #[error(
@@ -183,7 +185,7 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// and retry. In the common case the error arrives *before* the
     /// session transmits anything, and nothing has changed at all. The one
     /// post-commit case: absorbing a retiring peer commits the reconciled
-    /// content and the absorbed identity first, then persists — so this
+    /// content and the absorbed identity first, then persists, so this
     /// error can arrive with the absorption live but not yet crash-safe. A
     /// crash before some later session persists successfully strands that
     /// identity, held by no live peer and recorded in no bookmark;

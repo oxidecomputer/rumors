@@ -61,7 +61,9 @@ async fn conformance(stream_buffers: Option<u32>) {
 }
 
 /// At the platform's default socket buffers, the TCP link satisfies every
-/// contract clause the suite observes: independent control pipes,
+/// contract clause the suite observes.
+///
+/// The clauses: independent control pipes,
 /// receiver-paced independent streams, clean half-close, tolerated accept
 /// cancellation, and a full reconciliation session.
 #[tokio::test]

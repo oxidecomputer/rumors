@@ -268,8 +268,10 @@ fn drain_causal(observer: &mut CausalMessages<()>) -> usize {
 
 /// `causal_replay`: a fresh causal observer's genesis pass over a size-N
 /// set: the price of causal delivery on top of [`bench_observer_replay`]'s
-/// plain pass. Reordering must buffer, so the causal pass stages every leaf
-/// in a rank-ordered map before the first item comes out; comparing the two
+/// plain pass.
+///
+/// Reordering must buffer, so the causal pass stages every leaf in a
+/// rank-ordered map before the first item comes out; comparing the two
 /// groups column-for-column is the cost of that staging.
 fn bench_causal_replay(c: &mut Criterion) {
     let mut group = c.benchmark_group("causal_replay");

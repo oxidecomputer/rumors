@@ -196,7 +196,9 @@ fn decompose_store(store: &DurableStore) -> BTreeMap<Network, Vec<Version>> {
 
 /// Whether a node's persisted `record` covers `emission`: it has persisted, in
 /// the emission's network, a frontier whose version dominates or equals the
-/// emission's. Coverage is the bookmark's promise that this version survives a
+/// emission's.
+///
+/// Coverage is the bookmark's promise that this version survives a
 /// crash, so it is the moment the emission becomes durable.
 fn store_covers(record: &BTreeMap<Network, Vec<Version>>, emission: &Emission) -> bool {
     record
@@ -205,7 +207,9 @@ fn store_covers(record: &BTreeMap<Network, Vec<Version>>, emission: &Emission) -
 }
 
 /// Decode the id-regions a node has durably checkpointed for `network`, via the
-/// same Borsh round trip the bookmark itself makes. The dual of
+/// same Borsh round trip the bookmark itself makes.
+///
+/// The dual of
 /// [`decompose_store`]: that keeps each clock's version (for durability), this
 /// keeps each clock's [`Party`] (for coverage). A region recorded here is one a
 /// crashed peer can still reclaim, so it counts as *held*, not leaked.
@@ -301,7 +305,9 @@ impl World {
     }
 
     /// Build `n` nodes that all share *one* network: node 0 seeds it, and nodes
-    /// `1..n` bootstrap into it over clean wires. Every bookmark is reliable (an
+    /// `1..n` bootstrap into it over clean wires.
+    ///
+    /// Every bookmark is reliable (an
     /// empty fault schedule never fails), the precondition the leakage property
     /// rests on.
     ///
@@ -360,7 +366,9 @@ impl World {
     }
 
     /// Whether some peer *other than* `who` is live in `who`'s network: a peer
-    /// `who` could reboot from. The leakage simulation refuses any crash that
+    /// `who` could reboot from.
+    ///
+    /// The leakage simulation refuses any crash that
     /// would leave this false, so a restarted party always has a live member to
     /// reclaim its identity from — the precondition that "every party which
     /// restarted eventually restores itself" demands.
@@ -459,7 +467,9 @@ impl World {
         self.nodes[who].pending = still_pending;
     }
 
-    /// Secure what is now known to the network, then discard the rest: `who`'s
+    /// Secure what is now known to the network, then discard the rest.
+    ///
+    /// `who`'s
     /// in-memory state is about to vanish (a crash or a re-bootstrap), so any
     /// emission that was neither persisted nor seen by another peer is lost —
     /// never known to the network, and so no later reuse of its version is a
@@ -477,7 +487,9 @@ impl World {
     }
 
     /// Run one gossip session between `a` and `b` over a wire faulted per
-    /// `fault_a`/`fault_b`. A cross-network pair surfaces
+    /// `fault_a`/`fault_b`.
+    ///
+    /// A cross-network pair surfaces
     /// [`Error::NetworkMismatch`] on at least one side; the loser of the
     /// `(min_ticks, network)` tie-break re-bootstraps into the winner. Any other
     /// error is an honest disruption that leaves both replicas unchanged.
@@ -542,7 +554,9 @@ impl World {
     }
 
     /// (Re)create `who` as a fresh replica in `server`'s network by bootstrapping
-    /// from it over a clean wire, reusing `who`'s durable store (so it reclaims
+    /// from it over a clean wire.
+    ///
+    /// Reuses `who`'s durable store (so it reclaims
     /// any of its own identity the pulled frontier now dominates) and its still-
     /// active fault schedule. Returns whether `who` is live afterwards.
     ///
@@ -628,7 +642,9 @@ impl World {
         self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
     }
 
-    /// Retire `retiree` into `absorber`, donating its identity. Same-network
+    /// Retire `retiree` into `absorber`, donating its identity.
+    ///
+    /// Same-network
     /// only: a cross-network retire cannot be absorbed, so it is skipped. The
     /// retiree's durable store may later resurrect it — exercising party reuse
     /// across a donation, where a failed `slice` would let the donated region
@@ -844,8 +860,10 @@ impl World {
 
     /// Verify the recycle assertion is not passing vacuously: after the
     /// fault-free heal, every surviving live message must have an exact durable
-    /// emission witness, because the converged fleet has now persisted and
-    /// propagated all surviving content.
+    /// emission witness.
+    ///
+    /// The witness must exist because the converged fleet has now persisted
+    /// and propagated all surviving content.
     fn assert_live_content_is_durable(&self, live: &[usize]) {
         let mut live_leaves = 0;
         for &k in live {
@@ -1023,7 +1041,9 @@ fn run_plan(plan: Plan) -> World {
 
 /// One step over a fleet of `n` for the *reliable-recovery* simulation: every
 /// wire is clean ([`FaultPlan::NONE`]) and every bookmark reliable, so the only
-/// adversity is crash/restart and retirement. Crash and retire weigh heavier
+/// adversity is crash/restart and retirement.
+///
+/// Crash and retire weigh heavier
 /// than in [`arb_step`] because recovery — not fault injection — is the property
 /// under test.
 fn arb_reliable_step(n: usize) -> BoxedStrategy<Step> {
@@ -1053,8 +1073,9 @@ fn arb_reliable_plan() -> impl Strategy<Value = Plan> {
 
 /// Minimal library-level regression for the codec leak this suite found:
 /// retiring into an absorber that has itself rebooted (reclaimed its identity
-/// from a bookmark) must absorb cleanly, leaving the absorber holding the whole
-/// seed identity.
+/// from a bookmark) must absorb cleanly.
+///
+/// The absorber is left holding the whole seed identity.
 ///
 /// Both peers reclaiming once grew the retiree's donated party via
 /// [`Party::join`](before::Party), which left stale bits in its `as_bytes`
@@ -1190,9 +1211,12 @@ fn run_reliable_plan(plan: Plan) -> World {
     world
 }
 
-/// Negative control for the verifier itself: a mutant bookmark that handed out
+/// Negative control for the verifier itself: the log must reject the witness
+/// of a recycled coordinate.
+///
+/// A mutant bookmark that handed out
 /// the same causal coordinate twice would surface as two durable emissions in
-/// one network with equal versions, and the log must reject that witness.
+/// one network with equal versions.
 #[test]
 #[should_panic(expected = "recycled version identifier")]
 fn negative_control_recycled_durable_emission_panics() {
@@ -1215,10 +1239,8 @@ fn negative_control_recycled_durable_emission_panics() {
 
 proptest! {
     /// Under arbitrary interleavings of sends, redactions, faulted gossip,
-    /// crashes, and retirements across a fleet that starts fragmented into
-    /// per-peer networks and converges by the `(min_ticks, network)` tie-break
-    /// — with each peer's bookmark reads and writes failing on a shrinkable
-    /// schedule — the identity bookmark never recycles a version identifier:
+    /// crashes, and retirements, the identity bookmark never recycles a
+    /// version identifier:
     ///
     /// 1. within every network, no durable message's version is ever dominated
     ///    by, equal to, or in the causal past of an earlier durable one's
@@ -1226,6 +1248,10 @@ proptest! {
     ///    message becoming durable once it is persisted or reaches another peer);
     /// 2. after a clean heal, all surviving peers converge to identical content
     ///    and their live parties are pairwise disjoint.
+    ///
+    /// The fleet starts fragmented into per-peer networks and converges by
+    /// the `(min_ticks, network)` tie-break, with each peer's bookmark reads
+    /// and writes failing on a shrinkable schedule.
     #[test]
     fn bookmarking_never_recycles_a_version(plan in arb_plan()) {
         let world = run_plan(plan);
@@ -1235,10 +1261,7 @@ proptest! {
 
 proptest! {
     /// Under arbitrary crash/restart and retirement of a fleet that shares one
-    /// network — with *reliable* wires and bookmarks, so a party is never lost
-    /// in transit nor a checkpoint lost in storage, and every crashed peer can
-    /// always reboot from a surviving member — bookmarking never leaks identity
-    /// space:
+    /// network, bookmarking never leaks identity space:
     ///
     /// 1. **No region claimed twice.** After a clean heal, the live parties are
     ///    pairwise disjoint ([`World::assert_healed`]). A reboot that wrongly
@@ -1254,6 +1277,10 @@ proptest! {
     /// Together these witness the retire-then-reboot contract: the donated
     /// region lives on in its absorber, and every fragment the donation did not
     /// excise reconstitutes the rebooted peer's remaining identity.
+    ///
+    /// Wires and bookmarks are *reliable*, so a party is never lost
+    /// in transit nor a checkpoint lost in storage, and every crashed peer can
+    /// always reboot from a surviving member.
     #[test]
     fn bookmarking_prevents_party_leakage(plan in arb_reliable_plan()) {
         let world = run_reliable_plan(plan);

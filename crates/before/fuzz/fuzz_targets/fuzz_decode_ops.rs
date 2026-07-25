@@ -53,7 +53,9 @@ fuzz_target!(|data: &[u8]| {
 });
 
 /// Drive the full clock op set off a byte script: each byte selects one operation, so a
-/// long script exercises a long op sequence on the decoded clock. `fork` keeps a stash of
+/// long script exercises a long op sequence on the decoded clock.
+///
+/// `fork` keeps a stash of
 /// forked children for `join`/`sync` to consume, so disjointness preconditions are met.
 fn drive_clock(clock: &mut Clock, script: &[u8]) {
     let mut stash: Vec<Clock> = Vec::new();

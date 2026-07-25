@@ -28,7 +28,9 @@ proptest! {
 
     /// Merging is non-destructive and path-independent: gossiping bob's
     /// content into a fresh party-disjoint fork of alice reaches the same
-    /// live multiset as gossiping bob straight into alice. This is the
+    /// live multiset as gossiping bob straight into alice.
+    ///
+    /// This is the
     /// documented propagation pattern — wire gossip is the merge, and any
     /// same-universe peer can carry content to any other.
     #[test]

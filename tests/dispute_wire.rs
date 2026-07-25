@@ -54,7 +54,9 @@ const DIVERGENT: usize = 8_192;
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// End-to-end wire bytes of one disputed message beyond its record's
-/// encoded payload — the crate's calibrated intercept, read through
+/// encoded payload — the crate's calibrated intercept.
+///
+/// Read through
 /// [`dispute_overhead_bytes`] so the cells here pin the constant the
 /// closed form quotes, not a test-local copy of it.
 fn fixed_overhead_bytes() -> usize {
@@ -63,8 +65,9 @@ fn fixed_overhead_bytes() -> usize {
 
 /// The `Vec<u8>` payload length whose borsh encoding (a 4-byte length
 /// prefix plus the bytes, 172 B) prices a disputed message at exactly
-/// `DISPUTE_WIRE_BYTES` under the current format: the record size the
-/// design-point constant is denominated in.
+/// `DISPUTE_WIRE_BYTES` under the current format.
+///
+/// This is the record size the design-point constant is denominated in.
 const DESIGN_PAYLOAD_LEN: usize = 168;
 
 /// A mid-size `Vec<u8>` payload length (64 B encoded behind borsh's
@@ -198,7 +201,9 @@ where
 
 /// The implied end-to-end bytes per disputed message over one measured
 /// session of the given corpus: total wire bytes over the messages that
-/// crossed. Each side's divergence crosses once; shared content crosses
+/// crossed.
+///
+/// Each side's divergence crosses once; shared content crosses
 /// only as dispute-descent overhead, which is part of the per-message
 /// cost the constant states.
 fn implied_bytes_per_message<T>(mint: impl FnMut(&mut SmallRng) -> T) -> usize

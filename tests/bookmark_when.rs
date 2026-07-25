@@ -210,7 +210,9 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
 }
 
 /// Serve a bootstrap from `origin`, returning the newcomer as a still-unbookmarked
-/// [`Peer`] ready to have a `Probe` attached — the way a real process is born
+/// [`Peer`] ready to have a `Probe` attached.
+///
+/// This is the way a real process is born
 /// into an existing universe before it adopts its durable identity store.
 async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
     let (mut o_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
@@ -289,7 +291,9 @@ impl Model {
         }
     }
 
-    /// A peer born by bootstrap, with its `Probe` already attached. A fork is
+    /// A peer born by bootstrap, with its `Probe` already attached.
+    ///
+    /// A fork is
     /// not pristine, so the attach has *eagerly* persisted it: already loaded
     /// (one read), already written once. But the attach-time record deliberately
     /// does not stage the suppression token, so a checkpoint is still pending —
@@ -380,7 +384,9 @@ enum Origin {
     Bootstrap,
 }
 
-/// Everything a generated lifetime needs once the subject exists: the
+/// Everything a generated lifetime needs once the subject exists.
+///
+/// That is: the
 /// bookmarked subject, a direct handle on its I/O log (which outlives the
 /// subject when it retires), the model in its post-birth state, and any
 /// counterparties already present (the origin seed, for a bootstrapped peer).
@@ -470,7 +476,9 @@ fn read_is_deferred_to_first_use() {
 }
 
 /// The heart of the contract: a session that *only incorporates remote content*
-/// writes nothing. A local send drives a checkpoint; the next session, after a
+/// writes nothing.
+///
+/// A local send drives a checkpoint; the next session, after a
 /// *helper's* send, pulls that content in but persists nothing, because the
 /// subject's own region did not advance.
 #[test]
@@ -524,8 +532,9 @@ fn read_happens_exactly_once_across_a_long_life() {
 }
 
 /// A peer born by bootstrap is not pristine, so attaching its bookmark eagerly
-/// persists its forked identity — exactly one read then one write — and that
-/// attach read is the lifetime's only read: a following session never repeats
+/// persists its forked identity — exactly one read then one write.
+///
+/// That attach read is the lifetime's only read: a following session never repeats
 /// it, and (no local work having intervened) it re-records but does not re-read.
 #[test]
 fn attaching_to_a_fork_eagerly_persists_then_never_re_reads() {
@@ -673,11 +682,8 @@ impl World {
 proptest! {
     #![proptest_config(ProptestConfig { cases: 128, ..ProptestConfig::default() })]
 
-    /// Over an arbitrary peer lifetime — born either as a fresh seed or as a
-    /// bootstrap fork, then any interleaving of sends, redactions, remote-content
-    /// arrivals, plain gossip, bootstrap donations, and retiree absorptions,
-    /// optionally ending in the subject's own retirement — the bookmark's
-    /// read/write schedule matches the model exactly at every step, and so:
+    /// Over an arbitrary peer lifetime, the bookmark's read/write schedule
+    /// matches the model exactly at every step, and so:
     ///
     /// 1. **Read once.** Across the whole life the record is read at most once
     ///    (at attach for a fork, lazily at first use for a seed), and that read
@@ -686,6 +692,11 @@ proptest! {
     ///    local change or party movement is owed since the last persist;
     ///    incorporating remote content drives no I/O; a send or redact alone
     ///    drives no I/O until the session that checkpoints it.
+    ///
+    /// The lifetime: born either as a fresh seed or as a
+    /// bootstrap fork, then any interleaving of sends, redactions, remote-content
+    /// arrivals, plain gossip, bootstrap donations, and retiree absorptions,
+    /// optionally ending in the subject's own retirement.
     #[test]
     fn bookmark_io_schedule_matches_the_model(
         origin in prop_oneof![Just(Origin::Seed), Just(Origin::Bootstrap)],

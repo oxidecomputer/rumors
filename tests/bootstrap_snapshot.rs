@@ -8,7 +8,9 @@
 //! every wire byte. V2 traffic is grouped by logical stream while preserving
 //! its exact per-stream order; a representative V1 case pins its strictly
 //! alternating timeline. Drift in the preamble, reconciliation, or trailing
-//! party hand-off shows up as a diff.
+//! party hand-off shows up as a diff. Re-accept only after a deliberate
+//! protocol change: a new protocol version, never a mutation of an existing
+//! one. The re-accept procedure (`cargo insta review`) is in `AGENTS.md`.
 //!
 //! Party convention: **A is the provider** — the established peer serving its
 //! state through `gossip` — and **B is the bootstrapping newcomer**, running
@@ -34,8 +36,9 @@ use crate::common::gossip_snapshot::capture_session_v1;
 
 /// A provider seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble — and the party region it forks off for the newcomer — are
-/// deterministic and these captures stay reproducible. Mirrors
-/// `gossip_snapshot::seeded`.
+/// deterministic and these captures stay reproducible.
+///
+/// Mirrors `gossip_snapshot::seeded`.
 fn seeded<T>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
@@ -72,7 +75,9 @@ fn empty_provider() {
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 
-/// Bootstrap from a populated provider. The provider holds three distinct
+/// Bootstrap from a populated provider.
+///
+/// The provider holds three distinct
 /// messages (`1`, `2`, `3`); the newcomer receives the whole tree in one
 /// descent, so this pins the content-bearing whole-tree frame that the empty
 /// case never exercises.
@@ -112,7 +117,9 @@ fn v1_populated_provider() {
     insta::assert_snapshot!(capture);
 }
 
-/// Bootstrap of a non-primitive, variable-length payload. `u64` borsh-encodes
+/// Bootstrap of a non-primitive, variable-length payload.
+///
+/// `u64` borsh-encodes
 /// to a fixed 8 bytes; `String` encodes as a length prefix followed by its
 /// UTF-8 bytes, so this is the only bootstrap scenario that pins how a
 /// variable-length value is framed inside a served leaf.
@@ -127,7 +134,9 @@ fn string_payload() {
 }
 
 /// Both sides declare bootstrapping: neither has state to give, so each reads
-/// the other's bootstrap intent from the preamble and bails. The capture pins
+/// the other's bootstrap intent from the preamble and bails.
+///
+/// The capture pins
 /// the bytes of that mutual stand-down — the preamble exchange and nothing
 /// after it.
 #[test]

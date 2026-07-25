@@ -263,7 +263,9 @@ struct Metrics {
     local_ops: AtomicU64,
     /// Total bytes written to every wire — control stream and every data
     /// stream, both directions (each byte counted once, on the writer that
-    /// produced it). Shared into the link-decorating writers, which outlive
+    /// produced it).
+    ///
+    /// Shared into the link-decorating writers, which outlive
     /// the borrow of `Metrics`, so it is an [`Arc`] rather than a bare field.
     wire_bytes: Arc<AtomicU64>,
     /// Sum over completed sessions of `2 * duration_nanos`: one direction-span
@@ -275,7 +277,9 @@ struct Metrics {
     /// Sum of session wall-clock durations in nanos (end-to-end latency).
     sync_nanos: AtomicU64,
     /// Fastest session in the current sampling window, in nanos —
-    /// `u64::MAX` when the window has seen none. The sampler swaps the
+    /// `u64::MAX` when the window has seen none.
+    ///
+    /// The sampler swaps the
     /// sentinel back in each time it reads, so the value is windowed where
     /// every other counter is monotonic. Wall-clock means include every
     /// OS scheduling delay a loaded machine inserts between protocol
@@ -321,7 +325,9 @@ impl Metrics {
     }
 }
 
-/// Holds one in-flight session slot; releases it on drop. Shutdown drains
+/// Holds one in-flight session slot; releases it on drop.
+///
+/// Shutdown drains
 /// the in-flight counter to zero before letting threads exit, so the slot
 /// must be released on every exit from a session — including a panic
 /// unwinding out of `gossip` — or shutdown spins forever on a slot no one
@@ -344,7 +350,9 @@ impl Drop for InflightGuard<'_> {
     }
 }
 
-/// Per-party coordination state, shared across all threads. Holds no rumor-set
+/// Per-party coordination state, shared across all threads.
+///
+/// Holds no rumor-set
 /// data — only the inbox to deliver session endpoints, the engaged flag that
 /// serializes each party into one session at a time, and a gauge of its
 /// current live-message count for the UI.
@@ -386,7 +394,9 @@ struct Donation {
 /// Everything the party threads share: the peer directory, live controls,
 /// run/stop flags, and the metrics counters.
 struct Net {
-    /// The live peer directory. Read locklessly on the sync hot path; swapped
+    /// The live peer directory.
+    ///
+    /// Read locklessly on the sync hot path; swapped
     /// only by the coordinator, one membership change at a time. Each entry is
     /// an `Arc` so a party claimed for a session survives its removal from the
     /// directory.
@@ -501,7 +511,9 @@ fn main() -> io::Result<()> {
 }
 
 /// How long shutdown waits for in-flight sessions to drain before concluding
-/// one is wedged and exiting without the party-thread joins. In-memory
+/// one is wedged and exiting without the party-thread joins.
+///
+/// In-memory
 /// sessions complete in milliseconds even on a heavily loaded machine, so
 /// five seconds is generous.
 const SHUTDOWN_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
@@ -610,7 +622,9 @@ fn drain_keys(observer: &mut UnorderedMessages<Payload>, keys: &mut Vec<Key>) {
     }
 }
 
-/// Wind a party down so the coordinator can absorb it. Serves any owed session,
+/// Wind a party down so the coordinator can absorb it.
+///
+/// Serves any owed session,
 /// then claims our own engaged flag — permanently — so no initiator can open a
 /// new session with us. Because an initiator sets a peer's flag *before*
 /// delivering the session, a successful claim here proves nothing is owed; if
@@ -774,7 +788,9 @@ fn local_op(
 /// One steady-state controller op: insert with probability
 /// `target / (target + live)` (1.0 when empty, 0.5 at target, → 0 far over),
 /// otherwise redact a **live** key, so the live set is driven toward
-/// `target`. Falls back to an insert when no live key is in the pool.
+/// `target`.
+///
+/// Falls back to an insert when no live key is in the pool.
 ///
 /// The redact arm draws until it finds a key still present in `snap`,
 /// discarding stale entries — keys other parties already redacted — as they
@@ -852,7 +868,9 @@ fn pick_peer(rng: &mut SmallRng, dir: &[Arc<SwarmPeer>], me: u64) -> Option<Arc<
 
 // --- membership coordinator ------------------------------------------------
 
-/// The coordinator thread. The sole writer of the peer directory: it launches
+/// The coordinator thread.
+///
+/// The sole writer of the peer directory: it launches
 /// the initial parties, then reconciles the live party count toward the desired
 /// one by forking (to grow) or retiring one party into another (to shrink),
 /// one step per iteration.
@@ -951,7 +969,9 @@ fn grow(net: &Arc<Net>, rng: &mut SmallRng, next_id: &mut u64, handles: &mut Vec
 
 /// Shrink by one: wind down two random parties, [`retire`](Peer::retire)
 /// one into the other over an in-memory wire, and run the survivor in a new
-/// thread. The retire session's gossip round carries any divergent content
+/// thread.
+///
+/// The retire session's gossip round carries any divergent content
 /// across before the party hand-off, and the survivor absorbs the retiree's
 /// id-region — the merge is leak-free. Any two live parties are disjoint
 /// forks of the common seed, so the session always commits.
@@ -1126,7 +1146,9 @@ impl<R: AsyncRead + Unpin> AsyncRead for CountRead<R> {
 
 /// A [`Connector`] that wraps each opened data stream's writer in a
 /// [`CountWrite`], so the bytes a session pushes down its data streams join
-/// the same tally as its control-stream bytes. Data-stream writes never carry
+/// the same tally as its control-stream bytes.
+///
+/// Data-stream writes never carry
 /// a `Rounds`: roundtrips are a property of the bidirectional control stream.
 #[derive(Clone)]
 struct CountConnector {
@@ -1149,7 +1171,9 @@ impl Connector for CountConnector {
 
 /// The initiator's decorated link: both control halves count (writes tally
 /// bytes and roundtrips, reads tally roundtrips) and each opened data stream
-/// tallies its bytes. Incoming data streams are accepted unwrapped — their
+/// tallies its bytes.
+///
+/// Incoming data streams are accepted unwrapped — their
 /// bytes are counted by the peer that wrote them.
 type InitiatorLink =
     Link<CountRead<DuplexStream>, CountWrite<DuplexStream>, CountConnector, MemoryAcceptor>;
@@ -1161,7 +1185,9 @@ type ResponderLink = Link<DuplexStream, CountWrite<DuplexStream>, CountConnector
 
 /// Decorate an in-memory link end for the initiator's accounting: byte and
 /// roundtrip counting on the control stream, byte counting on opened data
-/// streams. The [`SessionState`](rumors::link::SessionState) is carried
+/// streams.
+///
+/// The [`SessionState`](rumors::link::SessionState) is carried
 /// through unchanged, so decoration neither resets the session counter that
 /// keeps the two ends in lockstep nor clears a poison latch.
 fn initiator_link(

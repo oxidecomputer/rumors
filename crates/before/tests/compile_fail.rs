@@ -1,5 +1,7 @@
 //! Compile-fail guards for the crate's linearity and locked-API invariants
-//! (COV-5). `Party` and `Clock` are deliberately not `Clone`, the `|`
+//! (COV-5).
+//!
+//! `Party` and `Clock` are deliberately not `Clone`, the `|`
 //! (`BitOr`) operators consume their operands by value rather than borrowing,
 //! and the balanced-array splits ([`From<Party>`] / [`From<Clock>`] for
 //! `[_; N]`) reject `N == 0` — all *type-level* guarantees the design relies on.
@@ -26,7 +28,9 @@
 //! [`From<Clock>`]: before::Clock
 
 /// The invariant: every forbidden linearity- or arity-violating pattern is
-/// rejected by the compiler. Cloning a `Party` or a `Clock`, reusing a `Clock`
+/// rejected by the compiler.
+///
+/// Cloning a `Party` or a `Clock`, reusing a `Clock`
 /// after it has been consumed by `|`, borrowing `&Clock | &Clock`, and
 /// splitting either into a zero-length array all must fail to compile; the
 /// non-empty array split must still compile.

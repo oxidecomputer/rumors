@@ -49,7 +49,9 @@ proptest! {
 
 proptest! {
     /// The merge verdict must be computed from the handshake-declared
-    /// floors on both sides. For any declared floors and any mid-session
+    /// floors on both sides.
+    ///
+    /// For any declared floors and any mid-session
     /// drift (each side's fresh floor is >= what it declared, because
     /// local commits only add events), the declared-floor verdicts are
     /// opposite: exactly one side wins, whatever the drift. Drift can
@@ -92,9 +94,10 @@ proptest! {
 
 /// With equal declared floors and one commit landing mid-session on each
 /// side, deciding from the fresh floors makes both sides Win — each then
-/// serves a merge the other never requests — while deciding from the
-/// declared floors stays antisymmetric. Pins the concrete collision the
-/// declared-floor rule exists to exclude.
+/// serves a merge the other never requests.
+///
+/// Deciding from the declared floors instead stays antisymmetric. Pins the
+/// concrete collision the declared-floor rule exists to exclude.
 #[test]
 fn fresh_floors_can_make_both_sides_win() {
     let (net_a, net_b) = (network(1), network(2));
@@ -139,7 +142,9 @@ fn roster_of(peer: PeerId) -> View {
 proptest! {
     /// The dialing tie-break covers every roster pair exactly once: for any
     /// two distinct peers, exactly one side lists the other as a dial
-    /// candidate, so the steady-state mesh settles on one connection per
+    /// candidate.
+    ///
+    /// The steady-state mesh therefore settles on one connection per
     /// pair with neither a dial storm nor an orphaned pair.
     #[test]
     fn exactly_one_roster_side_dials(a in any::<[u8; 32]>(), b in any::<[u8; 32]>()) {

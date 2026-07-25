@@ -23,7 +23,7 @@ use super::unordered::Channel;
 /// since the previous poll, however many commits that was, and it yields
 /// immediately on first poll (a fresh observer has seen nothing, so whatever
 /// the set holds is news). Consequently the number of ticks means nothing; only
-/// "at least one tick since I last looked" does. Every change fires it — local
+/// "at least one tick since I last looked" does. Every change fires it: local
 /// [`send`](crate::Rumors::send)s and [`redact`](crate::Rumors::redact)s, and
 /// anything learned by [`gossip`](crate::Rumors::gossip).
 ///

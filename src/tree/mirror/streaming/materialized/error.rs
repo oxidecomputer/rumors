@@ -8,8 +8,8 @@ pub enum Error<E> {
 }
 
 /// The ways a counterparty can misbehave: exactly the semantic faults
-/// only this side can detect, because they depend on what we hold — our
-/// questions, our tree, and the greeting the peer declared to us.
+/// only this side can detect, because they depend on what we hold (our
+/// questions, our tree, and the greeting the peer declared to us).
 ///
 /// Non-exhaustive: enforcement of further session invariants adds
 /// variants without breaking downstream matches.
@@ -40,16 +40,13 @@ pub enum Violation {
     /// A supplied subtree carrying a version outside the sender's declared
     /// version.
     ///
-    /// Every version an honest replica transmits is causally contained in
-    /// the version its greeting declared — the declared version joins
-    /// every version the replica ever applied — so an escaped version
-    /// marks a nonconforming sender. Only the receiving side can detect
-    /// it: the check compares the supplied subtree's memoized version
-    /// ceiling against the greeting this side holds. Rejecting at
-    /// ingestion is what keeps the escape from outliving the session:
-    /// absorbed, the leaf would sit above every replica's session ceiling,
-    /// where redaction is skipped as causally prior and the deletion
-    /// filter never classifies it deleted.
+    /// An honest replica transmits only versions causally contained in
+    /// its greeting's declared version, so an escaped version marks a
+    /// nonconforming sender. Rejected at ingestion so the escape cannot
+    /// outlive the session: absorbed, the leaf would sit above every
+    /// replica's session ceiling (the version ceiling the greeting
+    /// fixed), beyond the reach of redaction and the deletion filter
+    /// alike.
     #[error("reply supplied a subtree with a version outside the sender's declared version")]
     UncontainedSupply,
 }

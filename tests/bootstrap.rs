@@ -1,7 +1,9 @@
 //! Integration tests for remote bootstrap (`rumors::Peer::bootstrap`): a
 //! stateless peer obtaining a fully-formed `Peer` from a peer that drives
-//! `gossip` concurrently, plus every arm of the bookmarked builder's
-//! [`Joined`] outcome. Mirrors `async_wire.rs`'s setup — building peers
+//! `gossip` concurrently.
+//!
+//! Also covers every arm of the bookmarked builder's [`Joined`] outcome.
+//! Mirrors `async_wire.rs`'s setup — building peers
 //! from the shared `Insert`/`Redact` action shape and driving both ends over
 //! an in-memory [`rumors::link`] pair with `tokio::join!`.
 
@@ -49,9 +51,10 @@ where
 proptest! {
     /// Bootstrapping from a provider yields exactly the provider's live
     /// `(Key, value)` content (keys are stable across peers), leaves the
-    /// provider's own content untouched, and mints a *disjoint* party —
-    /// proven behaviorally: a message the newcomer originates survives a
-    /// gossip round back into the provider, which a non-disjoint or
+    /// provider's own content untouched, and mints a *disjoint* party.
+    ///
+    /// Disjointness is proven behaviorally: a message the newcomer originates
+    /// survives a gossip round back into the provider, which a non-disjoint or
     /// stale-floored party would silently destroy.
     #[test]
     fn bootstrap_reproduces_a_fork(actions in arb_local_actions()) {
@@ -117,6 +120,7 @@ proptest! {
 /// When *both* peers declare bootstrapping, neither has state to give: both
 /// sides bail with `Ok(None)` after the handshake, and neither deadlocks
 /// (the watchdog-free `block_on` returning at all is the liveness proof).
+///
 /// The mutual bail is a successful session, so it too must leave the
 /// control stream drained at the boundary.
 #[test]
@@ -143,9 +147,12 @@ fn both_bootstrapping_bail_with_none() {
 }
 
 /// A zero sync memory budget selected at bootstrap can add latency, never
-/// break the session: the join completes, delivers the provider's whole
+/// break the session.
+///
+/// The join completes, delivers the provider's whole
 /// set, and the minted peer — retaining the zero budget for its own
 /// sessions — still reconciles a fresh origination back into the provider.
+///
 /// The budget's any-value safety therefore holds at the one entry point
 /// that runs before the peer exists, and the retained setting survives
 /// into the first session where it can bind.
@@ -224,9 +231,13 @@ fn populated_provider() -> Rumors<u64> {
 }
 
 /// The `Joined` arm: a bookmarked join returns only after the received
-/// identity is durably recorded — the store holds a record for the joined
-/// network before the caller ever sees the peer — and the peer carries the
-/// provider's whole set. The empty-store precondition is the negative
+/// identity is durably recorded.
+///
+/// The store holds a record for the joined
+/// network before the caller ever sees the peer, and the peer carries the
+/// provider's whole set.
+///
+/// The empty-store precondition is the negative
 /// control: the record demonstrably came from this join.
 #[test]
 fn bookmarked_join_persists_the_arriving_identity() {
@@ -257,9 +268,13 @@ fn bookmarked_join_persists_the_arriving_identity() {
 }
 
 /// The `Bailed` arm: a mutual bootstrap moves nothing, leaves storage
-/// untouched, and hands the bookmark back — and the returned bookmark is
+/// untouched, and hands the bookmark back.
+///
+/// The returned bookmark is
 /// the live storage handle, proven by retrying it against an established
-/// provider and finding the record it then writes. The retry succeeding is
+/// provider and finding the record it then writes.
+///
+/// The retry succeeding is
 /// the negative control: a consumed or poisoned bookmark could not take it.
 #[test]
 fn mutual_bookmarked_bail_returns_the_bookmark() {
@@ -302,7 +317,9 @@ fn mutual_bookmarked_bail_returns_the_bookmark() {
 }
 
 /// The `Failed` arm: a session that dies before any peer is minted leaves
-/// storage untouched and hands the bookmark back for the retry. The retry
+/// storage untouched and hands the bookmark back for the retry.
+///
+/// The retry
 /// succeeding against a live provider is the negative control: the failure
 /// consumed nothing but the link.
 #[test]
@@ -341,9 +358,13 @@ fn failed_bookmarked_join_returns_the_bookmark() {
 
 /// The `Unbookmarked` arm: when the session commits but the persist fails,
 /// the live peer — holding the received identity and the provider's whole
-/// set — comes back inside the outcome rather than being lost, storage is
+/// set — comes back inside the outcome rather than being lost.
+///
+/// Storage is
 /// left untouched, and the documented recovery (re-attaching against
-/// healthy storage) succeeds. The same join under an empty fault schedule
+/// healthy storage) succeeds.
+///
+/// The same join under an empty fault schedule
 /// is the negative control: the injected write failure is the only thing
 /// separating this arm from `Joined`.
 #[test]

@@ -44,7 +44,9 @@ async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) 
 
 /// Bookmarking a pristine seed touches no storage: a content-free, never-forked
 /// seed has no identity worth recording, so the first write is deferred to the
-/// first gossip. The fault schedule would *fail* a write, so a clean `Ok` is
+/// first gossip.
+///
+/// The fault schedule would *fail* a write, so a clean `Ok` is
 /// itself proof that none was attempted.
 #[test]
 fn pristine_seed_attaches_without_touching_storage() {
@@ -68,7 +70,9 @@ fn pristine_seed_attaches_without_touching_storage() {
 
 /// A failed persist hands the peer back, intact and unbookmarked: the identity
 /// is not lost, the store is left untouched, and re-attaching over healthy
-/// storage then succeeds and records it. The peer must already *know* something
+/// storage then succeeds and records it.
+///
+/// The peer must already *know* something
 /// — here, one sent message advancing its frontier — or the pristine-seed
 /// shortcut would skip the write the failure rides on.
 #[test]
@@ -118,7 +122,9 @@ fn failed_persist_returns_peer_for_retry() {
 }
 
 /// A failed attach must never leave a *reclaimed* region live in the handed-back
-/// peer while it stays stranded on disk. This is the recycle hazard the gossip
+/// peer while it stays stranded on disk.
+///
+/// This is the recycle hazard the gossip
 /// persist gate cannot catch, precisely because the handed-back peer is
 /// unbookmarked (its `bookmark_update` is the infallible no-op of `NoBookmark`,
 /// so nothing stops it from gossiping the region).

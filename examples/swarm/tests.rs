@@ -66,8 +66,9 @@ fn reconcile(runtime: &tokio::runtime::Runtime, a: &Rumors<Payload>, b: &Rumors<
     rb.expect("gossip b");
 }
 
-/// The controller's fixed point is the target, and it survives retargeting:
-/// driving three gossiping parties through a target drop and a target raise
+/// The controller's fixed point is the target, and it survives retargeting.
+///
+/// Driving three gossiping parties through a target drop and a target raise
 /// must land each party's live count within half-to-double of every phase's
 /// target, even though every phase's redaction bursts fill each party's key
 /// pool with entries the others already redacted. Three parties is the

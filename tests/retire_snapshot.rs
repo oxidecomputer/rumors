@@ -11,6 +11,9 @@
 //! traffic is grouped by logical stream while preserving exact order within
 //! each stream; a representative V1 case pins its strictly alternating
 //! timeline. Drift in reconciliation or the hand-off shows up as a diff.
+//! Re-accept only after a deliberate protocol change: a new protocol version,
+//! never a mutation of an existing one. The re-accept procedure
+//! (`cargo insta review`) is in `AGENTS.md`.
 //!
 //! Party convention: **A is the absorber** — the counterparty that survives the
 //! session and takes the retiree's party — and **B is the retiree**, running
@@ -38,6 +41,7 @@ use crate::common::wire::{block_on, bootstrap_fork_async_with_protocol};
 
 /// A seed universe from a fixed RNG, so the [`rumors::Network`] id and every
 /// party forked from it are deterministic and these captures stay reproducible.
+///
 /// The retiree is always a [`bootstrap_fork`] of this seed: a genuine disjoint
 /// originator, which is what retirement reclaims.
 fn seeded() -> Rumors<u64> {
@@ -48,7 +52,9 @@ fn seeded() -> Rumors<u64> {
 
 /// Capture one successful retire: `retiree` runs [`Peer::retire`] (party B)
 /// while `absorber` drives `gossip` (party A), reconciling content and then
-/// taking the retiree's party. The retiree is expected to commit
+/// taking the retiree's party.
+///
+/// The retiree is expected to commit
 /// ([`Retire::Retired`]).
 fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
     capture_session(
@@ -70,7 +76,9 @@ fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
 }
 
 /// Retire into a converged absorber: both sides are empty, so their versions
-/// are equal and the absorber dominates reflexively. The minimal retire session
+/// are equal and the absorber dominates reflexively.
+///
+/// The minimal retire session
 /// — a reconciliation round that moves no content, then the bare party
 /// hand-off.
 #[test]
@@ -81,6 +89,7 @@ fn empty_retire() {
 }
 
 /// Retire across a divergence: the retiree holds `1`, the absorber holds `2`.
+///
 /// The session's reconciliation round trades the two novel messages — content
 /// crossing the wire in *both* directions — before the party changes hands, so
 /// this pins a content-bearing retire that the converged case never reaches.
@@ -125,7 +134,9 @@ fn v1_divergent_retire() {
 
 /// Both sides try to retire into each other: each reads the other's
 /// retire-intent from the preamble and refuses to absorb a peer that is itself
-/// leaving, so both decline and are handed back intact. The capture pins the
+/// leaving, so both decline and are handed back intact.
+///
+/// The capture pins the
 /// bytes of that mutual stand-down. (The symmetric exception to this file's
 /// A-absorbs/B-retires convention: here both parties retire.)
 #[test]
@@ -159,8 +170,10 @@ fn mutual_retire_declines() {
 
 /// Retire into a *bootstrapping* counterparty: the newcomer (party A) pulls the
 /// retiree's whole tree through the descent and then receives its whole party
-/// as the trailing frame — it *becomes* the retiree's successor in the same
-/// universe. The cross of the bootstrap and retire legs: one side bootstraps,
+/// as the trailing frame.
+///
+/// The newcomer *becomes* the retiree's successor in the same universe.
+/// The cross of the bootstrap and retire legs: one side bootstraps,
 /// the other retires, and the identity is handed off rather than reclaimed by
 /// an established peer.
 #[test]

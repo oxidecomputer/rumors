@@ -199,7 +199,9 @@ fn leaf_version(rumors: &Rumors<Msg, GatedBookmark>, payload: Msg) -> Option<Ver
 
 /// The staged world: A bookmarked and gated, B and C booted from it, one
 /// converged message, and A's suppression token cleared by the bootstrap
-/// donations — the precondition under which A's next update re-records an
+/// donations.
+///
+/// This is the precondition under which A's next update re-records an
 /// already-propagated frontier.
 struct Scene {
     a: Rumors<Msg, GatedBookmark>,
@@ -270,7 +272,9 @@ async fn transmit_during_persist() -> Scene {
 // ---- the tests ----------------------------------------------------------------
 
 /// A session's persisted bookmark record covers every own-party event the
-/// session transmits: the wire never carries an own event the durable record
+/// session transmits.
+///
+/// The wire never carries an own event the durable record
 /// does not dominate, however the persist's in-flight window interleaves
 /// with concurrent sends.
 #[test]
@@ -300,8 +304,9 @@ fn record_dominates_the_transmitted_frontier() {
     });
 }
 
-/// A session future dropped mid-persist never suppresses the next update:
-/// the suppression token commits only when the durable write completes, so
+/// A session future dropped mid-persist never suppresses the next update.
+///
+/// The suppression token commits only when the durable write completes, so
 /// a cancelled write leaves no token claiming coverage the disk lacks, and
 /// the next session persists afresh before transmitting.
 ///
@@ -387,7 +392,9 @@ fn cancelled_persist_never_suppresses_the_next_update() {
 }
 
 /// A crash after the gated session cannot make the network destroy a live,
-/// unredacted message: the restarted peer reclaims its identity only at a
+/// unredacted message.
+///
+/// The restarted peer reclaims its identity only at a
 /// frontier that accounts for every own event it ever transmitted, so no
 /// remint collides with a coordinate a replica durably holds.
 #[test]
@@ -478,7 +485,9 @@ fn restart_after_transmit_never_destroys_durable_messages() {
 }
 
 /// A failed donation persist aborts the serve before the party crosses the
-/// wire: the donor's identity and durable record are exactly as before the
+/// wire.
+///
+/// The donor's identity and durable record are exactly as before the
 /// attempt, the newcomer receives nothing, and the next serve donates
 /// cleanly — a crash at any moment around the abort strands no region.
 ///

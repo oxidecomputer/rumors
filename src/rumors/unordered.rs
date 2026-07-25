@@ -10,7 +10,7 @@ use tokio::sync::watch;
 /// arbitrary (*non-causal*) order.
 ///
 /// This enumerates every message not causally contained in the starting
-/// checkpoint, then every message learned afterwards — by local
+/// checkpoint, then every message learned afterwards: by local
 /// [`send`](crate::Rumors::send), by gossip, through any handle. Once the
 /// [`Peer`](crate::Peer) and every [`Rumors`](crate::Rumors) have dropped
 /// and no further change is possible, it yields whatever remains and ends
@@ -167,7 +167,7 @@ impl<T> UnorderedMessages<T> {
     /// Folding the yielded versions yourself is not a substitute: the
     /// causal order is partial, not total, so "the last version I saw" is
     /// not well-defined, and such a fold is not a causally closed
-    /// boundary — resuming from it could skip messages. This checkpoint
+    /// boundary: resuming from it could skip messages. This checkpoint
     /// moves only at pass boundaries, which are.
     ///
     /// After the observer ends (`None`), this is the complete final
@@ -195,7 +195,7 @@ impl<T> UnorderedMessages<T> {
     /// // re-deliver "one" (a partial pass is not a causally closed boundary).
     /// assert_eq!(observer.checkpoint(), &Version::new());
     ///
-    /// // One more step finds nothing ready — completing the pass and
+    /// // One more step finds nothing ready, completing the pass and
     /// // absorbing its frontier into the checkpoint.
     /// assert!(observer.borrow_next().now_or_never().is_none());
     /// let checkpoint = observer.checkpoint().clone();

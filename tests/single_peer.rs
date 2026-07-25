@@ -67,7 +67,9 @@ proptest! {
     /// Every `Version` minted by a lone peer is totally ordered against
     /// every other — both within a single batch (the batch docs promise
     /// strictly increasing versions per action) and across successive
-    /// batches. With one party and no gossip there is no concurrency, so
+    /// batches.
+    ///
+    /// With one party and no gossip there is no concurrency, so
     /// any incomparable or equal pair would betray a versioning bug.
     #[test]
     fn local_versions_form_a_chain(

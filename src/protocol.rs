@@ -16,8 +16,9 @@ pub enum Protocol {
     /// message must be assembled whole in memory before it is sent: at
     /// high divergence the level message is unboundedly large, so a
     /// session can duplicate the set's own memory footprint. That
-    /// unbounded term is what [`V2`](Protocol::V2) removes — streaming reconciliation
-    /// under a fixed memory upper bound. V1 is kept for comparative
+    /// unbounded term is what [`V2`](Protocol::V2) removes.
+    ///
+    /// This protocol version is kept for comparative
     /// measurement, behind the `protocol-v1` cargo feature, off by
     /// default.
     ///

@@ -86,7 +86,9 @@ fn hops(pair: (Rumors<u64>, Rumors<u64>)) -> u32 {
 
 /// Asymmetric catch-up is priced by its disputes, not its size: a nearly
 /// empty replica pulling twenty thousand messages completes in ladder
-/// hops even at the zero-budget floor, because the pair of exchanged
+/// hops even at the zero-budget floor.
+///
+/// It completes because the pair of exchanged
 /// sizes derives floor dispute windows *and* the session genuinely has
 /// almost nothing to dispute — the transfer is supply, which streams
 /// outside the window. This is the honesty of the pair-based choice: if
@@ -122,7 +124,9 @@ fn asymmetric_catch_up_is_direction_independent() {
 }
 
 /// The zero-budget floor keeps its promise at wide mutual divergence:
-/// the session completes and converges — slowly, in waves, which the hop
+/// the session completes and converges.
+///
+/// It converges slowly, in waves, which the hop
 /// count must actually show (a fast floor would mean the capacities are
 /// not being applied), and boundedly (linear in the divergence, nothing
 /// worse).
@@ -151,8 +155,10 @@ fn zero_budget_serializes_but_completes() {
 
 /// Compounded backpressure cannot deadlock: one-byte link windows under
 /// zero-budget dispute windows — every buffer in the system at its
-/// minimum — still complete, witnessed deterministically (a `Pending`
-/// with no wake arranged would fail the run, not hang it).
+/// minimum — still complete.
+///
+/// Witnessed deterministically: a `Pending`
+/// with no wake arranged would fail the run, not hang it.
 #[test]
 fn one_byte_pipes_at_the_floor_stay_live() {
     let (left, right) = pair(0, 64, 64, 64);
@@ -205,7 +211,9 @@ fn growth_during_a_session_only_serializes() {
     );
 }
 
-/// The honesty claims survive a real clock. On genuinely elapsing timers,
+/// The honesty claims survive a real clock.
+///
+/// On genuinely elapsing timers,
 /// an asymmetric catch-up stays fast (ladder hops of real milliseconds),
 /// and a serialized session's waves burn real time in at least the
 /// quantity the virtual model predicts — the model may overcharge,

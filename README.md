@@ -46,16 +46,16 @@ error for sub-KB bodies, and overtakes the metadata around 10 KB; past that,
 you are paying to move your data, not to coordinate it, a cost no
 replication scheme escapes.
 
-**At the limits:** A link up to roughly an order of magnitude thinner (or a
-message rate an order of magnitude faster) than these bounds degrades
-gracefully rather than failing outright: peers may still converge, but may
-run stale in proportion to approximately the square of the bandwidth
-shortfall (derived: a session's metadata amortizes, falling roughly as the
-inverse square root of the backlog at realistic scales, so equilibrium
-repays a bandwidth deficit with its square in staleness). Past that, they
-will likely fall behind regardless of gossip frequency. In the other
-direction, past ~10 Gb/s, the network ceases to be the limit at all:
-message rate becomes limited by CPU, and set size becomes limited by RAM.
+**At the limits:** Up to roughly an order of magnitude past these bounds
+(a thinner link, or a faster message rate), peers degrade gracefully
+rather than failing outright: they may still converge, but may run stale
+in proportion to roughly the square of the bandwidth shortfall (derived: a
+session's metadata amortizes, falling roughly as the inverse square root
+of the backlog at realistic scales, so equilibrium repays a bandwidth
+deficit with its square in staleness). Past that, they will likely fall
+behind regardless of gossip frequency. In the other direction, past
+~10 Gb/s the network ceases to be the limit at all: CPU caps message
+rate, and RAM caps set size.
 
 ## When *shouldn't* you use it?
 
@@ -67,29 +67,26 @@ message rate becomes limited by CPU, and set size becomes limited by RAM.
 - **If you don't control the peers.** Peers trust one another: the protocol
   rejects malformed and mismatched sessions, but it is not Byzantine-tolerant.
   A compromised member can fabricate, redact, deny service, and violate the
-  linearity of peer identities that everything rests on — a violation the
-  model assumes absent, and which is mostly undetectable and unrecoverable.
+  linearity of peer identities that everything rests on (a violation the
+  model assumes absent, mostly undetectable, and unrecoverable).
   Authenticating peers and securing the transport are the application's job;
   the `link` module lists exactly what the protocol asks of the transport.
-- **If bandwidth is your scarce resource.** `rumors` is optimized to minimize
-  round-trip latency, but it pays for this in bandwidth: when reconciling small
-  divergences, payloads under ~10 KB use more bandwidth for metadata than for
-  messages. On the bright side, reconciling larger divergences amortizes much
-  of this cost: the more catching-up there is to do, the higher throughput
-  `rumors` can deliver. Even so, on metered, narrow, or high-loss links,
-  this crate strikes the wrong balance.
+- **If bandwidth is your scarce resource.** `rumors` buys low latency with
+  bandwidth: when reconciling small divergences, payloads under ~10 KB use
+  more bandwidth for metadata than for messages. Reconciling larger
+  divergences amortizes much of this cost, but on metered, narrow, or
+  high-loss links, this crate strikes the wrong balance.
 
 One boundary of the trust model is worth naming precisely. Message keys
 and subtree digests are BLAKE3: a `Key` binds a message's send version to
 its content at the full 32-byte width, while the reconciliation tree
 compares 16-byte truncated digests to save wire bytes. A *peer* never needs
-a hash collision — it holds write authority outright — so the residual
-adversary is a content author outside the peer set: someone who controls
-message content but never the version. Every send is stamped with a fresh
-causal version whose value under concurrent gossip churn is unpredictable,
-so mining a collision against the truncated digest would require predicting
-the exact insertion version fast. The version stamp is what denies
-precomputation.
+a hash collision (it holds write authority outright), so the residual
+adversary is a content author outside the peer set, who controls message
+content but never the version. Every send is stamped with a fresh causal
+version, unpredictable under concurrent gossip churn, so mining a
+collision against the truncated digest would require predicting the exact
+insertion version fast; the version stamp is what denies precomputation.
 
 ## Network membership is identity custody
 
@@ -99,28 +96,28 @@ to `Peer::seed` creates a new gossip network, and every other member
 joins by `Peer::bootstrap`ping from some already-bootstrapped peer, back
 along a chain of introductions that ends at the seed.
 
-Peers may also `Peer::retire` from the network, donating their identity to
-an arbitrary recipient. Identities are returned to circulation rather than
-discarded because peer identity consumes *identity space*: a peer's
-identity is a point in that shared space — a set of non-overlapping
-intervals — and every message's `Version` is expressed in terms of the
+Peers may also `Peer::retire` from the network, donating their identity
+to an arbitrary recipient. Identities are returned to circulation rather
+than discarded because peer identity consumes *identity space*: a peer's
+identity is a point in that shared space (a set of non-overlapping
+intervals), and every message's `Version` is expressed in terms of the
 tree of bootstrapped identities. Each `Peer::bootstrap` therefore widens
 timestamps a little, and each `Peer::retire` narrows them again. A peer
 that drops off without retiring strands its identity, and the universe's
-timestamps stay a little wider forever, wasting a few bits of space but not
-corrupting anything. (The identity machinery is `before`'s interval tree
-clocks; see its docs for the model and for the [paper it
+timestamps stay a little wider forever: a few wasted bits, nothing
+corrupted. (The identity machinery is `before`'s interval tree clocks;
+see its docs for the model and for the [paper it
 implements](https://gsd.di.uminho.pt/members/cbm/ps/itc2008.pdf).)
 
 At fleet scale, identity-space hygiene is worth a moment of design. Every
 bootstrap forks the provider's own identity, so the topology of
-introductions is the shape of the minted identities: large fleets should
-bootstrap with some kind of fan-out — neither one seed serving every
+introductions is the shape of the resulting identities: large fleets
+should bootstrap with some kind of fan-out, neither one seed serving every
 joiner nor each arrival introducing the next in a chain. Retire when you
 can, and give churny peers a `Bookmark` so a crashed peer's identity is
 reclaimed rather than stranded. Identity space may still strand and
 fragment over a long life; where the application can arrange it, the full
-remedy is a roll call — atomically have every participant retire its
+remedy is a roll call: atomically have every participant retire its
 identity, then reissue identities along a good topology. That solves both
 fragmentation and loss, but only if the application can guarantee that no
 peer left out of the roll call will ever resurrect: an application-level
@@ -130,14 +127,14 @@ obligation, not always possible.
 
 One replica has two faces, split by functionality. `Peer` is the unique
 `!Clone` anchor that holds the peer's identity; it appears only at the edges
-of a replica's life, where identity can move between peers: minting a
+of a replica's life, where identity can move between peers: seeding a
 universe (`Peer::seed`), joining one (`Peer::bootstrap`), leaving it
 (`Peer::retire`).
 
 Trading the anchor away (`Peer::into_rumors`) opens the working state:
 `Rumors` clones freely, and cloned handles may `send`,
 `redact`, observe `messages`,
-and `gossip` — among other operations — concurrently
+and `gossip` (among other operations) concurrently
 with one another. When all other clones are gone, `Rumors::try_into_peer`
 recovers the anchor. This temporal partitioning lets the compiler guarantee
 that your whole peer identity moves in or out only when you own it
@@ -145,17 +142,17 @@ exclusively.
 
 The `Peer` docs walk the full lifecycle as one runnable example,
 including every retirement outcome and bootstrapping a universe without
-a distinguished first peer. For a guided first encounter — two peers from
+a distinguished first peer. For a guided first encounter (two peers from
 an empty project through send, gossip, and redaction, with the output each
-step prints — start at `tutorial`. For how a session actually reconciles
-two replicas — the descent, the disjoint frontier, why deletion needs no
-tombstones, and how the design compares to its neighbors — read
+step prints), start at `tutorial`. For how a session actually reconciles
+two replicas (the descent, the disjoint frontier, why deletion needs no
+tombstones, and how the design compares to its neighbors), read
 `reconciliation`.
 
 ## Example
 
-Two peers, one universe, one message, one gossip session. Shown whole —
-nothing hidden — as it would sit in a `main.rs` (the async runtime here is
+Two peers, one universe, one message, one gossip session. Shown whole,
+nothing hidden, as it would sit in a `main.rs` (the async runtime here is
 Tokio for convenience; see [Runtime independence](#runtime-independence)):
 
 ```rust
@@ -163,7 +160,7 @@ use rumors::Peer;
 
 #[tokio::main]
 async fn main() -> Result<(), rumors::Error> {
-    // The universe's first peer mints it; every later peer bootstraps in.
+    // The universe's first peer creates it; every later peer bootstraps in.
     let alice = Peer::<String>::seed().into_rumors();
 
     // A bare `send` statement commits when its `Batch` drops, right here.
@@ -212,7 +209,7 @@ async fn main() -> Result<(), rumors::Error> {
   causal delivery.
 - `Changes` (`Rumors::changes`) is the **live signal, no content**:
   one coalesced `()` per observed advance of the set, for waking work
-  that reacts to change without consuming it — gossip drivers,
+  that reacts to change without consuming it: gossip drivers,
   persist-on-change, UI refresh. It is not delivery; pair it with a
   checkpoint-bearing observer for that.
 
@@ -221,14 +218,10 @@ the sound resume point for delivery across restarts. Its docs state exactly
 what a resume re-observes, and why folding the yielded versions yourself is
 not a substitute.
 
-**Deletions are never delivered as events.** Observers deliver messages; a
-redacted message simply stops being live, and no redaction object exists
-anywhere for an observer to yield (`Rumors::redact` explains why none is
-needed). A consumer maintaining a projection of the live set should
-therefore wake on `Changes` and diff the keys it tracks against a fresh
-`Snapshot`'s (`Snapshot::get` or `Snapshot::iter`). That same read
-path — observation, not `send` — is also where the keys
-for your own messages come back.
+**Deletions are never delivered as events.** A redacted message simply
+stops being live, and no redaction object exists anywhere for an observer
+to yield (`Rumors::redact` explains why none is needed); an application
+that needs deletion events sends them as ordinary messages of its own.
 
 ## Transport: bring a `Link`
 
@@ -250,30 +243,36 @@ and cancellation.
 Sessions and observers are plain futures and streams, driven entirely by
 the caller. The I/O traits are Tokio's runtime-independent
 `AsyncRead` and `AsyncWrite`;
-the crate itself requires no Tokio runtime, spawning, sockets, or timers —
-the examples spawn with Tokio for convenience only. Runtime-independent is
-not thread-model-independent, though:
-the `link` traits require `Send` (and `Connector` additionally
-`Sync + 'static`) of a transport and its stream halves.
+no Tokio runtime, spawning, sockets, or timers are required by this crate.
 
 ## Wire compatibility
 
-A session's version check keys on an internal wire-format constant,
-deliberately not the crate version: crate upgrades are wire-compatible
-with one another unless that constant was bumped, and any release that
-changes the pinned wire bytes is a wire break and bumps it.
-
 Every session opens with a fixed 25-byte preamble carrying
 `PROTOCOL_MAGIC`, the selected `Protocol`'s version, the network, and
-the session intent. It rejects a counterparty that does not speak
-`rumors`, or speaks an incompatible version, before trusting any
-peer-declared frame length (`Error::MagicMismatch`,
-`Error::VersionMismatch`).
+session intent.
+A counterparty that is not speaking `rumors`, or speaks an incompatible
+version, is rejected before any peer-declared frame length is trusted
+(`Error::MagicMismatch`, `Error::VersionMismatch`).
 `Protocol::V2` is the default; `Protocol::V1` (behind the `protocol-v1`
 cargo feature) can be selected on an established `Peer` with
 `Peer::protocol`, or while joining with
 `Bootstrap::protocol`. Both endpoints must select the same
 protocol.
+
+## Cargo features
+
+Every feature is off by default.
+
+- `conformance`: the public validation suite for caller-built `link`
+  instantiations (the `conformance::link` module). Enable it from a
+  dev-dependency; it is safe, though pointless, in an application.
+- `protocol-v1`: the strictly alternating `Protocol::V1`, kept for wire
+  compatibility with V1 peers and comparative measurement. Enabling it
+  compiles a large per-height state-machine surface into the binary,
+  which is why it is off by default.
+- `test-internals`: this crate's own test scaffolding, enabled through
+  its self-referential dev-dependency. Never enable it in an
+  application.
 
 ## Stability and testing
 
@@ -285,5 +284,9 @@ The crate is validated by property tests stating the model's invariants
 (convergence under arbitrary gossip schedules, deletion honoring, observer
 soundness) and by the wire-format snapshots. Found a gap? An issue or a
 test is very welcome.
+
+Contributing? Conventions, hard rules, and the pre-commit checklist live
+in `AGENTS.md` at the repository root; `just gate` must pass before every
+commit.
 
 <!-- cargo-rdme end -->

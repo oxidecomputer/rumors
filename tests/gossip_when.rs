@@ -143,7 +143,9 @@ async fn pending_when_serves_remote_initiations() {
     }
 }
 
-/// Suppression is exact, both ways. A tick with nothing new since this
+/// Suppression is exact, both ways.
+///
+/// A tick with nothing new since this
 /// connection converged initiates nothing — the echo tick that
 /// [`rumors::Rumors::changes`] fires after a session's own join produces no
 /// second session — while a tick after a real change always initiates.
@@ -188,7 +190,9 @@ async fn suppression_swallows_echoes_not_news() {
 
 /// An interval-style tick on a converged connection costs nothing, and the
 /// same tick stream initiates again as soon as the local frontier has
-/// really moved — the anti-entropy property heartbeats rely on, pinned
+/// really moved.
+///
+/// This is the anti-entropy property heartbeats rely on, pinned
 /// with hand-fed ticks instead of a timer.
 #[tokio::test(flavor = "current_thread")]
 async fn heartbeat_ticks_are_free_until_divergence() {
@@ -310,7 +314,9 @@ async fn when_exhaustion_then_hangup_both_end_cleanly() {
 
 /// Dropping a driver mid-session commits nothing: both replicas are
 /// byte-identical to their pre-session state, and a fresh connection
-/// afterwards converges the pair from scratch. The drop forfeits the
+/// afterwards converges the pair from scratch.
+///
+/// The drop forfeits the
 /// connection — the price the crate docs' "What a session promises"
 /// section documents — and poisoning enforces it: a reuse attempt on
 /// either end's link fails fast with [`Error::LinkPoisoned`].
@@ -376,7 +382,9 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
 
 /// A driver started on an already-poisoned link yields its terminal
 /// [`Error::LinkPoisoned`] immediately, even though its policy stream
-/// never ticks and no peer drives the other end: the poison check precedes
+/// never ticks and no peer drives the other end.
+///
+/// The poison check precedes
 /// the driver's idle select, so a dead link cannot masquerade as a live,
 /// quietly parked driver.
 #[test]
@@ -529,7 +537,9 @@ async fn a_dropped_driver_does_not_block_peer_reclaim() {
 proptest! {
     /// A connection severed at an arbitrary byte offset — either side's
     /// write direction, any budget, including zero — fails loudly and
-    /// recoverably: no hang, each driver ends after at most one terminal
+    /// recoverably.
+    ///
+    /// That is: no hang, each driver ends after at most one terminal
     /// `Err`, each replica still holds its own sends and nothing beyond
     /// the union (a torn session commits all of a reconciliation or none
     /// of it), a session `Ok` from either driver certifies the pair had
@@ -616,7 +626,9 @@ proptest! {
 }
 
 /// One step of a chaos script: a commit on either side, a tick to either
-/// driver, or letting the schedulers run for a few polls. Ticks and commits
+/// driver, or letting the schedulers run for a few polls.
+///
+/// Ticks and commits
 /// are deliberately decoupled — a tick may arrive with nothing new (must
 /// suppress), late (covering several commits), or while a session is
 /// already in flight on the same or the opposite side.
@@ -643,11 +655,13 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 
 proptest! {
     /// Chaos: under *any* interleaving of commits, ticks, and scheduler
-    /// progress on both sides of one connection — simultaneous initiations,
-    /// ticks racing in-flight sessions, suppressed ticks, idle pumps — no
-    /// session errors, every driver ends cleanly once its tick source
-    /// closes, and the pair converges on exactly the union of both sides'
-    /// sends.
+    /// progress on both sides of one connection, no session errors and
+    /// full convergence.
+    ///
+    /// The interleavings include simultaneous initiations, ticks racing
+    /// in-flight sessions, suppressed ticks, and idle pumps. Every
+    /// driver ends cleanly once its tick source closes, and the pair
+    /// converges on exactly the union of both sides' sends.
     #[test]
     fn chaotic_tick_interleavings_converge_without_error(
         script in proptest::collection::vec(op_strategy(), 0..48),

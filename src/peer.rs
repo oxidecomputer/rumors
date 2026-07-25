@@ -126,8 +126,9 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 /// whether it or its peer should dominate.
 ///
 /// A reasonable such metric ships inside the error itself: compare its
-/// `local_min_events` against its `remote_min_events` — the greater minimal
-/// event count wins, with total comparison on [`Network`] breaking ties.
+/// `local_min_events` against its `remote_min_events`. The greater minimal
+/// event count wins, with ties broken by comparing the two [`Network`] ids
+/// (their ordering is total).
 /// Each side declared its count in the session's handshake, so both apply
 /// the rule from the one error alone, with nothing further to fetch or
 /// race, and agree without coordination: the greater persists in its
@@ -213,12 +214,12 @@ impl<T> Peer<T> {
     /// Begin joining an existing universe: the [`Bootstrap`] configuration
     /// for one session against an established provider.
     ///
-    /// [`Bootstrap::join`] runs the session and mints the brand-new peer;
+    /// [`Bootstrap::join`] runs the session and returns the brand-new peer;
     /// its docs state the session contract (the mutual-bootstrap bail, what
     /// a failure at the very end can cost, the unbookmarked arrival). The
-    /// builder's settings — [`Bootstrap::protocol`],
+    /// builder's settings ([`Bootstrap::protocol`],
     /// [`Bootstrap::sync_memory_budget`],
-    /// [`Bootstrap::target_message_size`] — are the peer-to-be's own,
+    /// [`Bootstrap::target_message_size`]) are the peer-to-be's own,
     /// selected before it exists so the bootstrap session and every
     /// session after it run configured. The zero-configuration join is
     /// `Peer::bootstrap().join(&mut link)`.
@@ -230,14 +231,14 @@ impl<T> Peer<T> {
     /// returning.
     ///
     /// A joining peer can skip this step: selecting the bookmark on the
-    /// builder ([`Bootstrap::bookmark`]) mints the peer already attached,
-    /// with no window in which a crash could strand the received
+    /// builder ([`Bootstrap::bookmark`]) hands back the peer already
+    /// attached, with no window in which a crash could strand the received
     /// identity unrecorded.
     ///
     /// This peer's own identity is [`load`](crate::Bookmark::load)ed into the
     /// record and [`store`](crate::Bookmark::store)d back *eagerly*, here, so a
     /// freshly received fork cannot strand on a crash before the first gossip.
-    /// Reclaiming *other* stranded identities — which grows the live party — is
+    /// Reclaiming *other* stranded identities (which grows the live party) is
     /// left to the first gossip, behind that path's persist gate, never done at
     /// attach.
     ///
@@ -325,9 +326,10 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// wider than the derived capacities drains in capacity-sized
     /// waves, at the worst-case factor the trade-off table below
     /// prices; any budget, including zero, leaves every session
-    /// deadlock-free at one disputed subtree in flight per level.
+    /// deadlock-free, with at least one disputed subtree in flight per internal tree level.
     /// The budget is per session: concurrent gossip on separate links
-    /// carries one envelope each. The default,
+    /// carries one envelope each; for a global application memory cap, you must limit
+    /// the concurrency of your gossip sessions. The default,
     /// [`DEFAULT_SYNC_MEMORY_BUDGET`], is 512 MiB.
     ///
     /// Each session divides the budget into fixed per-level channel
@@ -349,7 +351,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// - **Encoded wire messages in hand**: the run buffers stated
     ///   above, priced by
-    ///   [`target_message_size`](Self::target_message_size) — up to
+    ///   [`target_message_size`](Self::target_message_size), up to
     ///   [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
     ///   `target_message_size` per direction.
     /// - **The replica itself.** The live set's resident bytes are the
@@ -367,105 +369,96 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// # Choosing a budget
     ///
-    /// You arrive holding two numbers. `BDP = bandwidth × RTT` is your
-    /// link's bandwidth-delay product in bytes — the one number your
-    /// link contributes; measure it. `m` is your corpus's mean encoded
-    /// record size, the borsh-encoded payload of a disputed message's
-    /// leaf record. Two constants are derived and pinned: the 4865 B
-    /// per-scope session envelope by exact recomputation, the 28 B
-    /// per-message wire overhead by deterministic byte-count
-    /// calibration (`tests/dispute_wire.rs`). Worked figures below are
-    /// at the specification BDP of 12.5 MB, where 1 Gbps × 100 ms and
-    /// 100 Gbps × 1 ms coincide — substitute your own measurement.
+    /// The intuition: the budget buys parallelism on the wire. A
+    /// session keeps a window of disputed subtrees in flight at once,
+    /// each holding a few kilobytes of memory while it waits for its
+    /// reply. A window wide enough to keep the link's whole
+    /// bandwidth-delay product occupied runs at wire speed; a narrower
+    /// window makes the session stop and wait for replies in waves,
+    /// spending extra round trips instead of extra memory.
     ///
-    /// The table at the bottom is the sizing reference: each row's
-    /// window comes from the session derivation itself, and each cell
-    /// applies the measured wave form `slowdown = max(1,
-    /// BDP_messages / K)` at `BDP_messages = BDP / (28 + m)`. For
-    /// mental arithmetic, one closed form approximates the whole
-    /// table:
+    /// Sizing starts from two numbers. Your link contributes one:
+    /// `BDP = bandwidth × RTT`, the bytes in flight on a full pipe;
+    /// measure it. Worked figures below use the specification BDP of
+    /// 12.5 MB, where 1 Gbps × 100 ms and 100 Gbps × 1 ms coincide;
+    /// substitute your own measurement. Your corpus contributes the
+    /// other: `m`, the mean encoded record size (the borsh-encoded
+    /// payload of a disputed message's leaf record). Two constants
+    /// then convert between bytes and disputes, both derived and
+    /// pinned: each in-flight dispute (one disputed subtree, the unit
+    /// the table below counts as a disputed scope) charges the budget
+    /// a 4865 B envelope (recomputed exactly by test), and each disputed
+    /// message costs 28 B of wire overhead on top of its record
+    /// (calibrated by deterministic byte counts,
+    /// `tests/dispute_wire.rs`).
+    ///
+    /// For mental arithmetic, one closed form estimates the whole
+    /// trade. A session's worst-case slowdown, relative to a session
+    /// limited only by wire time, is about
     ///
     /// > `slowdown ≈ max(1, BDP × 4865 / (budget × (28 + m)))`
     ///
-    /// It prices every in-flight scope at the envelope's saturation
-    /// average. The form overstates the window by roughly
-    /// `F / budget`, where `F` is the corpus-fixed component of the
-    /// real charge: the slowdown it returns runs ~2× low at a 10 MB
-    /// budget, ~1.5× low at 16 MiB, and within a few percent past
-    /// ~300 MB. It prices no population ceiling, so where windows
-    /// reach corpus scale the solve's own numbers — the table and the
-    /// pinned crossover — replace it. Measured: hop-exact sessions at
-    /// 10–31 MB budgets on the design corpus ran 1.3–1.45× the form's
-    /// figure (`tests/tradeoff_probe.rs`).
+    /// Read it as a ratio of two message counts: how many disputed
+    /// messages the wire holds, `BDP / (28 + m)`, against how many the
+    /// budget keeps in flight, `budget / 4865`. Slowdown 1 is
+    /// wire-time-optimal: bandwidth-bound stays bandwidth-bound.
     ///
-    /// ## What minimal record size runs at minimal latency, given my BDP and budget?
+    /// The estimate has a stated accuracy band. It overstates the
+    /// window by roughly `F / budget`, where `F` is the corpus-fixed
+    /// component of the real charge, so the slowdown it returns runs
+    /// ~2× low at a 10 MB budget, ~1.5× low at 16 MiB, and within a
+    /// few percent past ~300 MB. It also prices no population ceiling,
+    /// so where windows reach corpus scale, the exact solve's numbers
+    /// (the table below, and the pinned crossover) replace it.
+    /// Measured: sessions whose serialized one-way trips are counted
+    /// exactly on a virtual clock, at 10–31 MB budgets on the design
+    /// corpus, ran 1.3–1.45× the form's figure
+    /// (`tests/tradeoff_probe.rs`).
     ///
-    /// The closed-form estimate is `m* ≈ BDP × 4865 / budget − 28`,
-    /// about 85 B at the default and spec BDP. The solve itself,
-    /// evaluated self-consistently — each record size at its own
-    /// BDP-scale corpus — puts the default's crossover at **m* =
-    /// 51 B**, pinned by `default_crossover_matches_the_solve`: the
-    /// default imposes no window-induced serialization for any corpus
-    /// whose mean encoded record size is at least 51 B. Above the
-    /// crossover, the in-flight disputes' own transfer time covers the
-    /// round trip; the estimate is the safe-side reading.
+    /// The ballpark answers, at the specification BDP:
     ///
-    /// ## What budget ensures minimal latency, given my BDP and record size?
+    /// - **Is the default enough?** For any corpus whose mean encoded
+    ///   record size is at least 51 B, yes: the default imposes no
+    ///   window-induced serialization at all, because the in-flight
+    ///   disputes' own transfer time covers the round trip. That
+    ///   51 B crossover comes from the exact solve, evaluated
+    ///   self-consistently (each record size at its own BDP-scale
+    ///   corpus: the specification BDP in `m`-sized records, per side)
+    ///   and pinned by `default_crossover_matches_the_solve`;
+    ///   the closed form's safe-side estimate is ~85 B.
+    /// - **What budget removes the wait entirely?** About
+    ///   `BDP × 4865 / (28 + m)` bytes. The design record (`m = 172`)
+    ///   needs ~304 MB, where the solve agrees with the form to three
+    ///   digits (this is the design point the envelope is pinned at).
+    ///   A minimal 8-byte-record corpus needs ~1.7 GB by the form,
+    ///   ~1.11 GB by the solve: population caps thin the deep charge
+    ///   at BDP-scale corpora, so the estimate is conservative there.
+    /// - **What does a smaller budget cost?** Smooth latency, never
+    ///   memory, and only on the interleaved dispute walk (bulk supply
+    ///   runs stream outside the window). `u64` records at the default
+    ///   run at ~4.2× wire time for a BDP-scale corpus, and the factor
+    ///   grows slowly with set size as the derived window narrows:
+    ///   ~14.8× at 10⁷ messages, ~27.5× at 10¹⁰ (all derived from the
+    ///   solve). `tests/window_operator.rs` holds the wave model
+    ///   against measured sessions on a bandwidth-limited link.
     ///
-    /// The closed-form estimate is `budget* ≈ BDP × 4865 / (28 + m)`.
-    /// At the spec BDP the design record (`m = 172`) needs ~304 MB —
-    /// the solve agrees to three digits, this being the design point
-    /// the envelope is pinned at — and a minimal 8-byte-record corpus
-    /// needs ~1.7 GB by the form, ~1.11 GB by the solve (population
-    /// caps thin the deep charge at BDP-scale corpora, so the estimate
-    /// is conservative here).
-    ///
-    /// ## What slowdown will I incur, given BDP, record size, and budget?
-    ///
-    /// Read your budget's table row (or the form, within its band),
-    /// relative to wire-time-optimal: slowdown 1 means bandwidth-bound
-    /// stays bandwidth-bound. At the spec BDP, `u64` records at the
-    /// default run at ~4.2× for a BDP-scale corpus, and the factor
-    /// grows slowly with set size as the derived window narrows (~14.8×
-    /// at 10⁷ messages, ~27.5× at 10¹⁰; all derived from the solve). The
-    /// factor prices the interleaved dispute walk only — supply runs
-    /// stream outside the window — and costs smooth latency, never
-    /// memory. `tests/window_operator.rs` holds the wave model against
-    /// measured sessions on a bandwidth-limited link, and
-    /// `tests/dispute_wire.rs` pins the per-message wire law the
-    /// record size `m` enters through.
-    ///
-    /// The table below gives the worst-case wire-time slowdown by
-    /// budget and mean encoded record size `m`, from the measured wave
-    /// form `slowdown = max(1, BDP_messages / K)` at the specification
-    /// bandwidth-delay product of 12.5 MB (1 Gbps × 100 ms and
-    /// 100 Gbps × 1 ms coincide there). Each row's window `K` (second
-    /// column, in disputed scopes) is derived by the same solve
-    /// sessions run at handshake time, evaluated at the design
-    /// session — 62500-message corpora a side, the scale the pinned
-    /// per-scope envelope is denominated at; larger corpora derive
-    /// narrower windows. `BDP_messages = BDP / (28 + m)`. Cells are
-    /// clamped at 1.0×, which is wire-time-optimal (bandwidth-bound
-    /// stays bandwidth-bound).
-    ///
-    /// Provenance: the 28 B per-message wire cost is calibrated by
-    /// deterministic byte counts (`tests/dispute_wire.rs`); the wave
-    /// form is measured (`tests/window_knee.rs`,
-    /// `tests/window_operator.rs`).
-    ///
-    /// Two subtleties. Rows whose window reaches the design session's
-    /// population ceiling (62500 scopes: every stage granted its full
-    /// population envelope, so the stated corpus itself is never
-    /// window-constricted) read differently: in those rows the
-    /// sub-design-record cells are upper envelopes at the stated
-    /// corpus, not predictions for yours. A corpus at such a column's
-    /// own BDP scale derives its own, wider window (`m = 8` at the
-    /// default: 82214 scopes, ≈4.2×). And the default's slowdown-1
-    /// crossover, derived self-consistently from the solve (corpus =
-    /// BDP / (28 + m) a side), is m* = 51 B. The factor prices the
-    /// interleaved dispute walk only — supply runs stream outside the
-    /// window — and costs latency, never memory: a session serializes
-    /// into capacity-sized waves, deadlock-free at any budget.
+    /// The table below is the full sizing reference: worst-case
+    /// wire-time slowdown by budget and mean encoded record size `m`,
+    /// with cells clamped at the 1.0× optimum. Each row's window `K`
+    /// (second column, in disputed scopes) is derived by the same
+    /// solve sessions run at handshake time, evaluated at the design
+    /// session of 62500-message corpora a side; larger corpora derive
+    /// narrower windows. Each cell then applies the measured wave form
+    /// `slowdown = max(1, BDP_messages / K)`, with
+    /// `BDP_messages = BDP / (28 + m)` evaluated at the specification
+    /// BDP of 12.5 MB (the wave form is measured:
+    /// `tests/window_knee.rs`, `tests/window_operator.rs`). One
+    /// caution when reading it: in rows whose window reaches the
+    /// design session's population ceiling of 62500 scopes (every
+    /// stage granted its full population envelope), the cells for
+    /// records smaller than the design record are upper envelopes at
+    /// the stated corpus, not predictions for yours; a corpus at such
+    /// a column's own BDP scale derives its own, wider window.
     ///
     #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
     #[must_use]
@@ -494,9 +487,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     ///
     /// When the default protocol supplies a subtree the counterparty lacks,
     /// its leaves ship as *runs*: one wire message carrying a delimited
-    /// sequence of leaf records. Batching is chunked by bytes — a run
+    /// sequence of leaf records. Batching is chunked by bytes: a run
     /// flushes once appending the next leaf would push the message's full
-    /// encoded size, framing included, past `bytes` — and every run carries
+    /// encoded size, framing included, past `bytes`. Every run carries
     /// at least one leaf, so a message whose single leaf alone outgrows the
     /// target ships anyway and exceeds it. Runs never span reconciliation
     /// units: batching stops at each supplied subtree's last leaf.
@@ -518,8 +511,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// different settings interoperate.
     ///
     /// The default, [`DEFAULT_TARGET_MESSAGE_SIZE`], is the byte size of
-    /// the wire's maximally disputed reply — the decode side's documented
-    /// per-reply memory unit — so default batching never raises the wire's
+    /// the wire's maximally disputed reply (the decode side's documented
+    /// per-reply memory unit), so default batching never raises the wire's
     /// established memory ceiling. Any value is safe: zero degrades to one
     /// leaf per message, and values above the wire's framing ceiling
     /// (`u32::MAX` less the frame envelope) saturate to it, so a run built
@@ -614,7 +607,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
 
     /// Alias this set's live party for invariant assertions in tests:
     /// compare it, [`join`](Party::join) it into an accounting fold, or test
-    /// [`is_disjoint`](Party::is_disjoint) — never use it as an identity.
+    /// [`is_disjoint`](Party::is_disjoint); never use it as an identity.
     ///
     /// The alias shares the live party's identity space without forking it,
     /// so treating it as a participant violates the linearity everything

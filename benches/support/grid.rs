@@ -84,7 +84,9 @@ pub struct Cell {
 impl Cell {
     /// The per-side divergence a single reconciliation must transfer: the
     /// `differing` messages plus the `redacted` deletions the *other* peer
-    /// originated. Throughput is charged against this, not the shared size:
+    /// originated.
+    ///
+    /// Throughput is charged against this, not the shared size:
     /// reconciliation cost tracks the difference between the peers, not how
     /// much they already agree on. Zero for the identical corner.
     pub fn divergence(&self) -> u64 {

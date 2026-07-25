@@ -162,7 +162,9 @@ fn delivery_order_is_replica_independent() {
 
 /// Causal order holds *across* passes, not just within one: messages
 /// delivered live (pass by pass, interleaved with sends and gossip) never
-/// invert against earlier deliveries, because a later pass can never
+/// invert against earlier deliveries.
+///
+/// Order holds because a later pass can never
 /// contain a causal predecessor of an earlier pass's message.
 #[test]
 fn live_passes_preserve_causal_order_cumulatively() {
@@ -189,9 +191,13 @@ fn live_passes_preserve_causal_order_cumulatively() {
 }
 
 /// The resume point lags the staged backlog: after delivering part of a
-/// backlog, `checkpoint()` still names the batch's range start, so a resume
+/// backlog, `checkpoint()` still names the batch's range start.
+///
+/// A resume therefore
 /// re-delivers the partial batch (at-least-once) rather than losing the
-/// undelivered remainder; once the backlog drains, the checkpoint catches up
+/// undelivered remainder.
+///
+/// Once the backlog drains, the checkpoint catches up
 /// and a resume observes nothing.
 #[test]
 fn checkpoint_lags_until_the_backlog_drains() {
@@ -228,10 +234,11 @@ fn checkpoint_lags_until_the_backlog_drains() {
     assert!(none.is_empty(), "a drained backlog's checkpoint is current");
 }
 
-/// A message staged and then redacted before delivery is still delivered —
-/// the same exactly-once-per-observed-liveness contract as the plain
-/// observer, where "observed" is the ingest — while a message redacted
-/// wholly before its first ingest never appears.
+/// A message staged and then redacted before delivery is still delivered,
+/// while a message redacted wholly before its first ingest never appears.
+///
+/// This is the same exactly-once-per-observed-liveness contract as the
+/// plain observer, where "observed" is the ingest.
 #[test]
 fn staged_then_redacted_is_still_delivered() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -357,10 +364,12 @@ fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
 
 proptest! {
     /// The whole contract under arbitrary interleaving of local sends,
-    /// concurrent peer sends, redactions, gossip, and partial drains: the
-    /// cumulative delivered sequence has no causal inversion, no key fires
-    /// twice, and the deliveries cover the final live set — causal order
-    /// costs nothing in coverage relative to the plain observer.
+    /// concurrent peer sends, redactions, gossip, and partial drains.
+    ///
+    /// The cumulative delivered sequence has no causal inversion, no key fires
+    /// twice, and the deliveries cover the final live set.
+    ///
+    /// Causal order costs nothing in coverage relative to the plain observer.
     #[test]
     fn causal_delivery_under_interleaving(ops in arb_ops()) {
         let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -416,7 +425,9 @@ proptest! {
 
     /// Checkpoint-resume discipline: stop at an arbitrary point in the backlog
     /// (or after a complete drain) and resume a fresh observer from
-    /// `checkpoint()`; nothing is lost, both runs are individually causal, and
+    /// `checkpoint()`; nothing is lost.
+    ///
+    /// Both runs are individually causal, and
     /// after a *complete* drain nothing re-delivers.
     #[test]
     fn checkpoint_resume_loses_nothing(

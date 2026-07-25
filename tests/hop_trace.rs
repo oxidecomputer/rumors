@@ -584,7 +584,9 @@ fn trace_bulk_initiator_session() {
 }
 
 /// Traces the empty session (identical peers): the protocol floor every
-/// divergent trace is read against. Pinned at 3 hops: the root-fan listing
+/// divergent trace is read against.
+///
+/// Pinned at 3 hops: the root-fan listing
 /// rides the greeting hop itself, and converged peers ask no question
 /// either way, so no further hop exists to pay.
 #[test]

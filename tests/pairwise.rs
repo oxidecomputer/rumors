@@ -109,7 +109,9 @@ proptest! {
         );
     }
 
-    /// Pairwise gossip is order-independent across three peers: routing
+    /// Pairwise gossip is order-independent across three peers.
+    ///
+    /// Routing
     /// everything through `a` first (`a·b` then `a·c`) and routing through
     /// `b` first (`b·c` then `a·b`) both leave `a` holding the same
     /// content — the union of all three.

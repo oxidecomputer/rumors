@@ -34,7 +34,9 @@ fn assert_fingerprints_equal<T: Send + Sync>(a: &rumors::Rumors<T>, b: &rumors::
 proptest! {
     /// Driving two async `Rumors` through `Rumors::gossip` over an in-memory
     /// [`rumors::link`] pair converges both on the union of the two
-    /// pre-session readouts — content already redacted on one side never
+    /// pre-session readouts.
+    ///
+    /// Content already redacted on one side never
     /// reaches the other, and both sides end byte-identical (`hash`) and
     /// causally equal (`latest`).
     #[test]

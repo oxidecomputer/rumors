@@ -80,8 +80,9 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
     (left, right)
 }
 
-/// A paused-clock wire's reported cost includes the virtual wire stall: a
-/// diverged session over a 10 ms one-way delay pays at least one
+/// A paused-clock wire's reported cost includes the virtual wire stall.
+///
+/// A diverged session over a 10 ms one-way delay pays at least one
 /// request/response, so the report is bounded below by `2 * delay` even
 /// though no wall time elapses on the wire.
 #[test]
@@ -98,9 +99,11 @@ fn paused_report_includes_virtual_stall() {
 }
 
 /// A paused-clock wire's virtual report is exact: it lands on the delay
-/// lattice (every pipe deadline is a whole number of delays past the
-/// runtime's epoch) and includes the diverged session's request/response
-/// stall, at least `2 * delay`.
+/// lattice.
+///
+/// (Every pipe deadline is a whole number of delays past the
+/// runtime's epoch.) The report includes the diverged session's
+/// request/response stall, at least `2 * delay`.
 #[test]
 fn virtual_report_is_exact_on_the_delay_lattice() {
     let delay = Duration::from_millis(10);
@@ -147,7 +150,9 @@ fn wall_clock_wire_refuses_virtual_report() {
 }
 
 /// A wall-clock wire's reported cost never exceeds externally measured
-/// elapsed time: the report is one interval strictly contained in the
+/// elapsed time.
+///
+/// The report is one interval strictly contained in the
 /// caller's, so summing wall and virtual components (two measurements of
 /// the same real interval) would breach this bound by double-counting.
 #[test]

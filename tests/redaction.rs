@@ -112,7 +112,9 @@ proptest! {
 
     /// Redacting a `Key` minted on a different peer that this peer
     /// has never observed has no effect on live content and is not
-    /// observed. Pins down the currently implemented behavior so
+    /// observed.
+    ///
+    /// Pins down the currently implemented behavior so
     /// future regressions surface; the public docs are silent on
     /// this corner.
     #[test]

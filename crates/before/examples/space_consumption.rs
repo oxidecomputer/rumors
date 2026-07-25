@@ -1,6 +1,8 @@
 //! Empirical ITC space-consumption simulation, reproducing the experiment in
-//! §6 ("Exercising ITCs") and Figure 1 of the ITC 2008 paper, but measuring
-//! *this crate's* packed encoding rather than the paper's Appendix A encoding.
+//! §6 ("Exercising ITCs") and Figure 1 of the ITC 2008 paper.
+//!
+//! Unlike the paper, this measures *this crate's* packed encoding rather
+//! than the paper's Appendix A encoding.
 //!
 //! # What the paper measured
 //!
@@ -220,8 +222,9 @@ fn main() {
 
 /// Run one simulation: build a population of `n` balanced stamps, then exercise
 /// it for `max_iters` iterations, recording the mean stamp size (as `(bits, bytes)`,
-/// under this crate's encoding) at each checkpoint. Advances `pb` by the number of
-/// iterations completed between checkpoints.
+/// under this crate's encoding) at each checkpoint.
+///
+/// Advances `pb` by the number of iterations completed between checkpoints.
 fn simulate(
     scenario: Scenario,
     n: usize,
@@ -282,7 +285,9 @@ fn step_data(clocks: &mut Vec<Clock>, rng: &mut StdRng) {
 }
 
 /// Process causality, static setting (paper §6): record one internal event, then
-/// exchange one anonymous message. `peek` yields an anonymous stamp `(0, e)`
+/// exchange one anonymous message.
+///
+/// `peek` yields an anonymous stamp `(0, e)`
 /// (the snapshot `Version`); the receiver joins it, leaving its own id intact.
 fn step_process(clocks: &mut [Clock], n: usize, rng: &mut StdRng) {
     // internal event on a random process.
@@ -300,7 +305,9 @@ fn step_process(clocks: &mut [Clock], n: usize, rng: &mut StdRng) {
 }
 
 /// Build `n` stamps from a single seed by balanced forking (paper §3: "starting
-/// from an initial seed stamp and forking several times"). For power-of-two `n`
+/// from an initial seed stamp and forking several times").
+///
+/// For power-of-two `n`
 /// this doubles the population each round, yielding a perfectly balanced id tree;
 /// other counts get a slightly uneven tail, which is harmless.
 fn build_population(n: usize) -> Vec<Clock> {
@@ -319,7 +326,9 @@ fn build_population(n: usize) -> Vec<Clock> {
 }
 
 /// Mean encoded size over all live stamps, as `(bits, bytes)` — this crate's
-/// packed encoding, not the paper's Appendix A encoding. Bits are the exact
+/// packed encoding, not the paper's Appendix A encoding.
+///
+/// Bits are the exact
 /// pre-pad length ([`Clock::encoded_bits`]); bytes are `encode().len()`, i.e.
 /// `⌈bits/8⌉` per stamp (the per-stamp ceiling is what biases the byte mean).
 fn mean_stamp_sizes(clocks: &[Clock]) -> (f64, f64) {

@@ -26,7 +26,9 @@ fn seeded<T>() -> Rumors<T> {
 
 /// A second message whose key shares its first byte with message `1`'s in
 /// this staging (keys `b8 11` and `b8 bc`, found by search), so the two
-/// sides dispute one root child: the initiator holds both leaves, the
+/// sides dispute one root child.
+///
+/// The initiator holds both leaves, the
 /// responder — forked between the two sends — only the first.
 const DISPUTED_SIBLING_VALUE: u64 = 151;
 

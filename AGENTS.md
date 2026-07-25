@@ -32,23 +32,47 @@ Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
 
 ## Commands
 
-The `justfile` is the source of truth for verification — every artifact in the
-workspace has a recipe there; `just --list` shows them all. The tiers:
+The `justfile` is the source of truth for verification: every artifact in
+the workspace has a recipe there, and the comment above each recipe explains
+what it checks and why. `just --list` is the tour. Run `just gate` and get
+it fully clean before every commit.
 
-- Inner loop: `just check`, `just test <filter>`, `just clippy`, `just fmt`.
-- The gate before every commit: `just gate` (fmt → doclint → testdoc →
-  readme-check → clippy → docs and docs-internal with `-D warnings` → tests →
-  doctests), all clean. The `docs-internal` pass renders private items, so
-  intra-doc links inside private modules rot loudly instead of silently. `doclint`
-  (`tools/doclint`) fails when a doc comment's first paragraph — the summary
-  rustdoc shows in index tables — outgrows a one-liner; move the rest below a
-  blank `///` line. `testdoc` requires every Rust test to explain the behavior
-  and invariant it protects. `readme-check` (`tools/readme`) re-derives each
-  crate's README from its crate-level rustdoc (via cargo-rdme, intra-doc links
-  stripped) and fails on drift; run `just readme` after editing crate docs.
-- `just all`: the full no-rot sweep — adds what the gate never touches (the
-  `before` feature matrix, the wasm target, bench builds, the fuzz targets,
-  the viz bundle).
+## Contributing a change
+
+One-time setup: everything `just gate` shells out to is a stable Rust
+toolchain (1.85 or later, for edition 2024) with clippy and rustfmt, a
+nightly toolchain (merged doctests), `just`, `cargo-nextest`, `cargo-rdme`,
+and python3 with bash (the `tools/` linters). `just ci` additionally wants
+the `wasm32-unknown-unknown` target, `wasm-pack`, `cargo-fuzz`, and
+node/npm.
+
+1. Iterate with the inner loop: `just check`, `just test <filter>`,
+   `just clippy`, `just fmt`.
+2. If you edited crate-level rustdoc, run `just readme`: the READMEs are
+   derived, never hand-edited.
+3. Write tests to the conventions below, and commit any proptest seed
+   files that appear.
+4. Run `just gate` and get it fully clean before every commit: it adds
+   everything the inner loop skips (the justfile's tier comments map it).
+5. Sweep your prose against the hard rules below before asking for
+   review; nothing in the gate checks them mechanically.
+
+## Writing tests
+
+- Unit and protocol tests live in a sibling file: `mod tests;` in the
+  source, `tests.rs` next to it. Cross-peer behavioral suites are category
+  binaries in `tests/`, built on `tests/common` (its module doc maps the
+  categories).
+- Give every test a doc comment stating, in English, the behavior and
+  invariant it protects. The gate's `testdoc` checks that the comment
+  exists; review holds it to the standard.
+- When the claim is a family (a boundary, an ordering, a schedule), state
+  it as a proptest invariant; the shrunk counterexample then rides along
+  as a committed seed. A point regression may stay a unit test.
+- A failing proptest writes a seed file automatically: under
+  `proptest-regressions/<module path>.txt` for `src/` tests, and next to
+  the binary for `tests/` suites. Commit every seed file that appears,
+  wherever it appears; never strip one from a diff.
 
 ## Hard rules
 
@@ -70,8 +94,13 @@ workspace has a recipe there; `just --list` shows them all. The tiers:
 - Never let two independently-`seed`ed universes interact; within a universe,
   linearity of parties is the invariant everything rests on (see the crate
   docs' safety rules).
-- Commit `proptest-regressions/**` seed files; never strip them from diffs.
+- Commit every proptest seed file (`proptest-regressions/**` and
+  `tests/*.proptest-regressions`); never strip them from diffs.
 - `tests/gossip_snapshot.rs` and the `insta` snapshots pin the wire format
-  byte-for-byte; re-accept them only after a deliberate protocol change.
+  byte-for-byte; re-accept them only after a deliberate protocol change,
+  which means a new protocol version, never a mutation of an existing one.
+  To re-accept deliberately: `just test-all`, then `cargo insta review`
+  (install: `cargo install cargo-insta`), then commit the updated
+  `tests/snapshots/*.snap`.
 - Redaction leaves no tombstones: deletion-honoring rides on version bounds.
   When reasoning about it, think version ceilings/floors, not markers.

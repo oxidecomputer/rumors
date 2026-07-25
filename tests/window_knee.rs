@@ -221,7 +221,9 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
 }
 
 /// Below the predicted knee the session is pipelined: hops are bounded
-/// by the phase ladder, not by scope count. Widening the divergence
+/// by the phase ladder, not by scope count.
+///
+/// Widening the divergence
 /// toward the knee may engage one more trie level — a couple of ladder
 /// hops — but never a per-wave cost, which is what separates it from the
 /// above-knee regime.
@@ -333,7 +335,9 @@ fn window_stall_hides_under_bandwidth_bound_transfer() {
 }
 
 /// Above the predicted knee the descent serializes into capacity-sized
-/// waves: a divergence at [`GROWTH_CELL`] eighths of its own session's
+/// waves.
+///
+/// A divergence at [`GROWTH_CELL`] eighths of its own session's
 /// binding capacity costs measurably more round trips than the
 /// pipelined session, in the direction and scale the derivation
 /// predicts.

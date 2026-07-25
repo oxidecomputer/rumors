@@ -164,9 +164,11 @@ fn wave_model_matches_measured_sessions() {
 }
 
 /// The parity pipe: tight enough that its BDP in messages sits inside
-/// the window a moderate budget can derive (the near-root structural cap
+/// the window a moderate budget can derive.
+///
+/// (The near-root structural cap
 /// bounds every window at this corpus scale to ~256 scopes, so the
-/// link's BDP must measure below that for parity to be reachable).
+/// link's BDP must measure below that for parity to be reachable.)
 const PARITY_PIPE: usize = 4 * 1024;
 
 /// A budget whose derived window is at or above the link's BDP in

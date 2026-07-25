@@ -44,7 +44,9 @@ fn async_known(peer: Rumors<u64>, vals: &[u64]) -> Rumors<u64> {
 // ---- wire harnesses ------------------------------------------------------
 
 /// Drive `retiree.retire` against `peer.gossip` concurrently over an in-memory
-/// link, returning the retiree's outcome. The retiree arrives as the sole
+/// link, returning the retiree's outcome.
+///
+/// The retiree arrives as the sole
 /// `Rumors` handle on its set and is converted into the unique `Peer`
 /// retirement requires.
 fn retire_into_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> Retire<u64> {
@@ -110,7 +112,9 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Option<Rumors<u6
 // ---- async behavioral tests ---------------------------------------------
 
 /// Retiring into a peer that has gossiped to convergence (equal versions, so it
-/// reflexively dominates) succeeds: the retiree is consumed ([`Retire::Retired`])
+/// reflexively dominates) succeeds.
+///
+/// The retiree is consumed ([`Retire::Retired`])
 /// and the absorbing peer's tree and version are untouched (no content crosses).
 #[test]
 fn retire_into_converged_peer_succeeds() {
@@ -154,8 +158,9 @@ fn empty_equal_version_retire_succeeds() {
 
 /// A retiree whose peer does *not* dominate it (the two diverged concurrently)
 /// is not declined: the session's gossip round reconciles the two, after
-/// which the peer dominates by construction and absorbs the retiree. Nothing
-/// either side held is lost.
+/// which the peer dominates by construction and absorbs the retiree.
+///
+/// Nothing either side held is lost.
 #[test]
 fn divergent_retiree_reconciles_then_retires() {
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -248,7 +253,9 @@ fn mutual_retire_declines() {
 
 /// A retiree that meets a *bootstrapping* counterparty is absorbed by it:
 /// the newcomer pulls the retiree's whole tree through the descent, then
-/// receives its whole party as the trailing frame — it *becomes* the
+/// receives its whole party as the trailing frame.
+///
+/// The newcomer *becomes* the
 /// retiree, in the same universe, and its subsequent originations are
 /// first-class.
 #[test]
@@ -345,7 +352,9 @@ proptest! {
     /// Retiring A into B over the wire (after gossiping to convergence)
     /// leaves B with the same live content (`hash`) and causal version
     /// (`latest`) as a plain gossip session in an identically-built
-    /// universe: the party hand-off moves no content and no version. Two
+    /// universe.
+    ///
+    /// The party hand-off moves no content and no version. Two
     /// independently-seeded universes built from identical action sequences
     /// are compared; `hash`/`latest` are network-independent, so the
     /// distinct `Network` ids do not perturb the comparison.

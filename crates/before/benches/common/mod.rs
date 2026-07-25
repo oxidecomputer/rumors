@@ -54,7 +54,9 @@ pub struct Plan {
 }
 
 /// Build a plan for a universe of `n` members partitioned into `groups` preserve groups
-/// (1 or 2). Every group is guaranteed at least one member, so each joins into a nonempty
+/// (1 or 2).
+///
+/// Every group is guaranteed at least one member, so each joins into a nonempty
 /// tree; the rest are spread across the groups, with about a third discarded to punch
 /// holes (structure) into the result.
 pub fn plan(rng: &mut StdRng, n: usize, groups: u8) -> Plan {
@@ -91,7 +93,9 @@ pub fn plan(rng: &mut StdRng, n: usize, groups: u8) -> Plan {
 
 /// The `groups` preserved [`Party`] trees for `plan`, built through the public API by the
 /// module's fork-a-universe / preserve-a-subset / join-each-group recipe (see the module
-/// doc); the preserved subset randomizes the tree shape.
+/// doc).
+///
+/// The preserved subset randomizes the tree shape.
 pub fn impl_parties(plan: &Plan, groups: u8) -> Vec<Party> {
     let mut universe = vec![Party::seed()];
     for &i in &plan.schedule {
@@ -136,8 +140,9 @@ pub fn oracle_parties(plan: &Plan, groups: u8) -> Vec<oracle::Party> {
 // ───────────────────────────── clock universes ─────────────────────────────
 
 /// The `groups` preserved [`Clock`] trees for `plan`, built by the module's
-/// fork-a-universe / preserve-a-subset / join-each-group recipe (see the module doc),
-/// additionally ticking each member `plan.ticks[m]` times to give it real history.
+/// fork-a-universe / preserve-a-subset / join-each-group recipe (see the module doc).
+///
+/// Additionally ticks each member `plan.ticks[m]` times to give it real history.
 pub fn impl_clocks(plan: &Plan, groups: u8) -> Vec<Clock> {
     let mut universe = vec![Clock::seed()];
     for &i in &plan.schedule {

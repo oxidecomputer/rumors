@@ -121,7 +121,9 @@ fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
 
 // ---- lifecycle schedules --------------------------------------------------
 
-/// One abstract lifecycle step. Peer indices are drawn from all of `usize`
+/// One abstract lifecycle step.
+///
+/// Peer indices are drawn from all of `usize`
 /// and resolved modulo the live fleet at execution time (the `sim.rs`
 /// idiom), so every generated schedule is valid at every fleet size and the
 /// shrinker can simplify steps independently.
@@ -148,7 +150,9 @@ fn arb_op() -> impl Strategy<Value = Op> {
     ]
 }
 
-/// Execute one step against the live fleet. Steps whose lifecycle
+/// Execute one step against the live fleet.
+///
+/// Steps whose lifecycle
 /// preconditions cannot be met at the current fleet size — gossip or
 /// retirement with no distinct counterparty — are skipped, so the fleet
 /// never empties and every executed session respects the API's contract.
@@ -194,9 +198,11 @@ fn run_schedule(ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
 
 proptest! {
     /// The Law of Disjointness survives arbitrary lifecycle schedules:
-    /// after every step of any mix of sends, plain gossip, bootstraps of
+    /// all live parties are pairwise disjoint after every step.
+    ///
+    /// The schedules mix sends, plain gossip, bootstraps of
     /// new peers off arbitrary members, and retirements of arbitrary
-    /// members into others, all live parties are pairwise disjoint.
+    /// members into others.
     #[test]
     fn parties_stay_pairwise_disjoint_under_lifecycle_schedules(
         ops in prop::collection::vec(arb_op(), 1..=20),
@@ -206,7 +212,9 @@ proptest! {
 
     /// Identity is conserved along arbitrary lifecycle schedules: the join
     /// of all live parties equals the baseline established at seed — the
-    /// whole `[0, 1)` interval — after every step. Bootstrap and retirement
+    /// whole `[0, 1)` interval — after every step.
+    ///
+    /// Bootstrap and retirement
     /// move and split identity but never create or destroy it, and clean
     /// sessions leave no donation in flight between steps.
     #[test]
@@ -222,8 +230,9 @@ proptest! {
 proptest! {
     /// A bootstrap donates exactly one fork: the newcomer's party is
     /// disjoint from the provider's remainder, and joining the two
-    /// reconstitutes exactly the provider's pre-session party — no other
-    /// identity moved, none was minted, none was lost.
+    /// reconstitutes exactly the provider's pre-session party.
+    ///
+    /// No other identity moved, none was minted, none was lost.
     #[test]
     fn bootstrap_donates_exactly_once(actions in arb_local_actions()) {
         let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -288,8 +297,11 @@ proptest! {
     /// Sequential bootstrap/retire cycles cannot fragment the provider's id
     /// tree: after each of `k` cycles of (bootstrap a newcomer off `P`,
     /// retire it back into `P`), `P`'s party is bit-for-bit its pre-cycle
-    /// baseline — the ITC join renormalizes the returned fork — so its
-    /// encoded size is constant, independent of `k`. The baseline equality
+    /// baseline.
+    ///
+    /// The ITC join renormalizes the returned fork, so the party's
+    /// encoded size is constant, independent of `k`.
+    /// The baseline equality
     /// is the shape bound: a design whose speculative forks leave
     /// non-contiguous shards grows this measure permanently and fails here.
     #[test]
@@ -326,8 +338,11 @@ proptest! {
 
     /// Out-of-order (interleaved) bootstrap/retire cycles renormalize too:
     /// bootstrap `m` newcomers off `P`, then retire them back into `P` in
-    /// an arbitrary order — the ITC join still collapses the id tree, and
-    /// `P`'s party returns bit-for-bit to its baseline. Retirement order
+    /// an arbitrary order.
+    ///
+    /// The ITC join still collapses the id tree, and
+    /// `P`'s party returns bit-for-bit to its baseline.
+    /// Retirement order
     /// does not determine the join's result; the region algebra does.
     #[test]
     fn party_returns_to_baseline_under_interleaved_cycles(

@@ -64,9 +64,11 @@ const REDACT_STEP: usize = 250;
 
 /// One-way link delays for the latency sweep, in whole milliseconds:
 /// Tokio's timer wheel rounds sub-millisecond deadlines up, so finer
-/// values would be quantized anyway. Zero anchors each line's intercept
-/// at the pure-compute cost; the wire-stall component scales linearly in
-/// the delay, so three nonzero decades pin the slope.
+/// values would be quantized anyway.
+///
+/// Zero anchors each line's intercept at the pure-compute cost; the
+/// wire-stall component scales linearly in the delay, so three nonzero
+/// decades pin the slope.
 const LATENCY_SWEEP_MS: &[u64] = &[0, 1, 10, 100];
 
 /// Divergence points measured under latency: the identical corner (the
@@ -79,9 +81,11 @@ const LATENCY_INSERTIONS: &[usize] = &[0, 5_000];
 const LATENCY_REDACTIONS: &[usize] = &[2_500];
 
 /// Per-stream in-flight window for the latency sweep: far above any
-/// session's per-stream transfer at `N = 10_000`, so measurements isolate
-/// round-trip serialization from bandwidth-delay throttling (the window
-/// caps per-stream throughput at `capacity / delay`).
+/// session's per-stream transfer at `N = 10_000`.
+///
+/// Measurements therefore isolate round-trip serialization from
+/// bandwidth-delay throttling (the window caps per-stream throughput at
+/// `capacity / delay`).
 const LATENCY_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// The protocols under measurement: V1 joins the sweep only when built in.

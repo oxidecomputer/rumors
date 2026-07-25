@@ -23,7 +23,9 @@ use std::mem::size_of_val;
 
 use rumors::{Peer, Rumors};
 
-/// Upper bound for the unawaited public futures. The budget is set
+/// Upper bound for the unawaited public futures.
+///
+/// The budget is set
 /// generously above the measured sizes (a few hundred bytes) so legitimate
 /// growth — an extra captured local, a slightly fatter error type —
 /// doesn't fail the test, but any *order-of-magnitude* growth (i.e. the
@@ -31,8 +33,10 @@ use rumors::{Peer, Rumors};
 const PUBLIC_FUTURE_BUDGET: usize = 1024;
 
 /// `Rumors::gossip` drives the full mirror protocol against a peer; the
-/// public future is type-erased via `mirror()`'s internal `Pin<Box<dyn
-/// Future>>` so the protocol's `Levels` chain doesn't appear in the
+/// public future is type-erased.
+///
+/// The erasure is `mirror()`'s internal `Pin<Box<dyn
+/// Future>>`, so the protocol's `Levels` chain doesn't appear in the
 /// caller's layout query.
 #[test]
 fn gossip_future_fits_budget() {

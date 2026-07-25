@@ -223,7 +223,9 @@ async fn staleness_evicts_and_revival_restores() {
 /// Two independently seeded universes meet: gossip surfaces a symmetric
 /// `NetworkMismatch`, exactly one side wins the merge rule, the loser
 /// bootstraps and resets — and its old content is gone while the winner's
-/// survives. A late `Reset` whose verdict was computed against the
+/// survives.
+///
+/// A late `Reset` whose verdict was computed against the
 /// already-abandoned universe is declined.
 #[tokio::test(flavor = "current_thread")]
 async fn network_merge_resets_the_loser() {
@@ -368,6 +370,7 @@ async fn heartbeats_do_not_accumulate() {
 /// A clean departure reaches the survivor's screen: the retiree's presence
 /// redaction and leave notice ride the retire session into the absorber,
 /// whose roster drops the departed peer after the outcome-triggered sweep.
+///
 /// (This is the demo's goodbye path: without it, every departed peer
 /// ghosts in every roster until the staleness sweep, and a retiring node
 /// walks dead candidates through dial timeouts.)

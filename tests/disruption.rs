@@ -49,11 +49,8 @@ fn mt_runtime() -> tokio::runtime::Runtime {
 // ---- intra-process ----------------------------------------------------------
 
 proptest! {
-    /// Under arbitrary concurrent gossip — overlapping sessions through
-    /// cloned [`Rumors`] handles, concurrent sends and redactions,
-    /// bootstraps served mid-chaos against the same shared state, and
-    /// retirements, over wires cut at arbitrary byte offsets — the global
-    /// party invariants hold:
+    /// Under arbitrary concurrent gossip over wires cut at arbitrary byte
+    /// offsets, the global party invariants hold:
     ///
     /// 1. every session failure is an injected I/O fault, never
     ///    `PartyOverlap` or a protocol violation;
@@ -62,6 +59,11 @@ proptest! {
     /// 4. when no hand-off was lost in flight, the surviving parties
     ///    fold-join back to exactly `Party::seed()` — the id-space is
     ///    conserved with no duplication and no leak.
+    ///
+    /// The chaos: overlapping sessions through
+    /// cloned [`Rumors`] handles, concurrent sends and redactions,
+    /// bootstraps served mid-chaos against the same shared state, and
+    /// retirements.
     #[test]
     fn disrupted_concurrent_gossip_upholds_party_invariants(plan in arb_plan()) {
         mt_runtime().block_on(async {
@@ -196,7 +198,9 @@ proptest! {
 
     /// The same four invariants as the intra-process simulation, with the
     /// fleet split across OS processes gossiping over real TCP sockets
-    /// severed at arbitrary byte offsets: child processes bootstrap from
+    /// severed at arbitrary byte offsets.
+    ///
+    /// Child processes bootstrap from
     /// the parent, gossip concurrently with it (and with its own
     /// in-process sessions), then retire home. Cleanly-retired children
     /// must additionally leave every one of their sends in the parent's
@@ -377,7 +381,9 @@ async fn run_proc_plan(plan: ProcPlan) {
 // ---- the child process ------------------------------------------------------
 
 /// Child-process entry point for `inter_process_disruption_*`: **not a
-/// test**. The parent re-executes this binary with `--exact sim_child
+/// test**.
+///
+/// The parent re-executes this binary with `--exact sim_child
 /// --ignored` and the script in the environment; without `CHILD_ADDR` set
 /// (e.g. under `--run-ignored`) it is a no-op. Outcomes travel back as
 /// exit codes (`EXIT_*`); invariant violations panic, which the parent

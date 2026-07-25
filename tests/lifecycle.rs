@@ -5,8 +5,8 @@
 //! these tests hold the public API to: `Ok` certifies both replicas
 //! committed and leaves the link reusable; `Err` and cancellation leave the
 //! local replica unchanged and the link poisoned, failing every further
-//! session on it fast; and the one irreducible residue — a lost final
-//! epilogue marker — surfaces as the distinguished post-commit
+//! session on it fast; and the one irreducible residue (a lost final
+//! epilogue marker) surfaces as the distinguished post-commit
 //! [`rumors::Error::Epilogue`]. The in-crate unit tests (`src/tests.rs`)
 //! pin the same mechanisms at exact byte boundaries with forged peers;
 //! these are their integration-tier complements, driving whole sessions
@@ -35,11 +35,11 @@ const DIVERGENT_MESSAGES: u64 = 32;
 ///
 /// Each poll is asserted still pending, so the cancellation provably lands
 /// mid-session; the reports separately prove wire traffic had begun and a
-/// data stream was already open at each end — the descent itself, not just
+/// data stream was already open at each end: the descent itself, not just
 /// the handshake, was in flight.
 const MID_FLIGHT_POLLS: usize = 4;
 
-/// Mint a party-disjoint pair with [`DIVERGENT_MESSAGES`] unshared
+/// Build a party-disjoint pair with [`DIVERGENT_MESSAGES`] unshared
 /// messages committed on each side.
 ///
 /// Construction is deterministic apart from the random network id (which
@@ -57,10 +57,11 @@ async fn divergent_pair() -> (Rumors<u64>, Rumors<u64>) {
     (a, b)
 }
 
-/// A gossip session cancelled mid-descent poisons the link on both ends:
-/// the next session attempt on the same link fails immediately with
-/// [`Error::LinkPoisoned`] — no wire traffic, no hang, byte-counters
-/// unchanged — and both replicas come through unharmed, converging fully
+/// A gossip session cancelled mid-descent poisons the link on both ends.
+///
+/// The next session attempt on the same link fails immediately with
+/// [`Error::LinkPoisoned`] (no wire traffic, no hang, byte-counters
+/// unchanged), and both replicas come through unharmed, converging fully
 /// over a fresh link.
 #[test]
 fn a_session_cancelled_mid_descent_poisons_the_link() {
@@ -122,10 +123,11 @@ fn a_session_cancelled_mid_descent_poisons_the_link() {
     assert_eq!(a.snapshot().len(), 2 * DIVERGENT_MESSAGES as usize);
 }
 
-/// Immediate teardown after `Ok` is safe under the epilogue: each side
-/// drops its entire link the instant its own `Ok` lands, so the slower
-/// side must conclude its session — through the peer's epilogue marker —
-/// from bytes already buffered in the link, with the deferred
+/// Immediate teardown after `Ok` is safe under the epilogue.
+///
+/// Each side drops its entire link the instant its own `Ok` lands, so the
+/// slower side must conclude its session, through the peer's epilogue
+/// marker, from bytes already buffered in the link, with the deferred
 /// supply-closure path absorbing the peer's vanished stream supply. Both
 /// sides conclude `Ok`, committed and converged.
 #[test]
@@ -153,8 +155,8 @@ fn dropping_the_link_immediately_after_ok_is_clean() {
 
 /// The peer-committed-or-not residue is distinguished and post-commit.
 ///
-/// With A's final epilogue marker lost — B's incoming bytes cut exactly one
-/// byte short of a clean session, measured from a byte-identical probe run —
+/// With A's final epilogue marker withheld (B's read budget is one byte
+/// short of a clean session, measured from a byte-identical probe run),
 /// A's `Ok` still lands, while B fails with [`Error::Epilogue`] rather
 /// than any pre-commit class, and B's replica nonetheless holds the fully
 /// reconciled content. A cut landing anywhere earlier would fail these
@@ -200,7 +202,7 @@ fn a_lost_epilogue_marker_is_distinguished_and_post_commit() {
     let (a_out, b_out) = block_on(async {
         // Each future owns its link: A's teardown after its `Ok` surfaces
         // as end-of-stream to B if it wins the race against the injected
-        // cut — either way B's marker read fails, post-commit.
+        // cut; either way B's marker read fails, post-commit.
         tokio::join!(
             async {
                 let mut a_link = a_link;

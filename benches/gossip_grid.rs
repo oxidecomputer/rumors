@@ -1,6 +1,7 @@
 //! Over-the-wire reconciliation benchmark: the divergence grid from
-//! [`grid`], reconciled through [`Rumors::gossip`] over a simulated wire —
-//! the protocol's full cost per cell: handshake, framing, and the
+//! [`grid`], reconciled through [`Rumors::gossip`] over a simulated wire.
+//!
+//! Each cell pays the protocol's full cost: handshake, framing, and the
 //! round-trip exchange chain over the divergence it must move.
 //!
 //! # The wire

@@ -1,5 +1,7 @@
 //! End-to-end coverage of [`rumors::Peer::target_message_size`] and its
-//! bootstrap-time twin [`rumors::Bootstrap::target_message_size`]: the knob
+//! bootstrap-time twin [`rumors::Bootstrap::target_message_size`].
+//!
+//! The knob
 //! threads from the public builders into the greeting, the session runs at
 //! the exchanged minimum of the two sides' settings, any minimum (including
 //! the degenerate zero) leaves reconciliation convergent, and the minimum
@@ -172,6 +174,7 @@ fn zero_target_emits_more_supply_frames_than_default() {
 /// A small nonzero target that fits one supply record of this corpus but
 /// not two: every multi-record run splits under it, in both supply
 /// directions, so both directions' margin self-checks below have teeth.
+///
 /// (A nonzero target still batching runs that fit is
 /// [`zero_target_emits_more_supply_frames_than_default`]'s claim, over a
 /// corpus whose runs fit the default; this test's corpus is chosen for
@@ -179,7 +182,9 @@ fn zero_target_emits_more_supply_frames_than_default() {
 const SMALL_TARGET: usize = 32;
 
 /// Messages each side originates for the binding-minimum capture: two per
-/// root-fan child on average. At this shape both supply directions ship
+/// root-fan child on average.
+///
+/// At this shape both supply directions ship
 /// their exclusive root-fan subtrees as whole multi-record runs — the
 /// responder in its opening reply, the initiator in its opening supplies —
 /// so the margin self-checks hold per direction and the tuple equalities

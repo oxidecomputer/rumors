@@ -21,16 +21,16 @@ use super::unordered::{Channel, TryNext};
 /// replicas of the same [`Rumors`](crate::Rumors).
 ///
 /// Unlike [`UnorderedMessages`](super::UnorderedMessages), this costs an
-/// additional amortized logarithm — in memory and in the time to retrieve
-/// each message — and both costs may burst arbitrarily large, up to the
-/// total size of the messages stored in the underlying
-/// [`Rumors`](crate::Rumors).
+/// extra amortized factor, logarithmic in the number of messages the set
+/// holds, in memory and in the time to retrieve each message, and both
+/// costs may burst arbitrarily large, up to the total size of the messages
+/// stored in the underlying [`Rumors`](crate::Rumors).
 ///
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
 pub struct CausalMessages<T> {
-    /// The watch channel or the in-flight wait for it to change — the same
+    /// The watch channel or the in-flight wait for it to change: the same
     /// owned-wait dance as [`UnorderedMessages`](super::UnorderedMessages) (see its field
     /// docs for why the wait is materialized).
     channel: Option<Channel<T>>,
@@ -39,8 +39,8 @@ pub struct CausalMessages<T> {
     /// so it runs ahead of delivery while the backlog drains.
     ingested: Version,
     /// The public resume point: [`checkpoint`](Self::checkpoint). Trails
-    /// [`ingested`](Self::ingested) — catching up exactly when the staged
-    /// backlog empties — so that resuming from it never skips a staged,
+    /// [`ingested`](Self::ingested), catching up exactly when the staged
+    /// backlog empties, so that resuming from it never skips a staged,
     /// undelivered message.
     checkpoint: Version,
     /// The undelivered backlog, in causal-rank order. Always the residue of

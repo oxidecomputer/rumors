@@ -114,7 +114,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         let mut drops = extant.drops.subscribe();
         drop(extant);
         loop {
-            // Monotone once zero: minting a token takes a live `Rumors` to
+            // Monotone once zero: creating a token takes a live `Rumors` to
             // clone, and every reuniter has already shed its own.
             if token.strong_count() == 0 {
                 // Exactly one reuniter wins the claim; the Peer/Rumors
@@ -124,7 +124,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
                     .is_ok()
                     .then_some(peer);
             }
-            // `Err` here means every sender — every `Extant` — is gone, so
+            // `Err` here means every sender (every `Extant`) is gone, so
             // the count re-check above terminates the loop.
             let _ = drops.changed().await;
         }
@@ -137,25 +137,23 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit.
     ///
-    /// `send` does not return the message's [`Key`]: keys come back through
-    /// observation — [`redact`](Self::redact) states the intended pattern
-    /// and why the write path carries no key.
+    /// `send` does not return the message's [`Key`]. Keys come back through
+    /// observation: the observers and [`Snapshot`] attach every message to
+    /// its key, and every send gets a key unique across the universe's
+    /// whole history (a key binds the send's fresh version to the content,
+    /// so even byte-identical re-sends are distinct messages under distinct
+    /// keys). [`redact`](Self::redact) states the intended
+    /// observe-then-redact pattern and why the write path carries no key.
     ///
     /// # Observe-then-send is domination
     ///
-    /// A send's version causally dominates everything this replica had
-    /// observed at the moment its batch commits. This is the supersession
-    /// contract last-write-wins patterns lean on: if your application
-    /// observes a message through this replica and subsequently sends, the
-    /// observation is definitely in the causal past of the send — an update
-    /// issued after seeing a prior value dominates that value, and
-    /// concurrency arises only between writers that had not observed each
-    /// other. The boundary: building a batch holds no lock, and
-    /// concurrent synchronization can land before the batch commits (the
-    /// commit takes only a very short lock on the set's internal state), so
-    /// sends from different threads or different batches carry **no**
-    /// guaranteed causal relationship to one another unless the application
-    /// synchronizes them itself.
+    /// Every message this replica observed before a batch commits is in
+    /// the causal past of that batch's sends, which is the supersession
+    /// contract last-write-wins patterns lean on. The boundary: sends from
+    /// different threads or different batches carry **no** guaranteed
+    /// causal relationship to one another unless the application
+    /// synchronizes them itself (building a batch holds no lock, so
+    /// concurrent synchronization can land before the batch commits).
     ///
     /// # Panics
     ///
@@ -168,7 +166,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     }
 
     /// Redact a message: remove the live message named by `key` from the set,
-    /// here and — through gossip — everywhere. Redacting a key not currently
+    /// here and, through gossip, everywhere. Redacting a key not currently
     /// held is a no-op.
     ///
     /// Returns a [`Batch`] that commits when dropped: a bare
@@ -179,30 +177,27 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// # Deletion is honored
     ///
     /// Once a redaction commits anywhere, no gossip schedule re-establishes
-    /// the redacted message from replicas that still hold it. No redaction
-    /// object exists to make that so — nothing crosses the wire to
-    /// represent a deletion. Reconciliation instead infers deletions from
-    /// the causal frontiers the two sides exchange: a message the
-    /// counterparty's version shows it must already have seen, yet it no
-    /// longer holds, was deleted there — so the holder drops its own copy
-    /// instead of transmitting it. ("A redaction arriving before its
-    /// message" is not even representable.) And because every send mints a
-    /// fresh [`Key`] (a key binds the send's version to the content),
-    /// re-sending byte-identical content after a redaction is a *new*
-    /// message: it neither resurrects the old one nor is suppressed by its
-    /// redaction. For the same reason, two identical sends are two
+    /// the redacted message from replicas that still hold it. Nothing
+    /// crosses the wire to represent a deletion; reconciliation infers
+    /// deletions from the causal frontiers the two sides exchange. A
+    /// message the counterparty's version shows it must already have seen,
+    /// yet it no longer holds, was deleted there, so the holder drops its
+    /// own copy instead of transmitting it. And because a [`Key`] binds
+    /// the send's fresh version to the content, re-sending byte-identical
+    /// content after a redaction is a *new* message: no resurrection, no
+    /// suppression. For the same reason, two identical sends are two
     /// messages, and redacting one never touches the other.
     ///
     /// # Where the key comes from
     ///
     /// [`send`](Self::send) does not return a [`Key`], deliberately, for
     /// two reasons. The intended shape of an application is a state machine
-    /// driven from observed messages — the observers and [`Snapshot`]
+    /// driven from observed messages: the observers and [`Snapshot`]
     /// attach every message to its `Key`, so the read path, not the write
-    /// path, is where a key-holding workflow like send-then-redact lives:
-    /// observe your own message back out, keep its key, redact it later.
-    /// And batching breaks the correspondence anyway: sends are not 1:1
-    /// with insertions — a batch inserts all its messages at once, and a
+    /// path, is where a key-holding workflow like send-then-redact lives.
+    /// Observe your own message back out, keep its key, redact it later.
+    /// And batching breaks the correspondence anyway: a batch inserts all
+    /// its messages at once, so sends are not 1:1 with insertions and a
     /// message's `Key` is not knowable until insertion.
     pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
@@ -335,8 +330,8 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// [`Link`].
     ///
     /// On `Ok`, both replicas hold every message either one held when the
-    /// session began **and neither had deleted**, and — under
-    /// [`Protocol::V2`](crate::Protocol::V2) — the peer has confirmed that
+    /// session began **and neither had deleted**, and, under
+    /// [`Protocol::V2`](crate::Protocol::V2), the peer has confirmed that
     /// it completed and committed the session too (the frozen
     /// [`Protocol::V1`](crate::Protocol::V1) oracle wire has no
     /// confirmation exchange, so a V1 session's `Ok` certifies only the
@@ -344,7 +339,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// ready to host this pair's next session.
     ///
     /// On `Err`, the replica is unchanged and the link is poisoned:
-    /// discard it and reconnect — this is enforced, not advisory, since
+    /// discard it and reconnect. This is enforced, not advisory, since
     /// every subsequent session on the link fails fast with
     /// [`Error::LinkPoisoned`] rather than misreading its mid-frame
     /// control stream. Cancellation counts as `Err` ([what a session
@@ -356,11 +351,11 @@ impl<T, B: Bookmark> Rumors<T, B> {
     ///   completion was lost ([`Error::Epilogue`] explains why that gap
     ///   cannot be closed).
     /// - A failure while donating a bootstrap fork costs that fork's
-    ///   identity space (deliberately — the newcomer may hold it),
+    ///   identity space (deliberately: the newcomer may hold it),
     ///   narrowing this replica's identity without touching its content.
     /// - An [`Error::Bookmark`] raised after absorbing a retiring peer
-    ///   leaves the session fully committed — reconciled content *and* the
-    ///   absorbed identity — with only its durable record unwritten (the
+    ///   leaves the session fully committed (reconciled content *and* the
+    ///   absorbed identity) with only its durable record unwritten (the
     ///   error's docs carry the crash-safety consequence).
     ///
     /// Independently of these, an `Err` never rolls back identity the
@@ -369,8 +364,8 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// ([`Error::Bookmark`] carries the
     /// mechanism).
     ///
-    /// Gossip sessions may run concurrently through any handles — the
-    /// same clone or different ones — each over its own link; each commits
+    /// Gossip sessions may run concurrently through any handles (the
+    /// same clone or different ones), each over its own link; each commits
     /// atomically when it completes. Sessions on one link are serialized,
     /// which the `&mut` borrow enforces; a bookmarked peer's sessions also
     /// queue at the bookmark lock before any wire traffic
@@ -404,10 +399,10 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// yields one [`Gossiped`] per completed gossip session. It terminates
     /// in one of three ways:
     ///
-    /// - the connection fails: one final `Err` — the replica unchanged,
+    /// - the connection fails: one final `Err`, with the replica unchanged,
     ///   subject to the same qualified exceptions as [`gossip`](Self::gossip)
     ///   (the post-commit [`Error::Epilogue`] and retiree-absorption
-    ///   [`Error::Bookmark`] cases, and a donated fork lost in flight) — and
+    ///   [`Error::Bookmark`] cases, and a donated fork lost in flight), and
     ///   the link is poisoned on every error path, so any later session on
     ///   it fails fast with [`Error::LinkPoisoned`]: discard the link;
     /// - `when` ends, cleanly, after finishing any session in flight;

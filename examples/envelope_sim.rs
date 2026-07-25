@@ -213,7 +213,9 @@ fn p_occ(n: u64, j: i32) -> f64 {
 }
 
 /// Log of the Chernoff–Hoeffding bound on `P(Binomial(n, p) ≥ a)`:
-/// `−n·KL(a∕n ‖ p)`, valid for `a∕n ≥ p` and verbatim for sums of
+/// `−n·KL(a∕n ‖ p)`, valid for `a∕n ≥ p`.
+///
+/// The bound holds verbatim for sums of
 /// negatively associated indicators (multinomial slot occupancies are
 /// NA; joint-occupancy indicators are products of independent NA
 /// families, hence NA).
@@ -324,7 +326,9 @@ fn joint_hi(n: u64, j: i32) -> u128 {
 }
 
 /// [`chernoff_quantile`] for slot counts beyond `u128`, passed as an
-/// exact power-of-two `f64`. The sub-unit mean keeps the boundary at
+/// exact power-of-two `f64`.
+///
+/// The sub-unit mean keeps the boundary at
 /// small `a`; mids above 2⁵³ evaluate deep inside the certified region
 /// where rounding cannot move the boundary.
 fn chernoff_quantile_huge(nf: f64, p: f64, log2_eps: f64) -> u128 {
@@ -386,7 +390,9 @@ fn levels_of(sub_slots: u128) -> i32 {
 }
 
 /// `S(d)`: hp bound on parked replies at the depth-d stage — the
-/// queried-listing-entry count at depth d−1: min of the occupied-slot
+/// queried-listing-entry count at depth d−1.
+///
+/// That count is the min of the occupied-slot
 /// cap and the listed-under-disputed-parents route (joint parents at
 /// d−2 × the per-parent children quantile at the union level).
 fn stage_pop(n: u64, d: i32) -> u128 {
@@ -453,7 +459,9 @@ type AggFn = fn(u64, i32, u128, u128, u128) -> u128;
 type PopFn = fn(u64, i32) -> u128;
 
 /// Simultaneous parked-bytes envelope at window `k`, declaration `n`,
-/// peer speaking the given role: parked containers + reactions (union
+/// peer speaking the given role.
+///
+/// The envelope sums: parked containers + reactions (union
 /// corpus) + listing entries per skeleton stage, the synthetic opening
 /// when the peer initiates, and question/scope queues at every level.
 fn envelope_bytes(
@@ -492,7 +500,9 @@ fn envelope_bytes(
 }
 
 /// Widest `K` whose envelope fits the post-slack budget, worst peer
-/// role. `capped` means the envelope saturates below the budget at
+/// role.
+///
+/// `capped` means the envelope saturates below the budget at
 /// every `K` (the declared corpus cannot bind it); the returned value
 /// is then the widest stage population.
 fn k_solve(n: u64, budget: u128, ctr: Containers, agg: AggFn, pop: PopFn) -> (u128, bool) {
@@ -561,7 +571,9 @@ fn occ_int(n: u64, j: i32) -> u128 {
 
 /// Integer quantile for the sub-unit-mean regime with mean
 /// `num ∕ 2^den_exp`, or `None` when the mean is not clearly
-/// sub-unit. Poisson-type tail `P(X ≥ a) ≤ (eμ)^a`; with
+/// sub-unit.
+///
+/// Poisson-type tail `P(X ≥ a) ≤ (eμ)^a`; with
 /// `b = den_bits − num_bits ≥ 5`, `a = t∕(b−3) + 2` reaches 2⁻ᵗ, and
 /// if `eμ ≤ 2⁻ᵗ` already the quantile is 0.
 fn small_mean_quantile(num: u128, den_exp: u32, t: u128) -> Option<u128> {
@@ -670,7 +682,9 @@ fn k_int(n: u64, budget: u128, ctr: Containers) -> (u128, bool) {
 }
 
 /// The dominance sweep: every integer bound must be ≥ its exact
-/// counterpart over the sampled `(N, j)` grid — 13 corpus sizes ×
+/// counterpart over the sampled `(N, j)` grid.
+///
+/// The grid is 13 corpus sizes ×
 /// depths 0..=32 (sampled, not exhaustive; the structural argument
 /// `e^{−n·KL} ≤ (eμ∕a)^a` closes the gaps between samples).
 fn check_integer_dominates() {
@@ -903,7 +917,9 @@ fn two_corpus_stats(n: usize, rng: &mut SmallRng, max_j: i32) -> HashMap<i32, Tw
 /// Binomial(n, p) sampler in the two regimes this tier reaches: exact
 /// CDF inversion for mean ≤ 30 (the stable ratio recurrence from
 /// `P(0) = (1−p)^n`), Gaussian with continuity correction above,
-/// clamped to `[0, n]`. The Gaussian tail error (relative O(1∕√np))
+/// clamped to `[0, n]`.
+///
+/// The Gaussian tail error (relative O(1∕√np))
 /// sits far inside the envelopes' 2⁻⁴⁸-vs-measured slack; every
 /// consumer is a mean- or quantile-level statistic under an asserted
 /// envelope.
@@ -934,7 +950,9 @@ fn binomial_sample(n: u64, p: f64, rng: &mut SmallRng) -> u64 {
 
 /// Per-parent occupancy sampled under a depth-j prefix: leaf count from
 /// the binomial marginal, then leaves thrown uniformly into the
-/// child (256) and grandchild (256²) slot spaces. Past the
+/// child (256) and grandchild (256²) slot spaces.
+///
+/// Past the
 /// coupon-collector bound the occupancy clamps to full (errs toward
 /// the envelope by < 2⁻³⁰ per sample).
 struct ParentSample {

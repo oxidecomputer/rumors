@@ -12,9 +12,11 @@ edition = "2024"
 readme = "README.md"
 
 # docs.rs renders every feature-gated module the crate docs advertise
-# (`conformance`), matching the gate's all-features rustdoc passes.
+# (`conformance`), matching the gate's all-features rustdoc passes. The
+# `docsrs` cfg turns on lib.rs's `doc_auto_cfg`, so gated items self-label.
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 # Test-only introspection and deterministic scheduling infrastructure.

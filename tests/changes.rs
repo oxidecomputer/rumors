@@ -109,7 +109,9 @@ async fn observer_does_not_block_peer_reclaim() {
     assert!(rumors.try_into_peer().await.is_some());
 }
 
-/// The non-blocking `TryTick` face carries the same contract: a fresh
+/// The non-blocking `TryTick` face carries the same contract.
+///
+/// A fresh
 /// signal's first step ticks, commits between steps coalesce into one tick,
 /// a reported signal is quiet (not ended) while handles live, the stream
 /// delivers a tick still owed at set closure, and `Ended` is terminal.

@@ -120,7 +120,9 @@ fn joining_a_historical_clock_rewinds_its_future() {
 
 /// Regression for the orphaned-operand bug: an op whose operand lies inside the future
 /// the op itself would rewind (here: joining a clock with its own causal descendant) is
-/// rejected, leaving prior state intact. Before the rejection existed, the rewind
+/// rejected, leaving prior state intact.
+///
+/// Before the rejection existed, the rewind
 /// dropped the operand's creating op and the dangling index silently rebound to an
 /// arbitrary node, joining overlapping ids.
 #[test]
@@ -135,7 +137,9 @@ fn op_orphaning_its_own_operand_is_rejected() {
 }
 
 /// Interpret a random command against the engine: act on any node (exercising the
-/// historical-rewind path), guarding joins by disjointness as the UI does. A rejected
+/// historical-rewind path), guarding joins by disjointness as the UI does.
+///
+/// A rejected
 /// op (e.g. an operand that the rewind would orphan) leaves state unchanged, mirroring
 /// the UI declining the gesture; we test the invariant over the *successful* states.
 fn step(e: &mut Engine, k: u8, ra: usize, rb: usize) {

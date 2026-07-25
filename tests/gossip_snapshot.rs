@@ -6,7 +6,9 @@
 //! V2 frames are grouped by logical stream so nondeterministic cross-stream
 //! scheduling does not destabilize the snapshots, while ordering within each
 //! stream remains exact. A representative V1 case pins its strictly
-//! alternating timeline. Re-accept only after a deliberate protocol change.
+//! alternating timeline. Re-accept only after a deliberate protocol change:
+//! a new protocol version, never a mutation of an existing one. The
+//! re-accept procedure (`cargo insta review`) is in `AGENTS.md`.
 //!
 //! The payload type is `u64` throughout: it borsh-encodes to a fixed 8 bytes
 //! and is trivial to make distinct, which keeps the dumps short and lets
@@ -47,7 +49,9 @@ fn key_for(rumors: &Rumors<u64>, value: u64) -> Key {
         .unwrap_or_else(|| panic!("no live message holds {value}"))
 }
 
-/// Two empty peers: the minimal session. After the 25-byte preamble
+/// Two empty peers: the minimal session.
+///
+/// After the 25-byte preamble
 /// the two sides exchange greetings, find their versions equal, and converge
 /// immediately with no content transfer: the protocol's shortest possible
 /// conversation.
@@ -59,7 +63,9 @@ fn empty_pair_converges_immediately() {
 }
 
 /// One side holds two messages, the other is an empty peer in the same
-/// universe. Captures the one-directional flow: the empty peer initiates
+/// universe.
+///
+/// Captures the one-directional flow: the empty peer initiates
 /// (the smaller set wins the election) and its empty greeting listing asks
 /// for everything, so the populated responder ships its root children as
 /// whole height-31 supplies while nothing of substance flows the other way.
@@ -79,7 +85,9 @@ fn one_sided_transfer() {
 
 /// Values whose two messages, batch-sent in this order into the seeded
 /// universe of [`batched_supply_run`], produce keys sharing their first two
-/// bytes (`67 99`; found by search over the second value). The populated
+/// bytes (`67 99`; found by search over the second value).
+///
+/// The populated
 /// responder ships its root children as whole height-31 supplies, so the
 /// shared leading byte places both leaves inside one supplied subtree (the
 /// two-byte collision is stronger than that supply needs, and keeps the
@@ -169,13 +177,17 @@ fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
 
 /// Values whose two messages, batch-sent in this order into the seeded
 /// universe of [`bulk_initiator_ships_opening_supplies`], produce keys
-/// `67 99` and `67 9e` (found by search over the second value): a shared
+/// `67 99` and `67 9e` (found by search over the second value).
+///
+/// A shared
 /// first byte and distinct second bytes, so the initiator's one exclusive
 /// root child holds a two-leaf subtree whose leaves split one level down.
 const INITIATOR_SUBTREE_VALUES: (u64, u64) = (1, 336);
 
 /// First of three consecutive ballast values for the responder of
-/// [`bulk_initiator_ships_opening_supplies`]: their keys' first bytes
+/// [`bulk_initiator_ships_opening_supplies`].
+///
+/// Their keys' first bytes
 /// (`21`, `2b`, `54`) avoid the initiator's exclusive radix (`67`), and the
 /// extra message makes the responder the larger set, so the subtree holder
 /// wins the initiator election.
@@ -399,6 +411,7 @@ fn fork_insert_redact() {
 }
 
 /// Fork with *no* divergence: insert `1` and `2`, fork, gossip immediately.
+///
 /// Both peers carry identical content *and* identical version vectors, so the
 /// version exchange short-circuits the session to Done before any content is
 /// examined — zero transfer despite non-empty trees. The non-empty companion
@@ -416,7 +429,9 @@ fn converged_forks_noop() {
 }
 
 /// Redaction in isolation: both forks hold `1` and `2`, `A` redacts `1`, `B`
-/// does nothing, then they gossip and converge on `{2}`. The clean counterpart
+/// does nothing, then they gossip and converge on `{2}`.
+///
+/// The clean counterpart
 /// to [`fork_insert_redact`] — no inserts share the wire, so the bytes that
 /// carry a redaction (and the version advance that distinguishes "forgot it"
 /// from "never had it") stand alone.
@@ -433,13 +448,16 @@ fn redaction_only() {
 }
 
 /// Number of disjoint messages each side of [`deep_trie_divergence`] holds.
+///
 /// Chosen so the two sides' leaves are numerous enough to collide in their
 /// leading hash byte, branching the trie past its root and so driving the
 /// recursive `Exchange` descent (and the `Opening`/`Closing`/`Complete` phases
 /// at more than one level) that the small scenarios never reach.
 const DEEP_TRIE_PER_SIDE: u64 = 16;
 
-/// Two peers with large, fully disjoint message sets. `A` holds
+/// Two peers with large, fully disjoint message sets.
+///
+/// `A` holds
 /// `0..DEEP_TRIE_PER_SIDE`, `B` holds the next `DEEP_TRIE_PER_SIDE`; both
 /// descend from one seed so they may gossip, but they share no content. The
 /// reconciliation must branch the prefix-trie and recurse down it, exercising
@@ -467,7 +485,9 @@ fn deep_trie_divergence() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
-/// A non-primitive, variable-length payload type. `u64` borsh-encodes to a
+/// A non-primitive, variable-length payload type.
+///
+/// `u64` borsh-encodes to a
 /// fixed 8 bytes; `String` encodes as a length prefix followed by its UTF-8
 /// bytes, so this is the only scenario that pins how a variable-length value
 /// is framed inside a leaf on the wire. `A` and `B` each contribute one
@@ -484,7 +504,9 @@ fn string_payload() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
-/// Equal live content, divergent version vectors. Both peers hold `1`; then
+/// Equal live content, divergent version vectors.
+///
+/// Both peers hold `1`; then
 /// `A` inserts `2` and immediately redacts it, leaving its *live* set back at
 /// `{1}` but advancing its version vector past `B`'s. The two peers' observable
 /// root hashes are therefore equal while their versions are not — so this pins
@@ -507,7 +529,9 @@ fn same_live_content_divergent_versions() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
-/// Concurrent, identical redaction. Both forks hold `1` and `2`, and *each*
+/// Concurrent, identical redaction.
+///
+/// Both forks hold `1` and `2`, and *each*
 /// independently redacts `1` (the same [`Key`]) before they gossip. The two
 /// redactions are causally concurrent — distinct version advances on distinct
 /// parties — yet target the same message, so this pins that the protocol

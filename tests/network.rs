@@ -1,6 +1,8 @@
 //! The per-universe [`rumors::Network`] guard: combining operations must
 //! refuse peers from a different seed, even when their parties happen to
-//! look disjoint. Covers handle inheritance, remote `gossip`, and bootstrap
+//! look disjoint.
+//!
+//! Covers handle inheritance, remote `gossip`, and bootstrap
 //! propagation.
 
 mod common;
@@ -17,8 +19,9 @@ fn seeded<T>(stream: u64) -> Peer<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(stream)).sync_window_floor()
 }
 
-/// Every handle on one rumor set belongs to the same universe: a
-/// [`Rumors`](rumors::Rumors) (and its clones) inherits the originating
+/// Every handle on one rumor set belongs to the same universe.
+///
+/// A [`Rumors`](rumors::Rumors) (and its clones) inherits the originating
 /// [`Peer`]'s [`Network`](rumors::Network) unchanged, and the reclaimed
 /// `Peer` carries it back out.
 #[test]
