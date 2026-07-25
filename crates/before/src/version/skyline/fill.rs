@@ -17,10 +17,10 @@
 //! one `O(1)` peek decides the arm, and the raise's minimum argument is
 //! the walk's own watermark for the enclosing range. The left-full
 //! arm's raised leaf precedes the range its minimum comes from, so it
-//! alone pre-scans ([`PreScan`]) — memoized: one fresh scan records
+//! alone pre-scans (`PreScan`) — memoized: one fresh scan records
 //! every interior left-full site's minimum as a chain of differences
-//! (the [`Memo`] doc), so no stream position is ever pre-scanned
-//! twice and no minimum is materialized.
+//! (the `Memo` doc), so no stream position is ever pre-scanned twice
+//! and no minimum is materialized.
 //!
 //! # Heights stay relative
 //!
@@ -28,8 +28,8 @@
 //! first leaf (whose code is that absolute, so the read is priced by
 //! the write). The walk carries the last consumed input height on one
 //! cliff-immune [`Accum`], and every range minimum the shortcut arms
-//! can ask for lives in one shared anchor web — the
-//! [`watermark`](mod@watermark) stack: `h − min` for the innermost
+//! can ask for lives in one shared anchor web — the `watermark`
+//! module's stack: `h − min` for the innermost
 //! open range plus nonnegative, zero-run-compressed differences
 //! outward, so each consumed delta folds into O(1) accumulators and a
 //! raise's comparison is an amortized-O(1) sign read. The output-delta
