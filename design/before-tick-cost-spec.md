@@ -1,0 +1,838 @@
+# The tick/fill cost specification
+
+Status: the statement of record for #34 (the tick limb cure and
+fusion), committed 2026-07-25 at **revision 3** — converged after two
+adversarial attack/fix rounds (the record is §9) — under the user's
+standing authorization of 2026-07-25 (fused tick pre-approved given
+linearity with small constants; confer only on a superlinear honest
+optimum, a §6 denomination change, or a representation-forced
+redesign). Formal ratification by Finch lands as a dated amendment
+here. Revision 3 (fix round two, 2026-07-25) integrates attack round
+two's amendments — the adversarial record is
+§9, which now carries the convergence assessment: **converged at the
+spec tier; the residual obligations are implementation-tier and
+already normative in §7**.
+Spec-first: this is the English statement of record the cure
+implements against; deviations get dated amendments.
+Statement-faithfulness governs every claim below — never weaker than
+stated, never stronger than proven; each clause carries its epistemic
+tag: **[measured]** (instrumented run, source named),
+**[measured-on-model]** (the executable discipline model, not the
+kernel), **[derived]** (argument from code or arithmetic),
+**[open]** (known unknown; must be resolved or the claim weakened
+before it is committed as prose).
+
+Evidence artifacts: probes at `/tmp/fillprobe-spec` (Rust: `widedeep`,
+`widedeep_mirror`, both release + debug-assertions, deterministic
+meters; Python: `watermark_model.py`, oracle-asserted); attack round
+one's harness at `/tmp/fillprobe-attack/attack_model.py` (the model
+copy-extended with a full-stack value oracle, three new schedules,
+and the zero-run-compressed stack variant); fix round one's
+reproductions at `/tmp/fillprobe-fix1` (the attack harness re-run —
+every transcribed number reproduced exactly — plus `slack_probe.py`,
+the independently rewritten post-collapse slack probe: the attack's
+own slack run was not persisted, so its bound was re-established
+fresh before being cited); attack round two's harness at
+`/tmp/fillprobe-attack2` (`emit_model.py` — the composed discipline,
+compressed stack + anchored emissions + tagged `last` + faithful
+materialization, under a full-stack value oracle extended with
+per-emission `d_out` exactness and the `last` invariant, with
+LIMB-FAITHFUL costs mirrored against `codec/accum.rs`'s touch
+placement; `slack_probe2.py`, structured cancellations); fix round
+two's reproductions at `/tmp/fillprobe-fix2` (every round-two number
+reproduced exactly; the `run-boundary-churn` schedule — defined but
+not wired into the committed harness's schedule list or oracle loop —
+was oracle-validated and re-measured there before being cited, and
+the four cost-placement claims were confirmed by line-read of
+`accum.rs`: `apply_limbs` touches every limb including zeros,
+`add_accum_shl` every held digit, `sign` per scanned digit plus
+collapse, `sign_magnitude` per held digit plus the complement pass).
+The review's probes at `/tmp/fillprobe` are independent reference;
+every number in this document was reproduced by the round that cites
+it.
+
+## 1. The function of record
+
+The paper's equations (ITC 2008 §5.3.4; `reference/itc2008.md`),
+transcribed exactly:
+
+    event(i, e) = { (i, fill(i, e))  if fill(i, e) ≠ e,
+                    (i, e′)          otherwise, where (e′, c) = grow(i, e).
+
+    fill(0, e) = e,
+    fill(1, e) = max(e),
+    fill(i, n) = n,
+    fill((1, ir), (n, el, er)) = norm((n, max(max(el), min(e′r)), e′r)),
+                                 where e′r = fill(ir, er),
+    fill((il, 1), (n, el, er)) = norm((n, e′l, max(max(er), min(e′l)))),
+                                 where e′l = fill(il, el),
+    fill((il, ir), (n, el, er)) = norm((n, fill(il, el), fill(ir, er))).
+
+    grow(1, n) = (n + 1, 0),
+    grow(i, n) = (e′, c + N), where (e′, c) = grow(i, (n, 0, 0)),
+    grow((0, ir), (n, el, er)) = ((n, el, e′r), cr + 1),
+    grow((il, 0), (n, el, er)) = ((n, e′l, er), cl + 1),
+    grow((il, ir), (n, el, er)) = the cheaper child, cost + 1
+                                  (lexicographic (expansions, depth),
+                                  ties right — the oracle's realization).
+
+`before` renames `event` to `tick`. The semantic definition of record
+is the recursive oracle (`oracle/version.rs`: `fill`, `grow`,
+`event`); the skyline kernels are byte-identical to it under the
+differential suite, and `norm` is realized by the collapsing builder's
+equal-sibling normalization plus min-sinking, never as a separate
+pass. **Fill and grow never run separately**: every public entry is
+`tick = fill, falling back to grow iff fill changed nothing`, decided
+today by byte-comparing `fill`'s output against the input (sound
+because canonical coding is unique).
+
+Fill's per-node needs, read off the equations — this is the whole
+semantic inventory the cost design must serve:
+
+- **range max** (`max(e)` / `max(el)` / `max(er)`): the collapse value
+  of a fully-owned region and one argument of every raise;
+- **range min of a *filled* subtree** (`min(e′r)` / `min(e′l)`): the
+  other raise argument — a min over *emitted* values, not input
+  values;
+- **orderings only, at the joins**: `max(a, b)` and the builder's
+  equal-sibling test need which-is-larger; a *materialized* magnitude
+  is needed only where a code is emitted, and each emitted code prices
+  its own width.
+
+Stream-order asymmetry (why the two shortcut arms differ): the
+right-full arm's min (`min(e′l)`) is over a range the walk has already
+emitted when the decision is made — the landed kernel's deferral gets
+it in-pass. The left-full arm's min (`min(e′r)`) is over a range the
+walk has *not yet reached* when the raised leaf must be emitted —
+hence the (memoized) pre-scan. Both needs are LIFO-nested range
+extrema over one preorder stream.
+
+## 2. The refutation this spec answers
+
+The landed kernel (92d2fc31) returns per-subtree `SubtreeOut =
+(min, net)` as **materialized `Base` magnitudes**, combined by
+`signed_sum_base` at every paired node — Θ(width) limb work per
+ancestor. Depth × width is not bounded by input bits.
+
+**[measured]** (`/tmp/fillprobe-spec`, this draft's runs, doubling
+b = d):
+
+- Right-full chain, `tick(bigroot(b,d) × nested_full_id(d))`: limb
+  step exponent 1.57 → 1.71 → 1.83 (→ 2), constant 29.4 → 126.3
+  ops/B, crossing the board's 128/B ceiling at b = d = 8000. Scan
+  flat 14.2 bits/B, e 1.00 at every step.
+- **Left-full (memoized pre-scan) chain** — not covered by the
+  review's finding — `tick` of the mirror id `(1, (1, … (1, 0))))`
+  over a right-leaning spine with one wide bottom leaf: limb e
+  1.92 → 1.94 → 1.97, constant **143 → 1015 ops/B** — over the
+  ceiling already at d = 1000, steeper than the right-full arm.
+  `min_fill_rec`'s own `l_net`/`r_net` summation chains carry the
+  same genre. Scan flat 28.4 bits/B, e 1.00.
+
+Both arms are public-API-reachable through `Version::tick`/
+`Clock::tick`. Consistent with §3's finding entry: the multiplier is
+the *local* id's paired depth — a pricing obligation under the §6
+invariant, not a hostile-peer exploit.
+
+## 3. The candidate theorem and its decomposition
+
+> **T-tick (candidate, the ratification target).** `tick` (hence
+> `fill` and `grow`) is computable over skyline streams in amortized
+> **O(n + m) Accum digit touches** in the two packed operands' bits,
+> with no bound on value magnitude, tree depth, or encoded size —
+> alongside the already-achieved O(n + m) scan bits.
+
+Status: **[validated-on-model, kernel-pending]** — every lemma is
+[measured], [measured-on-model], or [derived] with no load-bearing
+[open] clause remaining after attack round two; what remains is
+implementation-tier and normative in §7 (the red pin's mandatory
+kernel re-measurement; the cure's re-enumeration of its own
+comparison sites). The reduction: every signed quantity fill needs
+lives in **one shared anchor web** — the running height `h`, and
+per-open-range extremum watermarks represented as *differences*,
+never absolutes.
+
+**Representation compliance (user ruling 2026-07-25)**: everything
+in this candidate — the watermark web, the diff coding, the residue
+propagation, the fusion, the copy-on-first-divergence builder — is
+**auxiliary in-memory walk state over the unchanged skyline coded
+form**. The at-rest coding, byte equality as `Eq`/`Hash`, and the
+identity/persistence story are untouched; no clause of the
+derivation requires or pushes toward a third representation. The
+ruling's confer-level escalation (§5) is recorded for completeness,
+not because any current evidence points there.
+
+**The discipline's invariants** (the cure implements these; each
+echoes a landed precedent):
+
+- **I1 — single-fold**: each consumed input code folds into O(1)
+  accumulators (h, the innermost armed watermark, the live gap) —
+  never one per open range. (Precedent: the emit kernel's
+  gap/offset discipline.)
+- **I2 — difference-coded cross-references**: wide content is stored
+  once; every cross-level relation (outer vs inner range watermark)
+  is a nonnegative diff `Accum`; pushes are moves, not copies.
+  (Precedent: the grow probe's key-delta registers.)
+- **I3 — reads at death or priced by output**: a wide magnitude is
+  materialized only when its operand dies (folded once into a
+  survivor) or when an emitted code prices it (the emission's own
+  width). (Precedent: the V6 freeze cure's drift charging.)
+- **I4 — residue-directed propagation over a zero-run-compressed
+  stack** (restated at fix round one; the uncompressed form is
+  FALSIFIED, §9/F1): the diff stack stores zero-diff *runs* as one
+  O(1) entry and nonzero diffs individually. A min-update reaching k
+  outward frames folds the *dying nonzero* diffs into the running
+  residue (each nonzero diff dies at most once after creation),
+  passes whole zero runs in O(1) each — their minima track the
+  innermost watermark implicitly — and makes exactly one surviving
+  fold at the stopping frame, bounded by the update's own priced
+  width. Never fold the residue into surviving frames. The ledger
+  clause is per-object, and wide *content* may nonetheless cascade
+  through a chain of deaths — a dying payload folds into the residue,
+  which survives as a new diff that can die again — **provided every
+  hop is separately funded**: a full-penetration undercut reaching a
+  wide diff requires the running height to have descended past that
+  diff's span, which the input paid in delta codes (attack round
+  two's `resurrection-cycle` schedule measures funded hop chains
+  flat, 5.05/unit; partial penetrations never reach the wide diff).
+  Zero runs cannot absorb a shortfall, so propagation never stops
+  inside a run and runs only grow or shrink at their ends — no split
+  operation exists to churn (round two's `run-boundary-churn`,
+  6.23/unit flat). Without the compression, zero-diff frames cost
+  ≥ 2 touches each and never absorb, and a full-penetration update
+  pays Θ(open depth) — the descending-staircase family is Θ(d²)
+  **[measured]** (naive 8002 touches/unit at d = 8000, ratio
+  4.00/doubling; compressed 7.00 flat, ratio 2.00 — attack round
+  one's harness, re-run and reproduced at fix round one; 13.00 flat
+  under round two's limb-faithful accounting, class unchanged).
+
+**L0 (scan) [measured, landed]**: O(n + m) scan bits — every position
+read at most twice (walk + at most one memoized pre-scan; flat ×2
+absent-sibling scans). e 1.00 on every family, both arms (§2's runs).
+
+**L1 (the watermark stack) [measured-on-model]**: a LIFO stack of
+range-min watermarks over one running height, coded as
+`T = below(innermost)` plus outward nonneg diffs
+(`below = h − min`, over emitted values) **on the zero-run-compressed
+stack (I4 as restated — the compression is normative, not an
+optimization)**, supports open (move), delta (one fold into T —
+uniform shift), emit (arm / compare / residue-propagate), and close
+(one sign read + one dying-diff fold or run decrement) in amortized
+O(1) digit touches plus O(width) charged to dying operands.
+Evidence: attack round one's harness (`attack_model.py`,
+copy-extending `watermark_model.py`: same faithful balanced
+signed-digit semantics — lazy zone, recenter carries, |s| ≥ 3
+domination sign fold with collapse — under a **full-stack** value
+oracle asserting every armed frame's watermark at every step
+including closes). Linear on all **seven** adversarial schedules —
+flat 3.20–10.38 touches/unit, ratio 2.00 per doubling at
+d = 1k → 8k: the four originals (`chain-narrow`, `bigroot-chain`,
+`wide-dip` — the shared-wide-min cascade — and `cliff-churn`) plus
+attack round one's three (`descending-staircase`: every leaf
+undercuts every open ancestor, the family that falsified the
+uncompressed form; `sawtooth-partial`: repeated k-of-d penetration;
+`rearming-churn`: sibling open/emit/close churn at depth). Numbers
+reproduced at fix round one. Re-validated at attack round two under
+limb-faithful cost accounting, composed with the L2 emission
+discipline (fourteen schedules, `emit_model.py`): constants
+~1.6–2× round one's — faithful accounting plus real materialization
+at every emission — classes unchanged everywhere (6.2–19.1
+touches/unit, ratio 2.00 per doubling; reproduced at fix round two).
+Model limitations (normative for later rounds): (i) round one's
+model's `add_int` skipped zero digits while the real `apply_limbs`
+touches every limb including zeros, so its sparse-wide folds
+undercounted Θ(width) — **resolved at round two**: `emit_model.py`
+is limb-faithful (per-limb touches including zeros, per-held-digit
+`add_accum`, per-scanned-digit `sign` plus collapse, per-held-digit
+`sign_magnitude` plus the complement pass — each confirmed against
+`accum.rs` by line-read at fix round two), and all L1/L2 conclusions
+now rest on the faithful runs; (ii) the oracle asserts *values*
+(every armed frame's watermark at every step, `d_out` exactness,
+the `last` invariant); costs are validated by structural mirroring
+against `codec/accum.rs`'s touch placement, not by differential
+against the Rust meter — kernel-side re-measurement at the red pin
+remains mandatory (§7).
+
+**L2 (emission pricing) [measured-on-model — VALIDATED at attack
+round two on the limb-faithful composed model]**: every materialized
+quantity at an emission point is O(the emitted code's width + its
+consuming scan's own disjoint range content). The draft's original
+charge ("by construction") was refuted at attack round one: the
+fold-in/sign/fold-*back-out* comparison path is quadratic under wide
+offsets with cheap codes — `wide-off-churn` (one armed range, d
+emissions each carrying a dense-wide offset, every output code after
+the first O(1) bits) measures 95 → 729 touches/unit, ratio → 3.99,
+on the naive AND compressed stacks alike (§9/F2; the compression is
+orthogonal to this failure). The discipline of record replacing it —
+implemented and validated as a composed model at round two
+(`emit_model.py`: **the committed tripwire reads 8.14 touches/unit
+flat, ratio 2.00 per doubling**, on the discipline that read
+95 → 729 without it; all fourteen schedules linear; reproduced at
+fix round two):
+
+1. **Never fold-and-restore a wide operand**: a comparison folds a
+   *dying* operand into the survivor and reads one sign; no wide
+   operand is ever folded in only to be folded back out. Where a
+   fold-and-restore is unavoidable at comparable scales, **only ever
+   the NARROW (priced) side** is folded and restored (§9/round 2,
+   A1).
+2. **Per-operand lifetime accounting, priced**: every wide quantity
+   is created once (funded by input content or a dying predecessor)
+   and dies once (folded into a survivor); every wide READ is (a)
+   its death, at most once per operand; (b) an O(1)-per-lifetime
+   read; or (c) **priced by the width of the code emitted at that
+   site** — clause (c) is I3's priced-by-output arm, restated here
+   because anchor-switch bridges validly read the surviving `T`
+   once per switch, unboundedly often per lifetime, and the bound
+   is by pricing, not count: for the bridge to be wide, `T` must be
+   wide, so the emitted `d_out` is wide and its own code covers the
+   read (§9/round 2, A2; the funded-flip schedule measures the
+   constant, 3.5–3.9 touches/unit flat). The wide-off family under
+   this rule: consecutive raise targets differ by cheap priced
+   deltas, so the offset rides ONE live accumulator maintained
+   incrementally (`last = value_prev − anchor`, folding input deltas
+   between emissions — one more I1 citizen), never k fresh wide
+   operands. `last` is **anchor-tagged**: h-relative between
+   pass-throughs (folds input deltas), watermark-relative between
+   raises (drift-invariant, adjusted only at priced min-movements
+   and at funded anchor deaths); its anchor generalizes to *the
+   accumulator that sourced the last emission* — a consumed memo
+   entry (L4) staying live on the walk's LIFO stack anchors it the
+   same way, and its death re-anchors `last` by one funded fold,
+   the same mechanics as a watermark-anchor death (§9/round 2).
+3. **The anchored-entry discipline** (§9/round 2, A1 — round one's
+   quadratic lived equally in the watermark stack's own min-update
+   comparison, and rules 1–2 alone leave that path expressible; an
+   implementation violating any clause here is non-conforming):
+   emissions enter the stack **anchor-relative** — a raise near the
+   tracked min enters as (watermark anchor, small adjustment), never
+   as an h-relative wide offset, so an undercut grows `T` by the
+   adjustment plus a cheap residue propagation; **`T` is never
+   folded into anything while it survives**; arming **moves** `t`
+   into the diff stack (I2's pushes-are-moves, restated at the emit
+   path where it is load-bearing); armed comparisons run `t.sign()`
+   first (collapse, amortized), then **top-index domination** when
+   the scales are disparate (post-sign, top ≥ 3 with positive sign
+   decides against any word-scale adjustment in O(1) — the accum
+   module doc's |s| ≥ 3 bound; this guard is also a comparison-site
+   rule under L3), and only at comparable scales fold — narrow side
+   only, per rule 1.
+4. **Materialize post-collapse only**: `sign()` first (the collapse
+   is amortized against the writes that built any cancelling prefix
+   — `codec::accum`'s own argument), then `sign_magnitude`. After
+   collapse the held digit count exceeds the value's width by **at
+   most 2 digits [derived, probe-confirmed]**: `sign()` decides at
+   index i with |partial| ≥ 3, unscanned digits below contribute
+   < 2.01·2^(32i) (the module doc's domination bound), so |value| ≥
+   0.99·2^(32i) — width ≥ 32·i — while the collapse leaves top ≈ i
+   plus ≤ 2 redeposit carries. Probe-confirmed twice: worst slack 0
+   digits over 2000 randomized cancelling constructions (fix round
+   one, `slack_probe.py`) and over 548 structured adversarial
+   constructions — deep cancelling prefixes to 4096 bits,
+   multi-scale alternations, telescoping staircases, collapse/
+   rebuild cycles, near-threshold partials (round two,
+   `slack_probe2.py`; reproduced at fix round two). So every
+   materialization is O(the emitted code's width). The emitted
+   output delta is `d_out`: fold the dying `last` in (plus the `t`
+   bridge on an anchor switch, per rule 2c), collapse, materialize
+   — priced by the code.
+5. **The gap accumulator survives** by folding the materialized
+   `d_out` back in — O(code width), priced by the output the code
+   is.
+
+**The pricing chain (normative lemma; §9/round 2, A3)**: L2's
+per-emission costs are priced by the **emitted code's width**; Σ
+emitted code widths ≤ input content + O(id) by **L6**; hence L2's
+total limb cost is O(n + m) **input-denominated**. This sentence is
+load-bearing, not decorative: the `anchor-flip-UNFUNDED` schedule
+measures 61.7 → 444 touches/unit (ratio 3.96) when the denominator
+is denied the output-pricing — superlinear against input-only
+content — and that reading is NOT a kernel counterexample precisely
+and only because of this chain: for a bridge to be wide, the
+tracked min must sit far below the running height; an h-anchored
+emission is then genuinely far from the previous value, so `d_out`
+is wide, its output code is wide, and L6 telescopes the output back
+to input content (emitted values are input-derived extrema, and
+nested range mins are monotone — outer ≤ inner — so a raise chain's
+total movement telescopes against the content that created the
+spread). T-tick's proof outline reads: L1 (stack maintenance,
+amortized O(1) per event) + L2 (emissions priced by output codes) +
+the pricing chain (output ≤ input + O(id), L6) ⟹ amortized
+O(n + m). If any link fails at kernel measurement, §5 applies.
+
+**L3 (decisions are sign reads) [derived; enumeration verified at
+the current tip]**: `signed_min`/`signed_max`/the equal-sibling test
+need orderings only; under I2 every comparison is `sign()` of a
+same-anchor difference, amortized O(1) by the Accum's domination
+bound + collapse amortization (`codec::accum` module doc). Attack
+round one enumerated every comparison site at the current tip and
+found none uncovered: the four `signed_min`/`signed_max` join sites
+and both `signed_sum_base` re-anchoring chains in `fill.rs` dissolve
+under the h-anchored stack (no per-subtree returns exist in the
+target design); the raise comparisons are fold-on-death (L2's rule
+1); emission sites are L2's discipline; `min_fill_rec`'s joins are
+the pre-scan's own stack instance (L4); the builder's equal-sibling
+seam (`build.rs`) is a zero-delta *code* check — one bit pattern,
+O(1), no magnitude comparison. L2's top-index domination guard
+(rule 3) is itself a comparison-site rule and joins this coverage
+list: an armed comparison at disparate scales decides post-sign in
+O(1), never by folding the wide side. The obligation that survives:
+the cure's implementation re-runs this enumeration against its OWN
+final comparison sites (the enumeration is of today's code; the
+rewrite must not mint an uncovered site).
+
+**L4 (the pre-scan inherits the discipline) [derived]**:
+`min_fill_rec` has the same walk shape (LIFO ranges over the same
+stream), so the same watermark web applies (**[measured]** need:
+§2's mirror probe shows today's materialized form is the *worse*
+half of the quadratic). Two clauses made normative at fix round one:
+
+- **The anchor seam is sound as-is** (verified at attack round one
+  by inspection of the landed kernel): a memo entry is recorded at
+  stream position `l_end` relative to the height there and consumed
+  by the walk at the same position, where the walk's height equals
+  it — height is a function of stream position; no re-anchoring
+  arithmetic exists or is needed at consumption.
+- **Memo entries are diff-coded against the enclosing pre-scan's
+  running min-stack, and the walk carries consumed entries on its
+  own LIFO stack** (§9/F3 — without this sentence an implementor
+  can faithfully rebuild the quadratic: k nested left-full sites
+  sharing one wide minimum would materialize k wide entries at
+  creation, Θ(k·W/64) inside the pre-scan). Consecutive nested
+  entries differ by cheap priced content; at consumption an outer
+  entry's accumulator stays live while the walk is inside its range,
+  so inner entries resolve as diffs against it — the ranges nest, so
+  LIFO holds, and L2's per-operand lifetime accounting then covers
+  the memo. Held under mixed-nesting attack at round two: the seam
+  is sound by projection — entries are recorded and consumed at the
+  same stream positions (same heights), consumption order is stream
+  order, memo ranges nest within walk ranges, and a projected
+  subsequence of a LIFO nesting is LIFO; two independent fresh-scan
+  chains cover disjoint ranges with independently funded heads, so
+  no cross-chain diff is ever needed. A live consumed entry may
+  anchor `last` (L2 rule 2's generalized anchor); its death
+  re-anchors by one funded fold.
+
+**L5 (auxiliary space) [derived]**: heap = O(paired depth) frames
+plus total live Accum digits ≤ O(digits ever placed) = O(content
+folded) = O(n + m); the memo holds ≤ one entry per left-full site,
+each priced by its disjoint fresh-scan range. Held under attack at
+round one, and *strengthened* by its fixes: zero-run compression
+only removes stack entries, and L4's diff-coded memo removes the
+fan-out threat (one wide value shared by k entries no longer
+multiplies into k wide materializations). Held again at round two
+under the composed discipline: entries ≤ armed frames, run
+descriptors O(1) each, and per-emission `d_out` accumulators are
+created and dropped at ≤ value width + 2 digits (L2 rule 4's slack
+bound).
+
+## 4. Per-dimension cost model (what the board holds tick to)
+
+| dimension | target profile | status |
+|---|---|---|
+| scan bits | O(n + m), constant ≤ 2 reads/position + flat ×2 sibling scans | **[measured]** landed, e 1.00 both arms |
+| limb ops | **T-tick: amortized O(n + m)** | **[validated-on-model, kernel-pending]**: L1 + L2 validated composed on the limb-faithful model, fourteen schedules (compressed stack and anchored-entry/lifetime disciplines normative); the pricing chain (L2×L6) stated; kernel re-measurement mandatory at the red pin; current kernel quadratic both arms **[measured]** |
+| heap | O(depth) frames + O(n + m) total digits; builder output | **[derived]** L5, pinned by existing heap columns |
+| segments | today O(paired depth) recursion (red-pinned at ×4, owner **P4.2**); eventual profile **O(1) grown segments** via explicit stacks — the watermark stack and the grow probe's bit-coded frames are the natural vehicle, so P4.2 implements against this line. Sequencing note (attack round one, A2): on the fused walk, the route-DP fold reads skipped id subtrees per-bit on leaf-under-internal-id arms — P4.2's §11.4 word-scale skip on those arms interacts with the fused path; P4.2's sequencing decision must name the fused walk, and the before/after table judges the interaction | **[measured]** red today; target [derived] |
+| denominator | **input-denominated stands** (n + m packed bits; §6's do-not-re-denominate list). Supporting lemma L6 **[derived, pin candidate; held under attack]**: `size(tick(e, i)) ≤ size(e) + O(size(i))` — fill's output deltas telescope input deltas (width ≤ max input code + log range length; a raise's recoded neighbor delta telescopes the same way — the cliff-boundary attack found no counterexample); grow adds one increment (≤ 2 recoded deltas, O(1) bits each) or one expansion chain (O(id depth at the site) topology bits + unit deltas ≤ O(m)). Land as a proptest pin with the cure (any quantity computable two ways gets a pin). | |
+
+## 5. If T-tick fails
+
+No committed fallback currently satisfies the asymptotic bar: the
+honest worst case of the landed kernel is O(n·m/64) limb ops
+(depth × width), which is quadratic in total input — **below the
+bar**. There is no known intermediate (an O((n+m)·log) shape has no
+candidate mechanism here — the problem is re-touching, not sorting).
+So the spec's position: T-tick is the target; the model tier is
+validated (round two), so the remaining refutation surface is the
+kernel — if any lemma's realization in implementation refutes (the
+red pin's re-measurement, the cure's own comparison sites), the
+finding comes back to this document with the counterexample family,
+and the decision is Finch's, made against the recorded evidence —
+not silently absorbed into prose.
+
+The escalation ladder at that point (user ruling 2026-07-25 — stay
+within the skyline representation if at all possible):
+
+1. **Next in-skyline candidates first** (all auxiliary in-memory
+   state, fair game): the epoch/interning lens on the same idea
+   (wide folds into `h` mint epoch anchors; relative quantities
+   carry (epoch, narrow offset); cross-epoch orderings memoized once
+   per pair), or a two-pass position-first walk (extrema located by
+   stream position in a value-free pass, values derived in a second
+   anchored pass).
+2. **Accept a stated-band residual on tick** — the band and family
+   committed, the board cell red with a permanent owner — if the
+   obstruction is fundamental but narrow.
+3. **A representation change is a CONFER-LEVEL finding, never a
+   recommendation from this document**: if the evidence ever shows
+   linear tick is achievable *only* by replacing the skyline at-rest
+   coding, the deliverable is the obstruction (which lemma fails and
+   why it is representation-forced, with the counterexample), the
+   sketch of what a third coding would buy, and an honest blast
+   radius accounting in the C2 flag day's reference class (identity/
+   persistence break, bookmark version, every kernel and snapshot
+   re-pinned, the compactness envelope re-measured) — presented for
+   Finch's decision. No current evidence points there: every
+   identified obstruction (L2's gap entanglement, L3's comparison
+   sites) is walk-structural, not coding-structural.
+
+## 6. The fusion assessment (fill + grow → one tick pass)
+
+Today's tick on the **grow branch** traverses the event stream ~4×:
+fill's walk (+ builder emission), the byte compare, grow's
+topology-only probe, the splice emit. The grow branch is the common
+one for the hottest real pattern — a peer repeatedly ticking its own
+version (after the first tick, fill usually changes nothing). Fill
+and grow are never observable separately (§1), so fusing inside
+`tick` breaks no API.
+
+**Fused shape [derived]**: one walk that (a) emits fill's output
+through the builder, (b) maintains a **changed flag** — true iff any
+emitted plateau (topology or code) differs from the input range it
+replaces, compared in-pass against the input cursor — and (c)
+piggybacks grow's route DP (the probe's lexicographic
+(expansions, depth) cost fold is topology-only and visits exactly
+the nodes fill's walk visits; the bit-coded frame stack already
+exists). If the flag says changed: fill's output stands. Else: the
+splice emit runs from the recorded route (verbatim-copy machinery
+landed at #14/#16). Grow branch: 4 traversals → 2. Fill branch: one
+walk, plus dead route bookkeeping (a few bits/node — the probe's
+frames are 3 control bits + value deltas).
+
+**Refinement the fusion unlocks — copy-on-first-divergence
+[derived]**: until the first divergent emission, fill's output is
+byte-identical to the input prefix, so the fused builder can run as
+a verbatim reference (no emission work, no allocation) and
+materialize only at the first divergence — one wholesale prefix
+copy, priced once — exactly the `SkylineBuilder` verbatim-
+continuation machinery (#14). On the grow branch the flag never
+trips, so fill's discarded output is **never built at all**: the
+repeated-local-tick hot path becomes one flag+route walk plus one
+splice, with near-zero transient heap. This is the strongest
+constants case for fusion and is unreachable by the unfused
+composition (which must always build fill's output to byte-compare
+it).
+
+**Equivalence obligation [derived, held under attack at rounds one
+and two, must be pinned]**: `changed flag ≡ (fill(e) ≠ e)`. With the
+flag defined as *emitted-differs-from-input* (never "an arm fired" —
+a raise can reproduce the existing leaf value exactly, and
+`max(L, …) ≥ L` means value-unchanged raises are real), the
+equivalence is structural: canonical uniqueness makes byte
+inequality ⟺ some plateau differs. Attack round one pressed both
+directions and held: a value-reproducing raise does not trip the
+flag (correct — `fill(1, leaf) = leaf`), and every collapse arm over
+a non-leaf range is a topology divergence (trips, correct). Round
+two *strengthened* the alignment story: the flag's comparison only
+needs to run while every emitted plateau equals its input range,
+during which output position ≡ input position exactly; at the first
+divergence the flag trips and the comparison stops mattering —
+alignment drift after a collapse is structurally impossible to
+observe. **The flag is precisely a first-divergence detector**,
+which is also why copy-on-first-divergence composes with it for
+free. One special case is normative (round one, A1): **the FIRST
+emitted leaf is coded absolute while later leaves are deltas — the
+flag's comparison at the first-leaf site compares the absolute code
+against the input's absolute code, never a delta against an
+absolute**; the comparison alignment is by plateau (depth, code), so
+a collapse shifting which input leaf is "first" already trips the
+flag on topology before any code comparison is reached. Pin it totally: a
+differential asserting flag ≡ byte-compare across every family +
+arbitraries, and — strongest and simplest — fused `tick`
+byte-identical to the composed `fill`/compare/`grow` path (which
+stays in-tree as the oracle-facing composition for exactly this
+differential). Route-data reachability also held: Full-id-over-node
+is unreachable on the grow branch (fill would have changed the
+tree), Full-over-leaf routes trivially, and the
+leaf-under-internal-id arm computes its route fold during the id
+`skip` the walk already pays.
+
+**Costs and risks**: route bookkeeping taxes the fill branch (small,
+measurable — the before/after table judges it under the parity
+floor); on leaf-under-internal-id arms the route fold reads the
+skipped id subtree per-bit, which degrades P4.2's word-scale skip on
+exactly those arms if that lands later — the interaction is recorded
+in §4's segments row and P4.2's sequencing decision must name the
+fused walk (round one, A2). Benign-input constants (round one, A3):
+the watermark stack's per-range state must be **pool-reused** — an
+`Accum::new()` per range open is an allocation per node; today's
+kernel allocates comparably, but the parity floor judges the
+difference, so pooling is named in the cure charter, not left to
+taste. The changed-flag equivalence is correctness-critical (pinned
+as above; keep the byte compare as a debug_assert through at least
+one release cycle). Legibility is an obligation on the
+implementation's prose, not a design criterion here (user ruling
+2026-07-25): the recursive oracle remains the readable reference
+matching the paper's equations, the differential suite guarantees
+semantic accuracy against it, and the fused module doc must explain
+the walk against those equations (the flag and route live in their
+own state struct; the arms call into them at ≤ 3 sites).
+
+**Recommendation**: **adopt — fused tick is the performance-best
+design** (user ruling 2026-07-25: performance under the campaign's
+bars decides; fusion is pre-approved given linearity with small
+constants). It preserves the asymptotic profile (linear given
+T-tick), roughly halves the hot grow branch's traversals, and its
+copy-on-first-divergence refinement eliminates the discarded-output
+build entirely — a win the unfused composition cannot reach. No
+competing design matches it on measured merit, so no tie-breaker is
+needed. Sequencing is engineering risk only: land it as a
+**separate commit after the limb cure lands green** (bisectable,
+independently reviewable), never compounded with the watermark
+rewrite in one change. It needs no red pin and is judged by the
+before/after table on the tick benign/deep rows.
+
+## 7. Witness families and #34's acceptance contract
+
+**Red pins (land first; instruments before cures; both scales;
+measured exponents in the commit message):**
+
+1. `version_tick`/`clock_tick` × **bigroot(b,d) × nested_full_id(d)**
+   — the right-full chain. Red today on the existing limb ceilings
+   (exponent 1.15 everywhere; constant 128/B from b = d = 8000).
+2. `version_tick`/`clock_tick` × **the mirror cross**: a new
+   generator pair — `nested_left_full_id(d)` (`(1, ·)` down the
+   spine) × a right-leaning spine with one wide tail leaf (new event
+   generator, e.g. `wide_tail(b, d)`) — the memo arm, the worse half
+   (§2). Red today at every scale. This cross is also the kernel
+   realization of L2's `wide-off-churn` tripwire (repeated raises
+   near one wide minimum under cheap codes), so the cure's L2
+   discipline is judged by the same cells.
+3. `version_tick`/`clock_tick` × **descending-staircase**: a dense
+   event spine with monotone-descending unit-delta leaves under a
+   paired id spine (every level paired-internal, so every emission
+   is a full-penetration min-update) — the family that falsified
+   uncompressed I4 (§9/F1); all-narrow, pure depth — a distinct
+   genre from both wide×deep crosses and from all four original
+   model schedules. Expected red on the landed kernel's per-node
+   materialized sums? **Measure, don't assume**: the red-pin agent
+   pins whatever the meters read, red or green, and the cell exists
+   either way — its job is to hold the CURE to linearity on the
+   shape that breaks naive watermark propagation.
+4. Judge roster entries for the new red cells, owned by #34.
+
+**Model-side committed schedules** (the spec's own tripwires, run
+per design round, not in the kernel gate): the fourteen-schedule
+set of `emit_model.py` — the seven L1 schedules plus
+`descending-staircase` (I4's tripwire), `wide-off-churn` (L2's
+tripwire: quadratic against the pre-A1 discipline, 8.14/unit flat
+against the discipline of record), `run-boundary-churn`,
+`resurrection-cycle`, `burst-arm-close`, `anchor-flip-funded`, and
+`benign` — plus `anchor-flip-UNFUNDED` kept deliberately as the
+demonstration that the pricing chain (L2×L6) is load-bearing (it
+MUST read superlinear against input-only content; if it ever reads
+flat, the model has stopped charging emissions and is broken —
+a liveness tripwire for the model itself).
+
+**Green pins landing with the red-pin commit** (the review's
+Finding 2, the memo path's negative space): mirror × *narrow* cross
+cells (the memoized pre-scan exercised with unit deltas) — green
+with a linear envelope and liveness floors derived from the honest
+walk's counts on that shape (floors above vacuity, meaningfully near
+the measured constant — never the generic 1 bit/B).
+
+**The cure's acceptance**: all four wide×deep cells AND the
+descending-staircase cells flip (or stay) green at both scales
+(three identical runs each); scan columns unchanged
+(e 1.00, byte-identical constants on non-tick cells); byte-identity
+against the recursive oracle across every family including both new
+crosses, exhaustive small scope, arbitraries, organic histories, and
+the deep closed-form witnesses; the memo-drain and gap debug
+asserts hold; heap within allowance (L5); roster entries leave with
+measured linear exponents recorded; `fill.rs`'s `# Cost` restates
+exactly what is then proven (per-dimension, tagged — if L2 closed by
+argument, cite the invariant; if by measurement, name the families);
+§13/§17.3 amendments with sums restated; envelope rows in
+`tests/meter.rs` for the tick × wide×deep crosses pinned at
+cure-earned constants. **No green, no merge.** If fusion is
+ratified: its separate commit adds the flag-equivalence differential
++ tick-composition byte-identity, and the before/after table gains
+the grow-branch traversal delta.
+
+Cure sequencing within #34: red pin commit → watermark rewrite of
+the walk (right-full arm first — it is self-contained) → the
+pre-scan/memo conversion (L4) → fusion (if ratified). Each stage
+byte-identical; one gate per agent; the board is the arbiter at
+every stage.
+
+## 8. Open decisions for Finch
+
+Coordinator dispositions (2026-07-25, under the standing
+authorization; each awaiting Finch's ratification alongside the
+document): 1 — proceed, T-tick is #34's target; 2 — adopt fusion per
+the pre-approval; 3 — yes, the L6 pin lands with the cure (the
+two-ways-computable pin rule is standing policy); 4 — yes, the
+segments residual stays P4.2-owned; 5 — delegated to the red-pin
+agent as written.
+
+1. **Ratify T-tick as #34's target?** REC: yes — the full
+   discipline (compressed stack + anchored entries + lifetime
+   accounting + the pricing chain) is validated composed on the
+   limb-faithful model across fourteen schedules including every
+   tripwire (round two), the slack bound is derived and
+   twice-probe-confirmed, L3's enumeration is verified, and the
+   landed precedents (V6 drift charging, the probe's bit-coded
+   frames, the emit gap discipline) make amortized O(n + m) the
+   right target; the pinned cells are the arbiter. **The condition
+   this decision previously waited on — L2's model validation — is
+   met**; the cure charter can be written against revision 3.
+2. **Fusion (§6)** — pre-approved by ruling (2026-07-25) given
+   linearity with small constants; no further go/no-go is needed
+   unless the honest optimum turns out superlinear (§5's escalation
+   path). Recorded here as the spec's recommendation: adopt, as the
+   separate post-cure commit inside #34's charter; judged by the
+   before/after table, no red pin.
+3. **L6, the output-bound pin** (`size(tick output) ≤ size(input) +
+   O(id)`) — land with the cure? REC: yes (two-ways-computable gets
+   a pin; it also protects the input denomination the board rests
+   on).
+4. **Segments ownership**: keep the ×4 recursion-depth residual with
+   P4.2 (the iterative rewrite rides the watermark stack naturally)?
+   REC: yes; the cure must not silently change the segments profile
+   without re-pinning.
+5. **The board mechanics** for the new crosses (extend `tick_cross`
+   vs a second operand slot): implementation detail — delegate to
+   the red-pin agent. The smoke-pin count is **derived from what
+   actually lands and re-verified then** (the §7 set as written
+   implies 207 → 215: four wide×deep red cells + two
+   descending-staircase cells + two mirror-narrow green cells — but
+   the landed generator/slot structure decides, never this
+   arithmetic transcribed).
+
+## 9. Adversarial record (the design loop's convergence log)
+
+**Round 1** (attack: `tick-spec-attack-1.md`; fix: revision 2).
+Attack verdict: FALSIFIED. Fix round re-ran the attack harness
+(every number reproduced exactly) and independently rewrote the one
+non-persisted probe (the F2 slack bound) before citing it.
+
+- **F1 — FALSIFIED, integrated**: L1/I4's uncompressed residue
+  propagation is Θ(open depth) per full-penetration min-update
+  (zero-diff frames cost touches and never absorb);
+  descending-staircase measured Θ(d²), value-correct throughout
+  (cost-only failure). Cure validated in the same harness: the
+  zero-run-compressed diff stack, linear on all seven schedules.
+  I4 restated as normative compression; the family joins the model
+  schedule set and §7's kernel set.
+- **F2 — restore path FALSIFIED, resolution derived, NOT closed**:
+  wide-off-churn measured quadratic on naive and compressed stacks
+  alike. L2 now carries the per-operand lifetime discipline as the
+  resolution of record ([derived]; post-collapse slack bound
+  measured worst 0/2000, twice independently); model validation is
+  round two's first job, wide-off-churn the tripwire.
+- **F3 — under-specification, cured in prose**: L4 gains the
+  normative diff-coding of memo entries against the enclosing
+  pre-scan's min-stack + LIFO carry at consumption; the anchor seam
+  itself was verified sound (same position ⇒ same height).
+- **HELD under attack**: L1 value-semantics (full-stack oracle,
+  strictly stronger than the spec round's); L3 (comparison-site
+  enumeration at the tip — none uncovered; obligation transferred
+  to the cure's own final sites); L5 (strengthened by both fixes);
+  L6 (telescoping survived the cliff-boundary attack); fusion —
+  both equivalence directions, route-data reachability, and the
+  4 → 2 traversal arithmetic.
+- **Advisories dispositioned**: A1 first-leaf absolute-code flag
+  case (normative sentence, §6); A2 route-fold × word-scale-skip
+  interaction (recorded §4 segments row + §6 costs; P4.2 sequencing
+  must name the fused walk); A3 Accum pooling for benign parity
+  (named in §6 costs and the cure charter); A4 the model's
+  sparse-wide undercount (L1's model-limitations clause; dense
+  wides or limb-faithful accounting in future schedules).
+- **No representation-level obstruction found** (both rounds
+  concur): every fix is auxiliary walk state within the skyline
+  coding.
+
+**Per-lemma status after round 1**:
+
+| clause | status |
+|---|---|
+| L0 scan | [measured, landed] — held |
+| L1 watermark stack | [measured-on-model], seven schedules, compressed stack normative (F1 integrated) |
+| L2 emission pricing | [derived] resolution of record; model validation PENDING (round two's first job) |
+| L3 sign-read decisions | [derived], enumeration verified at tip; re-enumeration owed by the cure |
+| L4 pre-scan/memo | [derived], seam verified; diff-coding now normative (F3) |
+| L5 auxiliary space | [derived] — held, strengthened |
+| L6 output bound | [derived, pin candidate] — held under attack |
+| Fusion | [derived] — held both directions; A1–A3 normative notes added |
+| T-tick overall | [open] until L2's model validation lands |
+
+**Round 2** (attack: `tick-spec-attack-2.md`; fix: this revision).
+Attack verdict: **HOLDS UNDER ATTACK** — no falsification of
+T-tick; L2 VALIDATED on the limb-faithful composed model
+(`emit_model.py`: the discipline implemented, not charged by
+construction, under a full-stack + `d_out`-exactness + `last`-
+invariant oracle, costs mirrored against `codec/accum.rs` and
+confirmed by line-read); three normative under-specifications
+(round 1's F3 genre: mechanism right, words didn't force it). Fix
+round two reproduced every number (the committed tripwire
+`wide-off-churn` 8.14 touches/unit flat, ratio 2.00 — was 95 → 729
+quadratic; all fourteen schedules linear; `anchor-flip-UNFUNDED`
+61.7 → 444, ratio 3.96, the demonstration for A3), closed one
+provenance gap (`run-boundary-churn` was defined but unwired in the
+committed harness — oracle-validated and re-measured at fix round
+two, 6.23/unit flat), and confirmed the four cost-placement claims
+against `accum.rs` directly.
+
+- **A1 — integrated (L2 rule 3)**: the anchored-entry discipline is
+  normative — raises enter anchor-relative (never h-relative wide),
+  `T` never folded while it survives, arming moves, post-sign
+  top-index domination at disparate scales, fold-and-restore of the
+  narrow side only. Round 1's quadratic lived equally in the stack's
+  own min-update comparison; rules 1–2 alone left it expressible.
+- **A2 — integrated (L2 rule 2)**: "read O(1) times" was mis-stated;
+  the bound is by *pricing*, not count — every wide read is a death,
+  an O(1)-per-lifetime read, or priced by the code emitted at that
+  site (unified with I3's priced-by-output arm; anchor-switch
+  bridges are the case that forced it).
+- **A3 — integrated (the pricing chain, L2's closing lemma)**:
+  L2's costs are output-code-priced; L6 telescopes output to
+  input + O(id); hence input-denominated O(n + m). The UNFUNDED
+  schedule is kept as the model-liveness tripwire proving the chain
+  is load-bearing.
+- **Upgrades**: the post-collapse slack bound moved to [derived,
+  probe-confirmed] (domination ⟹ slack ≤ 2 digits; worst 0 over
+  2000 randomized + 548 structured constructions); fusion's flag
+  alignment strengthened to the first-divergence-detector argument;
+  I4 gains the funded-cascade clarification (reincarnation chains
+  measured flat) and the no-split-operation note (run-boundary
+  churn measured flat); L1's sparse-wide model limitation resolved
+  by the limb-faithful model.
+- **HELD under attack**: the compressed stack's new seams (run
+  bookkeeping, `last` lifetime under close cascades), L4 under
+  mixed nesting (sound by projection; composition note integrated),
+  L5 under the composed discipline, benign constants flat
+  (~12.6/unit — kernel-side parity remains the before/after table's
+  question, pooling stays named in the cure charter).
+
+**Per-lemma status after round 2 (this revision)**:
+
+| clause | status |
+|---|---|
+| L0 scan | [measured, landed] — held |
+| L1 watermark stack | [measured-on-model], fourteen schedules, limb-faithful, composed with L2 |
+| L2 emission pricing | [measured-on-model] — VALIDATED; A1–A3 normative |
+| L3 sign-read decisions | [derived], enumeration verified; + the domination guard; re-enumeration owed by the cure |
+| L4 pre-scan/memo | [derived], held under mixed nesting; diff-coding + anchor generalization normative |
+| L5 auxiliary space | [derived] — held both rounds |
+| L6 output bound | [derived, pin candidate] — held both rounds; now load-bearing via the pricing chain |
+| Fusion | [derived] — held both rounds; first-divergence alignment |
+| T-tick overall | **[validated-on-model, kernel-pending]** |
+
+**Convergence assessment (fix round two)**: **CONVERGED at the spec
+tier, revision 3.** The loop's convergence rule — a round with no
+falsifications whose findings are wording/normativity — was met by
+round two, and its amendments are now integrated. The honest
+residue, named rather than hidden: (i) the model exercises the
+discipline over abstract emission schedules, not over fill's actual
+arm structure driven by real (id, event) pairs — the mapping from
+the arms to the model's primitives is [derived] in §1/§3, and its
+verification is exactly the red pin's mandatory kernel
+re-measurement (§7, normative); (ii) L3's enumeration binds today's
+code, and the cure re-runs it against its own final sites (§7,
+normative); (iii) benign-input parity is a kernel-side question the
+before/after table judges (§6). None of these is a model-tier open
+— a round three against this document would re-attack validated
+clauses rather than new surface. Recommendation to the coordinator:
+declare convergence, commit the spec, and charter the cure against
+revision 3.
