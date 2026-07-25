@@ -303,12 +303,13 @@
 //!   `Clock::party`/`version`, `Version::batch`,
 //!   `Ranked::rank`/`version`/`into_parts` (borrows and moves); `Clone`
 //!   (`Version`, `Rank`, `Ranked`) copies the stored bits or value content
-//!   wholesale, with no walk or arithmetic in the contract; `Party`'s and `Clock`'s
-//!   derived `PartialEq`/`Eq` are one bit-slice compare of the stored
-//!   canonical bits (`Version`'s `==` decides same-form operands by the
-//!   same wholesale compare and walks only mixed storage forms — it keeps
-//!   the `version_eq` row because its operands grow without bound, the
-//!   row's time leg holding the compare linear); the consuming array splits
+//!   wholesale, with no walk or arithmetic in the contract; `Party`'s and
+//!   `Clock`'s derived `PartialEq`/`Eq` are one bit-slice compare of the
+//!   stored canonical bits (`Version`'s `==` is the same wholesale compare
+//!   — the stored coding is canonical, so byte equality is causal equality
+//!   and no walk is in the contract; it keeps the `version_eq` row because
+//!   its operands grow without bound, the row's time leg holding the
+//!   compare linear); the consuming array splits
 //!   (`From<Party> for [Party; N]`, `From<Clock> for [Clock; N]`) are the
 //!   `forks` machinery above plus `N` moves.
 //! - **Derived pairings**: `Ranked::from` is the `rank` row plus a move; its
