@@ -524,10 +524,11 @@ const HARMONIC_BASE_DEPTH: usize = 8_000;
 /// each (~10 KiB of packed single-tick versions).
 const SCATTER_BASE_CLOCKS: usize = 1_024;
 
-/// Nested-full-sibling depth at scale 1.0 (packed pair ~1.5 KiB): deep
-/// enough that a per-level re-scan genre reads its exponent across the
-/// level doubling, small enough that the quadratic pin stays inside the
-/// board's runtime budget at the record scale.
+/// Nested-full-sibling depth at scale 1.0 (packed pair ~1.5 KiB).
+///
+/// Deep enough that a per-level re-scan genre reads its exponent
+/// across the level doubling, small enough that the quadratic pin
+/// stays inside the board's runtime budget at the record scale.
 const NESTED_BASE_DEPTH: usize = 1_500;
 
 /// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops`
@@ -647,10 +648,12 @@ struct FamilyData {
     /// population and the benign family's organic control.
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
-    /// The tick cross's packed (event spine, nested-full-sibling id) —
-    /// the nested-full family only, reached by nothing but the two tick
-    /// rows: the version is the matched dense spine, the party the
-    /// `(x, 1)` id whose every level is a right-full shortcut site.
+    /// The tick cross's packed (event spine, nested-full-sibling id).
+    ///
+    /// The nested-full family only, reached by nothing but the two
+    /// tick rows: the version is the matched dense spine, the party
+    /// the `(x, 1)` id whose every level is a right-full shortcut
+    /// site.
     tick_cross: Option<(Vec<u8>, Vec<u8>)>,
     /// The mismatched rank pair — the rank-row families only.
     ///

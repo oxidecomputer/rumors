@@ -106,9 +106,13 @@ the enforced envelopes and board cells named.
 - **Fill's lookahead/pre-scan terms** (found post-C2 by review:
   worst case O(|ev| × local-id-depth), quadratic on matched
   spines with zero shortcut sites; the multiplier is the LOCAL
-  id's depth — not wire-suppliable by a hostile peer, so a pricing
-  obligation, not an exploit): the linearization is committed
-  work, red-pinned first (§17.2, the #33 item).
+  id's depth — not wire-suppliable by a hostile peer): cured
+  2026-07-25 under the nested-full red pin — the right-full arm
+  deferred to an O(1) peek at the cursor's arrival (killing the
+  lookahead and its drift accumulators), the left-full pre-scan
+  memoized (no position scanned twice), per-node O(1) signed
+  combination for the emitted minima. Work columns e 1.00; the
+  recursion-depth segments residual rides P4.2's pin (§17.3).
 
 ## 6. The design invariant and the denomination criterion
 
@@ -403,11 +407,17 @@ verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-25, the
 bench-coverage integration record; dev profile, limb+scan meters
-lit]: board **188 green / 19 red at the default scale; 187 / 20
-at ×4** over 207 cells (amended 2026-07-25: the fill red pin adds
-the two nested-full tick cells, red on scan/limb exponent 2.00 at
-both scales — [measured], owned by the fill linearization, green
-only through it). The judge's last honest reading, at the
+lit]: board **190 green / 17 red at the default scale; 187 / 20
+at ×4** over 207 cells (amended 2026-07-25: the fill
+linearization turned its red pin green — the nested-full tick
+cells read scan/limb e 1.00 at 37.7 and 20.6 per byte, heap
+0.3/B, from e 2.00 at 25,742 and 10,297 [measured both states];
+at ×4 the pair stays red on the segments column alone, e 1.49 /
+28 grown segments against the flat ceiling — the walk still
+recurses to pairing depth, and that residual is owned by P4.2's
+iterative-walk rewrite under the stack-container seam directive,
+pinned red in advance exactly as this cure was). The judge's
+last honest reading, at the
 flip commit over 202 cells: **157 green / 3 red / 42 sub-floor**,
 exit 1 on exactly the fifteen banked realization violations; the
 three reds all rostered-expected. Workspace sweep at C0:
@@ -677,15 +687,26 @@ discrepancy dissolved — the flip entry's ×4 categories contained
 the cliff and id-pair cells without enumerating them). Every red
 has exactly one owner and the sums close:
 
-Amended 2026-07-25 (the fill red pin): **two nested-full tick
-cells** (`version_tick`/`clock_tick` × nested-full) join both
-scales' red sets, owned by the fill linearization (#33) — scan and
+Amended 2026-07-25 (the fill red pin, and its cure the same day):
+the nested-full tick cells pinned the kernel quadratic — scan and
 limb exponents 2.00 [measured] with constants two orders over
-their ceilings (and segments e 2.90 at ×4): the walk's right-full
-lookahead and sibling pre-scan genres nesting at every level,
-exactly the reviewed bound. Green only via the O(n+m) rewrite;
-the judge legs ride the roster under the same owner. Sums:
-default 188 + 19 = 207; record 187 + 20 = 207.
+their ceilings, segments e 2.90 at ×4 — and the O(n+m) rewrite
+flipped every work column green (scan/limb e 1.00, heap 0.3/B;
+byte-identity against the recursive oracle, the exhaustive scope,
+and the closed-form deep witnesses held throughout; the deep-4096
+differential's wall fell 67.4 s → 1.3 s in the debug harness).
+The ×4 residual: segments only, e 1.49 / 28 grown — the walk's
+recursion depth, owned by **P4.2** (iterative walk, built behind
+the stack-container seam and measured per the 2026-07-25
+directive), red in advance by this same family. The judge legs
+left the roster with the cure (C3's run verifies the wall).
+Heap constants on width-carrying families moved +0.3–0.5/B, all
+green: the walk's per-subtree signed returns materialize wide
+magnitudes once per node — the content-genre arithmetic the
+module doc prices, and the wide×deep cross residual C3 should
+consider pricing as its own cell. Sums: default 190 + 17 = 207;
+record 187 + 20 = 207 (the record red set swaps the two
+seven-leg pin cells for two segments-only cells).
 
 Default, 17 pre-pin = 188 green + 17: **ten κ-text constants**
 (`version_display`/`clock_display` × {dense, bigroot, benign},
