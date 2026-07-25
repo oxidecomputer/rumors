@@ -46,9 +46,9 @@
 //! Wall time is deliberately never asserted *in this suite*: it is the one
 //! number here that is not deterministic (the bench judge fits the time
 //! *exponent* over criterion medians across two bench scales — see
-//! `meter::board`'s module docs and `tools/benchjudge` — and the display
-//! canary asserts a wall-clock ratio in a reserved runner; those two are
-//! the wall legs of record). The envelope constants are **measured** on the
+//! `meter::board`'s module docs and `tools/benchjudge`; its wide-display
+//! pair judges the conversion class no counter column can see — that is
+//! the wall leg of record). The envelope constants are **measured** on the
 //! development target (aarch64-apple-darwin, dev profile); heap byte counts
 //! and limb counts are deterministic and portable across 64-bit targets
 //! (limb counts shrink under release, where `debug_assert!` comparisons

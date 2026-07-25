@@ -33,19 +33,3 @@ slow-timeout = { period = "60s", terminate-after = 3 }
 # them (window_corners' real-clock promptness cross-check) holds a
 # ~0.5 s measured catch-up under a 5 s budget: that ~8x headroom is what
 # absorbs load there, where the virtual pins need none.
-
-# The display canary (crates/before/tests/display_canary.rs) is the test
-# suite's one deliberate wall-clock assertion: a rendering-time ratio whose
-# ceiling separates the bignum backend's divide-and-conquer complexity
-# class from the quadratic one. The ratio's class margin assumes
-# both measured intervals see a quiet machine: under a fully parallel
-# workspace run, scheduler contention stretches the seconds-scale interval
-# more than the milliseconds-scale one and inflates the ratio into the
-# quadratic band (36x observed under gate load against a quiet 18-25x
-# divide-and-conquer band, dev profile, aarch64-apple-darwin). Reserving
-# every runner thread makes the
-# canary run alone, so the two intervals face the same conditions and the
-# ceiling keeps measuring the complexity class, not the scheduler.
-[[profile.default.overrides]]
-filter = 'binary(display_canary)'
-threads-required = "num-test-threads"
