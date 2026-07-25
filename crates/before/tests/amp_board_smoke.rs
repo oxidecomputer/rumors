@@ -17,22 +17,23 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The board's exact cell count: 45 operation rows over 9 families (405
-/// combinations) minus the 205 where the family provides no operand.
+/// The board's exact cell count: 46 operation rows over 9 families (414
+/// combinations) minus the 209 where the family provides no operand.
 ///
 /// Derived per family: the four event families run every row except the
 /// 10 party rows, the adversarial-party tick row, and the two fold rows
-/// (32 each), and `rank_pair_ops` additionally applies only to dense
-/// among them (so 32 + 31 x 3); the id pair runs its 23 (10 party rows,
-/// the tick row, 11 clock rows, projection); comb-scatter runs its 2
-/// projection cells; harmonic runs its 5 (the four linear-functional
-/// rows plus `rank_pair_ops`); scatter runs its 2 fold rows; benign runs
-/// everything but the dedicated-column cells (43). 32 + 93 + 23 + 2 + 5 +
-/// 2 + 43 = 200. The table is fixed and applicability depends on the
+/// (33 each), and the two rank rows (`rank_pair_ops`, `rank_sum`)
+/// additionally apply only to dense among them (so 33 + 31 x 3); the id
+/// pair runs its 23 (10 party rows, the tick row, 11 clock rows,
+/// projection); comb-scatter runs its 2 projection cells; harmonic runs
+/// its 6 (the four linear-functional rows plus the two rank rows);
+/// scatter runs its 2 fold rows; benign runs every row (46, the fold
+/// rows' organic control included). 33 + 93 + 23 + 2 + 6 + 2 + 46 = 205.
+/// The table is fixed and applicability depends on the
 /// family alone (`board::run` enforces this per cell), so the count is
 /// deterministic at every scale; a row added to or dropped from the table
 /// must move this pin.
-const EXPECTED_CELLS: usize = 200;
+const EXPECTED_CELLS: usize = 205;
 
 /// The board runs to completion at tiny sizes: every cell prepares,
 /// measures, and renders, and the matrix keeps covering the full operation
