@@ -17,7 +17,8 @@ use rayon::prelude::*;
 
 use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    id_spine, nested_full_id, scattered_id, wide_tooth_comb, Packed,
+    id_spine, nested_full_id, nested_left_full_id, scattered_id, staircase, wide_tail,
+    wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
@@ -93,6 +94,10 @@ fn event_pool() -> Vec<Version> {
         version_of(&alt_spine(3)),
         version_of(&alt_spine(64)),
         version_of(&harmonic(16)),
+        version_of(&wide_tail(7, 3)),
+        version_of(&wide_tail(64, 16)),
+        version_of(&staircase(1)),
+        version_of(&staircase(16)),
     ]
 }
 
@@ -112,6 +117,8 @@ fn party_pool() -> Vec<Party> {
         party_of(&scattered_id(16)),
         party_of(&nested_full_id(1)),
         party_of(&nested_full_id(8)),
+        party_of(&nested_left_full_id(1)),
+        party_of(&nested_left_full_id(8)),
     ];
     pool.extend(all_normal_ids(2).iter().map(from_oracle_party));
     pool
@@ -243,10 +250,25 @@ fn left_spike(depth: usize) -> Version {
 /// leaf (its own maximum) and the left range's minimum stays at the
 /// spine's floor of zero, so no raise ever moves a value — and the id
 /// terminus pairs with a leaf (the untouched-leaf arm). The case
-/// drives the drift stack and both re-scan genres at full depth (the
-/// #33 cost adversary) with a value witness the small scope pins
-/// against the oracle. Canonicality, fill idempotence, and tick entry
-/// agreement ride along on every case.
+/// drives the deferred right-full decision and its per-level raise
+/// bookkeeping at full depth with a value witness the small scope
+/// pins against the oracle. The mirror id over the wide-tail spine
+/// collapses to the single wide leaf, derived bottom-up: the deepest
+/// left-full raise is `max(max(el), min(fill(ir, er)))` with `el` a
+/// lone zero leaf and `er` the wide tail itself (a leaf's minimum is
+/// its value), so the raise lifts the zero leaf to the tail's value,
+/// the equal sibling pair collapses, and each enclosing level sees
+/// the same wide leaf as its right minimum — the collapse telescopes
+/// to the root. The case drives the memoized pre-scan at full depth
+/// with wide minima in every memo entry, and the collapse is the
+/// tick (fill changed the tree). The staircase under the unary id
+/// spine fills to the identity — its levels pair internal × internal
+/// down to the terminus, whose left-full raise `max(max(a), min(b))`
+/// with `a` one step above `b` returns `a` itself — and its tick
+/// increments the id's owned tip, the bottom-left leaf; every
+/// consumed leaf undercuts every open range on the way, the
+/// full-penetration minimum-update schedule. Canonicality, fill
+/// idempotence, and tick entry agreement ride along on every case.
 #[test]
 fn deep_spines_fill_and_tick_identically() {
     let assert_deep = |v: &Version, p: &Party| {
@@ -306,11 +328,12 @@ fn deep_spines_fill_and_tick_identically() {
     );
 
     // The nested-full-sibling id over its matched spine: a right-full
-    // shortcut site at every one of the 4096 levels — the drift stack
-    // and both re-scan genres at full depth. Fill is the identity (the
-    // module doc's derivation: each raise maxes a lone leaf against a
-    // zero minimum), and the small scope pins the same cross against
-    // the oracle at every depth it enumerates.
+    // shortcut site at every one of the 4096 levels — the deferred
+    // right-full decision and its raise bookkeeping at full depth.
+    // Fill is the identity (the doc comment's derivation: each raise
+    // maxes a lone leaf against a zero minimum), and the small scope
+    // pins the same cross against the oracle at every depth it
+    // enumerates.
     let mut text = "(0, ".repeat(4095);
     text.push_str("(0, 0, 1)");
     text.push_str(&", 0)".repeat(4095));
@@ -321,6 +344,64 @@ fn deep_spines_fill_and_tick_identically() {
         filled,
         encode(&matched),
         "every nested raise maxes a lone leaf against a zero minimum: identity"
+    );
+
+    // The mirror id over the wide-tail spine: a left-full shortcut
+    // site at every one of the 4096 levels — the memoized pre-scan at
+    // full depth, every memo entry a wide minimum. The deepest raise
+    // lifts its zero leaf to the tail's value (a leaf's minimum is
+    // its value), the equal pair collapses, and the collapse
+    // telescopes to the root: fill is the single wide leaf, and the
+    // collapse is the tick.
+    let mut text = "(0, 0, ".repeat(4095);
+    text.push_str(&format!("(0, 0, {})", u64::MAX));
+    text.push_str(&")".repeat(4095));
+    let tail: Version = text.parse().expect("the wide-tail literal parses");
+    let wide_leaf: Version = u64::MAX
+        .to_string()
+        .parse()
+        .expect("the leaf literal parses");
+    let mirror = party_of(&nested_left_full_id(4096));
+    let filled = assert_deep(&tail, &mirror);
+    assert_eq!(
+        filled,
+        encode(&wide_leaf),
+        "the deepest raise meets the tail and the collapse telescopes to the root"
+    );
+    assert_eq!(
+        tick(&encode(&tail), &mirror),
+        encode(&wide_leaf),
+        "tick takes the fill branch: the telescoped collapse"
+    );
+
+    // The descending staircase under the unary id spine: every
+    // consumed leaf undercuts every open range — the full-penetration
+    // minimum-update schedule at 4096 levels, all values word-scale.
+    // Fill is the identity (internal × internal at every level above
+    // the terminus, whose raise `max(a, min(b))` returns `a` itself),
+    // so tick grows: the id's owned tip is the bottom-left leaf, a
+    // zero-expansion increment and the only owned site.
+    let mut text = "(0, ".to_string();
+    text.push_str(&"(1, ".repeat(4094));
+    text.push_str("(1, 1, 0)");
+    text.push_str(&", 0)".repeat(4095));
+    let stairs: Version = text.parse().expect("the staircase literal parses");
+    let spine_id = party_of(&id_spine(4096, false));
+    let filled = assert_deep(&stairs, &spine_id);
+    assert_eq!(
+        filled,
+        encode(&stairs),
+        "no full region meets a subdividable subtree: identity"
+    );
+    let mut text = "(0, ".to_string();
+    text.push_str(&"(1, ".repeat(4094));
+    text.push_str("(1, 2, 0)");
+    text.push_str(&", 0)".repeat(4095));
+    let grown: Version = text.parse().expect("the grown staircase literal parses");
+    assert_eq!(
+        tick(&encode(&stairs), &spine_id),
+        encode(&grown),
+        "tick increments the owned bottom-left leaf"
     );
 }
 

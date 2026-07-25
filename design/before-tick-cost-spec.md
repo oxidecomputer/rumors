@@ -632,6 +632,29 @@ with a linear envelope and liveness floors derived from the honest
 walk's counts on that shape (floors above vacuity, meaningfully near
 the measured constant — never the generic 1 bit/B).
 
+*Amendment 2026-07-25 (the red-pin landing; measured dispositions
+where this section predicted)*: the mirror-narrow cells landed
+**RED on the heap constant** (93.2/B default, 95.6/B ×4, exponent
+1.00 — one owned heap entry per left-full site; linear in count,
+honestly over the 16/B ceiling), not green: the meters read the
+memo's real constant, the pin keeps the honest reading, and the
+cure's L4/L5 diff-coded memo flips it. The staircase cells landed
+green on every work column at the default scale (the landed kernel
+is linear on narrow full-penetration schedules — the cell holds
+the cure to the same reading) and red at ×4 on segments only (the
+recursion-depth genre, P4.2-owned, as every tick-walk family). The
+mirror-wide cross also collapses under fill (the deepest raise
+meets the tail and the equal-pair collapse telescopes to the root
+— the deep witness derives it), so its tick takes the fill branch;
+the memo entries it exercises are all wide, which is exactly the
+L5 fan-out threat live in today's kernel (heap e 1.63–1.84,
+red-pinned). Scan floors landed at full examination (8 bits/B,
+derivation-backed) rather than a per-family measured fraction;
+measured constants sit 1.8–5× above. The four wide×deep judge
+cells are rostered; mirror-narrow and staircase are not
+(wall-linear legs — their reds are board-column reds the judge
+cannot see).
+
 **The cure's acceptance**: all four wide×deep cells AND the
 descending-staircase cells flip (or stay) green at both scales
 (three identical runs each); scan columns unchanged
