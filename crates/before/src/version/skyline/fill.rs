@@ -31,28 +31,39 @@
 //! leaf after a collapse re-syncs them with one compacted signed read.
 //! A collapsed region's value travels as a streaming-max offset against
 //! the running height; a sibling minimum travels as an offset against
-//! the height at its range's entry, re-anchored across consumed ranges
-//! by a drift accumulator — so every comparison a shortcut arm makes is
-//! between same-anchored relative quantities, wide only when the deltas
-//! that built them were.
+//! the height at its range's entry, re-anchored across a consumed
+//! range by one signed sum of that range's net movement — so every
+//! comparison a shortcut arm makes is between same-anchored relative
+//! quantities.
 //!
 //! # Cost
 //!
-//! Derived: `O(n + m)` in the two packed streams. The walk consumes
+//! Scan: `O(n + m)` bits in the two packed streams [measured: e 1.00
+//! on every committed board family at both scales]. The walk consumes
 //! every position once; the left-full pre-scan reads a position at
 //! most once more (the memo turns every interior left-full site into
 //! a lookup, and distinct fresh scans cover disjoint sibling ranges);
 //! the absent-sibling extremum scans read their range once ahead of
-//! the walk's own copy (a flat ×2, never nesting); and each paired
-//! node combines its children's returned quantities with `O(1)`
-//! signed operations. Auxiliary state is the memo (one entry per
-//! left-full site whose scan ran ahead of the walk, bounded by the
-//! id's node count) and the output builder. Signed per-node sums are
-//! content-genre arithmetic: wide only when the deltas that built
-//! them were, the same regime as the emit kernel's accumulator work.
-//! The C3 envelope round prices the constants (the tick rows of
-//! `tests/meter.rs`); recursion is guarded by `crate::recurse`
-//! throughout.
+//! the walk's own copy (a flat ×2, never nesting).
+//!
+//! Limb: quadratic in the worst case [measured: exponents 1.6–1.9 on
+//! the wide × deep board crosses through both shortcut arms, red-
+//! pinned at both scales]. Each paired node combines its children's
+//! returned `(min, net)` by signed sums on materialized magnitudes,
+//! and a subtree whose net movement is wide — the stream's first
+//! payload is coded absolute; a wide tail delta nets every enclosing
+//! subtree — re-touches its full width at every ancestor: depth ×
+//! width is not bounded by input bits. The memo holds one owned entry
+//! per left-full site (linear count, but a per-site heap constant the
+//! mirror-narrow board cells pin red, and wide entries where the
+//! pre-scanned range's content is wide). The committed cure carries
+//! every relative quantity on shared anchors, touching wide content
+//! only when an operand dies or an emitted code's own width prices
+//! it; until it lands, the red board cells are the honest reading.
+//!
+//! Recursion is guarded by `crate::recurse` throughout; the
+//! recursion-depth segments residual at the record scale belongs to
+//! the explicit-stack conversion, pinned separately.
 //!
 //! # Testing
 //!
