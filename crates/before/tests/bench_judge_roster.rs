@@ -43,17 +43,13 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
 }
 
 /// The roster's red set is exactly the fifteen counter-red bigroot sweeps,
-/// the two hugeleaf display rows, the permanent schoolbook tripwire, and
-/// the four wide-by-deep tick crosses.
+/// the two hugeleaf display rows, and the permanent schoolbook tripwire.
 ///
 /// The bigroot sweeps are owned by the C2 kernel flip and the display rows
-/// by the text column's κ/C2 hand-off; both sets empty at C3. The tick
-/// crosses (`nested-wide`, `mirror-wide`) are owned by the tick limb
-/// cure: the board reads the kernel's materialized per-node sums
-/// limb-quadratic on them at both scales, and they leave the roster when
-/// the cure's cells flip green. Removing an owned red silences a standing
-/// judgment and adding one launders a new regression as expected, so both
-/// directions must show up as a diff of this pin.
+/// by the text column's κ/C2 hand-off; both sets empty at C3. Removing an
+/// owned red silences a standing judgment and adding one launders a new
+/// regression as expected, so both directions must show up as a diff of
+/// this pin.
 #[test]
 fn roster_red_membership_is_pinned() {
     let mut expected = vec![
@@ -63,8 +59,6 @@ fn roster_red_membership_is_pinned() {
         "clock_recv/bigroot",
         "clock_sync/bigroot",
         "clock_tick/bigroot",
-        "clock_tick/mirror-wide",
-        "clock_tick/nested-wide",
         "display_schoolbook/hugeleaf",
         "version_batch_snapshot/bigroot",
         "version_cmp/bigroot",
@@ -77,8 +71,6 @@ fn roster_red_membership_is_pinned() {
         "version_meet/bigroot",
         "version_meet_assign/bigroot",
         "version_tick/bigroot",
-        "version_tick/mirror-wide",
-        "version_tick/nested-wide",
     ];
     expected.sort();
     assert_eq!(class(&roster(), "red"), expected);

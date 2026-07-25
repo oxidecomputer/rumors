@@ -99,6 +99,12 @@ impl MinStack {
         }
     }
 
+    /// Whether any frame is armed (an emission has occurred inside an
+    /// open range).
+    pub(super) fn armed(&self) -> bool {
+        self.armed > 0
+    }
+
     /// Open a range: one more frame, unarmed until the next emission.
     pub(super) fn open(&mut self) {
         self.pending += 1;
@@ -232,6 +238,18 @@ impl MinStack {
         self.propagate(residue);
     }
 
+    /// Record an emission at `v = h − below` where `below` arrives as a
+    /// funded accumulator (a resolved memoized minimum), arming the
+    /// pending frame that must exist for it.
+    ///
+    /// The accumulator moves into the web — it becomes the new `t` —
+    /// so wide content is stored once and read only at the arming
+    /// boundary it prices.
+    pub(super) fn emit_below_accum(&mut self, below: Accum) {
+        debug_assert!(self.pending > 0, "a raise arms its own node's frame");
+        self.arm(below);
+    }
+
     /// Whether `h + above` reaches the innermost armed minimum:
     /// `Ordering::Less` means strictly below `m`.
     ///
@@ -250,6 +268,61 @@ impl MinStack {
         let sign = self.t.sign();
         fold(&mut self.t, !above.0, &above.1);
         sign
+    }
+
+    /// Whether `h + above` reaches a minimum sitting `d_arm` above the
+    /// innermost armed one (`m + d_arm`, `d_arm` signed):
+    /// `Ordering::Less` means strictly below it.
+    ///
+    /// The memo consumer's decision read: `(h + above) − (m + d_arm) =
+    /// t − d_arm + above`, folded and restored — `above` is priced and
+    /// `d_arm` funded-dying, so the surviving `t` is only ever touched
+    /// across their widths.
+    pub(super) fn compare_above_vs(&mut self, above: &Signed, d_arm: &Accum) -> Ordering {
+        debug_assert!(self.armed > 0, "a raise compares against an armed frame");
+        self.t.sub_accum(d_arm);
+        fold(&mut self.t, above.0, &above.1);
+        let sign = self.t.sign();
+        fold(&mut self.t, !above.0, &above.1);
+        self.t.add_accum(d_arm);
+        sign
+    }
+
+    /// Arm the pending frame at a minimum `d_arm` above the innermost
+    /// armed one (`v = m + d_arm`, `d_arm` signed and dying here).
+    ///
+    /// The memo consumer's arming: the new `t = t_old − d_arm` needs no
+    /// read of the old web beyond `d_arm`'s own width, and `d_arm`
+    /// itself becomes the boundary difference (or, negated, the
+    /// undercut's residue).
+    pub(super) fn arm_relative(&mut self, d_arm: Accum) {
+        debug_assert!(self.pending > 0, "a raise arms its own node's frame");
+        debug_assert!(self.armed > 0, "a relative arming needs an armed anchor");
+        let pending = core::mem::replace(&mut self.pending, 0);
+        self.t.sub_accum(&d_arm);
+        self.armed += pending;
+        let mut d = d_arm;
+        match d.sign() {
+            Ordering::Greater => {
+                for follower in self.followers.iter_mut().flatten() {
+                    follower.add_accum(&d);
+                }
+                self.diffs.push(DiffEntry::Diff(d));
+                self.push_zeros(pending - 1);
+            }
+            Ordering::Equal => {
+                self.retire(d);
+                self.push_zeros(pending);
+            }
+            Ordering::Less => {
+                for follower in self.followers.iter_mut().flatten() {
+                    follower.add_accum(&d);
+                }
+                d.negate();
+                self.propagate(d);
+                self.push_zeros(pending);
+            }
+        }
     }
 
     /// Install follower `slot` tracking `m − X`, where `X` is whatever

@@ -17,9 +17,10 @@
 //! one `O(1)` peek decides the arm, and the raise's minimum argument is
 //! the walk's own watermark for the enclosing range. The left-full
 //! arm's raised leaf precedes the range its minimum comes from, so it
-//! alone pre-scans (`min_fill_from`) — memoized: the scan records every
-//! interior left-full site's minimum, so no stream position is ever
-//! pre-scanned twice.
+//! alone pre-scans ([`PreScan`]) — memoized: one fresh scan records
+//! every interior left-full site's minimum as a chain of differences
+//! (the [`Memo`] doc), so no stream position is ever pre-scanned
+//! twice and no minimum is materialized.
 //!
 //! # Heights stay relative
 //!
@@ -35,7 +36,10 @@
 //! register (`h − prev_out` between pass-throughs, watermark-relative
 //! after a raise took the tracked minimum) rides the same web, so
 //! every emitted code is materialized once, post-collapse, at the
-//! width the code itself prices.
+//! width the code itself prices. The pre-scan runs the same discipline
+//! on its own web, and the walk resolves each recorded site against
+//! its innermost open anchor by one chain-interval fold — memoized
+//! minima are diffs between recorded values, never absolutes.
 //!
 //! # Cost
 //!
@@ -47,19 +51,31 @@
 //! the absent-sibling extremum scans read their range once ahead of
 //! the walk's own copy (a flat ×2, never nesting).
 //!
-//! Limb: the paired walk's own bookkeeping is amortized O(n + m)
-//! accumulator digit touches — each consumed delta folds into O(1)
-//! accumulators, each emission's watermark update is an amortized
-//! sign read plus propagation whose every fold is a dying operand or
-//! the one surviving fold the update's own priced width bounds, and
-//! each emitted code is materialized once at its own width [measured:
-//! the nested-full and staircase tick cells]. The left-full pre-scan
-//! (`min_fill_from`) still materializes per-site minima and per-range
-//! net movements: quadratic in the worst case on wide × deep crosses
-//! through that arm [measured: the mirror tick cells, red-pinned at
-//! both scales]. The committed cure carries the pre-scan on the same
-//! anchor web; until it lands, the red board cells are the honest
-//! reading.
+//! Limb: amortized `O(n + m)` accumulator digit touches [measured:
+//! exponent 1.00 with flat constants 5–21 touches/byte on every tick
+//! board family — the matched spine, both wide × deep shortcut
+//! crosses, the narrow memo chain, and the descending staircase — at
+//! both scales]. Each consumed delta folds into O(1) accumulators;
+//! each emission's watermark update is one amortized sign read plus a
+//! propagation whose every fold is a dying operand or the one
+//! surviving fold the update's own priced width bounds; each emitted
+//! code is materialized once, post-collapse, at its own width. Every
+//! comparison in the module decides by a sign read on a same-anchor
+//! difference: the watermark compares fold and restore only the
+//! priced offset (or answer post-sign by top-index domination); the
+//! memo consumer's compares fold priced offsets and funded, dying
+//! chain segments; the extremum scans' reset-on-cross folds are
+//! priced by the range they scan; the absent-sibling raise compares
+//! materialized offsets both priced by their own scans; the builder's
+//! equal-sibling seam is a one-bit code check. Wide content is read
+//! only where an operand dies, a bounded-count lifetime read, or a
+//! code prices it — the height↔watermark anchor switches read the
+//! surviving web once, priced by the switch emission's own code.
+//!
+//! Heap: O(paired depth) transient frames plus O(n + m) total live
+//! digits; the memo holds one machine word per covered site plus one
+//! accumulator per *nonzero* chain link [measured: ≤ 14 bytes/byte on
+//! every tick family at both scales, the narrow memo chain included].
 //!
 //! Recursion is guarded by `crate::recurse` throughout; the
 //! recursion-depth segments residual at the record scale belongs to
@@ -79,7 +95,6 @@
 //! expected values.
 
 use core::cmp::Ordering;
-use std::collections::HashMap;
 
 use crate::codec::accum::Accum;
 use crate::codec::{self, Base, Bits, BitsSlice};
@@ -96,6 +111,11 @@ mod watermark;
 /// The follower slot carrying `min − prev_out` while the output delta
 /// is watermark-anchored (a raise just emitted the tracked minimum).
 const OUT_FOLLOWER: usize = 0;
+
+/// The follower slot carrying `min − m_anchor` while the memo consumer
+/// is anchored at a resolved site minimum (walk side), or
+/// `min − m_lastrecorded` between recordings (pre-scan side).
+const REL_FOLLOWER: usize = 1;
 
 /// Register one event on the version a skyline stream denotes, from the
 /// perspective of a packed id: `fill` if it simplifies the tree, else
@@ -148,7 +168,9 @@ pub fn fill(ev: &Encoded, id: &crate::Party) -> Encoded {
         w_anchored: false,
         started: false,
         stack: MinStack::new(),
-        memo: HashMap::new(),
+        memo: Memo::new(),
+        corr: Corr::None,
+        anchor: 0,
         out: SkylineBuilder::with_capacity(ev_bits.len()),
     };
     let mut id = IdReader::root(id_bits);
@@ -161,8 +183,18 @@ pub fn fill(ev: &Encoded, id: &crate::Party) -> Encoded {
     walk.stack.close();
     debug_assert_eq!(walk.pos, ev_bits.len(), "fill consumes its whole input");
     debug_assert!(
-        walk.memo.is_empty(),
+        walk.memo.cursor == walk.memo.queue.len(),
         "the walk consumes every memoized minimum"
+    );
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(
+        walk.memo.recorded_check, walk.memo.consumed_check,
+        "the walk consumed the recorded sites, in order"
+    );
+    debug_assert_eq!(walk.anchor, 0, "every anchor frame pops");
+    debug_assert!(
+        matches!(walk.corr, Corr::None),
+        "the anchor relation dies with its last frame"
     );
     let mut bits = walk.out.finish();
     let live = bits.len();
@@ -199,15 +231,131 @@ struct FillWalk<'a> {
     started: bool,
     /// The walk's range-minimum watermarks (the anchor web).
     stack: MinStack,
-    /// Left-full minima computed ahead of the walk, keyed by the event
-    /// range's start position.
+    /// Left-full minima computed ahead of the walk (the chained memo).
     ///
     /// A fresh pre-scan records every interior left-full site it
     /// evaluates, and the walk consumes each entry exactly once on
     /// arrival — so no position is pre-scanned twice.
-    memo: HashMap<usize, Signed>,
+    memo: Memo,
+    /// The relation of the innermost resolved site minimum to the
+    /// walk's live state (its consumption anchor).
+    corr: Corr,
+    /// The innermost open consumed site's recording sequence number
+    /// (0: none open); enclosing anchors ride the recursion's own
+    /// frames, and the chain segment between two anchors telescopes
+    /// their minima's difference.
+    anchor: u32,
     /// The collapsing output builder.
     out: SkylineBuilder,
+}
+
+/// The memoized pre-scan's output: per left-full site, in the walk's
+/// arrival order, the site minimum diff-coded along the recording
+/// chain.
+///
+/// Entry `j` (recording order = the pre-scan's range-close order)
+/// holds `m_j − m_{j−1}`, with `m_0` the fresh scan's entry height —
+/// so the chain interval `(a, s]` telescopes to `m_s − m_a` for any
+/// two recordings, and the walk resolves each site against its
+/// innermost open anchor by one interval fold. Zero differences (a
+/// nested chain of sites sharing one minimum) are not stored at all:
+/// the chain keeps only nonzero links by sequence number.
+struct Memo {
+    /// Per site, in consumption (stream) order: its recording sequence
+    /// number (1-based; 0 is the scan-entry pseudo-anchor).
+    queue: Vec<u32>,
+    /// The consumption cursor into `queue`.
+    cursor: usize,
+    /// Nonzero chain links, ascending by recording sequence.
+    chain: Vec<(u32, Accum)>,
+    /// The recording counter for the current fresh scan.
+    seq: u32,
+    /// The end position of the current fresh scan's span: sites before
+    /// it are recorded; a site at or past it launches a new scan.
+    covered_until: usize,
+    /// Order-sensitive checksum of the recorded sites' positions,
+    /// matched against the consumed ones when the scan drains — O(1)
+    /// state where a position list would bill the heap meter for a
+    /// debug-only buffer.
+    #[cfg(debug_assertions)]
+    recorded_check: u64,
+    /// The consumed positions' checksum (see `recorded_check`).
+    #[cfg(debug_assertions)]
+    consumed_check: u64,
+}
+
+/// Fold one position into an order-sensitive checksum (FNV-style).
+#[cfg(debug_assertions)]
+fn position_check(check: u64, pos: usize) -> u64 {
+    (check ^ pos as u64).wrapping_mul(0x0100_0000_01b3)
+}
+
+impl Memo {
+    fn new() -> Self {
+        Memo {
+            queue: Vec::new(),
+            cursor: 0,
+            chain: Vec::new(),
+            seq: 0,
+            covered_until: 0,
+            #[cfg(debug_assertions)]
+            recorded_check: 0,
+            #[cfg(debug_assertions)]
+            consumed_check: 0,
+        }
+    }
+
+    /// Reset for a new fresh scan, keeping allocations.
+    fn begin_scan(&mut self) {
+        debug_assert_eq!(self.cursor, self.queue.len(), "the prior scan drained");
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            self.recorded_check, self.consumed_check,
+            "the walk consumed the recorded sites, in order"
+        );
+        self.queue.clear();
+        self.cursor = 0;
+        for (_, link) in self.chain.drain(..) {
+            drop(link);
+        }
+        self.seq = 0;
+    }
+
+    /// Fold `m_to − m_from` into `acc`: the chain interval between two
+    /// recording sequence numbers, each nonzero link read once per
+    /// crossing.
+    fn fold_interval(&self, acc: &mut Accum, from: u32, to: u32) {
+        let (lo, hi, add) = if to >= from {
+            (from, to, true)
+        } else {
+            (to, from, false)
+        };
+        let start = self.chain.partition_point(|(seq, _)| *seq <= lo);
+        for (seq, link) in &self.chain[start..] {
+            if *seq > hi {
+                break;
+            }
+            if add {
+                acc.add_accum(link);
+            } else {
+                acc.sub_accum(link);
+            }
+        }
+    }
+}
+
+/// The relation of the innermost resolved site minimum (`m_a`, the
+/// anchor) to the walk's live state.
+enum Corr {
+    /// No site is resolved (no anchor frame is open).
+    None,
+    /// `h − m_a`, folding input deltas: the anchor was resolved but the
+    /// raise took the scan-maximum side, so the relation is
+    /// height-carried.
+    H(Accum),
+    /// `min − m_a` rides the stack's [`REL_FOLLOWER`]: the raise took
+    /// the minimum side, so the relation is watermark-carried.
+    Min,
 }
 
 impl FillWalk<'_> {
@@ -251,33 +399,49 @@ impl FillWalk<'_> {
             // `max(max(el), min(fill(ir, er)))`. The max comes from the
             // consuming scan of `el`; the min — needed before the
             // raised leaf is emitted, ahead of `er`'s walk — from the
-            // memo when an enclosing pre-scan already evaluated this
-            // site, else from one fresh (and recording) pre-scan of the
-            // right sibling, anchored at `h` (which sits at `el`'s last
-            // leaf, exactly the pre-scan's entry).
+            // chained memo when an enclosing pre-scan already evaluated
+            // this site, else from one fresh (and recording) pre-scan
+            // of the right sibling, anchored at `h` (which sits at
+            // `el`'s last leaf, exactly the pre-scan's entry).
             id.skip();
             let above = self.scan_max_consuming();
-            let raise = match self.memo.remove(&self.pos) {
-                Some(min) => min,
-                None if right => {
-                    min_fill_from(
-                        self.ev,
-                        self.pos,
-                        self.first_read,
-                        id.bits(),
-                        id.pos(),
-                        depth,
-                        &mut self.memo,
-                    )
-                    .0
-                }
+            if !right {
                 // An absent right child is fill(0, er): its minimum is
-                // min(er).
-                None => scan_extremum_from(self.ev, self.pos, self.first_read, Extremum::Min).0,
-            };
-            let value_off = signed_max(&above, &raise);
-            self.emit_offset(depth + 1, value_off);
+                // min(er), priced by the scan that reads the range.
+                let raise = scan_min_from(self.ev, self.pos, self.first_read);
+                let value_off = signed_max(&above, &raise);
+                self.emit_offset(depth + 1, value_off);
+                self.child(id, right, depth);
+                return;
+            }
+            if self.pos >= self.memo.covered_until {
+                // Uncovered: one fresh pre-scan records this site and
+                // every left-full site inside its span.
+                self.memo.begin_scan();
+                let mut scan = PreScan {
+                    ev: self.ev,
+                    stack: MinStack::new(),
+                    entry_net: Some(Accum::new()),
+                    pending_rel: None,
+                    memo: &mut self.memo,
+                };
+                let slot = scan.reserve(self.pos);
+                scan.stack.open();
+                let mut reader = IdReader::at(id.bits(), id.pos());
+                let end = descend!(
+                    depth,
+                    scan.rec(self.pos, self.first_read, &mut reader, depth)
+                );
+                scan.record(slot);
+                let rel = scan.stack.follower_take(REL_FOLLOWER);
+                scan.stack.retire(rel);
+                scan.stack.close();
+                self.memo.covered_until = end;
+            }
+            let enclosing = self.anchor;
+            self.consume_site(&above, depth);
             self.child(id, right, depth);
+            self.pop_anchor(enclosing);
             return;
         }
         // Fill the left child first; the id cursor then sits exactly at
@@ -341,7 +505,138 @@ impl FillWalk<'_> {
         if !self.w_anchored {
             fold(&mut self.gap, neg, &mag);
         }
+        if let Corr::H(acc) = &mut self.corr {
+            fold(acc, neg, &mag);
+        }
         (neg, mag)
+    }
+
+    /// Consume the queue-front memoized site: resolve its minimum
+    /// against the innermost open anchor by one chain-interval fold,
+    /// decide the raise, emit, and open the site's anchor frame.
+    fn consume_site(&mut self, above: &Signed, depth: usize) {
+        debug_assert!(
+            self.memo.cursor < self.memo.queue.len(),
+            "a covered site has a recorded entry"
+        );
+        #[cfg(debug_assertions)]
+        {
+            self.memo.consumed_check = position_check(self.memo.consumed_check, self.pos);
+        }
+        let seq = self.memo.queue[self.memo.cursor];
+        self.memo.cursor += 1;
+        let anchor = self.anchor;
+        match core::mem::replace(&mut self.corr, Corr::None) {
+            Corr::None => {
+                debug_assert_eq!(self.anchor, 0, "an anchor keeps a relation");
+                // Base: the anchor is the fresh scan's entry height,
+                // which is the walk's height right here — the relation
+                // starts at zero.
+                let acc = self.stack.lease();
+                self.consume_h_anchored(acc, anchor, seq, above, depth);
+            }
+            Corr::H(acc) => self.consume_h_anchored(acc, anchor, seq, above, depth),
+            Corr::Min => {
+                // d_arm = m_s − min = (m_s − m_a) − (min − m_a).
+                let mut d = self.stack.follower_take(REL_FOLLOWER);
+                d.negate();
+                self.memo.fold_interval(&mut d, anchor, seq);
+                if self.stack.compare_above_vs(above, &d) == Ordering::Less {
+                    // The minimum side: arm at m_s and emit there.
+                    self.stack.arm_relative(d);
+                    self.emit_at_min(depth + 1);
+                    let zero = self.stack.lease();
+                    self.stack.follower_set(REL_FOLLOWER, zero);
+                } else {
+                    self.emit_offset(depth + 1, above.clone());
+                    // The relation re-anchors to m_s: min − m_s.
+                    d.negate();
+                    self.stack.follower_set(REL_FOLLOWER, d);
+                }
+                self.corr = Corr::Min;
+                self.anchor = seq;
+            }
+        }
+    }
+
+    /// [`consume_site`](Self::consume_site) with a height-carried
+    /// relation `acc = h − m_a`.
+    fn consume_h_anchored(
+        &mut self,
+        mut acc: Accum,
+        anchor: u32,
+        seq: u32,
+        above: &Signed,
+        depth: usize,
+    ) {
+        // The decision is sign((h + above) − m_s) = sign(acc + above +
+        // (m_a − m_s)); either way acc then holds h − m_s, so the
+        // relation re-anchors to this site for free.
+        fold(&mut acc, above.0, &above.1);
+        self.memo.fold_interval(&mut acc, seq, anchor);
+        let sign = acc.sign();
+        fold(&mut acc, !above.0, &above.1);
+        if sign == Ordering::Less {
+            // The minimum side: acc is exactly `h − m_s`, the below
+            // the arming moves into the web.
+            if !self.started {
+                // First output leaf, coded absolute: v = h − below.
+                let mut v = self.stack.lease();
+                v.add_accum(&self.h);
+                v.sub_accum(&acc);
+                self.stack.emit_below_accum(acc);
+                let value = self.stack.materialize(v);
+                debug_assert!(!value.0, "a raised height is a natural");
+                self.started = true;
+                self.out.leaf(depth + 1, gamma_code(&value.1));
+                // prev_out = min: the output delta anchors to the
+                // watermark from the start.
+                let zero = self.stack.lease();
+                self.stack.follower_set(OUT_FOLLOWER, zero);
+                self.w_anchored = true;
+                self.gap.reset();
+            } else {
+                self.stack.emit_below_accum(acc);
+                self.emit_at_min(depth + 1);
+            }
+            let zero = self.stack.lease();
+            self.stack.follower_set(REL_FOLLOWER, zero);
+            self.corr = Corr::Min;
+        } else {
+            self.emit_offset(depth + 1, above.clone());
+            self.corr = Corr::H(acc);
+        }
+        self.anchor = seq;
+    }
+
+    /// Close the innermost consumed site's anchor frame, restoring the
+    /// enclosing anchor `a` (saved on the caller's own frame):
+    /// re-anchor the relation by one chain-interval fold, or retire it
+    /// with the last frame.
+    fn pop_anchor(&mut self, a: u32) {
+        let s = core::mem::replace(&mut self.anchor, a);
+        debug_assert_ne!(s, 0, "a consumed site closes once");
+        if a == 0 {
+            match core::mem::replace(&mut self.corr, Corr::None) {
+                Corr::None => unreachable!("an open anchor keeps a relation"),
+                Corr::H(acc) => self.stack.retire(acc),
+                Corr::Min => {
+                    let rel = self.stack.follower_take(REL_FOLLOWER);
+                    self.stack.retire(rel);
+                }
+            }
+            return;
+        }
+        // Re-anchor from m_s to m_a: fold m_s − m_a in.
+        match &mut self.corr {
+            Corr::None => unreachable!("an open anchor keeps a relation"),
+            Corr::H(acc) => self.memo.fold_interval(acc, a, s),
+            Corr::Min => {
+                let mut rel = self.stack.follower_take(REL_FOLLOWER);
+                self.memo.fold_interval(&mut rel, a, s);
+                self.stack.follower_set(REL_FOLLOWER, rel);
+            }
+        }
     }
 
     /// Emit a pass-through leaf at the current input height: the output
@@ -525,35 +820,20 @@ impl FillWalk<'_> {
     }
 }
 
-/// Which extremum a local scan folds.
-#[derive(Clone, Copy, PartialEq)]
-enum Extremum {
-    /// The subtree's maximum leaf height.
-    Max,
-    /// The subtree's minimum leaf height.
-    Min,
-}
-
 /// A local, non-consuming scan of the event subtree at `pos`: the
-/// chosen extremum of its leaf heights and the subtree's net height
-/// movement, both relative to the height at entry, plus the subtree's
-/// end position.
+/// minimum of its leaf heights relative to the height at entry, as a
+/// signed offset.
 ///
-/// `first` says whether the subtree's first payload is the stream's
-/// absolute first.
-fn scan_extremum_from(
-    ev: &BitsSlice,
-    pos: usize,
-    first: bool,
-    which: Extremum,
-) -> (Signed, Signed, usize) {
+/// The absent-right-sibling raise's argument (`min(fill(0, er)) =
+/// min(er)`), priced by the scan that reads the range. `first` says
+/// whether the subtree's first payload is the stream's absolute first.
+fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
     let mut path = Bits::new();
     let mut pos = pos;
     let mut first = first;
-    // The net movement `h − h_entry` and the extremum's offset from the
-    // *current* height (`ext − h`), reset whenever the height crosses
-    // it; the first leaf arms the offset at zero (the extremum over one
-    // leaf is that leaf).
+    // The net movement `h − h_entry` and the minimum's offset from the
+    // *current* height (`min − h`), reset whenever the height crosses
+    // below it; the first leaf arms the offset at zero.
     let mut net = Accum::new();
     let mut off = Accum::new();
     let mut armed = false;
@@ -581,11 +861,7 @@ fn scan_extremum_from(
             armed = true;
         } else {
             fold(&mut off, !neg, &mag);
-            let crossed = match which {
-                Extremum::Max => off.sign() == Ordering::Less,
-                Extremum::Min => off.sign() == Ordering::Greater,
-            };
-            if crossed {
+            if off.sign() == Ordering::Greater {
                 off = Accum::new();
             }
         }
@@ -601,19 +877,19 @@ fn scan_extremum_from(
                     let (o_sign, o_mag) = off.sign_magnitude();
                     let net = (n_sign == Ordering::Less, Base::from(n_mag));
                     let off = (o_sign == Ordering::Less, Base::from(o_mag));
-                    // `ext = h + off = h_entry + net + off`.
-                    let ext = signed_sum_base(net.clone(), &off);
-                    return (ext, net, pos);
+                    // `min = h + off = h_entry + net + off`.
+                    return signed_sum_base(net, &off);
                 }
             }
         }
     }
 }
 
-/// The minimum leaf height of `fill(id, e)` over the event subtree at
-/// `pos`, relative to the height at entry, without consuming anything;
-/// returns the minimum, the subtree's net height movement, and the two
-/// end positions.
+/// The memoized pre-scan: one non-consuming pass over a left-full
+/// site's right sibling, computing every interior left-full site's
+/// `min(fill(ir, er))` on its own watermark web and recording each as
+/// a chain link (the [`Memo`] doc), so the walk arrives with every
+/// raise argument resolved and no position is pre-scanned twice.
 ///
 /// The recursive image of the fill equations restricted to the
 /// minimum (each arm derived from the oracle's):
@@ -626,111 +902,276 @@ fn scan_extremum_from(
 ///   below the right's minimum.
 /// - `min(fill((il, 1), (n, el, er))) = min(fill(il, el))` — mirror.
 /// - otherwise the minimum of the two children's.
-fn min_fill_from(
-    ev: &BitsSlice,
-    pos: usize,
-    first: bool,
-    id: &BitsSlice,
-    id_pos: usize,
-    depth: usize,
-    memo: &mut HashMap<usize, Signed>,
-) -> (Signed, Signed, usize) {
-    let mut reader = IdReader::at(id, id_pos);
-    descend!(
-        depth,
-        min_fill_rec(ev, pos, first, &mut reader, depth, memo)
-    )
+///
+/// Every equation is realized as a *virtual emission* into the web —
+/// the same open/arm/propagate/close discipline as the walk's — so
+/// per-site minima and per-range net movements are never materialized.
+struct PreScan<'a, 'm> {
+    /// The input skyline stream (read, never consumed).
+    ev: &'a BitsSlice,
+    /// The pre-scan's own range-minimum watermarks.
+    stack: MinStack,
+    /// `h′ − h(scan entry)`, alive until the first virtual arming
+    /// seeds the recording relation.
+    entry_net: Option<Accum>,
+    /// The seeded relation awaiting the arming that installs it.
+    pending_rel: Option<Accum>,
+    /// The chain under construction.
+    memo: &'m mut Memo,
 }
 
-/// [`min_fill_from`]'s recursion, threading a live id reader; returns
-/// `(min, net, ev_end)`, the relative quantities anchored at the
-/// height on entry.
-fn min_fill_rec(
-    ev: &BitsSlice,
-    pos: usize,
-    first: bool,
-    id: &mut IdReader,
-    depth: usize,
-    memo: &mut HashMap<usize, Signed>,
-) -> (Signed, Signed, usize) {
-    let (left, right) = match id.read() {
-        IdNode::Empty => return scan_extremum_from(ev, pos, first, Extremum::Min),
-        // Unreachable for canonical ids: every entry hands in a full
-        // child's *sibling* (never full — a `(1, 1)` node collapses) or
-        // a child the caller peeked as not-full. Kept so the recursion
-        // realizes the `min(fill(1, e)) = max(e)` equation totally.
-        IdNode::Full => return scan_extremum_from(ev, pos, first, Extremum::Max),
-        IdNode::Internal { left, right } => (left, right),
-    };
-    step!();
-    codec::scan::record_bits(1);
-    let internal = ev[pos];
-    let mut pos = pos + 1;
-    if !internal {
-        // A leaf under an id node: its own step is both min and net.
-        let (code, next) = codec::decode_int(ev, pos).expect("canonical skyline bits");
-        pos = next;
-        let (neg, mag) = if first { (false, code) } else { unzigzag(code) };
-        if left {
-            id.skip();
+impl PreScan<'_, '_> {
+    /// The pre-scan image of the walk's arms over the subtree at
+    /// `pos`: same reads, virtual emissions; returns the range end.
+    fn rec(&mut self, pos: usize, first: bool, id: &mut IdReader, depth: usize) -> usize {
+        let (left, right) = match id.read() {
+            IdNode::Empty => return self.copy_range(pos, first),
+            // Unreachable for canonical ids: every entry hands in a
+            // full child's *sibling* (never full — a `(1, 1)` node
+            // collapses) or a child the caller peeked as not-full.
+            // Kept so the recursion realizes `min(fill(1, e)) =
+            // max(e)` totally.
+            IdNode::Full => {
+                let (above, end) = self.max_range(pos, first);
+                self.emit_offset(&above);
+                return end;
+            }
+            IdNode::Internal { left, right } => (left, right),
+        };
+        step!();
+        codec::scan::record_bits(1);
+        let internal = self.ev[pos];
+        let pos = pos + 1;
+        if !internal {
+            // A leaf under an id node stays: one virtual emission.
+            let (step, end) = self.payload(pos, first);
+            let _ = step;
+            self.emit_here();
+            if left {
+                id.skip();
+            }
+            if right {
+                id.skip();
+            }
+            return end;
         }
-        if right {
+        if left && matches!(id.peek(), IdNode::Full) {
+            // An interior left-full site: its minimum is the recorded
+            // quantity, and its own raise is a virtual emission.
             id.skip();
+            let (above, l_end) = self.max_range(pos, first);
+            if !right {
+                // fill(0, er): the leaves stay as they are, and the
+                // walk re-derives this raise from its own local scan —
+                // nothing is recorded.
+                self.stack.open();
+                let end = self.copy_range(l_end, false);
+                self.stack.close();
+                if self.stack.compare_above(&above) != Ordering::Less {
+                    self.emit_offset(&above);
+                }
+                return end;
+            }
+            let slot = self.reserve(l_end);
+            let end = self.child(l_end, false, id, true, depth);
+            self.record(slot);
+            if self.stack.compare_above(&above) != Ordering::Less {
+                self.emit_offset(&above);
+            }
+            return end;
         }
-        let step = (neg, mag);
-        return (step.clone(), step, pos);
+        let l_end = self.child(pos, first, id, left, depth);
+        if right && matches!(id.peek(), IdNode::Full) {
+            // The right-full raise never undercuts the minimum it is
+            // raised to, so only the max side is a new virtual value.
+            id.skip();
+            let (above, end) = self.max_range(l_end, false);
+            if self.stack.compare_above(&above) != Ordering::Less {
+                self.emit_offset(&above);
+            }
+            return end;
+        }
+        self.child(l_end, false, id, right, depth)
     }
 
-    // Node × node: dispatch the arm, walking children in stream order
-    // so the relative anchors compose (a right child's quantities are
-    // re-anchored by the left's net movement).
-    if left && matches!(id.peek(), IdNode::Full) {
-        id.skip();
-        // The left's contribution to the minimum is void; its net
-        // movement still re-anchors the right.
-        let (_, l_net, l_end) = scan_extremum_from(ev, pos, first, Extremum::Max);
-        let (r_min, r_net, ev_end) = if right {
-            descend!(
-                depth + 1,
-                min_fill_rec(ev, l_end, false, id, depth + 1, memo)
-            )
+    /// One child range inside its own frame, mirroring the walk's.
+    fn child(
+        &mut self,
+        pos: usize,
+        first: bool,
+        id: &mut IdReader,
+        present: bool,
+        depth: usize,
+    ) -> usize {
+        self.stack.open();
+        let mut empty = IdReader::Empty;
+        let c = if present { &mut *id } else { &mut empty };
+        let end = descend!(depth + 1, self.rec(pos, first, c, depth + 1));
+        self.stack.close();
+        end
+    }
+
+    /// Reserve the next consumption-order queue slot for the site
+    /// whose range starts at `pos`.
+    fn reserve(&mut self, pos: usize) -> usize {
+        let slot = self.memo.queue.len();
+        self.memo.queue.push(0);
+        #[cfg(debug_assertions)]
+        {
+            self.memo.recorded_check = position_check(self.memo.recorded_check, pos);
+        }
+        #[cfg(not(debug_assertions))]
+        let _ = pos;
+        slot
+    }
+
+    /// Record the just-closed site range's minimum as one chain link:
+    /// the recording relation moves out (zero links are not stored),
+    /// and the relation restarts at this minimum.
+    fn record(&mut self, slot: usize) {
+        self.memo.seq += 1;
+        let seq = self.memo.seq;
+        let mut rel = self.stack.follower_take(REL_FOLLOWER);
+        if rel.sign() == Ordering::Equal {
+            self.stack.retire(rel);
         } else {
-            scan_extremum_from(ev, l_end, false, Extremum::Min)
-        };
-        // Record this left-full site's minimum for the walk, which
-        // will need it before walking the same range: the memo is what
-        // keeps every position pre-scanned at most once.
-        memo.insert(l_end, r_min.clone());
-        let min = signed_sum_base(l_net.clone(), &r_min);
-        let net = signed_sum_base(l_net, &r_net);
-        return (min, net, ev_end);
+            self.memo.chain.push((seq, rel));
+        }
+        let zero = self.stack.lease();
+        self.stack.follower_set(REL_FOLLOWER, zero);
+        self.memo.queue[slot] = seq;
     }
-    // Left child first (present or the synthetic empty arm).
-    let (l_min, l_net, l_end) = {
-        let mut empty = IdReader::Empty;
-        let c = if left { &mut *id } else { &mut empty };
-        descend!(depth + 1, min_fill_rec(ev, pos, first, c, depth + 1, memo))
-    };
-    if right && matches!(id.peek(), IdNode::Full) {
-        id.skip();
-        // The raised right leaf never falls below the left's minimum;
-        // only the right's net movement matters for the anchor.
-        let (_, r_net, ev_end) = scan_extremum_from(ev, l_end, false, Extremum::Max);
-        let net = signed_sum_base(l_net.clone(), &r_net);
-        return (l_min, net, ev_end);
+
+    /// Read one payload, folding the step into the height side of the
+    /// web (and the entry net while it lives).
+    fn payload(&mut self, pos: usize, first: bool) -> (Signed, usize) {
+        let (code, next) = codec::decode_int(self.ev, pos).expect("canonical skyline bits");
+        let (neg, mag) = if first { (false, code) } else { unzigzag(code) };
+        self.stack.fold_height(neg, &mag);
+        if let Some(net) = &mut self.entry_net {
+            fold(net, neg, &mag);
+        }
+        ((neg, mag), next)
     }
-    let (r_min, r_net, ev_end) = {
-        let mut empty = IdReader::Empty;
-        let c = if right { &mut *id } else { &mut empty };
-        descend!(
-            depth + 1,
-            min_fill_rec(ev, l_end, false, c, depth + 1, memo)
-        )
-    };
-    let r_min = signed_sum_base(l_net.clone(), &r_min);
-    let min = signed_min(&l_min, &r_min);
-    let net = signed_sum_base(l_net, &r_net);
-    (min, net, ev_end)
+
+    /// A virtual emission at the current height.
+    fn emit_here(&mut self) {
+        self.seed_rel(None);
+        self.stack.emit_here();
+        self.install_rel();
+    }
+
+    /// A virtual emission at `h′ + off`.
+    fn emit_offset(&mut self, off: &Signed) {
+        self.seed_rel(Some(off));
+        self.stack.emit_offset(off);
+        self.install_rel();
+    }
+
+    /// Before the scan's first arming: seed the recording relation
+    /// `rel = v − h(scan entry)` from the dying entry net.
+    fn seed_rel(&mut self, off: Option<&Signed>) {
+        if self.stack.armed() {
+            return;
+        }
+        let mut rel = self
+            .entry_net
+            .take()
+            .expect("the entry net lives until the first arming");
+        if let Some(off) = off {
+            fold(&mut rel, off.0, &off.1);
+        }
+        self.pending_rel = Some(rel);
+    }
+
+    /// After the arming emission: install the seeded relation.
+    fn install_rel(&mut self) {
+        if let Some(rel) = self.pending_rel.take() {
+            self.stack.follower_set(REL_FOLLOWER, rel);
+        }
+    }
+
+    /// Walk an untouched range (`fill(0, e) = e`): every leaf a
+    /// virtual emission at its own height.
+    fn copy_range(&mut self, pos: usize, first: bool) -> usize {
+        let mut path = Bits::new();
+        let mut pos = pos;
+        let mut first = first;
+        loop {
+            loop {
+                step!();
+                codec::scan::record_bits(1);
+                let internal = self.ev[pos];
+                pos += 1;
+                if !internal {
+                    break;
+                }
+                path.push(false);
+            }
+            let (_, next) = self.payload(pos, first);
+            first = false;
+            pos = next;
+            self.emit_here();
+            loop {
+                match path.pop() {
+                    Some(true) => continue,
+                    Some(false) => {
+                        path.push(true);
+                        break;
+                    }
+                    None => return pos,
+                }
+            }
+        }
+    }
+
+    /// Scan a collapsing range for its maximum: `max − h′` at exit as
+    /// a nonnegative offset, plus the range end. No virtual emissions
+    /// — the range's leaves vanish into the raise the caller decides.
+    fn max_range(&mut self, pos: usize, first: bool) -> (Signed, usize) {
+        let mut path = Bits::new();
+        let mut pos = pos;
+        let mut first = first;
+        let mut above = self.stack.lease();
+        let mut armed = false;
+        loop {
+            loop {
+                step!();
+                codec::scan::record_bits(1);
+                let internal = self.ev[pos];
+                pos += 1;
+                if !internal {
+                    break;
+                }
+                path.push(false);
+            }
+            let (step, next) = self.payload(pos, first);
+            first = false;
+            pos = next;
+            if !armed {
+                armed = true;
+            } else {
+                fold(&mut above, !step.0, &step.1);
+                if above.sign() == Ordering::Less {
+                    above.reset();
+                }
+            }
+            loop {
+                match path.pop() {
+                    Some(true) => continue,
+                    Some(false) => {
+                        path.push(true);
+                        break;
+                    }
+                    None => {
+                        let result = self.stack.materialize(above);
+                        debug_assert!(!result.0, "the fold floors at zero");
+                        return (result, pos);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The sign-and-magnitude sum of two signed magnitudes, as [`Signed`].
@@ -744,15 +1185,6 @@ fn signed_max(x: &Signed, y: &Signed) -> Signed {
         y.clone()
     } else {
         x.clone()
-    }
-}
-
-/// The smaller of two signed relative quantities.
-fn signed_min(x: &Signed, y: &Signed) -> Signed {
-    if signed_le(x, y) {
-        x.clone()
-    } else {
-        y.clone()
     }
 }
 

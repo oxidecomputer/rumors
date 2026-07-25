@@ -385,3 +385,78 @@ fn new_and_default_hold_zero() {
         assert_eq!(magnitude, UBig::from(0u8));
     }
 }
+
+proptest! {
+    /// The walk-discipline primitives match the oracle: `add_accum`
+    /// and `sub_accum` fold one accumulator's held value into another
+    /// at any interleaving, `negate` flips the value exactly, and
+    /// `reset` returns to exact zero — all with the sign readable
+    /// afterward.
+    #[test]
+    fn fold_primitives_match_the_oracle(
+        x_ops in proptest::collection::vec(arb_op(), 1..60),
+        y_ops in proptest::collection::vec(arb_op(), 1..60),
+        subtract: bool,
+        flip: bool,
+    ) {
+        let mut x = Accum::new();
+        let mut x_oracle = IBig::from(0);
+        for op in &x_ops {
+            apply(&mut x, &mut x_oracle, op);
+        }
+        let mut y = Accum::new();
+        let mut y_oracle = IBig::from(0);
+        for op in &y_ops {
+            apply(&mut y, &mut y_oracle, op);
+        }
+        if flip {
+            y.negate();
+            y_oracle = -y_oracle;
+            assert_value(&y, &y_oracle);
+        }
+        if subtract {
+            x.sub_accum(&y);
+            x_oracle -= &y_oracle;
+        } else {
+            x.add_accum(&y);
+            x_oracle += &y_oracle;
+        }
+        assert_value(&x, &x_oracle);
+        assert_value(&y, &y_oracle);
+        x.reset();
+        assert_eq!(x.sign(), Ordering::Equal);
+        assert_value(&x, &IBig::from(0));
+    }
+
+    /// `sign_dominates_word` never lies: the sign always matches the
+    /// oracle's, and a `decided` verdict implies the held magnitude
+    /// exceeds any machine word — folding any `u64` afterward cannot
+    /// flip the sign.
+    #[test]
+    fn word_domination_is_sound(
+        ops in proptest::collection::vec(arb_op(), 1..60),
+        probe: u64,
+        probe_negative: bool,
+    ) {
+        let mut acc = Accum::new();
+        let mut oracle = IBig::from(0);
+        for op in &ops {
+            apply(&mut acc, &mut oracle, op);
+        }
+        let (sign, decided) = acc.sign_dominates_word();
+        prop_assert_eq!(sign, oracle_sign(&oracle));
+        assert_value(&acc, &oracle);
+        if decided {
+            let mut folded = oracle.clone();
+            if probe_negative {
+                folded -= probe;
+            } else {
+                folded += probe;
+            }
+            prop_assert_eq!(
+                oracle_sign(&folded), sign,
+                "a decided verdict survives any word-scale fold"
+            );
+        }
+    }
+}
