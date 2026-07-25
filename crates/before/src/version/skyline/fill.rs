@@ -886,10 +886,12 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
 }
 
 /// The memoized pre-scan: one non-consuming pass over a left-full
-/// site's right sibling, computing every interior left-full site's
-/// `min(fill(ir, er))` on its own watermark web and recording each as
-/// a chain link (the [`Memo`] doc), so the walk arrives with every
-/// raise argument resolved and no position is pre-scanned twice.
+/// site's right sibling.
+///
+/// Computes every interior left-full site's `min(fill(ir, er))` on
+/// its own watermark web and records each as a chain link (the
+/// [`Memo`] doc), so the walk arrives with every raise argument
+/// resolved and no position is pre-scanned twice.
 ///
 /// The recursive image of the fill equations restricted to the
 /// minimum (each arm derived from the oracle's):
