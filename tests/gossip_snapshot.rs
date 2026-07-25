@@ -263,13 +263,13 @@ fn bulk_initiator_ships_opening_supplies() {
 }
 
 /// Values for [`early_supplies_honor_redactions`]: the second, sent after
-/// the responder forks, lands its key (`b8 bc`) under the same root radix
-/// as the first's (`b8 11`), found by search.
+/// the responder forks, lands its key (`b8 67`) under the same root radix
+/// as the first's (`b8 bc`), found by search.
 const REDACTION_SUBTREE_VALUE: u64 = 542;
 
 /// First of three consecutive ballast values for the responder of
-/// [`early_supplies_honor_redactions`]: their keys' first bytes (`25`,
-/// `5b`, `51`) avoid the shared radix (`b8`), and they make the responder
+/// [`early_supplies_honor_redactions`]: their keys' first bytes (`94`,
+/// `f0`, `4e`) avoid the shared radix (`b8`), and they make the responder
 /// the larger set.
 const REDACTION_BALLAST_FROM: u64 = 100;
 
