@@ -134,6 +134,7 @@ mod build;
 mod decode;
 pub mod emit;
 mod encode;
+pub mod fill;
 pub mod grow;
 pub mod query;
 pub mod sweep;

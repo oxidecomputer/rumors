@@ -27,7 +27,7 @@ impl EvReader<'_> {
     /// raising each to its max (and to its sibling, where that lets the parent
     /// simplify) and leaving unowned subtrees in place — which is how a `tick`
     /// shrinks the tree when `fill` alone suffices.
-    pub(super) fn fill(self, id_bits: &BitsSlice) -> WorkingVersion {
+    pub(in crate::version) fn fill(self, id_bits: &BitsSlice) -> WorkingVersion {
         let mut walk = FillWalk {
             out: Builder::new(),
         };
