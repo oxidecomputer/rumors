@@ -326,8 +326,10 @@ fn worked_examples_grow_exactly() {
 
 /// The version that is `1` on the leftmost `2^-depth` interval and `0`
 /// everywhere else: `depth` nested nodes, all bases zero, the single
-/// 1-leaf at the bottom left. Built as a text literal — the parser is
-/// iterative — so the expected tree shares no walk with grow.
+/// 1-leaf at the bottom left.
+///
+/// Built as a text literal — the parser is iterative — so the expected
+/// tree shares no walk with grow.
 fn left_spike(depth: usize) -> Version {
     let mut text = "(0, ".repeat(depth - 1);
     text.push_str("(0, 1, 0)");
@@ -336,10 +338,12 @@ fn left_spike(depth: usize) -> Version {
 }
 
 /// Deep spines in every regime stay correct at depths that would
-/// overflow a native-frame walk: the frame-count adversary (alternating
-/// spine under the full id), a deep expansion chain (unary id spine
-/// over one leaf), and a deep two-cursor descent (both spines
-/// together), all long before the resource envelopes notice.
+/// overflow a native-frame walk.
+///
+/// The regimes: the frame-count adversary (alternating spine under the
+/// full id), a deep expansion chain (unary id spine over one leaf), and
+/// a deep two-cursor descent (both spines together), all long before
+/// the resource envelopes notice.
 ///
 /// The recursive oracle walks on native frames, so the value witnesses
 /// here are closed forms, derived per case: under the full id the

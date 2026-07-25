@@ -1,7 +1,9 @@
-//! Differential pins for the comparison sweep: the recursive oracle's
-//! pointwise `leq` comparison (through the bridge) is the verdict witness
-//! over the adversarial families, arbitrary trees, organic histories, and
-//! the exhaustive small scope — it shares no cursor, no delta, and no
+//! Differential pins for the comparison sweep against the recursive
+//! oracle's pointwise `leq` comparison.
+//!
+//! The oracle (through the bridge) is the verdict witness over the
+//! adversarial families, arbitrary trees, organic histories, and the
+//! exhaustive small scope — it shares no cursor, no delta, and no
 //! accumulator with the sweep.
 //!
 //! Every assertion runs all four entry points, so a bookkeeping error

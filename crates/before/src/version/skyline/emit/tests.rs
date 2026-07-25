@@ -209,8 +209,10 @@ fn family_pairs_emit_identically() {
 
 /// A flat operand above a deep one collapses the whole output to one
 /// leaf through the absorb cascade, byte-identically to the recursive
-/// oracle — the shape where a builder that re-copied the held code per
-/// level would go quadratic.
+/// oracle.
+///
+/// The shape where a builder that re-copied the held code per level
+/// would go quadratic.
 #[test]
 fn flat_over_deep_collapses_totally() {
     let deep = version_of(&dense(512));

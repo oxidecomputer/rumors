@@ -63,10 +63,12 @@ fn assert_projection(v: &Version, p: &Party) {
     );
 }
 
-/// Assert the pair folds against the recursive oracle, re-deriving each
-/// measure from the oracle's join, meet, and rank through the valuation
-/// identities the rustdoc states: `distance = rank(a ∨ b) − rank(a ∧ b)`
-/// and `lag(a, b) = rank(a ∨ b) − rank(a)`.
+/// Assert the pair folds against the recursive oracle.
+///
+/// Each measure is re-derived from the oracle's join, meet, and rank
+/// through the valuation identities the rustdoc states:
+/// `distance = rank(a ∨ b) − rank(a ∧ b)` and
+/// `lag(a, b) = rank(a ∨ b) − rank(a)`.
 fn assert_pair(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
@@ -134,9 +136,12 @@ fn party_pool() -> Vec<Party> {
 }
 
 /// Every adversarial family shape agrees with the tree-fold oracle's
-/// rank and min_ticks; every family × id-pool cross agrees with the
-/// oracle's projection mask; every ordered family pair agrees on
-/// distance and lag as re-derived from the oracle's lattice folds.
+/// rank and min_ticks; crosses and pairs agree on projection, distance,
+/// and lag.
+///
+/// The id-pool cross checks the oracle's projection mask; the ordered
+/// pairs check distance and lag as re-derived from the oracle's
+/// lattice folds.
 ///
 /// The families are exactly the shapes whose costs the meter rows pin —
 /// carry cliffs, wide teeth, cancelling chains, harmonic spines — so a

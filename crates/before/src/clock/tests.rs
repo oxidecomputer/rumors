@@ -527,7 +527,8 @@ fn deep_tree_stack_safety() {
     let decoded = Clock::decode(&bytes[..]).expect("deep id encodes to canonical bytes");
     assert_eq!(decoded.encode(), bytes);
 
-    // Ticks build, then refine, a deep event tree (unpack / fill / grow / repack).
+    // Ticks build, then refine, a deep event tree (fill, then the grow fallback,
+    // on the stored stream).
     clock.tick();
     clock.tick();
 

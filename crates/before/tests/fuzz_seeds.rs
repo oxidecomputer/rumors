@@ -40,8 +40,9 @@ fn committed_seeds_match_the_live_derivation() {
     }
 }
 
-/// The seed directories hold exactly the set of record — no strays: a
-/// leftover file from a renamed or retired seed (or a whole directory
+/// The seed directories hold exactly the set of record — no strays.
+///
+/// A leftover file from a renamed or retired seed (or a whole directory
 /// for a renamed or retired target) would seed the fuzzer with bytes
 /// nothing re-derives, which is the rot this suite exists to prevent.
 #[test]

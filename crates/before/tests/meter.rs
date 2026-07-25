@@ -1442,10 +1442,12 @@ fn grow_input_bytes(ev: &meter::skyline::Encoded, id: &Party) -> usize {
 
 /// The version that is `1` on the leftmost `2^-depth` interval and `0`
 /// everywhere else: `depth` nested nodes, all bases zero, the single
-/// 1-leaf at the bottom left — what growing a version that is zero over
-/// the owned region registers for a depth-`depth` unary id spine. Built
-/// as a text literal (the parser is iterative), so the expected tree
-/// shares no walk with the grow under measurement.
+/// 1-leaf at the bottom left.
+///
+/// This is what growing a version that is zero over the owned region
+/// registers for a depth-`depth` unary id spine. Built as a text
+/// literal (the parser is iterative), so the expected tree shares no
+/// walk with the grow under measurement.
 fn left_spike(depth: usize) -> Version {
     let mut text = "(0, ".repeat(depth - 1);
     text.push_str("(0, 1, 0)");
