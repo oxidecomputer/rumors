@@ -66,8 +66,9 @@
 //!   the stored bits); operations that may legitimately exit at the first
 //!   divergence still read the root codes, floored at
 //!   [`SCAN_TOUCH_FLOOR_BITS`]. Not-applicable is reserved for operations
-//!   whose contract is a wholesale byte move (encode, hash) or whose
-//!   operands have no packed stream at all (the rank pair).
+//!   whose contract is a wholesale byte move or compare (encode, hash,
+//!   same-form equality) or whose operands have no packed stream at all
+//!   (the rank pair).
 //! - **Limb** floors bind where big-integer arithmetic is semantically
 //!   mandatory: an operation that must materialize or fold a magnitude
 //!   wider than [`MACHINE_WORD_MAGNITUDE_BITS`] touches at least one limb
@@ -95,17 +96,21 @@
 //! full-liveness proof; the leg that bounds work no counter sees is the
 //! time exponent judged over the bench suite (below).
 //!
-//! Three cells are watched by neither leg, an exposure accepted here so it
-//! is stated rather than silent: `version_hash`, `party_hash`, and
-//! `clock_hash` on the benign family. Hashing folds the stored canonical
-//! bytes wholesale, below every metered primitive — no stream walk, no
-//! forced arithmetic, no forced allocation — so every floor column is
-//! honestly not-applicable, and the benign operands are small enough (a
-//! few hundred packed bytes across both scales) that the body never
-//! reaches the bench judge's 10 µs judgment floor. The exposure is
-//! bounded by exactly those two facts: sub-10 µs of word arithmetic per
-//! call over a few-hundred-byte operand, with the same hash rows judged
-//! by the time leg on every larger family.
+//! Four cells are watched by neither leg, an exposure accepted here so it
+//! is stated rather than silent: `version_hash`, `party_hash`,
+//! `clock_hash`, and `version_eq` on the benign family. Hashing folds the
+//! stored canonical bytes wholesale, and same-form equality compares them
+//! wholesale, below every metered primitive — no stream walk, no forced
+//! arithmetic, no forced allocation — so every floor column is honestly
+//! not-applicable, and the benign operands are small enough (a few hundred
+//! packed bytes across both scales) that the body never reaches the bench
+//! judge's 10 µs judgment floor. The exposure is bounded by exactly those
+//! two facts: sub-10 µs of word arithmetic per call over a
+//! few-hundred-byte operand, with the same rows under the time leg on
+//! every larger family. `version_eq`'s exposure differs from the hash
+//! rows' in one respect its NA reason states on the board face: eq
+//! operands grow without bound, so the time leg — under its own sub-floor
+//! discipline — is the one backstop that the compare stays linear.
 //!
 //! # Determinism and the time leg
 //!
@@ -286,8 +291,10 @@
 //!   `dangerously_alias` (a byte copy), `Clock::from_parts`/`into_parts`,
 //!   `Clock::party`/`version`, `Version::batch`; `Party`'s and `Clock`'s
 //!   derived `PartialEq`/`Eq` are one bit-slice compare of the stored
-//!   canonical bits (`Version`'s `==` is the causal walk the `version_eq`
-//!   row measures, so that one has a row); the consuming array splits
+//!   canonical bits (`Version`'s `==` decides same-form operands by the
+//!   same wholesale compare and walks only mixed storage forms — it keeps
+//!   the `version_eq` row because its operands grow without bound, the
+//!   row's time leg holding the compare linear); the consuming array splits
 //!   (`From<Party> for [Party; N]`, `From<Clock> for [Clock; N]`) are the
 //!   `forks` machinery above plus `N` moves.
 //! - **Derived pairings**: `Ranked::from` is the `rank` row plus a move; its
@@ -983,9 +990,12 @@ const WHY_SCAN_EXAMINES: &str =
 /// Scan floor: early exit is legitimate, but the root codes are still read.
 const WHY_SCAN_TOUCH: &str =
     "may answer at the first divergence: still reads the operands' root codes";
-/// Scan floor (deterministic-liveness): equality walks its operands today.
-const WHY_SCAN_EQ: &str = "deterministic-liveness: the causal equality walk reads its operands \
-     in full; a bytewise equality would lower this floor deliberately";
+/// Scan NA (`version_eq`'s own): same-form equality is decided on the
+/// stored canonical bytes wholesale, and the operands grow without bound.
+const NA_SCAN_EQ_BYTES: &str = "decides same-form equality on the stored canonical bytes \
+     wholesale (the compare may legitimately stop at the first differing byte): no stream walk \
+     is in the contract; unlike the hash rows' small-operand exposure, eq operands grow without \
+     bound, so the bench judge's time leg is the backstop that the compare stays linear";
 /// Scan NA: the contract is a wholesale byte move.
 const NA_SCAN_BYTE_COPY: &str =
     "moves or hashes the stored canonical bytes wholesale: no stream walk is in the contract";
@@ -1369,10 +1379,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_NOT_FORCED),
-                    scan: Liveness::Floor {
-                        min: (n as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
-                        why: WHY_SCAN_EQ,
-                    },
+                    scan: na(NA_SCAN_EQ_BYTES),
                 };
                 Some(Cell::new(n, floors, move || (v == w, v, w)))
             },
