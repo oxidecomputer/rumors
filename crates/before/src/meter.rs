@@ -32,15 +32,6 @@ pub use crate::version::skyline;
 
 use crate::codec::{self, Base, Bits};
 
-/// The grow kernel lifted to stored versions, exported so the
-/// resource-envelope suite can measure event registration in isolation.
-///
-/// The party must own at least one region, exactly as
-/// [`skyline::grow::grow`] requires.
-pub fn packed_grow(version: &crate::Version, party: &crate::Party) -> crate::Version {
-    crate::Version::from_encoded(skyline::grow::grow(version.as_encoded(), party))
-}
-
 /// A generator's output: canonical packed bytes plus the exact bit length.
 ///
 /// `bytes` is what `decode` accepts and `encode` reproduces (final partial

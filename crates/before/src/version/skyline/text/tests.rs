@@ -1,9 +1,16 @@
-//! Differential pins for the skyline text kernels: byte-identical text
-//! against the production renderer, byte-identical skyline streams against
-//! the transcoder, and reject parity against the production parser.
+//! Differential pins for the skyline text kernels.
+//!
+//! The public entries route here (`Display` to [`render`], `FromStr` to
+//! [`parse`]), so asserts against them pin entry agreement and
+//! determinism, not an independent value. The independent legs: parsing
+//! rendered text must land on the *transcoder's* stream byte for byte
+//! (the construction-language transcoder shares nothing with either
+//! kernel), and a hand-stated accept/reject corpus plus a deterministic
+//! mutation sweep pin the grammar's decisions by expected error variant.
 
 use proptest::prelude::*;
 
+use crate::error::Parse;
 use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
     jump_comb, wide_tooth_comb, Packed,
@@ -22,26 +29,28 @@ fn version_of(p: &Packed) -> Version {
 
 /// The full differential pin on one version, over transcoded operands.
 ///
-/// The kernel renders byte-identical text to the production `Display`,
-/// and parsing that text back yields the byte-identical skyline stream
-/// the transcoder produces.
+/// The independent leg: parsing the rendered text must land on the
+/// stored stream the transcoder built, byte for byte, so render and
+/// parse are exact inverses anchored to the construction language. The
+/// `Display` comparison pins entry agreement (the public entry routes to
+/// the kernel).
 fn assert_text_kernels_agree(v: &Version) {
     let enc = super::super::encode(v);
     let text = render(&enc);
     assert_eq!(
         text,
         v.to_string(),
-        "the skyline renderer must produce the production Display's bytes"
+        "the public Display entry must route to the renderer unchanged"
     );
     let parsed = parse(&text).expect("canonical text parses");
     assert_eq!(
         parsed, enc,
-        "the skyline parser must produce the transcoder's stream byte for byte"
+        "parsing rendered text must land on the transcoder's stream byte for byte"
     );
 }
 
-/// Every adversarial generator family renders and parses byte-identically
-/// against the production text path, across a deterministic size grid.
+/// Every adversarial generator family round-trips render→parse onto the
+/// transcoder's stream, across a deterministic size grid.
 #[test]
 fn generator_families_render_and_parse_identically() {
     let shapes: Vec<Packed> = vec![
@@ -82,7 +91,7 @@ fn generator_families_render_and_parse_identically() {
 }
 
 /// Exhaustive small scope: every normal-form tree to the small depth
-/// renders and parses byte-identically against the production text path.
+/// round-trips render→parse onto the transcoder's stream.
 #[test]
 fn exhaustive_small_scope_renders_and_parses_identically() {
     for t in all_normal_events(EV_SMALL_DEPTH) {
@@ -90,39 +99,45 @@ fn exhaustive_small_scope_renders_and_parses_identically() {
     }
 }
 
-/// The kernels reproduce the production parser's grammar decisions on a
-/// deterministic accept/reject corpus: the same values accepted (with the
-/// same skyline stream) and the same errors rejected.
+/// The kernel's grammar decisions are pinned on a deterministic
+/// accept/reject corpus: each accepted text yields the value's canonical
+/// skyline stream, and each rejected text yields the *stated* error
+/// variant — the expectation lives in the table, not in another run of
+/// the same kernel.
 #[test]
-fn parse_reject_parity_with_the_production_parser() {
+fn parse_corpus_pins_the_grammar_decisions() {
     // Accepted: value-preserving leading zeros and whitespace leniency.
     for text in ["007", " ( 1 , 0 , 2 ) ", "(1, 2, (0, (1, 0, 2), 0))"] {
-        let v: Version = text.parse().expect("the production parser accepts");
+        let v: Version = text.parse().expect("the public entry accepts");
         assert_eq!(
-            parse(text).expect("the kernel accepts what production accepts"),
+            parse(text).expect("the kernel accepts the corpus's accepted texts"),
             super::super::encode(&v),
             "an accepted parse yields the value's canonical skyline stream"
         );
     }
-    // Rejected: the kernel returns the production parser's exact error.
-    for text in [
-        "",                  // no node at all
-        "(1, 2",             // unbalanced
-        "(1, 0)",            // an event node has three parts
-        "1 2",               // trailing junk after the leaf `1`
-        "(, 0, 1)",          // a base is a nonempty digit run
-        "(café, 0)",         // non-ASCII byte
-        "(5, 3, 3)",         // equal sibling leaves
-        "(1, 2, 3)",         // no zero-base child
-        "(5, 3, 3) x",       // trailing junk outranks canonicality
-        "(0, 5, 5)",         // equal sibling leaves: the builder's absorb shape
-        "(0, (1, 2, 2), 0)", // nested equal sibling leaves
+    // Rejected: the kernel returns the corpus's stated error variant, and
+    // the public entry agrees.
+    for (text, want) in [
+        ("", Parse::Syntax),                        // no node at all
+        ("(1, 2", Parse::Syntax),                   // unbalanced
+        ("(1, 0)", Parse::Syntax),                  // an event node has three parts
+        ("1 2", Parse::Syntax),                     // trailing junk after the leaf `1`
+        ("(, 0, 1)", Parse::Syntax),                // a base is a nonempty digit run
+        ("(café, 0)", Parse::Syntax),               // non-ASCII byte
+        ("(5, 3, 3)", Parse::NotCanonical),         // equal sibling leaves
+        ("(1, 2, 3)", Parse::NotCanonical),         // no zero-base child
+        ("(5, 3, 3) x", Parse::Syntax),             // trailing junk outranks canonicality
+        ("(0, 5, 5)", Parse::NotCanonical),         // equal siblings: the absorb shape
+        ("(0, (1, 2, 2), 0)", Parse::NotCanonical), // nested equal sibling leaves
     ] {
-        let expected = text.parse::<Version>().expect_err("production rejects");
-        let got = parse(text).expect_err("the kernel rejects what production rejects");
+        let got = parse(text).expect_err("the kernel rejects the corpus's rejected texts");
+        assert_eq!(got, want, "reject variant on {text:?}");
+        let public = text
+            .parse::<Version>()
+            .expect_err("the public entry rejects");
         assert_eq!(
-            got, expected,
-            "reject parity on {text:?}: the kernel must return the production error"
+            public, want,
+            "the public entry must agree with the corpus on {text:?}"
         );
     }
 }
@@ -137,18 +152,20 @@ const REJECT_PARITY_FUZZ_SEED: u64 = 0x5EED_CA5E_0B57_AC1E;
 /// whole alphabet plus one byte outside it.
 const MUTATION_ALPHABET: &[u8] = b"0123456789(), x";
 
-/// A deterministic byte-mutation sweep holds accept/reject parity between
-/// the kernel and the production parser.
+/// A deterministic byte-mutation sweep holds the kernel and its public
+/// entry in lockstep on every mutant.
 ///
 /// Each case deletes, inserts, replaces, or truncates one point of a
-/// rendered generator-family text; on every mutant the two parsers must
-/// agree — the same accepts (with the kernel yielding the transcoder's
-/// stream) and the same error kind on rejects. The hand-picked corpus
-/// above pins known grammar decisions; this sweep is its generated
-/// regression sibling over [`REJECT_PARITY_FUZZ_CASES`] mutants at the
-/// fixed [`REJECT_PARITY_FUZZ_SEED`].
+/// rendered generator-family text. The public entry routes to the
+/// kernel, so the agreement legs pin entry plumbing and determinism —
+/// never panicking, and deciding every mutant one way — while the
+/// kernel's internal validator gate makes every accepted mutant's stream
+/// canonical. The hand-stated corpus above pins known grammar decisions
+/// by variant; this sweep is its generated regression sibling over
+/// [`REJECT_PARITY_FUZZ_CASES`] mutants at the fixed
+/// [`REJECT_PARITY_FUZZ_SEED`].
 #[test]
-fn mutated_texts_hold_reject_parity_with_the_production_parser() {
+fn mutated_texts_hold_reject_parity_through_the_public_entry() {
     let seeds: Vec<String> = [
         dense(3),
         bigroot(7, 3),
@@ -185,16 +202,16 @@ fn mutated_texts_hold_reject_parity_with_the_production_parser() {
             (Ok(v), Ok(enc)) => assert_eq!(
                 enc,
                 super::super::encode(&v),
-                "an accepted mutant {mutated:?} must yield the transcoder's stream"
+                "an accepted mutant {mutated:?} must land both entries on one stored stream"
             ),
-            (Err(production), Err(kernel)) => assert_eq!(
-                kernel, production,
-                "reject parity on {mutated:?}: the kernel must return the production error"
+            (Err(public), Err(kernel)) => assert_eq!(
+                kernel, public,
+                "reject parity on {mutated:?}: the public entry must relay the kernel's error"
             ),
-            (production, kernel) => panic!(
-                "accept/reject parity broke on {mutated:?}: production accepted={}, \
+            (public, kernel) => panic!(
+                "accept/reject parity broke on {mutated:?}: public entry accepted={}, \
                  kernel accepted={}",
-                production.is_ok(),
+                public.is_ok(),
                 kernel.is_ok()
             ),
         }
@@ -203,15 +220,14 @@ fn mutated_texts_hold_reject_parity_with_the_production_parser() {
 
 proptest! {
     /// Arbitrary normal-form trees (magnitudes past `u64::MAX` included)
-    /// render and parse byte-identically against the production text path.
+    /// round-trip render→parse onto the transcoder's stream.
     #[test]
     fn arbitrary_trees_render_and_parse_identically(t in generators::arb_oracle_version()) {
         assert_text_kernels_agree(&from_oracle_version(&t));
     }
 
     /// Every version produced by an organic fork/tick/send/sync/join
-    /// history renders and parses byte-identically against the production
-    /// text path.
+    /// history round-trips render→parse onto its stored stream.
     #[test]
     fn organic_histories_render_and_parse_identically(ops in optrace::world_strategy_up_to(120)) {
         let mut clocks = vec![Clock::seed()];

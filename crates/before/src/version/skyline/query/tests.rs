@@ -1,10 +1,12 @@
-//! Differential pins for the query folds against the packed forms.
+//! Differential pins for the query folds against the recursive oracle.
 //!
-//! The packed-form implementations are the behavioral oracle over the
-//! adversarial families, arbitrary trees, organic histories, and the
-//! exhaustive small scope; rank is additionally pinned against the
-//! recursive tree oracle and the semantic Riemann-sum oracle, which
-//! share no structure with the sweep.
+//! The recursive tree oracle (through the bridge) is the behavioral
+//! witness over the adversarial families, arbitrary trees, organic
+//! histories, and the exhaustive small scope: rank and min_ticks by its
+//! own folds, projection by its mask, distance and lag re-derived from
+//! its join, meet, and rank through the valuation identities the rustdoc
+//! states. Rank is additionally pinned against the semantic Riemann-sum
+//! oracle, which shares no structure with either implementation.
 //!
 //! Every equality here is exact — `Rank` equality is structural on the
 //! normalized form, projection agreement is byte identity of the emitted
@@ -31,43 +33,58 @@ fn version_of(p: &Packed) -> Version {
     p.version()
 }
 
-/// Assert the single-operand folds against the packed-form oracle and,
-/// for rank, the recursive tree fold.
+/// Assert the single-operand folds against the recursive tree oracle's
+/// own folds.
 fn assert_single(v: &Version) {
     let enc = encode(v);
-    let want = v.rank();
-    assert_eq!(rank(&enc), want, "rank kernel disagrees: {v}");
+    let tree = to_oracle_version(v);
     assert_eq!(
-        to_oracle_version(v).rank(),
-        want,
-        "tree-fold oracle disagrees with the packed rank: {v}"
+        rank(&enc),
+        tree.rank(),
+        "rank kernel disagrees with the tree-fold oracle: {v}"
     );
     assert_eq!(
         min_ticks(&enc),
-        v.min_ticks(),
-        "min_ticks kernel disagrees: {v}"
+        tree.min_ticks(),
+        "min_ticks kernel disagrees with the tree-fold oracle: {v}"
     );
 }
 
-/// Assert the projection kernel against the packed-form quotient for one
-/// `(version, party)` operand pair: byte identity of the canonical
+/// Assert the projection kernel against the recursive oracle's mask for
+/// one `(version, party)` operand pair: byte identity of the canonical
 /// streams.
 fn assert_projection(v: &Version, p: &Party) {
     let enc = encode(v);
+    let masked = from_oracle_version(&to_oracle_version(v).project(&to_oracle_party(p)));
     assert_eq!(
         project(&enc, p),
-        encode(&(v / p)),
-        "projection must transcode-commute: {v} / {p}"
+        encode(&masked),
+        "projection must match the oracle mask: {v} / {p}"
     );
 }
 
-/// Assert the pair folds against the packed-form measures.
+/// Assert the pair folds against the recursive oracle, re-deriving each
+/// measure from the oracle's join, meet, and rank through the valuation
+/// identities the rustdoc states: `distance = rank(a ∨ b) − rank(a ∧ b)`
+/// and `lag(a, b) = rank(a ∨ b) − rank(a)`.
 fn assert_pair(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
-    assert_eq!(distance(&ea, &eb), a.distance(b), "distance: {a} vs {b}");
-    assert_eq!(distance(&eb, &ea), b.distance(a), "distance: {b} vs {a}");
-    assert_eq!(lag(&ea, &eb), a.lag(b), "lag: {a} vs {b}");
-    assert_eq!(lag(&eb, &ea), b.lag(a), "lag: {b} vs {a}");
+    let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
+    let join_rank = (ta.clone() | tb.clone()).rank();
+    let meet_rank = (ta.clone() & tb.clone()).rank();
+    let dist = join_rank
+        .checked_sub(&meet_rank)
+        .expect("rank is monotone: the meet's rank never exceeds the join's");
+    assert_eq!(distance(&ea, &eb), dist, "distance: {a} vs {b}");
+    assert_eq!(distance(&eb, &ea), dist, "distance: {b} vs {a}");
+    let lag_a = join_rank
+        .checked_sub(&ta.rank())
+        .expect("rank is monotone: an operand's rank never exceeds the join's");
+    let lag_b = join_rank
+        .checked_sub(&tb.rank())
+        .expect("rank is monotone: an operand's rank never exceeds the join's");
+    assert_eq!(lag(&ea, &eb), lag_a, "lag: {a} vs {b}");
+    assert_eq!(lag(&eb, &ea), lag_b, "lag: {b} vs {a}");
 }
 
 /// The adversarial family pool the deterministic sweeps run over.
@@ -116,10 +133,10 @@ fn party_pool() -> Vec<Party> {
     ]
 }
 
-/// Every adversarial family shape agrees with the packed-form rank,
-/// min_ticks, and tree-fold rank; every family × id-pool cross agrees
-/// with the packed-form projection; every ordered family pair agrees on
-/// distance and lag.
+/// Every adversarial family shape agrees with the tree-fold oracle's
+/// rank and min_ticks; every family × id-pool cross agrees with the
+/// oracle's projection mask; every ordered family pair agrees on
+/// distance and lag as re-derived from the oracle's lattice folds.
 ///
 /// The families are exactly the shapes whose costs the meter rows pin —
 /// carry cliffs, wide teeth, cancelling chains, harmonic spines — so a
@@ -165,8 +182,8 @@ fn exhaustive_small_scope_agrees() {
 }
 
 proptest! {
-    /// Arbitrary normal-form trees agree with the packed forms on every
-    /// query fold.
+    /// Arbitrary normal-form trees agree with the recursive oracle on
+    /// every query fold.
     ///
     /// Rank is additionally realized by the semantic oracle's Riemann sum
     /// over the resolving grid — the geometric ground truth that shares
@@ -193,7 +210,7 @@ proptest! {
     }
 
     /// One organic fork/tick/send/sync/join history agrees with the
-    /// packed forms on every query fold.
+    /// recursive oracle on every query fold.
     ///
     /// Projection runs onto the history's own parties — the operand
     /// pairing production code actually builds.
@@ -212,7 +229,7 @@ proptest! {
         }
     }
 
-    /// The projection kernel agrees with the packed-form quotient over
+    /// The projection kernel agrees with the oracle's semantic mask over
     /// arbitrary tree × arbitrary id operands, where the id's absent
     /// children exercise the synthetic-empty arm at every depth.
     #[test]
@@ -223,13 +240,5 @@ proptest! {
         let v = from_oracle_version(&ov);
         let p = crate::testing::bridge::from_oracle_party(&oi);
         assert_projection(&v, &p);
-        // The projected region is what the semantic mask predicts: the
-        // quotient through the oracle pipeline agrees byte for byte.
-        let masked = from_oracle_version(&to_oracle_version(&v).project(&to_oracle_party(&p)));
-        prop_assert_eq!(
-            project(&encode(&v), &p),
-            encode(&masked),
-            "the oracle mask disagrees: {} / {}", v, p
-        );
     }
 }

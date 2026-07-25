@@ -1440,6 +1440,19 @@ fn grow_input_bytes(ev: &meter::skyline::Encoded, id: &Party) -> usize {
     ev.bytes.len() + id.encoded_bits().div_ceil(8)
 }
 
+/// The version that is `1` on the leftmost `2^-depth` interval and `0`
+/// everywhere else: `depth` nested nodes, all bases zero, the single
+/// 1-leaf at the bottom left — what growing a version that is zero over
+/// the owned region registers for a depth-`depth` unary id spine. Built
+/// as a text literal (the parser is iterative), so the expected tree
+/// shares no walk with the grow under measurement.
+fn left_spike(depth: usize) -> Version {
+    let mut text = "(0, ".repeat(depth - 1);
+    text.push_str("(0, 1, 0)");
+    text.push_str(&", 0)".repeat(depth - 1));
+    text.parse().expect("the spike literal is normal form")
+}
+
 /// The probe alone on the frame-count adversary stays within its
 /// envelope.
 ///
@@ -1468,20 +1481,29 @@ fn skyline_grow_probe_alt_spine_envelope() {
 /// The full id puts every one of the ~125k branch nodes on the probe's
 /// frame stack at peak — the shape where one machine-word frame per level
 /// would dwarf the ~4-bit-per-level input — with zero grown segments and
-/// the frames held in bit stacks.
+/// the frames held in bit stacks. The value witness is closed-form: the
+/// cheapest increment by `(expansions, depth)` is the root's right zero
+/// leaf (depth 1; everything under the spine's internal child is
+/// deeper), so the grown tree is the pointwise max with `(0, 0, 1)` —
+/// realized through the independently-tested join, byte-exact by
+/// canonical uniqueness.
 #[test]
 fn skyline_grow_alt_spine_envelope() {
     let v = version_of(&meter::alt_spine(DENSE_DEPTH));
     let party = Party::seed();
     let a = meter::skyline::encode(&v);
-    let expected = meter::skyline::encode(&meter::packed_grow(&v, &party));
+    let bump: Version = "(0, 0, 1)".parse().expect("test literals parse");
+    let expected = meter::skyline::encode(&(&v | &bump));
     let out = sweep_metered(
         "skyline_grow_alt_spine",
         grow_input_bytes(&a, &party),
         &grow_env::SKYLINE_GROW_ALT_SPINE,
         || meter::skyline::grow::grow(&a, &party),
     );
-    assert_eq!(out, expected, "the grown stream must match the oracle");
+    assert_eq!(
+        out, expected,
+        "the grown stream must be the derived closed form"
+    );
 }
 
 /// Growing the empty version under a 250k-deep unary id spine stays
@@ -1489,20 +1511,24 @@ fn skyline_grow_alt_spine_envelope() {
 ///
 /// The probe degenerates to the iterative id scan (one Expand frame per
 /// level), the emit codes the whole expansion chain as fresh one-bit
-/// deltas, and nothing recurses.
+/// deltas, and nothing recurses. The value witness is closed-form: the
+/// expansion chain to the owned tip is exactly the left spike literal.
 #[test]
 fn skyline_grow_id_spine_envelope() {
     let v = Version::new();
     let party = party_of(&meter::id_spine(ID_DEPTH, false));
     let a = meter::skyline::encode(&v);
-    let expected = meter::skyline::encode(&meter::packed_grow(&v, &party));
+    let expected = meter::skyline::encode(&left_spike(ID_DEPTH));
     let out = sweep_metered(
         "skyline_grow_id_spine",
         grow_input_bytes(&a, &party),
         &grow_env::SKYLINE_GROW_ID_SPINE,
         || meter::skyline::grow::grow(&a, &party),
     );
-    assert_eq!(out, expected, "the grown stream must match the oracle");
+    assert_eq!(
+        out, expected,
+        "the grown stream must be the derived closed form"
+    );
 }
 
 /// Growing the alternating spine under a deep unary id spine stays
@@ -1510,20 +1536,27 @@ fn skyline_grow_id_spine_envelope() {
 ///
 /// The regimes mix — two-cursor branch frames down the shared spine, an
 /// id-only expansion where the id outruns the event — with the same
-/// bit-stack ceilings as the pure shapes.
+/// bit-stack ceilings as the pure shapes. The value witness is
+/// closed-form: the unary id turns left into the spine's depth-2 zero
+/// leaf, so the forced route raises exactly the owned region from 0 to
+/// 1 — the pointwise max with the left spike, realized through the
+/// independently-tested join, byte-exact by canonical uniqueness.
 #[test]
 fn skyline_grow_cross_envelope() {
     let v = version_of(&meter::alt_spine(DENSE_DEPTH));
     let party = party_of(&meter::id_spine(ID_DEPTH, false));
     let a = meter::skyline::encode(&v);
-    let expected = meter::skyline::encode(&meter::packed_grow(&v, &party));
+    let expected = meter::skyline::encode(&(&v | &left_spike(ID_DEPTH)));
     let out = sweep_metered(
         "skyline_grow_cross",
         grow_input_bytes(&a, &party),
         &grow_env::SKYLINE_GROW_CROSS,
         || meter::skyline::grow::grow(&a, &party),
     );
-    assert_eq!(out, expected, "the grown stream must match the oracle");
+    assert_eq!(
+        out, expected,
+        "the grown stream must be the derived closed form"
+    );
 }
 
 // ─── skyline text kernel scenarios ──────────────────────────────────────────
