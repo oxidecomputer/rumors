@@ -744,7 +744,7 @@ sums so they close (N owned + M green = 205 at each scale).
   re-pins those rows deliberately (the parity-floor ruling's
   genre). Where a packed bit-stack (2 bits/level) suffices,
   neither applies and the bit-stack stays.
-- **Defended keeps (2026-07-24 This-Nature sweep) — adjudicated
+- **Defended keeps (2026-07-24 scaffolding sweep) — adjudicated
   once, not relitigated**: the limb/scan/segment/touch meters and
   their floors (domain-semantic; no external tool can produce
   them); the adversarial generators, envelope harnesses, and the
