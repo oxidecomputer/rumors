@@ -445,18 +445,22 @@ proptest! {
         }
     }
 
-    /// `tick`'s output stays within its inputs' coded sizes:
-    /// `bits(tick(e, i)) ≤ bits(e) + 4·bits(i) + 8` over arbitrary
-    /// pairs.
+    /// `tick`'s output stays within a constant factor of its inputs'
+    /// coded sizes: `bits(tick(e, i)) ≤ 2·bits(e) + 4·bits(i) + 32`
+    /// over arbitrary pairs.
     ///
     /// The bound the board's input denomination of the tick rows rests
     /// on, computed the second way (the operation itself, against the
-    /// arithmetic of its parts): fill only collapses — its raises
-    /// re-code one neighbor delta, telescoping codes the collapsed
-    /// range already spent — and grow adds one increment (two recoded
-    /// deltas) or one expansion chain, a constant per id bit at the
-    /// site plus constant slack. A tick output outgrowing this envelope
-    /// would be minting content no operand paid for.
+    /// arithmetic of its parts). Fill's raises telescope the codes
+    /// their collapsed ranges already spent, and grow adds one
+    /// increment or one expansion chain, a constant per id bit at the
+    /// site — but either can re-code up to two deltas against a wide
+    /// neighbor (the raise's landing, grow's zero leaf), each
+    /// duplicating one input code's width once. Hence the factor of
+    /// two, not an additive slack: 255 output bits from a 175-bit
+    /// event under a 6-bit id is honest arithmetic (the zero leaf
+    /// lands next to a wide value), while a superlinear output would
+    /// be minting content no operand paid for.
     #[test]
     fn tick_output_is_input_bounded(
         op in generators::arb_oracle_party_nonempty(),
@@ -467,7 +471,7 @@ proptest! {
         if !p.as_bits().is_empty() {
             let ev = encode(&v);
             let out = tick(&ev, &p);
-            let bound = ev.bits + 4 * p.as_bits().len() + 8;
+            let bound = 2 * ev.bits + 4 * p.as_bits().len() + 32;
             prop_assert!(
                 out.bits <= bound,
                 "tick output {} bits exceeds input envelope {} (event {}, id {})",

@@ -641,10 +641,20 @@ heap 13.9/9.0 per byte (the diff-coded memo stores one machine
 word per site plus only *nonzero* chain links, so the pure chain
 stores no accumulator at all), staircase flat at 16.0 limb/B —
 under byte-identity across the full differential suite; the L6
-output-bound pin (`tick_output_is_input_bounded`, `bits(tick) ≤
-bits(e) + 4·bits(i) + 8`) and the `TICK_NESTED_WIDE`/
-`TICK_MIRROR_WIDE` envelope rows landed with it, and the four
-judge legs left the roster. Realization choices, each conforming
+output-bound pin (`tick_output_is_input_bounded`) and the
+`TICK_NESTED_WIDE`/`TICK_MIRROR_WIDE` envelope rows landed with
+it, and the four judge legs left the roster. **The pin corrected
+L6's stated form** [measured, kernel tier]: the additive
+`size(e) + O(size(i))` is refuted by honest arithmetic — grow's
+zero leaf (and a raise's landing) can each re-code one delta
+against a wide neighbor, duplicating one input code's width once
+(a 175-bit event under a 6-bit id ticks to 255 bits, the shrunk
+counterexample; committed as a seed) — and the honest bound is
+the constant-factor `size(tick(e, i)) ≤ 2·size(e) + 4·size(i) +
+32`, pinned at 8,192 cases. The pricing chain (A3) survives with
+the constant carried: Σ emitted code widths ≤ 2·input + O(id) is
+still input-denominated, so T-tick's O(n + m) conclusion is
+unchanged; §4's L6 row reads with this correction. Realization choices, each conforming
 to the invariants as stated: memo entries chain in *recording*
 order (`m_j − m_{j−1}`, the recording relation riding the
 pre-scan's stack as a follower) rather than literally against the
