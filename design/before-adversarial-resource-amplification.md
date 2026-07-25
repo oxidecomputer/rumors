@@ -1402,6 +1402,14 @@ Acceptance is re-denominated: all-green means the board green on
 counters and floors at both scales AND the bench judge green at
 both scales.
 
+Cadence of record (2026-07-24, the canary-retirement review's
+coverage map): the gate contains zero wall-clock assertions — what
+the gate guarantees, at every commit, is the deterministic legs
+(counters, floors, envelopes, byte-identical enumerations under
+any load); time-class regressions are caught at `just bench-judge`
+/ `just all` cadence, the same relocation precedent as the board
+wall leg.
+
 Landed 2026-07-24 (both legs, this directive's implementation;
 the time leg's landed home is the bench judge — the relocation
 record below). Every board cell now carries a `Floors` declaration the type
@@ -1685,9 +1693,11 @@ cure). The judge's contract is re-pinned:
   render the huge leaf through the backend's divide-and-conquer).
   `just bench-judge` (and so `just all`) judges through the
   roster and passes on the honest tree; `bench-judge-record`
-  stays rosterless (the roster pins quick-mode expectations) and
-  reads red until the C2 cures land. `bench-judge-tripwire`
-  joined `just all`, so the live red path rides every sweep.
+  judges through the same roster — its sampling pin lists both
+  modes, the expectations being exponent classes that hold under
+  either regime — so the posture is identical in both modes.
+  `bench-judge-tripwire` joined `just all`, so the live red path
+  rides every sweep.
 - **The fit-noise band, derived** (`FIT_NOISE_EXPONENT_BAND`,
   ≈ 0.052). The judgment floor binds the hi median only; the lo
   median is deliberately unfloored — flooring it at 10 µs would
@@ -1717,6 +1727,55 @@ cure). The judge's contract is re-pinned:
   section: a bounded exposure of sub-10 µs word arithmetic over a
   few hundred packed bytes, the same rows time-judged on every
   larger family.
+
+Canary-retirement review amendment (2026-07-24, the wide-display
+transfer's review: two blocking records-seam findings, both
+reproduced by executed attack before cure). The ceiling a cell is
+judged at is now a property of the CELL, never of a roster entry:
+
+- **Ceilings ride the sidecar.** Each sidecar cell entry carries a
+  ceiling class beside its denominator bytes (`general` 1.3, `text`
+  1.7), declared in bench code where the cell is defined
+  (`benches/common/sidecar.rs` `Ceiling`; the wide-display pair is
+  the whole text class, pinned as `TEXT_CEILING_CELLS` and asserted
+  at every sidecar write). The judge takes each cell's ceiling from
+  the sidecar alone and cross-checks the two sidecars' classes per
+  cell (disagreement is exit 2, like every stamp mismatch).
+- **The roster carries expectations only.** Classes collapse to
+  `red` (must be judged, must read RED at the cell's own ceiling)
+  and `boundary` (either verdict within the fit-noise band of the
+  cell's own ceiling); any other roster member is an input error,
+  so a roster can never mint a ceiling-selecting class and
+  misfiling a cell's roster class can never change its ceiling.
+  The schoolbook display tripwire joins `red` permanently, judged
+  at its text ceiling — green means the tripwire went dark. Both
+  demonstrated laundering attacks (a general cell claimed as a
+  text class; the schoolbook cell moved to plain red and its
+  renderer regressing under the text ceiling) are pinned FAILING
+  in `tools/benchjudge --self-test`.
+- **Membership is pinned in nextest.**
+  `crates/before/tests/bench_judge_roster.rs` pins the roster's
+  red set (the sixteen bigroot sweeps + `display_schoolbook ×
+  hugeleaf`), the boundary pair (`version_display`/`clock_display`
+  × hugeleaf), the roster's key schema, and the sidecar text-class
+  set (exactly the wide pair) — any membership edit trips a test
+  whose diff a reviewer sees.
+- **Record mode judges through the same roster.** The roster's
+  sampling pin lists both modes (the simpler of the two chartered
+  shapes: one configuration block, profile and scale pair still
+  singly pinned) because the expectations are exponent classes,
+  which hold under either sampling regime — the review measured
+  the wide pair at e 1.464/2.001 under record sampling, the same
+  classes as quick mode's 1.47/1.99. Pre-C2 and post-C3 postures
+  are therefore identical in both modes: roster-satisfied on the
+  honest tree, the bigroot set emptied at C3, the text
+  expectations permanent. This resolves the standing record-mode
+  roster-posture question (campaign task #29). Full-sampling
+  record numbers are captured at the next deliberate record event
+  (C3); this amendment's record-mode verification exercised the
+  recipe mechanics against quick-captured baselines.
+  (§17.5's transfer-record mechanism phrase and §17.9's P3.6b
+  witness referent are re-denominated with this amendment.)
 
 ## 14. Execution plan
 
@@ -3325,8 +3384,10 @@ everything prior.
 *What*: `just all` clean (feature matrix, wasm, bench builds, fuzz
 targets, viz bundle, the bench judge); the board all green at
 default and record scale, three identical runs; the bench judge
-green at both scales (`just bench-judge-record` for the numbers
-of record); the bench before/after table of
+roster-satisfied at both scales in both modes (`just bench-judge`,
+and `just bench-judge-record` for the numbers of record) with the
+bigroot roster set emptied at C3 and only the permanent text
+expectations remaining; the bench before/after table of
 record showing no regression and improvement on every touched
 operation; the P3.6b coverage audit re-run with an empty gap list
 (every public operation proptested against both reference oracles
@@ -3687,12 +3748,12 @@ snapshots):
     (`MAX_TEXT_SCALING_EXPONENT` = 1.7, derivation at the constant)
     is placed to separate the measured classes by more than twice
     the fit-noise band at that ceiling (band ≈ 0.088, 2× ≈ 0.175;
-    margins 0.23 below and 0.29 above), judged per cell through the
-    roster's `text_green`/`text_red` classes — the schoolbook cell
-    is the rostered-red tripwire, enforced on every `just
-    bench-judge` (green = the tripwire went dark, exit 1), and the
-    separation is pinned from the measured shapes in `tools/
-    benchjudge --self-test`. What the transfer improves: the canary
+    margins 0.23 below and 0.29 above), judged per cell at the
+    ceiling class the pair's sidecar entries declare — the
+    schoolbook cell is the rostered-red tripwire, enforced on every
+    `just bench-judge` (green = the tripwire went dark, exit 1),
+    and the separation is pinned from the measured shapes in
+    `tools/benchjudge --self-test`. What the transfer improves: the canary
     asserted a wall-clock *ratio* (machine-dependent band, one
     process, a reserved runner holding every other test off the
     machine); the judge fits a scale-*exponent* against the board's
@@ -4020,8 +4081,10 @@ amplifier and two coverage gaps.
   sweep once the kernels exist); the board's "folds of measured
   rows" NA rationale — the same drowned genre §17.7 retired for
   Rank — is replaced at **P3.6b** with a `version_join_all` ×
-  scatter row plus a wall-witnessed party-fold scenario beside the
-  display canary, pinned red before the cure and re-pinned after.
+  scatter row plus a party-fold scenario with a judged wall
+  witness (the bench judge's time leg — its wide-display pair is
+  the landed form of that genre; §17.5's transfer record), pinned
+  red before the cure and re-pinned after.
   Landed 2026-07-24 (the balanced-reduction arm): all five fold
   surfaces reduce on a binary-counter stack (every input O(log n)
   joins against similarly-sized partners; the fallible folds test
@@ -4197,3 +4260,19 @@ re-derivation), C3, P4.1, the P4-tail text item, P5.
   inside the derived fit-noise band) is for cells within ±0.052 of
   the 1.3 ceiling only; §13's review amendment records the
   derivation and the population of record.
+  Refined 2026-07-24 (canary-retirement review): ceilings left the
+  roster's trust surface — each cell's ceiling class (general 1.3,
+  text 1.7) is declared by bench code in the denominator sidecar
+  at the cell's definition site, the judge takes the per-cell
+  ceiling from the sidecar alone, and the roster carries
+  expectations only (`red`, `boundary`; boundary's band is around
+  the cell's own ceiling), so misfiling a roster class can never
+  change a ceiling. The schoolbook tripwire rides `red`
+  permanently, judged at its text ceiling. Roster and text-class
+  membership are pinned by
+  `crates/before/tests/bench_judge_roster.rs`, so any membership
+  edit trips a nextest diff; `bench-judge-record` judges through
+  the same roster (its sampling pin lists both modes), making the
+  pre-C2 and post-C3 postures identical in both modes. §13's
+  canary-retirement amendment records the mechanism and the
+  pinned laundering attacks.
