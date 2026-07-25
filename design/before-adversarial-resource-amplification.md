@@ -1777,6 +1777,76 @@ judged at is now a property of the CELL, never of a roster entry:
   (§17.5's transfer-record mechanism phrase and §17.9's P3.6b
   witness referent are re-denominated with this amendment.)
 
+Amended 2026-07-24 (the integration catch: main's fast paths meet
+the floors; the scan meter's contract restored on the integrated
+tree). Integrating main's word-window gamma fast paths (d0788b3a:
+`SliceCursor::read_int`'s and `skip_int`'s window-accept arms
+advanced past a proven code without recording it) and byte-decided
+`Version` equality (975d4694: same-form `==` settles on the stored
+canonical bytes via `EvReader::trivially_eq`, a length-checked
+memcmp; only mixed storage forms walk) moved scanned work out from
+under the meter, and the committed floors caught it — the designed
+stop-and-look, the second live floors-catch after `party_display`:
+five verdict flips green → red at BOTH scales against the Legs A/B
+record (`version_eq` × {hugeleaf, cliff, benign} and
+`version_display`/`clock_display` × benign), reading **132 green /
+68 red default, 123 green / 77 red at ×4** **[measured** — the
+pre-fix integrated-tree runs**]**, with scan-floor reasons also
+stacked on ten already-red cells (the tick/batch_snapshot/recv
+topology skips and the display rows × dense/benign, each red on
+other legs regardless). A seam review confirmed both mechanisms
+before cure. The two cures, one per genre:
+
+- **The window fast paths record the code they prove**
+  (91e1e2e0). Both window-accept arms now record the same
+  `2k + 1` bits the per-bit loop prices, so fast and slow paths
+  meter identically and per-bit totals are restored exactly:
+  against the pre-fix runs only scan columns move, only on
+  event-side rows that decode or skip gamma codes through the
+  fixed paths — the full-walk rows return to exactly 8.0 recorded
+  bits per stored byte, the topology-skip rows to their
+  deterministic skip pricing — and heap, segment, and limb
+  columns and every floor readout are byte-identical; the two
+  display × benign flips are cured. No meter-suite pin moves (the
+  78 `before::meter` tests pass unchanged). Two adjacent records:
+  the `max_depth` caller-side record over `skip_int` now
+  double-counts uniformly (2×, deterministic — the pre-fix tree
+  mixed 1× and 2× depending on which arm fired); retiring it is a
+  marked future recalibration (`TODO-recalibrate` at the call
+  site) that must re-measure the scan pins pricing that walk. And
+  the wire-side borsh `ReaderCursor` is deliberately unmetered —
+  no board row prices the wire path — with `codec/scan.rs`'s
+  module doc now stating so; instrumenting it is a conscious
+  future change with its own recalibration.
+- **`version_eq` re-denominated to the wholesale-bytes genre**
+  (6ff8c949). The row's examines-everything scan floor was
+  derived against the causal-walk equality; a byte compare may
+  legitimately stop at the first differing byte, so the floor was
+  over-derived rather than tripped-and-curable. The scan column
+  is now the wholesale-bytes NA genre with `version_eq`'s own
+  exposure sentence on the board face: unlike the hash rows'
+  small-operand bound, eq operands grow without bound, so the
+  bench judge's time leg is the backstop that the compare stays
+  linear. `version_eq × benign` joins the three hash × benign
+  cells as the fourth dual-leg sub-floor hole (all-NA floors, an
+  operand too small for the 10 µs judgment floor), stated in the
+  board module doc's exposure paragraph. Ownership
+  reconciliation, exact: `version_eq` × dense and × bigroot were
+  owned kills awaiting C2 (P3.6's comparison reads); their green
+  is ownership realized EARLY by main's byte-decided equality
+  itself, not by C2 and not by this re-denomination — §17.3's
+  dated amendment moves the counts. The judge-side seam of the
+  same realization (`version_eq × bigroot` sits in the
+  expected-red roster's sixteen) is the roster's own record,
+  reconciled through its nextest membership pin, not here.
+
+Board of record after both cures **[measured** — 2026-07-24, dev
+profile, limb-meter and scan-meter lit; three runs per scale,
+byte-identical at each**]**: **139 green / 61 red at the default
+scale; 130 green / 70 red at ×4**. Against the pre-fix integrated
+tree: the seven cells above clear at each scale (the five flips
+plus the two realized eq kills) and no other verdict moves.
+
 ## 14. Execution plan
 
 Dependency-ordered; each phase `just gate`-clean; wire bytes are
@@ -3591,6 +3661,22 @@ kill lists and sums are untouched by the re-denomination; the one
 judge-only boundary case on record (`version_display × hugeleaf`,
 fitted e 1.30/1.31 across consecutive quick runs) is owned by the
 text column's κ/C2 hand-off per §13's relocation record.
+
+Amended 2026-07-24 (the integration catch; §13's amendment of the
+same date carries the mechanisms and the run records): main's
+byte-decided equality realizes two of P3.6's comparison-read kills
+early — `version_eq` × dense and × bigroot read green under the
+row's wholesale-bytes re-denomination, the work the floor priced
+having left the contract with the causal-walk equality itself —
+so P3.6's default-scale count is 48 → 46 and its all-in ×4 count
+51 → 49. The default sums close as **61 owned kills + 139 green =
+200** (P3.5's 4 + P3.6's 46 + P3.7's 3 + P3.8's 6 + the
+C2-adjacent line's 2); the ×4 sums as **70 owned kills + 130
+green = 200** (P3.5's 4 + P3.6's 49 + P3.7's 3 + P3.8's 12 + the
+C2-adjacent line's 1 + P5.5's 1). Remaining realization staging:
+C2 its 56 (58 less the two realized eq cells); the P4-tail P3.8
+its 12 (6 at the default scale); the C2-adjacent merge its 2;
+P5.5 its 1.
 
 ### 17.4 Commit choreography summary
 
