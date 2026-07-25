@@ -3393,6 +3393,59 @@ operation walks out from under its old sensors at once, so the
 floors must be watching and the judge's owned-red enumeration
 must be on record before it lands.
 
+Landed 2026-07-25 (C2, commit `91fac33d`; the fill prerequisite
+landed first as `c43740b8` with the tick splice, dual-witness
+differentials — byte identity against the packed fill and the
+recursive oracle — and an adversarial review verdict of zero
+blocking findings; the seed-corpus cure `61d1bcd4` preceded both).
+The premise "C1 pre-lands the novel logic" undersold this item:
+fill had been deferred into C2 by the recorded amendment, and
+building it to the campaign bar consumed a full session before the
+rewiring session (the stop-and-report clause worked as designed;
+no half-flipped tree ever existed on the branch). The flip:
+`Version` stores the skyline coding; compare/eq route to the
+sweep, join/meet to the emit kernels, rank/distance/lag/min_ticks/
+project to the query folds, tick to `skyline::tick` through fill,
+Display/FromStr to `skyline::text`; `Batch` rewritten over the
+packed form; borsh and serde re-derived; `working.rs`, `event/`,
+the reader split, and the old event codec deleted with their
+vocabulary re-denominated. `BOOKMARK_FORMAT_VERSION` 1 → 2,
+strict reject pinned by a version-1 test. Acceptance, all
+verified at the commit: the gate fully green; the board **185
+green / 15 red at the default scale, 184/16 at ×4** (from 139/61
+and 130/70), two byte-identical runs per scale, 49 staged kills
+realized, zero unexplained movement — remaining reds owned by the
+κ text hand-off (ten), the §17.9 fold marginals (two), and three
+newly κ-genre cells (`version_min_ticks × cliff`,
+`version_project × comb-scatter`, `clock_own_version ×
+comb-scatter`: both denominator sides now delta-coded; §17.3's
+dated note). The judge: **157 green / 3 red / 42 sub-floor**,
+failing on exactly fifteen "rostered red read GREEN" violations —
+the full bigroot set fitted e 0.94–1.00 — which is C3's
+realization evidence, banked verbatim; the three reds are the
+permanent schoolbook tripwire and the κ-owned display pair.
+Snapshot re-pins: **27 files** (the commit message's 28
+double-counts one file across two classes; three post-C0
+additions are the supply-opening tests), reviewed bytes-only by a
+dedicated pass — verdict zero blocking: every pin matches the
+live emitters, three hand-decodes parse exactly as the skyline
+coding, and stale old-coding pins are structurally impossible
+(the old encodings reject under skyline validation). The
+corrected reshape taxonomy: nineteen skeleton-identical, eight
+shape-moved — by the `as_bytes` tiebreak, byte-budget batching,
+and a third mechanism the first account missed: content-address
+keys hash version bytes, so the trie redistributed (verified
+benign; every value rides the wire in both captures) — four
+re-seeded fixtures with re-searched constants. Recorded
+deviations: the output-honesty ceiling re-denominated from wire
+bits to radix units (forced by the coding; derivation at the
+constant, tripwire re-pinned); the three κ-genre cells above;
+tier2/compactness denominated against the packed construction
+language; bridge recursions descend-guarded. Fill internals
+untouched by the flip (its review and linearization ride the
+post-flip rounds: the fix round's red pin, then the O(n+m)
+rewrite under the 2026-07-25 asymptotic bar).
+
 **P3.10 — C3: board and envelope re-pin; bench deltas.**
 *What*: board re-run at default and record scale — the 54
 C2-realized cells green at both scales (52 of the 62 default-scale
