@@ -17,7 +17,7 @@ use rayon::prelude::*;
 
 use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    id_spine, scattered_id, wide_tooth_comb, Packed,
+    id_spine, nested_full_id, scattered_id, wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
@@ -110,6 +110,8 @@ fn party_pool() -> Vec<Party> {
         party_of(&id_spine(64, true)),
         party_of(&scattered_id(1)),
         party_of(&scattered_id(16)),
+        party_of(&nested_full_id(1)),
+        party_of(&nested_full_id(8)),
     ];
     pool.extend(all_normal_ids(2).iter().map(from_oracle_party));
     pool
@@ -235,7 +237,15 @@ fn left_spike(depth: usize) -> Version {
 /// again the identity and the grown tree raises exactly the owned
 /// region from 0 to 1 — the pointwise max with the spike, realized
 /// through the independently-pinned join kernel and byte-exact by
-/// canonical uniqueness. Canonicality, fill idempotence, and tick entry
+/// canonical uniqueness. The nested-full-sibling id over its matched
+/// spine fills to the identity, derived: every level's right-full
+/// raise is `max(max(er), min(fill(il, el)))`, where `er` is a single
+/// leaf (its own maximum) and the left range's minimum stays at the
+/// spine's floor of zero, so no raise ever moves a value — and the id
+/// terminus pairs with a leaf (the untouched-leaf arm). The case
+/// drives the drift stack and both re-scan genres at full depth (the
+/// #33 cost adversary) with a value witness the small scope pins
+/// against the oracle. Canonicality, fill idempotence, and tick entry
 /// agreement ride along on every case.
 #[test]
 fn deep_spines_fill_and_tick_identically() {
@@ -293,6 +303,24 @@ fn deep_spines_fill_and_tick_identically() {
         tick(&encode(&deep_ev), &deep_id),
         encode(&(&deep_ev | &spike)),
         "the grown stream is the pointwise max with the spike"
+    );
+
+    // The nested-full-sibling id over its matched spine: a right-full
+    // shortcut site at every one of the 4096 levels — the drift stack
+    // and both re-scan genres at full depth. Fill is the identity (the
+    // module doc's derivation: each raise maxes a lone leaf against a
+    // zero minimum), and the small scope pins the same cross against
+    // the oracle at every depth it enumerates.
+    let mut text = "(0, ".repeat(4095);
+    text.push_str("(0, 0, 1)");
+    text.push_str(&", 0)".repeat(4095));
+    let matched: Version = text.parse().expect("the matched spine literal parses");
+    let nested = party_of(&nested_full_id(4096));
+    let filled = assert_deep(&matched, &nested);
+    assert_eq!(
+        filled,
+        encode(&matched),
+        "every nested raise maxes a lone leaf against a zero minimum: identity"
     );
 }
 

@@ -68,7 +68,7 @@ share:
 | scatter | n single-tick organic versions, evens before odds | fold accumulator growth (V7) |
 | comb-scatter | cliff comb × scattered party | output-dominated projection |
 | benign | small organic values | the control; the parity floor's referent |
-| nested-full-sibling | `(x,1)` repeated down a spine × matching event spine | fill's pre-scan/lookahead terms (#33's adversary; lands with the fill red pin) |
+| nested-full-sibling | `(x,1)` repeated down a spine × matching event spine | fill's pre-scan/lookahead terms (#33's adversary; the fill red pin's family) |
 
 ## 3. Findings ledger
 
@@ -285,7 +285,7 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **205 cells at this
+public operation surface × §2's families — **207 cells at this
 tip**, membership pinned by the smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`)
 from deterministic meters only: peak heap, grown stacker segments,
@@ -403,8 +403,11 @@ verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-25, the
 bench-coverage integration record; dev profile, limb+scan meters
-lit]: board **188 green / 17 red at the default scale; 187 / 18
-at ×4** over 205 cells. The judge's last honest reading, at the
+lit]: board **188 green / 19 red at the default scale; 187 / 20
+at ×4** over 207 cells (amended 2026-07-25: the fill red pin adds
+the two nested-full tick cells, red on scan/limb exponent 2.00 at
+both scales — [measured], owned by the fill linearization, green
+only through it). The judge's last honest reading, at the
 flip commit over 202 cells: **157 green / 3 red / 42 sub-floor**,
 exit 1 on exactly the fifteen banked realization violations; the
 three reds all rostered-expected. Workspace sweep at C0:
@@ -666,7 +669,7 @@ exposed type's bytes/text/serde forms snapshot-pinned in-crate);
 the benign rank-pair operand scaling if C3 chose that arm; the
 §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over 205 cells)
+### 17.3 Owned-red accounting (current; over 207 cells)
 
 Reconciled 2026-07-25 from a fresh board reading at the fix-round
 tip (both scales enumerated cell by cell; the apparent
@@ -674,7 +677,17 @@ discrepancy dissolved — the flip entry's ×4 categories contained
 the cliff and id-pair cells without enumerating them). Every red
 has exactly one owner and the sums close:
 
-Default, 17 = 188 green + 17: **ten κ-text constants**
+Amended 2026-07-25 (the fill red pin): **two nested-full tick
+cells** (`version_tick`/`clock_tick` × nested-full) join both
+scales' red sets, owned by the fill linearization (#33) — scan and
+limb exponents 2.00 [measured] with constants two orders over
+their ceilings (and segments e 2.90 at ×4): the walk's right-full
+lookahead and sibling pre-scan genres nesting at every level,
+exactly the reviewed bound. Green only via the O(n+m) rewrite;
+the judge legs ride the roster under the same owner. Sums:
+default 188 + 19 = 207; record 187 + 20 = 207.
+
+Default, 17 pre-pin = 188 green + 17: **ten κ-text constants**
 (`version_display`/`clock_display` × {dense, bigroot, benign},
 `version_from_str`/`clock_from_str` × {dense, benign} — limb/`R`
 vs κ; the κ/C3 re-derivation) + **four fold marginals**

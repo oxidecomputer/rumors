@@ -43,13 +43,15 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
 }
 
 /// The roster's red set is exactly the fifteen counter-red bigroot sweeps,
-/// the two hugeleaf display rows, and the permanent schoolbook tripwire.
+/// the two hugeleaf display rows, the two nested-full tick cells, and the
+/// permanent schoolbook tripwire.
 ///
 /// The bigroot sweeps are owned by the C2 kernel flip and the display rows
-/// by the text column's κ/C2 hand-off; both sets empty at C3. Removing an
-/// owned red silences a standing judgment and adding one launders a new
-/// regression as expected, so both directions must show up as a diff of
-/// this pin.
+/// by the text column's κ/C2 hand-off; both sets empty at C3. The
+/// nested-full pair is the fill red pin's judge leg, owned by the fill
+/// linearization, which removes it. Removing an owned red silences a
+/// standing judgment and adding one launders a new regression as
+/// expected, so both directions must show up as a diff of this pin.
 #[test]
 fn roster_red_membership_is_pinned() {
     let mut expected = vec![
@@ -59,6 +61,7 @@ fn roster_red_membership_is_pinned() {
         "clock_recv/bigroot",
         "clock_sync/bigroot",
         "clock_tick/bigroot",
+        "clock_tick/nested-full",
         "display_schoolbook/hugeleaf",
         "version_batch_snapshot/bigroot",
         "version_cmp/bigroot",
@@ -71,6 +74,7 @@ fn roster_red_membership_is_pinned() {
         "version_meet/bigroot",
         "version_meet_assign/bigroot",
         "version_tick/bigroot",
+        "version_tick/nested-full",
     ];
     expected.sort();
     assert_eq!(class(&roster(), "red"), expected);
