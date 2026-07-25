@@ -187,6 +187,7 @@ const FAN_SLOT_BYTES: usize = std::mem::size_of::<(Prefix<Z>, typed::Node<(), Z>
 /// through the live backend's own `node_bytes`; this constant is that
 /// charge under the in-memory backend, the flat pre-charge the operator
 /// docs quote.
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
     STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<(), Z>>() + FAN_SLOT_BYTES);
 
@@ -196,6 +197,7 @@ pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
 /// 100 Gbps × 1 ms round trip and 1 Gbps × 100 ms are the same product;
 /// the trade-off table and the crossover figures in the budget docs are
 /// stated at it.
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 
 /// End-to-end wire bytes of one disputed message beyond its record's
@@ -207,11 +209,13 @@ pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 /// payload — at three payload sizes. The closed form documented at
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) is
 /// denominated in it.
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 28;
 
 /// The design record's borsh-encoded payload size: the `m = 172` column
 /// of the trade-off table, and the record size the wire-cost anchor
 /// below is stated at.
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const DESIGN_RECORD_BYTES: usize = 172;
 
 /// Wire bytes one disputed message costs end to end at the design
@@ -222,6 +226,7 @@ pub(crate) const DESIGN_RECORD_BYTES: usize = 172;
 /// `+ m` per message), and the default budget is a stated policy
 /// choice. Calibrated: `tests/dispute_wire.rs`'s design-record cell
 /// measures exactly this figure.
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + DESIGN_RECORD_BYTES;
 
 /// Session-envelope bytes one in-flight disputed scope is charged.
@@ -246,6 +251,7 @@ pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + DESIGN_REC
 /// 4.7 MB in all, stepping to 7.9 MB once the depth-5 stage saturates
 /// near 5,500 scopes, past which the marginal scope price settles at
 /// 4741 B, 2.5% under the average this constant carries.
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
 
 /// Worst-case memory one synchronization may spend by default: 512 MiB.
@@ -274,6 +280,9 @@ pub(crate) struct Window {
 
 impl Window {
     /// The liveness floor: one scope per edge, the deadlock-proof minimum.
+    /// Reached only through [`WindowConfig::FLOOR`], the test suites'
+    /// opt-in.
+    #[cfg(any(test, feature = "test-internals"))]
     pub(crate) const FLOOR: Self = Self {
         capacities: [1; KEY_DEPTH + 1],
     };
@@ -480,8 +489,9 @@ impl Window {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum WindowConfig {
-    /// Predetermined capacities: the test floor, or a harness pinning
-    /// exact widths.
+    /// Predetermined capacities. Constructed only through
+    /// [`Self::FLOOR`], the test suites' opt-in.
+    #[cfg(any(test, feature = "test-internals"))]
     Fixed(Window),
     /// Derive per-height capacities at session start, once both replicas'
     /// sizes are known.
@@ -496,6 +506,7 @@ impl WindowConfig {
     /// deadlock-freedom argument certifies stay exercised; the
     /// [`Default`] is the budget and never depends on how the crate is
     /// built (features are additive and must not change behavior).
+    #[cfg(any(test, feature = "test-internals"))]
     pub(crate) const FLOOR: Self = Self::Fixed(Window::FLOOR);
 
     /// Resolve the session's window against the exchanged set sizes and
@@ -509,6 +520,7 @@ impl WindowConfig {
         node_bytes: impl Fn(usize, usize) -> usize,
     ) -> Window {
         match self {
+            #[cfg(any(test, feature = "test-internals"))]
             Self::Fixed(window) => window,
             Self::Budget(bytes) => Window::from_budget(
                 local_len,

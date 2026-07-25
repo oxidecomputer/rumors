@@ -118,7 +118,9 @@ impl Base {
     }
 
     /// This magnitude as a `u64`, saturating at [`u64::MAX`] for values
-    /// past the `u64` range.
+    /// past the `u64` range. Consumed by the reference oracle's
+    /// saturating folds (and the suites comparing against them).
+    #[cfg(any(test, feature = "oracle"))]
     pub(crate) fn to_u64_saturating(&self) -> u64 {
         self.to_u64().unwrap_or(u64::MAX)
     }

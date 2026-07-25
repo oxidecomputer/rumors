@@ -119,12 +119,21 @@
 //!   families.
 
 use crate::codec::{self, Base, Bits, BitsSlice};
+#[cfg(any(test, feature = "meter"))]
 use crate::error::Decode;
+#[cfg(any(test, feature = "meter"))]
 use crate::Version;
 
 mod build;
+// The strict byte-level decode of one whole stream: consumed by this
+// module's `decode` entry, which only the meter surface and the tests
+// reach (production decode paths run `validate_prefix` + `from_bits`).
+#[cfg(any(test, feature = "meter"))]
 mod decode;
 pub mod emit;
+// The generators' construction-language transcoder: consumed by the meter
+// surface and the transcoding tests only.
+#[cfg(any(test, feature = "meter"))]
 mod encode;
 pub mod fill;
 pub mod grow;
@@ -137,12 +146,14 @@ mod validate;
 #[cfg(test)]
 mod tests;
 
+#[cfg(any(test, feature = "meter"))]
 pub(crate) use decode::decode_bits;
-// The generators' construction-language bridge: consumed by the meter
-// surface and the transcoding tests only.
 #[cfg(any(test, feature = "meter"))]
 pub(crate) use encode::encode_bits;
-pub(crate) use validate::{validate_bits, validate_from, validate_prefix};
+pub(crate) use validate::{validate_bits, validate_prefix};
+// The wire decoder's from-cursor entry: reached from the borsh event leg.
+#[cfg(feature = "borsh")]
+pub(crate) use validate::validate_from;
 
 /// A skyline bit stream packed into bytes, with its exact live bit length.
 ///
@@ -159,6 +170,10 @@ pub struct Encoded {
 }
 
 /// A [`Version`]'s canonical skyline stream: the stored form, cloned.
+///
+/// Test- and meter-only: production callers reach the stored stream
+/// through [`Version::as_bytes`]/[`Version::encode`].
+#[cfg(any(test, feature = "meter"))]
 pub fn encode(version: &Version) -> Encoded {
     version.as_encoded().clone()
 }
@@ -176,6 +191,11 @@ pub fn encode(version: &Version) -> Encoded {
 /// # Panics
 ///
 /// Panics if `bits` exceeds the live bits in `bytes`.
+///
+/// Test- and meter-only: the production byte-level entries
+/// ([`Version::decode`], the borsh leg) run the underlying pass through
+/// `validate_prefix`/`validate_from` directly.
+#[cfg(any(test, feature = "meter"))]
 pub fn validate(bytes: &[u8], bits: usize) -> Result<(), Decode> {
     validate_bits(live_bits(bytes, bits))
 }
@@ -190,6 +210,10 @@ pub fn validate(bytes: &[u8], bits: usize) -> Result<(), Decode> {
 /// # Panics
 ///
 /// Panics if `bits` exceeds the live bits in `bytes`.
+///
+/// Test- and meter-only: the production decode ([`Version::decode`])
+/// validates the prefix and adopts the buffer without this wrapper.
+#[cfg(any(test, feature = "meter"))]
 pub fn decode(bytes: &[u8], bits: usize) -> Result<Version, Decode> {
     decode_bits(live_bits(bytes, bits))
 }
