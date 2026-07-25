@@ -232,23 +232,32 @@
 //!   mandatory output dominates its input — the case the small-operand
 //!   crosses above cannot exhibit.
 //! - `harmonic` (`meter::harmonic`, a 1-leaf at every depth), for the
-//!   linear-functional rows (`rank`/`distance`/`lag`/`min_ticks`),
-//!   `rank_pair_ops`, and `rank_sum`: its rank's numerator is as wide as the depth already
-//!   walked at every level, so a fold that re-shifts its accumulated
-//!   numerator per level reads limb exponent ~2 here while `dense` (a
-//!   one-bit numerator) stays the linear control. The red
-//!   `version_rank × harmonic` cell is a pinned honest baseline; the
-//!   telescoped delta-algebra fold is what retires it.
+//!   linear-functional rows (`rank`/`distance`/`lag`/`min_ticks`) and the
+//!   rank rows (`rank_pair_ops`, `rank_sum`): its rank's numerator is as
+//!   wide as the depth already walked at every level, so a fold that
+//!   re-shifts its accumulated numerator per level reads limb exponent ~2
+//!   here while `dense` (a one-bit numerator) stays the linear control.
+//!   The query kernels' rank fold telescopes through height deltas, and
+//!   `version_rank × harmonic` reads the control's linear signature
+//!   \[measured — limb exponent 1.00, constant within 2% of `dense`, both
+//!   scales\]: the column is the tripwire that goes red under the
+//!   re-shifting genre.
 //! - `scatter`, for the two fold rows (`version_join_all`,
 //!   `party_join_all`; both also keep a `benign` control cell, folding the
-//!   organic population in construction order): balanced-forked single-tick operands ordered evens
-//!   before odds, so a sequential fold's accumulator holds every other
-//!   leaf and never coalesces. Both cells read exponent ~2 — the version
-//!   fold on the limb column, the party fold on the scan column (its walk
-//!   allocates nothing, recurses nothing, and does no arithmetic, so the
-//!   scan column is the only deterministic meter that sees it) — pinned
-//!   honest baselines retired by balanced reduction over the fold
-//!   operands.
+//!   organic population in construction order): balanced-forked
+//!   single-tick operands ordered evens before odds, so a sequential
+//!   fold's accumulator holds every other leaf and never coalesces — the
+//!   shape that reads exponent ~2 under a left fold. Both rows run the
+//!   balanced binary-counter reduction (every input passes through
+//!   O(log n) joins), and what the cells show is its log factor — on the
+//!   version fold's limb and scan columns, and on the party fold's scan
+//!   column alone (its walk allocates nothing, recurses nothing, and does
+//!   no arithmetic, so scan is the only deterministic meter that sees
+//!   it): exponents ~1.1 and constants that grow with scale, marginally
+//!   over the amortized-linear bounds at some scales \[measured — both
+//!   scales\]. The `benign` controls read the same
+//!   signature as `scatter`, so the marginal red is the reduction's own
+//!   n·log n cost, not the adversarial ordering's.
 //!
 //! # Coverage: the not-applicable list
 //!
@@ -384,8 +393,8 @@ pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 /// `sync` joins in both directions) scan a small multiple, and the text
 /// parsers re-scan their packed output through the strict validator. The
 /// worst honest reader measured is well under 64; the ceiling sits at 96 so
-/// only a walk that re-scans state growing with the input — the fold genre,
-/// which reads exponent ~2 here — goes red on this column.
+/// only a walk that re-scans state growing with the input — the fold genre —
+/// goes red on this column.
 pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
 
 /// Scan liveness floor: an operation that must examine its packed operands
