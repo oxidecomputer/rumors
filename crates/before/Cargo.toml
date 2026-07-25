@@ -13,9 +13,11 @@ bitvec = "1"
 # borrowable as slices (the streamed comparisons and the accumulator's wide
 # path allocate nothing), and binary<->decimal conversion runs
 # divide-and-conquer in both directions. `Display` on spilled magnitudes
-# delegates to that conversion; tests/display_canary.rs pins its complexity
-# class, and dashu's divide-and-conquer rendering is what satisfies the pin.
-# Default features stay off: `std` alone covers this crate's use.
+# delegates to that conversion; the bench judge's wide-display pair
+# (benches/board.rs through tools/benchjudge) pins its complexity class at
+# the text-conversion ceiling, and dashu's divide-and-conquer rendering is
+# what fits under it. Default features stay off: `std` alone covers this
+# crate's use.
 dashu-int = { version = "0.5", default-features = false, features = ["std"] }
 # Stack-growth guard for the recursive traversals: recurse natively on shallow
 # trees; grow the stack onto the heap before a deep one can overflow. The crate

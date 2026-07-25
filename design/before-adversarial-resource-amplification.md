@@ -1437,8 +1437,9 @@ work"). The floor-derivation conventions of record:
   content bits of the wider operand (the sum's numerator spans
   it). The display rows are the load-bearing NA: their conversion
   runs inside the bignum dependency, below the limb shim — the
-  display canary and the bench judge's time leg judge them, and
-  the declaration now says so on the board face.
+  bench judge's time leg, and its wide-display pair at
+  conversion-dominated widths (§17.5's transfer record), judge
+  them, and the declaration now says so on the board face.
 - **Heap**: floors on the codec and text rows (the result
   materializes at least its packed bytes); NA elsewhere
   (allocation is not semantically forced, and the process
@@ -1504,8 +1505,9 @@ shape red on synthetic estimates, beside linear-green,
 sub-floor-skipped, ceiling-boundary, denominator-not-knob, and
 malformed-input pins). The board-side test and its
 `.config/nextest.toml` runner reservation are retired by this
-relocation — never-weaken satisfied by same-commit relocation;
-the display canary's reservation stays, untouched.
+relocation — never-weaken satisfied by same-commit relocation.
+The display canary's reservation outlived this relocation by a
+day; §17.5's transfer record (2026-07-24) is its retirement.
 
 **Vacuity finding (real, predicted by this directive's mechanism):
 the id text renderer walks its operand outside the scan meter.**
@@ -3027,7 +3029,8 @@ every scale, 48× faster than schoolbook at 158k digits**]** (the
 `num-bigint` ≥ 0.4.8 floor is carved out to P3.2 — a free
 dependency line that fixes `Display`'s complexity class well ahead
 of this item) — with a limb recording in the big `Display` arm
-(or a wall-ratio canary) because the board is structurally blind to a Display-class
+(or a judged wall witness — the bench judge's wide-display pair is
+the landed form) because the board is structurally blind to a Display-class
 wall regression. The derived board-band exponent for the D&C parse
 (~1.05–1.1 against the recording scheme) is verified through the
 actual limb meter at record scale before pinning — the margin to
@@ -3665,6 +3668,42 @@ snapshots):
     class margin narrowed to ~5% on the subquadratic side while the
     quadratic class still reads ~36×; the canary's reserved-runner
     nextest wiring is what protects that margin under load.
+
+    *Transfer completed 2026-07-24 (the canary's dissolution, under
+    §17.10's ratchet: the replacement's tripwire read red before the
+    old instrument was deleted).* The complexity-class judgment
+    moved to the bench judge's surface as the **wide-display pair**,
+    two judge-only cells riding the board bench's sidecar at
+    conversion-dominated widths (128k → 512k bits across the ×4
+    scale span, `n_io`-denominated like the board's text rows,
+    span 4.0000): `version_display_wide × hugeleaf` — the crate's
+    own `Display`, fitted e 1.47 — and `display_schoolbook ×
+    hugeleaf` — a per-chunk repeated-division renderer resurrected
+    in bench code only, spelling the identical value (asserted at
+    setup), fitted e 1.99 **[measured** — quick mode, bench
+    profile, 2026-07-24**]**. Honest wide rendering is superlinear
+    (divide-and-conquer ~n^1.5), so the 1.3 ceiling reads the
+    honest class red; the judge's text-conversion ceiling
+    (`MAX_TEXT_SCALING_EXPONENT` = 1.7, derivation at the constant)
+    is placed to separate the measured classes by more than twice
+    the fit-noise band at that ceiling (band ≈ 0.088, 2× ≈ 0.175;
+    margins 0.23 below and 0.29 above), judged per cell through the
+    roster's `text_green`/`text_red` classes — the schoolbook cell
+    is the rostered-red tripwire, enforced on every `just
+    bench-judge` (green = the tripwire went dark, exit 1), and the
+    separation is pinned from the measured shapes in `tools/
+    benchjudge --self-test`. What the transfer improves: the canary
+    asserted a wall-clock *ratio* (machine-dependent band, one
+    process, a reserved runner holding every other test off the
+    machine); the judge fits a scale-*exponent* against the board's
+    own denominator convention, pins its tripwire deterministically
+    at every recipe head, and needs no runner reservation — the
+    exponent is robust to the load that inflated the ratio.
+    Deleted with the transfer: `tests/display_canary.rs` and the
+    `.config/nextest.toml` reserved-runner override (the file's
+    only content); the Cargo.toml dependency note, `tests/
+    meter.rs`'s wall-legs note, and the board's display-row limb-NA
+    legend now name the wide-display pair as the class witness.
   - Surprises: (1) the heap churn ran *upward* on spilled-magnitude
     shapes, not downward — the predicted 65–128-bit allocation win
     is real but those values were already inline in the retired
@@ -4039,9 +4078,11 @@ constant); envelopes may pin scan bits ≤ C·(input + output) per
 operation; the V7 party-fold scenario pins deterministically instead
 of by wall; P4.1's id-walk rows gain a work pin beside their segment
 pin; §11.4's word-scale scanning, when it lands, tightens the same
-envelope it is measured by. Known exception, unchanged: the display
-canary stays wall-clock (num-bigint's internal work is invisible to
-any in-crate shim; recorded at its landing).
+envelope it is measured by. Known exception, unchanged in kind: the
+display conversion classes stay wall-judged (the bignum dependency's
+internal work is invisible to any in-crate shim); the bench judge's
+wide-display pair is that witness (§17.5's transfer record,
+2026-07-24).
 
 ### 17.10 Campaign operations runbook (recorded 2026-07-23, checkpoint)
 
@@ -4058,8 +4099,7 @@ re-derivation), C3, P4.1, the P4-tail text item, P5.
   next §13 touch.
 - Gate invocation of record: `SWAP_LIMIT_GB=24 PROC_LIMIT_GB=16 just
   gate` (documented memwatch overrides — stale system swap, per-proc
-  rustc peaks); the display canary keeps its reserved-runner nextest
-  wiring; the workspace test step fails with exactly the §14
+  rustc peaks); the workspace test step fails with exactly the §14
   inherited roster until C0 (sixteen tests as of 2026-07-24), read
   under §14's provenance-replay rule: a novel `Stalled` failure from
   a fresh seed line in one of the three stall files that replays red
@@ -4135,7 +4175,8 @@ re-derivation), C3, P4.1, the P4-tail text item, P5.
   Self-justifying infrastructure accretes when machinery outlives
   the constraint that justified it (the Small(u64) arm predated
   dashu; the board's wall leg predated the bench mandate's
-  criterion mirror; the display canary predates both). The
+  criterion mirror; the display canary predated both, dissolved
+  2026-07-24 by exactly this ratchet — §17.5's transfer record). The
   criterion: (i) reimplements a capability a mature in-tree tool
   provides, or (ii) generates its own maintenance cascade — with
   the protective test "could a maintained external tool produce

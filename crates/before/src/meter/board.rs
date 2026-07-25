@@ -1011,7 +1011,8 @@ const NA_LIMB_ID_TREE: &str = "id trees store no magnitudes: there is no arithme
 const NA_LIMB_WORD_FOLD: &str = "a machine-word fold: no big-integer arithmetic in the contract";
 /// Limb NA: the work runs below the shim, in the dependency.
 const NA_LIMB_DEPENDENCY: &str = "the decimal conversion runs inside the bignum dependency, \
-     below the limb shim: the display canary and the bench judge's time leg judge this row";
+     below the limb shim: the bench judge's time leg, and its wide-display pair at \
+     conversion-dominated widths, judge this row";
 /// Heap floor: the result materializes at least its packed bytes.
 const WHY_HEAP_MATERIALIZES: &str =
     "materializes a result at least as large as the packed bytes it codes";
