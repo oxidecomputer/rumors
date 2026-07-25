@@ -33,7 +33,10 @@ use crate::{
     tree::mirror::{
         handshake::{self, Intent},
         party,
-        streaming::{self, Local, materialized, remote as streaming_remote},
+        streaming::{
+            self, Local, materialized, remote as streaming_remote,
+            stats::{Recorder, SessionStats},
+        },
     },
 };
 
@@ -156,10 +159,12 @@ pub struct Unbookmarked<T, B: BookmarkError> {
     pub error: BookmarkIo<B::Error>,
 }
 
-/// One completed session of [`gossip_when`](crate::Rumors::gossip_when).
+/// One completed gossip session: what [`gossip`](crate::Rumors::gossip)
+/// returns and the [`gossip_when`](crate::Rumors::gossip_when) stream
+/// yields.
 ///
-/// The output stream yields one of these per successful session; a failed
-/// session is the stream's terminal `Err`.
+/// One of these exists per successful session; a failed session is an
+/// `Err` instead (the terminal `Err` of the `gossip_when` stream).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Gossiped {
@@ -169,16 +174,27 @@ pub struct Gossiped {
     pub converged: Version,
     /// Which trigger initiated the session on this side.
     pub led: Led,
+    /// What the session measured about itself; every count is local, so
+    /// the two ends of one session report their own numbers.
+    ///
+    /// See [`SessionStats`] for each field's mechanism and the seam it is
+    /// counted at. Sessions under
+    /// [`Protocol::V1`](crate::Protocol::V1) report zero in every field.
+    pub stats: SessionStats,
 }
 
-/// Which side initiated a round of gossip during
-/// [`gossip_when`](crate::Rumors::gossip_when).
+/// Which side initiated a round of gossip.
 ///
 /// The session protocol itself is symmetric, and when both sides' triggers fire
 /// close together, each side may record `Local` for what becomes one session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Led {
-    /// The `when` stream yielded `()`: this side initiated.
+    /// This side initiated.
+    ///
+    /// Either its [`gossip_when`](crate::Rumors::gossip_when) `when`
+    /// stream yielded `()`, or the caller invoked the one-shot
+    /// [`gossip`](crate::Rumors::gossip): the call itself is the local
+    /// trigger, so a one-shot session always reports `Local`.
     Local,
     /// The remote's preamble arrived first: this side responded.
     Remote,
@@ -457,7 +473,7 @@ impl<T, B: Persist> Peer<T, B> {
     pub(crate) async fn gossip<CR, CW, C, A>(
         &self,
         link: &mut Link<CR, CW, C, A>,
-    ) -> Result<(), Error<B>>
+    ) -> Result<Gossiped, Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
@@ -474,7 +490,15 @@ impl<T, B: Persist> Peer<T, B> {
         if result.is_ok() {
             link.session.finish();
         }
-        result.map(|_converged| ())
+        // A one-shot session is always locally led: the call itself is
+        // this side's trigger. A remote preamble already in flight merges
+        // into the same session (the preamble exchange is symmetric),
+        // exactly as it does when two `gossip_when` triggers race.
+        result.map(|(converged, stats)| Gossiped {
+            converged,
+            led: Led::Local,
+            stats,
+        })
     }
 
     /// Durably record this peer's *own* identity at its current version, without
@@ -568,9 +592,10 @@ impl<T, B: Persist> Peer<T, B> {
     /// *with* an error: when sending the party itself fails, we cannot know
     /// whether the remote received it, so we must assume it might have.
     ///
-    /// On success, returns the *converged* version: the causal frontier of
+    /// On success, returns the *converged* version — the causal frontier of
     /// the reconciled tree both replicas now hold, before any commits that
-    /// ran concurrently with the session. [`gossip_when`] records it as the
+    /// ran concurrently with the session — together with the session's
+    /// [`SessionStats`]. [`gossip_when`] records the version as the
     /// suppression token — "the local frontier has advanced" means exactly
     /// "latest no longer equals this".
     ///
@@ -588,11 +613,17 @@ impl<T, B: Persist> Peer<T, B> {
         intent: Intent,
         staged: &mut handshake::Staged,
         link: DynLinkParts<'a>,
-    ) -> (Intent, Result<Version, Error<B>>)
+    ) -> (Intent, Result<(Version, SessionStats), Error<B>>)
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
     {
         let (read, write, connector, acceptor, epoch) = link;
+        // The session's stats recorder: under V2, both protocol
+        // participants below share it (the walk counts disputes, gains,
+        // sheds, and the window grant; the proxy's codec seam counts
+        // bytes), and its snapshot rides the `Ok`. A session that ends
+        // before reconciliation, and every V1 session, reports zeros.
+        let stats = Recorder::default();
         // Magic/version preamble: reject a non-rumors or incompatible peer
         // before the framing trusts any peer-supplied frame length.
         let remote =
@@ -616,7 +647,7 @@ impl<T, B: Persist> Peer<T, B> {
                 return (Intent::Remain, Err(e.widen()));
             }
             let unchanged = self.inner.borrow().tree.latest().clone();
-            return (Intent::Remain, Ok(unchanged));
+            return (Intent::Remain, Ok((unchanged, stats.snapshot())));
         }
 
         // Reflect our identity into the bookmark, snapshot the session's
@@ -705,6 +736,7 @@ impl<T, B: Persist> Peer<T, B> {
         let network = self.network;
         let window = self.window;
         let run_budget = self.run_budget;
+        let session_stats = stats.clone();
         #[allow(clippy::type_complexity)]
         let reconcile: BoxFuture<
             '_,
@@ -713,9 +745,12 @@ impl<T, B: Persist> Peer<T, B> {
             Protocol::V2 => Box::pin(async move {
                 let local = materialized::Handshaking::start(Local, prior_tree.root.into())
                     .window(window)
-                    .target_message_size(run_budget.bytes() as u64);
+                    .target_message_size(run_budget.bytes() as u64)
+                    .stats(session_stats.clone());
                 let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-                let proxy = streaming_remote::Handshaking::start(Local, carrier).window(window);
+                let proxy = streaming_remote::Handshaking::start(Local, carrier)
+                    .window(window)
+                    .stats(session_stats);
                 let handshaken = streaming::handshake(local, proxy)
                     .await
                     .map_err(streaming_error)?;
@@ -887,7 +922,7 @@ impl<T, B: Persist> Peer<T, B> {
         // In the case where we successfully retired (only callable on the
         // !Clone `Peer<T>`), we've given away our inner party and no more
         // actions are possible, so don't hand back the `Peer`.
-        (outcome, Ok(converged))
+        (outcome, Ok((converged, stats.snapshot())))
     }
 }
 
@@ -1019,7 +1054,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                         )
                         .await;
                     return match result {
-                        Ok(converged) => {
+                        Ok((converged, stats)) => {
                             // Re-arm for the next session: un-poison the
                             // link (this session completed cleanly), a
                             // fresh staging buffer (this preamble is
@@ -1027,7 +1062,14 @@ impl<T, B: Bookmark> Peer<T, B> {
                             drive.state.finish();
                             drive.staged = handshake::Staged::new();
                             drive.converged = Some(converged.clone());
-                            Some((Ok(Gossiped { converged, led }), drive))
+                            Some((
+                                Ok(Gossiped {
+                                    converged,
+                                    led,
+                                    stats,
+                                }),
+                                drive,
+                            ))
                         }
                         Err(e) => {
                             drive.done = true;

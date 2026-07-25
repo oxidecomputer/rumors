@@ -48,6 +48,7 @@ use tokio::{
 };
 
 use crate::link::{Acceptor, Connector};
+use crate::tree::mirror::streaming::stats::{CountedRead, CountedWrite, Recorder};
 use crate::tree::mirror::streaming::tasks::cancelled;
 
 use super::codec::{
@@ -115,23 +116,28 @@ pub struct StreamSender<C: Connector, T> {
     /// The local role whose direction this stream carries.
     speaker: Speaker,
     stream: Stream,
+    /// The session's stats recorder: the opened stream's codec writes
+    /// count as [`bytes_sent`](crate::SessionStats::bytes_sent), the
+    /// label excluded (it is written before the counted wrapper wraps).
+    stats: Recorder,
     state: SendState<C::Tx>,
     marker: PhantomData<fn(T)>,
 }
 
 enum SendState<Tx> {
     Unopened,
-    Open(FrameWrite<Tx>),
+    Open(FrameWrite<CountedWrite<Tx>>),
 }
 
 impl<C: Connector, T> StreamSender<C, T> {
     /// Bind one outgoing logical stream to a link's stream supply.
-    pub fn new(connector: C, epoch: u8, speaker: Speaker, stream: Stream) -> Self {
+    pub fn new(connector: C, epoch: u8, speaker: Speaker, stream: Stream, stats: Recorder) -> Self {
         Self {
             connector,
             epoch,
             speaker,
             stream,
+            stats,
             state: SendState::Unopened,
             marker: PhantomData,
         }
@@ -185,7 +191,10 @@ impl<C: Connector, T> StreamSender<C, T> {
                         origin: Origin::stream(self.speaker, stream),
                         source,
                     })?;
-                *state = SendState::Open(FrameWrite::new(self.speaker, tx));
+                *state = SendState::Open(FrameWrite::new(
+                    self.speaker,
+                    CountedWrite::new(tx, self.stats.clone()),
+                ));
                 let SendState::Open(write) = state else {
                     unreachable!("the open state was just stored");
                 };
@@ -282,6 +291,11 @@ struct ReceiverStart<Rx> {
     speaker: Speaker,
     stream: Stream,
     route: ErrorRoute,
+    /// The session's stats recorder: the claimed stream's codec reads
+    /// count as [`bytes_received`](crate::SessionStats::bytes_received),
+    /// the label excluded (the accept driver consumed it before
+    /// delivery).
+    stats: Recorder,
 }
 
 impl<Rx, T> StreamReceiver<Rx, T>
@@ -295,6 +309,7 @@ where
         speaker: Speaker,
         stream: Stream,
         route: ErrorRoute,
+        stats: Recorder,
     ) -> Self {
         Self {
             start: Some(ReceiverStart {
@@ -302,6 +317,7 @@ where
                 speaker,
                 stream,
                 route,
+                stats,
             }),
             frames: None,
         }
@@ -332,10 +348,11 @@ where
                 speaker,
                 stream,
                 route,
+                stats,
             } = start
                 .take()
                 .expect("the start state is consumed exactly once");
-            Box::pin(read_frames(claim, speaker, stream, route))
+            Box::pin(read_frames(claim, speaker, stream, route, stats))
         })
     }
 }
@@ -370,6 +387,7 @@ fn read_frames<Rx, T>(
     speaker: Speaker,
     stream: Stream,
     route: ErrorRoute,
+    stats: Recorder,
 ) -> impl futures::Stream<Item = Frame<T>> + Send
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -389,7 +407,7 @@ where
             });
             cancelled().await
         };
-        let mut read = FrameRead::new(speaker, rx);
+        let mut read = FrameRead::new(speaker, CountedRead::new(rx, stats));
         loop {
             let frame = match read.frame::<T>().await {
                 Ok(Some((framed, frame))) if framed == stream => frame,

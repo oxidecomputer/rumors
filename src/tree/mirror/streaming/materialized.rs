@@ -108,6 +108,7 @@ use crate::tree::{
         message::{Greeting, Reaction, Reply},
         protocol::{self, BoxResponses, Requests},
         remote::DEFAULT_TARGET_MESSAGE_SIZE,
+        stats::Recorder,
         window::WindowConfig,
     },
     typed::{
@@ -252,6 +253,9 @@ pub struct Handshaking<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static
     /// This side's supply-run byte target, carried by the greeting; the
     /// session runs at the minimum of the two ends' targets.
     target_message_size: u64,
+    /// The session's stats recorder; the walk and the window solve write
+    /// through it, and the session driver snapshots it after completion.
+    stats: Recorder,
 }
 
 /// The version state of a stage that has been opened but has not yet sent its
@@ -354,6 +358,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T
             root,
             window: WindowConfig::default(),
             target_message_size: DEFAULT_TARGET_MESSAGE_SIZE as u64,
+            stats: Recorder::default(),
         }
     }
 
@@ -368,6 +373,16 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T
     /// exchanged targets.
     pub fn target_message_size(mut self, bytes: u64) -> Self {
         self.target_message_size = bytes;
+        self
+    }
+
+    /// Share the session's stats recorder, so a driver holding its clone
+    /// can read the walk's counts after the session completes.
+    ///
+    /// Without this call the session still records, into a recorder
+    /// nobody reads.
+    pub fn stats(mut self, stats: Recorder) -> Self {
+        self.stats = stats;
         self
     }
 }
@@ -439,6 +454,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
             root: self.root,
             window: self.window,
             target_message_size: self.target_message_size,
+            stats: self.stats,
         };
         Ok((greeting, next))
     }
@@ -463,6 +479,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
             root: self.root,
             window: self.window,
             target_message_size: self.target_message_size,
+            stats: self.stats,
         })
     }
 }
@@ -500,6 +517,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
             root: self.root,
             window: self.window,
             target_message_size: self.target_message_size,
+            stats: self.stats,
         };
         Ok((greeting, next))
     }
@@ -536,7 +554,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             their_version_bytes,
             B::node_bytes,
         );
-        let mut work = Work::new(self.backend, window);
+        self.stats.window_granted(window.widest());
+        let mut work = Work::new(self.backend, window, self.stats);
         let (responses, queries, returns, early, finish) =
             work.initiator_level(their_version.clone(), ceiling, fan, their_listing);
 
@@ -581,7 +600,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
             their_version_bytes,
             B::node_bytes,
         );
-        let mut work = Work::new(self.backend, window);
+        self.stats.window_granted(window.widest());
+        let mut work = Work::new(self.backend, window, self.stats);
         let (responses, queries, returns, early, finish) =
             work.responder_level(their_version.clone(), ceiling, fan, requests);
 
@@ -721,11 +741,13 @@ where
         self,
         requests: impl Requests<B, T, Z>,
     ) -> Result<Root<B, T>, Self::Error> {
+        let stats = self.work.stats();
         let mut absorb = pin!(absorb(
             self.their_version,
             requests,
             self.queries,
-            self.returns
+            self.returns,
+            stats,
         ));
         let mut finish = pin!(self.work.execute(self.finish));
 
@@ -749,11 +771,16 @@ where
 /// The initiator's terminal loop: pair each pending leaf request with its
 /// final [`Reply`] and pass its provision up, prefix-less, like every
 /// return.
+///
+/// Each absorbed leaf is content this replica just learned, credited as
+/// [`messages_gained`](crate::SessionStats::messages_gained) exactly like
+/// the resolver's supply arm.
 async fn absorb<B, T>(
     their_version: Version,
     requests: impl Requests<B, T, Z>,
     mut queries: Receiver<Prefix<Z>>,
     returns: Sender<Option<B::Node<Z>>>,
+    stats: Recorder,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -776,6 +803,7 @@ where
                 if !contained(leaf.ceiling(), &their_version) {
                     return violation(Violation::UncontainedSupply);
                 }
+                stats.gained(1);
                 Some(leaf.clone())
             }
             [Reaction::Supply(_, _)] => return violation(Violation::InvalidSupply),

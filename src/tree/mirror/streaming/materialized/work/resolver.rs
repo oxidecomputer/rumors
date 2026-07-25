@@ -8,6 +8,7 @@ use crate::{
             Backend, Leaf, Node,
             materialized::{Error, Query, Resolution, Resolve, Violation, violation},
             message::Reaction,
+            stats::Recorder,
         },
         typed::{
             Hash, Prefix,
@@ -30,6 +31,10 @@ where
     /// ceiling must be contained in it
     /// ([`Violation::UncontainedSupply`]).
     their_version: &'v Version,
+    /// The session's stats recorder: each absorbed supply credits its
+    /// exact live-leaf count as
+    /// [`messages_gained`](crate::SessionStats::messages_gained).
+    stats: Recorder,
 }
 
 impl<'v, B, T, H> Resolver<'v, B, T, H>
@@ -39,12 +44,17 @@ where
     H: Height,
     S<H>: Height,
 {
-    pub fn new(Query { prefix, ours }: Query<B, T, H>, their_version: &'v Version) -> Self {
+    pub fn new(
+        Query { prefix, ours }: Query<B, T, H>,
+        their_version: &'v Version,
+        stats: Recorder,
+    ) -> Self {
         Self {
             prefix,
             fan: ours.into_iter().peekable(),
             resolved: Vec::new(),
             their_version,
+            stats,
         }
     }
 
@@ -77,7 +87,12 @@ where
                     _ if !contained(node.ceiling(), self.their_version) => {
                         return violation(Violation::UncontainedSupply);
                     }
-                    _ => self.resolved.push((radix, Resolve::Ready(Some(node)))),
+                    _ => {
+                        // An absorbed supply is content this replica just
+                        // learned: credit its exact live-leaf count.
+                        self.stats.gained(node.len() as u64);
+                        self.resolved.push((radix, Resolve::Ready(Some(node))));
+                    }
                 }
             }
             Reaction::Query(listing) => {

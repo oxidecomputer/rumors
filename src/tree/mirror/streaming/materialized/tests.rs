@@ -15,6 +15,7 @@ use super::{
     Error, Violation, absorb,
     channel::{QueueKind, QueueRole, channel},
 };
+use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
     message::Message,
@@ -70,7 +71,13 @@ fn absorb_scripted(
         replies: vec![Reaction::Supply(0, leaf)],
     }]);
 
-    let result = pollster::block_on(absorb::<Local, ()>(declared, requests, queries_rx, returns));
+    let result = pollster::block_on(absorb::<Local, ()>(
+        declared,
+        requests,
+        queries_rx,
+        returns,
+        Recorder::default(),
+    ));
     let returned = pollster::block_on(async move { returns_rx.recv().await });
     (result, returned)
 }

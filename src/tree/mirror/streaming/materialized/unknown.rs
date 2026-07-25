@@ -27,7 +27,7 @@ use futures::future::{self, BoxFuture, FutureExt};
 use crate::{
     Version,
     tree::{
-        mirror::streaming::{Backend, Leaf, Node, materialized::children_of},
+        mirror::streaming::{Backend, Leaf, Node, materialized::children_of, stats::Recorder},
         typed::{
             Prefix,
             height::{Height, S, Z},
@@ -71,18 +71,25 @@ fn knowledge<T: Send + Sync + 'static>(node: &impl Node<T>, known: &Version) -> 
 
 /// Prune one subtree to what a counterparty at `known` is missing, honoring
 /// deletions; `None` when nothing under it is missing.
+///
+/// Every leaf the filter drops is a deletion honored locally, so each
+/// verdict site credits the drop to `stats` as
+/// [`messages_shed`](crate::SessionStats::messages_shed): one per dropped
+/// leaf, a whole subtree's exact leaf count when the cached version bounds
+/// prune it without descending.
 pub(super) fn unknown<'a, B, T, H>(
     backend: &'a B,
     known: &'a Version,
     prefix: Prefix<H>,
     node: B::Node<H>,
+    stats: &'a Recorder,
 ) -> BoxFuture<'a, Result<Option<B::Node<H>>, B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>> + Sync,
     T: Send + Sync + 'static,
     H: Unknown,
 {
-    H::unknown(backend, known, prefix, node)
+    H::unknown(backend, known, prefix, node, stats)
 }
 
 /// The top of the recursion, exposed: prune one subtree and report both the
@@ -96,6 +103,7 @@ pub(super) async fn unknown_providing<B, T, H>(
     known: &Version,
     prefix: Prefix<S<H>>,
     node: B::Node<S<H>>,
+    stats: &Recorder,
 ) -> Result<(Option<B::Node<S<H>>>, Vec<(u8, B::Node<H>)>), B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>> + Sync,
@@ -108,7 +116,10 @@ where
             let children = children_of(backend, prefix, node.clone()).await?;
             return Ok((Some(node), children));
         }
-        Knowledge::Known => return Ok((None, Vec::new())),
+        Knowledge::Known => {
+            stats.shed(node.len() as u64);
+            return Ok((None, Vec::new()));
+        }
         Knowledge::Mixed => {}
     }
 
@@ -118,7 +129,7 @@ where
     let mut group = Vec::with_capacity(children.len());
     let mut survivors = Vec::new();
     for (radix, child) in children {
-        let survivor = H::unknown(backend, known, prefix.push(radix), child).await?;
+        let survivor = H::unknown(backend, known, prefix.push(radix), child, stats).await?;
         if let Some(survivor) = &survivor {
             survivors.push((radix, survivor.clone()));
         }
@@ -140,6 +151,7 @@ pub trait Unknown: Height {
         known: &'a Version,
         prefix: Prefix<Self>,
         node: B::Node<Self>,
+        stats: &'a Recorder,
     ) -> BoxFuture<'a, Result<Option<B::Node<Self>>, B::Error>>
     where
         B: Backend<T, Node<Z>: Leaf<T>> + Sync,
@@ -152,6 +164,7 @@ impl Unknown for Z {
         known: &'a Version,
         _prefix: Prefix<Z>,
         node: B::Node<Z>,
+        stats: &'a Recorder,
     ) -> BoxFuture<'a, Result<Option<B::Node<Z>>, B::Error>>
     where
         B: Backend<T, Node<Z>: Leaf<T>> + Sync,
@@ -160,6 +173,9 @@ impl Unknown for Z {
         // A leaf is known iff its ceiling is causally at or before `known`;
         // a concurrent ceiling compares as `None`, so those survive.
         let verdict = Some(node).filter(|node| !self::known(node, known));
+        if verdict.is_none() {
+            stats.shed(1);
+        }
         future::ready(Ok(verdict)).boxed()
     }
 }
@@ -174,6 +190,7 @@ where
         known: &'a Version,
         prefix: Prefix<S<H>>,
         node: B::Node<S<H>>,
+        stats: &'a Recorder,
     ) -> BoxFuture<'a, Result<Option<B::Node<S<H>>>, B::Error>>
     where
         B: Backend<T, Node<Z>: Leaf<T>> + Sync,
@@ -182,7 +199,10 @@ where
         Box::pin(async move {
             match knowledge(&node, known) {
                 Knowledge::Unknown => return Ok(Some(node)),
-                Knowledge::Known => return Ok(None),
+                Knowledge::Known => {
+                    stats.shed(node.len() as u64);
+                    return Ok(None);
+                }
                 Knowledge::Mixed => {}
             }
 
@@ -194,7 +214,7 @@ where
             let children = children_of(backend, prefix, node).await?;
             let mut group = Vec::with_capacity(children.len());
             for (radix, child) in children {
-                let survivor = H::unknown(backend, known, prefix.push(radix), child).await?;
+                let survivor = H::unknown(backend, known, prefix.push(radix), child, stats).await?;
                 group.push((radix, survivor));
             }
             backend.clone().parent(prefix, group).await

@@ -24,6 +24,7 @@ use crate::tree::{
         Backend, Leaf,
         materialized::{Error, channel::Sender},
         protocol::{BoxResponses, Responses},
+        stats::Recorder,
         tasks::{complete, park_after_published_error},
         window::Window,
     },
@@ -41,6 +42,9 @@ where
     backend: B,
     /// Per-edge capacity for the recursive query and resolution queues.
     window: Window,
+    /// The session's stats recorder: the walks count disputed scopes,
+    /// absorbed supplies, and deletion-honoring drops through clones of it.
+    stats: Recorder,
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     #[cfg(test)]
     trace_id: usize,
@@ -51,11 +55,13 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    /// Construct a new work context with the session's pipeline window.
-    pub fn new(backend: B, window: Window) -> Self {
+    /// Construct a new work context with the session's pipeline window and
+    /// stats recorder.
+    pub fn new(backend: B, window: Window, stats: Recorder) -> Self {
         Self {
             backend,
             window,
+            stats,
             tasks: Vec::new(),
             #[cfg(test)]
             trace_id: progress::new_work(),
@@ -65,6 +71,11 @@ where
     /// Clone the backend for one independently driven task.
     fn backend(&self) -> B {
         self.backend.clone()
+    }
+
+    /// Clone the stats recorder for one independently driven task.
+    pub(super) fn stats(&self) -> Recorder {
+        self.stats.clone()
     }
 
     /// Add a task which actively drives a response stream.

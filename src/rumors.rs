@@ -329,6 +329,13 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// Run one reconciliation session with one remote peer over the given
     /// [`Link`].
     ///
+    /// `Ok` carries the session's [`Gossiped`]: the converged version and
+    /// the session's [`SessionStats`](crate::SessionStats). Its `led` is
+    /// always [`Led::Local`](crate::Led::Local) — calling `gossip` is this
+    /// side's initiation, and a remote initiation already in flight merges
+    /// into the same session, exactly as racing
+    /// [`gossip_when`](Self::gossip_when) triggers do.
+    ///
     /// On `Ok`, both replicas hold every message either one held when the
     /// session began **and neither had deleted**, and, under
     /// [`Protocol::V2`](crate::Protocol::V2), the peer has confirmed that
@@ -370,7 +377,10 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// which the `&mut` borrow enforces; a bookmarked peer's sessions also
     /// queue at the bookmark lock before any wire traffic
     /// ([`Bookmark`]).
-    pub async fn gossip<CR, CW, C, A>(&self, link: &mut Link<CR, CW, C, A>) -> Result<(), Error<B>>
+    pub async fn gossip<CR, CW, C, A>(
+        &self,
+        link: &mut Link<CR, CW, C, A>,
+    ) -> Result<Gossiped, Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,

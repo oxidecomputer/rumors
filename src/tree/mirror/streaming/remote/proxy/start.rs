@@ -24,6 +24,7 @@ use crate::{
                     },
                     streams::{AcceptDriver, claims, error_route},
                 },
+                stats::Recorder,
                 window::{Window, WindowConfig},
             },
         },
@@ -52,6 +53,9 @@ where
     /// exchanged set sizes; see
     /// [`window`](crate::tree::mirror::streaming::window).
     window: WindowConfig,
+    /// The session's stats recorder: every stream this session binds
+    /// counts its codec bytes through it.
+    stats: Recorder,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -67,6 +71,7 @@ where
             link,
             versions: Start,
             window: WindowConfig::default(),
+            stats: Recorder::default(),
             marker: PhantomData,
         }
     }
@@ -75,6 +80,16 @@ where
     /// [`window`](crate::tree::mirror::streaming::window).
     pub fn window(mut self, window: WindowConfig) -> Self {
         self.window = window;
+        self
+    }
+
+    /// Share the session's stats recorder, so a driver holding its clone
+    /// can read the codec seam's byte counts after the session completes.
+    ///
+    /// Without this call the session still counts, into a recorder nobody
+    /// reads.
+    pub fn stats(mut self, stats: Recorder) -> Self {
+        self.stats = stats;
         self
     }
 }
@@ -122,6 +137,7 @@ where
             link: self.link,
             versions: Connecting { remote },
             window: self.window,
+            stats: self.stats,
             marker: PhantomData,
         };
         Ok((greeting, next))
@@ -157,6 +173,7 @@ where
             theirs,
             self.versions.remote,
             self.link,
+            self.stats,
         ))
     }
 }
@@ -186,7 +203,15 @@ where
             B::node_bytes,
         );
         let budget = run_budget(&request, &remote);
-        let next = connected(self.backend, window, budget, request, remote, self.link);
+        let next = connected(
+            self.backend,
+            window,
+            budget,
+            request,
+            remote,
+            self.link,
+            self.stats,
+        );
         Ok((greeting, next))
     }
 }
@@ -277,6 +302,7 @@ fn connected<B, T, R, W, C, A>(
     local: Greeting,
     remote: Greeting,
     link: Link<R, W, C, A>,
+    stats: Recorder,
 ) -> Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -307,6 +333,7 @@ where
         remote.max_version_bytes,
         remote.listing,
         link,
+        stats,
     )
 }
 
@@ -318,6 +345,7 @@ where
 /// early-supply stream when it loses. `peer_version_bytes` is the remote
 /// greeting's `max_version_bytes`, which the session enforces on every
 /// version the remote supplies.
+#[allow(clippy::too_many_arguments)]
 fn open<B, T, R, W, C, A>(
     backend: B,
     window: Window,
@@ -326,6 +354,7 @@ fn open<B, T, R, W, C, A>(
     peer_version_bytes: u64,
     peer_listing: Vec<(u8, Hash)>,
     link: Link<R, W, C, A>,
+    stats: Recorder,
 ) -> Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -359,7 +388,7 @@ where
             errors,
         },
     );
-    Connected::new(remote, epoch, connector, claims, route, work)
+    Connected::new(remote, epoch, connector, claims, route, stats, work)
 }
 
 #[cfg(test)]

@@ -20,6 +20,7 @@ use crate::tree::{
             proxy::{Error, work::Work},
             streams::{Claims, ErrorRoute, StreamReceiver, StreamSender},
         },
+        stats::Recorder,
     },
     typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
@@ -36,6 +37,9 @@ where
     connector: C,
     claims: Claims<A::Rx>,
     route: ErrorRoute,
+    /// The session's stats recorder, handed to every stream this session
+    /// binds so the codec seam's byte counts accumulate in one place.
+    stats: Recorder,
     work: Work<B, T, R, W, A>,
 }
 
@@ -54,6 +58,7 @@ where
             self.remote,
             stream,
             self.route.clone(),
+            self.stats.clone(),
         )
     }
 
@@ -65,6 +70,7 @@ where
             self.epoch,
             local,
             stream_at::<H>(local),
+            self.stats.clone(),
         )
     }
 }
@@ -109,6 +115,7 @@ where
         connector: C,
         claims: Claims<A::Rx>,
         route: ErrorRoute,
+        stats: Recorder,
         work: Work<B, T, R, W, A>,
     ) -> Self {
         Self {
@@ -118,6 +125,7 @@ where
                 connector,
                 claims,
                 route,
+                stats,
                 work,
             })),
         }

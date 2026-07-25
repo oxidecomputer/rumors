@@ -18,6 +18,7 @@ use crate::tree::mirror::streaming::{
             AcceptDriver, Claims, ErrorRoute, StreamError, StreamReceiver, claims, error_route,
         },
     },
+    stats::Recorder,
 };
 
 /// A parked session's `Work` executor over a fresh in-memory link, wired
@@ -129,6 +130,7 @@ fn published_stream_error_preempts_a_parked_protocol() {
         Speaker::Initiator,
         Stream::new(0).expect("stream index 0 exists"),
         route,
+        Recorder::default(),
     );
     work.spawn(async move {
         receiver.next().await;

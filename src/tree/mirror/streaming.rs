@@ -49,6 +49,7 @@ pub mod materialized;
 mod message;
 mod protocol;
 pub mod remote;
+pub mod stats;
 mod tasks;
 #[cfg(test)]
 mod testing;

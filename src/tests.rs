@@ -347,7 +347,7 @@ fn severed_retire(
                 let mut a_link = fused_link(a_link, budget);
                 retiree.retire(&mut a_link).await
             },
-            async move { peer.gossip(&mut b_link).await },
+            async move { peer.gossip(&mut b_link).await.map(|_gossiped| ()) },
         )
     })
 }
