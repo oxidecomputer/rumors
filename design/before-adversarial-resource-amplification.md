@@ -2073,6 +2073,22 @@ input; the §13 board all green — no super-linear cell and no
 large-constant cell anywhere in the op × family matrix; `benches/`
 not regressed (improvement expected at P1 and P3).
 
+Amended 2026-07-25 (user ruling, the per-operation performance bar
+for C3's before/after table and P5's acceptance): strict absolute
+improvement everywhere is the target, and the expectation — the
+representation change should do less work in most operations, with
+fewer allocations and better cache locality — but it is not the
+floor. The floor per operation is: **at or close to parity on
+benign inputs, asymptotically optimal, and entirely free of
+adversarial exploitation surface.** A benign-family cell that reads
+slightly slower because an adversarial mitigation carries a small
+constant is triaged hard for a cure — try to make everything
+faster — but a cell at that floor does not block acceptance, and
+chasing strict improvement past the point of diminishing returns is
+explicitly declined. Any cell below the floor (a benign regression
+that is more than slight, an asymptotic gap, or any remaining
+exploitation surface) blocks as before.
+
 ## 15. Adjacent findings
 
 - `Add<&Base> for &Base` clones both operands via `to_biguint()` in
