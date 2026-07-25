@@ -1,20 +1,20 @@
-//! The amortizing mutation handle for a [`Clock`].
+//! The chaining mutation handle for a [`Clock`].
 //!
 //! [`Batch`] borrows the clock's party directly and wraps its version in a
-//! [`version::Batch`], repacking once when dropped.
+//! [`version::Batch`]; every operation commits as it runs.
 
 use crate::error::Overlap;
 use crate::{version, Party, Version};
 
 use super::Clock;
 
-/// A batch for a [`Clock`], providing a similar API, but faster for multiple
-/// operations.
+/// A batch for a [`Clock`], providing a similar API through one mutable
+/// borrow, with each operation chainable.
 ///
 /// ```
 /// use before::Clock;
 /// let mut clock = Clock::seed();
-/// clock.batch().tick().tick().tick(); // three ticks, one repack on drop
+/// clock.batch().tick().tick().tick(); // three ticks through one borrow
 /// assert_eq!(clock.version().to_string(), "3");
 /// ```
 pub struct Batch<'c> {

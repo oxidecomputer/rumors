@@ -6,9 +6,8 @@
 //! This module codes exactly that, as two interleaved streams in one bit
 //! string:
 //!
-//! - **Topology**: one preorder flag bit per node (`1` internal, `0` leaf),
-//!   exactly as the packed form stores today. Internal nodes carry no
-//!   numbers.
+//! - **Topology**: one preorder flag bit per node (`1` internal, `0` leaf).
+//!   Internal nodes carry no numbers.
 //! - **Leaf payloads**, in-stream at each leaf position: the first leaf's
 //!   absolute height as `gamma(v1)`, every later leaf as
 //!   `zigzag-gamma(vi − vi−1)` over consecutive leaves in preorder. The
@@ -56,12 +55,12 @@
 //! cannot be written at all. The tests pin both bijections exhaustively at
 //! small scope.
 //!
-//! Canonical skyline streams and canonical packed [`Version`]s are in
-//! bijection: both are unique representations of the step function
-//! (minimal topology makes the tree unique; heights are
-//! function-determined; the packed form's min-lifted bases are determined
-//! by topology and heights). Byte-equality therefore remains semantic
-//! equality on this coding, and the transcoding round-trip is exact.
+//! Canonical skyline streams are unique representations of the step
+//! function: minimal topology makes the tree unique, and heights are
+//! function-determined. Byte-equality is therefore semantic equality on
+//! this coding, and the construction-language transcoder (`encode_bits`,
+//! from the generators' min-lifted packed preorder streams) lands exactly
+//! on the one canonical stream per value.
 //!
 //! # Validation cost
 //!
@@ -69,9 +68,8 @@
 //! bits — "is my left child complete" and "was that child a leaf" — on a
 //! packed bit stack, plus one [`Accum`](crate::meter::accum::Accum)
 //! carrying the running leaf height for the nonnegativity check. The bit
-//! stack replaces the packed form's per-ancestor parse frames (two
-//! `codec::Base` values, ~56 bytes per level) with ~2 bits per level; the
-//! resource-envelope suite
+//! stack costs ~2 bits per level where machine-word parse frames would
+//! cost tens of bytes; the resource-envelope suite
 //! (`tests/meter.rs`) pins both that transient and the validator's limb
 //! behavior.
 //!
@@ -86,16 +84,16 @@
 //! envelope suite pins the per-delta touch cost flat across size doublings
 //! on the comb.
 //!
-//! # Cost of the transcoders
+//! # Cost of encode and decode
 //!
-//! Both transcoding directions materialize absolute heights and are priced
-//! by the *packed* form, never by skyline bits: [`encode`](fn@encode) walks the stored
-//! packed stream accumulating root-to-leaf path sums (bounded by the packed
-//! form it reads), and [`decode`](fn@decode) rebuilds per-node subtree floors to emit
-//! min-lifted bases (bounded by the packed form it writes — on the comb
-//! that output is `Θ(nk)` bits behind `Θ(n + k)` skyline bits, so no
-//! transcode can be skyline-linear). Only [`validate`](fn@validate) carries the
-//! wire-bit-linear guarantee, and it is the piece whose envelope is pinned.
+//! The stored form *is* this coding, so neither byte-level entry point
+//! transcodes anything: [`encode`](fn@encode) clones the stored stream, and
+//! [`decode`](fn@decode) runs [`validate`](fn@validate)'s wire-bit-linear pass and then
+//! adopts the accepted bits as the version's storage directly — no height,
+//! base, or node is materialized beyond validation's one payload in
+//! flight. The construction-language transcoder (`encode_bits`, test- and
+//! meter-only) is the one walk that materializes path sums, priced by the
+//! packed stream it reads.
 //!
 //! # Testing
 //!
@@ -104,8 +102,8 @@
 //!   adversarial generator family, arbitrary trees, and organic histories.
 //!   The sizer and the encoder implement the coding independently (separate
 //!   walks, separate zigzag maps), so agreement cross-checks both.
-//! - **Round-trip**: `decode(encode(v))` reproduces `v` exactly (packed
-//!   byte equality, which is stronger than per-leaf height equality).
+//! - **Round-trip**: `decode(encode(v))` reproduces `v` exactly (stored
+//!   byte equality, which canonical uniqueness makes semantic equality).
 //! - **Byte uniqueness**: op-path-independent equality — value-equal
 //!   versions built along different operation paths produce identical
 //!   skyline bytes; exhaustive small-scope injectivity over all normal
@@ -182,12 +180,12 @@ pub fn validate(bytes: &[u8], bits: usize) -> Result<(), Decode> {
     validate_bits(live_bits(bytes, bits))
 }
 
-/// Strictly validate a skyline stream and transcode it back to a [`Version`].
+/// Strictly validate a skyline stream and wrap it as a [`Version`].
 ///
-/// [`validate`](fn@validate)'s pass runs first and gates the transcode, so acceptance
-/// is identical to [`validate`](fn@validate)'s; the transcode then materializes heights
-/// and subtree floors, priced by the packed form it emits (see the module
-/// doc's cost section).
+/// [`validate`](fn@validate)'s pass runs first and gates acceptance, bit for bit; the
+/// accepted stream then becomes the version's storage directly (the stored
+/// form *is* this coding), so decoding materializes nothing beyond the
+/// copy.
 ///
 /// # Panics
 ///

@@ -194,9 +194,8 @@ impl<'a> IdReader<'a> {
 /// encoding uses; a full binary encoding only ever reports `0` or `2`.
 ///
 /// The single shared spelling of this scan: [`IdReader::skip`] runs it on the
-/// packed id encoding; the skyline walks skip event subtrees the same way
-/// encoding, and `version::event::Builder::copy_reader` inlines the same loop
-/// while also emitting the visited nodes.
+/// packed id encoding, and the skyline `grow` walks run it to skip event
+/// subtrees (one topology flag plus one skipped payload code per node).
 pub(crate) fn skip_subtree(
     mut at: usize,
     mut header: impl FnMut(usize) -> (usize, usize),
