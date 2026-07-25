@@ -6,6 +6,7 @@ use futures::stream::{self, StreamExt};
 use proptest::prelude::*;
 
 use super::leaf;
+use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
     tree::mirror::streaming::{
@@ -243,7 +244,7 @@ impl InjectHeight for Z {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
-        let mut work = Work::new(Local, Window::FLOOR);
+        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
         let (responses, _resolutions) = work.leaf_level(declared, stream::iter(requests), queries);
         reported_violation(work, responses)
     }
@@ -253,7 +254,7 @@ impl InjectHeight for S<Z> {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
-        let mut work = Work::new(Local, Window::FLOOR);
+        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
         let (responses, _asked, _upper, _lower) =
             work.leaf_parent_level(declared, stream::iter(requests), queries);
         reported_violation(work, responses)
@@ -270,7 +271,7 @@ where
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
-        let mut work = Work::new(Local, Window::FLOOR);
+        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
         let (responses, _asked, _upper, _lower) =
             work.internal_level::<H>(declared, None, None, stream::iter(requests), queries);
         reported_violation(work, responses)

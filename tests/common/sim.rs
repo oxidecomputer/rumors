@@ -294,7 +294,7 @@ fn honest_remote(error: &RemoteError<Infallible>) -> bool {
 }
 
 /// [`assert_honest_error`] over a session outcome.
-pub fn assert_honest_gossip(out: &Result<(), Error>) {
+pub fn assert_honest_gossip(out: &Result<rumors::Gossiped, Error>) {
     if let Err(e) = out {
         assert_honest_error(e);
     }

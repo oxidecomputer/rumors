@@ -74,6 +74,7 @@ where
         let (returns, mut returns_rx) = initiator_root_return::<B, T>();
         let (early_tx, early_rx) = oneshot::channel();
         let backend = self.backend();
+        let stats = self.stats.clone();
         #[cfg(test)]
         let trace_id = self.trace_id;
 
@@ -95,7 +96,8 @@ where
             let mut early = Vec::new();
             for (radix, node) in exclusive {
                 let survivor =
-                    unknown(&backend, &their_version, Prefix::new().push(radix), node).await?;
+                    unknown(&backend, &their_version, Prefix::new().push(radix), node, &stats)
+                        .await?;
                 if let Some(survivor) = &survivor {
                     supplies.push(message::Reaction::Supply(radix, survivor.clone()));
                 }
@@ -169,6 +171,7 @@ where
         B: Sync,
     {
         let backend = self.backend();
+        let stats = self.stats.clone();
         let (asked, asked_rx) =
             responder_child_queries(self.window.capacity(UnderUnderRoot::HEIGHT));
         let (resolution, resolution_rx) = responder_root_resolution();
@@ -206,7 +209,8 @@ where
             let _ = early_tx.send(early);
             let ours = fan;
             let (reactions, next_queries, resolved) =
-                answer::internal(&backend, &their_version, Prefix::new(), ours, theirs).await?;
+                answer::internal(&backend, &their_version, Prefix::new(), ours, theirs, &stats)
+                    .await?;
             yield_resolve_query!(
                 trace_id, Prefix::new();
                 yield Reply { replies: reactions };
@@ -271,6 +275,7 @@ where
         S<S<S<H>>>: Height,
     {
         let backend = self.backend();
+        let stats = self.stats.clone();
         let (asked, asked_rx) = internal_child_queries(self.window.capacity(H::HEIGHT));
         let (upper, upper_rx) =
             internal_parent_resolutions(self.window.capacity(<S<S<H>>>::HEIGHT));
@@ -306,6 +311,16 @@ where
                     }
                     if let Some(children) = supplied.as_mut().and_then(|nodes| nodes.remove(&radix))
                     {
+                        // An early supply claimed here is content this
+                        // replica just learned, exactly like a solicited
+                        // supply absorbed by the resolver: credit its
+                        // exact live-leaf count.
+                        stats.gained(
+                            children
+                                .iter()
+                                .map(|(_, child)| child.len() as u64)
+                                .sum(),
+                        );
                         let resolution = Resolution {
                             prefix: query.prefix,
                             resolved: children
@@ -322,7 +337,7 @@ where
                     }
                 }
 
-                let mut resolver = Resolver::new(query, &their_version);
+                let mut resolver = Resolver::new(query, &their_version, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -354,7 +369,8 @@ where
                             }
                         }
                         let (node, children) =
-                            unknown_providing(&backend, &their_version, child_prefix, node).await?;
+                            unknown_providing(&backend, &their_version, child_prefix, node, &stats)
+                                .await?;
                         let replies = children
                             .into_iter()
                             .map(|(radix, child)| Reaction::Supply(radix, child))
@@ -374,6 +390,7 @@ where
                         child_prefix,
                         children,
                         listing,
+                        &stats,
                     )
                     .await?;
                     yield_resolve_query!(
@@ -422,6 +439,7 @@ where
         B: Sync,
     {
         let backend = self.backend();
+        let stats = self.stats.clone();
         let (asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT));
         let (upper, upper_rx) = leaf_parent_resolutions(self.window.capacity(<S<Z>>::HEIGHT));
         let (lower, lower_rx) = leaf_child_resolutions(self.window.capacity(Z::HEIGHT));
@@ -435,7 +453,7 @@ where
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver = Resolver::new(query, &their_version);
+                let mut resolver = Resolver::new(query, &their_version, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -444,7 +462,8 @@ where
 
                     if listing.is_empty() {
                         let (node, leaves) =
-                            unknown_providing(&backend, &their_version, child_prefix, node).await?;
+                            unknown_providing(&backend, &their_version, child_prefix, node, &stats)
+                                .await?;
                         let replies = leaves
                             .into_iter()
                             .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
@@ -459,7 +478,7 @@ where
 
                     let leaves = children_of(&backend, child_prefix, node).await?;
                     let (replies, next_queries, resolved) =
-                        answer::leaf_parent(&their_version, child_prefix, leaves, listing);
+                        answer::leaf_parent(&their_version, child_prefix, leaves, listing, &stats);
                     yield_resolve_query!(
                         trace_id, child_prefix;
                         yield Reply { replies };
@@ -501,6 +520,7 @@ where
         OkReceiverStream<Resolution<B, T, Z>, Error<B::Error>>,
     ) {
         let (upper, upper_rx) = terminal_leaf_resolutions();
+        let stats = self.stats.clone();
         #[cfg(test)]
         let trace_id = self.trace_id;
 
@@ -511,14 +531,15 @@ where
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver = Resolver::new(query, &their_version);
+                let mut resolver = Resolver::new(query, &their_version, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
                     };
 
-                    let (replies, node) = answer::leaf(&their_version, radix, node, listing)
-                        .map_err(Error::Violation)?;
+                    let (replies, node) =
+                        answer::leaf(&their_version, radix, node, listing, &stats)
+                            .map_err(Error::Violation)?;
                     yield_resolve_query!(
                         trace_id, prefix.push(radix);
                         yield Reply { replies };

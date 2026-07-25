@@ -459,6 +459,17 @@ impl Window {
     pub(crate) fn capacity(&self, height: usize) -> usize {
         self.capacities[height.min(KEY_DEPTH)]
     }
+
+    /// The widest per-height capacity this window grants, in disputed
+    /// scopes: the summary a session reports as
+    /// [`SessionStats::window_granted`](super::stats::SessionStats::window_granted).
+    pub(crate) fn widest(&self) -> u64 {
+        self.capacities
+            .iter()
+            .copied()
+            .max()
+            .expect("a window always carries every height's capacity") as u64
+    }
 }
 
 /// How a session chooses its window: fixed capacities, or a byte budget

@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+# The case below was minted against deliberately unwired counters during review's tripwire re-verification; it passes on real code.
+cc f9d87a11ebc81654eb1f2d18a9a9c17c3ac41c5070434fa58dd9934d77333e8f # shrinks to cells = [[]]

@@ -14,6 +14,7 @@ use super::{Work, assembly::assemble};
 
 mod violations;
 
+use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
     message::Message,
@@ -66,8 +67,11 @@ type Level = Result<Option<typed::Node<(), Z>>, Error<Infallible>>;
 /// A work error cancels parked peers and retains its original error identity.
 #[test]
 fn work_failure_preempts_parked_tasks() {
-    let mut work: Work<Failing<Local>, ()> =
-        Work::new(Failing::after(Local, usize::MAX), Window::FLOOR);
+    let mut work: Work<Failing<Local>, ()> = Work::new(
+        Failing::after(Local, usize::MAX),
+        Window::FLOOR,
+        Recorder::default(),
+    );
     for _ in 0..31 {
         work.tasks.push(Box::pin(future::pending()));
     }

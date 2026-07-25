@@ -31,6 +31,7 @@ mod faults;
 mod fixtures;
 mod local_eq;
 mod skeleton;
+mod stats;
 mod wedge;
 
 /// Either terminal error preempts a peer which can no longer make progress.

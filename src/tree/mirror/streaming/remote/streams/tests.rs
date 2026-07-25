@@ -8,6 +8,7 @@ use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::codec::{
     End, Flow, Frame, FrameWrite, Origin, Reaction, Speaker, Stream,
 };
+use crate::tree::mirror::streaming::stats::Recorder;
 
 use super::{
     AcceptDriver, AcceptError, ReceiverFinish, ReplyFrame, StreamError, StreamReceiver,
@@ -39,6 +40,7 @@ fn unopened_sender_finishes_without_connecting() {
             0,
             Speaker::Initiator,
             Stream::new(1).expect("stream 1 exists"),
+            Recorder::default(),
         );
         sender.finish().await.expect("vacuous finish succeeds");
         // The peer sees no announced stream: with the connector dropped, its
@@ -60,8 +62,13 @@ fn frames_flow_sender_to_claimed_receiver() {
     let stream = Stream::new(2).expect("stream 2 exists");
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_, Unit> =
-                StreamSender::new(a.connector.clone(), 9, Speaker::Initiator, stream);
+            let mut sender: StreamSender<_, Unit> = StreamSender::new(
+                a.connector.clone(),
+                9,
+                Speaker::Initiator,
+                stream,
+                Recorder::default(),
+            );
             sender
                 .frame(reply_frame(Frame::Reaction(Reaction::Match, Flow::End)))
                 .await
@@ -76,8 +83,13 @@ fn frames_flow_sender_to_claimed_receiver() {
             let (route, _errors) = error_route();
             let driver =
                 AcceptDriver::new(&mut b.acceptor, 9, Speaker::Initiator, slots, route.clone());
-            let mut receiver: StreamReceiver<_, Unit> =
-                StreamReceiver::new(claims.take(stream), Speaker::Initiator, stream, route);
+            let mut receiver: StreamReceiver<_, Unit> = StreamReceiver::new(
+                claims.take(stream),
+                Speaker::Initiator,
+                stream,
+                route,
+                Recorder::default(),
+            );
             let receive = async {
                 assert_eq!(
                     receiver.next().await,
@@ -105,8 +117,13 @@ fn unpolled_receiver_finishes_vacuously() {
     let (slots, mut claims) = claims::<tokio::io::DuplexStream>();
     let stream = Stream::new(0).expect("stream 0 exists");
     let (route, _errors) = error_route();
-    let mut receiver: StreamReceiver<_, Unit> =
-        StreamReceiver::new(claims.take(stream), Speaker::Responder, stream, route);
+    let mut receiver: StreamReceiver<_, Unit> = StreamReceiver::new(
+        claims.take(stream),
+        Speaker::Responder,
+        stream,
+        route,
+        Recorder::default(),
+    );
     run_to_quiescence(async {
         assert_eq!(receiver.finish().await, ReceiverFinish::Clean);
     })
@@ -125,6 +142,7 @@ fn accept_driver_rejects_wrong_epoch() {
                 4,
                 Speaker::Initiator,
                 Stream::new(0).expect("stream 0 exists"),
+                Recorder::default(),
             );
             sender
                 .frame(reply_frame(Frame::End(End::Reply)))
@@ -163,8 +181,13 @@ fn accept_driver_rejects_unclaimed_delivery() {
     let stream = Stream::new(6).expect("stream 6 exists");
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_, Unit> =
-                StreamSender::new(a.connector.clone(), 0, Speaker::Initiator, stream);
+            let mut sender: StreamSender<_, Unit> = StreamSender::new(
+                a.connector.clone(),
+                0,
+                Speaker::Initiator,
+                stream,
+                Recorder::default(),
+            );
             sender
                 .frame(reply_frame(Frame::End(End::Reply)))
                 .await
@@ -222,8 +245,13 @@ async fn first_reported_error(
     let (slots, mut claims) = claims();
     let (route, mut errors) = error_route();
     let driver = AcceptDriver::new(acceptor, EPOCH, Speaker::Initiator, slots, route.clone());
-    let mut receiver: StreamReceiver<_, Unit> =
-        StreamReceiver::new(claims.take(stream), Speaker::Initiator, stream, route);
+    let mut receiver: StreamReceiver<_, Unit> = StreamReceiver::new(
+        claims.take(stream),
+        Speaker::Initiator,
+        stream,
+        route,
+        Recorder::default(),
+    );
     let observe = async {
         for expected in leading {
             assert_eq!(receiver.next().await.as_ref(), Some(expected));
@@ -296,8 +324,13 @@ fn truncated_stream_is_reported_not_ended() {
     let stream = Stream::new(4).expect("stream 4 exists");
     let error = run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_, Unit> =
-                StreamSender::new(a.connector.clone(), EPOCH, Speaker::Initiator, stream);
+            let mut sender: StreamSender<_, Unit> = StreamSender::new(
+                a.connector.clone(),
+                EPOCH,
+                Speaker::Initiator,
+                stream,
+                Recorder::default(),
+            );
             sender
                 .frame(reply_frame(Frame::Reaction(Reaction::Match, Flow::End)))
                 .await
@@ -485,8 +518,13 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
     let stream = Stream::new(7).expect("stream 7 exists");
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_, Unit> =
-                StreamSender::new(a.connector.clone(), EPOCH, Speaker::Initiator, stream);
+            let mut sender: StreamSender<_, Unit> = StreamSender::new(
+                a.connector.clone(),
+                EPOCH,
+                Speaker::Initiator,
+                stream,
+                Recorder::default(),
+            );
             sender
                 .frame(reply_frame(Frame::Reaction(Reaction::Match, Flow::End)))
                 .await
@@ -509,8 +547,13 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
                 slots,
                 route.clone(),
             );
-            let mut receiver: StreamReceiver<_, Unit> =
-                StreamReceiver::new(claims.take(stream), Speaker::Initiator, stream, route);
+            let mut receiver: StreamReceiver<_, Unit> = StreamReceiver::new(
+                claims.take(stream),
+                Speaker::Initiator,
+                stream,
+                route,
+                Recorder::default(),
+            );
             let consume = async {
                 assert_eq!(
                     receiver.next().await,

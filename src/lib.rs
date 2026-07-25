@@ -323,3 +323,4 @@ pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMes
 pub use snapshot::Snapshot;
 pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;
+pub use tree::mirror::streaming::stats::SessionStats;

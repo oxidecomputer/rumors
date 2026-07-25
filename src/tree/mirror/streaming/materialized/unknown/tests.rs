@@ -5,6 +5,7 @@
 use proptest::collection::vec;
 use proptest::prelude::*;
 
+use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
     message::Message,
@@ -58,6 +59,7 @@ fn stream_prune(
             known,
             Prefix::new(),
             node,
+            &Recorder::default(),
         ))
         .unwrap_or_else(|e| match e {})
     })
