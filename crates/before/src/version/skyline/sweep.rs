@@ -102,7 +102,7 @@
 use core::cmp::Ordering;
 
 use crate::codec::accum::Accum;
-use crate::codec::{decode_int_from, Base, BitCursor, Bits, BitsSlice, SliceCursor};
+use crate::codec::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
 use crate::step;
 
 use super::Encoded;
@@ -442,7 +442,10 @@ impl<'a> LeafCursor<'a> {
             }
             self.path.push(false);
         }
-        decode_int_from(&mut self.cursor).expect("canonical skyline bits")
+        // The cursor's own `read_int`, so the payload decode takes the
+        // word-wise window fast path; the scan meter records the same
+        // `2k + 1` bits either way.
+        self.cursor.read_int().expect("canonical skyline bits")
     }
 }
 

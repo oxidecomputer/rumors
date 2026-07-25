@@ -50,7 +50,7 @@ use core::fmt::Write as _;
 
 use crate::codec::accum::Accum;
 use crate::codec::text::{parse_base, Cur};
-use crate::codec::{self, decode_int_from, Base, BitCursor, Bits, SliceCursor};
+use crate::codec::{self, Base, BitCursor, Bits, SliceCursor};
 use crate::error::Parse;
 use crate::step;
 
@@ -140,7 +140,8 @@ pub fn render(enc: &Encoded) -> String {
             frames.push(Frame::NeedLeft { index });
             continue;
         }
-        let code = decode_int_from(&mut cursor).expect("canonical skyline bits");
+        // The cursor's own `read_int`: word-wise payload decode.
+        let code = cursor.read_int().expect("canonical skyline bits");
         let incoming = if first_height.is_some() {
             unzigzag(code)
         } else {
