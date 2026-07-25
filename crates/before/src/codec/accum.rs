@@ -269,6 +269,97 @@ impl Accum {
         self.add_accum_shl(&held, shift);
     }
 
+    /// Add another accumulator's held value into this one: O(the
+    /// operand's held digits).
+    ///
+    /// The fold half of a comparison or merge whose operand is dying or
+    /// is read a bounded number of times in its lifetime — the walk
+    /// disciplines that keep wide content touched only when its owner
+    /// dies or an emitted code prices the read.
+    pub(crate) fn add_accum(&mut self, other: &Accum) {
+        self.add_accum_shl(other, 0);
+    }
+
+    /// Subtract another accumulator's held value from this one: O(the
+    /// operand's held digits).
+    ///
+    /// The subtractive twin of [`add_accum`](Self::add_accum): each
+    /// operand digit lands negated at its own position (a balanced
+    /// digit's negation is a balanced digit, so nothing carries beyond
+    /// `add_at`'s own recentering).
+    pub(crate) fn sub_accum(&mut self, other: &Accum) {
+        for (i, &digit) in other.digits[..=other.top].iter().enumerate() {
+            touch(1);
+            if digit != 0 {
+                self.add_at(i, -i128::from(digit));
+            }
+        }
+    }
+
+    /// Negate the held value in place: O(held digits).
+    ///
+    /// Digit-wise: a balanced digit's negation stays in the lazy zone, so
+    /// no carries move. The flip a dying difference takes when it becomes
+    /// the drop that continues an undercut's outward propagation.
+    pub(crate) fn negate(&mut self) {
+        for digit in &mut self.digits[..=self.top] {
+            touch(1);
+            *digit = -*digit;
+        }
+    }
+
+    /// Reset to zero, keeping the digit buffer's capacity.
+    ///
+    /// The pool-reuse entry point: a walk that opens and closes ranges
+    /// re-arms one cleared accumulator instead of allocating per range.
+    pub(crate) fn reset(&mut self) {
+        for digit in &mut self.digits[..=self.top] {
+            touch(1);
+            *digit = 0;
+        }
+        self.top = 0;
+    }
+
+    /// The sign, plus whether the held magnitude certainly dominates any
+    /// machine-word adjustment: amortized O(1), collapsing like
+    /// [`sign`](Self::sign).
+    ///
+    /// Returns `(sign, decided)` where `decided` is true only when the
+    /// sign fold's partial reached `|s| ≥ 3` at digit index 3 or higher:
+    /// the unscanned digits below contribute under `2.01 · 2^(32·i)` (the
+    /// module doc's domination bound), so `|value| ≥ 0.99 · 2^96 > 2^64`
+    /// — no word-scale operand folded in could flip the sign. A
+    /// comparison against a word-scale adjustment reads this instead of
+    /// folding, so a wide watermark is never touched across its width by
+    /// a cheap comparison.
+    pub(crate) fn sign_dominates_word(&mut self) -> (Ordering, bool) {
+        let mut index = self.top;
+        let mut partial: i128 = 0;
+        loop {
+            touch(1);
+            partial = (partial << DIGIT_BITS) + i128::from(self.digits[index]);
+            if partial.abs() >= SIGN_DECIDED || index == 0 {
+                break;
+            }
+            index -= 1;
+        }
+        let decided = partial.abs() >= SIGN_DECIDED && index >= 3;
+        if index < self.top {
+            for digit in &mut self.digits[index..=self.top] {
+                *digit = 0;
+                touch(1);
+            }
+            self.top = index;
+            while self.top > 0 && self.digits[self.top] == 0 {
+                self.top -= 1;
+            }
+            if partial != 0 {
+                self.add_at(index, partial);
+            }
+        }
+        (partial.cmp(&0), decided)
+    }
+
     /// Whether the held value is zero, without any scan or rewrite.
     ///
     /// Exact: every write keeps `top` on the highest nonzero digit, so a
