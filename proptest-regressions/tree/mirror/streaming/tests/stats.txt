@@ -4,5 +4,5 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-# The case below was minted against a deliberately unwired recorder during red-first verification; it passes on real code.
-cc 6ca018b4245d03b22a8d11f20baaadf6bee1a37caf5f80314d7ce69c0f6aad45 # shrinks to a_sends = [], b_sends = [0]
+# The case below was minted against deliberately unwired counters during review's tripwire re-verification; it passes on real code.
+cc f9d87a11ebc81654eb1f2d18a9a9c17c3ac41c5070434fa58dd9934d77333e8f # shrinks to cells = [[]]

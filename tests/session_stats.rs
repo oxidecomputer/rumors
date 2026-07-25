@@ -3,8 +3,8 @@
 //!
 //! The walk-tier suite (`src/tree/mirror/streaming/tests/stats.rs`) pins
 //! the counters against an in-memory dispute oracle; here the same
-//! counters are checked where an application reads them — one-shot
-//! [`Rumors::gossip`], the [`Rumors::gossip_when`] stream — plus the
+//! counters are checked where an application reads them (one-shot
+//! [`Rumors::gossip`], the [`Rumors::gossip_when`] stream), plus the
 //! wire-only claims that need a real link: the byte counters against an
 //! independent transport-level tally, and the conservation law
 //! `len_after = len_before + gained - shed` over real sessions.

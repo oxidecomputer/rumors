@@ -592,10 +592,10 @@ impl<T, B: Persist> Peer<T, B> {
     /// *with* an error: when sending the party itself fails, we cannot know
     /// whether the remote received it, so we must assume it might have.
     ///
-    /// On success, returns the *converged* version — the causal frontier of
+    /// On success, returns the *converged* version: the causal frontier of
     /// the reconciled tree both replicas now hold, before any commits that
-    /// ran concurrently with the session — together with the session's
-    /// [`SessionStats`]. [`gossip_when`] records the version as the
+    /// ran concurrently with the session. The session's [`SessionStats`]
+    /// ride along with it. [`gossip_when`] records the version as the
     /// suppression token — "the local frontier has advanced" means exactly
     /// "latest no longer equals this".
     ///

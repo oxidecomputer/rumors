@@ -54,9 +54,8 @@ pub struct SessionStats {
     /// of a disputed scope. A question about a subtree the answerer does
     /// not hold is a *request* (the content is simply supplied), and a
     /// merge-join where every child hash agrees is a confirmation; neither
-    /// is counted. The count is taken at the walk's answering chokepoint
-    /// (`answer::internal` and `answer::leaf_parent` in the materialized
-    /// walk), which runs exactly once per scope this side resolves.
+    /// is counted. The count is taken at the walk's answering chokepoint,
+    /// which runs exactly once per scope this side resolves.
     ///
     /// The two ends of one session report *different* values here, by
     /// construction, and their sum is the session's total disputed scopes.
@@ -117,10 +116,11 @@ pub struct SessionStats {
     /// the transport stream it writes: the same boundary the
     /// [`target_message_size`](crate::Peer::target_message_size) budget
     /// prices frames at. It therefore counts every reconciliation byte
-    /// and nothing else: the session's fixed envelope (the transport
-    /// preamble, the greeting, per-stream labels, any identity hand-off,
-    /// and the epilogue marker) rides the control stream through a
-    /// different framing layer and is excluded. Over a lossless link, one
+    /// and nothing else. The control stream's envelope (the transport
+    /// preamble, the greeting, any identity hand-off, and the epilogue
+    /// marker) crosses a different framing layer and is excluded; each
+    /// data stream's label is excluded by placement, written on the raw
+    /// stream before the counter wraps it. Over a lossless link, one
     /// side's `bytes_sent` equals the other's
     /// [`bytes_received`](Self::bytes_received).
     ///
@@ -133,10 +133,12 @@ pub struct SessionStats {
     ///
     /// Counted at the same codec seam as [`bytes_sent`](Self::bytes_sent),
     /// on the read side: every byte the frame decoder consumed from the
-    /// session's streams, and nothing else (the fixed session envelope is
-    /// excluded there too). Bytes of a frame count when the decoder reads
-    /// them, so a session that fails mid-frame has counted the prefix it
-    /// consumed; on `Ok` every counted frame was a complete one.
+    /// session's streams, and nothing else (the same exclusions apply:
+    /// the control stream's envelope, and each data stream's label,
+    /// consumed before the counter wraps the read half). Bytes of a frame
+    /// count when the decoder reads them, so a session that fails
+    /// mid-frame has counted the prefix it consumed; on `Ok` every
+    /// counted frame was a complete one.
     ///
     /// Zero when the greeting versions were equal, and for every
     /// [`Protocol::V1`](crate::Protocol::V1) session (V1 frames ride a

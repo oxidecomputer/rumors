@@ -331,7 +331,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     ///
     /// `Ok` carries the session's [`Gossiped`]: the converged version and
     /// the session's [`SessionStats`](crate::SessionStats). Its `led` is
-    /// always [`Led::Local`](crate::Led::Local) — calling `gossip` is this
+    /// always [`Led::Local`](crate::Led::Local): calling `gossip` is this
     /// side's initiation, and a remote initiation already in flight merges
     /// into the same session, exactly as racing
     /// [`gossip_when`](Self::gossip_when) triggers do.
