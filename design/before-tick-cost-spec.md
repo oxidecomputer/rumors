@@ -632,6 +632,33 @@ with a linear envelope and liveness floors derived from the honest
 walk's counts on that shape (floors above vacuity, meaningfully near
 the measured constant — never the generic 1 bit/B).
 
+*Amendment 2026-07-25 (the cure landing)*: the discipline landed in
+two stages (the walk's anchor web, then the chained-memo pre-scan)
+and every #34-owned cell flipped at both scales — nested-wide limb
+e 1.00 at 5.4/B flat, mirror-wide limb e 1.00 at 8.9/B with heap
+under the ceiling and zero grown segments, mirror-narrow's memo
+heap 13.9/9.0 per byte (the diff-coded memo stores one machine
+word per site plus only *nonzero* chain links, so the pure chain
+stores no accumulator at all), staircase flat at 16.0 limb/B —
+under byte-identity across the full differential suite; the L6
+output-bound pin (`tick_output_is_input_bounded`, `bits(tick) ≤
+bits(e) + 4·bits(i) + 8`) and the `TICK_NESTED_WIDE`/
+`TICK_MIRROR_WIDE` envelope rows landed with it, and the four
+judge legs left the roster. Realization choices, each conforming
+to the invariants as stated: memo entries chain in *recording*
+order (`m_j − m_{j−1}`, the recording relation riding the
+pre-scan's stack as a follower) rather than literally against the
+enclosing site's entry — the walk resolves each site against its
+innermost open anchor by a chain-interval fold, with anchors on
+the recursion's own frames; the walk-side relation is
+anchor-tagged (height-carried after a max-side raise,
+watermark-carried after a min-side one), realizing L2 rule 2's
+generalized anchor; the drain assertion pairs an order-sensitive
+position checksum with the queue-drained check so debug state
+stays O(1). The ×4 segments residual (recursion depth, P4.2)
+stays red on the tick-walk legs with counts re-pinned to the new
+call shape.
+
 *Amendment 2026-07-25 (the red-pin landing; measured dispositions
 where this section predicted)*: the mirror-narrow cells landed
 **RED on the heap constant** (93.2/B default, 95.6/B ×4, exponent

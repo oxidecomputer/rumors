@@ -444,4 +444,35 @@ proptest! {
             }
         }
     }
+
+    /// `tick`'s output stays within its inputs' coded sizes:
+    /// `bits(tick(e, i)) ≤ bits(e) + 4·bits(i) + 8` over arbitrary
+    /// pairs.
+    ///
+    /// The bound the board's input denomination of the tick rows rests
+    /// on, computed the second way (the operation itself, against the
+    /// arithmetic of its parts): fill only collapses — its raises
+    /// re-code one neighbor delta, telescoping codes the collapsed
+    /// range already spent — and grow adds one increment (two recoded
+    /// deltas) or one expansion chain, a constant per id bit at the
+    /// site plus constant slack. A tick output outgrowing this envelope
+    /// would be minting content no operand paid for.
+    #[test]
+    fn tick_output_is_input_bounded(
+        op in generators::arb_oracle_party_nonempty(),
+        ov in generators::arb_oracle_version(),
+    ) {
+        let p = from_oracle_party(&op);
+        let v = from_oracle_version(&ov);
+        if !p.as_bits().is_empty() {
+            let ev = encode(&v);
+            let out = tick(&ev, &p);
+            let bound = ev.bits + 4 * p.as_bits().len() + 8;
+            prop_assert!(
+                out.bits <= bound,
+                "tick output {} bits exceeds input envelope {} (event {}, id {})",
+                out.bits, bound, ev.bits, p.as_bits().len(),
+            );
+        }
+    }
 }

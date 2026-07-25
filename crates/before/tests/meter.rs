@@ -88,6 +88,12 @@ const ID_DEPTH: usize = 250_000;
 /// stays paid for by a `2k + 1`-bit stored code.
 const CLIFF_SCALE: usize = 1_024;
 
+/// The wide × deep tick crosses' shared scale: magnitude bits and
+/// shortcut depth together, deep enough that a per-level re-touch of
+/// the wide content would overshoot the envelopes by orders of
+/// magnitude.
+const TICK_CROSS_SCALE: usize = 4_000;
+
 /// Tooth width (bits) of the wide-tooth comb scenarios: wider than any
 /// machine word, so every skyline delta is a genuinely wide operand while
 /// still oscillating across the `2^k` cliff.
@@ -173,6 +179,8 @@ mod envelope {
     pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0, 0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
     pub const DECODE_CLIFF: Envelope    = envelope(     4_052,        0,        12_903, 7_741); //    607_489 -> 3_241 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 40_960 -> 10_322 (2026-07-25, C2: operations route to the skyline kernels)
+    pub const TICK_NESTED_WIDE: Envelope = envelope(     9_628,        7,        30_259, 18_155); //      7_702, 5 (the fill splice recurses), 24_207 (2026-07-25, the tick limb cure: the anchor web reads the wide first payload O(1) times)
+    pub const TICK_MIRROR_WIDE: Envelope = envelope(    34_237,        9,        50_390, 30_234); //     27_389, 7 (the fill splice recurses), 40_312 (2026-07-25, the tick limb cure: the chained memo shares the one wide minimum)
     pub const CMP_CLIFF: Envelope       = envelope(     1_710,        0,         7_765, 4_659); //        496 -> 1_368 (2026-07-25, C2: operations route to the skyline kernels: the sweep holds two accumulators), 0, 190_474 -> 6_212 (2026-07-25, C2: operations route to the skyline kernels: the cliff-immune sweep)
     pub const JOIN_CLIFF: Envelope      = envelope(     7_913,        0,        25_869, 15_521); //  1_411_489 -> 6_330, 0, 384_008 -> 20_695 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
     // Skyline validator rows (2026-07-23, new scenarios): the V5
@@ -365,6 +373,46 @@ fn tick_dense_envelope() {
     metered("tick_dense", p.bytes.len(), &envelope::TICK_DENSE, || {
         v.tick(&seed)
     });
+    drop(v);
+}
+
+/// Ticking the wide right-full chain (a bigroot magnitude over the
+/// nested-full id) stays within its envelope: the anchor-web walk
+/// touches the wide first payload O(1) times, never once per shortcut
+/// level.
+#[test]
+fn tick_nested_wide_envelope() {
+    let ev = meter::bigroot(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
+    let id = meter::nested_full_id(TICK_CROSS_SCALE);
+    let mut v = version_of(&ev);
+    let p = party_of(&id);
+    let input = ev.bytes.len() + id.bytes.len();
+    metered(
+        "tick_nested_wide",
+        input,
+        &envelope::TICK_NESTED_WIDE,
+        || v.tick(&p),
+    );
+    drop(v);
+}
+
+/// Ticking the wide memo chain (a wide-tail spine under the
+/// nested-left-full id) stays within its envelope: the pre-scan's
+/// chained memo shares the one wide minimum instead of materializing
+/// it once per site.
+#[test]
+fn tick_mirror_wide_envelope() {
+    let ev = meter::wide_tail(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
+    let id = meter::nested_left_full_id(TICK_CROSS_SCALE);
+    let mut v = version_of(&ev);
+    let p = party_of(&id);
+    let input = ev.bytes.len() + id.bytes.len();
+    metered(
+        "tick_mirror_wide",
+        input,
+        &envelope::TICK_MIRROR_WIDE,
+        || v.tick(&p),
+    );
     drop(v);
 }
 

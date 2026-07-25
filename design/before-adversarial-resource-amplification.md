@@ -441,25 +441,27 @@ DESIGN — that failure is C3's realization evidence, banked
 verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-25, the
-#34 red-pin record; dev profile, limb+scan meters lit]: board
-**192 green / 23 red at the default scale; 187 / 28 at ×4** over
-**215 cells** (amended 2026-07-25, the #34 red pin: four new
+#34 cure record; dev profile, limb+scan meters lit]: board
+**198 green / 17 red at the default scale; 189 / 26 at ×4** over
+**215 cells** (amended 2026-07-25, the #34 cure: the anchor-web
+walk and the chained-memo pre-scan flipped every #34-owned red —
+nested-wide limb e 1.57/1.83 → 1.00 at 5.4/B flat across scales;
+mirror-wide limb e 1.86/1.94 → 1.00 at 8.9/B and heap e
+1.63/1.84 → 0.97/0.99 at 11.2/9.1 per byte, zero grown segments;
+mirror-narrow heap constant 93.2/95.6 → 13.9/9.0 per byte;
+staircase held green, limb 11.4 → 16.0/B e 1.00; nested-full's
+limb constant dropped 20.6 → 9.1/B. The ×4 segments residual
+stays — the recursion-depth genre, P4.2-owned — with counts
+re-pinned deliberately to the new walk's call shape: nested-full
+11, nested-wide 5, mirror-narrow 12, staircase 22, mirror-wide 0.
+The four #34 judge legs left the roster with the flip, 22 → 18;
+C3's run verifies the wall leg. §17.3 restates the sums)
+(amended 2026-07-25, the #34 red pin: four new
 tick-walk families — nested-wide, mirror-wide, mirror-narrow,
-staircase — land as board columns with full-examination scan
+staircase — landed as board columns with full-examination scan
 floors (8 bits/B) and mandatory-width limb floors on the wide
-crosses; the wide×deep cells read the kernel limb-quadratic
-through both shortcut arms and the memo's owned entries read a
-per-site heap constant, all red with owner #34; §17.3 enumerates.
-Earlier the same day the fill linearization turned its own red
-pin green — the nested-full tick cells read scan/limb e 1.00 at
-37.7 and 20.6 per byte, heap 0.3/B, from e 2.00 at 25,742 and
-10,297 [measured both states]; at ×4 that pair stays red on the
-segments column alone, e 1.49 / 28 grown segments — the walk
-still recurses to pairing depth, and that residual is owned by
-P4.2's iterative-walk rewrite under the stack-container seam
-directive, pinned red in advance exactly as this cure was; the
-new families pin the same segments genre in advance at ×4). The
-judge's last honest reading, at the
+crosses; their pre-cure readings and the linearization's own
+flip are in git history at the pin and cure commits). The judge's last honest reading, at the
 flip commit over 202 cells: **157 green / 3 red / 42 sub-floor**,
 exit 1 on exactly the fifteen banked realization violations; the
 three reds all rostered-expected. Workspace sweep at C0:
@@ -777,14 +779,34 @@ scale byte-identical, no movement on any pre-existing cell:
   propagation to the same reading); at ×4 RED on segments only,
   e 1.49 / 56 — owner **P4.2**.
 
-The four wide×deep judge cells are rostered expected-red owned
-by #34 (`version_tick`/`clock_tick` × nested-wide, mirror-wide);
-mirror-narrow and staircase are not rostered — their wall legs
-are linear, and the board columns above carry their reds. Sums:
-default 192 + 23 = 215; record 187 + 28 = 215.
+Amended 2026-07-25 (the #34 cure): the anchor-web walk (stage
+one, the per-subtree materialized returns dissolved into the
+zero-run-compressed watermark stack) and the chained-memo
+pre-scan (stage two, per-site minima diff-coded along the
+recording chain, resolved by interval folds against per-level
+anchors) flipped every #34-owned red at both scales —
+nested-wide and mirror-wide limb/heap e 1.00 at flat constants
+(5.4 and 8.9 limb/B; mirror-wide heap 11.2/9.1 per byte with
+zero grown segments at ×4), mirror-narrow's memo heap constant
+93.2/95.6 → 13.9/9.0 per byte, staircase and nested-full held
+green with the staircase's full-penetration propagation flat
+(limb 16.0/B) — byte-identity across the full differential
+suite including the mirror telescoped-collapse witness, two
+identical board runs per scale, scan columns unchanged on every
+cell, and the only non-tick movement the tick-calling
+`version_batch_snapshot`/`clock_recv` heap improvements. The ×4
+segments residual (recursion depth, owner **P4.2**) stays on
+eight tick-walk legs with counts re-pinned deliberately to the
+new walk's call shape: nested-full 11, nested-wide 5,
+mirror-narrow 12, staircase 22 (mirror-wide 0 — its walk is
+shallow once the memo chains). The four #34 judge legs left the
+roster with the flip (22 → 18, membership pin updated); the L6
+output-bound proptest (`tick_output_is_input_bounded`) and the
+`TICK_NESTED_WIDE`/`TICK_MIRROR_WIDE` envelope rows pin the
+cure-earned constants. Sums: default 198 + 17 = 215; record
+189 + 26 = 215.
 
-Default, 23 = 192 green + 23: the six #34 wide×deep and
-memo-constant reds above + **ten κ-text constants**
+Default, 17 = 198 green + 17: **ten κ-text constants**
 (`version_display`/`clock_display` × {dense, bigroot, benign},
 `version_from_str`/`clock_from_str` × {dense, benign} — limb/`R`
 vs κ; the κ/C3 re-derivation) + **four fold marginals**
@@ -795,9 +817,9 @@ reduction's n·log n; the C2-adjacent n-cursor merge) + **three
 comb-scatter`; single-cell column attribution at C3 BEFORE the
 classification is accepted).
 
-Record scale, 28 = 187 green + 28: the eight #34/P4.2 tick-walk
-legs above (nested-wide ×2, mirror-wide ×2, mirror-narrow ×2,
-staircase ×2) + **the ten κ-text constants**
+Record scale, 26 = 189 green + 26: the eight P4.2 tick-walk
+segments legs above (nested-full ×2, nested-wide ×2,
+mirror-narrow ×2, staircase ×2) + **the ten κ-text constants**
 (as above) + **two id-side parser recursion cells**
 (`party_from_str`/`clock_from_str` × id-pair — segments e 1.78,
 count 48: the text parser's remaining recursive walk; owner
