@@ -3,13 +3,16 @@
 //! Decode a value from the *front* of the input and use the trailing bytes as a
 //! script that drives the full op set against it. This pushes
 //! adversarially-shaped (but canonical) trees — ones the op-trace generator
-//! never produces — through the working-form arithmetic and the repack-on-drop
-//! boundary. The contract: no panic, no overflow, and no computation past the
-//! harness heap cap (`before_fuzz::under_heap_cap`, so a resource amplifier is
-//! a crash finding, not a latent one), on any decoded-then-driven sequence.
+//! never produces — through the skyline kernels every operation runs on. The
+//! contract: no panic, no overflow, and no computation past the harness heap
+//! cap (`before_fuzz::under_heap_cap`, so a resource amplifier is a crash
+//! finding, not a latent one), on any decoded-then-driven sequence.
 //!
 //! The first byte selects the value flavour, the next length-prefixed chunk is
 //! the value's bytes, and the remainder is the op script (one op per byte).
+//! This framing and the op table below are a wire contract with the committed
+//! seed corpus: `tests/support/fuzz_seed_set.rs` spells seeds in exactly this
+//! shape, so a change here means regenerating the seeds with it.
 
 #![no_main]
 

@@ -41,9 +41,9 @@ fn committed_seeds_match_the_live_derivation() {
 }
 
 /// The seed directories hold exactly the set of record — no strays: a
-/// leftover file from a renamed or retired seed would seed the fuzzer
-/// with bytes nothing re-derives, which is the rot this suite exists to
-/// prevent.
+/// leftover file from a renamed or retired seed (or a whole directory
+/// for a renamed or retired target) would seed the fuzzer with bytes
+/// nothing re-derives, which is the rot this suite exists to prevent.
 #[test]
 fn seed_directories_hold_exactly_the_set_of_record() {
     let mut expected: std::collections::BTreeMap<String, BTreeSet<String>> = Default::default();
@@ -53,6 +53,22 @@ fn seed_directories_hold_exactly_the_set_of_record() {
             .or_default()
             .insert(seed.name.to_string());
     }
+    // The root holds exactly one directory per target of record.
+    let listed_targets: BTreeSet<String> = fs::read_dir(seeds_root())
+        .unwrap_or_else(|err| panic!("listing {} failed: {err}", seeds_root().display()))
+        .map(|entry| {
+            entry
+                .expect("reading the seed root's entry")
+                .file_name()
+                .into_string()
+                .expect("seed directory names are UTF-8")
+        })
+        .collect();
+    let expected_targets: BTreeSet<String> = expected.keys().cloned().collect();
+    assert_eq!(
+        listed_targets, expected_targets,
+        "fuzz/seeds holds directories outside the targets of record (or is missing some)"
+    );
     for (target, names) in &expected {
         let dir = seeds_root().join(target);
         let listed: BTreeSet<String> = fs::read_dir(&dir)

@@ -150,7 +150,9 @@ const FRAME_CTRL_BITS: usize = 3;
 ///
 /// Panics if the event operand is not a canonical skyline stream — run
 /// [`validate`](fn@super::validate) first on untrusted bytes — or
-/// declares more live bits than its bytes hold.
+/// declares more live bits than its bytes hold. Debug builds also panic
+/// when the id owns nothing (the precondition above; the result on an
+/// empty id is unspecified in release builds).
 pub fn grow(ev: &Encoded, id: &crate::Party) -> Encoded {
     let ev_bits = live_bits(&ev.bytes, ev.bits);
     let id_bits = id.as_bits();

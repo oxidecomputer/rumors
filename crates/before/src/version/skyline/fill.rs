@@ -34,13 +34,20 @@
 //!
 //! # Cost
 //!
-//! Derived: one pass over both streams, plus per shortcut site (an
-//! event node one of whose id children is the full leaf) one extra
-//! local scan of the range its minimum comes from, and per potential
-//! right-full site one topology-only skip of the left id subtree.
-//! Shortcut sites nest only where the id alternates full children down
-//! a spine, so the worst case is `O(input × nested-shortcut depth)`;
-//! a walk without nested shortcuts is linear in the two streams. The
+//! Derived: one pass over both streams, plus two local re-scan genres.
+//! The *right-full lookahead*: at every id-node-over-event-node site
+//! whose right id child is present, one topology-only skip of the left
+//! id subtree decides the right-full arm — the skip runs whether or not
+//! the arm fires, and the skipped subtree is exactly the one the walk
+//! descends into next, so the lookaheads nest: a left-leaning id over a
+//! matching event spine pays `Θ(d²)` id bits with zero shortcut sites.
+//! The *shortcut pre-scan*: per shortcut site (an event node one of
+//! whose id children is the full leaf), one extra local scan of the
+//! event range its minimum comes from, nesting the same way where the
+//! id alternates full children down a spine. The worst case is
+//! `O(input × paired-descent depth)` (the deepest chain of
+//! node-over-node sites, at most the shallower operand's depth); the
+//! walk is linear in the two streams when that chain is bounded. The
 //! C3 envelope round prices the constants (the tick rows of
 //! `tests/meter.rs`); recursion is guarded by `crate::recurse`
 //! throughout.
@@ -82,7 +89,10 @@ use super::{gamma_code, live_bits, unzigzag, zigzag_signed, Encoded};
 ///
 /// Panics if the event operand is not a canonical skyline stream — run
 /// [`validate`](fn@super::validate) first on untrusted bytes — or
-/// declares more live bits than its bytes hold.
+/// declares more live bits than its bytes hold. The id must own at
+/// least one region: an empty id leaves `fill` the identity, and the
+/// grow fallback requires an owning id (debug builds assert it; the
+/// result on an empty id is unspecified in release builds).
 pub fn tick(ev: &Encoded, id: &crate::Party) -> Encoded {
     let filled = fill(ev, id);
     if filled == *ev {
@@ -569,6 +579,10 @@ fn min_fill_rec(
 ) -> (Signed, Signed, usize) {
     let (left, right) = match id.read() {
         IdNode::Empty => return scan_extremum_from(ev, pos, first, Extremum::Min),
+        // Unreachable for canonical ids: every entry hands in a full
+        // child's *sibling* (never full — a `(1, 1)` node collapses) or
+        // a child the caller peeked as not-full. Kept so the recursion
+        // realizes the `min(fill(1, e)) = max(e)` equation totally.
         IdNode::Full => return scan_extremum_from(ev, pos, first, Extremum::Max),
         IdNode::Internal { left, right } => (left, right),
     };
