@@ -100,10 +100,12 @@ fn exhaustive_small_scope_renders_and_parses_identically() {
 }
 
 /// The kernel's grammar decisions are pinned on a deterministic
-/// accept/reject corpus: each accepted text yields the value's canonical
-/// skyline stream, and each rejected text yields the *stated* error
-/// variant — the expectation lives in the table, not in another run of
-/// the same kernel.
+/// accept/reject corpus.
+///
+/// Each accepted text yields the value's canonical skyline stream, and
+/// each rejected text yields the *stated* error variant — the
+/// expectation lives in the table, not in another run of the same
+/// kernel.
 #[test]
 fn parse_corpus_pins_the_grammar_decisions() {
     // Accepted: value-preserving leading zeros and whitespace leniency.

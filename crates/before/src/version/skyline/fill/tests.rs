@@ -55,10 +55,12 @@ fn assert_fill(v: &Version, p: &Party) {
     );
 }
 
-/// Assert the tick splice through both entry points on one pair — the
-/// module function against the public `Version::tick`, which routes to
-/// the same kernel, so this pins entry agreement and determinism, not
-/// an independent value — and that the output validates as canonical.
+/// Assert the tick splice through both entry points on one pair, and
+/// that the output validates as canonical.
+///
+/// The module function runs against the public `Version::tick`, which
+/// routes to the same kernel: this pins entry agreement and
+/// determinism, not an independent value.
 fn assert_tick(v: &Version, p: &Party) {
     let out = tick(&encode(v), p);
     let mut expected = v.clone();
@@ -205,8 +207,10 @@ fn tick_splices_fill_and_grow() {
 
 /// The version that is `1` on the leftmost `2^-depth` interval and `0`
 /// everywhere else: `depth` nested nodes, all bases zero, the single
-/// 1-leaf at the bottom left. Built as a text literal — the parser is
-/// iterative — so the expected tree shares no walk with fill or grow.
+/// 1-leaf at the bottom left.
+///
+/// Built as a text literal — the parser is iterative — so the expected
+/// tree shares no walk with fill or grow.
 fn left_spike(depth: usize) -> Version {
     let mut text = "(0, ".repeat(depth - 1);
     text.push_str("(0, 1, 0)");

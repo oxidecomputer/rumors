@@ -115,7 +115,7 @@ impl Batch<'_> {
         Ok(self.version())
     }
 
-    /// The in-progress version, for comparison (no repack).
+    /// The in-progress version, for comparison (no copy).
     ///
     /// ```
     /// use before::{Clock, Version};
