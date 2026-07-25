@@ -56,7 +56,7 @@ fn bench_tripwire(c: &mut Criterion) {
     let scale = sidecar::scale_from_env();
     let n = ((TRIPWIRE_BASE as f64) * scale).round() as usize;
     let id = format!("{GROUP}/{FUNCTION}");
-    sidecar::write_denoms(scale, [(id.as_str(), n)]);
+    sidecar::write_denoms(scale, [(id.as_str(), n, sidecar::Ceiling::General)]);
     let mut group = c.benchmark_group(GROUP);
     group.bench_function(FUNCTION, |b| b.iter(|| unmetered_quadratic(black_box(n))));
     group.finish();

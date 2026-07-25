@@ -1,8 +1,8 @@
 {
-  "notes": "The bench judge's expected-verdict roster (tools/benchjudge --roster): membership by cell name, the board-side sibling of the gate's expected-failure test roster. `red` cells are the counter-red bigroot sweeps whose cures are owned by the C2 kernel flip; `boundary` cells fit within the fit-noise band of the 1.3 ceiling (FIT_NOISE_EXPONENT_BAND in tools/benchjudge states the derivation) and may read either verdict. The `text_green`/`text_red` pair is judged at the text-conversion ceiling (MAX_TEXT_SCALING_EXPONENT states the derivation): the wide-display cell must fit under it, and the schoolbook tripwire must fit above it, every run. The red and boundary classes empty at C3; the text pair is permanent.",
+  "notes": "The bench judge's expected-verdict roster (tools/benchjudge --roster): membership by cell name, the board-side sibling of the gate's expected-failure test roster. Every cell is judged at the ceiling its bench sidecar declares (general 1.3, text 1.7; tools/benchjudge states both derivations) — this file carries expectations only and can never select a ceiling. `red` cells must be judged and read red at their own ceiling: the counter-red bigroot sweeps whose cures are owned by the C2 kernel flip, plus the permanent schoolbook display tripwire (`display_schoolbook/hugeleaf`, a text-ceiling cell: green means the tripwire went dark). `boundary` cells fit within the fit-noise band of their own ceiling (fit_noise_band in tools/benchjudge states the derivation) and may read either verdict. The bigroot set and the boundary pair empty at C3; the schoolbook expectation is permanent. The sampling pin lists both modes because these are exponent-class expectations, which hold under quick and record sampling alike (record-mode wide-pair exponents measured 1.464/2.001, 2026-07-24); the profile and the scale pair stay singly pinned. Membership is pinned by crates/before/tests/bench_judge_roster.rs.",
   "configuration": {
     "profile": "optimized",
-    "sampling": "quick",
+    "sampling": ["quick", "record"],
     "scale_lo": 1.0,
     "scale_hi": 4.0
   },
@@ -22,16 +22,11 @@
     "clock_tick/bigroot",
     "clock_join/bigroot",
     "clock_sync/bigroot",
-    "clock_recv/bigroot"
+    "clock_recv/bigroot",
+    "display_schoolbook/hugeleaf"
   ],
   "boundary": [
     "version_display/hugeleaf",
     "clock_display/hugeleaf"
-  ],
-  "text_green": [
-    "version_display_wide/hugeleaf"
-  ],
-  "text_red": [
-    "display_schoolbook/hugeleaf"
   ]
 }

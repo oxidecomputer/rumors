@@ -267,13 +267,15 @@ bench-quick target *filter:
 # per scale (the stamp binds sidecar to run: scale, profile, sampling,
 # git tip — the judge refuses mismatched pairs), and tools/benchjudge fits
 # every cell's exponent across the two (denominated against the board's own
-# per-cell bytes) at the 1.3 ceiling, red/green table. The quick recipe
-# judges through the committed roster (tools/benchjudge-expected.json:
-# expected reds, boundary cells, and the wide-display text pair by name —
-# the text pair judged at the judge's text-conversion ceiling, its
-# schoolbook member required RED; red and boundary empty at C3), so it
-# passes on the honest tree while the owned reds await their cures and
-# fails on any unexpected red OR unexpected green.
+# per-cell bytes) at the cell's own ceiling — general 1.3 for the board
+# rows, text 1.7 for the wide-display pair, the class declared per cell by
+# the bench sidecar, never by the roster — red/green table. Both judging
+# recipes judge through the committed roster (tools/benchjudge-expected.json:
+# expected reds — the 16 bigroot cells awaiting C2 plus the permanent
+# schoolbook tripwire, required RED at its text ceiling — and boundary
+# cells by name; the bigroot and boundary sets empty at C3), so they pass
+# on the honest tree while the owned reds await their cures and fail on
+# any unexpected red OR unexpected green.
 
 # Judge the board bench exponents across both scales through the roster (quick mode: iteration only).
 bench-judge:
@@ -283,14 +285,15 @@ bench-judge:
     ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
 
 # `bench-judge` at full sampling: the mode required for numbers of record.
-# Rosterless: the roster pins quick-mode expectations, so this renders the
-# honest all-green judgment and exits nonzero on any red (red until the
-# C2 cures land — instruments before cures).
+# Judged through the same roster (its sampling pin covers both modes — the
+# expectations are exponent classes, which hold under either regime), so
+# the posture is identical in both modes: roster-satisfied on the honest
+# tree, the bigroot set emptied at C3, the text expectations permanent.
 bench-judge-record:
     ./tools/benchjudge --self-test
     BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- --save-baseline board-judge-lo
     BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --save-baseline board-judge-hi
-    ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD)
+    ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
 
 # The judge's live tripwire: an unmetered machine-word quadratic (green on
 # every board counter column) must read RED through the judge; the recipe

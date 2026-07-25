@@ -63,12 +63,16 @@
 //! `n_io` = packed input bytes + rendered text bytes, output read back
 //! from an actual render.
 //!
-//! The honest cell times the crate's own `Display`; the schoolbook cell
-//! times [`schoolbook_decimal`], a per-chunk repeated-division renderer
-//! kept in bench code only, spelling the identical value (asserted at
-//! setup) — the known-quadratic class the judge's text-conversion ceiling
-//! must read RED, enforced every run through the roster
-//! (`tools/benchjudge-expected.json`: `text_green` / `text_red`).
+//! Both cells declare the text ceiling class in the sidecar
+//! (`common::sidecar::Ceiling::Text`, membership pinned by
+//! `sidecar::TEXT_CEILING_CELLS` and `tests/bench_judge_roster.rs`), so the
+//! judge fits them against its text-conversion ceiling — a property of the
+//! cells, declared here where they are defined, never by the roster. The
+//! honest cell times the crate's own `Display`; the schoolbook cell times
+//! [`schoolbook_decimal`], a per-chunk repeated-division renderer kept in
+//! bench code only, spelling the identical value (asserted at setup) — the
+//! known-quadratic class the text ceiling must read RED, enforced every run
+//! as a roster red expectation (`tools/benchjudge-expected.json`).
 
 use std::time::Duration;
 
@@ -119,25 +123,29 @@ fn bench_board(c: &mut Criterion) {
     let wide = WideDisplay::build(scale);
     // Cell IDs are `op/family` and denominators are the board's own
     // per-cell bytes, in board row order; the wide-display pair rides the
-    // same sidecar after the board rows.
-    let mut denoms: Vec<(String, usize)> = cells
+    // same sidecar after the board rows and declares the text ceiling —
+    // every board cell is judged at the general one.
+    let mut denoms: Vec<(String, usize, sidecar::Ceiling)> = cells
         .iter()
         .map(|cell| {
             (
                 format!("{}/{}", cell.op, cell.family),
                 cell.denominator_bytes(),
+                sidecar::Ceiling::General,
             )
         })
         .collect();
     denoms.push((
         format!("{WIDE_DISPLAY_GROUP}/{WIDE_DISPLAY_FAMILY}"),
         wide.n_io,
+        sidecar::Ceiling::Text,
     ));
     denoms.push((
         format!("{SCHOOLBOOK_GROUP}/{WIDE_DISPLAY_FAMILY}"),
         wide.n_io,
+        sidecar::Ceiling::Text,
     ));
-    sidecar::write_denoms(scale, denoms.iter().map(|(id, n)| (id.as_str(), *n)));
+    sidecar::write_denoms(scale, denoms.iter().map(|(id, n, c)| (id.as_str(), *n, *c)));
     let mut next = 0;
     while next < cells.len() {
         let op = cells[next].op;
