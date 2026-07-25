@@ -15,6 +15,11 @@
 //!   which carries `decode`, the gamma decoder, and the skyline
 //!   validator/decoder cursors).
 //!
+//! The wire-side `ReaderCursor` (`borsh_impls`) is deliberately unmetered:
+//! no board row prices the borsh path today, so recording there would count
+//! work nothing judges. Instrumenting it is a conscious future change that
+//! carries its own envelope recalibration.
+//!
 //! An amortized-linear walk therefore counts O(1) bits per packed input or
 //! output bit, and a fold that re-scans its accumulator counts
 //! quadratically. Relaxed ordering suffices: the metering binaries run one
