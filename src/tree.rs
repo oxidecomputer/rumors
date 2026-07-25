@@ -389,12 +389,10 @@ impl<T> Tree<T> {
         // complete no-op.
         let mut new_version = self.latest().clone();
 
-        // Hold one version `Batch` open across the whole run: each `tick`
-        // advances the version in place, and `snapshot` reads
-        // the per-action committed version that keys the leaf. This pays the
-        // unpack cost once for the batch rather than once per action — a bare
-        // `Version::tick` opens and drops its own batch (an unpack and a repack)
-        // on every call. The reactions flow into `react` lazily; the whole
+        // Hold one version `Batch` open across the whole run: the single
+        // mutable borrow under which each `tick` advances the version in
+        // place and `snapshot` reads the per-action committed version that
+        // keys the leaf. The reactions flow into `react` lazily; the whole
         // chain materializes only once, at the traversal's radix sort.
         let mut batch = new_version.batch();
         self.react(actions.into_iter().map(|action| {

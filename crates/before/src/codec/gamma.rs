@@ -1,17 +1,16 @@
 //! Elias-gamma encoding and decoding of the integers in a
 //! [`Version`](crate::Version).
 //!
-//! The normal form of a [`Version`](crate::Version) guarantees that at least
-//! half of the integers in its event tree are zero, and normalization pushes
-//! magnitude toward the root, so most stored integers are small even after
-//! many events. Elias-gamma encodes a zero in one bit and other integers in
-//! bits proportional to the log of their magnitude, so the encoding is close
-//! to minimal for this distribution.
+//! A stored [`Version`](crate::Version) codes its integers as the skyline
+//! payload stream (`version::skyline` documents the coding): the first
+//! leaf's absolute height, then one zigzag delta per later leaf. A delta's
+//! width is the height step between neighboring plateaus, which
+//! normalization keeps small in organic histories, so most stored integers
+//! are small even after many events. Elias-gamma encodes a zero in one bit
+//! and other integers in bits proportional to the log of their magnitude,
+//! so the encoding is close to minimal for this distribution.
 //!
-//! The trade-off is decode cost on every operation that examines a version.
-//! That cost buys a heap-size reduction of one to two orders of magnitude,
-//! and [`Batch`](crate::version::Batch) amortizes the decoding across a run
-//! of operations. Both directions keep that cost word-scale: the stream is
+//! Both directions keep the coding's cost word-scale: the stream is
 //! byte-backed, so a whole code is decoded from one 64-bit window
 //! ([`decode_int_window`]) and emitted with one store, with per-bit loops as
 //! the fallback — and, on decode, the sole arbiter of every reject.

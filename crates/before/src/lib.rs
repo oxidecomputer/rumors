@@ -251,13 +251,14 @@ pub mod error;
 pub use party::Party;
 pub use version::{Rank, Ranked, Version};
 pub mod batch {
-    //! [`batch::Clock`](Clock) and [`batch::Version`](Version) amortize costs
-    //! to improve performance.
+    //! [`batch::Clock`](Clock) and [`batch::Version`](Version) apply a run
+    //! of operations through one mutable borrow, each committing as it
+    //! runs, with a chainable API.
     //!
     //! ```
     //! use before::{batch, Clock};
     //! let mut clock = Clock::seed();
-    //! clock.batch().tick().tick().tick().tick();  // faster in a batch
+    //! clock.batch().tick().tick().tick().tick();  // four ticks, one borrow
     //! assert_eq!(clock.version().to_string(), "4");
     //! ```
     pub use crate::{clock::Batch as Clock, version::Batch as Version};

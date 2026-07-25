@@ -1,7 +1,7 @@
 //! A [`Clock`] is a [`Party`] paired with a [`Version`].
 //!
 //! A [`clock::Batch`](Batch) is a borrow of a `Clock` affording the same
-//! interface but faster for bulk operations.
+//! interface with chainable operations.
 
 use core::borrow::Borrow;
 use core::ops::{BitOr, BitOrAssign};
@@ -301,7 +301,8 @@ impl Clock {
 
     /// Begin a batch of operations on this clock.
     ///
-    /// Sequential operations within a batch are more efficient.
+    /// Operations within a batch chain through one mutable borrow, each
+    /// committing as it runs.
     ///
     /// ```
     /// use before::Clock;
