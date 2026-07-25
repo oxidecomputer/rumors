@@ -10,16 +10,25 @@ use super::*;
 use crate::Network;
 
 /// A fixed, non-trivial record: one network mapped to a seed clock and two of
-/// its forks.
+/// its forks, with concurrent ticks synced so the clocks carry nested,
+/// non-degenerate versions.
 ///
-/// Deterministic — `Network::from_bytes` and `Clock::seed`/`fork` draw no
+/// The ticks are load-bearing for the format pin: an all-empty record's
+/// version payloads are the two-bit empty coding, which pins nothing of the
+/// version-2 skyline payload bytes — the nested versions here put real
+/// topology and delta codes into the pinned frame. Deterministic —
+/// `Network::from_bytes` and `Clock::seed`/`fork`/`tick`/`sync` draw no
 /// randomness — so anything derived from it (a snapshot, a hash) is stable
 /// across runs.
 fn sample_record() -> BTreeMap<Network, Vec<Clock>> {
     let network = Network::from_bytes([0x5a; 16]);
     let mut clock = Clock::seed();
-    let first = clock.fork();
+    let mut first = clock.fork();
     let second = clock.fork();
+    clock.tick();
+    first.tick();
+    first.tick();
+    clock.sync(&mut first).expect("forked clocks are disjoint");
     BTreeMap::from([(network, vec![clock, first, second])])
 }
 
