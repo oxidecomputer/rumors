@@ -74,6 +74,28 @@ node/npm.
   the binary for `tests/` suites. Commit every seed file that appears,
   wherever it appears; never strip one from a diff.
 
+# Writing style
+
+- When writing user-facing documentation (all public rustdoc comments), consider
+  first *who is reading it* (the developer wanting to *use* the library) and
+  what they *need to know*. Hew to the quadrants of the Diataxis framework where
+  applicable.
+- When writing maintainer-facing documentation (all private rustdoc comments and
+  internal code comments), consider first *who is reading it* (the developer
+  wanting to *understand*, *orient*, and *modify* the library) and what they
+  *need to know*.
+- Documentation should respect the underlying abstraction boundaries of the
+  objects it documents. For example, when documenting a module, specify its
+  invariants, constraints, purpose, and guarantees, but eschew over-binding
+  definitions as to its internal structure; when writing public rustdoc, do not
+  refer to functionality which cannot be seen by someone who is not looking at
+  the source code.
+- At all levels of structure, when writing all prose, think about how to clearly
+  present the information, both concise and pedagogically. Eschew needless and
+  especially self-invented jargon except where it is clearly defined and serves
+  an expository purpose. Consider the precepts of _Style: Lessons in Clarity and
+  Grace_ as you craft prose.
+
 ## Hard rules
 
 - Nothing in the codebase refers to code that no longer exists — no
