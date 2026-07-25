@@ -269,9 +269,11 @@ bench-quick target *filter:
 # every cell's exponent across the two (denominated against the board's own
 # per-cell bytes) at the 1.3 ceiling, red/green table. The quick recipe
 # judges through the committed roster (tools/benchjudge-expected.json:
-# expected reds and boundary cells by name, emptied at C3), so it passes on
-# the honest tree while the owned reds await their cures and fails on any
-# unexpected red OR unexpected green.
+# expected reds, boundary cells, and the wide-display text pair by name —
+# the text pair judged at the judge's text-conversion ceiling, its
+# schoolbook member required RED; red and boundary empty at C3), so it
+# passes on the honest tree while the owned reds await their cures and
+# fails on any unexpected red OR unexpected green.
 
 # Judge the board bench exponents across both scales through the roster (quick mode: iteration only).
 bench-judge:
