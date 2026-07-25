@@ -2089,6 +2089,23 @@ explicitly declined. Any cell below the floor (a benign regression
 that is more than slight, an asymptotic gap, or any remaining
 exploitation surface) blocks as before.
 
+Amended 2026-07-25 (user ruling, the asymptotic bar made explicit):
+**every public operation must be subquadratic in its total input,
+worst case, and linear is the ideal** — "asymptotically optimal"
+above is not satisfied by a quadratic anywhere, on any input shape,
+adversarial or organic. Operations whose problem is fundamentally
+superlinear (radix conversion in Display/FromStr, multiplication-
+equivalent up to log factors; the n log n of comparison-ordered
+n-way folds) satisfy the bar at their problem's own optimum with
+the bound stated and priced. Under this ruling the fill/tick kernel
+as first built — worst case O(|ev| × local-id-depth), quadratic on
+matched spines — is below the bar: its linearization (deferred
+right-full decision at the cursor's arrival position; a backward
+min-fill precompute pass feeding a forward emit pass, the §9
+parent-close/two-pass genre) is a committed work item, sequenced
+after the flip so the rewrite is proven byte-identical against the
+reviewed kernel it replaces.
+
 ## 15. Adjacent findings
 
 - `Add<&Base> for &Base` clones both operands via `to_biguint()` in
