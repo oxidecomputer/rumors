@@ -11,11 +11,22 @@ version = "0.1.0"
 edition = "2024"
 readme = "README.md"
 
+# docs.rs renders every feature-gated module the crate docs advertise
+# (`conformance`), matching the gate's all-features rustdoc passes. The
+# `docsrs` cfg turns on lib.rs's `doc_auto_cfg`, so gated items self-label.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 # Test-only introspection and deterministic scheduling infrastructure.
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
 test-internals = ["tokio/rt"]
+# The public conformance suite for caller-built `Link` implementations:
+# enable from a dev-dependency to validate a custom transport against the
+# link contract. Documented; safe (though pointless) in an application.
+conformance = []
 # The original strictly alternating wire protocol (`Protocol::V1`), kept for
 # wire compatibility with V1 peers and comparative measurement. Off by
 # default: its per-height state machines are a large monomorphization
@@ -44,7 +55,7 @@ async-stream = "0.3"
 rand = "0.8"
 
 [dev-dependencies]
-rumors = { path = ".", features = ["test-internals"] }
+rumors = { path = ".", features = ["test-internals", "conformance"] }
 before = { path = "crates/before", features = ["borsh"] }
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -56,6 +67,9 @@ tokio = { version = "1", features = [
     "io-util",
     "net",
     "time",
+    # Paused-clock runtimes: the latency benchmarks charge simulated wire
+    # delay to virtual time so sweeps cost wall-clock compute only.
+    "test-util",
 ] }
 clap = { version = "4", features = ["derive"] }
 rand = { version = "0.8", features = ["small_rng"] }
@@ -66,9 +80,20 @@ ratatui = "0.30"
 [profile.dev]
 debug = "line-tables-only"
 
+# Profiling the benches needs symbolicated stacks; line tables are enough
+# for samply/Instruments without the compile-time cost of full debug info.
+[profile.bench]
+debug = "line-tables-only"
+
 [[example]]
 name = "swarm"
 path = "examples/swarm.rs"
+# The steady-state controller's convergence tests live in the example.
+test = true
+
+[[bench]]
+name = "branch_hash"
+harness = false
 
 [[bench]]
 name = "in_memory"
@@ -83,5 +108,5 @@ name = "gossip_fixed"
 harness = false
 
 [[bench]]
-name = "branch_hash"
+name = "window_wallclock"
 harness = false

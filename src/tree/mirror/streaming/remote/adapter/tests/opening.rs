@@ -1,24 +1,34 @@
-//! The distinguished opening question and its write-before-publish contract.
+//! The distinguished opening reply: the question that rides the greeting,
+//! and the early supplies that trail it.
+//!
+//! No wire frame exists for the opening question: [`opening_parts`]
+//! validates the locally produced opening reply and splits it into the
+//! listing the root scope derives from and the early supplies that do
+//! cross, while [`opening_reply`] replays the peer greeting's listing as
+//! the message the responder answers. The two must agree on the scope,
+//! since one side builds it from its own message and the other from the
+//! listing that crossed the wire.
 
 use before::Version;
+use futures::{TryStreamExt, stream};
 
 use crate::message::Message;
 use crate::tree::{
     mirror::streaming::{
         Local,
         message::{Reaction, Reply},
+        remote::codec::{End, Flow, Frame, Reaction as WireReaction},
     },
     typed::{
-        self,
+        self, Prefix,
         height::{Height, S, UnderRoot, Z},
     },
 };
 
 use super::{
-    super::{OpeningError, Scope, decode_opening, encode_opening},
-    hash, runtime,
+    super::{DecodeError, OpeningError, Scope, early_supplies, opening_parts, opening_reply},
+    LeafCase, hash, leaf_run, runtime,
 };
-use crate::tree::mirror::streaming::remote::codec::{End, Flow, Frame, Reaction as WireReaction};
 
 trait OpeningNode: Height {
     fn node() -> typed::Node<(), Self>;
@@ -39,104 +49,218 @@ where
     }
 }
 
-/// The exceptional opening query round-trips while deriving its implicit root scope.
+/// The local opening's listing derives the same scope the remote side
+/// replays from the listing carried in the greeting.
 #[test]
-fn opening_round_trips_with_its_root_scope() {
+fn opening_listing_agrees_with_greeting_replay() {
     let listing = vec![(3, hash(1)), (9, hash(2))];
     let reply = Reply::<Local, (), UnderRoot> {
         replies: vec![Reaction::Query(listing.clone())],
     };
 
-    let encoded = encode_opening(reply).expect("canonical opening");
-    let (frame, question) = encoded.into_parts();
-    let scope = question.expect("opening publishes its question");
-    assert_eq!(scope, Scope::opening(&listing));
+    let (split, supplies) = opening_parts(reply).expect("canonical opening");
+    assert_eq!(split, listing);
+    assert!(supplies.is_empty(), "no supplies trailed the question");
+    let scope = Scope::opening(&split);
 
-    let (decoded, decoded_scope) = decode_opening::<Local, ()>(frame).expect("opening decodes");
-    assert_eq!(decoded_scope, scope);
-    let [Reaction::Query(decoded)] = decoded.replies.as_slice() else {
-        panic!("opening must remain one query")
+    let (replayed, replayed_scope) = opening_reply::<Local, ()>(listing.clone());
+    assert_eq!(replayed_scope, scope);
+    let [Reaction::Query(replayed)] = replayed.replies.as_slice() else {
+        panic!("the replayed opening must remain one query")
     };
-    assert_eq!(decoded, &listing);
+    assert_eq!(replayed, &listing);
 }
 
-/// A derived question becomes visible only after its frame is successfully written.
+/// Early supplies trailing the opening question split off intact, in order.
 #[test]
-fn a_question_is_released_only_after_its_writer_succeeds() {
+fn opening_supplies_split_off_the_question() {
     let listing = vec![(3, hash(1))];
-    let reply = || Reply::<Local, (), UnderRoot> {
-        replies: vec![Reaction::Query(listing.clone())],
+    let reply = Reply::<Local, (), UnderRoot> {
+        replies: vec![
+            Reaction::Query(listing.clone()),
+            Reaction::Supply(5, UnderRoot::node()),
+            Reaction::Supply(9, UnderRoot::node()),
+        ],
     };
-
-    let failed = runtime().block_on(
-        encode_opening(reply())
-            .expect("canonical opening")
-            .write_with(|_frame| async { Err::<(), _>("write failed") }),
-    );
-    assert_eq!(failed, Err("write failed"));
-
-    let question = runtime()
-        .block_on(
-            encode_opening(reply())
-                .expect("canonical opening")
-                .write_with(|frame| async move {
-                    assert!(matches!(
-                        frame,
-                        Frame::Reaction(WireReaction::Query(_), Flow::End)
-                    ));
-                    Ok::<_, &str>(())
-                }),
-        )
-        .expect("successful write releases the question")
-        .expect("opening asks one question");
-    assert_eq!(question, Scope::opening(&listing));
+    let (split, supplies) = opening_parts(reply).expect("canonical opening with supplies");
+    assert_eq!(split, listing);
+    let radices: Vec<u8> = supplies
+        .iter()
+        .map(|reaction| match reaction {
+            Reaction::Supply(radix, _) => *radix,
+            _ => panic!("only supplies trail the opening question"),
+        })
+        .collect();
+    assert_eq!(radices, [5, 9]);
 }
 
-/// Every semantic opening shape is either the one valid query or its exact typed rejection.
+/// An empty carried listing replays the empty-tree initiator's opening: one
+/// empty `Query`, meaning "I lack the root, send everything", with a root
+/// scope holding no positional children.
+#[test]
+fn empty_listing_replays_the_empty_opening() {
+    let (replayed, mut scope) = opening_reply::<Local, ()>(Vec::new());
+    let [Reaction::Query(listing)] = replayed.replies.as_slice() else {
+        panic!("the replayed opening must be one query")
+    };
+    assert!(listing.is_empty());
+    assert_eq!(scope, Scope::opening(&[]));
+    assert_eq!(scope.next(), None, "an empty root scope positions nothing");
+}
+
+/// The opening-supply reply decodes into whole root children, one per
+/// content-derived radix group, in ascending radix order.
+#[test]
+fn opening_supplies_decode_by_radix_group() {
+    // Enough cases that at least two distinct first bytes exist; the
+    // content-derived paths pick the grouping.
+    let mut cases: Vec<LeafCase> = (0..6).map(|i| LeafCase::new(1_000 + i, 1)).collect();
+    cases.sort_by_key(LeafCase::path);
+    let first_byte = |case: &LeafCase| <[u8; 32]>::from(case.path())[0];
+    let mut groups: Vec<Vec<&LeafCase>> = Vec::new();
+    for case in &cases {
+        match groups.last_mut() {
+            Some(group) if first_byte(group[0]) == first_byte(case) => {
+                group.push(case);
+            }
+            _ => groups.push(vec![case]),
+        }
+    }
+    assert!(groups.len() >= 2, "the fixture must span two root children");
+
+    let mut frames: Vec<Frame<u64>> = groups
+        .iter()
+        .map(|group| {
+            let records: Vec<_> = group
+                .iter()
+                .map(|case| (&case.version, &case.message))
+                .collect();
+            Frame::Reaction(WireReaction::Supply(leaf_run(&records)), Flow::Continue)
+        })
+        .collect();
+    let closing = match frames.pop().expect("at least one group") {
+        Frame::Reaction(reaction, _) => Frame::Reaction(reaction, Flow::End),
+        end => end,
+    };
+    frames.push(closing);
+
+    let decoded: Vec<(u8, _)> = runtime()
+        .block_on(
+            early_supplies::<Local, u64, UnderRoot, _>(
+                Local,
+                u64::MAX,
+                Prefix::new(),
+                stream::iter(frames),
+            )
+            .try_collect(),
+        )
+        .expect("a canonical opening-supply reply decodes");
+    let radices: Vec<u8> = decoded.iter().map(|(radix, _)| *radix).collect();
+    let expected: Vec<u8> = groups.iter().map(|group| first_byte(group[0])).collect();
+    assert_eq!(radices, expected, "one node per group, in radix order");
+    for ((_, node), group) in decoded.iter().zip(&groups) {
+        assert_eq!(
+            node.len(),
+            group.len(),
+            "each node holds its group's leaves"
+        );
+    }
+}
+
+/// An empty opening-supply reply — the whole early set pruned away —
+/// decodes to no supplies at all.
+#[test]
+fn empty_opening_supply_reply_decodes_to_nothing() {
+    let frames: Vec<Frame<u64>> = vec![Frame::End(End::Reply)];
+    let decoded: Vec<(u8, _)> = runtime()
+        .block_on(
+            early_supplies::<Local, u64, UnderRoot, _>(
+                Local,
+                u64::MAX,
+                Prefix::new(),
+                stream::iter(frames),
+            )
+            .try_collect(),
+        )
+        .expect("an empty batch decodes cleanly");
+    assert!(decoded.is_empty());
+}
+
+/// The opening-supply stream carries exactly one reply: frames after its
+/// end are rejected, not absorbed into a phantom second reply.
+#[test]
+fn second_opening_supply_reply_is_rejected() {
+    let frames: Vec<Frame<u64>> = vec![Frame::End(End::Reply), Frame::End(End::Reply)];
+    let error = runtime()
+        .block_on(async {
+            early_supplies::<Local, u64, UnderRoot, _>(
+                Local,
+                u64::MAX,
+                Prefix::new(),
+                stream::iter(frames),
+            )
+            .try_collect::<Vec<_>>()
+            .await
+        })
+        .expect_err("a second reply on the opening-supply stream is invalid");
+    assert!(matches!(error, DecodeError::ExtraOpeningReply));
+}
+
+/// Positional reactions are unrepresentable in the opening-supply grammar;
+/// an in-process one is rejected as unpositioned.
+#[test]
+fn positional_reaction_in_opening_supplies_is_rejected() {
+    let frames: Vec<Frame<u64>> = vec![Frame::Reaction(WireReaction::Match, Flow::End)];
+    let error = runtime()
+        .block_on(async {
+            early_supplies::<Local, u64, UnderRoot, _>(
+                Local,
+                u64::MAX,
+                Prefix::new(),
+                stream::iter(frames),
+            )
+            .try_collect::<Vec<_>>()
+            .await
+        })
+        .expect_err("the opening supplies admit no positional reaction");
+    assert!(matches!(
+        error,
+        DecodeError::Scope(super::super::ScopeError::UnpositionedMatch)
+    ));
+}
+
+/// Every semantic opening shape is either the canonical query-then-supplies
+/// form or its exact typed rejection.
 #[test]
 fn opening_rejections_are_exhaustive() {
-    for count in 0..=3 {
+    let empty = Reply::<Local, (), UnderRoot> {
+        replies: Vec::new(),
+    };
+    assert_eq!(opening_parts(empty).err(), Some(OpeningError::Empty));
+
+    for count in 1..=3 {
         let reply = Reply::<Local, (), UnderRoot> {
             replies: (0..count).map(|_| Reaction::Match).collect(),
         };
-        let expected = if count == 1 {
-            OpeningError::NotQuery
-        } else {
-            OpeningError::ReactionCount { count }
-        };
-        assert_eq!(encode_opening(reply).err(), Some(expected));
+        assert_eq!(opening_parts(reply).err(), Some(OpeningError::NotQuery));
     }
+
     let supplied = Reply::<Local, (), UnderRoot> {
         replies: vec![Reaction::Supply(0, UnderRoot::node())],
     };
-    assert_eq!(encode_opening(supplied).err(), Some(OpeningError::NotQuery));
+    assert_eq!(opening_parts(supplied).err(), Some(OpeningError::NotQuery));
 
-    let flows = [Flow::Continue, Flow::End];
-    let bodies = [
-        WireReaction::Match,
-        WireReaction::Query(Vec::new()),
-        WireReaction::Query(vec![(1, hash(1))]),
-        WireReaction::Supply(Version::new(), Message::new(())),
-    ];
-    let mut checked = 0;
-    for body in bodies {
-        for flow in flows {
-            let valid = matches!(body, WireReaction::Query(_)) && flow == Flow::End;
-            let decoded = decode_opening::<Local, ()>(Frame::Reaction(body.clone(), flow));
-            if valid {
-                decoded.expect("a reply-ending query is the canonical opening");
-            } else {
-                assert_eq!(decoded.err(), Some(OpeningError::InvalidFrame));
-            }
-            checked += 1;
-        }
-    }
-    for end in [End::Reply, End::Stream] {
-        assert_eq!(
-            decode_opening::<Local, ()>(Frame::End(end)).err(),
-            Some(OpeningError::InvalidFrame)
-        );
-        checked += 1;
-    }
-    assert_eq!(checked, 10);
+    // A non-supply reaction anywhere behind the question is rejected at
+    // its whole-reply position.
+    let trailing = Reply::<Local, (), UnderRoot> {
+        replies: vec![
+            Reaction::Query(vec![(3, hash(1))]),
+            Reaction::Supply(5, UnderRoot::node()),
+            Reaction::Match,
+        ],
+    };
+    assert_eq!(
+        opening_parts(trailing).err(),
+        Some(OpeningError::NotSupply { index: 2 })
+    );
 }

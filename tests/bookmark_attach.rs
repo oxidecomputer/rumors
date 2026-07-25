@@ -16,31 +16,37 @@ use rumors::{Peer, Rumors, Unbookmarked};
 use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::wire::tokio_block_on as block_on;
 
-/// Capacity for the in-memory duplex carrying a bootstrap session.
-const DUPLEX_BUF: usize = 64 * 1024;
+/// Capacity for each in-memory link stream carrying a bootstrap session.
+const LINK_BUF: usize = 64 * 1024;
 
 /// Bootstrap a fresh, still-unbookmarked peer from `server` over a clean
-/// in-process duplex. Both sides run as spawned tasks so a finished one drops
-/// its halves; the wires are reliable, so the bootstrap succeeds.
+/// in-memory link. Both sides run as spawned tasks so a finished one drops
+/// its end; the wires are reliable, so the bootstrap succeeds.
 async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) -> Peer<String> {
     let server = server.clone();
-    let (boot_side, serve_side) = tokio::io::duplex(DUPLEX_BUF);
-    let (mut boot_r, mut boot_w) = tokio::io::split(boot_side);
-    let (mut serve_r, mut serve_w) = tokio::io::split(serve_side);
-    let boot =
-        tokio::spawn(async move { Peer::<String>::bootstrap(&mut boot_r, &mut boot_w).await });
-    let serve = tokio::spawn(async move { server.gossip(&mut serve_r, &mut serve_w).await });
+    let (boot_link, serve_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let boot = tokio::spawn(async move {
+        let mut link = boot_link;
+        Peer::<String>::bootstrap().join(&mut link).await
+    });
+    let serve = tokio::spawn(async move {
+        let mut link = serve_link;
+        server.gossip(&mut link).await
+    });
     let (boot_out, serve_out) = tokio::join!(boot, serve);
     serve_out.unwrap().expect("serve the bootstrap");
     boot_out
         .unwrap()
         .expect("bootstrap ok")
         .expect("got a peer")
+        .sync_window_floor()
 }
 
 /// Bookmarking a pristine seed touches no storage: a content-free, never-forked
 /// seed has no identity worth recording, so the first write is deferred to the
-/// first gossip. The fault schedule would *fail* a write, so a clean `Ok` is
+/// first gossip.
+///
+/// The fault schedule would *fail* a write, so a clean `Ok` is
 /// itself proof that none was attempted.
 #[test]
 fn pristine_seed_attaches_without_touching_storage() {
@@ -50,6 +56,7 @@ fn pristine_seed_attaches_without_touching_storage() {
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults, 0);
 
         let _peer = Peer::<String>::seed()
+            .sync_window_floor()
             .bookmark(bookmark)
             .await
             .expect("a pristine seed attaches without attempting a write");
@@ -63,13 +70,15 @@ fn pristine_seed_attaches_without_touching_storage() {
 
 /// A failed persist hands the peer back, intact and unbookmarked: the identity
 /// is not lost, the store is left untouched, and re-attaching over healthy
-/// storage then succeeds and records it. The peer must already *know* something
+/// storage then succeeds and records it.
+///
+/// The peer must already *know* something
 /// — here, one sent message advancing its frontier — or the pristine-seed
 /// shortcut would skip the write the failure rides on.
 #[test]
 fn failed_persist_returns_peer_for_retry() {
     block_on(async {
-        let rumors = Peer::<String>::seed().into_rumors();
+        let rumors = Peer::<String>::seed().sync_window_floor().into_rumors();
         rumors.send("the meeting is at noon".to_string());
         let peer = rumors.try_into_peer().await.expect("sole handle");
         let network = peer.network();
@@ -113,7 +122,9 @@ fn failed_persist_returns_peer_for_retry() {
 }
 
 /// A failed attach must never leave a *reclaimed* region live in the handed-back
-/// peer while it stays stranded on disk. This is the recycle hazard the gossip
+/// peer while it stays stranded on disk.
+///
+/// This is the recycle hazard the gossip
 /// persist gate cannot catch, precisely because the handed-back peer is
 /// unbookmarked (its `bookmark_update` is the infallible no-op of `NoBookmark`,
 /// so nothing stops it from gossiping the region).
@@ -132,6 +143,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
         // A seeds network N over a reliable store and gossips it onward.
         let store_a = Arc::new(Mutex::new(None));
         let a = Peer::<String>::seed()
+            .sync_window_floor()
             .bookmark(FlakyInMemoryBookmark::new(store_a, reliable(), 0))
             .await
             .expect("the seed attaches")

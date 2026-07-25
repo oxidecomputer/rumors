@@ -8,13 +8,20 @@
 use bitvec::prelude::*;
 use proptest::prelude::*;
 
-use super::{decode_int, encode_int, Base, Bits};
+use proptest::test_runner::TestCaseError;
+
+use super::{
+    bytes_as_bits, decode_int, decode_int_from, encode_int, skip_int, Base, BitCursor, Bits,
+    BitsSlice, SliceCursor, PARSE_STACK_INLINE,
+};
 use crate::oracle;
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{
+    arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
+};
 use crate::testing::optrace::{run, versions, world_strategy};
 use crate::{error::Decode, Clock, Party, Version};
 
@@ -94,6 +101,272 @@ fn gamma_truncated() {
     assert!(matches!(decode_int(&empty, 0), Err(Decode::Truncated)));
     let zeros: Bits = bitvec![u8, Msb0; 0, 0, 0, 0, 0];
     assert!(matches!(decode_int(&zeros, 0), Err(Decode::Truncated)));
+}
+
+// ───────────────── word-window fast paths (differential) ─────────────────
+//
+// `encode_int`, `decode_int`, and `skip_int` each carry a word-wise fast path
+// riding on `gamma::decode_int_window` / `store_be`; the per-bit loop is the
+// specification. These tests pin the fast paths to it differentially, with
+// generators seeded at the window-edge boundaries (prefix length 31/32 around
+// the window's widest provable code, 63/64/65 around the word width, codes
+// straddling the window edge, streams ending mid-code) where a window bug
+// would hide.
+
+/// The per-bit reference emitter, the encode-side differential oracle:
+/// unary prefix then MSB-first mantissa, one push per bit.
+fn encode_int_bitwise(out: &mut Bits, n: &Base) {
+    let m = n + 1u32;
+    let k = m.bits() - 1;
+    for _ in 0..k {
+        out.push(false);
+    }
+    for i in (0..=k).rev() {
+        out.push(m.bit(i));
+    }
+}
+
+/// The per-bit reference `skip_int`, the skip-side differential oracle:
+/// counts the unary prefix, then steps over the mantissa bit by bit.
+fn skip_int_bitwise(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
+    let mut k = 0usize;
+    loop {
+        let idx = pos + k;
+        if idx >= bits.len() {
+            return Err(Decode::Truncated);
+        }
+        if bits[idx] {
+            break;
+        }
+        k += 1;
+    }
+    let end = pos + (2 * k) + 1;
+    if end > bits.len() {
+        Err(Decode::Truncated)
+    } else {
+        Ok(end)
+    }
+}
+
+/// Assert `decode_int` (windowed) agrees with the pure bit loop at `pos`:
+/// same accept/reject, same error variant, same value, same end position.
+fn assert_decode_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), TestCaseError> {
+    let subject = decode_int(bits, pos);
+    let mut cursor = SliceCursor::new(bits, pos);
+    let oracle = decode_int_from(&mut cursor);
+    match (subject, oracle) {
+        (Ok((value, end)), Ok(oracle_value)) => {
+            prop_assert_eq!(value, oracle_value);
+            prop_assert_eq!(end, cursor.position());
+        }
+        (Err(s), Err(o)) => {
+            prop_assert_eq!(std::mem::discriminant(&s), std::mem::discriminant(&o));
+        }
+        (s, o) => prop_assert!(false, "decode disagreement at {}: {:?} vs {:?}", pos, s, o),
+    }
+    Ok(())
+}
+
+/// Assert `skip_int` (windowed) agrees with the per-bit reference at `pos` on
+/// distance and error variant.
+fn assert_skip_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), TestCaseError> {
+    match (skip_int(bits, pos), skip_int_bitwise(bits, pos)) {
+        (Ok(s), Ok(o)) => prop_assert_eq!(s, o),
+        (Err(s), Err(o)) => {
+            prop_assert_eq!(std::mem::discriminant(&s), std::mem::discriminant(&o));
+        }
+        (s, o) => prop_assert!(false, "skip disagreement at {}: {:?} vs {:?}", pos, s, o),
+    }
+    Ok(())
+}
+
+/// `u64` values biased toward power-of-two boundaries, where the gamma code
+/// length steps and the emitter's word/loop split sits.
+fn arb_boundary_u64() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        any::<u64>(),
+        (0u32..64).prop_map(|b| 1u64 << b),
+        (0u32..64).prop_map(|b| (1u64 << b) - 1),
+        (0u32..63).prop_map(|b| (1u64 << b) + 1),
+        Just(u64::MAX),
+    ]
+}
+
+/// Bit streams shaped like gamma codes at every window boundary.
+///
+/// `pad` positions the read mid-byte, `zeros` spans prefix lengths across the
+/// 31/32 window split and the 63/64/65 word widths, and `rest` supplies — or,
+/// when short, truncates — the mantissa, plus trailing junk.
+fn arb_gamma_stream() -> impl Strategy<Value = (Bits, usize)> {
+    (
+        proptest::collection::vec(any::<bool>(), 0..17),
+        prop_oneof![
+            0usize..=70,
+            Just(31usize),
+            Just(32usize),
+            Just(63usize),
+            Just(64usize),
+            Just(65usize),
+        ],
+        proptest::collection::vec(any::<bool>(), 0..80),
+    )
+        .prop_map(|(pad, zeros, rest)| {
+            let pos = pad.len();
+            let mut bits = Bits::new();
+            bits.extend(pad);
+            for _ in 0..zeros {
+                bits.push(false);
+            }
+            bits.extend(rest);
+            (bits, pos)
+        })
+}
+
+proptest! {
+    /// The word-wise `encode_int` is byte-identical to the per-bit emitter.
+    ///
+    /// Holds for every value — `u64`-range codes (the `store_be` path) and
+    /// spilled `Base::Big` values alike — even appending at an unaligned
+    /// mid-stream position; and the windowed decoder reads its output back
+    /// exactly.
+    #[test]
+    fn gamma_word_encode_matches_bit_encode(
+        prefix in proptest::collection::vec(any::<bool>(), 0..17),
+        n in arb_boundary_u64(),
+        limbs in proptest::collection::vec(any::<u64>(), 0..3),
+    ) {
+        let mut value = Base::from(n);
+        for limb in limbs {
+            value = (value << 64) | Base::from(limb);
+        }
+        let pos = prefix.len();
+        let mut word = Bits::new();
+        let mut bit = Bits::new();
+        for b in prefix {
+            word.push(b);
+            bit.push(b);
+        }
+        encode_int(&mut word, &value);
+        encode_int_bitwise(&mut bit, &value);
+        prop_assert_eq!(&word, &bit);
+
+        // Word-decode of the word-encode round-trips value and position.
+        let (decoded, end) = decode_int(&word, pos).expect("well-formed");
+        prop_assert_eq!(decoded, value);
+        prop_assert_eq!(end, word.len());
+    }
+}
+
+proptest! {
+    /// On window-boundary streams, windowed `decode_int` and `skip_int`
+    /// behave exactly like the per-bit loops.
+    ///
+    /// Agreement covers accept/reject, error variant, value, and consumed
+    /// bits — at the code position, near and past the stream end, and on a
+    /// mid-byte re-slice (where the window declines and only the loop runs).
+    #[test]
+    fn gamma_word_decode_matches_bit_loop(
+        (bits, pos) in arb_gamma_stream(),
+        extra in 0usize..3,
+    ) {
+        assert_decode_matches_bit_loop(&bits, pos)?;
+        assert_skip_matches_bit_loop(&bits, pos)?;
+
+        // The end of the stream, just before it, and past it.
+        assert_decode_matches_bit_loop(&bits, bits.len().saturating_sub(extra))?;
+        assert_skip_matches_bit_loop(&bits, bits.len().saturating_sub(extra))?;
+        assert_decode_matches_bit_loop(&bits, bits.len() + extra)?;
+        assert_skip_matches_bit_loop(&bits, bits.len() + extra)?;
+
+        // A slice whose origin is mid-byte in its backing store.
+        if !bits.is_empty() {
+            assert_decode_matches_bit_loop(&bits[1..], pos.saturating_sub(1))?;
+            assert_skip_matches_bit_loop(&bits[1..], pos.saturating_sub(1))?;
+        }
+    }
+}
+
+proptest! {
+    /// On arbitrary raw byte streams — mostly invalid input — the windowed
+    /// `decode_int` and `skip_int` agree with the per-bit loops on
+    /// accept/reject, error variant, value, and consumed bits at every
+    /// position.
+    #[test]
+    fn gamma_word_paths_match_on_arbitrary_bytes(
+        bytes in proptest::collection::vec(any::<u8>(), 0..12),
+        pos in 0usize..104,
+    ) {
+        let bits = bytes_as_bits(&bytes);
+        assert_decode_matches_bit_loop(bits, pos)?;
+        assert_skip_matches_bit_loop(bits, pos)?;
+    }
+}
+
+/// The window decoder accepts a code exactly filling its 64 provable bits and
+/// declines one bit past that; junk after a code never leaks into the mantissa.
+///
+/// Prefix `k = 31` (a 63-bit code) is the widest code one window proves and
+/// must decode; `k = 32` (65 bits) straddles the window edge and must fall
+/// back — where the bit loop still decodes it — as must the 63-bit code cut
+/// one bit short of complete.
+#[test]
+fn gamma_window_edge() {
+    use super::gamma::decode_int_window;
+
+    // k = 31: the widest code a 64-bit window proves.
+    let n = (1u64 << 31) - 1;
+    let mut bits = Bits::new();
+    encode_int(&mut bits, &Base::from(n));
+    assert_eq!(bits.len(), 63);
+    assert_eq!(decode_int_window(&bits, 0), Some((n, 63)));
+
+    // The same code cut one bit short: nothing provable, decline.
+    assert_eq!(decode_int_window(&bits[..62], 0), None);
+
+    // k = 32: a 65-bit code straddles the window edge — decline, and the
+    // full decoder still reads it through the loop.
+    let n = (1u64 << 32) - 1;
+    let mut bits = Bits::new();
+    encode_int(&mut bits, &Base::from(n));
+    assert_eq!(bits.len(), 65);
+    assert_eq!(decode_int_window(&bits, 0), None);
+    let (decoded, end) = decode_int(&bits, 0).expect("well-formed");
+    assert_eq!(decoded, Base::from(n));
+    assert_eq!(end, 65);
+
+    // Junk after a short code must not leak into its mantissa.
+    let mut bits = Bits::new();
+    encode_int(&mut bits, &Base::from(5u64));
+    let code_len = bits.len();
+    for _ in 0..64 {
+        bits.push(true);
+    }
+    assert_eq!(decode_int_window(&bits, 0), Some((5, code_len)));
+}
+
+/// The window decoder never guesses at unprovable input: a slice whose origin
+/// is mid-byte, a position at or past the stream end, and an all-zeros
+/// (truncated) stream all decline to the bit loop.
+#[test]
+fn gamma_window_declines_conservatively() {
+    use super::gamma::decode_int_window;
+
+    let mut bits = Bits::new();
+    bits.push(false);
+    bits.push(true);
+
+    // Mid-byte slice origin: no byte view, decline — but the same bit
+    // addressed as (whole slice, pos) has one, and the fast path fires.
+    assert_eq!(decode_int_window(&bits[1..], 0), None);
+    assert_eq!(decode_int_window(&bits, 1), Some((0, 2)));
+
+    // At and past the end of the stream.
+    assert_eq!(decode_int_window(&bits, 2), None);
+    assert_eq!(decode_int_window(&bits, 7), None);
+
+    // All zeros: no terminating 1 in the stream (bit loop: `Truncated`).
+    let zeros = Bits::repeat(false, 70);
+    assert_eq!(decode_int_window(&zeros, 0), None);
 }
 
 // ───────────────────────── decode∘encode round-trip ─────────────────────────
@@ -634,4 +907,41 @@ proptest! {
             );
         }
     }
+}
+
+// ───────────────────────────── parse stacks ─────────────────────────────
+
+/// Trees deeper than the parsers' inline stack capacity spill to the heap
+/// with behavior unchanged: they still validate, encode, and round-trip
+/// exactly.
+///
+/// The tree parsers keep their explicit stacks in [`PARSE_STACK_INLINE`]
+/// inline frames; a deeper tree moves the frames to the heap mid-parse. A
+/// right-spine event tree and a left-spine id tree three times that depth
+/// cross the spill boundary in both parsers (and, since the spill happens
+/// while ancestors are still open, the spilled frames must survive to
+/// complete the normal-form checks on the way back up).
+#[test]
+fn parse_stacks_spill_past_inline_capacity() {
+    const DEPTH: usize = 3 * PARSE_STACK_INLINE;
+
+    // Event tree: a right spine `(1, 0, (1, 0, … 2))`. Every node has a
+    // base-0 left leaf, and the innermost pair of leaves differ, so the
+    // whole spine is canonical.
+    let mut spine = String::from("2");
+    for _ in 0..DEPTH {
+        spine = format!("(1, 0, {spine})");
+    }
+    let version: Version = spine.parse().expect("a deep right spine is canonical");
+    assert_eq!(
+        Version::decode(&version.encode()[..]).expect("deep event tree decodes"),
+        version,
+    );
+
+    // Id tree: a left spine, one frame per level in `parse_id_from`.
+    let party = deep_left_spine_party(DEPTH);
+    assert_eq!(
+        Party::decode(&party.encode()[..]).expect("deep id tree decodes"),
+        party,
+    );
 }

@@ -7,10 +7,9 @@
 //! measurement reflects the tree / clock / hashing work rather than the cost
 //! of serializing a payload.
 //!
-//! The handles here are the asynchronous [`rumors::Rumors`] and its
-//! [`Messages`] observer: every operation measured is synchronous on that
-//! surface (batches commit on drop; observer drains are polled without an
-//! executor via `now_or_never`), so no runtime is involved.
+//! The handles here are the asynchronous [`rumors::Rumors`] and its message
+//! observers: every operation measured is synchronous on that surface
+//! (batches commit on drop), so no runtime is involved.
 //!
 //! # Fixture discipline
 //!
@@ -30,8 +29,8 @@
 //! - `range_delta`: iterate the causal delta of size D above a checkpoint in a
 //!   size-N set — the version-bounds pruning claim: cost should track D
 //!   plus the pruning frontier, not N.
-//! - `observer_replay`: drain a fresh [`Messages`] observer over a size-N
-//!   set (the genesis-replay pass every new observer pays).
+//! - `observer_replay`: drain a fresh [`UnorderedMessages`] observer over a
+//!   size-N set (the genesis-replay pass every new observer pays).
 //! - `observer_delta`: one observer pass over a size-D delta in a size-N
 //!   set (the steady-state cost of an up-to-date observer catching up).
 //! - `causal_replay` / `causal_delta`: the same two sweeps through a
@@ -269,8 +268,10 @@ fn drain_causal(observer: &mut CausalMessages<()>) -> usize {
 
 /// `causal_replay`: a fresh causal observer's genesis pass over a size-N
 /// set: the price of causal delivery on top of [`bench_observer_replay`]'s
-/// plain pass. Reordering must buffer, so the causal pass stages every leaf
-/// in a rank-ordered map before the first item comes out; comparing the two
+/// plain pass.
+///
+/// Reordering must buffer, so the causal pass stages every leaf in a
+/// rank-ordered map before the first item comes out; comparing the two
 /// groups column-for-column is the cost of that staging.
 fn bench_causal_replay(c: &mut Criterion) {
     let mut group = c.benchmark_group("causal_replay");
@@ -319,8 +320,8 @@ fn bench_causal_delta(c: &mut Criterion) {
 /// `get`: a point lookup by key — one `O(depth)` descent, never a scan.
 ///
 /// Lookups go through [`snapshot`](Rumors::snapshot), so the timed body pays
-/// for acquiring the root handle plus the descent — the same per-call shape
-/// the old handle-level `get` had.
+/// for acquiring the root handle plus the descent: the whole per-call cost
+/// of a point read through the public API.
 fn bench_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("get");
     for &n in SIZES {

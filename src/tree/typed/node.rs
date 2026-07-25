@@ -198,12 +198,36 @@ impl<T, H: Height> Node<T, H> {
         self.inner.len()
     }
 
+    /// The largest canonical [`Version`] encoding among every bound this
+    /// subtree holds — leaf versions and every branch's ceiling and
+    /// floor — in bytes.
+    ///
+    /// Exact under deletion, like [`len`](Self::len): every mutation
+    /// rebuilds its copy-on-write spine through the branch constructors
+    /// with fresh memos, so the max is recomputed lazily from what
+    /// remains.
+    pub fn version_bytes(&self) -> usize {
+        self.inner.version_bytes()
+    }
+
+    /// The largest canonical encoding among every version bound in this
+    /// subtree, recomputed by direct walk with no aggregate memo.
+    ///
+    /// The independent oracle [`version_bytes`](Self::version_bytes) is
+    /// pinned against; see the
+    /// [untyped walk](untyped::Node::max_bound_bytes).
+    #[cfg(any(test, feature = "test-internals"))]
+    pub fn max_bound_bytes(&self) -> usize {
+        self.inner.max_bound_bytes()
+    }
+
     /// Whether this node's content is a single leaf, regardless of any
     /// path-compressed prefix above it.
     ///
-    /// For such a node `version` is also the meet of its leaves, so a single
-    /// version comparison decides whether the whole (compressed) subtree is
-    /// kept or dropped — no need to explode it.
+    /// A leaf carries exactly one version, so its [`floor`](Self::floor) and
+    /// [`ceiling`](Self::ceiling) coincide: a single version comparison
+    /// decides whether the whole (compressed) subtree is kept or dropped —
+    /// no need to explode it.
     pub fn is_leaf(&self) -> bool {
         self.inner.is_leaf()
     }
@@ -222,13 +246,68 @@ impl<T, H: Height> Node<T, H> {
     /// of a freshly-built subtree costs `O(nodes)` and every read thereafter is
     /// an `O(1)` field load.
     ///
-    /// The hashing convention (see [`Hash::branch`] and [`Hash::leaf`]): a leaf
-    /// hashes to `blake3(LEAF_TAG)`; a branch to `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖
-    /// …)` over its children in ascending radix order. Hashing does not depend
-    /// on path compression: a one-child branch and a node path-compressed by
-    /// one byte produce identical hashes.
+    /// The hashing convention (see [`Hash::leaf`] and [`Hash::branch`]): one
+    /// preimage per node, committing its kind, its compressed prefix in path
+    /// order, and, for a branch, its children as ascending `radix ‖ hash`
+    /// records. Equal content yields equal hashes because equal content
+    /// yields equal canonical shape; see [`Hash::branch`]'s canonicity
+    /// section.
     pub fn hash(&self) -> Hash {
         self.inner.hash()
+    }
+
+    /// Walk every leaf beneath this node, in ascending path order.
+    ///
+    /// `prefix` locates the node in the tree, so each leaf is keyed by its
+    /// full path; the leaves are handed out as bare height-zero handles
+    /// (see [`untyped::Leaf::into_node`]). The walk is lazy and owned —
+    /// constant-size descent state, child handles cloned one at a time —
+    /// so it costs one node handle per yielded leaf, not one per virtual
+    /// level: path-compressed spines are skipped, never unwrapped.
+    pub(crate) fn leaves(
+        self,
+        prefix: &super::Prefix<H>,
+    ) -> impl Iterator<Item = (super::Prefix<Z>, Node<T, Z>)> + Send + use<T, H>
+    where
+        T: Send + Sync,
+    {
+        let mut walk = untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), ..);
+        std::iter::from_fn(move || {
+            walk.next().map(|(key, leaf)| {
+                (
+                    super::Prefix::from(key),
+                    Node::from_untyped(leaf.into_node()),
+                )
+            })
+        })
+    }
+
+    /// Build the height-`H` node over one sorted run of bare leaves.
+    ///
+    /// Every path in `run` extends `prefix`, strictly ascending, and the
+    /// run is non-empty: exactly the shape one supplied scope's leaves
+    /// arrive in off the wire. The bulk inverse of
+    /// [`leaves`](Self::leaves); see
+    /// [`untyped::Node::from_sorted_leaves`] for the cost argument.
+    pub(crate) fn from_sorted_leaves(
+        prefix: &super::Prefix<H>,
+        run: Vec<(super::Prefix<Z>, Node<T, Z>)>,
+    ) -> Self {
+        let depth = prefix.as_bytes().len();
+        debug_assert!(
+            run.iter()
+                .all(|(path, _)| path.as_bytes().starts_with(prefix.as_bytes())),
+            "every leaf in a run falls under the run's prefix",
+        );
+        let mut entries: Vec<([u8; 32], Option<untyped::Node<T>>)> = run
+            .into_iter()
+            .map(|(path, leaf)| {
+                let path = <[u8; 32]>::try_from(path.as_bytes())
+                    .expect("a leaf prefix is a full 32-byte path");
+                (path, Some(leaf.into_untyped()))
+            })
+            .collect();
+        Self::from_untyped(untyped::Node::from_sorted_leaves(depth, &mut entries))
     }
 }
 
@@ -341,8 +420,9 @@ impl<T> Node<T, height::Root> {
 
     /// The observable hash of a possibly-absent root.
     pub fn root_hash(node: &Option<Root<T>>) -> Hash {
-        // An absent root is the empty tree, which hashes as a branch with no
-        // children (`blake3(BRANCH_TAG)`), not as the all-zero default.
+        // An absent root is the empty tree, which hashes as a prefixless
+        // branch with no children (`blake3(BRANCH_TAG ‖ 0 ‖ 0u16)`), not as
+        // the all-zero default.
         node.as_ref()
             .map(|n| n.hash())
             .unwrap_or_else(Hash::empty_root)

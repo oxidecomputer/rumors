@@ -4,11 +4,13 @@
 //!
 //! The companion to `gossip_snapshot.rs` for the *bootstrap* leg of the
 //! protocol. Each test stages a provider, drives one bootstrap through the
-//! recording duplex in [`common::gossip_snapshot::capture_session`], and pins
+//! recording link in [`common::gossip_snapshot::capture_session`], and pins
 //! every wire byte. V2 traffic is grouped by logical stream while preserving
 //! its exact per-stream order; a representative V1 case pins its strictly
 //! alternating timeline. Drift in the preamble, reconciliation, or trailing
-//! party hand-off shows up as a diff.
+//! party hand-off shows up as a diff. Re-accept only after a deliberate
+//! protocol change: a new protocol version, never a mutation of an existing
+//! one. The re-accept procedure (`cargo insta review`) is in `AGENTS.md`.
 //!
 //! Party convention: **A is the provider** — the established peer serving its
 //! state through `gossip` — and **B is the bootstrapping newcomer**, running
@@ -34,10 +36,13 @@ use crate::common::gossip_snapshot::capture_session_v1;
 
 /// A provider seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble — and the party region it forks off for the newcomer — are
-/// deterministic and these captures stay reproducible. Mirrors
-/// `gossip_snapshot::seeded`.
+/// deterministic and these captures stay reproducible.
+///
+/// Mirrors `gossip_snapshot::seeded`.
 fn seeded<T>() -> Rumors<T> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
+    Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .sync_window_floor()
+        .into_rumors()
 }
 
 /// Capture one successful bootstrap: `provider` serves its state via `gossip`
@@ -48,14 +53,12 @@ where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     capture_session(
-        move |mut r, mut w| async move {
-            provider
-                .gossip(&mut r, &mut w)
-                .await
-                .expect("provider gossip");
+        move |mut link| async move {
+            provider.gossip(&mut link).await.expect("provider gossip");
         },
-        move |mut r, mut w| async move {
-            Peer::<T>::bootstrap(&mut r, &mut w)
+        move |mut link| async move {
+            Peer::<T>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("bootstrap handshake")
                 .expect("provider served the bootstrap");
@@ -72,7 +75,9 @@ fn empty_provider() {
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 
-/// Bootstrap from a populated provider. The provider holds three distinct
+/// Bootstrap from a populated provider.
+///
+/// The provider holds three distinct
 /// messages (`1`, `2`, `3`); the newcomer receives the whole tree in one
 /// descent, so this pins the content-bearing whole-tree frame that the empty
 /// case never exercises.
@@ -89,18 +94,21 @@ fn populated_provider() {
 #[test]
 fn v1_populated_provider() {
     let provider: Rumors<u64> = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .sync_window_floor()
         .protocol(Protocol::V1)
         .into_rumors();
     provider.batch().send(1).send(2).send(3);
     let capture = capture_session_v1(
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             provider
-                .gossip(&mut r, &mut w)
+                .gossip(&mut link)
                 .await
                 .expect("V1 provider gossip");
         },
-        move |mut r, mut w| async move {
-            Peer::<u64>::bootstrap_with_protocol(Protocol::V1, &mut r, &mut w)
+        move |mut link| async move {
+            Peer::<u64>::bootstrap()
+                .protocol(Protocol::V1)
+                .join(&mut link)
                 .await
                 .expect("V1 bootstrap handshake")
                 .expect("V1 provider served the bootstrap");
@@ -109,7 +117,9 @@ fn v1_populated_provider() {
     insta::assert_snapshot!(capture);
 }
 
-/// Bootstrap of a non-primitive, variable-length payload. `u64` borsh-encodes
+/// Bootstrap of a non-primitive, variable-length payload.
+///
+/// `u64` borsh-encodes
 /// to a fixed 8 bytes; `String` encodes as a length prefix followed by its
 /// UTF-8 bytes, so this is the only bootstrap scenario that pins how a
 /// variable-length value is framed inside a served leaf.
@@ -124,14 +134,17 @@ fn string_payload() {
 }
 
 /// Both sides declare bootstrapping: neither has state to give, so each reads
-/// the other's bootstrap intent from the preamble and bails. The capture pins
+/// the other's bootstrap intent from the preamble and bails.
+///
+/// The capture pins
 /// the bytes of that mutual stand-down — the preamble exchange and nothing
 /// after it.
 #[test]
 fn mutual_bootstrap_bails() {
     let capture = capture_session(
-        |mut r, mut w| async move {
-            let out = Peer::<u64>::bootstrap(&mut r, &mut w)
+        |mut link| async move {
+            let out = Peer::<u64>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("handshake A");
             assert!(
@@ -139,8 +152,9 @@ fn mutual_bootstrap_bails() {
                 "a mutually-bootstrapping peer must bail with None"
             );
         },
-        |mut r, mut w| async move {
-            let out = Peer::<u64>::bootstrap(&mut r, &mut w)
+        |mut link| async move {
+            let out = Peer::<u64>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("handshake B");
             assert!(

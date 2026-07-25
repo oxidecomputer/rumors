@@ -7,6 +7,7 @@ pub use changes::{Changes, TryTick};
 pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
+use crate::link::{Acceptor, Connector, Link};
 use crate::{Batch, Error, Gossiped, Key, Network, Peer, Snapshot, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
@@ -20,9 +21,9 @@ use tokio::{
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
 ///
-/// Unlike [`Peer`], [`Rumors`] is [`Clone`], which means that any number of
-/// tasks may concurrently interact with the set of rumors, arbitrarily.
-/// Synchronization is internal: anything one clone learns, all do.
+/// Unlike [`Peer`], [`Rumors`] is [`Clone`]: any number of tasks may
+/// interact with the set concurrently. Synchronization is internal:
+/// anything one clone learns, all do.
 pub struct Rumors<T, B: BookmarkError = NoBookmark> {
     peer: Peer<T, B>,
     /// This handle's claim to existence; see [`Extant`].
@@ -64,6 +65,8 @@ impl<T, B: BookmarkError> Clone for Rumors<T, B> {
             peer: Peer {
                 network: self.peer.network,
                 protocol: self.peer.protocol,
+                window: self.peer.window,
+                run_budget: self.peer.run_budget,
                 inner: self.peer.inner.clone(),
                 bookmark: Arc::clone(&self.peer.bookmark),
             },
@@ -111,7 +114,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         let mut drops = extant.drops.subscribe();
         drop(extant);
         loop {
-            // Monotone once zero: minting a token takes a live `Rumors` to
+            // Monotone once zero: creating a token takes a live `Rumors` to
             // clone, and every reuniter has already shed its own.
             if token.strong_count() == 0 {
                 // Exactly one reuniter wins the claim; the Peer/Rumors
@@ -121,7 +124,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
                     .is_ok()
                     .then_some(peer);
             }
-            // `Err` here means every sender — every `Extant` — is gone, so
+            // `Err` here means every sender (every `Extant`) is gone, so
             // the count re-check above terminates the loop.
             let _ = drops.changed().await;
         }
@@ -134,6 +137,24 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit.
     ///
+    /// `send` does not return the message's [`Key`]. Keys come back through
+    /// observation: the observers and [`Snapshot`] attach every message to
+    /// its key, and every send gets a key unique across the universe's
+    /// whole history (a key binds the send's fresh version to the content,
+    /// so even byte-identical re-sends are distinct messages under distinct
+    /// keys). [`redact`](Self::redact) states the intended
+    /// observe-then-redact pattern and why the write path carries no key.
+    ///
+    /// # Observe-then-send is domination
+    ///
+    /// Every message this replica observed before a batch commits is in
+    /// the causal past of that batch's sends, which is the supersession
+    /// contract last-write-wins patterns lean on. The boundary: sends from
+    /// different threads or different batches carry **no** guaranteed
+    /// causal relationship to one another unless the application
+    /// synchronizes them itself (building a batch holds no lock, so
+    /// concurrent synchronization can land before the batch commits).
+    ///
     /// # Panics
     ///
     /// If `message` fails to serialize (see [`Batch::send`]).
@@ -145,13 +166,39 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     }
 
     /// Redact a message: remove the live message named by `key` from the set,
-    /// here and — through gossip — everywhere. Redacting a key not currently
+    /// here and, through gossip, everywhere. Redacting a key not currently
     /// held is a no-op.
     ///
     /// Returns a [`Batch`] that commits when dropped: a bare
     /// `rumors.redact(key);` commits at the end of the statement, and chaining
     /// further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit.
+    ///
+    /// # Deletion is honored
+    ///
+    /// Once a redaction commits anywhere, no gossip schedule re-establishes
+    /// the redacted message from replicas that still hold it. Nothing
+    /// crosses the wire to represent a deletion; reconciliation infers
+    /// deletions from the causal frontiers the two sides exchange. A
+    /// message the counterparty's version shows it must already have seen,
+    /// yet it no longer holds, was deleted there, so the holder drops its
+    /// own copy instead of transmitting it. And because a [`Key`] binds
+    /// the send's fresh version to the content, re-sending byte-identical
+    /// content after a redaction is a *new* message: no resurrection, no
+    /// suppression. For the same reason, two identical sends are two
+    /// messages, and redacting one never touches the other.
+    ///
+    /// # Where the key comes from
+    ///
+    /// [`send`](Self::send) does not return a [`Key`], deliberately, for
+    /// two reasons. The intended shape of an application is a state machine
+    /// driven from observed messages: the observers and [`Snapshot`]
+    /// attach every message to its `Key`, so the read path, not the write
+    /// path, is where a key-holding workflow like send-then-redact lives.
+    /// Observe your own message back out, keep its key, redact it later.
+    /// And batching breaks the correspondence anyway: a batch inserts all
+    /// its messages at once, so sends are not 1:1 with insertions and a
+    /// message's `Key` is not knowable until insertion.
     pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
         T: Send + Sync,
@@ -196,7 +243,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         self.peer.snapshot()
     }
 
-    /// Monitor every message sent to in this [`Rumors`], in arbitrary
+    /// Monitor every message sent to this [`Rumors`], in arbitrary
     /// (*non-causal*) order.
     ///
     /// See [`UnorderedMessages`] for details.
@@ -257,7 +304,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     }
 
     /// Alias this set's live party for invariant assertions in tests; see
-    /// [`Peer::dangerously_alias_party`] for the contract.
+    /// [`Peer::dangerously_alias_party`] for what the caller must uphold.
     #[cfg(any(test, feature = "test-internals"))]
     #[doc(hidden)]
     pub fn dangerously_alias_party(&self) -> Option<before::Party> {
@@ -266,9 +313,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
 }
 
 impl<T, B: Bookmark> Rumors<T, B> {
-    /// Give up this handle and reclaim the [`Peer`] once no more other handles
-    /// exist: resolves when no [`Rumors`] for this set remains, handing the
-    /// `Peer` to exactly one caller.
+    /// Give up this handle and reclaim the [`Peer`]: resolves when no
+    /// [`Rumors`] for this set remains, handing the `Peer` to exactly one
+    /// caller.
     ///
     /// Cancelling a pending [`try_into_peer`](Self::try_into_peer) abandons its
     /// claim: the handle was already consumed, so dropping the future is no
@@ -280,26 +327,58 @@ impl<T, B: Bookmark> Rumors<T, B> {
     }
 
     /// Run one reconciliation session with one remote peer over the given
-    /// transport.
+    /// [`Link`].
     ///
     /// On `Ok`, both replicas hold every message either one held when the
-    /// session began (the full contract, including failure and cancellation
-    /// semantics, is in the [crate docs](crate#what-a-session-promises)).
+    /// session began **and neither had deleted**, and, under
+    /// [`Protocol::V2`](crate::Protocol::V2), the peer has confirmed that
+    /// it completed and committed the session too (the frozen
+    /// [`Protocol::V1`](crate::Protocol::V1) oracle wire has no
+    /// confirmation exchange, so a V1 session's `Ok` certifies only the
+    /// local commit). The link rests exactly at the session boundary,
+    /// ready to host this pair's next session.
     ///
-    /// Gossip sessions may run concurrently on different clones of the same
-    /// [`Rumors`]; each commits atomically when it completes.
+    /// On `Err`, the replica is unchanged and the link is poisoned:
+    /// discard it and reconnect. This is enforced, not advisory, since
+    /// every subsequent session on the link fails fast with
+    /// [`Error::LinkPoisoned`] rather than misreading its mid-frame
+    /// control stream. Cancellation counts as `Err` ([what a session
+    /// promises](crate::link::Link#what-a-session-promises)).
+    /// "Unchanged" has three qualified exceptions:
     ///
-    /// On `Ok`, the transport rests exactly at the session boundary, ready to
-    /// host this pair's next session. On `Err`, the replica is unchanged, but
-    /// the transport is mid-frame garbage: discard the connection rather than
-    /// starting another session on it.
-    pub async fn gossip<'a, R, W>(&self, read: &'a mut R, write: &'a mut W) -> Result<(), Error<B>>
+    /// - On [`Error::Epilogue`], every local effect of the session is
+    ///   already committed; only the confirmation of the *peer's*
+    ///   completion was lost ([`Error::Epilogue`] explains why that gap
+    ///   cannot be closed).
+    /// - A failure while donating a bootstrap fork costs that fork's
+    ///   identity space (deliberately: the newcomer may hold it),
+    ///   narrowing this replica's identity without touching its content.
+    /// - An [`Error::Bookmark`] raised after absorbing a retiring peer
+    ///   leaves the session fully committed (reconciled content *and* the
+    ///   absorbed identity) with only its durable record unwritten (the
+    ///   error's docs carry the crash-safety consequence).
+    ///
+    /// Independently of these, an `Err` never rolls back identity the
+    /// session reclaimed from the bookmark: it stays live in memory, and
+    /// the next successful persist records it
+    /// ([`Error::Bookmark`] carries the
+    /// mechanism).
+    ///
+    /// Gossip sessions may run concurrently through any handles (the
+    /// same clone or different ones), each over its own link; each commits
+    /// atomically when it completes. Sessions on one link are serialized,
+    /// which the `&mut` borrow enforces; a bookmarked peer's sessions also
+    /// queue at the bookmark lock before any wire traffic
+    /// ([`Bookmark`]).
+    pub async fn gossip<CR, CW, C, A>(&self, link: &mut Link<CR, CW, C, A>) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
-        self.peer.gossip(read, write).await
+        self.peer.gossip(link).await
     }
 
     /// Drive a long-lived connection: run one gossip session per `when` tick
@@ -316,14 +395,27 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// [`stream::repeat`](futures::stream::repeat)), because this would
     /// busy-loop: `when` should go quiet between reasons to gossip.
     ///
-    /// The returned stream from this method *must be polled* for gossip to
-    /// continue. It yields one [`Gossiped`] per completed gossip session. It
-    /// terminates in one of three ways:
+    /// The returned stream *must be polled* for gossip to continue. It
+    /// yields one [`Gossiped`] per completed gossip session. It terminates
+    /// in one of three ways:
     ///
-    /// - the connection fails: one final `Err` (replica unchanged, the
-    ///   transport is now mid-frame garbage: discard the transport);
+    /// - the connection fails: one final `Err`, with the replica unchanged,
+    ///   subject to the same qualified exceptions as [`gossip`](Self::gossip)
+    ///   (the post-commit [`Error::Epilogue`] and retiree-absorption
+    ///   [`Error::Bookmark`] cases, and a donated fork lost in flight), and
+    ///   the link is poisoned on every error path, so any later session on
+    ///   it fails fast with [`Error::LinkPoisoned`]: discard the link;
     /// - `when` ends, cleanly, after finishing any session in flight;
     /// - the remote hangs up at a session boundary, cleanly.
+    ///
+    /// Either clean termination leaves the link at a session boundary, but
+    /// they differ in what the link is still good for. When `when` ends,
+    /// the connection is intact: hand the link to another driver or
+    /// session. When the remote hangs up, the peer is gone: a new driver on
+    /// the same link only observes the goodbye again, and a one-shot
+    /// session fails against the closed transport. Each driven session
+    /// promises exactly what a one-shot [`gossip`](Self::gossip) does
+    /// ([what a session promises](crate::link::Link#what-a-session-promises)).
     ///
     /// # Suppression
     ///
@@ -336,11 +428,15 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// probing a silent connection for liveness must be the transport's job
     /// (e.g. TCP keepalives), not the `when`-stream's.
     ///
-    /// # Cancellation and connection reuse
+    /// # Cancellation
     ///
     /// Futures derived from polling the result-stream are cancel-safe: all
     /// driver state lives in the stream itself. Dropping the result stream,
-    /// however, is *not* cancellation-safe.
+    /// however, is *not* cancellation-safe: a session in flight is
+    /// cancelled with it, poisoning the link exactly as dropping a
+    /// [`gossip`](Self::gossip) future would. To stop cleanly, end the
+    /// `when` stream and poll the driver to completion; what the link
+    /// remains good for after each clean termination is stated above.
     ///
     /// # Examples
     ///
@@ -356,28 +452,24 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// #     .unwrap()
     /// #     .block_on(async {
     /// let alice = Peer::<String>::seed().into_rumors();
-    /// # let (near, far) = tokio::io::duplex(64 * 1024);
+    /// let (mut near, mut far) = rumors::link::memory();
     /// # let serve = alice.clone();
     /// # let server = tokio::spawn(async move {
-    /// #     let (mut read, mut write) = tokio::io::split(far);
-    /// #     serve.gossip(&mut read, &mut write).await.unwrap();
+    /// #     serve.gossip(&mut far).await.unwrap();
     /// # });
-    /// # let (mut read, mut write) = tokio::io::split(near);
-    /// let bob = Peer::<String>::bootstrap(&mut read, &mut write)
+    /// let bob = Peer::<String>::bootstrap().join(&mut near)
     ///     .await?
     ///     .expect("alice is established")
     ///     .into_rumors();
     /// # server.await.unwrap();
     ///
-    /// // A long-lived connection between them, one driver per end.
-    /// let (alice_side, bob_side) = tokio::io::duplex(64 * 1024);
-    /// let (mut a_read, mut a_write) = tokio::io::split(alice_side);
-    /// let (mut b_read, mut b_write) = tokio::io::split(bob_side);
+    /// // A long-lived link between them, one driver per end.
+    /// let (mut alice_side, mut bob_side) = rumors::link::memory();
     ///
     /// alice.send("psst".to_string());
     ///
-    /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut a_read, &mut a_write);
-    /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut b_read, &mut b_write);
+    /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
+    /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
     ///
     /// // Alice's change signal initiates; Bob's driver serves. One session
     /// // converges the pair, and each driver reports it.
@@ -389,18 +481,20 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// # })?;
     /// # Ok::<(), rumors::Error>(())
     /// ```
-    pub fn gossip_when<'a, R, W, S>(
+    #[must_use = "the driver does nothing until the returned stream is polled"]
+    pub fn gossip_when<'a, CR, CW, C, A, S>(
         &'a self,
         when: S,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
         S: Stream<Item = ()> + 'a,
     {
-        self.peer.gossip_when(when, read, write)
+        self.peer.gossip_when(when, link)
     }
 }

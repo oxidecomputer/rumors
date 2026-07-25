@@ -25,10 +25,12 @@
 //!   expected-balanced with no adversarial input shape; depth bounds are
 //!   real bounds.
 //!
-//! Single-child spines are path-compressed away, and the branch hash rule
-//! is compression-invariant by construction (a one-child level hashes the
-//! same whether materialized or compressed; see
-//! [`Hash::branch`](typed::Hash::branch)).
+//! Single-child spines are path-compressed away, and each node's hash is a
+//! single preimage committing its compressed prefix and children together
+//! (see [`Hash::branch`](typed::Hash::branch)). Hash agreement across
+//! peers therefore rests on the tree's *canonical shape*: equal content
+//! yields equal compression, by the same ≥ 2-children maximal-compression
+//! invariant the node serializer relies on.
 //!
 //! # Memos and sharing
 //!
@@ -57,7 +59,7 @@ use std::sync::Arc;
 
 mod key;
 mod traverse;
-mod typed;
+pub(crate) mod typed;
 
 use crate::{Version, message::Message, tree::typed::Node};
 
@@ -165,9 +167,6 @@ pub enum Action<T> {
 ///
 /// An [`ExactSizeIterator`] (the live-message count is known up front) and a
 /// [`DoubleEndedIterator`].
-///
-/// A thin shell over the internal leaf walk that projects each leaf's
-/// payload down to its `&Arc<T>` value.
 pub struct Iter<'a, T>(typed::Iter<'a, T>);
 
 impl<'a, T> Iterator for Iter<'a, T> {
@@ -191,7 +190,7 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
 impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
 impl<T> Tree<T> {
-    /// Create a new, empty tree carrying the empty [`Version`].
+    /// Creates a new, empty tree carrying the empty [`Version`].
     ///
     /// A tree owns no party identity: advancing the version is driven by a
     /// [`Party`](before::Party) passed into [`act`](Self::act) by the caller (the
@@ -207,32 +206,66 @@ impl<T> Tree<T> {
         }
     }
 
-    /// Get the latest version for the tree.
+    /// Returns the latest version for the tree.
     pub fn latest(&self) -> &Version {
         &self.root.ceiling
     }
 
-    /// Get the earliest version present in the tree.
+    /// Returns the earliest version present in the tree.
     pub fn earliest(&self) -> Option<&Version> {
         self.root.root.as_ref().map(Node::floor)
     }
 
-    /// Determine if this root is empty.
+    /// Returns `true` if the tree holds no messages.
     pub fn is_empty(&self) -> bool {
         self.root.root.is_none()
     }
 
-    /// Get the number of messages in the tree.
+    /// Returns the number of messages in the tree.
     pub fn len(&self) -> usize {
         self.root.root.as_ref().map(Node::len).unwrap_or_default()
     }
 
-    /// Get the root hash for the tree.
+    /// The largest canonical version encoding among every bound the
+    /// tree holds — leaf versions and every branch's ceiling and floor —
+    /// in bytes; zero for the empty tree.
+    ///
+    /// A read of a per-node aggregate maintained exactly, memoized like
+    /// the bounds it covers: redacting the version that carries the
+    /// maximum resizes it down.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn max_version_bytes(&self) -> usize {
+        self.root
+            .root
+            .as_ref()
+            .map(Node::version_bytes)
+            .unwrap_or_default()
+    }
+
+    /// The largest canonical encoding among every *per-node* version
+    /// bound the tree holds, recomputed by direct walk with no aggregate
+    /// memo: the oracle [`max_version_bytes`](Self::max_version_bytes)
+    /// is pinned against.
+    ///
+    /// Deliberately excludes the root ceiling riding outside the nodes:
+    /// that value is the greeting version, one per tree, priced outside
+    /// the per-node memory model. Test instrumentation; see
+    /// [`testing::max_bound_bytes`](crate::testing::max_bound_bytes).
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn max_bound_bytes(&self) -> usize {
+        self.root
+            .root
+            .as_ref()
+            .map(|node| node.max_bound_bytes())
+            .unwrap_or_default()
+    }
+
+    /// Returns the root hash for the tree.
     pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         Node::root_hash(&self.root.clone().into()).into()
     }
 
-    /// Look up a single live message by its [`Key`].
+    /// Looks up a single live message by its [`Key`].
     pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
         self.root
             .root
@@ -241,9 +274,10 @@ impl<T> Tree<T> {
             .map(|(version, message)| (version, message.as_arc()))
     }
 
-    /// Force every lazily-memoized structural value — the observable hash and
-    /// the ceiling/floor version bounds — for the whole tree. Each accessor
-    /// recurses, so one call apiece warms the entire subtree.
+    /// Forces every lazily-memoized structural value — the observable hash
+    /// and the ceiling/floor version bounds — for the whole tree.
+    ///
+    /// Each accessor recurses, so one call apiece warms the entire subtree.
     ///
     /// For benchmark and test calibration only: it lets a subsequent operation
     /// be timed against its own work rather than this one-time memoization. In
@@ -258,7 +292,7 @@ impl<T> Tree<T> {
         }
     }
 
-    /// Lazily iterate every live leaf currently in the tree as
+    /// Lazily iterates every live leaf currently in the tree as
     /// `(Key, &Version, &Arc<T>)`, in unspecified order.
     pub fn iter(&self) -> Iter<'_, T>
     where
@@ -273,7 +307,7 @@ impl<T> Tree<T> {
         )
     }
 
-    /// Freeze a fully-owned walk over the live leaves whose versions fall
+    /// Freezes a fully-owned walk over the live leaves whose versions fall
     /// within the causal `range`.
     ///
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
@@ -286,7 +320,7 @@ impl<T> Tree<T> {
         typed::node::Root::range_owned(self.root.root.as_ref(), range)
     }
 
-    /// Lazily iterate the live leaves whose versions fall within the causal
+    /// Lazily iterates the live leaves whose versions fall within the causal
     /// `range`.
     ///
     /// A leaf is yielded iff its version is contained in the
@@ -315,7 +349,7 @@ impl<T> Tree<T> {
             .map(|(k, v, m)| (k, v, m.as_arc()))
     }
 
-    /// Apply the specified actions as a batch to the tree, advancing its
+    /// Applies the specified actions as a batch to the tree, advancing its
     /// internal version vector once per action.
     ///
     /// Each [`Action::Insert`] advances the local party's component of the
@@ -385,8 +419,8 @@ impl<T> Tree<T> {
         }));
     }
 
-    /// Apply the specified *versioned* actions as a batch to the tree without
-    /// incrementing its internal version vector.
+    /// Applies the specified *versioned* actions as a batch to the tree
+    /// without incrementing its internal version vector.
     ///
     /// In the specified iterator, `Some(message)` indicates an insert, and
     /// `None` indicates that the key should be forgotten.
@@ -429,14 +463,14 @@ impl<T> Tree<T> {
         });
     }
 
-    /// Merge `other` into `self` by a single simultaneous recursion over both
-    /// trees.
+    /// Merges `other` into `self` by a single simultaneous recursion over
+    /// both trees.
     ///
     /// This is the in-memory counterpart to [`mirror::streaming`] and is
     /// observationally identical to it: it produces the same merged tree.
-    /// Deletions are honored by version
-    /// dominance: a leaf one side lacks while its version is `<=` that side's
-    /// version vector was deleted there and is dropped.
+    /// Deletions are honored by version dominance: a leaf one side lacks
+    /// while its version is `<=` that side's version vector was deleted
+    /// there and is dropped.
     pub fn join(&mut self, other: Tree<T>)
     where
         T: Send + Sync,
@@ -459,7 +493,7 @@ impl<T> Tree<T> {
 }
 
 #[cfg(test)]
-mod arb;
+pub(crate) mod arb;
 
 #[cfg(test)]
 mod tests;

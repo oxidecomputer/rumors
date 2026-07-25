@@ -205,11 +205,12 @@ fn cell_at(x: Dyadic, level: u32) -> usize {
 ///
 /// §4 pins
 /// only `⟦e'⟧ = ⟦e⟧ + f·⟦i⟧` for some `f` with `f·⟦i⟧ ▷ 0` (strictly positive
-/// somewhere the id owns); the old fixed `add-one` and the impl's minimal
-/// `grow` are two particular `f`. Here `f` is arbitrary: each owned cell (at
-/// the id's own resolution) is bumped by an independent amount in `0..=3`, with
-/// one owned cell forced positive so the advance is real (and others may be `0`
-/// — a *partial* inflation). In a proper single-seed system every such `f`
+/// somewhere the id owns); a fixed `add-one` over the owned region and
+/// the impl's minimal `grow` are two particular `f`. Here `f` is arbitrary:
+/// each owned cell (at the id's own resolution) is bumped by an independent
+/// amount in `0..=3`, with one owned cell forced positive so the advance is
+/// real (and others may be `0` — a *partial* inflation). In a proper
+/// single-seed system every such `f`
 /// still tracks happens-before — it meets the §3 event condition (the result is
 /// fresh, `e' ≰` any other live stamp, and dominates nothing new, because the
 /// id owns its region exclusively) — so the causal order is identical to

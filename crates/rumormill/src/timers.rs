@@ -8,7 +8,9 @@
 use std::time::Duration;
 
 /// How often we publish a fresh [`Entry::Presence`](crate::entry::Entry)
-/// heartbeat (and redact the previous one). This is also the room's idle
+/// heartbeat (and redact the previous one).
+///
+/// This is also the room's idle
 /// gossip budget: every beat advances the causal frontier, and in a full
 /// mesh each advance costs every node a (cheap, usually already-converged)
 /// session on nearly every link — O(n²) sessions room-wide per beat. 30s
@@ -17,7 +19,9 @@ use std::time::Duration;
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
 /// A peer whose newest presence is older than this is considered gone; any
-/// peer that notices redacts the stale presence entry. Three missed
+/// peer that notices redacts the stale presence entry.
+///
+/// Three missed
 /// heartbeats: long enough to ride out gossip latency, short enough to watch
 /// eviction happen within a demo session.
 pub const PRESENCE_STALE: Duration = Duration::from_secs(90);
@@ -36,7 +40,9 @@ pub const SYSTEM_TTL: Duration = Duration::from_secs(15);
 pub const REDIAL_SWEEP: Duration = Duration::from_secs(2);
 
 /// How long startup waits for the endpoint to come online (relay
-/// attached, addresses published) before proceeding anyway. The wait is
+/// attached, addresses published) before proceeding anyway.
+///
+/// The wait is
 /// advisory: a throttled or unreachable n0 service must not wedge startup,
 /// because same-LAN peers still connect through the mDNS lookup.
 pub const ONLINE_GRACE: Duration = Duration::from_secs(15);
@@ -44,17 +50,37 @@ pub const ONLINE_GRACE: Duration = Duration::from_secs(15);
 /// How long a dial may take before we give up on the peer for this round.
 pub const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Ceiling on the bounded waits around a connection's start: the dialer
-/// opening its gossip stream, and the merge dance's fresh stream. The
-/// drive itself is unbounded — connections are long-lived by design.
+/// Ceiling on the bounded waits for a stream at a connection's start: the
+/// acceptor awaiting the dialer's gossip stream, and the fresh stream the
+/// merge dance (both sides) or a retirement opens.
+///
+/// The drive itself is
+/// unbounded — connections are long-lived by design.
 pub const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Ceiling on one whole-tree session: a merge bootstrap (either side) or a
+/// retirement.
+///
+/// These ship the entire rumor set rather than a delta, so they
+/// get a far longer leash than [`SESSION_TIMEOUT`]'s connection-start waits,
+/// but they must still end: the rumors library deliberately imposes no
+/// deadline of its own (the caller owns the timeout), and a live-but-stalled
+/// peer would otherwise pin a merge's drive — or, for retirement, the
+/// daemon's shutdown path — forever. Two minutes clears a demo-sized tree
+/// by orders of magnitude while keeping a wedged shutdown observably
+/// finite. A retire cut off by this timeout is reported as
+/// [`Departure::Uncertain`](crate::net::Departure::Uncertain) and never
+/// retried.
+pub const RECONCILE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// After a connection ends — failed dial, failed drive, or the peer's own
 /// goodbye — leave the peer alone for this long before redialing.
 pub const PEER_BACKOFF: Duration = Duration::from_secs(15);
 
 /// The owner's coalescing tick: deferred loss sweeps and view publishes
-/// run at most once per tick. Both jobs are O(everything on screen), and
+/// run at most once per tick.
+///
+/// Both jobs are O(everything on screen), and
 /// session outcomes arrive at mesh rate (every entry anyone originates
 /// costs every node a session on nearly every link), so running them per
 /// event would bury the owner at scale; per-tick execution caps the work

@@ -199,6 +199,28 @@ impl<'a> EvReader<'a> {
         }
     }
 
+    /// Whether this view is the empty event tree (the single zero leaf), in `O(1)`.
+    ///
+    /// Both storage forms are canonical normal form, so emptiness is a
+    /// fixed-shape test on the whole representation (position-independent,
+    /// like [`trivially_eq`](EvReader::trivially_eq)): the packed empty
+    /// tree is exactly two bits — a `0` leaf flag then gamma-coded zero,
+    /// the single bit `1` — and the working-form empty tree is one
+    /// zero-base leaf node. `Zero` is the synthetic empty leaf by
+    /// definition. The lattice short-circuits in
+    /// [`Batch`](super::Batch) rest on this test: the empty version is
+    /// the identity of join (`0 ∨ v = v`) and the absorbing element of
+    /// meet (`0 ∧ v = 0`).
+    pub(super) fn is_empty(&self) -> bool {
+        match self {
+            EvReader::Packed { bits, .. } => bits.len() == 2 && !bits[0] && bits[1],
+            EvReader::Working { work, .. } => {
+                work.base.len() == 1 && !work.topo[0] && work.base[0] == Base::ZERO
+            }
+            EvReader::Zero => true,
+        }
+    }
+
     /// A conservative node-count capacity for output builders.
     ///
     /// Packed event nodes occupy at least two bits (flag + gamma(0)), so this
@@ -214,6 +236,24 @@ impl<'a> EvReader<'a> {
 }
 
 impl EvReader<'_> {
+    /// Whether `self` and `other` are causally equal, settled without a walk
+    /// when both share a storage form.
+    ///
+    /// The `==` entry point of the comparison matrix. Both storage forms are
+    /// canonical normal form, so same-form operands are equal *iff* their
+    /// representations match ([`trivially_eq`](EvReader::trivially_eq)) —
+    /// a mismatch already *is* inequality, with no `O(n + m)` decoding walk
+    /// to prove it. Mixed-form operands fall back to
+    /// [`causal_cmp`](EvReader::causal_cmp): deciding equality across forms
+    /// would mean transcoding, no cheaper than the walk.
+    pub(super) fn causal_eq(self, other: EvReader<'_>) -> bool {
+        match (&self, &other) {
+            (EvReader::Packed { .. }, EvReader::Packed { .. })
+            | (EvReader::Working { .. }, EvReader::Working { .. }) => self.trivially_eq(&other),
+            _ => self.causal_cmp(other) == Some(Ordering::Equal),
+        }
+    }
+
     /// The causal order of `self` and `other`, computed in one `O(n + m)` pass;
     /// `None` means concurrent.
     ///

@@ -13,12 +13,9 @@ use std::pin::Pin;
 
 use futures::Stream;
 
-use crate::{
-    Version,
-    tree::{
-        mirror::streaming::{Backend, Leaf, message},
-        typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
-    },
+use crate::tree::{
+    mirror::streaming::{Backend, Leaf, message},
+    typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
 mod peer;
@@ -68,7 +65,7 @@ pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 
     fn connect(
         self,
-    ) -> impl Future<Output = Result<(message::Handshake, Self::Next), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(message::Greeting, Self::Next), Self::Error>> + Send;
 }
 
 pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
@@ -81,8 +78,8 @@ pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 
     fn accept(
         self,
-        request: message::Handshake,
-    ) -> impl Future<Output = Result<(message::Handshake, Self::Next), Self::Error>> + Send;
+        request: message::Greeting,
+    ) -> impl Future<Output = Result<(message::Greeting, Self::Next), Self::Error>> + Send;
 }
 
 pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
@@ -95,7 +92,7 @@ pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'sta
 
     fn complete_connect(
         self,
-        their_version: Version,
+        theirs: message::Greeting,
     ) -> impl Future<Output = Result<Self::Next, Self::Error>> + Send;
 }
 
@@ -113,17 +110,28 @@ pub trait CompleteEqual<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'stati
 
 /// The opening burst: the initiator speaks first, and unprompted.
 ///
-/// Nothing precedes this stage on the wire. A root hash would be the natural
-/// thing to send, and it is exactly what the session never needs: two roots
-/// hash equal only when their versions are equal, and equal versions
+/// Nothing precedes this stage. A root hash would be the natural thing to
+/// send, and it is exactly what the session never needs: two roots hash
+/// equal only when their versions are equal, and equal versions
 /// short-circuit the session before it reaches the protocol at all. So the
-/// initiator skips straight to its root's children.
+/// initiator skips straight to its root's children — the same root-fan
+/// listing its [`Greeting`](message::Greeting) already carried. On the
+/// wire that makes this stage free: the remote proxy replays the greeting's
+/// listing instead of spending a hop on a standalone opening frame, and only
+/// the in-process message below actually flows.
 pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Root> + Sized
 {
     type Next: Protocol<Height = UnderRoot, Output = Self::Output, Error = Self::Error>;
 
-    fn initiator(self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next);
+    fn initiator(
+        self,
+    ) -> (
+        // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
+        // an exponentially-sized type!
+        BoxResponses<B, T, UnderRoot, Self::Error>,
+        Self::Next,
+    );
 }
 
 pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:

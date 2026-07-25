@@ -4,6 +4,51 @@ Status: PLAN (2026-07-21, chartered by Finch). No code exists; this
 document is the deliverable. Sequencing is first-class and §6 states
 it: the single-R/W transport refactor (design/single-socket-plan.md)
 lands before this work begins, and tier (d) is hard-blocked on it.
+*(Sequencing superseded — see the 2026-07-23 amendment below.)*
+
+**Amendment (2026-07-23, ruled by Finch): the single-socket trigger
+is superseded; the integration obligations attach now, against the
+Link transport.** The single-socket campaign was declined
+(`design/single-socket-retrospective.md` records the decision and
+the harvest); the caller-supplied `Link` transport landed instead
+(`src/link.rs`). The trace checks integrate regardless, because the
+kernel-checked artifacts were never about a transport: the
+statements of record (`formal/lean/StreamingMirror/Statement.lean` —
+`wellFormed → (∀ s, dCount s ≤ capLevel) → DeadlockFree sk
+AxMode.impl` and `wellFormed → schedulable → DeadlockFree sk
+AxMode.full`) are proved against MODEL.md's abstraction, where the
+modeled system is the in-memory driver and channels are bounded
+SPSC FIFOs — the transport sits entirely below the model
+(`remote/` is "a framing layer below this model's abstraction",
+MODEL.md). Read at their exact strength, the theorems cover any
+transport that delivers each channel's items reliably, in order,
+under bounded receiver-paced buffering — per-stream obligations the
+`Link` contract states — and say nothing about a transport's own
+conformance (that remains the `Link` conformance suite's job, §7
+unchanged). Nothing in the proven inventory is single-socket-
+specific. Re-denominations of the trigger clauses:
+
+- **§4 sampling** ("once the single-socket transport lands"): moot —
+  the stall-trigger geometry and its seeds are committed on
+  `link-transport` today (the proxy liveness tests and their
+  `proptest-regressions`), so the committed-seeds-always-validate
+  clause attaches immediately.
+- **§6 sequencing gate**: dissolved. Tiers (a)–(c) validate the
+  materialized trace, which was their object all along; they are
+  unblocked now. Tier (d)'s original object — the single-socket
+  σ*ₖ engine's ledger and the greeting's window-advertisement
+  fields — was declined with its campaign and lives only on the
+  archive branch; tier (d) as specified does not attach to
+  `link-transport`. Of stage 3, the B5 Rust-vs-Lean
+  announced-skeleton cross-check is protocol-layer and survives;
+  the engine-ledger judge re-attaches if the retrospective's
+  follow-on (per-stream receive-window sizing via L(N)) ships a
+  ledger-bearing engine, and is otherwise declined with its
+  campaign, not pending.
+- **§7 negative space** ("the single-socket plan's acceptance
+  harness"): transport conformance belongs to the shipped `Link`
+  conformance suite (`src/conformance/link.rs`, the `conformance`
+  cargo feature).
 Companions: formal/MODEL.md §6 (the assumption/theorem interface this
 mechanizes) and §10 (its correspondence table), formal/lean/Muxprobe.lean and
 EventDag.lean (the two existing
@@ -203,7 +248,9 @@ Sampling policy:
   (N ≈ 16) plus **every failing case** and **every
   proptest-regressions replay** (the committed seeds always validate;
   they are the acceptance choreography's traces of record, including
-  the historical stall seeds once the single-socket transport lands).
+  the historical stall seeds once the single-socket transport lands
+  — *superseded: the stall-trigger seeds are committed on
+  `link-transport` now; see the 2026-07-23 amendment*).
 - Binary missing (fresh clone, no elan): skip with a loud one-line
   note in the sampled path; hard error in `just all`.
 
@@ -228,6 +275,9 @@ real Rust traces, not the model instances' rootH 6), decode cost, and
 batch-size sweet spot — BEFORE any gate placement is committed.
 
 ## 6. Staging — sequencing constraint first
+
+*(The gate below is dissolved by the 2026-07-23 amendment: tiers
+(a)–(c) are unblocked now; tier (d) is re-scoped there.)*
 
 **Nothing in this plan begins until the single-R/W transport refactor
 lands** (Finch's directive, 2026-07-21). Tiers (a)–(c) are technically
@@ -257,6 +307,10 @@ decoder saw).
   the single-socket acceptance line item ("the historical stall seeds
   don't just complete — their traces validate"). ~500–900 Lean + the
   Rust harness; 1–2 sessions. **Hard-blocked on the refactor.**
+  *(Re-scoped by the 2026-07-23 amendment: the B5 cross-check and
+  the stall-seed validation attach now on `link-transport`; the
+  engine-ledger judge is declined with its campaign unless the L(N)
+  follow-on ships a ledger-bearing engine.)*
 
 Total ≈ 1.5–2.7k lines across 4–6 agent-sessions.
 
@@ -280,7 +334,9 @@ Total ≈ 1.5–2.7k lines across 4–6 agent-sessions.
   session's hot path, no live judging of production traffic.
 - **Not a transport conformance suite.** Framing, window accounting,
   and socket behavior belong to the single-socket plan's acceptance
-  harness; tracecheck sees the protocol layer's events only.
+  harness (*today: the `Link` conformance suite,
+  `src/conformance/link.rs` — 2026-07-23 amendment*); tracecheck sees
+  the protocol layer's events only.
 
 ## 8. Open questions for Finch
 

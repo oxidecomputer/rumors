@@ -51,7 +51,7 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let a = build_local(dup(&seed), &a_actions);
         let b = build_local(dup(&seed), &b_actions);
         wire_gossip(&a, &b);
@@ -59,8 +59,8 @@ proptest! {
         prop_assert_eq!(fingerprint(&a), fingerprint(&b));
     }
 
-    /// The converged pair is independent of which peer sits on which side
-    /// of the duplex: gossiping `(a, b)` and gossiping `(b, a)` from
+    /// The converged pair is independent of which peer sits on which end
+    /// of the link: gossiping `(a, b)` and gossiping `(b, a)` from
     /// identically-built starting points yield the same content on both
     /// sides.
     #[test]
@@ -68,7 +68,7 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let a0 = build_local(dup(&seed), &a_actions);
         let b0 = build_local(dup(&seed), &b_actions);
 
@@ -90,7 +90,7 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let a = build_local(dup(&seed), &a_actions);
         let b = build_local(dup(&seed), &b_actions);
         wire_gossip(&a, &b);
@@ -109,7 +109,9 @@ proptest! {
         );
     }
 
-    /// Pairwise gossip is order-independent across three peers: routing
+    /// Pairwise gossip is order-independent across three peers.
+    ///
+    /// Routing
     /// everything through `a` first (`a·b` then `a·c`) and routing through
     /// `b` first (`b·c` then `a·b`) both leave `a` holding the same
     /// content — the union of all three.
@@ -119,7 +121,7 @@ proptest! {
         b_actions in arb_local_actions(),
         c_actions in arb_local_actions(),
     ) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let a0 = build_local(dup(&seed), &a_actions);
         let b0 = build_local(dup(&seed), &b_actions);
         let c0 = build_local(dup(&seed), &c_actions);
@@ -142,7 +144,7 @@ proptest! {
     /// changes neither side. The "true" idempotence of the merge.
     #[test]
     fn gossip_with_own_fork_is_noop(actions in arb_local_actions()) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let a = build_local(dup(&seed), &actions);
         let fork = dup(&a);
 
@@ -159,7 +161,7 @@ proptest! {
     /// the empty side catches up to the populated side's content.
     #[test]
     fn gossip_with_empty_peer_is_one_sided(actions in arb_local_actions()) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let empty = dup(&seed);
         let a = build_local(dup(&seed), &actions);
 
@@ -183,7 +185,7 @@ proptest! {
         a_value in any::<u64>(),
         b_value in any::<u64>(),
     ) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let alice = dup(&seed);
         let bob = dup(&seed);
 
@@ -218,7 +220,7 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let a = build_local(dup(&seed), &a_actions);
         let b = build_local(dup(&seed), &b_actions);
 

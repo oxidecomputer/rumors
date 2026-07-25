@@ -5,16 +5,43 @@
 //! wire behind the `protocol-v1` cargo feature: its state machines are a
 //! large monomorphization surface, so binaries that never speak V1 should
 //! not spend compile time on it.
+//!
+//! # Malformed input
+//!
+//! Wherever peer-controlled bytes enter a parser, in either protocol, the
+//! tripwire contract is uniform: malformed bytes surface a typed session
+//! error — never a panic, never a hang, never a silent misparse. Under the
+//! trusted-counterparty model (see the crate docs) this validation is a bug
+//! tripwire, not a security boundary; in particular, peer-declared frame
+//! lengths are trusted for allocation once the preamble has vetted the
+//! counterparty (see [`framing`]). Every ingress ships with a malformed-input
+//! suite in the `tests.rs` sibling of the parser it exercises, and a new
+//! ingress must bring its own.
 
 #[cfg(any(test, feature = "protocol-v1"))]
 pub(crate) mod alternating;
 pub mod streaming;
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) mod framing;
 pub(crate) mod handshake;
 pub(crate) mod party;
 
-/// An error which can occur during mirroring: either a client error or a server one.
+/// Whether `bound` is causally contained in `declared`: the version-
+/// containment predicate both protocols enforce on supplied subtrees at
+/// ingestion.
+///
+/// Named because version order is partial and the callers branch on the
+/// *negation*: a bound that is incomparable with the declared version is
+/// just as uncontained as one strictly above it, which a bare `!(a <= b)`
+/// reads as easily getting wrong.
+pub(crate) fn contained(bound: &crate::Version, declared: &crate::Version) -> bool {
+    bound <= declared
+}
+
+/// An error during mirroring, from either the client or the server position.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error<C, S> {
     /// The protocol participant supplied in the client position failed.
@@ -29,7 +56,7 @@ impl<C, S> Error<C, S> {
     /// The same fault, seen from the counterparty's frame.
     ///
     /// The drivers run the descent in initiator/responder order regardless of
-    /// which side is the local client; when the version tiebreak swaps the
+    /// which side is the local client; when the role election swaps the
     /// roles, the error's sides swap back with it.
     pub(crate) fn flip(self) -> Error<S, C> {
         match self {
@@ -47,8 +74,8 @@ impl<C, S> Error<C, S> {
 /// its session at the *frame-relative* instantiation with its own error
 /// first, so `?` lifts either party's backend errors through this one impl,
 /// and the party boundary [flips](Error::flip) errors between frames as they
-/// cross (the same flip the drivers apply when the version tiebreak swaps
-/// the roles).
+/// cross (the same flip the drivers apply when the role election swaps the
+/// roles).
 impl<C, S> From<C> for Error<C, S> {
     fn from(client: C) -> Self {
         Error::Client(client)

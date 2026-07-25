@@ -16,7 +16,7 @@ use crate::common::wire::{bootstrap_fork_async, wire_gossip_async};
 /// new subscriber has seen nothing, so whatever the set holds is news.
 #[pollster::test]
 async fn first_poll_yields_immediately() {
-    let rumors: Rumors<u64> = Peer::seed().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     // And with nothing further committed, the stream is quiet.
@@ -27,7 +27,7 @@ async fn first_poll_yields_immediately() {
 /// redact, and a multi-change batch are one frontier advance apiece.
 #[pollster::test]
 async fn one_tick_per_observed_commit() {
-    let rumors: Rumors<u64> = Peer::seed().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
@@ -56,7 +56,7 @@ async fn one_tick_per_observed_commit() {
 /// stream is a signal, not a ledger.
 #[pollster::test]
 async fn unpolled_commits_coalesce_to_one_tick() {
-    let rumors: Rumors<u64> = Peer::seed().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
@@ -71,7 +71,7 @@ async fn unpolled_commits_coalesce_to_one_tick() {
 /// receiving side ticks when the session lands content from the peer.
 #[pollster::test]
 async fn gossip_join_ticks_the_observer() {
-    let a: Rumors<u64> = Peer::seed().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork_async(&a).await;
 
     let mut b_changes = b.changes();
@@ -88,7 +88,7 @@ async fn gossip_join_ticks_the_observer() {
 /// after the last poll) is delivered before the end.
 #[pollster::test]
 async fn set_closure_ends_the_stream() {
-    let rumors: Rumors<u64> = Peer::seed().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
@@ -104,12 +104,14 @@ async fn set_closure_ends_the_stream() {
 /// [`Rumors::try_into_peer`] reclaim the `Peer`.
 #[pollster::test]
 async fn observer_does_not_block_peer_reclaim() {
-    let rumors: Rumors<u64> = Peer::seed().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let _changes = rumors.changes();
     assert!(rumors.try_into_peer().await.is_some());
 }
 
-/// The non-blocking `TryTick` face carries the same contract: a fresh
+/// The non-blocking `TryTick` face carries the same contract.
+///
+/// A fresh
 /// signal's first step ticks, commits between steps coalesce into one tick,
 /// a reported signal is quiet (not ended) while handles live, the stream
 /// delivers a tick still owed at set closure, and `Ended` is terminal.
@@ -117,7 +119,7 @@ async fn observer_does_not_block_peer_reclaim() {
 fn try_tick_coalesces_quiet_and_end() {
     use rumors::TryTick;
 
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
 
     let mut changes = rumors.changes();

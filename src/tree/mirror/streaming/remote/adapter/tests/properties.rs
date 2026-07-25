@@ -7,7 +7,7 @@ use proptest::{collection::btree_set, prelude::*, test_runner::TestCaseResult};
 
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Local,
+        Backend, Local,
         convert::Convert,
         message::{Reaction, Reply},
     },
@@ -19,9 +19,11 @@ use crate::tree::{
 
 use super::{
     super::{DecodeError, Scope, decode_leaf_reply, decode_reply, encode_leaf_reply, encode_reply},
-    LeafCase, hash, runtime,
+    LeafCase, hash, leaf_run, runtime,
 };
-use crate::tree::mirror::streaming::remote::codec::{End, Flow, Frame, Reaction as WireReaction};
+use crate::tree::mirror::streaming::remote::codec::{
+    End, Flow, Frame, Reaction as WireReaction, RunBudget,
+};
 
 #[derive(Clone, Debug)]
 struct PositionalCase {
@@ -90,7 +92,7 @@ trait AdapterHeight: Convert {
 
 impl AdapterHeight for Z {
     fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
-        <typed::Node<u64, Z> as Leaf<u64>>::leaf(leaf.version.clone(), leaf.message.clone())
+        typed::Node::leaf(leaf.version.clone(), leaf.message.clone())
     }
 
     fn supplied_leaf_is_lossless(
@@ -102,13 +104,18 @@ impl AdapterHeight for Z {
         let frame = supplied_frame(leaf, Flow::End);
         let mut frames = stream::iter([frame.clone()]);
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, scope.clone(), &mut frames))
+            .block_on(decode_leaf_reply(
+                Local,
+                u64::MAX,
+                scope.clone(),
+                &mut frames,
+            ))
             .expect("an in-scope leaf decodes");
 
         prop_assert!(decoded.questions.is_empty(), "height 0");
         assert_decoded_supply::<Z>(&decoded.reply, radix, leaf, runtime)?;
         let reencoded = runtime.block_on(async {
-            encode_leaf_reply(Local, scope, decoded.reply)
+            encode_leaf_reply(Local, RunBudget::default(), scope, decoded.reply)
                 .map_ok(|encoded| encoded.into_parts().0)
                 .try_collect::<Vec<_>>()
                 .await
@@ -129,7 +136,7 @@ impl AdapterHeight for Z {
             replies: radixes.iter().map(|_| Reaction::Match).collect(),
         };
         let encoded = runtime.block_on(async {
-            encode_leaf_reply(Local, scope.clone(), reply)
+            encode_leaf_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -145,7 +152,7 @@ impl AdapterHeight for Z {
                 .chain([sentinel.clone()]),
         );
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, scope, &mut frames))
+            .block_on(decode_leaf_reply(Local, u64::MAX, scope, &mut frames))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height 0");
         assert_matches(&decoded.reply, radixes.len(), 0)?;
@@ -197,7 +204,7 @@ impl AdapterHeight for Z {
         };
 
         let encoded = runtime.block_on(async {
-            encode_leaf_reply(Local, scope.clone(), reply)
+            encode_leaf_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -216,7 +223,7 @@ impl AdapterHeight for Z {
 
         let mut frames = stream::iter(actual_frames);
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, scope, &mut frames))
+            .block_on(decode_leaf_reply(Local, u64::MAX, scope, &mut frames))
             .expect("canonical leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
         assert_positional_reply(&decoded.reply, &leaf_case, 0)
@@ -240,7 +247,7 @@ impl AdapterHeight for Z {
             .collect::<Vec<_>>();
 
         let encoded = runtime.block_on(async {
-            encode_leaf_reply(Local, scope.clone(), reply)
+            encode_leaf_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -260,7 +267,7 @@ impl AdapterHeight for Z {
         let sentinel = Frame::End(End::Reply);
         let mut frames = stream::iter(actual_frames.into_iter().chain([sentinel.clone()]));
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, scope, &mut frames))
+            .block_on(decode_leaf_reply(Local, u64::MAX, scope, &mut frames))
             .expect("canonical mixed leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
         assert_mixed_reply(
@@ -285,6 +292,7 @@ impl AdapterHeight for Z {
         let error = runtime
             .block_on(decode_leaf_reply(
                 Local,
+                u64::MAX,
                 Scope::new(parent, &[]),
                 &mut frames,
             ))
@@ -303,6 +311,7 @@ impl AdapterHeight for Z {
         let error = runtime
             .block_on(decode_leaf_reply(
                 Local,
+                u64::MAX,
                 Scope::new(foreign, &[]),
                 &mut frames,
             ))
@@ -334,6 +343,7 @@ where
         let decoded = runtime
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
+                u64::MAX,
                 scope.clone(),
                 &mut frames,
             ))
@@ -342,7 +352,7 @@ where
         prop_assert!(decoded.questions.is_empty(), "height {}", Self::HEIGHT);
         assert_decoded_supply::<Self>(&decoded.reply, radix, leaf, runtime)?;
         let reencoded = runtime.block_on(async {
-            encode_reply(Local, scope, decoded.reply)
+            encode_reply(Local, RunBudget::default(), scope, decoded.reply)
                 .map_ok(|encoded| encoded.into_parts().0)
                 .try_collect::<Vec<_>>()
                 .await
@@ -363,7 +373,7 @@ where
             replies: radixes.iter().map(|_| Reaction::Match).collect(),
         };
         let encoded = runtime.block_on(async {
-            encode_reply(Local, scope.clone(), reply)
+            encode_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -379,7 +389,12 @@ where
                 .chain([sentinel.clone()]),
         );
         let decoded = runtime
-            .block_on(decode_reply::<Local, (), H, _>(Local, scope, &mut frames))
+            .block_on(decode_reply::<Local, (), H, _>(
+                Local,
+                u64::MAX,
+                scope,
+                &mut frames,
+            ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height {}", Self::HEIGHT);
         assert_matches(&decoded.reply, radixes.len(), Self::HEIGHT)?;
@@ -432,7 +447,7 @@ where
         };
 
         let encoded = runtime.block_on(async {
-            encode_reply(Local, scope.clone(), reply)
+            encode_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -456,7 +471,12 @@ where
 
         let mut frames = stream::iter(actual_frames);
         let decoded = runtime
-            .block_on(decode_reply::<Local, (), H, _>(Local, scope, &mut frames))
+            .block_on(decode_reply::<Local, (), H, _>(
+                Local,
+                u64::MAX,
+                scope,
+                &mut frames,
+            ))
             .expect("canonical positional reactions decode");
         prop_assert_eq!(
             &decoded.questions,
@@ -492,7 +512,7 @@ where
             .collect::<Vec<_>>();
 
         let encoded = runtime.block_on(async {
-            encode_reply(Local, scope.clone(), reply)
+            encode_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -517,7 +537,12 @@ where
         let sentinel = Frame::End(End::Reply);
         let mut frames = stream::iter(actual_frames.into_iter().chain([sentinel.clone()]));
         let decoded = runtime
-            .block_on(decode_reply::<Local, u64, H, _>(Local, scope, &mut frames))
+            .block_on(decode_reply::<Local, u64, H, _>(
+                Local,
+                u64::MAX,
+                scope,
+                &mut frames,
+            ))
             .expect("canonical mixed reactions decode");
         prop_assert_eq!(
             &decoded.questions,
@@ -552,6 +577,7 @@ where
         let error = runtime
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
+                u64::MAX,
                 Scope::new(parent, &[]),
                 &mut frames,
             ))
@@ -576,6 +602,7 @@ where
         let error = runtime
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
+                u64::MAX,
                 Scope::new(foreign, &[]),
                 &mut frames,
             ))
@@ -587,7 +614,7 @@ where
 
 fn supplied_frame(leaf: &LeafCase, flow: Flow) -> Frame<u64> {
     Frame::Reaction(
-        WireReaction::Supply(leaf.version.clone(), leaf.message.clone()),
+        WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
         flow,
     )
 }
@@ -639,10 +666,10 @@ fn expected_mixed_frames(
     let mut reactions = Vec::with_capacity(case.radixes.len() + 1);
     for position in 0..=case.radixes.len() {
         if position == supply_at {
-            reactions.push(WireReaction::Supply(
-                leaf.version.clone(),
-                leaf.message.clone(),
-            ));
+            reactions.push(WireReaction::Supply(leaf_run(&[(
+                &leaf.version,
+                &leaf.message,
+            )])));
         }
         if position < case.radixes.len() {
             reactions.push(if case.is_query(position) {

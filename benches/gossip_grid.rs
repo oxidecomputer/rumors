@@ -1,6 +1,7 @@
 //! Over-the-wire reconciliation benchmark: the divergence grid from
-//! [`grid`], reconciled through [`Rumors::gossip`] over a simulated wire —
-//! the protocol's full cost per cell: handshake, framing, and the
+//! [`grid`], reconciled through [`Rumors::gossip`] over a simulated wire.
+//!
+//! Each cell pays the protocol's full cost: handshake, framing, and the
 //! round-trip exchange chain over the divergence it must move.
 //!
 //! # The wire
@@ -13,7 +14,7 @@
 //! A naive harness would allocate a fresh transport per Criterion iteration.
 //! The
 //! gossip exchange chain is statically bounded and self-delimiting (it closes
-//! on its own counter, never on EOF), so a completed session leaves the duplex
+//! on its own counter, never on EOF), so a completed session leaves the link
 //! at its next boundary. [`Wire::new`] therefore allocates once for all cells.
 
 use std::hint::black_box;

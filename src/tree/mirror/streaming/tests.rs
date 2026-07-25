@@ -12,12 +12,14 @@ use super::driver::try_join_mapped;
 use crate::testing::run_to_quiescence;
 use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
+    uncontained_supply_pair,
 };
 use crate::tree::mirror::alternating;
 use crate::tree::mirror::streaming::backend::with_local_schedule;
 use crate::tree::mirror::streaming::materialized::channel::with_schedule;
 use crate::tree::mirror::streaming::materialized::progress::{Trace, with_trace};
 use crate::tree::mirror::streaming::materialized::transcript::{Transcript, with_transcript};
+use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::streaming::{
     Local, Root as StreamingRoot, materialized::Handshaking, mirror as drive_streaming,
 };
@@ -80,8 +82,8 @@ fn streaming_mirror_sides_with_schedules(
     backend_schedule: Vec<u8>,
 ) -> (Root<()>, Root<()>) {
     let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
-    let client = Handshaking::start(Local, a.clone());
-    let server = Handshaking::start(Local, b.clone());
+    let client = Handshaking::start(Local, a.clone()).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(Local, b.clone()).window(WindowConfig::FLOOR);
     let (result, trace) = with_trace(|| {
         with_schedule(channel_schedule, || {
             with_local_schedule(backend_schedule, || {
@@ -109,8 +111,8 @@ fn transcribed_mirror_sides<T: Send + Sync + 'static>(
     b: Root<T>,
 ) -> (Root<T>, Root<T>, Trace, Transcript) {
     let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a.into(), b.into());
-    let client = Handshaking::start(Local, a);
-    let server = Handshaking::start(Local, b);
+    let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     let ((result, trace), transcript) =
         with_transcript(|| with_trace(|| run_to_quiescence(drive_streaming(client, server))));
     let (ours, theirs) = result
@@ -162,10 +164,9 @@ fn alternating_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
     pollster::block_on(async {
         let local_a = alternating::local::Exchange::start(a);
         let local_b = alternating::local::Exchange::start(b);
-        match alternating::mirror(local_a, local_b).await {
-            Err(e) => match e {},
-            Ok(pair) => pair,
-        }
+        alternating::mirror(local_a, local_b)
+            .await
+            .expect("two honest oracle endpoints speak no violations")
     })
 }
 
@@ -231,6 +232,39 @@ fn honors_redaction_under_leaf_parent_dispute() {
             );
         }
     }
+}
+
+/// A supplied leaf whose version escapes the sender's declared greeting
+/// version fails the streaming session with a typed violation instead of
+/// being absorbed.
+///
+/// The declared version of an honest replica contains every version it
+/// transmits, so this shape marks a nonconforming implementation. Absorbed,
+/// the escaped leaf would sit above every replica's session ceiling —
+/// unredactable and re-shipped forever (the mechanism is pinned at the
+/// tree tier by `escaped_version_defeats_redaction_in_a_poisoned_store`).
+/// The wire twin (`uncontained_supply_is_rejected_at_the_wire`) drives the
+/// same rejection through the frame codec and supply decoder.
+#[test]
+fn uncontained_supply_is_rejected_by_streaming() {
+    use crate::tree::mirror::streaming::materialized::{Error, Violation};
+
+    let (receiver, poisoned, _, _) = uncontained_supply_pair();
+    let (receiver, poisoned): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
+        (receiver.into(), poisoned.into());
+    let client = Handshaking::start(Local, receiver).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(Local, poisoned).window(WindowConfig::FLOOR);
+    let result = run_to_quiescence(drive_streaming(client, server))
+        .expect("the rejecting session becomes quiescent");
+    assert!(
+        matches!(
+            result,
+            Err(MirrorError::Client(Error::Violation(
+                Violation::UncontainedSupply
+            ))),
+        ),
+        "the receiving side rejects the escaped leaf",
+    );
 }
 
 proptest! {

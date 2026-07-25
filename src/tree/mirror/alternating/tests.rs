@@ -11,6 +11,7 @@ use tokio::runtime::Runtime;
 use crate::Network;
 use crate::tree::arb::{
     arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair, nth_party,
+    uncontained_supply_pair,
 };
 use crate::tree::mirror::framing::{FrameRead, FrameWrite};
 use crate::tree::traverse::{Action, act};
@@ -31,7 +32,7 @@ thread_local! {
 }
 
 /// Drive an async future to completion on the per-thread runtime. Used to
-/// bridge proptest's synchronous body with the now-async `mirror` driver.
+/// bridge proptest's synchronous body with the async `mirror` driver.
 fn block_on<F: Future>(fut: F) -> F::Output {
     RT.with(|cell| {
         cell.get_or_init(|| {
@@ -85,7 +86,7 @@ where
                 let local_a = local::Exchange::start(a);
                 let local_b = local::Exchange::start(b);
                 match mirror(local_a, local_b).await {
-                    Err(e) => match e {},
+                    Err(e) => panic!("honest endpoints speak no violations: {e}"),
                     Ok((ours, theirs)) => {
                         assert_eq!(ours, theirs, "local-local endpoints should converge");
                         theirs
@@ -219,8 +220,7 @@ proptest! {
     ) {
         // Tick the party's disjoint clock once per action so every action
         // carries a strictly-increasing version on that party: inserts take
-        // the first `len` ticks, forgets the ticks after them, mirroring the
-        // old `(party, scalar)` numbering with distinct, ascending versions.
+        // the first `len` ticks, forgets the ticks after them.
         // Each leaf goes to its content-addressed path (as a real insert does),
         // and a forget targets the path of the insert it cancels — matching how
         // `redact` reuses the key surfaced by the original insert.
@@ -269,6 +269,68 @@ proptest! {
             let mirrored = mirror_via(tree_a.clone(), tree_b.clone(), scenario);
             prop_assert_eq!(mirrored, expected.clone());
         }
+    }
+}
+
+/// A supplied leaf whose version escapes the sender's declared handshake
+/// version fails the session with a typed violation instead of being
+/// absorbed, in process and over the framed wire alike.
+///
+/// The declared version of an honest replica contains every version it
+/// transmits, so this shape marks a nonconforming implementation. Absorbed,
+/// the escaped leaf would sit above every replica's session ceiling —
+/// unredactable and re-shipped forever (the mechanism is pinned at the
+/// tree tier by `escaped_version_defeats_redaction_in_a_poisoned_store`);
+/// rejection at ingestion is what keeps a conforming replica's store
+/// honest.
+#[test]
+fn uncontained_supply_is_rejected() {
+    use crate::tree::mirror::{Error, streaming::materialized::Violation};
+
+    // In process: the receiving side's local exchange diagnoses the
+    // violation.
+    {
+        let (receiver, poisoned, _, _) = uncontained_supply_pair();
+        let result = block_on(mirror(
+            local::Exchange::start(receiver),
+            local::Exchange::start(poisoned),
+        ));
+        assert!(
+            matches!(result, Err(Error::Client(Violation::UncontainedSupply))),
+            "the receiving side rejects the escaped leaf",
+        );
+    }
+
+    // Over the wire: the receiving endpoint reports the violation; the
+    // sender's endpoint fails with whatever the aborted transport surfaces.
+    {
+        let (receiver, poisoned, _, _) = uncontained_supply_pair();
+        block_on(async move {
+            let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
+            let (a_r, a_w) = tokio::io::split(a_side);
+            let (b_r, b_w) = tokio::io::split(b_side);
+
+            let local_receiver = local::Exchange::start(receiver);
+            let remote_b = remote::Exchange::start(FrameRead::new(a_r), FrameWrite::new(a_w));
+            let receiver_side = mirror(local_receiver, remote_b);
+
+            let local_poisoned = local::Exchange::start(poisoned);
+            let remote_a = remote::Exchange::start(FrameRead::new(b_r), FrameWrite::new(b_w));
+            let poisoned_side = mirror(local_poisoned, remote_a);
+
+            let (receiver_result, poisoned_result) = tokio::join!(receiver_side, poisoned_side);
+            assert!(
+                matches!(
+                    receiver_result,
+                    Err(Error::Client(Violation::UncontainedSupply))
+                ),
+                "the receiving side rejects the escaped leaf over the wire",
+            );
+            assert!(
+                poisoned_result.is_err(),
+                "the sender's session dies with its counterparty",
+            );
+        });
     }
 }
 

@@ -1,8 +1,9 @@
 //! Exact-read length-delimited framing shared by the mirror wire protocols.
 //!
 //! A framed body is a 4-byte big-endian length followed by exactly that many
-//! payload bytes. The streaming protocol uses it for its causal-version
-//! handshake, variable-width supplied leaves, and trailing identity hand-off;
+//! payload bytes. The streaming protocol uses it for its greeting (the
+//! causal-version and root-fan listing frames), variable-width supply runs
+//! and their leaf records, and the trailing identity hand-off;
 //! signal-delimited fixed bodies remain bare. The reader never consumes a byte
 //! beyond the frame requested.
 //!
@@ -21,6 +22,19 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Bytes occupied by the big-endian `u32` payload-length header.
 pub(crate) const LENGTH_HEADER_LEN: usize = std::mem::size_of::<u32>();
+
+/// Bytes of one negotiated size word in the greeting's version frame: a
+/// little-endian `u64`.
+pub(crate) const GREETING_WORD_LEN: usize = std::mem::size_of::<u64>();
+
+/// The greeting version frame's fixed prefix: three size words (the
+/// sender's set size, version-size bound, and message-size target) ahead
+/// of the version encoding.
+///
+/// Sender, receiver, and every fixture measuring greeting frames must
+/// agree on this width; it is defined once here so the layout can only
+/// change in one place.
+pub(crate) const GREETING_SIZE_WORDS_LEN: usize = 3 * GREETING_WORD_LEN;
 
 /// A payload length which cannot be represented by the framing header.
 #[derive(Debug, thiserror::Error)]

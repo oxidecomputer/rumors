@@ -20,12 +20,12 @@
 //!    key it already knows about.
 //!
 //! Each party keeps its *own* `Vec<Key>` of every key it has observed — fed
-//! by a [`Messages`] observer that replays its rumor set from genesis and
-//! then yields its own inserts and everything learned over the wire alike —
-//! so redactions may evict messages originally published by *other* parties,
-//! and the contagion spreads on the next sync. The key vector is strictly
-//! per-thread: there is no shared rumor-set state and therefore no lock
-//! contention on the hot path.
+//! by an [`UnorderedMessages`] observer that replays its rumor set from
+//! genesis and then yields its own inserts and everything learned over the
+//! wire alike — so redactions may evict messages originally published by
+//! *other* parties, and the contagion spreads on the next sync. The key
+//! vector is per-thread: no shared rumor-set state, no lock contention on
+//! the hot path.
 //!
 //! # Steady-state controller
 //!
@@ -38,18 +38,22 @@
 //! ```
 //!
 //! At `L = 0` it always adds; at `L = T` the odds are even; as `L` grows past
-//! `T` adding becomes rare. The fixed point is `L = T`, so the network's live
-//! set settles around the target. Because redactions and inserts both
-//! propagate, every node's `L` tracks the *global* live count once converged —
-//! so `T` is effectively the steady-state size of the whole network's rumor
-//! set, tunable live from the UI.
+//! `T` adding becomes rare. The fixed point is `L = T`, so each node's live
+//! count is driven toward the target, tunable live from the UI. A redact op
+//! always removes a key that is still live, discarding pool entries other
+//! parties already redacted as they surface; [`steady_state_op`] explains
+//! why the fixed point depends on that, and `swarm/tests.rs` pins
+//! convergence through retargeting. Because redactions and inserts both
+//! propagate, every node's `L` tracks the global live count as views
+//! converge; while churn and syncs race each other the network rides above
+//! the target by the messages still in flight between views.
 //!
 //! # Synchronization uses the wire protocol
 //!
-//! Syncs go through [`Rumors::gossip`] over an in-memory [`tokio::io::duplex`]
-//! pipe — the *same* bytes-on-the-wire path a TCP peer would drive. Both ends
-//! of a session run `gossip` concurrently on their own thread's
-//! current-thread runtime, exactly as two networked peers would.
+//! Syncs go through [`Rumors::gossip`] over an in-memory [`rumors::link`] pair
+//! — the *same* bytes-on-the-wire path a QUIC peer would drive. Both ends of a
+//! session run `gossip` concurrently on their own thread's current-thread
+//! runtime, exactly as two networked peers would.
 //!
 //! # Rendezvous without deadlock
 //!
@@ -97,7 +101,11 @@
 //!   and both directions, auto-scaled to B/KiB/MiB/…;
 //! - **sync latency** — mean wall-clock duration of one end-to-end gossip
 //!   session, measured by the initiator from the instant the exchange begins
-//!   to the instant it returns (never derived from the Poisson schedule);
+//!   to the instant it returns (never derived from the Poisson schedule).
+//!   Wall clock includes every OS scheduling delay between protocol hops,
+//!   and those dominate on a loaded machine, so the readout pairs the mean
+//!   with the window's *best* session — a floor for what the protocol
+//!   itself costs;
 //! - **roundtrips/sync** — mean number of request→response turns per session,
 //!   counted from write→read direction flips on the initiator's I/O;
 //! - **live messages/node** — the current rumor-set size, charted against the
@@ -107,6 +115,12 @@
 //!
 //! `↑`/`↓` select a parameter, `←`/`→` adjust it (`Shift` for a coarse step),
 //! `space` pauses all churn, `q` quits.
+//!
+//! # Headless mode
+//!
+//! `--headless-secs N` runs the same swarm without the UI for `N` seconds
+//! and prints the readout's statistics to stdout — the scripted way to
+//! measure the swarm itself.
 
 use std::collections::VecDeque;
 use std::io;
@@ -134,6 +148,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Sparkline};
+use rumors::link::{Connector, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink};
 use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
@@ -141,19 +156,23 @@ use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 ///
 /// Every party in the swarm — which independently `send`s, `redact`s, and
 /// `gossip`s — needs its own disjoint Interval Tree Clock region. We mint one
-/// by serving a bootstrap from `parent` over an in-memory duplex: the
+/// by serving a bootstrap from `parent` over an in-memory link: the
 /// newcomer pulls `parent`'s whole tree through the ordinary mirror descent
 /// and is handed a fresh disjoint party, forked in the same critical section
 /// that snapshots the served tree. Both halves run concurrently on
-/// `runtime`'s single current thread via [`tokio::join!`].
-fn bootstrap_fork(runtime: &tokio::runtime::Runtime, parent: &Rumors<Payload>) -> Rumors<Payload> {
-    let (a, b) = tokio::io::duplex(16 * 1024);
-    let (mut a_r, mut a_w) = tokio::io::split(a);
-    let (mut b_r, mut b_w) = tokio::io::split(b);
+/// `runtime`'s single current thread via [`tokio::join!`]. `duplex_capacity`
+/// sizes each of the link's in-memory streams, same as every other link in
+/// the swarm.
+fn bootstrap_fork(
+    runtime: &tokio::runtime::Runtime,
+    parent: &Rumors<Payload>,
+    duplex_capacity: usize,
+) -> Rumors<Payload> {
+    let (mut parent_link, mut newcomer_link) = rumors::link::memory_with_capacity(duplex_capacity);
     let (served, newcomer) = runtime.block_on(async {
         tokio::join!(
-            parent.gossip(&mut a_r, &mut a_w),
-            Peer::<Payload>::bootstrap(&mut b_r, &mut b_w),
+            parent.gossip(&mut parent_link),
+            Peer::<Payload>::bootstrap().join(&mut newcomer_link),
         )
     });
     served.expect("serve bootstrap");
@@ -169,8 +188,9 @@ fn bootstrap_fork(runtime: &tokio::runtime::Runtime, parent: &Rumors<Payload>) -
 type Payload = Vec<u8>;
 
 /// One endpoint of a sync session, handed from an initiator to the responder
-/// it claimed. The responder splits it and drives `gossip` on its own thread.
-type SessionEnd = DuplexStream;
+/// it claimed. The responder decorates it for byte accounting and drives
+/// `gossip` on its own thread.
+type SessionEnd = MemoryLink;
 
 /// An interactive gossip swarm with a live throughput readout.
 #[derive(Parser, Debug)]
@@ -201,14 +221,21 @@ struct Args {
     #[arg(long, default_value_t = 256)]
     message_size: usize,
 
-    /// Capacity in bytes of each in-memory duplex pipe. Smaller values
-    /// exercise more backpressure; larger values fewer roundtrips.
+    /// Capacity in bytes of each in-memory link stream (control and every data
+    /// stream alike). Smaller values exercise more backpressure; larger values
+    /// fewer roundtrips.
     #[arg(long, default_value_t = 16 * 1024)]
     duplex_capacity: usize,
 
     /// UI refresh interval in milliseconds.
     #[arg(long, default_value_t = 200)]
     refresh_ms: u64,
+
+    /// Run without the UI for this many seconds, then print the readout's
+    /// windowed statistics to stdout and exit. Zero runs the interactive UI.
+    /// Useful for scripted measurements of the swarm itself.
+    #[arg(long, default_value_t = 0)]
+    headless_secs: u64,
 }
 
 /// Live-tunable knobs shared with every party thread. Read on the hot path, so
@@ -228,15 +255,19 @@ struct Controls {
     paused: AtomicBool,
 }
 
-/// Process-wide counters, sampled by the UI. All monotonic since start; the UI
-/// differences successive snapshots to get windowed rates.
-#[derive(Default)]
+/// Process-wide counters, sampled by the UI. All monotonic since start except
+/// `sync_nanos_best`; the UI differences successive snapshots to get windowed
+/// rates.
 struct Metrics {
     /// Local inserts + redactions completed across all parties.
     local_ops: AtomicU64,
-    /// Total bytes written to every wire, both directions (each byte counted
-    /// once, on the writer that produced it).
-    wire_bytes: AtomicU64,
+    /// Total bytes written to every wire — control stream and every data
+    /// stream, both directions (each byte counted once, on the writer that
+    /// produced it).
+    ///
+    /// Shared into the link-decorating writers, which outlive
+    /// the borrow of `Metrics`, so it is an [`Arc`] rather than a bare field.
+    wire_bytes: Arc<AtomicU64>,
     /// Sum over completed sessions of `2 * duration_nanos`: one direction-span
     /// per direction. Pairs with `wire_bytes` to give a time-weighted mean
     /// per-direction bandwidth.
@@ -245,12 +276,38 @@ struct Metrics {
     syncs: AtomicU64,
     /// Sum of session wall-clock durations in nanos (end-to-end latency).
     sync_nanos: AtomicU64,
+    /// Fastest session in the current sampling window, in nanos —
+    /// `u64::MAX` when the window has seen none.
+    ///
+    /// The sampler swaps the
+    /// sentinel back in each time it reads, so the value is windowed where
+    /// every other counter is monotonic. Wall-clock means include every
+    /// OS scheduling delay a loaded machine inserts between protocol
+    /// hops; the window's fastest session is a floor for what the
+    /// protocol itself costs, so the readout shows both.
+    sync_nanos_best: AtomicU64,
     /// Sum of request→response roundtrips across all sessions.
     roundtrips: AtomicU64,
     /// Sessions still in flight. Drains to zero during shutdown before any
     /// thread is allowed to exit, so no party is left blocked on a peer that
     /// already quit.
     inflight: AtomicU64,
+}
+
+impl Default for Metrics {
+    fn default() -> Self {
+        Metrics {
+            local_ops: AtomicU64::new(0),
+            wire_bytes: Arc::new(AtomicU64::new(0)),
+            wire_direction_nanos: AtomicU64::new(0),
+            syncs: AtomicU64::new(0),
+            sync_nanos: AtomicU64::new(0),
+            // The windowed minimum starts at its no-sessions sentinel.
+            sync_nanos_best: AtomicU64::new(u64::MAX),
+            roundtrips: AtomicU64::new(0),
+            inflight: AtomicU64::new(0),
+        }
+    }
 }
 
 impl Metrics {
@@ -260,6 +317,7 @@ impl Metrics {
         let nanos = duration.as_nanos() as u64;
         self.syncs.fetch_add(1, Ordering::Relaxed);
         self.sync_nanos.fetch_add(nanos, Ordering::Relaxed);
+        self.sync_nanos_best.fetch_min(nanos, Ordering::Relaxed);
         // Two directions, each spanning the whole session.
         self.wire_direction_nanos
             .fetch_add(nanos.saturating_mul(2), Ordering::Relaxed);
@@ -267,7 +325,34 @@ impl Metrics {
     }
 }
 
-/// Per-party coordination state, shared across all threads. Holds no rumor-set
+/// Holds one in-flight session slot; releases it on drop.
+///
+/// Shutdown drains
+/// the in-flight counter to zero before letting threads exit, so the slot
+/// must be released on every exit from a session — including a panic
+/// unwinding out of `gossip` — or shutdown spins forever on a slot no one
+/// holds. RAII makes the release unconditional.
+struct InflightGuard<'a>(&'a Metrics);
+
+impl<'a> InflightGuard<'a> {
+    /// Reserve a slot. Callers reserve *before* their final `running` check:
+    /// shutdown first clears `running`, then waits for this counter, so the
+    /// ordering guarantees no session slips between the check and the drain.
+    fn reserve(metrics: &'a Metrics) -> Self {
+        metrics.inflight.fetch_add(1, Ordering::SeqCst);
+        InflightGuard(metrics)
+    }
+}
+
+impl Drop for InflightGuard<'_> {
+    fn drop(&mut self) {
+        self.0.inflight.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Per-party coordination state, shared across all threads.
+///
+/// Holds no rumor-set
 /// data — only the inbox to deliver session endpoints, the engaged flag that
 /// serializes each party into one session at a time, and a gauge of its
 /// current live-message count for the UI.
@@ -301,7 +386,7 @@ enum Command {
 
 /// A party's [`Rumors`] handed back to the coordinator. The key pool is not
 /// carried along: the receiving thread rebuilds it by replaying the set
-/// through a fresh [`Messages`] observer.
+/// through a fresh [`UnorderedMessages`] observer.
 struct Donation {
     rumors: Rumors<Payload>,
 }
@@ -309,14 +394,16 @@ struct Donation {
 /// Everything the party threads share: the peer directory, live controls,
 /// run/stop flags, and the metrics counters.
 struct Net {
-    /// The live peer directory. Read locklessly on the sync hot path; swapped
+    /// The live peer directory.
+    ///
+    /// Read locklessly on the sync hot path; swapped
     /// only by the coordinator, one membership change at a time. Each entry is
     /// an `Arc` so a party claimed for a session survives its removal from the
     /// directory.
     peers: ArcSwap<Vec<Arc<SwarmPeer>>>,
     controls: Controls,
     metrics: Metrics,
-    /// Capacity of each in-memory duplex pipe. Immutable for the run.
+    /// Capacity of each in-memory link stream. Immutable for the run.
     duplex_capacity: usize,
     /// While true, parties may initiate new syncs. Cleared first at shutdown.
     running: AtomicBool,
@@ -349,7 +436,7 @@ fn main() -> io::Result<()> {
     // bootstraps; its forks do all the gossiping.
     let initial: Vec<Donation> = (0..args.parties)
         .map(|_| Donation {
-            rumors: bootstrap_fork(&seed_runtime, &seed),
+            rumors: bootstrap_fork(&seed_runtime, &seed, args.duplex_capacity),
         })
         .collect();
     drop(seed);
@@ -382,17 +469,37 @@ fn main() -> io::Result<()> {
             .expect("spawn coordinator thread")
     };
 
-    // Run the interactive UI on the main thread until the user quits. Always
-    // restore the terminal, even on error or panic.
-    let result = run_ui(&net, &args);
+    // Run the interactive UI on the main thread until the user quits (or, in
+    // headless mode, sample the same statistics for the requested duration).
+    // The UI always restores the terminal, even on error or panic.
+    let result = if args.headless_secs > 0 {
+        run_headless(&net, &args);
+        Ok(())
+    } else {
+        run_ui(&net, &args)
+    };
 
     // Shutdown: stop new syncs and membership changes. Clearing `running`
     // ends the coordinator's reconcile loop; it hands back every party's join
     // handle. Then wait for in-flight sessions to drain so no party is blocked
-    // on a peer that already quit, and finally release the threads.
+    // on a peer that already quit, and finally release the threads. The drain
+    // is bounded: in-flight slots release even across panics (see
+    // [`InflightGuard`]), so a drain that outlives the deadline means a
+    // session is wedged, and joining its thread would hang forever — report
+    // and let process exit reap the threads instead.
     net.running.store(false, Ordering::SeqCst);
     let handles = coordinator.join().expect("join coordinator thread");
+    let drain_deadline = Instant::now() + SHUTDOWN_DRAIN_DEADLINE;
     while net.metrics.inflight.load(Ordering::SeqCst) > 0 {
+        if Instant::now() >= drain_deadline {
+            eprintln!(
+                "shutdown: {} session(s) still in flight after {:?}: \
+                 exiting without joining party threads",
+                net.metrics.inflight.load(Ordering::SeqCst),
+                SHUTDOWN_DRAIN_DEADLINE,
+            );
+            return result;
+        }
         thread::sleep(Duration::from_millis(1));
     }
     net.shutdown.store(true, Ordering::SeqCst);
@@ -403,6 +510,14 @@ fn main() -> io::Result<()> {
     result
 }
 
+/// How long shutdown waits for in-flight sessions to drain before concluding
+/// one is wedged and exiting without the party-thread joins.
+///
+/// In-memory
+/// sessions complete in milliseconds even on a heavily loaded machine, so
+/// five seconds is generous.
+const SHUTDOWN_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
+
 // --- party engine ----------------------------------------------------------
 
 /// One party's main loop: serve inbound syncs, obey membership commands, fire
@@ -412,10 +527,11 @@ fn main() -> io::Result<()> {
 /// `me` is this party's own directory entry, held directly so the hot path
 /// never has to look itself up.
 ///
-/// The redaction key pool is fed by a [`Messages`] observer from genesis: the
-/// initial drain replays everything the party inherited (the seed content, or
-/// a fork parent's whole set), and each loop's drain picks up its own inserts
-/// and everything learned over the wire, exactly once each.
+/// The redaction key pool is fed by an [`UnorderedMessages`] observer from
+/// genesis: the initial drain replays everything the party inherited (the
+/// seed content, or a fork parent's whole set), and each loop's drain picks
+/// up its own inserts and everything learned over the wire, exactly once
+/// each.
 fn run_party(
     net: Arc<Net>,
     me: Arc<SwarmPeer>,
@@ -432,18 +548,21 @@ fn run_party(
     let mut keys: Vec<Key> = Vec::new();
 
     loop {
-        // Catch the key pool up with everything observed since the last turn,
-        // and republish our live-message count for the UI gauge.
-        drain_keys(&mut observer, &mut keys);
-        me.live
-            .store(rumors.snapshot().len() as u64, Ordering::Relaxed);
-
         // 1. Serve every inbound session. Our engaged flag was set true by the
         //    initiator that claimed us; clear it once we have reconciled.
         while let Ok(end) = inbox.try_recv() {
             serve_sync(&runtime, &net, &rumors, end);
             me.engaged.store(false, Ordering::Release);
         }
+
+        // Catch the key pool up with everything observed since the last turn
+        // — the sessions just served included — and republish our live count
+        // for the UI gauge. One snapshot serves the rest of the iteration:
+        // taking it after the serves keeps the controller's odds and the
+        // pool's liveness checks current with what just arrived.
+        drain_keys(&mut observer, &mut keys);
+        let snap = rumors.snapshot();
+        me.live.store(snap.len() as u64, Ordering::Relaxed);
 
         // 2. Obey membership commands from the coordinator, between sessions.
         while let Ok(cmd) = control.try_recv() {
@@ -453,7 +572,7 @@ fn run_party(
                     // so it can independently churn and gossip; its thread
                     // rebuilds the key pool by observer replay. We keep
                     // running unchanged.
-                    let child = bootstrap_fork(&runtime, &rumors);
+                    let child = bootstrap_fork(&runtime, &rumors, net.duplex_capacity);
                     let _ = reply.send(Donation { rumors: child });
                 }
                 Command::WindDown { reply } => {
@@ -477,18 +596,20 @@ fn run_party(
         }
 
         // 3. Time to initiate a sync? Only while still running, and only if we
-        //    can claim both ourselves and a peer.
-        if net.running.load(Ordering::SeqCst) && Instant::now() >= next_sync {
-            if try_initiate(&runtime, &net, &me, &mut rng, &rumors) {
-                next_sync = Instant::now() + exponential(&mut rng, &net.controls);
-            }
-            // If the claim failed (peer busy), fall through to local work and
-            // retry on the next iteration; next_sync stays in the past.
+        //    can claim both ourselves and a peer. When the claim fails (peer
+        //    busy), fall through to local work and retry on the next
+        //    iteration — next_sync stays in the past — so a due initiator
+        //    keeps churning instead of spinning on claim attempts.
+        if net.running.load(Ordering::SeqCst)
+            && Instant::now() >= next_sync
+            && try_initiate(&runtime, &net, &me, &mut rng, &rumors)
+        {
+            next_sync = Instant::now() + exponential(&mut rng, &net.controls);
             continue;
         }
 
         // 4. Local churn under the steady-state controller.
-        local_op(&net, &mut rng, &rumors, &mut keys);
+        local_op(&net, &mut rng, &rumors, &snap, &mut keys);
     }
 }
 
@@ -501,7 +622,9 @@ fn drain_keys(observer: &mut UnorderedMessages<Payload>, keys: &mut Vec<Key>) {
     }
 }
 
-/// Wind a party down so the coordinator can absorb it. Serves any owed session,
+/// Wind a party down so the coordinator can absorb it.
+///
+/// Serves any owed session,
 /// then claims our own engaged flag — permanently — so no initiator can open a
 /// new session with us. Because an initiator sets a peer's flag *before*
 /// delivering the session, a successful claim here proves nothing is owed; if
@@ -577,51 +700,53 @@ fn try_initiate(
         return false;
     }
 
-    // Both claimed. Reserve an in-flight slot before the final `running` check:
-    // shutdown first clears `running`, then waits for this counter to drain, so
-    // it cannot miss a session that is about to start.
-    net.metrics.inflight.fetch_add(1, Ordering::SeqCst);
+    // Both claimed. Reserve the in-flight slot (see `InflightGuard::reserve`
+    // for the ordering against shutdown); the guard releases it on every
+    // exit from this function, panics included.
+    let _inflight = InflightGuard::reserve(&net.metrics);
     if !net.running.load(Ordering::SeqCst) {
         peer.engaged.store(false, Ordering::Release);
         me.engaged.store(false, Ordering::Release);
-        net.metrics.inflight.fetch_sub(1, Ordering::SeqCst);
         return false;
     }
 
-    // Hand the peer one end of a fresh pipe and gossip the other.
-    let (mine, theirs) = tokio::io::duplex(net.duplex_capacity);
+    // Hand the peer one end of a fresh link and gossip the other.
+    let (mine, theirs) = rumors::link::memory_with_capacity(net.duplex_capacity);
     if peer.inbox.send(theirs).is_err() {
         peer.engaged.store(false, Ordering::Release);
         me.engaged.store(false, Ordering::Release);
-        net.metrics.inflight.fetch_sub(1, Ordering::SeqCst);
         return false;
     }
 
+    // Roundtrips are write→read flips on the *control* stream — the session's
+    // request→response turns — so only its halves carry the `Rounds`; the
+    // data streams tally bytes but never roundtrips.
     let rounds = Arc::new(Rounds::default());
-    let (read_half, write_half) = tokio::io::split(mine);
-    let mut reader = CountRead {
-        inner: read_half,
-        rounds: Some(Arc::clone(&rounds)),
-    };
-    let mut writer = CountWrite {
-        inner: write_half,
-        wire_bytes: &net.metrics.wire_bytes,
-        rounds: Some(Arc::clone(&rounds)),
-    };
+    let mut link = initiator_link(
+        mine,
+        Arc::clone(&net.metrics.wire_bytes),
+        Arc::clone(&rounds),
+    );
 
     // Latency is the wall-clock span of the gossip exchange itself: `start` is
     // taken immediately before the protocol runs and `elapsed` immediately
     // after it returns. It is never derived from the Poisson schedule.
     // (Learned keys surface through the party's observer on its next drain.)
     let start = Instant::now();
+    // The swarm's links are in-process and its parties one universe, so a
+    // failed session is a bug and panicking is honest. A real application
+    // matches on the error instead: `Error::LinkPoisoned` and
+    // `Error::Epilogue` call for a reconnect (the replica is intact — or,
+    // for `Epilogue`, already fully committed), `Error::NetworkMismatch`
+    // for a partition-merge decision, and I/O errors for discarding the
+    // link and retrying later.
     runtime
-        .block_on(rumors.gossip(&mut reader, &mut writer))
+        .block_on(rumors.gossip(&mut link))
         .expect("initiator gossip");
     let elapsed = start.elapsed();
 
     net.metrics.record_sync(elapsed, rounds.roundtrips());
     me.engaged.store(false, Ordering::Release);
-    net.metrics.inflight.fetch_sub(1, Ordering::SeqCst);
     true
 }
 
@@ -633,49 +758,81 @@ fn serve_sync(
     rumors: &Rumors<Payload>,
     end: SessionEnd,
 ) {
-    let (read_half, write_half) = tokio::io::split(end);
-    // The responder counts only the bytes it writes (its outbound direction);
-    // the initiator counts the other direction. Roundtrips are tallied by the
-    // initiator alone, so the responder needs no `Rounds`.
-    let mut reader = read_half;
-    let mut writer = CountWrite {
-        inner: write_half,
-        wire_bytes: &net.metrics.wire_bytes,
-        rounds: None,
-    };
+    // The responder counts only the bytes it writes (its outbound direction on
+    // the control stream and every data stream it opens); the initiator counts
+    // the other direction. Roundtrips are tallied by the initiator alone, so
+    // the responder attaches no `Rounds`.
+    let mut link = responder_link(end, Arc::clone(&net.metrics.wire_bytes));
+    // See `try_initiate`: a real application matches on the session error
+    // instead of panicking.
     runtime
-        .block_on(rumors.gossip(&mut reader, &mut writer))
+        .block_on(rumors.gossip(&mut link))
         .expect("responder gossip");
 }
 
-/// Perform one unit of local churn under the steady-state controller. The
-/// probability of adding (rather than redacting) is `target / (target + live)`,
-/// so the live set is driven toward `target`. Falls back to an insert when
-/// there is nothing to redact.
-fn local_op(net: &Net, rng: &mut SmallRng, rumors: &Rumors<Payload>, keys: &mut Vec<Key>) {
-    let target = net.controls.target.load(Ordering::Relaxed) as f64;
-    let live = rumors.snapshot().len() as f64;
-    // p_add = T / (T + L): 1.0 when empty, 0.5 at target, → 0 when far over.
+/// Perform one unit of local churn under the steady-state controller, against
+/// `snap`, the caller's current snapshot, and bump the ops counter.
+fn local_op(
+    net: &Net,
+    rng: &mut SmallRng,
+    rumors: &Rumors<Payload>,
+    snap: &rumors::Snapshot<Payload>,
+    keys: &mut Vec<Key>,
+) {
+    let target = net.controls.target.load(Ordering::Relaxed);
+    let size = net.controls.message_size.load(Ordering::Relaxed) as usize;
+    steady_state_op(rng, rumors, snap, keys, target, size);
+    net.metrics.local_ops.fetch_add(1, Ordering::Relaxed);
+}
+
+/// One steady-state controller op: insert with probability
+/// `target / (target + live)` (1.0 when empty, 0.5 at target, → 0 far over),
+/// otherwise redact a **live** key, so the live set is driven toward
+/// `target`.
+///
+/// Falls back to an insert when no live key is in the pool.
+///
+/// The redact arm draws until it finds a key still present in `snap`,
+/// discarding stale entries — keys other parties already redacted — as they
+/// surface, without spending the op on them. The discard is what keeps the
+/// fixed point at `live == target` for any swarm size: every party's pool
+/// takes in every party's inserts but drains only by its own draws, so
+/// counting a stale draw as the op's redaction would let the stale backlog
+/// grow with the swarm and starve the downward pressure (live counts then
+/// stall near `parties × target` instead).
+fn steady_state_op(
+    rng: &mut SmallRng,
+    rumors: &Rumors<Payload>,
+    snap: &rumors::Snapshot<Payload>,
+    keys: &mut Vec<Key>,
+    target: u64,
+    message_size: usize,
+) {
+    let target = target as f64;
+    let live = snap.len() as f64;
     let p_add = if target <= 0.0 {
         0.0
     } else {
         target / (target + live)
     };
 
-    if keys.is_empty() || rng.gen_bool(p_add.clamp(0.0, 1.0)) {
-        let size = net.controls.message_size.load(Ordering::Relaxed) as usize;
-        // The minted key reaches the pool through the observer's next drain.
-        rumors.send(random_message(rng, size));
-    } else {
-        // Swap-remove a random key and redact it: the key leaves our local
-        // view and the redaction propagates on our next sync. A key already
-        // redacted by another party simply makes this a no-op, and either way
-        // it leaves our vector, so stale keys drain out over time.
-        let idx = rng.gen_range(0..keys.len());
-        let key = keys.swap_remove(idx);
-        rumors.redact(key);
+    if !rng.gen_bool(p_add.clamp(0.0, 1.0)) {
+        // Swap-remove random keys until one is still live, and redact it: the
+        // key leaves our local view and the redaction propagates on our next
+        // sync. Stale keys leave the vector as they are drawn, so a redaction
+        // burst elsewhere costs at most one pass over the pool here.
+        while !keys.is_empty() {
+            let idx = rng.gen_range(0..keys.len());
+            let key = keys.swap_remove(idx);
+            if snap.get(&key).is_some() {
+                rumors.redact(key);
+                return;
+            }
+        }
     }
-    net.metrics.local_ops.fetch_add(1, Ordering::Relaxed);
+    // The add arm — or a pool with no live key left in it. The minted key
+    // reaches the pool through the observer's next drain.
+    rumors.send(random_message(rng, message_size));
 }
 
 /// Draw an exponential inter-arrival time with the current mean, so successive
@@ -711,7 +868,9 @@ fn pick_peer(rng: &mut SmallRng, dir: &[Arc<SwarmPeer>], me: u64) -> Option<Arc<
 
 // --- membership coordinator ------------------------------------------------
 
-/// The coordinator thread. The sole writer of the peer directory: it launches
+/// The coordinator thread.
+///
+/// The sole writer of the peer directory: it launches
 /// the initial parties, then reconciles the live party count toward the desired
 /// one by forking (to grow) or retiring one party into another (to shrink),
 /// one step per iteration.
@@ -810,7 +969,9 @@ fn grow(net: &Arc<Net>, rng: &mut SmallRng, next_id: &mut u64, handles: &mut Vec
 
 /// Shrink by one: wind down two random parties, [`retire`](Peer::retire)
 /// one into the other over an in-memory wire, and run the survivor in a new
-/// thread. The retire session's gossip round carries any divergent content
+/// thread.
+///
+/// The retire session's gossip round carries any divergent content
 /// across before the party hand-off, and the survivor absorbs the retiree's
 /// id-region — the merge is leak-free. Any two live parties are disjoint
 /// forks of the common seed, so the session always commits.
@@ -855,15 +1016,11 @@ fn shrink(
     let retiree = runtime
         .block_on(db.rumors.try_into_peer())
         .expect("a wound-down party's handle is unique");
-    let (a_side, b_side) = tokio::io::duplex(net.duplex_capacity);
-    let (mut a_r, mut a_w) = tokio::io::split(a_side);
-    let (mut b_r, mut b_w) = tokio::io::split(b_side);
-    let (retired, survived) = runtime.block_on(async {
-        tokio::join!(
-            retiree.retire(&mut b_r, &mut b_w),
-            rumors.gossip(&mut a_r, &mut a_w),
-        )
-    });
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(net.duplex_capacity);
+    let (retired, survived) = runtime
+        .block_on(async { tokio::join!(retiree.retire(&mut b_link), rumors.gossip(&mut a_link)) });
+    // See `try_initiate`: a real application matches on the session error
+    // instead of panicking.
     survived.expect("survivor gossip");
     assert!(
         matches!(retired, Retire::Retired),
@@ -920,13 +1077,17 @@ impl Rounds {
 
 /// `AsyncWrite` wrapper that tallies bytes into a shared counter and, when a
 /// `Rounds` is attached, records the write phase for roundtrip counting.
-struct CountWrite<'a, W> {
+///
+/// The counter is owned as an [`Arc`] rather than borrowed so this wrapper
+/// can back a [`Connector::Tx`], whose `'static` bound outlives any borrow of
+/// the metrics.
+struct CountWrite<W> {
     inner: W,
-    wire_bytes: &'a AtomicU64,
+    wire_bytes: Arc<AtomicU64>,
     rounds: Option<Arc<Rounds>>,
 }
 
-impl<W: AsyncWrite + Unpin> AsyncWrite for CountWrite<'_, W> {
+impl<W: AsyncWrite + Unpin> AsyncWrite for CountWrite<W> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -981,6 +1142,158 @@ impl<R: AsyncRead + Unpin> AsyncRead for CountRead<R> {
             other => other,
         }
     }
+}
+
+/// A [`Connector`] that wraps each opened data stream's writer in a
+/// [`CountWrite`], so the bytes a session pushes down its data streams join
+/// the same tally as its control-stream bytes.
+///
+/// Data-stream writes never carry
+/// a `Rounds`: roundtrips are a property of the bidirectional control stream.
+#[derive(Clone)]
+struct CountConnector {
+    inner: MemoryConnector,
+    wire_bytes: Arc<AtomicU64>,
+}
+
+impl Connector for CountConnector {
+    type Tx = CountWrite<DuplexStream>;
+
+    async fn connect(&self) -> io::Result<Self::Tx> {
+        let tx = self.inner.connect().await?;
+        Ok(CountWrite {
+            inner: tx,
+            wire_bytes: Arc::clone(&self.wire_bytes),
+            rounds: None,
+        })
+    }
+}
+
+/// The initiator's decorated link: both control halves count (writes tally
+/// bytes and roundtrips, reads tally roundtrips) and each opened data stream
+/// tallies its bytes.
+///
+/// Incoming data streams are accepted unwrapped — their
+/// bytes are counted by the peer that wrote them.
+type InitiatorLink =
+    Link<CountRead<DuplexStream>, CountWrite<DuplexStream>, CountConnector, MemoryAcceptor>;
+
+/// The responder's decorated link: it counts only the bytes it writes (its
+/// control write half and each data stream it opens), so its control read half
+/// is left bare and no `Rounds` is attached anywhere.
+type ResponderLink = Link<DuplexStream, CountWrite<DuplexStream>, CountConnector, MemoryAcceptor>;
+
+/// Decorate an in-memory link end for the initiator's accounting: byte and
+/// roundtrip counting on the control stream, byte counting on opened data
+/// streams.
+///
+/// The [`SessionState`](rumors::link::SessionState) is carried
+/// through unchanged, so decoration neither resets the session counter that
+/// keeps the two ends in lockstep nor clears a poison latch.
+fn initiator_link(
+    link: MemoryLink,
+    wire_bytes: Arc<AtomicU64>,
+    rounds: Arc<Rounds>,
+) -> InitiatorLink {
+    let parts = link.into_parts();
+    LinkParts {
+        control_read: CountRead {
+            inner: parts.control_read,
+            rounds: Some(Arc::clone(&rounds)),
+        },
+        control_write: CountWrite {
+            inner: parts.control_write,
+            wire_bytes: Arc::clone(&wire_bytes),
+            rounds: Some(rounds),
+        },
+        connector: CountConnector {
+            inner: parts.connector,
+            wire_bytes,
+        },
+        acceptor: parts.acceptor,
+        session: parts.session,
+    }
+    .into_link()
+}
+
+/// Decorate an in-memory link end for the responder's accounting: byte
+/// counting on every stream it writes, nothing on the streams it reads.
+fn responder_link(link: MemoryLink, wire_bytes: Arc<AtomicU64>) -> ResponderLink {
+    let parts = link.into_parts();
+    LinkParts {
+        control_read: parts.control_read,
+        control_write: CountWrite {
+            inner: parts.control_write,
+            wire_bytes: Arc::clone(&wire_bytes),
+            rounds: None,
+        },
+        connector: CountConnector {
+            inner: parts.connector,
+            wire_bytes,
+        },
+        acceptor: parts.acceptor,
+        session: parts.session,
+    }
+    .into_link()
+}
+
+// --- headless measurement --------------------------------------------------
+
+/// Sample the same windowed statistics the UI renders, for `headless_secs`,
+/// then print one summary line per readout row to stdout. The first sampling
+/// window is discarded as warmup so the summary reflects steady state.
+fn run_headless(net: &Net, args: &Args) {
+    let sample_interval = Duration::from_millis(args.refresh_ms.max(1));
+    let windows = (args.headless_secs * 1000 / args.refresh_ms.max(1)).max(2) as usize;
+    let mut prev = Snapshot::take(net);
+    let mut samples: Vec<Stats> = Vec::with_capacity(windows);
+    for i in 0..windows {
+        thread::sleep(sample_interval);
+        let now = Snapshot::take(net);
+        let stats = compute(net, &prev, &now);
+        prev = now;
+        if i > 0 {
+            samples.push(stats);
+        }
+    }
+    let n = samples.len().max(1) as f64;
+    let mean = |f: fn(&Stats) -> f64| samples.iter().map(f).sum::<f64>() / n;
+    let ops_total = mean(|s| s.ops_total);
+    let ops_per_party = mean(|s| s.ops_per_party);
+    let bandwidth = mean(|s| s.bandwidth);
+    let sync_rate = mean(|s| s.sync_rate);
+    let avg_live = mean(|s| s.avg_live);
+    // Latency and roundtrips are formatted strings in `Stats`; recompute the
+    // means from the raw counters across the whole measured span instead. The
+    // best is the fastest session seen in any window.
+    let best = samples
+        .iter()
+        .map(|s| s.latency_best_nanos)
+        .min()
+        .unwrap_or(u64::MAX);
+    let end = Snapshot::take(net);
+    let syncs = end.syncs.max(1);
+    let latency = Duration::from_nanos(end.sync_nanos / syncs);
+    let roundtrips = end.roundtrips as f64 / syncs as f64;
+    println!("parties          {}", net.peers.load().len());
+    println!("local ops/s      {ops_total:.0} total, {ops_per_party:.0} per party");
+    println!("wire bandwidth   {} per direction", format_rate(bandwidth));
+    println!(
+        "sync latency     {} mean, {} best, over {} sessions",
+        format_duration(latency),
+        if best == u64::MAX {
+            "--".to_string()
+        } else {
+            format_duration(Duration::from_nanos(best))
+        },
+        end.syncs
+    );
+    println!("sync rate        {sync_rate:.1}/s");
+    println!("roundtrips/sync  {roundtrips:.1}");
+    println!(
+        "live messages    {avg_live:.0}/node (target {})",
+        net.controls.target.load(Ordering::Relaxed)
+    );
 }
 
 // --- interactive UI --------------------------------------------------------
@@ -1096,6 +1409,8 @@ struct Stats {
     ops_total: f64,
     bandwidth: f64,
     latency: String,
+    /// Fastest session in the window, nanos; `u64::MAX` when none completed.
+    latency_best_nanos: u64,
     sync_rate: f64,
     roundtrips: String,
     avg_live: f64,
@@ -1139,11 +1454,19 @@ fn compute(net: &Net, prev: &Snapshot, now: &Snapshot) -> Stats {
 
     let live_total: u64 = dir.iter().map(|p| p.live.load(Ordering::Relaxed)).sum();
 
+    // Consume the window's fastest session and re-arm the sentinel for the
+    // next window.
+    let latency_best_nanos = net
+        .metrics
+        .sync_nanos_best
+        .swap(u64::MAX, Ordering::Relaxed);
+
     Stats {
         ops_per_party: ops_total / parties,
         ops_total,
         bandwidth,
         latency,
+        latency_best_nanos,
         sync_rate,
         roundtrips,
         avg_live: live_total as f64 / parties,
@@ -1361,7 +1684,16 @@ fn draw_stats(frame: &mut ratatui::Frame, area: Rect, stats: &Stats) {
         ),
         kv(
             "sync latency",
-            format!("{}  ({:.1}/s)", stats.latency, stats.sync_rate),
+            format!(
+                "{} (best {})  ({:.1}/s)",
+                stats.latency,
+                if stats.latency_best_nanos == u64::MAX {
+                    "--".to_string()
+                } else {
+                    format_duration(Duration::from_nanos(stats.latency_best_nanos))
+                },
+                stats.sync_rate,
+            ),
         ),
         kv("roundtrips/sync", stats.roundtrips.clone()),
         kv("live messages", target_hint),
@@ -1438,6 +1770,13 @@ fn format_rate(bytes_per_sec: f64) -> String {
     }
     format!("{value:.1} {}/s", UNITS[unit])
 }
+
+// The example file is its own crate root, so the module path is stated
+// explicitly to keep the tests beside it in `examples/swarm/` rather than
+// loose in `examples/` where cargo would take them for another example.
+#[cfg(test)]
+#[path = "swarm/tests.rs"]
+mod tests;
 
 /// Format a short duration with an adaptive unit (ns / µs / ms / s).
 fn format_duration(d: Duration) -> String {

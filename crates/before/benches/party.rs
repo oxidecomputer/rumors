@@ -16,8 +16,10 @@ fn rng(salt: u64) -> StdRng {
     StdRng::seed_from_u64(SEED.wrapping_add(salt))
 }
 
-/// `fork`: split a party in two. Destructive (mutates self, returns the sibling), so each
-/// iteration starts from a fresh value rebuilt in the untimed `iter_batched` setup —
+/// `fork`: split a party in two.
+///
+/// Destructive (mutates self, returns the sibling), so each iteration starts
+/// from a fresh value rebuilt in the untimed `iter_batched` setup —
 /// `decode` for the impl (not `Clone`), `clone` for the oracle.
 fn bench_fork(c: &mut Criterion) {
     let mut g = c.benchmark_group("party/fork");

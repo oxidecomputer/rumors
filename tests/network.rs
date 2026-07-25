@@ -1,6 +1,8 @@
 //! The per-universe [`rumors::Network`] guard: combining operations must
 //! refuse peers from a different seed, even when their parties happen to
-//! look disjoint. Covers handle inheritance, remote `gossip`, and bootstrap
+//! look disjoint.
+//!
+//! Covers handle inheritance, remote `gossip`, and bootstrap
 //! propagation.
 
 mod common;
@@ -9,24 +11,22 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::{Error, Peer};
 
-use crate::common::wire::block_on;
-
-/// Capacity for the in-memory duplex pipe.
-const DUPLEX_BUF: usize = 64 * 1024;
+use crate::common::wire::{assert_control_drained, block_on};
 
 /// A peer seeded deterministically, so two seeds with distinct stream ids get
 /// distinct (but reproducible) networks.
 fn seeded<T>(stream: u64) -> Peer<T> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(stream))
+    Peer::seed_rng(&mut SmallRng::seed_from_u64(stream)).sync_window_floor()
 }
 
-/// Every handle on one rumor set belongs to the same universe: a
-/// [`Rumors`](rumors::Rumors) (and its clones) inherits the originating
+/// Every handle on one rumor set belongs to the same universe.
+///
+/// A [`Rumors`](rumors::Rumors) (and its clones) inherits the originating
 /// [`Peer`]'s [`Network`](rumors::Network) unchanged, and the reclaimed
 /// `Peer` carries it back out.
 #[test]
 fn rumors_preserves_network() {
-    let parent = Peer::<u64>::seed();
+    let parent = Peer::<u64>::seed().sync_window_floor();
     let network = parent.network();
 
     let rumors = parent.into_rumors();
@@ -60,13 +60,8 @@ fn gossip_rejects_foreign_network() {
     let bob = seeded::<u64>(2).into_rumors();
 
     let (alice_out, bob_out) = block_on(async {
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        tokio::join!(
-            alice.gossip(&mut a_r, &mut a_w),
-            bob.gossip(&mut b_r, &mut b_w),
-        )
+        let (mut a_link, mut b_link) = rumors::link::memory();
+        tokio::join!(alice.gossip(&mut a_link), bob.gossip(&mut b_link))
     });
 
     assert!(
@@ -83,22 +78,22 @@ fn gossip_rejects_foreign_network() {
 /// the universe it was served from and can subsequently combine with it.
 #[test]
 fn bootstrap_adopts_provider_network() {
-    let provider = Peer::<u64>::seed().into_rumors();
+    let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
     provider.batch().send(1).send(2).send(3);
     let provider_network = provider.network();
 
     let bootstrapped = block_on(async move {
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
+        let (mut a_link, mut b_link) = rumors::link::memory();
         let (provider_out, bootstrap_out) = tokio::join!(
-            provider.gossip(&mut a_r, &mut a_w),
-            Peer::<u64>::bootstrap(&mut b_r, &mut b_w),
+            provider.gossip(&mut a_link),
+            Peer::<u64>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
-        bootstrap_out
+        let minted = bootstrap_out
             .expect("bootstrap handshake")
-            .expect("provider served the bootstrap")
+            .expect("provider served the bootstrap");
+        assert_control_drained(a_link, b_link);
+        minted
     });
 
     assert_eq!(

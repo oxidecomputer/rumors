@@ -59,9 +59,10 @@ mod tests;
 /// let merged = va | vb;
 /// assert!(merged > va && merged > vb);  // the join dominates both inputs
 /// ```
-// `PartialEq` is the macro's `causal_cmp == Equal` (see `causal_cmp_impls!`);
-// for canonical normal form that *is* byte-equality, so the derived `Hash` over
-// the packed bits stays consistent with it. clippy can't see the invariant.
+// `PartialEq` is the macro's `causal_eq` (see `causal_cmp_impls!`): a
+// representation compare for same-form operands, which canonical normal form
+// makes exactly causal equality — so the derived `Hash` over the packed bits
+// stays consistent with it. clippy can't see the invariant.
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Eq, Hash)]
 pub struct Version(BitVec<u8, Msb0>);
@@ -89,7 +90,18 @@ impl Version {
     /// assert!(!v.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
-        *self == Version::new()
+        // The canonical empty version is exactly the 2-bit packed stream `01`:
+        // a `0` leaf flag, then gamma(0), the single bit `1` (see
+        // `Version::new` and `codec::encode_int`). Canonical normal form makes
+        // representation equality exactly equality, so this O(1) bit test is
+        // the whole question — no allocation, no walk.
+        let empty = self.0.len() == 2 && !self.0[0] && self.0[1];
+        debug_assert_eq!(
+            empty,
+            *self == Version::new(),
+            "the two-bit emptiness test must agree with comparison against Version::new()",
+        );
+        empty
     }
 
     /// Advance the [`Version`] from the perspective of [`Party`].
@@ -734,16 +746,19 @@ impl DivAssign<&Party> for Version {
 
 // Causal comparison across {Version, Batch}², reading current state in place.
 // All four cells — `Version`/`Version` included — come from this macro, so the
-// comparison matrix reads as a matrix. Each cell delegates to `causal_cmp`,
-// with `eq` defined as `partial_cmp == Some(Equal)`; the `Version` derive list
-// deliberately omits `PartialEq`/`PartialOrd` so the macro is the single source
-// of both (see the note on the derive above).
+// comparison matrix reads as a matrix. Each ordering cell delegates to
+// `causal_cmp`; each equality cell delegates to `causal_eq`, which decides
+// same-form operands by a representation compare (canonical normal form makes
+// that exactly causal equality, in both directions) and walks only mixed
+// forms. The `Version` derive list deliberately omits `PartialEq`/`PartialOrd`
+// so the macro is the single source of both (see the note on the derive
+// above).
 macro_rules! causal_cmp_impls {
     ($($lhs:ty, $rhs:ty);* $(;)?) => {
         $(
             impl PartialEq<$rhs> for $lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    self.view().causal_cmp(o.view()) == Some(Ordering::Equal)
+                    self.view().causal_eq(o.view())
                 }
             }
             impl PartialOrd<$rhs> for $lhs {
@@ -753,7 +768,7 @@ macro_rules! causal_cmp_impls {
             }
             impl PartialEq<$rhs> for &$lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    self.view().causal_cmp(o.view()) == Some(Ordering::Equal)
+                    self.view().causal_eq(o.view())
                 }
             }
             impl PartialOrd<$rhs> for &$lhs {
@@ -763,7 +778,7 @@ macro_rules! causal_cmp_impls {
             }
             impl PartialEq<&$rhs> for $lhs {
                 fn eq(&self, o: &&$rhs) -> bool {
-                    self.view().causal_cmp(o.view()) == Some(Ordering::Equal)
+                    self.view().causal_eq(o.view())
                 }
             }
             impl PartialOrd<&$rhs> for $lhs {

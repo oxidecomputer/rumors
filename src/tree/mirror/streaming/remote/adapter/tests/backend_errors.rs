@@ -6,7 +6,7 @@ use futures::{StreamExt, stream};
 
 use crate::tree::{
     mirror::streaming::{
-        Failing, FailingNode, Failure, Leaf, Local, Operation,
+        Failing, FailingNode, Failure, Local, Operation,
         message::{Reaction, Reply},
     },
     typed::{
@@ -17,11 +17,11 @@ use crate::tree::{
 
 use super::{
     super::{DecodeError, EncodeError, Scope, decode_reply, encode_reply},
-    LeafCase, hash, runtime,
+    LeafCase, hash, leaf_run, runtime,
 };
 use crate::tree::mirror::streaming::{
     convert::Convert,
-    remote::codec::{End, Flow, Frame, Reaction as WireReaction},
+    remote::codec::{End, Flow, Frame, Reaction as WireReaction, RunBudget},
 };
 
 /// Construct the same one-leaf subtree at any concrete reply height.
@@ -31,7 +31,7 @@ trait BackendHeight: Convert {
 
 impl BackendHeight for Z {
     fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
-        <typed::Node<u64, Z> as Leaf<u64>>::leaf(leaf.version.clone(), leaf.message.clone())
+        typed::Node::leaf(leaf.version.clone(), leaf.message.clone())
     }
 }
 
@@ -82,6 +82,7 @@ where
             };
             let mut encoded = encode_reply(
                 backend.clone(),
+                RunBudget::default(),
                 Scope::new(parent, &listing),
                 Reply { replies },
             );
@@ -122,7 +123,7 @@ where
             let sentinel = Frame::End(End::Reply);
             let mut frames = stream::iter([
                 Frame::Reaction(
-                    WireReaction::Supply(leaf.version.clone(), leaf.message.clone()),
+                    WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
                     Flow::End,
                 ),
                 sentinel.clone(),
@@ -130,6 +131,7 @@ where
             let error = runtime
                 .block_on(decode_reply::<Failing<Local>, u64, H, _>(
                     backend.clone(),
+                    u64::MAX,
                     Scope::new(parent, &[]),
                     &mut frames,
                 ))

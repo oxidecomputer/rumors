@@ -1,12 +1,14 @@
-//! Convergence test for the *asynchronous* gossip path:
-//! `rumors::Rumors::gossip` driven concurrently with `tokio::join!` over a
-//! `tokio::io::duplex` pipe must converge both peers on the union of their
-//! pre-session live content.
+//! Convergence of the *asynchronous* gossip path.
 //!
-//! (The old in-process `join` is gone — wire gossip *is* the merge —
-//! so the oracle is the abstract union of the two pre-session readouts:
-//! sound because the peers tick disjoint parties, never share keys, and
-//! only ever redact keys they themselves minted before the session.)
+//! `rumors::Rumors::gossip`, driven concurrently with `tokio::join!` over an
+//! in-memory [`rumors::link`] pair, must converge both peers on the union of
+//! their pre-session live content.
+//!
+//! Wire gossip *is* the merge — there is no in-process join to compare
+//! against — so the oracle is the abstract union of the two pre-session
+//! readouts: sound because the peers tick disjoint parties, never share
+//! keys, and only ever redact keys they themselves minted before the
+//! session.
 //!
 //! Both tests share the `Insert`/`Redact` action shape, so redactions cross
 //! the wire too (not just inserts), and run against both a primitive (`u64`)
@@ -30,9 +32,11 @@ fn assert_fingerprints_equal<T: Send + Sync>(a: &rumors::Rumors<T>, b: &rumors::
 }
 
 proptest! {
-    /// Driving two async `Rumors` through `Rumors::gossip` over a
-    /// `tokio::io::duplex` pipe converges both on the union of the two
-    /// pre-session readouts — content already redacted on one side never
+    /// Driving two async `Rumors` through `Rumors::gossip` over an in-memory
+    /// [`rumors::link`] pair converges both on the union of the two
+    /// pre-session readouts.
+    ///
+    /// Content already redacted on one side never
     /// reaches the other, and both sides end byte-identical (`hash`) and
     /// causally equal (`latest`).
     #[test]
@@ -40,7 +44,7 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let seed = Peer::<u64>::seed().into_rumors();
+        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let a = build_local(bootstrap_fork(&seed), &a_actions);
         let b = build_local(bootstrap_fork(&seed), &b_actions);
 
@@ -62,7 +66,7 @@ proptest! {
         a_actions in arb_string_actions(),
         b_actions in arb_string_actions(),
     ) {
-        let seed = Peer::<String>::seed().into_rumors();
+        let seed = Peer::<String>::seed().sync_window_floor().into_rumors();
         let a = build_local(bootstrap_fork(&seed), &a_actions);
         let b = build_local(bootstrap_fork(&seed), &b_actions);
 

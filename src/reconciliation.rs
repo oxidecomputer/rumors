@@ -1,0 +1,228 @@
+//! How two replicas reconcile: the tree, the descent, and the causal sieve.
+//!
+//! This page explains the protocol behind [`gossip`](crate::Rumors::gossip)
+//! forward — from what a replica stores to what crosses the wire — and ends
+//! with how the design compares to its neighbors. Nothing here is required
+//! to use the crate: the contracts live on the API surfaces and this page
+//! carries the why behind them. For a doing-first introduction instead,
+//! start with the [tutorial](crate::tutorial).
+//!
+//! # One hash binds identity, causality, and placement
+//!
+//! Every message is stored under a [`Key`](crate::Key): the BLAKE3 hash
+//! binding the [`Version`](crate::Version) at which the message was sent to
+//! the message's canonical [`borsh`] encoding. Both inputs are
+//! deliberate.
+//!
+//! - **The version makes every send unique.** A replica's version advances
+//!   on every send, so each send mints a key that no other send in the
+//!   universe's history can mint again. Sending byte-identical content
+//!   twice creates two messages under two keys; redacting one never touches
+//!   the other; re-sending redacted content is a new message under a new
+//!   key, neither resurrected nor suppressed by the redaction that came
+//!   before it.
+//! - **The content makes the address canonical.** A content address is only
+//!   an address if one value has exactly one encoding. Borsh guarantees
+//!   that by construction; serialization frameworks in general do not.
+//!
+//! The 32-byte key is also the message's *location*: keys are the paths of
+//! a 256-ary radix trie, one key byte per level, 32 levels deep, with
+//! single-child runs compressed away. Hashing spreads keys uniformly, and
+//! the trie's shape is a pure function of its membership: two replicas
+//! holding the same set of messages hold the *same tree*, whatever order
+//! they learned it in. Each interior node memoizes two summaries of its
+//! subtree: a digest (a 16-byte truncation of BLAKE3;
+//! [`MERKLE_HASH_LEN`](crate::MERKLE_HASH_LEN)) and the ceiling and floor
+//! of its leaves' versions. The digest answers "do we hold the same things
+//! here?"; the version bounds answer "could anything here be news to a
+//! peer at that causal position?". The whole protocol is those two
+//! questions, asked recursively.
+//!
+//! # The descent to the disjoint frontier
+//!
+//! After a fixed transport preamble, a session opens with a *greeting*:
+//! each side sends its version, its live-message count, its version-size
+//! bound, its message-size target, and its root's child listing. Equal versions mean identical
+//! replicas, and the session ends right there, before a single digest is
+//! compared: the cheapest possible session, one exchange and no descent.
+//!
+//! Otherwise the two sides walk their trees downward together, level by
+//! level, comparing children by digest. Equal digests prune: that subtree
+//! is settled, however large it is. Where both sides hold something under a
+//! child but the digests differ, the child is *disputed*: the reply lists
+//! the disputed node's own children (a radix byte and a digest each, 17
+//! bytes per child) and the comparison recurses one level deeper. And
+//! where one side holds a subtree the other holds nothing under, the
+//! descent stops. Its destination is the *disjoint frontier*: the
+//! horizontal cut across the tree where every node along the cut is the
+//! highest node held exclusively by one side or the other.
+//!
+//! Without redaction, reconciliation would end there: ship each exclusive
+//! subtree's messages to the side that lacks them (*supplies*), splice, and
+//! both replicas hold the union. The work is proportional to the difference,
+//! not to the holdings: uniform keys thin disputes geometrically with depth,
+//! so the disputed paths of two replicas differing in `D` of `N` total
+//! messages separate in about `log₂₅₆(2·D·N)` levels (in expectation,
+//! derived from uniform content addressing) — about five levels for two
+//! fully divergent million-message replicas, three or four when a small
+//! divergence sits in a large set. Round trips are governed by that depth,
+//! not by `D`: every dispute at a level travels concurrently (the wire
+//! shape below), so latency is paid per level. A bootstrap — everything on
+//! one side, nothing on the other — needs no descent at all: the whole set
+//! ships as supplies from the root, `O(1)` rounds.
+//!
+//! # The causal sieve
+//!
+//! Redaction is the twist. When a peer [`redact`](crate::Rumors::redact)s a
+//! message, no record of the deletion is stored and none crosses the wire:
+//! there is no tombstone, and no redaction object exists in the protocol at
+//! all. The only requirement to honor deletions is already present in the two
+//! versions the greeting already exchanged.
+//!
+//! At each point on the disjoint frontier, the exclusive holder of a subtree
+//! filters that subtree against the *lacking* side's top-level causal version.
+//! This is the *causal sieve*:
+//!
+//! - A leaf whose version is **contained in** (`<=`) the lacking side's
+//!   version records a send that side's history already covers: the lacking
+//!   side has necessarily *seen* the message, but no longer holds it. Seen
+//!   but absent means it must have been deleted — so the holder drops the
+//!   leaf locally too, honoring a deletion it was never told about directly.
+//! - A leaf concurrent with, or in the causal future of, the lacking
+//!   side's version cannot have been seen there yet: the holder keeps it, and
+//!   ships it to the side that lacks it.
+//!
+//! The seen-implies-deleted inference is sound because a replica's frontier
+//! ([`Snapshot::latest`](crate::Snapshot::latest)) advances on every redaction
+//! as well as every send: redaction is itself causal, so a redacter's version
+//! contains the version of the since-redacted sent message, and every replica
+//! that catches up to it inherits that containment. (A further and more
+//! technical soundness note: this also only works because keys content-address
+//! causally-unique versions, which means that there are no A-B-A problems in
+//! play.) The two versions exchanged in the greeting are sufficient causal
+//! context to locally filter every subtree on the disjoint frontier: this means
+//! we need no tombstones, no per-message deletion metadata, and no grace
+//! windows, and a redacted message's cost everywhere falls to zero once the
+//! redaction has propagated. It is also why a classic tombstone-system anxiety
+//! does not translate: "what if the deletion arrives before the message?" is
+//! unrepresentable — there is nothing to arrive.
+//!
+//! To optimize this filtration, the version bounds memoized on every interior
+//! node decide whole subtrees at once: a subtree whose version ceiling the
+//! counterparty's version contains is settled *even though its digest differs*
+//! (nothing under it can be news to the counterparty; whatever it holds and the
+//! counterparty lacks, the counterparty deleted), and a subtree whose version
+//! floor is concurrent with or in the causal future of the counterparty's
+//! version ships whole with no further comparison. Only mixed subtrees descend
+//! toward individual leaves. This subtree-wise pruning is semantically
+//! identical to sieving each leaf one by one; what it changes is the price,
+//! keeping redaction-processing proportional to divergence rather than to the
+//! size of the set redacted. Note that the pruning rule handles exactly the
+//! plain Merkle repair's blind spot: a protocol comparing digests alone would
+//! recurse into a dominated subtree and faithfully resurrect the counterparty's
+//! deletions.
+//!
+//! The outcome of a session: both replicas hold every message either held and
+//! neither had redacted when the session began.
+//!
+//! # Sixteen-byte digests
+//!
+//! The digests the descent compares are 16-byte truncations of BLAKE3 (BLAKE3
+//! is designed to be truncated: any prefix is itself a cryptographic hash).
+//! Digest bytes dominate every dispute listing on the wire, so halving them
+//! roughly halves the protocol's metadata; keys into the tree remain full
+//! 32-byte hashes.
+//!
+//! At first blush, this might seem cavalier. But then consider, what would a
+//! digest collision cost, and who could make one? Peers are trusted in this
+//! crate's model (see [when *shouldn't* you use
+//! it](crate#when-shouldnt-you-use-it)), and a compromised peer never needs a
+//! collision: it already holds write authority over the set. The residual
+//! malefactor in our threat model is an author of message *content* who is not
+//! a peer. Such an author controls the *content* bytes but never (directly) the
+//! *version* half of the leaf's hash input: every send is stamped with a fresh
+//! causal version whose value under concurrent gossip is unpredictable, so no
+//! colliding (version, content) pair can be assembled ahead of time. The
+//! version stamp denies precomputation, and mining a collision online, against
+//! digests that exist only once their versions are already stamped, is
+//! infeasible at 128 bits. Were a collision somehow landed, its blast radius is
+//! bounded: two differing subtrees falsely read equal, so a message silently
+//! fails to propagate across that comparison — transient shadowing that
+//! self-heals when causal movement re-opens that part of the tree. Content is
+//! never corrupted, only delayed, and by an attack prohibitive to any realistic
+//! adversary (especially given its dubious benefit).
+//!
+//! # The bytes on the wire
+//!
+//! A session's transport is a [`Link`](crate::Link): one persistent
+//! bidirectional *control stream*, plus unidirectional *data streams*
+//! opened lazily as the descent needs them, at most
+//! [`STREAM_COUNT`](crate::link::STREAM_COUNT) per direction.
+//!
+//! The asymmetry is demand-shaped. The control stream carries what every
+//! session unconditionally exchanges — the preamble, the greeting, and the
+//! closing [`Error::Epilogue`](crate::Error::Epilogue) confirmation — so it is
+//! the one stream worth holding open across sessions: those fixed phases
+//! dominate a short session's latency, and re-dialing per session would put
+//! transport dial time and its failure modes inside every one of them. The
+//! persistent control stream is also what gives a link its stable identity
+//! between sessions (its session counter and its poison state). Data streams
+//! carry the descent into the tree, whose traffic exists only where divergence
+//! does: a converged session opens none, so they are opened on demand and are
+//! worth recycling back to a transport's connection pool. They are
+//! unidirectional because that is all the protocol demands — demanding less of
+//! the transport leaves implementations more room, and a link is free to split
+//! one bidirectional stream into two unidirectional roles.
+//!
+//! In *theory*, the maximum number of streams needed on either side of the link
+//! is 17, though in practice, far fewer will ever be needed. Why 17? A 32-byte
+//! key gives the descent 32 levels; the schedule of traversal asks each side to
+//! hop down the tree by 2 levels at a time, so at most 16 data streams plus a
+//! control stream are ever needed.
+//!
+//! Streams are independently flow-controlled: one stream's backpressure is
+//! invisible to every other stream, so the two levels sharing a stream
+//! serialize against each other and levels on different streams do not. That
+//! per-stream independence is *vital*: it grounds the protocol's
+//! deadlock-freedom argument. With this to rely on, the session pipelines many
+//! disputes at multiple levels concurrently, which permits maximal utilization
+//! of the connection between two synchronizing peers, with neither peer ever
+//! needing to twiddle its thumbs awaiting a message.
+//!
+//! # Memory: the budget and the window
+//!
+//! This pipelining is bought with memory: every dispute in flight holds decoded
+//! tree state until its concomitant reply resolves it. Rather than let a very
+//! divergent session's in-flight state grow indefinitely with the divergence,
+//! each session derives a window (i.e. fixed per-tree-level capacities) from a
+//! caller-set byte budget
+//! ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)) and from
+//! both sides' exact set sizes and version-size bounds, so a statistical
+//! worst-case memory utilization can be statically capped before the descent
+//! begins, by enforcing the correct amount of backpressure. Divergence wider
+//! than a level's assigned buffer capacity drains in capacity-sized waves: a
+//! smaller budget costs increased latency, and any caller-set budget — down to
+//! zero — leaves the session deadlock-free at one dispute in flight per level.
+//! Message bodies are governed separately: supplies stream outside the window
+//! as size-targeted runs, with at most one run in hand per stream per direction
+//! ([`Peer::target_message_size`](crate::Peer::target_message_size)). The
+//! budget's full details — what it prices, the closed form for choosing one,
+//! and the measured trade-off table — lives at
+//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget).
+//!
+//! # Two protocols
+//!
+//! [`Protocol`](crate::Protocol) names two wire dialects for the same
+//! reconciliation: they process the same tree, based on the same logical
+//! concepts of the disjoint frontier and its causal sieve.
+//! [`Protocol::V1`](crate::Protocol::V1), the strictly alternating original
+//! protocol, exchanges the dispute frontier a whole tree-level at a time: each
+//! message carries an entire level's listings and supplies, built in full
+//! before it ships. That shape is simple and hand-verifiably correct, but its
+//! message size is unbounded; at high divergence a level's message grows with
+//! the divergence itself, so a session can transiently hold a second copy of
+//! much of the set, doubling the replica's memory footprint in the worst case.
+//! [`Protocol::V2`](crate::Protocol::V2), the default, runs the descent using
+//! the bounded-memory streaming approach described above. V1 remains selectable
+//! (the `protocol-v1` cargo feature) as the simpler behavioral oracle the
+//! streaming implementation is checked against.

@@ -8,9 +8,13 @@
 //! progress invariant: publish a scope's resolution before sending the work
 //! that fulfills its `Pending` slots, then launch all such work before
 //! publishing the enclosing parent resolution. That ordering makes one slot
-//! sufficient for those queues. The constructors below document the separate
-//! cardinality or flow argument for every other one-slot edge; only the
-//! inter-level return boundary needs a fan.
+//! *sufficient* for those queues — the liveness floor — but a one-slot edge
+//! serializes the descent into a round trip per disputed scope, so the
+//! recursive edges take their capacity from the session's
+//! [`Window`](crate::tree::mirror::streaming::window::Window) instead. The
+//! constructors below document the separate cardinality or flow argument
+//! for every remaining one-slot edge; only the inter-level return boundary
+//! needs a fan.
 
 #[cfg(not(test))]
 use tokio_stream::wrappers::ReceiverStream;
@@ -25,15 +29,13 @@ use crate::tree::{
         },
         message::Reply,
         protocol::BoxResponses,
+        window::FAN,
     },
     typed::{
         Prefix,
         height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
-
-/// The tree's maximum branching factor.
-const FAN: usize = 256;
 
 /// Buffer outgoing protocol replies one at a time.
 ///
@@ -72,6 +74,13 @@ where
 /// would then depend on that incidental scheduling slack. Once the parent
 /// resolution arrives, assembly drains the completions in order, so the bound
 /// does not multiply with tree width or depth.
+///
+/// **One full fan is this edge's hard floor, not a tunable.** Unlike the
+/// window-scaled edges, whose one-slot floor is deadlock-free by the
+/// ordering invariants, shrinking this queue below `FAN` can genuinely
+/// stall a session (`underbuffered_mirror_stalls` in the capacity tests
+/// demonstrates it), which is why the session window deliberately never
+/// reaches this constructor.
 pub(super) fn assembly_level_returns<B, T, H>() -> (
     Sender<Option<B::Node<H>>>,
     OkReceiverStream<Option<B::Node<H>>, Error<B::Error>>,
@@ -123,14 +132,16 @@ where
     )
 }
 
-/// Stream the responder opening's child queries through one slot.
+/// Stream the responder opening's child queries through the window.
 ///
 /// The opening wire reply and root resolution are published before these
-/// queries. The next stage can therefore accept and resolve each buffered query
-/// while the root assembler consumes its return through
-/// [`responder_root_returns`]. One slot streams the whole fan without retaining
-/// a fan of [`Query`] values, each of which may itself own a fan of node handles.
-pub(super) fn responder_child_queries<B, T>() -> (
+/// queries, so one slot is the liveness floor. The window widens it so the next
+/// stage can hold a pipeline of disputed children in flight; each buffered
+/// [`Query`] may own a fan of node handles, which is priced by the window's
+/// node budget.
+pub(super) fn responder_child_queries<B, T>(
+    capacity: usize,
+) -> (
     Sender<Query<B, T, UnderUnderRoot>>,
     Receiver<Query<B, T, UnderUnderRoot>>,
 )
@@ -140,7 +151,7 @@ where
 {
     channel(
         QueueRole::new(QueueKind::ResponderChildQueries, UnderUnderRoot::HEIGHT),
-        1,
+        capacity,
     )
 }
 
@@ -181,12 +192,15 @@ where
     )
 }
 
-/// Buffer the child queries emitted by one internal walk.
+/// Buffer the child queries emitted by one internal walk, window-wide.
 ///
-/// The corresponding child resolution is published first. If this sender
-/// blocks, one query is already available to the next stage, whose return can
-/// advance the assembler waiting on that resolution.
-pub(super) fn internal_child_queries<B, T, H>() -> (Sender<Query<B, T, H>>, Receiver<Query<B, T, H>>)
+/// The corresponding child resolution is published first, so one slot is the
+/// liveness floor. This queue is the in-flight question window itself: its
+/// occupancy is the number of disputed scopes awaiting wire replies at this
+/// height, so its capacity is what lets sibling scopes' round trips overlap.
+pub(super) fn internal_child_queries<B, T, H>(
+    capacity: usize,
+) -> (Sender<Query<B, T, H>>, Receiver<Query<B, T, H>>)
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -195,16 +209,19 @@ where
 {
     channel(
         QueueRole::new(QueueKind::InternalChildQueries, H::HEIGHT),
-        1,
+        capacity,
     )
 }
 
-/// Buffer parent-scope resolutions produced by an internal walk.
+/// Buffer parent-scope resolutions produced by an internal walk, window-wide.
 ///
 /// Before each parent resolution is sent, all work capable of fulfilling its
-/// `Pending` slots has been launched. If this sender blocks, the older buffered
-/// resolution can therefore complete without the newer one being accepted.
-pub(super) fn internal_parent_resolutions<B, T, H>() -> (
+/// `Pending` slots has been launched, so one slot is the liveness floor. But a
+/// resolution is consumed only as its subtree completes, so a one-slot edge
+/// stalls the walk two scopes in; the window lets it run ahead.
+pub(super) fn internal_parent_resolutions<B, T, H>(
+    capacity: usize,
+) -> (
     Sender<Resolution<B, T, S<S<H>>>>,
     OkReceiverStream<Resolution<B, T, S<S<H>>>, Error<B::Error>>,
 )
@@ -218,16 +235,18 @@ where
 {
     ok_channel(
         QueueRole::new(QueueKind::InternalParentResolutions, <S<S<H>>>::HEIGHT),
-        1,
+        capacity,
     )
 }
 
-/// Buffer child-scope resolutions produced by an internal walk.
+/// Buffer child-scope resolutions produced by an internal walk, window-wide.
 ///
-/// Each resolution is published before its corresponding child queries. By
-/// the time a later resolution can block behind it, all work needed by the
-/// buffered resolution has been launched.
-pub(super) fn internal_child_resolutions<B, T, H>() -> (
+/// Each resolution is published before its corresponding child queries, so one
+/// slot is the liveness floor; the window lets the walk publish a pipeline of
+/// them while earlier subtrees are still reconciling.
+pub(super) fn internal_child_resolutions<B, T, H>(
+    capacity: usize,
+) -> (
     Sender<Resolution<B, T, S<H>>>,
     OkReceiverStream<Resolution<B, T, S<H>>, Error<B::Error>>,
 )
@@ -240,25 +259,28 @@ where
 {
     ok_channel(
         QueueRole::new(QueueKind::InternalChildResolutions, <S<H>>::HEIGHT),
-        1,
+        capacity,
     )
 }
 
-/// Buffer the leaf requests emitted by a leaf-parent walk.
+/// Buffer the leaf requests emitted by a leaf-parent walk, window-wide.
 ///
-/// The corresponding leaf-scope resolution is published first. One buffered
-/// request can therefore advance the terminal stage and the assembler waiting
-/// on that resolution.
-pub(super) fn leaf_requests() -> (Sender<Prefix<Z>>, Receiver<Prefix<Z>>) {
-    channel(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), 1)
+/// The corresponding leaf-scope resolution is published first, so one slot is
+/// the liveness floor. This queue is the leaf-height question window: its
+/// capacity is how many requested leaves may await the peer's supplies at once.
+pub(super) fn leaf_requests(capacity: usize) -> (Sender<Prefix<Z>>, Receiver<Prefix<Z>>) {
+    channel(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), capacity)
 }
 
-/// Buffer leaf-parent resolutions awaiting their reconstructed children.
+/// Buffer leaf-parent resolutions awaiting their reconstructed children,
+/// window-wide.
 ///
 /// All terminal work for a parent resolution has been launched before it is
-/// sent. A buffered older resolution can therefore complete even while this
-/// sender is blocked on the next one.
-pub(super) fn leaf_parent_resolutions<B, T>() -> (
+/// sent — the one-slot liveness floor; the window lets the walk run ahead while
+/// buffered resolutions wait on their leaf exchanges.
+pub(super) fn leaf_parent_resolutions<B, T>(
+    capacity: usize,
+) -> (
     Sender<Resolution<B, T, S<Z>>>,
     OkReceiverStream<Resolution<B, T, S<Z>>, Error<B::Error>>,
 )
@@ -268,16 +290,19 @@ where
 {
     ok_channel(
         QueueRole::new(QueueKind::LeafParentResolutions, <S<Z>>::HEIGHT),
-        1,
+        capacity,
     )
 }
 
-/// Buffer leaf-scope resolutions produced within one leaf-parent reply.
+/// Buffer leaf-scope resolutions produced within one leaf-parent reply,
+/// window-wide.
 ///
-/// Each resolution is published before its leaf requests. By the time a later
-/// resolution can block behind it, the terminal work needed by the buffered
-/// resolution has been launched.
-pub(super) fn leaf_child_resolutions<B, T>() -> (
+/// Each resolution is published before its leaf requests — the one-slot
+/// liveness floor; the window keeps the walk publishing while earlier leaf
+/// scopes await their supplies.
+pub(super) fn leaf_child_resolutions<B, T>(
+    capacity: usize,
+) -> (
     Sender<Resolution<B, T, Z>>,
     OkReceiverStream<Resolution<B, T, Z>, Error<B::Error>>,
 )
@@ -287,14 +312,21 @@ where
 {
     ok_channel(
         QueueRole::new(QueueKind::LeafChildResolutions, Z::HEIGHT),
-        1,
+        capacity,
     )
 }
 
-/// Stream terminal leaf resolutions one at a time.
+/// Stream terminal leaf resolutions, buffered one fan deep.
 ///
 /// Terminal resolutions contain no `Pending` slots, so leaf assembly can
-/// consume each immediately; no later item is required to unlock its consumer.
+/// consume each immediately; no later item is required to unlock its
+/// consumer, and one slot is the liveness floor. But the walk produces one
+/// resolution per requested leaf, so a one-slot edge pays a waker round
+/// trip per leaf on the compute path. One fan amortizes that; unlike the
+/// window edges these items are single-leaf resolutions belonging to
+/// scopes the memory model already charges, so no knob applies. (Contrast
+/// [`assembly_level_returns`], where one fan is a correctness floor rather
+/// than an amortization.)
 pub(super) fn terminal_leaf_resolutions<B, T>() -> (
     Sender<Resolution<B, T, Z>>,
     OkReceiverStream<Resolution<B, T, Z>, Error<B::Error>>,
@@ -305,6 +337,6 @@ where
 {
     ok_channel(
         QueueRole::new(QueueKind::TerminalLeafResolutions, Z::HEIGHT),
-        1,
+        FAN,
     )
 }

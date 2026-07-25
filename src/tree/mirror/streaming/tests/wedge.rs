@@ -2,7 +2,7 @@
 //! dispute skeleton.
 //!
 //! The mux impossibility theorem T3 (`wc_impossibility`) quantifies over one
-//! fixed skeleton, `wedge` (`formal/lean/StreamingMirror/Mux/Instances.lean`):
+//! fixed skeleton, the Lean witness `Mux.wedge`:
 //! root fan 7 with the first radix child deep-disputed down to a leaf request
 //! and six whole-subtree provisions behind it. The theorem's Rust corollary
 //! needs that shape to be *tree-realizable* — a session between two real
@@ -10,12 +10,12 @@
 //! impossibilities, realizability flows from Rust to the model).
 //!
 //! On the committed seeds: `tests/pairwise.proptest-regressions` and
-//! `tests/shadow_validity.proptest-regressions` exist on this branch, but
-//! they are integration-level seeds (three-peer networks, content-addressed
-//! keys, whole-`Rumors` action lists) that realize the wedge's *jam
-//! mechanism* on the old transport, not its byte-exact shape; a structural
-//! equality pin needs hand-placed paths. This bridge therefore constructs
-//! the pair deterministically and pins the decoded skeleton to the literal.
+//! `tests/shadow_validity.proptest-regressions` are integration-level
+//! seeds (three-peer networks, content-addressed keys, whole-`Rumors`
+//! action lists) that realize the wedge's *jam mechanism*, not its
+//! byte-exact shape; a structural equality pin needs hand-placed paths.
+//! This bridge therefore constructs the pair deterministically and pins
+//! the decoded skeleton to the literal.
 //!
 //! The Lean literal lives at `rootH = 6`; the protocol's real root is at
 //! height 32, where the same generator yields the same shape with the
@@ -28,16 +28,16 @@ use super::transcribed_mirror_sides;
 use crate::tree::Root;
 
 /// The Lean wedge's `fan` field: the tight fan bound of the witness
-/// (`Instances.lean`: `fan := 7`).
+/// (`Mux.wedge`: `fan := 7`).
 const LEAN_WEDGE_FAN: usize = 7;
 
 /// The Lean wedge's `capLevel` field: the margin-0 dispute bound the witness
-/// satisfies (`Instances.lean`: `capLevel := 1`; `wedge_margin0`).
+/// satisfies (`Mux.wedge`: `capLevel := 1`; the theorem `Mux.wedge_margin0`).
 const LEAN_WEDGE_CAP_LEVEL: usize = 1;
 
-/// The Lean wedge literal, transcribed scope-for-scope from
-/// `formal/lean/StreamingMirror/Mux/Instances.lean` (`Mux.wedge`) — that
-/// file is the source of truth; if the literal changes there, change this.
+/// The Lean wedge literal, transcribed scope-for-scope from the Lean
+/// definition `Mux.wedge` — the Lean definition is the source of truth;
+/// if the literal changes there, change this.
 fn lean_wedge_literal() -> Skel {
     let sc = |kind, height, kids: &[usize], leaf_reqs| Scope {
         kind,
@@ -81,7 +81,12 @@ fn wedge_generator_matches_the_lean_literal() {
 /// subtrees at root radices 1..=6. The chain side: the same shared leaf,
 /// plus one concurrent extra leaf that shares 31 path bytes with it — that
 /// single difference disputes every scope from the root down to their common
-/// height-1 parent, where it surfaces as exactly one leaf request.
+/// height-1 parent, where it surfaces as exactly one leaf request — plus
+/// seven ballast leaves at root radices 7..=13. The ballast makes the chain
+/// side the larger set, so the wall holder initiates under the
+/// smaller-set-initiates election; because the ballast is the *responder's*
+/// exclusive content, it ships as whole root-level supplies and never enters
+/// the dispute skeleton.
 fn wedge_trees() -> (Root<()>, Root<()>) {
     let shared = grown(None, 0, 1, &(), &[path_at(&[0u8; 32])]);
 
@@ -93,7 +98,11 @@ fn wedge_trees() -> (Root<()>, Root<()>) {
 
     let mut extra = [0u8; 32];
     extra[31] = 1;
-    let chain = grown(shared, 1, 1, &(), &[path_at(&extra)]);
+    let mut chain_paths = vec![path_at(&extra)];
+    for radix in 7..=13u8 {
+        chain_paths.push(path_at(&[radix]));
+    }
+    let chain = grown(shared, 1, 1, &(), &chain_paths);
 
     (rooted(wall), rooted(chain))
 }
@@ -108,9 +117,10 @@ fn wedge_trees() -> (Root<()>, Root<()>) {
 ///
 /// This is the T3 Rust corollary's bridge: the
 /// impossibility's ∃-witness is realizable, so `wc_impossibility` indicts a
-/// transport, not a phantom shape. On this branch (link-transport) the
-/// session completes — the wedge jams only the retired single-pipe mux — so
-/// the pin is shape realizability plus convergence, not a stall.
+/// transport, not a phantom shape. Over the link transport the session
+/// completes — the wedge jams only the single-pipe mux `wc_impossibility`
+/// models, under work-conserving senders — so the pin is shape realizability
+/// plus convergence, not a stall.
 #[test]
 fn session_realizes_the_wedge_shape() {
     let (wall, chain) = wedge_trees();
@@ -118,8 +128,8 @@ fn session_realizes_the_wedge_shape() {
         client_role(&wall, &chain),
         Party::I,
         "the wall holder must win initiator election (the wedge's provisions \
-         are the responder's requests); tune wedge_trees' party indices or \
-         tick counts if tree construction changes"
+         are the responder's requests); tune wedge_trees' chain-side ballast \
+         if tree construction changes"
     );
 
     let (ours, theirs, trace, _) = transcribed_mirror_sides(wall, chain);

@@ -1,12 +1,12 @@
-//! Regression pin for the (fixed) stale-floor family of bugs.
+//! Regression pin for the stale-floor family of bugs.
 //!
-//! Under the old API, a `rumors()` snapshot shared its originator's *party*
-//! through an `Arc` while serving a *tree* frozen at snapshot time. A stale
-//! snapshot serving a bootstrap therefore handed the newcomer a fork of the
-//! live party paired with a stale version floor — and the newcomer's first
-//! mints, causally dominated by versions the originator had already
-//! published, were indistinguishable from redacted messages and silently
-//! destroyed by the next gossip round.
+//! The hazard: any snapshot that shares its originator's live *party*
+//! while serving a *tree* frozen at snapshot time would hand a
+//! bootstrapping newcomer a fork of the live party paired with a stale
+//! version floor — and the newcomer's first mints, causally dominated by
+//! versions the originator had already published, would be
+//! indistinguishable from redacted messages and silently destroyed by the
+//! next gossip round.
 //!
 //! The shared-state rumor set makes that desynchronization unrepresentable:
 //! there is no snapshot type that can serve a bootstrap, and
@@ -15,9 +15,9 @@
 //! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Rumors`] clones
 //! share one synchronized state rather than freezing one.)
 //!
-//! This test pins the sound invariant positively, in the shape that used to
-//! fail: messages minted by a newcomer bootstrapped from a peer that ticked
-//! heavily beforehand must survive reconciliation in both directions.
+//! This test pins the sound invariant positively, in the shape the hazard
+//! would break: messages minted by a newcomer bootstrapped from a peer that
+//! ticked heavily beforehand must survive reconciliation in both directions.
 
 mod common;
 
@@ -30,7 +30,7 @@ use rumors::Peer;
 #[test]
 fn message_minted_after_bootstrap_survives_gossip() {
     block_on(async {
-        let f = Peer::<u64>::seed().into_rumors();
+        let f = Peer::<u64>::seed().sync_window_floor().into_rumors();
         // F ticks well past genesis before serving anyone.
         {
             let mut batch = f.batch();

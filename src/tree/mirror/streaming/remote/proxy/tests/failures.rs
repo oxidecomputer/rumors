@@ -18,8 +18,8 @@ use crate::tree::{
         streaming::{
             Failing, Local,
             remote::{
-                CodecDecodeErrorKind, CodecEncodeErrorKind, DemuxError, EncodeLeafError,
-                Error as RemoteError, MuxError,
+                CodecDecodeErrorKind, CodecEncodeErrorKind, Error as RemoteError, SendError,
+                StreamError,
             },
         },
     },
@@ -29,17 +29,22 @@ use crate::tree::{
 fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
     let source = match error {
         RemoteError::HandshakeRead(source) | RemoteError::HandshakeWrite(source) => source,
-        RemoteError::Incoming(DemuxError::Codec(error)) => match &error.kind {
+        RemoteError::Stream(StreamError::Decode(error)) => match &error.kind {
             CodecDecodeErrorKind::Read { source, .. }
             | CodecDecodeErrorKind::Truncated { source, .. } => source,
             _ => return None,
         },
-        RemoteError::Outgoing(MuxError::Codec(error)) => match &error.kind {
+        RemoteError::Stream(StreamError::SupplyClosed {
+            source: Some(source),
+            ..
+        }) => source,
+        RemoteError::Send(SendError::Connect { source, .. } | SendError::Label { source, .. }) => {
+            source
+        }
+        RemoteError::Send(SendError::Frame(error)) => match &error.kind {
             CodecEncodeErrorKind::Write { source, .. } | CodecEncodeErrorKind::Flush(source) => {
                 source
             }
-            CodecEncodeErrorKind::InvalidLeaf(EncodeLeafError::Version(source))
-            | CodecEncodeErrorKind::InvalidLeaf(EncodeLeafError::Message(source)) => source,
             _ => return None,
         },
         _ => return None,
@@ -70,18 +75,25 @@ fn injected_io(error: &io::Error) -> Option<InjectedIo> {
         .copied()
 }
 
-/// Transport direction errors must enter through their corresponding driver.
+/// Transport direction errors must enter through their corresponding surface.
 fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation) -> bool {
     match operation {
         IoOperation::Read => matches!(
             error,
-            RemoteError::HandshakeRead(_) | RemoteError::Incoming(DemuxError::Codec(_))
+            RemoteError::HandshakeRead(_)
+                | RemoteError::Stream(StreamError::Decode(_) | StreamError::SupplyClosed { .. })
         ),
         IoOperation::Write | IoOperation::Flush => {
-            matches!(
-                error,
-                RemoteError::HandshakeWrite(_) | RemoteError::Outgoing(MuxError::Codec(_))
-            )
+            matches!(error, RemoteError::HandshakeWrite(_) | RemoteError::Send(_))
+        }
+        IoOperation::Connect => {
+            matches!(error, RemoteError::Send(SendError::Connect { .. }))
+        }
+        // A destroyed incoming stream surfaces from the receiver that
+        // provably needed it, after the parked accept driver deposits the
+        // cause.
+        IoOperation::Accept => {
+            matches!(error, RemoteError::Stream(StreamError::SupplyClosed { .. }))
         }
     }
 }
@@ -106,6 +118,8 @@ fn completed(report: IoReport, fault: IoFault) -> usize {
         (IoOperation::Write, IoFaultUnit::Operations) => report.writes,
         (IoOperation::Write, IoFaultUnit::Bytes) => report.write_bytes,
         (IoOperation::Flush, _) => report.flushes,
+        (IoOperation::Connect, _) => report.connects,
+        (IoOperation::Accept, _) => report.accepts,
     }
 }
 
@@ -139,8 +153,15 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// Every reached read, write, or flush fault retains its typed identity
-    /// and terminates both sessions; every unreached fault is behaviorally inert.
+    /// Every reached transport fault retains its typed identity on the
+    /// faulted endpoint, and every unreached fault is behaviorally inert.
+    ///
+    /// The counterparty is bounded, not condemned: it must stay live, and
+    /// either observe the cut and fail in turn or — when the fault fires
+    /// after it already had everything it needed — complete to exactly the
+    /// materialized oracle's result. One-sided completion is this layer's
+    /// contract; certifying *mutual* completion is the session epilogue's
+    /// job, above the mirror.
     #[test]
     fn transport_failures_are_exact_and_fail_fast(
         (left, right) in arb_divergent_pair(),
@@ -149,6 +170,8 @@ proptest! {
             Just(IoOperation::Read),
             Just(IoOperation::Write),
             Just(IoOperation::Flush),
+            Just(IoOperation::Connect),
+            Just(IoOperation::Accept),
         ],
         after in 0usize..256,
         bytes in any::<bool>(),
@@ -156,7 +179,8 @@ proptest! {
         delays in proptest::collection::vec(0_u8..=2, 0..32),
         buffered in any::<bool>(),
     ) {
-        let unit = if bytes && operation != IoOperation::Flush {
+        // Only the byte-moving surfaces have a byte-counted variant.
+        let unit = if bytes && matches!(operation, IoOperation::Read | IoOperation::Write) {
             IoFaultUnit::Bytes
         } else {
             IoFaultUnit::Operations
@@ -212,8 +236,16 @@ proptest! {
             let error = endpoint_error(&outcome, fail_left)?;
             prop_assert!(has_expected_surface(error, operation));
             prop_assert_eq!(injected(error), Some(expected_fault));
-            prop_assert!(outcome.left.is_err());
-            prop_assert!(outcome.right.is_err());
+            // The unfaulted counterparty either fails on the cut it
+            // observes or had already completed; a completion must be the
+            // oracle's exact result, never a divergent tree.
+            if fail_left {
+                if let Ok(right) = &outcome.right {
+                    prop_assert_eq!(right, &expected.1);
+                }
+            } else if let Ok(left) = &outcome.left {
+                prop_assert_eq!(left, &expected.0);
+            }
 
             let recovered = run_to_quiescence(harness::reconcile(
                 left,
@@ -245,6 +277,8 @@ fn every_transport_fault_surface_is_reachable() {
         (IoOperation::Write, IoFaultUnit::Operations),
         (IoOperation::Write, IoFaultUnit::Bytes),
         (IoOperation::Flush, IoFaultUnit::Operations),
+        (IoOperation::Connect, IoFaultUnit::Operations),
+        (IoOperation::Accept, IoFaultUnit::Operations),
     ];
 
     for (operation, unit) in variants {
@@ -270,7 +304,10 @@ fn every_transport_fault_surface_is_reachable() {
         };
         assert_eq!(outcome.left_io.snapshot().injected, Some(expected));
         let error = endpoint_error(&outcome, true).unwrap();
-        assert!(has_expected_surface(error, operation));
+        assert!(
+            has_expected_surface(error, operation),
+            "{operation:?}/{unit:?} surfaced as {error:?}"
+        );
         assert_eq!(injected(error), Some(expected));
         assert!(outcome.right.is_err());
     }

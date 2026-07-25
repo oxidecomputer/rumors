@@ -6,17 +6,16 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 
-/// A message of type `T` paired with its cached serialization, to avoid
-/// roundtripping repeatedly through serialization/deserialization. A
-/// `Message<T>` will always serialize identically to a `T`.
+/// A message of type `T` paired with its cached serialization.
 ///
-/// It is always cheap to clone `Message<T>`, because the serialized bytes are
-/// shared, and the message is enclosed in an `Arc<T>`.
+/// The cache avoids repeated roundtrips through serialization: a `Message<T>`
+/// always serializes identically to a `T`. Cloning is cheap, because the
+/// serialized bytes are shared and the message is enclosed in an `Arc<T>`.
 ///
 /// # Panics
 ///
-/// It is assumed that all messages of type `T` are serializable; methods that
-/// attempt serialization will panic in the event that serialization fails.
+/// All messages of type `T` are assumed serializable; methods that attempt
+/// serialization panic if serialization fails.
 pub struct Message<T> {
     message: Arc<T>,
     serialized: Bytes,
@@ -32,7 +31,7 @@ impl<T> Clone for Message<T> {
 }
 
 impl<T> Message<T> {
-    /// Create a new `Message` pairing the given object with its cached
+    /// Creates a `Message` pairing the given object with its cached
     /// serialization.
     ///
     /// # Panics
@@ -48,7 +47,7 @@ impl<T> Message<T> {
         }
     }
 
-    /// Create a new `Message` pairing the given serialized bytes with the
+    /// Creates a `Message` pairing the given serialized bytes with the
     /// object derived by deserializing them.
     pub fn from_slice(bytes: &[u8]) -> borsh::io::Result<Self>
     where
@@ -60,8 +59,10 @@ impl<T> Message<T> {
         })
     }
 
-    /// Create a new `Message` from already-shared serialized bytes, without
-    /// copying. The bytes are deserialized to produce the paired object.
+    /// Creates a `Message` from already-shared serialized bytes, without
+    /// copying.
+    ///
+    /// The bytes are deserialized to produce the paired object.
     pub fn from_bytes(bytes: Bytes) -> borsh::io::Result<Self>
     where
         T: BorshDeserialize,
@@ -72,7 +73,11 @@ impl<T> Message<T> {
         })
     }
 
-    /// Create a new `Message` from an existing [`Arc`], without copying.
+    /// Creates a `Message` from an existing [`Arc`], without copying.
+    ///
+    /// # Panics
+    ///
+    /// If the message cannot be serialized.
     pub fn from_arc(arc: Arc<T>) -> Self
     where
         T: BorshSerialize,
@@ -83,37 +88,39 @@ impl<T> Message<T> {
         }
     }
 
-    /// Get a reference to the object represented by this message.
+    /// Returns a reference to the object represented by this message.
     pub fn message(&self) -> &T {
         &self.message
     }
 
-    /// Get a reference to the shared [`Arc`] holding this message's object,
-    /// without cloning it. Used by enumeration paths (e.g. [`Tree::iter`])
-    /// that hand out borrowed `&Arc<T>` exactly as the public observers do.
+    /// Returns a reference to the shared [`Arc`] holding this message's
+    /// object, without cloning it.
+    ///
+    /// Used by enumeration paths (e.g. [`Tree::iter`]) that hand out
+    /// borrowed `&Arc<T>` exactly as the public observers do.
     ///
     /// [`Tree::iter`]: crate::tree::Tree::iter
     pub fn as_arc(&self) -> &Arc<T> {
         &self.message
     }
 
-    /// Get the serialized bytes corresponding to this message.
+    /// Returns the serialized bytes corresponding to this message.
     pub fn as_slice(&self) -> &[u8] {
         self.serialized.as_ref()
     }
 
-    /// Get a cheaply-clonable handle to the shared serialized bytes.
+    /// Returns a cheaply-clonable handle to the shared serialized bytes.
     pub fn bytes(&self) -> &Bytes {
         &self.serialized
     }
 
-    /// Consume the message and return the inner object, dropping the cached
+    /// Consumes the message and returns the inner object, dropping the cached
     /// serialization.
     pub fn into_inner(self) -> Arc<T> {
         self.message
     }
 
-    /// Consume the message and return the inner object, dropping the cached
+    /// Consumes the message and returns the inner object, dropping the cached
     /// serialization and cloning the inner object if necessary.
     pub fn clone_into_inner(self) -> T
     where
@@ -122,8 +129,8 @@ impl<T> Message<T> {
         Arc::unwrap_or_clone(self.message)
     }
 
-    /// Consume the message and return the inner object along with the shared
-    /// serialized bytes.
+    /// Consumes the message and returns the inner object along with the
+    /// shared serialized bytes.
     pub fn into_parts(self) -> (Arc<T>, Bytes)
     where
         T: Clone,
@@ -133,7 +140,7 @@ impl<T> Message<T> {
 }
 
 impl<T: BorshSerialize> From<T> for Message<T> {
-    /// Create a new `Message` pairing the given object with its cached
+    /// Creates a `Message` pairing the given object with its cached
     /// serialization.
     ///
     /// # Panics

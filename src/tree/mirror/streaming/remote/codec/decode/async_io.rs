@@ -7,21 +7,17 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 use super::super::{
     error::{DecodeError, DecodeErrorKind, FramePart},
-    frame::{Frame, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, Reaction, WireFrame},
+    frame::{Frame, LeafRun, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, Reaction, WireFrame},
     signal::{Signal, Speaker, Stream},
 };
-use super::{decode_signal, parse_query, parse_supply};
-use crate::{
-    Version,
-    message::Message,
-    tree::{mirror::framing::LENGTH_HEADER_LEN, typed::Hash},
-};
+use super::{decode_signal, parse_query};
+use crate::tree::{mirror::framing::LENGTH_HEADER_LEN, typed::Hash};
 
 /// Async frame reader over one speaker's transport direction.
 ///
 /// EOF before a signal is a clean direction close and returns `None`. Once a
 /// signal arrives, a missing component is a contextual truncation. Variable
-/// bodies are read at their declared size and parsed exactly once.
+/// bodies are read at their declared size and validated exactly once.
 pub struct FrameRead<R> {
     speaker: Speaker,
     read: R,
@@ -32,15 +28,19 @@ impl<R> FrameRead<R> {
     pub fn new(speaker: Speaker, read: R) -> Self {
         Self { speaker, read }
     }
-
-    /// Recover the transport reader; this wrapper retains no buffered bytes.
-    pub fn into_inner(self) -> R {
-        self.read
-    }
 }
 
 impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// Read and decode one frame without consuming any byte of the next.
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel safe. A dropped `frame` future may already have consumed
+    /// part of a frame — the exact reads do not give bytes back — leaving
+    /// the direction mid-frame, where the next call would parse body bytes
+    /// as a signal. Either retain the in-flight future across polls until
+    /// it resolves, or read nothing further from this direction after a
+    /// cancellation.
     pub async fn frame<T: BorshDeserialize>(
         &mut self,
     ) -> Result<Option<WireFrame<T>>, DecodeError> {
@@ -92,10 +92,7 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
             Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
             Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
             Signal::Query(flow) => Frame::Reaction(Reaction::Query(self.query().await?), flow),
-            Signal::Supply(flow) => {
-                let (version, message) = self.supply().await?;
-                Frame::Reaction(Reaction::Supply(version, message), flow)
-            }
+            Signal::Supply(flow) => Frame::Reaction(Reaction::Supply(self.supply().await?), flow),
             Signal::End(end) => Frame::End(end),
         };
         Ok(frame)
@@ -109,15 +106,13 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
         parse_query(&listing)
     }
 
-    async fn supply<T: BorshDeserialize>(
-        &mut self,
-    ) -> Result<(Version, Message<T>), DecodeErrorKind> {
+    async fn supply<T>(&mut self) -> Result<LeafRun<T>, DecodeErrorKind> {
         let mut header = [0; LENGTH_HEADER_LEN];
         self.read_exact(&mut header, FramePart::SupplyLength)
             .await?;
-        let mut leaf = vec![0; u32::from_be_bytes(header) as usize];
-        self.read_exact(&mut leaf, FramePart::SupplyLeaf).await?;
-        parse_supply(&leaf)
+        let mut run = vec![0; u32::from_be_bytes(header) as usize];
+        self.read_exact(&mut run, FramePart::SupplyRun).await?;
+        Ok(LeafRun::from_encoded(run)?)
     }
 
     async fn byte(&mut self, part: FramePart) -> Result<u8, DecodeErrorKind> {

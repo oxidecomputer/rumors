@@ -175,6 +175,253 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
         .boxed()
 }
 
+/// [`arb_divergent_pair`] at a budget wide enough to reach the streaming
+/// wire deadlock's trigger geometry.
+///
+/// Wide roots whose opening reply mixes disputed children with outright
+/// provisions, with disputes that descend several levels — the shape the
+/// small budget rarely produces.
+///
+/// The small-budget generator stays the default for properties where case
+/// count matters more than per-case breadth; wire-liveness properties run
+/// both.
+///
+/// This strategy closes the proxy tier's generator gap on *budget* only,
+/// deliberately not on *bias*: content addressing makes each child's radix a
+/// function of leaf
+/// hashes, so steering generation toward the early-radix-order deep-dispute
+/// shape would mean a per-case search inside the strategy. The geometry pin
+/// is instead the deterministic [`early_first_child_dispute_pair`] fixture,
+/// which performs that search once; this strategy provides breadth around
+/// it.
+pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
+    use crate::tree::{Action, Tree};
+
+    (
+        0usize..12,                // shared inserts (the common base)
+        0usize..40,                // a-only inserts
+        0usize..40,                // b-only inserts
+        vec(any::<bool>(), 0..12), // which shared keys side a redacts
+        vec(any::<bool>(), 0..12), // which shared keys side b redacts
+    )
+        .prop_map(|(n_shared, n_a, n_b, a_redact, b_redact)| {
+            let p_s = nth_party(0);
+            let p_a = nth_party(1);
+            let p_b = nth_party(2);
+
+            let mut base = Tree::new();
+            base.act(
+                &p_s,
+                (0..n_shared).map(|_| Action::Insert(Message::new(()))),
+            );
+            let shared_keys: Vec<_> = base.iter().map(|(k, _, _)| k).collect();
+
+            let side = |party: &Party, n: usize, redact: &[bool]| {
+                let mut t = base.clone();
+                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))));
+                let forgets: Vec<_> = shared_keys
+                    .iter()
+                    .zip(redact)
+                    .filter_map(|(k, &r)| r.then_some(Action::Forget(*k)))
+                    .collect();
+                t.act(party, forgets);
+                t.root
+            };
+
+            (side(&p_a, n_a, &a_redact), side(&p_b, n_b, &b_redact))
+        })
+        .boxed()
+}
+
+/// A deterministic pair with the streaming deadlock's trigger geometry.
+///
+/// The radix-*first* root child is disputed (both sides hold divergent,
+/// branching content under it), while at least six higher-radix root
+/// children exist on one side only, queueing whole-subtree provisions
+/// behind the dispute on the same reply stream.
+///
+/// This is the streaming wire deadlock's counterexample skeleton, made
+/// permanent at the tier that should have owned it. Content
+/// addressing means the shape cannot be dictated, so it is *searched*: insert
+/// counts vary per attempt, each attempt's honestly-built pair is checked
+/// against the geometry, and the first satisfying pair wins. Hashing is
+/// deterministic, so the search — and therefore the fixture — is too.
+pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
+    use crate::tree::{Action, Tree};
+
+    /// Leaves per side: enough on the left for wide roots with collisions,
+    /// few enough on the right that most left children are provisions.
+    const LEFT_LEAVES: usize = 32;
+    const RIGHT_LEAVES: usize = 8;
+
+    /// Window stride between attempts: larger than either window, so
+    /// successive attempts draw fully disjoint leaf populations.
+    const STRIDE: usize = 64;
+
+    /// Attempt budget; the assert below turns exhaustion into a loud failure.
+    ///
+    /// The precompute below is proportional to this bound, so it directly
+    /// prices the fixture. Hashing is deterministic and the winning window
+    /// is attempt 622, so 1024 is exact headroom, not a guess; if hashing
+    /// or the leaf encoding ever changes, the search either finds another
+    /// window within the budget or fails loudly here.
+    const ATTEMPTS: usize = 1024;
+
+    // Paths are functions of (version, payload) and payloads are unit, so a
+    // candidate pair is fully determined by where each side's version chain
+    // *starts*: `Tree::act` ticks from the root ceiling, so seeding a built
+    // tree's ceiling with a pre-ticked version shifts every leaf's version —
+    // and therefore its whole path — while keeping version encodings small
+    // and the state legitimate (indistinguishable from a tree whose earlier
+    // content was redacted). The search therefore precomputes each party's
+    // whole first-byte sequence in one pass and examines disjoint windows of
+    // it; only the one winning attempt pays for real tree construction, and
+    // the equality assert below keeps the simulation honest against the
+    // builder.
+    let firsts = |party: &Party, ticks: usize| -> Vec<u8> {
+        let mut version = Version::new();
+        (0..ticks)
+            .map(|_| {
+                version.tick(party);
+                let path: [u8; 32] = Path::for_leaf(&version, Message::new(()).as_slice()).into();
+                path[0]
+            })
+            .collect()
+    };
+    let burnt = |party: &Party, ticks: usize| {
+        let mut version = Version::new();
+        for _ in 0..ticks {
+            version.tick(party);
+        }
+        version
+    };
+
+    let p_a = nth_party(1);
+    let p_b = nth_party(2);
+    let f_a = firsts(&p_a, ATTEMPTS * STRIDE + LEFT_LEAVES);
+    let f_b = firsts(&p_b, ATTEMPTS * STRIDE + RIGHT_LEAVES);
+
+    for attempt in 0..ATTEMPTS {
+        let at = attempt * STRIDE;
+        let left_firsts = &f_a[at..at + LEFT_LEAVES];
+        let right_firsts = &f_b[at..at + RIGHT_LEAVES];
+        let Some(&first) = left_firsts.iter().chain(right_firsts.iter()).min() else {
+            continue;
+        };
+
+        // The radix-first root child must be present on both sides (a
+        // dispute) with branching content on at least one (two or more
+        // leaves, so the dispute descends instead of resolving by an inline
+        // supply), and at least six higher-radix children must exist on one
+        // side only — whole-subtree provisions queued behind the dispute.
+        let left_under = left_firsts.iter().filter(|&&b| b == first).count();
+        let right_under = right_firsts.iter().filter(|&&b| b == first).count();
+        let provisions = {
+            let mut one_sided: Vec<u8> = left_firsts
+                .iter()
+                .filter(|b| !right_firsts.contains(b))
+                .chain(right_firsts.iter().filter(|b| !left_firsts.contains(b)))
+                .copied()
+                .filter(|b| *b > first)
+                .collect();
+            one_sided.sort_unstable();
+            one_sided.dedup();
+            one_sided.len()
+        };
+        if left_under.min(right_under) >= 1 && left_under.max(right_under) >= 2 && provisions >= 6 {
+            let build = |party: &Party, base: Version, live: usize| {
+                let mut tree = Tree::new();
+                tree.root.ceiling = base;
+                tree.act(party, (0..live).map(|_| Action::Insert(Message::new(()))));
+                tree
+            };
+            let left = build(&p_a, burnt(&p_a, at), LEFT_LEAVES);
+            let right = build(&p_b, burnt(&p_b, at), RIGHT_LEAVES);
+            // Both sides' geometry was judged from the simulation, so both
+            // sides must agree with the honestly built trees.
+            for (tree, firsts) in [(&left, left_firsts), (&right, right_firsts)] {
+                let mut built: Vec<u8> = tree.iter().map(|(k, _, _)| k.as_bytes()[0]).collect();
+                let mut simulated = firsts.to_vec();
+                built.sort_unstable();
+                simulated.sort_unstable();
+                assert_eq!(
+                    built, simulated,
+                    "the path simulation must agree with the tree builder",
+                );
+            }
+            return (left.root, right.root);
+        }
+    }
+    unreachable!("the deterministic geometry search must terminate");
+}
+
+/// A `(receiver, poisoned)` pair for version-containment tripwires: the
+/// poisoned tree holds one leaf whose version escapes its declared ceiling.
+///
+/// An honest tree cannot take this shape — its ceiling joins every version
+/// it applies — so transmitting it marks a nonconforming implementation.
+/// The escaped version is built to dominate the join of both declared
+/// ceilings by a 64-tick margin on *both* parties, so nothing derived from
+/// the declared versions within a test's horizon — the session ceiling the
+/// receiver adopts, or the receiver's own later redact ticks — ever
+/// contains it. Returns the two roots plus the escaped leaf's
+/// content-addressed path and its version.
+pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>, Path, Version) {
+    /// How far the escaped version outruns both declared ceilings, per
+    /// party: an upper bound on the honest ticks a test performs after
+    /// the pair is built.
+    const ESCAPE_MARGIN: usize = 64;
+
+    // The receiving side's honest content: one leaf on its own party,
+    // ceiling covering it, exactly as `Tree::act` would leave it.
+    let receiver_party = nth_party(0);
+    let mut receiver_version = Version::new();
+    receiver_version.tick(&receiver_party);
+    let receiver_message = Message::new(());
+    let receiver_path = Path::for_leaf(&receiver_version, receiver_message.bytes());
+    let receiver = root_with_ceiling(
+        act(
+            None,
+            vec![(
+                receiver_path,
+                receiver_version.clone(),
+                Action::Insert(receiver_message),
+            )],
+            |_| (),
+        ),
+        receiver_version.clone(),
+    );
+
+    // The sender's declared version: one tick on its own disjoint party.
+    let sender_party = nth_party(1);
+    let mut declared = Version::new();
+    declared.tick(&sender_party);
+
+    // The escaped version: strictly above everything either side declared,
+    // by a margin the test's own honest ticks never close.
+    let mut escaped = receiver_version | &declared;
+    for _ in 0..ESCAPE_MARGIN {
+        escaped.tick(&receiver_party);
+        escaped.tick(&sender_party);
+    }
+    assert!(
+        !crate::tree::mirror::contained(&escaped, &declared),
+        "the escaped version must not be contained in the declared version",
+    );
+
+    let message = Message::new(());
+    let path = Path::for_leaf(&escaped, message.bytes());
+    let poisoned = root_with_ceiling(
+        act(
+            None,
+            vec![(path, escaped.clone(), Action::Insert(message))],
+            |_| (),
+        ),
+        declared,
+    );
+    (receiver, poisoned, path, escaped)
+}
+
 /// A path all-zero except its final byte: siblings under a single leaf-parent
 /// (`S<Z>`) prefix.
 ///
@@ -189,11 +436,46 @@ fn leaf_sibling_path(last: u8) -> Path {
 
 /// Wrap an optional root node in a [`tree::Root`](crate::tree::Root) with the
 /// given ceiling.
-fn root_with_ceiling(node: Option<Node<(), Root>>, ceiling: Version) -> crate::tree::Root<()> {
+fn root_with_ceiling<T>(node: Option<Node<T, Root>>, ceiling: Version) -> crate::tree::Root<T> {
     crate::tree::Root {
         ceiling,
         root: node,
     }
+}
+
+/// A poisoned root for the local join seam: one leaf whose version escapes
+/// `base` by a 64-tick margin on `party`, declared at the empty ceiling.
+///
+/// Joining it into a store whose ceiling is at or above `base` plants the
+/// leaf (the escaped version defeats the join's deletion filter) while
+/// leaving the store's own declared ceiling untouched — the shape only a
+/// nonconforming implementation can then transmit. The margin bounds the
+/// honest ticks a test may perform afterward without containing the
+/// escape. Returns the root plus the escaped leaf's content-addressed path
+/// and its version.
+pub fn poisoned_root<T: Send + Sync>(
+    party: &Party,
+    base: &Version,
+    message: Message<T>,
+) -> (crate::tree::Root<T>, Path, Version) {
+    /// How far the escaped version outruns `base`: an upper bound on the
+    /// honest ticks a test performs after the root is planted.
+    const ESCAPE_MARGIN: usize = 64;
+
+    let mut escaped = base.clone();
+    for _ in 0..ESCAPE_MARGIN {
+        escaped.tick(party);
+    }
+    let path = Path::for_leaf(&escaped, message.bytes());
+    let root = root_with_ceiling(
+        act(
+            None,
+            vec![(path, escaped.clone(), Action::Insert(message))],
+            |_| (),
+        ),
+        Version::new(),
+    );
+    (root, path, escaped)
 }
 
 /// A pair of trees sharing one leaf and each holding one more, all under the

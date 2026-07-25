@@ -10,7 +10,7 @@ use proptest::{
 };
 use tokio::io::AsyncWrite;
 
-use super::frame::MAX_QUERY_CHILDREN;
+use super::frame::{LeafRun, MAX_QUERY_CHILDREN};
 use super::signal::{Signal, WireSignal};
 use super::*;
 use crate::{
@@ -31,7 +31,7 @@ const MAX_EXHAUSTIVE_BRANCHING: usize = 2;
 const EXHAUSTIVE_FRAME_CASES: usize = 1_118_600;
 
 /// Bounded exhaustive frames admitted in the initiator direction.
-const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 1_019_906;
+const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 987_012;
 
 /// Bounded exhaustive frames admitted in the responder direction.
 const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_052_803;
@@ -62,6 +62,19 @@ const SIGNALS: [Signal; SIGNAL_COUNT] = [
 /// Exclusive upper bound for arbitrary bytes following a decoded frame.
 const MAX_ARBITRARY_SUFFIX_LEN: usize = 32;
 
+/// Inclusive upper bound on records in an arbitrary supply run.
+const MAX_ARBITRARY_RUN_RECORDS: usize = 4;
+
+/// Build a supply run from decoded leaf records.
+fn leaf_run<T: borsh::BorshSerialize + Clone>(records: &[(Version, T)]) -> LeafRun<T> {
+    let mut run = LeafRun::new();
+    for (version, value) in records {
+        run.push(version, &Message::new(value.clone()))
+            .expect("a test record fits the run framing");
+    }
+    run
+}
+
 fn arb_stream() -> impl Strategy<Value = Stream> {
     (0_u8..Stream::COUNT).prop_map(|index| Stream::new(index).unwrap())
 }
@@ -87,12 +100,15 @@ fn arb_frame() -> impl Strategy<Value = WireFrame<u64>> {
             stream,
             Frame::Reaction(Reaction::Query(children), flow)
         )),
-        (arb_stream(), arb_version(), any::<u64>(), arb_flow()).prop_map(
-            |(stream, version, value, flow)| (
+        (
+            arb_stream(),
+            vec((arb_version(), any::<u64>()), 1..=MAX_ARBITRARY_RUN_RECORDS),
+            arb_flow(),
+        )
+            .prop_map(|(stream, records, flow)| (
                 stream,
-                Frame::Reaction(Reaction::Supply(version, Message::new(value)), flow)
-            )
-        ),
+                Frame::Reaction(Reaction::Supply(leaf_run(&records)), flow)
+            )),
         arb_stream().prop_map(|stream| (stream, Frame::End(End::Reply))),
         arb_stream().prop_map(|stream| (stream, Frame::End(End::Stream))),
     ]
@@ -202,7 +218,7 @@ async fn async_duplex_preserves_adjacent_frame_boundaries() {
         let second = (
             stream,
             Frame::Reaction(
-                Reaction::Supply(Version::new(), Message::new(42_u64)),
+                Reaction::Supply(leaf_run(&[(Version::new(), 42_u64)])),
                 Flow::End,
             ),
         );
@@ -284,7 +300,7 @@ fn representative_frame(signal: Signal) -> Frame<()> {
         Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
         Signal::Query(flow) => Frame::Reaction(Reaction::Query(vec![(0, Hash::default())]), flow),
         Signal::Supply(flow) => {
-            Frame::Reaction(Reaction::Supply(Version::new(), Message::new(())), flow)
+            Frame::Reaction(Reaction::Supply(leaf_run(&[(Version::new(), ())])), flow)
         }
         Signal::End(end) => Frame::End(end),
     }
@@ -311,7 +327,7 @@ fn bounded_corpus_manifest_snapshot() {
             check_both(
                 (
                     stream,
-                    Frame::Reaction(Reaction::Supply(Version::new(), Message::new(())), flow),
+                    Frame::Reaction(Reaction::Supply(leaf_run(&[(Version::new(), ())])), flow),
                 ),
                 &mut accepted,
                 &mut buckets,
@@ -454,7 +470,7 @@ fn frame_signal<T>(frame: &Frame<T>) -> Signal {
             Signal::QueryEmpty(*flow)
         }
         Frame::Reaction(Reaction::Query(_), flow) => Signal::Query(*flow),
-        Frame::Reaction(Reaction::Supply(_, _), flow) => Signal::Supply(*flow),
+        Frame::Reaction(Reaction::Supply(_), flow) => Signal::Supply(*flow),
         Frame::End(end) => Signal::End(*end),
     }
 }
@@ -466,7 +482,7 @@ fn generic_io_preserves_frame_boundaries() {
     let frame = (
         stream,
         Frame::Reaction(
-            Reaction::Supply(Version::new(), Message::new(())),
+            Reaction::Supply(leaf_run(&[(Version::new(), ())])),
             Flow::End,
         ),
     );

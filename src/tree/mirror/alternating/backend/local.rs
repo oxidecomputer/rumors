@@ -65,14 +65,18 @@ use crate::{
     Version,
     tree::{
         self,
+        mirror::streaming::materialized::Violation,
         traverse::unknown::Unknown,
         typed::{
-            Hash, Levels, Node, Prefix,
+            Levels, Node, Prefix,
             height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
             levels::{Below, Top},
         },
     },
 };
+
+#[cfg(debug_assertions)]
+use crate::tree::typed::Hash;
 
 use super::super::{message, protocol};
 
@@ -191,7 +195,9 @@ where
 {
     type Height = L::Height;
     type Output = tree::Root<L::Message>;
-    type Error = Infallible;
+    /// Absorbing peer content can diagnose a semantic violation
+    /// ([`Exchange::absorb_providing`]); nothing else here fails.
+    type Error = Violation;
 }
 
 impl<T> protocol::Connect<T> for Exchange<Start, Top<T>>
@@ -313,7 +319,7 @@ where
 
     async fn initiator(
         self,
-    ) -> Result<protocol::Step<message::Initiate, Self::Next, Infallible>, Infallible> {
+    ) -> Result<protocol::Step<message::Initiate, Self::Next, Infallible>, Self::Error> {
         let msg = message::Initiate {
             uncertain: self
                 .levels
@@ -336,7 +342,7 @@ where
     async fn responder(
         mut self,
         _request: message::Initiate,
-    ) -> Result<protocol::Step<message::Opening, Self::Next, Self::Output>, Infallible> {
+    ) -> Result<protocol::Step<message::Opening, Self::Next, Self::Output>, Self::Error> {
         // Always explode our root one level down and enumerate the resulting
         // children, regardless of the initiator's root hash. We deliberately do
         // *not* short-circuit on matched roots: an empty `Opening` is the
@@ -392,9 +398,9 @@ where
         request: message::Opening,
     ) -> Result<
         protocol::Step<message::Exchange<T, UnderUnderRoot>, Self::Next, Self::Output>,
-        Infallible,
+        Self::Error,
     > {
-        Ok(self.reply(request))
+        self.reply(request)
     }
 }
 
@@ -415,8 +421,9 @@ where
     async fn exchange(
         self,
         request: message::Exchange<T, S<H>>,
-    ) -> Result<protocol::Step<message::Exchange<T, H>, Self::Next, Self::Output>, Infallible> {
-        Ok(self.reply(request))
+    ) -> Result<protocol::Step<message::Exchange<T, H>, Self::Next, Self::Output>, Self::Error>
+    {
+        self.reply(request)
     }
 }
 
@@ -430,8 +437,8 @@ where
     async fn close_responder(
         self,
         request: message::Exchange<T, Z>,
-    ) -> Result<protocol::Step<message::Closing<T>, Self::Next, Self::Output>, Infallible> {
-        Ok(self.close(request))
+    ) -> Result<protocol::Step<message::Closing<T>, Self::Next, Self::Output>, Self::Error> {
+        self.close(request)
     }
 }
 
@@ -443,8 +450,8 @@ where
     async fn complete_initiator(
         mut self,
         request: message::Closing<T>,
-    ) -> Result<protocol::Step<message::Complete<T>, Infallible, Self::Output>, Infallible> {
-        self.absorb_providing(request.providing);
+    ) -> Result<protocol::Step<message::Complete<T>, Infallible, Self::Output>, Violation> {
+        self.absorb_providing(request.providing)?;
         let providing = self.answer_requested_leaves(request.requested);
         Ok(protocol::Step::Done {
             msg: message::Complete {
@@ -466,8 +473,8 @@ where
     async fn complete_responder(
         mut self,
         request: message::Complete<T>,
-    ) -> Result<protocol::Step<(), Infallible, Self::Output>, Infallible> {
-        self.absorb_providing(request.providing);
+    ) -> Result<protocol::Step<(), Infallible, Self::Output>, Violation> {
+        self.absorb_providing(request.providing)?;
         Ok(protocol::Step::Done {
             msg: (),
             output: tree::Root {

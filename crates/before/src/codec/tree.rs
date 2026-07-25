@@ -1,6 +1,19 @@
+use smallvec::SmallVec;
+
 use crate::error::{Decode, Parse};
 
-use super::{decode_int_from, Base, BitCursor, BitsSlice, SliceCursor};
+use super::{Base, BitCursor, BitsSlice, SliceCursor};
+
+/// Inline capacity, in frames, of the parsers' explicit stacks.
+///
+/// One frame per level of unfinished ancestors, so the stack is as deep as
+/// the tree; real id and event trees stay well under 16 levels, so a parse
+/// normally touches no heap at all — worth having because the wire path runs
+/// one parse per decoded `Version` (~10k per gossip session), so a fresh
+/// `Vec` per call would put an allocation on every decoded version rather
+/// than none. Deeper trees spill to the heap transparently; depth still
+/// never lands on the call stack.
+pub(crate) const PARSE_STACK_INLINE: usize = 16;
 
 /// While building a node bottom-up, what we still need from the stream.
 enum IdFrame {
@@ -33,8 +46,11 @@ pub(crate) fn parse_id(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
 }
 
 /// Parse and validate one id tree from a sequential bit cursor.
-pub(crate) fn parse_id_from(cursor: &mut impl BitCursor) -> Result<usize, Decode> {
-    let mut stack: Vec<IdFrame> = Vec::new();
+pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decode>
+where
+    Decode: From<C::Error>,
+{
+    let mut stack: SmallVec<[IdFrame; PARSE_STACK_INLINE]> = SmallVec::new();
     loop {
         let left = cursor.read_bit()?;
         let right = cursor.read_bit()?;
@@ -103,11 +119,14 @@ pub(crate) fn parse_ev(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
 }
 
 /// Parse and validate one event tree from a sequential bit cursor.
-pub(crate) fn parse_ev_from(cursor: &mut impl BitCursor) -> Result<usize, Decode> {
-    let mut stack: Vec<EvFrame> = Vec::new();
+pub(crate) fn parse_ev_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decode>
+where
+    Decode: From<C::Error>,
+{
+    let mut stack: SmallVec<[EvFrame; PARSE_STACK_INLINE]> = SmallVec::new();
     loop {
         let flag = cursor.read_bit()?;
-        let base = decode_int_from(cursor)?;
+        let base = cursor.read_int()?;
 
         // `enc_ev(Leaf n) = 0, gamma(n)`; `enc_ev(Node n l r) = 1, gamma(n), l, r`.
         let mut summary = if flag {

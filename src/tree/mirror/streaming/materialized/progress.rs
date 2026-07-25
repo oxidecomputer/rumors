@@ -61,20 +61,26 @@ impl Trace {
 
     /// Check the publication-order invariants for every traced scope.
     ///
-    /// Seven checks: every internal publication consumes a prior wire
-    /// action for its scope (wire before internal publication); dependent
-    /// work follows its scope's resolution, exactly `pending` items per
-    /// resolution (resolution before dependent work); a parent resolution
-    /// follows the lower resolutions it counts; a resolution may not
-    /// arrive while an already-resolved sibling still owes dependent work
-    /// (sibling contiguity); a wire may not depart while an earlier
-    /// disputed sibling is unresolved or any resolved sibling still owes
-    /// dependent work (wire contiguity); each event kind leaves a
-    /// parent scope in strictly increasing radix order (radix order);
-    /// and a parent resolution is its scope's last publication (parent
-    /// placement): it may not depart while any wire of its scope is
-    /// unsent, any disputed child's resolution is unsent, or any resolved
-    /// child's dependent-work quota is unfilled.
+    /// Seven checks:
+    ///
+    /// - **wire before internal publication**: every internal publication
+    ///   consumes a prior wire action for its scope;
+    /// - **resolution before dependent work**: dependent work follows its
+    ///   scope's resolution, exactly `pending` items per resolution;
+    /// - **lower resolutions before parent**: a parent resolution follows
+    ///   the lower resolutions it counts;
+    /// - **sibling contiguity**: a resolution may not arrive while an
+    ///   already-resolved sibling still owes dependent work;
+    /// - **wire contiguity**: a wire may not depart while an earlier
+    ///   disputed sibling is unresolved or any resolved sibling still owes
+    ///   dependent work;
+    /// - **radix order**: each event kind leaves a parent scope in strictly
+    ///   increasing radix order;
+    /// - **parent placement**: a parent resolution is its scope's last
+    ///   publication — it may not depart while any wire of its scope is
+    ///   unsent, any disputed child's resolution is unsent, or any
+    ///   resolved child's dependent-work quota is unfilled.
+    ///
     /// Sibling contiguity is what makes one slot sufficient for the
     /// child-resolution queues: without it, a walk that published all its
     /// resolutions before any of their queries would satisfy the other
@@ -82,17 +88,20 @@ impl Trace {
     /// (finding #6): without it, a wire stream that runs ahead of an
     /// earlier sibling's resolution or queries satisfies the other checks
     /// and deadlocks a three-walk wait cycle at uneven fan — the
-    /// kernel-checked witness is
-    /// `formal/lean/StreamingMirror/Controls.lean`. On wire-disciplined
-    /// traces wire contiguity subsumes sibling contiguity; both stay, as
-    /// independent statements of intent. Radix order is what positional
-    /// pairing rests on: no message or return carries a key, so a
-    /// consumer's only way to know which scope the k-th item describes is
-    /// that producers never reorder within a channel. Parent placement
-    /// (finding #7) is the `d6` ordering ledger of the formal model
-    /// (`formal/PROGRESS.md` §8): the local invariant under which the
-    /// `AxMode.impl` deadlock-freedom theorem holds, mirrored here so the
-    /// encoder's traces pin exactly the discipline the proof consumes.
+    /// kernel-checked witness is the Lean control theorem
+    /// `Control.jam_not_deadlockFree`, a well-formed skeleton whose
+    /// greedy run wedges once the wire-contiguity axiom is dropped from
+    /// the mode. On wire-disciplined traces wire contiguity subsumes
+    /// sibling contiguity; both stay, as independent statements of
+    /// intent. Radix order is what positional pairing rests on: no
+    /// message or return carries a key, so a consumer's only way to know
+    /// which scope the k-th item describes is that producers never
+    /// reorder within a channel. Parent placement (finding #7) is the
+    /// `d6` (parent-last) ordering axiom of the formal model: the local
+    /// invariant under which the Lean flagship deadlock-freedom theorem
+    /// (`Sched.deadlock_free`, mode `AxMode.impl`) holds, mirrored here
+    /// so the encoder's traces pin exactly the discipline the proof
+    /// consumes.
     pub fn assert_valid(&self) {
         self.assert_valid_with_wire_contiguity(true);
         self.assert_parent_last();
@@ -111,19 +120,18 @@ impl Trace {
     /// The parent-placement check (finding #7): a parent resolution is
     /// its scope's last publication.
     ///
-    /// This is the `d6` (epilogue-placement) ordering ledger of the
-    /// formal model, mirrored verbatim (`formal/PROGRESS.md` §8): a
+    /// This is the `d6` (epilogue-placement) ordering axiom of the
+    /// formal model, mirrored verbatim: a
     /// parent summary that departs while any wire of its scope is
     /// unsent, or while any disputed child's resolution is unsent or its
     /// dependent-work quota not fully issued, is a violation. This is
     /// the discipline the encoder actually follows (the scope epilogue's
     /// "Launch every `Pending` slot's work before publishing its
     /// enclosing parent resolution" placement in levels.rs), and the
-    /// local invariant the `AxMode.impl` deadlock-freedom theorem
+    /// local invariant the flagship `AxMode.impl` deadlock-freedom
+    /// theorem (`Sched.deadlock_free`)
     /// consumes. Its deliberate opposite, the weave's parent-early
-    /// discipline, is documented by [`Self::assert_parent_early`]; the
-    /// design trade between the two corners is
-    /// `design/parent-placement.md`.
+    /// discipline, is documented by [`Self::assert_parent_early`].
     fn assert_parent_last(&self) {
         // Like wire contiguity, the check needs the completed trace: a
         // scope's wire and resolution sets are known only in hindsight
@@ -203,10 +211,9 @@ impl Trace {
     /// and the parent resolution departs only in the scope epilogue),
     /// trading the d5 corner's any-capacity deadlock freedom for maximal
     /// descent/assembly pipelining under the assembler capacity floor —
-    /// the adjudicated design decision recorded in
-    /// `design/parent-placement.md`, with the capacity-universal theorem
-    /// for this discipline kept as `Sched.deadlock_free_d5` in the
-    /// formal model. Retained as the design-space record; the pin
+    /// the adjudicated design decision, with the capacity-universal
+    /// theorem for this discipline kept as `Sched.deadlock_free_d5` in
+    /// the formal model. Retained as the design-space record; the pin
     /// documenting that the encoder's order rejects it is
     /// `real_encoder_order_violates_parent_early_discipline`.
     #[cfg(test)]

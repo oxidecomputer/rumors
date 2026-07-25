@@ -153,6 +153,14 @@ where
     fn hash(&self) -> Hash {
         self.0.hash()
     }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn version_bytes(&self) -> usize {
+        self.0.version_bytes()
+    }
 }
 
 impl<T, N> Leaf<T> for FailingNode<N>
@@ -164,8 +172,16 @@ where
         self.0.message()
     }
 
-    fn leaf(version: Version, message: Message<T>) -> Self {
-        Self(N::leaf(version, message))
+    // Custody passes straight through: fault injection targets the
+    // traversal operations, not construction.
+    async fn leaf(
+        version: Version,
+        message: Message<T>,
+    ) -> Result<Self, Failure<<N::Backend as Backend<T>>::Error>> {
+        N::leaf(version, message)
+            .await
+            .map(Self)
+            .map_err(Failure::Inner)
     }
 }
 
@@ -176,6 +192,11 @@ where
 {
     type Node<H: Height> = FailingNode<B::Node<H>>;
     type Error = Failure<B::Error>;
+    // The wrapper adds no resident state: a failing node is the inner
+    // backend's node plus fault bookkeeping shared behind it.
+    fn node_bytes(children: usize, version_bound: usize) -> usize {
+        B::node_bytes(children, version_bound)
+    }
 
     async fn parent<H>(
         self,

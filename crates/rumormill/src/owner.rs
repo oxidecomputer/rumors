@@ -113,7 +113,9 @@ pub enum Command {
         /// content reaches the display through the owner's fresh observer,
         /// which replays the set from genesis.
         known: Box<Peer<Entry>>,
-        /// The universe we were in when this merge was lost. The owner
+        /// The universe we were in when this merge was lost.
+        ///
+        /// The owner
         /// adopts only while it is *still* in that universe: the
         /// session-level verdict is the single arbiter of merges, and this
         /// pins which state it arbitrated. (Comparing event floors again
@@ -127,7 +129,9 @@ pub enum Command {
         /// Whether the session completed.
         ok: bool,
         /// The universe the session's handle belonged to, `None` when no
-        /// session was ever established (dial failures). An `ok` outcome
+        /// session was ever established (dial failures).
+        ///
+        /// An `ok` outcome
         /// in the *current* universe proves our state — presence included —
         /// has reached a peer; that is the signal that makes a manual dial
         /// target safely droppable (see [`Owner::synced`]). Outcomes from
@@ -161,7 +165,9 @@ pub struct Owner {
     stats: Stats,
     view_tx: watch::Sender<Arc<View>>,
     /// A session has completed in the *current* universe, proving our
-    /// presence has reached at least one peer. Until then, manual dial
+    /// presence has reached at least one peer.
+    ///
+    /// Until then, manual dial
     /// targets stay dialable even when they appear in the roster: a node
     /// that just reset may hold the roster without holding a single link
     /// (the smaller-id-dials rule can put every pair's dialing duty on the
@@ -412,7 +418,9 @@ impl Owner {
         }
     }
 
-    /// Adopt a winning universe after a lost partition merge. The
+    /// Adopt a winning universe after a lost partition merge.
+    ///
+    /// The
     /// session-level verdict already arbitrated the merge; here we only
     /// check that the verdict still *applies* — that we are still in the
     /// universe it was computed against. Concurrent sessions can race two

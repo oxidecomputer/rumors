@@ -73,12 +73,13 @@ pub(super) fn rooted<T>(node: Option<TreeNode<T, height::Root>>) -> Root<T> {
 /// Wrap a node as a [`Root`] advertising an explicit ceiling.
 ///
 /// Used to equalize two remote trees' handshake versions so role election
-/// (`streaming.rs::descend`'s canonical-byte tiebreak) comes out identical
-/// across two sessions against the same local tree. Inflating a ceiling
-/// with ticks from parties the tree's own leaves never ride is semantically
-/// inert here: deletion-pruning compares leaf versions against the PEER's
-/// ceiling, and every fixture keeps each side's supplies on chains the other
-/// side's ceiling never covers.
+/// (`streaming.rs::descend`: the smaller set initiates, canonical version
+/// bytes break ties) comes out identical across two sessions against the
+/// same local tree once the remotes' set sizes are also equal. Inflating a
+/// ceiling with ticks from parties the tree's own leaves never ride is
+/// semantically inert here: deletion-pruning compares leaf versions against
+/// the PEER's ceiling, and every fixture keeps each side's supplies on
+/// chains the other side's ceiling never covers.
 pub(super) fn rooted_at<T>(node: Option<TreeNode<T, height::Root>>, ceiling: Version) -> Root<T> {
     Root {
         ceiling,
@@ -179,12 +180,34 @@ impl Divergence {
             .collect()
     }
 
-    /// Remote `which`'s one-sided extras.
+    /// Remote `which`'s one-sided extras, padded so both remotes hold the
+    /// same leaf count.
+    ///
+    /// Sampled cells may repeat a prefix, collapsing their extras onto one
+    /// leaf, so the count that matters is *distinct* paths. The pad leaves
+    /// continue the remote's own slot column under the guaranteed anchor
+    /// cell (the empty prefix), so they collide with no other population.
+    /// Equal counts keep the two remotes' advertised set sizes identical:
+    /// with the shared join ceiling ([`Self::trees`]), the local tree's
+    /// role election is then identical across the two sessions.
     pub fn remote_paths(&self, which: usize) -> Vec<[u8; 32]> {
-        self.cells
-            .iter()
-            .filter(|cell| cell.remote[which])
-            .map(|cell| cell.path(REMOTE_SLOTS[which], 0))
+        let distinct = |which: usize| -> std::collections::BTreeSet<[u8; 32]> {
+            self.cells
+                .iter()
+                .filter(|cell| cell.remote[which])
+                .map(|cell| cell.path(REMOTE_SLOTS[which], 0))
+                .collect()
+        };
+        let mine = distinct(which);
+        let pad = distinct(1 - which).len().saturating_sub(mine.len());
+        let anchor = &self.cells[0];
+        mine.into_iter()
+            .chain((0..pad).map(|i| {
+                anchor.path(
+                    REMOTE_SLOTS[which],
+                    1 + u8::try_from(i).expect("pad counts stay within a slot column"),
+                )
+            }))
             .collect()
     }
 
@@ -201,8 +224,11 @@ impl Divergence {
     ///
     /// All three grow from one shared base node, so shared subtrees are
     /// hash-identical by construction. Both remotes advertise the JOIN of
-    /// their natural ceilings ([`rooted_at`]'s inertness argument), so the
-    /// local tree's role election is identical across the two sessions.
+    /// their natural ceilings ([`rooted_at`]'s inertness argument) and hold
+    /// equal leaf counts ([`Self::remote_paths`]' padding), so both of the
+    /// role election's keys — set size first, version bytes on ties — are
+    /// identical across the two sessions and the local tree plays one role
+    /// in both.
     pub fn trees<T>(&self, value: &T) -> (Root<T>, Root<T>, Root<T>)
     where
         T: BorshSerialize + Clone + Send + Sync,

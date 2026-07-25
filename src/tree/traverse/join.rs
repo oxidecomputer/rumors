@@ -34,7 +34,7 @@ use super::typed::*;
 use super::unknown::Unknown;
 use height::{Height, Root, S, Z};
 
-/// Merge two trees rooted at `a` and `b` into one.
+/// Merges two trees rooted at `a` and `b` into one.
 ///
 /// `a_version` / `b_version` are the two roots' version vectors, used to honor
 /// deletions (a node one side lacks while its version is `<=` that side's vector

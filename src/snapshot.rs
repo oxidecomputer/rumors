@@ -20,9 +20,15 @@ pub struct Snapshot<T> {
 }
 
 impl<T> Snapshot<T> {
-    /// Make a new snapshot.
+    /// Makes a new snapshot.
     pub(crate) fn new(network: Network, tree: Tree<T>) -> Self {
         Self { network, tree }
+    }
+
+    /// The snapshotted tree, for crate-internal instruments.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn tree(&self) -> &Tree<T> {
+        &self.tree
     }
 
     /// The identifier shared by every peer that descends from the same
@@ -68,12 +74,12 @@ impl<T> Snapshot<T> {
         self.tree.hash()
     }
 
-    /// Look up a single live message by its [`Key`].
+    /// Looks up a single live message by its [`Key`].
     pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
         self.tree.get(key)
     }
 
-    /// Iterate every live message as `(Key, &Version, &Arc<T>)`.
+    /// Iterates every live message as `(Key, &Version, &Arc<T>)`.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal
     /// order: a message may be yielded before another that causally precedes
@@ -88,7 +94,7 @@ impl<T> Snapshot<T> {
         self.tree.iter()
     }
 
-    /// Iterate the messages whose [`Version`]s fall within the causal `range`.
+    /// Iterates the messages whose [`Version`]s fall within the causal `range`.
     ///
     /// A message is yielded if and only if its version is contained in the
     /// range's end bound and *not* contained in its start bound. Per bound
@@ -121,11 +127,10 @@ impl<T> Snapshot<T> {
     /// [`ExactSizeIterator`]: how many messages fall in the range is unknown
     /// until they are visited.
     ///
-    /// Order of iteration is unspecified, and in particular does *not* follow
-    /// the causal order: filtering by versions does not mean yielding in
-    /// version order, and a message may be yielded before another that causally
-    /// precedes it. Sort by the yielded [`Version`]s if your application needs
-    /// an ordering consistent with causality.
+    /// As with [`iter`](Self::iter), order is unspecified and does *not*
+    /// follow the causal order: filtering by versions does not mean yielding
+    /// in version order. Sort by the yielded [`Version`]s if your application
+    /// needs an ordering consistent with causality.
     ///
     /// # Examples
     ///
@@ -157,7 +162,7 @@ impl<T> Snapshot<T> {
         self.tree.range(range)
     }
 
-    /// Force this set's tree to compute its lazy structural memos (observable
+    /// Forces this set's tree to compute its lazy structural memos (observable
     /// hash and ceiling/floor version bounds), so a subsequent operation is
     /// timed against its own work. For benchmark and test calibration only.
     #[doc(hidden)]

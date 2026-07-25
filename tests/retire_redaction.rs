@@ -11,13 +11,13 @@ mod common;
 
 use rumors::{Peer, Retire};
 
-use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// The absorber drops an entry the retiree redacted after their last
 /// ordinary gossip: the redaction rides the retire session itself.
 #[test]
 fn retire_carries_last_minute_redactions() {
-    let a = Peer::<String>::seed().into_rumors();
+    let a = Peer::<String>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     // B originates an entry and A learns it through ordinary gossip.
@@ -38,14 +38,10 @@ fn retire_carries_last_minute_redactions() {
     b.redact(key);
     let retiree = block_on(b.try_into_peer()).expect("sole handle");
     let outcome = block_on(async {
-        let (b_side, a_side) = tokio::io::duplex(8 * 1024);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (outcome, served) = tokio::join!(
-            retiree.retire(&mut b_r, &mut b_w),
-            a.gossip(&mut a_r, &mut a_w),
-        );
+        let (mut b_link, mut a_link) = rumors::link::memory();
+        let (outcome, served) = tokio::join!(retiree.retire(&mut b_link), a.gossip(&mut a_link),);
         served.expect("A serves the retire session");
+        assert_control_drained(b_link, a_link);
         outcome
     });
     assert!(matches!(outcome, Retire::Retired), "clean retirement");

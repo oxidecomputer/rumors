@@ -20,8 +20,8 @@
 //!   `shared[redacted..2*redacted]`), so each side carries `redacted` deletions
 //!   the other did not originate. This requires `common >= 2 * redacted`.
 //!
-//! Every axis sweeps powers of ten starting at zero, so the named shapes the
-//! old bench hard-coded fall out as corners of the cube:
+//! Every axis sweeps powers of ten starting at zero, so the classic named
+//! divergence shapes fall out as corners of the cube:
 //!
 //! - disjoint    = `common = 0,  differing = n, redacted = 0`
 //! - small-delta = `common = n,  differing = k, redacted = 0` (small `k`)
@@ -84,7 +84,9 @@ pub struct Cell {
 impl Cell {
     /// The per-side divergence a single reconciliation must transfer: the
     /// `differing` messages plus the `redacted` deletions the *other* peer
-    /// originated. Throughput is charged against this, not the shared size:
+    /// originated.
+    ///
+    /// Throughput is charged against this, not the shared size:
     /// reconciliation cost tracks the difference between the peers, not how
     /// much they already agree on. Zero for the identical corner.
     pub fn divergence(&self) -> u64 {

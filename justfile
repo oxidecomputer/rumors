@@ -1,13 +1,15 @@
-# rumors workspace — every artifact, tiered by feedback speed.
+# rumors workspace: the source of truth for verification. Every artifact in
+# the workspace has a recipe here, tiered by feedback speed, and `just --list`
+# is the tour.
 #
-#   inner loop   just check / just test <filter>     seconds-to-a-minute
-#   commit gate  just gate                           fmt → docs lint → clippy → docs → tests
-#   no-rot sweep just all                            everything below, cheap-first
+#   inner loop   just check / just test <filter>     seconds to a minute
+#   commit gate  just gate                           fully clean before every commit
+#   no-rot sweep just ci / just all                  everything, so nothing rots
 #
-# `all` is the superset: it adds the artifacts the gate doesn't reach — the
-# `before` feature matrix, the wasm target, the viz TypeScript bundle, the
-# nightly fuzz targets, the bench/example builds, and the formal tier
-# (the Lean proofs and the eventdag oracle).
+# The gate runs every check a commit must pass; its recipe line spells out the
+# order. `ci` adds the artifacts the gate doesn't reach, exactly as GitHub CI
+# builds them; `all` adds what CI cannot run (the fuzz smoke and the formal
+# tier). The comment above each recipe states what it verifies and why.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -26,9 +28,10 @@ default:
 
 # ── inner loop ───────────────────────────────────────────────────────────────
 
-# Type-check every host target: libs, tests, benches, examples.
 # Default features only, so the inner loop skips the `protocol-v1` towers;
 # the gate's clippy/docs/test-all still build every feature.
+
+# Type-check every host target: libs, tests, benches, examples.
 check:
     cargo check --workspace --all-targets
 
@@ -38,9 +41,10 @@ check:
 # `check`/`clippy` skip codegen, so they can't detonate one and run bare.
 # Override the limits per-invocation: `PROC_LIMIT_GB=16 just test`.
 
-# Run the test suites; pass a filter to narrow (`just test mirror`).
 # Default features only: the V1 wire tests (and the V1 towers in every test
 # binary) build only in `test-all`, which the gate runs.
+
+# Run the test suites; pass a filter to narrow (`just test mirror`).
 test *args:
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace {{ args }}
 
@@ -48,11 +52,12 @@ test *args:
 test-all *args:
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features {{ args }}
 
-# Doctests — nextest does not run these, so they need their own invocation.
 # Stable rustdoc compiles one executable per example; `before` has nearly 100,
 # and their macOS link work dominates the gate. Nightly's merged mode compiles
 # one harness per crate instead. Keep its target separate so switching compilers
 # cannot invalidate the stable gate artifacts (or vice versa).
+
+# Run the doctests (nightly), which nextest does not run.
 doctest:
     RUSTDOCFLAGS="-Z unstable-options --merge-doctests yes" {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} test --workspace --doc --all-features --target-dir target/doctest-nightly
 
@@ -68,17 +73,18 @@ fmt:
 fmt-check:
     cargo fmt --all --check
 
-# ── commit gate (CLAUDE.md: fmt → clippy → docs → test, all clean) ───────────
+# ── commit gate: everything a commit must pass, fully clean ──────────────────
 
-# rustdoc renders a doc comment's first paragraph as the item's summary — the
+# rustdoc renders a doc comment's first paragraph as the item's summary: the
 # one-liner shown in module index tables and search. tools/doclint fails the
-# gate when that paragraph grows past a one-liner, the same trees the audited
-# rustdoc covers (before's library and rumors). It needs no build, so it runs
-# first for fast failure.
+# gate when that paragraph grows past a one-liner; the fix is to move the
+# rest below a blank `///` line. It covers every Rust source in the
+# workspace (libraries, tests, benches, examples, the demo crate), and it
+# needs no build, so it runs first for fast failure.
 
 # Flag doc-comment summaries that have outgrown a one-liner.
 doclint:
-    ./tools/doclint crates/before/src src
+    ./tools/doclint benches crates examples src tests
 
 # Require every Rust test to document the behavior and invariant it protects.
 testdoc:
@@ -88,10 +94,11 @@ testdoc:
 # tools/readme mirrors each crate's crate-level rustdoc into its README via
 # cargo-rdme, then strips the intra-doc links cargo-rdme can't resolve (the
 # public types are re-exported from private submodules, and the docs use
-# rustdoc's shortcut link form) down to plain code spans. `readme-check`
-# re-derives the READMEs into scratch copies and diffs — the same no-rot
-# contract as fmt-check, so a rustdoc edit can't silently desync the README.
-# Needs cargo-rdme: `cargo install cargo-rdme`.
+# rustdoc's shortcut link form) down to plain code spans. The READMEs are
+# derived, never hand-edited: after editing crate-level rustdoc, run
+# `just readme`. `readme-check` re-derives the READMEs into scratch copies
+# and diffs, the same no-rot contract as fmt-check, so a rustdoc edit can't
+# silently desync the README. Needs cargo-rdme: `cargo install cargo-rdme`.
 
 # Regenerate every crate's README from its crate-level rustdoc.
 readme:
@@ -101,7 +108,10 @@ readme:
 readme-check:
     ./tools/readme check
 
-# Run the pre-commit gate.
+# The dependency list is the ordering: build-free lints first for fast
+# failure, then the builds, then the full-feature tests and doctests.
+
+# Run the pre-commit gate; it must come up fully clean before every commit.
 gate: fmt-check doclint testdoc readme-check clippy docs docs-internal test-all doctest
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
@@ -129,7 +139,7 @@ wasm-check:
 viz:
     ./crates/before-viz/build.sh
 
-# This catches broken intra-doc links. CLAUDE.md calls the rustdoc the
+# This catches broken intra-doc links. AGENTS.md calls the rustdoc the
 # documentation of record, so it's load-bearing and part of the gate.
 
 # Build the rustdoc with warnings denied.
@@ -184,21 +194,25 @@ fuzz secs=fuzz_smoke_secs:
 lean:
     PATH="$HOME/.elan/bin:$PATH" lake build
 
-# Run the event-DAG oracle + schedule gate; override seeds UPWARD only:
-# `just eventdag 300`. Small seed counts fail BY DESIGN — the vacuity
-# meta-controls demand enough runs to reproduce the known adversarial
-# stalls, so the default 100 is a floor, not a suggestion.
+# Override seeds UPWARD only (`just eventdag 300`): small seed counts fail
+# by design, because the vacuity meta-controls demand enough runs to
+# reproduce the known adversarial stalls. The default 100 is a floor, not
+# a suggestion.
+
+# Run the event-DAG oracle and schedule gate; the seed count only goes up.
 [working-directory("formal/lean")]
 eventdag fuzz_seeds="100":
     PATH="$HOME/.elan/bin:$PATH" lake build eventdag
     PATH="$HOME/.elan/bin:$PATH" lake exe eventdag eventdag-out {{ fuzz_seeds }}
 
-# Run the mux executable-evidence matrix against the committed golden file
-# (formal/lean/muxprobe-expected.tsv): strategy × skeleton × capacity ×
-# interleaving on the real Mux semantics, plus the commit-singleton scan and
-# a random margin-0 sweep. Override seeds: `just muxprobe 100`. After a
-# deliberate model or matrix change, regenerate the golden inside formal/lean
-# with `lake exe muxprobe --update` and review the diff like a snapshot.
+# The golden file is formal/lean/muxprobe-expected.tsv: strategy × skeleton
+# × capacity × interleaving on the real Mux semantics, plus the
+# commit-singleton scan and a random margin-0 sweep. Override seeds:
+# `just muxprobe 100`. After a deliberate model or matrix change, regenerate
+# the golden inside formal/lean with `lake exe muxprobe --update` and review
+# the diff like a snapshot.
+
+# Run the mux executable-evidence matrix against its committed golden file.
 [working-directory("formal/lean")]
 muxprobe rand_seeds="25":
     PATH="$HOME/.elan/bin:$PATH" lake build muxprobe
@@ -206,13 +220,24 @@ muxprobe rand_seeds="25":
 
 # ── conveniences ─────────────────────────────────────────────────────────────
 
+# Deterministic closed-form arithmetic, no sessions. Written to a temp
+# file and moved into place on success, so a failed build cannot truncate
+# the tracked table; the window suite byte-compares the committed file
+# against the same rendering, so drift fails the gate.
+
+# Regenerate the sync-budget trade-off table compiled into the rustdoc.
+window-tradeoff:
+    cargo run --example window_tradeoff > src/tree/mirror/streaming/window/tradeoff.md.tmp
+    mv src/tree/mirror/streaming/window/tradeoff.md.tmp src/tree/mirror/streaming/window/tradeoff.md
+
 # Run benches, e.g. `just bench -p before party` or `just bench gossip_grid`.
 bench *args:
     cargo bench {{ args }}
 
-# Run the chatroom demo, e.g. `just rumormill --name alice` (paste a peer id
+# Paste a peer id into the dialog, or dial one directly:
+# `just rumormill --name bob --peer <endpoint-id>`.
 
-# into the dialog) or `just rumormill --name bob --peer <endpoint-id>`.
+# Run the chatroom demo, e.g. `just rumormill --name alice`.
 rumormill *args:
     cargo run --release -p rumormill -- {{ args }}
 

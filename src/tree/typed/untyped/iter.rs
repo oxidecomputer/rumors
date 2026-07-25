@@ -19,20 +19,9 @@ use super::{Children, Node};
 ///
 /// On the partially ordered [`Version`]s, a range denotes a *difference of
 /// causal down-sets*: keep the leaves contained in the end bound, subtract
-/// the leaves contained in the start bound. Per leaf version `v`:
-///
-/// - start [`Unbounded`](Bound::Unbounded): subtract nothing;
-///   [`Excluded(s)`](Bound::Excluded): subtract `v <= s`;
-///   [`Included(s)`](Bound::Included): subtract `v < s`, so `s` itself
-///   survives.
-/// - end [`Unbounded`](Bound::Unbounded): keep everything;
-///   [`Included(e)`](Bound::Included): keep `v <= e`;
-///   [`Excluded(e)`](Bound::Excluded): keep `v < e`.
-///
-/// Note the asymmetry inherent to the partial order: a start bound of
-/// either kind keeps versions *concurrent* to it (subtraction removes only
-/// the bound's causal past), while an end bound of either kind drops them
-/// (keeping demands containment).
+/// the leaves contained in the start bound. [`Range`] states the per-bound
+/// semantics; the checks below resolve them against a subtree's memoized
+/// version bounds.
 struct Bounds<'a> {
     start: Bound<&'a Version>,
     end: Bound<&'a Version>,
@@ -113,9 +102,10 @@ struct Frame<'a, T> {
 /// depth-first walk over a subtree's live leaves, filtered by a causal
 /// [`RangeBounds<Version>`] range.
 ///
-/// See [`Bounds`] for the semantics; [`RangeFull`] is the unfiltered walk and
-/// never touches a version. The walk yields each leaf's reconstructed 32-byte
-/// path [`Key`], its [`Version`], and a borrowed handle to its [`Message`].
+/// See [`Range`] for the per-bound semantics; [`RangeFull`] is the unfiltered
+/// walk and never touches a version. The walk yields each leaf's reconstructed
+/// 32-byte path [`Key`], its [`Version`], and a borrowed handle to its
+/// [`Message`].
 ///
 /// The walk is lazy: a single step descends only far enough to reach the
 /// next leaf, so the first item is produced after walking one root-to-leaf
@@ -427,8 +417,10 @@ impl<'a, T, R: RangeBounds<Version>> DoubleEndedIterator for Range<'a, T, R> {
 /// only the current path's ancestors; everything already walked past is
 /// released.
 ///
-/// Same range semantics and prune/promote logic as the borrowing walk (see
-/// [`Bounds`]); forward-only, since its consumers are subscription drains.
+/// Same range semantics as the borrowing walk (see [`Range`] for the
+/// per-bound rules) and the same prune/promote logic ([`Bounds::prunes`] /
+/// [`Bounds::promotes`]); forward-only, since its consumers are subscription
+/// drains.
 /// Yields each passing leaf as an owned [`Leaf`] handle alongside its
 /// reconstructed [`Key`](crate::tree::key::Key), which is what lets a caller
 /// lend `&Version` / `&Arc<T>` out of a leaf it keeps.
@@ -480,19 +472,51 @@ impl<T> Leaf<T> {
             .expect("a Leaf wraps a leaf node, by construction")
             .as_arc()
     }
+
+    /// Unwrap into a bare height-zero leaf node.
+    ///
+    /// The walk yields the leaf as stored, which usually carries the
+    /// compressed spine above it; a height-zero view must shed that prefix
+    /// (its hash commits an empty suffix, not the stored spine). The stored handle
+    /// is reused when it is already bare; otherwise a fresh prefix-free
+    /// leaf is built around the same message handle.
+    pub(crate) fn into_node(self) -> Node<T> {
+        if self.0.inner.prefix.is_empty() {
+            return self.0;
+        }
+        match &self.0.inner.children {
+            Children::Leaf { version, message } => Node::leaf(version.clone(), message.clone()),
+            Children::Branch { .. } => {
+                unreachable!("a Leaf wraps a leaf node, by construction")
+            }
+        }
+    }
 }
 
 impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
     /// Walk the leaves of the (possibly absent) height-32 root `node` whose
     /// versions fall within the causal `range`.
     pub(crate) fn root(node: Option<Node<T>>, range: R) -> Self {
+        Self::within(node, &[], range)
+    }
+
+    /// Walk the leaves of a subtree rooted below the top of the tree.
+    ///
+    /// `path` carries the bytes already walked to reach `node` (the
+    /// ancestors' radixes, shallowest-first), which the descent extends so
+    /// each leaf still reconstructs a full 32-byte
+    /// [`Key`](crate::tree::key::Key). `path.len()` plus the height of
+    /// `node` must therefore be 32.
+    pub(crate) fn within(node: Option<Node<T>>, path: &[u8], range: R) -> Self {
+        let mut buf = ArrayVec::new();
+        buf.extend_from_slice(path);
         Self {
             start: node,
             // One level per materialized branch along a root-to-leaf path:
             // never more than the depth, so this is the walk's only
             // allocation.
             spine: Vec::with_capacity(32),
-            path: ArrayVec::new(),
+            path: buf,
             range,
         }
     }
@@ -506,7 +530,9 @@ impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
             // levels — remembering the path length to roll back to if it
             // proves not to descend.
             let (node, inherited, rollback) = match self.start.take() {
-                Some(root) => (root, false, 0),
+                // The starting node rolls back to the seed path it was
+                // entered with (empty only for a true root).
+                Some(root) => (root, false, self.path.len()),
                 None => loop {
                     let level = self.spine.last_mut()?;
                     let next_child = match &level.node.inner.children {

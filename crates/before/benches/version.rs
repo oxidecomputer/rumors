@@ -1,5 +1,6 @@
 //! `Version` benchmarks: the optimized implementation against the naive
 //! recursive oracle, on the same randomized event trees (see `common`).
+//!
 //! Includes the batch-vs-single-op comparison that motivates the working form,
 //! plus the impl-only byte codec.
 
@@ -64,10 +65,12 @@ fn bench_tick(c: &mut Criterion) {
     g.finish();
 }
 
-/// The headline of the working form: applying `k` ticks. The impl can `batch()` them
-/// (one unpack/repack amortized over all `k`); without a batch each tick unpacks and
-/// repacks on its own; the oracle has no working form and re-normalizes each tick. Tree
-/// size is fixed; `k` is the axis.
+/// The headline of the working form: applying `k` ticks.
+///
+/// The impl can `batch()` them (one unpack/repack amortized over all `k`);
+/// without a batch each tick unpacks and repacks on its own; the oracle has
+/// no working form and re-normalizes each tick. Tree size is fixed; `k` is
+/// the axis.
 fn bench_batch(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/k_ticks");
     let mut r = rng(2);
@@ -155,8 +158,10 @@ fn bench_merge(c: &mut Criterion) {
     g.finish();
 }
 
-/// `partial_cmp` (the causal order) over the three outcomes the comparison can take, each
-/// exercising a different traversal: `concurrent` (two independent histories), `ordered`
+/// `partial_cmp` (the causal order) over the three outcomes the comparison
+/// can take, each exercising a different traversal.
+///
+/// The outcomes: `concurrent` (two independent histories), `ordered`
 /// (one strictly precedes the other), and `equal` (a version against its own clone).
 fn bench_partial_cmp(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/partial_cmp");

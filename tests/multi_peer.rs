@@ -30,11 +30,12 @@ fn schedule_string() -> impl Strategy<Value = Schedule<String>> {
 }
 
 proptest! {
-    /// After the final quiesce phase, every peer's live content (per
-    /// `readout`) matches every other's. Compared via `readout` — the
-    /// `(Key, value)` lens the oracle checks also use — so the
-    /// assertion is directly about live content, independent of the
-    /// per-peer party state.
+    /// After the final quiesce phase, every peer's live content matches
+    /// every other's.
+    ///
+    /// Compared via `readout` — the `(Key, value)` lens the oracle checks
+    /// also use — so the assertion is about live content alone, independent
+    /// of the per-peer party state.
     #[test]
     fn all_peers_converge_after_quiesce(
         schedule in schedule_u64(),
@@ -70,6 +71,7 @@ proptest! {
     /// Every peer's readout `Key → value` map equals the canonical
     /// map built from the originating peers' `Key`s and the oracle's
     /// per-insert values, filtered by the oracle's redaction set.
+    ///
     /// Pins down that every peer converges on exactly the same
     /// `Key`s for exactly the same values — no per-peer key drift.
     #[test]
@@ -119,6 +121,7 @@ proptest! {
     /// Once peers have converged, an additional gossip event yields
     /// zero new observations and changes no peer's state (live
     /// content and causal version alike).
+    ///
     /// Picks two distinct peer indices via `prop_flat_map` on the
     /// schedule so the shrinker sees them as first-class inputs
     /// rather than modulo'd seeds.

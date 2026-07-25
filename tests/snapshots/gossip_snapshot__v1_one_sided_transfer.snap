@@ -18,10 +18,10 @@ sent 5 bytes                    │ sent 5 bytes
   0000: 00 00 00 01 cd          │   0000: 00 00 00 01 40
 received 5 bytes                │ received 29 bytes
   0000: 00 00 00 01 40          │   0000: 00 00 00 01 cd 00 00 00
-sent 24 bytes                   │   0008: 14 01 00 00 00 d9 74 25
-  0000: 00 00 00 14 01 00 00 00 │   0010: d9 9a 64 55 b8 03 d2 d9
-  0008: d9 74 25 d9 9a 64 55 b8 │   0018: d4 da fe e0 86
-  0010: 03 d2 d9 d4 da fe e0 86 │ sent 8 bytes
+sent 24 bytes                   │   0008: 14 01 00 00 00 6e 67 3d
+  0000: 00 00 00 14 01 00 00 00 │   0010: 08 7e 13 6f f9 5b 2d 0d
+  0008: 6e 67 3d 08 7e 13 6f f9 │   0018: f6 3e 2c 28 73
+  0010: 5b 2d 0d f6 3e 2c 28 73 │ sent 8 bytes
 received 8 bytes                │   0000: 00 00 00 04 00 00 00 00
   0000: 00 00 00 04 00 00 00 00 │ received 100 bytes
 sent 100 bytes                  │   0000: 00 00 00 60 02 00 00 00

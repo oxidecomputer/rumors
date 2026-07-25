@@ -28,7 +28,9 @@ pub struct View {
     /// a partition merge resets us into a winning network.
     pub network: String,
     /// The full universe identifier behind [`network`](Self::network),
-    /// `None` only before the owner's first publish. Connection drivers
+    /// `None` only before the owner's first publish.
+    ///
+    /// Connection drivers
     /// compare their session handle's network against this and tear down
     /// when a reset has made the handle stale: a stale drive gossips the
     /// abandoned universe forever (same network on both ends, so no

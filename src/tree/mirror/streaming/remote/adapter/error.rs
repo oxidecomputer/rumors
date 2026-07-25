@@ -1,26 +1,42 @@
+use crate::tree::mirror::framing::LengthOverflow;
+
+use super::super::codec::DecodeLeafError;
+
 /// A prefix-free reaction could not be paired with the question it answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ScopeError {
     /// A positional query followed all children named by its question.
     #[error("a query has no remaining child in its question")]
     UnpositionedQuery,
+    /// A match followed all children named by its question.
+    ///
+    /// Detected at the offending frame, so a reply cannot grow its
+    /// decoded skeleton past the question's fan before the overrun
+    /// surfaces.
+    #[error("a match has no remaining child in its question")]
+    UnpositionedMatch,
     /// A nonempty query cannot descend below leaf height.
     #[error("a leaf-height reply contains a nonempty query")]
     NonemptyLeafQuery,
 }
 
-/// The initiator's distinguished opening reply did not contain its one query.
+/// The initiator's distinguished opening reply violated its canonical
+/// shape: one leading query, then only whole-subtree supplies.
+///
+/// Local-only by construction: the peer's opening question arrives as the
+/// greeting's listing, validated at greeting decode, so only the locally
+/// produced opening reply can still be malformed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum OpeningError {
-    /// The opening reply must contain exactly one reaction.
-    #[error("the opening reply contains {count} reactions instead of one")]
-    ReactionCount { count: usize },
-    /// The opening reaction must ask the implicit root question.
-    #[error("the opening reply does not contain a query")]
+    /// The opening reply must lead with the implicit root question.
+    #[error("the opening reply is empty")]
+    Empty,
+    /// The opening's first reaction must ask the implicit root question.
+    #[error("the opening reply does not lead with a query")]
     NotQuery,
-    /// The opening wire frame must end its one-reaction reply on that query.
-    #[error("the opening frame is not a reply-ending query")]
-    InvalidFrame,
+    /// Everything after the opening question must be an early supply.
+    #[error("opening reaction {index} is not a whole-subtree supply")]
+    NotSupply { index: usize },
 }
 
 /// A protocol reply could not be rendered faithfully as wire frames.
@@ -32,6 +48,9 @@ pub enum EncodeError<E> {
     /// A positional reaction could not be scoped safely.
     #[error(transparent)]
     Scope(#[from] ScopeError),
+    /// A supplied leaf's encoding overflows the run's record framing.
+    #[error("a supplied leaf record overflows the run framing")]
+    Record(#[source] LengthOverflow),
 }
 
 /// Wire frames could not be reconstructed into one scoped protocol reply.
@@ -61,7 +80,28 @@ pub enum DecodeError<E> {
     /// A later supplied run reused or preceded an earlier run's radix.
     #[error("supplied radix {radix:#04x} does not follow {previous:#04x}")]
     SupplyOrder { previous: u8, radix: u8 },
+    /// A supplied version's encoding exceeds the peer's declared `max_version_bytes`.
+    ///
+    /// Every leaf version a peer supplies is one its own tree
+    /// materializes, so the aggregate its greeting declared must cover
+    /// it. The local window solve priced node residency from that
+    /// declaration; a version arriving over it voids the pricing
+    /// premise, so the session fails fast instead of running outside
+    /// its memory envelope. The greeting's own causal version is *not*
+    /// held to the declaration — an empty tree honestly declares a
+    /// zero aggregate while its redaction-advanced version is nonempty
+    /// — so only supplied leaf records are checked.
+    #[error(
+        "supplied version encodes {actual} bytes, over the peer's declared {declared}-byte bound"
+    )]
+    OversizedVersion { declared: u64, actual: usize },
     /// A positional wire reaction cannot be scoped without another child.
     #[error(transparent)]
     Scope(#[from] ScopeError),
+    /// A leaf record inside a supply run failed canonical decoding.
+    #[error("a supplied leaf record is not canonical")]
+    Record(#[source] DecodeLeafError),
+    /// The opening-supply stream carried frames after its one reply.
+    #[error("the opening-supply stream carried a second reply")]
+    ExtraOpeningReply,
 }

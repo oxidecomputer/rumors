@@ -1,0 +1,35 @@
+# Liveness regressions must fail CI, not hang it. The protocol suites run
+# under a closed-world deterministic poller (`run_to_quiescence`), which
+# turns a reintroduced wire stall into a stalled-future error — but a stall
+# that escapes that harness (a real-executor integration test, a proptest
+# whose case never completes) would otherwise hang the run forever.
+#
+# The slowest honest tests today are the proptest suites and the
+# inter-process disruption tests, all finishing well under 60 seconds
+# (the deterministic fixture search in src/tree/arb.rs is around 6
+# seconds), so three 60-second periods —
+# termination at 180 seconds — is generous headroom, and everything past
+# the first period is flagged as slow in the meantime.
+#
+# One collision this budget knowingly accepts: proptest persists a failing
+# case's regression seed only after shrinking completes, so a genuinely
+# failing property whose shrink phase outruns the 180-second terminate
+# budget is killed mid-shrink and the reproducer is lost at exactly the
+# moment it matters. Passing runs are unaffected. If a property fails on a
+# loaded machine and dies here instead of reporting, rerun it with
+# PROPTEST_MAX_SHRINK_ITERS lowered (or PROPTEST_MAX_SHRINK_TIME set, in
+# milliseconds) so shrinking finishes inside the budget: the less-shrunk
+# failing case still persists to proptest-regressions/ and reproduces
+# deterministically. Raising terminate-after instead would stretch every
+# real hang by the same amount, which is the worse trade for CI.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+# The window measurement suites (window_knee, window_operator,
+# window_corners, gossip_pipelining) need no scheduling isolation: their
+# pins assert on exact virtual wire time (`benches/support/latency.rs`),
+# which machine load cannot move, so they run interleaved with the rest
+# of the suite like any other test. The one wall-clock upper bound among
+# them (window_corners' real-clock promptness cross-check) holds a
+# ~0.5 s measured catch-up under a 5 s budget: that ~8x headroom is what
+# absorbs load there, where the virtual pins need none.

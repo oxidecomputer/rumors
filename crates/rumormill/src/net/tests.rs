@@ -1,6 +1,6 @@
 //! Tests for the pure merge rule. (The networked paths are exercised by the
-//! owner's duplex tests and the manual smoke script; `decide` is the one
-//! piece both sides must agree on blind.)
+//! owner's in-memory link tests and the manual smoke script; `decide` is the
+//! one piece both sides must agree on blind.)
 
 use proptest::prelude::*;
 use rand::SeedableRng;
@@ -15,8 +15,8 @@ fn network(seed: u64) -> Network {
 
 proptest! {
     /// Antisymmetry: for any two distinct universes, the two sides — each
-    /// holding its own pair and the one the mismatch error reported — reach
-    /// opposite verdicts, so exactly one resets.
+    /// plugging the mismatch error's two declared pairs into `decide` in
+    /// opposite roles — reach opposite verdicts, so exactly one resets.
     #[test]
     fn exactly_one_winner(
         events_a in any::<u64>(),
@@ -47,6 +47,76 @@ proptest! {
     }
 }
 
+proptest! {
+    /// The merge verdict must be computed from the handshake-declared
+    /// floors on both sides.
+    ///
+    /// For any declared floors and any mid-session
+    /// drift (each side's fresh floor is >= what it declared, because
+    /// local commits only add events), the declared-floor verdicts are
+    /// opposite: exactly one side wins, whatever the drift. Drift can
+    /// never demote a declared winner (`decide` is monotone in `ours`),
+    /// only promote the declared loser into a second winner — so a side
+    /// that substitutes its fresh floor for the declared one risks the
+    /// both-Win collision, never a both-Lose one.
+    #[test]
+    fn declared_floors_yield_exactly_one_winner(
+        declared_a in any::<u64>(),
+        drift_a in any::<u64>(),
+        declared_b in any::<u64>(),
+        drift_b in any::<u64>(),
+        seed_a in any::<u64>(),
+        seed_b in any::<u64>(),
+    ) {
+        prop_assume!(seed_a != seed_b);
+        let (net_a, net_b) = (network(seed_a), network(seed_b));
+        let fresh_a = declared_a.saturating_add(drift_a);
+        let fresh_b = declared_b.saturating_add(drift_b);
+
+        // The deployed rule: both sides decide from the declared floors —
+        // the values that actually crossed the wire in the handshake.
+        let verdict_a = decide((declared_a, net_a), (declared_b, net_b));
+        let verdict_b = decide((declared_b, net_b), (declared_a, net_a));
+        prop_assert_ne!(verdict_a, verdict_b);
+
+        // A declared winner still wins from its fresh floor: a fresh-floor
+        // collision is one-sided (both Win), so the failure mode it risks
+        // is two servers waiting on absent losers, never two losers
+        // bootstrapping into each other.
+        if verdict_a == Verdict::Win {
+            prop_assert_eq!(decide((fresh_a, net_a), (declared_b, net_b)), Verdict::Win);
+        }
+        if verdict_b == Verdict::Win {
+            prop_assert_eq!(decide((fresh_b, net_b), (declared_a, net_a)), Verdict::Win);
+        }
+    }
+}
+
+/// With equal declared floors and one commit landing mid-session on each
+/// side, deciding from the fresh floors makes both sides Win — each then
+/// serves a merge the other never requests.
+///
+/// Deciding from the declared floors instead stays antisymmetric. Pins the
+/// concrete collision the declared-floor rule exists to exclude.
+#[test]
+fn fresh_floors_can_make_both_sides_win() {
+    let (net_a, net_b) = (network(1), network(2));
+    let declared = 7;
+    let fresh = declared + 1; // one local commit landed mid-session
+
+    // The forbidden construction: each side pairs its own fresh floor with
+    // the peer's declared one.
+    assert_eq!(decide((fresh, net_a), (declared, net_b)), Verdict::Win);
+    assert_eq!(decide((fresh, net_b), (declared, net_a)), Verdict::Win);
+
+    // The deployed construction: declared against declared, exactly one
+    // winner.
+    assert_ne!(
+        decide((declared, net_a), (declared, net_b)),
+        decide((declared, net_b), (declared, net_a))
+    );
+}
+
 /// On an event-floor tie, the greater network id wins: deterministic, and
 /// still antisymmetric.
 #[test]
@@ -72,7 +142,9 @@ fn roster_of(peer: PeerId) -> View {
 proptest! {
     /// The dialing tie-break covers every roster pair exactly once: for any
     /// two distinct peers, exactly one side lists the other as a dial
-    /// candidate, so the steady-state mesh settles on one connection per
+    /// candidate.
+    ///
+    /// The steady-state mesh therefore settles on one connection per
     /// pair with neither a dial storm nor an orphaned pair.
     #[test]
     fn exactly_one_roster_side_dials(a in any::<[u8; 32]>(), b in any::<[u8; 32]>()) {

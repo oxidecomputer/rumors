@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 
 use proptest::prelude::*;
 
+use super::compare::EvReader;
 use super::working::WorkingVersion;
 use super::{Batch, Ranked, Version};
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
@@ -162,11 +163,11 @@ proptest! {
     /// Parity holds once the working form is *materialized*, exercising the
     /// equality short-circuit's working-form arms.
     ///
-    /// Merging the join identity (`Version::new()`) forces `work = Some(..)`
-    /// without changing the value, so each batch now compares as a working
-    /// form. The matrix — materialized vs materialized (Working/Working),
-    /// materialized vs packed (the mixed arm that declines and falls through)
-    /// — still equals the bare version comparison.
+    /// `Batch::materialize` forces `work = Some(..)` without changing the
+    /// value, so each batch now compares as a working form. The matrix —
+    /// materialized vs materialized (Working/Working), materialized vs packed
+    /// (the mixed arm that declines and falls through) — still equals the
+    /// bare version comparison.
     #[test]
     fn materialized_batch_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -180,8 +181,8 @@ proptest! {
         let mut bb = b.clone();
         let mut batch_a = ba.batch();
         let mut batch_b = bb.batch();
-        batch_a.join(&Version::new()); // materialize the working form, value unchanged
-        batch_b.join(&Version::new());
+        batch_a.materialize(); // working form, value unchanged
+        batch_b.materialize();
 
         prop_assert_eq!(batch_a.partial_cmp(&b), base); // Working vs Packed (mixed)
         prop_assert_eq!(a.partial_cmp(&batch_b), base); // Packed vs Working (mixed)
@@ -319,6 +320,60 @@ proptest! {
         let oracle_join = vs[i % n].clone() | vs[j % n].clone();
         let merged = from_oracle_version(&vs[i % n]) | from_oracle_version(&vs[j % n]);
         prop_assert!(merged == from_oracle_version(&oracle_join));
+    }
+}
+
+proptest! {
+    /// The join is representationally subadditive:
+    /// `encode(a | b).len() <= encode(a).len() + encode(b).len()`.
+    ///
+    /// The join's event tree branches only where an input branches and its
+    /// bases come from pointwise combination, so joining can restructure but
+    /// never invent structure beyond both inputs together. Callers that
+    /// track version-size maxima rely on this to charge a join of two
+    /// bounded versions the sum of their bounds. Probed here over churned
+    /// (fork/send/sync/retire) populations — the causally related pairs live
+    /// replicas hold, including the normalization corners churn produces.
+    #[test]
+    fn join_encoding_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+        let join = a.clone() | b.clone();
+        prop_assert!(
+            join.encode().len() <= a.encode().len() + b.encode().len(),
+            "join encoding outgrew its inputs: {} > {} + {}",
+            join.encode().len(), a.encode().len(), b.encode().len(),
+        );
+    }
+}
+
+proptest! {
+    /// The meet is representationally subadditive:
+    /// `encode(a & b).len() <= encode(a).len() + encode(b).len()`.
+    ///
+    /// Dual to [`join_encoding_is_subadditive`]: the meet's event tree
+    /// branches only where an input branches and its bases come from
+    /// pointwise combination, so meeting can restructure but never invent
+    /// structure beyond both inputs together. Callers that track
+    /// version-size maxima rely on this to charge a meet of two bounded
+    /// versions (an assembled floor) the sum of their bounds. Probed over
+    /// the same churned populations as the join lemma.
+    #[test]
+    fn meet_encoding_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+        let meet = a.clone() & b.clone();
+        prop_assert!(
+            meet.encode().len() <= a.encode().len() + b.encode().len(),
+            "meet encoding outgrew its inputs: {} > {} + {}",
+            meet.encode().len(), a.encode().len(), b.encode().len(),
+        );
     }
 }
 
@@ -486,8 +541,8 @@ proptest! {
     ///
     /// Exercises `snapshot`'s repack and `join_view` joining a Working-form
     /// incoming view (the fresh-batch cells above all read packed views).
-    /// Merging the join identity (`Version::new()`) forces `work = Some(..)`
-    /// without changing the value.
+    /// `Batch::materialize` forces `work = Some(..)` without changing the
+    /// value.
     #[test]
     fn materialized_join_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -503,9 +558,9 @@ proptest! {
             let mut aa = a.clone();
             let mut bb = b.clone();
             let mut la = aa.batch();
-            la.join(&Version::new());
+            la.materialize();
             let mut rb = bb.batch();
-            rb.join(&Version::new());
+            rb.materialize();
             prop_assert!(&la | &rb == expected);
         }
 
@@ -514,7 +569,7 @@ proptest! {
             let mut x = a.clone();
             let mut bb = b.clone();
             let mut rb = bb.batch();
-            rb.join(&Version::new());
+            rb.materialize();
             x |= &rb;
             prop_assert!(x == expected);
         }
@@ -613,8 +668,8 @@ proptest! {
     ///
     /// Exercises `snapshot`'s repack and `meet_view` meeting a Working-form
     /// incoming view (the fresh-batch cells above all read packed views). Dual
-    /// to [`materialized_join_parity`]; materializing with the join identity
-    /// (`Version::new()`) forces `work = Some(..)` without changing the value.
+    /// to [`materialized_join_parity`]; `Batch::materialize` forces
+    /// `work = Some(..)` without changing the value.
     #[test]
     fn materialized_meet_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -630,9 +685,9 @@ proptest! {
             let mut aa = a.clone();
             let mut bb = b.clone();
             let mut la = aa.batch();
-            la.join(&Version::new());
+            la.materialize();
             let mut rb = bb.batch();
-            rb.join(&Version::new());
+            rb.materialize();
             prop_assert!(&la & &rb == expected);
         }
 
@@ -641,9 +696,158 @@ proptest! {
             let mut x = a.clone();
             let mut bb = b.clone();
             let mut rb = bb.batch();
-            rb.join(&Version::new());
+            rb.materialize();
             x &= &rb;
             prop_assert!(x == expected);
+        }
+    }
+}
+
+proptest! {
+    /// `EvReader::is_empty` — the `O(1)` shape test behind the lattice
+    /// short-circuits — agrees with semantic emptiness (equality with
+    /// `Version::new()`) on both storage forms for every generated version.
+    #[test]
+    fn ev_reader_is_empty_matches_semantics(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let v = from_oracle_version(&vs[i % n]);
+        let semantically_empty = v == Version::new();
+
+        prop_assert_eq!(EvReader::packed(v.as_bits()).is_empty(), semantically_empty);
+        let work = WorkingVersion::unpack(v.as_bits());
+        prop_assert_eq!(EvReader::working(&work).is_empty(), semantically_empty);
+    }
+}
+
+proptest! {
+    /// Lattice identity for join, byte-identical: `0 | v == v == v | 0`.
+    ///
+    /// The encoded bytes equal `v`'s own — both through the `join_view`
+    /// short-circuit (every current/incoming form combination: packed and
+    /// materialized working, empty on either side) and through the general
+    /// combine + repack path called directly (`EvReader::join`), which the
+    /// short-circuit must match bit for bit.
+    #[test]
+    fn join_identity_byte_parity(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let v = from_oracle_version(&vs[i % n]);
+        let empty = Version::new();
+
+        // The general path, bypassing the short-circuit: combine + repack of
+        // the identity cases lands on `v`'s canonical bytes.
+        let general_left = Version::from_bits(
+            EvReader::packed(empty.as_bits()).join(EvReader::packed(v.as_bits())).repack(),
+        );
+        let general_right = Version::from_bits(
+            EvReader::packed(v.as_bits()).join(EvReader::packed(empty.as_bits())).repack(),
+        );
+        prop_assert_eq!(general_left.encode(), v.encode());
+        prop_assert_eq!(general_right.encode(), v.encode());
+
+        // Packed empty on either side of the operator.
+        prop_assert_eq!((&empty | &v).encode(), v.encode());
+        prop_assert_eq!((&v | &empty).encode(), v.encode());
+
+        // Working-form empty current adopting a packed incoming.
+        {
+            let mut e = Version::new();
+            { let mut be = e.batch(); be.materialize(); be |= &v; }
+            prop_assert_eq!(e.encode(), v.encode());
+        }
+        // Working-form empty current adopting a working-form incoming.
+        {
+            let mut e = Version::new();
+            let mut vv = v.clone();
+            let mut bv = vv.batch();
+            bv.materialize();
+            { let mut be = e.batch(); be.materialize(); be |= &bv; }
+            prop_assert_eq!(e.encode(), v.encode());
+        }
+        // Packed empty current, working-form incoming.
+        {
+            let mut e = Version::new();
+            let mut vv = v.clone();
+            let mut bv = vv.batch();
+            bv.materialize();
+            e |= &bv;
+            prop_assert_eq!(e.encode(), v.encode());
+        }
+        // Working-form empty incoming: the current `v` is untouched.
+        {
+            let mut x = v.clone();
+            let mut e = Version::new();
+            let mut be = e.batch();
+            be.materialize();
+            x |= &be;
+            prop_assert_eq!(x.encode(), v.encode());
+        }
+        // Materialized current `v`, empty incoming: the pending working form
+        // survives the no-op and repacks canonically on drop.
+        {
+            let mut x = v.clone();
+            { let mut bx = x.batch(); bx.materialize(); bx |= &empty; }
+            prop_assert_eq!(x.encode(), v.encode());
+        }
+    }
+}
+
+proptest! {
+    /// The empty version absorbs the meet, byte-identical: `0 & v == 0 == v & 0`.
+    ///
+    /// The encoded bytes equal `Version::new()`'s — both through the
+    /// `meet_view` short-circuit (every current/incoming form combination:
+    /// packed and materialized working, empty on either side) and through the
+    /// general combine + repack path called directly (`EvReader::meet`),
+    /// which the short-circuit must match bit for bit. Dual to
+    /// [`join_identity_byte_parity`].
+    #[test]
+    fn meet_absorbing_byte_parity(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let v = from_oracle_version(&vs[i % n]);
+        let empty = Version::new();
+
+        // The general path, bypassing the short-circuit: combine + repack of
+        // the absorbing cases lands on the canonical empty bytes.
+        let general_left = Version::from_bits(
+            EvReader::packed(empty.as_bits()).meet(EvReader::packed(v.as_bits())).repack(),
+        );
+        let general_right = Version::from_bits(
+            EvReader::packed(v.as_bits()).meet(EvReader::packed(empty.as_bits())).repack(),
+        );
+        prop_assert_eq!(general_left.encode(), empty.encode());
+        prop_assert_eq!(general_right.encode(), empty.encode());
+
+        // Packed empty on either side of the operator.
+        prop_assert_eq!((&empty & &v).encode(), empty.encode());
+        prop_assert_eq!((&v & &empty).encode(), empty.encode());
+
+        // Working-form empty current: stays empty against a packed incoming.
+        {
+            let mut e = Version::new();
+            { let mut be = e.batch(); be.materialize(); be &= &v; }
+            prop_assert_eq!(e.encode(), empty.encode());
+        }
+        // Working-form empty incoming empties a packed current.
+        {
+            let mut x = v.clone();
+            let mut e = Version::new();
+            let mut be = e.batch();
+            be.materialize();
+            x &= &be;
+            prop_assert_eq!(x.encode(), empty.encode());
+        }
+        // Materialized current `v`, packed empty incoming: the pending
+        // working form is discarded and the result is canonically empty.
+        {
+            let mut x = v.clone();
+            { let mut bx = x.batch(); bx.materialize(); bx &= &empty; }
+            prop_assert_eq!(x.encode(), empty.encode());
         }
     }
 }
@@ -874,6 +1078,108 @@ proptest! {
             ib.partial_cmp(&ia),
             ia.partial_cmp(&ib).map(Ordering::reverse)
         );
+    }
+}
+
+proptest! {
+    /// `==` agrees with the full causal-compare walk in every form pairing.
+    ///
+    /// The equality cells decide same-form operands by a representation
+    /// compare (canonical normal form: representation equality ⟺ equality);
+    /// this pins that shortcut to the walk's verdict — packed/packed,
+    /// working/working (materialized batches), and the mixed pairings that
+    /// keep the walk — on arbitrary, typically *unequal* pairs (the
+    /// inequality direction the shortcut decides without walking) and on
+    /// equal same-form pairs (the equality direction).
+    #[test]
+    fn eq_matches_causal_walk(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        // The walk's verdict, taken from the compare entry point directly.
+        let walk_eq = a.view().causal_cmp(b.view()) == Some(Ordering::Equal);
+
+        prop_assert_eq!(a == b, walk_eq); // packed vs packed
+
+        let mut ca = a.clone();
+        let mut cb = b.clone();
+        let mut ba = ca.batch();
+        let mut bb = cb.batch();
+        ba.materialize(); // working form, value unchanged
+        bb.materialize();
+        prop_assert_eq!(ba == bb, walk_eq); // working vs working
+        prop_assert_eq!(ba == b, walk_eq); // working vs packed (mixed: the walk)
+        prop_assert_eq!(a == bb, walk_eq); // packed vs working (mixed: the walk)
+
+        // The equality direction, same-form: a version equals its own clone
+        // in both storage forms.
+        prop_assert!(a == a.clone()); // packed vs packed, equal
+        let mut ca2 = a.clone();
+        let mut ba2 = ca2.batch();
+        ba2.materialize();
+        prop_assert!(ba == ba2); // working vs working, equal
+    }
+}
+
+proptest! {
+    /// The join-size lemma of [`join_encoding_is_subadditive`], on
+    /// arbitrary, typically *unrelated* normal-form pairs.
+    ///
+    /// The churned generator only produces causally related versions from
+    /// one seed; these pairs add independent shapes and large-base leaves
+    /// (values near/beyond `u64::MAX`), where a join must restructure most —
+    /// the corner where subadditivity would break if normalization could
+    /// ever inflate a combined tree past its inputs.
+    #[test]
+    fn join_encoding_is_subadditive_arbitrary(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+    ) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let join = a.clone() | b.clone();
+        prop_assert!(
+            join.encode().len() <= a.encode().len() + b.encode().len(),
+            "join encoding outgrew its inputs: {} > {} + {}",
+            join.encode().len(), a.encode().len(), b.encode().len(),
+        );
+    }
+}
+
+proptest! {
+    /// The meet-size lemma of [`meet_encoding_is_subadditive`], on
+    /// arbitrary, typically *unrelated* normal-form pairs.
+    ///
+    /// Dual to [`join_encoding_is_subadditive_arbitrary`], and for the same
+    /// reason: independent shapes and large-base leaves are the corner
+    /// where a meet must restructure most, so this is where subadditivity
+    /// would break if normalization could ever inflate a combined tree
+    /// past its inputs.
+    #[test]
+    fn meet_encoding_is_subadditive_arbitrary(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+    ) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let meet = a.clone() & b.clone();
+        prop_assert!(
+            meet.encode().len() <= a.encode().len() + b.encode().len(),
+            "meet encoding outgrew its inputs: {} > {} + {}",
+            meet.encode().len(), a.encode().len(), b.encode().len(),
+        );
+    }
+}
+
+proptest! {
+    /// `is_empty` ⟺ `v == Version::new()`, over arbitrary normal-form trees.
+    ///
+    /// Pins the O(1) two-bit emptiness test to the definitional comparison
+    /// `v == Version::new()`; `arb_oracle_version` generates the empty leaf
+    /// too, so both arms are exercised.
+    #[test]
+    fn is_empty_iff_new(ov in arb_oracle_version()) {
+        let v = from_oracle_version(&ov);
+        prop_assert_eq!(v.is_empty(), v == Version::new());
     }
 }
 

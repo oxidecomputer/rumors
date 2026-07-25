@@ -8,8 +8,8 @@ use rand::RngCore;
 /// The identifier shared by every [`Rumors`](crate::Rumors) that descends from
 /// the same [`seed`](crate::Peer::seed).
 ///
-/// When two [`Rumors`](crate::Rumors) [`gossip`](crate::Rumors::gossip), it is
-/// essential that they belong to the same causal universe. Two
+/// When two [`Rumors`](crate::Rumors) [`gossip`](crate::Rumors::gossip), they
+/// must belong to the same causal universe. Two
 /// [`Peer`](crate::Peer)s from *independent* [`seed`](crate::Peer::seed)s can
 /// end up with coincidentally and transiently compatible causal state despite
 /// sharing no true causal history. Such peers must never combine, and the
@@ -17,7 +17,7 @@ use rand::RngCore;
 ///
 /// This type is opaque and [`Copy`]: callers can read it off a `Peer` with
 /// [`network`](crate::Peer::network) and compare two for equality, but cannot
-/// mint one except through [`seed`](crate::Peer::seed).
+/// create one except through [`seed`](crate::Peer::seed).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, BorshDeserialize, BorshSerialize)]
 pub struct Network([u8; 16]);
 
@@ -26,11 +26,11 @@ impl Network {
     /// has no rumor set yet, hence no real network.
     ///
     /// It is the one value
-    /// [`from_rng`](Self::from_rng) never mints, so it unambiguously means "I
+    /// [`from_rng`](Self::from_rng) never yields, so it unambiguously means "I
     /// am bootstrapping" on the wire and suppresses the network-match check.
     pub(crate) const BOOTSTRAP: Network = Network([0u8; 16]);
 
-    /// Mint a fresh random identifier by drawing 16 bytes from `rng`.
+    /// Draws a fresh random identifier: 16 bytes from `rng`.
     ///
     /// Re-draws in the (cryptographically impossible, `2^-128`) event of the
     /// all-zero value, keeping [`BOOTSTRAP`](Self::BOOTSTRAP) reserved as the
@@ -47,7 +47,7 @@ impl Network {
     }
 
     /// Whether this is the [`BOOTSTRAP`](Self::BOOTSTRAP) placeholder rather
-    /// than a real, randomly-minted universe id.
+    /// than a real, randomly drawn universe id.
     pub(crate) fn is_bootstrap(self) -> bool {
         self == Network::BOOTSTRAP
     }
@@ -57,7 +57,7 @@ impl Network {
         self.0
     }
 
-    /// Reconstruct a network from 16 bytes read off the greeting frame.
+    /// Reconstructs a network from 16 bytes read off the greeting frame.
     pub(crate) fn from_bytes(bytes: [u8; 16]) -> Self {
         Network(bytes)
     }

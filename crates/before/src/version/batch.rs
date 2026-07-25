@@ -79,9 +79,36 @@ impl Batch<'_> {
     /// Any operand with a [`view`](Self::view) (a [`Version`] or another
     /// [`Batch`], owned or borrowed) joins through here, so the `|`/`|=` matrix
     /// below accepts a [`Batch`] on either side without transcoding.
+    ///
+    /// Before the combine walk, two `O(1)` short-circuits settle the cases
+    /// canonical form makes immediate: trivial equality (`a ∨ a = a`, a no-op)
+    /// and the lattice identity `0 ∨ v = v` — an empty incoming leaves the
+    /// current tree untouched, and an empty current adopts the incoming tree
+    /// wholesale (a copy, byte-identical to what the combine + repack would
+    /// produce). The identity path is the common seed pattern: folds seeded
+    /// with [`Version::new`] (`join_all`, `Sum`) hit it on their first join.
     pub(super) fn join_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
         let current = self.view();
         if current.trivially_eq(&incoming) {
+            return self;
+        }
+        if incoming.is_empty() {
+            return self; // v ∨ 0 = v: nothing to fold in
+        }
+        if current.is_empty() {
+            // 0 ∨ v = v: adopt the incoming tree wholesale. Both forms are
+            // canonical normal form, so the copy equals the combine + repack
+            // byte for byte.
+            match incoming {
+                EvReader::Packed { bits, .. } => {
+                    self.replace_with(Version::from_bits(bits.to_bitvec()));
+                }
+                EvReader::Working { work, .. } => self.work = Some(work.clone()),
+                // Only real operands reach here (`Version::view`/`Batch::view`
+                // never yield `Zero`), and `Zero` is empty, so the incoming
+                // check above already returned.
+                EvReader::Zero => unreachable!("Zero is empty and short-circuited above"),
+            }
             return self;
         }
         let work = current.join(incoming);
@@ -96,13 +123,42 @@ impl Batch<'_> {
     /// The `&`/`&=` matrix routes through here just as the `|`/`|=` matrix
     /// routes through `join_view`, and accepts a [`Batch`] on either side
     /// without transcoding.
+    ///
+    /// The dual short-circuits apply: trivial equality (`a ∧ a = a`), and the
+    /// empty version as the *absorbing* element, `0 ∧ v = 0` — an empty
+    /// current is already the answer, and an empty incoming makes the result
+    /// the empty version outright, no combine walk either way.
     pub(super) fn meet_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
         let current = self.view();
         if current.trivially_eq(&incoming) {
             return self; // a & a == a
         }
+        if current.is_empty() {
+            return self; // 0 ∧ v = 0: already empty, nothing can shrink it
+        }
+        if incoming.is_empty() {
+            // v ∧ 0 = 0: the result is the empty version, whatever `v` was.
+            self.replace_with(Version::new());
+            return self;
+        }
         let work = current.meet(incoming);
         self.work = Some(work);
+        self
+    }
+
+    /// Force the working form to materialize, leaving the value unchanged.
+    /// Test-only.
+    ///
+    /// The parity tests use this to drive Working-form views through the
+    /// comparison and combine surfaces. An identity join
+    /// (`join(&Version::new())`) cannot serve: it is exactly the lattice
+    /// short-circuit in [`join_view`](Self::join_view), and leaves the
+    /// working form untouched.
+    #[cfg(test)]
+    pub(super) fn materialize(&mut self) -> &mut Self {
+        if self.work.is_none() {
+            self.work = Some(WorkingVersion::unpack(self.version.as_bits()));
+        }
         self
     }
 

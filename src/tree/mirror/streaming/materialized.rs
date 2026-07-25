@@ -5,6 +5,10 @@
 //!
 //! # The session dataflow
 //!
+//! Two terms carry everything below. A *scope* is the subtree one question
+//! names — a prefix and whatever both sides hold under it; a *stage* is one
+//! height's pairing loop over such scopes.
+//!
 //! Each stage runs a loop pairing the counterparty's reply messages, in order,
 //! with the stage's queue of pending [`Query`]s — and two [`Work::assemble`]
 //! instances recombining what the walk resolves. Three item kinds connect
@@ -27,6 +31,12 @@
 //! order. Completeness travels *inside* message and item boundaries, never in
 //! their absence.
 //!
+//! Within one pairing loop, the query is dequeued *before* its wire reply is
+//! awaited. Either order pairs the same k-th items — the argument above is
+//! indifferent — but query-first frees the queue slot one wire round trip
+//! earlier, so a K-slot edge admits K truly in-flight scopes rather than
+//! K − 1.
+//!
 //! The first progress-critical ordering invariant is **wire before internal
 //! publication**. The walk yields every outgoing query or reply before
 //! enqueuing or recording its in-process twin. Backpressure on internal state
@@ -42,11 +52,29 @@
 //! resolution available, while a blocked resolution sender is behind an older
 //! resolution whose dependent work is already in flight.
 //!
-//! This makes one slot sufficient for every query and resolution channel. A
-//! blocked response pump has likewise already published the response which
-//! releases it; the initiator's root query and return and the responder's root
-//! resolution each occur exactly once; leaf resolutions contain no `Pending`
-//! slots and can be assembled immediately.
+//! This makes one slot *sufficient* for every query and resolution channel: the
+//! liveness floor. Actual capacities come from the session's
+//! [`Window`](super::window) — one slot serializes the descent into a wire
+//! round trip per disputed scope, and widening only relaxes the wait graph, so
+//! the argument above covers every width. A blocked response pump has
+//! likewise already published the response which releases it; the initiator's
+//! root query and return and the responder's root resolution each occur exactly
+//! once; leaf resolutions contain no `Pending` slots and can be assembled
+//! immediately.
+//!
+//! Every argument above additionally assumes each edge is *independent*: a
+//! full edge stalls only its own producer, never delivery on another edge.
+//! In process that holds by construction — every edge is its own channel.
+//! Over a wire it is a premise the transport must supply, which is why the
+//! [link contract](crate::link) demands independently flow-controlled
+//! streams: replies then travel edges with exactly the semantics assumed
+//! here, and this argument covers remote sessions verbatim. It is not a
+//! premise that can be quietly weakened: multiplexing every stream onto
+//! one shared FIFO pipe looks sound edge-by-edge yet composes into a
+//! cross-stream wait cycle and deadlocks — the conformance suite's mux
+//! fixture rebuilds exactly that construction and pins that the probes
+//! catch it. Independence is an interface obligation, supplied by the
+//! link or not at all.
 //!
 //! [`Work::assemble`]'s inter-level return queue is the one exception. A reply
 //! can dispute a full fan of children. While the walk is still examining those
@@ -73,19 +101,23 @@
 use std::pin::pin;
 
 use crate::tree::{
+    mirror::contained,
     mirror::streaming::{
-        Backend, Leaf, Root,
+        Backend, Leaf, Node, Root,
         materialized::{unknown::Unknown, work::Work},
-        message::{Handshake, Reaction, Reply},
-        protocol::{self, BoxResponses, Requests, Responses},
+        message::{Greeting, Reaction, Reply},
+        protocol::{self, BoxResponses, Requests},
+        remote::DEFAULT_TARGET_MESSAGE_SIZE,
+        window::WindowConfig,
     },
     typed::{
-        Prefix,
+        Hash, Prefix,
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
 use before::Version;
 use futures::{StreamExt, future::BoxFuture};
+use tokio::sync::oneshot;
 
 /// Publish one disputed scope in its progress-critical order.
 ///
@@ -139,11 +171,16 @@ mod error;
 #[cfg(test)]
 pub(super) mod progress;
 #[cfg(test)]
+mod tests;
+#[cfg(test)]
 pub(super) mod transcript;
 pub(super) mod unknown;
 mod work;
 use channel::{Receiver, Sender};
 use common::*;
+// The remote proxy explodes early-supplied whole root children into the
+// same per-child shape the walks consume, with the walks' own helper.
+pub(crate) use common::children_of;
 
 pub use error::{Error, Violation};
 
@@ -183,6 +220,7 @@ where
     resolved: Vec<(u8, Resolve<B, T, H>)>,
 }
 
+/// One child's slot in a [`Resolution`].
 pub enum Resolve<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
     /// Resolved at the current level: kept, absorbed, or pruned (`None` = gone;
     /// flows into `Backend::parent` as its deletion vocabulary).
@@ -208,6 +246,12 @@ pub struct Handshaking<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static
     backend: B,
     versions: V,
     root: Root<B, T>,
+    /// The session's window choice, resolved against the exchanged set
+    /// sizes; see [`window`](super::window).
+    window: WindowConfig,
+    /// This side's supply-run byte target, carried by the greeting; the
+    /// session runs at the minimum of the two ends' targets.
+    target_message_size: u64,
 }
 
 /// The version state of a stage that has been opened but has not yet sent its
@@ -216,17 +260,34 @@ pub struct Start {
     our_version: Version,
 }
 
-/// The version state of a stage that has sent its version but not yet received
-/// the peer's.
-pub struct Connecting {
+/// The version state of a stage that has sent its greeting but not yet
+/// received the peer's.
+///
+/// Carries the root fan the greeting's listing was derived from, so the
+/// descent reuses it instead of asking the backend for the root's children a
+/// second time (the memory model's one-query-per-prefix rule).
+pub struct Connecting<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
     our_version: Version,
+    fan: Vec<(u8, B::Node<UnderRoot>)>,
 }
 
-/// The version state of a stage that has exchanged versions with its peer and
-/// can proceed with reconciliation.
-pub struct Connected {
+/// The version state of a stage that has exchanged greetings with its peer
+/// and can proceed with reconciliation.
+///
+/// Like [`Connecting`], retains the greeting-time root fan for the descent.
+pub struct Connected<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
     our_version: Version,
     their_version: Version,
+    /// The peer's live message count, from its greeting.
+    their_len: u64,
+    /// The peer's largest live version-bound encoding in bytes, from
+    /// its greeting.
+    their_version_bytes: u64,
+    /// The peer's root-fan listing, from its greeting: what an elected
+    /// initiator merges its own fan against to ship its exclusive root
+    /// children as the opening's early supplies.
+    their_listing: Vec<(u8, Hash)>,
+    fan: Vec<(u8, B::Node<UnderRoot>)>,
 }
 
 /// A mirror stage inside the descent, consuming [`Reply<B, T, H>`](Reply)
@@ -241,6 +302,18 @@ where
     queries: Receiver<Query<B, T, H>>,
     /// One resolved scope per query, in query order, to the stage above.
     returns: Sender<Option<B::Node<S<H>>>>,
+    /// An elected initiator's opening hand-off: the early-supplied root
+    /// radices' survivors, consumed by the first descending stage to answer
+    /// the responder's empty queries about them (`None` below it).
+    early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Node<H>>)>>>,
+    /// An elected responder's opening hand-off (`None` below the first
+    /// descending stage).
+    ///
+    /// The root children the initiator supplied early, pre-exploded into
+    /// their own children, consumed by the first descending stage to
+    /// resolve its own root-level requests.
+    #[allow(clippy::type_complexity)]
+    early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Node<H>)>)>>>,
     /// The reassembly work accumulated so far; the terminals drive it to
     /// completion.
     work: Work<B, T>,
@@ -255,6 +328,10 @@ where
 /// themselves (height `Z`), not an assembled scope one height up, because
 /// nothing exists below a leaf to assemble from.
 pub struct Completing<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
+    /// The peer's declared greeting version: the containment bound every
+    /// supplied leaf is checked against
+    /// ([`Violation::UncontainedSupply`]).
+    their_version: Version,
     /// Where each requested leaf will sit, one per request, in order.
     queries: Receiver<Prefix<Z>>,
     /// The requested leaves' resolutions, in request order.
@@ -266,6 +343,8 @@ pub struct Completing<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T, Start> {
+    /// Construct the session in its opening phase, at the default window
+    /// and message-size target.
     pub fn start(backend: B, root: Root<B, T>) -> Self {
         Self {
             backend,
@@ -273,7 +352,23 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T
                 our_version: root.ceiling.clone(),
             },
             root,
+            window: WindowConfig::default(),
+            target_message_size: DEFAULT_TARGET_MESSAGE_SIZE as u64,
         }
+    }
+
+    /// Select this session's window choice; see [`window`](super::window).
+    pub fn window(mut self, window: WindowConfig) -> Self {
+        self.window = window;
+        self
+    }
+
+    /// Declare this side's supply-run byte target for the greeting; the
+    /// session's encoders on both ends run at the minimum of the two
+    /// exchanged targets.
+    pub fn target_message_size(mut self, bytes: u64) -> Self {
+        self.target_message_size = bytes;
+        self
     }
 }
 
@@ -285,39 +380,89 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, V: Send> protoco
     type Error = Error<B::Error>;
 }
 
+/// Explode the root into the fan every greeting derives its listing from.
+///
+/// Runs unconditionally at greeting time — before versions compare — because
+/// the listing must ride the greeting regardless of how the session resolves
+/// (see [`Greeting`] for the trade). The fan itself is retained through
+/// [`Connecting`]/[`Connected`] so the descent never re-asks the backend for
+/// the root's children.
+pub(crate) async fn greeting_fan<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>(
+    backend: &B,
+    root: Option<B::Node<height::Root>>,
+) -> Result<Vec<(u8, B::Node<UnderRoot>)>, B::Error> {
+    match root {
+        Some(node) => children_of(backend, Prefix::new(), node).await,
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Derive a `(radix, hash)` listing from a greeting-time fan.
+///
+/// This is the *single* derivation behind both the greeting's carried
+/// listing and the initiator's in-process opening question
+/// ([`Work::initiator_level`]). The remote
+/// proxy pairs the two positionally, so they must be byte-identical;
+/// routing both through this one function makes drift structurally
+/// impossible rather than a coincidence of two matching code bodies.
+pub(crate) fn fan_listing<N: Node<T>, T: Send + Sync + 'static>(
+    fan: &[(u8, N)],
+) -> Vec<(u8, Hash)> {
+    fan.iter()
+        .map(|(radix, node)| (*radix, node.hash()))
+        .collect()
+}
+
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connect<B, T>
     for Handshaking<B, T, Start>
 {
-    type Next = Handshaking<B, T, Connecting>;
+    type Next = Handshaking<B, T, Connecting<B, T>>;
 
-    async fn connect(self) -> Result<(Handshake, Self::Next), Self::Error> {
+    async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
 
-        let handshake = Handshake {
+        let fan = greeting_fan(&self.backend, self.root.root.clone())
+            .await
+            .map_err(Error::Backend)?;
+        let greeting = Greeting {
             version: our_version.clone(),
+            // The greeting's sizes come from the root's own aggregates,
+            // so they cannot drift from the tree they describe.
+            set_len: self.root.len(),
+            max_version_bytes: self.root.max_version_bytes(),
+            target_message_size: self.target_message_size,
+            listing: fan_listing(&fan),
         };
         let next = Handshaking {
             backend: self.backend,
-            versions: Connecting { our_version },
+            versions: Connecting { our_version, fan },
             root: self.root,
+            window: self.window,
+            target_message_size: self.target_message_size,
         };
-        Ok((handshake, next))
+        Ok((greeting, next))
     }
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::CompleteConnect<B, T>
-    for Handshaking<B, T, Connecting>
+    for Handshaking<B, T, Connecting<B, T>>
 {
-    type Next = Handshaking<B, T, Connected>;
+    type Next = Handshaking<B, T, Connected<B, T>>;
 
-    async fn complete_connect(self, their_version: Version) -> Result<Self::Next, Self::Error> {
+    async fn complete_connect(self, theirs: Greeting) -> Result<Self::Next, Self::Error> {
         Ok(Handshaking {
             backend: self.backend,
             versions: Connected {
                 our_version: self.versions.our_version,
-                their_version,
+                their_version: theirs.version,
+                their_len: theirs.set_len,
+                their_version_bytes: theirs.max_version_bytes,
+                their_listing: theirs.listing,
+                fan: self.versions.fan,
             },
             root: self.root,
+            window: self.window,
+            target_message_size: self.target_message_size,
         })
     }
 }
@@ -325,28 +470,43 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept<B, T>
     for Handshaking<B, T, Start>
 {
-    type Next = Handshaking<B, T, Connected>;
+    type Next = Handshaking<B, T, Connected<B, T>>;
 
-    async fn accept(self, request: Handshake) -> Result<(Handshake, Self::Next), Self::Error> {
+    async fn accept(self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
 
-        let handshake = Handshake {
+        let fan = greeting_fan(&self.backend, self.root.root.clone())
+            .await
+            .map_err(Error::Backend)?;
+        let greeting = Greeting {
             version: our_version.clone(),
+            // The greeting's sizes come from the root's own aggregates,
+            // so they cannot drift from the tree they describe.
+            set_len: self.root.len(),
+            max_version_bytes: self.root.max_version_bytes(),
+            target_message_size: self.target_message_size,
+            listing: fan_listing(&fan),
         };
         let next = Handshaking {
             backend: self.backend,
             versions: Connected {
                 our_version,
                 their_version: request.version,
+                their_len: request.set_len,
+                their_version_bytes: request.max_version_bytes,
+                their_listing: request.listing,
+                fan,
             },
             root: self.root,
+            window: self.window,
+            target_message_size: self.target_message_size,
         };
-        Ok((handshake, next))
+        Ok((greeting, next))
     }
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::CompleteEqual<B, T>
-    for Handshaking<B, T, Connected>
+    for Handshaking<B, T, Connected<B, T>>
 {
     async fn complete_equal(self) -> Result<Root<B, T>, Self::Error> {
         Ok(self.root)
@@ -354,16 +514,31 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol::Initiator<B, T>
-    for Handshaking<B, T, Connected>
+    for Handshaking<B, T, Connected<B, T>>
 {
     type Next = Descending<B, T, UnderRoot>;
 
-    fn initiator(self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next) {
-        let their_version = self.versions.their_version;
-        let ceiling = self.versions.our_version | &their_version;
+    fn initiator(self) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
+        let Connected {
+            our_version,
+            their_version,
+            their_len,
+            their_version_bytes,
+            their_listing,
+            fan,
+        } = self.versions;
+        let ceiling = our_version | &their_version;
 
-        let mut work = Work::new(self.backend);
-        let (responses, queries, returns, finish) = work.initiator_level(ceiling, self.root);
+        let window = self.window.resolve(
+            self.root.len(),
+            their_len,
+            self.root.max_version_bytes(),
+            their_version_bytes,
+            B::node_bytes,
+        );
+        let mut work = Work::new(self.backend, window);
+        let (responses, queries, returns, early, finish) =
+            work.initiator_level(their_version.clone(), ceiling, fan, their_listing);
 
         (
             responses,
@@ -371,6 +546,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
                 their_version,
                 queries,
                 returns,
+                early_survivors: Some(early),
+                early_supplies: None,
                 work,
                 finish,
             },
@@ -379,7 +556,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol::Responder<B, T>
-    for Handshaking<B, T, Connected>
+    for Handshaking<B, T, Connected<B, T>>
 {
     type Next = Descending<B, T, UnderUnderRoot>;
 
@@ -387,12 +564,26 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
         self,
         requests: impl Requests<B, T, UnderRoot>,
     ) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
-        let their_version = self.versions.their_version;
-        let ceiling = self.versions.our_version | &their_version;
+        let Connected {
+            our_version,
+            their_version,
+            their_len,
+            their_version_bytes,
+            their_listing: _,
+            fan,
+        } = self.versions;
+        let ceiling = our_version | &their_version;
 
-        let mut work = Work::new(self.backend);
-        let (responses, queries, returns, finish) =
-            work.responder_level(their_version.clone(), ceiling, self.root, requests);
+        let window = self.window.resolve(
+            self.root.len(),
+            their_len,
+            self.root.max_version_bytes(),
+            their_version_bytes,
+            B::node_bytes,
+        );
+        let mut work = Work::new(self.backend, window);
+        let (responses, queries, returns, early, finish) =
+            work.responder_level(their_version.clone(), ceiling, fan, requests);
 
         (
             responses,
@@ -400,6 +591,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
                 their_version,
                 queries,
                 returns,
+                early_survivors: None,
+                early_supplies: Some(early),
                 work,
                 finish,
             },
@@ -432,9 +625,13 @@ where
         mut self,
         requests: impl Requests<B, T, S<S<H>>>,
     ) -> (BoxResponses<B, T, S<H>, Self::Error>, Self::Next) {
-        let (responses, queries, upper, lower) =
-            self.work
-                .internal_level(self.their_version.clone(), requests, self.queries);
+        let (responses, queries, upper, lower) = self.work.internal_level(
+            self.their_version.clone(),
+            self.early_survivors.take(),
+            self.early_supplies.take(),
+            requests,
+            self.queries,
+        );
         let returns = self.work.assemble(self.returns, upper);
         let returns = self.work.assemble(returns, lower);
 
@@ -444,6 +641,8 @@ where
                 their_version: self.their_version,
                 queries,
                 returns,
+                early_survivors: None,
+                early_supplies: None,
                 work: self.work,
                 finish: self.finish,
             },
@@ -462,6 +661,10 @@ where
         mut self,
         requests: impl Requests<B, T, S<Z>>,
     ) -> (BoxResponses<B, T, Z, Self::Error>, Self::Next) {
+        debug_assert!(
+            self.early_survivors.is_none() && self.early_supplies.is_none(),
+            "the opening hand-off is consumed by the first descending stage"
+        );
         let (responses, queries, upper, lower) =
             self.work
                 .leaf_parent_level(self.their_version.clone(), requests, self.queries);
@@ -471,6 +674,7 @@ where
         (
             responses,
             Completing {
+                their_version: self.their_version,
                 queries,
                 returns,
                 work: self.work,
@@ -517,7 +721,12 @@ where
         self,
         requests: impl Requests<B, T, Z>,
     ) -> Result<Root<B, T>, Self::Error> {
-        let mut absorb = pin!(absorb(requests, self.queries, self.returns));
+        let mut absorb = pin!(absorb(
+            self.their_version,
+            requests,
+            self.queries,
+            self.returns
+        ));
         let mut finish = pin!(self.work.execute(self.finish));
 
         // Race rather than join: a violation in `absorb` must surface even
@@ -537,10 +746,11 @@ where
     }
 }
 
-/// The initiator's terminal loop: pair each final [`Reply`] with the next
-/// pending leaf request and pass its provision up, prefix-less, like every
+/// The initiator's terminal loop: pair each pending leaf request with its
+/// final [`Reply`] and pass its provision up, prefix-less, like every
 /// return.
 async fn absorb<B, T>(
+    their_version: Version,
     requests: impl Requests<B, T, Z>,
     mut queries: Receiver<Prefix<Z>>,
     returns: Sender<Option<B::Node<Z>>>,
@@ -550,18 +760,24 @@ where
     T: Send + Sync + 'static,
 {
     let mut requests = pin!(requests);
-    while let Some(Reply { replies }) = requests.next().await {
-        let Some(prefix) = queries.recv().await else {
-            return violation(Violation::UnaskedReply);
+    while let Some(prefix) = queries.recv().await {
+        let Some(Reply { replies }) = requests.next().await else {
+            return violation(Violation::UnansweredQuery);
         };
 
-        // The last radix of the prefix is the one we expect should be supplied.
+        // The last radix of the prefix is the one we expect to be supplied.
         let (_, expected) = prefix.pop();
 
-        // Only if we received exactly that radix paired with a leaf, do we absorb it.
+        // Only if we received exactly that radix paired with a leaf whose
+        // version the sender's declared version contains, do we absorb it.
         let supply = match replies.as_slice() {
             [] => None,
-            [Reaction::Supply(radix, leaf)] if *radix == expected => Some(leaf.clone()),
+            [Reaction::Supply(radix, leaf)] if *radix == expected => {
+                if !contained(leaf.ceiling(), &their_version) {
+                    return violation(Violation::UncontainedSupply);
+                }
+                Some(leaf.clone())
+            }
             [Reaction::Supply(_, _)] => return violation(Violation::InvalidSupply),
             _ => return violation(Violation::UnfinishedReply),
         };
@@ -572,10 +788,10 @@ where
         }
     }
 
-    // If there are more queries, something is wrong: we should have exhausted
-    // all our queries in processing all the replies.
-    if queries.recv().await.is_some() {
-        return violation(Violation::UnansweredQuery);
+    // If there are more replies, something is wrong: every reply should have
+    // been claimed by one of the now-exhausted queries.
+    if requests.next().await.is_some() {
+        return violation(Violation::UnaskedReply);
     }
 
     Ok(())

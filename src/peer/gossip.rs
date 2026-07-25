@@ -1,9 +1,9 @@
-//! The wire-session drivers for [`Peer`]: [`bootstrap`](Peer::bootstrap),
+//! The wire-session drivers for [`Peer`]: [`bootstrap`](Bootstrap::join),
 //! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire).
 //!
-//! Plus the
-//! preamble constants every session leads with and the [`PartyGuard`]
-//! that snaps a speculatively-donated party back in place on failure.
+//! Also here: the preamble constants every session leads with, and the
+//! [`PartyGuard`] that snaps a speculatively donated party back in place
+//! on failure.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -13,10 +13,14 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{Stream, future::BoxFuture};
 use futures_util::StreamExt;
 use tokio::{
-    io::{AsyncRead, AsyncWrite},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{Mutex, watch},
 };
 
+use crate::link::{
+    Acceptor, Connector, Link, SessionState,
+    erased::{DynAcceptor, DynConnector},
+};
 #[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::mirror::{
     alternating::{self, local as alternating_local, remote as alternating_remote},
@@ -33,28 +37,49 @@ use crate::{
     },
 };
 
-use super::{Inner, Peer};
+use super::{Inner, Peer, bootstrap::Bootstrap};
 
 /// Magic bytes that open every `rumors` gossip session's preamble frame.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
-/// A session's read half with its concrete transport type erased.
+/// The one epilogue marker byte each side writes on the control stream after
+/// all of its session work, under [`Protocol::V2`].
 ///
-/// Every session entry point coerces its caller's `&mut R` to this (and its
-/// `&mut W` to [`DynWrite`]) before entering a reconciliation protocol. The
-/// protocol state machines carry their transport type parameters through every
-/// height of the descent, so each distinct transport type would otherwise
-/// re-instantiate both towers — and, because generic code monomorphizes in the
-/// crate that supplies the concrete types, it would do so once per downstream
-/// binary per transport. Erasing here caps that at one instantiation per
-/// payload type. The price is one vtable call per `poll_read`/`poll_write`
-/// beneath the framing layers, which buffer whole frames on both sides.
+/// Reading the peer's marker is what lets `Ok` certify that the peer
+/// completed and committed too. Deliberately distinct from
+/// [`PROTOCOL_MAGIC`]'s first byte (`b'R'`): a desynchronized peer that
+/// starts its next preamble where an epilogue belongs is diagnosed as a
+/// protocol violation, not mistaken for completion.
+const EPILOGUE_MARKER: u8 = b'.';
+
+/// A session's control read half with its concrete transport type erased.
+///
+/// Every session entry point erases its caller's [`Link`] — the control
+/// halves to this and [`DynWrite`], the stream supply to
+/// [`DynConnector`]/[`DynAcceptor`] — before entering a reconciliation
+/// protocol. The protocol state machines carry their transport type
+/// parameters through every height of the descent, so each distinct link
+/// instantiation would otherwise re-instantiate both towers — and, because
+/// generic code monomorphizes in the crate that supplies the concrete types,
+/// it would do so once per downstream binary per instantiation. Erasing here
+/// caps that at one instantiation per payload type. The price is one vtable
+/// call per stream open/accept and per `poll_read`/`poll_write` beneath the
+/// framing layers, which buffer whole frames on both sides.
 type DynRead<'a> = &'a mut (dyn AsyncRead + Unpin + Send + 'a);
 
-/// A session's write half with its concrete transport type erased.
+/// A session's control write half with its concrete transport type erased.
 ///
 /// See [`DynRead`] for why the erasure exists and what it costs.
 type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
+
+/// One session's fully erased link parts, in [`Link`] field order: control
+/// halves, connector, acceptor, and the session epoch.
+///
+/// The funnels produce this (via [`erase`]) and [`Peer::gossip_inner`]
+/// consumes it; it stays a tuple of parts rather than an assembled [`Link`]
+/// so the `gossip_when` driver can reborrow its halves one session at a
+/// time.
+type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a>, u8);
 
 /// The outcome of [`Peer::retire`].
 ///
@@ -64,18 +89,29 @@ type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T, B: BookmarkError = NoBookmark> {
-    /// **Retired.** The peer reconciled with us and absorbed our identity;
-    /// this replica has left the universe.
+    /// **Retired.** This replica has left the universe.
+    ///
+    /// The peer reconciled with us, absorbed our identity, and — under
+    /// [`Protocol::V2`] — confirmed the absorption
+    /// through the session epilogue; the frozen
+    /// [`Protocol::V1`] wire has no confirmation, so
+    /// its `Retired` certifies only that the donation was fully sent. The
+    /// link rests at a clean session boundary.
     Retired,
-    /// **Declined, unchanged.** The peer was itself retiring, so nothing our
-    /// replica is handed back intact, to try retiring elsewhere.
+    /// **Declined, unchanged.** The peer was itself retiring, so nothing
+    /// moved; our replica is handed back intact, to try retiring elsewhere.
+    /// The session ended cleanly, so the link remains usable.
     Declined {
         /// The intact retiree.
         peer: Peer<T, B>,
     },
-    /// **Recovered, unchanged.** The session failed *before* our identity ever
-    /// crossed the wire; the replica is handed back intact, to try retiring
-    /// elsewhere.
+    /// **Recovered, unchanged.** The session failed *before* our identity
+    /// ever crossed the wire; the replica is handed back intact, to try
+    /// retiring elsewhere.
+    ///
+    /// Retry over a different link: this one is poisoned (or, on
+    /// [`Error::LinkPoisoned`], already was), and its next session fails
+    /// fast.
     Recovered {
         /// The intact retiree.
         peer: Peer<T, B>,
@@ -84,17 +120,27 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     },
     /// **Uncertain.** The session failed while our identity itself was in
     /// flight: the peer may or may not hold it, so our peer is consumed
-    /// rather than risk the same identity living twice.
+    /// rather than risk the same identity living twice. The link is
+    /// poisoned; discard it.
+    ///
+    /// In flight covers the party frame itself and everything after it:
+    /// a failure while awaiting the peer's commit confirmation lands here
+    /// too — the confirmation was lost and cannot be re-fetched
+    /// ([`Error::Epilogue`] explains why that gap cannot be closed).
     Uncertain {
         /// What failed the session.
         error: Error<B>,
     },
 }
 
-/// The failure outcome of [`Peer::bookmark`].
+/// A failed bookmark attach: the [`Peer`] handed back unchanged, still
+/// unbookmarked.
 ///
-/// This indicates that the bookmark could not be read or persisted, so the
-/// [`Peer`] is handed back unchanged and still unbookmarked.
+/// The bookmark could not be read or persisted. Produced by
+/// [`Peer::bookmark`] as its `Err`, and by a bookmarked bootstrap as
+/// [`Joined::Unbookmarked`](super::Joined::Unbookmarked) — the same
+/// failure at the same step, differing only in when the bookmark was
+/// selected.
 ///
 /// Marked `must_use` because dropping it discards the [`Peer`], the very
 /// identity the failed call was trying to make durable. Take
@@ -112,9 +158,8 @@ pub struct Unbookmarked<T, B: BookmarkError> {
 
 /// One completed session of [`gossip_when`](crate::Rumors::gossip_when).
 ///
-/// The output stream from [`gossip_when`](crate::Rumors::gossip_when) yields
-/// one of these each time a successful gossip session occurs (a failed session
-/// is the stream's terminal `Err`).
+/// The output stream yields one of these per successful session; a failed
+/// session is the stream's terminal `Err`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Gossiped {
@@ -140,40 +185,51 @@ pub enum Led {
 }
 
 impl<T> Peer<T, NoBookmark> {
-    /// Run bootstrap over any asynchronous transport pair.
+    /// Run bootstrap over any link.
     ///
-    /// A thin generic funnel: the only monomorphized-per-transport code is
-    /// the unsized coercion to [`DynRead`]/[`DynWrite`] here.
-    pub(crate) fn bootstrap_inner<'a, R, W>(
-        protocol: Protocol,
-        read: &'a mut R,
-        write: &'a mut W,
+    /// A thin generic funnel: the only monomorphized-per-link code is the
+    /// erasure to [`DynLinkParts`] here.
+    pub(crate) fn bootstrap_inner<'a, CR, CW, C, A>(
+        config: Bootstrap<T>,
+        link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
-        Self::bootstrap_erased(protocol, read, write)
+        Box::pin(async move {
+            let parts = erase(&mut *link)?;
+            let result = Self::bootstrap_erased(config, parts).await;
+            // Un-poison on clean completion: both `Ok` arms — a completed
+            // donation and a mutual-bootstrap bail — end with the epilogue
+            // under V2, leaving the control stream at the session boundary.
+            if result.is_ok() {
+                link.session.finish();
+            }
+            result
+        })
     }
 
-    /// The transport-erased bootstrap body behind [`bootstrap_inner`].
+    /// The link-erased bootstrap body behind [`bootstrap_inner`].
     ///
     /// [`bootstrap_inner`]: Self::bootstrap_inner
     fn bootstrap_erased<'a>(
-        protocol: Protocol,
-        read: DynRead<'a>,
-        write: DynWrite<'a>,
+        config: Bootstrap<T>,
+        link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
     {
         Box::pin(async move {
+            let (read, write, connector, acceptor, epoch) = link;
             // Magic/version/network/intent preamble first, before either protocol
             // is allowed to trust peer-declared frame lengths.
             let mut staged = handshake::Staged::new();
             let remote = handshake::preamble(
-                protocol,
+                config.protocol,
                 Network::BOOTSTRAP,
                 Intent::Remain,
                 &mut staged,
@@ -190,27 +246,51 @@ impl<T> Peer<T, NoBookmark> {
 
             // Reconcile from an empty tree using the selected wire protocol. Both
             // branches return the same lifecycle boundary: a materialized root and
-            // the raw reader positioned at the trailing party frame.
+            // the raw control halves positioned at the trailing party frame.
             // `BoxFuture` is the compile-time boundary: `Box::pin` alone would
             // allocate the state while still exposing its enormous concrete type.
             #[allow(clippy::type_complexity)]
             let reconcile: BoxFuture<
                 '_,
-                Result<Option<(tree::Root<T>, DynRead<'a>)>, Error>,
-            > = match protocol {
+                Result<Option<(tree::Root<T>, DynRead<'a>, DynWrite<'a>)>, Error>,
+            > = match config.protocol {
                 Protocol::V2 => Box::pin(async move {
                     let local_root: streaming::Root<Local, T> = tree::Root::default().into();
-                    let local = materialized::Handshaking::start(Local, local_root);
-                    let proxy = streaming_remote::Handshaking::start(Local, read, write);
+                    // The window choice is passed for uniformity with gossip,
+                    // but no choice can widen this session: disputes require
+                    // joint occupancy and this side's replica is empty, so
+                    // every derived capacity floors at one slot regardless.
+                    // The message-size target is the operative knob: the
+                    // greeting advertises it, and the provider's supply runs
+                    // are built at the exchanged minimum.
+                    let local = materialized::Handshaking::start(Local, local_root)
+                        .window(config.window)
+                        .target_message_size(config.run_budget.bytes() as u64);
+                    let carrier = Link::for_session(read, write, connector, acceptor, epoch);
+                    let proxy =
+                        streaming_remote::Handshaking::start(Local, carrier).window(config.window);
                     let handshaken = streaming::handshake(local, proxy)
                         .await
                         .map_err(streaming_error)?;
-                    if remote.network.is_bootstrap() {
-                        return Ok(None);
+                    // A counterparty that is itself bootstrapping has nothing
+                    // to hand us, but the session still ends with the
+                    // epilogue. Both trees are empty, so the versions are
+                    // equal and `reconcile` resolves to the untouched control
+                    // halves without opening a data stream; the marker
+                    // exchange then certifies the mutual bail to both sides.
+                    // The equal-version resolution is itself guarded: a
+                    // fellow claimant must be as newborn as we are.
+                    let both_bootstrapping = remote.network.is_bootstrap();
+                    if both_bootstrapping {
+                        bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
                     }
                     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                    let (root, (read, _write)) = descent.await.map_err(streaming_error)?;
-                    Ok(Some((root.into(), read)))
+                    let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
+                    if both_bootstrapping {
+                        epilogue(&mut read, &mut write).await?;
+                        return Ok(None);
+                    }
+                    Ok(Some((root.into(), read, write)))
                 }),
                 #[cfg(any(test, feature = "protocol-v1"))]
                 Protocol::V1 => Box::pin(async move {
@@ -222,21 +302,36 @@ impl<T> Peer<T, NoBookmark> {
                     let handshaken = alternating::handshake(local, proxy)
                         .await
                         .map_err(alternating_error)?;
+                    // The frozen V1 wire has no epilogue: a mutual bootstrap
+                    // bails right here, exactly as V1 always has — once the
+                    // fellow claimant proves as newborn as we are.
                     if remote.network.is_bootstrap() {
+                        bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
                         return Ok(None);
                     }
                     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                    let (root, (read, _write)) = descent.await.map_err(alternating_error)?;
-                    Ok(Some((root, read.into_inner())))
+                    let (root, (read, write)) = descent.await.map_err(alternating_error)?;
+                    Ok(Some((root, read.into_inner(), write.into_inner())))
                 }),
             };
-            let Some((root, read)) = reconcile.await? else {
+            let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
             };
-            let party = party::receive(read).await?;
+            let party = party::receive(&mut read).await?;
+            // Our absorption of the received identity completes with the
+            // in-memory `Peer` construction below, which cannot fail: certify
+            // completion now, and require the provider's certificate so `Ok`
+            // means it committed its donation. (V2 only; the V1 wire is
+            // frozen.) On `Err` the received fork is dropped — its region
+            // leaks, benignly, like any fork lost in flight.
+            if config.protocol == Protocol::V2 {
+                epilogue(&mut read, &mut write).await?;
+            }
             let peer = Self {
                 network: remote.network,
-                protocol,
+                protocol: config.protocol,
+                window: config.window,
+                run_budget: config.run_budget,
                 inner: watch::Sender::new(Inner {
                     party: Some(party),
                     tree: Tree { root },
@@ -255,12 +350,16 @@ impl<T> Peer<T, NoBookmark> {
         let Peer {
             network,
             protocol,
+            window,
+            run_budget,
             inner,
             ..
         } = self;
         let peer = Peer {
             network,
             protocol,
+            window,
+            run_budget,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
         };
@@ -287,6 +386,8 @@ impl<T> Peer<T, NoBookmark> {
                 peer: Peer {
                     network: peer.network,
                     protocol: peer.protocol,
+                    window: peer.window,
+                    run_budget: peer.run_budget,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
                 },
@@ -301,8 +402,7 @@ impl<T> Peer<T, NoBookmark> {
 // entry points bind the public `Bookmark` trait.
 #[allow(private_bounds)]
 impl<T, B: Persist> Peer<T, B> {
-    /// Retire this rumor set into a remote peer, handing it our identity so
-    /// that it can be recycled by the network.
+    /// Runs the transactional body behind [`retire`](Peer::retire).
     ///
     /// The session begins with a round of gossip: the two peers reconcile
     /// content exactly as [`gossip`](crate::Rumors::gossip) would, so
@@ -315,23 +415,37 @@ impl<T, B: Persist> Peer<T, B> {
     /// retiring set ([`UnorderedMessages`](crate::UnorderedMessages),
     /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled* final
     /// state — everything the session learned included — before they end.
-    ///
-    /// The shared transactional body behind [`retire`](Peer::retire).
-    pub(crate) async fn retire_inner<'a, R, W>(
+    pub(crate) async fn retire_inner<CR, CW, C, A>(
         self,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &mut Link<CR, CW, C, A>,
     ) -> Retire<T, B>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
         let mut staged = handshake::Staged::new();
-        match self
-            .gossip_inner(Intent::Retire, &mut staged, read, write)
-            .await
-        {
+        let parts = match erase(link) {
+            Ok(parts) => parts,
+            // The fail-fast happened before any wire traffic: nothing of
+            // ours was ever in flight, so the retiree is recovered intact.
+            Err(error) => {
+                return Retire::Recovered {
+                    peer: self,
+                    error: error.widen(),
+                };
+            }
+        };
+        let (intent, result) = self.gossip_inner(Intent::Retire, &mut staged, parts).await;
+        // Un-poison on clean completion, before the outcome is shaped: every
+        // `Ok` — retired, or declined by a mutually retiring peer — leaves
+        // the control stream resting at the session boundary.
+        if result.is_ok() {
+            link.session.finish();
+        }
+        match (intent, result) {
             (Intent::Retire, Ok(_)) => Retire::Retired,
             (Intent::Retire, Err(error)) => Retire::Uncertain { error },
             (Intent::Remain, Ok(_)) => Retire::Declined { peer: self },
@@ -340,21 +454,27 @@ impl<T, B: Persist> Peer<T, B> {
     }
 
     /// Gossip with a remote peer to synchronize rumor sets.
-    pub(crate) async fn gossip<'a, R, W>(
+    pub(crate) async fn gossip<CR, CW, C, A>(
         &self,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &mut Link<CR, CW, C, A>,
     ) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
         let mut staged = handshake::Staged::new();
-        self.gossip_inner(Intent::Remain, &mut staged, read, write)
-            .await
-            .1
-            .map(|_converged| ())
+        let parts = erase(link).map_err(Error::widen)?;
+        let (_intent, result) = self.gossip_inner(Intent::Remain, &mut staged, parts).await;
+        // Un-poison on clean completion: the session's own `Ok` under V2 is
+        // already epilogue-certified, so the control stream rests at the
+        // session boundary.
+        if result.is_ok() {
+            link.session.finish();
+        }
+        result.map(|_converged| ())
     }
 
     /// Durably record this peer's *own* identity at its current version, without
@@ -380,13 +500,18 @@ impl<T, B: Persist> Peer<T, B> {
         bookmark.write().await
     }
 
-    /// Reflect the live identity into the bookmark before a session transmits
-    /// versioned state: reclaim every stranded identity the party has caught
-    /// up to (growing the live party in place) and persist.
+    /// Reflect the live identity into the bookmark and persist it.
     ///
-    /// Holds the bookmark mutex across a brief `watch` critical section — where
-    /// the party grows atomically with the record — and the persisting write,
-    /// so the two stores never diverge. The lock order is always
+    /// Reclaims every stranded identity the party has caught up to (growing
+    /// the live party in place) and records the party at its frontier. The
+    /// frontier is read *inside* the `watch` critical section the reclaim
+    /// runs in, so the staged record never lags an event the caller has
+    /// already committed — the record's own-party projection dominates every
+    /// event that existed when the reclaim ran.
+    ///
+    /// Holds the bookmark mutex across that brief `watch` critical section —
+    /// where the party grows atomically with the record — and the persisting
+    /// write, so the two stores never diverge. The lock order is always
     /// bookmark-then-`watch`; no path takes them the other way, so it cannot
     /// deadlock.
     ///
@@ -397,35 +522,30 @@ impl<T, B: Persist> Peer<T, B> {
     /// an absorbed retiree — defeats the suppression and persists afresh.
     async fn bookmark_update(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
-
-        // Read the live frontier and party under one `watch` borrow, dropped
-        // before any `send_if_modified` (holding it across one would deadlock).
-        let (version, suppressed) = {
-            let inner = self.inner.borrow();
-            let version = inner.tree.latest().clone();
-            let suppressed = inner
-                .party
-                .as_ref()
-                .is_some_and(|party| bookmark.is_current(party, &version));
-            (version, suppressed)
-        };
-        if suppressed {
-            return Ok(());
-        }
-
         bookmark.ensure_loaded().await?;
+
+        let mut persist = false;
         self.inner.send_if_modified(|inner| {
             if let Some(party) = inner.party.as_mut() {
-                // `reclaim` stages the suppression token for this
-                // `(party, version)`; the `write` below commits it (or, on
-                // failure, clears it so the next update retries).
-                bookmark.reclaim(self.network, party, &version);
+                let version = inner.tree.latest().clone();
+                if !bookmark.is_current(party, &version) {
+                    // `reclaim` stages the suppression token for this
+                    // `(party, version)`; only the `write` below, completing
+                    // `Ok`, commits it — a failed or cancelled write leaves
+                    // no token, so the next update persists afresh.
+                    bookmark.reclaim(self.network, party, &version);
+                    persist = true;
+                }
             }
-            // Reclaiming widens the party's id-region but records no new event,
+            // Reclaiming widens the party's identity but records no new event,
             // so the observable frontier is unchanged: no observer wakeup is due.
             false
         });
-        bookmark.write().await
+        if persist {
+            bookmark.write().await
+        } else {
+            Ok(())
+        }
     }
 
     /// Slice a donated `party` out of the bookmark before it crosses the wire,
@@ -442,13 +562,11 @@ impl<T, B: Persist> Peer<T, B> {
 
     /// Synchronize with a remote peer, optionally trying to retire afterwards.
     ///
-    /// The returned `Intent` is *always* `Intent::Remain` if the provided
-    /// intent is `Intent::Remain`, and is `Intent::Retire` *only if* the result
-    /// of the gossip was the hand-off of the entire local party via retirement
-    /// to the remote counterparty. It is possible to return `Intent::Retire`
-    /// *and also* an error, in the case that donating our local party itself
-    /// fails with an error -- we can't know whether the remote received it or
-    /// not, so we have to assume they might have.
+    /// The returned `Intent` is `Intent::Remain` whenever the provided intent
+    /// was, and `Intent::Retire` *only if* the entire local party was handed
+    /// off to the counterparty via retirement. `Intent::Retire` can arrive
+    /// *with* an error: when sending the party itself fails, we cannot know
+    /// whether the remote received it, so we must assume it might have.
     ///
     /// On success, returns the *converged* version: the causal frontier of
     /// the reconciled tree both replicas now hold, before any commits that
@@ -458,23 +576,23 @@ impl<T, B: Persist> Peer<T, B> {
     ///
     /// `staged` is the remote preamble's staging buffer, usually empty; a
     /// [`gossip_when`] driver hands one that may already hold part (or all)
-    /// of the remote's greeting.
+    /// of the remote's preamble.
     ///
     /// [`gossip_when`]: crate::Rumors::gossip_when
     ///
-    /// Takes the transport pre-erased ([`DynRead`]/[`DynWrite`]): every
-    /// generic caller funnels through here, so the protocol towers this
-    /// drives instantiate once per payload type, not once per transport.
+    /// Takes the link pre-erased ([`DynLinkParts`]): every generic caller funnels
+    /// through here, so the protocol towers this drives instantiate once per
+    /// payload type, not once per link instantiation.
     async fn gossip_inner<'a>(
         &self,
         intent: Intent,
         staged: &mut handshake::Staged,
-        read: DynRead<'a>,
-        write: DynWrite<'a>,
+        link: DynLinkParts<'a>,
     ) -> (Intent, Result<Version, Error<B>>)
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
     {
+        let (read, write, connector, acceptor, epoch) = link;
         // Magic/version preamble: reject a non-rumors or incompatible peer
         // before the framing trusts any peer-supplied frame length.
         let remote =
@@ -488,54 +606,96 @@ impl<T, B: Persist> Peer<T, B> {
         let self_retiring = intent == Intent::Retire;
         let peer_retiring = remote.intent == Intent::Retire;
 
-        // Stop cleanly, early if we're both trying to retire into each other
+        // Stop cleanly, early if we're both trying to retire into each other.
+        // Symmetric by construction: both sides take this same branch, so the
+        // epilogue markers pair up with no session body between them.
         if self_retiring && peer_retiring {
+            if self.protocol == Protocol::V2
+                && let Err(e) = epilogue(read, write).await
+            {
+                return (Intent::Remain, Err(e.widen()));
+            }
             let unchanged = self.inner.borrow().tree.latest().clone();
             return (Intent::Remain, Ok(unchanged));
         }
 
-        // Bookmark our identity at its current version before any of it crosses
-        // the wire, reclaiming any stranded identities we have since caught up
-        // to. Reclaiming grows the live party in place, so it must precede the
-        // speculative fork below: a fork or donation then carries the grown
-        // identity. (`retire` reaches here too, through its `gossip_inner`
-        // call, so a retiring set is bookmarked before donating itself.)
-        if let Err(e) = self.bookmark_update().await {
-            return (Intent::Remain, Err(Error::Bookmark(e)));
-        }
-
-        // Clone out the most-recent tree and *speculatively* remove any party
-        // we will donate, both in the same critical section, so that there's
-        // no lag between the snapshot of the version we send to our
-        // counterparty and the fork of the party. Failing to do both at the
-        // same time means a concurrent `send` could introduce messages with a
-        // version that exceeds the version communicated to a bootstrapping
-        // party, violating party disjointness.
+        // Reflect our identity into the bookmark, snapshot the session's
+        // tree, and *speculatively* remove any party we will donate — all in
+        // one `watch` critical section under the bookmark mutex. One critical
+        // section carries two safety obligations at once:
+        //
+        // - The persisted record's own-party projection dominates the
+        //   snapshot's own-party version, so every own event this session can
+        //   transmit is durably accounted for before it crosses the wire, and
+        //   a crash-and-reclaim can never remint a causal coordinate some
+        //   replica already holds. A `send` committed while the record's
+        //   write is in flight lands *after* the snapshot: it stays out of
+        //   this session and the next session's update covers it.
+        //
+        // - The donated party forks at the exact version the snapshot
+        //   carries: no lag in which a concurrent `send` could stamp messages
+        //   with a version exceeding the one communicated to a bootstrapping
+        //   party, violating party disjointness. Reclaiming grows the live
+        //   party in place, so it runs before the fork and a fork or donation
+        //   carries the grown identity. (`retire` reaches here too, through
+        //   its `gossip_inner` call, so a retiring set is bookmarked before
+        //   donating itself.)
+        //
+        // The lock order is bookmark-then-`watch`, as everywhere. A failed
+        // record write aborts the session before any wire traffic: dropping
+        // `guarded` re-joins the speculative fork, and the next update
+        // re-records what the reclaim already grew in memory.
         let mut guarded = PartyGuard {
             party: None,
             recover: self.inner.clone(),
         };
         let mut prior_tree = None;
-        self.inner.send_if_modified(|inner| {
-            prior_tree = Some(inner.tree.clone());
-            guarded.party = if self_retiring {
-                // Retiring donates our *whole* identity, not a fork of it.
-                //
-                // We only can have our hands on a `Peer` when there are no
-                // extant `Rumors`, which means that we aren't stepping on
-                // anyone's toes by doing this.
-                inner.party.take()
-            } else if peer_bootstrapping {
-                // Serving a bootstrap donates a fork of our identity.
-                inner.party.as_mut().map(Party::fork)
-            } else {
-                // Plain gossip moves no party at all.
-                None
-            };
-            // We modified the watched party only if we removed something.
-            guarded.party.is_some()
-        });
+        {
+            let mut bookmark = self.bookmark.lock().await;
+            if let Err(e) = bookmark.ensure_loaded().await {
+                return (Intent::Remain, Err(Error::Bookmark(e)));
+            }
+            let mut persist = false;
+            self.inner.send_if_modified(|inner| {
+                if let Some(party) = inner.party.as_mut() {
+                    let version = inner.tree.latest().clone();
+                    if !bookmark.is_current(party, &version) {
+                        // `reclaim` stages the suppression token for
+                        // this `(party, version)`; only the `write` below,
+                        // completing `Ok`, commits it — a failed or
+                        // cancelled write leaves no token, so the next
+                        // update persists afresh.
+                        bookmark.reclaim(self.network, party, &version);
+                        persist = true;
+                    }
+                }
+                prior_tree = Some(inner.tree.clone());
+                guarded.party = if self_retiring {
+                    // Retiring donates our *whole* identity, not a fork of it.
+                    //
+                    // We only can have our hands on a `Peer` when there are no
+                    // extant `Rumors`, which means that we aren't stepping on
+                    // anyone's toes by doing this.
+                    inner.party.take()
+                } else if peer_bootstrapping {
+                    // Serving a bootstrap donates a fork of our identity.
+                    inner.party.as_mut().map(Party::fork)
+                } else {
+                    // Plain gossip moves no party at all.
+                    None
+                };
+                // We modified the watched party only if we removed something.
+                guarded.party.is_some()
+            });
+            if persist && let Err(e) = bookmark.write().await {
+                return (Intent::Remain, Err(Error::Bookmark(e)));
+            }
+        }
         let prior_tree = prior_tree.expect("set in closure");
+        // The event floor this side's handshake declares: `prior_tree` is
+        // exactly the root the local protocol participant starts from, so
+        // its frontier is the version the greeting carries.
+        let local_min_events = prior_tree.latest().min_ticks();
 
         // Reconcile using this peer's selected protocol. Both branches meet at
         // the lifecycle boundary the surrounding transaction needs: a local
@@ -543,21 +703,29 @@ impl<T, B: Persist> Peer<T, B> {
         // The explicit `BoxFuture` coercion prevents either concrete protocol
         // state machine from becoming part of this outer session future.
         let network = self.network;
+        let window = self.window;
+        let run_budget = self.run_budget;
         #[allow(clippy::type_complexity)]
         let reconcile: BoxFuture<
             '_,
             Result<(tree::Root<T>, DynRead<'a>, DynWrite<'a>), Error>,
         > = match self.protocol {
             Protocol::V2 => Box::pin(async move {
-                let local = materialized::Handshaking::start(Local, prior_tree.root.into());
-                let proxy = streaming_remote::Handshaking::start(Local, read, write);
+                let local = materialized::Handshaking::start(Local, prior_tree.root.into())
+                    .window(window)
+                    .target_message_size(run_budget.bytes() as u64);
+                let carrier = Link::for_session(read, write, connector, acceptor, epoch);
+                let proxy = streaming_remote::Handshaking::start(Local, carrier).window(window);
                 let handshaken = streaming::handshake(local, proxy)
                     .await
                     .map_err(streaming_error)?;
-                if !peer_bootstrapping && remote.network != network {
+                if peer_bootstrapping {
+                    bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
+                } else if remote.network != network {
                     return Err(Error::NetworkMismatch {
                         remote_network: remote.network,
                         remote_min_events: handshaken.peer().version.min_ticks(),
+                        local_min_events,
                     });
                 }
                 let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
@@ -574,10 +742,13 @@ impl<T, B: Persist> Peer<T, B> {
                 let handshaken = alternating::handshake(local, proxy)
                     .await
                     .map_err(alternating_error)?;
-                if !peer_bootstrapping && remote.network != network {
+                if peer_bootstrapping {
+                    bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
+                } else if remote.network != network {
                     return Err(Error::NetworkMismatch {
                         remote_network: remote.network,
                         remote_min_events: handshaken.peer().version.min_ticks(),
+                        local_min_events,
                     });
                 }
                 let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
@@ -698,6 +869,21 @@ impl<T, B: Persist> Peer<T, B> {
             return (Intent::Remain, Err(Error::Bookmark(e)));
         }
 
+        // All local session work is done and committed: certify completion to
+        // the peer and require its certificate in return, so `Ok` below means
+        // the *peer* completed and committed too. This one insertion point
+        // covers every side — plain gossip, serving a bootstrap, the retiree
+        // (its party is sent above), and the absorber (its bookmark update is
+        // committed above; under `NoBookmark` that commit is in-memory only).
+        // The failure return must preserve `outcome`: a retiree whose party
+        // crossed the wire but whose epilogue failed is post-hand-off, and
+        // mapping it back to `Intent::Remain` would duplicate the identity.
+        if self.protocol == Protocol::V2
+            && let Err(e) = epilogue(read, write).await
+        {
+            return (outcome, Err(e.widen()));
+        }
+
         // In the case where we successfully retired (only callable on the
         // !Clone `Peer<T>`), we've given away our inner party and no more
         // actions are possible, so don't hand back the `Peer`.
@@ -709,25 +895,30 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// Run the change-driven gossip driver behind
     /// [`Rumors::gossip_when`](crate::Rumors::gossip_when); the public
     /// contract lives there.
-    pub(crate) fn gossip_when<'a, R, W, S>(
+    #[must_use = "the driver does nothing until the returned stream is polled"]
+    pub(crate) fn gossip_when<'a, CR, CW, C, A, S>(
         &'a self,
         when: S,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
         S: Stream<Item = ()> + 'a,
     {
-        // The transport erases here ([`DynRead`]'s contract); `when` stays
+        // The link erases here ([`DynRead`]'s contract); `when` stays
         // generic because erasing it would cost callers the stream's
         // auto-`Send`, and the driver below is all that re-instantiates.
         let drive = Drive {
             peer: self,
-            read: read as DynRead<'a>,
-            write: write as DynWrite<'a>,
+            read: &mut link.control_read as DynRead<'a>,
+            write: &mut link.control_write as DynWrite<'a>,
+            connector: DynConnector::new(link.connector.clone()),
+            acceptor: &mut link.acceptor as DynAcceptor<'a>,
+            state: &mut link.session,
             when: Box::pin(when),
             staged: handshake::Staged::new(),
             converged: None,
@@ -744,6 +935,14 @@ impl<T, B: Bookmark> Peer<T, B> {
                     return None;
                 }
                 loop {
+                    // A driver started on a poisoned link must fail fast
+                    // here, before the idle select: its session would fail
+                    // the same way, but only once a trigger fired, leaving
+                    // a driver that looks live while parked on a dead link.
+                    if drive.state.poisoned() {
+                        drive.done = true;
+                        return Some((Err(Error::LinkPoisoned.widen()), drive));
+                    }
                     // Wait for a reason to enter a session: the remote's
                     // preamble arriving, or the `when` stream yielding a tick.
                     // The staging buffer keeps the arrival's progress outside
@@ -756,6 +955,14 @@ impl<T, B: Bookmark> Peer<T, B> {
                     };
                     let led = match trigger {
                         Trigger::Arrival(Err(e)) => {
+                            // Poison even when the staging buffer is empty
+                            // (zero bytes consumed): a transport that errored
+                            // is not a link a later session should trust, and
+                            // the contract promises every error terminal
+                            // leaves the link poisoned. `Drive::drop`'s
+                            // predicate covers the other case — a driver
+                            // dropped with staged bytes it never replayed.
+                            drive.state.poison();
                             drive.done = true;
                             return Some((Err(Error::from(e).widen()), drive));
                         }
@@ -790,20 +997,34 @@ impl<T, B: Bookmark> Peer<T, B> {
                         }
                     };
 
+                    let epoch = match drive.state.begin() {
+                        Ok(epoch) => epoch,
+                        Err(e) => {
+                            drive.done = true;
+                            return Some((Err(e.widen()), drive));
+                        }
+                    };
                     let (_intent, result) = drive
                         .peer
                         .gossip_inner(
                             Intent::Remain,
                             &mut drive.staged,
-                            &mut *drive.read,
-                            &mut *drive.write,
+                            (
+                                &mut *drive.read,
+                                &mut *drive.write,
+                                drive.connector.clone(),
+                                &mut *drive.acceptor,
+                                epoch,
+                            ),
                         )
                         .await;
                     return match result {
                         Ok(converged) => {
-                            // Re-arm for the next session: a fresh staging
-                            // buffer (this preamble is consumed) and the new
-                            // suppression token.
+                            // Re-arm for the next session: un-poison the
+                            // link (this session completed cleanly), a
+                            // fresh staging buffer (this preamble is
+                            // consumed), and the new suppression token.
+                            drive.state.finish();
                             drive.staged = handshake::Staged::new();
                             drive.converged = Some(converged.clone());
                             Some((Ok(Gossiped { converged, led }), drive))
@@ -819,6 +1040,86 @@ impl<T, B: Bookmark> Peer<T, B> {
     }
 }
 
+/// Erase a caller's link into one session's [`DynLinkParts`], opening the
+/// session on the link's [`SessionState`]: each call is exactly one session.
+///
+/// Fails fast with [`Error::LinkPoisoned`] on a link whose previous session
+/// was interrupted; on success the link is poisoned until its funnel
+/// observes the session's clean completion and clears the latch.
+fn erase<'a, CR, CW, C, A>(link: &'a mut Link<CR, CW, C, A>) -> Result<DynLinkParts<'a>, Error>
+where
+    CR: AsyncRead + Unpin + Send,
+    CW: AsyncWrite + Unpin + Send,
+    C: Connector,
+    A: Acceptor,
+{
+    let epoch = link.session.begin()?;
+    Ok((
+        &mut link.control_read as DynRead<'a>,
+        &mut link.control_write as DynWrite<'a>,
+        DynConnector::new(link.connector.clone()),
+        &mut link.acceptor as DynAcceptor<'a>,
+        epoch,
+    ))
+}
+
+/// Require a bootstrap claimant's greeting version to be empty, the version
+/// a newborn replica has by construction.
+///
+/// A bootstrap claimant is definitionally a newborn replica with no causal
+/// history, yet its greeting version feeds the deletion-honoring filter as
+/// its causal frontier — a mis-declared frontier would make established
+/// content read as deleted-there on both sides of the descent. Every
+/// session facing a claimant runs this after the greeting and before
+/// reconciliation, whichever protocol carries it: a failing session moves
+/// nothing and poisons its link like any other pre-descent failure.
+fn bootstrap_claimant_is_newborn(claimed: &Version) -> Result<(), Error> {
+    if claimed.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::BootstrapHistoryConflict {
+            claimed_min_events: claimed.min_ticks(),
+        })
+    }
+}
+
+/// Exchange the V2 session epilogue: write our completion marker, flush, and
+/// read the peer's, concurrently (mirroring [`handshake::preamble`]).
+///
+/// Runs strictly after *all* local session work — the descent, any identity
+/// hand-off, and the local commit — so a received marker certifies the peer
+/// reached the same point. Both sides write and flush before either read
+/// resolves, so the exchange cannot deadlock. Failure is [`Error::Epilogue`]:
+/// post-commit by construction, with a non-marker byte surfaced as an
+/// invalid-data protocol violation rather than an honest wire cut.
+async fn epilogue(
+    read: &mut (dyn AsyncRead + Unpin + Send + '_),
+    write: &mut (dyn AsyncWrite + Unpin + Send + '_),
+) -> Result<(), Error> {
+    let send = async {
+        write.write_all(&[EPILOGUE_MARKER]).await?;
+        write.flush().await
+    };
+    let receive = async {
+        let mut marker = [0u8; 1];
+        read.read_exact(&mut marker).await?;
+        if marker[0] != EPILOGUE_MARKER {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "peer wrote {:#04x} where the epilogue marker belongs",
+                    marker[0]
+                ),
+            ));
+        }
+        Ok(())
+    };
+    futures_util::future::try_join(send, receive)
+        .await
+        .map(|((), ())| ())
+        .map_err(Error::Epilogue)
+}
+
 /// What woke the [`gossip_when`](Peer::gossip_when) driver out of its idle
 /// select: the remote's preamble (or its absence), or the `when` stream.
 ///
@@ -830,12 +1131,18 @@ enum Trigger {
 }
 
 /// The state a [`gossip_when`](Peer::gossip_when) driver carries between
-/// sessions: the transport halves, the policy stream, the preamble staging
-/// buffer, and the suppression token.
+/// sessions: the erased link parts, the link's session state, the policy
+/// stream, the preamble staging buffer, and the suppression token.
 struct Drive<'a, T, B: BookmarkError, S> {
     peer: &'a Peer<T, B>,
     read: DynRead<'a>,
     write: DynWrite<'a>,
+    connector: DynConnector,
+    acceptor: DynAcceptor<'a>,
+    /// The long-lived link's session state: the counter, advanced once per
+    /// session so stream labels stay in lockstep with the remote's
+    /// counting, and the poison latch the driver sets, clears, and obeys.
+    state: &'a mut SessionState,
     when: Pin<Box<S>>,
     staged: handshake::Staged,
     /// The frontier this connection last converged on: a tick initiates
@@ -846,6 +1153,26 @@ struct Drive<'a, T, B: BookmarkError, S> {
     /// Terminal-state latch: set on error, clean remote goodbye, or `when`
     /// exhaustion, after which the stream yields nothing further.
     done: bool,
+}
+
+/// Dropping the driver poisons the link if the drop broke a session
+/// boundary; it never clears the latch.
+///
+/// A driver dropped *inside* a session is already covered: `begin` poisoned
+/// the link when the session opened. The case only this drop can see is a
+/// driver dropped while idling with staged preamble bytes — the remote's
+/// initiation was partially consumed out of the control stream, so a next
+/// session would misread its remainder. Every clean termination path
+/// (remote goodbye, `when` exhaustion at an empty boundary, a completed
+/// session's re-arm) reaches this drop with the staging buffer empty and
+/// leaves the latch alone, which is what keeps a cleanly ended connection
+/// reusable.
+impl<T, B: BookmarkError, S> Drop for Drive<'_, T, B, S> {
+    fn drop(&mut self) {
+        if !self.staged.is_empty() {
+            self.state.poison();
+        }
+    }
 }
 
 // To ensure that a speculatively forked party always snaps back in place, even
@@ -895,11 +1222,23 @@ fn streaming_error(
     Error::Mirror(error)
 }
 
-/// Collapse the alternating oracle's infallible local side to its wire error.
+/// Route a V1 session failure to the public error surface.
+///
+/// The local participant's only failure mode is a diagnosed peer
+/// violation, which surfaces through the same
+/// [`MaterializedViolation`](crate::error::MaterializedViolation) taxonomy
+/// V2 sessions use; the wire proxy's errors are already public.
 #[cfg(any(test, feature = "protocol-v1"))]
-fn alternating_error(error: tree::mirror::Error<std::convert::Infallible, Error>) -> Error {
+fn alternating_error(
+    error: tree::mirror::Error<crate::error::MaterializedViolation, Error>,
+) -> Error {
     match error {
-        tree::mirror::Error::Client(never) => match never {},
+        tree::mirror::Error::Client(violation) => Error::Mirror(tree::mirror::Error::Client(
+            materialized::Error::Violation(violation),
+        )),
         tree::mirror::Error::Server(error) => error,
     }
 }
+
+#[cfg(test)]
+mod tests;

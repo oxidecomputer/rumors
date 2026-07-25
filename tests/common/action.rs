@@ -42,10 +42,15 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
     arb_actions("[a-z]{0,8}".prop_map(String::from))
 }
 
-/// The `Key` of the single live leaf in `snapshot` above the causal frontier
-/// `pre`: how a builder recovers the key a `send` just minted, given the
-/// `latest()` it recorded before sending. Panics unless exactly one leaf
-/// qualifies.
+/// Returns the `Key` of the single live leaf in `snapshot` above the
+/// causal frontier `pre`.
+///
+/// This is how a builder recovers the key a `send` just minted, given
+/// the `latest()` it recorded before sending.
+///
+/// # Panics
+///
+/// Panics unless exactly one leaf qualifies.
 pub fn minted_key<T: Send + Sync>(snapshot: &Snapshot<T>, pre: &Version) -> Key {
     let mut fresh = snapshot.range(causally::since(pre)).map(|(k, _, _)| k);
     let key = fresh.next().expect("a send mints exactly one live leaf");

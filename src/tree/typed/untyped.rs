@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use borsh::BorshSerialize;
 use imbl::OrdMap;
+use tinyvec::ArrayVec;
 
 use crate::{Version, message::Message, tree::typed::Hash};
 
@@ -22,9 +23,54 @@ pub struct Node<T> {
 
 impl<T> Clone for Node<T> {
     fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
+        Self::from_inner(self.inner.clone())
+    }
+}
+
+/// Handles are counted, so a dropped one must check out; see [`census`].
+#[cfg(any(test, feature = "test-internals"))]
+impl<T> Drop for Node<T> {
+    fn drop(&mut self) {
+        census::dropped();
+    }
+}
+
+/// Test-only census of live node handles, crate-wide.
+///
+/// Every [`Node`] any code holds was constructed by
+/// [`Node::from_inner`] or [`Clone`] and released by [`Drop`], so the
+/// pair of counters here is an exact concurrent-residency measure: `live`
+/// handles exist right now, and `peak` is the most that ever existed
+/// since the last reset. The session window's memory bound is stated in
+/// in-flight references; this is the instrument that lets tests check the
+/// bound against reality. Read through
+/// [`testing::node_census`](crate::testing::node_census).
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) mod census {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Handles alive right now.
+    static LIVE: AtomicUsize = AtomicUsize::new(0);
+    /// The most handles ever concurrently alive since the last reset.
+    static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+    pub(crate) fn created() {
+        let live = LIVE.fetch_add(1, Ordering::Relaxed) + 1;
+        PEAK.fetch_max(live, Ordering::Relaxed);
+    }
+
+    pub(crate) fn dropped() {
+        LIVE.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    /// `(live, peak)` at this instant.
+    pub(crate) fn read() -> (usize, usize) {
+        (LIVE.load(Ordering::Relaxed), PEAK.load(Ordering::Relaxed))
+    }
+
+    /// Restart the high-water mark from the current live count.
+    pub(crate) fn reset_peak() {
+        PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 }
 
@@ -33,21 +79,21 @@ struct NodeInner<T> {
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
     ///
-    /// Only the path bytes are stored: every level's hash is recoverable by
-    /// wrapping the children's hash up through these bytes (see
-    /// [`Node::hash`]), and the cheap commitment makes that
-    /// recomputation negligible.
+    /// Only the path bytes are stored: the node's hash commits them as one
+    /// length-tagged field of its single preimage (see [`Node::hash`]), and
+    /// any virtual level's hash is recoverable by re-hashing with a
+    /// shortened prefix — one fresh preimage, not a per-byte refold.
     prefix: Vec<u8>,
     /// The node's observable hash (the hash of the subtree as seen from the top
     /// of its compressed prefix), computed lazily on first read and memoized.
     ///
     /// Unlike the ceiling/floor memos, this lives on `NodeInner` rather than
     /// inside [`Children::Branch`] so a path-compressed leaf memoizes its hash
-    /// too: a deep single-leaf spine costs the wrap only once. The memo is a
-    /// pure function of the subtree, so it is safe to share across the
-    /// structurally-shared (copy-on-write) clones a forked tree produces. It
-    /// folds in the compressed prefix, so any mutation of `prefix` *or*
-    /// `children` invalidates it and must reset this cell.
+    /// too: a deep single-leaf spine costs its preimage only once. The memo is
+    /// a pure function of the subtree, so it is safe to share across the
+    /// structurally-shared (copy-on-write) clones a forked tree produces. The
+    /// preimage commits the compressed prefix, so any mutation of `prefix`
+    /// *or* `children` invalidates it and must reset this cell.
     hash: OnceLock<Hash>,
     /// The children of this node: either a leaf, or a branch point.
     children: Children<T>,
@@ -99,6 +145,15 @@ enum Children<T> {
         floor: OnceLock<Version>,
         /// The number of total leaves under this branch.
         leaves: usize,
+        /// The largest canonical [`Version`] encoding among every bound
+        /// this branch holds — its leaf versions and every descendant
+        /// branch's ceiling and floor, its own included — in bytes,
+        /// computed lazily on first read and memoized.
+        ///
+        /// Like `ceiling` and `floor` (which it forces), this must be
+        /// reset whenever the branch's children change, but not when its
+        /// prefix does.
+        version_bytes: OnceLock<usize>,
         /// The children of this branch.
         children: OrdMap<u8, Node<T>>,
     },
@@ -118,11 +173,13 @@ impl<T> Clone for Children<T> {
                 ceiling,
                 floor,
                 leaves,
+                version_bytes,
                 children,
             } => Self::Branch {
                 ceiling: ceiling.clone(),
                 floor: floor.clone(),
                 leaves: *leaves,
+                version_bytes: version_bytes.clone(),
                 children: children.clone(),
             },
         }
@@ -130,6 +187,17 @@ impl<T> Clone for Children<T> {
 }
 
 impl<T> Node<T> {
+    /// Wrap built node state as a handle.
+    ///
+    /// Every handle in the crate passes through here or [`Clone`] — the
+    /// funnel that makes the test-only [`census`] an exact residency
+    /// count.
+    fn from_inner(inner: Arc<NodeInner<T>>) -> Self {
+        #[cfg(any(test, feature = "test-internals"))]
+        census::created();
+        Node { inner }
+    }
+
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
     pub fn branch(children: OrdMap<u8, Node<T>>) -> Option<Self> {
@@ -141,18 +209,17 @@ impl<T> Node<T> {
                 };
                 Some(node.beneath(index))
             }
-            _ => Some(Node {
-                inner: Arc::new(NodeInner {
-                    prefix: Vec::new(),
-                    hash: OnceLock::new(),
-                    children: Children::Branch {
-                        ceiling: OnceLock::new(),
-                        floor: OnceLock::new(),
-                        leaves: children.values().map(Node::len).sum(),
-                        children,
-                    },
-                }),
-            }),
+            _ => Some(Node::from_inner(Arc::new(NodeInner {
+                prefix: Vec::new(),
+                hash: OnceLock::new(),
+                children: Children::Branch {
+                    ceiling: OnceLock::new(),
+                    floor: OnceLock::new(),
+                    leaves: children.values().map(Node::len).sum(),
+                    version_bytes: OnceLock::new(),
+                    children,
+                },
+            }))),
         }
     }
 
@@ -191,18 +258,97 @@ impl<T> Node<T> {
         }
     }
 
+    /// Build the maximally-compressed subtree over one sorted leaf run.
+    ///
+    /// `leaves` pairs each full 32-byte path with its bare (prefix-free)
+    /// leaf node, **strictly ascending by path**, every path sharing its
+    /// first `depth` bytes; the run must be non-empty, and each node is
+    /// consumed exactly once (the `Option` lets the recursion move nodes
+    /// out of a shared slice). The result observes the tree from depth
+    /// `depth` — i.e. it sits at height `32 - depth`.
+    ///
+    /// This is the bulk inverse of a leaf walk: where composing
+    /// [`branch`](Self::branch)/[`beneath`](Self::beneath) level by level
+    /// costs an allocation per *virtual* level, this jumps straight to
+    /// each divergence byte (sorted input makes it the first/last path
+    /// comparison) and lays down every compressed span in one step, so
+    /// the work is proportional to the *materialized* structure: one node
+    /// per real branch point plus one per leaf spine.
+    pub(crate) fn from_sorted_leaves(
+        depth: usize,
+        leaves: &mut [([u8; 32], Option<Self>)],
+    ) -> Self {
+        debug_assert!(
+            leaves.windows(2).all(|pair| pair[0].0 < pair[1].0),
+            "a leaf run is strictly ascending by path",
+        );
+        if let [(path, node)] = leaves {
+            let mut node = node
+                .take()
+                .expect("each leaf node is consumed exactly once");
+            debug_assert!(
+                node.inner.prefix.is_empty() && node.is_leaf(),
+                "a leaf run supplies bare leaf nodes",
+            );
+            if depth < path.len() {
+                // A lone leaf compresses its whole remaining spine into the
+                // prefix (stored deepest-first), in one extension. The node
+                // now observes from a shallower level, so any memoized hash
+                // would be stale; freshly-built leaves have none, but a
+                // reused bare handle may.
+                let inner = Arc::make_mut(&mut node.inner);
+                inner.prefix.extend(path[depth..].iter().rev());
+                inner.hash = OnceLock::new();
+            }
+            return node;
+        }
+
+        // Two or more distinct sorted paths diverge at the first byte where
+        // the least and greatest differ; everything from `depth` up to that
+        // byte is common to the whole run and compresses into the prefix.
+        let first = leaves.first().expect("a leaf run is non-empty").0;
+        let last = leaves.last().expect("a leaf run is non-empty").0;
+        let branch_at = (depth..32)
+            .find(|&at| first[at] != last[at])
+            .expect("distinct 32-byte paths diverge before the bottom");
+
+        let count = leaves.len();
+        let mut children = OrdMap::new();
+        let mut rest = leaves;
+        while let Some(radix) = rest.first().map(|(path, _)| path[branch_at]) {
+            let split = rest
+                .iter()
+                .position(|(path, _)| path[branch_at] != radix)
+                .unwrap_or(rest.len());
+            let (group, tail) = mem::take(&mut rest).split_at_mut(split);
+            children.insert(radix, Self::from_sorted_leaves(branch_at + 1, group));
+            rest = tail;
+        }
+        debug_assert!(children.len() >= 2, "a branch point separates >= 2 runs");
+
+        Node::from_inner(Arc::new(NodeInner {
+            prefix: first[depth..branch_at].iter().rev().copied().collect(),
+            hash: OnceLock::new(),
+            children: Children::Branch {
+                ceiling: OnceLock::new(),
+                floor: OnceLock::new(),
+                leaves: count,
+                version_bytes: OnceLock::new(),
+                children,
+            },
+        }))
+    }
+
     /// Construct a new leaf node.
     pub fn leaf(version: Version, value: Message<T>) -> Self {
-        Node {
-            inner: Arc::new(NodeInner {
-                prefix: Vec::new(),
-                hash: OnceLock::new(),
-                children: Children::Leaf {
-                    message: value,
-                    version,
-                },
-            }),
-        }
+        Node::from_inner(Arc::new(NodeInner {
+            prefix: Vec::new(),
+            hash: OnceLock::new(),
+            children: Children::Leaf {
+                message: value,
+                version,
+            },
+        }))
     }
 
     /// Get a reference to the leaf at this node, if it is a leaf.
@@ -251,6 +397,47 @@ impl<T> Node<T> {
         }
     }
 
+    /// The largest canonical [`Version`] encoding among every bound this
+    /// subtree holds — its leaf versions and every branch's ceiling and
+    /// floor — in bytes.
+    ///
+    /// Exact, never a high-water mark: a leaf answers with its own
+    /// version's packed length, and a branch memoizes the max over its
+    /// children's values and its own two bounds, computed lazily on
+    /// first read like [`ceiling`](Self::ceiling) (which it forces).
+    /// Every mutation rebuilds its copy-on-write spine through the
+    /// branch constructors with fresh memos, so deleting the version
+    /// that carries the maximum resizes the aggregate down with no
+    /// separate invalidation, exactly like `len`. Interior bounds must
+    /// be covered because a join over many small concurrent leaf stamps
+    /// can encode several times larger than any one of them — the
+    /// aggregate answers for what the tree *holds*, not only what its
+    /// leaves carry.
+    ///
+    /// The first read after loading a large corpus materializes the
+    /// subtree's bounds once; a session forces the same memos along
+    /// every divergent path it walks, and they are shared through the
+    /// copy-on-write clones, so subsequent reads cost the freshly
+    /// rebuilt spine only.
+    pub fn version_bytes(&self) -> usize {
+        match &self.inner.children {
+            Children::Leaf { version, .. } => version.as_bytes().len(),
+            Children::Branch {
+                version_bytes,
+                children,
+                ..
+            } => *version_bytes.get_or_init(|| {
+                children
+                    .values()
+                    .map(Node::version_bytes)
+                    .max()
+                    .expect("a branch always has >= 2 children")
+                    .max(self.ceiling().as_bytes().len())
+                    .max(self.floor().as_bytes().len())
+            }),
+        }
+    }
+
     /// Whether two nodes share the same backing allocation: a sufficient
     /// (not necessary) test for structural equality that touches no hash.
     ///
@@ -262,36 +449,32 @@ impl<T> Node<T> {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 
-    /// Hash the subtree rooted at this node.
+    /// Hash the subtree rooted at this node, as observed from the top of its
+    /// compressed prefix.
     ///
     /// The hash is computed lazily on first call and memoized, so the first
-    /// read of a freshly-built subtree is `O(nodes)` and every read thereafter
-    /// is an `O(1)` field load. The convention (see [`Hash::branch`] and
-    /// [`Hash::leaf`]): a leaf hashes to `blake3(LEAF_TAG)`; a branch to
-    /// `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖ …)` over its children in ascending radix
-    /// order. Hashing does not depend on path compression: a one-child branch
-    /// and a node path-compressed by one byte produce identical hashes.
+    /// read of a freshly-built subtree is `O(nodes)` — one preimage and one
+    /// BLAKE3 pass per node — and every read thereafter is an `O(1)` field
+    /// load. The convention (see [`Hash::leaf`] and [`Hash::branch`]): a
+    /// single preimage commits the node's kind, its compressed prefix in
+    /// path order, and, for a branch, its children as ascending
+    /// `radix ‖ hash` records. Hash agreement between differently-built
+    /// trees rests on the tree's canonical shape; see [`Hash::branch`]'s
+    /// canonicity section.
     pub fn hash(&self) -> Hash {
         *self.inner.hash.get_or_init(|| {
-            // Start from the node's base hash at its own level: the `Hash::leaf()`
-            // constant for a leaf, or the branch commitment over the children's
-            // hashes for a branch.
-            let mut hash = match &self.inner.children {
-                Children::Leaf { .. } => Hash::leaf(),
-                Children::Branch { children, .. } => {
-                    Hash::branch(children.iter().map(|(radix, child)| (*radix, child.hash())))
-                }
-            };
-            // Wrap that base up through the compressed prefix one byte at a
-            // time, deepest byte first. `prefix[0]` is the deepest level
-            // (closest to the children), so folding front-to-back wraps from the
-            // bottom up to the observable top. A single-child wrap and a
-            // materialized one-child branch share this rule, so the result is
-            // independent of how the path is compressed.
-            for &byte in &self.inner.prefix {
-                hash = Hash::branch([(byte, hash)]);
+            // The preimage takes the prefix in path order — shallowest byte
+            // first — while storage is shallowest-last, so reverse into a
+            // stack buffer (a compressed span never exceeds the 32-byte
+            // path).
+            let prefix: ArrayVec<[u8; 32]> = self.inner.prefix.iter().rev().copied().collect();
+            match &self.inner.children {
+                Children::Leaf { .. } => Hash::leaf(&prefix),
+                Children::Branch { children, .. } => Hash::branch(
+                    &prefix,
+                    children.iter().map(|(radix, child)| (*radix, child.hash())),
+                ),
             }
-            hash
         })
     }
 
@@ -364,6 +547,35 @@ impl<T> Node<T> {
                 }
                 version
             }),
+        }
+    }
+
+    /// The largest canonical encoding among every version this subtree
+    /// holds — leaf versions plus every branch's ceiling and floor —
+    /// recomputed by direct walk with no aggregate memo consulted.
+    ///
+    /// Test instrumentation: the independent oracle the aggregate
+    /// proptests and the census pin hold
+    /// [`version_bytes`](Self::version_bytes) against — the two must
+    /// agree on every tree, and this side derives the answer from the
+    /// bounds alone. Materialized depth is at most the 32-byte path, so
+    /// the recursion is stack-safe.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub fn max_bound_bytes(&self) -> usize {
+        match &self.inner.children {
+            Children::Leaf { version, .. } => version.as_bytes().len(),
+            Children::Branch { children, .. } => self
+                .ceiling()
+                .as_bytes()
+                .len()
+                .max(self.floor().as_bytes().len())
+                .max(
+                    children
+                        .values()
+                        .map(Node::max_bound_bytes)
+                        .max()
+                        .unwrap_or_default(),
+                ),
         }
     }
 

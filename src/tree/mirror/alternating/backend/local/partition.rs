@@ -12,6 +12,7 @@ use itertools::{EitherOrBoth, Itertools};
 
 use crate::tree::{
     self,
+    mirror::{contained, streaming::materialized::Violation},
     traverse::unknown::Unknown,
     typed::{
         Hash, Level, Levels, Prefix,
@@ -73,8 +74,19 @@ where
     /// our zipper's bottom level.
     ///
     /// Each subtree arrives as a whole `(prefix, node)` pair, in ascending
-    /// prefix order, and is inserted directly at the named prefix.
-    pub(super) fn absorb_providing<H>(&mut self, providing: message::Providing<L::Message, H>)
+    /// prefix order, and is inserted directly at the named prefix — after
+    /// the session's one content check: every provided subtree's version
+    /// ceiling must be contained in the counterparty's declared handshake
+    /// version. An honest replica cannot violate that bound (its declared
+    /// version joins everything it ever applied), and absorbing an escaped
+    /// version would plant a leaf above every replica's session ceiling,
+    /// unreachable by redaction and never classified deleted. The ceiling
+    /// is a memoized bound, so the check costs one read per provided
+    /// subtree: O(nodes received). Rejection leaves the zipper untouched.
+    pub(super) fn absorb_providing<H>(
+        &mut self,
+        providing: message::Providing<L::Message, H>,
+    ) -> Result<(), Violation>
     where
         L::Message: Send + Sync,
         L: Levels<Height = H>,
@@ -95,6 +107,13 @@ where
             );
         }
 
+        if providing
+            .iter()
+            .any(|(_, node)| !contained(node.ceiling(), &self.versions.their_version))
+        {
+            return Err(Violation::UncontainedSupply);
+        }
+
         // Merge the provided subtrees into the frontier in a single pass. Both
         // sides are sorted ascending by prefix — the wire frame is canonical,
         // and the frontier maintains the `Level` invariant — so this is an
@@ -102,6 +121,7 @@ where
         self.levels
             .level_mut()
             .extend(Level::from_sorted(providing));
+        Ok(())
     }
 
     /// Drain the frontier against the counterparty's ascending `requested`
@@ -484,10 +504,13 @@ where
     pub(super) fn close(
         mut self,
         request: message::Exchange<L::Message, Z>,
-    ) -> protocol::Step<
-        message::Closing<L::Message>,
-        Exchange<Connected, Below<Z, L>>,
-        tree::Root<L::Message>,
+    ) -> Result<
+        protocol::Step<
+            message::Closing<L::Message>,
+            Exchange<Connected, Below<Z, L>>,
+            tree::Root<L::Message>,
+        >,
+        Violation,
     >
     where
         L: Levels<Height = S<Z>>,
@@ -498,7 +521,7 @@ where
             uncertain,
         } = request;
 
-        self.absorb_providing(providing);
+        self.absorb_providing(providing)?;
         let mut providing = self.answer_requested(requested);
         let partition = self.partition_leaf_uncertain(uncertain);
         providing.extend(partition.providing);
@@ -533,7 +556,7 @@ where
                 .collect();
         }
 
-        if response.requested.is_empty() {
+        Ok(if response.requested.is_empty() {
             protocol::Step::Done {
                 msg: response,
                 output: tree::Root {
@@ -546,7 +569,7 @@ where
                 msg: response,
                 next,
             }
-        }
+        })
     }
 
     /// Run a steady-state round end-to-end: absorb the incoming `providing`,
@@ -565,10 +588,13 @@ where
     pub(super) fn reply<Request, Response, H>(
         mut self,
         request: Request,
-    ) -> protocol::Step<
-        Response,
-        Exchange<Connected, Below<H, Below<S<H>, L>>>,
-        tree::Root<L::Message>,
+    ) -> Result<
+        protocol::Step<
+            Response,
+            Exchange<Connected, Below<H, Below<S<H>, L>>>,
+            tree::Root<L::Message>,
+        >,
+        Violation,
     >
     where
         Request: Into<message::Exchange<L::Message, S<H>>>,
@@ -585,7 +611,7 @@ where
         } = request.into();
 
         // Phase 1: absorb the counterparty's `providing` into our frontier.
-        self.absorb_providing(providing);
+        self.absorb_providing(providing)?;
 
         // Phase 2: answer the counterparty's `requested` set, building the
         // outgoing `providing` map (which Phase 3 may extend with Left-case
@@ -641,7 +667,7 @@ where
         // outgoing message is still meaningful (it may carry `providing`), so
         // the caller still needs to deliver it.
         let finished = response.requested.is_empty() && response.uncertain.is_empty();
-        if finished {
+        Ok(if finished {
             protocol::Step::Done {
                 msg: response.into(),
                 output: tree::Root {
@@ -654,6 +680,6 @@ where
                 msg: response.into(),
                 next,
             }
-        }
+        })
     }
 }

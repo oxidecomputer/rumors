@@ -20,6 +20,9 @@ use crate::step;
 /// its stored (relative) integer. The left child of an internal node is the
 /// next node in preorder; the right child follows the left subtree.
 /// `topo.len() == base.len() == node count`.
+// `Clone` lets `Batch::join_view`'s empty-current short-circuit adopt a
+// working-form incoming tree wholesale instead of running the combine walk.
+#[derive(Clone)]
 pub(crate) struct WorkingVersion {
     pub(crate) topo: Bits,
     pub(crate) base: Vec<Base>,

@@ -7,6 +7,7 @@ use super::fixtures::{
 };
 use super::{alternating_mirror, fully_scheduled_streaming_mirror, scheduled_streaming_mirror};
 use crate::testing::{Quiescence, run_to_quiescence};
+use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
     Root,
     arb::leaf_parent_dispute_pair,
@@ -24,8 +25,8 @@ use crate::tree::{
 /// Whether the session stalls at a selected capacity for the fan return queue.
 fn underbuffered_mirror_stalls(a: Root<()>, b: Root<()>, capacity: usize) -> bool {
     let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
-    let client = Handshaking::start(Local, a);
-    let server = Handshaking::start(Local, b);
+    let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     with_kind_capacity(QueueKind::AssemblyLevelReturns, capacity, || {
         matches!(
             run_to_quiescence(drive_streaming(client, server)),
@@ -132,10 +133,13 @@ fn capacity_stress_covers_every_queue_role() {
             stats.receives > 0,
             "queue role {kind:?} received no test item"
         );
-        let expected = if kind == QueueKind::AssemblyLevelReturns {
-            256
-        } else {
-            1
+        let expected = match kind {
+            // The constant-fan queues hold a full fan even at the
+            // test-default one-slot window: assembly returns as a
+            // correctness floor, terminal leaf resolutions as a per-leaf
+            // amortization buffer (see `work::queues`).
+            QueueKind::AssemblyLevelReturns | QueueKind::TerminalLeafResolutions => 256,
+            _ => 1,
         };
         assert_eq!(
             stats.effective_capacity, expected,
@@ -182,7 +186,7 @@ fn capacity_stress_witness_requires_inter_level_fan() {
     );
     assert!(
         underbuffered_mirror_stalls(a.clone(), b.clone(), 253),
-        "the stress witness no longer stalls just below its required return capacity",
+        "the stress witness must stall just below its required return capacity",
     );
     assert!(
         !underbuffered_mirror_stalls(a, b, 254),
@@ -199,8 +203,8 @@ fn shape_stalls(
 ) -> bool {
     let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
         (pair.0.clone().into(), pair.1.clone().into());
-    let client = Handshaking::start(Local, a);
-    let server = Handshaking::start(Local, b);
+    let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     with_kind_capacity(QueueKind::AssemblyLevelReturns, capacity, || {
         with_schedule(channel_schedule, || {
             with_local_schedule(backend_schedule, || {

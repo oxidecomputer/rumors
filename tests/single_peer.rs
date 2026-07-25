@@ -35,7 +35,7 @@ proptest! {
     /// no duplicates, no omissions.
     #[test]
     fn batch_mints_once_per_value(values in vec(any::<u64>(), 0..=32)) {
-        let peer = Peer::<u64>::seed().into_rumors();
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), values.len());
         prop_assert_eq!(peer.snapshot().len(), values.len());
@@ -45,7 +45,7 @@ proptest! {
     /// several values in the batch are equal.
     #[test]
     fn distinct_keys_per_batch(values in vec(any::<u64>(), 1..=32)) {
-        let peer = Peer::<u64>::seed().into_rumors();
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), values.len());
         let unique: BTreeSet<_> = minted.iter().map(|(k, _)| *k).collect();
@@ -56,7 +56,7 @@ proptest! {
     /// `n` distinct `Key`s — content equality does not collapse keys.
     #[test]
     fn duplicate_values_get_distinct_keys(n in 1usize..=16, value in any::<u64>()) {
-        let peer = Peer::<u64>::seed().into_rumors();
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let values: Vec<u64> = std::iter::repeat_n(value, n).collect();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), n);
@@ -67,13 +67,15 @@ proptest! {
     /// Every `Version` minted by a lone peer is totally ordered against
     /// every other — both within a single batch (the batch docs promise
     /// strictly increasing versions per action) and across successive
-    /// batches. With one party and no gossip there is no concurrency, so
+    /// batches.
+    ///
+    /// With one party and no gossip there is no concurrency, so
     /// any incomparable or equal pair would betray a versioning bug.
     #[test]
     fn local_versions_form_a_chain(
         batches in vec(vec(any::<u64>(), 1..=8), 1..=8),
     ) {
-        let peer = Peer::<u64>::seed().into_rumors();
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
 
         // Versions in commit order: per batch, the minted versions sorted
         // into their (total) causal order; batches concatenated in commit
@@ -108,11 +110,10 @@ proptest! {
     ) {
         let shuffled = {
             let mut v = values.clone();
-            // Inline PCG-derived shuffle: deterministic from `seed`,
-            // no extra dependency. The two `wrapping_mul` /
-            // `wrapping_add` lines step a 64-bit LCG; any decent step
-            // function works — we just need a uniform-enough draw
-            // over `0..=i` at each Fisher-Yates iteration.
+            // Fisher-Yates over an inline 64-bit LCG: deterministic
+            // from `seed`, no extra dependency; any step function whose
+            // high bits reduce to a uniform-enough draw over `0..=i`
+            // would do.
             let mut state = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
             for i in (1..v.len()).rev() {
                 state = state
@@ -128,7 +129,7 @@ proptest! {
         // need not share a universe). Read the live multiset directly off
         // the snapshot.
         let multiset_of = |values: &[u64]| -> BTreeMap<u64, usize> {
-            let peer = Peer::<u64>::seed().into_rumors();
+            let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
             batch_send(&peer, values);
             let mut out = BTreeMap::new();
             for (_, _, v) in peer.snapshot().iter() {

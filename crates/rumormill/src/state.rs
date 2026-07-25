@@ -54,7 +54,9 @@ pub enum Effect {
     /// The entry does not causally follow the message displayed above it:
     /// it arrived from a *concurrent* line of history (a gossip burst
     /// delivering messages composed elsewhere, in ignorance of the channel
-    /// tail). The UI highlights it as the boundary of merged-in history.
+    /// tail).
+    ///
+    /// The UI highlights it as the boundary of merged-in history.
     ConcurrentArrival {
         /// The channel the entry landed in.
         channel: String,
@@ -81,7 +83,9 @@ pub struct MessageInfo {
 pub struct ChannelState {
     /// Display order: plain arrival order, which is a linear extension of
     /// the causal partial order because the owner observes through
-    /// [`CausalMessages`](rumors::CausalMessages) — a message is never
+    /// [`CausalMessages`](rumors::CausalMessages).
+    ///
+    /// A message is never
     /// delivered before one it causally depends on, so appending preserves
     /// causal consistency with no placement logic at all.
     pub list: Vec<Key>,
@@ -327,7 +331,9 @@ impl AppState {
 
     /// Evict peers whose newest heartbeat is older than
     /// [`timers::PRESENCE_STALE`]: drop them from the roster and redact
-    /// their presence so we stop gossiping them. Any peer may run this
+    /// their presence so we stop gossiping them.
+    ///
+    /// Any peer may run this
     /// sweep; concurrent eviction is idempotent, and a revived peer simply
     /// publishes a fresh beat.
     pub fn sweep_stale(&mut self, now: Millis) -> Vec<Effect> {

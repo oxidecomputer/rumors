@@ -1,8 +1,9 @@
-//! The [`Messages`] observer: delivery contract, checkpoint semantics,
-//! termination, and non-interference with the actor handles
-//! (plan: `plans/broadcast-listen.md` §6; the `Snapshot::range`
-//! differential proptest lives with the walk machinery in
-//! `src/tree/test.rs`).
+//! The [`UnorderedMessages`] observer: delivery contract (exactly-once,
+//! redaction honored, cursor resume and portability), checkpoint semantics,
+//! termination, and non-interference with the actor handles.
+//!
+//! (The `Snapshot::range` differential proptest lives with the walk
+//! machinery in `src/tree/tests.rs`.)
 //!
 //! The observer is pull-based, so "the listener is parked" is simply "the
 //! caller has not asked": these tests drive observers step-by-step with
@@ -22,7 +23,7 @@ use rand::rngs::SmallRng;
 use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages, Version, causally};
 
 use crate::common::action::minted_key;
-use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
@@ -70,7 +71,7 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
 /// completed pass its checkpoint dominates every observed version.
 #[test]
 fn genesis_replay_observes_the_live_set_once() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
         let mut batch = rumors.batch();
         for v in 0..8u64 {
@@ -101,11 +102,11 @@ fn genesis_replay_observes_the_live_set_once() {
     }
 }
 
-/// §6.2 Arbitrary start: `messages_from(v_mid)` observes exactly the
-/// messages `v_mid` does not causally contain.
+/// §6.2 Arbitrary start: `unordered_messages_since(v_mid)` observes exactly
+/// the messages `v_mid` does not causally contain.
 #[test]
 fn checkpoint_start_observes_only_what_it_does_not_contain() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2).send(3);
     let v_mid = rumors.snapshot().latest().clone();
     rumors.batch().send(4).send(5).send(6);
@@ -133,7 +134,7 @@ fn checkpoint_start_observes_only_what_it_does_not_contain() {
 /// after subscription are observed, as are messages learned via gossip.
 #[test]
 fn live_sends_and_gossip_learned_messages_are_observed() {
-    let a = Peer::<u64>::seed().into_rumors();
+    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     let sibling = a.clone();
@@ -157,12 +158,14 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
 }
 
 /// §6.4 Redaction honored: an observed-then-redacted message fires nothing
-/// further; one redacted before subscription never fires; one inserted and
+/// further; one redacted before subscription never fires.
+///
+/// Further: one inserted and
 /// redacted wholly between passes is never delivered; a from-now observer
 /// does not see pre-subscription content.
 #[test]
 fn redactions_are_honored_silently() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
 
     // Redacted before subscription: never fires.
     let pre = rumors.snapshot().latest().clone();
@@ -209,7 +212,7 @@ fn redactions_are_honored_silently() {
 /// yields the complete final state and then ends.
 #[test]
 fn observer_drains_the_final_state_then_ends() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
     let expected = live_map(&rumors);
 
@@ -236,7 +239,7 @@ fn observer_drains_the_final_state_then_ends() {
 /// observer's final drain includes everything the session learned.
 #[test]
 fn retire_ends_the_observer() {
-    let survivor = Peer::<u64>::seed().into_rumors();
+    let survivor = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let retiree = bootstrap_fork(&survivor);
     retiree.send(7);
 
@@ -249,14 +252,11 @@ fn retire_ends_the_observer() {
             .try_into_peer()
             .await
             .expect("the sole handle reclaims the Peer");
-        let (a_side, b_side) = tokio::io::duplex(64 * 1024);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        let (retire_out, gossip_out) = tokio::join!(
-            retiree.retire(&mut a_r, &mut a_w),
-            survivor.gossip(&mut b_r, &mut b_w),
-        );
+        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(64 * 1024);
+        let (retire_out, gossip_out) =
+            tokio::join!(retiree.retire(&mut a_link), survivor.gossip(&mut b_link),);
         gossip_out.expect("survivor gossip");
+        assert_control_drained(a_link, b_link);
         retire_out
     });
     assert!(matches!(outcome, Retire::Retired));
@@ -273,7 +273,7 @@ fn retire_ends_the_observer() {
 /// drained observer is quiet, not ended.
 #[test]
 fn observer_stays_quiet_while_actors_live() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.send(1);
 
     let mut obs = rumors.unordered_messages();
@@ -296,7 +296,7 @@ fn observer_stays_quiet_while_actors_live() {
 /// nor is ended by it, and it keeps observing across the round-trip.
 #[test]
 fn observer_does_not_block_reunite_and_survives_it() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
 
     let mut obs = rumors.unordered_messages();
     let (_, ended) = drain(&mut obs);
@@ -328,7 +328,7 @@ fn observer_does_not_block_reunite_and_survives_it() {
 /// observer sees their effects on its next passes.
 #[test]
 fn lent_borrows_do_not_block_senders() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
 
     let mut obs = rumors.unordered_messages();
@@ -350,12 +350,12 @@ fn lent_borrows_do_not_block_senders() {
     );
 }
 
-/// §6.7 Checkpoint round-trip: a checkpoint earned by a completed pass, fed to a
-/// fresh `messages_from` on an unchanged set, observes nothing and earns an
-/// equal checkpoint.
+/// §6.7 Checkpoint round-trip: a checkpoint earned by a completed pass, fed
+/// to a fresh `unordered_messages_since` on an unchanged set, observes
+/// nothing and earns an equal checkpoint.
 #[test]
 fn checkpoint_round_trips_on_an_unchanged_set() {
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2).send(3);
 
     let mut obs = rumors.unordered_messages();
@@ -378,7 +378,7 @@ fn checkpoint_round_trips_on_an_unchanged_set() {
 /// are skipped, messages B holds that A never saw fire.
 #[test]
 fn checkpoint_is_portable_across_replicas() {
-    let a = Peer::<u64>::seed().into_rumors();
+    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     a.send(1);
@@ -405,7 +405,7 @@ fn checkpoint_is_portable_across_replicas() {
 fn try_next_distinguishes_quiet_from_ended() {
     use rumors::TryNext;
 
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
 
     let mut obs = rumors.unordered_messages();
@@ -439,7 +439,7 @@ fn try_next_distinguishes_quiet_from_ended() {
 fn stream_face_matches_and_terminates() {
     use futures::StreamExt;
 
-    let rumors = Peer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
     let expected = live_map(&rumors);
 
@@ -459,12 +459,14 @@ fn stream_face_matches_and_terminates() {
 }
 
 /// §6.6 (negative control): folding *delivered* versions is not a sound
-/// resume point. Delivery is in key order, not causal order, so a stopped
+/// resume point.
+///
+/// Delivery is in key order, not causal order, so a stopped
 /// pass can have delivered `m2` (later version) but not `m1` (earlier);
 /// the fold then causally contains `m1`, and resuming from it skips `m1`
-/// forever — loss, not re-delivery. `Messages::checkpoint()` (the last
-/// *completed* pass's frontier) re-delivers instead, which is why the API
-/// exposes the pass checkpoint and not a per-item fold.
+/// forever — loss, not re-delivery. `UnorderedMessages::checkpoint()` (the
+/// last *completed* pass's frontier) re-delivers instead, which is why the
+/// API exposes the pass checkpoint and not a per-item fold.
 #[test]
 fn folding_delivered_versions_can_lose_a_message() {
     // Search deterministic universes for the counterexample shape: the
@@ -472,7 +474,9 @@ fn folding_delivered_versions_can_lose_a_message() {
     // keys vs. causal versions disagree about order roughly half the time).
     let (rumors, later_value) = (1u64..256)
         .find_map(|candidate| {
-            let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors();
+            let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0))
+                .sync_window_floor()
+                .into_rumors();
             rumors.send(0);
             rumors.send(candidate);
             let snapshot = rumors.snapshot();
@@ -546,7 +550,7 @@ proptest! {
     /// the final live set.
     #[test]
     fn exactly_once_under_interleaving(ops in arb_ops()) {
-        let rumors = Peer::<u64>::seed().into_rumors();
+        let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let sibling = rumors.clone();
 
         let mut obs = rumors.unordered_messages();
@@ -594,7 +598,9 @@ proptest! {
 
     /// §6.6 Checkpoint-resume: stop an observer at an arbitrary point and
     /// resume a fresh one from its `checkpoint()`; the union of observations
-    /// covers every message that survived to the end (nothing lost). If the
+    /// covers every message that survived to the end (nothing lost).
+    ///
+    /// If the
     /// stop fell *mid-pass*, re-deliveries are permitted but only for
     /// messages the interrupted pass already delivered (at-least-once); if
     /// the observer had *completed* its pass, nothing from it is
@@ -606,7 +612,7 @@ proptest! {
         taken in any::<usize>(),
         complete_pass in any::<bool>(),
     ) {
-        let rumors = Peer::<u64>::seed().into_rumors();
+        let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
         {
             let mut batch = rumors.batch();
             for v in &phase_one {

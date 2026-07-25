@@ -10,15 +10,37 @@ use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
-    codec::{self, BitCursor, Bits},
+    codec::{self, Base, BitCursor, Bits},
     error::Decode,
     Clock, Party, Version,
 };
 
 /// A bit cursor which reads only as far as one canonical tree requires.
+///
+/// The encodings are prefix-free and the bytes after a tree belong to the
+/// next borsh field, so the cursor pulls from the reader one byte at a time,
+/// each strictly on demand — only when the parse asks for a bit past what has
+/// already been read. Those bytes accumulate in `bytes`, which serves twice
+/// over: it is the decode window ([`read_bit`](BitCursor::read_bit) is an
+/// index + mask into it; [`read_int`](BitCursor::read_int) proves whole gamma
+/// codes from it through the word decoder), and at [`finish`] it becomes the
+/// value's stored bits without a copy.
+///
+/// [`finish`]: ReaderCursor::finish
 struct ReaderCursor<'a, R> {
     reader: &'a mut R,
-    bits: Bits,
+    /// Every byte read from `reader`, in order.
+    bytes: Vec<u8>,
+    /// The parse's bit position within `bytes`.
+    ///
+    /// Invariant: `position <= 8 * bytes.len()`, with equality exactly when
+    /// the buffered bits are exhausted (the next [`read_bit`] refills). The
+    /// bits between `position` and the buffer's end were read from the reader
+    /// but not yet consumed by the parse; they are the only bits the
+    /// [`read_int`] window may prove a code from.
+    ///
+    /// [`read_bit`]: BitCursor::read_bit
+    /// [`read_int`]: BitCursor::read_int
     position: usize,
 }
 
@@ -26,32 +48,56 @@ impl<'a, R> ReaderCursor<'a, R> {
     fn new(reader: &'a mut R) -> Self {
         ReaderCursor {
             reader,
-            bits: Bits::new(),
+            bytes: Vec::new(),
             position: 0,
         }
     }
 
-    fn finish(mut self) -> Result<Bits, Decode> {
-        codec::require_zero_padding(&self.bits, self.position)?;
-        self.bits.truncate(self.position);
-        Ok(self.bits)
+    fn finish(self) -> Result<Bits, Decode> {
+        let mut bits = Bits::from_vec(self.bytes);
+        codec::require_zero_padding(&bits, self.position)?;
+        bits.truncate(self.position);
+        Ok(bits)
     }
 }
 
 impl<R: Read> BitCursor for ReaderCursor<'_, R> {
+    // The rich error type, not `cursor::Truncated`: this is the boundary
+    // where `Decode::Io` enters, and it is constructed only when a read
+    // actually fails — never on the per-bit success path.
+    type Error = Decode;
+
     fn read_bit(&mut self) -> Result<bool, Decode> {
-        if self.position == self.bits.len() {
+        if self.position == 8 * self.bytes.len() {
             let mut byte = [0];
             self.reader.read_exact(&mut byte).map_err(Decode::Io)?;
-            self.bits.extend_from_bitslice(codec::bytes_as_bits(&byte));
+            self.bytes.push(byte[0]);
         }
-        let bit = self.bits[self.position];
+        let bit = self.bytes[self.position / 8] & (0x80 >> (self.position % 8)) != 0;
         self.position += 1;
         Ok(bit)
     }
 
     fn position(&self) -> usize {
         self.position
+    }
+
+    fn read_int(&mut self) -> Result<Base, Decode> {
+        // Word fast path over the bytes already read, exactly as
+        // `SliceCursor::read_int`: the window's proven bits end at the
+        // buffer's end, so it can never consume — or even inspect — a byte
+        // the reader has not yielded, and speculative reads (which would
+        // steal bytes from the next borsh field) are impossible by
+        // construction. It fires when earlier refills left enough unconsumed
+        // bits buffered; everything else, every reject included, is decided
+        // by the per-bit loop below, refilling byte by byte on demand.
+        if let Some((n, next)) =
+            codec::decode_int_window(codec::bytes_as_bits(&self.bytes), self.position)
+        {
+            self.position = next;
+            return Ok(Base::from(n));
+        }
+        codec::decode_int_from(self)
     }
 }
 

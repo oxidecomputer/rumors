@@ -1,14 +1,19 @@
-//! Wire helpers for the *asynchronous* gossip path: drive
-//! `rumors::Rumors::gossip` over an in-memory `tokio::io::duplex` pipe with
-//! both peers polled concurrently via `tokio::join!`. The two tasks progress
-//! directly against each other through the duplex transport; no runtime is
-//! required unless a caller explicitly spawns a task.
+//! Wire helpers for the *asynchronous* gossip path.
+//!
+//! These drive `rumors::Rumors::gossip` over an in-memory [`rumors::link`]
+//! pair with both peers polled concurrently via `tokio::join!`. The two
+//! tasks progress directly against each other through the link's streams;
+//! no runtime is required unless a caller explicitly spawns a task.
 
 use std::cell::OnceCell;
 use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll, Waker};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use rumors::link::MemoryLink;
 use rumors::{Peer, Protocol, Rumors, testing::run_to_quiescence};
+use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 
 thread_local! {
@@ -45,17 +50,67 @@ pub fn tokio_block_on<F: Future>(fut: F) -> F::Output {
     })
 }
 
-/// Capacity in bytes for the in-memory duplex pipe. The mirror protocol
-/// strictly alternates within a session, so a modest buffer is sufficient
-/// and naturally exercises backpressure.
-const DUPLEX_BUF: usize = 8 * 1024;
+/// Capacity in bytes for each in-memory link stream. A modest buffer is
+/// sufficient and naturally exercises per-stream backpressure.
+pub const LINK_BUF: usize = 8 * 1024;
+
+/// Assert a completed session drained the control stream in both directions.
+///
+/// The invariant: after any *successful* session, each side has consumed
+/// every control byte its peer wrote — nothing rests buffered toward either
+/// end. A leftover byte would sit exactly where the link's next session (or
+/// this session's epilogue marker) reads, surfacing later as a confusing
+/// protocol violation; this assert turns that latent desynchronization into
+/// an immediate failure at the session that caused it.
+///
+/// Consumes the pair, so it is the last act of a test (or harness) that
+/// owns both ends. The probe is a no-waker poll of each end's control read
+/// half: `Pending` (nothing buffered, writer still open) and end-of-stream
+/// both witness a drained direction, while any delivered byte fails the
+/// assert with the leftover bytes in the message. Sessions that end in an
+/// error are out of scope — they poison the link mid-frame by design.
+#[track_caller]
+pub fn assert_control_drained(a: MemoryLink, b: MemoryLink) {
+    let toward_a = unread_control_bytes(a.into_parts().control_read);
+    let toward_b = unread_control_bytes(b.into_parts().control_read);
+    assert!(
+        toward_a.is_empty() && toward_b.is_empty(),
+        "control stream not drained at the session boundary: \
+         {} unread byte(s) toward A {:02x?}; {} unread byte(s) toward B {:02x?}",
+        toward_a.len(),
+        toward_a,
+        toward_b.len(),
+        toward_b,
+    );
+}
+
+/// Collect every byte one control read half can yield without waiting.
+///
+/// Polls with a no-op waker, so the probe never blocks: it stops at
+/// `Pending` (buffer empty, writer still open) or at end-of-stream. The
+/// in-memory link's duplex pipes deliver written bytes to the reader's
+/// buffer synchronously, so "nothing readable now" is "nothing in flight".
+fn unread_control_bytes<R: AsyncRead + Unpin>(mut read: R) -> Vec<u8> {
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut unread = Vec::new();
+    loop {
+        let mut chunk = [0u8; 64];
+        let mut buf = ReadBuf::new(&mut chunk);
+        match Pin::new(&mut read).poll_read(&mut cx, &mut buf) {
+            Poll::Pending => return unread,
+            Poll::Ready(Ok(())) if buf.filled().is_empty() => return unread,
+            Poll::Ready(Ok(())) => unread.extend_from_slice(buf.filled()),
+            Poll::Ready(Err(e)) => panic!("control-stream drain probe failed: {e}"),
+        }
+    }
+}
 
 /// Gossip two async `Rumors` through the on-wire protocol. After this
 /// returns, the two rumor sets hold the same live content and version.
 ///
-/// Both ends drive `gossip` concurrently over the two halves of a single
-/// `tokio::io::duplex` pipe, so the session makes real bidirectional
-/// progress rather than serializing one peer behind the other.
+/// Both ends drive `gossip` concurrently over the two ends of one in-memory
+/// link, so the session makes real bidirectional progress rather than
+/// serializing one peer behind the other.
 #[track_caller]
 pub fn wire_gossip<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
@@ -70,18 +125,16 @@ pub async fn wire_gossip_async<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-    let (mut a_r, mut a_w) = tokio::io::split(a_side);
-    let (mut b_r, mut b_w) = tokio::io::split(b_side);
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
-    let (a_result, b_result) =
-        tokio::join!(a.gossip(&mut a_r, &mut a_w), b.gossip(&mut b_r, &mut b_w),);
+    let (a_result, b_result) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
     a_result.expect("wire gossip A");
     b_result.expect("wire gossip B");
+    assert_control_drained(a_link, b_link);
 }
 
 /// Mint a genuine, party-disjoint `Rumors` from `parent` by serving it a
-/// bootstrap over an in-memory pipe.
+/// bootstrap over an in-memory link.
 ///
 /// This is how a test obtains a second *originator*: the returned peer
 /// descends from `parent`'s universe (same [`Network`](rumors::Network))
@@ -114,17 +167,23 @@ pub async fn bootstrap_fork_async_with_protocol<T>(
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
 {
-    let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-    let (mut a_r, mut a_w) = tokio::io::split(a_side);
-    let (mut b_r, mut b_w) = tokio::io::split(b_side);
+    let (mut parent_link, mut boot_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
     let (server_out, boot_out) = tokio::join!(
-        parent.gossip(&mut a_r, &mut a_w),
-        Peer::<T>::bootstrap_with_protocol(protocol, &mut b_r, &mut b_w),
+        parent.gossip(&mut parent_link),
+        Peer::<T>::bootstrap()
+            .protocol(protocol)
+            .join(&mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
-    boot_out
+    // Test peers pin the serialization floor explicitly, keeping the
+    // capacity-one orderings the deadlock-freedom argument certifies
+    // exercised; suites that want a wider window configure a budget.
+    let minted = boot_out
         .expect("bootstrap handshake")
         .expect("parent served the bootstrap")
-        .into_rumors()
+        .sync_window_floor()
+        .into_rumors();
+    assert_control_drained(parent_link, boot_link);
+    minted
 }

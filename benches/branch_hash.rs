@@ -1,55 +1,88 @@
-//! Scratch microbenchmark: how should `Hash::branch` feed Blake3?
+//! Feeding-strategy microbenchmark behind `Hash::branch`'s one-shot form.
 //!
-//! The branch preimage is `BRANCH_TAG ‖ (radix ‖ 16-byte child hash)*` — each
-//! child is a 17-byte record, so several records share one of Blake3's
-//! 64-byte blocks.
-//! The original implementation streamed two `update` calls per child (the radix
-//! byte alone, then the 32-byte hash); this bench asked whether assembling a
-//! contiguous buffer first is faster, across realistic fan-outs — it is, and
-//! the shipped `Hash::branch` now uses the contiguous one-shot form.
+//! A branch preimage is `kind ‖ prefix_len ‖ prefix ‖ count ‖ (radix ‖ hash)*`
+//! — dominated by fixed 17-byte child records, several to one of BLAKE3's
+//! 64-byte blocks. The shipped `Hash::branch` assembles the whole preimage in
+//! a contiguous buffer and hashes it in one shot, on the claim that a single
+//! large slice engages BLAKE3's multi-block SIMD compression while per-field
+//! `update` calls compress block-by-block. This bench measures exactly that
+//! comparison over the current preimage layout, across fan-outs from the
+//! smallest representable branch to the saturated 256, so the factor quoted
+//! at `Hash::branch` stays re-measurable: run
+//! `just bench branch_hash` and compare the `contiguous` and `streamed`
+//! curves.
 //!
-//! Strategies:
-//!   - `stream2`: the original — `update(&[radix]); update(&hash)` per child.
-//!   - `stream1`: one `update` per child of a 17-byte stack record.
-//!   - `buffer_oneshot`: fill a reused contiguous buffer, then `blake3::hash`
-//!     (what `Hash::branch` ships today).
-//!
-//! `buffer_oneshot` is the only one that hands Blake3 a single contiguous slice,
-//! which is what lets its SIMD path compress multiple blocks at once. The
-//! question is whether that beats the per-call overhead + buffer fill at the
-//! fan-outs the tree actually produces (1 for compressed singletons, up to 256
-//! for a saturated branch).
+//! The layout is restated locally because the tree's hashing internals are
+//! not public API; it mirrors the preimage documented at `Hash::branch`,
+//! which the hash tests pin byte-for-byte. `contiguous` reproduces the
+//! shipped form including its per-call buffer allocation, so the measured
+//! difference is the end-to-end cost a caller sees, not the hash core alone.
 
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
+/// Kind byte leading a branch preimage, mirrored from the documented layout.
 const BRANCH_TAG: u8 = 1;
 
-/// Width of a child hash in a branch preimage: the tree's truncated
-/// Merkle width.
+/// Width of a truncated child hash inside a branch preimage.
 const HASH_LEN: usize = rumors::MERKLE_HASH_LEN;
 
-/// Fan-outs to sweep: 1 is the path-compressed singleton (worst-case
-/// reconstruction), 256 is a saturated branch, the rest fill in between.
-const FANOUTS: &[usize] = &[1, 2, 4, 8, 16, 64, 256];
+/// Bytes one child contributes to a branch preimage: its radix byte followed
+/// by its hash.
+const CHILD_RECORD_LEN: usize = 1 + HASH_LEN;
 
-/// A deterministic set of `k` (radix, hash) children. Radixes need not be
-/// distinct for a hashing microbench; the byte content only has to be fixed.
+/// A hot node's compressed span: short, as path compression typically leaves
+/// interior branches near the root.
+const PREFIX: &[u8] = &[0xa5, 0x5a, 0x3c];
+
+/// Fan-outs to sweep: 2 is the smallest representable branch under the
+/// canonical-shape invariant, 256 a saturated one, the rest fill in between.
+const FANOUTS: &[usize] = &[2, 4, 16, 64, 256];
+
+/// A deterministic set of `k` (radix, hash) children in strictly ascending
+/// radix order, as the convention requires. Only the byte content matters to
+/// a hashing microbench, and only that it is fixed across runs.
 fn children(k: usize) -> Vec<(u8, [u8; HASH_LEN])> {
+    assert!(k <= 256, "branch fan-out is bounded by the 256-way radix");
     (0..k)
         .map(|i| {
-            let r = (i as u8).wrapping_mul(7).wrapping_add(3);
-            let h = std::array::from_fn(|j| (i as u8) ^ (j as u8).wrapping_mul(31));
-            (r, h)
+            let radix = u8::try_from(i * 256 / k.max(1)).expect("index scaled into radix range");
+            let hash = std::array::from_fn(|j| (i as u8) ^ (j as u8).wrapping_mul(31));
+            (radix, hash)
         })
         .collect()
 }
 
-/// The original implementation: two `update` calls per child.
-fn stream2(children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
+/// The shipped form: assemble the whole preimage contiguously (fresh buffer,
+/// count backfilled after the records), then hash it in one shot.
+fn contiguous(prefix: &[u8], children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
+    let mut buf = Vec::with_capacity(4 + prefix.len() + CHILD_RECORD_LEN * children.len());
+    buf.push(BRANCH_TAG);
+    buf.push(u8::try_from(prefix.len()).expect("a compressed span fits in one length byte"));
+    buf.extend_from_slice(prefix);
+    let count_at = buf.len();
+    buf.extend_from_slice(&[0, 0]);
+    for (radix, hash) in children {
+        buf.push(*radix);
+        buf.extend_from_slice(hash);
+    }
+    let count = u16::try_from(children.len()).expect("fan-out fits u16");
+    buf[count_at..count_at + 2].copy_from_slice(&count.to_be_bytes());
+    *blake3::hash(&buf).as_bytes()
+}
+
+/// The defeated form: one `update` call per field, so BLAKE3 sees the
+/// preimage in radix-byte and hash-width fragments and compresses
+/// block-by-block.
+fn streamed(prefix: &[u8], children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&[BRANCH_TAG]);
+    hasher
+        .update(&[u8::try_from(prefix.len()).expect("a compressed span fits in one length byte")]);
+    hasher.update(prefix);
+    let count = u16::try_from(children.len()).expect("fan-out fits u16");
+    hasher.update(&count.to_be_bytes());
     for (radix, hash) in children {
         hasher.update(&[*radix]);
         hasher.update(hash);
@@ -57,48 +90,19 @@ fn stream2(children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
-/// One `update` per child of a 17-byte stack record.
-fn stream1(children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(&[BRANCH_TAG]);
-    let mut record = [0u8; 1 + HASH_LEN];
-    for (radix, hash) in children {
-        record[0] = *radix;
-        record[1..].copy_from_slice(hash);
-        hasher.update(&record);
-    }
-    *hasher.finalize().as_bytes()
-}
-
-/// Assemble a contiguous buffer, then a single one-shot hash. `buf` is reused
-/// across calls so the cost measured is the fill + hash, not allocation.
-fn buffer_oneshot(children: &[(u8, [u8; HASH_LEN])], buf: &mut Vec<u8>) -> [u8; 32] {
-    buf.clear();
-    buf.push(BRANCH_TAG);
-    for (radix, hash) in children {
-        buf.push(*radix);
-        buf.extend_from_slice(hash);
-    }
-    *blake3::hash(buf).as_bytes()
-}
-
-fn bench(c: &mut Criterion) {
-    let mut group = c.benchmark_group("branch_hash");
-    for &k in FANOUTS {
-        let kids = children(k);
-        group.bench_with_input(BenchmarkId::new("stream2", k), &kids, |b, kids| {
-            b.iter(|| stream2(black_box(kids)))
+fn branch_hash(criterion: &mut Criterion) {
+    let mut group = criterion.benchmark_group("branch_hash");
+    for &fanout in FANOUTS {
+        let kids = children(fanout);
+        group.bench_with_input(BenchmarkId::new("contiguous", fanout), &kids, |b, kids| {
+            b.iter(|| contiguous(black_box(PREFIX), black_box(kids)));
         });
-        group.bench_with_input(BenchmarkId::new("stream1", k), &kids, |b, kids| {
-            b.iter(|| stream1(black_box(kids)))
-        });
-        group.bench_with_input(BenchmarkId::new("buffer_oneshot", k), &kids, |b, kids| {
-            let mut buf = Vec::with_capacity(1 + (1 + HASH_LEN) * k);
-            b.iter(|| buffer_oneshot(black_box(kids), &mut buf))
+        group.bench_with_input(BenchmarkId::new("streamed", fanout), &kids, |b, kids| {
+            b.iter(|| streamed(black_box(PREFIX), black_box(kids)));
         });
     }
     group.finish();
 }
 
-criterion_group!(benches, bench);
+criterion_group!(benches, branch_hash);
 criterion_main!(benches);

@@ -6,11 +6,14 @@
 //! A retire opens with an ordinary mirror descent — the same reconciliation a
 //! plain gossip would run — and then the absorbing peer takes the retiree's
 //! party as a trailing frame. Each test stages the pair, drives one retire
-//! through the recording duplex in
+//! through the recording link in
 //! [`common::gossip_snapshot::capture_session`], and pins every wire byte. V2
 //! traffic is grouped by logical stream while preserving exact order within
 //! each stream; a representative V1 case pins its strictly alternating
 //! timeline. Drift in reconciliation or the hand-off shows up as a diff.
+//! Re-accept only after a deliberate protocol change: a new protocol version,
+//! never a mutation of an existing one. The re-accept procedure
+//! (`cargo insta review`) is in `AGENTS.md`.
 //!
 //! Party convention: **A is the absorber** — the counterparty that survives the
 //! session and takes the retiree's party — and **B is the retiree**, running
@@ -38,30 +41,32 @@ use crate::common::wire::{block_on, bootstrap_fork_async_with_protocol};
 
 /// A seed universe from a fixed RNG, so the [`rumors::Network`] id and every
 /// party forked from it are deterministic and these captures stay reproducible.
+///
 /// The retiree is always a [`bootstrap_fork`] of this seed: a genuine disjoint
 /// originator, which is what retirement reclaims.
 fn seeded() -> Rumors<u64> {
-    Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
+    Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .sync_window_floor()
+        .into_rumors()
 }
 
 /// Capture one successful retire: `retiree` runs [`Peer::retire`] (party B)
 /// while `absorber` drives `gossip` (party A), reconciling content and then
-/// taking the retiree's party. The retiree is expected to commit
+/// taking the retiree's party.
+///
+/// The retiree is expected to commit
 /// ([`Retire::Retired`]).
 fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
     capture_session(
-        move |mut r, mut w| async move {
-            absorber
-                .gossip(&mut r, &mut w)
-                .await
-                .expect("absorber gossip");
+        move |mut link| async move {
+            absorber.gossip(&mut link).await.expect("absorber gossip");
         },
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let retiree = retiree
                 .try_into_peer()
                 .await
                 .expect("the sole handle reclaims the Peer");
-            let outcome = retiree.retire(&mut r, &mut w).await;
+            let outcome = retiree.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Retired),
                 "the absorber dominates, so retire must commit; got {outcome:?}",
@@ -71,7 +76,9 @@ fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
 }
 
 /// Retire into a converged absorber: both sides are empty, so their versions
-/// are equal and the absorber dominates reflexively. The minimal retire session
+/// are equal and the absorber dominates reflexively.
+///
+/// The minimal retire session
 /// — a reconciliation round that moves no content, then the bare party
 /// hand-off.
 #[test]
@@ -82,6 +89,7 @@ fn empty_retire() {
 }
 
 /// Retire across a divergence: the retiree holds `1`, the absorber holds `2`.
+///
 /// The session's reconciliation round trades the two novel messages — content
 /// crossing the wire in *both* directions — before the party changes hands, so
 /// this pins a content-bearing retire that the converged case never reaches.
@@ -101,6 +109,7 @@ fn divergent_retire() {
 fn v1_divergent_retire() {
     let (absorber, retiree) = block_on(async {
         let absorber = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0))
+            .sync_window_floor()
             .protocol(Protocol::V1)
             .into_rumors();
         let retiree = bootstrap_fork_async_with_protocol(&absorber, Protocol::V1).await;
@@ -109,18 +118,15 @@ fn v1_divergent_retire() {
         (absorber, retiree)
     });
     let capture = capture_session_v1(
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             absorber
-                .gossip(&mut r, &mut w)
+                .gossip(&mut link)
                 .await
                 .expect("V1 absorber gossip");
         },
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let retiree = retiree.try_into_peer().await.expect("sole V1 handle");
-            assert!(matches!(
-                retiree.retire(&mut r, &mut w).await,
-                Retire::Retired,
-            ));
+            assert!(matches!(retiree.retire(&mut link).await, Retire::Retired,));
         },
     );
     insta::assert_snapshot!(capture);
@@ -128,7 +134,9 @@ fn v1_divergent_retire() {
 
 /// Both sides try to retire into each other: each reads the other's
 /// retire-intent from the preamble and refuses to absorb a peer that is itself
-/// leaving, so both decline and are handed back intact. The capture pins the
+/// leaving, so both decline and are handed back intact.
+///
+/// The capture pins the
 /// bytes of that mutual stand-down. (The symmetric exception to this file's
 /// A-absorbs/B-retires convention: here both parties retire.)
 #[test]
@@ -140,17 +148,17 @@ fn mutual_retire_declines() {
     b.batch().send(3).send(4);
 
     let capture = capture_session(
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let a = a.try_into_peer().await.expect("a's sole handle");
-            let outcome = a.retire(&mut r, &mut w).await;
+            let outcome = a.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
                 "mutual retirement must decline; got {outcome:?}",
             );
         },
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let b = b.try_into_peer().await.expect("b's sole handle");
-            let outcome = b.retire(&mut r, &mut w).await;
+            let outcome = b.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
                 "mutual retirement must decline; got {outcome:?}",
@@ -162,8 +170,10 @@ fn mutual_retire_declines() {
 
 /// Retire into a *bootstrapping* counterparty: the newcomer (party A) pulls the
 /// retiree's whole tree through the descent and then receives its whole party
-/// as the trailing frame — it *becomes* the retiree's successor in the same
-/// universe. The cross of the bootstrap and retire legs: one side bootstraps,
+/// as the trailing frame.
+///
+/// The newcomer *becomes* the retiree's successor in the same universe.
+/// The cross of the bootstrap and retire legs: one side bootstraps,
 /// the other retires, and the identity is handed off rather than reclaimed by
 /// an established peer.
 #[test]
@@ -173,18 +183,19 @@ fn retire_into_bootstrapper() {
     retiree.batch().send(1).send(2);
 
     let capture = capture_session(
-        |mut r, mut w| async move {
-            Peer::<u64>::bootstrap(&mut r, &mut w)
+        |mut link| async move {
+            Peer::<u64>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("bootstrap handshake")
                 .expect("the retiree served the bootstrap");
         },
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let retiree = retiree
                 .try_into_peer()
                 .await
                 .expect("the sole handle reclaims the Peer");
-            let outcome = retiree.retire(&mut r, &mut w).await;
+            let outcome = retiree.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Retired),
                 "a bootstrapper absorbs the retiree; got {outcome:?}",

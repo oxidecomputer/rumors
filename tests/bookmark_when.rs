@@ -15,9 +15,9 @@
 //!    identity work to checkpoint: it has never persisted, or has emitted a local
 //!    change (a [`send`](rumors::Rumors::send) or
 //!    [`redact`](rumors::Rumors::redact)) or moved a party (donated a fork,
-//!    absorbed a retiree) since its last persist. Merely *incorporating* content
-//!    learned over gossip — whatever it may be — advances only other parties'
-//!    regions, never the peer's own, so it triggers no write at all.
+//!    absorbed a retiree) since its last persist. Merely *incorporating*
+//!    content learned over gossip advances only other parties' identities,
+//!    never the peer's own, so it triggers no write at all.
 //!
 //! The distinction in (2) is the whole point: a local change ticks the peer's
 //! *own* identity region, and a checkpoint of that region must reach storage
@@ -61,12 +61,12 @@ use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
 use rumors::{Bookmark, BookmarkError, Key, Peer, Retire, Rumors, Serialized};
-use tokio::io::{AsyncWrite, duplex, split};
+use tokio::io::AsyncWrite;
 
 use crate::common::wire::block_on;
 
-/// In-memory duplex capacity, comfortably larger than any session here ships.
-const DUPLEX_BUF: usize = 8 * 1024;
+/// In-memory link stream capacity, comfortably larger than any session here ships.
+const LINK_BUF: usize = 8 * 1024;
 
 // ---- the instrument --------------------------------------------------------
 
@@ -144,6 +144,7 @@ impl Instrument {
                 log: Arc::clone(&log),
             };
             let subject = Peer::<u64>::seed()
+                .sync_window_floor()
                 .bookmark(probe)
                 .await
                 .expect("a pristine seed attaches without touching storage");
@@ -182,18 +183,13 @@ impl Instrument {
 // ---- session drivers -------------------------------------------------------
 //
 // Each runs one in-memory session between the bookmarked subject and a helper
-// over a clean duplex, both ends making concurrent progress via `join!` on the
+// over a clean link, both ends making concurrent progress via `join!` on the
 // current-thread runtime.
 
 /// Plain gossip: the subject reconciles content with `helper`. No party moves.
 async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
-    let (s_side, h_side) = duplex(DUPLEX_BUF);
-    let (mut s_r, mut s_w) = split(s_side);
-    let (mut h_r, mut h_w) = split(h_side);
-    let (s, h) = tokio::join!(
-        subject.gossip(&mut s_r, &mut s_w),
-        helper.gossip(&mut h_r, &mut h_w),
-    );
+    let (mut s_link, mut h_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (s, h) = tokio::join!(subject.gossip(&mut s_link), helper.gossip(&mut h_link),);
     s.expect("subject plain gossip");
     h.expect("helper plain gossip");
 }
@@ -201,33 +197,33 @@ async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
 /// Serve a bootstrap: the subject donates a fresh fork of its identity to a
 /// newcomer, returning it as a new helper in the same universe.
 async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
-    let (s_side, n_side) = duplex(DUPLEX_BUF);
-    let (mut s_r, mut s_w) = split(s_side);
-    let (mut n_r, mut n_w) = split(n_side);
+    let (mut s_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (s, n) = tokio::join!(
-        subject.gossip(&mut s_r, &mut s_w),
-        Peer::<u64>::bootstrap(&mut n_r, &mut n_w),
+        subject.gossip(&mut s_link),
+        Peer::<u64>::bootstrap().join(&mut n_link),
     );
     s.expect("subject serve bootstrap");
     n.expect("bootstrap handshake")
         .expect("subject served the bootstrap")
+        .sync_window_floor()
         .into_rumors()
 }
 
 /// Serve a bootstrap from `origin`, returning the newcomer as a still-unbookmarked
-/// [`Peer`] ready to have a `Probe` attached — the way a real process is born
+/// [`Peer`] ready to have a `Probe` attached.
+///
+/// This is the way a real process is born
 /// into an existing universe before it adopts its durable identity store.
 async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
-    let (o_side, n_side) = duplex(DUPLEX_BUF);
-    let (mut o_r, mut o_w) = split(o_side);
-    let (mut n_r, mut n_w) = split(n_side);
+    let (mut o_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (o, n) = tokio::join!(
-        origin.gossip(&mut o_r, &mut o_w),
-        Peer::<u64>::bootstrap(&mut n_r, &mut n_w),
+        origin.gossip(&mut o_link),
+        Peer::<u64>::bootstrap().join(&mut n_link),
     );
     o.expect("origin serves the bootstrap");
     n.expect("bootstrap handshake")
         .expect("origin served the bootstrap")
+        .sync_window_floor()
 }
 
 /// Absorb a retiree: `retiree` retires its whole identity into the subject,
@@ -237,13 +233,8 @@ async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
         .try_into_peer()
         .await
         .expect("the helper is the sole handle to its set");
-    let (s_side, r_side) = duplex(DUPLEX_BUF);
-    let (mut s_r, mut s_w) = split(s_side);
-    let (mut r_r, mut r_w) = split(r_side);
-    let (s, outcome) = tokio::join!(
-        subject.gossip(&mut s_r, &mut s_w),
-        retiree.retire(&mut r_r, &mut r_w),
-    );
+    let (mut s_link, mut r_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (s, outcome) = tokio::join!(subject.gossip(&mut s_link), retiree.retire(&mut r_link),);
     s.expect("subject absorbs the retiree");
     match outcome {
         Retire::Retired => {}
@@ -258,13 +249,8 @@ async fn retire_subject(subject: Rumors<u64, Probe>, absorber: &Rumors<u64>) {
         .try_into_peer()
         .await
         .expect("the subject is the sole handle to its set");
-    let (s_side, a_side) = duplex(DUPLEX_BUF);
-    let (mut s_r, mut s_w) = split(s_side);
-    let (mut a_r, mut a_w) = split(a_side);
-    let (outcome, a) = tokio::join!(
-        subject.retire(&mut s_r, &mut s_w),
-        absorber.gossip(&mut a_r, &mut a_w),
-    );
+    let (mut s_link, mut a_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (outcome, a) = tokio::join!(subject.retire(&mut s_link), absorber.gossip(&mut a_link),);
     a.expect("absorber gossip");
     match outcome {
         Retire::Retired => {}
@@ -305,7 +291,9 @@ impl Model {
         }
     }
 
-    /// A peer born by bootstrap, with its `Probe` already attached. A fork is
+    /// A peer born by bootstrap, with its `Probe` already attached.
+    ///
+    /// A fork is
     /// not pristine, so the attach has *eagerly* persisted it: already loaded
     /// (one read), already written once. But the attach-time record deliberately
     /// does not stage the suppression token, so a checkpoint is still pending —
@@ -396,7 +384,9 @@ enum Origin {
     Bootstrap,
 }
 
-/// Everything a generated lifetime needs once the subject exists: the
+/// Everything a generated lifetime needs once the subject exists.
+///
+/// That is: the
 /// bookmarked subject, a direct handle on its I/O log (which outlives the
 /// subject when it retires), the model in its post-birth state, and any
 /// counterparties already present (the origin seed, for a bootstrapped peer).
@@ -419,6 +409,7 @@ async fn birth(origin: Origin) -> Birth {
     match origin {
         Origin::Seed => {
             let subject = Peer::<u64>::seed()
+                .sync_window_floor()
                 .bookmark(probe)
                 .await
                 .expect("a pristine seed attaches without touching storage");
@@ -436,7 +427,7 @@ async fn birth(origin: Origin) -> Birth {
         Origin::Bootstrap => {
             // A separate seed originates the universe and serves the subject's
             // bootstrap, then stays on as the subject's first counterparty.
-            let origin = Peer::<u64>::seed().into_rumors();
+            let origin = Peer::<u64>::seed().sync_window_floor().into_rumors();
             let fork = bootstrap_fork_peer(&origin).await;
             let subject = fork
                 .bookmark(probe)
@@ -485,7 +476,9 @@ fn read_is_deferred_to_first_use() {
 }
 
 /// The heart of the contract: a session that *only incorporates remote content*
-/// writes nothing. A local send drives a checkpoint; the next session, after a
+/// writes nothing.
+///
+/// A local send drives a checkpoint; the next session, after a
 /// *helper's* send, pulls that content in but persists nothing, because the
 /// subject's own region did not advance.
 #[test]
@@ -539,8 +532,9 @@ fn read_happens_exactly_once_across_a_long_life() {
 }
 
 /// A peer born by bootstrap is not pristine, so attaching its bookmark eagerly
-/// persists its forked identity — exactly one read then one write — and that
-/// attach read is the lifetime's only read: a following session never repeats
+/// persists its forked identity — exactly one read then one write.
+///
+/// That attach read is the lifetime's only read: a following session never repeats
 /// it, and (no local work having intervened) it re-records but does not re-read.
 #[test]
 fn attaching_to_a_fork_eagerly_persists_then_never_re_reads() {
@@ -688,11 +682,8 @@ impl World {
 proptest! {
     #![proptest_config(ProptestConfig { cases: 128, ..ProptestConfig::default() })]
 
-    /// Over an arbitrary peer lifetime — born either as a fresh seed or as a
-    /// bootstrap fork, then any interleaving of sends, redactions, remote-content
-    /// arrivals, plain gossip, bootstrap donations, and retiree absorptions,
-    /// optionally ending in the subject's own retirement — the bookmark's
-    /// read/write schedule matches the model exactly at every step, and so:
+    /// Over an arbitrary peer lifetime, the bookmark's read/write schedule
+    /// matches the model exactly at every step, and so:
     ///
     /// 1. **Read once.** Across the whole life the record is read at most once
     ///    (at attach for a fork, lazily at first use for a seed), and that read
@@ -701,6 +692,11 @@ proptest! {
     ///    local change or party movement is owed since the last persist;
     ///    incorporating remote content drives no I/O; a send or redact alone
     ///    drives no I/O until the session that checkpoints it.
+    ///
+    /// The lifetime: born either as a fresh seed or as a
+    /// bootstrap fork, then any interleaving of sends, redactions, remote-content
+    /// arrivals, plain gossip, bootstrap donations, and retiree absorptions,
+    /// optionally ending in the subject's own retirement.
     #[test]
     fn bookmark_io_schedule_matches_the_model(
         origin in prop_oneof![Just(Origin::Seed), Just(Origin::Bootstrap)],

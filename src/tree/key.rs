@@ -6,12 +6,16 @@ use super::typed;
 
 /// An opaque key uniquely identifying a message.
 ///
-/// Keys are minted by sends and come back out of the observers and
-/// [`Snapshot`](crate::Snapshot) iteration; they go into
+/// A key is a unique pointer to the causal moment its message was
+/// introduced by the party that sent it: it binds the send's version
+/// (fresh on every send) to the message's content. Keys are therefore
+/// unique across the entire history of the universe, byte-identical
+/// re-sends are distinct messages under distinct keys, and the same
+/// *send* has the same key on every replica. Keys come back out of the
+/// observers and [`Snapshot`](crate::Snapshot) iteration; they go into
 /// [`redact`](crate::Rumors::redact) and [`get`](crate::Snapshot::get). A
-/// key is stable across replicas — the same message has the same key on
-/// every peer in the universe — and is freely persistable as its raw 32
-/// bytes ([`as_bytes`](Self::as_bytes), [`From<[u8; 32]>`](Self#impl-From<[u8;+32]>-for-Key)).
+/// key is freely persistable as its raw 32 bytes
+/// ([`as_bytes`](Self::as_bytes), [`From<[u8; 32]>`](Self#impl-From<[u8;+32]>-for-Key)).
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct Key(pub(crate) [u8; 32]);
@@ -38,9 +42,11 @@ impl Key {
     }
 }
 
-/// Reconstitute a key from its raw bytes (for example, one persisted for a
-/// later redaction). A key that never named a live message is harmless:
-/// lookups miss and redactions are no-ops.
+/// Reconstitutes a key from its raw bytes (for example, one persisted for a
+/// later redaction).
+///
+/// A key that never named a live message is harmless: lookups miss and
+/// redactions are no-ops.
 impl From<[u8; 32]> for Key {
     fn from(bytes: [u8; 32]) -> Self {
         Self(bytes)

@@ -20,7 +20,7 @@ use height::{Height, S, Z};
 /// The inductive step of the filter, implemented per [`Height`]: each level
 /// prunes by its memoized ceiling/floor before descending.
 pub trait Unknown: Height {
-    /// Filter this subtree down to the nodes a counterparty at `known` is
+    /// Filters this subtree down to the nodes a counterparty at `known` is
     /// missing, honoring deletions: a node causally `<=` `known` is already
     /// known there (or was deleted there) and drops out.
     fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>

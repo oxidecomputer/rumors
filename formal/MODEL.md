@@ -6,13 +6,22 @@ Lean package (Phase C/D) both transcribe; when the three disagree, this file
 is wrong exactly until the disagreement is resolved, and the resolution lands
 here first.
 
-The modeled system is `src/tree/mirror/streaming/` as of 2026-07-15 — the
-**in-memory driver** (`mirror_connected`): two conforming parties on the
-`Local` backend, no remote transport (none exists yet; `remote/` is a framing
-layer below this model's abstraction). Every structural claim below was
-extracted from the Rust with file/line citations and adversarially
-cross-checked; the extraction reports live with the working notes, and the
-load-bearing citations are repeated here.
+The modeled system is the connected-session core of
+`src/tree/mirror/streaming/` — the **in-memory driver** (`mirror_connected`,
+`streaming/driver.rs`): two conforming parties on the `Local` backend. The
+remote transport (`remote/`, running over a caller-supplied `Link`) sits
+below this model's abstraction: a remote session drives the same walk,
+queue, and assembler machinery modeled here, the model's wire edge is a
+bounded in-order FIFO, and capacity monotonicity (§1.iv) covers a
+conforming link's larger buffering — while the remote adaptation layer
+itself (codec, proxy pumps, stream supply) is outside the model, validated
+by the link conformance suite and the trace bridges instead. Structural
+claims below were extracted from the Rust (2026-07-15, re-audited
+2026-07-23) and adversarially cross-checked; the load-bearing citations
+are repeated here as durable anchors (file and item — the 07-15 line
+numbers rotted within days). The one divergence the 07-23 re-audit
+flagged (the pairing loops' dequeue order) is resolved by the
+dequeue-order class amendment in §5.
 
 ## 1. What is proved, what is assumed
 
@@ -65,6 +74,14 @@ implementation whose traces satisfy the tightened `assert_valid`.
   definitionally, and ρ never reads occupancy, so the run bound is the
   floor's. The `d5` corner's wire-widening remains on the informal
   Kahn argument (Statement.lean, "Assumed, not proven").
+- (v) **Dequeue-order indifference** (for the `.impl` flagship): (i),
+  (ii), and (iv) hold at EVERY assignment of the two-point per-loop
+  dequeue-order class (each walk stage and the absorber independently
+  reply-first or query-first, closes tied to the prologue choice —
+  the shipping Rust is the all-query-first instance). Kernel-proven
+  since 2026-07-24 (`Sched.deadlock_free_anyOrder`,
+  `Sched.deadlock_free_wide_anyOrder`; the class, its exclusions, and
+  the reply-first residue: §5's dequeue-order subsection).
 
 **Explicitly not modeled** (modeled-world premises, each with its Rust
 anchor):
@@ -72,7 +89,7 @@ anchor):
 - **The error path.** All park-forever sites (`next_or_pending!`,
   `divert`'s park) and all `Violation` aborts are reachable only after a
   fault has claimed the driver's one-slot error channel
-  (streaming.rs:84-91). Two conforming peers on `Local`
+  (`driver.rs`, the error route's `try_send`-only `report`). Two conforming peers on `Local`
   (`Error = Infallible`) never reach them, so the model omits them and the
   theorem is genuine deadlock-freedom of violation-free sessions — not
   "deadlock-freedom modulo abort".
@@ -97,8 +114,8 @@ skeletons**: the finite tree of scopes the session actually recurses into.
 - A **scope** is a node the two parties recurse on. The root is a scope,
   and always a disputed one: `mirror_connected` is entered only after the
   handshake's version comparison, and equal versions short-circuit the
-  session before the protocol begins ("two roots hash equal only when
-  their versions are equal", protocol.rs:116-120) — the handshake, the
+  session before the protocol begins ("equal only when their versions are
+  equal", `streaming/protocol.rs`) — the handshake, the
   short-circuit, and the initiator-selection tiebreak all sit outside the
   modeled function and therefore outside the theorem's claim.
   Each scope at height `h ≥ 2` has an ordered list of children, each labeled:
@@ -111,15 +128,16 @@ skeletons**: the finite tree of scopes the session actually recurses into.
     sides**, dropped from the skeleton entirely.
 - Each scope at height 1 carries only a count `leafReqs ≥ 0` of leaf
   requests (`answer::leaf_parent` maps `Both` to `Match` unconditionally —
-  answer.rs:112-115 — so height-0 leaves are never disputed; height-**1**
+  `work/answer.rs` — so height-0 leaves are never disputed; height-**1**
   scopes *are* disputable, via `answer::internal` instantiated at `H = Z`).
-- Fan bound: ≤ F children per scope (`FAN = 256` in Rust, queues.rs:36).
+- Fan bound: ≤ F children per scope (`FAN = 256` in Rust, `streaming/window.rs`,
+  consumed by the assembler queue constructor in `work/queues.rs`).
 - Ids are BFS order, and since 2026-07-16 `wellFormed` checks the
   cross-parent consequence, not just per-scope ascending kids: each
   stage's kid lists, flattened in scope order, ARE the next stage down
-  (`wf_bfs_aligned`). The conjunct exists for the progress proof, which
-  keys each channel's n-th message to the n-th scope of the consuming
-  stage (PROGRESS.md §2–3); a crossed-but-otherwise-well-formed
+  (`wf_bfs_aligned`). The conjunct exists for the progress proof
+  (`Sched.progress`), which keys each channel's n-th message to the n-th
+  scope of the consuming stage; a crossed-but-otherwise-well-formed
   skeleton stays count-consistent and completes, so this narrows the
   theorem's domain to the documented (and Rust-realized) class rather
   than fixing a defect.
@@ -139,11 +157,12 @@ channel ops — hence `M`. The skeleton does not need a second request label.
 
 Message index convention (from the Rust types): `Query<H>` pairs with
 `Reply<H>` where `H` is the *children's* height; the scope sits at `H + 1`
-(materialized.rs:183-186).
+(the `materialized.rs` message types).
 
 Per party, the session is a fixed pipeline of **walk stages** `S(p, h)`, one
 per consumed message index `h`, plus an opening, a terminal, assemblers, and
-pumps. The schedule (`mirror_connected`, streaming.rs:120-130) fixes:
+pumps. The schedule (`mirror_connected`'s phase-schedule expansion,
+`streaming/driver.rs`) fixes:
 
 - **Initiator** stages consume odd `h = ROOT_H−1, ROOT_H−3, …, 1`;
   it therefore *processes* (asks about) scopes at even heights
@@ -161,12 +180,13 @@ its own copy of every reconciled scope; that is why each reply stage feeds
 "D = 31 is odd" is not quoted anywhere in the Rust; it is *derived* — the
 schedule plus `ReplyHeight`'s two-height stride forces the parity map above,
 and the parity map is what the model builds in. The Rust pins the counts
-("the counts must move together", peer.rs:114-117).
+("must move together", `streaming/protocol/peer.rs`).
 
 ## 4. Processes and the channel graph
 
 All concurrency is cooperative: one Tokio task, futures interleaved at await
-points (`join_all` + `select!`; no `tokio::spawn` anywhere). The model's
+points (`try_join` + `select!`; no `tokio::spawn` anywhere in
+`src/tree/mirror/`). The model's
 interleaving semantics — any one enabled atomic action per step — is a strict
 superset, sound for safety.
 
@@ -174,13 +194,13 @@ superset, sound for safety.
 
 | Model process | Rust | Program shape |
 |---|---|---|
-| `IOpen` | `initiator_level` (work.rs:169-212) | send 1 wire reply (root listing) → send 1 `rootQuery` |
-| `ROpen` | `responder_level` (work.rs:215-280) | recv 1 wire → publish root obligations (§5) |
-| `Walk(p, h)` | `internal_level` / `leaf_parent_level` / `leaf_level` + its `Work::respond` pump | per scope: prologue recvs → obligation poset → epilogue; then 2 close-recvs |
-| `Asm(p, j)` | `assemble` + `return_into` (work.rs:93-105, 518-548) | loop: recv resolution → recv 1 level item per `Pending` slot → send the assembled return upward; then 1 close-recv |
-| `Absorb` | `absorb` (materialized.rs:564-604) | per leaf request: recv wire → recv `leafReq` → send return; then 2 close-recvs |
-| `IFinish` | work.rs:206-209 | recv 1 from `rootReturn` |
-| `RFinish` | inline root assembly (work.rs:268-277) | recv `rootRes` → recv 1 `rootReturns` item per root `Pending` |
+| `IOpen` | `initiator_level` (`work/levels.rs`) | send 1 wire reply (root listing) → send 1 `rootQuery` |
+| `ROpen` | `responder_level` (`work/levels.rs`) | recv 1 wire → publish root obligations (§5) |
+| `Walk(p, h)` | `internal_level` / `leaf_parent_level` / `leaf_level` (`work/levels.rs`) + its `Work::respond` pump | per scope: prologue recvs → obligation poset → epilogue; then 2 close-recvs |
+| `Asm(p, j)` | `assemble` + `return_into` (`work.rs`) | loop: recv resolution → recv 1 level item per `Pending` slot → send the assembled return upward; then 1 close-recv |
+| `Absorb` | `absorb` (`materialized.rs`) | per leaf request: recv wire → recv `leafReq` → send return; then 2 close-recvs |
+| `IFinish` | `initiator_level`'s tail (`work/levels.rs`) | recv 1 from `rootReturn` |
+| `RFinish` | inline root assembly (`responder_level`'s tail, `work/levels.rs`) | recv `rootRes` → recv 1 `rootReturns` item per root `Pending` |
 
 ### Stream/driver pairs collapse to one sequential process
 
@@ -211,7 +231,13 @@ edges (excluded with the error path).
 
 Per party `p` and applicable height, with the Rust `QueueKind` each
 transcribes (channel instances are keyed `(kind, height)` in Rust too —
-"14" is the edge taxonomy, not the channel count):
+"14" is the edge taxonomy, not the channel count). Capacities in this
+table are the **model floor** the theorems are stated at. The shipping
+Rust runs the recursive walk edges (`asked`, `upperRes`, `lowerRes`) at
+session-window capacities ≥ 1 (`work/queues.rs`: recursive edges take
+their capacity from the session's window), the wire at 1, and the
+assembler at `FAN` (its hard floor, not a tunable); every such vector is
+covered by capacity monotonicity (§1.iv, `Sched.deadlock_free_wide`).
 
 | Model channel | Cap | Producer → Consumer | QueueKind |
 |---|---|---|---|
@@ -235,7 +261,7 @@ its output feeds `level(p, j)` — except the top of each chain:
 `RFinish`. At the bottom, `Absorb` produces `level(I, 0)`; the responder's
 `Asm(R, 1)` (`assemble_leaves`) consumes no level items at all — its
 resolutions are `Pending`-free by construction (`TerminalLeafResolutions`,
-queues.rs:296-297).
+`work/queues.rs`).
 
 ### Resolution `pending` counts (asymmetric by role)
 
@@ -286,8 +312,23 @@ Commitment steps are counted in the run-length bound (§7).
 Per-scope structure of a walk stage, for each scope σ it processes in
 order (scope order = query order = BFS/radix order of the skeleton):
 
-1. **Prologue** (fixed order, program structure): `recv wire` then
-   `recv asked` (work.rs:310-311 — reply first, then query).
+1. **Prologue** (fixed order, program structure). The model's baseline
+   transcription is `recv wire` then `recv asked` — reply first, then
+   query, the order the Rust had at extraction. Since fd36bb65
+   ("Dequeue query-first in the pairing loops") the shipping walk
+   dequeues the query first and then awaits the wire reply
+   (`work/levels.rs`), freeing the queue slot one reply earlier so the
+   window accounting is exact; the end-of-stream checks flipped with
+   it (loop exit on the closed query queue, leftover-reply check
+   after). The pairing is unchanged — the k-th query still meets the
+   k-th reply — but the prologue's I/O order is not the baseline
+   transcription's, and capacity monotonicity does not cover an order
+   change. **RESOLVED (2026-07-23, the order-indifference amendment):
+   the divergence flagged here by the 07-23 re-audit is closed by
+   quantifying the `.impl` theorems over the prologue order itself
+   rather than re-pinning the model to one order — the dequeue-order
+   class subsection below states the class, the claim of record, and
+   the reply-first residue.**
 2. **Publication obligations** (the poset the axioms guard): per D child c —
    `send wire(c)`, `send lowerRes(c)`, `send asked(g)` for each child g of
    c; per R child c — `send wire(c)` only; plus one `send upperRes(σ)`
@@ -296,7 +337,8 @@ order (scope order = query order = BFS/radix order of the skeleton):
    structure, never relaxed; the axioms govern only cross-channel
    interleavings). Positional pairing is the protocol's identity carrier —
    returns are prefix-less and replies pair with the query queue by index
-   (work.rs:512-515) — so an implementation that reorders within a channel
+   (the pairing loops of `work/levels.rs`) — so an implementation that
+   reorders within a channel
    is functionally incorrect and outside the theorem's scope, and the
    counting abstraction is unsound for it (out-of-order arrivals misbind
    the consumers' positional schedules and manufacture spurious model
@@ -305,8 +347,13 @@ order (scope order = query order = BFS/radix order of the skeleton):
    sequential across scopes — a modeled-world premise slightly stronger than
    the ledgers, which would tolerate cross-scope pipelining; the Rust walk
    is a single sequential loop).
-5. After the last scope: `recvClose wire`, then `recvClose asked`
-   (work.rs:367-369: the trailing `queries.recv()` check).
+5. After the last scope: `recvClose wire`, then `recvClose asked` in
+   the baseline (reply-first) transcription. The query-first member of
+   the dequeue-order class closes `asked` then `wire` — the shipping
+   loop since fd36bb65 exits on the closed query queue and then checks
+   the reply stream for a leftover. The close order is tied to the
+   loop's prologue choice, never a separate choice point (the
+   dequeue-order class subsection below).
 
 Within step 2 there is **no fixed cross-channel program order** among the
 obligations of one scope: beyond the per-channel child order of step 3, the
@@ -322,9 +369,75 @@ can never produce.
 one prologue recv (the opening wire message). `IOpen` has two ops:
 `wire-yield` then `send rootQuery` — the `InitialQuery` wire-ledger edge.
 
+### The dequeue-order class (§5.1 resolution, 2026-07-23)
+
+Each pairing loop of the session — each walk stage `S(p, h)`, and the
+absorber — is a two-receive loop: per scope (per leaf request, for the
+absorber) it dequeues one wire reply and one queued query, then (for
+walks) publishes. The order-indifference metatheorem quantifies over
+the **two-point per-loop dequeue choice**:
+
+- **reply-first** (`PairOrder.replyFirst`): recv wire at phase 0, recv
+  asked at phase 1; end-of-stream closes wire at phase 3, asked at
+  phase 4 — the baseline transcription of §5.1/§5.5;
+- **query-first** (`PairOrder.queryFirst`): recv asked at phase 0,
+  recv wire at phase 1; closes asked at phase 3, wire at phase 4 — the
+  shipping order since fd36bb65. The close order is **tied** to the
+  loop's prologue choice (the Rust loop exits on whichever queue it
+  dequeues first going closed); the model does not treat closes as a
+  separate choice point.
+
+An `OrdMap` assigns one `PairOrder` to every walk stage and one to the
+absorber, each independently — 2^(#stages + 1) assignments per
+skeleton. `applyO` is the ord-parameterized transition function;
+`applyO_rf` pins its all-reply-first instance to `Model.apply`
+definitionally, so the baseline theorems are the `ord = .rf` instances
+of the quantified ones and the shipping Rust is the all-query-first
+instance.
+
+**Explicitly outside the class** (loop shapes that are not a two-point
+dequeue choice; none is the shipping Rust, and none is covered):
+
+- racing both inputs (a `select!` over reply queue and query queue,
+  order resolved per message at runtime);
+- cross-scope prefetching (dequeuing scope k+1's inputs before scope
+  k's obligations complete — the §5.4 sequential-scope premise, still
+  in force);
+- a prologue interleaved with the scope's sends (both receives always
+  precede every publication of the scope).
+
+**Claim of record** (fixed 2026-07-23, before any Lean transcription;
+kernel-proven 2026-07-24): under `wellFormed` and margin 0
+(`∀ σ, dCount σ ≤ capLevel`), every assignment's `.impl` session is
+deadlock-free and terminating, at the floor capacities and at every
+pointwise-widened capacity vector κ ≥ floor —
+`Sched.deadlock_free_anyOrder` (Ord/Endgame.lean),
+`Sched.deadlock_free_wide_anyOrder` (Ord/WideEndgame.lean),
+`Ord.rho_decreasesO` / `Ord.terminatingO` (Ord/Termination.lean),
+each at kernel axioms `[propext, Classical.choice, Quot.sound]`; the
+audit surface is Ord/Statement.lean. This is per-loop dequeue-order
+indifference over the two-point class above, NOT arbitrary-order
+indifference: nothing is claimed for the excluded loop shapes.
+
+**Reply-first residue** (each theorem below stays certifying the
+baseline reply-first order only; dated notes, deliberate scope
+decisions of 2026-07-23, not gaps discovered later):
+
+- `Sched.deadlock_free_d5` (2026-07-23): the parent-early corner is a
+  design-space record, not the shipping encoder; its proof chain (the
+  spliced weave, the AscCover/DescSupply telescopes) stays reply-first
+  and no claim is made about a query-first `d5` corner.
+- The mux layer (2026-07-23): `wc_impossibility`,
+  `wc_impossibility_K`, `sigmaStar_deadlock_free`,
+  `sigmaStarK_deadlock_free`, `sigmaStarCausal_deadlock_free`,
+  `oracle_deadlock_free`, `elastic_deadlock_free`, `mux_terminating`,
+  and their kin build on the baseline `Model.apply` and stay
+  reply-first.
+
 ## 6. The axioms: the ledgers of `Trace::assert_valid`
 
-The axiom guards transcribe progress.rs:40-98 *exactly* — the ledgers, not
+The axiom guards transcribe the checks of `progress.rs::Trace::assert_valid`
+*exactly* — the ledgers, not
 the module doc's prose, are the assumed interface, because they are what the
 Rust proptests enforce on every scheduled run. Model obligations correspond
 to trace events as: `wire-yield` ↦ `Wire`, `send lowerRes(c)` /
@@ -347,9 +460,9 @@ trivially ordered.)
   the skeleton mints exactly one query per D/R child.
 - **Axiom D2 (lower ledger).** A parent resolution declaring N pending
   requires ≥ N prior child-scope resolutions: `send upperRes(σ)` requires
-  `send lowerRes(c)` fired for every D child c of σ. (The Rust comment says
-  "launches" = queries — work.rs:359-361 — but the *checked* property is
-  child resolutions, which is weaker; the model assumes only the checked
+  `send lowerRes(c)` fired for every D child c of σ. (The *checked*
+  property is child resolutions — weaker than the dependent-work
+  launches prose might suggest; the model assumes only the checked
   property, making the theorem stronger. R children deposit their lower
   ledger credit on the *answerer's* side; on the asker's side σ's
   `pending` counts only D children, whose asker-side resolutions are the
@@ -362,9 +475,9 @@ trivially ordered.)
   child i's queries before child i+1's resolution, so a "all wires, all
   resolutions, then all queries" implementation satisfied them and
   deadlocked the cap-1 `lowerRes` channel at fan ≥ 3 (`ledgerGap`
-  instance; the doc argument in queues.rs:225-229 — "by the time a later
-  resolution can block behind it, all work needed by the buffered
-  resolution has been launched" — implicitly relied on it). The Rust
+  instance — the one-slot floor of the child-resolution edge is
+  sufficient only under this axiom, which the queue docs' sufficiency
+  argument implicitly relied on). The Rust
   enforces it syntactically (`yield_resolve_query!` + the sequential
   reaction loop), and `Trace::assert_valid` now checks it (the
   sibling-contiguity rule, added 2026-07-15 as a result of this finding).
@@ -447,11 +560,11 @@ forked copies.
 ## 7. Predicates, theorems, and why bounded checking is complete
 
 - `Terminal` ≡ every process has fired all its operations. (Operationally in
-  Rust: both terminal futures resolved, all 49 + 48 registered tasks
-  returned — the end-of-stream cascade.)
+  Rust: both terminal futures resolved, every registered task returned —
+  the end-of-stream cascade.)
 - `Stuck` ≡ ¬Terminal ∧ no operation enabled — the exact model twin of the
   quiescence driver's `Pending`-with-no-wake (`Quiescence::Stalled`,
-  tests.rs:62-91).
+  `src/testing.rs`).
 - `safe` ≡ ¬Stuck (equivalently Terminal ∨ ∃ enabled).
 - ρ(s) ≡ total unfired operations (in Lean: `Model.rho`,
   Proofs/Termination.lean, where the strict decrease is the kernel
@@ -477,19 +590,20 @@ so it never needs level-queue room before the parent resolution frees the
 drain. (An earlier draft attributed the second unit to a stream yield
 slot; the collapse of stream/driver pairs into sequential processes — §4 —
 eliminates that mechanism, and the model reproduces the Rust thresholds
-without it.) Rust ground truth (capacity.rs:167-190): the `[32, 256]` pyramid at
+without it.) Rust ground truth (`streaming/tests/capacity.rs`,
+`capacity_stress_witness_requires_inter_level_fan`): the `[32, 256]` pyramid at
 default C = 256 reaches high-water ≥ 254, stalls at C = 253, completes at
 C = 254. The Rust test pins the *deterministic* run; the model checks the
 stronger all-schedules claim at the scaled instance (F = 4: stall reachable
 at C = 1, safe at C = 2) — if the all-schedules claim fails where the
 deterministic run passes, that is a finding about scheduling slack, not
-automatically a model bug (queues.rs:71-73 explicitly refuses to rely on
-such slack).
+automatically a model bug (the assembler queue's doc in `work/queues.rs`
+explicitly refuses to rely on such slack).
 
 Production stance: C = F, under which `Asm` sends never block — occupancy on
 `level(p, j)` is bounded by the pending count of the one in-flight parent
 resolution ≤ F ("the bound does not multiply with tree width or depth",
-queues.rs:73-74). That inequality is the one FAN counting lemma of the Lean
+`work/queues.rs`). That inequality is the one FAN counting lemma of the Lean
 proof.
 
 ## 9. Known risks and premises (tracked)
@@ -498,7 +612,7 @@ proof.
    breaks close semantics and enabledness stability. Modeled-world premise.
 2. **Rendezvous inlining of pumps/forwarders** — valid while `respond` /
    `return_into` pull only after the previous send completes
-   (send-then-next loop shape, work.rs:83-88, 98-104). The +2 arithmetic
+   (send-then-next loop shape, `work.rs`). The +2 arithmetic
    shifts if that changes.
 3. **Sequential-scope premise** (§5.4) — slightly stronger than the ledgers;
    a pipelined future implementation would need the poset loosened.
@@ -513,22 +627,22 @@ proof.
 
 | Rust artifact | Model name |
 |---|---|
-| `Trace::assert_valid` wire ledger (progress.rs:49-56, 94-97) | Axiom W guard |
-| dependent ledger (progress.rs:58-78, 90-93) | Axiom D1 guard |
-| lower ledger (progress.rs:60-62, 79-86) | Axiom D2 guard |
+| `Trace::assert_valid` wire ledger (progress.rs) | Axiom W guard |
+| dependent ledger (progress.rs) | Axiom D1 guard |
+| lower ledger (progress.rs) | Axiom D2 guard |
 | sibling-contiguity check (progress.rs, added 2026-07-15) | Axiom D3 guard |
 | wire-contiguity check (progress.rs, added 2026-07-16) | Axiom D4 guard |
 | epilogue-placement check (`Trace::assert_parent_last`, progress.rs, added with finding #7's resolution, 2026-07-18) | Axiom D6 guard (mode `AxMode.impl`) |
 | `Trace::assert_parent_early` (deliberately unwired, `should_panic`-pinned: the weave's parent-early corner, design/parent-placement.md) | Axiom D5 guard (mode `AxMode.full`) |
 | radix-order check (progress.rs, added 2026-07-15) | per-channel in-order program structure (§5.3) |
-| `yield_resolve_query!` (materialized.rs:104-144) | the honest linearization (one refinement of the poset) |
-| `outgoing_responses` doc (queues.rs:38-42) | `wire` cap 1 + pump hand |
-| `assembly_level_returns` doc (queues.rs:60-74) | `level` cap C, FAN counting lemma |
+| `yield_resolve_query!` (materialized.rs) | the honest linearization (one refinement of the poset) |
+| `outgoing_responses` doc (`work/queues.rs`) | `wire` cap 1 + pump hand |
+| `assembly_level_returns` doc (`work/queues.rs`) | `level` cap C, FAN counting lemma |
 | the twelve other constructor docs (queues.rs) | per-channel cap-1 sufficiency lemmas, one each |
-| `run_to_quiescence` `Stalled` (tests.rs:62-91) | `Stuck` |
-| `capacity_stress_witness_requires_inter_level_fan` (capacity.rs:167-190) | tightness instances (§8) |
-| `capacity_stress_matrix` shapes (capacity.rs:69-109) | positive instance skeletons |
-| session completion (`join!` resolution, streaming.rs:61) | `Terminal` |
+| `run_to_quiescence` `Stalled` (`src/testing.rs`) | `Stuck` |
+| `capacity_stress_witness_requires_inter_level_fan` (`streaming/tests/capacity.rs`) | tightness instances (§8) |
+| `capacity_stress_matrix` shapes (`streaming/tests/capacity.rs`) | positive instance skeletons |
+| session completion (the terminal `try_join`, `streaming/driver.rs`) | `Terminal` |
 
 Instance-to-witness mapping, expected outcomes, and the N1–N4 control
 predictions live in `formal/quint/README.md` next to the runner that

@@ -1,4 +1,4 @@
-use std::{future::Future, pin::Pin, pin::pin};
+use std::{future::Future, mem, pin::Pin, pin::pin};
 
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
@@ -10,13 +10,13 @@ use crate::tree::{
         message::{Reaction as ProtocolReaction, Reply},
     },
     typed::{
-        Path, Prefix,
+        Hash, Path, Prefix,
         height::{Height, S, UnderRoot, Z},
     },
 };
 
 use super::{
-    super::codec::{End, Flow, Frame, Reaction as WireReaction},
+    super::codec::{End, Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget},
     error::{EncodeError, OpeningError, ScopeError},
     scope::Scope,
 };
@@ -49,36 +49,46 @@ impl<T, Q> Encoded<T, Q> {
 pub type Frames<T, E, Q> =
     Pin<Box<dyn Stream<Item = Result<Encoded<T, Q>, EncodeError<E>>> + Send>>;
 
-/// Encode the initiator's distinguished opening question.
-pub fn encode_opening<B, T>(
+/// Validate the initiator's distinguished opening reply and split it into
+/// its question's listing and its early whole-subtree supplies.
+///
+/// The opening *question* writes no frame of its own — its content already
+/// crossed inside the greeting's root-fan listing — so its encoding reduces
+/// to checking the canonical shape (one leading query, then only supplies)
+/// and returning the listing whose scope will interpret the responder's
+/// top-level reply. The trailing supplies are the initiator's exclusive
+/// root children; they alone occupy wire frames, as the opening-supply
+/// reply on the initiator's first stream.
+#[allow(clippy::type_complexity)]
+pub fn opening_parts<B, T>(
     reply: Reply<B, T, UnderRoot>,
-) -> Result<Encoded<T, Scope<UnderRoot>>, OpeningError>
+) -> Result<(Vec<(u8, Hash)>, Vec<ProtocolReaction<B, T, UnderRoot>>), OpeningError>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    let count = reply.replies.len();
-    if count != 1 {
-        return Err(OpeningError::ReactionCount { count });
-    }
-    let reaction = reply
-        .replies
-        .into_iter()
-        .next()
-        .expect("an opening reply checked to contain one reaction");
-    let ProtocolReaction::Query(listing) = reaction else {
+    let mut reactions = reply.replies.into_iter();
+    let Some(first) = reactions.next() else {
+        return Err(OpeningError::Empty);
+    };
+    let ProtocolReaction::Query(listing) = first else {
         return Err(OpeningError::NotQuery);
     };
-    let scope = Scope::opening(&listing);
-    Ok(Encoded {
-        frame: Frame::Reaction(WireReaction::Query(listing), Flow::End),
-        question: Some(scope),
-    })
+    let supplies: Vec<_> = reactions.collect();
+    if let Some(index) = supplies
+        .iter()
+        .position(|reaction| !matches!(reaction, ProtocolReaction::Supply(_, _)))
+    {
+        // Positions are reported in whole-reply terms; the query is 0.
+        return Err(OpeningError::NotSupply { index: index + 1 });
+    }
+    Ok((listing, supplies))
 }
 
 /// Encode one non-leaf reply and derive the lower questions it asks.
 pub fn encode_reply<B, T, H>(
     backend: B,
+    budget: RunBudget,
     scope: Scope<S<H>>,
     reply: Reply<B, T, S<H>>,
 ) -> Frames<T, B::Error, Scope<H>>
@@ -89,22 +99,31 @@ where
     S<H>: Convert,
     S<S<H>>: Height,
 {
-    render(backend, scope, reply, |scope, reaction| match reaction {
-        ProtocolReaction::Match => {
-            let _ = scope.next();
-            Ok(None)
-        }
-        ProtocolReaction::Query(listing) => {
-            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-            Ok(Some(Scope::new(prefix, listing)))
-        }
-        ProtocolReaction::Supply(_, _) => Ok(None),
-    })
+    render(
+        backend,
+        budget,
+        scope,
+        reply,
+        |scope, reaction| match reaction {
+            ProtocolReaction::Match => {
+                // Symmetric with decode: a match past the question's fan
+                // is unrepresentable on the wire.
+                scope.next().ok_or(ScopeError::UnpositionedMatch)?;
+                Ok(None)
+            }
+            ProtocolReaction::Query(listing) => {
+                let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+                Ok(Some(Scope::new(prefix, listing)))
+            }
+            ProtocolReaction::Supply(_, _) => Ok(None),
+        },
+    )
 }
 
 /// Encode one leaf-height reply, where only an empty request for the leaf is valid.
 pub fn encode_leaf_reply<B, T>(
     backend: B,
+    budget: RunBudget,
     scope: Scope<Z>,
     reply: Reply<B, T, Z>,
 ) -> Frames<T, B::Error, Scope<Z>>
@@ -112,24 +131,33 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    render(backend, scope, reply, |scope, reaction| match reaction {
-        ProtocolReaction::Match => {
-            let _ = scope.next();
-            Ok(None)
-        }
-        ProtocolReaction::Query(listing) if !listing.is_empty() => {
-            Err(ScopeError::NonemptyLeafQuery)
-        }
-        ProtocolReaction::Query(_) => {
-            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-            Ok(Some(Scope::leaf(prefix)))
-        }
-        ProtocolReaction::Supply(_, _) => Ok(None),
-    })
+    render(
+        backend,
+        budget,
+        scope,
+        reply,
+        |scope, reaction| match reaction {
+            ProtocolReaction::Match => {
+                // Symmetric with decode: a match past the question's fan
+                // is unrepresentable on the wire.
+                scope.next().ok_or(ScopeError::UnpositionedMatch)?;
+                Ok(None)
+            }
+            ProtocolReaction::Query(listing) if !listing.is_empty() => {
+                Err(ScopeError::NonemptyLeafQuery)
+            }
+            ProtocolReaction::Query(_) => {
+                let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+                Ok(Some(Scope::leaf(prefix)))
+            }
+            ProtocolReaction::Supply(_, _) => Ok(None),
+        },
+    )
 }
 
 fn render<B, T, H, Q, D>(
     backend: B,
+    budget: RunBudget,
     mut scope: Scope<H>,
     reply: Reply<B, T, H>,
     mut derive: D,
@@ -174,25 +202,47 @@ where
                     let expected = scope.supplied(radix);
                     let mut leaves = pin!(backend.clone().leaves(expected, node));
                     let mut previous = None;
-                    let mut supplied = false;
+                    // One run accumulates this reaction's leaves; it flushes
+                    // when the next record would push its wire frame past
+                    // the budget and always at the end of the enumeration,
+                    // so a run never spans reactions.
+                    let mut run = LeafRun::new();
                     while let Some(item) = leaves.next().await {
                         let (prefix, leaf) = item.map_err(EncodeError::Backend)?;
                         validate_leaf(expected, previous, prefix);
                         previous = Some(prefix);
-                        supplied = true;
 
-                        let wire = WireReaction::Supply(
-                            leaf.ceiling().clone(),
-                            leaf.message().clone(),
-                        );
-                        if let Some((previous, question)) = pending.replace((wire, None)) {
-                            yield Encoded {
-                                frame: Frame::Reaction(previous, Flow::Continue),
-                                question,
-                            };
+                        // The leaf is consumed by serialization alone: the
+                        // run copies its version and message bytes straight
+                        // out of the borrowed node, so no Version clone (ITC
+                        // allocations) and no Arc bump is paid per leaf.
+                        let version = leaf.ceiling();
+                        let message = leaf.message();
+                        if !run.is_empty()
+                            && !budget
+                                .admits(run.encoded_len(), LeafRun::record_len(version, message))
+                        {
+                            let full = mem::take(&mut run);
+                            if let Some((ready, question)) =
+                                pending.replace((WireReaction::Supply(full), None))
+                            {
+                                yield Encoded {
+                                    frame: Frame::Reaction(ready, Flow::Continue),
+                                    question,
+                                };
+                            }
                         }
+                        run.push(version, message).map_err(EncodeError::Record)?;
                     }
-                    assert!(supplied, "a backend node contains at least one leaf");
+                    assert!(!run.is_empty(), "a backend node contains at least one leaf");
+                    if let Some((ready, question)) =
+                        pending.replace((WireReaction::Supply(run), None))
+                    {
+                        yield Encoded {
+                            frame: Frame::Reaction(ready, Flow::Continue),
+                            question,
+                        };
+                    }
                 }
             }
         }

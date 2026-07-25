@@ -1,38 +1,50 @@
 use std::iter::Peekable;
 
-use crate::tree::{
-    mirror::streaming::{
-        Backend, Leaf,
-        materialized::{Error, Query, Resolution, Resolve, Violation, violation},
-        message::Reaction,
-    },
-    typed::{
-        Hash, Prefix,
-        height::{Height, S, Z},
+use crate::{
+    Version,
+    tree::{
+        mirror::contained,
+        mirror::streaming::{
+            Backend, Leaf, Node,
+            materialized::{Error, Query, Resolution, Resolve, Violation, violation},
+            message::Reaction,
+        },
+        typed::{
+            Hash, Prefix,
+            height::{Height, S, Z},
+        },
     },
 };
 
-pub struct Resolver<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
+/// One query's reaction loop: pairs the held children against the reply's
+/// reactions in order, accumulating the scope's [`Resolution`] and reporting
+/// each counterparty fault as its exact [`Violation`].
+pub struct Resolver<'v, B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
 where
     S<H>: Height,
 {
     prefix: Prefix<S<H>>,
     fan: Peekable<std::vec::IntoIter<(u8, B::Node<H>)>>,
     resolved: Vec<(u8, Resolve<B, T, H>)>,
+    /// The peer's declared greeting version: every supplied subtree's
+    /// ceiling must be contained in it
+    /// ([`Violation::UncontainedSupply`]).
+    their_version: &'v Version,
 }
 
-impl<B, T, H> Resolver<B, T, H>
+impl<'v, B, T, H> Resolver<'v, B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
     S<H>: Height,
 {
-    pub fn new(Query { prefix, ours }: Query<B, T, H>) -> Self {
+    pub fn new(Query { prefix, ours }: Query<B, T, H>, their_version: &'v Version) -> Self {
         Self {
             prefix,
             fan: ours.into_iter().peekable(),
             resolved: Vec::new(),
+            their_version,
         }
     }
 
@@ -57,6 +69,13 @@ where
                     }
                     Some((next, _)) if radix > *next => {
                         return violation(Violation::InvalidSupply);
+                    }
+                    // A structurally valid supply still owes the content
+                    // check: its ceiling is a memoized bound, so the cost
+                    // is one read per supplied subtree — at worst the
+                    // memo's first forcing, linear in the nodes received.
+                    _ if !contained(node.ceiling(), self.their_version) => {
+                        return violation(Violation::UncontainedSupply);
                     }
                     _ => self.resolved.push((radix, Resolve::Ready(Some(node)))),
                 }

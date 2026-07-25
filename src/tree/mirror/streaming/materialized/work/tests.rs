@@ -23,6 +23,7 @@ use crate::{
         mirror::streaming::{
             Backend, Failing, Failure, Local, Operation,
             materialized::{Error, Resolution, Resolve, Violation},
+            window::Window,
         },
         typed::{
             self, Path, Prefix,
@@ -65,7 +66,8 @@ type Level = Result<Option<typed::Node<(), Z>>, Error<Infallible>>;
 /// A work error cancels parked peers and retains its original error identity.
 #[test]
 fn work_failure_preempts_parked_tasks() {
-    let mut work: Work<Failing<Local>, ()> = Work::new(Failing::after(Local, usize::MAX));
+    let mut work: Work<Failing<Local>, ()> =
+        Work::new(Failing::after(Local, usize::MAX), Window::FLOOR);
     for _ in 0..31 {
         work.tasks.push(Box::pin(future::pending()));
     }

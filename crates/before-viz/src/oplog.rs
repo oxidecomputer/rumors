@@ -1,6 +1,8 @@
 //! The operation log and its pure algebra: the causal edges it induces, which nodes it
 //! supersedes, the descendant cone of a set of nodes, the rewind-and-append rewrite,
-//! and the URL-fragment codec. No `before` or wasm here — just the combinatorics of the
+//! and the URL-fragment codec.
+//!
+//! No `before` or wasm here — just the combinatorics of the
 //! log. Node indices follow creation order: index 0 is the implicit seed, then each op
 //! appends its outputs in order.
 
@@ -189,7 +191,9 @@ fn remap_op(op: Op, remap: &HashMap<usize, usize>) -> Op {
 }
 
 /// Rewind history to the nodes `op` supersedes (drop the union of their descendant
-/// cones) and append `op`. Returns a canonical minimal log producing exactly the
+/// cones) and append `op`.
+///
+/// Returns a canonical minimal log producing exactly the
 /// surviving DAG plus the new frontier. Every superseded operand must be rewound, or a
 /// still-historical operand's future would survive alongside the new lineage and
 /// duplicate its id-space. When all anchors are live tips the cones are empty and this

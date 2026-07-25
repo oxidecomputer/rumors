@@ -1,20 +1,25 @@
 //! End-to-end sessions between materialized peers and protocol-start proxies.
 
 use std::convert::Infallible;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::join;
 use proptest::collection::vec;
 use proptest::prelude::*;
-use tokio::io::{duplex, split};
 
-use crate::testing::{IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_io};
+use crate::link::memory_with_capacity;
+use crate::testing::{
+    IoPlan, IoReportHandle, IoSide, Quiescence, reorder_accepts, run_to_quiescence, wrap_link,
+};
 use crate::tree::mirror::handshake::{self, Intent};
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, with_observation, with_schedule,
 };
+use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
-    arb::{arb_divergent_pair, nth_party},
+    arb::{arb_divergent_pair, arb_wide_divergent_pair, early_first_child_dispute_pair, nth_party},
     mirror::streaming::{
         Failing, FailingNode, Failure, Local, Operation, Root,
         materialized::{Error as MaterializedError, Handshaking},
@@ -33,28 +38,29 @@ type ProxyFailure = RemoteError<BackendFailure>;
 type LeftFailure = MirrorError<LocalFailure, ProxyFailure>;
 type RightFailure = MirrorError<ProxyFailure, LocalFailure>;
 
+mod containment;
+mod declarations;
 mod failures;
+mod greeting;
 mod harness;
 mod malformed;
 mod transport;
 
-/// Bytes available in each direction before transport backpressure applies.
+/// Bytes buffered by each per-stream pipe before backpressure applies.
 const TRANSPORT_CAPACITY: usize = 37;
 
 /// Drive two local starts, each paired directly with its remote protocol start.
 async fn reconcile(a: TreeRoot<()>, b: TreeRoot<()>) -> (TreeRoot<()>, TreeRoot<()>) {
-    let a = Handshaking::start(Local, Root::from(a));
-    let b = Handshaking::start(Local, Root::from(b));
+    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
 
-    let (a_transport, b_transport) = duplex(TRANSPORT_CAPACITY);
-    let (a_read, a_write) = split(a_transport);
-    let (b_read, b_write) = split(b_transport);
-    let remote_b = RemoteHandshaking::start(Local, a_read, a_write);
-    let remote_a = RemoteHandshaking::start(Local, b_read, b_write);
+    let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
+    let remote_b = RemoteHandshaking::start(Local, a_link).window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(Local, b_link).window(WindowConfig::FLOOR);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
-    let (a, _transport) = a.expect("endpoint A should reconcile through its proxy");
-    let (_transport, b) = b.expect("endpoint B should reconcile through its proxy");
+    let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
+    let (_control, b) = b.expect("endpoint B should reconcile through its proxy");
     (a.into(), b.into())
 }
 
@@ -68,17 +74,48 @@ async fn reconcile_symmetric_accepts<T>(
 where
     T: borsh::BorshDeserialize + Send + Sync + 'static,
 {
-    let a = Handshaking::start(Local, Root::from(a));
-    let b = Handshaking::start(Local, Root::from(b));
-    let (a_transport, b_transport) = duplex(transport_capacity);
-    let (a_read, a_write) = split(a_transport);
-    let (b_read, b_write) = split(b_transport);
-    let remote_b = RemoteHandshaking::start(Local, a_read, a_write);
-    let remote_a = RemoteHandshaking::start(Local, b_read, b_write);
+    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    let (a_link, b_link) = memory_with_capacity(transport_capacity);
+    let remote_b = RemoteHandshaking::start(Local, a_link).window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(Local, b_link).window(WindowConfig::FLOOR);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
-    let (a, _transport) = a.expect("endpoint A should reconcile through its proxy");
-    let (b, _transport) = b.expect("endpoint B should reconcile through its proxy");
+    let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
+    let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
+    (a.into(), b.into())
+}
+
+/// Arrivals held and released newest-first by the reordering acceptor: deep
+/// enough to invert most bursts, small enough that batching never starves a
+/// stream.
+const REORDER_BATCH: usize = 3;
+
+/// [`reconcile_symmetric_accepts`] with both acceptors delivering arrivals
+/// in reversed batches: worst-case-legal stream reordering on both ends.
+///
+/// `reordered` counts the genuine inversions both ends release; the caller
+/// asserts its disposition across the run.
+async fn reconcile_symmetric_accepts_reordered<T>(
+    a: TreeRoot<T>,
+    b: TreeRoot<T>,
+    transport_capacity: usize,
+    reordered: Arc<AtomicUsize>,
+) -> (TreeRoot<T>, TreeRoot<T>)
+where
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+{
+    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    let (a_link, b_link) = memory_with_capacity(transport_capacity);
+    let a_link = reorder_accepts(a_link, REORDER_BATCH, reordered.clone());
+    let b_link = reorder_accepts(b_link, REORDER_BATCH, reordered);
+    let remote_b = RemoteHandshaking::start(Local, a_link).window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(Local, b_link).window(WindowConfig::FLOOR);
+
+    let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
+    let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
+    let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
     (a.into(), b.into())
 }
 
@@ -88,11 +125,9 @@ async fn reconcile_after_preamble<T>(a: TreeRoot<T>, b: TreeRoot<T>) -> (TreeRoo
 where
     T: borsh::BorshDeserialize + Send + Sync + 'static,
 {
-    let a = Handshaking::start(Local, Root::from(a));
-    let b = Handshaking::start(Local, Root::from(b));
-    let (a_transport, b_transport) = duplex(64 * 1024);
-    let (mut a_read, mut a_write) = split(a_transport);
-    let (mut b_read, mut b_write) = split(b_transport);
+    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    let (mut a_link, mut b_link) = memory_with_capacity(64 * 1024);
     let network = crate::Network::from_bytes([1; 16]);
     let mut a_staged = handshake::Staged::new();
     let mut b_staged = handshake::Staged::new();
@@ -102,33 +137,33 @@ where
             network,
             Intent::Remain,
             &mut a_staged,
-            &mut a_read,
-            &mut a_write,
+            &mut a_link.control_read,
+            &mut a_link.control_write,
         ),
         handshake::preamble(
             crate::Protocol::V2,
             network,
             Intent::Remain,
             &mut b_staged,
-            &mut b_read,
-            &mut b_write,
+            &mut b_link.control_read,
+            &mut b_link.control_write,
         ),
     );
     seen_a.expect("A preamble");
     seen_b.expect("B preamble");
 
-    let remote_b = RemoteHandshaking::start(Local, &mut a_read, &mut a_write);
-    let remote_a = RemoteHandshaking::start(Local, &mut b_read, &mut b_write);
+    let remote_b = RemoteHandshaking::start(Local, a_link).window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(Local, b_link).window(WindowConfig::FLOOR);
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
-    let (a, _transport) = a.expect("endpoint A should reconcile through its proxy");
-    let (b, _transport) = b.expect("endpoint B should reconcile through its proxy");
+    let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
+    let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
     (a.into(), b.into())
 }
 
 /// Reconcile the same pair entirely in process as the behavioral oracle.
 async fn reconcile_locally(a: TreeRoot<()>, b: TreeRoot<()>) -> (TreeRoot<()>, TreeRoot<()>) {
-    let a = Handshaking::start(Local, Root::from(a));
-    let b = Handshaking::start(Local, Root::from(b));
+    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
     let (a, b) = Box::pin(mirror(a, b))
         .await
         .expect("two honest local participants should reconcile");
@@ -166,31 +201,29 @@ async fn reconcile_with_stacked_failures(
     (Result<(), LeftFailure>, Result<(), RightFailure>),
     IoReportHandle,
 ) {
-    let a = Handshaking::start(Failing::after(Local, usize::MAX), failing_root(a));
-    let b = Handshaking::start(Failing::after(Local, usize::MAX), failing_root(b));
+    let a = Handshaking::start(Failing::after(Local, usize::MAX), failing_root(a))
+        .window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Failing::after(Local, usize::MAX), failing_root(b))
+        .window(WindowConfig::FLOOR);
 
-    let (a_transport, b_transport) = duplex(TRANSPORT_CAPACITY);
-    let (a_read, a_write) = split(a_transport);
-    let (b_read, b_write) = split(b_transport);
-    let (a_read, a_write, a_io) = wrap_io(
+    let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
+    let (a_link, a_io) = wrap_link(
         IoSide::Left,
         if fail_left {
             io_plan.clone()
         } else {
             IoPlan::default()
         },
-        a_read,
-        a_write,
+        a_link,
     );
-    let (b_read, b_write, b_io) = wrap_io(
+    let (b_link, b_io) = wrap_link(
         IoSide::Right,
         if fail_left {
             IoPlan::default()
         } else {
             io_plan
         },
-        b_read,
-        b_write,
+        b_link,
     );
     let left_backend = if fail_left {
         failing.clone()
@@ -202,8 +235,8 @@ async fn reconcile_with_stacked_failures(
     } else {
         failing
     };
-    let remote_b = RemoteHandshaking::start(left_backend, a_read, a_write);
-    let remote_a = RemoteHandshaking::start(right_backend, b_read, b_write);
+    let remote_b = RemoteHandshaking::start(left_backend, a_link).window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(right_backend, b_link).window(WindowConfig::FLOOR);
 
     let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     (
@@ -297,7 +330,7 @@ proptest! {
         prop_assert_eq!(actual, expected);
     }
 
-    /// For arbitrary valid divergence, crossing the codec and multiplexed
+    /// For arbitrary valid divergence, crossing the codec and per-stream
     /// transport is observationally identical to the in-process protocol.
     #[test]
     fn wire_reconciliation_matches_local(
@@ -313,6 +346,44 @@ proptest! {
             )))?;
         trace.assert_valid();
         assert_proxy_channels_are_bounded(&channels);
+        prop_assert_eq!(actual, expected);
+    }
+
+    /// No wire reply ever arrives before the question that scopes it was
+    /// flushed.
+    ///
+    /// Across arbitrary divergence and adversarial channel schedules,
+    /// every decode finds its scope already registered by a prior local
+    /// emission — the FIFO head, never a scope that is not.
+    /// This is the receive-side complement of the send-side ordering
+    /// `Trace::assert_valid` pins: registration happens at encode time,
+    /// attached to the exact outgoing frame which makes the question
+    /// publishable, and this pins that ordering against drift.
+    #[test]
+    fn context_registration_is_causal(
+        (a, b) in arb_divergent_pair(),
+        schedule in vec(0_u8..=2, 0..128),
+    ) {
+        let (result, _channels, trace) = instrumented_reconcile(a, b, schedule);
+        result.map_err(|stopped| TestCaseError::fail(format!(
+            "wire reconciliation became quiescent: {stopped:?}",
+        )))?;
+        trace.assert_registration_causality();
+    }
+
+    /// The wide-budget generator matches the in-process protocol too.
+    ///
+    /// Wide budgets reach the streaming deadlock's trigger geometry — wide
+    /// roots mixing disputes and provisions — which the small budget rarely
+    /// does; this drives it at the smallest per-stream buffers.
+    #[test]
+    fn wide_symmetric_accepts_match_local((a, b) in arb_wide_divergent_pair()) {
+        let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
+            .expect("local reconciliation should remain live");
+        let actual = run_to_quiescence(reconcile_symmetric_accepts(a, b, 1))
+            .map_err(|stopped| TestCaseError::fail(format!(
+                "wide symmetric proxy reconciliation became quiescent: {stopped:?}",
+            )))?;
         prop_assert_eq!(actual, expected);
     }
 
@@ -371,6 +442,93 @@ proptest! {
             prop_assert!(result.1.is_ok(), "right endpoint failed without injection: {:?}", result.1);
         }
     }
+}
+
+/// Wide-budget divergence still matches the materialized oracle with both
+/// acceptors decorated for reversed-batch delivery at one-byte windows —
+/// with the honest caveat that the reordering provably never fires here.
+///
+/// In this topology no inversion is reachable: the deterministic driver
+/// joins two whole-endpoint futures, so while an accept holds its first
+/// arrival waiting for a second, this endpoint's own control writes are
+/// suspended — and the peer needs exactly those bytes before it opens its
+/// next stream. A second in-flight arrival can never materialize (verified
+/// empirically: zero batches across the run, at any patience budget and at
+/// one-byte and 37-byte windows alike), so as exercised this property pins
+/// no more than [`reconcile_symmetric_accepts`]; the decorator's inversion
+/// genuinely firing is proven instead by the conformance suite's
+/// `ReversingAcceptor` tests, whose probes connect streams concurrently.
+///
+/// The final assertion is the tripwire keeping this caveat honest: if the
+/// topology ever admits a genuine inversion, it fails, and this doc's
+/// claims must be rewritten upward. The test runs against a manual
+/// [`proptest::test_runner::TestRunner`] rather than the `proptest!` macro
+/// so that assertion can run once, after every case.
+#[test]
+fn wide_symmetric_accepts_reordered_match_local() {
+    /// Cases for this property, fewer than the default.
+    ///
+    /// The wide generator plus the decorator's added accept latency make
+    /// each case expensive, and the trigger geometry is pinned separately
+    /// by the deterministic [`early_first_child_dispute_pair`] fixture.
+    const CASES: u32 = 48;
+
+    let reordered = Arc::new(AtomicUsize::new(0));
+    let mut config = ProptestConfig {
+        cases: CASES,
+        ..ProptestConfig::default()
+    };
+    config.source_file = Some(file!());
+    let mut runner = proptest::test_runner::TestRunner::new(config);
+    let counter = reordered.clone();
+    let cases = runner.run(&arb_wide_divergent_pair(), move |(a, b)| {
+        let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
+            .expect("local reconciliation should remain live");
+        let actual = run_to_quiescence(reconcile_symmetric_accepts_reordered(
+            a,
+            b,
+            1,
+            counter.clone(),
+        ))
+        .map_err(|stopped| {
+            TestCaseError::fail(format!(
+                "reordered symmetric proxy reconciliation became quiescent: {stopped:?}",
+            ))
+        })?;
+        prop_assert_eq!(actual, expected);
+        Ok(())
+    });
+    if let Err(failure) = cases {
+        panic!("{failure}\n{runner}");
+    }
+    assert_eq!(
+        reordered.load(Ordering::Relaxed),
+        0,
+        "the topology now admits a genuine inversion: this test's doc \
+         undersells it: rewrite the claims and flip this tripwire to > 0",
+    );
+}
+
+/// The streaming wire deadlock's trigger geometry reconciles cleanly.
+///
+/// The deterministic shape — the radix-first root child disputed with
+/// branching content while six-plus provisions queue behind it — must
+/// reconcile to the materialized oracle's result under closed-world
+/// polling.
+///
+/// This pins the wait-cycle trigger geometry at the tier that owns stream
+/// scheduling. Liveness for this shape may not depend on transport buffer
+/// capacity (the link contract admits any positive capacity), so the
+/// standard small capacity here is the demanding case and loses no
+/// coverage.
+#[test]
+fn early_first_child_dispute_is_live() {
+    let (a, b) = early_first_child_dispute_pair();
+    let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
+        .expect("local reconciliation of the trigger geometry remains live");
+    let (left, right) = run_to_quiescence(reconcile_symmetric_accepts(a, b, TRANSPORT_CAPACITY))
+        .expect("the trigger geometry must reconcile over the wire");
+    assert_eq!((left, right), expected);
 }
 
 /// Every proxy queue kind is exercised and remains within its one-slot bound.

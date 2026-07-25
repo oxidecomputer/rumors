@@ -2,36 +2,38 @@
 //! session between two peers.
 //!
 //! Where [`super::wire`] only checks that the two peers *converge*, this
-//! helper records the *entire conversation*: every byte each peer puts on the
-//! wire. V2 traffic is rendered by physical direction, then demultiplexed by
-//! logical stream: ordering within each stream is exact, while incidental
-//! scheduling between independent streams is discarded. Representative V1
-//! tests retain its strict send/receive timeline. Re-accept a snapshot only
-//! after a deliberate protocol change.
+//! helper records the *entire conversation*: every byte each peer puts on
+//! the wire. Re-accept a snapshot only after a deliberate protocol change.
 //!
-//! # Robustness to read/write framing
+//! # What a capture pins, and what it discards
 //!
-//! V2 concatenates every byte sent in each physical direction before parsing
-//! it into the fixed preamble, exact-framed version, logical stream frames,
-//! and any trailing party hand-off. V1 collapses consecutive events in the
-//! same direction. Neither representation retains incidental boundaries
-//! between individual `poll_write` or `poll_read` calls.
+//! V2 traffic rides a [`rumors::Link`], which keeps logical streams
+//! physically separate, so a capture is already demultiplexed: the control
+//! stream's exact bytes plus each opened data stream's exact bytes. Two
+//! kinds of incidental nondeterminism are erased so snapshots stay stable:
 //!
-//! # Determinism
+//! - **Read/write framing**: neither representation retains incidental
+//!   boundaries between individual `poll_write` or `poll_read` calls — each V2
+//!   capture concatenates every byte sent per stream before parsing, and
+//!   V1 collapses consecutive events in the same direction.
+//! - **Cross-stream scheduling**: independent streams may be polled in
+//!   different orders, so the V2 renderer keys stream groups by their
+//!   labeled index — the protocol's deterministic observable ordering —
+//!   while preserving every exact byte and the complete order within each
+//!   group.
 //!
-//! V2's independent streams may be scheduled in different physical orders,
-//! so its renderer sorts stream groups while preserving every exact byte and
-//! the complete order within each group. V1 is strictly alternating, and its
-//! two peers are driven by `tokio::join!` on a single-threaded runtime so its
+//! Representative V1 tests instead retain the control stream's strict
+//! send/receive timeline: V1 is strictly alternating, and its two peers are
+//! driven by `tokio::join!` on a deterministic executor, so the
 //! direction-switching timeline is reproducible.
 //!
 //! # Interposition
 //!
-//! Each end of an in-memory `tokio::io::duplex` pipe is wrapped in a
-//! [`Recorder`] before being split into the read/write halves handed to the
-//! session. The wrapper logs every accepted write and delivered read into one
-//! shared, ordered [`Log`], tagged with the acting party. The selected
-//! renderer then derives either the stable V2 streams or the V1 timeline.
+//! Each side's in-memory link is rebuilt with recording parts: the control
+//! halves are wrapped in a [`Recorder`] logging every accepted write and
+//! delivered read into one shared, ordered [`Log`] (the V1 timeline needs
+//! both directions), and the connector is wrapped so each opened data
+//! stream's accepted writes accumulate in a per-stream buffer.
 
 use std::future::Future;
 use std::io;
@@ -40,16 +42,14 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::{Rumors, testing::render_v2_capture};
-use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf, ReadHalf, WriteHalf};
+use rumors::link::{Connector, Link, LinkParts, MemoryAcceptor, MemoryConnector};
+use rumors::{
+    Rumors,
+    testing::{LinkCapture, render_v2_capture},
+};
+use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 use crate::common::wire::block_on;
-
-/// Capacity of the in-memory duplex pipe. Comfortably larger than any frame
-/// the protocol emits for the small payloads these snapshots use, so each
-/// logical frame is accepted by a single `poll_write` and the recorded chunk
-/// boundaries track message boundaries rather than buffer pressure.
-const DUPLEX_BUF: usize = 8 * 1024;
 
 /// Whether a logged byte run was put on the wire or taken off it, from the
 /// perspective of the peer that performed the I/O.
@@ -61,8 +61,8 @@ enum Op {
     Recv,
 }
 
-/// One recorded I/O event: a contiguous run of bytes that a single peer sent
-/// or received in one `poll_write` / `poll_read`.
+/// One recorded control-stream I/O event: a contiguous run of bytes that a
+/// single peer sent or received in one `poll_write` / `poll_read`.
 struct Event {
     /// The peer that performed the I/O (`"A"` or `"B"`).
     peer: &'static str,
@@ -73,9 +73,9 @@ struct Event {
 /// A shared, append-only, globally-ordered event log. The push order across
 /// both peers *is* the captured interleaving.
 ///
-/// `Arc<Mutex<…>>` rather than `Rc<RefCell<…>>` because `gossip` requires its
-/// reader/writer to be `Send`; the mutex is uncontended in practice since the
-/// current-thread runtime only ever polls one peer at a time.
+/// `Arc<Mutex<…>>` rather than `Rc<RefCell<…>>` because `gossip` requires
+/// its transport to be `Send`; the mutex is uncontended in practice since
+/// the deterministic executor only ever polls one peer at a time.
 #[derive(Clone, Default)]
 struct Log(Arc<Mutex<Vec<Event>>>);
 
@@ -89,11 +89,8 @@ impl Log {
     }
 }
 
-/// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one end of a duplex pipe
-/// that records every byte crossing it into a shared [`Log`].
-///
-/// Public only so it can name the read/write halves a [`capture_session`]
-/// driver receives; its fields and recording behavior stay private.
+/// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one control half that
+/// records every byte crossing it into a shared [`Log`].
 pub struct Recorder {
     inner: DuplexStream,
     peer: &'static str,
@@ -144,71 +141,225 @@ impl AsyncWrite for Recorder {
     }
 }
 
+/// One data stream's accumulated outgoing bytes.
+type StreamBuf = Arc<Mutex<Vec<u8>>>;
+
+/// A connector that gives each opened stream a fresh capture buffer,
+/// registered in open order on the side's list.
+#[derive(Clone)]
+pub struct CaptureConnector {
+    inner: MemoryConnector,
+    streams: Arc<Mutex<Vec<StreamBuf>>>,
+}
+
+impl Connector for CaptureConnector {
+    type Tx = CaptureWrite;
+
+    async fn connect(&self) -> io::Result<Self::Tx> {
+        let tx = self.inner.connect().await?;
+        let buffer = StreamBuf::default();
+        self.streams.lock().unwrap().push(buffer.clone());
+        Ok(CaptureWrite { inner: tx, buffer })
+    }
+}
+
+/// A data-stream writer that appends every accepted byte to its buffer.
+pub struct CaptureWrite {
+    inner: DuplexStream,
+    buffer: StreamBuf,
+}
+
+impl AsyncWrite for CaptureWrite {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        let poll = Pin::new(&mut this.inner).poll_write(cx, buf);
+        if let Poll::Ready(Ok(n)) = &poll
+            && *n > 0
+        {
+            this.buffer.lock().unwrap().extend_from_slice(&buf[..*n]);
+        }
+        poll
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
+/// The recording link handed to each session driver.
+pub type CaptureLink = Link<Recorder, Recorder, CaptureConnector, MemoryAcceptor>;
+
+/// One side's capture state, harvested after the session completes.
+struct Side {
+    log: Log,
+    peer: &'static str,
+    streams: Arc<Mutex<Vec<StreamBuf>>>,
+}
+
+impl Side {
+    /// Wrap one memory-link end in recording parts.
+    fn wrap(link: rumors::link::MemoryLink, peer: &'static str, log: Log) -> (CaptureLink, Self) {
+        let parts = link.into_parts();
+        let streams = Arc::new(Mutex::new(Vec::new()));
+        let side = Side {
+            log: log.clone(),
+            peer,
+            streams: streams.clone(),
+        };
+        let link = LinkParts {
+            control_read: Recorder {
+                inner: parts.control_read,
+                peer,
+                log: log.clone(),
+            },
+            control_write: Recorder {
+                inner: parts.control_write,
+                peer,
+                log,
+            },
+            connector: CaptureConnector {
+                inner: parts.connector,
+                streams,
+            },
+            acceptor: parts.acceptor,
+            session: parts.session,
+        }
+        .into_link();
+        (link, side)
+    }
+
+    /// Harvest this side's complete outgoing capture.
+    fn capture(&self) -> LinkCapture {
+        LinkCapture {
+            control: sent(self.peer, &self.log.0.lock().unwrap()),
+            streams: self
+                .streams
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|buffer| buffer.lock().unwrap().clone())
+                .collect(),
+        }
+    }
+}
+
 /// Capture and render an arbitrary pair of V2 protocol sessions.
 ///
-/// Each side is a closure handed the read and write halves of its recorded
-/// pipe end; it returns the future that drives its role (`gossip`,
-/// `bootstrap`, `retire`, …). The renderer preserves exact physical bytes but
-/// groups multiplexed frames by logical stream, whose internal order is the
-/// V2 protocol's deterministic observable ordering. A driver must run its
-/// session to completion and assert its own outcome.
+/// Each side is a closure handed its recorded link end; it returns the
+/// future that drives its role (`gossip`, `bootstrap`, `retire`, …). The
+/// renderer preserves exact bytes per stream but keys data streams by their
+/// labeled index, which is the V2 protocol's deterministic observable
+/// ordering. A driver must run its session to completion and assert its own
+/// outcome.
 ///
 /// [`capture_gossip`] is the gossip/gossip specialization; the bootstrap and
 /// retire snapshot suites build the asymmetric pairings on top of this.
 pub fn capture_session<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> String
 where
-    DriveA: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutA,
-    DriveB: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutB,
+    DriveA: FnOnce(CaptureLink) -> FutA,
+    DriveB: FnOnce(CaptureLink) -> FutB,
     FutA: Future<Output = ()>,
     FutB: Future<Output = ()>,
 {
-    let events = capture_events(drive_a, drive_b);
-    render_v2_capture(&sent("A", &events), &sent("B", &events))
+    let (a, b) = capture_sides(drive_a, drive_b);
+    render_v2_capture(&a, &b)
 }
 
 /// Capture one V1 session in its strict direction-switching timeline.
 pub fn capture_session_v1<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> String
 where
-    DriveA: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutA,
-    DriveB: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutB,
-    FutA: Future<Output = ()>,
-    FutB: Future<Output = ()>,
-{
-    render_v1(&capture_events(drive_a, drive_b))
-}
-
-/// Drive both roles and return the complete physical I/O event log.
-fn capture_events<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> Vec<Event>
-where
-    DriveA: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutA,
-    DriveB: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutB,
+    DriveA: FnOnce(CaptureLink) -> FutA,
+    DriveB: FnOnce(CaptureLink) -> FutB,
     FutA: Future<Output = ()>,
     FutB: Future<Output = ()>,
 {
     let log = Log::default();
-    block_on(async {
-        let (a_end, b_end) = tokio::io::duplex(DUPLEX_BUF);
-        let a_rec = Recorder {
-            inner: a_end,
-            peer: "A",
-            log: log.clone(),
-        };
-        let b_rec = Recorder {
-            inner: b_end,
-            peer: "B",
-            log: log.clone(),
-        };
-        let (a_r, a_w) = tokio::io::split(a_rec);
-        let (b_r, b_w) = tokio::io::split(b_rec);
-
-        tokio::join!(drive_a(a_r, a_w), drive_b(b_r, b_w));
-    });
-
-    let mut events = log.0.lock().unwrap();
-    std::mem::take(&mut *events)
+    let events = capture_events(drive_a, drive_b, &log);
+    render_v1(&events)
 }
 
-/// Gossip `a` and `b` through the recording pipe (the gossip/gossip
+/// Drive both roles over recording links and return both sides' captures.
+fn capture_sides<DriveA, DriveB, FutA, FutB>(
+    drive_a: DriveA,
+    drive_b: DriveB,
+) -> (LinkCapture, LinkCapture)
+where
+    DriveA: FnOnce(CaptureLink) -> FutA,
+    DriveB: FnOnce(CaptureLink) -> FutB,
+    FutA: Future<Output = ()>,
+    FutB: Future<Output = ()>,
+{
+    let log = Log::default();
+    let (a_link, b_link) = rumors::link::memory();
+    let (a_link, a_side) = Side::wrap(a_link, "A", log.clone());
+    let (b_link, b_side) = Side::wrap(b_link, "B", log.clone());
+    block_on(async {
+        tokio::join!(drive_a(a_link), drive_b(b_link));
+    });
+    assert_control_drained(&log.0.lock().unwrap());
+    (a_side.capture(), b_side.capture())
+}
+
+/// Assert the captured session drained the control stream in both
+/// directions: every byte each peer sent, the other received.
+///
+/// The same invariant `wire::assert_control_drained` probes on a bare
+/// memory link, in the form this harness's plumbing affords: the shared
+/// [`Log`] records both peers' control I/O, so per direction the received
+/// total must equal the sent total (delivery preserves order, so equal
+/// totals mean the streams rest at the session boundary). Every capture
+/// driver asserts a successful outcome, so the drain invariant applies to
+/// every captured session — V1's frozen wire included.
+fn assert_control_drained(events: &[Event]) {
+    for (sender, receiver) in [("A", "B"), ("B", "A")] {
+        let sent = sent(sender, events);
+        let received = received(receiver, events);
+        assert!(
+            sent.len() == received.len(),
+            "control stream not drained: {sender} sent {} byte(s) that {receiver} never read \
+             (leftover tail {:02x?})",
+            sent.len() - received.len(),
+            &sent[received.len()..],
+        );
+    }
+}
+
+/// Drive both roles and return the control-stream I/O event log.
+fn capture_events<DriveA, DriveB, FutA, FutB>(
+    drive_a: DriveA,
+    drive_b: DriveB,
+    log: &Log,
+) -> Vec<Event>
+where
+    DriveA: FnOnce(CaptureLink) -> FutA,
+    DriveB: FnOnce(CaptureLink) -> FutB,
+    FutA: Future<Output = ()>,
+    FutB: Future<Output = ()>,
+{
+    let (a_link, b_link) = rumors::link::memory();
+    let (a_link, _a_side) = Side::wrap(a_link, "A", log.clone());
+    let (b_link, _b_side) = Side::wrap(b_link, "B", log.clone());
+    block_on(async {
+        tokio::join!(drive_a(a_link), drive_b(b_link));
+    });
+
+    let events = {
+        let mut events = log.0.lock().unwrap();
+        std::mem::take(&mut *events)
+    };
+    assert_control_drained(&events);
+    events
+}
+
+/// Gossip `a` and `b` through recording links (the gossip/gossip
 /// specialization of [`capture_session`]). The two sets are expected to
 /// reconcile cleanly; a gossip error panics the helper.
 pub fn capture_gossip<T>(a: Rumors<T>, b: Rumors<T>) -> String
@@ -216,11 +367,11 @@ where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     capture_session(
-        move |mut r, mut w| async move {
-            a.gossip(&mut r, &mut w).await.expect("gossip A");
+        move |mut link| async move {
+            a.gossip(&mut link).await.expect("gossip A");
         },
-        move |mut r, mut w| async move {
-            b.gossip(&mut r, &mut w).await.expect("gossip B");
+        move |mut link| async move {
+            b.gossip(&mut link).await.expect("gossip B");
         },
     )
 }
@@ -231,11 +382,11 @@ where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     capture_session_v1(
-        move |mut r, mut w| async move {
-            a.gossip(&mut r, &mut w).await.expect("V1 gossip A");
+        move |mut link| async move {
+            a.gossip(&mut link).await.expect("V1 gossip A");
         },
-        move |mut r, mut w| async move {
-            b.gossip(&mut r, &mut w).await.expect("V1 gossip B");
+        move |mut link| async move {
+            b.gossip(&mut link).await.expect("V1 gossip B");
         },
     )
 }
@@ -248,7 +399,7 @@ fn render_v1(events: &[Event]) -> String {
     side_by_side(&left, &right)
 }
 
-/// Concatenate every byte one party sent, erasing physical write chunking.
+/// Concatenate every control byte one party sent, erasing write chunking.
 fn sent(peer: &str, events: &[Event]) -> Vec<u8> {
     events
         .iter()
@@ -257,10 +408,20 @@ fn sent(peer: &str, events: &[Event]) -> Vec<u8> {
         .collect()
 }
 
-/// Build one party's transcript as a list of text lines: a column header and
-/// rule, then one stanza per direction-run. Consecutive same-direction events
-/// are coalesced into a single block before rendering, so buffer-level chunk
-/// boundaries leave no trace.
+/// Concatenate every control byte one party received, erasing read chunking.
+fn received(peer: &str, events: &[Event]) -> Vec<u8> {
+    events
+        .iter()
+        .filter(|event| event.peer == peer && event.op == Op::Recv)
+        .flat_map(|event| event.bytes.iter().copied())
+        .collect()
+}
+
+/// Build one party's transcript as a list of text lines: a column header
+/// and rule, then one stanza per direction-run.
+///
+/// Consecutive same-direction events are coalesced into a single block
+/// before rendering, so buffer-level chunk boundaries leave no trace.
 fn transcript(peer: &str, events: &[Event]) -> Vec<String> {
     // Coalesce consecutive same-`Op` events for this party into runs.
     let mut runs: Vec<(Op, Vec<u8>)> = Vec::new();

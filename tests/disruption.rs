@@ -6,9 +6,10 @@
 //!   every gossip session, bootstrap, send, and redact spawned at once,
 //!   over in-memory wires that may be severed at arbitrary byte offsets.
 //! - **Inter-process**: peers split across genuinely separate OS
-//!   processes — the test binary re-executes itself as each child — over
-//!   real TCP sockets with the same fault injection on the child side,
-//!   children retiring home at the end so the id-space can be audited.
+//!   processes — the test binary re-executes itself as each child — over a
+//!   real TCP link (one socket per stream; see `common::tcp`) with the same
+//!   fault injection on the child side, children retiring home at the end
+//!   so the id-space can be audited.
 //!
 //! Both assert the same global properties, stated on each test below. Task
 //! and process interleavings are nondeterministic, so a counterexample may
@@ -33,6 +34,7 @@ use crate::common::sim::{
     arb_fault, arb_plan, assert_converged, assert_honest_error, assert_honest_gossip,
     assert_party_invariants, is_honest_error, probe_disjointness, quiesce, run_plan,
 };
+use crate::common::tcp;
 use crate::common::wire::bootstrap_fork_async;
 
 /// A fresh multi-thread runtime per simulation, so tasks interleave with
@@ -47,11 +49,8 @@ fn mt_runtime() -> tokio::runtime::Runtime {
 // ---- intra-process ----------------------------------------------------------
 
 proptest! {
-    /// Under arbitrary concurrent gossip — overlapping sessions through
-    /// cloned [`Rumors`] handles, concurrent sends and redactions,
-    /// bootstraps served mid-chaos against the same shared state, and
-    /// retirements, over wires cut at arbitrary byte offsets — the global
-    /// party invariants hold:
+    /// Under arbitrary concurrent gossip over wires cut at arbitrary byte
+    /// offsets, the global party invariants hold:
     ///
     /// 1. every session failure is an injected I/O fault, never
     ///    `PartyOverlap` or a protocol violation;
@@ -60,6 +59,11 @@ proptest! {
     /// 4. when no hand-off was lost in flight, the surviving parties
     ///    fold-join back to exactly `Party::seed()` — the id-space is
     ///    conserved with no duplication and no leak.
+    ///
+    /// The chaos: overlapping sessions through
+    /// cloned [`Rumors`] handles, concurrent sends and redactions,
+    /// bootstraps served mid-chaos against the same shared state, and
+    /// retirements.
     #[test]
     fn disrupted_concurrent_gossip_upholds_party_invariants(plan in arb_plan()) {
         mt_runtime().block_on(async {
@@ -194,7 +198,9 @@ proptest! {
 
     /// The same four invariants as the intra-process simulation, with the
     /// fleet split across OS processes gossiping over real TCP sockets
-    /// severed at arbitrary byte offsets: child processes bootstrap from
+    /// severed at arbitrary byte offsets.
+    ///
+    /// Child processes bootstrap from
     /// the parent, gossip concurrently with it (and with its own
     /// in-process sessions), then retire home. Cleanly-retired children
     /// must additionally leave every one of their sends in the parent's
@@ -209,7 +215,7 @@ proptest! {
 async fn run_proc_plan(plan: ProcPlan) {
     // Parent fleet: the seed and its clean forks, as shared-state handles
     // so inbound sessions can overlap arbitrarily.
-    let seed = Peer::<u64>::seed().into_rumors();
+    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
         let mut batch = seed.batch();
         for &v in &plan.seed_messages {
@@ -251,8 +257,16 @@ async fn run_proc_plan(plan: ProcPlan) {
                 let serve_errors = Arc::clone(&serve_errors);
                 let dishonest = Arc::clone(&dishonest);
                 sessions.spawn(async move {
-                    let (mut r, mut w) = tokio::io::split(socket);
-                    if let Err(e) = handle.gossip(&mut r, &mut w).await {
+                    // A child that dies before the listener-port swap is the
+                    // same honest severance as one that dies mid-session.
+                    let mut link = match tcp::link(socket).await {
+                        Ok(link) => link,
+                        Err(_) => {
+                            serve_errors.fetch_add(1, Ordering::Relaxed);
+                            return;
+                        }
+                    };
+                    if let Err(e) = handle.gossip(&mut link).await {
                         serve_errors.fetch_add(1, Ordering::Relaxed);
                         if !is_honest_error(&e) {
                             dishonest
@@ -367,7 +381,9 @@ async fn run_proc_plan(plan: ProcPlan) {
 // ---- the child process ------------------------------------------------------
 
 /// Child-process entry point for `inter_process_disruption_*`: **not a
-/// test**. The parent re-executes this binary with `--exact sim_child
+/// test**.
+///
+/// The parent re-executes this binary with `--exact sim_child
 /// --ignored` and the script in the environment; without `CHILD_ADDR` set
 /// (e.g. under `--run-ignored`) it is a no-op. Outcomes travel back as
 /// exit codes (`EXIT_*`); invariant violations panic, which the parent
@@ -408,9 +424,10 @@ async fn child_main(addr: String) -> i32 {
         let socket = TcpStream::connect(&addr)
             .await
             .expect("connect for faulty bootstrap");
-        let (mut r, mut w) = fault::faulty(socket, boot);
-        match Peer::<u64>::bootstrap(&mut r, &mut w).await {
-            Ok(Some(k)) => known = Some(k),
+        let link = tcp::link(socket).await.expect("swap listener ports");
+        let mut link = fault::faulty_link(link, boot);
+        match Peer::<u64>::bootstrap().join(&mut link).await {
+            Ok(Some(k)) => known = Some(k.sync_window_floor()),
             Ok(None) => panic!("the parent never bootstraps"),
             Err(e) => {
                 assert_honest_error(&e);
@@ -424,11 +441,13 @@ async fn child_main(addr: String) -> i32 {
             let socket = TcpStream::connect(&addr)
                 .await
                 .expect("connect for bootstrap");
-            let (mut r, mut w) = tokio::io::split(socket);
-            Peer::<u64>::bootstrap(&mut r, &mut w)
+            let mut link = tcp::link(socket).await.expect("swap listener ports");
+            Peer::<u64>::bootstrap()
+                .join(&mut link)
                 .await
                 .expect("clean bootstrap")
                 .expect("the parent serves every bootstrap")
+                .sync_window_floor()
         }
     };
 
@@ -448,9 +467,10 @@ async fn child_main(addr: String) -> i32 {
         let socket = TcpStream::connect(&addr)
             .await
             .expect("connect for session");
-        let (mut r, mut w) = fault::faulty(socket, fault);
+        let link = tcp::link(socket).await.expect("swap listener ports");
+        let mut link = fault::faulty_link(link, fault);
         let handle = cast.clone();
-        assert_honest_gossip(&handle.gossip(&mut r, &mut w).await);
+        assert_honest_gossip(&handle.gossip(&mut link).await);
     }
     sender.await.expect("sender task");
 
@@ -460,10 +480,8 @@ async fn child_main(addr: String) -> i32 {
         let socket = TcpStream::connect(&addr)
             .await
             .expect("connect for final gossip");
-        let (mut r, mut w) = tokio::io::split(socket);
-        cast.gossip(&mut r, &mut w)
-            .await
-            .expect("clean final gossip");
+        let mut link = tcp::link(socket).await.expect("swap listener ports");
+        cast.gossip(&mut link).await.expect("clean final gossip");
     }
 
     // Retire home, possibly through a cut wire; a recovered retiree gets
@@ -475,8 +493,9 @@ async fn child_main(addr: String) -> i32 {
     let mut fault = retire_fault;
     for _attempt in 0..2 {
         let socket = TcpStream::connect(&addr).await.expect("connect for retire");
-        let (mut r, mut w) = fault::faulty(socket, fault);
-        match known.retire(&mut r, &mut w).await {
+        let link = tcp::link(socket).await.expect("swap listener ports");
+        let mut link = fault::faulty_link(link, fault);
+        match known.retire(&mut link).await {
             Retire::Retired => {
                 return if had_boot_loss {
                     EXIT_BOOT_LOSS

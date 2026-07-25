@@ -28,7 +28,9 @@ proptest! {
 
     /// Merging is non-destructive and path-independent: gossiping bob's
     /// content into a fresh party-disjoint fork of alice reaches the same
-    /// live multiset as gossiping bob straight into alice. This is the
+    /// live multiset as gossiping bob straight into alice.
+    ///
+    /// This is the
     /// documented propagation pattern — wire gossip is the merge, and any
     /// same-universe peer can carry content to any other.
     #[test]
@@ -37,7 +39,7 @@ proptest! {
         bob_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
     ) {
         // One universe seed; alice and bob are genuine party-disjoint forks.
-        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let alice = bootstrap_fork(&seed);
         {
             let mut batch = alice.batch();
@@ -78,7 +80,7 @@ fn quiesce_handles_zero_or_one_peer() {
     quiesce(&mut zero);
     assert!(zero.is_empty());
 
-    let mut peer = Peer::<u64>::new(rumors::Peer::seed().into_rumors());
+    let mut peer = Peer::<u64>::new(rumors::Peer::seed().sync_window_floor().into_rumors());
     peer.insert_one(42);
     let snapshot_before = peer.local.snapshot();
     let obs_before = peer.observations();

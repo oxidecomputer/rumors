@@ -8,6 +8,7 @@ use super::{
 };
 use crate::testing::run_to_quiescence;
 use crate::tree::arb::arb_divergent_pair;
+use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::{
     Error as MirrorError,
     streaming::{
@@ -27,20 +28,37 @@ fn failing_root(root: crate::tree::Root<()>) -> StreamingRoot<Failing<Local>, ()
     }
 }
 
+/// The connected abort suite's injected faults: one structural shape
+/// (a reply reaction the pairing never asked for) and one content shape
+/// (a structurally legal supply whose version escapes the declared
+/// greeting version).
+///
+/// The escape rides a party no fixture ticks
+/// ([`Faulting`]'s injection machinery), so the supplied ceiling is
+/// *incomparable* with the declared version: the containment
+/// predicate's hard case crosses the connected driver end to end, not
+/// only the dominating regime the deterministic tripwires build.
+fn arb_connected_violation() -> impl Strategy<Value = Violation> {
+    prop_oneof![
+        Just(Violation::UnexpectedQuery),
+        Just(Violation::UncontainedSupply),
+    ]
+}
+
 proptest! {
     /// A genuine malformed reply crosses the fully connected driver as its
     /// detected violation while both materialized input roots remain untouched.
     #[test]
     fn connected_violation_aborts_without_mutating_root(
+        violation in arb_connected_violation(),
         server_steps in 0usize..=15,
         client_steps in 0usize..=15,
     ) {
-        let violation = Violation::UnexpectedQuery;
         let (client_root, server_root) =
             full_depth_comb_pair(2, LeafOrder::Interleaved);
         let before = (client_root.clone(), server_root.clone());
-        let local = Handshaking::start(Local, StreamingRoot::from(client_root.clone()));
-        let honest_server = Handshaking::start(Local, StreamingRoot::from(server_root.clone()));
+        let local = Handshaking::start(Local, StreamingRoot::from(client_root.clone())).window(WindowConfig::FLOOR);
+        let honest_server = Handshaking::start(Local, StreamingRoot::from(server_root.clone())).window(WindowConfig::FLOOR);
         let faulting_server = Faulting::new(honest_server, server_steps, Some(violation));
         let result = run_to_quiescence(drive_streaming(local, faulting_server))
             .expect("the connected driver must surface the fault, not stall");
@@ -54,9 +72,9 @@ proptest! {
 
         // Reversing the handshake sides also reverses initiator order: the
         // driver's frame-relative error is flipped back to the original client.
-        let honest_client = Handshaking::start(Local, StreamingRoot::from(client_root.clone()));
+        let honest_client = Handshaking::start(Local, StreamingRoot::from(client_root.clone())).window(WindowConfig::FLOOR);
         let faulting_client = Faulting::new(honest_client, client_steps, Some(violation));
-        let local = Handshaking::start(Local, StreamingRoot::from(server_root.clone()));
+        let local = Handshaking::start(Local, StreamingRoot::from(server_root.clone())).window(WindowConfig::FLOOR);
         let result = run_to_quiescence(drive_streaming(faulting_client, local))
             .expect("the reversed connected driver must surface the fault, not stall");
         match result {
@@ -90,8 +108,8 @@ proptest! {
         } else {
             failing.clone()
         };
-        let client = Handshaking::start(client_backend, failing_root(client_root));
-        let server = Handshaking::start(server_backend, failing_root(server_root));
+        let client = Handshaking::start(client_backend, failing_root(client_root)).window(WindowConfig::FLOOR);
+        let server = Handshaking::start(server_backend, failing_root(server_root)).window(WindowConfig::FLOOR);
         let result = with_schedule(schedule, || {
             run_to_quiescence(drive_streaming(client, server))
         })
@@ -142,8 +160,9 @@ fn equal_versions_return_outputs_without_descent() {
 fn semantic_and_backend_failure_layers_compose() {
     let (client_root, server_root) = one_sided_pair(&[(0x20, 1, 1)]);
     let backend = Failing::after(Local, usize::MAX);
-    let client = Handshaking::start(backend.clone(), failing_root(client_root));
-    let server = Handshaking::start(backend, failing_root(server_root));
+    let client =
+        Handshaking::start(backend.clone(), failing_root(client_root)).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(backend, failing_root(server_root)).window(WindowConfig::FLOOR);
     let server = Faulting::new(server, 0, Some(Violation::UnexpectedQuery));
     let error = run_to_quiescence(drive_streaming(client, server))
         .expect("the stacked session must terminate")
@@ -155,8 +174,9 @@ fn semantic_and_backend_failure_layers_compose() {
 
     let (client_root, server_root) = one_sided_pair(&[(0x20, 1, 1)]);
     let backend = Failing::after(Local, 0);
-    let client = Handshaking::start(backend.clone(), failing_root(client_root));
-    let server = Handshaking::start(backend, failing_root(server_root));
+    let client =
+        Handshaking::start(backend.clone(), failing_root(client_root)).window(WindowConfig::FLOOR);
+    let server = Handshaking::start(backend, failing_root(server_root)).window(WindowConfig::FLOOR);
     let server = Faulting::new(server, 0, None);
     let error = run_to_quiescence(drive_streaming(client, server))
         .expect("the stacked session must terminate")

@@ -1,23 +1,21 @@
 //! The formal model's skeleton vocabulary, and its decoders from session
 //! observability.
 //!
-//! This is bridge support for the mux campaign's Rust proptest bridges
-//! (the campaign's bridge suite): a Rust mirror of the
-//! Lean `Skel` (`formal/lean/StreamingMirror/Skel.lean`), the per-party view
-//! projection and `LocalEq` (`formal/lean/StreamingMirror/Mux/Strategy.lean`,
-//! `viewEnc`), the `wedge` witness shape
-//! (`formal/lean/StreamingMirror/Mux/Instances.lean`), and two decoders that
+//! This is the bridge layer between the formal model and real sessions: a
+//! Rust mirror of the Lean model's `Skel`, its per-party view projection
+//! and `LocalEq` (the Lean `viewEnc` form), the Lean witness shape
+//! `Mux.wedge`, and two decoders that
 //! extract a skeleton from a real session:
 //!
 //! - [`decode`] reads the materialized progress [`Trace`] (both endpoints'
 //!   internal publications) and rebuilds the session's dispute skeleton,
 //!   cross-checking every resolution's `pending` count and every event's
-//!   endpoint against the model's role-parity and count laws (MODEL.md
-//!   §3–§4) as it goes;
+//!   endpoint against the model's role-parity and count laws (the Lean
+//!   `asks` and `Skel.asmResList`) as it goes;
 //! - [`announced`] reads the payload-erased wire [`Transcript`] alone — no
 //!   tree, no internal events — and rebuilds the *announced* skeleton by
 //!   replaying the protocol's positional pairing, which is exactly the
-//!   reconstruction bridge B5 asks for: payload-decoded frame contents
+//!   reconstruction bridge B5 asks for: payload-erased frame contents
 //!   determine the announced skeleton, the fact charter locality rests on.
 //!
 //! Deviations from the Lean, recorded: the mirror carries `scopes` and
@@ -42,7 +40,7 @@ pub(super) const ROOT_H: usize = RootHeight::HEIGHT;
 
 // ------------------------------------------------------------------ skeleton
 
-/// A skeleton scope's kind (`Skel.lean` `Kind`): two-sided dispute or
+/// A skeleton scope's kind (the Lean `Kind`): two-sided dispute or
 /// one-sided whole-subtree request. Matches (`M`) are dropped entirely.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Kind {
@@ -54,7 +52,7 @@ pub(super) enum Kind {
 }
 
 /// One scope of a dispute skeleton, in the flattened BFS encoding
-/// (`Skel.lean` `Scope`).
+/// (the Lean `Scope`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Scope {
     /// Two-sided dispute or one-sided request.
@@ -67,7 +65,7 @@ pub(super) struct Scope {
     pub leaf_reqs: usize,
 }
 
-/// A dispute skeleton (`Skel.lean` `Skel`, minus the `fan`/`capLevel`
+/// A dispute skeleton (the Lean `Skel`, minus the `fan`/`capLevel`
 /// configuration — module doc).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Skel {
@@ -88,7 +86,7 @@ impl Skel {
             .unwrap_or(0)
     }
 
-    /// The number of disputed children of scope `i` (`Skel.lean` `dCount`).
+    /// The number of disputed children of scope `i` (the Lean `Skel.dCount`).
     pub fn d_count(&self, i: usize) -> usize {
         self.scopes[i]
             .kids
@@ -109,7 +107,7 @@ impl Skel {
 
 // -------------------------------------------------------------------- roles
 
-/// A session role (`Skel.lean` `Party`): initiator or responder.
+/// A session role (the Lean `Party`): initiator or responder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Party {
     /// The initiator: asks about even-height scopes.
@@ -130,8 +128,8 @@ impl Party {
 
 /// Does party `p` ask (pair reply with query) for scopes at this height?
 ///
-/// Initiator asks even heights, responder odd (`Skel.lean` `asks`;
-/// MODEL.md §3's height-parity theorem).
+/// Initiator asks even heights, responder odd (the Lean `asks`; the
+/// schedule obeys it by the kernel theorem `Sched.walkKeys_parity`).
 pub(super) fn asks(p: Party, height: usize) -> bool {
     match p {
         Party::I => height.is_multiple_of(2),
@@ -140,18 +138,33 @@ pub(super) fn asks(p: Party, height: usize) -> bool {
 }
 
 /// The role the client (the driver's first argument) will play against
-/// `server`: a mirror of `streaming.rs::descend`'s canonical-byte tiebreak.
+/// `server`: a mirror of `streaming.rs::descend`'s election (the smaller
+/// set initiates, canonical version bytes break ties).
 ///
 /// # Panics
 ///
 /// If the advertised versions are equal: such a session short-circuits
 /// without descending, so it has no skeleton to talk about.
 pub(super) fn client_role<T>(client: &TreeRoot<T>, server: &TreeRoot<T>) -> Party {
-    match server.ceiling.as_bytes().cmp(client.ceiling.as_bytes()) {
-        std::cmp::Ordering::Less => Party::I,
-        std::cmp::Ordering::Greater => Party::R,
-        std::cmp::Ordering::Equal => panic!("equal versions short-circuit the descent"),
+    if crate::tree::mirror::streaming::message::initiates(
+        advertised_len(client),
+        &client.ceiling,
+        advertised_len(server),
+        &server.ceiling,
+    ) {
+        Party::I
+    } else {
+        Party::R
     }
+}
+
+/// The live message count a root advertises in its greeting: the election's
+/// primary key.
+fn advertised_len<T>(root: &TreeRoot<T>) -> u64 {
+    root.root
+        .as_ref()
+        .map(|node| node.len() as u64)
+        .unwrap_or_default()
 }
 
 // ------------------------------------------------------------ the projection
@@ -164,7 +177,7 @@ const TOKEN_CLOSE: u8 = 3;
 const TOKEN_CUT: u8 = 4;
 
 /// Preorder token serialization of party `p`'s view of the skeleton: the
-/// Rust mirror of `Mux/Strategy.lean` `viewEnc`.
+/// Rust mirror of the Lean `Mux.viewEnc`.
 ///
 /// Per child of each scope, in radix order: a D child emits an open bracket,
 /// its own serialization, and a close bracket — held by `p` in both roles,
@@ -198,7 +211,7 @@ pub(super) fn view_enc(p: Party, sk: &Skel) -> Vec<u8> {
 
 /// Are two skeletons indistinguishable to party `p` at session start?
 ///
-/// The Rust mirror of `Mux/Strategy.lean` `LocalEq`: equal root heights and
+/// The Rust mirror of the Lean `Mux.LocalEq`: equal root heights and
 /// equal p-views. The Lean's `fan`/`capLevel` conjuncts are vacuous in Rust
 /// (single fixed values — module doc), so they do not appear.
 pub(super) fn local_eq(p: Party, a: &Skel, b: &Skel) -> bool {
@@ -223,7 +236,7 @@ fn assemble(
 ) -> (Skel, Vec<Vec<u8>>) {
     assert!(
         d.contains(&Vec::new()),
-        "the root scope is always disputed (MODEL.md §2)"
+        "the root scope is always disputed (a conjunct of the Lean `Skel.wellFormed`)"
     );
     assert!(
         d.intersection(r).next().is_none(),
@@ -312,11 +325,13 @@ pub(super) struct Decoded {
 /// Classification: a scope is `D` iff its answerer published a `Resolution`
 /// for it; `R` iff its supplier published a `Ready` at an internal prefix;
 /// a `Ready` at a full 32-byte path is a supplied leaf request. On the way
-/// out, every event is audited against MODEL.md: `Resolution` pending counts
-/// are `d + r` (height ≥ 2) or `leafReqs` (height 1) and come from the
-/// scope's answerer; `ParentResolution` pending counts are `d` and come from
-/// the asker; suppliers, requesters, and dependent-work issuers land on the
-/// endpoint the height-parity theorem (§3) assigns them.
+/// out, every event is audited against the model's count and parity laws:
+/// `Resolution` pending counts are `d + r` (height ≥ 2) or `leafReqs`
+/// (height 1) and come from the scope's answerer; `ParentResolution` pending
+/// counts are `d` and come from the asker (the two arms of the Lean
+/// `Skel.asmResList`); suppliers, requesters, and dependent-work issuers
+/// land on the endpoint the height parity (the Lean `asks`, kernel-pinned by
+/// `Sched.walkKeys_parity`) assigns them.
 pub(super) fn decode(trace: &Trace) -> Decoded {
     let events = trace.events();
     let works: BTreeSet<usize> = events.iter().map(|event| event.work).collect();
@@ -397,7 +412,7 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
                     resolutions[prefix],
                     (answerer_at(h), expected),
                     "answerer-side resolution of {prefix:02x?} (h={h}): pending = d + r, \
-                     or leafReqs at height 1 (MODEL.md §4)"
+                     or leafReqs at height 1 (the answerer arm of the Lean Skel.asmResList)"
                 );
                 assert_eq!(
                     parents[prefix],
@@ -435,7 +450,8 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
         "the root is never dependent work"
     );
     for leaf in &leaf_requests {
-        // Height-1 scopes are answered by the initiator (MODEL.md §4): it
+        // Height-1 scopes are answered by the initiator (height 1 is odd,
+        // and the Lean `asks` gives odd heights to the responder to ask): it
         // issues the leaf requests, and the responder supplies them.
         assert_eq!(
             dependents.get(leaf).map(|&(work, _)| work),
@@ -512,9 +528,17 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
         ROOT_H - 1,
         "the opening rides the top stream"
     );
-    let [Label::Query(root_radices)] = opening.labels.as_slice() else {
-        panic!("the opening is a single root-listing query: {opening:?}");
+    // The opening leads with the root-listing query; any trailing labels
+    // are the initiator's early supplies, which carry their own radices
+    // and consume no positions — exactly like supplies inside a dispute
+    // reply, they are `M` moves the skeleton drops.
+    let [Label::Query(root_radices), early @ ..] = opening.labels.as_slice() else {
+        panic!("the opening leads with the root-listing query: {opening:?}");
     };
+    assert!(
+        early.iter().all(|label| matches!(label, Label::Supply(_))),
+        "only early supplies trail the opening question: {opening:?}"
+    );
     let initiator = opening.work;
 
     let mut d = BTreeSet::from([Vec::new()]);
@@ -614,11 +638,12 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
 /// A trace's per-channel projection: for each (endpoint, event kind, scope
 /// depth) — one model channel instance — the ordered publications on it.
 ///
-/// This is the granularity at which MODEL.md §1's payload-independence
-/// premise speaks ("the count and order of CHANNEL operations"): the
-/// cross-channel interleaving of one run is scheduler freedom the model
-/// already quantifies over adversarially, and empirically it is not even a
-/// function of the trees — the terminal `tokio::select!` in
+/// This is the granularity at which the payload-independence premise speaks:
+/// the count and order of CHANNEL operations depend only on each child's
+/// merge-join arm, never on payloads. The cross-channel interleaving of one
+/// run is scheduler freedom the model already quantifies over adversarially,
+/// and empirically it is not even a function of the trees — the terminal
+/// `tokio::select!` in
 /// `complete_initiator` is unbiased, so its branch order draws tokio's
 /// thread-local RNG and varies run to run.
 pub(super) fn trace_channels(
@@ -665,8 +690,7 @@ pub(super) fn transcript_streams(
 /// The wedge witness shape at a chosen root height: the Rust mirror of the
 /// Lean literal's generator.
 ///
-/// The shape (`formal/lean/StreamingMirror/Mux/Instances.lean` `wedge`,
-/// the Lean witness's shape): root fan 7 — the FIRST radix child
+/// The shape (the Lean witness `Mux.wedge`): root fan 7 — the FIRST radix child
 /// deep-disputed, a single-child chain descending every level to a height-1
 /// scope carrying one leaf request, with six whole-subtree provisions behind
 /// it. At `root_h = 6` this is exactly the Lean literal

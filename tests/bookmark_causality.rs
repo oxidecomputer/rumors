@@ -75,9 +75,9 @@ use crate::common::wire::tokio_block_on as block_on;
 /// once.
 type Msg = u64;
 
-/// Capacity for every in-memory duplex; the mirror protocol alternates within a
-/// session, so a modest buffer suffices and exercises backpressure.
-const DUPLEX_BUF: usize = 8 * 1024;
+/// Capacity for every in-memory link stream; the mirror protocol alternates
+/// within a session, so a modest buffer suffices and exercises backpressure.
+const LINK_BUF: usize = 8 * 1024;
 
 /// A hard ceiling on heal-phase full-mesh rounds, per peer. A correct fleet
 /// reaches a fixed point in a handful; the cap turns a convergence bug into a
@@ -89,14 +89,13 @@ const MAX_HEAL_ROUNDS_PER_PEER: usize = 16;
 /// One emitted message: the network it entered, its real-time emission order,
 /// and the event [`Version`] stamped on its leaf.
 ///
-/// The [`Version`] alone is the whole identifier we guard. Within a single
-/// network every party is a fork of one seed, so all versions are causally
-/// comparable, and two *distinct* emissions are either ordered (one truly
-/// after the other) or concurrent ([`None`]). A later emission can therefore be
-/// `<=` an earlier one only by rolling backwards over a version the network
-/// already durably held — exactly a recycle. (The emitting party's id-region is
-/// deliberately *not* recorded: it would only ever rule out collisions the
-/// version order already proves impossible.)
+/// The [`Version`] alone is the whole identifier we guard: within one network
+/// all versions are causally comparable or concurrent (every party forks one
+/// seed; concurrent pairs compare [`None`]), so a later emission can be `<=`
+/// an earlier one only by rolling backwards over a version the network
+/// already durably held — exactly a recycle. The emitting party's identity
+/// is deliberately *not* recorded: as the module docs argue, it would only
+/// rule out collisions the version order already forbids.
 struct Emission {
     network: Network,
     seq: u64,
@@ -107,12 +106,11 @@ struct Emission {
 /// persisted by its emitter's bookmark *or* propagated to another peer —
 /// grouped by network and the judge of the causality property.
 ///
-/// A purely local send that is lost to a crash before it is ever persisted or
-/// reaches another peer never enters here: the network never knew it, so reusing
-/// its version is not a recycle. Emissions are held *pending* on their node
-/// ([`Node::pending`]) until [`secure`] promotes them here.
+/// Emissions are held *pending* on their node ([`Node::pending`]) until
+/// [`secure`] promotes them here; a local send lost to a crash before being
+/// secured was never known to the network, so reusing its version is not a
+/// recycle.
 ///
-/// [`promote`]: EmissionLog::promote
 /// [`secure`]: World::secure
 #[derive(Default)]
 struct EmissionLog {
@@ -198,7 +196,9 @@ fn decompose_store(store: &DurableStore) -> BTreeMap<Network, Vec<Version>> {
 
 /// Whether a node's persisted `record` covers `emission`: it has persisted, in
 /// the emission's network, a frontier whose version dominates or equals the
-/// emission's. Coverage is the bookmark's promise that this version survives a
+/// emission's.
+///
+/// Coverage is the bookmark's promise that this version survives a
 /// crash, so it is the moment the emission becomes durable.
 fn store_covers(record: &BTreeMap<Network, Vec<Version>>, emission: &Emission) -> bool {
     record
@@ -207,7 +207,9 @@ fn store_covers(record: &BTreeMap<Network, Vec<Version>>, emission: &Emission) -
 }
 
 /// Decode the id-regions a node has durably checkpointed for `network`, via the
-/// same Borsh round trip the bookmark itself makes. The dual of
+/// same Borsh round trip the bookmark itself makes.
+///
+/// The dual of
 /// [`decompose_store`]: that keeps each clock's version (for durability), this
 /// keeps each clock's [`Party`] (for coverage). A region recorded here is one a
 /// crashed peer can still reclaim, so it counts as *held*, not leaked.
@@ -241,7 +243,9 @@ struct Node {
 }
 
 enum NodeState {
-    Live(Rumors<Msg, FlakyInMemoryBookmark>),
+    // Boxed: a live handle carries the peer's whole configuration,
+    // hundreds of bytes wide against the dataless `Dormant`.
+    Live(Box<Rumors<Msg, FlakyInMemoryBookmark>>),
     Dormant,
 }
 
@@ -280,11 +284,11 @@ impl World {
                     write_faults[label].clone(),
                 )));
                 let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
-                let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
+                let peer = block_on(Peer::<Msg>::seed().sync_window_floor().bookmark(bookmark))
                     .expect("a pristine seed attaches its bookmark without touching storage");
                 let network = peer.network();
                 Node {
-                    state: NodeState::Live(peer.into_rumors()),
+                    state: NodeState::Live(Box::new(peer.into_rumors())),
                     store,
                     faults,
                     network,
@@ -301,7 +305,9 @@ impl World {
     }
 
     /// Build `n` nodes that all share *one* network: node 0 seeds it, and nodes
-    /// `1..n` bootstrap into it over clean wires. Every bookmark is reliable (an
+    /// `1..n` bootstrap into it over clean wires.
+    ///
+    /// Every bookmark is reliable (an
     /// empty fault schedule never fails), the precondition the leakage property
     /// rests on.
     ///
@@ -319,11 +325,11 @@ impl World {
         let store = Arc::new(Mutex::new(None));
         let faults = reliable();
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), 0);
-        let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
+        let peer = block_on(Peer::<Msg>::seed().sync_window_floor().bookmark(bookmark))
             .expect("a pristine seed attaches its bookmark without touching storage");
         let network = peer.network();
         let mut nodes = vec![Node {
-            state: NodeState::Live(peer.into_rumors()),
+            state: NodeState::Live(Box::new(peer.into_rumors())),
             store,
             faults,
             network,
@@ -360,7 +366,9 @@ impl World {
     }
 
     /// Whether some peer *other than* `who` is live in `who`'s network: a peer
-    /// `who` could reboot from. The leakage simulation refuses any crash that
+    /// `who` could reboot from.
+    ///
+    /// The leakage simulation refuses any crash that
     /// would leave this false, so a restarted party always has a live member to
     /// reclaim its identity from — the precondition that "every party which
     /// restarted eventually restores itself" demands.
@@ -459,7 +467,9 @@ impl World {
         self.nodes[who].pending = still_pending;
     }
 
-    /// Secure what is now known to the network, then discard the rest: `who`'s
+    /// Secure what is now known to the network, then discard the rest.
+    ///
+    /// `who`'s
     /// in-memory state is about to vanish (a crash or a re-bootstrap), so any
     /// emission that was neither persisted nor seen by another peer is lost —
     /// never known to the network, and so no later reuse of its version is a
@@ -477,7 +487,9 @@ impl World {
     }
 
     /// Run one gossip session between `a` and `b` over a wire faulted per
-    /// `fault_a`/`fault_b`. A cross-network pair surfaces
+    /// `fault_a`/`fault_b`.
+    ///
+    /// A cross-network pair surfaces
     /// [`Error::NetworkMismatch`] on at least one side; the loser of the
     /// `(min_ticks, network)` tie-break re-bootstraps into the winner. Any other
     /// error is an honest disruption that leaves both replicas unchanged.
@@ -491,17 +503,21 @@ impl World {
             return;
         };
         let (ra, rb) = (ra.clone(), rb.clone());
-        // Each side owns its faulted halves inside its own task, so when a wire
-        // fault kills one side it returns and *drops* its halves, surfacing EOF
+        // Each side owns its faulted link inside its own task, so when a wire
+        // fault kills one side it returns and *drops* its link, surfacing EOF
         // to the counterparty. A bare `join!` would instead hold both sides'
-        // halves until both finished, deadlocking the survivor on a read that
+        // links until both finished, deadlocking the survivor on a read that
         // never completes.
         let (out_a, out_b) = block_on(async {
-            let (side_a, side_b) = tokio::io::duplex(DUPLEX_BUF);
-            let (mut ar, mut aw) = fault::faulty(side_a, fault_a);
-            let (mut br, mut bw) = fault::faulty(side_b, fault_b);
-            let task_a = tokio::spawn(async move { ra.gossip(&mut ar, &mut aw).await });
-            let task_b = tokio::spawn(async move { rb.gossip(&mut br, &mut bw).await });
+            let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
+            let task_a = tokio::spawn(async move {
+                let mut link = fault::faulty(side_a, fault_a);
+                ra.gossip(&mut link).await
+            });
+            let task_b = tokio::spawn(async move {
+                let mut link = fault::faulty(side_b, fault_b);
+                rb.gossip(&mut link).await
+            });
             let (out_a, out_b) = tokio::join!(task_a, task_b);
             (out_a.expect("gossip task a"), out_b.expect("gossip task b"))
         });
@@ -538,7 +554,9 @@ impl World {
     }
 
     /// (Re)create `who` as a fresh replica in `server`'s network by bootstrapping
-    /// from it over a clean wire, reusing `who`'s durable store (so it reclaims
+    /// from it over a clean wire.
+    ///
+    /// Reuses `who`'s durable store (so it reclaims
     /// any of its own identity the pulled frontier now dominates) and its still-
     /// active fault schedule. Returns whether `who` is live afterwards.
     ///
@@ -560,22 +578,24 @@ impl World {
         self.nodes[who].state = NodeState::Dormant;
 
         let booted = block_on(async {
-            let (boot_side, serve_side) = tokio::io::duplex(DUPLEX_BUF);
-            let (mut boot_r, mut boot_w) = tokio::io::split(boot_side);
-            let (mut serve_r, mut serve_w) = tokio::io::split(serve_side);
-            // Spawn both sides so a failing one drops its halves (see `gossip`).
+            let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
+            // Spawn both sides so a failing one drops its link (see `gossip`).
             let boot = tokio::spawn(async move {
+                let mut link = boot_side;
                 // `Ok(None)` cannot happen (the server is gossiping, not
                 // bootstrapping); a wire fault drops us to `None`, as does an
                 // injected persistence failure in the eager bookmark attach.
-                let peer = Peer::<Msg>::bootstrap(&mut boot_r, &mut boot_w)
+                let peer = Peer::<Msg>::bootstrap()
+                    .join(&mut link)
                     .await
                     .ok()
                     .flatten()?;
-                peer.bookmark(bookmark).await.ok()
+                peer.sync_window_floor().bookmark(bookmark).await.ok()
             });
-            let serve =
-                tokio::spawn(async move { server_rumors.gossip(&mut serve_r, &mut serve_w).await });
+            let serve = tokio::spawn(async move {
+                let mut link = serve_side;
+                server_rumors.gossip(&mut link).await
+            });
             let (boot_out, serve_out) = tokio::join!(boot, serve);
             let _ = serve_out;
             boot_out.expect("bootstrap task")
@@ -584,7 +604,7 @@ impl World {
         match booted {
             Some(peer) => {
                 self.nodes[who].network = peer.network();
-                self.nodes[who].state = NodeState::Live(peer.into_rumors());
+                self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
                 // The eager bootstrap persist secures `who`'s reclaimed identity;
                 // the server's donating persist secures its emissions too.
                 self.secure(who);
@@ -616,13 +636,15 @@ impl World {
         // vanishes, so secure what was persisted and lose the rest.
         self.secure_and_lose(who);
         let bookmark = self.nodes[who].bookmark();
-        let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
+        let peer = block_on(Peer::<Msg>::seed().sync_window_floor().bookmark(bookmark))
             .expect("a pristine seed attaches its bookmark without touching storage");
         self.nodes[who].network = peer.network();
-        self.nodes[who].state = NodeState::Live(peer.into_rumors());
+        self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
     }
 
-    /// Retire `retiree` into `absorber`, donating its identity. Same-network
+    /// Retire `retiree` into `absorber`, donating its identity.
+    ///
+    /// Same-network
     /// only: a cross-network retire cannot be absorbed, so it is skipped. The
     /// retiree's durable store may later resurrect it — exercising party reuse
     /// across a donation, where a failed `slice` would let the donated region
@@ -648,21 +670,22 @@ impl World {
         };
 
         let outcome = block_on(async {
-            let (ret_side, abs_side) = tokio::io::duplex(DUPLEX_BUF);
-            let (mut ret_r, mut ret_w) = tokio::io::split(ret_side);
-            let (mut abs_r, mut abs_w) = tokio::io::split(abs_side);
-            // Spawn both sides so a failing one drops its halves (see `gossip`).
+            let (ret_side, abs_side) = rumors::link::memory_with_capacity(LINK_BUF);
+            // Spawn both sides so a failing one drops its link (see `gossip`).
             // The retiree becomes a `Peer` inside its task: it holds the sole
             // handle to its set, so `try_into_peer` resolves at once.
             let retire = tokio::spawn(async move {
+                let mut link = ret_side;
                 let peer = retiree_rumors
                     .try_into_peer()
                     .await
                     .expect("the node holds the sole handle to its set");
-                peer.retire(&mut ret_r, &mut ret_w).await
+                peer.retire(&mut link).await
             });
-            let absorb =
-                tokio::spawn(async move { absorber_rumors.gossip(&mut abs_r, &mut abs_w).await });
+            let absorb = tokio::spawn(async move {
+                let mut link = abs_side;
+                absorber_rumors.gossip(&mut link).await
+            });
             let (retire_out, gossip_out) = tokio::join!(retire, absorb);
             (
                 retire_out.expect("retire task"),
@@ -698,7 +721,7 @@ impl World {
             // Unchanged: hand the intact peer back to life; its persisted
             // emissions are durable, its unpersisted ones remain pending.
             Retire::Declined { peer } | Retire::Recovered { peer, .. } => {
-                self.nodes[retiree].state = NodeState::Live(peer.into_rumors());
+                self.nodes[retiree].state = NodeState::Live(Box::new(peer.into_rumors()));
                 self.secure(retiree);
             }
         }
@@ -760,11 +783,15 @@ impl World {
         };
         let (ra, rb) = (ra.clone(), rb.clone());
         let (out_a, out_b) = block_on(async {
-            let (side_a, side_b) = tokio::io::duplex(DUPLEX_BUF);
-            let (mut ar, mut aw) = tokio::io::split(side_a);
-            let (mut br, mut bw) = tokio::io::split(side_b);
-            let task_a = tokio::spawn(async move { ra.gossip(&mut ar, &mut aw).await });
-            let task_b = tokio::spawn(async move { rb.gossip(&mut br, &mut bw).await });
+            let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
+            let task_a = tokio::spawn(async move {
+                let mut link = side_a;
+                ra.gossip(&mut link).await
+            });
+            let task_b = tokio::spawn(async move {
+                let mut link = side_b;
+                rb.gossip(&mut link).await
+            });
             let (out_a, out_b) = tokio::join!(task_a, task_b);
             (
                 out_a.expect("heal gossip task A"),
@@ -833,8 +860,10 @@ impl World {
 
     /// Verify the recycle assertion is not passing vacuously: after the
     /// fault-free heal, every surviving live message must have an exact durable
-    /// emission witness, because the converged fleet has now persisted and
-    /// propagated all surviving content.
+    /// emission witness.
+    ///
+    /// The witness must exist because the converged fleet has now persisted
+    /// and propagated all surviving content.
     fn assert_live_content_is_durable(&self, live: &[usize]) {
         let mut live_leaves = 0;
         for &k in live {
@@ -1012,7 +1041,9 @@ fn run_plan(plan: Plan) -> World {
 
 /// One step over a fleet of `n` for the *reliable-recovery* simulation: every
 /// wire is clean ([`FaultPlan::NONE`]) and every bookmark reliable, so the only
-/// adversity is crash/restart and retirement. Crash and retire weigh heavier
+/// adversity is crash/restart and retirement.
+///
+/// Crash and retire weigh heavier
 /// than in [`arb_step`] because recovery — not fault injection — is the property
 /// under test.
 fn arb_reliable_step(n: usize) -> BoxedStrategy<Step> {
@@ -1042,8 +1073,9 @@ fn arb_reliable_plan() -> impl Strategy<Value = Plan> {
 
 /// Minimal library-level regression for the codec leak this suite found:
 /// retiring into an absorber that has itself rebooted (reclaimed its identity
-/// from a bookmark) must absorb cleanly, leaving the absorber holding the whole
-/// seed identity.
+/// from a bookmark) must absorb cleanly.
+///
+/// The absorber is left holding the whole seed identity.
 ///
 /// Both peers reclaiming once grew the retiree's donated party via
 /// [`Party::join`](before::Party), which left stale bits in its `as_bytes`
@@ -1070,6 +1102,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
         // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; re-bootstrap = revive).
         let a = Peer::<Msg>::seed()
+            .sync_window_floor()
             .bookmark(bm_a())
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
@@ -1091,15 +1124,17 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
 
         // B retires into A. A's gossip must absorb B's party so that A ends up
         // holding the whole seed identity.
-        let (ret_side, abs_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut ret_r, mut ret_w) = tokio::io::split(ret_side);
-        let (mut abs_r, mut abs_w) = tokio::io::split(abs_side);
+        let (ret_side, abs_side) = rumors::link::memory_with_capacity(LINK_BUF);
         let absorber = a.clone();
         let retire = tokio::spawn(async move {
+            let mut link = ret_side;
             let peer = b.try_into_peer().await.expect("sole handle");
-            peer.retire(&mut ret_r, &mut ret_w).await
+            peer.retire(&mut link).await
         });
-        let absorb = tokio::spawn(async move { absorber.gossip(&mut abs_r, &mut abs_w).await });
+        let absorb = tokio::spawn(async move {
+            let mut link = abs_side;
+            absorber.gossip(&mut link).await
+        });
         let (retire_out, absorb_out) = tokio::join!(retire, absorb);
 
         assert!(
@@ -1118,20 +1153,21 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
 }
 
 /// Bootstrap a fresh peer with bookmark `bm` from `server` over a clean
-/// in-process duplex, returning the booted peer's [`Rumors`]. Diagnostic helper.
+/// in-memory link, returning the booted peer's [`Rumors`]. Diagnostic helper.
 async fn boot_from_async(
     server: &Rumors<Msg, FlakyInMemoryBookmark>,
     bm: FlakyInMemoryBookmark,
 ) -> Rumors<Msg, FlakyInMemoryBookmark> {
     let server = server.clone();
-    let (boot_side, serve_side) = tokio::io::duplex(DUPLEX_BUF);
-    let (mut boot_r, mut boot_w) = tokio::io::split(boot_side);
-    let (mut serve_r, mut serve_w) = tokio::io::split(serve_side);
+    let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
     let boot = tokio::spawn(async move {
-        let peer = Peer::<Msg>::bootstrap(&mut boot_r, &mut boot_w)
+        let mut link = boot_side;
+        let peer = Peer::<Msg>::bootstrap()
+            .join(&mut link)
             .await
             .expect("bootstrap ok")
-            .expect("got a peer");
+            .expect("got a peer")
+            .sync_window_floor();
         // Clean wires, reliable store: the eager persist of the reclaimed
         // identity must succeed.
         match peer.bookmark(bm).await {
@@ -1139,7 +1175,10 @@ async fn boot_from_async(
             Err(_) => panic!("bookmark ok"),
         }
     });
-    let serve = tokio::spawn(async move { server.gossip(&mut serve_r, &mut serve_w).await });
+    let serve = tokio::spawn(async move {
+        let mut link = serve_side;
+        server.gossip(&mut link).await
+    });
     let (boot_out, serve_out) = tokio::join!(boot, serve);
     serve_out.unwrap().expect("serve bootstrap");
     boot_out.unwrap().into_rumors()
@@ -1172,14 +1211,17 @@ fn run_reliable_plan(plan: Plan) -> World {
     world
 }
 
-/// Negative control for the verifier itself: a mutant bookmark that handed out
+/// Negative control for the verifier itself: the log must reject the witness
+/// of a recycled coordinate.
+///
+/// A mutant bookmark that handed out
 /// the same causal coordinate twice would surface as two durable emissions in
-/// one network with equal versions, and the log must reject that witness.
+/// one network with equal versions.
 #[test]
 #[should_panic(expected = "recycled version identifier")]
 fn negative_control_recycled_durable_emission_panics() {
     let log = EmissionLog::default();
-    let network = Peer::<Msg>::seed().network();
+    let network = Peer::<Msg>::seed().sync_window_floor().network();
     let mut version = Version::new();
     version.tick(&Party::seed());
 
@@ -1197,10 +1239,8 @@ fn negative_control_recycled_durable_emission_panics() {
 
 proptest! {
     /// Under arbitrary interleavings of sends, redactions, faulted gossip,
-    /// crashes, and retirements across a fleet that starts fragmented into
-    /// per-peer networks and converges by the `(min_ticks, network)` tie-break
-    /// — with each peer's bookmark reads and writes failing on a shrinkable
-    /// schedule — the identity bookmark never recycles a version identifier:
+    /// crashes, and retirements, the identity bookmark never recycles a
+    /// version identifier:
     ///
     /// 1. within every network, no durable message's version is ever dominated
     ///    by, equal to, or in the causal past of an earlier durable one's
@@ -1208,6 +1248,10 @@ proptest! {
     ///    message becoming durable once it is persisted or reaches another peer);
     /// 2. after a clean heal, all surviving peers converge to identical content
     ///    and their live parties are pairwise disjoint.
+    ///
+    /// The fleet starts fragmented into per-peer networks and converges by
+    /// the `(min_ticks, network)` tie-break, with each peer's bookmark reads
+    /// and writes failing on a shrinkable schedule.
     #[test]
     fn bookmarking_never_recycles_a_version(plan in arb_plan()) {
         let world = run_plan(plan);
@@ -1217,10 +1261,7 @@ proptest! {
 
 proptest! {
     /// Under arbitrary crash/restart and retirement of a fleet that shares one
-    /// network — with *reliable* wires and bookmarks, so a party is never lost
-    /// in transit nor a checkpoint lost in storage, and every crashed peer can
-    /// always reboot from a surviving member — bookmarking never leaks identity
-    /// space:
+    /// network, bookmarking never leaks identity space:
     ///
     /// 1. **No region claimed twice.** After a clean heal, the live parties are
     ///    pairwise disjoint ([`World::assert_healed`]). A reboot that wrongly
@@ -1236,6 +1277,10 @@ proptest! {
     /// Together these witness the retire-then-reboot contract: the donated
     /// region lives on in its absorber, and every fragment the donation did not
     /// excise reconstitutes the rebooted peer's remaining identity.
+    ///
+    /// Wires and bookmarks are *reliable*, so a party is never lost
+    /// in transit nor a checkpoint lost in storage, and every crashed peer can
+    /// always reboot from a surviving member.
     #[test]
     fn bookmarking_prevents_party_leakage(plan in arb_reliable_plan()) {
         let world = run_reliable_plan(plan);

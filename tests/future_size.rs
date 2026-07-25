@@ -4,17 +4,15 @@
 //! enough that any layout query that traverses it inline blows past the
 //! default `recursion_limit = 128` and forces downstream crates to bump
 //! their own limit. We defuse that by type-erasing inside the protocol and
-//! `tree::traverse::act`, which leaves
-//! the public futures (`Rumors::gossip`, `Peer::retire`,
-//! `Peer::bootstrap`) holding nothing more than a `Pin<Box<dyn Future>>`
-//! plus a few locals.
+//! `tree::traverse::act`, which leaves the public futures (`Rumors::gossip`,
+//! `Peer::retire`, `Bootstrap::join`) holding nothing more than a
+//! `Pin<Box<dyn Future>>` plus a few locals.
 //!
-//! This test pins down that arrangement: if someone reintroduces the deep
-//! chain inline (e.g. by removing the `Box::pin` indirection or by adding
-//! a new public future that drives the protocol directly), the future
-//! size jumps from a couple hundred bytes to tens of KiB and trips the
-//! budget — alerting us before downstream crates discover the
-//! `recursion_limit` regression.
+//! If the deep chain is reintroduced inline (say, the `Box::pin` indirection
+//! removed, or a new public future driving the protocol directly), the
+//! future size jumps from a couple hundred bytes to tens of KiB and trips
+//! the budget — before downstream crates discover the `recursion_limit`
+//! regression.
 //!
 //! The budget is enforced only in release builds: debug layouts carry
 //! additional state, and they are not what users ship.
@@ -25,7 +23,9 @@ use std::mem::size_of_val;
 
 use rumors::{Peer, Rumors};
 
-/// Upper bound for the unawaited public futures. The budget is set
+/// Upper bound for the unawaited public futures.
+///
+/// The budget is set
 /// generously above the measured sizes (a few hundred bytes) so legitimate
 /// growth — an extra captured local, a slightly fatter error type —
 /// doesn't fail the test, but any *order-of-magnitude* growth (i.e. the
@@ -33,17 +33,18 @@ use rumors::{Peer, Rumors};
 const PUBLIC_FUTURE_BUDGET: usize = 1024;
 
 /// `Rumors::gossip` drives the full mirror protocol against a peer; the
-/// public future is type-erased via `mirror()`'s internal `Pin<Box<dyn
-/// Future>>` so the protocol's `Levels` chain doesn't appear in the
+/// public future is type-erased.
+///
+/// The erasure is `mirror()`'s internal `Pin<Box<dyn
+/// Future>>`, so the protocol's `Levels` chain doesn't appear in the
 /// caller's layout query.
 #[test]
 fn gossip_future_fits_budget() {
-    let (a, b) = tokio::io::duplex(64);
-    let (mut a_r, mut a_w) = tokio::io::split(a);
-    drop(b);
+    let (mut link, peer) = rumors::link::memory();
+    drop(peer);
 
-    let alice: Rumors<()> = Peer::seed().into_rumors();
-    let fut = alice.gossip(&mut a_r, &mut a_w);
+    let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
+    let fut = alice.gossip(&mut link);
     let size = size_of_val(&fut);
 
     assert!(
@@ -59,12 +60,11 @@ fn gossip_future_fits_budget() {
 /// boundary must keep it flat.
 #[test]
 fn retire_future_fits_budget() {
-    let (a, b) = tokio::io::duplex(64);
-    let (mut a_r, mut a_w) = tokio::io::split(a);
-    drop(b);
+    let (mut link, peer) = rumors::link::memory();
+    drop(peer);
 
-    let alice: Peer<()> = Peer::seed();
-    let fut = alice.retire(&mut a_r, &mut a_w);
+    let alice: Peer<()> = Peer::seed().sync_window_floor();
+    let fut = alice.retire(&mut link);
     let size = size_of_val(&fut);
 
     assert!(
@@ -74,15 +74,14 @@ fn retire_future_fits_budget() {
     );
 }
 
-/// `Peer::bootstrap` runs the same mirror descent from an empty tree.
+/// `Bootstrap::join` runs the same mirror descent from an empty tree.
 /// Same erasure boundary as `gossip`.
 #[test]
 fn bootstrap_future_fits_budget() {
-    let (a, b) = tokio::io::duplex(64);
-    let (mut a_r, mut a_w) = tokio::io::split(a);
-    drop(b);
+    let (mut link, peer) = rumors::link::memory();
+    drop(peer);
 
-    let fut = Peer::<()>::bootstrap(&mut a_r, &mut a_w);
+    let fut = Peer::<()>::bootstrap().join(&mut link);
     let size = size_of_val(&fut);
 
     assert!(

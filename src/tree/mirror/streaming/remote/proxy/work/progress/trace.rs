@@ -3,6 +3,8 @@ use std::{
     collections::BTreeMap,
 };
 
+use crate::tree::typed::height::{Height as _, UnderRoot};
+
 /// One progress-critical proxy publication.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
@@ -50,6 +52,60 @@ impl Trace {
             scopes.values().all(|remaining| *remaining == 0),
             "some decoded replies did not publish every scope: {scopes:?}",
         );
+    }
+
+    /// Assert context-registration causality: no decoded reply overtakes
+    /// the flushed local question whose scope interprets it.
+    ///
+    /// Decoding pairs replies with scopes positionally off a FIFO whose
+    /// entries are registered at encode time, after the question's complete
+    /// wire reply flushed. So at every trace prefix, per endpoint, the
+    /// decode count at a height is bounded by the flushed-question count at
+    /// the height it consumes scopes from:
+    ///
+    /// - a reply decoded at height `h` consumed a question at `h + 1` (the
+    ///   scope it was asked under);
+    /// - leaf-height decodes drain both the last internal stage's height-1
+    ///   scopes and the terminal height-0 leaf questions, so their bound is
+    ///   the sum;
+    /// - the single greeting-seeded opening (recorded at the under-root
+    ///   height, the one reply with no wire frame at all) is scoped by the
+    ///   greeting itself.
+    ///
+    /// A violation means a reply was interpreted by a scope its own
+    /// question had not yet made publishable: the receive-side complement
+    /// of the wire-before-question ordering
+    /// [`assert_valid`](Self::assert_valid) pins on the send side.
+    pub fn assert_registration_causality(&self) {
+        let mut questions = BTreeMap::<(usize, usize), usize>::new();
+        let mut decoded = BTreeMap::<(usize, usize), usize>::new();
+        for (index, event) in self.0.iter().enumerate() {
+            match event.kind {
+                Kind::LocalQuestion => {
+                    *questions.entry((event.work, event.height)).or_insert(0) += 1;
+                }
+                Kind::DecodedReply { .. } => {
+                    let count = decoded.entry((event.work, event.height)).or_insert(0);
+                    *count += 1;
+                    let flushed =
+                        |height: usize| questions.get(&(event.work, height)).copied().unwrap_or(0);
+                    let available = if event.height == UnderRoot::HEIGHT {
+                        1
+                    } else if event.height == 0 {
+                        flushed(0) + flushed(1)
+                    } else {
+                        flushed(event.height + 1)
+                    };
+                    assert!(
+                        *count <= available,
+                        "event {event:?} at trace index {index}: decoded reply {count} \
+                         arrived before the question that scopes it was flushed \
+                         ({available} available)",
+                    );
+                }
+                Kind::WireReply { .. } | Kind::NextScope => {}
+            }
+        }
     }
 }
 

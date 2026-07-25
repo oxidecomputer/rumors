@@ -15,7 +15,9 @@ const ALICE: PeerId = [0xaa; 32];
 const BOB: PeerId = [0xbb; 32];
 
 /// Insert `entries` into `rumors` as one batch and return each one's
-/// `(key, version)` in insertion order. Insertion order is causal order
+/// `(key, version)` in insertion order.
+///
+/// Insertion order is causal order
 /// here: every insert ticks the same party, so the minted versions come
 /// back totally ordered and sorting by them recovers the batch order.
 fn mint(rumors: &Rumors<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
@@ -39,15 +41,13 @@ fn mint(rumors: &Rumors<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
 }
 
 /// A party-disjoint fork of `rumors`, minted by serving a bootstrap over an
-/// in-memory duplex: the only honest source of genuinely concurrent
+/// in-memory link: the only honest source of genuinely concurrent
 /// versions.
 async fn bootstrap_empty_fork(rumors: &Rumors<Entry>) -> Rumors<Entry> {
-    let (sa, sb) = tokio::io::duplex(64 * 1024);
-    let (mut ar, mut aw) = tokio::io::split(sa);
-    let (mut br, mut bw) = tokio::io::split(sb);
+    let (mut parent_link, mut fork_link) = rumors::link::memory_with_capacity(64 * 1024);
     let (served, fork) = tokio::join!(
-        rumors.gossip(&mut ar, &mut aw),
-        Peer::<Entry>::bootstrap(&mut br, &mut bw),
+        rumors.gossip(&mut parent_link),
+        Peer::<Entry>::bootstrap().join(&mut fork_link),
     );
     served.expect("serve the fork's bootstrap");
     fork.expect("bootstrap handshake")
@@ -104,7 +104,9 @@ async fn expiry_policy_on_arrival() {
 /// A message that causally follows the channel tail extends the
 /// conversation unflagged; one delivered from a *concurrent* line of
 /// history is flagged as a [`Effect::ConcurrentArrival`] for the UI to
-/// highlight. Display order is plain arrival order — sound because the
+/// highlight.
+///
+/// Display order is plain arrival order — sound because the
 /// owner feeds `observe` from a `CausalMessages` observer.
 #[pollster::test]
 async fn concurrent_arrival_is_flagged() {

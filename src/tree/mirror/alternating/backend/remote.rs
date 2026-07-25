@@ -33,8 +33,7 @@
 //! the time any length is trusted, the preamble has already vetted the
 //! counterparty. The reader never consumes a byte past the frame it was
 //! asked for; [`crate::tree::mirror::framing`]'s docs explain how that
-//! guarantee is what lets one
-//! connection host back-to-back sessions.
+//! guarantee lets one connection host back-to-back sessions.
 //!
 //! # In-band termination
 //!
@@ -117,7 +116,7 @@ impl<T, R: Send, W: Send, V, H: Height> protocol::Stage for Exchange<T, R, W, V,
     ///
     /// A session that needs a trailing frame after
     /// the descent (the party hand-off when serving a
-    /// [bootstrapping](crate::Peer::bootstrap) peer or absorbing a
+    /// [bootstrapping](crate::Bootstrap) peer or absorbing a
     /// [retiring](crate::Peer::retire) one) reads it from the same
     /// [`FrameRead`] the descent used.
     type Output = (FrameRead<R>, FrameWrite<W>);
@@ -181,12 +180,17 @@ where
         request: message::Handshake,
     ) -> Result<protocol::Step<message::Handshake, Self::Next, Self::Output>, Self::Error> {
         // `request` is our local caller's handshake; ship it across to the
-        // peer, then read the peer's handshake reply. (If our caller is
-        // retiring, `request.intent` only announces the hand-off; the party
-        // itself travels as a trailing frame after reconciliation, via
-        // `send_party`.)
-        send_msg(&mut self.writer, &request).await?;
-        let peer: message::Handshake = recv_msg(&mut self.reader).await?;
+        // peer and read the peer's reply concurrently, mirroring the shared
+        // preamble and the V2 greeting. Both ends of a session run this same
+        // exchange, so a sequential write-then-read would deadlock the pair
+        // whenever the transport cannot absorb one full greeting frame in
+        // flight — and the version frame grows with party count, so "the
+        // greeting fits in the window" is a size assumption, not a contract.
+        // Only write/read concurrency changes here; the wire bytes are
+        // identical to the sequential form.
+        let send = send_msg(&mut self.writer, &request);
+        let receive = recv_msg::<message::Handshake, _>(&mut self.reader);
+        let ((), peer) = futures_util::future::try_join(send, receive).await?;
 
         // If the two versions are the same, both sides are immediately done.
         if request.version == peer.version {
@@ -240,10 +244,10 @@ where
     ) -> Result<Step<message::Opening, Self::Next, Self::Output>, Error> {
         send_msg(&mut self.writer, &request).await?;
 
-        // The responder always emits an `Opening`, possibly empty. We can no
-        // longer infer termination from an empty `Opening` alone: it can mean
-        // either "the trees are equal" or "the responder has no children but
-        // we (the initiator) might still have data to provide." Always
+        // The responder always emits an `Opening`, possibly empty. An empty
+        // `Opening` alone does not decide termination: it can mean either
+        // "the trees are equal" or "the responder has no children but we
+        // (the initiator) might still have data to provide." Always
         // `Continue` and let the next stage's `open_initiator` decide.
         let response: message::Opening = recv_msg(&mut self.reader).await?;
         Ok(Step::Continue {
@@ -429,3 +433,6 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

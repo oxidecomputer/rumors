@@ -36,6 +36,12 @@ where
         self.parent
     }
 
+    /// Whether this scope is a whole-node request: an empty listing, "I
+    /// lack this node entirely — send everything".
+    pub fn is_request(&self) -> bool {
+        self.children.is_empty()
+    }
+
     /// Resolve the next positional reaction to its child radix and prefix.
     pub fn next(&mut self) -> Option<(u8, Prefix<H>)> {
         let radix = *self.children.get(self.next)?;

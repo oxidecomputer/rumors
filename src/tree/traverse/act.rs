@@ -14,7 +14,7 @@ pub enum Action<T> {
     Forget,
 }
 
-/// Perform a sequence of actions (insertions or deletions) on this node.
+/// Performs a sequence of actions (insertions or deletions) on `node`.
 ///
 /// `on_action` fires once per *effectual* action — a leaf inserted, replaced,
 /// or removed — with that action's version. A forget of a leaf that never

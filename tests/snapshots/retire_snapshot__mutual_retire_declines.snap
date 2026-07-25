@@ -8,6 +8,8 @@ preamble: 25 bytes
   0008: 8c 18 96 68 c9 e4 83 72
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 01
+trailing frame: 1 bytes
+  0000: 2e
 
 direction B -> A
 preamble: 25 bytes
@@ -15,3 +17,5 @@ preamble: 25 bytes
   0008: 8c 18 96 68 c9 e4 83 72
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 01
+trailing frame: 1 bytes
+  0000: 2e

@@ -3,7 +3,7 @@
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use super::super::{
-    error::{EncodeError, EncodeErrorKind, EncodeLeafError, FramePart},
+    error::{EncodeError, EncodeErrorKind, FramePart},
     frame::WireFrame,
     signal::Speaker,
 };
@@ -26,6 +26,7 @@ impl<W> FrameWrite<W> {
     }
 
     /// Recover the transport writer without buffered frame state.
+    #[cfg(test)]
     pub fn into_inner(self) -> W {
         self.write
     }
@@ -33,6 +34,14 @@ impl<W> FrameWrite<W> {
 
 impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     /// Validate, write, and flush one canonical frame.
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel safe. A dropped `frame` future may already have written
+    /// part of the frame, leaving the direction mid-frame for the peer's
+    /// reader. Either retain the in-flight future across polls until it
+    /// resolves, or write nothing further on this direction after a
+    /// cancellation.
     pub async fn frame<T>(&mut self, wire: &WireFrame<T>) -> Result<(), EncodeError> {
         let (stream, frame) = wire;
         let result = async {
@@ -59,18 +68,9 @@ async fn write_encoding<T>(
                 write(out, FramePart::QueryChildren, hash.as_bytes()).await?;
             }
         }
-        BodyEncoding::Supply {
-            header,
-            version,
-            message,
-        } => {
+        BodyEncoding::Supply { header, run } => {
             write(out, FramePart::SupplyLength, header).await?;
-            out.write_all(version.as_bytes())
-                .await
-                .map_err(EncodeLeafError::Version)?;
-            out.write_all(message.as_slice())
-                .await
-                .map_err(EncodeLeafError::Message)?;
+            write(out, FramePart::SupplyRun, run.as_bytes()).await?;
         }
     }
     Ok(())

@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+# The case below was minted against a deliberately neutralized resolver containment check during mutation review; it passes on real code and deterministically exercises the resolver chokepoint.
+cc 2ff181faf59f338e6b61b11eb3b507b7457d5d343163f1ddbfaedba1bbf10122 # shrinks to injection = UncontainedSupply, parent = 0, radixes = {0}, schedule = []

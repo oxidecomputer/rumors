@@ -1,4 +1,15 @@
 //! Stable witnesses for every codec error reachable without resource exhaustion.
+//!
+//! Coverage is enforced from both ends: every `describe_*` match below is
+//! wildcard-free, so a new error variant fails compilation until it is
+//! described, and `atlas_covers_every_error_variant` requires each described
+//! variant's rendered marker to appear in the atlas — or to carry an explicit,
+//! reasoned exemption in `EXEMPT_MARKERS`. The one hole neither half can see:
+//! a variant whose new match arm is added without extending the marker tables
+//! or the witnesses; the comments at each match carry that obligation. An
+//! exemption also outlives its variant silently — the check asserts absence,
+//! which a deleted variant satisfies trivially — so pruning a variant must
+//! prune its `EXEMPT_MARKERS` entry by hand.
 
 use std::{
     error::Error,
@@ -13,12 +24,55 @@ use tokio::io::AsyncWrite;
 
 use super::super::{
     DecodeError, DecodeErrorKind, DecodeLeafError, DecodeSignalError, EncodeError, EncodeErrorKind,
-    EncodeLeafError, Flow, Frame, FrameWrite, Reaction, Speaker, Stream, WireFrame, decode,
+    Flow, Frame, FrameWrite, LeafRunError, Reaction, Speaker, Stream, WireFrame, decode,
     decode_exact, encode,
-    frame::QUERY_CHILD_LEN,
+    frame::{LeafRun, QUERY_CHILD_LEN},
     signal::{Signal, WireSignal},
 };
 use crate::{Version, message::Message, tree::typed::Hash};
+
+/// One rendered marker per error variant the atlas must witness.
+///
+/// Grouped by the enum whose `describe_*` match is the compile-time
+/// tripwire for it; a new variant's match arm and its entry here land
+/// together, with a witness below (or an exemption in `EXEMPT_MARKERS`).
+const WITNESS_MARKERS: &[&str] = &[
+    // EncodeErrorKind (describe_encode_kind).
+    "kind: Write(part=",
+    "kind: Flush(io=",
+    // DecodeErrorKind, including its nested DecodeSignalError and
+    // LeafRunError variants (describe_decode_kind).
+    "kind: Read(part=",
+    "kind: InvalidSignal::Reserved(",
+    "kind: InvalidSignal::Placement(",
+    "kind: Truncated(missing=",
+    "kind: QueryOutOfOrder(previous=",
+    "kind: InvalidRun::Empty",
+    "kind: InvalidRun::TruncatedHeader(",
+    "kind: InvalidRun::TruncatedRecord(",
+    "kind: TrailingBytes(count=",
+    // DecodeLeafError (describe_leaf_kind).
+    "kind: Record::Version(io=",
+    "kind: Record::Message(io=",
+    "kind: Record::TrailingBytes(count=",
+    // FramePart: every frame component must fail somewhere. These ride the
+    // encode Write witnesses; FramePart has no exhaustive match here, so a
+    // new component's marker must be added by hand alongside its witnesses.
+    "part=Signal",
+    "part=QueryCount",
+    "part=QueryChildren",
+    "part=SupplyLength",
+    "part=SupplyRun",
+];
+
+/// Variants deliberately absent from the atlas, each with the reason it is
+/// unreachable without resource exhaustion.
+const EXEMPT_MARKERS: &[(&str, &str)] = &[(
+    "kind: SupplyTooLarge(",
+    "requires a run body past the u32 frame ceiling: a >4 GiB in-memory run \
+     is resource exhaustion by construction; the ceiling itself is pinned at \
+     its exact boundary in frame/tests.rs",
+)];
 
 /// Interior stream used where both speakers admit every signal state.
 const INTERIOR_STREAM: u8 = 8;
@@ -26,16 +80,47 @@ const INTERIOR_STREAM: u8 = 8;
 /// First reserved semantic-state byte.
 const FIRST_RESERVED_SIGNAL: u8 = WireSignal::BYTE_COUNT;
 
-/// A one-byte Version prefix whose gamma integer is incomplete.
-const TRUNCATED_VERSION: &[u8] = &[1];
+/// Build a supply run holding one leaf record.
+fn one_record_run<T: borsh::BorshSerialize>(version: Version, value: T) -> LeafRun<T> {
+    let mut run = LeafRun::new();
+    run.push(&version, &Message::new(value))
+        .expect("an atlas record fits the run framing");
+    run
+}
 
 /// Every feasible typed failure pins its origin, fields, and source chain.
 #[test]
 fn codec_error_atlas_snapshot() {
+    insta::assert_snapshot!(build_atlas());
+}
+
+/// Every inventoried error variant has an atlas witness, and every
+/// exemption is genuinely absent (a witnessed exemption is stale).
+#[test]
+fn atlas_covers_every_error_variant() {
+    let atlas = build_atlas();
+    for marker in WITNESS_MARKERS {
+        assert!(
+            atlas.contains(marker),
+            "no atlas witness renders {marker:?}: add a witness for the \
+             variant or an explicit exemption in EXEMPT_MARKERS",
+        );
+    }
+    for (marker, reason) in EXEMPT_MARKERS {
+        assert!(
+            !atlas.contains(marker),
+            "exempt variant {marker:?} now has a witness: move it into \
+             WITNESS_MARKERS (recorded exemption reason: {reason})",
+        );
+    }
+}
+
+fn build_atlas() -> String {
     let mut atlas = String::new();
     encode_errors(&mut atlas);
     decode_errors(&mut atlas);
-    insta::assert_snapshot!(atlas);
+    record_errors(&mut atlas);
+    atlas
 }
 
 fn encode_errors(atlas: &mut String) {
@@ -51,7 +136,7 @@ fn encode_errors(atlas: &mut String) {
     let supply: WireFrame<u8> = (
         stream,
         Frame::Reaction(
-            Reaction::Supply(Version::new(), Message::new(7)),
+            Reaction::Supply(one_record_run(Version::new(), 7)),
             Flow::Continue,
         ),
     );
@@ -62,8 +147,7 @@ fn encode_errors(atlas: &mut String) {
             ("write/query-count", &query, 1),
             ("write/query-children", &query, 2),
             ("write/supply-length", &supply, 1),
-            ("leaf/version", &supply, 5),
-            ("leaf/message", &supply, 6),
+            ("write/supply-run", &supply, 5),
         ] {
             let error = encode(speaker, frame, &mut FailAfterWriter::new(offset)).unwrap_err();
             record_encode(atlas, &format!("{speaker:?}/{label}"), &error);
@@ -93,7 +177,7 @@ fn decode_errors(atlas: &mut String) {
         (
             stream,
             Frame::Reaction(
-                Reaction::Supply(Version::new(), Message::new(7_u8)),
+                Reaction::Supply(one_record_run(Version::new(), 7_u8)),
                 Flow::Continue,
             ),
         ),
@@ -116,7 +200,7 @@ fn decode_errors(atlas: &mut String) {
                 .unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/read/{label}"), &error);
         }
-        for (label, offset) in [("supply-length", 1), ("supply-leaf", 5)] {
+        for (label, offset) in [("supply-length", 1), ("supply-run", 5)] {
             let error = decode::<u8>(speaker, &mut FailAfterReader::new(supply.clone(), offset))
                 .unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/read/{label}"), &error);
@@ -127,7 +211,7 @@ fn decode_errors(atlas: &mut String) {
             ("query-count", &query[..1]),
             ("query-children", &query[..2]),
             ("supply-length", &supply[..1]),
-            ("supply-leaf", &supply[..5]),
+            ("supply-run", &supply[..5]),
         ] {
             let error = decode_exact::<u8>(speaker, bytes).unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/truncated/{label}"), &error);
@@ -142,24 +226,19 @@ fn decode_errors(atlas: &mut String) {
         let error = decode_exact::<u8>(speaker, &unordered).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/query-out-of-order"), &error);
 
-        let error = decode_exact::<u64>(
-            speaker,
-            &raw_supply(stream, Flow::Continue, TRUNCATED_VERSION),
-        )
-        .unwrap_err();
-        record_decode(atlas, &format!("{speaker:?}/leaf/version"), &error);
-
-        let mut body = Vec::new();
-        Version::new().serialize(&mut body).unwrap();
         let error =
-            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &body)).unwrap_err();
-        record_decode(atlas, &format!("{speaker:?}/leaf/message"), &error);
+            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &[])).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/run/empty"), &error);
 
-        0_u64.serialize(&mut body).unwrap();
-        body.push(0);
         let error =
-            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &body)).unwrap_err();
-        record_decode(atlas, &format!("{speaker:?}/leaf/trailing"), &error);
+            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &[0, 0])).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/run/truncated-header"), &error);
+
+        let mut overrun = 2_u32.to_be_bytes().to_vec();
+        overrun.push(0);
+        let error = decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &overrun))
+            .unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/run/truncated-record"), &error);
 
         let mut trailing = matched.clone();
         trailing.push(0);
@@ -175,10 +254,78 @@ fn decode_errors(atlas: &mut String) {
     }
 }
 
+/// Witness the record-level decode failures a supplied leaf can carry.
+///
+/// These surface from the run's record iterator rather than the frame
+/// decoder — a structurally valid run defers canonical decoding of each
+/// record — so they have no `Origin` and no speaker dimension.
+fn record_errors(atlas: &mut String) {
+    writeln!(atlas, "RECORD").unwrap();
+
+    // A zero-length record is structurally valid; its empty body fails
+    // at the version decoder.
+    let run = LeafRun::<u64>::from_encoded(framed_record(&[])).unwrap();
+    record_leaf(atlas, "record/version", &next_record_error(&run));
+
+    // A record ending after its version fails at the message decoder.
+    let mut version = Vec::new();
+    Version::new().serialize(&mut version).unwrap();
+    let run = LeafRun::<u64>::from_encoded(framed_record(&version)).unwrap();
+    record_leaf(atlas, "record/message", &next_record_error(&run));
+
+    // Bytes past the canonical pair are trailing.
+    let mut padded = version.clone();
+    0_u64.serialize(&mut padded).unwrap();
+    padded.push(u8::MIN);
+    let run = LeafRun::<u64>::from_encoded(framed_record(&padded)).unwrap();
+    record_leaf(atlas, "record/trailing", &next_record_error(&run));
+}
+
+/// Frame one record body with its length header, as a run body.
+fn framed_record(record: &[u8]) -> Vec<u8> {
+    let mut body = (record.len() as u32).to_be_bytes().to_vec();
+    body.extend_from_slice(record);
+    body
+}
+
+/// The first record's decode failure from a structurally valid run.
+fn next_record_error(run: &LeafRun<u64>) -> DecodeLeafError {
+    run.records()
+        .next()
+        .expect("the run holds one record")
+        .unwrap_err()
+}
+
+fn record_leaf(atlas: &mut String, label: &str, error: &DecodeLeafError) {
+    writeln!(atlas, "  {label}").unwrap();
+    writeln!(atlas, "    display: {error}").unwrap();
+    write!(atlas, "    kind: ").unwrap();
+    describe_leaf_kind(atlas, error);
+    atlas.push('\n');
+    record_sources(atlas, error);
+}
+
+// No wildcard arm, deliberately: a new DecodeLeafError variant must be
+// described here, marked in WITNESS_MARKERS, and witnessed above (or
+// exempted with a reason).
+fn describe_leaf_kind(out: &mut String, kind: &DecodeLeafError) {
+    match kind {
+        DecodeLeafError::Version(source) => {
+            write!(out, "Record::Version(io={:?})", source.kind()).unwrap()
+        }
+        DecodeLeafError::Message(source) => {
+            write!(out, "Record::Message(io={:?})", source.kind()).unwrap()
+        }
+        DecodeLeafError::TrailingBytes { count } => {
+            write!(out, "Record::TrailingBytes(count={count})").unwrap()
+        }
+    }
+}
+
 fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame<u8>); 3] {
     [
         (
-            "placement/opening-question",
+            "placement/opening-supplies",
             Speaker::Initiator,
             Stream::new(0).unwrap(),
             Frame::Reaction(Reaction::Match, Flow::Continue),
@@ -221,7 +368,7 @@ fn frame_signal<T>(frame: &Frame<T>) -> Signal {
             Signal::QueryEmpty(*flow)
         }
         Frame::Reaction(Reaction::Query(_), flow) => Signal::Query(*flow),
-        Frame::Reaction(Reaction::Supply(_, _), flow) => Signal::Supply(*flow),
+        Frame::Reaction(Reaction::Supply(_), flow) => Signal::Supply(*flow),
         Frame::End(end) => Signal::End(*end),
     }
 }
@@ -236,26 +383,15 @@ fn record_encode(atlas: &mut String, label: &str, error: &EncodeError) {
     record_sources(atlas, error);
 }
 
+// No wildcard arm, deliberately: a new EncodeErrorKind variant must be
+// described here, marked in WITNESS_MARKERS, and witnessed above (or
+// exempted with a reason).
 fn describe_encode_kind(out: &mut String, kind: &EncodeErrorKind) {
     match kind {
         EncodeErrorKind::Write { part, source } => {
             write!(out, "Write(part={part:?}, io={:?})", source.kind()).unwrap()
         }
         EncodeErrorKind::Flush(source) => write!(out, "Flush(io={:?})", source.kind()).unwrap(),
-        EncodeErrorKind::InvalidLeaf(EncodeLeafError::Version(source)) => {
-            write!(out, "InvalidLeaf::Version(io={:?})", source.kind()).unwrap()
-        }
-        EncodeErrorKind::InvalidLeaf(EncodeLeafError::Message(source)) => {
-            write!(out, "InvalidLeaf::Message(io={:?})", source.kind()).unwrap()
-        }
-        EncodeErrorKind::SupplyLengthOverflow {
-            version_len,
-            message_len,
-        } => write!(
-            out,
-            "SupplyLengthOverflow(version_len={version_len}, message_len={message_len})"
-        )
-        .unwrap(),
         EncodeErrorKind::SupplyTooLarge(error) => write!(out, "SupplyTooLarge({error})").unwrap(),
     }
 }
@@ -270,6 +406,10 @@ fn record_decode(atlas: &mut String, label: &str, error: &DecodeError) {
     record_sources(atlas, error);
 }
 
+// No wildcard arm, deliberately — including the nested DecodeSignalError
+// and LeafRunError patterns: a new variant in any of the three enums must
+// be described here, marked in WITNESS_MARKERS, and witnessed above (or
+// exempted with a reason).
 fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
     match kind {
         DecodeErrorKind::Read { part, source } => {
@@ -301,15 +441,17 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
             error.previous, error.radix
         )
         .unwrap(),
-        DecodeErrorKind::InvalidLeaf(DecodeLeafError::Version(source)) => {
-            write!(out, "InvalidLeaf::Version(io={:?})", source.kind()).unwrap()
+        DecodeErrorKind::InvalidRun(LeafRunError::Empty) => {
+            write!(out, "InvalidRun::Empty").unwrap()
         }
-        DecodeErrorKind::InvalidLeaf(DecodeLeafError::Message(source)) => {
-            write!(out, "InvalidLeaf::Message(io={:?})", source.kind()).unwrap()
+        DecodeErrorKind::InvalidRun(LeafRunError::TruncatedHeader { remaining }) => {
+            write!(out, "InvalidRun::TruncatedHeader(remaining={remaining})").unwrap()
         }
-        DecodeErrorKind::InvalidLeaf(DecodeLeafError::TrailingBytes { count }) => {
-            write!(out, "InvalidLeaf::TrailingBytes(count={count})").unwrap()
-        }
+        DecodeErrorKind::InvalidRun(LeafRunError::TruncatedRecord { len, remaining }) => write!(
+            out,
+            "InvalidRun::TruncatedRecord(len={len}, remaining={remaining})"
+        )
+        .unwrap(),
         DecodeErrorKind::TrailingBytes { count } => {
             write!(out, "TrailingBytes(count={count})").unwrap()
         }

@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use imbl::OrdMap;
 use proptest::collection::{btree_set, vec};
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 
 use crate::tree::arb::arb_version;
 use crate::{Version, message::Message};
@@ -240,22 +241,19 @@ proptest! {
     }
 
     /// Wrapping a child in N nested singleton branches accumulates an
-    /// N-byte compressed prefix above it.
+    /// N-byte compressed prefix above it, committed in the child's own
+    /// single preimage.
     ///
-    /// The observable hash must equal
-    /// the result of N successive virtual-branch wraps of the child's
-    /// hash, where each wrap is `blake3(BRANCH_TAG ‖ index ‖ child_hash)`.
-    /// This recomputes the expected value independently of `beneath`, so a
-    /// wrong wrap rule or stale memoization surfaces as a mismatch.
+    /// The wraps must never materialize one-child branch nodes — the
+    /// prefix length grows by exactly N — and the observable hash must
+    /// match the independent literal-preimage reference, so a wrong prefix
+    /// rule or stale memoization surfaces as a mismatch.
     #[test]
-    fn nested_singleton_wraps_match_repeated_branch_hash(
+    fn nested_singleton_wraps_extend_the_committed_prefix(
         indices in vec(any::<u8>(), 2..=8),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let mut expected = child.hash();
-        for &index in &indices {
-            expected = wrap_reference(index, expected);
-        }
+        let child_prefix_len = child.compressed_prefix_len();
 
         let mut wrapped = child;
         for &index in &indices {
@@ -263,7 +261,11 @@ proptest! {
                 .expect("one-child branch is non-empty");
         }
 
-        prop_assert_eq!(wrapped.hash(), expected);
+        prop_assert_eq!(
+            wrapped.compressed_prefix_len(),
+            child_prefix_len + indices.len(),
+        );
+        prop_assert_eq!(wrapped.hash(), reference_hash(wrapped.clone()));
     }
 
     /// Popping the topmost compressed-prefix byte (via `into_children`)
@@ -312,16 +314,16 @@ proptest! {
         prop_assert_eq!(popped.hash(), reference.hash());
     }
 
-    /// A one-child branch at index `i` hashes as a single-child branch
-    /// `blake3(BRANCH_TAG ‖ i ‖ child_hash)`.
+    /// A one-child branch at index `i` never materializes: `Node::branch`
+    /// collapses it into the child's compressed prefix, and the index byte
+    /// joins the prefix the child's single preimage commits.
     ///
-    /// `Node::branch` collapses the
-    /// one-child case into `beneath`, which path-compresses by pushing a byte
-    /// onto the child's prefix rather than materializing a branch node. The
-    /// observable hash must match that single-child commitment so path
-    /// compression stays observation-invisible.
+    /// The observable hash must match the independent literal-preimage
+    /// reference, and must differ from the child's own hash (the committed
+    /// prefix grew), so path compression stays observation-invisible while
+    /// the level itself stays observable.
     #[test]
-    fn singleton_branch_matches_virtual_branch_hash(
+    fn singleton_branch_commits_the_index_in_the_prefix(
         index in any::<u8>(),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
@@ -329,17 +331,18 @@ proptest! {
         let wrapped = Node::branch(OrdMap::from_iter([(index, child)]))
             .expect("one-child branch is non-empty");
 
-        prop_assert_eq!(wrapped.hash(), wrap_reference(index, child_hash));
+        prop_assert_ne!(wrapped.hash(), child_hash);
+        prop_assert_eq!(wrapped.hash(), reference_hash(wrapped.clone()));
     }
 
     /// `beneath` must invalidate the memoized hash.
     ///
     /// We force the child's hash
     /// to be computed and cached *first*, then wrap it; the wrapped node's
-    /// observable hash must reflect the new top level (the single-child
-    /// commitment over the child's hash), not the stale cached child hash.
-    /// Without the memo reset in `beneath`, the wrapped node would report the
-    /// child's pre-wrap hash.
+    /// observable hash must reflect the new top level (the extended
+    /// committed prefix), not the stale cached child hash. Without the memo
+    /// reset in `beneath`, the wrapped node would report the child's
+    /// pre-wrap hash.
     #[test]
     fn beneath_invalidates_memoized_hash(
         index in any::<u8>(),
@@ -349,7 +352,7 @@ proptest! {
         let wrapped = child.beneath(index);
 
         prop_assert_ne!(wrapped.hash(), child_hash);
-        prop_assert_eq!(wrapped.hash(), wrap_reference(index, child_hash));
+        prop_assert_eq!(wrapped.hash(), reference_hash(wrapped.clone()));
     }
 
     /// `into_children` popping a prefix byte must invalidate the memoized hash.
@@ -372,14 +375,179 @@ proptest! {
 
         prop_assert_eq!(popped_child.hash(), child_hash);
     }
+
+    /// Every generated tree's hash equals the independent literal-preimage
+    /// reference.
+    ///
+    /// One preimage per node — kind tag, length-tagged path-order prefix,
+    /// and, for a branch, a big-endian `u16` child count followed by
+    /// ascending 17-byte `radix ‖ hash` records.
+    #[test]
+    fn hash_matches_independent_reference(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
+    ) {
+        prop_assert_eq!(tree.hash(), reference_hash(tree.clone()));
+    }
+
+    /// Every virtual level of every compressed spine hashes exactly as a
+    /// canonically constructed tree over the same content at that depth.
+    ///
+    /// For a random full-depth tree, descend one virtual level at a time
+    /// via `into_children`; at every position — materialized or mid-spine —
+    /// the exploded node's hash must equal `from_sorted_leaves` rebuilt
+    /// from scratch over the leaves beneath it at that depth. This is the
+    /// property mixed-shape peer comparison rests on: under the
+    /// single-preimage rule it rests on canonical shape, not on the hash
+    /// construction itself, so it is pinned here rather than left untested.
+    #[test]
+    fn every_virtual_level_hashes_canonically(paths in full_depth_paths()) {
+        let paths: Vec<[u8; 32]> = paths.into_iter().collect();
+        let tree = canonical_at(0, &paths);
+        check_virtual_levels(tree, 0, &paths)?;
+    }
 }
 
-/// Reference for a single virtual-branch wrap: `blake3(BRANCH_TAG ‖ index ‖
-/// child_hash)`, computed with literal tag bytes independently of the
-/// implementation's [`Hash::branch`].
-fn wrap_reference(index: u8, child_hash: super::Hash) -> super::Hash {
+/// Independent reference for the node-hash convention, computed with literal
+/// tag bytes over the public decomposition API.
+///
+/// The node is unwound one virtual level at a time via `into_children`: a
+/// singleton child map is a compressed-prefix byte (a materialized branch
+/// always has >= 2 children, by the path-compression invariant), so its
+/// index accumulates onto the reference prefix in path order until the
+/// underlying leaf or true branch point is reached. The preimage is then
+/// assembled by hand — `LEAF_TAG ‖ len ‖ prefix` for a leaf,
+/// `BRANCH_TAG ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*` for a
+/// branch — with every child hash computed by the same reference
+/// recursively, never by [`Node::hash`].
+fn reference_hash(mut node: Node<()>) -> super::Hash {
+    const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
-    let mut buf = vec![BRANCH_TAG, index];
-    buf.extend_from_slice(child_hash.as_bytes());
-    super::Hash::of(&buf)
+    let mut prefix: Vec<u8> = Vec::new();
+    loop {
+        node = match node.into_children() {
+            Err(_leaf) => {
+                let mut buf = vec![LEAF_TAG, u8::try_from(prefix.len()).expect("short prefix")];
+                buf.extend_from_slice(&prefix);
+                return super::Hash::of(&buf);
+            }
+            Ok(children) if children.len() == 1 => {
+                let (index, child) = children.into_iter().next().expect("len checked");
+                prefix.push(index);
+                child
+            }
+            Ok(children) => {
+                let mut buf = vec![
+                    BRANCH_TAG,
+                    u8::try_from(prefix.len()).expect("short prefix"),
+                ];
+                buf.extend_from_slice(&prefix);
+                let count = u16::try_from(children.len()).expect("fan-out is at most 256");
+                buf.extend_from_slice(&count.to_be_bytes());
+                for (radix, child) in children {
+                    buf.push(radix);
+                    buf.extend_from_slice(reference_hash(child).as_bytes());
+                }
+                return super::Hash::of(&buf);
+            }
+        };
+    }
+}
+
+/// Full 32-byte leaf-path sets for the virtual-level walk.
+///
+/// Paths over a tiny alphabet share long prefixes, forcing deep compressed
+/// spines and branch points at many depths; paths over the full alphabet
+/// mostly diverge at the top, forcing wide fans. Both shapes matter.
+fn full_depth_paths() -> impl Strategy<Value = BTreeSet<[u8; 32]>> {
+    prop_oneof![
+        btree_set(proptest::array::uniform32(0u8..3), 1..=16),
+        btree_set(proptest::array::uniform32(any::<u8>()), 1..=16),
+    ]
+}
+
+/// The canonical tree over `paths` observed from `depth`, built from
+/// scratch by the maximally-compressing bulk constructor.
+///
+/// Leaf versions are all genesis: the hash convention never commits a
+/// version, so varying them adds nothing to the hash properties checked
+/// against this reference.
+fn canonical_at(depth: usize, paths: &[[u8; 32]]) -> Node<()> {
+    let mut entries: Vec<([u8; 32], Option<Node<()>>)> = paths
+        .iter()
+        .map(|path| (*path, Some(Node::leaf(Version::new(), Message::new(())))))
+        .collect();
+    Node::from_sorted_leaves(depth, &mut entries)
+}
+
+/// Recursively explode `node` (observed from `depth`, holding exactly the
+/// leaves at `paths`) one virtual level at a time, checking at every
+/// position that its hash matches the canonical from-scratch construction.
+fn check_virtual_levels(
+    node: Node<()>,
+    depth: usize,
+    paths: &[[u8; 32]],
+) -> Result<(), TestCaseError> {
+    prop_assert_eq!(node.hash(), canonical_at(depth, paths).hash());
+    match node.into_children() {
+        // A bare leaf: the walk consumed the entire 32-byte path.
+        Err(_leaf) => prop_assert_eq!(depth, 32),
+        Ok(children) => {
+            for (radix, child) in children {
+                let beneath: Vec<[u8; 32]> = paths
+                    .iter()
+                    .copied()
+                    .filter(|path| path[depth] == radix)
+                    .collect();
+                check_virtual_levels(child, depth + 1, &beneath)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The memoized node hash commits the compressed prefix in path order —
+/// shallowest byte first, the *reverse* of the shallowest-last in-memory
+/// storage — pinned against a hand-built byte-literal preimage.
+///
+/// `beneath(0xAA)` then `beneath(0xBB)` stores `[0xAA, 0xBB]` (deepest
+/// first), but the path from the root reads `0xBB` then `0xAA`; a
+/// storage-order preimage would commit the reversed spine and fail here.
+#[test]
+fn node_hash_preimage_is_in_path_order() {
+    const LEAF_TAG: u8 = 0;
+    let leaf = Node::leaf(Version::new(), Message::new(()));
+    let wrapped = leaf.beneath(0xAA).beneath(0xBB);
+    assert_eq!(wrapped.hash(), super::Hash::of(&[LEAF_TAG, 2, 0xBB, 0xAA]),);
+}
+
+/// A hand-built two-leaf tree pins the preimages end to end.
+///
+/// Each leaf commits its length-tagged 29-byte suffix, and the root branch
+/// commits its 2-byte shared prefix in path order, the big-endian `u16`
+/// child count, and both ascending `radix ‖ hash` records.
+#[test]
+fn small_tree_hash_matches_byte_literal_preimage() {
+    const LEAF_TAG: u8 = 0;
+    const BRANCH_TAG: u8 = 1;
+
+    let mut low = [0u8; 32];
+    low[..3].copy_from_slice(&[1, 2, 3]);
+    let mut high = [0u8; 32];
+    high[..4].copy_from_slice(&[1, 2, 7, 9]);
+    let tree = canonical_at(0, &[low, high]);
+
+    let leaf_hash = |suffix: &[u8]| {
+        let mut buf = vec![LEAF_TAG, u8::try_from(suffix.len()).expect("short suffix")];
+        buf.extend_from_slice(suffix);
+        super::Hash::of(&buf)
+    };
+    // Root: prefix [1, 2] (path order), two children at radixes 3 and 7,
+    // each a leaf whose suffix is the rest of its path.
+    let mut preimage = vec![BRANCH_TAG, 2, 1, 2, 0x00, 0x02];
+    preimage.push(3);
+    preimage.extend_from_slice(leaf_hash(&low[3..]).as_bytes());
+    preimage.push(7);
+    preimage.extend_from_slice(leaf_hash(&high[3..]).as_bytes());
+
+    assert_eq!(tree.hash(), super::Hash::of(&preimage));
 }

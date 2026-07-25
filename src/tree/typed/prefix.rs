@@ -8,9 +8,10 @@ use crate::tree::Key;
 use super::height::{Height, Root, S, Z};
 use super::path::Path;
 
-/// The path bytes accumulated from the root down to height `H`: exactly
-/// `32 - H::HEIGHT` of them. The complement of a [`Path<H>`], which holds
-/// the bytes still to be consumed below that height.
+/// The path bytes accumulated from the root down to height `H`.
+///
+/// Exactly `32 - H::HEIGHT` bytes: the complement of a [`Path<H>`], which
+/// holds the bytes still to be consumed below that height.
 ///
 /// `PhantomData<fn() -> H>` rather than `PhantomData<H>` so the
 /// auto-trait check on `Prefix` does not recurse through the

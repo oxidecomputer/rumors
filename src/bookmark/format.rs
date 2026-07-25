@@ -35,8 +35,8 @@ use crate::Network;
 /// Magic bytes that open every persisted bookmark frame.
 ///
 /// Distinct from the gossip wire's [`PROTOCOL_MAGIC`](crate::PROTOCOL_MAGIC):
-/// the on-disk format and the wire protocol version independently, so bumping
-/// one never forces the other.
+/// the on-disk format and the wire protocol are versioned independently, so
+/// bumping one never forces the other.
 pub const BOOKMARK_MAGIC: [u8; 14] = *b"RUMORSBOOKMARK";
 
 /// On-disk bookmark format version, following [`BOOKMARK_MAGIC`].
