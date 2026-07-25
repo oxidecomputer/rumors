@@ -73,17 +73,6 @@
 //!   divergences amortizes much of this cost, but on metered, narrow, or
 //!   high-loss links, this crate strikes the wrong balance.
 //!
-//! One boundary of the trust model is worth naming precisely. Message keys
-//! and subtree digests are BLAKE3: a [`Key`] binds a message's send version to
-//! its content at the full 32-byte width, while the reconciliation tree
-//! compares 16-byte truncated digests to save wire bytes. A *peer* never needs
-//! a hash collision (it holds write authority outright), so the residual
-//! adversary is a content author outside the peer set, who controls message
-//! content but never the version. Every send is stamped with a fresh causal
-//! version, unpredictable under concurrent gossip churn, so mining a
-//! collision against the truncated digest would require predicting the exact
-//! insertion version fast; the version stamp is what denies precomputation.
-//!
 //! # Network membership is identity custody
 //!
 //! No global shared secret initiates a peer into a gossip network. Instead,
@@ -105,19 +94,19 @@
 //! see its docs for the model and for the [paper it
 //! implements](https://gsd.di.uminho.pt/members/cbm/ps/itc2008.pdf).)
 //!
-//! At fleet scale, identity-space hygiene is worth a moment of design. Every
-//! bootstrap forks the provider's own identity, so the topology of
-//! introductions is the shape of the resulting identities: large fleets
-//! should bootstrap with some kind of fan-out, neither one seed serving every
-//! joiner nor each arrival introducing the next in a chain. Retire when you
-//! can, and give churny peers a [`Bookmark`] so a crashed peer's identity is
-//! reclaimed rather than stranded. Identity space may still strand and
-//! fragment over a long life; where the application can arrange it, the full
-//! remedy is a roll call: atomically have every participant retire its
-//! identity, then reissue identities along a good topology. That solves both
-//! fragmentation and loss, but only if the application can guarantee that no
-//! peer left out of the roll call will ever resurrect: an application-level
-//! obligation, not always possible.
+//! A note on identity-space hygiene: Every bootstrap forks the provider's own
+//! identity, so the topology of introductions is the shape of the resulting
+//! identity representations (which are, internally, trees): large fleets should
+//! bootstrap with some kind of fan-out, neither one seed serving every joiner
+//! nor each arrival introducing the next in a chain. Retire when you can, and
+//! give peers a [`Bookmark`] so a crashed peer's identity is self-reclaimed
+//! rather than stranded. Identity space may still strand and fragment over a
+//! long life; where the application can arrange it, the full remedy is a roll
+//! call: atomically have every participant retire its identity, then reissue
+//! identities along a tree-shaped topology. That solves both fragmentation and
+//! loss, but only if the application can guarantee that no peer left out of the
+//! roll call will ever resurrect: an application-level obligation, not always
+//! possible.
 //!
 //! # The shape of the API
 //!

@@ -227,7 +227,7 @@ impl<T> Bootstrap<T> {
 }
 
 /// A [`Bootstrap`] that will persist the received identity before handing
-/// it back: the state [`Bootstrap::bookmark`] selects.
+/// it back.
 ///
 /// [`join`](Self::join) runs the same session the plain builder's
 /// [`join`](Bootstrap::join) does, then attaches the bookmark and eagerly
@@ -314,8 +314,7 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     }
 }
 
-/// The outcome of a bookmarked bootstrap: what [`BookmarkedBootstrap::join`]
-/// left behind.
+/// The outcome of [`BookmarkedBootstrap::join`].
 ///
 /// Marked `must_use` because every variant carries something whose silent
 /// drop loses state the call existed to preserve: the joined peer

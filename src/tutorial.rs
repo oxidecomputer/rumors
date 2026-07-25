@@ -163,17 +163,15 @@
 //!
 //! # Step 5: keep the pair converged
 //!
-//! One session moves one moment's difference. To *keep* the pair
-//! converged, each side drives its own end of a long-lived link — the
-//! *bridge* — with [`gossip_when`](crate::Rumors::gossip_when): the
-//! driver initiates a session whenever its `when` stream ticks (if
-//! there's been local change since the last gossip), and serves whatever
-//! the remote initiates. That second half is what to remember about the
-//! bridge — a driver serves only while polled, so a converged pair needs
-//! **one driver per end**, each polled, even if only one end ever
-//! originates news. Reusing the bootstrap
-//! link here would be legal (a session that ends `Ok` leaves its link at a
-//! clean session boundary, ready for the next), but we moved its far end
+//! To *keep* the pair converged, each side drives its own end of a long-lived
+//! link — the *bridge* — with [`gossip_when`](crate::Rumors::gossip_when): the
+//! driver initiates a session whenever its `when` stream ticks (if there's been
+//! local change since the last gossip), and serves whatever the remote
+//! initiates. That second half is what to remember about the bridge — a driver
+//! serves only while polled, so a converged pair needs **one driver per end**,
+//! each polled, even if only one end ever originates news. Reusing the
+//! bootstrap link here would be legal (a session that ends `Ok` leaves its link
+//! at a clean session boundary, ready for the next), but we moved its far end
 //! into Alice's serving task, so we mint a fresh pair for the bridge:
 //!
 //! ```

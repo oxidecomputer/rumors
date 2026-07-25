@@ -138,22 +138,6 @@
 //! mapping streams 1:1, or TCP with one connection per stream behind a
 //! routing listener, are the natural shapes) and validates the result
 //! with the `conformance` feature's link suite.
-//!
-//! ## Binding TCP
-//!
-//! A sketch of the TCP shape, since its design problems are the caller's:
-//! one long-lived connection carries the control stream, and
-//! [`Connector::connect`] dials a fresh connection per data stream. Two
-//! pieces of choreography follow. *Routing*: the session labels its
-//! streams itself, but nothing names the **link** a new connection
-//! belongs to, so open each data-stream connection with a short preface
-//! naming it, and demultiplex arrivals by that preface to the right
-//! [`Acceptor`]. *Reconnection is both-ends-fresh*: a failed session
-//! poisons the link, and both ends must discard the whole bundle and
-//! rebuild around a fresh control connection at the same time
-//! ([`Link::new`]); one end quietly keeping its old state would fall out
-//! of step with the other's session counting. Validate the result with
-//! the conformance suite like any other instantiation.
 
 use std::future::Future;
 use std::io;
