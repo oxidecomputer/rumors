@@ -284,40 +284,46 @@ bench-judge:
     BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --sample-size 10 --measurement-time 1 --save-baseline board-judge-hi
     ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
 
-# `bench-judge` at full sampling: the mode required for numbers of record.
 # Judged through the same roster (its sampling pin covers both modes — the
 # expectations are exponent classes, which hold under either regime), so
 # the posture is identical in both modes: roster-satisfied on the honest
 # tree, the bigroot set emptied at C3, the text expectations permanent.
+
+# `bench-judge` at full sampling: the mode required for numbers of record.
 bench-judge-record:
     ./tools/benchjudge --self-test
     BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- --save-baseline board-judge-lo
     BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --save-baseline board-judge-hi
     ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
 
-# The judge's live tripwire: an unmetered machine-word quadratic (green on
-# every board counter column) must read RED through the judge; the recipe
-# succeeds exactly when it does. The same measured shape is pinned in
-# tools/benchjudge --self-test, which every bench-judge recipe runs first.
+# An unmetered machine-word quadratic (green on every board counter column)
+# must read RED through the judge; the recipe succeeds exactly when it does.
+# The same measured shape is pinned in tools/benchjudge --self-test, which
+# every bench-judge recipe runs first.
+
+# The judge's live tripwire: a known quadratic must read red, or the sweep fails.
 bench-judge-tripwire:
     ./tools/benchjudge --self-test
     BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/tripwire-denoms-lo.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-lo
     BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/tripwire-denoms-hi.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-hi
     ./tools/benchjudge --expect-red --criterion-dir {{ criterion_dir }} --lo tripwire-judge-lo --hi tripwire-judge-hi --denoms-lo {{ criterion_dir }}/tripwire-denoms-lo.json --denoms-hi {{ criterion_dir }}/tripwire-denoms-hi.json --tip $(git rev-parse HEAD)
 
-# Run the amplification board: the red-green resource-proportionality matrix
-# over before's public operations × adversarial input families. Each cell
-# judges deterministic work counters (limbs, scans, segments, heap) against
-# a pinned proportionality envelope: green means work scaled with the input,
-# red is an amplification finding. Reads no clock, so the output is
-# byte-identical under any machine load. Optional scale multiplies the input
+# Each board cell judges deterministic work counters (limbs, scans,
+# segments, heap) against a pinned proportionality envelope: green means
+# work scaled with the input, red is an amplification finding. The board
+# reads no clock, so its output is byte-identical under any machine load
+# (the time leg lives in bench-judge). Optional scale multiplies the input
 # sizes, e.g. `just amp-board 4`.
+
+# Run the amplification board: the red-green resource-proportionality matrix over before's public operations.
 amp-board *args:
     cargo run -p before --example amp_board --features limb-meter,scan-meter -- {{ args }}
 
-# Run the board at the acceptance scale of record (board::RECORD_SCALE, the
-# segment-onset witness scale). Acceptance is all green at BOTH the default
-# scale and this one, three identical runs each.
+# Acceptance is all green at BOTH the default scale and the record scale
+# (board::RECORD_SCALE, the segment-onset witness scale), three identical
+# runs each.
+
+# Run the amplification board at the acceptance scale of record.
 amp-board-record:
     cargo run -p before --example amp_board --features limb-meter,scan-meter -- record
 
