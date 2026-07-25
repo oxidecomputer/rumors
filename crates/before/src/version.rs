@@ -439,8 +439,9 @@ impl Version {
         })
     }
 
-    /// Wrap an already-canonical skyline stream. Internal: the kernels'
-    /// outputs (built through the collapsing builder) arrive in this form.
+    /// Wrap an already-canonical skyline stream. Test-only: the kernel
+    /// suites lift builder-shaped outputs back into `Version` with it.
+    #[cfg(test)]
     pub(crate) fn from_encoded(enc: Encoded) -> Self {
         Version(enc)
     }

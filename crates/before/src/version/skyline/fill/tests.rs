@@ -1,12 +1,16 @@
 //! Differential pins for the skyline fill and the tick splice.
 //!
-//! The packed-form implementations are the byte-level oracles
-//! (canonical uniqueness makes the differentials total): `fill` must
-//! transcode-commute with the packed-form fill AND with
-//! `oracle::Version::fill` through the bridge — the splice's simplify
-//! branch pinned to two independent witnesses — and `tick` must
-//! transcode-commute with the *public* `Version::tick`, so the splice's
-//! fall-through to grow is pinned end to end, not assembled from parts.
+//! `fill` is held to the recursive oracle (`oracle::Version::fill`
+//! through the bridge) over every pool, with canonical uniqueness
+//! making the differential total: the filled stream must equal the
+//! oracle's encoded result byte for byte. The `tick` asserts run the
+//! module function against the public `Version::tick`, which routes to
+//! the same kernel — an entry-agreement and determinism pin, not an
+//! independent value; the splice's value correctness rests on the fill
+//! oracle here and the grow suite's oracle and brute-force pins
+//! (`grow/tests.rs`), so each branch is pinned, not just their
+//! composition. The deep-spine case derives its expected values in
+//! closed form (its test doc states each derivation).
 
 use proptest::prelude::*;
 use rayon::prelude::*;
@@ -51,8 +55,10 @@ fn assert_fill(v: &Version, p: &Party) {
     );
 }
 
-/// Assert the tick splice against the public `Version::tick` on one
-/// pair, and that its output validates as canonical.
+/// Assert the tick splice through both entry points on one pair — the
+/// module function against the public `Version::tick`, which routes to
+/// the same kernel, so this pins entry agreement and determinism, not
+/// an independent value — and that the output validates as canonical.
 fn assert_tick(v: &Version, p: &Party) {
     let out = tick(&encode(v), p);
     let mut expected = v.clone();
@@ -108,8 +114,8 @@ fn party_pool() -> Vec<Party> {
 }
 
 /// Every event-family × party-family pair fills byte-identically to
-/// both witnesses and ticks byte-identically to the public tick
-/// (owning parties; the empty id has no tick).
+/// the recursive oracle and ticks in agreement through both entry
+/// points (owning parties; the empty id has no tick).
 #[test]
 fn family_pairs_fill_and_tick_identically() {
     let events = event_pool();
@@ -125,8 +131,8 @@ fn family_pairs_fill_and_tick_identically() {
 }
 
 /// Exhaustive small scope: every normal-form event tree × every
-/// normal-form id fills byte-identically to both witnesses, and every
-/// owning id ticks byte-identically to the public tick.
+/// normal-form id fills byte-identically to the recursive oracle, and
+/// every owning id ticks in agreement through both entry points.
 #[test]
 fn exhaustive_small_scope_fills_and_ticks_identically() {
     let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
@@ -197,14 +203,36 @@ fn tick_splices_fill_and_grow() {
     assert_tick(&v, &p);
 }
 
+/// The version that is `1` on the leftmost `2^-depth` interval and `0`
+/// everywhere else: `depth` nested nodes, all bases zero, the single
+/// 1-leaf at the bottom left. Built as a text literal — the parser is
+/// iterative — so the expected tree shares no walk with fill or grow.
+fn left_spike(depth: usize) -> Version {
+    let mut text = "(0, ".repeat(depth - 1);
+    text.push_str("(0, 1, 0)");
+    text.push_str(&", 0)".repeat(depth - 1));
+    text.parse().expect("the spike literal is normal form")
+}
+
 /// Deep spines in every regime stay correct at depths that would
 /// overflow a native-frame walk: the collapse scan, the pass-through
 /// copy, and the two-cursor descent.
 ///
-/// Held to depth-safe witnesses only: the recursive `oracle` enums walk
-/// on native frames (they are the small-scope reference, not a deep-input
-/// one), so the deep pins are canonicality, fill's idempotence (a filled
-/// tree re-fills to itself), and tick agreement through both entries.
+/// The recursive `oracle` enums walk on native frames (they are the
+/// small-scope reference, not a deep-input one), so the value witnesses
+/// here are closed forms, derived per case: the full id collapses the
+/// whole spine to one leaf at its maximum height — the alternating
+/// spine's only nonzero leaf is the `1` at the bottom pair — and that
+/// collapse is the tick; the deep unary id over the empty version fills
+/// to the identity (fill of a leaf under a node id is the leaf) and
+/// ticks to the left spike, the expansion chain to its owned tip; and
+/// over the deep spine the same id turns left into the spine's depth-2
+/// zero leaf (the spine's structure continues right there), so fill is
+/// again the identity and the grown tree raises exactly the owned
+/// region from 0 to 1 — the pointwise max with the spike, realized
+/// through the independently-pinned join kernel and byte-exact by
+/// canonical uniqueness. Canonicality, fill idempotence, and tick entry
+/// agreement ride along on every case.
 #[test]
 fn deep_spines_fill_and_tick_identically() {
     let assert_deep = |v: &Version, p: &Party| {
@@ -213,18 +241,62 @@ fn deep_spines_fill_and_tick_identically() {
         let again = fill(&out, p);
         assert_eq!(again, out, "deep fill must be idempotent");
         assert_tick(v, p);
+        out
     };
     let deep_ev = version_of(&alt_spine(4096));
-    assert_deep(&deep_ev, &Party::seed());
     let deep_id = party_of(&id_spine(4096, false));
-    assert_deep(&Version::new(), &deep_id);
-    assert_deep(&deep_ev, &deep_id);
+    let spike = left_spike(4096);
+    let one: Version = "1".parse().expect("test literals parse");
+
+    // The full id: the collapse to the maximum leaf is the fill, and
+    // fill changed the tree, so it is also the tick.
+    let filled = assert_deep(&deep_ev, &Party::seed());
+    assert_eq!(
+        filled,
+        encode(&one),
+        "the full id collapses the spine to its maximum leaf"
+    );
+    assert_eq!(
+        tick(&encode(&deep_ev), &Party::seed()),
+        encode(&one),
+        "tick takes the fill branch: the collapse"
+    );
+
+    // The deep unary id over the empty version: identity fill, so tick
+    // falls through to grow's expansion chain.
+    let filled = assert_deep(&Version::new(), &deep_id);
+    assert_eq!(
+        filled,
+        encode(&Version::new()),
+        "fill of a leaf under a node id is the identity"
+    );
+    assert_eq!(
+        tick(&encode(&Version::new()), &deep_id),
+        encode(&spike),
+        "tick grows the expansion chain to the owned tip"
+    );
+
+    // Both deep: no fully-owned region meets a subdividable subtree, so
+    // fill is the identity; the grown tree is the pointwise max with
+    // the spike.
+    let filled = assert_deep(&deep_ev, &deep_id);
+    assert_eq!(
+        filled,
+        encode(&deep_ev),
+        "no full-id region: fill is the identity"
+    );
+    assert_eq!(
+        tick(&encode(&deep_ev), &deep_id),
+        encode(&(&deep_ev | &spike)),
+        "the grown stream is the pointwise max with the spike"
+    );
 }
 
 proptest! {
     /// Arbitrary parties over arbitrary normal-form versions fill
-    /// byte-identically to both witnesses (and tick, when the party
-    /// owns anything), magnitudes past `u64::MAX` included.
+    /// byte-identically to the recursive oracle (and tick through both
+    /// entry points, when the party owns anything), magnitudes past
+    /// `u64::MAX` included.
     #[test]
     fn arbitrary_pairs_fill_and_tick_identically(
         op in generators::arb_oracle_party_nonempty(),
@@ -238,8 +310,8 @@ proptest! {
         }
     }
 
-    /// Organic histories fill and tick byte-identically to the packed
-    /// forms.
+    /// Organic histories fill byte-identically to the recursive oracle
+    /// and tick in agreement through both entry points.
     ///
     /// Every clock produced by one fork/tick/send/sync/join history is
     /// exercised from its own party — and from every *other* clock's

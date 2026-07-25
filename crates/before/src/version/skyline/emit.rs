@@ -51,16 +51,16 @@
 //!
 //! # Testing
 //!
-//! The packed-form operators are the behavioral oracle: joining or
-//! meeting through the transcoders must reproduce their output stream
-//! byte for byte (canonical uniqueness makes that the whole contract),
-//! over the adversarial families, arbitrary pairs, organic histories,
-//! and the exhaustive small scope. A three-cursor overlay walk
-//! additionally re-derives every output plateau's absolute height
-//! against pointwise max/min of the inputs' — the direct witness that
-//! no side switch was misread — and the algebraic laws (commutativity,
-//! associativity, idempotence, absorption) are asserted on the emitted
-//! streams themselves.
+//! The recursive oracle's join and meet are the behavioral witness: the
+//! emitted stream must reproduce the oracle's encoded result byte for
+//! byte (canonical uniqueness makes that the whole contract), over the
+//! adversarial families, arbitrary pairs, organic histories, and the
+//! exhaustive small scope. A three-cursor overlay walk additionally
+//! re-derives every output plateau's absolute height against pointwise
+//! max/min of the inputs' — the direct witness that no side switch was
+//! misread — and the algebraic laws (commutativity, associativity,
+//! idempotence, absorption) are asserted on the emitted streams
+//! themselves.
 
 use core::cmp::Ordering;
 
@@ -75,8 +75,8 @@ use super::{gamma_code, zigzag_signed, Encoded};
 /// as a canonical skyline stream.
 ///
 /// One merge over the two streams; the module doc carries the emission
-/// algebra and the cost bounds. The output is byte-identical to
-/// transcoding the packed-form join (the differential suite pins it).
+/// algebra and the cost bounds. The output is byte-identical to the
+/// recursive oracle's join (the differential suite pins it).
 ///
 /// # Panics
 ///

@@ -1,15 +1,16 @@
 //! Differential pins for the emission sweep against three witnesses.
 //!
-//! The packed-form operators are the byte-level oracle, a three-cursor
-//! overlay walk re-derives every output plateau pointwise, and the
-//! lattice laws are asserted on the emitted streams themselves.
+//! The recursive oracle's join and meet (through the bridge) are the
+//! byte-level value witness, a three-cursor overlay walk re-derives
+//! every output plateau pointwise, and the lattice laws are asserted on
+//! the emitted streams themselves.
 //!
 //! Canonical uniqueness is what makes the oracle differential total:
-//! the emitted stream must equal the transcoded packed-form result *byte
-//! for byte*, so a silent side-switch misread cannot hide behind an
-//! equivalent-but-different spelling. The pointwise walk is the
-//! independent witness that does not route through the packed operators
-//! at all: it re-materializes absolute heights (test-only) and checks
+//! the emitted stream must equal the oracle's encoded result *byte for
+//! byte*, so a silent side-switch misread cannot hide behind an
+//! equivalent-but-different spelling. The pointwise walk is the second
+//! independent witness, sharing nothing with the oracle's recursion
+//! either: it re-materializes absolute heights (test-only) and checks
 //! `max`/`min` on every elementary interval of the three-stream
 //! overlay.
 
@@ -22,7 +23,7 @@ use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
     wide_tooth_comb, Packed,
 };
-use crate::testing::bridge::from_oracle_version;
+use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
 use crate::version::skyline::sweep::{LeafCursor, Side, Step};
@@ -36,20 +37,21 @@ fn version_of(p: &Packed) -> Version {
     p.version()
 }
 
-/// Assert both emitters against the packed-form oracle on one pair, in
+/// Assert both emitters against the recursive oracle on one pair, in
 /// both operand orders, and run the pointwise overlay witness on each
 /// emitted stream.
 fn assert_emits(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
-    let joined = encode(&(a | b));
-    let met = encode(&(a & b));
+    let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
+    let joined = encode(&from_oracle_version(&(ta.clone() | tb.clone())));
+    let met = encode(&from_oracle_version(&(ta & tb)));
     for (x, y) in [(&ea, &eb), (&eb, &ea)] {
         let out = join(x, y);
-        assert_eq!(out, joined, "join must transcode-commute: {a} vs {b}");
+        assert_eq!(out, joined, "join must match the oracle: {a} vs {b}");
         validate(&out.bytes, out.bits).expect("an emitted join is canonical");
         assert_pointwise(x, y, &out, false);
         let out = meet(x, y);
-        assert_eq!(out, met, "meet must transcode-commute: {a} vs {b}");
+        assert_eq!(out, met, "meet must match the oracle: {a} vs {b}");
         validate(&out.bytes, out.bits).expect("an emitted meet is canonical");
         assert_pointwise(x, y, &out, true);
     }
@@ -186,7 +188,7 @@ fn family_pool() -> Vec<Version> {
 }
 
 /// Every ordered pair drawn from the adversarial families emits
-/// byte-identically to the packed-form oracle, validates as canonical,
+/// byte-identically to the recursive oracle, validates as canonical,
 /// and re-derives pointwise.
 ///
 /// Each operand is also paired against the pair's join and meet — the
@@ -206,9 +208,9 @@ fn family_pairs_emit_identically() {
 }
 
 /// A flat operand above a deep one collapses the whole output to one
-/// leaf through the absorb cascade, byte-identically to the oracle —
-/// the shape where a builder that re-copied the held code per level
-/// would go quadratic.
+/// leaf through the absorb cascade, byte-identically to the recursive
+/// oracle — the shape where a builder that re-copied the held code per
+/// level would go quadratic.
 #[test]
 fn flat_over_deep_collapses_totally() {
     let deep = version_of(&dense(512));
@@ -224,32 +226,32 @@ fn flat_over_deep_collapses_totally() {
 
 /// Exhaustive small scope: every ordered pair of normal-form event
 /// trees to the small-scope depth emits join and meet byte-identically
-/// to the packed-form oracle.
+/// to the recursive oracle.
 ///
 /// Brute force reaches every boundary genre — aligned ties, flush-right
 /// ties, plateau consumption, switches at and across zero deltas,
 /// collapse cascades — deterministically rather than by sampling.
 #[test]
 fn exhaustive_small_scope_emits_identically() {
-    let pool: Vec<(Version, Encoded)> = all_normal_events(EV_SMALL_DEPTH)
+    let pool: Vec<(crate::oracle::Version, Version, Encoded)> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| {
             let v = from_oracle_version(t);
             let e = encode(&v);
-            (v, e)
+            (t.clone(), v, e)
         })
         .collect();
-    pool.par_iter().for_each(|(va, ea)| {
-        for (vb, eb) in &pool {
+    pool.par_iter().for_each(|(ta, va, ea)| {
+        for (tb, vb, eb) in &pool {
             assert_eq!(
                 join(ea, eb),
-                encode(&(va | vb)),
-                "join must transcode-commute: {va} vs {vb}"
+                encode(&from_oracle_version(&(ta.clone() | tb.clone()))),
+                "join must match the oracle: {va} vs {vb}"
             );
             assert_eq!(
                 meet(ea, eb),
-                encode(&(va & vb)),
-                "meet must transcode-commute: {va} vs {vb}"
+                encode(&from_oracle_version(&(ta.clone() & tb.clone()))),
+                "meet must match the oracle: {va} vs {vb}"
             );
         }
     });
@@ -299,7 +301,7 @@ fn family_associativity_holds_on_the_kernel() {
 
 proptest! {
     /// Arbitrary normal-form pairs (magnitudes past `u64::MAX` included)
-    /// emit byte-identically to the packed-form oracle, validate, and
+    /// emit byte-identically to the recursive oracle, validate, and
     /// re-derive pointwise.
     ///
     /// The pair's join and meet supply the dominated shapes arbitrary
@@ -336,28 +338,28 @@ proptest! {
 
     /// Every pair of versions produced by one organic
     /// fork/tick/send/sync/join history emits byte-identically to the
-    /// packed-form oracle.
+    /// recursive oracle.
     #[test]
     fn organic_histories_emit_identically(ops in optrace::world_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
-        let pool: Vec<(&Version, Encoded)> = clocks
+        let pool: Vec<(crate::oracle::Version, &Version, Encoded)> = clocks
             .iter()
-            .map(|c| (c.version(), encode(c.version())))
+            .map(|c| (to_oracle_version(c.version()), c.version(), encode(c.version())))
             .collect();
-        for (va, ea) in &pool {
-            for (vb, eb) in &pool {
+        for (ta, va, ea) in &pool {
+            for (tb, vb, eb) in &pool {
                 prop_assert_eq!(
                     join(ea, eb),
-                    encode(&(*va | *vb)),
-                    "join must transcode-commute: {} vs {}", va, vb
+                    encode(&from_oracle_version(&(ta.clone() | tb.clone()))),
+                    "join must match the oracle: {} vs {}", va, vb
                 );
                 prop_assert_eq!(
                     meet(ea, eb),
-                    encode(&(*va & *vb)),
-                    "meet must transcode-commute: {} vs {}", va, vb
+                    encode(&from_oracle_version(&(ta.clone() & tb.clone()))),
+                    "meet must match the oracle: {} vs {}", va, vb
                 );
             }
         }

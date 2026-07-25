@@ -88,13 +88,14 @@
 //!
 //! # Testing
 //!
-//! The packed-form implementations are the behavioral oracle: every fold
-//! is differentially pinned against its `Version` counterpart (exact
-//! `Rank` equality, exact `u64` equality, byte-identical projection
-//! streams) over the adversarial generator families, arbitrary
-//! normal-form trees, organic op-trace histories, and the exhaustive
-//! small scope; rank additionally against the recursive tree oracle and
-//! the semantic Riemann-sum oracle, which share no structure with the
+//! The recursive tree oracle is the behavioral witness: every fold is
+//! differentially pinned against it through the bridge (exact `Rank`
+//! equality, exact `u64` equality, byte-identical projection streams;
+//! distance and lag re-derived from the oracle's join, meet, and rank
+//! through the valuation identities) over the adversarial generator
+//! families, arbitrary normal-form trees, organic op-trace histories,
+//! and the exhaustive small scope; rank additionally against the
+//! semantic Riemann-sum oracle, which shares no structure with the
 //! sweep. The resource envelopes are the meter rows named above.
 
 use core::cmp::Ordering;
@@ -403,8 +404,7 @@ fn height_word(height: &mut Accum) -> Option<u64> {
 /// ownership transition emits the absolute height once — the jump the
 /// output must record anyway, which is what prices the sweep by its
 /// input plus its mandatory output. The output stream is byte-identical
-/// to transcoding the packed-form projection
-/// ([`Version / &Party`](crate::Version)), which the differential suite
+/// to the recursive oracle's semantic mask, which the differential suite
 /// pins.
 ///
 /// # Panics

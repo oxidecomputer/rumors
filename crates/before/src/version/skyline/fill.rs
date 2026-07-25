@@ -47,13 +47,16 @@
 //!
 //! # Testing
 //!
-//! The packed-form `tick` is the behavioral oracle: ticking through the
-//! transcoders must reproduce its output stream byte for byte, over the
-//! adversarial families crossed with adversarial parties, arbitrary
-//! pairs, organic histories, and the exhaustive small scope; `fill`
-//! alone is additionally held to `oracle::Version::fill` through the
-//! bridge on the same pool, so the splice's two branches are each
-//! pinned, not just their composition.
+//! `fill` is held to the recursive oracle (`oracle::Version::fill`
+//! through the bridge) over the adversarial families crossed with
+//! adversarial parties, arbitrary pairs, organic histories, and the
+//! exhaustive small scope — canonical uniqueness makes the differential
+//! total. `tick` runs through both entry points (the module function
+//! and the public `Version::tick`), pinning the splice's plumbing; its
+//! two branches take their value witnesses from the fill oracle and the
+//! grow suite's oracle and brute-force pins, so each branch is pinned,
+//! not just their composition. Deep spines are held to closed-form
+//! expected values.
 
 use core::cmp::Ordering;
 
@@ -70,10 +73,10 @@ use super::{gamma_code, live_bits, unzigzag, zigzag_signed, Encoded};
 /// perspective of a packed id: `fill` if it simplifies the tree, else
 /// the [`grow`](super::grow::grow) inflation.
 ///
-/// The output is byte-identical to transcoding the packed-form `tick`
-/// (the differential suite pins it). Canonical uniqueness makes the
-/// splice's test exact: `fill` changed something iff its stream differs
-/// from the input.
+/// The differential suite pins each branch against its witness (the
+/// recursive oracle's fill; the oracle's and the brute-force minimal
+/// inflation). Canonical uniqueness makes the splice's test exact:
+/// `fill` changed something iff its stream differs from the input.
 ///
 /// # Panics
 ///
@@ -94,8 +97,8 @@ pub fn tick(ev: &Encoded, id: &crate::Party) -> Encoded {
 /// skyline stream.
 ///
 /// The module doc carries the walk, the relative-height discipline, and
-/// the cost bounds. The output is byte-identical to transcoding the
-/// packed-form `fill` (the differential suite pins it).
+/// the cost bounds. The output is byte-identical to the recursive
+/// oracle's fill (the differential suite pins it).
 ///
 /// # Panics
 ///

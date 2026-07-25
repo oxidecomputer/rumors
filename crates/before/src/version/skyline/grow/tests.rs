@@ -1,14 +1,16 @@
 //! Differential pins for the skyline grow against three witnesses.
 //!
-//! The packed-form `grow` is the byte-level oracle (canonical uniqueness
-//! makes the differential total: the grown stream must equal the
-//! transcoded packed-form result byte for byte), a reference *recursive*
-//! probe pins the iterative probe's [`Route`] bit vector — the explicit
-//! guard against a probe/emit coordinate drift, which would misread a
-//! direction silently rather than panic — and the brute-force
-//! minimal-inflation search holds the whole kernel to `grow`'s defining
-//! optimality directly, not merely to another implementation of the same
-//! dynamic program.
+//! The recursive oracle's `grow` (through the bridge) is the byte-level
+//! value witness — canonical uniqueness makes the differential total:
+//! the grown stream must equal the oracle's normalized, encoded
+//! inflation byte for byte — a reference *recursive* probe pins the
+//! iterative probe's [`Route`] bit vector — the explicit guard against
+//! a probe/emit coordinate drift, which would misread a direction
+//! silently rather than panic — and the brute-force minimal-inflation
+//! search holds the whole kernel to `grow`'s defining optimality
+//! directly, not merely to another implementation of the same dynamic
+//! program. The deep-spine case swaps the native-frame oracle for
+//! closed-form expected values (its test doc states each derivation).
 
 use proptest::prelude::*;
 use rayon::prelude::*;
@@ -42,12 +44,27 @@ fn party_of(p: &Packed) -> Party {
     Party::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
 }
 
-/// Assert the kernel's output validates as canonical on one pair, and pin
-/// the iterative probe's route against the recursive reference bit for bit.
-///
-/// Value correctness is held by the brute-force optimality pins below and
-/// the tick differentials against the recursive oracle.
+/// Assert the kernel's output validates as canonical on one pair, pin
+/// the iterative probe's route against the recursive reference bit for
+/// bit, and hold the grown stream to the recursive oracle's inflation
+/// byte for byte.
 fn assert_grow(v: &Version, p: &Party) {
+    let out = assert_grow_depth_safe(v, p);
+    let (raw, _) = to_oracle_version(v).grow_for_test(&to_oracle_party(p));
+    assert_eq!(
+        out,
+        encode(&from_oracle_version(&raw.normalized_for_test())),
+        "grow must register the recursive oracle's inflation: {v} with {p}"
+    );
+}
+
+/// The depth-safe half of [`assert_grow`]: canonicality and the route
+/// pin (both walks are stack-guarded), returning the grown stream.
+///
+/// The recursive oracle walks on native frames, so the deep-spine test
+/// calls this directly and takes its value witnesses from closed forms
+/// instead.
+fn assert_grow_depth_safe(v: &Version, p: &Party) -> Encoded {
     let enc = encode(v);
     let out = grow(&enc, p);
     validate(&out.bytes, out.bits).expect("a grown stream is canonical");
@@ -65,6 +82,7 @@ fn assert_grow(v: &Version, p: &Party) {
         iterative.dirs, reference.dirs,
         "the iterative probe's route must match the recursive reference bit for bit: {v} with {p}"
     );
+    out
 }
 
 // ───────────── the reference recursive probe ─────────────
@@ -223,7 +241,7 @@ fn party_pool() -> Vec<Party> {
 }
 
 /// Every event-family × party-family pair grows byte-identically to
-/// the packed-form oracle, validates, and probes route-identically to
+/// the recursive oracle, validates, and probes route-identically to
 /// the recursive reference.
 #[test]
 fn family_pairs_grow_identically() {
@@ -237,8 +255,8 @@ fn family_pairs_grow_identically() {
 }
 
 /// Exhaustive small scope: every normal-form event tree × every
-/// owning normal-form id grows byte-identically to the oracle AND to
-/// the brute-force right-favoring minimal inflation.
+/// owning normal-form id grows byte-identically to the recursive
+/// oracle AND to the brute-force right-favoring minimal inflation.
 ///
 /// Brute force reaches every branch genre — increments, expansions at
 /// every depth, both collapse directions at the inflation point, ties
@@ -306,25 +324,66 @@ fn worked_examples_grow_exactly() {
     }
 }
 
+/// The version that is `1` on the leftmost `2^-depth` interval and `0`
+/// everywhere else: `depth` nested nodes, all bases zero, the single
+/// 1-leaf at the bottom left. Built as a text literal — the parser is
+/// iterative — so the expected tree shares no walk with grow.
+fn left_spike(depth: usize) -> Version {
+    let mut text = "(0, ".repeat(depth - 1);
+    text.push_str("(0, 1, 0)");
+    text.push_str(&", 0)".repeat(depth - 1));
+    text.parse().expect("the spike literal is normal form")
+}
+
 /// Deep spines in every regime stay correct at depths that would
-/// overflow a native-frame walk.
+/// overflow a native-frame walk: the frame-count adversary (alternating
+/// spine under the full id), a deep expansion chain (unary id spine
+/// over one leaf), and a deep two-cursor descent (both spines
+/// together), all long before the resource envelopes notice.
 ///
-/// The frame-count adversary (alternating spine under the full id), a
-/// deep expansion chain (unary id spine over one leaf), and a deep
-/// two-cursor descent (both spines together), all long before the
-/// resource envelopes notice.
+/// The recursive oracle walks on native frames, so the value witnesses
+/// here are closed forms, derived per case: under the full id the
+/// cheapest increment by `(expansions, depth)` is the root's right zero
+/// leaf (depth 1; everything under the spine's internal child is
+/// deeper), so the grown tree is the pointwise max with `(0, 0, 1)`;
+/// the deep unary id over the empty version grows the expansion chain
+/// to its owned tip, the left spike; and over the deep spine the same
+/// id turns left into the spine's depth-2 zero leaf, so the forced
+/// route raises exactly the owned region from 0 to 1 — the pointwise
+/// max with the spike. Each max is realized through the
+/// independently-pinned join kernel and is byte-exact by canonical
+/// uniqueness; canonicality and the route pin ride along.
 #[test]
 fn deep_spines_grow_identically() {
     let deep_ev = version_of(&alt_spine(4096));
-    assert_grow(&deep_ev, &Party::seed());
+    let bump: Version = "(0, 0, 1)".parse().expect("test literals parse");
+    let out = assert_grow_depth_safe(&deep_ev, &Party::seed());
+    assert_eq!(
+        out,
+        encode(&(&deep_ev | &bump)),
+        "the full id increments the root's right zero leaf"
+    );
+
     let deep_id = party_of(&id_spine(4096, false));
-    assert_grow(&Version::new(), &deep_id);
-    assert_grow(&deep_ev, &deep_id);
+    let spike = left_spike(4096);
+    let out = assert_grow_depth_safe(&Version::new(), &deep_id);
+    assert_eq!(
+        out,
+        encode(&spike),
+        "grow expands the chain to the owned tip"
+    );
+
+    let out = assert_grow_depth_safe(&deep_ev, &deep_id);
+    assert_eq!(
+        out,
+        encode(&(&deep_ev | &spike)),
+        "the grown stream is the pointwise max with the spike"
+    );
 }
 
 proptest! {
     /// Arbitrary owning parties over arbitrary normal-form versions
-    /// grow byte-identically to the packed-form oracle.
+    /// grow byte-identically to the recursive oracle.
     ///
     /// Magnitudes past `u64::MAX` included; each pair also validates,
     /// probes route-identically, and registers exactly the brute-force
@@ -348,7 +407,7 @@ proptest! {
 
     /// Every clock produced by one organic fork/tick/send/sync/join
     /// history grows its version from its own party byte-identically
-    /// to the packed-form oracle — and from every *other* clock's
+    /// to the recursive oracle — and from every *other* clock's
     /// party, the concurrent-editor shape.
     #[test]
     fn organic_histories_grow_identically(ops in optrace::world_strategy_up_to(40)) {

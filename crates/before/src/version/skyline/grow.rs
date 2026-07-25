@@ -99,15 +99,17 @@
 //!
 //! # Testing
 //!
-//! The packed-form `grow` is the behavioral oracle: growing through the
-//! transcoders must reproduce its output stream byte for byte, over the
-//! adversarial families crossed with adversarial parties, arbitrary
-//! pairs, organic histories, and the exhaustive small scope; the same
-//! pool is held to the brute-force minimal-inflation search directly.
-//! The `Route` contract is pinned separately: the iterative probe's
-//! bit vector must equal a reference recursive probe's on every pair —
-//! the explicit guard against a probe/emit coordinate drift, which would
-//! misread a direction silently rather than panic.
+//! The recursive oracle's `grow` is the behavioral witness: the grown
+//! stream must equal the oracle's normalized, encoded inflation byte
+//! for byte, over the adversarial families crossed with adversarial
+//! parties, arbitrary pairs, organic histories, and the exhaustive
+//! small scope; the same pool is held to the brute-force
+//! minimal-inflation search directly, and deep spines to closed-form
+//! expected values. The `Route` contract is pinned separately: the
+//! iterative probe's bit vector must equal a reference recursive
+//! probe's on every pair — the explicit guard against a probe/emit
+//! coordinate drift, which would misread a direction silently rather
+//! than panic.
 
 use crate::codec::{self, Base, Bits, BitsSlice};
 use crate::step;
@@ -138,7 +140,7 @@ const FRAME_CTRL_BITS: usize = 3;
 /// right-favoring; one read-only probe then one splice emit, each
 /// `O(n + m)` in the streams' bits (the module doc carries both
 /// mechanisms and the cost argument). The output is byte-identical to
-/// transcoding the packed-form `grow` (the differential suite pins it).
+/// the recursive oracle's inflation (the differential suite pins it).
 ///
 /// The id must own at least one region: `grow` is the fallback of `tick`
 /// on a real party, and an id owning nothing has no feasible inflation

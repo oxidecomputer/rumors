@@ -2,10 +2,10 @@
 //! into skyline streams directly.
 //!
 //! The paper's event grammar (`n | (n, e1, e2)`, separator `", "`) spells
-//! the packed form's min-lifted stored bases, while a skyline stream stores
+//! the tree's min-lifted node bases, while a skyline stream stores
 //! topology plus delta-coded absolute leaf heights — so each direction is a
-//! change of coordinates, done here without materializing either the packed
-//! form or any absolute height:
+//! change of coordinates, done here without materializing either a base
+//! tree or any absolute height:
 //!
 //! - [`render`] derives every printed base in *relative* coordinates. For a
 //!   completed subtree it keeps three delta-sized summaries — the drop from
@@ -34,10 +34,14 @@
 //! input size.
 //!
 //! The kernels are module-private to the skyline codec (test- and
-//! meter-visible), pinned differentially against the production text path
-//! over transcoded operands: [`render`] matches `Display` byte for byte,
-//! [`parse`] matches the transcoder's stream byte for byte and the
-//! production parser error for error. The resource-envelope suite
+//! meter-visible) and *are* the production text path: `Display` routes to
+//! [`render`] and `FromStr` to [`parse`], so the public-entry asserts in
+//! the test suite pin entry agreement, not an independent value. The
+//! independent legs are the construction-language transcoder — [`parse`]
+//! of rendered text must land on the transcoder's stream byte for byte
+//! over the generator families — the render↔parse inverse pair, and a
+//! deterministic accept/reject corpus with a byte-mutation sweep pinning
+//! the grammar's decisions. The resource-envelope suite
 //! (`tests/meter.rs`) pins both kernels' transients on the adversarial
 //! families.
 
@@ -57,8 +61,7 @@ use super::{gamma_code, unzigzag, validate_bits, zigzag_signed, Encoded};
 #[cfg(test)]
 mod tests;
 
-/// The separator the paper notation prints between a node's parts, exactly
-/// as the production `Display` renders it.
+/// The separator the paper notation prints between a node's parts.
 const SEP: &str = ", ";
 
 /// Rendered bytes an internal node adds beyond its digits: `(`, `)`, and
@@ -104,8 +107,8 @@ enum Frame {
     NeedRight { index: usize, left: Summary },
 }
 
-/// Render a skyline stream as the paper notation, byte-identical to the
-/// production `Display` of the version the stream codes.
+/// Render a skyline stream as the paper notation of the version the
+/// stream codes; the public `Display` entry routes here.
 ///
 /// Two passes. The finalize pass walks the stream once, merging the
 /// module doc's relative subtree summaries bottom-up to derive every
@@ -267,8 +270,7 @@ fn merge(parent: usize, left: Summary, right: Summary, bases: &mut [Base]) -> Su
 }
 
 /// Parse the paper notation into the canonical skyline stream of the
-/// version it spells, with the production parser's exact accept/reject
-/// semantics.
+/// version it spells; the public `FromStr` entry routes here.
 ///
 /// One iterative pass: bases parse through the delegated digit-run reader,
 /// the per-leaf delta accumulator turns path-sum movement into skyline
@@ -276,9 +278,8 @@ fn merge(parent: usize, left: Summary, right: Summary, bases: &mut [Base]) -> Su
 /// builder assembles the stream. Canonicality (a zero-base child under
 /// every node, no equal sibling leaves) is checked at each close and
 /// reported after the whole syntax pass, so syntax errors — including
-/// trailing junk — outrank [`Parse::NotCanonical`] exactly as they do in
-/// the production parser; the built stream is then gated through the
-/// strict validator.
+/// trailing junk — outrank [`Parse::NotCanonical`]; the built stream is
+/// then gated through the strict validator.
 pub fn parse(s: &str) -> Result<Encoded, Parse> {
     /// What a parsed subtree contributes to its parent's normal-form
     /// check: its written base and whether it is a single leaf.
