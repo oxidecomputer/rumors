@@ -42,17 +42,19 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
     names
 }
 
-/// The roster's red set is exactly the sixteen counter-red bigroot sweeps
-/// plus the permanent schoolbook display tripwire.
+/// The roster's red set is exactly the fifteen counter-red bigroot sweeps,
+/// the two hugeleaf display rows, and the permanent schoolbook tripwire.
 ///
-/// The sixteen sweeps are owned by the C2 kernel flip and emptied at C3.
-/// Removing an owned red silences a standing judgment and adding one
-/// launders a new regression as expected, so both directions must show up
-/// as a diff of this pin.
+/// The bigroot sweeps are owned by the C2 kernel flip and the display rows
+/// by the text column's κ/C2 hand-off; both sets empty at C3. Removing an
+/// owned red silences a standing judgment and adding one launders a new
+/// regression as expected, so both directions must show up as a diff of
+/// this pin.
 #[test]
 fn roster_red_membership_is_pinned() {
     let mut expected = vec![
         "causally_contains/bigroot",
+        "clock_display/hugeleaf",
         "clock_join/bigroot",
         "clock_recv/bigroot",
         "clock_sync/bigroot",
@@ -61,8 +63,8 @@ fn roster_red_membership_is_pinned() {
         "version_batch_snapshot/bigroot",
         "version_cmp/bigroot",
         "version_concurrent/bigroot",
+        "version_display/hugeleaf",
         "version_distance/bigroot",
-        "version_eq/bigroot",
         "version_join/bigroot",
         "version_join_assign/bigroot",
         "version_lag/bigroot",
@@ -74,18 +76,14 @@ fn roster_red_membership_is_pinned() {
     assert_eq!(class(&roster(), "red"), expected);
 }
 
-/// The roster's boundary set is exactly the two hugeleaf display rows.
+/// The roster's boundary set is empty at this tip.
 ///
-/// Both rows are fitted within the fit-noise band of the general ceiling
-/// and emptied at C3. Boundary membership accepts either verdict, so
-/// widening it would exempt a cell from judgment — any change must be a
-/// reviewed diff here.
+/// The class stays in the schema as enforcement vocabulary. Boundary
+/// membership accepts either verdict, so adding a cell would exempt it
+/// from judgment — any change must be a reviewed diff here.
 #[test]
 fn roster_boundary_membership_is_pinned() {
-    assert_eq!(
-        class(&roster(), "boundary"),
-        ["clock_display/hugeleaf", "version_display/hugeleaf"]
-    );
+    assert_eq!(class(&roster(), "boundary"), [] as [&str; 0]);
 }
 
 /// The roster carries only the two expectation classes plus configuration
