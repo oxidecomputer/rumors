@@ -1,8 +1,8 @@
 //! `Version` benchmarks: the optimized implementation against the naive
 //! recursive oracle, on the same randomized event trees (see `common`).
 //!
-//! Includes the batch-vs-single-op comparison that motivates the working form,
-//! plus the impl-only byte codec.
+//! Includes the batch-vs-single-op comparison over repeated ticks, plus the
+//! impl-only byte codec.
 
 use before::{Party, Version};
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
@@ -65,12 +65,11 @@ fn bench_tick(c: &mut Criterion) {
     g.finish();
 }
 
-/// The headline of the working form: applying `k` ticks.
+/// Repeated mutation: applying `k` ticks, batched and unbatched.
 ///
-/// The impl can `batch()` them (one unpack/repack amortized over all `k`);
-/// without a batch each tick unpacks and repacks on its own; the oracle has
-/// no working form and re-normalizes each tick. Tree size is fixed; `k` is
-/// the axis.
+/// The impl applies each tick through the fill splice either way (a batch
+/// is a chaining convenience, not a different engine); the oracle
+/// re-normalizes each tick. Tree size is fixed; `k` is the axis.
 fn bench_batch(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/k_ticks");
     let mut r = rng(2);

@@ -1,4 +1,4 @@
-//! Id operations on the packed form. Ids have no working form, so
+//! Id operations on the packed form. Ids mutate by re-emission, so
 //! `split`/`sum`/`is_disjoint`/`compare` run directly on the packed id bit
 //! stream.
 //!
@@ -11,9 +11,8 @@
 //! segments. `split` walks its spine by bit position in a loop, and
 //! `diff`'s complement arm emits iteratively; `diff`'s both-internal walk
 //! recurses on depth, guarded against overflow by [`crate::recurse`]. The
-//! same single-use-cursor discipline as the event side governs them all
-//! (see the [traversal overview](crate::version::event)); two points are
-//! specific to ids:
+//! same single-use-cursor discipline as the event side's sweeps governs
+//! them all; two points are specific to ids:
 //!
 //! - **Threading via the cursor.** A child is a single-use `&mut`
 //!   [`IdReader`](crate::idbits::IdReader): reading a node advances it in place,

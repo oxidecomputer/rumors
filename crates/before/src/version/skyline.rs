@@ -17,29 +17,23 @@
 //!   (`codec::encode_int`), so the code shape (`2k + 1` bits) and the
 //!   decoder's window fast path carry over unchanged.
 //!
-//! Nothing routes wire bytes through this module: [`Version::encode`] and
-//! [`Version::decode`] carry the packed preorder form, which doubles as
-//! this codec's behavioral oracle — [`encode`](fn@encode) transcodes a stored
-//! [`Version`] into skyline bits, [`decode`](fn@decode) strictly validates skyline
-//! bits and transcodes them back, and the test suite pins the two codings
-//! against each other (see Testing below). The [`sweep`] submodule decides
-//! comparisons directly on skyline streams — the merge form the coding
-//! exists to enable — differentially pinned against the stored-form
-//! comparison; the [`emit`] submodule runs the same merge as join and
-//! meet, re-delta-coding pointwise max/min into a canonical stream
-//! through the collapsing output builder, differentially pinned against
-//! the packed-form operators byte for byte; the [`query`] submodule
-//! answers the linear functionals (rank, distance, lag, min_ticks) and
-//! projection from the same leaf sweeps, differentially pinned against
-//! the packed-form implementations; the [`grow`](mod@grow) submodule
-//! registers an event by the cheapest inflation — an iterative
-//! topology-only probe, then a splice emit that rebuilds one
-//! root-to-leaf path — differentially pinned against the packed-form
-//! `grow` byte for byte; the [`text`] submodule renders and parses the
-//! paper's text notation directly on skyline streams, differentially
-//! pinned byte for byte against the production `Display`/`FromStr`
-//! path. The module is test- and
-//! meter-visible only, via [`crate::meter::skyline`].
+//! This coding is the stored and wire form of a [`Version`]:
+//! [`Version::encode`] and [`Version::decode`] carry these streams, and
+//! every operation runs on them directly. The [`sweep`] submodule decides
+//! comparisons on skyline streams — the merge form the coding exists to
+//! enable; the [`emit`] submodule runs the same merge as join and meet,
+//! re-delta-coding pointwise max/min into a canonical stream through the
+//! collapsing output builder; the [`query`] submodule answers the linear
+//! functionals (rank, distance, lag, min_ticks) and projection from the
+//! same leaf sweeps; the [`fill`](mod@fill) and [`grow`](mod@grow)
+//! submodules register an event — fill raises full regions in place, and
+//! grow performs the cheapest inflation via an iterative topology-only
+//! probe, then a splice emit that rebuilds one root-to-leaf path; the
+//! [`text`] submodule renders and parses the paper's text notation
+//! directly on the streams. Every kernel is differentially pinned against
+//! the recursive oracle (`crate::oracle`), and the meter surface
+//! re-exports the module ([`crate::meter::skyline`]) so the
+//! resource-envelope suite can pin its internals.
 //!
 //! # Canonical form
 //!
@@ -136,6 +130,7 @@ pub mod emit;
 mod encode;
 pub mod fill;
 pub mod grow;
+pub mod literal;
 pub mod query;
 pub mod sweep;
 pub mod text;
@@ -145,8 +140,11 @@ mod validate;
 mod tests;
 
 pub(crate) use decode::decode_bits;
+// The generators' construction-language bridge: consumed by the meter
+// surface and the transcoding tests only.
+#[cfg(any(test, feature = "meter"))]
 pub(crate) use encode::encode_bits;
-pub(crate) use validate::validate_bits;
+pub(crate) use validate::{validate_bits, validate_from, validate_prefix};
 
 /// A skyline bit stream packed into bytes, with its exact live bit length.
 ///
@@ -154,7 +152,7 @@ pub(crate) use validate::validate_bits;
 /// length before that padding. The pair is what the byte-level entry points
 /// exchange: the stream is not self-delimiting at the byte level, so the
 /// live length travels with the bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Encoded {
     /// The skyline stream, final partial byte zero-padded.
     pub bytes: Vec<u8>,
@@ -162,19 +160,9 @@ pub struct Encoded {
     pub bits: usize,
 }
 
-/// Transcode a stored [`Version`] into its canonical skyline stream.
-///
-/// One preorder pass over the packed form, accumulating absolute leaf
-/// heights as root-to-leaf path sums; transient state is the inherited-sum
-/// stack, priced by the packed input (see the module doc's cost section).
+/// A [`Version`]'s canonical skyline stream: the stored form, cloned.
 pub fn encode(version: &Version) -> Encoded {
-    let mut bits = encode_bits(version);
-    let live = bits.len();
-    codec::zero_dead_bits(&mut bits);
-    Encoded {
-        bytes: bits.into_vec(),
-        bits: live,
-    }
+    version.as_encoded().clone()
 }
 
 /// Strictly validate a skyline stream without materializing any height.
@@ -221,6 +209,15 @@ fn live_bits(bytes: &[u8], bits: usize) -> &BitsSlice {
         all.len(),
     );
     &all[..bits]
+}
+
+/// Whether a skyline stream is the canonical empty version.
+///
+/// The empty version is exactly the 2-bit stream `01` (leaf flag `0`, then
+/// gamma(0), the single bit `1`), stored zero-padded as the byte `0x40`.
+/// Canonical uniqueness makes this O(1) test the whole question.
+pub(crate) fn is_empty_encoded(enc: &Encoded) -> bool {
+    enc.bits == 2 && enc.bytes.first() == Some(&0x40)
 }
 
 /// Map the signed difference `cur − prev` to its zigzag magnitude:

@@ -10,7 +10,7 @@
 //! - id-builder bit writes and verbatim splice lengths
 //!   (`party::ops`' builder);
 //! - event topology cursor advances and gamma code-skips
-//!   (`version::compare::EvReader` over packed bits, `codec::skip_int`);
+//!   (the skyline sweeps' cursors over packed bits, `codec::skip_int`);
 //! - every sequential decoder/validator bit read (`codec::SliceCursor`,
 //!   which carries `decode`, the gamma decoder, and the skyline
 //!   validator/decoder cursors).

@@ -1,36 +1,35 @@
-//! The amortizing mutation handle for a [`Version`]: [`Batch`] materializes
-//! the packed event tree into working form once, accumulates operations, and
-//! repacks when dropped.
+//! The chaining mutation handle for a [`Version`]: [`Batch`] borrows one
+//! version mutably and applies operations in place, each committing as it
+//! runs.
 
 use crate::Party;
 
-use super::compare::EvReader;
-use super::working::WorkingVersion;
-use super::{event, Version};
+use super::skyline::{self, Encoded};
+use super::Version;
 
-/// A batch for a [`Version`], providing a similar API, but faster for multiple
-/// operations.
+/// A batch of operations on one [`Version`], applied through a single
+/// mutable borrow with a chainable API.
+///
+/// Every operation commits to the underlying version as it runs: a `Batch`
+/// holds no divergent state, so reads through it (comparison,
+/// [`snapshot`](Batch::snapshot)) always see the latest committed value.
 ///
 /// ```
 /// use before::{Party, Version};
 /// let party = Party::seed();
 /// let mut v = Version::new();
-/// v.batch().tick(&party).tick(&party); // amortized; repacked when the batch drops
+/// v.batch().tick(&party).tick(&party);
 /// assert_eq!(v.to_string(), "2");
 /// ```
 pub struct Batch<'v> {
     version: &'v mut Version,
-    work: Option<WorkingVersion>,
 }
 
 impl<'v> Batch<'v> {
-    /// Begin a batch over `version`: no working form is materialized until
-    /// the first mutation. The public entry point is [`Version::batch`].
+    /// Begin a batch over `version`. The public entry point is
+    /// [`Version::batch`].
     pub(super) fn new(version: &'v mut Version) -> Self {
-        Batch {
-            version,
-            work: None,
-        }
+        Batch { version }
     }
 }
 
@@ -44,11 +43,7 @@ impl Batch<'_> {
     /// assert_eq!(v.to_string(), "1");
     /// ```
     pub fn tick(&mut self, party: &Party) -> &mut Self {
-        let work = self
-            .work
-            .take()
-            .unwrap_or_else(|| WorkingVersion::unpack(self.version.as_bits()));
-        self.work = Some(event::tick(party.as_bits(), &work));
+        self.version.0 = skyline::fill::tick(&self.version.0, party);
         self
     }
 
@@ -74,51 +69,40 @@ impl Batch<'_> {
     }
 
     /// The view-taking core of [`join`](Self::join): join an arbitrary
-    /// event-tree view into this batch's in-progress history.
+    /// skyline stream into this batch's version.
     ///
     /// Any operand with a [`view`](Self::view) (a [`Version`] or another
-    /// [`Batch`], owned or borrowed) joins through here, so the `|`/`|=` matrix
-    /// below accepts a [`Batch`] on either side without transcoding.
+    /// [`Batch`], owned or borrowed) joins through here, so the `|`/`|=`
+    /// matrix accepts a [`Batch`] on either side without transcoding.
     ///
-    /// Before the combine walk, two `O(1)` short-circuits settle the cases
-    /// canonical form makes immediate: trivial equality (`a ∨ a = a`, a no-op)
-    /// and the lattice identity `0 ∨ v = v` — an empty incoming leaves the
-    /// current tree untouched, and an empty current adopts the incoming tree
-    /// wholesale (a copy, byte-identical to what the combine + repack would
-    /// produce). The identity path is the common seed pattern: folds seeded
-    /// with [`Version::new`] (`join_all`, `Sum`) hit it on their first join.
-    pub(super) fn join_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
-        let current = self.view();
-        if current.trivially_eq(&incoming) {
-            return self;
+    /// Before the merge sweep, two `O(1)` short-circuits settle the cases
+    /// canonical form makes immediate: trivial equality (`a ∨ a = a`, a
+    /// no-op, decided by a byte compare of the two unique streams) and the
+    /// lattice identity `0 ∨ v = v` — an empty incoming leaves the current
+    /// tree untouched, and an empty current adopts the incoming stream
+    /// wholesale (a copy, byte-identical to what the merge would emit). The
+    /// identity path is the common seed pattern: folds seeded with
+    /// [`Version::new`] (`join_all`, `Sum`) hit it on their first join.
+    pub(super) fn join_view(&mut self, incoming: &Encoded) -> &mut Self {
+        if self.version.0 == *incoming {
+            return self; // a ∨ a = a
         }
-        if incoming.is_empty() {
+        if skyline::is_empty_encoded(incoming) {
             return self; // v ∨ 0 = v: nothing to fold in
         }
-        if current.is_empty() {
-            // 0 ∨ v = v: adopt the incoming tree wholesale. Both forms are
-            // canonical normal form, so the copy equals the combine + repack
-            // byte for byte.
-            match incoming {
-                EvReader::Packed { bits, .. } => {
-                    self.replace_with(Version::from_bits(bits.to_bitvec()));
-                }
-                EvReader::Working { work, .. } => self.work = Some(work.clone()),
-                // Only real operands reach here (`Version::view`/`Batch::view`
-                // never yield `Zero`), and `Zero` is empty, so the incoming
-                // check above already returned.
-                EvReader::Zero => unreachable!("Zero is empty and short-circuited above"),
-            }
+        if skyline::is_empty_encoded(&self.version.0) {
+            // 0 ∨ v = v: adopt the incoming stream wholesale. Both streams
+            // are canonical, so the copy equals the merge byte for byte.
+            self.version.0 = incoming.clone();
             return self;
         }
-        let work = current.join(incoming);
-        self.work = Some(work);
+        self.version.0 = skyline::emit::join(&self.version.0, incoming);
         self
     }
 
     /// The view-taking meet core, the dual of
-    /// [`join_view`](Self::join_view): meet an arbitrary event-tree view
-    /// into this batch's in-progress history.
+    /// [`join_view`](Self::join_view): meet an arbitrary skyline stream
+    /// into this batch's version.
     ///
     /// The `&`/`&=` matrix routes through here just as the `|`/`|=` matrix
     /// routes through `join_view`, and accepts a [`Batch`] on either side
@@ -127,57 +111,33 @@ impl Batch<'_> {
     /// The dual short-circuits apply: trivial equality (`a ∧ a = a`), and the
     /// empty version as the *absorbing* element, `0 ∧ v = 0` — an empty
     /// current is already the answer, and an empty incoming makes the result
-    /// the empty version outright, no combine walk either way.
-    pub(super) fn meet_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
-        let current = self.view();
-        if current.trivially_eq(&incoming) {
-            return self; // a & a == a
+    /// the empty version outright, no merge sweep either way.
+    pub(super) fn meet_view(&mut self, incoming: &Encoded) -> &mut Self {
+        if self.version.0 == *incoming {
+            return self; // a ∧ a == a
         }
-        if current.is_empty() {
+        if skyline::is_empty_encoded(&self.version.0) {
             return self; // 0 ∧ v = 0: already empty, nothing can shrink it
         }
-        if incoming.is_empty() {
+        if skyline::is_empty_encoded(incoming) {
             // v ∧ 0 = 0: the result is the empty version, whatever `v` was.
             self.replace_with(Version::new());
             return self;
         }
-        let work = current.meet(incoming);
-        self.work = Some(work);
+        self.version.0 = skyline::emit::meet(&self.version.0, incoming);
         self
     }
 
-    /// Force the working form to materialize, leaving the value unchanged.
-    /// Test-only.
-    ///
-    /// The parity tests use this to drive Working-form views through the
-    /// comparison and combine surfaces. An identity join
-    /// (`join(&Version::new())`) cannot serve: it is exactly the lattice
-    /// short-circuit in [`join_view`](Self::join_view), and leaves the
-    /// working form untouched.
-    #[cfg(test)]
-    pub(super) fn materialize(&mut self) -> &mut Self {
-        if self.work.is_none() {
-            self.work = Some(WorkingVersion::unpack(self.version.as_bits()));
-        }
-        self
-    }
-
-    /// Replace the in-progress history with an already-canonical owned version.
+    /// Replace the version with an already-canonical owned value.
     /// Used by `clock::Batch::sync` after it computes the merged history once.
     pub(crate) fn replace_with(&mut self, version: Version) {
-        self.work = None;
         *self.version = version;
     }
 
-    /// Snapshot the in-progress history as an owned, canonical [`Version`]
-    /// without ending the batch.
+    /// The current value as an owned [`Version`] without ending the batch.
     ///
-    /// Equivalent to the [`Version`] that would result if the batch were
-    /// dropped now, but the batch stays open and further
-    /// [`tick`](Self::tick)s and joins continue to accumulate in the
-    /// materialized working form. A caller can therefore read a
-    /// per-operation version mid-batch (for example, to key each insert in a
-    /// run) while paying the unpack cost once for the whole batch.
+    /// Every operation commits as it runs, so this is a clone of the
+    /// underlying version at this point in the chain.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -191,27 +151,12 @@ impl Batch<'_> {
     /// assert!(one < two);
     /// ```
     pub fn snapshot(&self) -> Version {
-        match &self.work {
-            Some(work) => Version::from_bits(work.repack()),
-            None => self.version.clone(),
-        }
+        self.version.clone()
     }
 
-    /// A read-only view of the in-progress event tree (working form if
-    /// materialized, otherwise the borrowed version's packed bits).
-    pub(super) fn view(&self) -> EvReader<'_> {
-        match &self.work {
-            Some(work) => EvReader::working(work),
-            None => EvReader::packed(self.version.as_bits()),
-        }
-    }
-}
-
-impl Drop for Batch<'_> {
-    fn drop(&mut self) {
-        if let Some(work) = self.work.take() {
-            *self.version = Version::from_bits(work.repack());
-        }
+    /// A read-only view of the version's stored skyline stream.
+    pub(super) fn view(&self) -> &Encoded {
+        &self.version.0
     }
 }
 

@@ -1,7 +1,6 @@
 use crate::idbits::{IdNode, IdReader};
-use crate::recurse::descend;
 
-use super::{decode_int, Bits, BitsSlice};
+use super::{Bits, BitsSlice};
 
 /// While rendering an open id node, which child the walk is inside.
 ///
@@ -72,39 +71,4 @@ pub(crate) fn write_id(
             }
         }
     }
-}
-
-/// Write an event tree in the paper's grammar with `sep` between a node's
-/// parts. Leaves render as `n`, nodes as `(n<sep>l<sep>r)`. Recursive,
-/// guarded by [`crate::recurse`] so deep trees do not overflow the
-/// formatter.
-pub(crate) fn write_ev(
-    bits: &BitsSlice,
-    f: &mut core::fmt::Formatter<'_>,
-    sep: &str,
-) -> core::fmt::Result {
-    descend!(0, write_ev_node(bits, 0, f, sep, 0)).map(|_end| ())
-}
-
-/// Write the event subtree at `pos`, returning the position just past it. Routed
-/// through the amortized stack-growth guard.
-fn write_ev_node(
-    bits: &BitsSlice,
-    pos: usize,
-    f: &mut core::fmt::Formatter<'_>,
-    sep: &str,
-    depth: usize,
-) -> Result<usize, core::fmt::Error> {
-    let internal = bits[pos];
-    let (base, next) = decode_int(bits, pos + 1).expect("a stored event tree is canonical");
-    if !internal {
-        write!(f, "{base}")?;
-        return Ok(next);
-    }
-    write!(f, "({base}{sep}")?;
-    let mid = descend!(depth + 1, write_ev_node(bits, next, f, sep, depth + 1))?;
-    f.write_str(sep)?;
-    let end = descend!(depth + 1, write_ev_node(bits, mid, f, sep, depth + 1))?;
-    f.write_str(")")?;
-    Ok(end)
 }

@@ -75,8 +75,13 @@ pub(crate) struct Sample {
 /// C_leaf * leaves`, [`EULER_LEAF_CHARGE_BITS`], where the stored-base code
 /// bits are exactly `current_bits - nodes`).
 pub(crate) fn check_sample(version: &Version) -> Sample {
-    let tier2 = tier2_size(version);
-    let current_bits = version.encoded_bits() as u64;
+    // The decision-era "current" coding is the min-lifted packed preorder
+    // stream (one gamma-coded base per node), re-derived through the
+    // oracle lowering; the stored coding is Tier 2 itself.
+    let packed =
+        crate::testing::bridge::packed_bits_of(&crate::testing::bridge::to_oracle_version(version));
+    let tier2 = tier2_size(&packed);
+    let current_bits = packed.len() as u64;
     let ratio = tier2.total_bits as f64 / current_bits as f64;
 
     let envelope = 2.0 * current_bits as f64 + TIER2_NODE_ENVELOPE_BITS * tier2.nodes as f64;
@@ -147,9 +152,11 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
         bits.push(false);
         codec::encode_int(&mut bits, &m);
     }
-    let version = Version::from_bits(bits);
+    // The comb is hand-built in the min-lifted packed construction
+    // language; the transcoding bridge lifts it into the stored coding.
+    let version = Version::from_bits(crate::version::skyline::encode_bits(&bits));
 
-    // Self-check: the hand-built stream is strict normal form and canonical.
+    // Self-check: the built stream is canonical and round-trips the wire.
     let decoded = Version::decode(version.encode().as_slice())
         .expect("hand-built comb is strict normal form");
     assert_eq!(decoded, version, "comb round-trips canonically");

@@ -9,150 +9,142 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (0, 16, 0)
-version frame: 30 bytes
-  0000: 00 00 00 1a 10 00 00 00
-  0008: 00 00 00 00 02 00 00 00
+version frame: 31 bytes
+  0000: 00 00 00 1b 10 00 00 00
+  0008: 00 00 00 00 03 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 c1 14
-listing frame: 280 bytes
-  0000: 00 00 01 14 10 00 00 00
-  0008: 09 1f 81 5e c5 e1 e8 92
-  0010: 2f 20 7e 08 3d 82 40 a0
-  0018: b9 13 a3 16 17 49 66 71
-  0020: 3c 35 8c d9 4c e1 1d 27
-  0028: d7 dd 19 4e 87 36 94 52
-  0030: e1 57 89 cc a3 4f f5 d4
-  0038: 9f ed 25 29 b1 d9 0a 1a
-  0040: 71 fa 60 ba 74 17 aa 66
-  0048: e3 27 66 1a 2a 53 98 b1
-  0050: 84 a0 9b f6 b6 e3 6b f6
-  0058: 90 35 78 5b 72 8c f5 a4
-  0060: 94 01 21 93 5e 94 7e d7
-  0068: 2c a9 13 59 42 2b 9a cf
-  0070: c7 9f c8 63 31 e4 68 4c
-  0078: 37 00 7d cb ae 26 ef aa
-  0080: 79 c4 c0 54 50 8f c0 36
-  0088: ea e4 b7 5a bf da dc 63
-  0090: bc 8b 59 df 7c 91 f2 84
-  0098: 82 14 53 39 cd 30 00 00
-  00a0: 33 c7 8a 88 f6 4c ed ca
-  00a8: eb 56 74 7d df 41 cd b7
-  00b0: 0f 33 e1 47 b8 d5 ac 17
-  00b8: de 9a 8f 6b 44 2a 91 d6
-  00c0: c9 66 9b ed c4 8c a0 1e
-  00c8: 3f fd d6 76 b4 38 30 2b
-  00d0: 0c 46 3a 58 f0 11 c2 ed
-  00d8: 68 30 00 c4 04 7a ef 3a
-  00e0: 42 bd 01 eb f1 f3 ec 8d
-  00e8: 2f 9a f4 08 df 78 57 1d
-  00f0: c2 bb a4 11 e6 be f4 87
-  00f8: 97 ae 8f 2d 17 1e 24 3f
-  0100: c9 0a 45 14 8c 42 b4 fc
-  0108: 4f cd 55 e1 a2 e6 df 3a
-  0110: 44 b5 cf 46 7d 6b d5 d3
+  0018: 00 00 00 00 82 20 40
+listing frame: 246 bytes
+  0000: 00 00 00 f2 0e 00 00 00
+  0008: 0d 46 2e a0 69 93 7c 88
+  0010: 24 3a e5 46 d5 17 36 83
+  0018: 91 23 83 b0 ca d2 94 30
+  0020: f1 51 17 25 03 87 aa 07
+  0028: 68 a3 2d 77 aa 79 9e b1
+  0030: 00 0e 9d 1d 09 97 10 6c
+  0038: 31 64 c6 54 49 fc d3 5a
+  0040: c0 cd d1 60 62 48 ac 77
+  0048: f1 d8 73 62 56 9c ff e7
+  0050: 65 4e ca 9f b5 4f a2 03
+  0058: 40 69 19 47 a6 7e ea 82
+  0060: b2 f9 8f 6a 1a 66 e7 74
+  0068: 47 e6 b7 45 e1 78 82 ee
+  0070: 34 11 ba f8 62 92 04 e4
+  0078: 60 5d 40 46 c2 3d 3b 9f
+  0080: 2b 50 6a 84 54 47 21 f2
+  0088: 37 fe 76 3d 22 dd b4 3d
+  0090: ab b9 5a 4f 35 7d f7 53
+  0098: 3c c1 02 60 46 cc 80 b9
+  00a0: fb b2 37 26 7e 0f dd d7
+  00a8: d0 bb f6 f4 a4 d6 b8 4d
+  00b0: b9 7e d4 69 c5 34 8b 16
+  00b8: a7 f2 04 b1 1a 5c 8a a1
+  00c0: 84 dc 53 e2 84 aa e7 60
+  00c8: 8e 79 49 15 79 78 55 3f
+  00d0: 56 b8 d1 b7 e6 0d ca 4e
+  00d8: cd 29 cb 23 00 38 2e 2e
+  00e0: b1 ea 53 d5 f3 e9 fd f8
+  00e8: 1a 7b 03 91 98 4e a0 6e
+  00f0: eb 2a 49 2c 5d 29
 Responder stream 0 (height 31), epoch 0
   frame 0: QueryEmpty(Continue)
     0000: 22
-  frame 1: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c2 d0 09 00 00 00 00
-    0010: 00 00 00
-  frame 2: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c5 40 03 00 00 00 00
-    0010: 00 00 00
-  frame 3: Query(Continue)
-    0000: 44 00 ba 87 03 61 29 22
-    0008: dc 4b 06 a4 a2 fb 2f eb
-    0010: 25 e2 88
-  frame 4: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c3 d0 0d 00 00 00 00
-    0010: 00 00 00
-  frame 5: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c6 40 04 00 00 00 00
-    0010: 00 00 00
-  frame 6: QueryEmpty(Continue)
+  frame 1: QueryEmpty(Continue)
     0000: 22
+  frame 2: QueryEmpty(Continue)
+    0000: 22
+  frame 3: Supply(Continue)
+    0000: 66 00 00 00 0f 00 00 00
+    0008: 0b 84 82 00 07 00 00 00
+    0010: 00 00 00 00
+  frame 4: QueryEmpty(Continue)
+    0000: 22
+  frame 5: Query(Continue)
+    0000: 44 00 7e 3b fb 80 84 51
+    0008: 38 cd 84 54 eb c3 08 23
+    0010: 91 ed 64
+  frame 6: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a 91 00 00 00 00 00 00
+    0010: 00 00 00
   frame 7: QueryEmpty(Continue)
     0000: 22
   frame 8: QueryEmpty(Continue)
     0000: 22
-  frame 9: QueryEmpty(Continue)
-    0000: 22
-  frame 10: QueryEmpty(Continue)
-    0000: 22
-  frame 11: QueryEmpty(Continue)
-    0000: 22
-  frame 12: Supply(Continue)
+  frame 9: Supply(Continue)
+    0000: 66 00 00 00 0f 00 00 00
+    0008: 0b 85 02 40 08 00 00 00
+    0010: 00 00 00 00
+  frame 10: Supply(Continue)
+    0000: 66 00 00 00 0f 00 00 00
+    0008: 0b 87 83 80 0d 00 00 00
+    0010: 00 00 00 00
+  frame 11: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c3 50 0b 00 00 00 00
+    0008: 0a 8e 18 05 00 00 00 00
     0010: 00 00 00
-  frame 13: Supply(Continue)
-    0000: 66 00 00 00 0d 00 00 00
-    0008: 09 cd 01 00 00 00 00 00
-    0010: 00 00
+  frame 12: Supply(Continue)
+    0000: 66 00 00 00 0f 00 00 00
+    0008: 0b 84 07 00 06 00 00 00
+    0010: 00 00 00 00
+  frame 13: QueryEmpty(Continue)
+    0000: 22
   frame 14: QueryEmpty(Continue)
     0000: 22
   frame 15: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c2 90 08 00 00 00 00
-    0010: 00 00 00
+    0000: 66 00 00 00 0f 00 00 00
+    0008: 0b 82 00 f0 0e 00 00 00
+    0010: 00 00 00 00
   frame 16: Supply(Continue)
-    0000: 66 00 00 00 0d 00 00 00
-    0008: 09 c9 00 00 00 00 00 00
-    0010: 00 00
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a 88 30 02 00 00 00 00
+    0010: 00 00 00
   frame 17: QueryEmpty(Continue)
     0000: 22
-  frame 18: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c3 90 0c 00 00 00 00
-    0010: 00 00 00
-  frame 19: QueryEmpty(Continue)
+  frame 18: QueryEmpty(Continue)
     0000: 22
-  frame 20: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c4 40 02 00 00 00 00
-    0010: 00 00 00
+  frame 19: Supply(Continue)
+    0000: 66 00 00 00 0f 00 00 00
+    0008: 0b 86 83 00 0b 00 00 00
+    0010: 00 00 00 00
+  frame 20: QueryEmpty(Continue)
+    0000: 22
   frame 21: QueryEmpty(Continue)
     0000: 22
-  frame 22: Query(Continue)
-    0000: 44 00 54 74 ae 79 a4 0f
-    0008: 89 56 e3 41 93 34 db d3
-    0010: 7a bb bf
+  frame 22: QueryEmpty(Continue)
+    0000: 22
   frame 23: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c1 04 0e 00 00 00 00
+    0008: 0a 8a 10 03 00 00 00 00
     0010: 00 00 00
-  frame 24: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c2 50 07 00 00 00 00
-    0010: 00 00 00
-  frame 25: Supply(Continue)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a c1 14 0f 00 00 00 00
-    0010: 00 00 00
-  frame 26: QueryEmpty(Continue)
+  frame 24: QueryEmpty(Continue)
     0000: 22
+  frame 25: Supply(Continue)
+    0000: 66 00 00 00 1d 00 00 00
+    0008: 0b 86 02 c0 0a 00 00 00
+    0010: 00 00 00 00 00 00 00 0a
+    0018: 98 80 01 00 00 00 00 00
+    0020: 00 00
+  frame 26: Supply(Continue)
+    0000: 66 00 00 00 0f 00 00 00
+    0008: 0b 82 20 40 0f 00 00 00
+    0010: 00 00 00 00
   frame 27: QueryEmpty(Continue)
     0000: 22
   frame 28: Supply(End)
-    0000: 77 00 00 00 0e 00 00 00
-    0008: 0a c7 40 05 00 00 00 00
-    0010: 00 00 00
+    0000: 77 00 00 00 1d 00 00 00
+    0008: 0b 85 82 80 09 00 00 00
+    0010: 00 00 00 00 00 00 00 0a
+    0018: 8c 14 04 00 00 00 00 00
+    0020: 00 00
   frame 29: End(Stream)
     0000: 99
 Responder stream 1 (height 29), epoch 0
   frame 0: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a c3 10 0a 00 00 00 00
-    0010: 00 00 00
-  frame 1: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a c2 10 06 00 00 00 00
-    0010: 00 00 00
-  frame 2: End(Stream)
+    0000: 78 00 00 00 0f 00 00 00
+    0008: 0b 87 03 40 0c 00 00 00
+    0010: 00 00 00 00
+  frame 1: End(Stream)
     0000: 9a
 trailing frame: 1 bytes
   0000: 2e
@@ -168,113 +160,121 @@ version frame: 30 bytes
   0000: 00 00 00 1a 10 00 00 00
   0008: 00 00 00 00 02 00 00 00
   0010: 00 00 00 00 00 02 11 00
-  0018: 00 00 00 00 d0 44
-listing frame: 263 bytes
-  0000: 00 00 01 03 0f 00 00 00
-  0008: 08 f0 a5 4f b8 8a ce 75
-  0010: 58 da f4 27 cc a3 ed 23
-  0018: 6f 19 b4 5f 9b 56 b3 51
-  0020: ae 7a e6 df 7a 46 69 9f
-  0028: b0 0f 3e 39 10 f6 01 4c
-  0030: 11 d2 ae c9 15 e8 26 30
-  0038: ea 16 27 51 3b ce 88 61
-  0040: aa 3b 3f 73 a9 a9 d7 78
-  0048: 9a aa 9a 5f 58 7d 0e 91
-  0050: 85 0f d5 ef 2e 85 cc 47
-  0058: 9e 6d 76 57 35 61 31 c6
-  0060: 17 f2 ad 17 8f a5 96 bc
-  0068: 7d 00 1a 34 94 f0 6b 73
-  0070: b1 e4 c3 d6 9e 1c 43 d5
-  0078: 3a 71 64 93 39 a8 67 7e
-  0080: 8b e2 d2 9c 82 f6 82 d1
-  0088: ae 93 1e 7c 60 43 36 ba
-  0090: a0 6c 85 2e ea 8a 33 cb
-  0098: ac 2e 4e 07 46 02 ea 79
-  00a0: bb c0 34 29 36 ec 0f 1c
-  00a8: de 9b ad 5f 8b cc d6 bc
-  00b0: fc 12 dd 7c a5 c1 df 9a
-  00b8: 98 19 59 44 08 cb 46 1a
-  00c0: 5d 06 b2 e9 af 5d 7c fd
-  00c8: de a2 e1 ef 23 a1 41 83
-  00d0: 39 99 7b 8a ed c9 91 2b
-  00d8: 38 5b b6 f9 49 ba ad f1
-  00e0: 60 9d 42 fc 75 f6 75 86
-  00e8: a6 16 bb 93 45 c6 0d 55
-  00f0: b5 f9 31 6d a8 0f f9 7e
-  00f8: cf 63 32 d1 34 ce d2 07
-  0100: ed ef c7 45 8d 90 49
+  0018: 00 00 00 00 a0 42
+listing frame: 280 bytes
+  0000: 00 00 01 14 10 00 00 00
+  0008: 00 e0 67 8f 5d 04 ac 87
+  0010: 28 38 e3 3b 01 ed 45 62
+  0018: af 08 e4 48 78 32 12 9b
+  0020: 62 43 25 dd 3e 9d 52 e2
+  0028: 86 63 0c de 34 ce 04 68
+  0030: 1e 0e 74 79 c3 3b 98 a3
+  0038: 0c a9 91 16 87 34 87 b5
+  0040: ca cb 61 97 20 70 f5 d4
+  0048: 5f 00 1a 79 23 fc a4 25
+  0050: 27 75 c8 19 54 bd 6d cb
+  0058: e1 74 89 b5 9e 46 f2 59
+  0060: d4 6a 21 24 31 dc b6 22
+  0068: eb 91 6e 76 20 bc 4d 35
+  0070: 05 ed 4d b7 da 92 17 33
+  0078: 0e 25 1a 5b c2 93 b2 94
+  0080: 19 4d c1 63 dd 83 ce 72
+  0088: aa 61 13 e8 c2 dc 89 46
+  0090: 9e 65 98 c4 18 45 3a 06
+  0098: bc 2c 39 18 23 5a b3 0b
+  00a0: b7 af 8e c2 b2 0f 22 e2
+  00a8: c9 1f 04 b1 d1 ad 12 d5
+  00b0: f8 ab b1 d6 7b ec 9a f6
+  00b8: f1 f4 eb dd 08 66 c3 6c
+  00c0: 9f 4f 59 c9 6f 8b c2 c9
+  00c8: b6 48 f4 1c d5 01 4a cc
+  00d0: 9b f6 87 2c d0 d8 fc 4c
+  00d8: 26 1c c1 52 44 fb a7 14
+  00e0: 8f f2 e1 bc bc d2 55 c3
+  00e8: 93 bb cc 25 4f 43 fe 19
+  00f0: 00 8a dd 31 a4 77 d8 50
+  00f8: 3c 23 71 89 9e cc 1e 93
+  0100: e6 81 82 b2 9c 89 41 e8
+  0108: ea ab 0c 74 25 ac c2 43
+  0110: 0b 6e 6a 5f 0a 64 aa 8b
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a d0 d0 1b 00 00 00 00
+    0008: 0a a0 d8 1c 00 00 00 00
     0010: 00 00 00
   frame 1: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a d0 a0 18 00 00 00 00
+    0008: 0a a0 98 18 00 00 00 00
     0010: 00 00 00
   frame 2: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a d1 00 12 00 00 00 00
+    0008: 0a a0 42 1f 00 00 00 00
     0010: 00 00 00
   frame 3: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a d1 80 14 00 00 00 00
+    0008: 0a a1 60 14 00 00 00 00
     0010: 00 00 00
   frame 4: Supply(Continue)
-    0000: 66 00 00 00 1c 00 00 00
-    0008: 0a d0 80 16 00 00 00 00
-    0010: 00 00 00 00 00 00 0a d0
-    0018: c0 1a 00 00 00 00 00 00
-    0020: 00
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a a1 20 13 00 00 00 00
+    0010: 00 00 00
   frame 5: Supply(Continue)
-    0000: 66 00 00 00 0d 00 00 00
-    0008: 09 d3 11 00 00 00 00 00
-    0010: 00 00
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a a0 c8 1b 00 00 00 00
+    0010: 00 00 00
   frame 6: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a d0 44 1f 00 00 00 00
+    0008: 0a a1 a0 15 00 00 00 00
     0010: 00 00 00
   frame 7: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a d0 b0 19 00 00 00 00
+    0008: 0a a1 e0 16 00 00 00 00
     0010: 00 00 00
   frame 8: Supply(Continue)
-    0000: 66 00 00 00 0d 00 00 00
-    0008: 09 d2 10 00 00 00 00 00
-    0010: 00 00
-  frame 9: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a d0 40 1e 00 00 00 00
+    0008: 0a a0 f8 1e 00 00 00 00
     0010: 00 00 00
+  frame 9: Supply(Continue)
+    0000: 66 00 00 00 0d 00 00 00
+    0008: 09 a6 10 00 00 00 00 00
+    0010: 00 00
   frame 10: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a d0 f0 1d 00 00 00 00
+    0008: 0a a0 a8 19 00 00 00 00
     0010: 00 00 00
   frame 11: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
-    0008: 0a d0 e0 1c 00 00 00 00
+    0008: 0a a0 e8 1d 00 00 00 00
     0010: 00 00 00
-  frame 12: Supply(End)
+  frame 12: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a a2 80 11 00 00 00 00
+    0010: 00 00 00
+  frame 13: Supply(Continue)
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a a0 b8 1a 00 00 00 00
+    0010: 00 00 00
+  frame 14: Supply(End)
     0000: 77 00 00 00 0e 00 00 00
-    0008: 0a d1 40 13 00 00 00 00
+    0008: 0a a3 80 12 00 00 00 00
     0010: 00 00 00
-  frame 13: End(Stream)
+  frame 15: End(Stream)
     0000: 99
 Initiator stream 1 (height 30), epoch 0
   frame 0: End(Reply)
     0000: 89
-  frame 1: QueryEmpty(Continue)
-    0000: 23
-  frame 2: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d0 90 17 00 00 00 00
-    0010: 00 00 00
+  frame 1: End(Reply)
+    0000: 89
+  frame 2: End(Reply)
+    0000: 89
   frame 3: End(Reply)
     0000: 89
-  frame 4: End(Reply)
-    0000: 89
-  frame 5: End(Reply)
-    0000: 89
+  frame 4: QueryEmpty(Continue)
+    0000: 23
+  frame 5: Supply(End)
+    0000: 78 00 00 00 0e 00 00 00
+    0008: 0a a0 88 17 00 00 00 00
+    0010: 00 00 00
   frame 6: End(Reply)
     0000: 89
   frame 7: End(Reply)
@@ -289,12 +289,10 @@ Initiator stream 1 (height 30), epoch 0
     0000: 89
   frame 12: End(Reply)
     0000: 89
-  frame 13: QueryEmpty(Continue)
-    0000: 23
-  frame 14: Supply(End)
-    0000: 78 00 00 00 0e 00 00 00
-    0008: 0a d1 c0 15 00 00 00 00
-    0010: 00 00 00
+  frame 13: End(Reply)
+    0000: 89
+  frame 14: End(Reply)
+    0000: 89
   frame 15: End(Reply)
     0000: 89
   frame 16: End(Reply)

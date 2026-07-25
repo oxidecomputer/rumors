@@ -413,7 +413,7 @@ proptest! {
     }
 
     /// A batch with no event arithmetic (created-and-dropped, or fork-only)
-    /// leaves the version unchanged — the working form is never materialized.
+    /// leaves the version unchanged in place.
     #[test]
     fn no_arith_batch_preserves_version(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -449,10 +449,11 @@ proptest! {
             e.version().clone()
         };
 
-        let mut b = c.batch();
-        b.tick();
-        prop_assert!(b.version() == expected);
-        drop(b);
+        {
+            let mut b = c.batch();
+            b.tick();
+            prop_assert!(b.version() == expected);
+        }
         prop_assert!(c.version() == expected);
     }
 }

@@ -1,4 +1,4 @@
-//! The interval-tree-clock event tree, [`Version`], and its amortizing
+//! The interval-tree-clock event tree, [`Version`], and its chaining
 //! mutation handle, [`Batch`].
 
 use core::cmp::Ordering;
@@ -6,28 +6,23 @@ use core::fmt::Display;
 use core::iter::Sum;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
 
-use bitvec::prelude::*;
-
-use crate::codec::{self, BitsSlice};
+use crate::codec;
 use crate::error::{Decode, Parse};
 use crate::Party;
 
-use self::compare::EvReader;
+use self::skyline::Encoded;
 
 mod batch;
-// `pub(crate)` so sibling modules' rustdoc can link into these two: a
-// private `mod` is unnameable from outside `version`, so intra-doc links
-// like `crate::version::compare` would not resolve.
-pub(crate) mod compare;
-pub(crate) mod event;
 mod rank;
 mod ranked;
-// The skyline transcoding codec compiles only where it is reachable: its
-// own tests, and the metering surface (`before::meter` re-exports it so
-// the resource-envelope suite can pin its validator).
+// The skyline coding and its operation kernels: the stored representation
+// and every algorithm over it. `pub` where the meter feature re-exports it
+// so the resource-envelope suite can pin its internals; crate-private
+// otherwise — no public item leaks the representation.
 #[cfg(any(test, feature = "meter"))]
 pub mod skyline;
-pub(crate) mod working;
+#[cfg(not(any(test, feature = "meter")))]
+pub(crate) mod skyline;
 
 pub use batch::Batch;
 pub use rank::Rank;
@@ -48,7 +43,7 @@ mod tests;
 /// | [`a.concurrent(b)`](Version::concurrent)  | incomparable: neither dominates the other                      |
 /// | `a \| b`, `a \|= b`                       | the *join* (least upper bound): the combined history of both   |
 /// | `a & b`, `a &= b`                         | the *meet* (greatest lower bound): the history common to both  |
-/// | [`a.tick(&p)`](Version::tick)             | record one new event for [`Party`] `p`                         |
+/// | [`a.tick(&p)`](Version::tick)             | record one new event for [`Party`] `p`                        |
 ///
 /// Comparison is **partial** ([`PartialOrd`], not [`Ord`]): two distinct
 /// versions can be [`concurrent`](Version::concurrent), and then `a < b`,
@@ -64,13 +59,13 @@ mod tests;
 /// let merged = va | vb;
 /// assert!(merged > va && merged > vb);  // the join dominates both inputs
 /// ```
-// `PartialEq` is the macro's `causal_eq` (see `causal_cmp_impls!`): a
-// representation compare for same-form operands, which canonical normal form
-// makes exactly causal equality — so the derived `Hash` over the packed bits
-// stays consistent with it. clippy can't see the invariant.
+// `PartialEq` is the macro's byte compare (see `causal_cmp_impls!`): the
+// stored skyline stream is a canonical unique representation, so byte
+// equality is exactly causal equality — and the derived `Hash` over the
+// same bytes stays consistent with it. clippy can't see the invariant.
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Eq, Hash)]
-pub struct Version(BitVec<u8, Msb0>);
+pub struct Version(Encoded);
 
 impl Version {
     /// The empty [`Version`], representing no [`tick`](Version::tick)s.
@@ -80,8 +75,8 @@ impl Version {
     /// ```
     pub fn new() -> Self {
         let mut bits = codec::Bits::new();
-        bits.push(false); // leaf flag
-        codec::encode_int(&mut bits, &codec::Base::ZERO);
+        bits.push(false); // topology: the single leaf
+        codec::encode_int(&mut bits, &codec::Base::ZERO); // its absolute height, zero
         Version::from_bits(bits)
     }
 
@@ -95,12 +90,12 @@ impl Version {
     /// assert!(!v.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
-        // The canonical empty version is exactly the 2-bit packed stream `01`:
-        // a `0` leaf flag, then gamma(0), the single bit `1` (see
-        // `Version::new` and `codec::encode_int`). Canonical normal form makes
-        // representation equality exactly equality, so this O(1) bit test is
-        // the whole question — no allocation, no walk.
-        let empty = self.0.len() == 2 && !self.0[0] && self.0[1];
+        // The canonical empty version is exactly the 2-bit stream `01`: a
+        // `0` leaf flag, then gamma(0), the single bit `1` (see
+        // `Version::new` and `codec::encode_int`). The stored skyline
+        // stream is a unique representation, so this O(1) bit test is the
+        // whole question — no allocation, no walk.
+        let empty = skyline::is_empty_encoded(&self.0);
         debug_assert_eq!(
             empty,
             *self == Version::new(),
@@ -162,7 +157,7 @@ impl Version {
     /// assert_eq!(peaks.min_ticks(), 2);
     /// ```
     pub fn min_ticks(&self) -> u64 {
-        self.view().min_ticks()
+        skyline::query::min_ticks(&self.0)
     }
 
     /// This [`Version`]'s exact causal [`Rank`], strictly monotone: `v < w`
@@ -189,7 +184,7 @@ impl Version {
     /// assert!(b.version().rank() < joined.rank());
     /// ```
     pub fn rank(&self) -> Rank {
-        self.view().rank()
+        skyline::query::rank(&self.0)
     }
 
     /// The causal distance between two versions: the [`Rank`] of their
@@ -219,10 +214,7 @@ impl Version {
     /// assert_eq!(va.distance(&vb).to_string(), "1");
     /// ```
     pub fn distance(&self, other: &Version) -> Rank {
-        let join = (self | other).rank();
-        let meet = (self & other).rank();
-        join.checked_sub(&meet)
-            .expect("the join dominates the meet, so its rank is at least the meet's")
+        skyline::query::distance(&self.0, &other.0)
     }
 
     /// How far `self` lags behind `other`: the [`Rank`] of the history `other`
@@ -248,9 +240,7 @@ impl Version {
     /// assert_eq!(va.lag(&vb) + vb.lag(&va), va.distance(&vb)); // halves sum
     /// ```
     pub fn lag(&self, other: &Version) -> Rank {
-        let join = (self | other).rank();
-        join.checked_sub(&self.rank())
-            .expect("the join dominates self, so its rank is at least self's")
+        skyline::query::lag(&self.0, &other.0)
     }
 
     /// The join (least upper bound) of every version in `iter`, or the empty
@@ -325,7 +315,8 @@ impl Version {
 
     /// Begin a batch of operations on this [`Version`].
     ///
-    /// Sequential operations within a [`Batch`] are more efficient.
+    /// [`Batch`] chains sequential operations on one version behind a single
+    /// mutable borrow.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -338,9 +329,9 @@ impl Version {
         Batch::new(self)
     }
 
-    /// A read-only view of this version's event tree.
-    fn view(&self) -> EvReader<'_> {
-        EvReader::packed(&self.0)
+    /// A read-only view of this version's stored skyline stream.
+    fn view(&self) -> &Encoded {
+        &self.0
     }
 
     /// Encode this [`Version`] to bytes.
@@ -355,10 +346,7 @@ impl Version {
     /// assert_eq!(Version::decode(&v.encode()[..]).unwrap(), v);
     /// ```
     pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        self.encode_to(&mut bytes)
-            .expect("writing to a Vec is infallible");
-        bytes
+        self.0.bytes.clone()
     }
 
     /// Encode a [`Version`] to an arbitrary writer.
@@ -370,7 +358,7 @@ impl Version {
     /// assert_eq!(buf, Version::new().encode());
     /// ```
     pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        codec::pack_to_writer(&self.0, writer)
+        writer.write_all(&self.0.bytes)
     }
 
     /// Decode a [`Version`] from a reader of canonical bytes.
@@ -385,7 +373,7 @@ impl Version {
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
         let end = {
             let bits = codec::bytes_as_bits(&buf);
-            let end = codec::parse_ev(bits, 0)?;
+            let end = skyline::validate_prefix(bits)?;
             codec::require_zero_padding(bits, end)?;
             end
         };
@@ -405,7 +393,7 @@ impl Version {
     /// assert_eq!(Version::new().encoded_bits(), 2);
     /// ```
     pub fn encoded_bits(&self) -> usize {
-        self.as_bits().len()
+        self.0.bits
     }
 
     /// The canonical packed bytes of this [`Version`]: what
@@ -427,32 +415,34 @@ impl Version {
     /// assert_eq!(v.as_bytes(), v.encode().as_slice());
     /// ```
     pub fn as_bytes(&self) -> &[u8] {
-        let raw = self.0.as_raw_slice();
-        debug_assert_eq!(
-            raw,
-            self.encode().as_slice(),
-            "non-canonical Version storage: as_bytes must equal encode (dead bits not zeroed)",
-        );
-        raw
+        &self.0.bytes
     }
 
-    /// The packed preorder bit stream (no trailing padding). Internal.
-    pub(crate) fn as_bits(&self) -> &BitsSlice {
+    /// The stored skyline stream. Internal.
+    pub(crate) fn as_encoded(&self) -> &Encoded {
         &self.0
     }
 
-    /// Wrap a normal-form packed bit stream as a `Version`, canonicalizing its
-    /// storage. The single gate every built/parsed `Version` passes through.
+    /// Wrap a normal-form skyline bit stream as a `Version`, canonicalizing
+    /// its storage. The single gate every built/parsed `Version` passes
+    /// through.
     ///
-    /// Callers guarantee normal *event-tree* form; this zeroes the dead bits
-    /// past the live length so the stored bytes are canonical. A `Version`'s
-    /// mutable form is the separate `WorkingVersion`, so its packed bits cannot
-    /// today carry the stale tail a `Party` can — this is defense-in-depth that
-    /// keeps the canonical-storage invariant uniform across both types (see
+    /// Callers guarantee canonical skyline form; this zeroes the dead bits
+    /// past the live length so the stored bytes are canonical (see
     /// [`codec::zero_dead_bits`]).
     pub(crate) fn from_bits(mut bits: codec::Bits) -> Self {
+        let live = bits.len();
         codec::zero_dead_bits(&mut bits);
-        Version(bits)
+        Version(Encoded {
+            bytes: bits.into_vec(),
+            bits: live,
+        })
+    }
+
+    /// Wrap an already-canonical skyline stream. Internal: the kernels'
+    /// outputs (built through the collapsing builder) arrive in this form.
+    pub(crate) fn from_encoded(enc: Encoded) -> Self {
+        Version(enc)
     }
 }
 
@@ -512,7 +502,7 @@ impl<'a> FromIterator<&'a Version> for Version {
 /// ```
 impl core::fmt::Display for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        codec::write_ev(&self.0, f, ", ")
+        f.write_str(&skyline::text::render(&self.0))
     }
 }
 
@@ -537,7 +527,7 @@ impl core::fmt::Debug for Version {
 impl core::str::FromStr for Version {
     type Err = Parse;
     fn from_str(s: &str) -> Result<Self, Parse> {
-        Ok(Version::from_bits(codec::parse_ev_str(s)?))
+        Ok(Version(skyline::text::parse(s)?))
     }
 }
 
@@ -550,7 +540,7 @@ impl core::str::FromStr for Version {
 impl TryFrom<u64> for Version {
     type Error = Parse;
     fn try_from(n: u64) -> Result<Self, Parse> {
-        Ok(Version::from_bits(codec::ev_leaf(n)))
+        Ok(Version(skyline::literal::leaf(n)))
     }
 }
 
@@ -571,7 +561,7 @@ where
     fn try_from((n, l, r): (u64, T, S)) -> Result<Self, Parse> {
         let l = Version::try_from(l)?;
         let r = Version::try_from(r)?;
-        Ok(Version::from_bits(codec::ev_node(n, &l.0, &r.0)?))
+        Ok(Version(skyline::literal::node(n, &l.0, &r.0)?))
     }
 }
 
@@ -584,12 +574,11 @@ where
 // A value-operator cell turns its left operand into a fresh owned `Version`
 // (`own` moves an owned `Version`, `clone` copies a borrowed one, `snapshot`
 // reads a `Batch`), then folds the right operand's view into it; a `Batch`
-// read this way is not mutated and still commits its pending state on drop.
-// An assign cell folds the right operand's view into the left operand in
-// place, through a transient `batch()` for a `Version` receiver (`batch`) or
-// directly for a `Batch` (`direct`). The two families differ only in the
-// view-folding method each cell routes through: `Batch::join_view` for join,
-// `Batch::meet_view` for meet.
+// read this way is not mutated. An assign cell folds the right operand's view
+// into the left operand in place, through a transient `batch()` for a
+// `Version` receiver (`batch`) or directly for a `Batch` (`direct`). The two
+// families differ only in the view-folding method each cell routes through:
+// `Batch::join_view` for join, `Batch::meet_view` for meet.
 
 /// Generates one binary-operator family's full matrix across {Version, Batch}².
 ///
@@ -753,7 +742,7 @@ binop_matrix! {
 impl Div<&Party> for &Version {
     type Output = Version;
     fn div(self, party: &Party) -> Version {
-        Version::from_bits(self.view().project(party.as_bits()).repack())
+        Version(skyline::query::project(&self.0, party))
     }
 }
 
@@ -766,50 +755,49 @@ impl Div<&Party> for Version {
 
 impl DivAssign<&Party> for Version {
     fn div_assign(&mut self, party: &Party) {
-        *self = Version::from_bits(self.view().project(party.as_bits()).repack());
+        self.0 = skyline::query::project(&self.0, party);
     }
 }
 
 // Causal comparison across {Version, Batch}², reading current state in place.
 // All four cells — `Version`/`Version` included — come from this macro, so the
-// comparison matrix reads as a matrix. Each ordering cell delegates to
-// `causal_cmp`; each equality cell delegates to `causal_eq`, which decides
-// same-form operands by a representation compare (canonical normal form makes
-// that exactly causal equality, in both directions) and walks only mixed
-// forms. The `Version` derive list deliberately omits `PartialEq`/`PartialOrd`
-// so the macro is the single source of both (see the note on the derive
-// above).
+// comparison matrix reads as a matrix. Each ordering cell delegates to the
+// skyline comparison sweep; each equality cell is a byte compare of the two
+// stored streams — the skyline coding is a canonical unique representation,
+// so byte equality is exactly causal equality. The `Version` derive list
+// deliberately omits `PartialEq`/`PartialOrd` so the macro is the single
+// source of both (see the note on the derive above).
 macro_rules! causal_cmp_impls {
     ($($lhs:ty, $rhs:ty);* $(;)?) => {
         $(
             impl PartialEq<$rhs> for $lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    self.view().causal_eq(o.view())
+                    self.view() == o.view()
                 }
             }
             impl PartialOrd<$rhs> for $lhs {
                 fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    self.view().causal_cmp(o.view())
+                    skyline::sweep::causal_cmp(self.view(), o.view())
                 }
             }
             impl PartialEq<$rhs> for &$lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    self.view().causal_eq(o.view())
+                    self.view() == o.view()
                 }
             }
             impl PartialOrd<$rhs> for &$lhs {
                 fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    self.view().causal_cmp(o.view())
+                    skyline::sweep::causal_cmp(self.view(), o.view())
                 }
             }
             impl PartialEq<&$rhs> for $lhs {
                 fn eq(&self, o: &&$rhs) -> bool {
-                    self.view().causal_eq(o.view())
+                    self.view() == o.view()
                 }
             }
             impl PartialOrd<&$rhs> for $lhs {
                 fn partial_cmp(&self, o: &&$rhs) -> Option<Ordering> {
-                    self.view().causal_cmp(o.view())
+                    skyline::sweep::causal_cmp(self.view(), o.view())
                 }
             }
         )*

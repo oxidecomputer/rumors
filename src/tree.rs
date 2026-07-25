@@ -390,7 +390,7 @@ impl<T> Tree<T> {
         let mut new_version = self.latest().clone();
 
         // Hold one version `Batch` open across the whole run: each `tick`
-        // advances the materialized working form in place, and `snapshot` reads
+        // advances the version in place, and `snapshot` reads
         // the per-action committed version that keys the leaf. This pays the
         // unpack cost once for the batch rather than once per action — a bare
         // `Version::tick` opens and drops its own batch (an unpack and a repack)

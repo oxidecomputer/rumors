@@ -496,7 +496,7 @@ impl<T> Node<T> {
                 // accumulated from the empty version (the lattice bottom, the
                 // join identity). Path compression doesn't change which leaves
                 // the subtree contains, so the prefix plays no part. Drive the
-                // joins through a single `Batch` so the working form is
+                // joins through a single `Batch` so the version is
                 // materialized once and repacked once, rather than once per
                 // child, and join by reference so no child's version is cloned.
                 let mut version = Version::new();
@@ -530,7 +530,7 @@ impl<T> Node<T> {
                 // no top version), so seed with the first child's floor and
                 // meet the rest in. A branch always has >= 2 children by the
                 // path-compression invariant, so `next()` cannot be empty.
-                // Drive the meets through a single `Batch` so the working form
+                // Drive the meets through a single `Batch` so the version
                 // is materialized once and repacked once, and meet by reference
                 // so no child's version is cloned.
                 let mut children = children.values();

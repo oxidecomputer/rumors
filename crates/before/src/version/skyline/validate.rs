@@ -38,6 +38,18 @@ pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
     Ok(())
 }
 
+/// Strictly validate one skyline tree at the head of a bit stream,
+/// returning the position just past it.
+///
+/// The wire decoder's entry: a version's skyline stream is
+/// bit-self-delimiting (one complete tree), so the returned end position
+/// is where any zero padding must begin.
+pub(crate) fn validate_prefix(bits: &BitsSlice) -> Result<usize, Decode> {
+    let mut cursor = SliceCursor::new(bits, 0);
+    validate_from(&mut cursor)?;
+    Ok(cursor.position())
+}
+
 /// Validate one skyline tree from a sequential bit cursor.
 ///
 /// Returns with the cursor just past the tree. Errors: running out of
@@ -45,7 +57,7 @@ pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
 /// sibling pair (an internal node's two leaf children with a zero right
 /// delta) or a delta driving the running leaf height negative is
 /// [`Decode::NotCanonical`].
-fn validate_from<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
+pub(crate) fn validate_from<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
 where
     Decode: From<C::Error>,
 {

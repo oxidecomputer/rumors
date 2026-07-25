@@ -516,13 +516,11 @@ impl core::str::FromStr for Clock {
     type Err = Parse;
     fn from_str(s: &str) -> Result<Self, Parse> {
         let (id, ev) = codec::parse_clock_str(s)?;
+        let version: Version = ev.parse()?;
         if codec::id_is_empty(&id) {
             return Err(Parse::Anonymous);
         }
-        Ok(Clock::from_parts(
-            Party::from_bits(id),
-            Version::from_bits(ev),
-        ))
+        Ok(Clock::from_parts(Party::from_bits(id), version))
     }
 }
 

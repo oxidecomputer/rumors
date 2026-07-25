@@ -1,17 +1,15 @@
 //! Version tests.
 //!
-//! The working-form round-trip, the causal order and its comparison matrix,
-//! the join/meet operator matrices and lattice laws, complexity
-//! (linear-scaling) checks, grow optimality against the brute-force reference,
-//! `min_ticks`, and projection (`/`).
+//! The causal order and its comparison matrix, the join/meet operator
+//! matrices and lattice laws, complexity (linear-scaling) checks, grow
+//! optimality against the brute-force reference, `min_ticks`, and
+//! projection (`/`).
 
 use std::cmp::Ordering;
 
 use proptest::prelude::*;
 
-use super::compare::EvReader;
-use super::working::WorkingVersion;
-use super::{Batch, Ranked, Version};
+use super::{skyline, Batch, Ranked, Version};
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
 use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
 use crate::testing::generators::{
@@ -24,41 +22,6 @@ use crate::{Clock, Party};
 /// `a <= b` under the impl causal order.
 fn le(a: &Version, b: &Version) -> bool {
     a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
-}
-
-// ───────────────────────────── working form ─────────────────────────────
-
-/// `unpack` lays out a known event tree as preorder topology + base arrays.
-#[test]
-fn unpack_layout() {
-    use crate::oracle::Version as V;
-    // (0, 1, 0): internal root, two leaves.
-    let v = from_oracle_version(&V::node(0u64, V::leaf(1u64), V::leaf(0u64)));
-    let w = WorkingVersion::unpack(v.as_bits());
-    assert_eq!(w.len(), 3);
-    assert_eq!(
-        w.topo.iter().by_vals().collect::<Vec<_>>(),
-        [true, false, false]
-    );
-    assert_eq!(w.base, [0u32, 1, 0].map(crate::codec::Base::from));
-}
-
-proptest! {
-    /// `repack(unpack(v)) == v` and the repacked bytes are canonical (equal to
-    /// `v`'s own encoding).
-    #[test]
-    fn working_roundtrip(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let v = from_oracle_version(&vs[i % n]);
-
-        let work = WorkingVersion::unpack(v.as_bits());
-        let repacked = Version::from_bits(work.repack());
-
-        prop_assert!(repacked == v);
-        prop_assert_eq!(repacked.encode(), v.encode());
-    }
 }
 
 // ───────────────────────────── causal order ─────────────────────────────
@@ -155,38 +118,6 @@ proptest! {
         prop_assert_eq!(batch_a.partial_cmp(&b), base); // Batch vs Version
         prop_assert_eq!(a.partial_cmp(&batch_b), base); // Version vs Batch
         prop_assert_eq!(batch_a.partial_cmp(&batch_b), base); // Batch vs Batch
-        prop_assert_eq!(a == b, batch_a == batch_b); // PartialEq matrix agrees
-    }
-}
-
-proptest! {
-    /// Parity holds once the working form is *materialized*, exercising the
-    /// equality short-circuit's working-form arms.
-    ///
-    /// `Batch::materialize` forces `work = Some(..)` without changing the
-    /// value, so each batch now compares as a working form. The matrix —
-    /// materialized vs materialized (Working/Working), materialized vs packed
-    /// (the mixed arm that declines and falls through) — still equals the
-    /// bare version comparison.
-    #[test]
-    fn materialized_batch_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let a = from_oracle_version(&vs[i % n]);
-        let b = from_oracle_version(&vs[j % n]);
-        let base = a.partial_cmp(&b);
-
-        let mut ba = a.clone();
-        let mut bb = b.clone();
-        let mut batch_a = ba.batch();
-        let mut batch_b = bb.batch();
-        batch_a.materialize(); // working form, value unchanged
-        batch_b.materialize();
-
-        prop_assert_eq!(batch_a.partial_cmp(&b), base); // Working vs Packed (mixed)
-        prop_assert_eq!(a.partial_cmp(&batch_b), base); // Packed vs Working (mixed)
-        prop_assert_eq!(batch_a.partial_cmp(&batch_b), base); // Working vs Working
         prop_assert_eq!(a == b, batch_a == batch_b); // PartialEq matrix agrees
     }
 }
@@ -424,7 +355,7 @@ proptest! {
     /// `join`.
     ///
     /// Covers `Version |= Version`, the `From<&mut Version>` batch conversion,
-    /// and the `Batch |= &Version` operator (committed on drop) — none of which
+    /// and the `Batch |= &Version` operator — none of which
     /// the by-value `|` differential reaches.
     #[test]
     fn version_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
@@ -440,8 +371,7 @@ proptest! {
         assign |= b.clone();
         prop_assert!(assign == expected);
 
-        // `Batch |= &Version`, over a batch built via `From<&mut Version>`, committed on
-        // drop.
+        // `Batch |= &Version`, over a batch built via `From<&mut Version>`.
         let mut batched = a.clone();
         {
             let mut batch: Batch = (&mut batched).into();
@@ -458,8 +388,8 @@ proptest! {
     /// `merge_matches_oracle` already pins the bare Version×Version case. A
     /// fresh `Batch` reflects its `Version`, so each of the sixteen
     /// representation/reference cells must agree. Each `Batch` operand gets its
-    /// own clone in a tight scope: an owned-`Batch` operand is consumed by `|`
-    /// and commits (unchanged) on drop, so a fresh one is built per cell.
+    /// own clone in a tight scope: an owned-`Batch` operand is consumed by `|`,
+    /// so a fresh one is built per cell.
     #[test]
     fn join_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -504,8 +434,8 @@ proptest! {
     /// against {Version, Batch} right operands, every reference form, all
     /// landing on the oracle's `join`.
     ///
-    /// A `Batch` left operand commits on drop, so it is scoped and its
-    /// underlying `Version` checked afterward.
+    /// A `Batch` left operand applies in place, scoped so its underlying
+    /// `Version` is checked afterward.
     #[test]
     fn join_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -523,56 +453,15 @@ proptest! {
         { let mut x = a.clone(); let mut bb = b.clone(); x |= bb.batch(); prop_assert!(x == expected); }
         { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch(); x |= &r; prop_assert!(x == expected); }
 
-        // Batch |= Version / &Version (committed on drop).
+        // Batch |= Version / &Version (applied in place).
         { let mut x = a.clone(); { let mut bx = x.batch(); bx |= b.clone(); } prop_assert!(x == expected); }
         { let mut x = a.clone(); { let mut bx = x.batch(); bx |= &b; } prop_assert!(x == expected); }
 
-        // Batch |= Batch / &Batch (committed on drop).
+        // Batch |= Batch / &Batch (applied in place).
         { let mut x = a.clone(); let mut bb = b.clone();
           { let mut bx = x.batch(); bx |= bb.batch(); } prop_assert!(x == expected); }
         { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch();
           { let mut bx = x.batch(); bx |= &r; } prop_assert!(x == expected); }
-    }
-}
-
-proptest! {
-    /// The join matrix holds once the `Batch` operands are *materialized* to
-    /// working form.
-    ///
-    /// Exercises `snapshot`'s repack and `join_view` joining a Working-form
-    /// incoming view (the fresh-batch cells above all read packed views).
-    /// `Batch::materialize` forces `work = Some(..)` without changing the
-    /// value.
-    #[test]
-    fn materialized_join_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let expected = from_oracle_version(&(vs[i % n].clone() | vs[j % n].clone()));
-        let a = from_oracle_version(&vs[i % n]);
-        let b = from_oracle_version(&vs[j % n]);
-
-        // `&Batch | &Batch`, both materialized: Working snapshot joined with a
-        // Working incoming view.
-        {
-            let mut aa = a.clone();
-            let mut bb = b.clone();
-            let mut la = aa.batch();
-            la.materialize();
-            let mut rb = bb.batch();
-            rb.materialize();
-            prop_assert!(&la | &rb == expected);
-        }
-
-        // `Version |= &Batch` with the batch materialized.
-        {
-            let mut x = a.clone();
-            let mut bb = b.clone();
-            let mut rb = bb.batch();
-            rb.materialize();
-            x |= &rb;
-            prop_assert!(x == expected);
-        }
     }
 }
 
@@ -584,8 +473,8 @@ proptest! {
     /// `meet_matches_oracle` pins the bare Version×Version cell; a fresh
     /// `Batch` reflects its `Version`, so each of the sixteen
     /// representation/reference cells must agree. Each `Batch` operand gets its
-    /// own clone in a tight scope: an owned-`Batch` operand is consumed by `&`
-    /// and commits (unchanged) on drop, so a fresh one is built per cell.
+    /// own clone in a tight scope: an owned-`Batch` operand is consumed by `&`,
+    /// so a fresh one is built per cell.
     #[test]
     fn meet_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -631,7 +520,7 @@ proptest! {
     /// landing on the oracle's `meet`.
     ///
     /// Dual to [`join_assign_matrix_matches_oracle`]. A `Batch` left operand
-    /// commits on drop, so it is scoped and its underlying `Version` checked
+    /// applies in place, scoped so its underlying `Version` is checked
     /// afterward.
     #[test]
     fn meet_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
@@ -650,11 +539,11 @@ proptest! {
         { let mut x = a.clone(); let mut bb = b.clone(); x &= bb.batch(); prop_assert!(x == expected); }
         { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch(); x &= &r; prop_assert!(x == expected); }
 
-        // Batch &= Version / &Version (committed on drop).
+        // Batch &= Version / &Version (applied in place).
         { let mut x = a.clone(); { let mut bx = x.batch(); bx &= b.clone(); } prop_assert!(x == expected); }
         { let mut x = a.clone(); { let mut bx = x.batch(); bx &= &b; } prop_assert!(x == expected); }
 
-        // Batch &= Batch / &Batch (committed on drop).
+        // Batch &= Batch / &Batch (applied in place).
         { let mut x = a.clone(); let mut bb = b.clone();
           { let mut bx = x.batch(); bx &= bb.batch(); } prop_assert!(x == expected); }
         { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch();
@@ -663,71 +552,11 @@ proptest! {
 }
 
 proptest! {
-    /// The meet matrix holds once the `Batch` operands are *materialized* to
-    /// working form.
-    ///
-    /// Exercises `snapshot`'s repack and `meet_view` meeting a Working-form
-    /// incoming view (the fresh-batch cells above all read packed views). Dual
-    /// to [`materialized_join_parity`]; `Batch::materialize` forces
-    /// `work = Some(..)` without changing the value.
-    #[test]
-    fn materialized_meet_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let expected = from_oracle_version(&(vs[i % n].clone() & vs[j % n].clone()));
-        let a = from_oracle_version(&vs[i % n]);
-        let b = from_oracle_version(&vs[j % n]);
-
-        // `&Batch & &Batch`, both materialized: Working snapshot met with a
-        // Working incoming view.
-        {
-            let mut aa = a.clone();
-            let mut bb = b.clone();
-            let mut la = aa.batch();
-            la.materialize();
-            let mut rb = bb.batch();
-            rb.materialize();
-            prop_assert!(&la & &rb == expected);
-        }
-
-        // `Version &= &Batch` with the batch materialized.
-        {
-            let mut x = a.clone();
-            let mut bb = b.clone();
-            let mut rb = bb.batch();
-            rb.materialize();
-            x &= &rb;
-            prop_assert!(x == expected);
-        }
-    }
-}
-
-proptest! {
-    /// `EvReader::is_empty` — the `O(1)` shape test behind the lattice
-    /// short-circuits — agrees with semantic emptiness (equality with
-    /// `Version::new()`) on both storage forms for every generated version.
-    #[test]
-    fn ev_reader_is_empty_matches_semantics(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let v = from_oracle_version(&vs[i % n]);
-        let semantically_empty = v == Version::new();
-
-        prop_assert_eq!(EvReader::packed(v.as_bits()).is_empty(), semantically_empty);
-        let work = WorkingVersion::unpack(v.as_bits());
-        prop_assert_eq!(EvReader::working(&work).is_empty(), semantically_empty);
-    }
-}
-
-proptest! {
     /// Lattice identity for join, byte-identical: `0 | v == v == v | 0`.
     ///
     /// The encoded bytes equal `v`'s own — both through the `join_view`
-    /// short-circuit (every current/incoming form combination: packed and
-    /// materialized working, empty on either side) and through the general
-    /// combine + repack path called directly (`EvReader::join`), which the
+    /// short-circuit (empty on either side) and through the general merge
+    /// kernel called directly (`skyline::emit::join`), which the
     /// short-circuit must match bit for bit.
     #[test]
     fn join_identity_byte_parity(ops in world_strategy(), i in 0usize..64) {
@@ -737,61 +566,18 @@ proptest! {
         let v = from_oracle_version(&vs[i % n]);
         let empty = Version::new();
 
-        // The general path, bypassing the short-circuit: combine + repack of
+        // The general path, bypassing the short-circuit: the merge kernel on
         // the identity cases lands on `v`'s canonical bytes.
-        let general_left = Version::from_bits(
-            EvReader::packed(empty.as_bits()).join(EvReader::packed(v.as_bits())).repack(),
-        );
-        let general_right = Version::from_bits(
-            EvReader::packed(v.as_bits()).join(EvReader::packed(empty.as_bits())).repack(),
-        );
+        let general_left =
+            Version::from_encoded(skyline::emit::join(empty.as_encoded(), v.as_encoded()));
+        let general_right =
+            Version::from_encoded(skyline::emit::join(v.as_encoded(), empty.as_encoded()));
         prop_assert_eq!(general_left.encode(), v.encode());
         prop_assert_eq!(general_right.encode(), v.encode());
 
-        // Packed empty on either side of the operator.
+        // The empty version on either side of the operator (the short-circuit).
         prop_assert_eq!((&empty | &v).encode(), v.encode());
         prop_assert_eq!((&v | &empty).encode(), v.encode());
-
-        // Working-form empty current adopting a packed incoming.
-        {
-            let mut e = Version::new();
-            { let mut be = e.batch(); be.materialize(); be |= &v; }
-            prop_assert_eq!(e.encode(), v.encode());
-        }
-        // Working-form empty current adopting a working-form incoming.
-        {
-            let mut e = Version::new();
-            let mut vv = v.clone();
-            let mut bv = vv.batch();
-            bv.materialize();
-            { let mut be = e.batch(); be.materialize(); be |= &bv; }
-            prop_assert_eq!(e.encode(), v.encode());
-        }
-        // Packed empty current, working-form incoming.
-        {
-            let mut e = Version::new();
-            let mut vv = v.clone();
-            let mut bv = vv.batch();
-            bv.materialize();
-            e |= &bv;
-            prop_assert_eq!(e.encode(), v.encode());
-        }
-        // Working-form empty incoming: the current `v` is untouched.
-        {
-            let mut x = v.clone();
-            let mut e = Version::new();
-            let mut be = e.batch();
-            be.materialize();
-            x |= &be;
-            prop_assert_eq!(x.encode(), v.encode());
-        }
-        // Materialized current `v`, empty incoming: the pending working form
-        // survives the no-op and repacks canonically on drop.
-        {
-            let mut x = v.clone();
-            { let mut bx = x.batch(); bx.materialize(); bx |= &empty; }
-            prop_assert_eq!(x.encode(), v.encode());
-        }
     }
 }
 
@@ -799,10 +585,9 @@ proptest! {
     /// The empty version absorbs the meet, byte-identical: `0 & v == 0 == v & 0`.
     ///
     /// The encoded bytes equal `Version::new()`'s — both through the
-    /// `meet_view` short-circuit (every current/incoming form combination:
-    /// packed and materialized working, empty on either side) and through the
-    /// general combine + repack path called directly (`EvReader::meet`),
-    /// which the short-circuit must match bit for bit. Dual to
+    /// `meet_view` short-circuit (empty on either side) and through the
+    /// general merge kernel called directly (`skyline::emit::meet`), which
+    /// the short-circuit must match bit for bit. Dual to
     /// [`join_identity_byte_parity`].
     #[test]
     fn meet_absorbing_byte_parity(ops in world_strategy(), i in 0usize..64) {
@@ -812,43 +597,18 @@ proptest! {
         let v = from_oracle_version(&vs[i % n]);
         let empty = Version::new();
 
-        // The general path, bypassing the short-circuit: combine + repack of
+        // The general path, bypassing the short-circuit: the merge kernel on
         // the absorbing cases lands on the canonical empty bytes.
-        let general_left = Version::from_bits(
-            EvReader::packed(empty.as_bits()).meet(EvReader::packed(v.as_bits())).repack(),
-        );
-        let general_right = Version::from_bits(
-            EvReader::packed(v.as_bits()).meet(EvReader::packed(empty.as_bits())).repack(),
-        );
+        let general_left =
+            Version::from_encoded(skyline::emit::meet(empty.as_encoded(), v.as_encoded()));
+        let general_right =
+            Version::from_encoded(skyline::emit::meet(v.as_encoded(), empty.as_encoded()));
         prop_assert_eq!(general_left.encode(), empty.encode());
         prop_assert_eq!(general_right.encode(), empty.encode());
 
-        // Packed empty on either side of the operator.
+        // The empty version on either side of the operator (the short-circuit).
         prop_assert_eq!((&empty & &v).encode(), empty.encode());
         prop_assert_eq!((&v & &empty).encode(), empty.encode());
-
-        // Working-form empty current: stays empty against a packed incoming.
-        {
-            let mut e = Version::new();
-            { let mut be = e.batch(); be.materialize(); be &= &v; }
-            prop_assert_eq!(e.encode(), empty.encode());
-        }
-        // Working-form empty incoming empties a packed current.
-        {
-            let mut x = v.clone();
-            let mut e = Version::new();
-            let mut be = e.batch();
-            be.materialize();
-            x &= &be;
-            prop_assert_eq!(x.encode(), empty.encode());
-        }
-        // Materialized current `v`, packed empty incoming: the pending
-        // working form is discarded and the result is canonically empty.
-        {
-            let mut x = v.clone();
-            { let mut bx = x.batch(); bx.materialize(); bx &= &empty; }
-            prop_assert_eq!(x.encode(), empty.encode());
-        }
     }
 }
 
@@ -1023,11 +783,10 @@ proptest! {
 /// A normal-form tree whose root-to-leaf path sum exceeds `u64::MAX` compares
 /// correctly.
 ///
-/// With arbitrary-precision base values there is no overflow class, so the
-/// answer is `Greater` in every build profile (no debug panic, no release wrap
-/// that would invert the causal order). `decode`/`try_from` admit such trees —
-/// `parse_ev` validates only *relative* bases and never sums a path — so the
-/// comparison must thread the path sum at full precision.
+/// With arbitrary-precision leaf heights there is no overflow class, so the
+/// answer is `Greater` in every build profile (no debug panic, no release
+/// wrap that would invert the causal order). `decode`/`try_from` admit such
+/// trees, so the comparison must thread the heights at full precision.
 #[test]
 fn path_sum_beyond_u64_compares_greater() {
     let big = 1u64 << 63;
@@ -1039,9 +798,9 @@ fn path_sum_beyond_u64_compares_greater() {
     assert_eq!(a.partial_cmp(&b), Some(Ordering::Greater));
 }
 
-/// A stored event base above `u64::MAX` stays exact across mutation and merge.
-/// This pins the small-or-big `Base` representation at the spill boundary, not
-/// only path sums made from individually-small nodes.
+/// A stored leaf height above `u64::MAX` stays exact across mutation and
+/// merge. This pins the arbitrary-width payload path at the machine-word
+/// spill boundary, not only path sums made from individually-small nodes.
 #[test]
 fn stored_base_beyond_u64_ticks_and_merges() {
     let big: Version = "18446744073709551616".parse().unwrap();
@@ -1082,41 +841,24 @@ proptest! {
 }
 
 proptest! {
-    /// `==` agrees with the full causal-compare walk in every form pairing.
+    /// `==` agrees with the full causal-compare walk.
     ///
-    /// The equality cells decide same-form operands by a representation
-    /// compare (canonical normal form: representation equality ⟺ equality);
-    /// this pins that shortcut to the walk's verdict — packed/packed,
-    /// working/working (materialized batches), and the mixed pairings that
-    /// keep the walk — on arbitrary, typically *unequal* pairs (the
-    /// inequality direction the shortcut decides without walking) and on
-    /// equal same-form pairs (the equality direction).
+    /// The equality cells decide by a byte compare of the two stored streams
+    /// (canonical unique representation: byte equality ⟺ equality); this pins
+    /// that shortcut to the comparison sweep's verdict on arbitrary,
+    /// typically *unequal* pairs (the inequality direction the shortcut
+    /// decides without walking) and on equal pairs (the equality direction).
     #[test]
     fn eq_matches_causal_walk(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
-        // The walk's verdict, taken from the compare entry point directly.
-        let walk_eq = a.view().causal_cmp(b.view()) == Some(Ordering::Equal);
+        // The walk's verdict, taken from the comparison sweep directly.
+        let walk_eq =
+            skyline::sweep::causal_cmp(a.as_encoded(), b.as_encoded()) == Some(Ordering::Equal);
 
-        prop_assert_eq!(a == b, walk_eq); // packed vs packed
-
-        let mut ca = a.clone();
-        let mut cb = b.clone();
-        let mut ba = ca.batch();
-        let mut bb = cb.batch();
-        ba.materialize(); // working form, value unchanged
-        bb.materialize();
-        prop_assert_eq!(ba == bb, walk_eq); // working vs working
-        prop_assert_eq!(ba == b, walk_eq); // working vs packed (mixed: the walk)
-        prop_assert_eq!(a == bb, walk_eq); // packed vs working (mixed: the walk)
-
-        // The equality direction, same-form: a version equals its own clone
-        // in both storage forms.
-        prop_assert!(a == a.clone()); // packed vs packed, equal
-        let mut ca2 = a.clone();
-        let mut ba2 = ca2.batch();
-        ba2.materialize();
-        prop_assert!(ba == ba2); // working vs working, equal
+        prop_assert_eq!(a == b, walk_eq);
+        // The equality direction: a version equals its own clone.
+        prop_assert!(a == a.clone());
     }
 }
 
@@ -1321,8 +1063,8 @@ proptest! {
     /// `decode ∘ encode == identity` over arbitrary normal-form event trees,
     /// including large-base ones.
     ///
-    /// The widened Elias-gamma code round-trips every magnitude the working
-    /// form can hold, and the decoded value lowers to the same oracle tree.
+    /// The widened Elias-gamma code round-trips every magnitude a leaf can
+    /// hold, and the decoded value lowers to the same oracle tree.
     #[test]
     fn decode_encode_arbitrary(ov in arb_oracle_version()) {
         let v = from_oracle_version(&ov);
@@ -1346,8 +1088,9 @@ proptest! {
         prop_assert_eq!(v.as_bytes(), encoded.as_slice());
     }
 
-    /// The invariant survives the repack path too: ticking rebuilds the packed
-    /// stream through the working form, which must also leave a zero-padded tail.
+    /// The invariant survives mutation too: ticking re-emits the stored
+    /// stream through the fill splice, which must also leave a zero-padded
+    /// tail.
     #[test]
     fn as_bytes_matches_encode_after_ticks(n in 0u32..256) {
         let party = Party::seed();

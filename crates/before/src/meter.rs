@@ -32,16 +32,13 @@ pub use crate::version::skyline;
 
 use crate::codec::{self, Base, Bits};
 
-/// The packed-form grow lifted to stored versions: the skyline grow
-/// kernel's behavioral oracle, exported so the resource-envelope suite
-/// can assert byte identity around its measurements.
+/// The grow kernel lifted to stored versions, exported so the
+/// resource-envelope suite can measure event registration in isolation.
 ///
 /// The party must own at least one region, exactly as
 /// [`skyline::grow::grow`] requires.
 pub fn packed_grow(version: &crate::Version, party: &crate::Party) -> crate::Version {
-    let working = crate::version::working::WorkingVersion::unpack(version.as_bits());
-    let grown = crate::version::event::grow::grow(&working, party.as_bits());
-    crate::Version::from_bits(grown.repack())
+    crate::Version::from_encoded(skyline::grow::grow(version.as_encoded(), party))
 }
 
 /// A generator's output: canonical packed bytes plus the exact bit length.
@@ -67,6 +64,18 @@ impl Packed {
             bytes: bits.into_vec(),
             bits: len,
         }
+    }
+
+    /// The generator's live bits, borrowed.
+    pub fn as_bits(&self) -> &codec::BitsSlice {
+        &codec::bytes_as_bits(&self.bytes)[..self.bits]
+    }
+
+    /// Lift an event-shape generator's output into a stored [`Version`](crate::Version),
+    /// transcoding the construction language (a min-lifted packed preorder
+    /// stream) into the skyline coding the version stores.
+    pub fn version(&self) -> crate::Version {
+        crate::Version::from_bits(skyline::encode_bits(self.as_bits()))
     }
 }
 
@@ -107,7 +116,7 @@ fn ev_spine(bits: &mut Bits, d: usize) {
 /// The dense event spine `S(d)`: depth `d`, `2d + 1` nodes, `4d + 4` bits.
 ///
 /// The node-count and recursion-depth maximizer; drives every per-node and
-/// per-level cost (decode parse stacks, walk frames, working-form arrays) to
+/// per-level cost (walk frames and per-level stack state) to
 /// its worst case per input bit.
 ///
 /// # Panics

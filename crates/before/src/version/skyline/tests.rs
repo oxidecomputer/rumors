@@ -1,13 +1,14 @@
 //! Agreement pins and the strict-reject corpus for the skyline codec.
 //!
-//! Three independent artifacts triangulate here: the encoder (a walk over
-//! the packed form), the sizer [`tier2_size`] (an independent walk with its
-//! own zigzag map), and the decoder (validation plus min-lift
-//! reconstruction). Length agreement pins encoder against sizer; the
-//! round-trip pins encoder against decoder through the packed form's
-//! canonical uniqueness; the reject corpus and the mutation sweeps pin the
-//! validator's strictness — every non-canonical spelling is rejected, so
-//! acceptance implies the stream is *the* canonical encoding of its value.
+//! Three independent artifacts triangulate here: the stored streams the
+//! operations and the transcoder emit, the sizer [`tier2_size`] (an
+//! independent walk over the packed construction language with its own
+//! zigzag map), and the decoder (validation plus wrap). Length agreement
+//! pins every built stream against the sizer; the round-trip pins the
+//! stream against the decoder through canonical uniqueness; the reject
+//! corpus and the mutation sweeps pin the validator's strictness — every
+//! non-canonical spelling is rejected, so acceptance implies the stream is
+//! *the* canonical encoding of its value.
 
 use std::collections::BTreeSet;
 
@@ -20,17 +21,23 @@ use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, wide_tooth_comb,
     Packed,
 };
-use crate::testing::bridge::from_oracle_version;
+use crate::testing::bridge::{from_oracle_version, packed_bits_of, to_oracle_version};
 use crate::testing::compactness::{arb_comb_params, comb};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
 use crate::{oracle, Clock, Version};
 
-use super::{decode_bits, encode_bits, unzigzag, validate_bits, zigzag};
+use super::{decode_bits, unzigzag, validate_bits, zigzag};
 
-/// Decode a meter-generated packed shape as a [`Version`].
+/// Lift a meter-generated packed shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
-    Version::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
+    p.version()
+}
+
+/// The stored skyline stream of a version, as live bits.
+fn stream_of(v: &Version) -> Bits {
+    let enc = v.as_encoded();
+    codec::bytes_as_bits(&enc.bytes)[..enc.bits].to_bitvec()
 }
 
 // ─── hand-pinned streams ────────────────────────────────────────────────────
@@ -40,7 +47,7 @@ fn version_of(p: &Packed) -> Version {
 #[test]
 fn empty_version_is_the_two_bit_stream() {
     let v = Version::new();
-    let bits = encode_bits(&v);
+    let bits = stream_of(&v);
     assert_eq!(bits.len(), 2);
     assert!(!bits[0], "a leaf's topology flag is 0");
     assert!(bits[1], "gamma(0) is the single bit 1");
@@ -57,7 +64,7 @@ fn one_fork_matches_hand_derivation() {
         oracle::Version::leaf(0u64),
         oracle::Version::leaf(2u64),
     ));
-    let bits = encode_bits(&v);
+    let bits = stream_of(&v);
     // Preorder: internal root, leaf(gamma(1) = 010), leaf(gamma(4) = 00101).
     let expected: Vec<bool> = [
         true, // root: internal
@@ -113,7 +120,7 @@ fn accepts_zero_delta_across_a_subtree_boundary() {
     push_leaf(&mut bits, 0); // leaf 1 again: zigzag(0) = 0, non-sibling
     assert!(validate_bits(&bits).is_ok());
     assert_eq!(decode_bits(&bits).expect("canonical"), expected);
-    assert_eq!(encode_bits(&expected), bits);
+    assert_eq!(stream_of(&expected), bits);
 }
 
 /// A delta that drives the running leaf height negative is rejected as
@@ -157,7 +164,7 @@ fn rejects_every_truncation() {
         version_of(&alt_spine(4)),
     ];
     for v in &shapes {
-        let bits = encode_bits(v);
+        let bits = stream_of(v);
         for cut in 0..bits.len() {
             assert!(
                 matches!(validate_bits(&bits[..cut]), Err(Decode::Truncated)),
@@ -174,7 +181,7 @@ fn rejects_every_truncation() {
 #[test]
 fn rejects_trailing_bits() {
     let v = version_of(&dense(3));
-    let clean = encode_bits(&v);
+    let clean = stream_of(&v);
     for extra in [false, true] {
         let mut bits = clean.clone();
         bits.push(extra);
@@ -236,7 +243,7 @@ fn assert_mutation_never_aliases(v: &Version, bits: &Bits, flip: usize) {
                  two spellings of one value were both accepted"
             );
             assert_eq!(
-                encode_bits(&w),
+                stream_of(&w),
                 mutated,
                 "an accepted stream must be the canonical encoding of its value"
             );
@@ -251,7 +258,7 @@ fn assert_mutation_never_aliases(v: &Version, bits: &Bits, flip: usize) {
 fn exhaustive_single_bit_mutations_never_alias() {
     for t in all_normal_events(EV_SMALL_DEPTH) {
         let v = from_oracle_version(&t);
-        let bits = encode_bits(&v);
+        let bits = stream_of(&v);
         for flip in 0..bits.len() {
             assert_mutation_never_aliases(&v, &bits, flip);
         }
@@ -267,7 +274,7 @@ proptest! {
         flip_seed in any::<prop::sample::Index>(),
     ) {
         let v = from_oracle_version(&t);
-        let bits = encode_bits(&v);
+        let bits = stream_of(&v);
         let flip = flip_seed.index(bits.len());
         assert_mutation_never_aliases(&v, &bits, flip);
     }
@@ -275,16 +282,20 @@ proptest! {
 
 // ─── agreement over the generator families ──────────────────────────────────
 
-/// The full agreement pin on one version: the encoder's length equals the
-/// independent sizer bit for bit, the stream validates, and decoding it
-/// reproduces the version exactly (packed byte equality).
+/// The full agreement pin on one version.
+///
+/// The stored stream's length equals the independent sizer bit for bit
+/// (the sizer walks the packed construction language, re-derived through
+/// the oracle lowering), the stream validates, and decoding it reproduces
+/// the version exactly.
 fn assert_agreement(v: &Version) {
-    let bits = encode_bits(v);
-    let size = tier2_size(v);
+    let bits = stream_of(v);
+    let packed = packed_bits_of(&to_oracle_version(v));
+    let size = tier2_size(&packed);
     assert_eq!(
         bits.len() as u64,
         size.total_bits,
-        "skyline encoder length disagrees with the tier2 sizer: one of the \
+        "stored skyline length disagrees with the tier2 sizer: one of the \
          two independent walks is wrong"
     );
     assert!(
@@ -397,11 +408,11 @@ proptest! {
             from_oracle_version(&b),
             from_oracle_version(&c),
         );
-        prop_assert_eq!(encode_bits(&(&a | &b)), encode_bits(&(&b | &a)));
+        prop_assert_eq!(stream_of(&(&a | &b)), stream_of(&(&b | &a)));
         prop_assert_eq!(
-            encode_bits(&(&(&a | &b) | &c)),
-            encode_bits(&(&a | &(&b | &c)))
+            stream_of(&(&(&a | &b) | &c)),
+            stream_of(&(&a | &(&b | &c)))
         );
-        prop_assert_eq!(encode_bits(&(&a & &b)), encode_bits(&(&b & &a)));
+        prop_assert_eq!(stream_of(&(&a & &b)), stream_of(&(&b & &a)));
     }
 }

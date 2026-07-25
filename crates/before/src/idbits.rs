@@ -15,7 +15,7 @@
 //! children" (that is `(1, 1)`); see [`crate::codec`]'s `parse_id`.
 //!
 //! The bit stream is wrapped in [`IdReader`] — a consuming cursor that parallels
-//! the event side's [`EvReader`](crate::version::compare) — so the operations
+//! the event side's payload streams — so the operations
 //! read as the paper's `match` over [`IdNode`].
 //!
 //! **Normal-form precondition.** Every `Party` is in canonical normal form
@@ -53,17 +53,11 @@ pub(crate) enum IdNode {
 
 /// A cursor into a packed id tree, or a synthetic leaf.
 ///
-/// The id-side analogue of the event side's
-/// [`EvReader`](crate::version::compare): it *consumes* —
-/// [`read`](IdReader::read) decodes the node at the cursor and advances it in
-/// place — so operations thread `&mut` readers and read as the paper's
-/// `match`.
+/// A consuming cursor: [`read`](IdReader::read) decodes the node at the
+/// cursor and advances it in place, so operations thread `&mut` readers
+/// and read as the paper's `match`.
 ///
 /// - `At`: a bit offset into the packed id stream.
-/// - `Full`: a synthetic terminal that consumes nothing — the id-side analogue
-///   of [`EvReader::Zero`](crate::version::compare). `grow` hands it to both
-///   event children when the id is full (`FullEvNode`), re-presenting the full
-///   `1` without duplicating the real cursor.
 /// - `Empty`: a synthetic `0` leaf that consumes nothing. Because a `0` is
 ///   absence rather than a node, every walk that descends into an absent child
 ///   hands one of these in its place, so the `(Empty, …)` match arms fire
@@ -79,9 +73,6 @@ pub(crate) enum IdReader<'a> {
         bits: &'a BitsSlice,
         pos: usize,
     },
-    /// A synthetic full `1` leaf (see the type doc); reads as [`IdNode::Full`]
-    /// and never advances.
-    Full,
     /// A synthetic empty `0` leaf (see the type doc); reads as [`IdNode::Empty`]
     /// and never advances.
     Empty,
@@ -122,7 +113,6 @@ impl<'a> IdReader<'a> {
     /// their synthetic nodes and never advance.
     pub(crate) fn read(&mut self) -> IdNode {
         match self {
-            IdReader::Full => IdNode::Full,
             IdReader::Empty => IdNode::Empty,
             IdReader::At { bits, pos } => {
                 step!();
@@ -142,7 +132,6 @@ impl<'a> IdReader<'a> {
     /// the node in place, leaving the single cursor where it was.)
     pub(crate) fn peek(&self) -> IdNode {
         match self {
-            IdReader::Full => IdNode::Full,
             IdReader::Empty => IdNode::Empty,
             IdReader::At { bits, pos } => {
                 step!();
@@ -177,7 +166,7 @@ impl<'a> IdReader<'a> {
     pub(crate) fn bits(&self) -> &'a BitsSlice {
         match self {
             IdReader::At { bits, .. } => bits,
-            IdReader::Full | IdReader::Empty => BitsSlice::empty(),
+            IdReader::Empty => BitsSlice::empty(),
         }
     }
 
@@ -186,22 +175,9 @@ impl<'a> IdReader<'a> {
     pub(crate) fn pos(&self) -> usize {
         match self {
             IdReader::At { pos, .. } => *pos,
-            IdReader::Full | IdReader::Empty => {
+            IdReader::Empty => {
                 unreachable!("pos() on a synthetic id reader")
             }
-        }
-    }
-
-    /// This reader's bit offset if it addresses a real tree, or `None` for a
-    /// synthetic reader.
-    ///
-    /// `grow` captures it (before a read advances the cursor) to key its
-    /// position-indexed `Route`; the synthetic side of a branch is never the
-    /// keying side, so its `None` is never unwrapped.
-    pub(crate) fn pos_opt(&self) -> Option<usize> {
-        match self {
-            IdReader::At { pos, .. } => Some(*pos),
-            IdReader::Full | IdReader::Empty => None,
         }
     }
 }
@@ -218,7 +194,7 @@ impl<'a> IdReader<'a> {
 /// encoding uses; a full binary encoding only ever reports `0` or `2`.
 ///
 /// The single shared spelling of this scan: [`IdReader::skip`] runs it on the
-/// packed id encoding, `EvReader::skip` (in `version::compare`) on the event
+/// packed id encoding; the skyline walks skip event subtrees the same way
 /// encoding, and `version::event::Builder::copy_reader` inlines the same loop
 /// while also emitting the visited nodes.
 pub(crate) fn skip_subtree(

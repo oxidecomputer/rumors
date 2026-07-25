@@ -30,10 +30,10 @@ fn seeded<T>() -> Rumors<T> {
 ///
 /// The initiator holds both leaves, the
 /// responder — forked between the two sends — only the first.
-const DISPUTED_SIBLING_VALUE: u64 = 151;
+const DISPUTED_SIBLING_VALUE: u64 = 542;
 
 /// First of three consecutive responder ballast values whose keys' first
-/// bytes (`24`, `7a`, `b5`) avoid the disputed radix (`b8`) and make the
+/// bytes (`25`, `5b`, `51`) avoid the disputed radix (`b8`) and make the
 /// responder the larger set, so the disputed-subtree holder initiates.
 const BALLAST_FROM: u64 = 100;
 

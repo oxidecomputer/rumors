@@ -41,10 +41,12 @@ pub const BOOKMARK_MAGIC: [u8; 14] = *b"RUMORSBOOKMARK";
 
 /// On-disk bookmark format version, following [`BOOKMARK_MAGIC`].
 ///
-/// Bumped whenever the frame layout or payload encoding changes. A file
-/// carrying any other version is rejected with
-/// [`FormatError::VersionMismatch`] rather than misread.
-pub const BOOKMARK_FORMAT_VERSION: u16 = 1;
+/// Bumped whenever the frame layout or payload encoding changes — version 2
+/// carries the skyline version coding in its payloads. A file carrying any
+/// other version (including version-1 files, which carry the packed
+/// per-node coding) is rejected with [`FormatError::VersionMismatch`]
+/// rather than misread; there is no migration path.
+pub const BOOKMARK_FORMAT_VERSION: u16 = 2;
 
 /// Byte offset of the version field within a frame.
 const VERSION_OFFSET: usize = BOOKMARK_MAGIC.len();

@@ -1,7 +1,7 @@
 use crate::error::Parse;
 use crate::recurse::descend;
 
-use super::{encode_int, validate_ev, validate_id, Base, Bits};
+use super::{validate_id, Base, Bits};
 
 /// A whitespace-skipping byte cursor over the input string. The grammar is pure
 /// ASCII (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
@@ -134,55 +134,10 @@ fn parse_id_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<IdKind,
     }
 }
 
-/// Parse one event tree in the paper's grammar (`n | (n, e1, e2)`) into
-/// canonical bits, strictly validating normal form. Recursive, as
-/// [`parse_id_str`].
-pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, Parse> {
-    let mut cur = Cur::new(s);
-    let mut bits = Bits::new();
-    descend!(0, parse_ev_node(&mut cur, &mut bits, 0))?;
-    if cur.peek().is_some() {
-        return Err(Parse::Syntax); // trailing junk
-    }
-    validate_ev(&bits)?;
-    Ok(bits)
-}
-
-/// Parse one event subtree, appending its canonical bits. Routed through the
-/// amortized stack-growth guard.
-fn parse_ev_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<(), Parse> {
-    match cur.peek() {
-        Some(b'(') => {
-            cur.bump();
-            bits.push(true);
-            let base = parse_base(cur)?;
-            encode_int(bits, &base);
-            if cur.bump() != Some(b',') {
-                return Err(Parse::Syntax);
-            }
-            descend!(depth + 1, parse_ev_node(cur, bits, depth + 1))?; // left
-            if cur.bump() != Some(b',') {
-                return Err(Parse::Syntax);
-            }
-            descend!(depth + 1, parse_ev_node(cur, bits, depth + 1))?; // right
-            if cur.bump() != Some(b')') {
-                return Err(Parse::Syntax);
-            }
-            Ok(())
-        }
-        Some(c) if c.is_ascii_digit() => {
-            let n = parse_base(cur)?;
-            bits.push(false);
-            encode_int(bits, &n);
-            Ok(())
-        }
-        _ => Err(Parse::Syntax),
-    }
-}
-
-/// Parse a stamp `(i, e)` into its id and event bit streams. Splits at the
-/// top-level (depth-0) comma, then parses each side. Iterative.
-pub(crate) fn parse_clock_str(s: &str) -> Result<(Bits, Bits), Parse> {
+/// Parse a stamp `(i, e)` into its id bit stream and the event component's
+/// text. Splits at the top-level (depth-0) comma, parses the id side, and
+/// returns the event side for the caller's version parser. Iterative.
+pub(crate) fn parse_clock_str(s: &str) -> Result<(Bits, &str), Parse> {
     let t = s.trim();
     let bytes = t.as_bytes();
     if bytes.first() != Some(&b'(') || bytes.last() != Some(&b')') {
@@ -209,6 +164,5 @@ pub(crate) fn parse_clock_str(s: &str) -> Result<(Bits, Bits), Parse> {
     }
     let k = split.ok_or(Parse::Syntax)?;
     let id_bits = parse_id_str(&inner[..k])?;
-    let ev_bits = parse_ev_str(&inner[k + 1..])?;
-    Ok((id_bits, ev_bits))
+    Ok((id_bits, &inner[k + 1..]))
 }

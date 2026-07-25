@@ -1,6 +1,6 @@
 use crate::error::Parse;
 
-use super::{encode_int, parse_id, validate_ev, validate_id, Base, Bits, BitsSlice};
+use super::{parse_id, validate_id, Bits, BitsSlice};
 
 /// Whether a normal-form id stream is the anonymous (empty) identity.
 ///
@@ -27,14 +27,6 @@ pub(crate) fn id_leaf(v: bool) -> Bits {
     b
 }
 
-/// The bits for an event leaf with base `n`.
-pub(crate) fn ev_leaf(n: u64) -> Bits {
-    let mut b = Bits::new();
-    b.push(false); // leaf flag
-    encode_int(&mut b, &Base::from(n));
-    b
-}
-
 /// Whether `bits` is exactly the terminal tag `00` (the `1` leaf).
 fn id_is_terminal(bits: &BitsSlice) -> bool {
     bits.len() == 2 && !bits[0] && !bits[1]
@@ -57,18 +49,5 @@ pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> {
     b.extend_from_bitslice(l);
     b.extend_from_bitslice(r);
     validate_id(&b)?;
-    Ok(b)
-}
-
-/// Assemble an event node with base `n` from two already-normal child streams,
-/// then validate the result is itself normal (a zero-base child, no collapsible
-/// `(n, m, m)`).
-pub(crate) fn ev_node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> {
-    let mut b = Bits::with_capacity(2 + l.len() + r.len());
-    b.push(true); // node flag
-    encode_int(&mut b, &Base::from(n));
-    b.extend_from_bitslice(l);
-    b.extend_from_bitslice(r);
-    validate_ev(&b)?;
     Ok(b)
 }

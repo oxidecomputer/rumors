@@ -6,13 +6,13 @@
 //! child to its sibling's filled minimum where that lets the parent
 //! simplify (the paper's shortcut arms); `tick` is `fill`, falling back
 //! to the [`grow`](super::grow) emit when `fill` changes nothing. The
-//! walk pairs the packed id ([`IdReader`]) against the skyline topology
+//! walk pairs the packed id (`IdReader`) against the skyline topology
 //! recursively and streams one `(depth, payload code)` plateau per
 //! output leaf to the collapsing builder, which derives the union
 //! topology and performs the equal-sibling normalization. A shortcut
 //! raise needs no builder repair: the raised value is computed *before*
 //! its leaf is emitted, by a local pre-scan of the range the minimum
-//! comes from ([`min_fill_from`]) — for the right-full arm the id is
+//! comes from (`min_fill_from`) — for the right-full arm the id is
 //! peeked one subtree ahead (a topology-only skip over the left id
 //! child) so the pre-scan runs before the left child is walked.
 //!
@@ -42,7 +42,7 @@
 //! a spine, so the worst case is `O(input × nested-shortcut depth)`;
 //! a walk without nested shortcuts is linear in the two streams. The
 //! C3 envelope round prices the constants (the tick rows of
-//! `tests/meter.rs`); recursion is guarded by [`crate::recurse`]
+//! `tests/meter.rs`); recursion is guarded by `crate::recurse`
 //! throughout.
 //!
 //! # Testing

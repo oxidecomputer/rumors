@@ -88,11 +88,14 @@ fn party_block(p: &Party) -> String {
 }
 
 fn version_block(v: &Version) -> String {
+    let enc = v.as_encoded();
+    let all = crate::codec::bytes_as_bits(&enc.bytes);
+    let bits = &all[..enc.bits];
     format!(
         "display: {}\nbits:    {} ({} bits)\nbytes:   {}",
         v,
-        bits_to_string(v.as_bits()),
-        v.as_bits().len(),
+        bits_to_string(bits),
+        bits.len(),
         bytes_to_hex(&v.encode()),
     )
 }
@@ -150,8 +153,8 @@ fn version_canonical_forms() {
     let node: Version = "(1, 0, (0, 1, 0))".parse().unwrap();
     assert_snapshot!(version_block(&node), @"
     display: (1, 0, (0, 1, 0))
-    bits:    10100111001001 (14 bits)
-    bytes:   a7 24
+    bits:    10010100110010 (14 bits)
+    bytes:   94 c8
     ");
 }
 
@@ -166,7 +169,9 @@ fn clock_canonical_form() {
     // with no padding between (padding is added only by `encode`). Rebuild that unpadded
     // concatenation here to show the boundary between the two halves.
     let mut bits = c.party().as_bits().to_bitvec();
-    bits.extend_from_bitslice(c.version().as_bits());
+    let venc = c.version().as_encoded();
+    let vall = crate::codec::bytes_as_bits(&venc.bytes);
+    bits.extend_from_bitslice(&vall[..venc.bits]);
     let fields = format!(
         "display: {c}\ndebug:   {c:?}\nbits:    {} ({} bits)\nbytes:   {}",
         bits_to_string(&bits),
