@@ -2059,6 +2059,15 @@ stall files (`tests/pairwise.proptest-regressions`,
 at the plain merge-base with the seed file copied in. Any novel
 failure outside that shape blocks.
 
+Amended 2026-07-24, C0: **the roster is retired.** `link-transport`
+merged to main (merge `76f6c084`) and the branch rebased onto it;
+the sixteen-test sweep of record on the rebased tree reads
+`--no-fail-fast`, 1183 run: 1183 passed, 3 skipped, **0 failed** —
+every roster test passes with its committed stall seed riding along
+as `link-transport`'s regression pin, and no novel failure appeared.
+The gate convention returns to unqualified green: any test failure
+anywhere is a blocking finding again, with no provenance carve-out.
+
 Acceptance for the effort: every §5 row at a small pinned constant ×
 input; the §13 board all green — no super-linear cell and no
 large-constant cell anywhere in the op × family matrix; `benches/`
@@ -2305,6 +2314,48 @@ in the campaign); board re-run reproduces the 96/62 baseline modulo
 seam. *Risk*: semantic merge conflicts line-level resolution misses
 → retired by the merge-seam re-sweep practice (mechanical greps,
 full board + meter suite at the rebased tip). *Deps*: Gate C.
+
+Landed 2026-07-24 (C0). The rebase replayed 144 commits onto the
+merged main; the memwatch cherry-pick dropped by patch-id as
+planned. The merge brought main's own work inside `crates/before` —
+D2 (`d0788b3a`: word-window gamma fast paths for decode, skip, and
+encode; one 64-bit big-endian window proves a whole code, the
+per-bit loop stays the specification and sole reject arbiter) and
+D3 (`d8cd87d7`: the wire `ReaderCursor` refills over a byte window;
+explicit inline parse stacks; the cursor trait carries an
+associated ZST error) — so the seam was substantive, resolved
+function-level: decode composes as D2's window fast path (codes ≤
+64 bits) → P1's limb-wise wide fallback (linear in code width) →
+the per-bit loop deciding every reject; `encode_int`'s word-wise
+emit re-expressed over the dashu newtype (`to_u64()` routing),
+byte-identical emit preserved; the mid-stream parsers stay gated
+behind `borsh` (consumers verified); the skyline `validate_from`
+carries the trait seam's `Decode: From<C::Error>` bound. The
+merge-seam re-sweep (independent review agent) found the value
+composition sound — reject boundary intact and differentially
+pinned, encode arms byte-identical, no ghosts, no duplicated
+commits — and three blocking metering breaks, all main's unmetered
+fast paths sitting under the campaign's floors: the §13 dated
+amendment records the five-cell vacuity catch, the window-record
+cures (`91e1e2e0`), the `version_eq` re-denomination (`6ff8c949`),
+and the re-derived numbers of record (139/61 default, 130/70 ×4,
+three byte-identical runs per scale). §17.3 reconciles the
+ownership main realized early (byte-decided equality); the judge
+roster amendment (`e591ce26`) re-rosters the measured movement
+(the realized `version_eq/bigroot` leaves; the hugeleaf display
+pair moves boundary → expected red at its declared general
+ceiling, owned by the κ/C2 hand-off). The wire cursor is
+documented as deliberately unmetered (no board row prices it);
+the `max_depth` caller-side double-count carries a
+`TODO-recalibrate` for its own future commit. Artifact list
+re-derived from the merged tree for C2: 24 insta snapshots
+(gossip 14, bootstrap 5, retire 5), 32 proptest seed files, 2 fuzz
+corpus dirs (rotted; the seed-writer cure stands), 8
+`BOOKMARK_FORMAT_VERSION` sites, byte-pinned doctests in
+party/version/clock and their test files. Main also widened
+doclint to the whole workspace: 49 campaign test/bench summaries
+reflowed (`e63d22e2`). §14's roster is retired (dated amendment
+there); the sweep of record is 1183/1183.
 
 **P3.2 — the accumulator of record, its generator families, and the
 §8.1/§10.6 re-amendment.**
@@ -4267,6 +4318,24 @@ C3 (re-pins; the judge roster's bigroot set empties;
 full-sampling record numbers captured) → the P4 residual audit
 (sequenced against the §17.5 boolean-skyline decision, the user's,
 post-C3) → P5.
+
+Checkpoint (2026-07-24, C0 executed): the link-transport merge
+announced and the rebase landed — §17.2's P3.1 landed entry carries
+the seam narrative (D2/D3 composition, the merge-seam re-sweep's
+findings, the meter-coverage fix round, the artifact re-derivation),
+§14's dated amendment the roster retirement (1183/1183), §13's the
+five-cell vacuity catch and the re-derived records (139/61 default,
+130/70 ×4), §17.3's the early-realized ownership, and the judge
+roster commit the measured re-rostering (fifteen bigroot sweeps +
+the hugeleaf display pair + the schoolbook tripwire; boundary set
+empty). Convention recorded with this checkpoint (user directive,
+2026-07-24): **the justfile is documentation** — every recipe's
+comment block ends in a self-standing one-liner directly above the
+recipe (`just --list` shows exactly that line), essays above it,
+separated by a blank line. Next: C2 per §17.2 P3.9 as amended,
+with the flag-day review charter widened to watch the D2 window
+paths' interaction with the routed kernels (the kernels were
+differentially proven against the pre-merge tree).
 
 - Pending micro-item: §13's record-scale runtime note predates the
   cliff family's board landing (P3.5 review advisory); correct at the
