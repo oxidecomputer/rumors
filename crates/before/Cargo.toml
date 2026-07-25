@@ -40,6 +40,11 @@ proptest = "1"
 serde_json = "1"
 criterion = "0.5"
 rand = "0.8"
+# The corpus-generating sweeps' seeded word streams (`testing::rng`):
+# ChaCha8's output is documented-portable — pinned across platforms and
+# crate versions — so a committed seed constant names a corpus forever,
+# where rand's `StdRng` explicitly reserves the right to change streams.
+rand_chacha = "0.3"
 # Binary (non-self-describing) and self-describing serde formats, exercised by the
 # binary-serde round-trip tests: `postcard` emits a typed bytes value via `serialize_bytes`;
 # `ciborium` is a self-describing CBOR codec. Together they guard the binary serde path
