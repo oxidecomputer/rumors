@@ -715,23 +715,30 @@ sums so they close (N owned + M green = 205 at each scale).
   until a second consumer stabilizes the API; its amortization
   contract is subtle — reads mutate).
 - **Stack-container decision: `SmallVec<[T; N]>` vs
-  `Vec::with_capacity(N)`, measured, per site** (user directive
-  2026-07-25). It is not a priori clear that smallvec's constants
-  beat Vec's: the inline path saves one small call-scoped
-  allocation (tens of ns on a thread-cached allocator, paid once
-  per op) but pays a per-access discriminant branch
+  `Vec::with_capacity(N)` vs `Vec::new()`, measured, per site**
+  (user directive 2026-07-25). It is not a priori clear that
+  smallvec's constants beat Vec's: the inline path saves one small
+  call-scoped allocation (tens of ns on a thread-cached allocator,
+  paid once per op) but pays a per-access discriminant branch
   (well-predicted when never spilling, yet real in code size and
   inlining pressure), a fatter struct (locality when embedded or
-  moved), and a spill memcpy at exactly the deep input. The
-  pre-sized Vec is the honest competitor — no realloc chain, so
-  the trade isolates to one allocation vs zero-alloc + branching.
+  moved), and a spill memcpy at exactly the deep input. Nor is
+  pre-sizing a free improvement over starting empty: allocator
+  size classes mean `with_capacity(N)` at a defensive bound rounds
+  into a larger class whose slack Vec does not adopt (capacity
+  stays as requested — the slack is pure waste), while an organic
+  `Vec::new()` on a shallow walk makes exactly one small-class
+  allocation and never runs the doubling chain. "Capacity known in
+  advance" splits into known-per-input (pre-size to the exact
+  value) vs known-as-typical-bound (pre-sizing may lose to
+  organic); our walk stacks are almost all the latter.
   Discipline: every explicit stack from the P4 residual audit
   (and the D3-inherited `PARSE_STACK_INLINE` stacks) is
   implemented behind ONE type seam (a module-local alias or
   newtype, one line to swap); a measured phase — C3-adjacent,
   under the final harness, benign AND deep families, both
-  scales — benches the other container and decides per site;
-  the losing container's numbers ride the DECIDED entry. The
+  scales — benches all three contenders and decides per site;
+  the losers' numbers ride the DECIDED entry. The
   choice is not judgment-neutral: shallow walks on smallvec are
   allocation-free and heap columns pin that — a Vec win on time
   re-pins those rows deliberately (the parity-floor ruling's
