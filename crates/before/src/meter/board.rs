@@ -13,7 +13,7 @@
 //! The board is a generalized cartesian product over three declarative
 //! axes, and coverage holds structurally rather than by per-cell wiring:
 //!
-//! - **Shapes** ([`FAMILIES`]): each shape builds an *operand bundle* —
+//! - **Shapes** (the family list): each shape builds an *operand bundle* —
 //!   a version, a disjoint party pair, a designated event × id cross, a
 //!   fold population — and a uniform post-pass derives the rest (a
 //!   cross shape's version is its event side; its id side becomes a
@@ -3302,8 +3302,9 @@ impl BenchCell {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BenchMode {
     /// The pinned rule-derived subset: every operation on the benign
-    /// control, each shape's designed-stress pairings ([`designed`]), and
-    /// the board-red riders ([`BOARD_RED_BENCH_RIDERS`]).
+    /// control, each shape's designed-stress pairings (declared per
+    /// shape on the shape axis), and the board-red riders
+    /// ([`BOARD_RED_BENCH_RIDERS`]).
     Pinned,
     /// The whole product: the mode for final verdicts.
     Full,
