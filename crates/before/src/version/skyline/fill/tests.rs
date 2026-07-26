@@ -19,7 +19,8 @@ use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, descending_raises,
     descending_raises_id, harmonic, hugeleaf, id_spine, memo_chain, memo_chain_id, memo_churn,
     memo_churn_id, memo_comb, memo_comb_id, memo_fanout, memo_oscillating, nested_full_id,
-    nested_left_full_id, scattered_id, staircase, wide_tail, wide_tooth_comb, Packed,
+    nested_left_full_id, pure_comb, pure_comb_id, reveal_comb, reveal_comb_hifloor, reveal_comb_id,
+    scattered_id, staircase, wide_tail, wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
@@ -111,6 +112,12 @@ fn event_pool() -> Vec<Version> {
         version_of(&memo_churn(5)),
         version_of(&descending_raises(1)),
         version_of(&descending_raises(6)),
+        version_of(&reveal_comb(1, 2)),
+        version_of(&reveal_comb(6, 5)),
+        version_of(&reveal_comb_hifloor(1, 2)),
+        version_of(&reveal_comb_hifloor(6, 5)),
+        version_of(&pure_comb(1, 2)),
+        version_of(&pure_comb(6, 5)),
     ]
 }
 
@@ -140,6 +147,10 @@ fn party_pool() -> Vec<Party> {
         party_of(&memo_churn_id(5)),
         party_of(&descending_raises_id(1)),
         party_of(&descending_raises_id(6)),
+        party_of(&reveal_comb_id(1)),
+        party_of(&reveal_comb_id(6)),
+        party_of(&pure_comb_id(1)),
+        party_of(&pure_comb_id(6)),
     ];
     pool.extend(all_normal_ids(2).iter().map(from_oracle_party));
     pool
@@ -450,6 +461,35 @@ fn deep_spines_fill_and_tick_identically() {
         tick(&encode(&chain), &chain_id),
         encode(&expected),
         "tick takes the fill branch: the sites collapse"
+    );
+
+    // The reveal comb at 4096 sites: every site's left-full raise meets
+    // its single-leaf range at the shared minimum `2^b` (the raise is
+    // `max(2^b − 1, 2^b)`), so each site collapses to the leaf `2^b`,
+    // while the covering site's raise stays at the tree minimum 0 (the
+    // floor) — the filled tree is the comb with each site replaced by
+    // its wide leaf, in closed form. Between consecutive site consumes
+    // the site's node frame closes back into the 0-floor frame: the
+    // close-reveal cycle at full depth.
+    let (k, b) = (4_096usize, 8usize);
+    let w = 1u64 << b;
+    let mut text = "(0, 0, ".to_string();
+    text.push_str(&"(0, ".repeat(k - 1));
+    text.push_str(&format!("(0, 0, {w})"));
+    text.push_str(&format!(", {w})").repeat(k - 1));
+    text.push(')');
+    let expected: Version = text.parse().expect("the reveal-comb literal parses");
+    let comb = reveal_comb(k, b).version();
+    let comb_id = party_of(&reveal_comb_id(k));
+    assert_eq!(
+        fill(&encode(&comb), &comb_id),
+        encode(&expected),
+        "every site's raise meets its single-leaf range at the shared minimum"
+    );
+    assert_eq!(
+        tick(&encode(&comb), &comb_id),
+        encode(&expected),
+        "tick takes the fill branch: the sites collapse to the wide leaf"
     );
 }
 
