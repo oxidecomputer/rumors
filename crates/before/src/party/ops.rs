@@ -38,5 +38,8 @@
 mod build;
 mod compare;
 mod diff;
+mod index;
 mod split;
 mod sum;
+
+pub(crate) use index::IdIndex;

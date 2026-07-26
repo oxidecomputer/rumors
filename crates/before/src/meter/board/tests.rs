@@ -8,8 +8,9 @@
 //! liveness floors against a meter-bypassing walk. The time leg's tripwire
 //! (an unmetered quadratic reading red on its fitted exponent) lives with
 //! the leg, in `tools/benchjudge`'s self-test and the `tripwire` bench
-//! target. The error-path round's red pin (the join_all up-front re-scan)
-//! lives here too, beside the board row that carries it.
+//! target. The join_all fold's scan-flatness pin (growth across a joint
+//! doubling, over a build-liveness floor) lives here too, beside the board
+//! row that carries it.
 
 use crate::meter::{bigroot, dense, hugeleaf, Packed};
 use crate::{Party, Version};
@@ -406,27 +407,35 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
     );
 }
 
-/// RED PIN (2026-07-26, the error-path round): the join_all up-front
-/// re-scan reads quadratic.
+/// The join_all up-front overlap test reads scan-flat: a joint doubling of
+/// accumulator and input count grows the fold's scan bits ≤ ×2.05
+/// \[measured ×2.00, 33,036 → 66,060 bits — the re-pin landed with the
+/// per-call index\], over a liveness floor proving the meter watches the
+/// discipline.
 ///
-/// `Party::join_all`'s up-front per-input disjointness test walks the
-/// fixed accumulator once per input, and the packed coding has no random
-/// access, so a population of one-byte probes overlapping the
-/// accumulator's right half behind its whole left shape costs
-/// Θ(inputs × accumulator) scan work — the count grows ~×4 across a
-/// joint doubling of accumulator and input count where linear work grows
-/// ×2. Pinned ≥ ×3.5 growth until a cure lands; the cure's commit
-/// re-pins the growth flat (≤ ×2.2) in the same change (instruments
-/// before cures). The board's `party_join_all_overlap` row carries the
-/// same reading at the scales of record; ownership and the cure's design
-/// question (a per-call answer is honestly linear — the fold's
-/// repetition against one fixed operand is what amplifies) live in the
-/// design doc's §3 OPEN entry.
+/// `Party::join_all` tests every input against the *fixed* accumulator up
+/// front (the hand-back granularity the contract documents), through a
+/// per-call `IdIndex` of the accumulator: the index build scans the
+/// accumulator's tags twice, and each per-input test then costs O(input)
+/// recorded reads, so a population of one-byte probes overlapping the
+/// accumulator's right half behind its whole left shape prices linear in
+/// the joint operands. A discipline that instead cursor-walks the fixed
+/// accumulator per input reads ~×4 across the joint doubling — the packed
+/// coding has no random access, so each such test skip-scans the whole
+/// left shape — and trips this ceiling. The floor closes the vacuous
+/// pass: a counter that stops watching the up-front discipline reads
+/// under one full pass of the accumulator's stored bits. The board's
+/// `party_join_all_overlap` row carries the same reading at the scales of
+/// record; the cure's decision record lives in the design doc's §3 entry.
 #[cfg(feature = "scan-meter")]
 #[test]
-fn join_all_overlap_upfront_rescan_reads_quadratic() {
+fn join_all_overlap_upfront_test_reads_flat() {
     use super::{decode_party, overlap_fold_probe, overlap_mounted_pair};
-    let scan_at = |depth: usize| -> u64 {
+    /// Ceiling on scan growth across the joint doubling: measured ×2.00
+    /// (deterministic meter), with headroom for rounding only — a
+    /// per-input accumulator re-walk reads ~×4.
+    const MAX_SCAN_GROWTH: f64 = 2.05;
+    let scan_at = |depth: usize| -> (u64, u64) {
         let shape = crate::meter::id_spine(depth, false);
         let (a_bytes, _) = overlap_mounted_pair(&shape.bytes);
         let mut acc = decode_party(&a_bytes);
@@ -438,15 +447,20 @@ fn join_all_overlap_upfront_rescan_reads_quadratic() {
             .join_all(inputs)
             .expect_err("every probe overlaps the accumulator");
         assert_eq!(back.len(), count, "every probe is handed back");
-        crate::meter::scan_bits()
+        (crate::meter::scan_bits(), 8 * a_bytes.len() as u64)
     };
-    let (lo, hi) = (scan_at(4_096), scan_at(8_192));
+    let ((lo, lo_floor), (hi, _)) = (scan_at(4_096), scan_at(8_192));
+    assert!(
+        lo >= lo_floor,
+        "the fold recorded {lo} scan bits under its {lo_floor}-bit liveness floor (one full \
+         pass of the accumulator's stored bits): the scan meter is not watching the up-front \
+         discipline"
+    );
     let growth = hi as f64 / lo as f64;
     assert!(
-        growth >= 3.5,
-        "join_all's per-input re-scan reads x{growth:.2} scan growth across the joint \
-         doubling ({lo} -> {hi} bits), under the pinned x3.5: the up-front check no longer \
-         re-walks the accumulator — if the cure landed, re-pin this flat (<= x2.2) in the \
-         same change"
+        growth <= MAX_SCAN_GROWTH,
+        "join_all's up-front overlap test reads x{growth:.2} scan growth across the joint \
+         doubling ({lo} -> {hi} bits), over the pinned x{MAX_SCAN_GROWTH}: work scaling with \
+         the fixed accumulator re-entered the per-input path"
     );
 }

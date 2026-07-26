@@ -192,13 +192,16 @@ impl Clock {
         // [`Party::join_all`], because both of this fold's halves (the
         // party union and the version join) pay per-input scans of the
         // whole accumulated value under a left fold. Inputs overlapping
-        // `self` are handed back against the *fixed* `self` up front;
-        // parties disjoint from `self` stay disjoint from it however they
-        // coalesce, so the final joins cannot fail on well-formed input.
+        // `self` are handed back against the *fixed* `self` up front,
+        // through a per-call index of `self`'s party (O(input) per input,
+        // as in [`Party::join_all`]); parties disjoint from `self` stay
+        // disjoint from it however they coalesce, so the final joins
+        // cannot fail on well-formed input.
         let mut overlapping = Vec::new();
         let mut stack: Vec<(Clock, u32)> = Vec::new();
+        let index = crate::party::ops::IdIndex::build(self.party.as_bits());
         for other in iter {
-            if !self.party().is_disjoint(other.party()) {
+            if !index.is_disjoint(other.party().view()) {
                 overlapping.push(other);
                 continue;
             }

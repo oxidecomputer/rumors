@@ -19,7 +19,7 @@ use crate::idbits::IdReader;
 use crate::Version;
 
 mod forks;
-mod ops;
+pub(crate) mod ops;
 
 pub use forks::Forks;
 
@@ -250,11 +250,16 @@ impl Party {
         // the up-front test against the *fixed* `self` hands them back
         // exactly as the growing-union fold would; regions disjoint from
         // `self` stay disjoint from it however they coalesce, so the
-        // final joins cannot fail on well-formed input.
+        // final joins cannot fail on well-formed input. The up-front test
+        // runs against a per-call [`ops::IdIndex`] of `self` — O(input)
+        // per input instead of a cursor re-walk of the fixed `self` per
+        // input, which would make the fold quadratic on populations of
+        // many small inputs against a large accumulator.
         let mut overlapping = Vec::new();
         let mut stack: Vec<(Party, u32)> = Vec::new();
+        let index = ops::IdIndex::build(self.as_bits());
         for other in iter {
-            if !self.is_disjoint(&other) {
+            if !index.is_disjoint(other.view()) {
                 overlapping.push(other);
                 continue;
             }
@@ -508,7 +513,7 @@ impl Party {
     }
 
     /// A read-only [`IdReader`] cursor at the root of this party's packed id bits.
-    fn view(&self) -> IdReader<'_> {
+    pub(crate) fn view(&self) -> IdReader<'_> {
         IdReader::root(&self.0)
     }
 
