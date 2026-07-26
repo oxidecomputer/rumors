@@ -8,7 +8,8 @@
 //! liveness floors against a meter-bypassing walk. The time leg's tripwire
 //! (an unmetered quadratic reading red on its fitted exponent) lives with
 //! the leg, in `tools/benchjudge`'s self-test and the `tripwire` bench
-//! target.
+//! target. The error-path round's red pin (the join_all up-front re-scan)
+//! lives here too, beside the board row that carries it.
 
 use crate::meter::{bigroot, dense, hugeleaf, Packed};
 use crate::{Party, Version};
@@ -402,5 +403,47 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
         vec![SCAN_FLOOR_TRIP],
         "under the committed floors the bypass walk must read red on exactly the scan \
          floor: the meter is not watching its traversal"
+    );
+}
+
+/// RED PIN (2026-07-26, the error-path round): `Party::join_all`'s
+/// up-front per-input disjointness test walks the fixed accumulator once
+/// per input, and the packed coding has no random access, so a population
+/// of one-byte probes overlapping the accumulator's right half behind its
+/// whole left shape costs Θ(inputs × accumulator) scan work — the count
+/// grows ~×4 across a joint doubling of accumulator and input count where
+/// linear work grows ×2. Pinned ≥ ×3.5 growth until a cure lands; the
+/// cure's commit re-pins the growth flat (≤ ×2.2) in the same change
+/// (instruments before cures). The board's `party_join_all_overlap` row
+/// carries the same reading at the scales of record; ownership and the
+/// cure's design question (a per-call answer is honestly linear — the
+/// fold's repetition against one fixed operand is what amplifies) live in
+/// the design doc's §3 OPEN entry.
+#[cfg(feature = "scan-meter")]
+#[test]
+fn join_all_overlap_upfront_rescan_reads_quadratic() {
+    use super::{decode_party, overlap_fold_probe, overlap_mounted_pair};
+    let scan_at = |depth: usize| -> u64 {
+        let shape = crate::meter::id_spine(depth, false);
+        let (a_bytes, _) = overlap_mounted_pair(&shape.bytes);
+        let mut acc = decode_party(&a_bytes);
+        let probe = overlap_fold_probe();
+        let count = a_bytes.len() / 64;
+        let inputs: Vec<Party> = (0..count).map(|_| decode_party(&probe)).collect();
+        crate::meter::reset_scan_bits();
+        let back = acc
+            .join_all(inputs)
+            .expect_err("every probe overlaps the accumulator");
+        assert_eq!(back.len(), count, "every probe is handed back");
+        crate::meter::scan_bits()
+    };
+    let (lo, hi) = (scan_at(4_096), scan_at(8_192));
+    let growth = hi as f64 / lo as f64;
+    assert!(
+        growth >= 3.5,
+        "join_all's per-input re-scan reads x{growth:.2} scan growth across the joint \
+         doubling ({lo} -> {hi} bits), under the pinned x3.5: the up-front check no longer \
+         re-walks the accumulator — if the cure landed, re-pin this flat (<= x2.2) in the \
+         same change"
     );
 }

@@ -279,6 +279,34 @@ board cells named.
   smaller, so onset shifts and counts drop; every affected cell reads
   red on segment count under both profiles) — the recursion-depth
   genre P4.2 owns, not assertion work.
+- **OPEN — the join_all up-front re-scan** (2026-07-26; found by
+  the error-path round's rejection survey, witnessed by its
+  `party_join_all_overlap` row and gate-pinned by
+  `join_all_overlap_upfront_rescan_reads_quadratic` in
+  `meter/board/tests.rs`, ≥ ×3.5 scan growth across a joint
+  doubling): `Party::join_all` (and `Clock::join_all`'s identical
+  inline discipline) tests every input against the *fixed*
+  accumulator up front — semantically load-bearing for the
+  best-effort hand-back granularity — and each test on a packed
+  coding with no random access re-walks the accumulator: a
+  population of O(1)-byte probes overlapping the accumulator's
+  right half behind its whole left shape costs
+  Θ(inputs × accumulator) scan work on a Θ(accumulator + inputs)
+  operand set [measured — scan e 2.00 at 71 bits/B on the
+  id-pair row at 0.1 scale, growing with scale; the committed pin].
+  Each *call* is honestly linear (`is_disjoint` is O(n + m)); the
+  fold's repetition against one fixed operand is the amplifier,
+  and the same mechanism prices the success path on the same
+  operand mix (many tiny disjoint inputs against a large
+  accumulator pay the same up-front re-scans before their cheap
+  coalescing), so the rejection row is the witness for both.
+  The cure is beyond local repair (this round's stop-and-report):
+  the candidates — a decode-once index of the accumulator built
+  per `join_all` call (transient state ≤ operands; each check
+  then O(input + path)), or a coalesce-first restructure (must
+  preserve the documented hand-back attribution against `self`) —
+  each need their own adversarial review and re-pins. Owner:
+  **§17.2's open item (this round)**.
 - **The instrumentation census's blind spots** (2026-07-26; found
   by a read-only census of meter coverage hunting the F2 genre —
   work routed through a mechanism whose meter exists but is not
@@ -677,10 +705,13 @@ rejection must consume as much input as possible:
   party join is the gate; `clock/batch.rs`).
 - **Overlap hand-back in the folds** (`Party::join_all` —
   `Err(Vec)` returning every overlapping input): the
-  `party_join_all_overlap` row — one large mounted accumulator,
-  many tiny probes (rightmost chain truncated at
-  `OVERLAP_PROBE_PATH_LEVELS`, then full) each overlapping the
-  accumulator's last owned region, all handed back.
+  `party_join_all_overlap` row — one large mounted accumulator
+  (the adapter's a-mount: the shape left, the marker right), many
+  one-byte right-full probes each overlapping the accumulator's
+  right half *behind* its whole left shape, all handed back. The
+  witnessing pair sits past the left shape and the coding has no
+  random access, so each probe's up-front test skip-scans the
+  accumulator's left shape: Θ(accumulator) per O(1)-byte input.
   `Clock::join_all` runs the identical up-front
   `is_disjoint`-against-self walk inline, so the party row prices
   both (delegation, the board doc's NA list).
@@ -1138,7 +1169,25 @@ is proven; §13/§17.3 amendments with sums restated; Accum
 pooling per the spec's §6 constants note. No green, no merge.
 *Deps*: none open; sequenced before C3's before/after table.
 
-**P4.2 — residual recursion and word-scale scanning.**
+**The join_all up-front re-scan (OPEN, the error-path round,
+2026-07-26).** The §3 OPEN entry's cure: dissolve the
+Θ(inputs × accumulator) per-input re-walk in `Party::join_all`
+and `Clock::join_all` while preserving the documented best-effort
+hand-back granularity (overlap is attributed against the fixed
+`self`, so a coalesce-first restructure must re-derive that
+attribution; a per-call decode-once index of `self` keeps the
+semantics verbatim at transient state ≤ operands). Red pins
+committed first, per the standing loop:
+`join_all_overlap_upfront_rescan_reads_quadratic`
+(`meter/board/tests.rs`, ≥ ×3.5 scan growth across a joint
+doubling) and the `party_join_all_overlap` board row.
+*Acceptance*: the pin re-pinned flat (≤ ×2.2) in the cure's own
+commit; the board row's scan exponent ≤ 1.15 at both scales on
+every family; the fold rows' existing readings re-attributed
+(the same up-front check prices the success path, so the cure
+moves them — movement annotations per §17.10); byte-identity
+across the differential suite. *Deps*: none; sequenced at the
+owner's discretion (post-C3 candidate).
 Audit every remaining `recurse::descend!` site post-C2; convert
 survivors per the explicit-stack pattern or record why they stay;
 apply the word-at-a-time subtree skip (popcount pending-counter
