@@ -34,6 +34,7 @@
 //! wasm-vs-native differential oracle: result encodings must byte-match.
 
 pub mod bands;
+pub mod drive;
 pub mod fit;
 pub mod ops;
 pub mod strategies;
