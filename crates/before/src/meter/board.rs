@@ -555,6 +555,20 @@ const MIRROR_NARROW_BASE_DEPTH: usize = 1_500;
 /// doubling, all values word-scale.
 const STAIRCASE_BASE_DEPTH: usize = 1_500;
 
+/// Reveal-comb site count and plateau-magnitude bits at scale 1.0
+/// (equal, so the doubling scales the site count and the circulated
+/// width together — the cycle's cost genre is their product; packed
+/// pair ~1 KiB). The close-reveal cycle's per-site cost is steeper
+/// than the mirror families' chains, so the base sits at the
+/// mirror-wide level.
+const REVEAL_COMB_BASE: usize = 500;
+
+/// Pure-comb level count and leaf-magnitude bits at scale 1.0 (equal,
+/// as above; packed pair ~1 KiB). The base watermark stack's own
+/// cycle runs at ~2 wide folds per level — a tenth of the reveal
+/// comb's constant — so the base sits higher for comparable work.
+const PURE_COMB_BASE: usize = 1_000;
+
 /// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops`
 /// row: small, so the pair's cost is carried entirely by the mismatch.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
@@ -656,12 +670,37 @@ enum FamilyKind {
     /// full-penetration minimum updates at every level, all values
     /// word-scale. Reached only by the two tick rows.
     Staircase,
+    /// The reveal-comb cross: `reveal_comb(s, s)` × its own id.
+    ///
+    /// `s` sibling left-full sites share one `2^s`-wide minimum over a
+    /// zero floor, and the left-leaning spine closes each site's frame
+    /// back into the floor frame between consecutive consumes: the
+    /// width-`s` boundary difference is minted at every consume and
+    /// popped at every close — the unfunded width circulation, in the
+    /// touch currency these columns do not carry (the gate pins in
+    /// `tests/meter.rs` enforce it; the bench mirror's time leg sees
+    /// it). Reached only by the two tick rows.
+    RevealComb,
+    /// The reveal-comb control: `reveal_comb_hifloor(s, s)` × the
+    /// reveal-comb id.
+    ///
+    /// Identical forest and close-reveal cycle with the floor raised
+    /// to `2^s − 2`, so the circulated boundary difference is O(1)
+    /// wide: the gap control. Reached only by the two tick rows.
+    RevealHifloor,
+    /// The pure-comb cross: `pure_comb(s, s)` × its own id.
+    ///
+    /// The reveal comb's cycle with no left-full site anywhere — no
+    /// memo, no pre-scan, no site consume: the base watermark stack's
+    /// own arm-move + close-pop width circulation, isolated from the
+    /// frame ledger. Reached only by the two tick rows.
+    PureComb,
     /// The fixed-seed organic control population.
     Benign,
 }
 
 /// Every family, in display order.
-const FAMILIES: [FamilyKind; 14] = [
+const FAMILIES: [FamilyKind; 17] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -675,6 +714,9 @@ const FAMILIES: [FamilyKind; 14] = [
     FamilyKind::MirrorWide,
     FamilyKind::MirrorNarrow,
     FamilyKind::Staircase,
+    FamilyKind::RevealComb,
+    FamilyKind::RevealHifloor,
+    FamilyKind::PureComb,
     FamilyKind::Benign,
 ];
 
@@ -856,6 +898,33 @@ impl FamilyData {
                     "staircase",
                     super::staircase(d).version().encode(),
                     super::id_spine(d, false).bytes,
+                )
+            }
+            FamilyKind::RevealComb => {
+                let s = size(REVEAL_COMB_BASE);
+                Self::tick_cross_family(
+                    kind,
+                    "reveal-comb",
+                    super::reveal_comb(s, s).version().encode(),
+                    super::reveal_comb_id(s).bytes,
+                )
+            }
+            FamilyKind::RevealHifloor => {
+                let s = size(REVEAL_COMB_BASE);
+                Self::tick_cross_family(
+                    kind,
+                    "reveal-hifloor",
+                    super::reveal_comb_hifloor(s, s).version().encode(),
+                    super::reveal_comb_id(s).bytes,
+                )
+            }
+            FamilyKind::PureComb => {
+                let s = size(PURE_COMB_BASE);
+                Self::tick_cross_family(
+                    kind,
+                    "pure-comb",
+                    super::pure_comb(s, s).version().encode(),
+                    super::pure_comb_id(s).bytes,
                 )
             }
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
@@ -1214,6 +1283,11 @@ const NA_SCAN_SEED_PARTY: &str = "the forked party is the seed: its packed form 
 /// Limb floor: wide magnitudes are folded limb by limb.
 const WHY_LIMB_WIDE: &str = "a magnitude wider than the machine-word bound must be materialized \
      or folded limb by limb: one op per 64 magnitude bits";
+/// Limb floor: the tick walk decodes every stored wide payload code.
+const WHY_LIMB_TICK_STREAM: &str = "every payload code of the stored stream wider than the \
+     machine-word bound must be decoded limb by limb: one op per 64 code bits (the stream's \
+     own codes, not the decoded tree's values — a plateau of equal wide leaves stores its \
+     width once)";
 /// Limb floor: the rank pair's sum spans the wider operand's content.
 const WHY_LIMB_RANK_PAIR: &str = "the mismatched pair's sum carries a numerator as wide as the \
      wider operand's value content: one limb write per 64 content bits";
@@ -1320,23 +1394,71 @@ fn walk_floors(packed_bytes: usize) -> Floors {
     }
 }
 
-/// The tick-cross rows' floors: full-examination scan, mandatory-width
+/// The tick-cross rows' floors: full-examination scan, per-stored-code
 /// limb, in-place heap.
 ///
 /// The paired fill walk examines every bit of both packed operands (a
 /// full-examination scan floor, 8 bits per byte — the measured
-/// tick-walk constants sit 2–5× above it), and a wide stored magnitude
-/// must be re-materialized into the output's own code (the mandatory
-/// limb floor; NA on the word-scale families).
+/// tick-walk constants sit 2–5× above it), and every wide payload code
+/// of the version's own stored stream must be decoded limb by limb
+/// (the mandatory limb floor; NA on the word-scale families). The limb
+/// floor derives from the stream's codes, not the decoded tree's
+/// min-lifted bases: a plateau of equal wide leaves stores its width
+/// once and steps by unit deltas after, and the walk provably need not
+/// materialize each leaf's absolute value — a tree-derived floor would
+/// demand limb work no conforming walk does.
 fn tick_walk_floors(version: &Version, packed_bytes: usize) -> Floors {
+    let limbs = mandatory_limbs_stream(version);
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        limb: limb_wide(mandatory_limbs_version(version)),
+        limb: if limbs == 0 {
+            na(NA_LIMB_NARROW)
+        } else {
+            Liveness::Floor {
+                min: limbs,
+                why: WHY_LIMB_TICK_STREAM,
+            }
+        },
         scan: Liveness::Floor {
             min: (packed_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),
             why: WHY_SCAN_TICK_WALK,
         },
     }
+}
+
+/// The mandatory limb count of a version's stored stream: one limb per
+/// 64 bits of every payload code wider than
+/// [`MACHINE_WORD_MAGNITUDE_BITS`].
+///
+/// A walk over the stream must decode each stored code to fold it, and
+/// decoding a wide code cannot touch fewer limbs than the code has;
+/// narrower codes may legitimately live in machine words and count
+/// zero. Unlike [`mandatory_limbs_version`], this counts the stream's
+/// own delta codes, never the decoded tree's absolute values: it is
+/// the honest floor for operations that read the stored form as-is.
+/// Iterative over the packed form, outside any measurement.
+fn mandatory_limbs_stream(v: &Version) -> u64 {
+    let all = codec::bytes_as_bits(v.as_bytes());
+    let bits = &all[..v.encoded_bits()];
+    let mut pos = 0usize;
+    let mut pending = 1usize;
+    let mut limbs = 0u64;
+    while pending > 0 {
+        pending -= 1;
+        let internal = bits[pos];
+        pos += 1;
+        if internal {
+            pending += 2;
+            continue;
+        }
+        let (code, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        pos = next;
+        let width = code.bits();
+        if width > MACHINE_WORD_MAGNITUDE_BITS {
+            limbs += width.div_ceil(64);
+        }
+    }
+    limbs
 }
 
 /// The mandatory limb count of a version's stored magnitudes: one limb per
