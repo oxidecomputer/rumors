@@ -134,10 +134,11 @@ readme-check:
     ./tools/readme check
 
 # The dependency list is the ordering: build-free lints first for fast
-# failure, then the builds, then the full-feature tests and doctests.
+# failure, then the builds, then the full-feature tests and doctests, then
+# the board's cross-process determinism tripwire.
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest
+gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest amp-board-determinism
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -314,6 +315,21 @@ bench-judge-record:
     BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --save-baseline board-judge-hi
     ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
 
+# The bench targets time a BenchMode slice of the board's shape x operation
+# product, both modes derived from the board's own axis declarations: the
+# default pinned subset (each shape's designed-stress pairings, the organic
+# control, and the board-red riders) is what the judging recipes above run;
+# BOARD_BENCH_MODE=full times the whole product and is the mode for final
+# verdicts. Full-product judge runs pair with the same roster; expect them
+# only at acceptance points, at full sampling.
+
+# Judge the WHOLE product's bench exponents across both scales (final verdicts; slow).
+bench-judge-full:
+    ./tools/benchjudge --self-test
+    BOARD_BENCH_MODE=full BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- --save-baseline board-judge-lo
+    BOARD_BENCH_MODE=full BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --save-baseline board-judge-hi
+    ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
+
 # An unmetered machine-word quadratic (green on every board counter column)
 # must read RED through the judge; the recipe succeeds exactly when it does.
 # The same measured shape is pinned in tools/benchjudge --self-test, which
@@ -344,6 +360,25 @@ amp-board *args:
 # Run the amplification board at the acceptance scale of record.
 amp-board-record:
     cargo run -p before --example amp_board --features limb-meter,scan-meter -- record
+
+# Every quantity the board judges or renders is a deterministic counter, so
+# two whole renders from two processes must be byte-identical under any
+# machine load; any diff is a nondeterminism bug in a meter or a measured
+# body. This is the cross-process leg of the board's determinism tripwire
+# (the in-process leg is the runner itself, which measures every cell twice
+# and panics on any counter disagreement, at every scale on every run). The
+# reduced default scale keeps the gate fast; the runner's leg covers the
+# acceptance scales.
+
+# Byte-compare two cross-process board renders (the determinism gate).
+amp-board-determinism scale="0.25":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    a=$(mktemp) && b=$(mktemp)
+    trap 'rm -f "$a" "$b"' EXIT
+    cargo run -q -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$a"
+    cargo run -q -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$b"
+    cmp "$a" "$b"
 
 # Paste a peer id into the dialog, or dial one directly:
 # `just rumormill --name bob --peer <endpoint-id>`.
