@@ -1020,10 +1020,11 @@ struct FamilyData {
     /// Denomination section).
     output_dominated: bool,
     /// The bundle's value content in bytes, `Some` only on the
-    /// flat-denominator shape (comb-scatter): the denominator every
-    /// input-denominated cell's *exponent* is fitted against (constants
-    /// and floors stay per packed byte — the module doc's Denomination
-    /// section derives the split).
+    /// flat-denominator shape (comb-scatter).
+    ///
+    /// The denominator every input-denominated cell's *exponent* is
+    /// fitted against; constants and floors stay per packed byte (the
+    /// module doc's Denomination section derives the split).
     content_bytes: Option<usize>,
     /// The packed fold operands (versions, parties), consumed by the two
     /// fold rows alone: the scatter shape's adversarially ordered
@@ -2084,10 +2085,11 @@ fn scan_touch() -> Liveness {
 }
 
 /// A stored-stream limb floor (one limb per 64 bits of every wide payload
-/// code), or NA when every code fits machine words: the honest floor for
-/// rows that read the stored form as-is (decode, the query folds, the tick
-/// walk), which provably need not materialize the decoded tree's absolute
-/// values.
+/// code), or NA when every code fits machine words.
+///
+/// The honest floor for rows that read the stored form as-is (decode, the
+/// query folds, the tick walk), which provably need not materialize the
+/// decoded tree's absolute values.
 fn limb_stream(mandatory_limbs: u64) -> Liveness {
     if mandatory_limbs == 0 {
         Liveness::NotApplicable {
@@ -2233,7 +2235,7 @@ fn mandatory_limbs_stream(v: &Version) -> u64 {
 }
 
 /// A version's value content in bytes: the summed bit widths of its
-/// absolute leaf heights (one bit minimum per leaf), rounded up to bytes.
+/// absolute leaf heights (one bit minimum per leaf), rounded to bytes.
 ///
 /// This is §10.6's quantity — the content that delta coding lets ride
 /// behind asymptotically fewer wire bits — and the scaling denominator of
@@ -2432,16 +2434,18 @@ struct IoSpec {
 
 /// The text rows' radix-work term and output-honesty data.
 struct TextSpec {
-    /// `Σ digitsᵢ × limbsᵢ` over the values the text spells; the limb column
-    /// is judged against `R = n_io +` this `+` the pipeline term below, at
-    /// the κ ceiling, and the output-honesty ceiling is asserted against
-    /// these units alone (the pipeline term must not loosen it).
+    /// `Σ digitsᵢ × limbsᵢ` over the values the text spells.
+    ///
+    /// The limb column is judged against `R = n_io +` this `+` the
+    /// pipeline term below, at the κ ceiling; the output-honesty ceiling
+    /// is asserted against these units alone (the pipeline term must not
+    /// loosen it).
     radix_units: u64,
     /// The spelled event values, each granting
-    /// [`TEXT_PIPELINE_LIMB_OPS_PER_VALUE`] radix units of per-value
-    /// pipeline arithmetic in `R`; zero on id-only text (boolean tokens
-    /// force no arithmetic), and the version side's node count on clock
-    /// rows for the same reason.
+    /// [`TEXT_PIPELINE_LIMB_OPS_PER_VALUE`] radix units in `R`.
+    ///
+    /// Zero on id-only text (boolean tokens force no arithmetic), and
+    /// the version side's node count on clock rows for the same reason.
     spelled_values: u64,
     /// Whether the measured *output* is the text side (`Display`); the
     /// honesty assertion then runs against the actual output bytes.
@@ -4020,12 +4024,13 @@ struct Sample {
     /// cells, of every exponent): packed input bytes, or `n_io` for the
     /// I/O-denominated cells.
     denom_bytes: usize,
-    /// The exponent legs' denominator: `denom_bytes` everywhere except the
-    /// flat-denominator shape's input-denominated cells, where it is the
-    /// bundle's value content (the packed denominator is
-    /// intercept-dominated there, and a two-point power-law fit against an
-    /// intercept-dominated denominator manufactures exponents out of
-    /// exactly linear marginal work).
+    /// The exponent legs' denominator.
+    ///
+    /// `denom_bytes` everywhere except the flat-denominator shape's
+    /// input-denominated cells, where it is the bundle's value content:
+    /// the packed denominator is intercept-dominated there, and a
+    /// two-point power-law fit against an intercept-dominated denominator
+    /// manufactures exponents out of exactly linear marginal work.
     exp_denom_bytes: usize,
     /// The limb *constant*'s denominator: `denom_bytes`, or `R` for the
     /// text rows (the limb exponent is judged against `denom_bytes` on
@@ -4237,11 +4242,13 @@ fn assert_deterministic(op: &str, family: &str, a: &Sample, b: &Sample) {
 #[derive(Clone, Copy)]
 struct Score {
     exp: Option<f64>,
-    /// Whether the exponent leg is judged: false where the denominator
-    /// pair does not scale ([`MIN_EXPONENT_DENOM_GROWTH`]) or, on the heap
-    /// column, where both readings sit inside the flat allowance the
-    /// constant leg already forgives (a sub-allowance exponent is
-    /// allocator size-class noise, not scaling).
+    /// Whether the exponent leg is judged.
+    ///
+    /// False where the denominator pair does not scale
+    /// ([`MIN_EXPONENT_DENOM_GROWTH`]) or, on the heap column, where both
+    /// readings sit inside the flat allowance the constant leg already
+    /// forgives (a sub-allowance exponent is allocator size-class noise,
+    /// not scaling).
     exp_judged: bool,
     per_unit: Option<f64>,
 }
@@ -4606,10 +4613,11 @@ impl BenchCell {
 
     /// The cell's denominator bytes at its scale: packed input, or total
     /// I/O on the I/O-denominated rows, or the bundle's value content on
-    /// the flat-denominator shape's input-denominated rows (the same
-    /// denominator the board fits those cells' exponents against — the
-    /// judge's fitted time exponents must not re-manufacture what the
-    /// board's re-denomination corrected).
+    /// the flat-denominator shape's input-denominated rows.
+    ///
+    /// The content denominator is the same one the board fits those
+    /// cells' exponents against: the judge's fitted time exponents must
+    /// not re-manufacture what the board's re-denomination corrected.
     ///
     /// Runs one untimed body to read the output side back from the actual
     /// result, exactly as the board's measurement does (a prediction never
