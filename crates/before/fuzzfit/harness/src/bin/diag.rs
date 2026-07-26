@@ -1,6 +1,6 @@
-//! Bucketed inspection of the calibration corpus: per-kernel, per-decade
-//! median fuel-per-bit, the fit-free view of the same samples the fitter
-//! sees.
+//! Bucketed inspection of the calibration corpus: per band key (kernel ×
+//! outcome), per-decade median fuel-per-bit, the fit-free view of the same
+//! samples the fitter sees.
 //!
 //! A log-log OLS slope over heteroscedastic per-step samples can read above
 //! 1 while every decade's *median* cost per bit is flat or falling; this
@@ -31,7 +31,7 @@ fn main() {
 
     let mut runner = TestRunner::deterministic();
     let strategy = any_family();
-    let mut by_kernel: BTreeMap<&'static str, Vec<(u64, u64)>> = BTreeMap::new();
+    let mut by_key: BTreeMap<(&'static str, bool), Vec<(u64, u64)>> = BTreeMap::new();
     for case in 0..programs {
         let family = strategy
             .new_tree(&mut runner)
@@ -44,14 +44,14 @@ fn main() {
         let samples = run_program(&program)
             .unwrap_or_else(|m| panic!("malformed program from {family:?}: {}", m.op));
         for s in samples {
-            by_kernel
-                .entry(s.kernel)
+            by_key
+                .entry((s.kernel, s.rejected))
                 .or_default()
                 .push((s.denom_bits, s.fuel));
         }
     }
 
-    for (kernel, samples) in &by_kernel {
+    for (&(kernel, rejected), samples) in &by_key {
         if !filter.is_empty() && !kernel.contains(&filter) {
             continue;
         }
@@ -61,7 +61,11 @@ fn main() {
             let key = (2.0 * (d.max(1) as f64).log10()).floor() as u32;
             buckets.entry(key).or_default().push(f as f64 / d as f64);
         }
-        println!("{kernel} ({} samples)", samples.len());
+        println!(
+            "{kernel}{} ({} samples)",
+            if rejected { " [err]" } else { "" },
+            samples.len()
+        );
         for (key, mut ratios) in buckets {
             ratios.sort_by(f64::total_cmp);
             let median = ratios[ratios.len() / 2];

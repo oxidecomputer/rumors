@@ -11,6 +11,7 @@ use crate::bands::Band;
 fn band_of(f: &Fit) -> Band {
     Band {
         kernel: "synthetic",
+        rejected: false,
         slope: f.slope,
         intercept: f.intercept,
         width_above: f.width_above,

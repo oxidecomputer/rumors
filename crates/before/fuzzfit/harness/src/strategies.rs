@@ -89,14 +89,16 @@ pub const BUDGET: Budget = Budget {
 
 /// The reach family's budget.
 ///
-/// Several times [`BUDGET`]'s fork cap, so the pair, fold, and query
-/// rows see denominators decades past the rest of the roster and the
-/// fitted *slope* — not the band's width — carries the asymptotic
-/// judgment there. Construction cost is quadratic in the reach (every op
-/// pays the current size), which is why this budget belongs to one
-/// low-weighted family instead of the whole roster.
+/// Sized to admit the family's full depth draw (256..=1792 spine forks)
+/// plus the cadence battery riding on it, so every kernel row — pair,
+/// fold, query, and the single-operand ticks/sends/recvs/splits — sees
+/// denominators decades past the rest of the roster and the fitted
+/// *slope*, not the band's width, carries the asymptotic judgment there.
+/// Construction cost is quadratic in the reach (every op pays the
+/// current size), which is why this budget belongs to one low-weighted
+/// family instead of the whole roster.
 pub const ESCALATION_BUDGET: Budget = Budget {
-    max_ops: 8_000,
+    max_ops: 9_000,
     max_ticks: 3_000,
     max_forks: 2_048,
     max_fold: 1_024,
@@ -244,7 +246,14 @@ pub enum Family {
     /// A size ladder of snapshot clocks lets the pair, fold, and query
     /// rows sample every half-decade bucket up to the escalated top —
     /// slope leverage for the wide-cloud kernels, and the large coupled
-    /// `Party::join` regime.
+    /// `Party::join` regime. A cadence battery rides the ladder so the
+    /// single-operand rows (ticks, sends, recvs, part splits and
+    /// reassembly, party splits and differences) sample the same reach,
+    /// and codec duplicates place aliased operands so every rejection arm
+    /// (`join`/`sync` on overlap, `without` on emptiness) is priced at
+    /// escalated size too — including one maximally-deferred overlap
+    /// (detectable only deep in the id tree) between the two finished
+    /// party halves.
     Escalation {
         /// Spine depth in forks: the reach knob.
         depth: u32,
@@ -390,6 +399,22 @@ impl B {
         }
     }
 
+    /// Duplicate a clock through its canonical codec (encode, then
+    /// decode the staged bytes).
+    ///
+    /// The API-reachable route to an aliased id inside one universe,
+    /// which is how the reach family constructs overlap — and with it
+    /// `join`/`sync` rejection arms at escalated size.
+    fn clock_dup(&mut self, src: Reg) -> Option<Reg> {
+        if self.ops.len() + 2 > self.budget.max_ops {
+            return None;
+        }
+        self.push(Op::ClockEncode { src });
+        let dst = self.alloc(Ty::C);
+        self.push(Op::ClockDecode { dst });
+        Some(dst)
+    }
+
     fn send(&mut self, c: Reg) {
         if self.room() {
             self.push(Op::ClockSend { c });
@@ -449,6 +474,39 @@ impl B {
         self.slots[v as usize] = Ty::Dead;
         let dst = self.alloc(Ty::C);
         self.push(Op::ClockFromParts { dst, p, v });
+        Some(dst)
+    }
+
+    // ── party ops ──
+
+    fn party_fork(&mut self, src: Reg) -> Option<Reg> {
+        if !self.room() || self.forks >= self.budget.max_forks {
+            return None;
+        }
+        self.forks += 1;
+        let dst = self.alloc(Ty::P);
+        self.push(Op::PartyFork { dst, src });
+        Some(dst)
+    }
+
+    /// `Party::join`: `b` is treated as dead under either outcome.
+    fn party_join(&mut self, a: Reg, b: Reg) {
+        if self.room() {
+            self.slots[b as usize] = Ty::Dead;
+            self.push(Op::PartyJoin { a, b });
+        }
+    }
+
+    /// Duplicate a party through its canonical codec (see [`B::clock_dup`]
+    /// for why: aliased regions are how one universe reaches the rejection
+    /// arms at scale).
+    fn party_dup(&mut self, src: Reg) -> Option<Reg> {
+        if self.ops.len() + 2 > self.budget.max_ops {
+            return None;
+        }
+        self.push(Op::PartyEncode { src });
+        let dst = self.alloc(Ty::P);
+        self.push(Op::PartyDecode { dst });
         Some(dst)
     }
 
@@ -1307,16 +1365,34 @@ fn construct(b: &mut B, family: &Family) -> Pools {
             };
             // Two scattered party accumulators over alternating spine
             // children: disjoint by linearity (one universe, no id sliver
-            // duplicated), each a scatter of O(depth) never-coalescing
-            // intervals — so every accumulation step below is a
-            // *successful* coupled `Party::join` at a strictly growing
-            // size, and the two finished halves are the large coupled
-            // query operands.
+            // duplicated — until the one deliberate poison below), each a
+            // scatter of O(depth) never-coalescing intervals — so every
+            // accumulation step below is a *successful* coupled
+            // `Party::join` at a strictly growing size, and the two
+            // finished halves are the large coupled query operands.
             let mut acc = [None::<Reg>, None::<Reg>];
-            // Snapshot cadence: enough kept clocks to populate every fit
-            // bucket across the reach while leaving the fold width for
-            // them all (the fold budget is 64).
+            // Snapshot cadence: ~40 kept clocks, enough to populate every
+            // half-decade fit bucket across the reach while staying far
+            // under the fold budget, so the escalated fold below can take
+            // the whole ladder.
             let keep_every = (depth / 40).max(4);
+            // The deep-overlap poison: one deep child's party rides into
+            // *both* lanes (via its codec duplicate), so the finished
+            // halves overlap in exactly one interval far down the id tree
+            // and the top-size rejections below do detection work that
+            // scales with the operands — the maximally-deferred overlap.
+            let poison_at = {
+                let i = 3 * depth / 4;
+                if i % keep_every == 0 {
+                    i + 1
+                } else {
+                    i
+                }
+            };
+            let mut cadence = 0u32;
+            // The previous rung's version: the meet ladder's second
+            // operand.
+            let mut prev_v: Option<Reg> = None;
             for i in 0..depth {
                 let Some(child) = b.fork(seed) else { break };
                 // One tick per level: the seed's id deepens every fork, so
@@ -1329,24 +1405,156 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                 if i % keep_every == 0 {
                     // The size ladder: each kept child freezes the seed's
                     // event tree at this depth, so the kept clocks span
-                    // the whole reach rather than just its endpoints.
-                    pools.clocks.push(child);
-                } else if let Some((p, _v)) = b.split_parts(child) {
-                    let lane = &mut acc[(i % 2) as usize];
-                    match *lane {
-                        None => *lane = Some(p),
-                        Some(a) => {
-                            if b.room() {
-                                b.slots[p as usize] = Ty::Dead;
-                                b.push(Op::PartyJoin { a, b: p });
+                    // the whole reach rather than just its endpoints. The
+                    // cadence battery rides here: the single-operand rows
+                    // (send/recv, version ticks, part splits and
+                    // reassembly, party splits and differences) each
+                    // sample this depth's operand size, so their reach is
+                    // the ladder's reach.
+                    b.send(child);
+                    if let Some(v) = b.version_of(child) {
+                        b.recv(seed, v);
+                        if let Some(lane) = acc[0] {
+                            b.version_tick(v, lane);
+                        }
+                        // The meet ladder: this rung's version against the
+                        // previous rung's, on a spare — so the widest
+                        // thin-per-case row (`version_meet`) carries
+                        // within-case shape evidence across the reach in
+                        // every escalated draw (the shape leg abstains
+                        // without it, leaving mild smooth superlinearity
+                        // to the point leg's much looser ceiling).
+                        if let Some(prev) = prev_v {
+                            if let Some(spare) = b.version_of(child) {
+                                b.version_meet(spare, prev);
                             }
                         }
+                        prev_v = Some(v);
+                    }
+                    // The party ladder, rotating arms over the lane so no
+                    // single cadence point pays them all: a fork rejoined
+                    // (split and reunite at size), balanced shares
+                    // rejoined, a difference that succeeds (a fresh share
+                    // minus the disjoint remainder is the share itself),
+                    // and a difference that rejects (the lane's codec
+                    // duplicate minus the lane is empty). Every arm leaves
+                    // the lane exactly as it found it, so the
+                    // accumulation's growth is untouched.
+                    if let Some(lane) = acc[(cadence % 2) as usize] {
+                        match cadence % 4 {
+                            0 => {
+                                if let Some(spare) = b.party_fork(lane) {
+                                    b.party_join(lane, spare);
+                                }
+                                // The join rejection at this size: the
+                                // lane's codec duplicate overlaps it
+                                // everywhere, so the rejection arm
+                                // samples every ladder rung, not just
+                                // the deferred-overlap top.
+                                if let Some(dup) = b.party_dup(lane) {
+                                    b.party_join(lane, dup);
+                                }
+                            }
+                            1 => {
+                                let n = 3u32;
+                                if b.forks + n <= b.budget.max_forks
+                                    && b.ops.len() + (n as usize) < b.budget.max_ops
+                                {
+                                    b.forks += n;
+                                    let dst = b.slots.len() as Reg;
+                                    for _ in 0..n {
+                                        b.alloc(Ty::P);
+                                    }
+                                    b.push(Op::PartyForks { dst, src: lane, n });
+                                    for k in 0..n {
+                                        b.party_join(lane, dst + k);
+                                    }
+                                }
+                            }
+                            2 => {
+                                if let Some(spare) = b.party_fork(lane) {
+                                    if b.room() {
+                                        b.slots[spare as usize] = Ty::Dead;
+                                        let dst = b.alloc(Ty::P);
+                                        b.push(Op::PartyWithout {
+                                            dst,
+                                            a: spare,
+                                            b: lane,
+                                        });
+                                        b.party_join(lane, dst);
+                                    }
+                                }
+                            }
+                            _ => {
+                                if let Some(dup) = b.party_dup(lane) {
+                                    if b.room() {
+                                        b.slots[dup as usize] = Ty::Dead;
+                                        let dst = b.alloc(Ty::P);
+                                        // Empty difference (equal
+                                        // regions): the rejection arm at
+                                        // this size, both operands
+                                        // lane-sized; the duplicate is
+                                        // consumed and the lane never
+                                        // touched.
+                                        b.slots[dst as usize] = Ty::Dead;
+                                        b.push(Op::PartyWithout {
+                                            dst,
+                                            a: dup,
+                                            b: lane,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // The from_parts ladder: split the snapshot and
+                    // reassemble it, so both part conversions sample this
+                    // size; the rebuilt clock is byte-identical to the
+                    // child and takes its ladder slot. (A split whose
+                    // reassembly ran out of room leaves no whole clock to
+                    // keep, so that ladder slot is skipped.)
+                    let snap = match b.split_parts(child) {
+                        Some((p, v)) => b.assemble_parts(p, v),
+                        None => Some(child),
+                    };
+                    if let Some(snap) = snap {
+                        // The clock rejection ladder: a codec duplicate
+                        // shares the snapshot's id — a single interval
+                        // deep in the tree — so `join`/`sync` must
+                        // descend to it to find the overlap: rejection
+                        // arms whose detection work scales with this
+                        // size.
+                        if cadence.is_multiple_of(2) {
+                            if let Some(dup) = b.clock_dup(snap) {
+                                if cadence.is_multiple_of(4) {
+                                    b.clock_join(snap, dup);
+                                } else {
+                                    b.sync(snap, dup);
+                                }
+                            }
+                        }
+                        pools.clocks.push(snap);
+                    }
+                    cadence += 1;
+                } else if let Some((p, _v)) = b.split_parts(child) {
+                    let lane_idx = (i % 2) as usize;
+                    if i == poison_at {
+                        if let (Some(dup), Some(other)) = (b.party_dup(p), acc[1 - lane_idx]) {
+                            b.party_join(other, dup);
+                        }
+                    }
+                    let lane = &mut acc[lane_idx];
+                    match *lane {
+                        None => *lane = Some(p),
+                        Some(a) => b.party_join(a, p),
                     }
                 }
             }
             // The coupled large-party rows: queries between the two
-            // disjoint halves at top size, then the largest coupled
-            // `Party::join` the harness constructs.
+            // halves at top size — each scan runs deep before the poison's
+            // single shared interval settles the answer — then the largest
+            // `Party::join` the harness constructs, the rejection arm at
+            // full scale with its overlap maximally deferred.
             if let [Some(pa), Some(pb)] = acc {
                 if b.room() {
                     b.push(Op::PartyIsDisjoint { a: pa, b: pb });
@@ -1354,10 +1562,7 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                 if b.room() {
                     b.push(Op::PartyCovers { a: pa, b: pb });
                 }
-                if b.room() {
-                    b.slots[pb as usize] = Ty::Dead;
-                    b.push(Op::PartyJoin { a: pa, b: pb });
-                }
+                b.party_join(pa, pb);
                 pools.parties.push(pa);
             }
             // Clock rows at top size: sync the seed against the deepest
@@ -1378,6 +1583,15 @@ fn construct(b: &mut B, family: &Family) -> Pools {
             let ladder = pools.clocks.clone();
             if let Some(folded) = b.join_all_versions(&ladder) {
                 pools.versions.push(folded);
+            }
+            // The coupled `Clock::join` success arm at scale: the two
+            // deepest snapshots are disjoint shares of one universe, so
+            // their join succeeds at top size (the consumed snapshot
+            // leaves the pools).
+            if pools.clocks.len() >= 3 {
+                let a = pools.clocks[pools.clocks.len() - 3];
+                let consumed = pools.clocks.remove(pools.clocks.len() - 2);
+                b.clock_join(a, consumed);
             }
         }
         Family::Independent { .. } => {

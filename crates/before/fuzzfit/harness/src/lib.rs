@@ -16,25 +16,26 @@
 //!
 //! - **Calibration** (`bin/calibrate`): size-stratified random sampling per
 //!   public operation, log-log regression of fuel against the operation's
-//!   denominated size, producing per-operation pinned bands (slope,
-//!   intercept, residual width) committed in [`bands`]. The fit is never
-//!   recomputed inside the enforcement leg: refitting on every run would
-//!   mask drift.
+//!   denominated size, producing pinned bands (slope, intercept, residual
+//!   width) committed in [`bands`], one per band key — kernel × outcome,
+//!   so an operation's rejection arm is priced separately from its success
+//!   path. The fit is never recomputed inside the enforcement leg:
+//!   refitting on every run would mask drift.
 //! - **Enforcement** (`tests/enforce.rs`): a proptest family draws random
 //!   programs from [`strategies`], executes them step-by-step in the guest,
 //!   and judges on two legs with different failure modes — every measured
-//!   step's fuel must land inside the pinned band for its size (the point
-//!   leg: above-band is a regression flag; below-band is a liveness flag,
-//!   since a band a dead measurement passes is decoration), and every
-//!   kernel's within-case bucket-median trend must not out-climb its
-//!   pinned slope ([`curve`], the shape leg: a mechanism that tilts into
-//!   a wide band keeps its point residuals small, and only the trend sees
-//!   it). A staleness cross-check refits a deterministic prefix of the
-//!   calibration stream and compares lines against the pin, so calibration
-//!   drift fails loud instead of silently widening the gap between pin and
-//!   reality. Fuel determinism makes replay exact, so a failure shrinks to
-//!   a minimal out-of-band shape and rides along as a committed proptest
-//!   seed.
+//!   step's fuel must land inside the pinned band for its key at its size
+//!   (the point leg: above-band is a regression flag; below-band is a
+//!   liveness flag, since a band a dead measurement passes is decoration),
+//!   and every key's within-case bucket-median trend must not out-climb
+//!   its pinned slope ([`curve`], the shape leg: a mechanism that tilts
+//!   into a wide band keeps its point residuals small, and only the trend
+//!   sees it). A staleness cross-check refits a deterministic prefix of
+//!   the calibration stream and compares lines against the pin on every
+//!   covered key, so calibration drift fails loud instead of silently
+//!   widening the gap between pin and reality. Fuel determinism makes
+//!   replay exact, so a failure shrinks to a minimal out-of-band shape and
+//!   rides along as a committed proptest seed.
 //!
 //! Every program executes twice: natively (the mirror, which computes each
 //! step's denominator from real operand sizes and the expected result bytes)
