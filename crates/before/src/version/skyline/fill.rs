@@ -248,8 +248,9 @@ struct FillWalk<'a> {
     /// evaluates, and the walk consumes each entry exactly once on
     /// arrival — so no position is pre-scanned twice.
     memo: Memo,
-    /// The relation of the walk's ledger reference to its live state:
-    /// each consume re-anchors it to the consumed site's minimum, and
+    /// The relation of the walk's ledger reference to its live state.
+    ///
+    /// Each consume re-anchors it to the consumed site's minimum, and
     /// each site's range close re-anchors it from the walk's own web
     /// (which holds that site's minimum natively at that instant), so
     /// it is exactly the queue-front link's reference at every
@@ -948,23 +949,27 @@ struct PreScan<'a, 'm> {
     pending_rel: Option<Accum>,
     /// The ledger under construction.
     memo: &'m mut Memo,
-    /// The sibling-chain keeper for the level the head serves:
+    /// The sibling-chain keeper for the level the head serves.
+    ///
     /// `m_latest − m_first` over the level's recorded sites, folded
     /// forward one link width per sibling record. It dies into the
     /// level's deferred first-child link at the forest parent's close.
     keeper: Accum,
-    /// The queue slot of the head's level's first site, whose link
-    /// (`m_first − m_parent`) is deferred to the parent's own record —
-    /// the one reference not final at the child's close.
+    /// The queue slot of the head's level's first site.
+    ///
+    /// Its link (`m_first − m_parent`) is deferred to the parent's
+    /// own record — the one reference not final at the child's close.
     first_slot: usize,
     /// The site-nesting level the head currently serves (0: the
     /// outermost site's own level, whose reference is the scan-entry
     /// height and never defers).
     head_level: u32,
-    /// Suspended outer levels, innermost last: the outer head's final
-    /// value (`m_first(inner) − m_ref(outer)` — immutable once pushed,
-    /// both minima fixed), the outer keeper, the outer first slot, and
-    /// the outer level. LIFO by the site forest's nesting.
+    /// Suspended outer levels, innermost last.
+    ///
+    /// Per entry: the outer head's final value (`m_first(inner) −
+    /// m_ref(outer)` — immutable once pushed, both minima fixed), the
+    /// outer keeper, the outer first slot, and the outer level. LIFO
+    /// by the site forest's nesting.
     suspend: Vec<(Accum, Accum, usize, u32)>,
 }
 
@@ -1140,10 +1145,12 @@ impl PreScan<'_, '_> {
         self.stack.follower_set(REL_FOLLOWER, zero);
     }
 
-    /// Resolve the innermost suspended level: its forest parent's
-    /// minimum is final — it is the tracked minimum right now — so
-    /// the deferred first-child link is one fold away, and the outer
-    /// head resumes through the suspended diff.
+    /// Resolve the innermost suspended level.
+    ///
+    /// Its forest parent's minimum is final — it is the tracked
+    /// minimum right now — so the deferred first-child link is one
+    /// fold away, and the outer head resumes through the suspended
+    /// diff.
     fn resolve_inner(&mut self) {
         // x := (min − m_last) + (m_last − m_first) = min − m_first;
         // the keeper dies into it (its buffer is re-armed for the
