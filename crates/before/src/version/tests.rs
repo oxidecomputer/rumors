@@ -13,7 +13,8 @@ use super::{skyline, Batch, Ranked, Version};
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
 use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
 use crate::testing::generators::{
-    arb_oracle_party_nonempty, arb_oracle_version, arb_shape, shape_party, shape_version, Shape,
+    arb_oracle_party_nonempty, arb_oracle_version, arb_shape, bushy_expand_party, shape_party,
+    shape_version,
 };
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
@@ -722,18 +723,23 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `grow`'s multi-region cost comparison is `O(n + m)`.
+    /// Complexity. The inflation's multi-region cost fold is `O(n + m)`.
     ///
-    /// Ticking the empty history (`Leaf(0)`) against a deep *bushy* id forces
-    /// `grow` (here `fill` is a no-op: the id is a node over an event leaf),
-    /// and the bushy id's many owned regions at varying depths make the probe
-    /// genuinely weigh two feasible children at each branch (`cl < cr` with
-    /// neither a `COST_MAX` loser). Steps stay linear from `scale` to
-    /// `4 * scale`.
+    /// Ticking the empty history (`Leaf(0)`) against a deep *bushy* id takes
+    /// the grow branch (`fill` is a no-op: the id is a node over an event
+    /// leaf), and the bushy subtree's many owned regions at varying depths
+    /// make the walk's route fold genuinely weigh two feasible children at
+    /// each branch (`cl < cr` with neither a `COST_MAX` loser). The id roots
+    /// the bushy subtree beside one owned terminal
+    /// ([`bushy_expand_party`]), pinning the cheapest inflation — hence the
+    /// splice's one skip of the whole off-path bushy subtree — to the same
+    /// route at every scale: the splice walks only the chosen path, so a
+    /// scale-dependent route would swing a two-point step ratio by up to
+    /// the input's own size. Steps stay linear from `scale` to `4 * scale`.
     #[test]
     fn grow_bushy_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
-            let p = shape_party(Shape::Bushy, s);
+            let p = bushy_expand_party(s);
             let mut v = Version::new(); // Leaf(0): fill is a no-op, so grow runs
             steps_of(|| {
                 v.tick(&p);

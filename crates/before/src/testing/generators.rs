@@ -88,6 +88,21 @@ fn bushy_party(lo: usize, leaves: usize) -> oracle::Party {
     P::node(bushy_party(lo, half), bushy_party(lo + half, leaves - half))
 }
 
+/// A bushy id rooted beside one owned terminal: `(bushy(scale), 1)`.
+///
+/// The expansion-cost complexity pin's shape: the bushy left subtree
+/// makes the tick walk's route fold weigh two feasible children at
+/// every branch, while the right terminal is the cheapest inflation at
+/// every scale — so the splice's chosen path (and its one skip of the
+/// whole off-path bushy subtree) is scale-independent, which a
+/// two-point step ratio needs: the splice walks only the chosen path,
+/// so a route that drifted with scale would swing the measured
+/// constant by up to the input's own size.
+pub(crate) fn bushy_expand_party(scale: usize) -> Party {
+    use oracle::Party as P;
+    from_oracle_party(&P::node(bushy_party(0, scale + 1), P::Leaf(true)))
+}
+
 /// Build a normal-form event tree of `shape` sized linearly in `scale`.
 ///
 /// The spines have `scale` internal nodes (`2*scale + 1` nodes total); the

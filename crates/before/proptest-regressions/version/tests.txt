@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc b187e79143e8821fb0e3c7c5d070a90ef9d77161138576d8c601af8c35253c26 # shrinks to ops = [Fork(0), Send(5, 1), Fork(1), Fork(0), Join(0, 3), Fork(1), Join(1, 2), Send(4, 0)], i = 0, j = 0, k = 46
+cc f2e1622bbf94d90894d55b51d4dda12cae2f3f7d6d0fd55126c22d635387dfa5 # shrinks to scale = 125
