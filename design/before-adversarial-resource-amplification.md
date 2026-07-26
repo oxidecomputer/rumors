@@ -379,6 +379,46 @@ board cells named.
   totality mechanism applied to the gate suite; until then the
   board's tick × scan floors and touch column carry the cross-op
   cover. Not exploits: ratchets against the F2 migration genre.
+- **Iterated-operation size trajectories** (2026-07-26, the #38
+  ORBIT PINS round; no amplification found — six committed
+  deterministic pins, one per orbit genre): the board prices single
+  calls, and a single-call bound does not preclude compounding
+  across calls — an operation linear per call can grow its own next
+  input until iterated application is quadratic in total. The tick
+  orbit pins (`tick_orbit_growth_is_transient_plus_log`,
+  `tick_deep_orbits_stay_banded`) were the in-tree precedent; this
+  round landed the remaining legs as byte-exact trajectory pins
+  (deterministic schedules, shape asserted at every step or at
+  octave resolution, each pin carrying its liveness floor).
+  **Fork orbits** (`party::tests`): the chain and the fan are
+  exactly affine — both halves read exactly `2 + 2k` bits at the
+  k-th fork over 512 steps (one two-bit level per split, nothing
+  compounding), and the fan unwinds along the same trajectory to a
+  byte-identical seed. **Fork+join round trips** (`clock::tests`):
+  the untick'd round trip is byte-stationary over 256 rounds; the
+  ticked variant returns the party byte-identical every round while
+  the version stays one fixed two-leaf scaffold whose counter costs
+  exactly `7 + 2⌊log2 k⌋` bits over 512 rounds — gamma width, never
+  a ratcheting tree. **The paper's §6 churn scenario**
+  (`churn_orbit_sizes_reach_a_bounded_band`; fork + tick +
+  anonymous exchange + retiring join per round on a fixed
+  arithmetic schedule, population 8, 4096 rounds): max id bits
+  plateau in a fixed band — octave maxima [20, 26, 42, 70, 92,
+  100, 122, 134, 132, 132], tail no higher than the plateau's
+  first octave — and max version bits grow per doubling only
+  ([24, 58, 102, 126, 176, 226, 270, 335, 383, 425]; tail steps
+  65 → 48 → 42 bits/octave, logarithmic). **The paper's §6 static
+  scenario** (`static_orbit_ids_freeze_and_versions_grow_log`,
+  8 peers, 4096 rounds): every id byte-identical forever, max
+  version bits monotone and exactly `8i − 4` over the octave
+  ending at round `2^i` — 8 bits per doubling, the counters'
+  gamma widths. The paper's "stabilizes with a minor logarithmic
+  component" is now a committed criterion, not a chart
+  (`examples/space_consumption.rs` remains the statistical
+  reproduction). Board and bench-judge roster untouched: orbits
+  are a test-surface pin genre, not board rows — single-call
+  denomination stays the board's job, trajectory shape the
+  orbits'.
 
 ## 6. The design invariant and the denomination criterion
 
