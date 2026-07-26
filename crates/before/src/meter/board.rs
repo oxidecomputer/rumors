@@ -114,12 +114,12 @@
 //!   fork rows' heap floor, at two derivations. The delta-folding kernels
 //!   (the comparison sweep, the merge emitters, the query rank folds, the
 //!   tick walk, the text parse) land every stored delta in the running
-//!   accumulator, at least one digit touch per delta ([`stored_deltas`]) —
-//!   the same one-per-delta floor the envelope suite's flatness pins
+//!   accumulator, at least one digit touch per stored delta code — the
+//!   same one-per-delta floor the envelope suite's flatness pins
 //!   commit. The validator batches word-scale deltas in the accumulator's
 //!   lazy zone, so the decode rows floor only what it must fold digit by
 //!   digit: one touch per 64 bits of every stored code wider than the
-//!   machine-word bound ([`touch_wide_stream`], the stream-derived
+//!   machine-word bound (the stream-derived
 //!   convention the tick rows' limb floor uses). Either floor is what a
 //!   representation change trips deliberately: height or difference state
 //!   moving off the metered accumulator into an unmetered big integer is
@@ -1460,10 +1460,12 @@ const NA_TOUCH_PROJECTION: &str = "the projection may keep owned regions verbati
      boundaries through plain arithmetic: no accumulator fold is forced";
 
 /// The decode rows' touch floor: one digit touch per 64 bits of every
-/// stored code wider than the machine-word bound, or NA when every code is
-/// word-scale (the same stream-derived convention as the tick rows' limb
-/// floor — a tree-derived floor would demand fold work no conforming
-/// validator does).
+/// stored code wider than the machine-word bound, or NA when every code
+/// is word-scale.
+///
+/// This is the stream-derived convention the tick rows' limb floor uses:
+/// a tree-derived floor would demand fold work no conforming validator
+/// does.
 fn touch_wide_stream(v: &Version) -> Liveness {
     let limbs = mandatory_limbs_stream(v);
     if limbs == 0 {
@@ -1594,9 +1596,10 @@ fn seg_ceiling_only() -> Liveness {
 }
 
 /// The floors of the many rows that must walk their operands but are forced
-/// into neither allocation nor arithmetic: scan floored, heap and limb NA,
-/// the touch declaration the caller's (each walk row answers the
-/// accumulator question for its own kernel).
+/// into neither allocation nor arithmetic: scan floored, heap and limb NA.
+///
+/// The touch declaration is the caller's: each walk row answers the
+/// accumulator question for its own kernel.
 fn walk_floors(packed_bytes: usize, touch: Liveness) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
