@@ -10,7 +10,7 @@
 //! one output plateau — owned exactly where `self` is and `other` is
 //! not — is appended per elementary interval at the deeper cursor's
 //! depth, and the collapsing output builder
-//! ([`IdSkylineBuilder`](super::build::IdSkylineBuilder)) re-derives the
+//! ([`IdSkylineBuilder`]) re-derives the
 //! canonical id from the depth sequence. What the event sweep's
 //! accumulator does for integer heights, a single owned bit per cursor
 //! does here: the boolean semiring needs no running difference, only the

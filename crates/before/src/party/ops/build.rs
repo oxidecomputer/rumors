@@ -233,8 +233,9 @@ impl IdSkylineBuilder {
 
     /// Close finished subtrees upward from a completed child of kind
     /// `kind`: flip a left child to its right sibling and stop, or pop a
-    /// right child's level, normalize its node, and continue with the
-    /// node's own kind. The root's completion records the result.
+    /// right child's level, normalize its node, and continue upward.
+    ///
+    /// The root's completion records the whole tiling's result.
     fn close_up(&mut self, mut kind: Built) {
         loop {
             match self.path.pop() {
