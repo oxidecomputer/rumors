@@ -1036,8 +1036,9 @@ proptest! {
 /// WITNESS — the minimal reproduction of the trailing-zero-byte defect that the
 /// two mutation proptests above (bit-flip and truncation) surface.
 ///
-/// `pack_to_writer` zero-pads a canonical stream only to the next byte boundary,
-/// so a canonical encoding has **at most 7 trailing zero bits**. The original
+/// A canonical encoding zero-pads only to the next byte boundary (the stored
+/// raw slice covers exactly the live bits' bytes), so it has **at most 7
+/// trailing zero bits**. The original
 /// [`require_zero_padding`] (`codec.rs`) only checked that the bits after the
 /// tree are all zero — it never bounded how *many* there are, so appending one
 /// or more whole `0x00` bytes (≥8 zero bits) was wrongly accepted, making

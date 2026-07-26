@@ -441,10 +441,7 @@ impl Party {
     /// assert_eq!(Party::decode(&p.encode()[..]).unwrap(), p);
     /// ```
     pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        self.encode_to(&mut bytes)
-            .expect("writing to a Vec is infallible");
-        bytes
+        self.as_bytes().to_vec()
     }
 
     /// Encode a [`Party`] to an arbitrary writer.
@@ -456,7 +453,7 @@ impl Party {
     /// assert_eq!(buf, Party::seed().encode());
     /// ```
     pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        codec::pack_to_writer(&self.0, writer)
+        writer.write_all(self.as_bytes())
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before its zero-pad
@@ -535,13 +532,11 @@ impl Party {
     /// assert_eq!(p.as_bytes(), p.encode().as_slice());
     /// ```
     pub fn as_bytes(&self) -> &[u8] {
-        let raw = self.0.as_raw_slice();
-        debug_assert_eq!(
-            raw,
-            self.encode().as_slice(),
-            "non-canonical Party storage: as_bytes must equal encode (dead bits not zeroed)",
+        debug_assert!(
+            codec::dead_bits_are_zero(&self.0),
+            "non-canonical Party storage: dead bits past the live length must be zero",
         );
-        raw
+        self.0.as_raw_slice()
     }
 
     /// The packed preorder bit stream (no trailing padding). Internal.
