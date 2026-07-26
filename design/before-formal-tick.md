@@ -152,7 +152,10 @@ statement of record.
 ## 5. Phases and gates
 
 **Phase 0 — scoping probe and statement of record.** Deliverables:
-(a) the statement-of-record document, committed; (b) executable Lean
+(a) the owner's ratification read of `design/before-tick-cost-spec.md` —
+the owner fixes T-tick's English statement (theorem, I4′, the hop table)
+as this campaign's input of record before it is transcribed; then the
+statement-of-record document, committed; (b) executable Lean
 transcriptions of the reference model (paper semantics over trees) and
 the byte-level decode/accept spec, calibrated against the oracle and the
 kernel's decode on committed families + fuzzed vectors; (c) a skeleton of
@@ -228,3 +231,7 @@ durable map from theorem names to English claims.
   total. The invariants are semantic safety rules, not soundness rules.
 - 2026-07-26 (owner): Theorem B's honesty clause — the proof binds the
   transcription; the empirical fleet remains the kernel's guard.
+- 2026-07-26 (owner): the tick cost spec's owner ratification pass moves
+  into this campaign as Phase 0's first deliverable — one read serves as
+  both the spec's ratification and this campaign's input fixing; the
+  hardening campaign no longer tracks it.
