@@ -295,6 +295,15 @@ const OK: i64 = 0;
 /// The guest's operation-rejection code (`ERR_OP`).
 const ERR_OP: i64 = -2;
 
+/// The seed ops' nominal denominator: one byte.
+///
+/// `Clock::seed`/`Party::seed` take no operand, so the operand-bits
+/// criterion has nothing to price; a fixed nonzero denominator keeps
+/// the log-log point finite. The exact value carries no information —
+/// the seed rows are constant-classified (fuel judged at this single
+/// size, no slope to distort), so any positive constant serves.
+const SEED_DENOM_BITS: u64 = 8;
+
 /// The native mirror: executes programs natively, computing denominators
 /// and expected outcomes for the guest replay.
 #[derive(Default)]
@@ -399,11 +408,11 @@ impl Mirror {
         match *op {
             Op::ClockSeed { dst } => {
                 self.put(dst, NVal::C(Clock::seed()));
-                done(8, OK)
+                done(SEED_DENOM_BITS, OK)
             }
             Op::PartySeed { dst } => {
                 self.put(dst, NVal::P(Party::seed()));
-                done(8, OK)
+                done(SEED_DENOM_BITS, OK)
             }
             Op::ClockTick { c } => {
                 let denom = self.clock(c).ok_or_else(malformed)?.encoded_bits() as u64;
