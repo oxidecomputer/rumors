@@ -1411,3 +1411,16 @@ fn id_text_parser_error_precedence_pins() {
         super::parse_id_str("(1, (0, 1))").expect("compact form")
     );
 }
+
+/// A 100k-deep id in paper notation renders and parses without native
+/// recursion: the text parser's explicit frame stack carries the nesting
+/// (the text mirror of `clock::tests::deep_tree_stack_safety`'s
+/// packed-codec leg), so parse depth can never overflow the call stack.
+#[test]
+fn deep_id_text_roundtrip() {
+    const DEPTH: usize = 100_000;
+    let party = deep_left_spine_party(DEPTH);
+    let text = party.to_string();
+    let parsed: Party = text.parse().expect("a deep rendered id parses");
+    assert_eq!(parsed, party);
+}
