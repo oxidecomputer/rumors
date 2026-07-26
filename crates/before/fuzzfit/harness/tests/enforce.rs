@@ -30,9 +30,11 @@ fn bands_are_pinned() {
 }
 
 /// The fuel meter itself is alive: an empty kernel call costs a small,
-/// positive, exact amount. A zero here means fuel accounting is off (every
-/// ceiling would pass vacuously); a large value means call overhead has
-/// grown into the measurements.
+/// positive, exact amount.
+///
+/// A zero here means fuel accounting is off (every ceiling would pass
+/// vacuously); a large value means call overhead has grown into the
+/// measurements.
 #[test]
 fn fuel_metering_is_live() {
     let mut guest = Guest::new();
@@ -49,10 +51,11 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
     /// Every public operation stays inside its pinned fuel band on shapes
-    /// nobody chose: random programs over the whole vocabulary, coupled and
-    /// cross-universe operand regimes alike. Above-band is an asymptotic
-    /// regression; below-band is a liveness failure; a kernel with no band
-    /// is an unpriced operation (totality).
+    /// nobody chose: random programs over the whole vocabulary, coupled
+    /// and cross-universe operand regimes alike.
+    ///
+    /// Above-band is an asymptotic regression; below-band is a liveness
+    /// failure; a kernel with no band is an unpriced operation (totality).
     #[test]
     fn fuel_stays_in_the_pinned_bands(program in any_program()) {
         let samples = run_program(&program)

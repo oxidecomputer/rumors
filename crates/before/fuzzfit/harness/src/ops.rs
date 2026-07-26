@@ -9,8 +9,8 @@
 //! # Denomination
 //!
 //! Every measured step is judged against its *denominated size* in bits,
-//! following the parent crate's criterion of record (the design invariant's
-//! §6 rules): packed operand bits for every operation except the classes
+//! following the parent crate's denomination criterion of record: packed
+//! operand bits for every operation except the classes
 //! whose mandatory output is asymptotically larger than any constant times
 //! their input —
 //!
@@ -328,7 +328,7 @@ impl Mirror {
         }
     }
 
-    /// A rank's §6 value-content proxy: bits of its decimal rendering.
+    /// A rank's value-content proxy: bits of its decimal rendering.
     fn rank_bits(r: &Rank) -> u64 {
         (r.to_string().len() as u64) * 8
     }

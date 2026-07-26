@@ -83,8 +83,9 @@ proptest! {
 
 /// The judgment's own tripwire: against a pinned-linear band, a quadratic
 /// fuel reading at scale must read `Above` and a dead-meter reading must
-/// read `Below` — the two flags the enforcement leg exists to raise. A
-/// judgment that passes either is decoration, so this fails the suite
+/// read `Below` — the two flags the enforcement leg exists to raise.
+///
+/// A judgment that passes either is decoration, so this fails the suite
 /// before any fuzzing runs.
 #[test]
 fn judgment_flags_quadratic_and_dead_readings() {
