@@ -361,7 +361,14 @@ Every hop kind of I4′'s enumeration appears in exactly one clause.
 Kernel realization: the `watermark` module's latent register, with
 `sign_dominates_at` and `merge_into_wider` as the accum-layer
 primitives; validated [measured] by the flipped pins and the green
-bands (§9 round 6).
+bands (§9 round 6). *Amendment 2026-07-26 (round 7)*: the undercut
+clause's "pays dying digits" now holds at the kernel — `propagate`'s
+cascade folded the wide surviving residue into each popped narrow
+dying difference until round 7 inverted the direction (top-index
+domination decides each hop in O(1) before any fold; the dying
+difference's digits fund each pass-through hop; the residue's one
+terminal fold funds the stop) — [measured at kernel] on the
+ascending-cliff family (§9 round 7).
 
 **L2 (emission pricing) [measured-on-model — VALIDATED at attack
 round two on the limb-faithful composed model]**: every materialized
@@ -547,7 +554,7 @@ bound).
 | dimension | target profile | status |
 |---|---|---|
 | scan bits | O(n + m), constant ≤ 2 reads/position + flat ×2 sibling scans | **[measured]** landed, e 1.00 both arms |
-| limb ops | **T-tick: amortized O(n + m)** | **[measured at kernel, round 6]**: I4′/L1′ + L2 realized by the latent-boundary register; linear on every committed family including the close-reveal genre (reveal-comb ×2.00 across the joint doubling, pure-comb flat per byte, hifloor/mirror-wide/fanout inside their bands); the model tier validated the discipline composed across the fourteen committed schedules plus the seven round-6 attack schedules |
+| limb ops | **T-tick: amortized O(n + m)** | **[measured at kernel, rounds 6–7]**: I4′/L1′ + L2 realized by the latent-boundary register and round 7's fold-direction cure; linear on every committed family including the close-reveal genre (reveal-comb ×2.00 across the joint doubling, pure-comb flat per byte, hifloor/mirror-wide/fanout inside their bands) and the undercut-cascade genre (ascend-cliff ×2.00 across the joint doubling); the model tier validated the discipline composed across the fourteen committed schedules plus the seven round-6 attack schedules |
 | heap | O(depth) frames + O(n + m) total digits; builder output | **[derived]** L5, pinned by existing heap columns |
 | segments | today O(paired depth) recursion (red-pinned at ×4, owner **P4.2**); eventual profile **O(1) grown segments** via explicit stacks — the watermark stack and the grow probe's bit-coded frames are the natural vehicle, so P4.2 implements against this line. Sequencing note (attack round one, A2): on the fused walk, the route-DP fold reads skipped id subtrees per-bit on leaf-under-internal-id arms — P4.2's §11.4 word-scale skip on those arms interacts with the fused path; P4.2's sequencing decision must name the fused walk, and the before/after table judges the interaction | **[measured]** red today; target [derived] |
 | denominator | **input-denominated stands** (n + m packed bits; §6's do-not-re-denominate list). Supporting lemma L6 **[measured, pinned; the additive form is REFUTED]**: `size(tick(e, i)) ≤ 2·size(e) + 4·size(i) + 32` (`tick_output_is_input_bounded`, committed with its shrunk counterexample seeds — grow's zero leaf and a raise's landing can each re-code one delta against a wide neighbor, duplicating one input code's width once, so no additive slack survives; the honest constant is the factor 2, realized at 1.5 by construction). Fill's output deltas otherwise telescope input deltas; grow adds one increment or one expansion chain ≤ O(m). The pricing chain carries the constant: Σ emitted ≤ 2·input + O(id), still input-denominated. The ORBIT is separately pinned (the round-3 lemma below): the factor cannot compound along `tick^k`. | |
@@ -809,6 +816,18 @@ measured constants sit 1.8–5× above. The four wide×deep judge
 cells are rostered; mirror-narrow and staircase are not
 (wall-linear legs — their reds are board-column reds the judge
 cannot see).
+
+*Amendment 2026-07-26 (round 7, the witness-axis advisory)*: an
+undercut/propagation witness needs both a depth axis and a
+residue-width axis before the genre is covered. The committed
+staircase descends, so every residue it propagates is narrow (unit
+deltas — it prices hop *count*, never hop *width*), and the family
+that reached round 6's disclosed fold-direction divergence is its
+ascending mirror (`ascend_cliff`: ascending wide leaves stacking
+k − 1 nonzero unit differences under one wide terminal undercut —
+narrow dying differences, wide surviving residue). One axis per
+family is fine; the genre needs both axes present in the committed
+set.
 
 **The cure's acceptance**: all four wide×deep cells AND the
 descending-staircase cells flip (or stay) green at both scales
@@ -1407,3 +1426,99 @@ before/after table judges (§6). None of these is a model-tier open
 clauses rather than new surface. Recommendation to the coordinator:
 declare convergence, commit the spec, and charter the cure against
 revision 3.
+
+**Round 7** (the propagate fold-direction cure: red pin → cure →
+flip, 2026-07-26). Round 6's disclosed kernel–prose divergence —
+recorded there as "unreachable by any committed family, left as a
+named candidate for the next attack round" — was reachable after
+all: the adversarial review of the round-6 landing constructed the
+family, and this round's re-measurement reproduced its numbers
+exactly. Round 6's closing claim ("no kernel-expressible schedule
+read superlinear on the cured kernel") was bounded by the committed
+schedule set and is corrected by this record; the round-6 text
+stands as written.
+
+- **The family**: `ascend_cliff(k, b)` × `ascend_cliff_id(k)` — a
+  right spine of k ascending wide left leaves `2^b + i` over a
+  terminal 0-cliff, id descending right to a `(1, 0)` over the
+  cliff. Each ascending unit step arms its own node's frame one
+  above the enclosing minimum (k − 1 nonzero unit boundary
+  differences, no zero runs), and the cliff's single wide undercut
+  (residue `2^b + k`) propagates through all of them. Input and
+  output are both Θ(k + b) (the stored skyline stream pays the
+  width in O(1) codes; the tick grows the cliff to `(0, 1, 0)`), so
+  the kernel's per-hop residue-width fold read Θ(k·b) through the
+  I/O denominator: 203,435 → 790,851 touches across (k, b) =
+  (1,000, 2,048) → (2,000, 4,096) — ×3.89 on a ×2.00 input,
+  [measured, three identical runs] — with the leveled control
+  (every leaf `2^b + 1`: identical spine, arming schedule, and
+  undercut; the difference stack one compressed zero run the
+  residue passes whole) flat at 4.02 → 4.01 touches/byte. The red
+  pin landed first (generators oracle-verified across the pools at
+  two scales plus a 4096-node closed-form deep witness; the ≥ ×3.5
+  signature assertion; board rows at 225 cells; the control's
+  green band), the cure second, the flip third — instruments
+  before cures, the round-5 sequence.
+- **The cure, kernel-realized**: `propagate`'s hop inverts to I4′
+  rule 2. Top-index domination (`sign_dominates_at`, the |s| ≥ 3
+  read at the other side's top index) decides each hop's direction
+  in O(1) before any fold: a dominated difference dies by its one
+  fold into the surviving residue (the dying side's digits; the
+  residue stays positive by the domination bound, no sign re-read
+  needed), a dominating difference absorbs the dying residue's
+  single terminal fold and survives shrunk, and only comparable
+  scales run the fold-then-sign path, the near-cancellation
+  pricing either direction. Width guards (two digits of clearance,
+  read off `digit_count` for free) skip domination reads a top
+  index could never decide, so comparable-scale hops pay no extra
+  touch — [measured] every committed MEASURED reading in the meter
+  suite is byte-identical across the cure except the ascending
+  cliff itself; the at-risk floor protocol found nothing to re-pin.
+  The model sketch's negative-residue convention was NOT needed:
+  the dominated-difference arm keeps the residue positive by
+  construction, and the comparable-scale arm's negate is the old
+  path's, funded by the near-cancellation (a dated
+  deviation-or-confirmation note in round 6's genre: the kernel
+  realization is cheaper than the sketch, value-equal). Byte
+  identity across the full differential suite (fill oracle,
+  exhaustive small scope, arbitraries, organic histories, deep
+  witnesses, orbit pins): the three-way branch tests the same
+  quantity and every pushed survivor holds the same value; only
+  buffer traffic changes.
+- **The flip** [measured, three identical runs, 2026-07-26]:
+  203,435 → 790,851 (×3.89) became 12,626 → 25,234 — ×2.00 exactly
+  on the ×2.00 input — re-pinned ≤ ×2.5 plus an absolute band
+  (31,542/18,925). The control's band is untouched (its readings
+  are byte-identical across the cure: the zero-run cascade never
+  enters the changed arms).
+- **The board account** (two byte-identical runs per scale): 221 →
+  225 cells, 204/17 → 206/19 default, 193/28 → 193/32 record;
+  every pre-existing cell byte-identical at both scales, the
+  movement exactly the four new cells. The cure moved the
+  ascend-cliff heap column from e 1.82 at 413.2 B/B (the old fold
+  direction widened every popped difference's buffer to residue
+  width — the same defect was a heap amplifier, never separately
+  pinned) to e 1.00 at 64.4 B/B. Two residual reds are owned:
+  the ascend-cliff heap *constant* (64.4/66.7 B/B, exponent 1.00 —
+  the first committed family to hold k simultaneously-armed
+  nonzero differences, one pooled unit-width buffer each; linear
+  in the input, honestly over the 16 B/B ceiling, the
+  mirror-narrow genre) and the record-scale segments onset on both
+  new families (the recursion-depth genre, P4.2-owned, as every
+  tick-walk family). The plateau control reads green on every
+  counter column at the default scale. The judge roster is
+  unchanged: the new cells enter green-by-default and the cured
+  time leg judges them at the general ceiling.
+
+**Per-lemma status after round 7**: L0 [measured, landed] — held;
+**L1′/I4′ [measured at kernel: the undercut clause's "pays dying
+digits" now true in the code, linear on every committed family
+including both undercut-cascade axes]**; L2/L4's memo realization
+[measured — held, byte-identical readings]; L3 [derived] + the
+domination ladder's new site (the propagate hop, enumerated at its
+realization); L5 [measured — the cure removed the cascade's
+buffer-widening; the k-live-differences heap constant is an owned
+board red, linear]; L6 [measured, pinned, multiplicative] — held;
+the orbit lemma [measured, pinned] — held; **T-tick: the theorem
+under I4′, [measured at kernel] on every committed family
+(2026-07-26, round 7)**.

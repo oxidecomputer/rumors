@@ -79,6 +79,7 @@ share:
 | memo comb | shallow and covering left-full sites interleaved per level | consumption order Θ(d) from recording order — refutes chain-walking resolutions under every record-to-record anchoring |
 | reveal comb / hifloor | `k` sibling left-full sites sharing one `2^b` minimum over a zero floor, the left-leaning spine closing each site's frame back into the floor frame between consumes; the control's floor raised to `2^b − 2` | the tick walk's width-circulation cure (#34 rounds 5–6: read Θ(k·b) touches on a Θ(k + b) input AND output until the latent boundary register landed; pinned flat ×2.00 across the joint doubling since, 2026-07-26); the narrow-gap control is flat — the wide gap was the driver, not the shape |
 | pure comb | the same left-leaning comb with bare `2^b` leaves and no left-full site anywhere | the base watermark stack's own arm-move + close-pop cycle in isolation (~2 wide folds per site until the register landed; pinned flat per byte since, 2026-07-26) — the layer the frame ledger amplified ~10× |
+| ascending cliff / plateau | `k` ascending wide left leaves `2^b + i` down a right spine over a terminal 0-cliff, id descending to the cliff; the control's leaves leveled at `2^b + 1` | the undercut cascade's fold direction (#34 round 7: one wide residue through k − 1 nonzero unit differences read Θ(k·b) touches on a Θ(k + b) input AND output until propagate's hops folded dying-side digits under domination decisions; pinned flat ×2.00 across the joint doubling since, 2026-07-26); the leveled control (differences all zero, the residue passes the compressed run whole) is flat — the nonzero hop schedule is the axis, not the undercut or the spine |
 
 ## 3. Findings ledger
 
@@ -200,6 +201,33 @@ board cells named.
   refutation and leave it with the cure's linear readings. A
   pricing obligation under §6, not an exploit (the shape needed the
   local id's site forest).
+- **Propagate's fold direction** (2026-07-26; round 6's disclosed
+  kernel–prose divergence, constructed into a reachable family by
+  the round-6 landing's adversarial review; **CURED 2026-07-26** —
+  spec §9 round 7): the undercut cascade folded the wide surviving
+  residue into each popped narrow dying difference — the surviving
+  side's digits, re-read per hop — where width conservation (I4′
+  rule 2) demands the dying side's. The ascending cliff (k
+  ascending wide leaves stacking k − 1 nonzero unit differences
+  under one wide terminal undercut) read Θ(k·b) accumulator touches
+  on a Θ(k + b) input whose output is Θ(k + b) too: 203,435 →
+  790,851 (×3.89 on ×2.00 input) across the joint doubling,
+  gate-pinned ≥ ×3.5 until the cure re-pinned it flat at 12,626 →
+  25,234 (×2.00 exactly, band 31,542/18,925). The cure inverts the
+  hop: top-index domination decides each hop's direction in O(1)
+  before any fold, the dying side funds the fold that consumes it,
+  and width guards keep comparable-scale hops on the old path at
+  zero extra touches — every other committed MEASURED reading
+  byte-identical across the cure, byte-identity across the full
+  differential suite. The same defect was a heap amplifier (each
+  popped difference's buffer widened to residue width: board heap
+  e 1.82 → 1.00 on the family). The leveled control (differences
+  all zero) is flat and byte-identical across the cure: the
+  nonzero hop schedule is the axis. Witness-axis advisory recorded
+  (spec §7): undercut families need both a depth axis and a
+  residue-width axis — the staircase descends (every residue
+  narrow), and this family is its ascending mirror. A pricing
+  obligation under §6, not an exploit.
 
 ## 6. The design invariant and the denomination criterion
 
@@ -518,9 +546,21 @@ DESIGN — that failure is C3's realization evidence, banked
 verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-26, the
-width-circulation cure record; dev profile, limb+scan meters
-lit]: board **204 green / 17 red at the default scale; 193 / 28
-at ×4** over **221 cells** (amended 2026-07-26, the latent
+fold-direction cure record; dev profile, limb+scan meters
+lit]: board **206 green / 19 red at the default scale; 193 / 32
+at ×4** over **225 cells** (amended 2026-07-26, the fold-direction
+cure: the ascending cliff and its leveled control joined the tick
+rows at 221 → 225 cells; every pre-existing cell byte-identical at
+both scales, the movement exactly the four new cells; the cure
+moved the ascend-cliff heap column e 1.82 → 1.00 — the old fold
+direction widened every popped difference's buffer to residue
+width — and the residual reds are owned: the family's
+heap-constant (k simultaneously-armed nonzero differences, one
+pooled unit-width buffer each; linear, the mirror-narrow genre)
+and the record-scale segment onsets on both new families inside
+the P4.2-owned recursion genre; the judge roster is unchanged, the
+new time-leg cells green-by-default at the general ceiling)
+(amended 2026-07-26, the latent
 boundary register: the round-5 tick-cross rows joined at 215 →
 221 cells and the cure moved no counter cell's verdict — sums
 byte-stable across the cure at both scales, movement only in the
@@ -807,7 +847,7 @@ exposed type's bytes/text/serde forms snapshot-pinned in-crate);
 the benign rank-pair operand scaling if C3 chose that arm; the
 §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over 215 cells)
+### 17.3 Owned-red accounting (current; over 225 cells)
 
 Reconciled 2026-07-25 from a fresh board reading at the fix-round
 tip (both scales enumerated cell by cell; the apparent
@@ -889,6 +929,22 @@ output-bound proptest (`tick_output_is_input_bounded`) and the
 `TICK_NESTED_WIDE`/`TICK_MIRROR_WIDE` envelope rows pin the
 cure-earned constants. Sums: default 198 + 17 = 215; record
 189 + 26 = 215.
+
+Amended 2026-07-26 (the width-circulation and fold-direction
+rounds): the six round-5 width-circulation cells and the four
+round-7 ascending-cliff cells moved the base 215 → 221 → 225.
+New reds, each owned: the pure-comb pair's ×4 segments (the
+recursion-depth genre, **P4.2**) took the record sum 26 → 28 at
+round 5; the ascending-cliff pair is red at both scales on the
+heap constant (64.4/66.7 B/B at exponent 1.00 — the first
+committed family to hold k simultaneously-armed nonzero boundary
+differences, one pooled unit-width buffer each; linear in the
+input, honestly over the 16 B/B ceiling, the mirror-narrow genre;
+owner: the round-7 record, spec §9 — a small-buffer diff-stack
+representation is the candidate cure if one is ever warranted)
+and at ×4 additionally on segments (e 3.81 / 14, **P4.2**), and
+the plateau control pair at ×4 on segments only (**P4.2**). Sums:
+default 206 + 19 = 225; record 193 + 32 = 225.
 
 Default, 17 = 198 green + 17: **ten κ-text constants**
 (`version_display`/`clock_display` × {dense, bigroot, benign},
