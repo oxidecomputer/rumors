@@ -272,7 +272,7 @@
 //!   an intercept-dominated denominator manufactures exponents out of
 //!   exactly linear marginal work (log 2 / log 1.2 = 4), so the shape's
 //!   input-denominated cells fit their *exponents* against the bundle's
-//!   value content ([`value_content_bytes`] of the event side plus the id
+//!   value content (the event side's summed leaf-height bits plus the id
 //!   side's packed bytes — §10.6's quantity, the honest scaling axis),
 //!   disclosed per row as `expd[content ...]`. Constants and floors stay
 //!   per packed byte, the harder reading; I/O-denominated cells keep
