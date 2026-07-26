@@ -1074,6 +1074,198 @@ pub fn descending_raises_id(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The reveal-comb event `R(k, b)`: one covering site over a
+/// left-leaning comb of `k` sibling sites sharing one wide minimum
+/// `2^b` above a zero floor, `~(k(4b + 8) + 6)` bits.
+///
+/// Layout: the root `1 · γ(0)` (the covering site) with left leaf
+/// `0 · γ(0)`, then `k` comb nodes `1 · γ(0)` leaning left
+/// (`a_i = node(0, a_{i−1}, site_i)`), the floor `0 · γ(0)` at the
+/// deepest left, then per site `1 · γ(0) · 0 · γ(2^b − 1) · 0 · γ(2^b)`
+/// (leaves one apart at the shared wide plateau). The input pays the
+/// width once — the stream climbs to the plateau at the first site and
+/// steps by units after — and every site's fill collapses to the equal
+/// pair's leaf, so the output is unit deltas too. Crossed with
+/// [`reveal_comb_id`], each site is a left-full pre-scan site whose
+/// consume arms the tracked minimum `2^b` above the floor, and the
+/// left-leaning spine closes the site's node frame back into the
+/// 0-floor frame between consecutive consumes: the width-`b` boundary
+/// difference is minted at every consume and popped at every close —
+/// per-object-legal moves circulating one width with no input delta,
+/// no output code, and no undercut descent funding any hop. Normal
+/// form: no equal leaf pair exists (site pairs are `(2^b − 1, 2^b)`),
+/// and every comb node's subtree minimum is 0 via the floor.
+///
+/// # Panics
+///
+/// Panics if `k == 0` or `b == 0`.
+pub fn reveal_comb(k: usize, b: usize) -> Packed {
+    assert!(k >= 1, "the reveal comb needs at least one site");
+    assert!(b >= 1, "the reveal comb needs a nonzero magnitude");
+    let wide = pow2(b);
+    let below = pow2_minus_1(b);
+    let mut bits = Bits::with_capacity(k * (4 * b + 8) + 6);
+    bits.push(true); // the root: the covering site's node
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
+    for _ in 0..k {
+        bits.push(true); // comb node a_i, i = k..1
+        codec::encode_int(&mut bits, &Base::ZERO);
+    }
+    ev_leaf(&mut bits, 0); // the floor: a_1's left child
+    for _ in 0..k {
+        bits.push(true); // site_i's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf_wide(&mut bits, &below); // its collapsed left leaf: 2^b − 1
+        ev_leaf_wide(&mut bits, &wide); // its range: the shared wide minimum
+    }
+    Packed::from_bits(bits)
+}
+
+/// [`reveal_comb`] with the floor raised to `2^b − 2`: identical site
+/// forest, identical close-reveal cycle, consume-time gap 2,
+/// `~(k(4b + 8) + 2b + 4)` bits.
+///
+/// Layout: [`reveal_comb`]'s exactly, with the floor leaf at
+/// `0 · γ(2^b − 2)`. The tracked minimum at every site consume sits 2
+/// below the site's minimum instead of `2^b` below, so the boundary
+/// difference the cycle circulates is O(1) wide: the control that
+/// separates the wide *gap* (the cost driver) from the forest shape
+/// and the deferral cycle (shared with the red family). Normal form:
+/// as [`reveal_comb`]'s, the floor now one below the site pairs.
+///
+/// # Panics
+///
+/// Panics if `k == 0` or `b == 0`.
+pub fn reveal_comb_hifloor(k: usize, b: usize) -> Packed {
+    assert!(k >= 1, "the reveal comb needs at least one site");
+    assert!(b >= 1, "the reveal comb needs a nonzero magnitude");
+    let wide = pow2(b);
+    let below = pow2_minus_1(b);
+    let floor = wide.clone() - &Base::from(2u8);
+    let mut bits = Bits::with_capacity(k * (4 * b + 8) + 2 * b + 4);
+    bits.push(true); // the root: the covering site's node
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
+    for _ in 0..k {
+        bits.push(true); // comb node a_i, i = k..1
+        codec::encode_int(&mut bits, &Base::ZERO);
+    }
+    ev_leaf_wide(&mut bits, &floor); // the raised floor: 2^b − 2
+    for _ in 0..k {
+        bits.push(true); // site_i's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf_wide(&mut bits, &below); // its collapsed left leaf: 2^b − 1
+        ev_leaf_wide(&mut bits, &wide); // its range: the shared wide minimum
+    }
+    Packed::from_bits(bits)
+}
+
+/// The reveal-comb id over [`reveal_comb`]: the covering `(1, ·)`
+/// root over per-comb-level `(b_{i−1}, site)` tags with the site ids
+/// `(1, (1, 0))`, `10k + 4` bits.
+///
+/// Layout: the root tag `11 · 00`, then `k − 1` comb tags `11`
+/// (deeper comb left, site right), the deepest comb tag `01` (left
+/// absent: the floor stays), then per site `11 · 00 · 10 · 00` — the
+/// site blocks trail the comb tags because each site is its comb
+/// node's *right* child and the comb leans left. Normal form: no
+/// `(1, 1)` node.
+///
+/// # Panics
+///
+/// Panics if `k == 0`.
+pub fn reveal_comb_id(k: usize) -> Packed {
+    assert!(k >= 1, "the reveal-comb id needs at least one site");
+    let mut bits = Bits::with_capacity(10 * k + 4);
+    bits.push(true); // the root: full left child ...
+    bits.push(true); // ... over the comb
+    bits.push(false); // the full left terminal
+    bits.push(false);
+    for _ in 1..k {
+        bits.push(true); // b_i: the deeper comb left ...
+        bits.push(true); // ... and site_i right
+    }
+    bits.push(false); // b_1: left absent (the floor stays) ...
+    bits.push(true); // ... site_1 right
+    for _ in 0..k {
+        bits.push(true); // the site id: full left child ...
+        bits.push(true); // ... and an internal right
+        bits.push(false); // the full left terminal
+        bits.push(false);
+        bits.push(true); // the site's range id: `(1, 0)`
+        bits.push(false);
+        bits.push(false);
+        bits.push(false);
+    }
+    Packed::from_bits(bits)
+}
+
+/// The pure-comb event `L(k, b)`: [`reveal_comb`]'s left-leaning comb
+/// with a bare `2^b` leaf per level and NO covering site,
+/// `~(k(2b + 4) + 2)` bits.
+///
+/// Layout: `k` comb nodes `1 · γ(0)` leaning left, the floor
+/// `0 · γ(0)`, then `k` leaves `0 · γ(2^b)` (each comb node's right
+/// child). Crossed with [`pure_comb_id`], no left-full site exists
+/// anywhere — no memo, no pre-scan, no site consume: each wide leaf is
+/// walked in its own leaf-under-internal-id frame, whose first
+/// emission arms it `2^b` above the floor and whose close pops the
+/// width-`b` boundary difference back — the base watermark stack's own
+/// arm-move + close-pop cycle, isolated from the pre-scan's frame
+/// ledger. Normal form: every comb node's subtree minimum is 0 via
+/// the floor, and no two sibling leaves are equal (`2^b` pairs with an
+/// internal node or the floor).
+///
+/// # Panics
+///
+/// Panics if `k == 0` or `b == 0`.
+pub fn pure_comb(k: usize, b: usize) -> Packed {
+    assert!(k >= 1, "the pure comb needs at least one level");
+    assert!(b >= 1, "the pure comb needs a nonzero magnitude");
+    let wide = pow2(b);
+    let mut bits = Bits::with_capacity(k * (2 * b + 4) + 2);
+    for _ in 0..k {
+        bits.push(true); // comb node a_i, i = k..1
+        codec::encode_int(&mut bits, &Base::ZERO);
+    }
+    ev_leaf(&mut bits, 0); // the floor: a_1's left child
+    for _ in 0..k {
+        ev_leaf_wide(&mut bits, &wide); // a_i's right leaf: 2^b
+    }
+    Packed::from_bits(bits)
+}
+
+/// The pure-comb id over [`pure_comb`]: per-comb-level
+/// `(b_{i−1}, (1, 0))` tags, `6k` bits.
+///
+/// Layout: `k − 1` comb tags `11` (deeper comb left, the leaf's id
+/// right), the deepest comb tag `01` (left absent: the floor stays),
+/// then `k` × `10 · 00` — each level's `(1, 0)` node id over its wide
+/// leaf, the leaf-under-internal-id frame shape. Normal form: no
+/// `(1, 1)` node.
+///
+/// # Panics
+///
+/// Panics if `k == 0`.
+pub fn pure_comb_id(k: usize) -> Packed {
+    assert!(k >= 1, "the pure-comb id needs at least one level");
+    let mut bits = Bits::with_capacity(6 * k);
+    for _ in 1..k {
+        bits.push(true); // b_i: the deeper comb left ...
+        bits.push(true); // ... and the leaf's id right
+    }
+    bits.push(false); // b_1: left absent (the floor stays) ...
+    bits.push(true); // ... the leaf's id right
+    for _ in 0..k {
+        bits.push(true); // the leaf's id: `(1, 0)` ...
+        bits.push(false);
+        bits.push(false); // ... whose left child is the terminal
+        bits.push(false);
+    }
+    Packed::from_bits(bits)
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> Base {
     pow2(b) - &Base::from(1u8)
