@@ -680,9 +680,16 @@ rendered as a legend; a floor trip is red with the mechanism named
 work"). Conventions of record: scan floors 1 bit per packed
 operand byte on every row that must examine its operands
 (early-exit rows floor at 2 bits — the root codes); limb floors
-where big-integer arithmetic is semantically mandatory (rank
-family, parsing text rows, decode rows), at one op per 64 bits of
-every stored magnitude wider than 128 bits; heap floors on codec
+where big-integer arithmetic is semantically mandatory, at two
+derivations since C3 re-derived the walk rows' (the same split
+the touch floors always had): rows that read the stored form
+as-is (decode, rank/distance/lag, tick) floor at one op per 64
+bits of every stored payload *code* wider than 128 bits — a
+plateau of equal wide leaves stores its width once, so a
+tree-derived floor demands limb work no conforming walk does —
+and the value-materializing parse rows floor at one op per 64
+bits of every stored *base* wider than 128 bits (conversion
+must materialize every spelled value); heap floors on codec
 and text rows (the result materializes at least its packed
 bytes), plus the fork rows' deterministic-liveness child-copy
 floors (clock fork since the floors landed; party fork since #39 —

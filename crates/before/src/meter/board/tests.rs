@@ -12,12 +12,12 @@
 //! doubling, over a build-liveness floor) lives here too, beside the board
 //! row that carries it.
 
-use crate::meter::{bigroot, dense, hugeleaf, Packed};
+use crate::meter::{bigroot, dense, hugeleaf, reveal_comb, Packed};
 use crate::{Party, Version};
 
 use super::{
-    assert_honest_text, mandatory_limbs_version, radix_units_party, radix_units_version,
-    TEXT_BYTES_PER_RADIX_UNIT,
+    assert_honest_text, mandatory_limbs_stream, mandatory_limbs_version, radix_units_party,
+    radix_units_version, TEXT_BYTES_PER_RADIX_UNIT,
 };
 // The limb-priced tripwires read the touch counter, so they compile only
 // with the `limb-meter` feature; these names have no ungated user.
@@ -27,6 +27,50 @@ use super::{version_output_bytes, MAX_SCALING_EXPONENT, MAX_TEXT_LIMB_OPS_PER_RA
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
     p.version()
+}
+
+/// The two limb-floor derivations split exactly where their rustdoc says:
+/// on a plateau shape (equal wide leaves behind unit deltas) the
+/// stream-derived floor counts the stored width once — the wide boundary
+/// codes alone — while the tree-derived floor demands it per site, work no
+/// conforming walk does; on a single wide leaf the two coincide (the one
+/// stored code is the value), and on a small-value tree both are zero.
+///
+/// This is the derivation behind the walk rows (decode, rank, distance,
+/// lag, tick) flooring at [`mandatory_limbs_stream`] while the
+/// value-materializing parse rows keep [`mandatory_limbs_version`].
+#[test]
+fn limb_floor_derivations_split_on_plateaus_and_coincide_on_a_leaf() {
+    // A single wide leaf: one stored code, which is the value itself.
+    let huge = version_of(&hugeleaf(256));
+    assert_eq!(mandatory_limbs_stream(&huge), 4, "256 bits = 4 limbs, once");
+    assert_eq!(
+        mandatory_limbs_version(&huge),
+        4,
+        "the tree stores the same single value"
+    );
+    // A plateau: 8 sites sharing one 2^256-scale minimum. The stream pays
+    // wide codes only where the walk crosses the plateau boundary; the
+    // decoded tree holds a wide base per site.
+    let plateau = version_of(&reveal_comb(8, 256));
+    let stream = mandatory_limbs_stream(&plateau);
+    let tree = mandatory_limbs_version(&plateau);
+    assert!(
+        stream >= 4,
+        "at least one wide boundary code is stored: got {stream}"
+    );
+    assert!(
+        stream < tree,
+        "the plateau's width is stored once but materialized per site:          stream {stream} must undercut tree {tree}"
+    );
+    assert!(
+        tree >= 8 * 4,
+        "the decoded tree holds a wide base per site: got {tree}"
+    );
+    // A small-value tree: no code and no base exceeds machine words.
+    let small = version_of(&dense(64));
+    assert_eq!(mandatory_limbs_stream(&small), 0);
+    assert_eq!(mandatory_limbs_version(&small), 0);
 }
 
 /// The radix-work term is exact on shapes whose digit and limb counts are
