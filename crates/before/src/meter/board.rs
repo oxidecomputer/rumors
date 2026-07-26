@@ -454,8 +454,8 @@
 //!   recursive oracle is pinned by their differential suites.
 //! - **The rejection surface's bounded-or-delegated remainder** (the
 //!   rejection rows above price the rest): `Clock::join_all`'s overlap
-//!   hand-back runs the identical up-front `is_disjoint`-against-self
-//!   walk `party_join_all_overlap` prices, inline; clock non-canonicality
+//!   hand-back runs the identical up-front indexed test against self
+//!   that `party_join_all_overlap` prices, inline; clock non-canonicality
 //!   — packed or text — is the component validators on the same streams
 //!   the version and party non-canonical rows drive;
 //!   [`Decode::Anonymous`](crate::error::Decode) is the accepting parse
@@ -745,9 +745,10 @@ const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 /// `party_join_all_overlap` row.
 ///
 /// The probe count scales with the accumulator so the row's exponent
-/// reads the fold's per-input re-scan against a denominator both sides
-/// of which double together, and the divisor keeps the row inside the
-/// board's runtime budget.
+/// judges the fold against a denominator both sides of which double
+/// together — work scaling with the fixed accumulator per input reads
+/// quadratic there — and the divisor keeps the row inside the board's
+/// runtime budget.
 const OVERLAP_FOLD_INPUT_DIVISOR: usize = 64;
 
 /// Benign clock population at scale 1.0.
@@ -1498,10 +1499,12 @@ fn rightmost_terminal_path(bits: &codec::BitsSlice) -> Vec<bool> {
 /// region).
 ///
 /// The `party_join_all_overlap` row's per-input operand. The witnessing
-/// pair sits in the right half, and the packed coding has no random
-/// access, so testing the probe against the accumulator must skip-scan
-/// the accumulator's entire left shape to reach it: Θ(accumulator) scan
-/// work per O(1)-byte input — the separation the row prices.
+/// pair sits in the right half, behind the accumulator's whole left
+/// shape, so a per-input overlap test priced in the accumulator — a
+/// cursor walk skip-scanning the left shape to reach the witness — reads
+/// Θ(accumulator) scan per O(1)-byte input and turns the row quadratic;
+/// the fold's per-call accumulator index answers the same test in
+/// O(probe), which is the separation the row watches.
 fn overlap_fold_probe() -> Vec<u8> {
     let mut probe = codec::Bits::with_capacity(4);
     probe.push(false); // root: right child only
@@ -3789,11 +3792,11 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 // One large accumulator, many one-byte probes each
                 // overlapping its right half behind the whole left shape:
-                // every probe is tested against the fixed accumulator (a
-                // skip-scan of the left shape per test) and handed back,
-                // and the probe count scales with the accumulator (the
-                // divisor's rustdoc), so the row reads the fold's
-                // per-input re-scan.
+                // every probe is tested against the fixed accumulator and
+                // handed back, and the probe count scales with the
+                // accumulator (the divisor's rustdoc), so any per-input
+                // work scaling with the accumulator reads quadratic here
+                // while the indexed test's O(probe) checks read linear.
                 let (a_bytes, _) = f.overlap.clone()?;
                 let acc = decode_party(&a_bytes);
                 let probe = overlap_fold_probe();
