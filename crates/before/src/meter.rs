@@ -824,6 +824,256 @@ pub fn memo_comb_id(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The memo fan-out event `F(k, b)`: the memo-chain skeleton with one
+/// `2^b − 1` minimum shared by all `k` sites over the covering site's
+/// zero floor, `~(13k + 2kb + 9)` bits.
+///
+/// Layout: [`memo_chain`]'s skeleton with every site's range leaf at
+/// `2^b − 1` and its collapsed left leaf at `2^b − 2` — the stream
+/// climbs to the wide plateau once and steps by units across all `k`
+/// sites, so the input pays the width exactly once (unlike
+/// [`memo_oscillating`], whose input re-pays it per site). Crossed
+/// with [`memo_chain_id`], the sites all share the wide minimum while
+/// the covering site's own minimum is the zero terminal: the sibling
+/// links are all zero (unstored) and exactly one ledger quantity (the
+/// first site's deferred link against the covering minimum) carries
+/// the width — paid once, independent of `k`. A recording discipline
+/// that anchors each site to the covering floor instead materializes
+/// `k` wide records; the pinned absolute touch ceiling is what such a
+/// fan-out blows. Normal form: leaf pairs `(2^b − 2, 2^b − 1)`, every
+/// subtree minimum 0 via the zero terminal under the root.
+///
+/// # Panics
+///
+/// Panics if `k == 0` or `b == 0`.
+pub fn memo_fanout(k: usize, b: usize) -> Packed {
+    assert!(k >= 1, "the memo fan-out needs at least one site");
+    assert!(b >= 1, "the memo fan-out needs a nonzero magnitude");
+    let wide = pow2_minus_1(b);
+    let below = wide.clone() - &Base::from(1u8);
+    let mut bits = Bits::with_capacity(13 * k + 4 * b + 9);
+    bits.push(true); // the root: the covering site's node
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
+    for _ in 0..k {
+        bits.push(true); // spine node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        bits.push(true); // the interior site's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf_wide(&mut bits, &below); // its collapsed left leaf, one below the plateau
+        ev_leaf_wide(&mut bits, &wide); // its range: the shared wide minimum
+    }
+    ev_leaf(&mut bits, 0); // the spine terminal: the covering minimum
+    Packed::from_bits(bits)
+}
+
+/// The oscillating-siblings event `O(k, b)`: the memo-chain skeleton
+/// with site minima alternating `1` and `2^b − 1`, `~(13k + kb + 9)`
+/// bits.
+///
+/// Layout: [`memo_chain`]'s exactly, with `v_j = 2^b − 1` for odd `j`
+/// and `1` for even. Crossed with [`memo_chain_id`], every sibling
+/// ledger link is wide — but each site's range leaf codes the same
+/// width in the input, so the links are funded one-for-one by the
+/// oscillation the input already paid for: the control for the
+/// funding argument (flat touches per input byte, unlike the fan-out,
+/// whose input pays its width once). Normal form: as
+/// [`memo_chain`]'s.
+///
+/// # Panics
+///
+/// Panics if `k == 0` or `b == 0`.
+pub fn memo_oscillating(k: usize, b: usize) -> Packed {
+    assert!(k >= 1, "the oscillating siblings need at least one site");
+    assert!(b >= 1, "the oscillating siblings need a nonzero magnitude");
+    let wide = pow2_minus_1(b);
+    let one = Base::from(1u8);
+    let mut bits = Bits::with_capacity(13 * k + k * b + 9);
+    bits.push(true); // the root: the covering site's node
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
+    for j in 0..k {
+        bits.push(true); // spine node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        bits.push(true); // the interior site's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf(&mut bits, 0); // its collapsed left leaf
+                               // the range: minima oscillating wide/narrow, funded by the
+                               // input codes that store them
+        ev_leaf_wide(&mut bits, if j % 2 == 0 { &wide } else { &one });
+    }
+    ev_leaf(&mut bits, 0); // the spine terminal
+    Packed::from_bits(bits)
+}
+
+/// The memo-churn event `U(d)`: `d` sibling single-leaf sites, then a
+/// descending run undercutting every open range minimum, `~(18d + 13)`
+/// bits.
+///
+/// Layout: the root `1 · γ(0)` (the covering site) with left leaf
+/// `0 · γ(0)`, then per level `i = 1..=d` the nested carrier
+/// `1 · γ(0)` over the site `1 · γ(0) · 0 · γ(0) · 0 · γ(i + 1)`
+/// (minimum `i + 1`), bottoming in [`staircase`]`(2d)`'s subtree
+/// (preorder heights `2d, 2d − 1, …, 0`). Crossed with
+/// [`memo_churn_id`], each site's record is live on the ledger head
+/// while the run's every leaf undercuts every open range — `~2d`
+/// full-penetration minimum drops with `d` recorded minima in flight.
+/// One live head follows them at one fold per drop; a discipline that
+/// keeps one live record per open level folds all `d` per drop
+/// (quadratic), the refuted live-anchored followers' tombstone.
+/// Normal form: leaf pairs `(0, i + 1)`, the run's unit-step descent,
+/// and every subtree minimum 0 via the run's bottom.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn memo_churn(d: usize) -> Packed {
+    assert!(d >= 1, "the memo churn needs at least one site");
+    let mut bits = Bits::with_capacity(18 * d + 10 * (2 * d) + 20);
+    bits.push(true); // the root: the covering site's node
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
+    for i in 1..=d {
+        bits.push(true); // the nested carrier node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        bits.push(true); // the site's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf(&mut bits, 0); // its collapsed left leaf
+        ev_leaf(&mut bits, i as u64 + 1); // its range: minimum i + 1
+    }
+    // The descending run: staircase(2d)'s subtree, heights 2d .. 0 —
+    // above every site minimum at entry, below them all at exit.
+    let run = 2 * d;
+    bits.push(true); // the run's root: base 0
+    codec::encode_int(&mut bits, &Base::from(0u8));
+    for _ in 1..run {
+        bits.push(true); // each deeper run node lifts by one
+        codec::encode_int(&mut bits, &Base::from(1u8));
+    }
+    ev_leaf(&mut bits, 1); // bottom-left leaf: the run's top
+    ev_leaf(&mut bits, 0); // bottom-right leaf: one step down
+    for _ in 1..run {
+        ev_leaf(&mut bits, 0); // each ancestor's right leaf: its floor
+    }
+    Packed::from_bits(bits)
+}
+
+/// The memo-churn id over [`memo_churn`]: a covering `(1, ·)` root,
+/// per level the site's `(1, (1, 0))` under a carrier whose right arm
+/// continues, and an absent id over the descending run, `14d + 6`
+/// bits.
+///
+/// Layout: the root tag `11 · 00`, then per level `11` (the carrier)
+/// · `11 · 00 · 10 · 00` (the site), with the last carrier's tag `10`
+/// (right absent: the run is walked as `fill(0, e) = e`, its
+/// emissions undercutting through every open frame). Normal form: no
+/// `(1, 1)` node.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn memo_churn_id(d: usize) -> Packed {
+    assert!(d >= 1, "the memo-churn id needs at least one site");
+    let mut bits = Bits::with_capacity(14 * d + 6);
+    bits.push(true); // the root: full left child over the carriers
+    bits.push(true);
+    bits.push(false); // the full left terminal
+    bits.push(false);
+    for i in 1..=d {
+        bits.push(true); // the carrier: the site ...
+        bits.push(i != d); // ... then deeper (absent at the last: the run)
+        bits.push(true); // the site: full left child ...
+        bits.push(true); // ... over its one-leaf range
+        bits.push(false); // the full left terminal
+        bits.push(false);
+        bits.push(true); // the range id: `(1, 0)`
+        bits.push(false);
+        bits.push(false);
+        bits.push(false);
+    }
+    Packed::from_bits(bits)
+}
+
+/// The descending-raises event `W(d)`: a floor realized high, then
+/// `d` sibling sites whose minima step down from it, `~(13d + 26)`
+/// bits.
+///
+/// Layout: the root `1 · γ(0)` (the covering site) with left leaf
+/// `0 · γ(0)`, then `1 · γ(0)` whose left leaf `0 · γ(d + 2)` arms
+/// the frame high before any site, over the [`memo_chain`]-style
+/// spine with `v_j = d + 2 − j` — so every site's raise lands BELOW
+/// the frame's minimum at its own consume, and each consume's arm
+/// moves the tracked minimum the ledger relation must survive.
+/// The one family whose raises exercise the decide-then-emit
+/// ordering: a relation read after the raise emission is stale by
+/// exactly the arm's delta, and the oracle differential catches the
+/// wrong values. Normal form: leaf pairs `(0, d + 2 − j)` with
+/// `j ≤ d`, every subtree minimum 0 via the zero terminal.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn descending_raises(d: usize) -> Packed {
+    assert!(d >= 1, "the descending raises need at least one site");
+    let mut bits = Bits::with_capacity(13 * d + 30);
+    bits.push(true); // the root: the covering site's node
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
+    bits.push(true); // the floor carrier
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, d as u64 + 2); // the floor: armed before any site
+    for j in 1..=d {
+        bits.push(true); // spine node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        bits.push(true); // the interior site's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf(&mut bits, 0); // its collapsed left leaf
+        ev_leaf(&mut bits, (d as u64 + 2) - j as u64); // its range: below the floor so far
+    }
+    ev_leaf(&mut bits, 0); // the spine terminal
+    Packed::from_bits(bits)
+}
+
+/// The descending-raises id over [`descending_raises`]: the covering
+/// `(1, ·)` root, an absent left over the floor leaf, then the
+/// memo-chain site ids, `10d + 10` bits.
+///
+/// Layout: the root tag `11 · 00`, the floor carrier's `01` (left
+/// absent: the floor leaf stays), then per site `11` (spine) ·
+/// `11 · 00 · 10 · 00`, terminated by `(1, 0)`. Normal form: no
+/// `(1, 1)` node.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn descending_raises_id(d: usize) -> Packed {
+    assert!(d >= 1, "the descending-raises id needs at least one site");
+    let mut bits = Bits::with_capacity(10 * d + 10);
+    bits.push(true); // the root: full left child over the rest
+    bits.push(true);
+    bits.push(false); // the full left terminal
+    bits.push(false);
+    bits.push(false); // the floor carrier: left absent ...
+    bits.push(true); // ... spine continues right
+    for _ in 0..d {
+        bits.push(true); // spine tag: the site id, then the spine
+        bits.push(true);
+        bits.push(true); // the site id: full left child ...
+        bits.push(true); // ... and an internal right
+        bits.push(false); // the full left terminal
+        bits.push(false);
+        bits.push(true); // the site's range id: `(1, 0)`
+        bits.push(false);
+        bits.push(false);
+        bits.push(false);
+    }
+    bits.push(true); // the spine terminus: `(1, 0)`
+    bits.push(false);
+    bits.push(false);
+    bits.push(false);
+    Packed::from_bits(bits)
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> Base {
     pow2(b) - &Base::from(1u8)

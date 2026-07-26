@@ -3177,8 +3177,12 @@ mod memo_resolution_cost {
     use before::meter::{self, accum::touch_meter};
     use before::Party;
 
-    /// One tick run over a memo family cross: total packed input bytes
-    /// (event + id) and the accumulator digit touches of the tick body.
+    /// One tick run over a memo family cross: the tick's packed input
+    /// bytes (the version's own stored stream — the skyline coding,
+    /// not the generator's construction language, whose per-leaf
+    /// absolute codes overstate a plateau family's input by orders of
+    /// magnitude — plus the id) and the accumulator digit touches of
+    /// the tick body.
     struct Run {
         input: u64,
         touches: u64,
@@ -3195,7 +3199,7 @@ mod memo_resolution_cost {
     fn tick_run(ev: meter::Packed, id: meter::Packed) -> Run {
         let mut v = ev.version();
         let p = Party::decode(&*id.bytes).expect("the generator's id is canonical");
-        let input = (ev.bytes.len() + id.bytes.len()) as u64;
+        let input = (v.encode().len() + id.bytes.len()) as u64;
         touch_meter::reset();
         v.tick(&p);
         let run = Run {
@@ -3234,8 +3238,8 @@ mod memo_resolution_cost {
     /// Resolving the flat memo chain's distinct-minimum sites is linear
     /// in digit touches: `k` consumption-sibling sites' links each die
     /// into their own raise decision — one fold per link across the
-    /// whole walk [measured: ×2.00 across the doubling, 60,024 →
-    /// 120,024 at the pinned sizes; ×3.94 under the refuted
+    /// whole walk [measured: ×2.00 across the doubling, 60,023 →
+    /// 120,023 at the pinned sizes; ×3.94 under the refuted
     /// recording-chain interval resolution].
     #[test]
     fn memo_chain_distinct_resolution_reads_linear() {
@@ -3277,12 +3281,108 @@ mod memo_resolution_cost {
     /// the shape that defeated the recording-chain and the
     /// previously-consumed-site resolutions alike — but every ledger
     /// link is a sibling or first-child difference read exactly once
-    /// [measured: ×2.00 across the doubling, 44,532 → 89,032 at the
+    /// [measured: ×2.00 across the doubling, 43,532 → 87,032 at the
     /// pinned sizes; ×3.92 under the refuted interval resolution].
     #[test]
     fn memo_comb_resolution_reads_linear() {
         let small = tick_run(meter::memo_comb(500), meter::memo_comb_id(500));
         let large = tick_run(meter::memo_comb(1_000), meter::memo_comb_id(1_000));
         assert_flat("memo_comb", &small, &large);
+    }
+
+    /// The wide fan-out's ledger cost is independent of the site
+    /// count: `k` sibling sites sharing one wide minimum record zero
+    /// links, and exactly one deferred link carries the width.
+    ///
+    /// The absolute ceiling is the k-independence assert — a
+    /// discipline that materializes one wide record per site (the
+    /// refuted floor-anchored recording) adds the width once per
+    /// site and blows it [measured: 88,726 touches at k = 2,000,
+    /// b = 2,048 — a per-site fan-out at that width would add ~64
+    /// touches per site on top of the ~43-touch linear slope].
+    #[test]
+    fn memo_fanout_wide_cost_is_site_count_independent() {
+        let small = tick_run(
+            meter::memo_fanout(1_000, 2_048),
+            meter::memo_chain_id(1_000),
+        );
+        let large = tick_run(
+            meter::memo_fanout(2_000, 2_048),
+            meter::memo_chain_id(2_000),
+        );
+        assert_flat("memo_fanout", &small, &large);
+        assert!(
+            large.touches <= 110_907,
+            "memo_fanout: {} touches at k = 2,000 exceed the pinned absolute              ceiling 110,907 (measured 88,726 x1.25): a wide ledger quantity              is being materialized per site",
+            large.touches,
+        );
+        assert!(
+            large.touches >= 66_544,
+            "memo_fanout: {} touches read below the 66,544 liveness floor              (measured 88,726 x0.75): the ledger's work left the metered              representation",
+            large.touches,
+        );
+    }
+
+    /// Oscillating sibling minima cost flat touches per input byte:
+    /// every sibling link is wide, and every one is funded
+    /// one-for-one by the input code that stores its site's minimum
+    /// — the funding control for the ledger's cost argument.
+    #[test]
+    fn memo_oscillating_links_are_input_funded() {
+        let small = tick_run(
+            meter::memo_oscillating(1_000, 512),
+            meter::memo_chain_id(1_000),
+        );
+        let large = tick_run(
+            meter::memo_oscillating(2_000, 512),
+            meter::memo_chain_id(2_000),
+        );
+        eprintln!(
+            "MEASURED memo_oscillating: small={}/{}B large={}/{}B",
+            small.touches, small.input, large.touches, large.input,
+        );
+        assert!(
+            u128::from(large.touches) * u128::from(small.input) * 4
+                <= u128::from(small.touches) * u128::from(large.input) * 5,
+            "memo_oscillating: per-byte touch cost grew more than x1.25 across              the size doubling: {}/{}B -> {}/{}B",
+            small.touches,
+            small.input,
+            large.touches,
+            large.input,
+        );
+    }
+
+    /// Full-penetration minimum drops with recorded minima in flight
+    /// cost one fold each: the descending run undercuts every open
+    /// range while `d` sibling records ride the one live ledger head
+    /// [measured: ×2.00 across the doubling, 80,019 → 160,019]. A
+    /// discipline keeping one live record per open level folds all
+    /// `d` per drop — the refuted live-anchored followers' tombstone.
+    #[test]
+    fn memo_churn_undercuts_fold_one_follower() {
+        let small = tick_run(meter::memo_churn(800), meter::memo_churn_id(800));
+        let large = tick_run(meter::memo_churn(1_600), meter::memo_churn_id(1_600));
+        assert_flat("memo_churn", &small, &large);
+    }
+
+    /// Raises landing below the frame's minimum at every consume stay
+    /// linear — and, foremost, semantically exact: the family whose
+    /// every raise moves the tracked minimum between the ledger
+    /// relation's install and its next read, so a decide-then-emit
+    /// ordering violation (a relation installed after the raise's
+    /// arm) produces wrong values its oracle differential catches;
+    /// this pin carries the cost leg [measured: ×2.00 across the
+    /// doubling, 46,452 → 92,852].
+    #[test]
+    fn descending_raises_stay_linear_under_min_movement() {
+        let small = tick_run(
+            meter::descending_raises(800),
+            meter::descending_raises_id(800),
+        );
+        let large = tick_run(
+            meter::descending_raises(1_600),
+            meter::descending_raises_id(1_600),
+        );
+        assert_flat("descending_raises", &small, &large);
     }
 }
