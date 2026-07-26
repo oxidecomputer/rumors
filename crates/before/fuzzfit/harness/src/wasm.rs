@@ -12,6 +12,8 @@ use std::sync::OnceLock;
 
 use wasmtime::{Config, Engine, Instance, Memory, Module, Store, TypedFunc, Val};
 
+use crate::strategies::{BUDGET, ESCALATION_BUDGET};
+
 /// Fuel loaded into the store before each measured call. Large enough that
 /// no legitimate kernel can exhaust it; exhaustion therefore traps and is
 /// reported as a harness failure rather than wrapping.
@@ -19,10 +21,24 @@ const FUEL_TANK: u64 = u64::MAX / 2;
 
 /// Register slots pre-reserved in every fresh guest.
 ///
-/// Comfortably above the largest strategy budget's op cap times the
-/// worst per-op allocation (two registers, `into_parts`), so the file
-/// never reallocates during a measured call.
+/// Sized above the worst register appetite a budgeted program can have,
+/// so the file never reallocates during a measured call. The bound:
+/// every op allocates at most two registers (`into_parts`), except
+/// `Party::forks(n)` allocates `n` in one op — and a program's total
+/// share count is capped by its fork budget — so no program allocates
+/// more than `2 · max_ops + max_forks` slots (20,048 under the larger,
+/// escalation budget).
 const REGS_RESERVE: u32 = 32 * 1024;
+
+// A budget raise past the reserve must be a compile error, never a
+// silent reallocation inside some measured call's fuel window.
+const _: () = {
+    assert!(REGS_RESERVE as usize >= 2 * BUDGET.max_ops + BUDGET.max_forks as usize);
+    assert!(
+        REGS_RESERVE as usize
+            >= 2 * ESCALATION_BUDGET.max_ops + ESCALATION_BUDGET.max_forks as usize
+    );
+};
 
 /// The wasm stack ceiling handed to wasmtime.
 ///

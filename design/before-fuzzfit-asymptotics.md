@@ -187,7 +187,10 @@ The result is rewritten atomically into `harness/src/bands.rs` and
 committed — reviewed like a snapshot, with a dated movement annotation in
 the module doc. The fit is never recomputed in enforcement (refitting on
 every run would mask drift). **Re-pin events**: a guest toolchain bump
-(asserted mechanically, §2), a kernel change, a strategy change. Re-pin =
+(asserted mechanically, §2), a kernel change, a `before` public-API
+addition (a new operation means a new kernel, a new op, and a new band —
+the harness's kernel-roster test fails by name until the band is
+pinned), a strategy change. Re-pin =
 run the recipe, read the diff, date the annotation — and the recipe
 re-prints the judgment constants' evidence (the shape allowance's and
 the refit tolerance's observed maxima, and the floor margin's narrowest

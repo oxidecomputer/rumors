@@ -86,7 +86,13 @@ const FIT_FLOOR_BITS: u64 = 128;
 const MIN_DECADES: f64 = 1.0;
 
 /// Buckets per decade of denominator (bucket medians are the fit's inputs).
-const BUCKETS_PER_DECADE: f64 = 2.0;
+///
+/// The half-decade bucket geometry is a convention three consumers share —
+/// the fitter here, the shape leg's within-case buckets ([`crate::curve`]),
+/// and `bin/diag`'s median tables — so it is one exported constant: the
+/// diagnostics must bucket exactly the way the fit does, or their medians
+/// stop describing the fit's inputs.
+pub const BUCKETS_PER_DECADE: f64 = 2.0;
 
 /// Minimum populated buckets a slope estimate needs.
 const MIN_BUCKETS: usize = 3;
