@@ -144,7 +144,11 @@
 //! Every quantity the board judges or renders is a deterministic counter,
 //! so two board runs at the same scale are byte-identical under any
 //! machine load: the board reads no clock, conditions nothing on timing,
-//! and comparing runs needs no exclusion rules. Time still has its own
+//! and comparing runs needs no exclusion rules. The claim is enforced,
+//! not assumed, on two legs: the runner itself measures every cell twice
+//! in process and panics on any counter or denominator disagreement
+//! ([`run`]'s self-verification), and the `amp-board-determinism` recipe
+//! byte-compares two whole renders across processes. Time still has its own
 //! judged leg — wall time is the one implementation-agnostic witness for
 //! *time*, exactly as heap is for space: a kernel doing quadratic work in
 //! plain machine-word arithmetic (no allocation, no recursion, no metered
@@ -2909,6 +2913,29 @@ fn below_floor(liveness: Liveness, count: u64) -> bool {
     }
 }
 
+/// Panic unless two in-process measurements of one cell agree on every
+/// counter reading and denominator.
+///
+/// The in-process leg of the board's determinism tripwire ([`run`]'s
+/// self-verification); the cross-process leg is the `amp-board-determinism`
+/// recipe, which byte-compares two whole renders.
+fn assert_deterministic(op: &str, family: &str, a: &Sample, b: &Sample) {
+    assert_eq!(
+        (a.denom_bytes, a.limb_denom),
+        (b.denom_bytes, b.limb_denom),
+        "determinism: {op} x {family}: two in-process measurements disagree on denominators"
+    );
+    for ((currency, first), (_, second)) in a.readings.each().into_iter().zip(b.readings.each()) {
+        assert_eq!(
+            first,
+            second,
+            "determinism: {op} x {family}: two in-process measurements disagree on the {} \
+             counter",
+            currency.label()
+        );
+    }
+}
+
 /// One judged column's derived scores: the fitted exponent and the larger
 /// scale's per-unit constant (`None` where the counter is off).
 #[derive(Clone, Copy)]
@@ -3125,6 +3152,17 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
                 .expect("a cell's applicability depends on the family, never the size");
             let s1 = measure(heap, op.name, c1);
             let s2 = measure(heap, op.name, c2);
+            // The runner self-verifies: every cell is measured twice in
+            // process and every counter reading and denominator must
+            // agree exactly — the board's judged quantities are
+            // deterministic domain counters, so any disagreement is a
+            // nondeterminism bug in a meter or a body, stopped here
+            // rather than laundered into a verdict.
+            for (level, first) in [(small, &s1), (large, &s2)] {
+                let again = (op.prepare)(level)
+                    .expect("a cell's applicability depends on the family, never the size");
+                assert_deterministic(op.name, small.name, first, &measure(heap, op.name, again));
+            }
             results.push(evaluate(op.name, small.name, s1, s2));
         }
     }
