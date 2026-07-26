@@ -8,7 +8,9 @@ use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::deep_left_spine_party;
+use crate::testing::generators::{
+    arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
+};
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::{error::Parse, Clock, Party, Version};
 
@@ -49,6 +51,99 @@ proptest! {
         acc.join_all(pool).expect("one world's clocks are pairwise disjoint");
         prop_assert_eq!(acc, reference);
     }
+}
+
+// ───────────────────── the fold's up-front index, differentially ─────────────────────
+//
+// `Clock::join_all`'s up-front overlap test runs against a per-call index
+// of the fixed accumulator's party; the index is a performance mechanism
+// only, so every observable outcome — the hand-back vector (contents
+// *and* order) and the accumulator's final party and version — must be
+// exactly what the same discipline decides with the up-front test spelled
+// as a per-input cursor walk (`testing::fold_oracle`). The id-level seam
+// and the adversarial party mixes are pinned in `party/tests.rs`; these
+// differentials pin the clock fold carrying versions through the same
+// decisions.
+
+/// Run the production clock fold and the cursor-walk oracle over one
+/// input population (built twice by `build`, which must be deterministic)
+/// and assert identical outcomes: the same `Ok`/`Err` — comparing the
+/// returned version against the reference accumulator's — with the same
+/// hand-back vector in the same order, and equal accumulators (party and
+/// version both).
+fn assert_join_all_matches_oracle(build: impl Fn() -> (Clock, Vec<Clock>)) {
+    let (mut acc_new, inputs_new) = build();
+    let (mut acc_ref, inputs_ref) = build();
+    let new = acc_new.join_all(inputs_new).cloned();
+    let reference = crate::testing::fold_oracle::clock_join_all(&mut acc_ref, inputs_ref)
+        .map(|()| acc_ref.version().clone());
+    assert_eq!(
+        new, reference,
+        "the indexed fold and the cursor-walk oracle must return the same version or hand \
+         back the same clocks in the same order"
+    );
+    assert_eq!(
+        acc_new, acc_ref,
+        "the indexed fold and the cursor-walk oracle must leave equal accumulators"
+    );
+}
+
+proptest! {
+    /// The indexed clock fold decides exactly as the cursor-walk oracle
+    /// over arbitrary normal-form mixes: an arbitrary accumulator
+    /// against clocks drawn with repetition from an arbitrary pool of
+    /// party × version pairs — mixed sizes, duplicates, and every
+    /// overlap disposition arise from the draws — with identical
+    /// hand-backs and equal accumulators.
+    #[test]
+    fn join_all_matches_the_cursor_walk_oracle(
+        oacc in (arb_oracle_party_nonempty(), arb_oracle_version()),
+        (pool, picks) in proptest::collection::vec(
+            (arb_oracle_party_nonempty(), arb_oracle_version()),
+            1..5,
+        )
+        .prop_flat_map(|pool| {
+            let len = pool.len();
+            (Just(pool), proptest::collection::vec(0..len, 0..10))
+        }),
+    ) {
+        let lower = |(p, v): &(oracle::Party, oracle::Version)| {
+            Clock::from_parts(from_oracle_party(p), from_oracle_version(v))
+        };
+        let build = || {
+            let acc = lower(&oacc);
+            let inputs: Vec<Clock> = picks.iter().map(|&i| lower(&pool[i])).collect();
+            (acc, inputs)
+        };
+        assert_join_all_matches_oracle(build);
+    }
+}
+
+/// With no overlap anywhere — a forked clock population reuniting after
+/// concurrent ticks — the indexed fold and the cursor-walk oracle both
+/// return the same merged version and rebuild equal accumulators; with
+/// the accumulator's own region duplicated among the inputs, both hand
+/// back exactly the duplicate.
+#[test]
+fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
+    let population = |duplicate: bool| {
+        move || {
+            let mut acc = Clock::seed();
+            let mut children: Vec<Clock> = acc.forks(4).collect();
+            for (n, child) in children.iter_mut().enumerate() {
+                for _ in 0..n {
+                    child.tick();
+                }
+            }
+            if duplicate {
+                let dup = Clock::from_parts(acc.party().dangerously_alias(), acc.version().clone());
+                children.insert(2, dup);
+            }
+            (acc, children)
+        }
+    };
+    assert_join_all_matches_oracle(population(false));
+    assert_join_all_matches_oracle(population(true));
 }
 
 proptest! {

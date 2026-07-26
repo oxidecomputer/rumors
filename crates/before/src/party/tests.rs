@@ -3,13 +3,15 @@
 
 use proptest::prelude::*;
 
+use super::ops::IdIndex;
 use super::Party;
 use crate::idbits::IdReader;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
 use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
+use crate::testing::fold_oracle;
 use crate::testing::generators::{
     arb_oracle_party, arb_oracle_party_nonempty, arb_shape, covers_stress_pair, shape_party,
-    skip_stress_pair,
+    skip_stress_pair, Shape,
 };
 use crate::testing::optrace::{run, world_strategy};
 
@@ -86,6 +88,107 @@ fn join_all_hands_back_aliased_inputs() {
         acc.is_seed(),
         "the honest copy of every share reunites the seed region"
     );
+}
+
+// ───────────────────── the fold's up-front index, differentially ─────────────────────
+//
+// `join_all`'s up-front overlap test runs against a per-call `IdIndex` of
+// the fixed accumulator; the index is a performance mechanism only, so
+// every observable outcome — the hand-back vector (contents *and* order)
+// and the accumulator's final bytes — must be exactly what the same
+// discipline decides with the up-front test spelled as a per-input cursor
+// walk (`testing::fold_oracle`). These differentials pin that, across
+// arbitrary mixes and the named adversarial ones.
+
+/// Run the production fold and the cursor-walk oracle over one input
+/// population (built twice by `build`, which must be deterministic) and
+/// assert identical outcomes: the same `Ok`/`Err` with the same
+/// hand-back vector in the same order, and byte-identical accumulators.
+fn assert_join_all_matches_oracle(build: impl Fn() -> (Party, Vec<Party>)) {
+    let (mut acc_new, inputs_new) = build();
+    let (mut acc_ref, inputs_ref) = build();
+    let new = acc_new.join_all(inputs_new);
+    let reference = fold_oracle::party_join_all(&mut acc_ref, inputs_ref);
+    assert_eq!(
+        new, reference,
+        "the indexed fold and the cursor-walk oracle must hand back the same inputs in the \
+         same order"
+    );
+    assert_eq!(
+        acc_new.as_bytes(),
+        acc_ref.as_bytes(),
+        "the indexed fold and the cursor-walk oracle must leave byte-identical accumulators"
+    );
+}
+
+proptest! {
+    /// The indexed fold decides exactly as the cursor-walk oracle over
+    /// arbitrary normal-form mixes: an arbitrary accumulator against
+    /// inputs drawn with repetition from an arbitrary pool — mixed
+    /// sizes, duplicates, and every overlap disposition (against the
+    /// accumulator, against each other, or none) arise from the draws —
+    /// with identical hand-backs and byte-identical accumulators.
+    #[test]
+    fn join_all_matches_the_cursor_walk_oracle(
+        oacc in arb_oracle_party_nonempty(),
+        (pool, picks) in proptest::collection::vec(arb_oracle_party_nonempty(), 1..5)
+            .prop_flat_map(|pool| {
+                let len = pool.len();
+                (Just(pool), proptest::collection::vec(0..len, 0..12))
+            }),
+    ) {
+        let build = || {
+            let acc = from_oracle_party(&oacc);
+            let inputs: Vec<Party> =
+                picks.iter().map(|&i| from_oracle_party(&pool[i])).collect();
+            (acc, inputs)
+        };
+        assert_join_all_matches_oracle(build);
+    }
+}
+
+/// With no overlap anywhere — a forked population reuniting — the indexed
+/// fold and the cursor-walk oracle both return `Ok` and rebuild the same
+/// accumulator, byte for byte.
+#[test]
+fn join_all_agrees_with_oracle_when_none_overlap() {
+    assert_join_all_matches_oracle(|| {
+        let mut acc = Party::seed();
+        let shares: Vec<Party> = acc.forks(5).collect();
+        (acc, shares)
+    });
+}
+
+/// The hand-back outcome is invariant to where the overlapping input
+/// sits in the sequence — first, interior, or last: the indexed fold and
+/// the cursor-walk oracle hand back exactly the aliased input at every
+/// position, with the honest shares still reuniting.
+#[test]
+fn join_all_agrees_with_oracle_at_every_overlap_position() {
+    for position in [0usize, 2, 4] {
+        assert_join_all_matches_oracle(|| {
+            let mut acc = Party::seed();
+            let mut inputs: Vec<Party> = acc.forks(4).collect();
+            // The residual `acc` region duplicated: overlaps `acc` and
+            // nothing else, so exactly it comes back.
+            inputs.insert(position, acc.dangerously_alias());
+            (acc, inputs)
+        });
+    }
+}
+
+/// On the maximally-deferred witness — every input aliases a deep spine
+/// accumulator whose single owned region is its preorder-last tip, so
+/// each overlap test resolves only at the stream's end — the indexed
+/// fold and the cursor-walk oracle hand every input back in order and
+/// leave the accumulator untouched.
+#[test]
+fn join_all_agrees_with_oracle_on_all_overlapping_deferred_witness() {
+    assert_join_all_matches_oracle(|| {
+        let acc = shape_party(Shape::RightSpine, 64);
+        let inputs: Vec<Party> = (0..8).map(|_| acc.dangerously_alias()).collect();
+        (acc, inputs)
+    });
 }
 
 // ───────────────────────────── differential vs oracle ─────────────────────────────
@@ -348,6 +451,51 @@ proptest! {
         prop_assert_eq!(ia.is_disjoint(&ib), oa.is_disjoint(&ob));
         // Disjointness is symmetric on the impl directly.
         prop_assert_eq!(ia.is_disjoint(&ib), ib.is_disjoint(&ia));
+    }
+}
+
+proptest! {
+    /// The per-call [`IdIndex`] answers disjointness with the identical
+    /// verdict as the cursor walk, over arbitrary normal-form pairs —
+    /// typically unrelated, frequently overlapping — in both roles
+    /// (either operand indexed).
+    ///
+    /// This is the fold's semantic seam: `join_all`'s up-front test may
+    /// differ from `is_disjoint` in mechanism only.
+    #[test]
+    fn indexed_disjointness_matches_the_cursor_walk(
+        oa in arb_oracle_party_nonempty(),
+        ob in arb_oracle_party_nonempty(),
+    ) {
+        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
+        let walk = ia.is_disjoint(&ib);
+        prop_assert_eq!(IdIndex::build(ia.as_bits()).is_disjoint(ib.view()), walk);
+        prop_assert_eq!(IdIndex::build(ib.as_bits()).is_disjoint(ia.view()), walk);
+    }
+}
+
+proptest! {
+    /// The per-call [`IdIndex`] matches the cursor walk on *deep*
+    /// operand pairs (the arbitrary generator stays shallow): spines,
+    /// zigzags, and bushy shapes at scale, in both roles — driving the
+    /// index's table search and its skip-free descent through real
+    /// depth, on disjoint pairs (both single-tip spine halves and the
+    /// misaligned skip-stress pair) and overlapping ones (a shape
+    /// against itself).
+    #[test]
+    fn indexed_disjointness_matches_the_cursor_walk_deep(
+        shape_a in arb_shape(),
+        shape_b in arb_shape(),
+        scale in MIN_SCALE..256,
+    ) {
+        let a = shape_party(shape_a, scale);
+        let b = shape_party(shape_b, scale);
+        let (sa, sb) = skip_stress_pair(scale);
+        for (x, y) in [(&a, &b), (&a, &a), (&sa, &sb)] {
+            let walk = x.is_disjoint(y);
+            prop_assert_eq!(IdIndex::build(x.as_bits()).is_disjoint(y.view()), walk);
+            prop_assert_eq!(IdIndex::build(y.as_bits()).is_disjoint(x.view()), walk);
+        }
     }
 }
 
