@@ -10,6 +10,7 @@ use crate::bands::Band;
 fn linear_band() -> Band {
     Band {
         kernel: "synthetic_linear",
+        rejected: false,
         slope: 1.0,
         intercept: 2.0,
         width_above: 0.3,

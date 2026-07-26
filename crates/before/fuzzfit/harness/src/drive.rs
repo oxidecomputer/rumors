@@ -14,11 +14,16 @@ use crate::ops::{Malformed, Mirror, Op};
 use crate::strategies::{any_family, build, Family};
 use crate::wasm::Guest;
 
-/// One measured step: the band key, the denominated size, and the fuel.
+/// One measured step: the band key (kernel × outcome), the denominated
+/// size, and the fuel.
 #[derive(Debug, Clone, Copy)]
 pub struct Sample {
-    /// The kernel name (the calibration's and enforcement's band key).
+    /// The kernel name (with `rejected`, the band key).
     pub kernel: &'static str,
+    /// Whether the step's outcome is an operation rejection (the mirror's
+    /// prediction, asserted against the guest): rejection arms are priced
+    /// as their own bands.
+    pub rejected: bool,
     /// The step's denominated size in bits.
     pub denom_bits: u64,
     /// Fuel the guest consumed on this step.
@@ -51,6 +56,7 @@ pub fn run_program(program: &[Op]) -> Result<Vec<Sample>, Malformed> {
         );
         samples.push(Sample {
             kernel: op.kernel(),
+            rejected: step.rejected(),
             denom_bits: step.denom_bits,
             fuel: measured.fuel,
         });

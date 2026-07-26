@@ -94,6 +94,7 @@ fn judgment_flags_quadratic_and_dead_readings() {
     // width +0.3/-0.3, calibrated over 10³..10⁶ bits.
     let band = Band {
         kernel: "synthetic_linear",
+        rejected: false,
         slope: 1.0,
         intercept: 2.0,
         width_above: 0.3,

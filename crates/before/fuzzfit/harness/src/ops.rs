@@ -270,6 +270,18 @@ pub struct Step {
     pub expect: i64,
 }
 
+impl Step {
+    /// Whether this step's predicted outcome is an operation rejection.
+    ///
+    /// Rejection arms are priced as their own bands (the band key is
+    /// kernel × outcome): a rejection's cost law is a different mechanism
+    /// from the success path's, and pooling the two lets a regression in
+    /// either hide under the other's ceiling.
+    pub fn rejected(&self) -> bool {
+        self.expect == ERR_OP
+    }
+}
+
 /// A mirrored execution error: the program is malformed (a generator bug,
 /// never a `before` bug).
 #[derive(Debug)]
