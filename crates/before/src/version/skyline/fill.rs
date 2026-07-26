@@ -59,12 +59,16 @@
 //! packed streams [measured: exponent 1.00 with flat constants on
 //! the matched spine, both wide × deep shortcut crosses, the memo
 //! families — distinct and shared minima, interleaved combs, the
-//! wide fan-out — the descending staircase, and the close-reveal
+//! wide fan-out — the descending staircase, the close-reveal
 //! genre (k sibling sites sharing one wide minimum over a low floor,
 //! each site's node frame closing back into the floor frame between
 //! consecutive consumes): the reveal comb reads ×2.00 across a joint
 //! ×2.00 doubling and the bare-frame pure comb reads flat per byte
-//! across a width doubling — the `width_circulation_cost` and memo
+//! across a width doubling — and the undercut-cascade genre on both
+//! its axes (the staircase's narrow full-penetration drops and the
+//! ascending cliff's one wide residue through k − 1 nonzero unit
+//! differences, ×2.00 across a joint doubling) — the
+//! `width_circulation_cost` and memo
 //! modules of `tests/meter.rs` pin the families that separate this
 //! from every refuted discipline]. The cost invariant conserves
 //! width: every touch is paid by a consumed input code, an emitted
