@@ -189,6 +189,23 @@ pub extern "C" fn ff_reset() -> i32 {
     OK
 }
 
+/// Pre-reserve `n` register slots (unmeasured; the harness calls this once
+/// per instance).
+///
+/// Without the reservation, a measured kernel whose `put` lands on a `Vec`
+/// doubling boundary pays an O(file) reallocation inside its fuel window —
+/// register-machine bookkeeping billed to a public operation. The
+/// enforcement suite caught exactly that as a false above-band flag on
+/// `ff_party_seed` (the committed seed in
+/// `harness/tests/enforce.proptest-regressions` replays it); with the file
+/// pre-reserved to the program budget, `put` fills at most one fresh slot
+/// per call, O(1) forever.
+#[no_mangle]
+pub extern "C" fn ff_regs_reserve(n: u32) -> i32 {
+    REGS.with_borrow_mut(|regs| regs.reserve(n as usize));
+    OK
+}
+
 /// Resize the staging buffer to `len` and return its address; the host then
 /// writes payload bytes directly into linear memory.
 #[no_mangle]
@@ -443,11 +460,15 @@ pub extern "C" fn ff_version_concurrent(a: u32, b: u32) -> i32 {
 /// `Version::rank` into a `Rank` register.
 #[no_mangle]
 pub extern "C" fn ff_version_rank(dst: u32, src: u32) -> i32 {
-    code(with_v(src, |v| {
-        let rank = v.rank();
-        put(dst, Val::R(rank));
-        OK
-    }))
+    // The rank is computed under the shared borrow and stored after it
+    // ends: `put` needs the file mutably.
+    match with_v(src, |v| v.rank()) {
+        Some(rank) => {
+            put(dst, Val::R(rank));
+            OK
+        }
+        None => ERR_REG,
+    }
 }
 
 /// `Version::distance` into a `Rank` register.
