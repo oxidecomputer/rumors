@@ -1177,3 +1177,268 @@ proptest! {
         prop_assert!(borsh::from_slice::<Version>(&body).is_err());
     }
 }
+
+// ───────────────────── orbit pins: iterated-operation size trajectories ─────────────────────
+//
+// A per-call cost bound does not preclude compounding: an operation
+// linear in its input can feed itself an ever-larger input, so the
+// size trajectory of *iterated* operation is its own pin surface.
+// These orbits are fully deterministic (fixed populations, fixed
+// arithmetic schedules, no randomness in any operation), so every
+// trajectory below is pinned by exact measured numbers, asserted
+// across the whole orbit — shape over point: tuning any one round
+// cannot pass. The two scenario orbits transcribe the ITC 2008
+// paper's §6 experiment (also reproduced statistically by
+// `examples/space_consumption.rs`): the paper's observed shape —
+// rapid early growth, then stabilization with a minor logarithmic
+// component — is here a committed criterion, not a chart.
+
+/// Build the scenario orbits' fixed population: `n` clocks balanced-
+/// forked from one seed, deterministically.
+fn orbit_population(n: usize) -> Vec<Clock> {
+    let mut clocks = vec![Clock::seed()];
+    let children: Vec<Clock> = clocks[0].forks(n - 1).collect();
+    clocks.extend(children);
+    clocks
+}
+
+/// Max over each octave `[2^i, 2^(i+1))` of a per-round trajectory
+/// (`traj[k - 1]` is the reading after round `k`), starting at octave
+/// `[4, 8)`: the resolution the scenario orbits' bands are pinned at.
+fn octave_maxima(traj: &[usize]) -> Vec<usize> {
+    let mut maxima = Vec::new();
+    let mut hi = 8usize;
+    while hi <= traj.len() {
+        maxima.push(*traj[hi / 2..hi].iter().max().expect("octaves are nonempty"));
+        hi *= 2;
+    }
+    maxima
+}
+
+/// The fork+join round-trip orbit is byte-stationary.
+///
+/// Forking a child off a clock and immediately joining it back returns
+/// the clock byte-identical to its resting encoding, every round —
+/// iterated re-partitioning of an idle region mints nothing, with no
+/// transient and no ratchet [measured: identity at all 256 rounds].
+///
+/// Liveness floor: mid-round the encoding must differ from the resting
+/// one (the fork really split the party), so the identity is a round
+/// trip, not a no-op. Budget: 256 rounds, microseconds.
+#[test]
+fn fork_join_round_trip_orbit_is_byte_stationary() {
+    let mut c = Clock::seed();
+    let resting = c.encode();
+    for k in 1u32..=256 {
+        let child = c.fork();
+        assert_ne!(
+            c.encode(),
+            resting,
+            "round {k}: the fork must split the resting party"
+        );
+        c.join(child).expect("a clock's own fork is disjoint");
+        assert_eq!(
+            c.encode(),
+            resting,
+            "round {k}: the round trip must return the clock byte-identical"
+        );
+    }
+}
+
+/// The fork+tick+join round-trip orbit grows only the counter's code
+/// width.
+///
+/// Forking a child, ticking it once, and joining it back leaves the
+/// party byte-identical to the seed every round, and the version — a
+/// fixed two-leaf scaffold holding one counter at the child's leaf,
+/// `(0, 0, k)` exactly — reads exactly `7 + 2·⌊log2 k⌋` encoded bits
+/// after round k: the k accumulated events cost one gamma code's width
+/// (2 bits per doubling), never a ratcheting tree [measured: exact at
+/// all 512 rounds].
+///
+/// Liveness floor: the exact form at `k = 512` is the floor — a round
+/// trip that dropped events would read a smaller counter. Budget: 512
+/// rounds, milliseconds.
+#[test]
+fn fork_tick_join_orbit_returns_party_and_grows_gamma() {
+    let mut c = Clock::seed();
+    let seed_party = c.party().encode();
+    for k in 1usize..=512 {
+        let mut child = c.fork();
+        child.tick();
+        c.join(child).expect("a clock's own fork is disjoint");
+        assert_eq!(
+            c.party().encode(),
+            seed_party,
+            "round {k}: the party must return to the seed"
+        );
+        assert_eq!(
+            c.version().encoded_bits(),
+            7 + 2 * k.ilog2() as usize,
+            "version bits after round {k}"
+        );
+    }
+    let expected: Version = "(0, 0, 512)".parse().expect("test literals parse");
+    assert_eq!(
+        c.version(),
+        &expected,
+        "the orbit's whole history is one counter at the child's leaf"
+    );
+}
+
+/// The paper's dynamic (churn) scenario reaches a bounded steady
+/// state.
+///
+/// Over a population held at 8 by one fork, one tick, one anonymous
+/// version exchange, and one retiring join per round on a fixed
+/// arithmetic schedule, the population's maximum id size plateaus in a
+/// fixed band — the octave maxima climb through a transient and then
+/// sit flat at 132–134 bits, tail octaves no higher than the plateau's
+/// first — and its maximum version size grows only with the counters'
+/// code widths: per-octave growth bounded by a constant that is itself
+/// shrinking (65 → 48 → 42 bits per doubling over the tail),
+/// logarithmic in the round count, never per round. Both trajectories
+/// are pinned exactly at octave resolution [measured: the two arrays
+/// below, 4096 rounds].
+///
+/// Liveness floor: the population count is asserted every round and
+/// the pinned arrays are strictly positive and rising through the
+/// transient — a scenario that stopped forking, ticking, or joining
+/// would flatten them. Budget: 4096 rounds over ≤ 470-bit values,
+/// well under a second.
+#[test]
+fn churn_orbit_sizes_reach_a_bounded_band() {
+    const N: usize = 8;
+    const ROUNDS: usize = 4096;
+    let mut clocks = orbit_population(N);
+    let mut party_max = Vec::with_capacity(ROUNDS);
+    let mut version_max = Vec::with_capacity(ROUNDS);
+    for r in 0..ROUNDS {
+        // fork: a new peer joins, population N -> N + 1.
+        let parent = r % clocks.len();
+        let child = clocks[parent].fork();
+        clocks.push(child);
+        // event: one peer records an internal event.
+        let who = (r * 3 + 1) % clocks.len();
+        clocks[who].tick();
+        // anonymous exchange: one peer's version joined by another.
+        let s = (r * 5 + 2) % clocks.len();
+        let mut t = (r * 7 + 3) % clocks.len();
+        if t == s {
+            t = (t + 1) % clocks.len();
+        }
+        let peeked = clocks[s].version().clone();
+        clocks[t] |= peeked;
+        // retire: a donor's id is joined back into a survivor, N + 1 -> N.
+        let donor = clocks.swap_remove((r * 11 + 5) % clocks.len());
+        let survivor = (r * 13 + 7) % clocks.len();
+        clocks[survivor]
+            .join(donor)
+            .expect("clocks forked from one seed are disjoint");
+        assert_eq!(clocks.len(), N, "round {r}: churn holds the population");
+        party_max.push(
+            clocks
+                .iter()
+                .map(|c| c.party().encoded_bits())
+                .max()
+                .expect("the population is nonempty"),
+        );
+        version_max.push(
+            clocks
+                .iter()
+                .map(|c| c.version().encoded_bits())
+                .max()
+                .expect("the population is nonempty"),
+        );
+    }
+
+    let party_octaves = octave_maxima(&party_max);
+    assert_eq!(
+        party_octaves,
+        [20, 26, 42, 70, 92, 100, 122, 134, 132, 132],
+        "max id bits per octave: transient, then a flat band"
+    );
+    let plateau = party_octaves[7];
+    assert!(
+        party_octaves[8..].iter().all(|&m| m <= plateau),
+        "id sizes must not creep past the plateau's first octave"
+    );
+
+    let version_octaves = octave_maxima(&version_max);
+    assert_eq!(
+        version_octaves,
+        [24, 58, 102, 126, 176, 226, 270, 335, 383, 425],
+        "max version bits per octave: growth per doubling, not per round"
+    );
+    for w in version_octaves[6..].windows(2) {
+        assert!(
+            w[1] - w[0] <= 65,
+            "tail version growth must stay a bounded step per doubling"
+        );
+    }
+}
+
+/// The paper's static scenario stabilizes at the causal-history bound.
+///
+/// A fixed set of 8 peers recording one internal event and one
+/// anonymous version exchange per round on a fixed arithmetic schedule
+/// keeps every id byte-identical forever (messages carry no id), and
+/// the population's maximum version size is monotone nondecreasing and
+/// grows exactly 8 bits per doubling of the round count — the eight
+/// counters' gamma widths, 1 bit each per doubling — reading exactly
+/// `8·i − 4` bits over the octave ending at round `2^i`, flat per
+/// round, logarithmic in total [measured: exact at octave resolution,
+/// 4096 rounds].
+///
+/// Liveness floor: the closed form's equality at every octave is the
+/// floor — peers that stopped ticking or exchanging would read short.
+/// Budget: 4096 rounds over ≤ 100-bit versions, well under a second.
+#[test]
+fn static_orbit_ids_freeze_and_versions_grow_log() {
+    const N: usize = 8;
+    const ROUNDS: usize = 4096;
+    let mut clocks = orbit_population(N);
+    let resting_ids: Vec<Vec<u8>> = clocks.iter().map(|c| c.party().encode()).collect();
+    let mut version_max = Vec::with_capacity(ROUNDS);
+    for r in 0..ROUNDS {
+        // internal event on one peer.
+        clocks[r % N].tick();
+        // anonymous exchange: one peer's version joined by another.
+        let s = (r * 3 + 1) % N;
+        let mut t = (r * 5 + 2) % N;
+        if t == s {
+            t = (t + 1) % N;
+        }
+        let peeked = clocks[s].version().clone();
+        clocks[t] |= peeked;
+        for (c, resting) in clocks.iter().zip(&resting_ids) {
+            assert_eq!(
+                &c.party().encode(),
+                resting,
+                "round {r}: a static peer's id must stay byte-identical"
+            );
+        }
+        version_max.push(
+            clocks
+                .iter()
+                .map(|c| c.version().encoded_bits())
+                .max()
+                .expect("the population is nonempty"),
+        );
+    }
+
+    assert!(
+        version_max.windows(2).all(|w| w[1] >= w[0]),
+        "the shared causal history only accumulates"
+    );
+    let octaves = octave_maxima(&version_max);
+    assert_eq!(octaves[0], 22, "the transient octave [4, 8)");
+    for (j, &m) in octaves.iter().enumerate().skip(1) {
+        let i = j + 3; // octave j ends at round 2^(j + 3)
+        assert_eq!(
+            m,
+            8 * i - 4,
+            "max version bits over the octave ending at 2^{i}"
+        );
+    }
+}

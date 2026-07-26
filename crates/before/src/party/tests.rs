@@ -694,3 +694,75 @@ proptest! {
         }
     }
 }
+
+// ───────────────────── fork orbits: iterated size trajectories ─────────────────────
+//
+// A per-call cost bound does not preclude compounding: an operation can
+// be cheap per call while its output grows so that iterated application
+// is quadratic in total work. These pins fix the size trajectory of
+// iterated fork — deterministic, exact at every step, so the whole
+// shape is asserted and tuning any one point cannot pass. A future
+// change that makes repeated forking mint more than its one tree level
+// per split trips a committed diff here.
+
+/// An iterated fork chain's id sizes are exactly affine.
+///
+/// Following the forked-off child each round (the mover lineage
+/// descends one level per split), both halves read exactly `2 + 2·k`
+/// encoded bits after the k-th fork, for every k — one two-bit tree
+/// level per fork, nothing compounding [measured: exact at all 512
+/// steps].
+///
+/// Liveness floor: the trajectory's equality at `k = 512` is itself the
+/// floor — a chain that stopped splitting would read short of 1026
+/// bits. Budget: 512 forks of O(depth) each, milliseconds.
+#[test]
+fn fork_chain_orbit_sizes_are_exactly_affine() {
+    let mut p = Party::seed();
+    assert_eq!(p.encoded_bits(), 2, "the seed is the 2-bit whole region");
+    for k in 1usize..=512 {
+        let q = p.fork();
+        assert_eq!(p.encoded_bits(), 2 + 2 * k, "keeper id bits after fork {k}");
+        assert_eq!(q.encoded_bits(), 2 + 2 * k, "mover id bits after fork {k}");
+        p = q;
+    }
+}
+
+/// An iterated fork fan grows exactly affine and unwinds exactly.
+///
+/// Each round forks a fresh child off the root lineage (the keeper
+/// deepens one level per split), both halves reading exactly `2 + 2·k`
+/// encoded bits at the k-th fork; rejoining the children in reverse
+/// order then walks the root back down the same trajectory, ending
+/// byte-identical to the seed — sizes return, never ratchet [measured:
+/// exact at all 512 steps, both directions].
+///
+/// Liveness floor: the root must visit 1026 bits at the fan's rim and
+/// end `is_seed` — an unwind that dropped or double-counted a share
+/// would miss one or the other. Budget: 512 forks + 512 joins,
+/// milliseconds.
+#[test]
+fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
+    let mut root = Party::seed();
+    let mut children = Vec::new();
+    for k in 1usize..=512 {
+        let q = root.fork();
+        assert_eq!(
+            root.encoded_bits(),
+            2 + 2 * k,
+            "root id bits after fork {k}"
+        );
+        assert_eq!(q.encoded_bits(), 2 + 2 * k, "child id bits after fork {k}");
+        children.push(q);
+    }
+    for (i, q) in children.into_iter().rev().enumerate() {
+        root.join(q)
+            .expect("fan children are disjoint from the root");
+        assert_eq!(
+            root.encoded_bits(),
+            2 + 2 * (511 - i),
+            "root id bits after unwind join {i}"
+        );
+    }
+    assert!(root.is_seed(), "the fully unwound fan is the seed again");
+}
