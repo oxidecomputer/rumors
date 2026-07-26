@@ -54,8 +54,27 @@ mod tests;
 /// whole.join(half).unwrap();         // ... and reunite into the whole
 /// assert_eq!(whole.to_string(), "1");
 /// ```
-#[derive(PartialEq, Eq, Hash)]
 pub struct Party(BitVec<u8, Msb0>);
+
+// Equality and hashing are byte-level over the stored stream's raw bytes
+// plus its live length, resting on the canonical-raw-slice invariant:
+// `from_bits` zeroes the dead pad bits at every storage seam, so raw-byte
+// equality is exactly bit equality (see `codec::canonical_eq` for the
+// argument and the measurement). The two impls read the same pair, so
+// `Eq`/`Hash` consistency holds by construction.
+impl PartialEq for Party {
+    fn eq(&self, other: &Self) -> bool {
+        codec::canonical_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for Party {}
+
+impl core::hash::Hash for Party {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        codec::canonical_hash(&self.0, state);
+    }
+}
 
 impl Party {
     /// The initial [`Party`] in the system.

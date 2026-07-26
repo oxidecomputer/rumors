@@ -63,12 +63,18 @@ mod tests;
 // the live bit length is a cached parse product the wire legitimately
 // omits — the stream is self-delimiting at the bit level. Canonical
 // uniqueness makes byte equality exactly causal equality; `PartialEq` is
-// the macro's stream compare (see `causal_cmp_impls!`), and the derived
-// `Hash` over the same stream stays consistent with it. clippy can't see
-// the invariant.
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Eq, Hash)]
+// the macro's byte-level stream compare (see `causal_cmp_impls!` and
+// `codec::canonical_eq`), and the manual `Hash` below reads the same
+// (raw bytes, live length) pair, so their consistency holds by
+// construction.
+#[derive(Clone, Eq)]
 pub struct Version(codec::Bits);
+
+impl core::hash::Hash for Version {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        codec::canonical_hash(&self.0, state);
+    }
+}
 
 impl Version {
     /// The empty [`Version`], representing no [`tick`](Version::tick)s.
@@ -764,16 +770,16 @@ impl DivAssign<&Party> for Version {
 // All four cells — `Version`/`Version` included — come from this macro, so the
 // comparison matrix reads as a matrix. Each ordering cell delegates to the
 // skyline comparison sweep; each equality cell is a byte compare of the two
-// stored streams — the skyline coding is a canonical unique representation,
-// so byte equality is exactly causal equality. The `Version` derive list
-// deliberately omits `PartialEq`/`PartialOrd` so the macro is the single
-// source of both (see the note on the derive above).
+// stored streams (`codec::canonical_eq`) — the skyline coding is a canonical
+// unique representation, so byte equality is exactly causal equality. The
+// `Version` derive list deliberately omits `PartialEq`/`PartialOrd` so the
+// macro is the single source of both (see the note on the derive above).
 macro_rules! causal_cmp_impls {
     ($($lhs:ty, $rhs:ty);* $(;)?) => {
         $(
             impl PartialEq<$rhs> for $lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    self.view() == o.view()
+                    codec::canonical_eq(self.view(), o.view())
                 }
             }
             impl PartialOrd<$rhs> for $lhs {
@@ -783,7 +789,7 @@ macro_rules! causal_cmp_impls {
             }
             impl PartialEq<$rhs> for &$lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    self.view() == o.view()
+                    codec::canonical_eq(self.view(), o.view())
                 }
             }
             impl PartialOrd<$rhs> for &$lhs {
@@ -793,7 +799,7 @@ macro_rules! causal_cmp_impls {
             }
             impl PartialEq<&$rhs> for $lhs {
                 fn eq(&self, o: &&$rhs) -> bool {
-                    self.view() == o.view()
+                    codec::canonical_eq(self.view(), o.view())
                 }
             }
             impl PartialOrd<&$rhs> for $lhs {

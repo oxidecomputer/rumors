@@ -1833,3 +1833,32 @@ fn at_rest_size_is_one_container_per_stream() {
     assert_eq!(core::mem::size_of::<Version>(), 24);
     assert_eq!(core::mem::size_of::<crate::Clock>(), 48);
 }
+
+proptest! {
+    /// The byte-level equality the stored form uses (`codec::canonical_eq`:
+    /// raw bytes plus live length) agrees with a plain bit-level compare of
+    /// the live streams on arbitrary pairs, in both operand orders — the
+    /// cross-check that the canonical-raw-slice invariant (dead bits zeroed
+    /// at every storage seam) really licenses the byte shortcut. Equal
+    /// values must also hash equally (`Eq`/`Hash` consistency).
+    #[test]
+    fn byte_equality_matches_bit_equality(
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+    ) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let bit_eq = a.as_bits() == b.as_bits();
+        prop_assert_eq!(a == b, bit_eq);
+        prop_assert_eq!(b == a, bit_eq);
+        if a == b {
+            let hash = |v: &Version| {
+                use core::hash::{Hash, Hasher};
+                let mut h = std::hash::DefaultHasher::new();
+                v.hash(&mut h);
+                h.finish()
+            };
+            prop_assert_eq!(hash(&a), hash(&b));
+        }
+    }
+}

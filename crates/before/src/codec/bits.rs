@@ -41,6 +41,43 @@ pub(crate) fn zero_dead_bits(bits: &mut Bits) {
     bits.set_uninitialized(false);
 }
 
+/// Byte-level equality of two canonical stored streams: equal live
+/// lengths and equal raw bytes.
+///
+/// Rests on the canonical-raw-slice invariant — [`zero_dead_bits`] at
+/// every storage seam — under which raw-byte equality plus live-length
+/// equality is exactly bit equality, decided by one `memcmp` instead of
+/// a bit-domain-chunked compare (measured 2–54x faster on equal pairs
+/// from 23 bits to 32 Kbits, and 5x on a hash-map workload, in the
+/// 2026-07 storage-migration probe). The length check is load-bearing:
+/// two streams of different live length can share raw bytes (`01` vs
+/// `010` are both the byte `0x40`).
+pub(crate) fn canonical_eq(a: &Bits, b: &Bits) -> bool {
+    debug_assert!(
+        dead_bits_are_zero(a) && dead_bits_are_zero(b),
+        "canonical_eq compares raw bytes: both operands' dead bits must be zero",
+    );
+    a.len() == b.len() && a.as_raw_slice() == b.as_raw_slice()
+}
+
+/// Byte-level hash of a canonical stored stream: the raw bytes, then the
+/// live length.
+///
+/// [`canonical_eq`]'s hash counterpart — it feeds the hasher exactly the
+/// pair that equality compares, so equal values hash equally by
+/// construction. Rests on the same canonical-raw-slice invariant, and is
+/// an order of magnitude cheaper than hashing bit by bit (same probe as
+/// [`canonical_eq`]'s).
+pub(crate) fn canonical_hash<H: core::hash::Hasher>(bits: &Bits, state: &mut H) {
+    use core::hash::Hash;
+    debug_assert!(
+        dead_bits_are_zero(bits),
+        "canonical_hash reads raw bytes: dead bits must be zero",
+    );
+    bits.as_raw_slice().hash(state);
+    bits.len().hash(state);
+}
+
 /// Whether a stored stream's dead bits are zero: the canonical-storage
 /// check behind the `as_bytes` debug asserts.
 ///

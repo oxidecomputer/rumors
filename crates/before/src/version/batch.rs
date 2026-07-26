@@ -2,7 +2,7 @@
 //! version mutably and applies operations in place, each committing as it
 //! runs.
 
-use crate::codec::Bits;
+use crate::codec::{self, Bits};
 use crate::Party;
 
 use super::skyline;
@@ -85,7 +85,7 @@ impl Batch<'_> {
     /// identity path is the common seed pattern: folds seeded with
     /// [`Version::new`] (`join_all`, `Sum`) hit it on their first join.
     pub(super) fn join_view(&mut self, incoming: &Bits) -> &mut Self {
-        if self.version.0 == *incoming {
+        if codec::canonical_eq(&self.version.0, incoming) {
             return self; // a ∨ a = a
         }
         if skyline::is_empty_stream(incoming) {
@@ -114,7 +114,7 @@ impl Batch<'_> {
     /// current is already the answer, and an empty incoming makes the result
     /// the empty version outright, no merge sweep either way.
     pub(super) fn meet_view(&mut self, incoming: &Bits) -> &mut Self {
-        if self.version.0 == *incoming {
+        if codec::canonical_eq(&self.version.0, incoming) {
             return self; // a ∧ a == a
         }
         if skyline::is_empty_stream(&self.version.0) {
