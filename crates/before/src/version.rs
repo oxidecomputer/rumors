@@ -431,9 +431,10 @@ impl Version {
         self.0.as_raw_slice()
     }
 
-    /// The stored skyline stream, borrowed as live bits. Test- and
-    /// meter-only: the meter surface's `skyline::encode` and the
-    /// differential bridges read it; production code goes through
+    /// The stored skyline stream, borrowed as live bits.
+    ///
+    /// Test- and meter-only: the meter surface's `skyline::encode` and
+    /// the differential bridges read it; production code goes through
     /// [`Self::as_bytes`] or the crate-internal `view`.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn as_bits(&self) -> &codec::BitsSlice {

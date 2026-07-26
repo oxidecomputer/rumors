@@ -507,12 +507,13 @@ proptest! {
 }
 
 proptest! {
-    /// The byte-level equality the stored form uses (`codec::canonical_eq`:
-    /// raw bytes plus live length) agrees with a plain bit-level compare of
-    /// the live id streams on arbitrary pairs, in both operand orders — the
-    /// cross-check that the canonical-raw-slice invariant (dead bits zeroed
-    /// at every storage seam) really licenses the byte shortcut. Equal
-    /// values must also hash equally (`Eq`/`Hash` consistency).
+    /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
+    /// bit-level compare of the live id streams, in both operand orders.
+    ///
+    /// The cross-check that the canonical-raw-slice invariant (dead bits
+    /// zeroed at every storage seam) really licenses the byte shortcut
+    /// over raw bytes plus live length. Equal values must also hash
+    /// equally (`Eq`/`Hash` consistency).
     #[test]
     fn byte_equality_matches_bit_equality(
         oa in arb_oracle_party_nonempty(),
