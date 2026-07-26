@@ -16,8 +16,9 @@ use proptest::prelude::*;
 use rayon::prelude::*;
 
 use crate::meter::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    id_spine, memo_chain, memo_chain_id, memo_comb, memo_comb_id, nested_full_id,
+    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, descending_raises,
+    descending_raises_id, harmonic, hugeleaf, id_spine, memo_chain, memo_chain_id, memo_churn,
+    memo_churn_id, memo_comb, memo_comb_id, memo_fanout, memo_oscillating, nested_full_id,
     nested_left_full_id, scattered_id, staircase, wide_tail, wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{
@@ -103,6 +104,13 @@ fn event_pool() -> Vec<Version> {
         version_of(&memo_chain(8, false)),
         version_of(&memo_comb(1)),
         version_of(&memo_comb(4)),
+        version_of(&memo_fanout(1, 7)),
+        version_of(&memo_fanout(6, 64)),
+        version_of(&memo_oscillating(6, 64)),
+        version_of(&memo_churn(1)),
+        version_of(&memo_churn(5)),
+        version_of(&descending_raises(1)),
+        version_of(&descending_raises(6)),
     ]
 }
 
@@ -128,6 +136,10 @@ fn party_pool() -> Vec<Party> {
         party_of(&memo_chain_id(8)),
         party_of(&memo_comb_id(1)),
         party_of(&memo_comb_id(4)),
+        party_of(&memo_churn_id(1)),
+        party_of(&memo_churn_id(5)),
+        party_of(&descending_raises_id(1)),
+        party_of(&descending_raises_id(6)),
     ];
     pool.extend(all_normal_ids(2).iter().map(from_oracle_party));
     pool
