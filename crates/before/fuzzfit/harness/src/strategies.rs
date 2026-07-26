@@ -52,8 +52,14 @@
 //!   produced, so `decode`/`FromStr` rejection paths are never measured
 //!   here; malformed-input cost is the decode fuzz targets' and the meter
 //!   board's territory. The rejection arms this harness *does* measure are
-//!   the operation-level ones (`join`/`sync`/`without`/`meet_all` on
+//!   the operation-level ones (`join`/`sync`/`without`/`checked_sub` on
 //!   overlap, emptiness, or underflow), predicted per case by the mirror.
+//! - **Empty folds.** `join_all`/`meet_all` operands come from clock
+//!   populations the families build, never from an empty range, so
+//!   `meet_all([])`'s `None` outcome is not sampled. It stays unpriced
+//!   deliberately: the outcome is production-reachable but structurally
+//!   constant — no operand exists, so there is nothing for a regression
+//!   to scale with and nothing to denominate a cost against.
 
 use proptest::prelude::*;
 use rand::seq::SliceRandom;
@@ -588,7 +594,15 @@ impl B {
     /// Append a randomized battery of query/codec/text/rank ops over the
     /// pools: where most per-operation samples come from. Consuming ops use
     /// spares re-extracted from clocks, never the pools' principals.
-    fn battery(&mut self, pools: &Pools, rounds: u32) {
+    ///
+    /// The battery also *feeds* the rank pool: every distance/lag pair it
+    /// emits joins `pools.ranks`, so the pool holds ranks of distinct
+    /// magnitudes and `Rank::checked_sub` draws unequal operands in both
+    /// orders — the `Greater` alignment-shift-subtract arm and the
+    /// underflow rejection arm both sample, instead of the degenerate
+    /// equal-operand `Rank::ZERO` path a single-rank pool would pin every
+    /// draw to.
+    fn battery(&mut self, pools: &mut Pools, rounds: u32) {
         for _ in 0..rounds {
             if !self.room() {
                 return;
@@ -635,6 +649,12 @@ impl B {
                             self.push(Op::VersionDistance { dst: d1, a, b });
                             let d2 = self.alloc(Ty::R);
                             self.push(Op::VersionLag { dst: d2, a, b });
+                            // Pool both outputs: distance dominates lag on
+                            // the same operand pair, so the rank pool gains
+                            // unequal values and checked_sub below samples
+                            // both its subtraction and its underflow arm.
+                            pools.ranks.push(d1);
+                            pools.ranks.push(d2);
                         }
                     }
                 }
@@ -726,6 +746,15 @@ impl B {
                             let dst = self.alloc(Ty::R);
                             self.slots[dst as usize] = Ty::Dead; // may underflow
                             self.push(Op::RankCheckedSub { dst, a, b });
+                        }
+                        if self.room() {
+                            // The reverse order: whenever the operands
+                            // differ, exactly one direction underflows, so
+                            // the rejection arm samples at every size the
+                            // rank pool reaches.
+                            let dst = self.alloc(Ty::R);
+                            self.slots[dst as usize] = Ty::Dead; // may underflow
+                            self.push(Op::RankCheckedSub { dst, a: b, b: a });
                         }
                         if self.room() {
                             // RankAdd consumes `a`: re-derive a spare first.
@@ -1354,7 +1383,7 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                         }
                     }
                     _ => {
-                        b.battery(&pools.clone(), 1);
+                        b.battery(&mut pools, 1);
                     }
                 }
             }
@@ -1844,9 +1873,9 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
             }
         }
         ref coupled => {
-            let pools = construct(&mut b, coupled);
+            let mut pools = construct(&mut b, coupled);
             let rounds = b.rng.gen_range(8..=32);
-            b.battery(&pools, rounds);
+            b.battery(&mut pools, rounds);
         }
     }
     b.ops

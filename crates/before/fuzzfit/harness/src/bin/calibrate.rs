@@ -15,9 +15,12 @@
 //! committed judgment constants are pinned from: the corpus's maximum
 //! healthy within-case slope excess (the shape leg's `SLOPE_ALLOWANCE`),
 //! the prefix-refit-vs-pin line divergence (the staleness check's
-//! `REFIT_TOLERANCE`), and the band keys the prefix leaves uncovered
-//! (the complement of the generated `REFIT_COVERAGE` list) — so a re-pin
-//! re-derives the constants' evidence instead of trusting last time's.
+//! `REFIT_TOLERANCE`), the band keys the prefix leaves uncovered
+//! (the complement of the generated `REFIT_COVERAGE` list), and the
+//! narrowest floor-vs-nop gap (the liveness margin
+//! `ENFORCE_MARGIN_BELOW`'s claim that a dead meter reads below every
+//! effective floor) — so a re-pin re-derives the constants' evidence
+//! instead of trusting last time's.
 //!
 //! Usage: `calibrate [programs]` (default 1536, the corpus of record; the
 //! committed pins state their corpus size per band).
@@ -26,10 +29,11 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use fuzzfit_harness::bands::{Band, REFIT_PREFIX_PROGRAMS};
+use fuzzfit_harness::bands::{Band, ENFORCE_MARGIN_BELOW, REFIT_PREFIX_PROGRAMS};
 use fuzzfit_harness::curve::{local_slope_excess, MIN_BUCKETS, MIN_PER_BUCKET, SHAPE_EXEMPT};
 use fuzzfit_harness::drive::for_each_deterministic_program;
 use fuzzfit_harness::fit::{fit, line_divergence, Fit};
+use fuzzfit_harness::wasm::Guest;
 
 /// A [`Band`] transcribing a fresh [`Fit`] (what the pin will say).
 fn band_of(kernel: &'static str, rejected: bool, f: &Fit) -> Band {
@@ -181,6 +185,31 @@ fn main() {
             fits.len()
         ),
         None => eprintln!("refit evidence: prefix covered no band keys"),
+    }
+    // The liveness margin's evidence: the narrowest gap, over every band
+    // key, between the effective floor (line − width_below −
+    // ENFORCE_MARGIN_BELOW, at min_denom — the floor's lowest judged
+    // point for a non-negative slope) and the nop-level reading a dead
+    // meter produces. The liveness claim rests on every gap staying
+    // positive.
+    let nop = Guest::new().call("ff_nop", &[]).fuel;
+    let nop_log = (nop.max(1) as f64).log10();
+    let mut floor_min: Option<(f64, Key)> = None;
+    for (&key, f) in &fits {
+        let floor = f.intercept + f.slope * (f.min_denom as f64).log10()
+            - f.width_below
+            - ENFORCE_MARGIN_BELOW;
+        let gap = floor - nop_log;
+        if floor_min.as_ref().is_none_or(|(m, _)| gap < *m) {
+            floor_min = Some((gap, key));
+        }
+    }
+    if let Some((gap, (kernel, rejected))) = &floor_min {
+        eprintln!(
+            "floor evidence: min floor-vs-nop gap {gap:.3} decades ({kernel}{}) \
+             with ENFORCE_MARGIN_BELOW {ENFORCE_MARGIN_BELOW} already subtracted",
+            if *rejected { " [err]" } else { "" }
+        );
     }
 
     let bands_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bands.rs");
