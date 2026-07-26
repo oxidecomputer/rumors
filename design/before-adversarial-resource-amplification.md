@@ -692,7 +692,16 @@ per §6 (κ constant leg + n_io exponent leg); scan ≤ 96 bits/byte
 on walk rows; touch ≤ 96 digit touches/byte (calibrated 2026-07-26,
 release: heaviest honest reader the mirror-narrow tick cross at
 30.8/B default, 24.3/B record — scan's own margin convention).
-Green = all columns within ceilings AND all floors
+Exponent legs are fitted only where the cell's denominator pair
+scales (≥ ×1.5 between probes — a pair that does not scale with
+the knob has no scaling axis, and the fit divides by a vanishing
+log) and, on heap, where a reading clears the flat allowance the
+constant leg already forgives; an unjudged exponent renders
+`-.--` and the cell rides its constants and floors (C3's
+judgment-layer ruling, guard tripwires committed in
+`meter::board::tests` — the same readings must read red the
+moment the denominator honestly doubles or the readings clear the
+allowance). Green = all columns within ceilings AND all floors
 met.
 
 **Liveness floors** (user ruling 2026-07-24: the board judges the

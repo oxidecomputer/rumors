@@ -669,6 +669,20 @@ pub const TEXT_PIPELINE_LIMB_OPS_PER_VALUE: u64 = 10;
 /// padding trips the assertion.
 pub const TEXT_BYTES_PER_RADIX_UNIT: f64 = 8.0;
 
+/// Exponent legs are fitted only where the denominator pair grows at
+/// least this much between the cell's two probes.
+///
+/// The fit divides by `log(denominator growth)`: the families' probe
+/// pairs double their scaled dimension by construction, so a pair growing
+/// less than this says the operand does not scale with the knob at all
+/// (the benign rank pair moves 6 -> 7 bytes) and the division manufactures
+/// exponents out of word-scale reading noise (log 2 / log 7/6 amplifies
+/// x4.5). An unjudged exponent renders `-.--` and the cell rides its
+/// constants and floors, which bound single-size cost regardless
+/// \[derived; the sub-scaling tripwire in the test suite pins both
+/// directions\].
+pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
+
 /// The acceptance scale of record: the size multiplier of the record-mode
 /// board run (`just amp-board-record`).
 ///
@@ -4223,6 +4237,12 @@ fn assert_deterministic(op: &str, family: &str, a: &Sample, b: &Sample) {
 #[derive(Clone, Copy)]
 struct Score {
     exp: Option<f64>,
+    /// Whether the exponent leg is judged: false where the denominator
+    /// pair does not scale ([`MIN_EXPONENT_DENOM_GROWTH`]) or, on the heap
+    /// column, where both readings sit inside the flat allowance the
+    /// constant leg already forgives (a sub-allowance exponent is
+    /// allocator size-class noise, not scaling).
+    exp_judged: bool,
     per_unit: Option<f64>,
 }
 
@@ -4251,14 +4271,19 @@ struct CellResult {
 /// ([`ByCurrency::each`]), so a currency added to the axis is judged on
 /// every cell or the destructuring fails to compile.
 fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> CellResult {
+    let denom_scales =
+        s2.exp_denom_bytes as f64 >= s1.exp_denom_bytes as f64 * MIN_EXPONENT_DENOM_GROWTH;
     let score = |c: Currency| -> Score {
         let (Some(m1), Some(m2)) = (*s1.readings.get(c), *s2.readings.get(c)) else {
             return Score {
                 exp: None,
+                exp_judged: false,
                 per_unit: None,
             };
         };
         let exp = exponent(m1, m2, s1.exp_denom_bytes, s2.exp_denom_bytes);
+        let exp_judged =
+            denom_scales && (c != Currency::Heap || m1.max(m2) > HEAP_FLAT_ALLOWANCE_BYTES as u64);
         let per_unit = match c {
             Currency::Heap => {
                 m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64) as f64 / s2.denom_bytes as f64
@@ -4269,6 +4294,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         };
         Score {
             exp: Some(exp),
+            exp_judged,
             per_unit: Some(per_unit),
         }
     };
@@ -4313,7 +4339,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
                 "touch constant",
             ),
         };
-        if s.exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
+        if s.exp_judged && s.exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
             red.push(exp_label);
         }
         if s.per_unit.is_some_and(|v| v > ceiling) {
@@ -4371,19 +4397,28 @@ fn floor_value(liveness: Liveness) -> String {
 /// in the legend above the matrix).
 fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     let verdict = if r.red.is_empty() { "GREEN" } else { "RED" };
+    // An exponent the guards leave unjudged renders -.-- : printing the
+    // fitted digits would invite reading noise as a measurement.
+    let exp_text = |s: &Score| -> String {
+        match s.exp {
+            Some(e) if s.exp_judged => format!("{e:5.2}"),
+            Some(_) => " -.--".to_string(),
+            None => "     ".to_string(),
+        }
+    };
     let limb = match (r.scores.limb.exp, r.scores.limb.per_unit) {
-        (Some(e), Some(c)) => {
+        (Some(_), Some(c)) => {
             let unit = if r.s2.text_row { "/R" } else { "/B" };
-            format!("limb[e{e:5.2} {c:>10.1}{unit}]")
+            format!("limb[e{} {c:>10.1}{unit}]", exp_text(&r.scores.limb))
         }
         _ => "limb[      off      ]".to_string(),
     };
     let scan = match (r.scores.scan.exp, r.scores.scan.per_unit) {
-        (Some(e), Some(c)) => format!("scan[e{e:5.2} {c:>10.1}/B]"),
+        (Some(_), Some(c)) => format!("scan[e{} {c:>10.1}/B]", exp_text(&r.scores.scan)),
         _ => "scan[      off      ]".to_string(),
     };
     let touch = match (r.scores.touch.exp, r.scores.touch.per_unit) {
-        (Some(e), Some(c)) => format!("touch[e{e:5.2} {c:>10.1}/B]"),
+        (Some(_), Some(c)) => format!("touch[e{} {c:>10.1}/B]", exp_text(&r.scores.touch)),
         _ => "touch[      off      ]".to_string(),
     };
     let reasons = if r.red.is_empty() {
@@ -4405,15 +4440,15 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     writeln!(
         out,
         "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
-         heap[e{he:5.2} {hc:>10.1}/B]  seg[e{se:5.2} {sc:>4}]  {limb}  {scan}  {touch}  \
+         heap[e{he} {hc:>10.1}/B]  seg[e{se} {sc:>4}]  {limb}  {scan}  {touch}  \
          flr[h {fh:>6} l {fl:>6} s {fs:>6} t {ft:>6}]{expd}{reasons}",
         op = r.op,
         family = r.family,
         n1 = r.s1.denom_bytes,
         n2 = r.s2.denom_bytes,
-        he = r.scores.heap.exp.unwrap_or(0.0),
+        he = exp_text(&r.scores.heap),
         hc = r.scores.heap.per_unit.unwrap_or(0.0),
-        se = r.scores.segments.exp.unwrap_or(0.0),
+        se = exp_text(&r.scores.segments),
         sc = r.s2.readings.segments.unwrap_or(0),
         fh = floor_value(r.s2.floors.heap),
         fl = floor_value(r.s2.floors.limb),
@@ -4489,8 +4524,12 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
          touch <= {MAX_TOUCHES_PER_INPUT_BYTE} touches/B; \
          and every committed liveness floor met (flr[...]: a counter below its floor is red: \
          the meter is not watching that work; segments is ceiling-only by policy, its honest \
-         floor is zero). every judged quantity is a deterministic counter: the time-exponent \
-         leg lives in the bench judge (just bench-judge)"
+         floor is zero). exponent legs are fitted only where the denominator pair scales \
+         (>= x{MIN_EXPONENT_DENOM_GROWTH} between probes) and, on heap, where a reading \
+         clears the flat allowance the constant leg already forgives; an unjudged exponent \
+         renders -.-- and the cell rides its constants and floors. every judged quantity is \
+         a deterministic counter: the time-exponent leg lives in the bench judge \
+         (just bench-judge)"
     )?;
     writeln!(out)?;
     writeln!(out, "liveness declarations on this board:")?;
