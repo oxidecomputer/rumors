@@ -943,7 +943,16 @@ input, honestly over the 16 B/B ceiling, the mirror-narrow genre;
 owner: the round-7 record, spec §9 — a small-buffer diff-stack
 representation is the candidate cure if one is ever warranted)
 and at ×4 additionally on segments (e 3.81 / 14, **P4.2**), and
-the plateau control pair at ×4 on segments only (**P4.2**). Sums:
+the plateau control pair at ×4 on segments only (**P4.2**). The
+64.4/66.7 constant is specific to the board's joint (s,s) axis,
+where the armed count k and the per-difference width b grow
+together: at fixed b the peak heap is exactly affine in k —
+91.3 B per armed nonzero difference plus a 2,905 B floor, ~104
+B/B on the k-axis alone — and the B/B reading drifts with the
+k:b mix (49.6 → 81.3 across k-doublings) while the exponent
+holds 1.00. A future re-pin of this cell must re-measure on the
+board's own axis; the exponent claim is axis-invariant, the
+constant is not. Sums:
 default 206 + 19 = 225; record 193 + 32 = 225.
 
 Default, 17 = 198 green + 17: **ten κ-text constants**
