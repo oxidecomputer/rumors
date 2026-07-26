@@ -1266,6 +1266,107 @@ pub fn pure_comb_id(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The ascending cliff `A(k, b)`: a right spine of `k` ascending wide
+/// left leaves `2^b + i` over a terminal 0-cliff, `k(2b + 4) + 2` bits.
+///
+/// Layout: `k` spine nodes `1 · γ(0)`, each with left leaf
+/// `0 · γ(2^b + i)` (`i = 1..=k`, ascending inward), the deepest
+/// node's right child the cliff `0 · γ(0)`. Crossed with
+/// [`ascend_cliff_id`], each ascending unit step arms its own node's
+/// frame one above the enclosing frame's minimum — `k − 1` nonzero
+/// unit boundary differences with no zero runs anywhere — and the
+/// cliff's single wide undercut (residue `2^b + k`) then propagates
+/// through all of them: the family whose cascade prices the fold
+/// *direction* of every hop, one wide residue against `k − 1` narrow
+/// dying differences. The version's stored skyline stream pays the
+/// width in O(1) codes (the first climb and the terminal drop) and
+/// unit deltas between, so the input is Θ(k + b) and the tick's
+/// output is the input with the cliff grown to `(0, 1, 0)` — Θ(k + b)
+/// too, so a residue-width fold per hop survives the input+output
+/// denominator. Normal form: every spine node's subtree minimum is 0
+/// via the cliff, and no two sibling leaves exist (each wide leaf
+/// pairs with an internal node; the deepest pair is `(2^b + k, 0)`).
+///
+/// # Panics
+///
+/// Panics if `k == 0`, `b == 0`, or `k + 2 > 2^b` (the ascent must
+/// stay inside the width-`b` gamma-code band the closed form counts).
+pub fn ascend_cliff(k: usize, b: usize) -> Packed {
+    ascend_spine(k, b, true)
+}
+
+/// [`ascend_cliff`] with every wide leaf leveled at `2^b + 1`:
+/// identical spine, identical cliff undercut, all boundary
+/// differences zero, `k(2b + 4) + 2` bits.
+///
+/// Layout: [`ascend_cliff`]'s exactly, `i` pinned to 1. Every frame
+/// arms at the shared minimum, so the difference stack is one
+/// compressed zero run and the cliff's wide undercut passes it whole
+/// in O(1): the control separating the cascade's *hop count* (the
+/// cost driver under a per-hop width fold) from the spine shape, the
+/// arming schedule, and the undercut itself, all shared with the
+/// ascending family. Normal form: as [`ascend_cliff`]'s (each wide
+/// leaf pairs with an internal node; the deepest pair is
+/// `(2^b + 1, 0)`).
+///
+/// # Panics
+///
+/// Panics if `k == 0`, `b == 0`, or `k + 2 > 2^b`.
+pub fn ascend_cliff_plateau(k: usize, b: usize) -> Packed {
+    ascend_spine(k, b, false)
+}
+
+/// The shared ascending-cliff layout: ascending leaves or the
+/// leveled control.
+fn ascend_spine(k: usize, b: usize, ascend: bool) -> Packed {
+    assert!(k >= 1, "the ascending cliff needs at least one spine node");
+    assert!(b >= 1, "the ascending cliff needs a nonzero magnitude");
+    // Every leaf's gamma code must stay 2b + 1 bits: γ(n) codes
+    // m = n + 1, so the deepest leaf needs 2^b + k + 1 < 2^(b+1).
+    assert!(
+        b >= usize::BITS as usize || (k + 2) >> b == 0,
+        "the ascent must stay inside the width-b code band"
+    );
+    let wide = pow2(b);
+    let mut bits = Bits::with_capacity(k * (2 * b + 4) + 2);
+    for i in 1..=k {
+        bits.push(true); // spine node S_i, i = 1..=k
+        codec::encode_int(&mut bits, &Base::ZERO);
+        let step = if ascend { i as u64 } else { 1 };
+        ev_leaf_wide(&mut bits, &(&wide + step)); // its wide left leaf
+    }
+    ev_leaf(&mut bits, 0); // the cliff: S_k's right child
+    Packed::from_bits(bits)
+}
+
+/// The ascending-cliff id over [`ascend_cliff`]: a right-descent
+/// `(0, ·)` chain bottoming in `(1, 0)` over the cliff, `2k + 4` bits.
+///
+/// Layout: `k` tags `01` (left absent — the wide leaves stay), then
+/// `10 · 00` — the `(1, 0)` node over the cliff, whose owned left
+/// half makes the cliff the tick's one grow site. Normal form: no
+/// `(1, 1)` node.
+///
+/// # Panics
+///
+/// Panics if `k == 0`.
+pub fn ascend_cliff_id(k: usize) -> Packed {
+    assert!(
+        k >= 1,
+        "the ascending-cliff id needs at least one spine node"
+    );
+    let mut bits = Bits::with_capacity(2 * k + 4);
+    for _ in 0..k {
+        bits.push(false); // S_i's tag: left absent (the wide leaf stays) ...
+        bits.push(true); // ... right present (the descent continues)
+    }
+    bits.push(true); // the cliff's id: `(1, 0)` ...
+    bits.push(false);
+    bits.push(false); // ... whose left child is the terminal
+    bits.push(false);
+    Packed::from_bits(bits)
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> Base {
     pow2(b) - &Base::from(1u8)
