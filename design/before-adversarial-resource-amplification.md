@@ -228,21 +228,18 @@ board cells named.
   residue-width axis — the staircase descends (every residue
   narrow), and this family is its ascending mirror. A pricing
   obligation under §6, not an exploit.
-- **OPEN — plateau projection output-domination** (2026-07-26;
-  materialized by the #35 board product, which crossed every
-  shape with every operation its bundle supplies): projecting a
-  shared-wide-plateau event through its site-owning comb id
-  (`version_project`/`clock_own_version` × {reveal-comb,
-  reveal-hifloor, pure-comb}) re-materializes a wide absolute
-  value per kept site — mandatory output Θ(k·b) against a
-  Θ(k + b) input, exactly the comb-scatter case §6 already prices
-  by `n_io`, but these six cells read under the input denominator
-  and are red on every column at ×4 [measured — board rows at the
-  #35 tip, both scales]. The reading is a denomination gap, not a
-  kernel finding; the cure is declaring the output domination
-  (output read back from the actual result, §6's rule) at the
-  owning phase, never a silent green. Owner: the §6 denomination
-  criterion at C3; §17.3 carries the cells.
+- **Plateau projection output-domination** (CLOSED at C3
+  2026-07-26 under the owner's pre-approved §6 ruling):
+  `version_project`/`clock_own_version` × {reveal-comb,
+  reveal-hifloor, pure-comb} re-materialize a wide absolute value
+  per kept site — mandatory output Θ(k·b) on a Θ(k + b) input —
+  and are `n_io`-denominated like the comb-scatter cross. The
+  owner's O(`n_io`)-tightness rider is met [measured, release,
+  both scales: output ×4.0 per input doubling; limb e 0.96–0.99
+  at ≤ 0.20/B, scan e 1.00 at 8 bits/B, touch e ≈ 0.99 at
+  ≤ 0.13/B, heap e 1.00 at 2.1 B/B]; the six `n_io` board cells
+  are the committed check. A denomination gap, not a kernel
+  finding.
 - **Profile-dependent meter readings** (2026-07-26; found by the
   #35 dev-vs-release identity check, which stopped the planned
   `--release` switch of the board recipes pending the owner's
@@ -459,9 +456,12 @@ degenerate into exemption holes:
   radix units (forced by the delta coding; derivation at the
   constant, tripwire re-pinned).
 - **Output-dominated projection** (`version_project`/
-  `clock_own_version` on comb × scattered-party): judged against
+  `clock_own_version` on comb × scattered-party and, since C3
+  applied the owner's pre-approved ruling to the plateau crosses,
+  on reveal-comb/reveal-hifloor/pure-comb): judged against
   `n_io` = packed input + packed output (canonical coding cannot
-  be padded).
+  be padded), with the sweep measured O(`n_io`)-tight — the
+  owner's rider — on every declared cross.
 
 Everything else stays input-denominated — both codec directions
 (canonical 1:1), all scalar/comparison/query rows, and the
@@ -473,35 +473,23 @@ carries the do-not-re-denominate list. Rank rows denominate
 against value content `bits(num) + exp`, which every public
 construction path bounds by the producing wire.
 
-Amendment (2026-07-26, C3): **flat-denominator shapes fit their
-exponents against value content.** The comb-scatter family scales
-tooth count at a fixed 1000-bit tooth magnitude, so its packed
-bytes are intercept-dominated (one wide leading code plus unit
-delta codes per tooth, growing ~×1.2 per level) while every slot's
-value content — §10.6's quantity, Σ leaf-height bits — and every
-operation's honest per-tooth work double. A two-point power-law
-fit against an intercept-dominated denominator manufactures
-exponents out of exactly linear marginal work (log 2 / log 1.2 ≈ 4
-[measured: the comparison sweep's per-tooth limb work flat across
-the tooth doubling while the packed fit read e 4.00]), so the
-shape's input-denominated cells fit their *exponents* against the
-bundle's value content (event-side leaf-height bits plus the id
-side's packed bytes), disclosed per row (`expd[content ...]`);
-constants and floors stay per packed byte, the harder reading, and
-I/O-denominated cells keep `n_io`, whose output side already
-scales. The bench mirror denominates those cells' time exponents
-the same way. Two committed tripwires pin the criterion
-(`meter::board::tests`): the packed fit must manufacture a
-superlinear exponent from measured-flat per-tooth work over the
-intercept premise (packed growth < ×1.5, content growth ≈ ×2), and
-a genuinely quadratic-in-teeth probe must still read red against
-the content denominator — the re-denomination corrects the fit's
-axis, never the criterion's teeth. This closes the comb-scatter
-flat-denominator classification (§17.3's #35 genre 1 and the
-error-path round's genre 2): the honest denominator for the
-column's exponents is the materialized value content, and the
-cells' work is linear on it; nothing in the column exceeds an
-honest denominator.
+- **Flat-denominator shapes fit their exponents against value
+  content** (C3, 2026-07-26 — the comb-scatter classification,
+  closed). The shape scales tooth count at a fixed 1000-bit
+  magnitude: packed bytes are intercept-dominated (~×1.2 per
+  level) while value content (§10.6's Σ leaf-height bits) and
+  measured per-tooth work double, so a packed-byte power-law fit
+  manufactures e ≈ 4 out of flat marginal work [measured]. The
+  shape's input-denominated cells fit exponents against the
+  bundle's value content (event-side leaf-height bits + id-side
+  packed bytes; row-disclosed as `expd[content ...]`); constants
+  and floors stay per packed byte; I/O cells keep `n_io`; the
+  bench mirror's denominators follow. Tripwires in
+  `meter::board::tests`: the packed fit must stay broken on
+  measured-flat work over the intercept premise, and a
+  quadratic-in-teeth probe must read red against content. The
+  column's work is linear on its honest denominator; no cell
+  exceeds it.
 
 Amendment (2026-07-26, the error-path round): **rejection rows
 denominate against the fed stream alone.** A rejection produces
