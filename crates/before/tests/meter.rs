@@ -3177,12 +3177,13 @@ mod memo_resolution_cost {
     use before::meter::{self, accum::touch_meter};
     use before::Party;
 
-    /// One tick run over a memo family cross: the tick's packed input
-    /// bytes (the version's own stored stream — the skyline coding,
-    /// not the generator's construction language, whose per-leaf
-    /// absolute codes overstate a plateau family's input by orders of
-    /// magnitude — plus the id) and the accumulator digit touches of
-    /// the tick body.
+    /// One tick run over a memo family cross: the tick's packed
+    /// input bytes and the accumulator digit touches of its body.
+    ///
+    /// The input is the version's own stored stream — the skyline
+    /// coding, not the generator's construction language, whose
+    /// per-leaf absolute codes overstate a plateau family's input by
+    /// orders of magnitude — plus the id.
     struct Run {
         input: u64,
         touches: u64,
@@ -3216,11 +3217,12 @@ mod memo_resolution_cost {
     }
 
     /// Assert the linear signature: touches grow by at most ×2.5
-    /// across a size doubling (measured ×2.0 under the frame ledger;
-    /// a resolution that re-reads links once per crossing reads ~×3.9
-    /// here). A reading over the ceiling means a link is being read
-    /// more than once — re-pin only with a cure, never by deleting
-    /// the family.
+    /// across a size doubling.
+    ///
+    /// Measured ×2.0 under the frame ledger; a resolution that
+    /// re-reads links once per crossing reads ~×3.9 here. A reading
+    /// over the ceiling means a link is being read more than once —
+    /// re-pin only with a cure, never by deleting the family.
     fn assert_flat(name: &str, small: &Run, large: &Run) {
         eprintln!(
             "MEASURED {name}: small={}/{}B large={}/{}B",
@@ -3235,12 +3237,14 @@ mod memo_resolution_cost {
         );
     }
 
-    /// Resolving the flat memo chain's distinct-minimum sites is linear
-    /// in digit touches: `k` consumption-sibling sites' links each die
-    /// into their own raise decision — one fold per link across the
-    /// whole walk [measured: ×2.00 across the doubling, 60,023 →
-    /// 120,023 at the pinned sizes; ×3.94 under the refuted
-    /// recording-chain interval resolution].
+    /// Resolving the flat memo chain's distinct-minimum sites is
+    /// linear in digit touches.
+    ///
+    /// `k` consumption-sibling sites' links each die into their own
+    /// raise decision — one fold per link across the whole walk
+    /// [measured: ×2.00 across the doubling, 60,023 → 120,023 at the
+    /// pinned sizes; ×3.94 under the refuted recording-chain interval
+    /// resolution].
     #[test]
     fn memo_chain_distinct_resolution_reads_linear() {
         let small = tick_run(meter::memo_chain(1_000, true), meter::memo_chain_id(1_000));
@@ -3291,8 +3295,10 @@ mod memo_resolution_cost {
     }
 
     /// The wide fan-out's ledger cost is independent of the site
-    /// count: `k` sibling sites sharing one wide minimum record zero
-    /// links, and exactly one deferred link carries the width.
+    /// count.
+    ///
+    /// `k` sibling sites sharing one wide minimum record zero links,
+    /// and exactly one deferred link carries the width.
     ///
     /// The absolute ceiling is the k-independence assert — a
     /// discipline that materializes one wide record per site (the
@@ -3323,8 +3329,9 @@ mod memo_resolution_cost {
         );
     }
 
-    /// Oscillating sibling minima cost flat touches per input byte:
-    /// every sibling link is wide, and every one is funded
+    /// Oscillating sibling minima cost flat touches per input byte.
+    ///
+    /// Every sibling link is wide, and every one is funded
     /// one-for-one by the input code that stores its site's minimum
     /// — the funding control for the ledger's cost argument.
     #[test]
@@ -3353,11 +3360,13 @@ mod memo_resolution_cost {
     }
 
     /// Full-penetration minimum drops with recorded minima in flight
-    /// cost one fold each: the descending run undercuts every open
-    /// range while `d` sibling records ride the one live ledger head
-    /// [measured: ×2.00 across the doubling, 80,019 → 160,019]. A
-    /// discipline keeping one live record per open level folds all
-    /// `d` per drop — the refuted live-anchored followers' tombstone.
+    /// cost one fold each.
+    ///
+    /// The descending run undercuts every open range while `d`
+    /// sibling records ride the one live ledger head [measured:
+    /// ×2.00 across the doubling, 80,019 → 160,019]. A discipline
+    /// keeping one live record per open level folds all `d` per
+    /// drop — the refuted live-anchored followers' tombstone.
     #[test]
     fn memo_churn_undercuts_fold_one_follower() {
         let small = tick_run(meter::memo_churn(800), meter::memo_churn_id(800));
@@ -3365,14 +3374,15 @@ mod memo_resolution_cost {
         assert_flat("memo_churn", &small, &large);
     }
 
-    /// Raises landing below the frame's minimum at every consume stay
-    /// linear — and, foremost, semantically exact: the family whose
-    /// every raise moves the tracked minimum between the ledger
-    /// relation's install and its next read, so a decide-then-emit
-    /// ordering violation (a relation installed after the raise's
-    /// arm) produces wrong values its oracle differential catches;
-    /// this pin carries the cost leg [measured: ×2.00 across the
-    /// doubling, 46,452 → 92,852].
+    /// Raises landing below the frame's minimum at every consume
+    /// stay linear — and, foremost, semantically exact.
+    ///
+    /// The family's every raise moves the tracked minimum between
+    /// the ledger relation's install and its next read, so a
+    /// decide-then-emit ordering violation (a relation installed
+    /// after the raise's arm) produces wrong values its oracle
+    /// differential catches; this pin carries the cost leg
+    /// [measured: ×2.00 across the doubling, 46,452 → 92,852].
     #[test]
     fn descending_raises_stay_linear_under_min_movement() {
         let small = tick_run(
