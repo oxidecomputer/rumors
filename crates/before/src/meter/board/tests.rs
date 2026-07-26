@@ -407,11 +407,12 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
     );
 }
 
-/// The join_all up-front overlap test reads scan-flat: a joint doubling of
-/// accumulator and input count grows the fold's scan bits ≤ ×2.05
-/// \[measured ×2.00, 33,036 → 66,060 bits — the re-pin landed with the
-/// per-call index\], over a liveness floor proving the meter watches the
-/// discipline.
+/// The join_all up-front overlap test reads scan-flat: a joint doubling
+/// of accumulator and input count grows the fold's scan bits ≤ ×2.05,
+/// over a liveness floor proving the meter watches the discipline.
+///
+/// \[Measured ×2.00, 33,036 → 66,060 bits — the re-pin landed with the
+/// per-call index.\]
 ///
 /// `Party::join_all` tests every input against the *fixed* accumulator up
 /// front (the hand-back granularity the contract documents), through a

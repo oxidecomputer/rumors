@@ -66,11 +66,13 @@ proptest! {
 // decisions.
 
 /// Run the production clock fold and the cursor-walk oracle over one
-/// input population (built twice by `build`, which must be deterministic)
-/// and assert identical outcomes: the same `Ok`/`Err` — comparing the
-/// returned version against the reference accumulator's — with the same
-/// hand-back vector in the same order, and equal accumulators (party and
-/// version both).
+/// input population and assert identical outcomes.
+///
+/// `build` constructs the population twice and must be deterministic.
+/// Identical outcomes: the same `Ok`/`Err` — comparing the returned
+/// version against the reference accumulator's — with the same
+/// hand-back vector in the same order, and equal accumulators (party
+/// and version both).
 fn assert_join_all_matches_oracle(build: impl Fn() -> (Clock, Vec<Clock>)) {
     let (mut acc_new, inputs_new) = build();
     let (mut acc_ref, inputs_ref) = build();
@@ -89,12 +91,13 @@ fn assert_join_all_matches_oracle(build: impl Fn() -> (Clock, Vec<Clock>)) {
 }
 
 proptest! {
-    /// The indexed clock fold decides exactly as the cursor-walk oracle
-    /// over arbitrary normal-form mixes: an arbitrary accumulator
-    /// against clocks drawn with repetition from an arbitrary pool of
-    /// party × version pairs — mixed sizes, duplicates, and every
-    /// overlap disposition arise from the draws — with identical
-    /// hand-backs and equal accumulators.
+    /// The indexed clock fold decides exactly as the cursor-walk
+    /// oracle over arbitrary normal-form mixes.
+    ///
+    /// An arbitrary accumulator against clocks drawn with repetition
+    /// from an arbitrary pool of party × version pairs — mixed sizes,
+    /// duplicates, and every overlap disposition arise from the draws
+    /// — with identical hand-backs and equal accumulators.
     #[test]
     fn join_all_matches_the_cursor_walk_oracle(
         oacc in (arb_oracle_party_nonempty(), arb_oracle_version()),
@@ -119,11 +122,13 @@ proptest! {
     }
 }
 
-/// With no overlap anywhere — a forked clock population reuniting after
-/// concurrent ticks — the indexed fold and the cursor-walk oracle both
-/// return the same merged version and rebuild equal accumulators; with
-/// the accumulator's own region duplicated among the inputs, both hand
-/// back exactly the duplicate.
+/// On forked and aliased clock populations, the indexed fold and the
+/// cursor-walk oracle agree.
+///
+/// With no overlap anywhere — a forked clock population reuniting
+/// after concurrent ticks — both return the same merged version and
+/// rebuild equal accumulators; with the accumulator's own region
+/// duplicated among the inputs, both hand back exactly the duplicate.
 #[test]
 fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
     let population = |duplicate: bool| {

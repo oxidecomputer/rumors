@@ -101,9 +101,11 @@ fn join_all_hands_back_aliased_inputs() {
 // arbitrary mixes and the named adversarial ones.
 
 /// Run the production fold and the cursor-walk oracle over one input
-/// population (built twice by `build`, which must be deterministic) and
-/// assert identical outcomes: the same `Ok`/`Err` with the same
-/// hand-back vector in the same order, and byte-identical accumulators.
+/// population and assert identical outcomes.
+///
+/// `build` constructs the population twice and must be deterministic.
+/// Identical outcomes: the same `Ok`/`Err` with the same hand-back
+/// vector in the same order, and byte-identical accumulators.
 fn assert_join_all_matches_oracle(build: impl Fn() -> (Party, Vec<Party>)) {
     let (mut acc_new, inputs_new) = build();
     let (mut acc_ref, inputs_ref) = build();
@@ -123,11 +125,13 @@ fn assert_join_all_matches_oracle(build: impl Fn() -> (Party, Vec<Party>)) {
 
 proptest! {
     /// The indexed fold decides exactly as the cursor-walk oracle over
-    /// arbitrary normal-form mixes: an arbitrary accumulator against
-    /// inputs drawn with repetition from an arbitrary pool — mixed
-    /// sizes, duplicates, and every overlap disposition (against the
-    /// accumulator, against each other, or none) arise from the draws —
-    /// with identical hand-backs and byte-identical accumulators.
+    /// arbitrary normal-form mixes.
+    ///
+    /// An arbitrary accumulator against inputs drawn with repetition
+    /// from an arbitrary pool — mixed sizes, duplicates, and every
+    /// overlap disposition (against the accumulator, against each
+    /// other, or none) arise from the draws — with identical hand-backs
+    /// and byte-identical accumulators.
     #[test]
     fn join_all_matches_the_cursor_walk_oracle(
         oacc in arb_oracle_party_nonempty(),
@@ -147,9 +151,11 @@ proptest! {
     }
 }
 
-/// With no overlap anywhere — a forked population reuniting — the indexed
-/// fold and the cursor-walk oracle both return `Ok` and rebuild the same
-/// accumulator, byte for byte.
+/// With no overlap anywhere, the indexed fold and the cursor-walk
+/// oracle agree.
+///
+/// A forked population reuniting: both return `Ok` and rebuild the
+/// same accumulator, byte for byte.
 #[test]
 fn join_all_agrees_with_oracle_when_none_overlap() {
     assert_join_all_matches_oracle(|| {
@@ -160,9 +166,11 @@ fn join_all_agrees_with_oracle_when_none_overlap() {
 }
 
 /// The hand-back outcome is invariant to where the overlapping input
-/// sits in the sequence — first, interior, or last: the indexed fold and
-/// the cursor-walk oracle hand back exactly the aliased input at every
-/// position, with the honest shares still reuniting.
+/// sits in the sequence — first, interior, or last.
+///
+/// The indexed fold and the cursor-walk oracle hand back exactly the
+/// aliased input at every position, with the honest shares still
+/// reuniting.
 #[test]
 fn join_all_agrees_with_oracle_at_every_overlap_position() {
     for position in [0usize, 2, 4] {
@@ -177,11 +185,13 @@ fn join_all_agrees_with_oracle_at_every_overlap_position() {
     }
 }
 
-/// On the maximally-deferred witness — every input aliases a deep spine
-/// accumulator whose single owned region is its preorder-last tip, so
-/// each overlap test resolves only at the stream's end — the indexed
-/// fold and the cursor-walk oracle hand every input back in order and
-/// leave the accumulator untouched.
+/// On the maximally-deferred witness, the indexed fold and the
+/// cursor-walk oracle hand every input back in order and leave the
+/// accumulator untouched.
+///
+/// Every input aliases a deep spine accumulator whose single owned
+/// region is its preorder-last tip, so each overlap test resolves only
+/// at the stream's end.
 #[test]
 fn join_all_agrees_with_oracle_on_all_overlapping_deferred_witness() {
     assert_join_all_matches_oracle(|| {
@@ -476,12 +486,13 @@ proptest! {
 
 proptest! {
     /// The per-call [`IdIndex`] matches the cursor walk on *deep*
-    /// operand pairs (the arbitrary generator stays shallow): spines,
-    /// zigzags, and bushy shapes at scale, in both roles — driving the
-    /// index's table search and its skip-free descent through real
-    /// depth, on disjoint pairs (both single-tip spine halves and the
-    /// misaligned skip-stress pair) and overlapping ones (a shape
-    /// against itself).
+    /// operand pairs, where the arbitrary generator stays shallow.
+    ///
+    /// Spines, zigzags, and bushy shapes at scale, in both roles —
+    /// driving the index's table search and its skip-free descent
+    /// through real depth, on disjoint pairs (both single-tip spine
+    /// halves and the misaligned skip-stress pair) and overlapping
+    /// ones (a shape against itself).
     #[test]
     fn indexed_disjointness_matches_the_cursor_walk_deep(
         shape_a in arb_shape(),
