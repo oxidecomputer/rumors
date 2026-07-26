@@ -260,6 +260,23 @@
 //!   unit, ~4× over it \[measured — the test suite's tripwire\]. Only a
 //!   converter whose recorded limb work is near-linear in `n_io` with a
 //!   D&C-class constant reads green.
+//! - **Flat-denominator exponents** (the comb-scatter shape): the shape
+//!   deliberately scales tooth *count* at a fixed 1000-bit tooth
+//!   magnitude, so its packed bytes are intercept-dominated — the one
+//!   wide leading code plus unit delta codes per tooth — and grow only
+//!   ~x1.2 while every slot's value content (and every operation's honest
+//!   per-tooth work) doubles per level. A two-point power-law fit against
+//!   an intercept-dominated denominator manufactures exponents out of
+//!   exactly linear marginal work (log 2 / log 1.2 = 4), so the shape's
+//!   input-denominated cells fit their *exponents* against the bundle's
+//!   value content ([`value_content_bytes`] of the event side plus the id
+//!   side's packed bytes — §10.6's quantity, the honest scaling axis),
+//!   disclosed per row as `expd[content ...]`. Constants and floors stay
+//!   per packed byte, the harder reading; I/O-denominated cells keep
+//!   `n_io`, whose output side already scales. The tripwire pair below
+//!   pins both directions: the packed fit reads a manufactured exponent
+//!   on measured flat per-tooth work, and a genuinely quadratic-in-teeth
+//!   probe still reads red against the content denominator.
 //! - **Output-dominated projection** (`version_project` and
 //!   `clock_own_version` on the comb × scattered-party cross): `n_io` is
 //!   packed input + packed output. The cross exists because a scattered
@@ -958,6 +975,12 @@ struct FamilyData {
     /// input (the comb-scatter shape): the projection rows I/O-denominate
     /// exactly these cells (the module doc's Denomination section).
     output_dominated: bool,
+    /// The bundle's value content in bytes, `Some` only on the
+    /// flat-denominator shape (comb-scatter): the denominator every
+    /// input-denominated cell's *exponent* is fitted against (constants
+    /// and floors stay per packed byte — the module doc's Denomination
+    /// section derives the split).
+    content_bytes: Option<usize>,
     /// The packed fold operands (versions, parties), consumed by the two
     /// fold rows alone: the scatter shape's adversarially ordered
     /// population and the benign shape's organic control.
@@ -993,6 +1016,7 @@ impl FamilyData {
             parties: None,
             cross: None,
             output_dominated: false,
+            content_bytes: None,
             fold: None,
             overlap: None,
             rank_pair: None,
@@ -1059,6 +1083,8 @@ impl FamilyData {
                     super::scattered_id(teeth / 2).bytes,
                 ));
                 data.output_dominated = true;
+                let (v, p) = data.cross.as_ref().expect("just set");
+                data.content_bytes = Some(value_content_bytes(&decode_version(v)) + p.len());
                 data
             }
             FamilyKind::Harmonic => Self::event(
@@ -2142,6 +2168,55 @@ fn mandatory_limbs_stream(v: &Version) -> u64 {
         }
     }
     limbs
+}
+
+/// A version's value content in bytes: the summed bit widths of its
+/// absolute leaf heights (one bit minimum per leaf), rounded up to bytes.
+///
+/// This is §10.6's quantity — the content that delta coding lets ride
+/// behind asymptotically fewer wire bits — and the scaling denominator of
+/// the flat-denominator shape's exponent fits: the boundary comb at fixed
+/// tooth magnitude doubles its value content (and every operation's honest
+/// per-tooth work) per level while its packed bytes grow only by the unit
+/// delta codes over a fixed wide intercept. Iterative over the packed
+/// form, outside any measurement.
+fn value_content_bytes(v: &Version) -> usize {
+    let all = codec::bytes_as_bits(v.as_bytes());
+    let bits = &all[..v.encoded_bits()];
+    let mut pos = 0usize;
+    let mut pending = 1usize;
+    let mut last: Option<Base> = None;
+    let mut content = 0u64;
+    while pending > 0 {
+        pending -= 1;
+        let internal = bits[pos];
+        pos += 1;
+        if internal {
+            pending += 2;
+            continue;
+        }
+        let (code, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        pos = next;
+        let value = match last {
+            None => code,
+            Some(prev) => {
+                let odd = code.bit(0);
+                let magnitude = if odd {
+                    (code + 1u32) >> 1u32
+                } else {
+                    code >> 1u32
+                };
+                if odd {
+                    prev - &magnitude
+                } else {
+                    prev + &magnitude
+                }
+            }
+        };
+        content += value.bits().max(1);
+        last = Some(value);
+    }
+    (content.div_ceil(8)) as usize
 }
 
 /// The mandatory limb count of a version's stored magnitudes: one limb per
@@ -3866,10 +3941,17 @@ fn ops() -> Vec<Op> {
 
 /// One measured run of a cell body: every meter and its denominators.
 struct Sample {
-    /// The denominator of every column's exponent and of the heap and
-    /// segment constants: packed input bytes, or `n_io` for the
+    /// The denominator of the heap and segment constants (and, on most
+    /// cells, of every exponent): packed input bytes, or `n_io` for the
     /// I/O-denominated cells.
     denom_bytes: usize,
+    /// The exponent legs' denominator: `denom_bytes` everywhere except the
+    /// flat-denominator shape's input-denominated cells, where it is the
+    /// bundle's value content (the packed denominator is
+    /// intercept-dominated there, and a two-point power-law fit against an
+    /// intercept-dominated denominator manufactures exponents out of
+    /// exactly linear marginal work).
+    exp_denom_bytes: usize,
     /// The limb *constant*'s denominator: `denom_bytes`, or `R` for the
     /// text rows (the limb exponent is judged against `denom_bytes` on
     /// every row).
@@ -3891,7 +3973,7 @@ struct Sample {
 /// result is dropped: an I/O-denominated cell's output side comes from the
 /// actual result (never from a prediction), and a text output is checked
 /// against the honesty ceiling right here.
-fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
+fn measure(heap: &HeapMeter, op: &'static str, cell: Cell, content: Option<usize>) -> Sample {
     super::reset_stack_segments();
     reset_limb();
     reset_scan();
@@ -3904,18 +3986,24 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
     let limb = read_limb();
     let scan = read_scan();
     let touch = read_touch();
-    let (denom_bytes, limb_denom, text_row) = match cell.denom {
-        Denom::Input => (cell.input_bytes, cell.input_bytes as u64, false),
+    let (denom_bytes, exp_denom_bytes, limb_denom, text_row) = match cell.denom {
+        // The flat-denominator shape's content denominator carries the
+        // exponent legs of its input-denominated cells alone: an
+        // I/O-denominated cell's output side already scales.
+        Denom::Input => {
+            let exp = content.unwrap_or(cell.input_bytes);
+            (cell.input_bytes, exp, cell.input_bytes as u64, false)
+        }
         Denom::Io(spec) => {
             let output_bytes = (spec.output_bytes)(result.as_ref());
             let n_io = cell.input_bytes + output_bytes;
             match spec.text {
-                None => (n_io, n_io as u64, false),
+                None => (n_io, n_io, n_io as u64, false),
                 Some(text) => {
                     if text.output_is_text {
                         assert_honest_text(op, output_bytes, text.radix_units);
                     }
-                    (n_io, n_io as u64 + text.radix_units, true)
+                    (n_io, n_io, n_io as u64 + text.radix_units, true)
                 }
             }
         }
@@ -3923,6 +4011,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
     drop(result);
     Sample {
         denom_bytes,
+        exp_denom_bytes,
         limb_denom,
         text_row,
         floors: cell.floors,
@@ -4052,8 +4141,8 @@ fn below_floor(liveness: Liveness, count: u64) -> bool {
 /// recipe, which byte-compares two whole renders.
 fn assert_deterministic(op: &str, family: &str, a: &Sample, b: &Sample) {
     assert_eq!(
-        (a.denom_bytes, a.limb_denom),
-        (b.denom_bytes, b.limb_denom),
+        (a.denom_bytes, a.exp_denom_bytes, a.limb_denom),
+        (b.denom_bytes, b.exp_denom_bytes, b.limb_denom),
         "determinism: {op} x {family}: two in-process measurements disagree on denominators"
     );
     for ((currency, first), (_, second)) in a.readings.each().into_iter().zip(b.readings.each()) {
@@ -4107,7 +4196,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
                 per_unit: None,
             };
         };
-        let exp = exponent(m1, m2, s1.denom_bytes, s2.denom_bytes);
+        let exp = exponent(m1, m2, s1.exp_denom_bytes, s2.exp_denom_bytes);
         let per_unit = match c {
             Currency::Heap => {
                 m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64) as f64 / s2.denom_bytes as f64
@@ -4240,11 +4329,22 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     } else {
         format!("  <- {}", r.red.join(", "))
     };
+    // A cell whose exponents are fitted against a different denominator
+    // than its constants discloses the pair on its own row.
+    let expd = if r.s2.exp_denom_bytes == r.s2.denom_bytes {
+        String::new()
+    } else {
+        format!(
+            "  expd[content {e1}->{e2} B]",
+            e1 = r.s1.exp_denom_bytes,
+            e2 = r.s2.exp_denom_bytes,
+        )
+    };
     writeln!(
         out,
         "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
          heap[e{he:5.2} {hc:>10.1}/B]  seg[e{se:5.2} {sc:>4}]  {limb}  {scan}  {touch}  \
-         flr[h {fh:>6} l {fl:>6} s {fs:>6} t {ft:>6}]{reasons}",
+         flr[h {fh:>6} l {fl:>6} s {fs:>6} t {ft:>6}]{expd}{reasons}",
         op = r.op,
         family = r.family,
         n1 = r.s1.denom_bytes,
@@ -4293,8 +4393,8 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
             };
             let c2 = (op.prepare)(large)
                 .expect("a cell's applicability depends on the family, never the size");
-            let s1 = measure(heap, op.name, c1);
-            let s2 = measure(heap, op.name, c2);
+            let s1 = measure(heap, op.name, c1, small.content_bytes);
+            let s2 = measure(heap, op.name, c2, large.content_bytes);
             // The runner self-verifies: every cell is measured twice in
             // process and every counter reading and denominator must
             // agree exactly — the board's judged quantities are
@@ -4304,7 +4404,8 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
             for (level, first) in [(small, &s1), (large, &s2)] {
                 let again = (op.prepare)(level)
                     .expect("a cell's applicability depends on the family, never the size");
-                assert_deterministic(op.name, small.name, first, &measure(heap, op.name, again));
+                let second = measure(heap, op.name, again, level.content_bytes);
+                assert_deterministic(op.name, small.name, first, &second);
             }
             results.push(evaluate(op.name, small.name, s1, s2));
         }
@@ -4403,7 +4504,11 @@ impl BenchCell {
     }
 
     /// The cell's denominator bytes at its scale: packed input, or total
-    /// I/O on the I/O-denominated rows.
+    /// I/O on the I/O-denominated rows, or the bundle's value content on
+    /// the flat-denominator shape's input-denominated rows (the same
+    /// denominator the board fits those cells' exponents against — the
+    /// judge's fitted time exponents must not re-manufacture what the
+    /// board's re-denomination corrected).
     ///
     /// Runs one untimed body to read the output side back from the actual
     /// result, exactly as the board's measurement does (a prediction never
@@ -4419,7 +4524,7 @@ impl BenchCell {
             (self.prepare)(&self.data).expect("cell applicability was settled at construction");
         let result = (cell.body)();
         match cell.denom {
-            Denom::Input => cell.input_bytes,
+            Denom::Input => self.data.content_bytes.unwrap_or(cell.input_bytes),
             Denom::Io(spec) => {
                 let output_bytes = (spec.output_bytes)(result.as_ref());
                 if let Some(text) = spec.text {

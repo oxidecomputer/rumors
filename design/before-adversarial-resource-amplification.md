@@ -473,6 +473,36 @@ carries the do-not-re-denominate list. Rank rows denominate
 against value content `bits(num) + exp`, which every public
 construction path bounds by the producing wire.
 
+Amendment (2026-07-26, C3): **flat-denominator shapes fit their
+exponents against value content.** The comb-scatter family scales
+tooth count at a fixed 1000-bit tooth magnitude, so its packed
+bytes are intercept-dominated (one wide leading code plus unit
+delta codes per tooth, growing ~×1.2 per level) while every slot's
+value content — §10.6's quantity, Σ leaf-height bits — and every
+operation's honest per-tooth work double. A two-point power-law
+fit against an intercept-dominated denominator manufactures
+exponents out of exactly linear marginal work (log 2 / log 1.2 ≈ 4
+[measured: the comparison sweep's per-tooth limb work flat across
+the tooth doubling while the packed fit read e 4.00]), so the
+shape's input-denominated cells fit their *exponents* against the
+bundle's value content (event-side leaf-height bits plus the id
+side's packed bytes), disclosed per row (`expd[content ...]`);
+constants and floors stay per packed byte, the harder reading, and
+I/O-denominated cells keep `n_io`, whose output side already
+scales. The bench mirror denominates those cells' time exponents
+the same way. Two committed tripwires pin the criterion
+(`meter::board::tests`): the packed fit must manufacture a
+superlinear exponent from measured-flat per-tooth work over the
+intercept premise (packed growth < ×1.5, content growth ≈ ×2), and
+a genuinely quadratic-in-teeth probe must still read red against
+the content denominator — the re-denomination corrects the fit's
+axis, never the criterion's teeth. This closes the comb-scatter
+flat-denominator classification (§17.3's #35 genre 1 and the
+error-path round's genre 2): the honest denominator for the
+column's exponents is the materialized value content, and the
+cells' work is linear on it; nothing in the column exceeds an
+honest denominator.
+
 Amendment (2026-07-26, the error-path round): **rejection rows
 denominate against the fed stream alone.** A rejection produces
 no output, so the text rule's `n_io` degenerates to its input
