@@ -302,9 +302,9 @@
 //! text bytes on the parse rows at the general (not κ) limb ceiling: the
 //! radix-work term prices conversion of the accepting direction, and a
 //! rejection forces no conversion. Overlap operands come from the
-//! overlap-mount adapter ([`overlap_mounted_pair`]), the disjoint-mount
-//! adapter's counterpart; its outputs are semantically void by design
-//! (see the adapter). The design doc's §13 enumeration is the durable
+//! overlap-mount adapter, the disjoint-mount adapter's counterpart; its
+//! outputs are semantically void by design (see the adapter's own docs).
+//! The design doc's §13 enumeration is the durable
 //! record of which fallible operations are rowed and which carry a
 //! bounded-or-delegated reason (mirrored in the coverage list below).
 //!
