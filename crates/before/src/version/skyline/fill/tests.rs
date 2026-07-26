@@ -17,8 +17,8 @@ use rayon::prelude::*;
 
 use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    id_spine, nested_full_id, nested_left_full_id, scattered_id, staircase, wide_tail,
-    wide_tooth_comb, Packed,
+    id_spine, memo_chain, memo_chain_id, memo_comb, memo_comb_id, nested_full_id,
+    nested_left_full_id, scattered_id, staircase, wide_tail, wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
@@ -98,6 +98,11 @@ fn event_pool() -> Vec<Version> {
         version_of(&wide_tail(64, 16)),
         version_of(&staircase(1)),
         version_of(&staircase(16)),
+        version_of(&memo_chain(1, true)),
+        version_of(&memo_chain(8, true)),
+        version_of(&memo_chain(8, false)),
+        version_of(&memo_comb(1)),
+        version_of(&memo_comb(4)),
     ]
 }
 
@@ -119,6 +124,10 @@ fn party_pool() -> Vec<Party> {
         party_of(&nested_full_id(8)),
         party_of(&nested_left_full_id(1)),
         party_of(&nested_left_full_id(8)),
+        party_of(&memo_chain_id(1)),
+        party_of(&memo_chain_id(8)),
+        party_of(&memo_comb_id(1)),
+        party_of(&memo_comb_id(4)),
     ];
     pool.extend(all_normal_ids(2).iter().map(from_oracle_party));
     pool
@@ -402,6 +411,33 @@ fn deep_spines_fill_and_tick_identically() {
         tick(&encode(&stairs), &spine_id),
         encode(&grown),
         "tick increments the owned bottom-left leaf"
+    );
+
+    // The memo chain at 4096 sites: every interior left-full site
+    // collapses its `(0, 0, j)` node to the leaf `j` (the raise meets
+    // the site's own single-leaf range), and the covering site's raise
+    // stays at the tree minimum 0 — so the filled tree is the spine
+    // with each site replaced by its leaf, in closed form. The walk
+    // resolves all 4096 memoized minima from one fresh scan.
+    let k = 4_096u64;
+    let mut text = "(0, 0, ".to_string();
+    for j in 1..=k {
+        text.push_str(&format!("(0, {j}, "));
+    }
+    text.push('0');
+    text.push_str(&")".repeat(k as usize + 1));
+    let expected: Version = text.parse().expect("the chain literal parses");
+    let chain = memo_chain(k as usize, true).version();
+    let chain_id = party_of(&memo_chain_id(k as usize));
+    assert_eq!(
+        fill(&encode(&chain), &chain_id),
+        encode(&expected),
+        "every site's raise meets its single-leaf range"
+    );
+    assert_eq!(
+        tick(&encode(&chain), &chain_id),
+        encode(&expected),
+        "tick takes the fill branch: the sites collapse"
     );
 }
 

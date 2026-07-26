@@ -51,26 +51,35 @@
 //! the absent-sibling extremum scans read their range once ahead of
 //! the walk's own copy (a flat ×2, never nesting).
 //!
-//! Limb: amortized `O(n + m)` accumulator digit touches [measured:
-//! exponent 1.00 with flat constants 5–21 touches/byte on every tick
-//! board family — the matched spine, both wide × deep shortcut
-//! crosses, the narrow memo chain, and the descending staircase — at
-//! both scales]. Each consumed delta folds into O(1) accumulators;
-//! each emission's watermark update is one amortized sign read plus a
-//! propagation whose every fold is a dying operand or the one
-//! surviving fold the update's own priced width bounds; each emitted
-//! code is materialized once, post-collapse, at its own width. Every
-//! comparison in the module decides by a sign read on a same-anchor
-//! difference: the watermark compares fold and restore only the
-//! priced offset (or answer post-sign by top-index domination); the
-//! memo consumer's compares fold priced offsets and funded, dying
-//! chain segments; the extremum scans' reset-on-cross folds are
-//! priced by the range they scan; the absent-sibling raise compares
-//! materialized offsets both priced by their own scans; the builder's
-//! equal-sibling seam is a one-bit code check. Wide content is read
-//! only where an operand dies, a bounded-count lifetime read, or a
-//! code prices it — the height↔watermark anchor switches read the
-//! surviving web once, priced by the switch emission's own code.
+//! Limb: accumulator digit touches are linear on the walk and the
+//! watermark web [measured: exponent 1.00 with flat constants 5–21
+//! touches/byte on the matched spine, both wide × deep shortcut
+//! crosses, the shared-minimum memo chain, and the descending
+//! staircase, at both scales] but QUADRATIC worst case in the memo
+//! resolution: the walk resolves each consumed site against an anchor
+//! by folding the chain interval between two recording sequence
+//! numbers, and consumption order (range starts) permutes recording
+//! order (range closes), so a chain link is re-read once per crossing
+//! interval rather than dying at its first read — Θ(k) links per site
+//! on consumption-order adversaries [measured: ×3.9 touch growth per
+//! size doubling on the distinct-minimum memo families; the red pins
+//! in `tests/meter.rs`'s memo module, which the linear re-realization
+//! must flip]. Everywhere else: each consumed delta folds into O(1)
+//! accumulators; each emission's watermark update is one amortized
+//! sign read plus a propagation whose every fold is a dying operand or
+//! the one surviving fold the update's own priced width bounds; each
+//! emitted code is materialized once, post-collapse, at its own width;
+//! the watermark compares fold and restore only the priced offset (or
+//! answer post-sign by top-index domination); the pre-scan's recorder
+//! reads one amortized sign per site (the zero-link test); the
+//! extremum scans' reset-on-cross folds are priced by the range they
+//! scan; the absent-sibling raise compares materialized offsets both
+//! priced by their own scans; the builder's equal-sibling seam is a
+//! one-bit code check. Wide content is read only where an operand
+//! dies, a bounded-count lifetime read, or a code prices it — the
+//! height↔watermark anchor switches read the surviving web once,
+//! priced by the switch emission's own code; the chain links above are
+//! the one exception, and their discipline is the open cure.
 //!
 //! Heap: O(paired depth) transient frames plus O(n + m) total live
 //! digits; the memo holds one machine word per covered site plus one
@@ -548,10 +557,15 @@ impl FillWalk<'_> {
                     let zero = self.stack.lease();
                     self.stack.follower_set(REL_FOLLOWER, zero);
                 } else {
-                    self.emit_offset(depth + 1, above.clone());
-                    // The relation re-anchors to m_s: min − m_s.
+                    // The relation re-anchors to m_s: min − m_s. The
+                    // follower installs BEFORE the emission: the raise
+                    // can arm a pending frame (moving the tracked
+                    // minimum), and only an installed follower receives
+                    // that arm's fold — installed after, the relation
+                    // goes stale by exactly the arm's delta.
                     d.negate();
                     self.stack.follower_set(REL_FOLLOWER, d);
+                    self.emit_offset(depth + 1, above.clone());
                 }
                 self.corr = Corr::Min;
                 self.anchor = seq;
