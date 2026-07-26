@@ -1182,10 +1182,12 @@ impl FamilyData {
         Some((decode_version(v), decode_party(p), v.len() + p.len()))
     }
 
-    /// One clock per shape, from the bundle's slots: a cross shape pairs
-    /// its own id and event sides; a version-bearing shape pairs the seed
-    /// party with the adversarial version; a party-only shape pairs the
-    /// adversarial party with the empty version.
+    /// One clock per shape, from the bundle's slots.
+    ///
+    /// A cross shape pairs its own id and event sides; a version-bearing
+    /// shape pairs the seed party with the adversarial version; a
+    /// party-only shape pairs the adversarial party with the empty
+    /// version.
     fn clock(&self) -> Option<(Clock, usize)> {
         if let Some((v, p, n)) = self.cross() {
             return Some((Clock::from_parts(p, v), n));
@@ -1199,9 +1201,11 @@ impl FamilyData {
     }
 
     /// Two joinable clocks (disjoint parties), with combined operand
-    /// bytes, from the bundle's slots: a shape with both a party pair and
-    /// versions crosses them; a party-only pair rides empty versions; a
-    /// version-only shape forks a seed pair around its version pair.
+    /// bytes, from the bundle's slots.
+    ///
+    /// A shape with both a party pair and versions crosses them; a
+    /// party-only pair rides empty versions; a version-only shape forks
+    /// a seed pair around its version pair.
     fn clock_pair(&self) -> Option<(Clock, Clock, usize)> {
         match (self.parties.is_some(), self.version.is_some()) {
             (true, true) => {
