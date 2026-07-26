@@ -17,27 +17,29 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The board's exact cell count: 46 operation rows over 19 families (874
-/// combinations) minus the 649 where the family provides no operand.
+/// The board's exact cell count: 46 operation rows over 19 shapes (874
+/// combinations) minus the 154 where the shape's bundle supplies no
+/// operand for the row's signature.
 ///
-/// Derived per family: the four event families run every row except the
-/// 10 party rows, the adversarial-party tick row, and the two fold rows
-/// (33 each), and the two rank rows (`rank_pair_ops`, `rank_sum`)
-/// additionally apply only to dense among them (so 33 + 31 x 3); the id
-/// pair runs its 23 (10 party rows, the tick row, 11 clock rows,
-/// projection); comb-scatter runs its 2 projection cells; harmonic runs
-/// its 6 (the four linear-functional rows plus the two rank rows);
-/// scatter runs its 2 fold rows; the ten tick-walk families
-/// (nested-full, nested-wide, mirror-wide, mirror-narrow, staircase,
-/// reveal-comb, reveal-hifloor, pure-comb, ascend-cliff, ascend-plateau)
-/// run their 2 tick rows each (20 cells); benign runs every row (46, the
-/// fold rows' organic control included).
-/// 33 + 93 + 23 + 2 + 6 + 2 + 20 + 46 = 225.
+/// Derived per shape from the operand bundles. A version-only shape
+/// (dense, bigroot, hugeleaf, cliff, harmonic) runs the 18 version-pair
+/// rows, the 4 linear-functional rows, the 2 rank rows, its tick and
+/// projection cells, and the 11 clock rows: 33 each. The id pair
+/// (parties only) runs the 10 party rows, the adversarial-party tick
+/// row, its projection cell, and the 11 clock rows: 23. The eleven cross
+/// shapes (comb-scatter and the ten tick-walk crosses: nested-full,
+/// nested-wide, mirror-wide, mirror-narrow, staircase, reveal-comb,
+/// reveal-hifloor, pure-comb, ascend-cliff, ascend-plateau) carry a
+/// version, a mounted party pair, and a clock, so each runs the
+/// version-only 33 plus the adversarial-party tick row and the 10 party
+/// rows: 44 each. Scatter runs its 2 fold rows; benign runs every row
+/// (46, both fold controls included).
+/// 33 x 5 + 23 + 44 x 11 + 2 + 46 = 720.
 /// The table is fixed and applicability depends on the
 /// family alone (`board::run` enforces this per cell), so the count is
 /// deterministic at every scale; a row added to or dropped from the table
 /// must move this pin.
-const EXPECTED_CELLS: usize = 225;
+const EXPECTED_CELLS: usize = 720;
 
 /// The board runs to completion at tiny sizes: every cell prepares,
 /// measures, and renders, and the matrix keeps covering the full operation

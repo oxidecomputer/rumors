@@ -1,12 +1,14 @@
 //! The bench judge's knobs and denominator sidecar, shared by the two
 //! judge-facing targets (`benches/board.rs`, `benches/tripwire.rs`).
 //!
-//! Two environment variables drive the `just bench-judge*` recipes and
+//! Three environment variables drive the `just bench-judge*` recipes and
 //! default to off:
 //!
 //! - [`SCALE_ENV`]: the input scale (a positive number, or the literal
 //!   `record` for the board's acceptance scale
 //!   `before::meter::board::RECORD_SCALE`).
+//! - [`MODE_ENV`]: the product slice (`pinned`, the default, or `full`;
+//!   `board::BenchMode`).
 //! - [`DENOMS_ENV`]: a path; when set, the harness writes the JSON sidecar
 //!   the judge divides by — a configuration stamp plus one object per cell
 //!   ID carrying the denominator count and the cell's ceiling class.
@@ -69,6 +71,9 @@ pub const TEXT_CEILING_CELLS: [&str; 2] = [
 /// The input-scale environment variable read by [`scale_from_env`].
 pub const SCALE_ENV: &str = "BOARD_BENCH_SCALE";
 
+/// The bench-mode environment variable read by [`mode_from_env`].
+pub const MODE_ENV: &str = "BOARD_BENCH_MODE";
+
 /// The sidecar-path environment variable read by [`write_denoms`].
 pub const DENOMS_ENV: &str = "BOARD_BENCH_DENOMS";
 
@@ -85,6 +90,24 @@ pub fn scale_from_env() -> f64 {
             panic!("{SCALE_ENV} must be a positive number or `record`, got {raw:?}")
         }),
         Err(err) => panic!("{SCALE_ENV} is not valid UTF-8: {err}"),
+    }
+}
+
+/// The bench mode from [`MODE_ENV`]: unset or `pinned` means the
+/// rule-derived subset, `full` the whole shape × operation product (the
+/// mode for final verdicts).
+///
+/// Judge runs must pair like with like: a lo/hi baseline pair recorded in
+/// different modes covers different cell sets, and the judge treats the
+/// asymmetry as missing cells rather than silently judging the
+/// intersection.
+pub fn mode_from_env() -> board::BenchMode {
+    match std::env::var(MODE_ENV) {
+        Err(std::env::VarError::NotPresent) => board::BenchMode::Pinned,
+        Ok(raw) if raw == "pinned" => board::BenchMode::Pinned,
+        Ok(raw) if raw == "full" => board::BenchMode::Full,
+        Ok(raw) => panic!("{MODE_ENV} must be `pinned` or `full`, got {raw:?}"),
+        Err(err) => panic!("{MODE_ENV} is not valid UTF-8: {err}"),
     }
 }
 
