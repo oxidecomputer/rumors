@@ -279,6 +279,59 @@ board cells named.
   smaller, so onset shifts and counts drop; every affected cell reads
   red on segment count under both profiles) — the recursion-depth
   genre P4.2 owns, not assertion work.
+- **The instrumentation census's blind spots** (2026-07-26; found
+  by a read-only census of meter coverage hunting the F2 genre —
+  work routed through a mechanism whose meter exists but is not
+  pinned on that surface, or through a mechanism with no meter at
+  all; every unpinned surface probed measured touch-linear, so all
+  items were missing ratchets, not live amplifiers. Dispositions,
+  landed by the #39 round): **the board had no touch column**
+  (structural: the tick F2 quadratic would have been invisible on
+  the board even at record scale) — LANDED as the fifth
+  `ByCurrency` field, ceiling + floor-or-NA on every cell of the
+  720-product (§13). **Emit (join/meet/recv/sync/folds) and text
+  parse carried live touch counters with zero pins** — parse the
+  touch-heaviest surface measured (~18× emit) — LANDED: board
+  per-delta floors plus gate-side cliff-comb flatness pins over
+  one-touch-per-delta liveness floors (per delta for the emitter,
+  per text byte for the parse — its honest denominator), beside a
+  render zero-touch conservation pin so accumulator work cannot
+  migrate between the text directions silently; `text.rs`'s
+  enforcement claim re-worded to name exactly what is pinned (it
+  had cited aggregate ceilings that carried no touch column).
+  **Validate/decode touches unpinned** — LANDED as stream-derived
+  wide-code board floors (the validator batches word-scale deltas
+  in the accumulator's lazy zone: a per-delta floor over-demands,
+  measured 0.0 touches/B on dense — the same over-derivation
+  trap as the tree-derived limb floors §17.3 owns). **Cmp** —
+  LANDED (board per-delta floors; the pre-existing cliff flat pin
+  stands). **Id covers/disjoint pinned nothing that sees the
+  walk's work** (every enforced column structurally near-zero;
+  the cost is scan) — LANDED: absolute scan ceilings ×1.25 over
+  full-examination floors, flat per byte across a depth doubling.
+  **Fork/split had no envelope row and bypasses the scan hooks**
+  — LANDED as fork's first envelope row (heap prices the
+  materialized halves; the scan pin records the split kernel's
+  deliberately raw path at 2 bits, so wiring it into the metered
+  primitives is a deliberate re-pin) and the board `party_fork`
+  heap declaration corrected to the fork-child floor; metering
+  the raw writes themselves DEFERRED with reason (O(n) copies,
+  low risk, and the wiring would move board scan readings — a
+  deliberate future re-denomination, not a rider on this round).
+  **The Shl width undercount** (operand+1 recorded for a widening
+  shift, so a shift-and-discard loop would read near-zero) —
+  LANDED: the shim records output width; the rank-pair envelope
+  re-pinned 54,704 → 70,328 limb ops as a re-denomination with the
+  movement annotated. **The tick envelope rows' missing scan
+  column, and the four-envelope-harness split that produced every
+  per-surface blindness above** (each harness was built for the
+  columns its first surface needed; later surfaces inherited the
+  blindness) — DEFERRED, named for a future round: collapse
+  `Envelope`/`TouchEnvelope`/`SweepEnvelope`/`QueryEnvelope` into
+  one five-column shape with per-column floor-or-NA, the #35
+  totality mechanism applied to the gate suite; until then the
+  board's tick × scan floors and touch column carry the cross-op
+  cover. Not exploits: ratchets against the F2 migration genre.
 
 ## 6. The design invariant and the denomination criterion
 
@@ -483,7 +536,10 @@ the **release profile**, the measurement of record (ratified
 price verification scaffolding into the counters; dev runs are a
 debugging view, never pinned), from deterministic meters only:
 peak heap, grown stacker segments,
-limb ops, scanned/written bits. The board is a generalized
+limb ops, scanned/written bits, and — since the touch column landed
+(2026-07-26, the #39 instrumentation ratchet) — accumulator digit
+touches, so every cell is six-column: verdict plus five judged
+counter columns. The board is a generalized
 cartesian product over three declarative axes (amendment of
 2026-07-26 below): shapes declare operand bundles, operations
 declare the slots their signatures consume, and every judged
@@ -508,7 +564,10 @@ two scales against the cell's denominator bytes); heap ≤ 16 B per
 denominator byte over an 8 KiB flat allowance; grown segments
 ≤ 1; limb ≤ 128 ops/byte on input-denominated rows; the text rows
 per §6 (κ constant leg + n_io exponent leg); scan ≤ 96 bits/byte
-on walk rows. Green = all columns within ceilings AND all floors
+on walk rows; touch ≤ 96 digit touches/byte (calibrated 2026-07-26,
+release: heaviest honest reader the mirror-narrow tick cross at
+30.8/B default, 24.3/B record — scan's own margin convention).
+Green = all columns within ceilings AND all floors
 met.
 
 **Liveness floors** (user ruling 2026-07-24: the board judges the
@@ -524,7 +583,19 @@ where big-integer arithmetic is semantically mandatory (rank
 family, parsing text rows, decode rows), at one op per 64 bits of
 every stored magnitude wider than 128 bits; heap floors on codec
 and text rows (the result materializes at least its packed
-bytes); segments ceiling-only (its honest floor is zero). NA
+bytes), plus the fork rows' deterministic-liveness child-copy
+floors (clock fork since the floors landed; party fork since #39 —
+fork builds both halves, so the generic in-place NA misstated it);
+touch floors (2026-07-26, #39) at two deterministic-liveness
+derivations — one touch per stored delta on the delta-folding
+kernels (sweep, emit, query folds, tick, parse: the envelope
+suite's committed one-per-delta convention), one touch per 64 bits
+of every stored wide code on the decode rows (the validator
+legitimately batches word-scale deltas in the accumulator's lazy
+zone, so a per-delta floor over-demands there — the stream-derived
+convention, deliberately NOT the tree-derived one whose
+over-derivation §17.3 already owns on the limb column);
+segments ceiling-only (its honest floor is zero). NA
 genres: wholesale byte moves (encode, hash, and — since main's
 byte-decided equality — `version_eq`, whose exposure sentence and
 time-leg backstop are on the board face), operands with no packed
@@ -619,10 +690,36 @@ DESIGN — that failure is C3's realization evidence, banked
 verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-26; release
-profile — the profile of record — limb+scan meters lit]: board
-**627 green / 93 red at the default scale; 616 / 104 at ×4** over
-**720 cells**, the same verdict sums as the dev renders at this
-tip (the profile switch flipped no verdict at either scale)
+profile — the profile of record — limb+scan+touch meters lit]:
+board **628 green / 92 red at the default scale; 618 / 102 at ×4**
+over **720 cells**
+(amended 2026-07-26, the #39 instrumentation ratchet: the touch
+currency joined the board as the fifth judged column, live on
+every cell with a floor-or-NA declaration per operation; every
+pre-existing column's rendered value byte-identical at both scales
+except the widening-shift limb re-denomination — the shift shim
+now records output width, operand plus shifted-in limbs, moving
+limb constants on the `rank_pair_ops` row and four `distance`/
+`lag` cells by at most +0.2/B, no verdict flips — and the
+`party_fork` heap declaration, which became the fork-child floor.
+The touch column's 24 red reasons all land on already-red cells in
+two owned genres, the comb-scatter column (18) and the plateau
+projection cells (6); zero touch floor trips at either scale)
+(amended 2026-07-26, the #40 representation migration — Version's
+at-rest form is `codec::Bits`, byte-level Eq/Hash, BitWriter
+dissolved into raw-slice writes: heap and record-scale segment
+readings moved down on 41 cells (default) / 45 (×4), flipping
+three owned reds GREEN — `clock_encode × comb-scatter`'s
+default-scale heap exponent (the comb-scatter genre count 21 → 20)
+and the `version_tick`/`clock_tick` × nested-wide record-scale
+segment legs (the P4.2 genre, eight legs → six; nested-wide's ×4
+segment count now 1, under the ceiling) — and lowering the
+remaining ×4 tick-op segment counts to: nested-full 7,
+mirror-narrow 7, staircase 14, ascend-cliff 2, ascend-plateau 2,
+pure-comb 2, the id-side parser pair still 12; sums 627/93 →
+628/92 default, 616/104 → 618/102 record; no other verdict moved.
+The dev-render agreement claim rides at its own tip: the profile
+ratification's no-flip comparison was made before these rounds)
 (amended 2026-07-26, the #35 board product refactor —
 **RATIFIED by the project owner, 2026-07-26**, on the two protocol
 changes it carries. The board became the three-axis product above:
@@ -1177,9 +1274,59 @@ collapsible node can hide anywhere in the emission), so
 design, and its dev heap carries the parse stack. Release
 readings — the record — carry no assertion work anywhere.
 
-Sums: default 627 + 93 = 720; record 616 + 104 = 720.
+Amended 2026-07-26 (the #40 representation migration; this
+re-cite owed by the #39 round's doc pass): Version's at-rest move
+to `codec::Bits` with byte-level Eq/Hash lowered heap and
+record-scale segment readings on 41 cells (default) / 45 (×4)
+[measured — the pre- and post-migration release renders,
+byte-compared cell by cell] and flipped three owned reds GREEN,
+each closed in its owning genre with the genre surviving on its
+other cells:
 
-Default, 93 = 627 green + 93: the 74 new reds above + the
+- `clock_encode × comb-scatter` (default scale, heap exponent):
+  leaves the comb-scatter column's genre, 21 → 20 default cells;
+  the column's limb/scan/touch exponents and floors still carry
+  the genre, owner unchanged (**C3's classification question**).
+- `version_tick`/`clock_tick` × **nested-wide** (record scale,
+  segments): leave the P4.2 recursion genre, eight pre-existing
+  tick-walk segment legs → six (nested-full ×2, mirror-narrow ×2,
+  staircase ×2); nested-wide's ×4 segment count reads 1, under
+  the ceiling. The remaining ×4 tick-op segment counts re-cite at
+  the migrated representation: nested-full 7, mirror-narrow 7,
+  staircase 14, ascend-cliff 2, ascend-plateau 2, pure-comb 2;
+  the id-side parser pair holds at 12. Owner unchanged (**P4.2**,
+  iterative walks remain the cure).
+
+No other verdict moved at either scale; the ascend-cliff heap
+constants (64.4/66.7 B/B) and every genre list below are verified
+current against the migrated renders by mechanical grep.
+
+Amended 2026-07-26 (the #39 instrumentation ratchet): the touch
+currency joined the board as the fifth judged column — every cell
+now carries a touch reading, ceiling (96/B), and floor-or-NA
+declaration; the heaviest honest green reader is the mirror-narrow
+tick cross (30.8/B default, 24.3/B record). The column changed no
+verdict: its 24 red reasons all land on already-red cells in two
+owned genres — the comb-scatter column (18 cells: touch exponents
+join the limb exponents, the same flat-denominator question) and
+the plateau projection cells (6: `version_project`/
+`clock_own_version` × {reveal-comb, reveal-hifloor, pure-comb},
+touch exponent ~1.9 joining every-column reds; the §3 OPEN
+denomination entry now includes the touch column among the columns
+awaiting the `n_io` re-denomination). Zero touch floor trips at
+either scale. Two deliberate old-column movements ride the same
+round, neither a verdict change: the widening-shift limb
+re-denomination (`rank_pair_ops` row and four `distance`/`lag`
+cells, at most +0.2/B — the exponent-alignment work newly counted,
+envelope re-pinned 54,704 → 70,328 with the movement annotated)
+and the `party_fork` heap declaration (generic in-place NA → the
+fork-child deterministic-liveness floor; all twelve cells hold
+their readings above it).
+
+Sums: default 628 + 92 = 720; record 618 + 102 = 720.
+
+Default, 92 = 628 green + 92: the #35 refactor's new reds less the
+#40-flipped `clock_encode × comb-scatter` (73) + the
 nineteen pre-existing (byte-identical through the refactor):
 **ten κ-text constants**
 (`version_display`/`clock_display` × {dense, bigroot, benign},
@@ -1193,11 +1340,12 @@ comb-scatter`; single-cell column attribution at C3 BEFORE the
 classification is accepted) + **the ascending-cliff pair's heap
 constants** (the round-7 record).
 
-Record scale, 104 = 616 green + 104: the 72 new reds above + the
-thirty-two pre-existing (byte-identical through the refactor):
-the eight P4.2 tick-walk
-segments legs above (nested-full ×2, nested-wide ×2,
-mirror-narrow ×2, staircase ×2) + the pure-comb pair's and
+Record scale, 102 = 618 green + 102: the 72 new reds above + the
+thirty pre-existing:
+the six P4.2 tick-walk
+segments legs above (nested-full ×2,
+mirror-narrow ×2, staircase ×2 — the nested-wide pair left at
+#40) + the pure-comb pair's and
 plateau-control pair's segments legs and the ascending-cliff
 pair's heap-constant + segments legs (the round-5/round-7
 records) + **the ten κ-text constants**
