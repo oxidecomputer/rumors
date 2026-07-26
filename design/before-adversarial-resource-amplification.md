@@ -72,6 +72,9 @@ share:
 | nested-wide | bigroot magnitude × the nested-full id | the wide right-full chain: the absolute first payload nets the deepest subtree and every ancestor's materialized sum re-touches it (#34) |
 | mirror / wide tail | `(1,x)` down a right spine × a zero spine with one wide tail leaf | the memoized pre-scan at full depth — wide minima in every memo entry, wide nets per level (#34); the unit-tail cross is the memo machinery's own cell |
 | descending staircase | monotone-descending unit-delta leaves × the unary id spine | full-penetration minimum updates at every level, width-independent (the cure's propagation witness) |
+| memo chain / comb | consumption-sibling and interleaved left-full site forests | the ledger's linearity on consumption-order adversaries (every refuted memo resolution reads quadratic) |
+| memo fan-out / oscillation | one wide minimum shared by k sites over a unit plateau; minima alternating wide/narrow | the fan-out's k-independent wide cost (absolute touch ceiling) and its funding control |
+| memo churn / descending raises | in-flight records under full-penetration drops; raises landing below the frame minimum | one live ledger head (the live-anchored followers' tombstone); the decide-then-emit ordering's oracle tripwire |
 | memo chain | `k` consumption-sibling single-leaf left-full sites under one covering site, minima distinct or shared | the memo resolution's touch cost (#34: quadratic re-reads, red-pinned; the shared twin is the flat control) |
 | memo comb | shallow and covering left-full sites interleaved per level | consumption order Θ(d) from recording order — refutes chain-walking resolutions under every record-to-record anchoring |
 
@@ -125,21 +128,26 @@ the enforced envelopes and board cells named.
   anchor-web/watermark discipline of
   `design/before-tick-cost-spec.md` (the wide crosses read limb
   and touch e 1.00 at flat constants, board- and
-  envelope-pinned). The RESIDUAL, found by that cure's own
-  adversarial review: the chained memo's site RESOLUTION is
-  Θ(k²) accumulator digit touches on consumption-order
-  adversaries [measured ×3.9/doubling; the memo-chain and
-  memo-comb families, gate-enforced red pins in
-  `tests/meter.rs`] — a currency the limb column cannot see, and
-  the same machinery carried a semantic staleness bug the
-  families' first differential crossing caught (fixed, minimized
-  seed committed). Both candidate resolutions were refuted ahead
-  of implementation (the comb family kills
-  previously-consumed-site anchoring too), so the memo discipline
-  is back in the spec's design loop with the position-anchored
-  seed — the spec's §9 round-3 record; still the #34 item. A
-  pricing obligation under §6, not an exploit (local-depth
-  multiplier).
+  envelope-pinned). The residual its own
+  adversarial review found — the memo's site resolution at Θ(k²)
+  accumulator digit touches on consumption-order adversaries, in
+  a currency the limb column cannot see — is CURED by the frame
+  ledger (the spec's §9 round-4 record): one link per site,
+  sibling-chained, first-child links deferred to the parent's
+  close, zero links unstored, each link read once and dying into
+  its raise decision [measured: ×2.00 touch growth across the
+  doubling on the memo-chain and memo-comb families, ×3.94/×3.92
+  under the refuted chain — the gate pins flipped with the cure,
+  re-pinned never deleted]. The same machinery had carried a
+  semantic staleness bug the families' first differential
+  crossing caught (fixed, minimized seed committed). Four ledger
+  adversaries guard the cure: the wide fan-out (k-independence by
+  absolute touch ceiling), the oscillating funding control, the
+  churn family (one live head through full-penetration drops —
+  the refuted live-anchored followers' tombstone), and the
+  descending raises (the decide-then-emit ordering's oracle
+  tripwire, verified live). A pricing obligation under §6, not an
+  exploit (local-depth multiplier).
 
 ## 6. The design invariant and the denomination criterion
 

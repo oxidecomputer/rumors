@@ -399,9 +399,15 @@ half of the quadratic). Two clauses made normative at fix round one:
   by the walk at the same position, where the walk's height equals
   it — height is a function of stream position; no re-anchoring
   arithmetic exists or is needed at consumption.
-- **Memo entries are diff-coded against the enclosing pre-scan's
-  running min-stack, and the walk carries consumed entries on its
-  own LIFO stack** (§9/F3 — without this sentence an implementor
+- **Memo entries are diff-coded against the site forest's own
+  final minima** (realization dated 2026-07-25, round 4: sibling
+  links at their closes, first-child links deferred to the forest
+  parent's close where its minimum is final, the scan-entry height
+  as the outermost base; zero links unstored; one live head plus
+  immutable suspended diffs carry the recording state, and the
+  walk needs no carry at all — its live relation IS each link's
+  reference at arrival, re-anchored from its own web at every
+  site close) (§9/F3 — without this sentence an implementor
   can faithfully rebuild the quadratic: k nested left-full sites
   sharing one wide minimum would materialize k wide entries at
   creation, Θ(k·W/64) inside the pre-scan). Consecutive nested
@@ -989,6 +995,78 @@ the orbit lemma **[measured, pinned]**; fusion [derived] — held,
 BLOCKED behind the memo redesign (no fusion over a refuted
 realization); **T-tick overall: [open at the kernel tier] — the
 target stands, its realization returns to the design loop.**
+
+**Round 4** (the kernel tier: the frame-ledger cure, landed
+2026-07-25, commits `4934db86` + `952159f7`). The memo's resolution
+is linear on every committed family: `memo_chain(k, distinct)`
+60,023 → 120,023 touches across the doubling (×2.00 exactly; ×3.94
+under the refuted chain), `memo_comb` 43,532 → 87,032 (×2.00; was
+×3.92), both gate asserts flipped to ≤ ×2.5 in the cure commit —
+re-pinned, never deleted — with the shared control still flat.
+Byte-identity across the full differential suite; the five-meter
+tick rows: dense and nested-wide byte-identical on every column,
+mirror-wide at heap parity (27,397 vs 27,389) with touches 105,559
+inside the prior ceiling and scan byte-identical; board sums
+unchanged at both scales (198/17, 189/26 over 215; the ×4 segments
+residual's counts moved 11→14/5→6/12→16/22→28 with the pre-scan's
+deeper frames — the P4.2-owned genre, same reds, same owner).
+
+- **Realization deviation, with derivation (dated 2026-07-25)**:
+  the landed ledger realizes revision 3's architecture (one link
+  per site, sibling chaining, deferred-to-final references, zero
+  links unstored, create-once/read-once/die) but NOT its literal
+  position-stamped anchoring: a stamp read at a later position
+  needs the net input movement between the two positions, and
+  across suspended site-nesting levels no O(1)-per-event carrier
+  of that net exists (a per-frame live net re-admits the churn
+  quadratic; stamped nets of a global net accumulator re-admit
+  the interval folds). The landed anchoring instead keeps ONE
+  live min-relative head (the existing follower discipline — one
+  funded fold per min-moving event), sibling-chains within each
+  level (so head operands stay at the local link width — the A1
+  fan-out killed FLOOR-anchoring, and the sibling chain plus
+  unstored zero links is what dodges it), suspends outer levels'
+  heads as immutable value diffs (both endpoints final minima —
+  nothing maintains them, dodging A2), and DEFERS each level's
+  first-child link to its forest parent's own record, where the
+  parent's minimum is final — the reference the walk actually
+  carries at that consume (the walk's pre-order predecessor of a
+  first child is its parent; of a later sibling, the previous
+  sibling, re-anchored at zero cost from the walk's own web at
+  the sibling's close, where the node frame's minimum IS the
+  site's). The recording-order queue is written out of order and
+  consumed in order.
+- **Two in-flight catches by the committed instruments** (the
+  round's own evidence that the pins work): the first-draft
+  resolve folded the wide suspended diff into the narrow resolver
+  (×18 touches on the mirror-wide envelope row — L2 rule 1's own
+  violation, cured by folding the narrow dying side into the wide
+  survivor); and a per-resolve accumulator mint grew the pre-scan
+  pool by one buffer per site (~51 B/site on the same row's heap
+  column, cured by buffer reuse — heap back to parity).
+- **The four §7 families landed** as generators + gate pins +
+  differential-pool members: `memo_fanout` (zero sibling links +
+  one deferred wide link; the absolute touch ceiling is the
+  k-independence assert), `memo_oscillating` (the funding
+  control), `memo_churn` (one live head follows d in-flight
+  records through full-penetration drops — flat; the
+  live-anchored followers' tombstone), `descending_raises` (the
+  ordering tripwire, verified LIVE: an install-after-emit kernel
+  fails its family_pairs differential). The pin harness
+  re-denominated against the version's own stored stream (the
+  construction language's absolute leaf codes overstate a plateau
+  family's input by orders of magnitude).
+
+**Per-lemma status after round 4**: L0 [measured, landed]; L1
+[measured-on-model + kernel, linear on every committed family];
+**L2/L4's memo realization [measured at kernel — CURED, linear,
+the flip pinned]**; L3 [derived] + the ledger's sites in the
+`# Cost` enumeration; L5 [measured — heap parity, one queue word
+per site]; L6 [measured, pinned, multiplicative]; the orbit lemma
+[measured, pinned]; fusion [derived] — **UNBLOCKED pending this
+cure's adversarial review**; **T-tick: [measured at kernel on
+every committed family; the §7 acceptance stands met at the
+board and gate tier]**.
 
 **Convergence assessment (fix round two)**: **CONVERGED at the spec
 tier, revision 3.** The loop's convergence rule — a round with no
