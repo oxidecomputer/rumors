@@ -62,10 +62,9 @@ impl IdBuilder {
 
     /// Append a node's 2-bit presence tag verbatim, already final.
     ///
-    /// For an emitter that knows its output cannot collapse — the complement
-    /// retagging in [`diff`](crate::idbits::IdReader::diff) writes each
-    /// output node exactly once — so no placeholder, patch, or close is
-    /// needed.
+    /// For an emitter that knows the tag at first sight —
+    /// [`sum`](crate::idbits::IdReader::sum) writes each output tag final
+    /// at descent — so no placeholder or patch is needed.
     pub(super) fn push_tag(&mut self, left: bool, right: bool) {
         self.out.push_bit(left);
         self.out.push_bit(right);
@@ -145,5 +144,212 @@ impl IdBuilder {
 
     pub(super) fn finish(self) -> Bits {
         self.out.finish()
+    }
+}
+
+/// Leaf-driven builder for normalized id output: append one plateau per
+/// elementary interval of a dyadic tiling, in preorder, and take the
+/// canonical id of the region the owned plateaus tile.
+///
+/// The id-side sibling of the event emission's collapsing builder (the
+/// skyline build module): the preorder leaf depths of a dyadic tiling
+/// determine the tree, so the builder derives every presence tag itself —
+/// reserving each node's tag as it is entered ([`IdBuilder::open`]) and
+/// normalizing as each node closes ([`IdBuilder::close_node`]: both
+/// collapses plus the presence patch). An unowned plateau contributes no
+/// bits, exactly as a stored `0` occupies none.
+///
+/// Transient state is bits per open ancestor and nothing per node: the
+/// branch-direction path, two kind bits per right-branch level, and the
+/// reserved tags' positions on a delta-coded bit stack ([`PosStack`]) —
+/// never a stack frame or a per-level machine word, so a deep output
+/// costs bits, not grown segments.
+pub(super) struct IdSkylineBuilder {
+    out: IdBuilder,
+    /// Root-to-current branch directions: `false` inside a left child,
+    /// `true` inside a right.
+    path: Bits,
+    /// Two bits per right-branch level: what the completed left sibling
+    /// built (see [`push_kind`](Self::push_kind)).
+    left_kinds: Bits,
+    /// The open ancestors' reserved tag positions, innermost last.
+    tags: PosStack,
+    /// The whole tiling's result, set when the last plateau closes the
+    /// root.
+    root: Option<Built>,
+}
+
+impl IdSkylineBuilder {
+    /// Create a builder with room for `capacity` output bits.
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        IdSkylineBuilder {
+            out: IdBuilder::with_capacity(capacity),
+            path: Bits::new(),
+            left_kinds: Bits::new(),
+            tags: PosStack::new(),
+            root: None,
+        }
+    }
+
+    /// Append the next plateau: a leaf at `depth` (its interval has width
+    /// `2^-depth`), owned or unowned.
+    ///
+    /// The plateau sequence must be the preorder tiling of one dyadic
+    /// tree: each new depth must be reachable from the last by the forced
+    /// flip-and-descend, which the builder debug-asserts.
+    pub(super) fn leaf(&mut self, depth: usize, owned: bool) {
+        debug_assert!(
+            self.root.is_none(),
+            "a plateau arrived after the final one: the tiling is complete"
+        );
+        debug_assert!(
+            depth >= self.path.len(),
+            "a plateau depth above its forced flip level: the input is not one preorder tiling"
+        );
+        // Open an ancestor per level entered, its tag reserved for the
+        // close-time patch.
+        for _ in self.path.len()..depth {
+            let Open(at) = self.out.open();
+            self.tags.push(at);
+            self.path.push(false);
+        }
+        let kind = if owned {
+            self.out.terminal()
+        } else {
+            Built::Empty
+        };
+        self.close_up(kind);
+    }
+
+    /// Take the finished canonical stream (empty for a wholly unowned
+    /// tiling).
+    pub(super) fn finish(self) -> Bits {
+        debug_assert!(
+            self.root.is_some(),
+            "an id tiling closes its root exactly once"
+        );
+        self.out.finish()
+    }
+
+    /// Close finished subtrees upward from a completed child of kind
+    /// `kind`: flip a left child to its right sibling and stop, or pop a
+    /// right child's level, normalize its node, and continue with the
+    /// node's own kind. The root's completion records the result.
+    fn close_up(&mut self, mut kind: Built) {
+        loop {
+            match self.path.pop() {
+                None => {
+                    self.root = Some(kind);
+                    return;
+                }
+                Some(false) => {
+                    // The left child completed: its right sibling's
+                    // plateaus are next.
+                    self.path.push(true);
+                    self.push_kind(kind);
+                    return;
+                }
+                Some(true) => {
+                    // The right child completed: normalize and close the
+                    // node, and continue with what it built.
+                    let left = self.pop_kind();
+                    kind = self.out.close_node(Open(self.tags.pop()), left, kind);
+                }
+            }
+        }
+    }
+
+    /// Record a completed left sibling's kind: two bits, is-node then
+    /// is-terminal (`Empty` is neither).
+    fn push_kind(&mut self, kind: Built) {
+        self.left_kinds.push(matches!(kind, Built::Node));
+        self.left_kinds.push(matches!(kind, Built::Terminal));
+    }
+
+    /// Pop the innermost recorded kind.
+    fn pop_kind(&mut self) -> Built {
+        let terminal = self.left_kinds.pop().expect("kind entries are two bits");
+        let node = self.left_kinds.pop().expect("kind entries are two bits");
+        match (node, terminal) {
+            (false, false) => Built::Empty,
+            (false, true) => Built::Terminal,
+            (true, false) => Built::Node,
+            (true, true) => unreachable!("a kind is one of three values"),
+        }
+    }
+}
+
+/// A pop-able stack of the open ancestors' reserved tag positions, held
+/// as bits rather than words.
+///
+/// Each entry stores its delta from the entry under it — as value bits on
+/// one stack and the value's width in pop-able unary on another — with
+/// the top entry's absolute position in one register. Positions increase
+/// up the stack, and a descent chain reserves adjacent tags (delta 2), so
+/// an entry typically costs ~4 bits where a machine word would cost 64:
+/// depth costs bits here the same way it does in the path stacks.
+struct PosStack {
+    /// The innermost entry's absolute position (0 when empty).
+    top: usize,
+    /// Width markers: for each entry, one `false` under `w − 1` `true`s.
+    unary: Bits,
+    /// Value bits, most-significant pushed first so pops read the value
+    /// least-significant first.
+    value: Bits,
+}
+
+impl PosStack {
+    fn new() -> Self {
+        PosStack {
+            top: 0,
+            unary: Bits::new(),
+            value: Bits::new(),
+        }
+    }
+
+    /// Push a position at or above the current top.
+    fn push(&mut self, pos: usize) {
+        debug_assert!(pos >= self.top, "reserved tag positions never move left");
+        // Stored off by one so the width is nonzero even at delta 0 (the
+        // first entry at position 0).
+        let stored = pos - self.top + 1;
+        self.top = pos;
+        let width = usize::BITS - stored.leading_zeros();
+        for i in (0..width).rev() {
+            self.value.push(stored >> i & 1 == 1);
+        }
+        self.unary.push(false);
+        for _ in 1..width {
+            self.unary.push(true);
+        }
+    }
+
+    /// Pop the innermost position.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stack is empty.
+    fn pop(&mut self) -> usize {
+        let mut width = 0u32;
+        loop {
+            let continuation = self.unary.pop().expect("position stack underflow");
+            width += 1;
+            if !continuation {
+                break;
+            }
+        }
+        let mut stored = 0usize;
+        for i in 0..width {
+            if self
+                .value
+                .pop()
+                .expect("position stack value bits underflow")
+            {
+                stored |= 1 << i;
+            }
+        }
+        let pos = self.top;
+        self.top -= stored - 1;
+        pos
     }
 }

@@ -305,13 +305,13 @@ proptest! {
 
 proptest! {
     /// Complexity. `diff` is `O(n + m)`: on the same misaligned disjoint pair
-    /// as `is_disjoint`, every level drives the bounded lazy-skip once via the
-    /// `diff(0, b) = 0` arm.
+    /// as `is_disjoint`, a shallow unowned plateau on `a` overlays `b`'s whole
+    /// deep subtree, so the sweep consumes every `b` plateau against single
+    /// `a` plateaus.
     ///
-    /// That pair is a shallow `0`-leaf on `a` aligned against `b`'s whole deep
-    /// subtree. The pair is disjoint, so the walk runs to completion and the
-    /// skip dominates; steps stay linear from `scale` to `4 * scale`, proving
-    /// each node is skipped at most once (no per-node re-scan).
+    /// The pair is disjoint, so the walk runs to completion (nothing empties
+    /// early); steps stay linear from `scale` to `4 * scale`, proving each
+    /// tag is read at most once (no per-node re-scan).
     #[test]
     fn diff_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
