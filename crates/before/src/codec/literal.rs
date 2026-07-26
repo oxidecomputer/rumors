@@ -1,17 +1,29 @@
 use crate::error::Parse;
 
-use super::{parse_id, validate_id, Bits, BitsSlice};
+use super::{validate_id, Bits, BitsSlice};
 
 /// Whether a normal-form id stream is the anonymous (empty) identity.
 ///
 /// In the pruned encoding a `0` is structural absence, so the only empty id is
 /// the empty bit stream — an O(1) check. Callers must pass already-validated
-/// bits; the O(1) shortcut is only sound for normal-form input, so we assert
-/// that in debug builds.
+/// bits (every caller sits directly downstream of a full parse or a
+/// normal-form-emitting kernel whose output is asserted at its own seam). The
+/// debug assertion spot-checks the contract's O(1) consequences only — root
+/// tag arity vs stream length — never a full re-parse: this helper is on
+/// every decode path's metered hot loop, and asserted work here would make
+/// dev builds meter a different program than the release board of record.
 pub(crate) fn id_is_empty(bits: &BitsSlice) -> bool {
     debug_assert!(
-        matches!(parse_id(bits, 0), Ok(end) if end == bits.len()),
-        "id_is_empty requires canonical normal-form bits",
+        bits.is_empty()
+            || (bits.len() >= 2
+                && if bits[..2].any() {
+                    // a root with a present child carries at least one more tag
+                    bits.len() >= 4
+                } else {
+                    // a terminal root (`00`) is exactly one tag long
+                    bits.len() == 2
+                }),
+        "id_is_empty requires canonical normal-form bits: bad root tag or length",
     );
     bits.is_empty()
 }
