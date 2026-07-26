@@ -653,9 +653,15 @@ impl MinStack {
     /// old innermost minimum) outward through the difference stack.
     ///
     /// Zero runs pass whole in O(1); each nonzero difference the drop
-    /// exceeds dies by one fold; the stopping frame absorbs the one
-    /// surviving fold. The caller has already adjusted `t` and the
-    /// followers.
+    /// exceeds dies by one fold *into the residue* at the difference's
+    /// own width; the stopping frame absorbs the one surviving fold —
+    /// the residue's terminal death into the difference that outlasts
+    /// it. Top-index domination decides each hop's direction before
+    /// any fold, so the dying side always funds the fold that consumes
+    /// it and the wide side of a scale-disparate hop is never read
+    /// across its width while it survives; only comparable scales fold
+    /// undecided, the near-cancellation pricing either direction. The
+    /// caller has already adjusted `t` and the followers.
     fn propagate(&mut self, residue: Accum) {
         let mut residue = residue;
         let mut zeros = 0usize;
@@ -669,6 +675,49 @@ impl MinStack {
                 }
                 Some(DiffEntry::ZeroRun(n)) => zeros += n,
                 Some(DiffEntry::Diff(mut d)) => {
+                    // The width guards skip domination reads a top
+                    // index could never decide (`sign_dominates_at`
+                    // needs two digits of clearance), so a
+                    // comparable-scale hop pays no extra read. Tops
+                    // are honest: a pushed difference had its sign
+                    // read at push, and the residue collapses under
+                    // its own reads here.
+                    if residue.digit_count() >= d.digit_count() + 2 {
+                        let (sign, decided) = residue.sign_dominates_at(d.digit_count() - 1);
+                        debug_assert!(
+                            !decided || sign == Ordering::Greater,
+                            "the residue is strictly positive"
+                        );
+                        if decided {
+                            // The residue dwarfs the difference: d
+                            // dies by its one fold into the surviving
+                            // residue, which stays positive and keeps
+                            // dropping.
+                            residue.sub_accum(&d);
+                            self.retire(d);
+                            zeros += 1;
+                            continue;
+                        }
+                    }
+                    if d.digit_count() >= residue.digit_count() + 2 {
+                        let (sign, decided) = d.sign_dominates_at(residue.digit_count() - 1);
+                        debug_assert!(
+                            !decided || sign == Ordering::Greater,
+                            "stacked differences are strictly positive"
+                        );
+                        if decided {
+                            // The difference dwarfs the residue: the
+                            // drop stops here, and the dying residue's
+                            // terminal fold shrinks the survivor.
+                            d.sub_accum(&residue);
+                            self.retire(residue);
+                            self.diffs.push(DiffEntry::Diff(d));
+                            break;
+                        }
+                    }
+                    // Comparable scales: the near-cancellation prices
+                    // the fold — the dying side's digits within a
+                    // constant, whichever side dies.
                     d.sub_accum(&residue);
                     self.retire(residue);
                     match d.sign() {
