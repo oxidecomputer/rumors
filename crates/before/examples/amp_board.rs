@@ -6,15 +6,16 @@
 //! the board's peak-heap column reads (a global allocator is per-binary
 //! state the library cannot own) and parses the size knob.
 //!
-//! Usage: `just amp-board`, or directly
+//! Usage: `just amp-board` (release, the profile of record — dev runs are
+//! a debugging view whose readings are never pinned), or directly
 //! `cargo run -p before --example amp_board --features limb-meter -- [scale]`
 //! where the optional `scale` (a positive number, default 1) multiplies
 //! every input family's base size; the literal `record` selects the
 //! acceptance scale of record (`board::RECORD_SCALE`, `just
 //! amp-board-record`). The default sizes keep the whole board at seconds of
 //! runtime; acceptance requires all green at both the default and record
-//! scales, three identical runs each. Without the `limb-meter` feature the
-//! limb column reads `off`.
+//! scales, one run each under the board's determinism tripwire. Without
+//! the `limb-meter` feature the limb column reads `off`.
 
 use before::meter::board::{self, HeapMeter};
 use peak_alloc::PeakAlloc;

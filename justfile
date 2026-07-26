@@ -348,18 +348,27 @@ bench-judge-tripwire:
 # reads no clock, so its output is byte-identical under any machine load
 # (the time leg lives in bench-judge). Optional scale multiplies the input
 # sizes, e.g. `just amp-board 4`.
+#
+# The board runs at the release profile, the measurement of record: debug
+# assertions perform metered work (Base comparisons through the limb shim,
+# metered probe cursors), so a dev board measures algorithm plus
+# verification scaffolding while release measures the production work
+# alone. A dev run (`cargo run -p before --example amp_board ...`) remains
+# a legitimate debugging view; its numbers must never be pinned anywhere.
 
 # Run the amplification board: the red-green resource-proportionality matrix over before's public operations.
 amp-board *args:
-    cargo run -p before --example amp_board --features limb-meter,scan-meter -- {{ args }}
+    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- {{ args }}
 
 # Acceptance is all green at BOTH the default scale and the record scale
-# (board::RECORD_SCALE, the segment-onset witness scale), three identical
-# runs each.
+# (board::RECORD_SCALE, the segment-onset witness scale), one run each:
+# the determinism tripwire (the runner's in-process double measurement of
+# every cell, plus this file's cross-process byte-compare) is what proves a
+# reading is reproducible, so acceptance needs no repeated hand runs.
 
 # Run the amplification board at the acceptance scale of record.
 amp-board-record:
-    cargo run -p before --example amp_board --features limb-meter,scan-meter -- record
+    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- record
 
 # Every quantity the board judges or renders is a deterministic counter, so
 # two whole renders from two processes must be byte-identical under any
@@ -368,7 +377,7 @@ amp-board-record:
 # (the in-process leg is the runner itself, which measures every cell twice
 # and panics on any counter disagreement, at every scale on every run). The
 # reduced default scale keeps the gate fast; the runner's leg covers the
-# acceptance scales.
+# acceptance scales. Runs at release, the board's profile of record.
 
 # Byte-compare two cross-process board renders (the determinism gate).
 amp-board-determinism scale="0.25":
@@ -376,8 +385,8 @@ amp-board-determinism scale="0.25":
     set -euo pipefail
     a=$(mktemp) && b=$(mktemp)
     trap 'rm -f "$a" "$b"' EXIT
-    cargo run -q -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$a"
-    cargo run -q -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$b"
+    cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$a"
+    cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$b"
     cmp "$a" "$b"
 
 # Paste a peer id into the dialog, or dial one directly:
