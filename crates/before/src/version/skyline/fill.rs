@@ -55,12 +55,29 @@
 //! the walk's own copy (a flat ×2, never nesting).
 //!
 //! Limb: accumulator digit touches are amortized linear in the two
-//! packed streams [measured: exponent 1.00 with flat constants on the
-//! matched spine, both wide × deep shortcut crosses, the memo
-//! families — distinct and shared minima, interleaved combs, the
-//! wide fan-out — and the descending staircase; the memo module of
-//! `tests/meter.rs` pins the families that separate this from every
-//! refuted resolution]. Each consumed delta folds into O(1)
+//! packed streams on the consumption-order and undercut genres
+//! [measured: exponent 1.00 with flat constants on the matched
+//! spine, both wide × deep shortcut crosses, the memo families —
+//! distinct and shared minima, interleaved combs, the wide fan-out —
+//! and the descending staircase; the memo module of `tests/meter.rs`
+//! pins the families that separate this from every refuted
+//! resolution] — but NOT on the close-reveal genre: k sibling sites
+//! sharing one wide minimum over a low floor, with each site's node
+//! frame closing back into the floor frame between consecutive
+//! consumes, cost Θ(k·b) touches on a Θ(k + b) input whose output is
+//! Θ(k + b) too [measured: ×3.91 across a joint ×2.00 doubling; the
+//! reveal-comb red pins in `tests/meter.rs`'s `width_circulation_cost`
+//! module hold the reading until the cure re-pins it flat]. The
+//! consume-minted arming difference is popped at the site's close,
+//! refilling the stack and the relation follower with the width the
+//! next consume re-mints — per-object-legal moves circulating one
+//! width unfunded; the same cycle runs at ~2 wide folds per site in
+//! the watermark stack alone with no site anywhere (bare
+//! leaf-under-internal-id frames over the same comb), and the
+//! ledger's ferry amplifies it ~10×. The narrow-gap control (floor
+//! 2 below the shared minimum) is flat and width-independent. On
+//! the linear genres the discipline holds as measured: each
+//! consumed delta folds into O(1)
 //! accumulators; each emission's watermark update is one amortized
 //! sign read plus a propagation whose every fold is a dying operand or
 //! the one surviving fold the update's own priced width bounds; each
@@ -1136,11 +1153,16 @@ impl PreScan<'_, '_> {
             self.first_slot = slot;
             self.head_level = level;
         }
-        // The head restarts at this site's minimum, installed BEFORE
-        // the raise emission below: the raise can arm pending frames
-        // (moving the tracked minimum), and only an installed
-        // follower receives that arm's fold — installed after, the
-        // reference goes stale by exactly the arm's delta.
+        // The head restarts at this site's minimum, installed before
+        // the raise emission below for uniformity with the walk-side
+        // consume discipline, where the ordering is load-bearing (a
+        // consume's raise can arm a pending frame, and only an
+        // installed follower receives that arm's fold). Here the
+        // ordering carries no hazard of its own: the site's range has
+        // emitted at least one leaf, arming every enclosing frame (so
+        // none is pending), and the raise is min-guarded (never below
+        // the tracked minimum), so no arm fold can arrive between
+        // this install and the emission.
         let zero = self.stack.lease();
         self.stack.follower_set(REL_FOLLOWER, zero);
     }
