@@ -84,6 +84,23 @@ fn meter_limbs_solo(a: &Base) {
     let _ = a;
 }
 
+/// Record a widening left shift's limb-scale work: the operand's limbs
+/// plus one per 64 shifted-in bits, plus one for the scalar.
+///
+/// The output spans `operand + rhs/64` limbs and the backend materializes
+/// every one of them, so recording the operand alone would let a
+/// shift-and-discard loop read near-zero while doing width-scale work.
+/// The narrowing right shift stays on the operand-width recorder: its
+/// output can only shrink, so the operand covers the cost. Compiles to
+/// nothing without the `limb-meter` feature.
+#[inline(always)]
+fn meter_limbs_shl(a: &Base, rhs: u32) {
+    #[cfg(feature = "limb-meter")]
+    limb_meter::record(a.limbs() + u64::from(rhs) / 64 + 1);
+    #[cfg(not(feature = "limb-meter"))]
+    let _ = (a, rhs);
+}
+
 /// An event tree's stored integer magnitude.
 ///
 /// ITC event counts (path sums of `tick`s, the `max`/`join` of two such sums)
@@ -506,7 +523,7 @@ impl Shl<u32> for Base {
     type Output = Base;
 
     fn shl(self, rhs: u32) -> Base {
-        meter_limbs1(&self);
+        meter_limbs_shl(&self, rhs);
         Base(self.0 << rhs as usize)
     }
 }
