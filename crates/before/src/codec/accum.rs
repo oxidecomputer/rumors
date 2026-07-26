@@ -324,15 +324,34 @@ impl Accum {
     /// machine-word adjustment: amortized O(1), collapsing like
     /// [`sign`](Self::sign).
     ///
-    /// Returns `(sign, decided)` where `decided` is true only when the
-    /// sign fold's partial reached `|s| ≥ 3` at digit index 3 or higher:
-    /// the unscanned digits below contribute under `2.01 · 2^(32·i)` (the
-    /// module doc's domination bound), so `|value| ≥ 0.99 · 2^96 > 2^64`
-    /// — no word-scale operand folded in could flip the sign. A
-    /// comparison against a word-scale adjustment reads this instead of
-    /// folding, so a wide watermark is never touched across its width by
-    /// a cheap comparison.
+    /// [`sign_dominates_at`](Self::sign_dominates_at) with floor 1: a
+    /// machine word holds at most two digits, so `decided` means no
+    /// word-scale operand folded in could flip the sign. A comparison
+    /// against a word-scale adjustment reads this instead of folding, so
+    /// a wide watermark is never touched across its width by a cheap
+    /// comparison.
     pub(crate) fn sign_dominates_word(&mut self) -> (Ordering, bool) {
+        self.sign_dominates_at(1)
+    }
+
+    /// The sign, plus whether the held magnitude certainly dominates any
+    /// value held in digits `0..=floor`: amortized O(1), collapsing like
+    /// [`sign`](Self::sign).
+    ///
+    /// Returns `(sign, decided)` where `decided` is true only when the
+    /// sign fold's partial reached `|s| ≥ 3` at digit index `floor + 2`
+    /// or higher. At decision index `i` the unscanned digits below
+    /// contribute under `2.01 · 2^(32·i)` (the module doc's domination
+    /// bound), so `|value| ≥ 0.99 · 2^(32·i)`; an operand with top digit
+    /// index at most `floor` holds under `2.01 · 2^(32·(floor + 1))`
+    /// (the same geometric bound one level up), and
+    /// `0.99 · 2^(32·(floor + 2)) > 2.01 · 2^(32·(floor + 1))` by a
+    /// factor over `2^30` — so folding any such operand in could flip
+    /// neither the sign nor which magnitude is larger. Scale-disparate
+    /// comparisons read this instead of folding, so a wide accumulator
+    /// is never touched across its width by a comparison a top index
+    /// already decides.
+    pub(crate) fn sign_dominates_at(&mut self, floor: usize) -> (Ordering, bool) {
         let mut index = self.top;
         let mut partial: i128 = 0;
         loop {
@@ -343,7 +362,7 @@ impl Accum {
             }
             index -= 1;
         }
-        let decided = partial.abs() >= SIGN_DECIDED && index >= 3;
+        let decided = partial.abs() >= SIGN_DECIDED && index >= floor + 2;
         if index < self.top {
             for digit in &mut self.digits[index..=self.top] {
                 *digit = 0;
@@ -375,6 +394,25 @@ impl Accum {
     /// smaller operand into the larger.
     pub(crate) fn digit_count(&self) -> usize {
         self.top + 1
+    }
+
+    /// Fold `other`'s held value into this one, always folding the
+    /// buffer holding fewer digits into the wider one: O(the narrower
+    /// operand's held digits) plus an O(1) buffer swap.
+    ///
+    /// The result lands in whichever buffer is wider and `self` takes
+    /// it; the drained buffer (still holding its stale digits) is
+    /// returned for the caller's pool. The min-into-max merge of the
+    /// walk disciplines: a fold neither input- nor output-priced must
+    /// deposit its result in a buffer at least as wide as the wider
+    /// operand and read only the narrower one, so the digits a dying
+    /// operand holds fund the fold that consumes it.
+    pub(crate) fn merge_into_wider(&mut self, mut other: Accum) -> Accum {
+        if other.digit_count() > self.digit_count() {
+            core::mem::swap(self, &mut other);
+        }
+        self.add_accum(&other);
+        other
     }
 
     /// Add or subtract one machine word times `2^shift`: amortized O(1).
