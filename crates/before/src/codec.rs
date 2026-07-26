@@ -28,7 +28,8 @@ mod tests;
 pub(crate) use base::limb_meter;
 pub use base::Base;
 pub(crate) use bits::{
-    bytes_as_bits, dead_bits_are_zero, pack_to_writer, require_zero_padding, zero_dead_bits,
+    bytes_as_bits, canonical_eq, canonical_hash, dead_bits_are_zero, pack_to_writer,
+    require_zero_padding, zero_dead_bits,
 };
 // The storage aliases are `pub` (the enclosing module is not), so the
 // meter surface can re-export them for the resource-envelope suite.

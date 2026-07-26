@@ -505,3 +505,32 @@ proptest! {
         prop_assert_eq!(q.as_bytes(), qe.as_slice());
     }
 }
+
+proptest! {
+    /// The byte-level equality the stored form uses (`codec::canonical_eq`:
+    /// raw bytes plus live length) agrees with a plain bit-level compare of
+    /// the live id streams on arbitrary pairs, in both operand orders — the
+    /// cross-check that the canonical-raw-slice invariant (dead bits zeroed
+    /// at every storage seam) really licenses the byte shortcut. Equal
+    /// values must also hash equally (`Eq`/`Hash` consistency).
+    #[test]
+    fn byte_equality_matches_bit_equality(
+        oa in arb_oracle_party_nonempty(),
+        ob in arb_oracle_party_nonempty(),
+    ) {
+        let a = from_oracle_party(&oa);
+        let b = from_oracle_party(&ob);
+        let bit_eq = a.as_bits() == b.as_bits();
+        prop_assert_eq!(a == b, bit_eq);
+        prop_assert_eq!(b == a, bit_eq);
+        if a == b {
+            let hash = |p: &Party| {
+                use core::hash::{Hash, Hasher};
+                let mut h = std::hash::DefaultHasher::new();
+                p.hash(&mut h);
+                h.finish()
+            };
+            prop_assert_eq!(hash(&a), hash(&b));
+        }
+    }
+}
