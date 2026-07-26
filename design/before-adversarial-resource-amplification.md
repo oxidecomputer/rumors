@@ -703,7 +703,13 @@ process and panics on any counter disagreement, and the gate's
 `just amp-board-determinism` byte-compares two cross-process
 renders. Wall time is judged
 nowhere in the gate; the time leg lives in the bench judge below,
-at `just bench-judge` / `just all` cadence.
+at `just bench-judge` / `just all` cadence. Instruction-count
+asymptotics are the fuzz-fit harness's territory
+(`crates/before/fuzzfit`, `just fuzzfit`: fuzzed operation
+programs replayed under wasmtime fuel, deterministic and
+load-independent, judged against pinned per-operation fuel
+bands); its design record, `design/before-fuzzfit-asymptotics.md`,
+is the instrument of record for that claim.
 
 Ceilings: scaling exponent ≤ 1.15 (per cell, fitted across the
 two scales against the cell's denominator bytes); heap ≤ 16 B per
