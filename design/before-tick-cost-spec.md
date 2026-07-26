@@ -25,6 +25,14 @@ width-circulation cycle (arm-up/close-reveal hops, outside I4's
 funded-cascade enumeration); L1/I4 reopen at the spec tier, the
 family is red-pinned in the gate, and the model tier reproduces it.
 The record is §9 round 5.
+*Amendment 2026-07-26 (round 6, the width-circulation cure)*: the
+latent-boundary register lands at the kernel (design → attack → fix →
+landing; the record is §9 round 6); **I4 is subsumed by I4′ (width
+conservation)**, L1's cost clause is restated as L1′, both red pins
+flip flat at cure-earned constants (reveal-comb ×3.91 → ×2.00 across
+the joint doubling), every green family holds its committed band, and
+**T-tick stands as the theorem under I4′** at the kernel tier on
+every committed family.
 Spec-first: this is the English statement of record the cure
 implements against; deviations get dated amendments.
 Statement-faithfulness governs every claim below — never weaker than
@@ -164,6 +172,15 @@ tier, and the model tier reproduces the family (§9 round 5, the
 record of record). The status paragraph below describes the
 document as of round 2 and is superseded where §9's later rounds
 say so.
+*Amendment 2026-07-26 (round 6, the landing)*: **T-tick stands as
+the theorem under I4′** — the latent-boundary register cures the
+width circulation at both attribution layers (the base stack's
+close/arm cycle and the ledger's ferry), the reveal-comb family
+reads ×2.00 across the joint doubling at the kernel (was ×3.91),
+and every lemma's realization is [measured] on every committed
+family. I4′ (width conservation, stated with I4 below) subsumes
+I4's funding enumeration; L1 carries its cost clause as L1′. The
+record is §9 round 6.
 
 Status: **[validated-on-model, kernel-pending]** — every lemma is
 [measured], [measured-on-model], or [derived] with no load-bearing
@@ -228,6 +245,46 @@ echoes a landed precedent):
   4.00/doubling; compressed 7.00 flat, ratio 2.00 — attack round
   one's harness, re-run and reproduced at fix round one; 13.00 flat
   under round two's limb-faithful accounting, class unchanged).
+- **I4′ — width conservation (round 6; SUBSUMES I4's funding
+  enumeration — I4 is retained as mechanism)**: define the potential
+  Φ = c · Σ over live accumulators of (held digit count), c a fixed
+  small constant. Every digit touch the walk performs is paid by one
+  of exactly three sources: an input code being consumed (which may
+  also GROW Φ, by at most the code's own width), an output code being
+  emitted (materializations read at most the code's width + 2, the
+  collapse-slack bound), or a DROP in Φ. Φ never grows except at
+  input-consuming folds; hence total touches ≤ O(1)·events +
+  O(n + m + Σ emitted code widths), and by L6 the total is O(n + m),
+  input-denominated. The operational rules (the normative content;
+  the potential is their bookkeeping): (1) moves are free — a buffer
+  transfer costs O(1) and leaves Φ unchanged; (2) internal folds are
+  min-into-max with a dying source — the narrower buffer's content
+  folds into the wider buffer and the survivor takes the wider buffer
+  (an O(1) swap), never the reverse; cost = the narrower side's
+  digits = Φ's drop; (3) fold-and-restore only of priced operands
+  (L2 rule 1 unchanged); (4) dying-operand fan-out is a constant —
+  one death event funds O(1) reads of the dying value (the survivor
+  fold, the d_out fold, ≤ 2 follower fixes); (5) sign reads decide by
+  domination before any fold — scale-disparate comparisons answer
+  post-sign from top indexes in O(1) (`sign_dominates_at`, the |s| ≥ 3
+  bound at an arbitrary index floor), and only comparable scales
+  fold, Φ-funded by rule 2. The complete hop enumeration ("hop" = any
+  event moving wide content between accumulators), each with its
+  funding source:
+
+  | hop kind | what moves | funding |
+  |---|---|---|
+  | input fold | a consumed code into the O(1) I1 targets | the code itself; Φ may grow by ≤ its width |
+  | undercut cascade | dying diffs into the residue, one surviving stopping fold | each diff dies (rule 2, Φ); the stopping fold ≤ the update's priced width (I4 as before) |
+  | arm-up | `t_old` into the new boundary diff | a MOVE (rule 1); the narrow `v − A` adjustment folds at its priced width; a wide `t_old` was input-funded by the climb that built it |
+  | close-reveal | the popped boundary | a MOVE into the latent register (rule 1) — no fold, no follower touch; the fold-into-`t` form is FORBIDDEN by rule 2 |
+  | latent-recycle | the latent buffer into the next arm's boundary | a MOVE; the narrow anchor-relative offset folds into the wide latent buffer (rule 2 direction) |
+  | latent-merge | two stacked latents | the narrower dies into the wider buffer (rule 2, Φ) |
+  | latent-collapse | the latent into `t` (anchor re-base) | the latent dies; min-into-max buffer swap (rule 2, Φ); triggered only at comparable-scale decisions, true undercut penetration (annihilation), or output-priced reads — never by schedule alone |
+  | ledger link | a link into the consume decision / the recording head into the queue | the link's one death (round 4's discipline, unchanged); wide links are input-funded at mint |
+  | bridge / anchor switch | the surviving `t` (+ latent) into a d_out | priced by the switch emission's code (L2 rule 2c); the watermark-to-height switch cancels the latent symbolically; the height-to-watermark switch retires it (collapse-first, Φ) |
+  | web death (last armed close) | the dying `t` and latent | the dying operands, rule-2 direction only; kernel-side the hop is vacuous today — followers die first (asserted) and the contents drop unread; the model's swap realization with its O(1) sign tag binds any future cross-web survivor |
+  | follower maintenance | arm/undercut/collapse operands into ≤ 2 followers | the same funded operand, fan-out constant (rule 4); closes touch NO follower — the σ tag (`f_true = f_stored − Λ`) carries the relation across the reveal, resolved at each follower's own death |
 
 **L0 (scan) [measured, landed]**: O(n + m) scan bits — every position
 read at most twice (walk + at most one memoized pre-scan; flat ×2
@@ -275,6 +332,36 @@ the `last` invariant); costs are validated by structural mirroring
 against `codec/accum.rs`'s touch placement, not by differential
 against the Rust meter — kernel-side re-measurement at the red pin
 remains mandatory (§7).
+
+**L1′ (round 6; L1's cost clause under the latent boundary)
+[measured, kernel + model]**: under I4′'s rules 1–5 the
+latent-boundary `MinStack` — `t = h − A` for a stale anchor `A`, the
+excess `Λ = A − m` parked in one optional register at the top of the
+diff stack, followers anchor-relative under a one-bit σ tag —
+supports open, delta, emit (all arms), close, consume, and
+materialize in amortized O(1) digit touches per event plus O(width)
+charged to consumed input codes and emitted output codes. Per
+operation: open O(1); delta folds into ≤ 4 fixed accumulators at the
+code's own width (I1); a non-min-moving emit is one amortized sign
+read, with domination reads O(1) post-collapse; an arming emit moves
+the boundary, folds the priced offset narrow, and recycles the
+latent by a rule-2 fold; an undercut pays dying digits (Φ-drop) plus
+one stopping fold at the update's priced width, annihilating a
+penetrated latent; a close is O(1) — a run decrement, a mint move,
+or a merge costing the dying narrower latent's digits; a collapse
+fires only at comparable scales, alongside an output-priced read, or
+at a death event, kills the latent, and cannot recur on one funding
+(re-widening costs the input a fresh climb); a consume's link dies
+into the anchor-relative decision; a materialization is O(the
+emitted code's width) post-collapse (the +2 slack bound). Summing:
+touches ≤ O(1)·events + Σ input widths + Σ output widths + Φ's total
+drop, and Φ's rise ≤ Σ input widths + O(1)·events with Φ ≥ 0, so the
+drop telescopes; the pricing chain (L2×L6) converts the output term.
+Every hop kind of I4′'s enumeration appears in exactly one clause.
+Kernel realization: the `watermark` module's latent register, with
+`sign_dominates_at` and `merge_into_wider` as the accum-layer
+primitives; validated [measured] by the flipped pins and the green
+bands (§9 round 6).
 
 **L2 (emission pricing) [measured-on-model — VALIDATED at attack
 round two on the limb-faithful composed model]**: every materialized
@@ -460,7 +547,7 @@ bound).
 | dimension | target profile | status |
 |---|---|---|
 | scan bits | O(n + m), constant ≤ 2 reads/position + flat ×2 sibling scans | **[measured]** landed, e 1.00 both arms |
-| limb ops | **T-tick: amortized O(n + m)** | **[validated-on-model, kernel-pending]**: L1 + L2 validated composed on the limb-faithful model, fourteen schedules (compressed stack and anchored-entry/lifetime disciplines normative); the pricing chain (L2×L6) stated; kernel re-measurement mandatory at the red pin; current kernel quadratic both arms **[measured]** |
+| limb ops | **T-tick: amortized O(n + m)** | **[measured at kernel, round 6]**: I4′/L1′ + L2 realized by the latent-boundary register; linear on every committed family including the close-reveal genre (reveal-comb ×2.00 across the joint doubling, pure-comb flat per byte, hifloor/mirror-wide/fanout inside their bands); the model tier validated the discipline composed across the fourteen committed schedules plus the seven round-6 attack schedules |
 | heap | O(depth) frames + O(n + m) total digits; builder output | **[derived]** L5, pinned by existing heap columns |
 | segments | today O(paired depth) recursion (red-pinned at ×4, owner **P4.2**); eventual profile **O(1) grown segments** via explicit stacks — the watermark stack and the grow probe's bit-coded frames are the natural vehicle, so P4.2 implements against this line. Sequencing note (attack round one, A2): on the fused walk, the route-DP fold reads skipped id subtrees per-bit on leaf-under-internal-id arms — P4.2's §11.4 word-scale skip on those arms interacts with the fused path; P4.2's sequencing decision must name the fused walk, and the before/after table judges the interaction | **[measured]** red today; target [derived] |
 | denominator | **input-denominated stands** (n + m packed bits; §6's do-not-re-denominate list). Supporting lemma L6 **[measured, pinned; the additive form is REFUTED]**: `size(tick(e, i)) ≤ 2·size(e) + 4·size(i) + 32` (`tick_output_is_input_bounded`, committed with its shrunk counterexample seeds — grow's zero leaf and a raise's landing can each re-code one delta against a wide neighbor, duplicating one input code's width once, so no additive slack survives; the honest constant is the factor 2, realized at 1.5 by construction). Fill's output deltas otherwise telescope input deltas; grow adds one increment or one expansion chain ≤ O(m). The pricing chain carries the constant: Σ emitted ≤ 2·input + O(id), still input-denominated. The ORBIT is separately pinned (the round-3 lemma below): the factor cannot compound along `tick^k`. | |
@@ -1193,6 +1280,115 @@ REFUTED-pending-revision (2026-07-25) — the statement's target
 stands, its I4 funding argument does not; the revision is the
 next design round's charter, seeded with the width-circulation
 mechanism and both attribution layers.**
+
+**Round 6** (the width-circulation cure: design → attack → fix →
+landing, 2026-07-26). The design round produced the latent-boundary
+register draft (validated on a copy-extension of the committed model:
+the cured reveal schedule 6.25/unit flat, joint-doubling ratio 2.00,
+was 13.72 → 67.77); the adversarial attack round sustained the core
+mechanism across six schedules (nested wide-wide merges, k-deep merge
+chains, zero-input hover reads over a live latent, maximal per-life
+σ folds, web-death re-anchors, the domination-ladder maximizer — all
+flat per unit) and returned four accounting/validation findings, all
+fixed in the draft's revision 2: the one-directional acceptance
+argument (green-family floors at risk from the cure's REMOVED
+touches — the landing protocol pre-committed: measure the at-risk
+floors first, re-pin downward on a breach, distinct from a liveness
+failure), the web-death hop missing from the "complete" enumeration
+(added with its rule-2 swap realization, whose re-derivation also
+surfaced and fixed an unexercised σ-path value defect in the
+revision-1 model), three model–prose divergences (swap-based
+collapse, bridge collapse-first, the close row's web-death carve-out),
+and the non-total value-read pricing (totalized: every fold priced by
+the emitted output code or the consumed input code). The landing
+(commits `43d625e7` + `12a85d2f` + the pin flip):
+
+- **The mechanism, kernel-realized**: `t = h − A` for a stale anchor,
+  the excess parked in one latent register; closes mint/merge by
+  move and touch no follower (the ferry is deleted); arms recycle the
+  register at the narrow anchor-relative offset; undercut decisions
+  go by `sign_dominates_at` domination with funded collapse only at
+  comparable scales; followers carry a per-slot σ tag resolved at
+  their own deaths — symbolically at the consume decision and the
+  watermark-to-height bridge (the terms cancel exactly, no latent
+  digit touched), by one output-priced fold at emit-at-minimum, by
+  the death-event fan-out at undercuts and collapses, and by a
+  pre-write resolve at the recorder's `set_link`/suspend points and
+  the walk's site close (in-cycle a no-op: the consume's arm already
+  drained the register). Ledger links and suspends never snapshot a
+  latent-relative quantity (asserted).
+- **The at-risk floors, measured FIRST per the landing protocol**
+  [measured, three identical runs]: no floor breached — hifloor
+  56,831 → 50,837 (floor 42,623 held; band re-pinned to the cured
+  measurement, ceiling 63,547/floor 38,127, under the ratchet),
+  mirror-wide 105,559 → 109,560 and memo_fanout 88,726 → 94,725
+  (the register's O(1) tag work per close; both inside their
+  standing bands, the older ceilings standing over the rises). The
+  predicted downward direction materialized only on the hifloor
+  family; the ledger families absorbed more O(1)-per-event work than
+  the genre estimate removed — the probe's stated both-directions
+  caveat, resolved by the kernel measurement as pre-committed.
+- **The pins flipped** [measured, three identical runs,
+  2026-07-26]: reveal-comb 738,449 → 2,884,881 (×3.91) became
+  48,857 → 97,705 — ×2.00 exactly on the ×2.00 input — re-pinned
+  ≤ ×2.5 plus an absolute band (122,131/73,278); pure-comb per-byte
+  50.8 → 82.0 (×1.61) became 5.18 → 4.46 (falling — the widening
+  input divides a flat count), re-pinned ≤ ×1.15 per byte plus a
+  band (9,127/5,476). Byte-identity across the full differential
+  suite (409 tests); tick_dense and tick_nested_wide byte-identical
+  on every meter column; board sums unchanged at both scales
+  (204/17, 193/28 over 221) with movement only in the reveal-comb
+  heap constants (down: one fewer simultaneously-live wide buffer at
+  peak) and the record-scale segment onsets inside the P4.2-owned
+  recursion-genre reds.
+- **Kernel realization notes, each a dated deviation-or-confirmation
+  against the draft**: (i) the web-death re-anchor (the model's
+  `rel_neg` sign tag) has NO kernel site — the walk's followers die
+  before the web does (asserted), so the hop is vacuous exactly as
+  the draft's hop-table row records; the model realization binds any
+  future cross-web survivor. (ii) The height-to-watermark bridge
+  resolves the latent unconditionally at emit-at-minimum rather than
+  transcribing the model's comparable-tops ladder: the emission
+  re-anchors to the true minimum, which retires the latent anyway
+  (the model's own post-bridge collapse), and the merged fold's cost
+  min+max equals the model's separate folds — values identical, cost
+  ≤ the model's on every path, the near-cancel guard subsumed.
+  (iii) The undercut's follower fix folds the anchor-relative drop
+  `−t` alone (one fold; the tagged content's shift to the new anchor
+  needs no separate latent fold), with the residue continuing as
+  `−t − Λ` — cheaper than the draft's two-fold sketch, value-equal.
+- **A kernel–prose divergence found and recorded, not fixed
+  (dispute obligation)**: I4′'s undercut-cascade row says dying
+  diffs fold INTO the residue (the model's realization, cost = the
+  dying diff's digits per hop); the kernel's `propagate` folds the
+  residue into each popped diff (cost = the residue's digits per
+  hop) and lets the survivor keep the diff's buffer. On every
+  committed family the two directions cost the same (narrow residues
+  or shallow cascades), but a wide residue penetrating k nonzero
+  narrow diffs pays Θ(k·W) under the kernel direction and Θ(k + W)
+  under rule 2 — a latent-independent seam that predates the cure,
+  unreachable by any committed family, left as a named candidate for
+  the next attack round rather than silently absorbed (the fix is
+  the model's negative-residue convention plus min-into-max swaps in
+  `propagate`).
+- Model-tier regression schedules: the seven round-6 attack
+  schedules (A1–A6 plus `web_death_sig`) are permanent axes in the
+  cure round's driver alongside the committed fourteen; no
+  kernel-expressible schedule read superlinear on the cured kernel.
+
+**Per-lemma status after round 6**: L0 [measured, landed] — held;
+**L1′/I4′ [measured at kernel: linear on every committed family
+including the close-reveal genre]**; L2/L4's memo realization
+[measured — held, the ledger's structure untouched, its folds
+re-denominated anchor-relative]; L3 [derived] + the cure's own
+comparison sites (the domination ladder, the anchor-relative consume
+decision, the recorder's pre-resolve — each enumerated at its
+realization site); L5 [measured — heap parity, the register is one
+pooled buffer and the tags are bits]; L6 [measured, pinned,
+multiplicative] — held; the orbit lemma [measured, pinned] — held;
+fusion [derived] — **UNBLOCKED: T-tick's realization stands on every
+committed family**; **T-tick: the theorem under I4′, [measured at
+kernel] on every committed family (2026-07-26)**.
 
 **Convergence assessment (fix round two)**: **CONVERGED at the spec
 tier, revision 3.** The loop's convergence rule — a round with no
