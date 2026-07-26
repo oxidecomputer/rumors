@@ -3396,3 +3396,262 @@ mod memo_resolution_cost {
         assert_flat("descending_raises", &small, &large);
     }
 }
+
+// ─── the width-circulation cycle's touch cost (the reveal-comb red pins) ────
+//
+// The committed witnesses that the tick walk's close-reveal cycle pays
+// the wide consume-time GAP once per site — Θ(k·b) accumulator digit
+// touches on a Θ(k + b) input whose output is Θ(k + b) too, so the
+// blowup survives the input+output denominator (each site's fill
+// collapses to the shared plateau leaf; the per-site output deltas are
+// unit codes). Semantics are exact on every family here — the oracle
+// differential pools carry the full crossing, and each pin below
+// asserts its shape's closed-form tick — so the failure is cost-only:
+// an unfunded width circulation. Per site, the consume decision mints a
+// width-b boundary difference between the site's frame and the floor
+// frame; the site's close pops it, refilling the base stack and the
+// live relation follower with the width; the next consume folds the
+// follower back into the next arming difference. Every object
+// individually is created once, read once, and dies — the width
+// circulates through per-object-legal moves with no input delta, no
+// output code, and no undercut descent funding any hop. The high-floor
+// control (identical forest, identical deferral and close-reveal cycle,
+// consume-time gap 2) reads flat and width-independent: the wide gap is
+// the driver, not the shape. The pure comb (no left-full site anywhere:
+// no memo, no pre-scan) pays the same cycle at ~2 wide folds per site
+// in the base watermark stack alone — the defect predates the frame
+// ledger, whose follower ferry and consume folds amplify it ~10×.
+#[cfg(feature = "limb-meter")]
+mod width_circulation_cost {
+    use before::meter::{self, accum::touch_meter};
+    use before::{Party, Version};
+    use dashu_int::UBig;
+
+    /// One tick run over a family cross: the tick's packed input bytes
+    /// (the version's own stored stream plus the id), the accumulator
+    /// digit touches of its body, and the ticked version for the
+    /// closed-form semantic leg.
+    struct Run {
+        input: u64,
+        touches: u64,
+        ticked: Version,
+    }
+
+    /// Tick the event × id cross and read the touch counter over the
+    /// tick body alone.
+    ///
+    /// Enforces a one-touch-per-input-byte liveness floor before
+    /// returning: the walk folds every consumed delta into the height
+    /// accumulator, so a reading below the floor means the walk's
+    /// accumulator work left the metered representation and any ratio
+    /// over it would hold vacuously.
+    fn tick_run(ev: meter::Packed, id: meter::Packed) -> Run {
+        let mut v = ev.version();
+        let p = Party::decode(&*id.bytes).expect("the generator's id is canonical");
+        let input = (v.encode().len() + id.bytes.len()) as u64;
+        touch_meter::reset();
+        v.tick(&p);
+        let run = Run {
+            input,
+            touches: touch_meter::touches(),
+            ticked: v,
+        };
+        assert!(
+            run.touches >= run.input,
+            "reveal family at {input} input bytes: {} digit touches under the \
+             one-per-byte floor: the walk's accumulator work is not metered",
+            run.touches,
+        );
+        run
+    }
+
+    /// The shared plateau value `2^b` as decimal text, for the
+    /// closed-form expected trees.
+    fn plateau(b: usize) -> String {
+        (UBig::ONE << b).to_string()
+    }
+
+    /// RED PIN: the reveal comb's close-reveal cycle is width-scaled —
+    /// touches grow by at least ×3.5 across the joint (k, b) doubling
+    /// on a ×2 input, where a gap-funded walk reads ~×2.
+    ///
+    /// Semantics first: the tick is the closed form (every site
+    /// collapses to the shared plateau leaf; the covering raise stays
+    /// at the floor), so the failure is cost-only. Then the signature
+    /// [measured: 738,449 → 2,884,881 touches across
+    /// (k, b) = (1,000, 1,024) → (2,000, 2,048), ×3.91 on a ×2.00
+    /// input]: per site, the consume-minted width-b boundary
+    /// difference is popped at the site's close and re-minted at the
+    /// next consume — no input delta, no output code, and no undercut
+    /// descent funds the hop, so the width is re-paid k times.
+    #[test]
+    fn reveal_comb_close_reveal_cycle_reads_width_quadratic() {
+        let expected = |k: usize, b: usize| -> Version {
+            let w = plateau(b);
+            let mut text = format!("(0, 0, {}(0, 0, {w})", "(0, ".repeat(k - 1));
+            text.push_str(&format!(", {w})").repeat(k - 1));
+            text.push(')');
+            text.parse().expect("the reveal-comb literal parses")
+        };
+        let small = tick_run(
+            meter::reveal_comb(1_000, 1_024),
+            meter::reveal_comb_id(1_000),
+        );
+        assert_eq!(
+            small.ticked,
+            expected(1_000, 1_024),
+            "reveal_comb ticks to its closed form: the failure is cost-only"
+        );
+        let large = tick_run(
+            meter::reveal_comb(2_000, 2_048),
+            meter::reveal_comb_id(2_000),
+        );
+        assert_eq!(
+            large.ticked,
+            expected(2_000, 2_048),
+            "reveal_comb ticks to its closed form: the failure is cost-only"
+        );
+        eprintln!(
+            "MEASURED reveal_comb: small={}/{}B large={}/{}B",
+            small.touches, small.input, large.touches, large.input,
+        );
+        assert!(
+            u128::from(large.touches) * 2 >= u128::from(small.touches) * 7,
+            "reveal_comb: touch growth across the joint doubling fell under x3.5 \
+             ({} -> {}): the close-reveal width circulation is gone — re-pin this \
+             family flat per unit (the cure's acceptance), never delete the family",
+            small.touches,
+            large.touches,
+        );
+    }
+
+    /// RED PIN: the pure comb's arm-move + close-pop cycle is
+    /// width-scaled in the base watermark stack alone — per-byte
+    /// touches grow by at least ×1.45 across a width doubling at fixed
+    /// site count, where a gap-funded walk reads flat (~×1.0).
+    ///
+    /// Semantics first: fill is the identity here (no left-full site
+    /// exists), so the tick is grow's closed form — the shallowest
+    /// owned leaf expands, ties right. Then the signature [measured:
+    /// per-byte 50.8 → 82.0 across b = 1,024 → 2,048 at k = 1,000,
+    /// ×1.61]: each wide leaf's frame arms `2^b` above the floor and
+    /// its close pops the width back — ~2 wide folds per site with no
+    /// memo, no pre-scan, and no site consume anywhere, so the defect
+    /// predates the frame ledger (which amplifies this same cycle
+    /// ~10× on the reveal comb).
+    #[test]
+    fn pure_comb_width_cycle_reads_width_scaled() {
+        let expected = |k: usize, b: usize| -> Version {
+            let w = plateau(b);
+            let mut text = format!("{}(0, 0, {w})", "(0, ".repeat(k - 1));
+            text.push_str(&format!(", {w})").repeat(k - 2));
+            text.push_str(&format!(", ({w}, 1, 0))"));
+            text.parse().expect("the pure-comb literal parses")
+        };
+        let small = tick_run(meter::pure_comb(1_000, 1_024), meter::pure_comb_id(1_000));
+        assert_eq!(
+            small.ticked,
+            expected(1_000, 1_024),
+            "pure_comb ticks to grow's closed form: the failure is cost-only"
+        );
+        let large = tick_run(meter::pure_comb(1_000, 2_048), meter::pure_comb_id(1_000));
+        assert_eq!(
+            large.ticked,
+            expected(1_000, 2_048),
+            "pure_comb ticks to grow's closed form: the failure is cost-only"
+        );
+        eprintln!(
+            "MEASURED pure_comb: small={}/{}B large={}/{}B",
+            small.touches, small.input, large.touches, large.input,
+        );
+        assert!(
+            u128::from(large.touches) * u128::from(small.input) * 100
+                >= u128::from(small.touches) * u128::from(large.input) * 145,
+            "pure_comb: per-byte touch growth across the width doubling fell under \
+             x1.45 ({}/{}B -> {}/{}B): the base stack's width circulation is gone — \
+             re-pin this family flat per unit (the cure's acceptance), never delete \
+             the family",
+            small.touches,
+            small.input,
+            large.touches,
+            large.input,
+        );
+    }
+
+    /// Absolute touch ceiling on the high-floor control's larger run,
+    /// measured 56,831 ×1.25 (2026-07-25, three identical runs).
+    const HIFLOOR_TOUCH_CEILING: u64 = 71_039;
+
+    /// Touch liveness floor paired with [`HIFLOOR_TOUCH_CEILING`]:
+    /// measured ×0.75.
+    const HIFLOOR_TOUCH_FLOOR: u64 = 42_623;
+
+    /// GREEN PIN: the high-floor control is flat and width-independent
+    /// — identical forest, identical deferral and close-reveal cycle,
+    /// consume-time gap 2.
+    ///
+    /// Per-byte touches stay flat (×1.25) across the width QUADRUPLING
+    /// the red family scales with [measured: 21.4 → 18.9 per byte
+    /// across b = 512 → 2,048 at k = 1,000], under an absolute band on
+    /// the larger run. The wide GAP is the cycle's cost driver — not
+    /// the site forest, not the deferral, not the close-reveal
+    /// schedule, all of which this family shares with the red one.
+    #[test]
+    fn reveal_comb_hifloor_control_is_flat_per_unit() {
+        let expected = |k: usize, b: usize| -> Version {
+            // The raised floor 2^b − 2 lifts to the root: it is the
+            // filled tree's minimum (the covering raise meets it).
+            let floor = (UBig::ONE << b) - UBig::from(2u8);
+            let mut text = format!("({floor}, 0, {}(0, 0, 2)", "(0, ".repeat(k - 1));
+            text.push_str(&", 2)".repeat(k - 1));
+            text.push(')');
+            text.parse().expect("the high-floor literal parses")
+        };
+        let small = tick_run(
+            meter::reveal_comb_hifloor(1_000, 512),
+            meter::reveal_comb_id(1_000),
+        );
+        assert_eq!(
+            small.ticked,
+            expected(1_000, 512),
+            "the high-floor control ticks to its closed form"
+        );
+        let large = tick_run(
+            meter::reveal_comb_hifloor(1_000, 2_048),
+            meter::reveal_comb_id(1_000),
+        );
+        assert_eq!(
+            large.ticked,
+            expected(1_000, 2_048),
+            "the high-floor control ticks to its closed form"
+        );
+        eprintln!(
+            "MEASURED reveal_comb_hifloor: small={}/{}B large={}/{}B",
+            small.touches, small.input, large.touches, large.input,
+        );
+        assert!(
+            u128::from(large.touches) * u128::from(small.input) * 4
+                <= u128::from(small.touches) * u128::from(large.input) * 5,
+            "reveal_comb_hifloor: per-byte touch cost grew more than x1.25 across \
+             the width quadrupling: {}/{}B -> {}/{}B — the narrow-gap cycle has \
+             picked up a width term",
+            small.touches,
+            small.input,
+            large.touches,
+            large.input,
+        );
+        assert!(
+            large.touches <= HIFLOOR_TOUCH_CEILING,
+            "reveal_comb_hifloor: {} touches exceed the pinned ceiling \
+             {HIFLOOR_TOUCH_CEILING} (measured 56,831 x1.25)",
+            large.touches,
+        );
+        assert!(
+            large.touches >= HIFLOOR_TOUCH_FLOOR,
+            "reveal_comb_hifloor: {} touches read below the {HIFLOOR_TOUCH_FLOOR} \
+             liveness floor (measured 56,831 x0.75): the cycle's work left the \
+             metered representation",
+            large.touches,
+        );
+    }
+}
