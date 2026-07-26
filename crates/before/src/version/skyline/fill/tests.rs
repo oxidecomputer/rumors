@@ -16,11 +16,12 @@ use proptest::prelude::*;
 use rayon::prelude::*;
 
 use crate::meter::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, descending_raises,
-    descending_raises_id, harmonic, hugeleaf, id_spine, memo_chain, memo_chain_id, memo_churn,
-    memo_churn_id, memo_comb, memo_comb_id, memo_fanout, memo_oscillating, nested_full_id,
-    nested_left_full_id, pure_comb, pure_comb_id, reveal_comb, reveal_comb_hifloor, reveal_comb_id,
-    scattered_id, staircase, wide_tail, wide_tooth_comb, Packed,
+    alt_spine, ascend_cliff, ascend_cliff_id, ascend_cliff_plateau, bigroot, cancelling_chain,
+    cliff_comb, cliff_fan, dense, descending_raises, descending_raises_id, harmonic, hugeleaf,
+    id_spine, memo_chain, memo_chain_id, memo_churn, memo_churn_id, memo_comb, memo_comb_id,
+    memo_fanout, memo_oscillating, nested_full_id, nested_left_full_id, pure_comb, pure_comb_id,
+    reveal_comb, reveal_comb_hifloor, reveal_comb_id, scattered_id, staircase, wide_tail,
+    wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
@@ -118,6 +119,10 @@ fn event_pool() -> Vec<Version> {
         version_of(&reveal_comb_hifloor(6, 5)),
         version_of(&pure_comb(1, 2)),
         version_of(&pure_comb(6, 5)),
+        version_of(&ascend_cliff(1, 2)),
+        version_of(&ascend_cliff(6, 5)),
+        version_of(&ascend_cliff_plateau(1, 2)),
+        version_of(&ascend_cliff_plateau(6, 5)),
     ]
 }
 
@@ -151,6 +156,8 @@ fn party_pool() -> Vec<Party> {
         party_of(&reveal_comb_id(6)),
         party_of(&pure_comb_id(1)),
         party_of(&pure_comb_id(6)),
+        party_of(&ascend_cliff_id(1)),
+        party_of(&ascend_cliff_id(6)),
     ];
     pool.extend(all_normal_ids(2).iter().map(from_oracle_party));
     pool
@@ -490,6 +497,36 @@ fn deep_spines_fill_and_tick_identically() {
         tick(&encode(&comb), &comb_id),
         encode(&expected),
         "tick takes the fill branch: the sites collapse to the wide leaf"
+    );
+
+    // The ascending cliff at 4096 spine nodes: fill is the identity
+    // (no id region covers a subdividable subtree at its minimum), so
+    // tick grows — the id's owned site is the cliff leaf, which
+    // expands to (0, 1, 0). The cliff's wide undercut propagates
+    // through 4095 nonzero unit boundary differences on the way: the
+    // fold-direction cascade at full depth.
+    let (k, b) = (4_096usize, 13usize);
+    let w = 1u64 << b;
+    let mut text = String::new();
+    for i in 1..=k {
+        text.push_str(&format!("(0, {}, ", w + i as u64));
+    }
+    text.push_str("(0, 1, 0)");
+    text.push_str(&")".repeat(k));
+    let expected: Version = text
+        .parse()
+        .expect("the grown ascending-cliff literal parses");
+    let cliff = ascend_cliff(k, b).version();
+    let cliff_id = party_of(&ascend_cliff_id(k));
+    assert_eq!(
+        fill(&encode(&cliff), &cliff_id),
+        encode(&cliff),
+        "no full region meets a subdividable subtree: identity"
+    );
+    assert_eq!(
+        tick(&encode(&cliff), &cliff_id),
+        encode(&expected),
+        "tick grows the owned cliff leaf to (0, 1, 0)"
     );
 }
 
