@@ -116,12 +116,12 @@ fn check_id_split(ids: &[oracle::Party], imp: &[Party]) {
     });
 }
 
-/// `is_disjoint`, `covers`, and `sum` over every *ordered pair* of ids agree
-/// with the oracle.
+/// `is_disjoint`, `covers`, `sum`, and `diff` over every *ordered pair* of
+/// ids agree with the oracle.
 ///
 /// The cross-product reaches the overlap (`is_disjoint == false`), partial-
-/// and non-overlap (`covers == false`), and overlap-sum (`None`) arms
-/// exhaustively.
+/// and non-overlap (`covers == false`), overlap-sum (`None`), and
+/// covered-difference (empty) arms exhaustively.
 fn check_id_pairs(ids: &[oracle::Party], imp: &[Party]) {
     par_for_pairs(ids.len(), |i, j| {
         let (oa, ob) = (&ids[i], &ids[j]);
@@ -142,6 +142,20 @@ fn check_id_pairs(ids: &[oracle::Party], imp: &[Party]) {
             assert!(
                 summed.is_none(),
                 "overlapping ids must not sum: {oa:?} {ob:?}"
+            );
+        }
+
+        let removed = IdReader::root(ia.as_bits()).diff(IdReader::root(ib.as_bits()));
+        let oracle_diff = oa.without(ob);
+        if oracle_diff.is_empty() {
+            assert!(
+                removed.is_empty(),
+                "covered difference must be empty: {oa:?} \\ {ob:?}"
+            );
+        } else {
+            assert!(
+                Party::from_bits(removed) == from_oracle_party(&oracle_diff),
+                "diff {oa:?} \\ {ob:?}"
             );
         }
     });
