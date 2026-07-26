@@ -279,34 +279,53 @@ board cells named.
   smaller, so onset shifts and counts drop; every affected cell reads
   red on segment count under both profiles) — the recursion-depth
   genre P4.2 owns, not assertion work.
-- **OPEN — the join_all up-front re-scan** (2026-07-26; found by
-  the error-path round's rejection survey, witnessed by its
-  `party_join_all_overlap` row and gate-pinned by
-  `join_all_overlap_upfront_rescan_reads_quadratic` in
-  `meter/board/tests.rs`, ≥ ×3.5 scan growth across a joint
-  doubling): `Party::join_all` (and `Clock::join_all`'s identical
-  inline discipline) tests every input against the *fixed*
+- **LANDED — the join_all up-front re-scan cure: the per-call id
+  index** (found 2026-07-26 by the error-path round's rejection
+  survey; cured the same day). `Party::join_all` and
+  `Clock::join_all` test every input against the *fixed*
   accumulator up front — semantically load-bearing for the
-  best-effort hand-back granularity — and each test on a packed
-  coding with no random access re-walks the accumulator: a
-  population of O(1)-byte probes overlapping the accumulator's
-  right half behind its whole left shape costs
-  Θ(inputs × accumulator) scan work on a Θ(accumulator + inputs)
-  operand set [measured — scan e 2.00 at 71 bits/B on the
-  id-pair row at 0.1 scale, growing with scale; the committed pin].
-  Each *call* is honestly linear (`is_disjoint` is O(n + m)); the
-  fold's repetition against one fixed operand is the amplifier,
-  and the same mechanism prices the success path on the same
-  operand mix (many tiny disjoint inputs against a large
-  accumulator pay the same up-front re-scans before their cheap
-  coalescing), so the rejection row is the witness for both.
-  The cure is beyond local repair (this round's stop-and-report):
-  the candidates — a decode-once index of the accumulator built
-  per `join_all` call (transient state ≤ operands; each check
-  then O(input + path)), or a coalesce-first restructure (must
-  preserve the documented hand-back attribution against `self`) —
-  each need their own adversarial review and re-pins. Owner:
-  **§17.2's open item (this round)**.
+  best-effort hand-back granularity — and each test as a cursor
+  walk re-scanned the accumulator (no random access in the packed
+  coding): Θ(inputs × accumulator) scan on a
+  Θ(accumulator + inputs) operand set, e 2.00–2.14 at
+  47–2,954 bits/B across the overlap families [measured at the
+  parent tip]. Each *call* was honestly linear; the fold's
+  repetition against one fixed operand was the amplifier, on the
+  rejection and success paths alike. The landed mechanism is the
+  entry's first candidate, `IdIndex` (`party/ops/index.rs`): built
+  once per fold call in two linear passes (every both-present
+  node's right-child position, one `u32` per such node — transient
+  state strictly under the operand; a `u32`-overflow operand
+  ≥ 512 MiB falls back to the cursor walk), it answers each
+  up-front test in O(input) node visits plus one
+  O(log accumulator) table search per both-present visit,
+  addressing indexed-side children in O(1) and skipping their
+  subtrees by never visiting them. A pure predicate-mechanism
+  swap: hand-back contents, order, and accumulator bytes are
+  decided by the identical fold, pinned differentially against
+  the cursor-walk discipline preserved as `testing::fold_oracle`
+  (arbitrary pool-with-repetition mixes, overlap position
+  first/interior/last, duplicates, all-overlapping deferred
+  witness, none-overlapping; a deliberate wrong-child mutation
+  trips four differentials). The second candidate
+  (coalesce-first) was rejected by probe: on the witnessing
+  population itself — duplicate probes overlapping the
+  accumulator *and* each other — nothing coalesces, so it
+  degenerates to the same per-input tests while reordering and
+  regrouping the hand-back vector the contract documents
+  (an input the fixed-`self` test hands back individually would
+  instead surface later, possibly merged); not curative where it
+  is priced, and semantics-breaking everywhere. Numbers: the gate
+  pin re-pinned in the cure's own commit,
+  `join_all_overlap_upfront_test_reads_flat` — growth across the
+  joint doubling ×4 (the ≥ ×3.5 red era) → ×2.00 measured
+  (33,036 → 66,060 bits), pinned ≤ ×2.05 over a liveness floor of
+  one full accumulator pass; the board row reads scan e 1.00 at
+  15.9 bits/B on *every* family at both scales (the index build's
+  two tag passes dominate), heap gaining the table's constant, at
+  most 10.6/B (nested-full, ×4) under the 16 ceiling. Cell
+  accounting and the success-path re-attribution: §17.3's
+  2026-07-26 cure amendment.
 - **The instrumentation census's blind spots** (2026-07-26; found
   by a read-only census of meter coverage hunting the F2 genre —
   work routed through a mechanism whose meter exists but is not
@@ -711,12 +730,15 @@ rejection must consume as much input as possible:
   (the adapter's a-mount: the shape left, the marker right), many
   one-byte right-full probes each overlapping the accumulator's
   right half *behind* its whole left shape, all handed back. The
-  witnessing pair sits past the left shape and the coding has no
-  random access, so each probe's up-front test skip-scans the
-  accumulator's left shape: Θ(accumulator) per O(1)-byte input.
-  `Clock::join_all` runs the identical up-front
-  `is_disjoint`-against-self walk inline, so the party row prices
-  both (delegation, the board doc's NA list).
+  witnessing pair sits past the left shape, so a per-input test
+  priced in the accumulator (a cursor walk skip-scanning the left
+  shape per probe — the coding has no random access) reads
+  Θ(accumulator) per O(1)-byte input and the row goes red; the
+  fold's per-call accumulator index (§3's landed cure) answers
+  each test in O(probe), which is the separation the row watches.
+  `Clock::join_all` runs the identical up-front indexed test
+  against self inline, so the party row prices both (delegation,
+  the board doc's NA list).
 - **Empty difference** (`Party::without` → `None` when `other`
   covers `self`): the `party_without_none` row, identical-region
   operands, so the diff walks both streams in full and the empty
@@ -845,8 +867,15 @@ verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-26; release
 profile — the profile of record — limb+scan+touch meters lit]:
-board **879 green / 110 red at the default scale; 863 / 126 at ×4**
+board **890 green / 99 red at the default scale; 873 / 116 at ×4**
 over **989 cells**
+(amended 2026-07-26, the join_all cure — §3's landed entry:
+879 + 110 → 890 + 99 default, 863 + 126 → 873 + 116 at ×4; the
+twelve flips per scale, the benign heap-exponent rider, the
+success-path re-attribution, and the six segments-onset movements
+are enumerated cell-exact in §17.3's cure amendment; every other
+cell byte-identical at both scales against the error-path round's
+renders [measured — strip-diffed])
 (amended 2026-07-26, the error-path round: the 18 rejection rows
 added 269 cells, 720 → 989, and every pre-existing cell's rendered
 row is **byte-identical** at both scales against the #39
@@ -1185,25 +1214,28 @@ is proven; §13/§17.3 amendments with sums restated; Accum
 pooling per the spec's §6 constants note. No green, no merge.
 *Deps*: none open; sequenced before C3's before/after table.
 
-**The join_all up-front re-scan (OPEN, the error-path round,
-2026-07-26).** The §3 OPEN entry's cure: dissolve the
-Θ(inputs × accumulator) per-input re-walk in `Party::join_all`
-and `Clock::join_all` while preserving the documented best-effort
-hand-back granularity (overlap is attributed against the fixed
-`self`, so a coalesce-first restructure must re-derive that
-attribution; a per-call decode-once index of `self` keeps the
-semantics verbatim at transient state ≤ operands). Red pins
-committed first, per the standing loop:
-`join_all_overlap_upfront_rescan_reads_quadratic`
-(`meter/board/tests.rs`, ≥ ×3.5 scan growth across a joint
-doubling) and the `party_join_all_overlap` board row.
-*Acceptance*: the pin re-pinned flat (≤ ×2.2) in the cure's own
-commit; the board row's scan exponent ≤ 1.15 at both scales on
-every family; the fold rows' existing readings re-attributed
-(the same up-front check prices the success path, so the cure
-moves them — movement annotations per §17.10); byte-identity
-across the differential suite. *Deps*: none; sequenced at the
-owner's discretion (post-C3 candidate).
+**The join_all up-front re-scan (done 2026-07-26, the error-path
+round's cure).** The §3 entry's cure, landed as the per-call
+decode-once index of `self` (`IdIndex`; the coalesce-first
+candidate rejected by probe — §3 records the decision): the
+Θ(inputs × accumulator) per-input re-walk dissolved with the
+hand-back granularity preserved verbatim, pinned differentially
+against the cursor-walk discipline held as
+`testing::fold_oracle`. Acceptance met: the red pin (≥ ×3.5 scan
+growth across a joint doubling) re-pinned flat in the cure's own
+commit at the measured ×2.00, ceiling ≤ ×2.05 over a
+build-liveness floor (`join_all_overlap_upfront_test_reads_flat`);
+the board row's scan exponent 1.00 at 15.9 bits/B on every family
+at both scales; the success-path fold rows re-attributed with
+movement annotated against the parent-tip boards (§17.3's
+2026-07-26 cure amendment — `party_join_all × scatter` flips
+green at default); byte-identity across the differential suite.
+Two acceptance deviations, both annotated there: the
+`party_join_all_overlap × benign` ×4 cell keeps its
+sub-allowance heap-exponent red (the C3 judgment-layer genre
+that rode it; its scan legs flipped green), and the segments
+column moved on six tick/diff cells whose every other column is
+byte-identical (the P4.2 codegen-onset genre).
 Audit every remaining `recurse::descend!` site post-C2; convert
 survivors per the explicit-stack pattern or record why they stay;
 apply the word-at-a-time subtree skip (popcount pending-counter
@@ -1556,6 +1588,48 @@ Sums: default 879 + 110 = 989; record 863 + 126 = 989.
 
 Default, 110 = the 92 pre-existing below + the 18 error-path reds
 above. Record, 126 = the 102 pre-existing below + the 24 above.
+
+Amended 2026-07-26 (the join_all cure, §3's landed entry; single
+release runs at both scales, strip-diffed cell-exact against the
+parent-tip boards — every cell not named here byte-identical):
+
+- **The join_all genre empties, less one rider.** All 11 default
+  and 12 of 13 ×4 `party_join_all_overlap` reds flip GREEN: scan
+  e 2.00–2.14 at 47–2,954 bits/B → e 1.00 at 15.9 bits/B on every
+  family at both scales; heap gains the index table's constant,
+  at most 10.6/B (nested-full ×4), e 1.00, under the 16 ceiling.
+  The survivor, `party_join_all_overlap × benign` ×4: its scan
+  legs flip green (e 2.13 → 1.00) and the cell stays RED on the
+  sub-allowance heap exponent alone (e 2.39 → 1.17 over a 0.0/B
+  constant, the hand-back vector's growth against a near-constant
+  denominator) — the §17.2-C3 judgment-layer genre this
+  accounting already assigned while it rode a scan-red cell.
+  Owner: **C3's judgment-layer question** (unchanged).
+- **The success path re-attributed** (the same up-front test
+  priced it): `party_join_all × scatter` flips RED → GREEN at
+  default (scan constant 98.6 → 91.9 bits/B under the 96 ceiling;
+  ×4 stays green, 87.0 → 81.0); `party_join_all × benign` moves
+  106.2 → 100.1 (default) and 123.5 → 116.9 (×4) bits/B, still
+  RED on the scan constant — the n·log n coalescing constant the
+  non-monotone-verdict caveat records, its owner unchanged.
+- **Segments-onset movement, six cells, no other column moved**
+  (every deterministic work counter byte-identical; the segments
+  column's documented codegen sensitivity — frame sizes shifted
+  under the new code in the binary; owner **P4.2**, whose genre
+  list already carries every site): `version_tick`/`clock_tick`
+  × nested-wide ×4 go GREEN → RED at 1 → 2 grown segments against
+  the flat ceiling of 1; `version_tick`/`clock_tick` ×
+  pure-comb/ascend-cliff/ascend-plateau ×4 (already red on
+  segments) read 2 → 4 grown; `party_without_none × id-pair`
+  (the diff both-internal recursion) goes GREEN → RED at default
+  (0 → 2 grown) and reads 62 → 70 at ×4 where it was already red.
+
+Sums after the cure amendment: default 890 + 99 = 989; record
+873 + 116 = 989. Default, 99 = 110 − 12 flips
+(11 `party_join_all_overlap` + `party_join_all × scatter`)
++ 1 segments onset (`party_without_none × id-pair`). Record,
+116 = 126 − 12 flips (`party_join_all_overlap` × the 11 plus
+comb-scatter) + 2 segments onsets (the tick × nested-wide pair).
 
 Default, 92 pre-existing: the #35 refactor's new reds less the
 #40-flipped `clock_encode × comb-scatter` (73) + the
