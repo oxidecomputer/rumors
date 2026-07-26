@@ -87,12 +87,14 @@ pub const BUDGET: Budget = Budget {
     max_fold: 1_024,
 };
 
-/// The reach family's budget: several times [`BUDGET`]'s fork cap, so the
-/// pair, fold, and query rows see denominators decades past the rest of
-/// the roster and the fitted *slope* — not the band's width — carries the
-/// asymptotic judgment there. Construction cost is quadratic in the reach
-/// (every op pays the current size), which is why this budget belongs to
-/// one low-weighted family instead of the whole roster.
+/// The reach family's budget.
+///
+/// Several times [`BUDGET`]'s fork cap, so the pair, fold, and query
+/// rows see denominators decades past the rest of the roster and the
+/// fitted *slope* — not the band's width — carries the asymptotic
+/// judgment there. Construction cost is quadratic in the reach (every op
+/// pays the current size), which is why this budget belongs to one
+/// low-weighted family instead of the whole roster.
 pub const ESCALATION_BUDGET: Budget = Budget {
     max_ops: 8_000,
     max_ticks: 3_000,
@@ -236,12 +238,13 @@ pub enum Family {
         /// Cross-battery size.
         ops: u32,
     },
-    /// The reach family: one universe grown under [`ESCALATION_BUDGET`]
-    /// to several times the roster's fork cap, with a size ladder of
-    /// snapshot clocks so the pair, fold, and query rows sample every
-    /// half-decade bucket up to the escalated top — slope leverage for
-    /// the wide-cloud kernels, and the large coupled `Party::join`
-    /// regime.
+    /// The reach family: one universe grown far past the roster's fork
+    /// cap, under [`ESCALATION_BUDGET`].
+    ///
+    /// A size ladder of snapshot clocks lets the pair, fold, and query
+    /// rows sample every half-decade bucket up to the escalated top —
+    /// slope leverage for the wide-cloud kernels, and the large coupled
+    /// `Party::join` regime.
     Escalation {
         /// Spine depth in forks: the reach knob.
         depth: u32,

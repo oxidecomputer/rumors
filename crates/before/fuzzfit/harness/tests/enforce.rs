@@ -113,10 +113,12 @@ fn a_live_quadratic_reads_above_a_linear_band() {
     assert_eq!(judge_against(&band, 8192, mid), Verdict::Below);
 }
 
-/// The pin's provenance: fuel constants are a function of the guest
-/// codegen, which is a function of the compiler, so judging against bands
-/// pinned under a different toolchain compares incommensurable numbers.
-/// A toolchain bump reads red here until the bands are re-pinned
+/// The pin's provenance: the building toolchain must be the pinning one.
+///
+/// Fuel constants are a function of the guest codegen, which is a
+/// function of the compiler, so judging against bands pinned under a
+/// different toolchain compares incommensurable numbers. A toolchain
+/// bump reads red here until the bands are re-pinned
 /// (`just fuzzfit-calibrate`).
 #[test]
 fn building_toolchain_matches_the_pin() {
@@ -127,11 +129,13 @@ fn building_toolchain_matches_the_pin() {
     );
 }
 
-/// The pin's staleness cross-check: the bands are computable two ways —
-/// the committed constants and a fresh fit of the same deterministic
-/// sample stream — so the two get compared, and disagreement beyond the
-/// measured tolerance demands a deliberate re-pin with a movement
-/// annotation, never silent drift.
+/// The pin's staleness cross-check: a fresh fit of the deterministic
+/// stream must agree with the committed constants.
+///
+/// The bands are computable two ways — the pin and the refit — so the
+/// two get compared, and disagreement beyond the measured tolerance
+/// demands a deliberate re-pin with a movement annotation, never silent
+/// drift.
 ///
 /// Refits the first [`REFIT_PREFIX_PROGRAMS`] programs of the calibration
 /// stream and compares each kernel's fresh line against its pin
@@ -176,10 +180,12 @@ fn refit_of_the_deterministic_prefix_matches_the_pin() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
-    /// Every public operation stays inside its pinned fuel band on shapes
-    /// nobody chose — random programs over the whole vocabulary, coupled
-    /// and cross-universe operand regimes alike — and no kernel's
-    /// within-case cost trend out-climbs its pinned slope.
+    /// Every public operation stays inside its pinned fuel band on
+    /// shapes nobody chose, and no kernel's within-case cost trend
+    /// out-climbs its pinned slope.
+    ///
+    /// Cases draw random programs over the whole vocabulary, coupled
+    /// and cross-universe operand regimes alike.
     ///
     /// Above-band is an asymptotic regression; below-band is a liveness
     /// failure; a kernel with no band is an unpriced operation (totality);

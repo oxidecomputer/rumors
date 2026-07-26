@@ -70,9 +70,10 @@ pub const MIN_DECADES: f64 = 1.0;
 pub const SLOPE_ALLOWANCE: f64 = 0.3;
 
 /// One kernel's within-case local slope, minus its pinned slope: the
-/// quantity [`SLOPE_ALLOWANCE`] bounds. `None` when the case lacks
-/// evidence (too few floored buckets, thin buckets, or under a decade of
-/// span between the endpoint medians).
+/// quantity [`SLOPE_ALLOWANCE`] bounds.
+///
+/// `None` when the case lacks evidence (too few floored buckets, thin
+/// buckets, or under a decade of span between the endpoint medians).
 ///
 /// The local slope is taken between the bottom and top populated buckets'
 /// median points (median log-denominator, median log-fuel per bucket) —

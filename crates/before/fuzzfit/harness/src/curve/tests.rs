@@ -37,10 +37,12 @@ fn sampled(f: impl Fn(u64) -> u64) -> Vec<(u64, u64)> {
     out
 }
 
-/// A quadratic mechanism must trip the trend: its within-case local slope
-/// reads ~2 against a pinned slope of 1, far beyond the allowance. This
-/// is the leg's reason to exist — a quadratic that tilts into a wide band
-/// keeps every point residual small, and only the trend sees it.
+/// A quadratic mechanism must trip the trend: its within-case local
+/// slope reads ~2 against a pinned slope of 1, far beyond the allowance.
+///
+/// This is the leg's reason to exist — a quadratic that tilts into a
+/// wide band keeps every point residual small, and only the trend sees
+/// it.
 #[test]
 fn quadratic_readings_exceed_the_allowance() {
     let band = linear_band();
