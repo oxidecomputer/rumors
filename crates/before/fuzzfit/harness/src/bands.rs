@@ -130,15 +130,15 @@ pub const ENFORCE_MARGIN: f64 = 0.2;
 /// path reads at nop level, and every pinned floor still clears that
 /// reading with this slack subtracted. Measured at pin time
 /// (`bin/calibrate` re-derives the minimum on every re-pin): the
-/// narrowest gap is 0.17 decades, `ff_rank_cmp` at its 128-bit fit floor
+/// narrowest gap is 0.14 decades, `ff_rank_cmp` at its 128-bit fit floor
 /// — its floor width carries the unequal-pair fast-path tail — and the
 /// gap widens with size along every fitted slope from there. The slack
 /// itself is priced against the honest cheap tail rather than the
 /// dead-meter gap: fresh draws legitimately undercut the corpus
-/// minimum — the committed rejection-shape seed's `join_all` step reads
-/// 0.29 below its pinned floor width — and a liveness threshold left
-/// inside the honest distribution's tail relocates that dispersion into
-/// flakiness.
+/// minimum — the committed rejection-shape seed's `join_all` step read
+/// 0.29 below the pinned floor width at this margin's derivation
+/// (2026-07-26) — and a liveness threshold left inside the honest
+/// distribution's tail relocates that dispersion into flakiness.
 pub const ENFORCE_MARGIN_BELOW: f64 = 1.0;
 
 /// The staleness cross-check's prefix length.
@@ -157,7 +157,7 @@ pub const REFIT_PREFIX_PROGRAMS: usize = 256;
 ///
 /// Measured 2026-07-26 at pin time (`bin/calibrate` re-derives the
 /// evidence on every re-pin): the prefix's own sampling difference from
-/// the full corpus peaks at 0.548 (`ff_party_join`'s rejection arm, the
+/// the full corpus peaks at 0.547 (`ff_party_join`'s rejection arm, the
 /// thinnest-sampled band key). The tolerance sits above that, so the
 /// check is deaf to sub-half-decade drift on the worst key but fails
 /// loud on anything past ~5x in fuel constants — a staleness detector,

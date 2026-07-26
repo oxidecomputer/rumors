@@ -61,7 +61,7 @@ pub const MIN_DECADES: f64 = 1.0;
 /// slope.
 ///
 /// Measured 2026-07-26 over the calibration corpus of record (1536
-/// programs, ~979k steps; `bin/calibrate` re-derives the evidence on
+/// programs, ~985k steps; `bin/calibrate` re-derives the evidence on
 /// every re-pin): the maximum healthy within-case excess across every
 /// evidence-bearing (band key, case) pair was +0.006 (`ff_clock_join`,
 /// a `DenseSpine` draw). The allowance sits far above that observed
