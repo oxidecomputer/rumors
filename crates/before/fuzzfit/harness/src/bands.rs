@@ -119,7 +119,13 @@ pub struct Band {
 /// Slack beyond each band's fitted ceiling, in `log₁₀` units.
 ///
 /// Absorbs allocator-history variance between calibration and
-/// enforcement contexts (≈ 1.6× in fuel). The ceiling carries the
+/// enforcement contexts (≈ 1.6× in fuel). Measured at pin time
+/// (`bin/calibrate` replays the enforcement suite's fixed escalation
+/// programs — deterministic enforcement-context executions outside the
+/// calibration corpus — and re-derives their worst ceiling excess on
+/// every re-pin): the observed maximum is +0.040 decades (2026-07-26,
+/// `ff_rank_cmp` at the depth-cap replay), so the margin sits 5× above
+/// the honest enforcement-context excess. The ceiling carries the
 /// regression claim, so its slack stays tight; contrast
 /// [`ENFORCE_MARGIN_BELOW`].
 pub const ENFORCE_MARGIN: f64 = 0.2;
