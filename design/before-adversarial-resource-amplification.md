@@ -72,6 +72,8 @@ share:
 | nested-wide | bigroot magnitude × the nested-full id | the wide right-full chain: the absolute first payload nets the deepest subtree and every ancestor's materialized sum re-touches it (#34) |
 | mirror / wide tail | `(1,x)` down a right spine × a zero spine with one wide tail leaf | the memoized pre-scan at full depth — wide minima in every memo entry, wide nets per level (#34); the unit-tail cross is the memo machinery's own cell |
 | descending staircase | monotone-descending unit-delta leaves × the unary id spine | full-penetration minimum updates at every level, width-independent (the cure's propagation witness) |
+| memo chain | `k` consumption-sibling single-leaf left-full sites under one covering site, minima distinct or shared | the memo resolution's touch cost (#34: quadratic re-reads, red-pinned; the shared twin is the flat control) |
+| memo comb | shallow and covering left-full sites interleaved per level | consumption order Θ(d) from recording order — refutes chain-walking resolutions under every record-to-record anchoring |
 
 ## 3. Findings ledger
 
@@ -117,17 +119,27 @@ the enforced envelopes and board cells named.
   P4.2's pin (§17.3).
 - **Fill/tick's limb-dimension re-touching** (2026-07-25; found
   by the linearization's adversarial review, widened by the spec
-  probes): the cured walk's per-subtree `(min, net)` returns are
-  materialized `Base` magnitudes combined at every paired node —
+  probes): materialized per-subtree `(min, net)` magnitudes cost
   Θ(width) limb work per ancestor, quadratic on wide × deep
-  crosses through BOTH shortcut arms [measured: the right-full
-  net chain at limb e → 2, crossing the 128/B ceiling at
-  b = d = 8000; the left-full memoized arm worse, e 1.92–1.97,
-  over the ceiling at d = 1000]. A pricing obligation under §6,
-  not an exploit (local-depth multiplier). The cure of record is
-  the anchor-web/watermark discipline specified in
-  `design/before-tick-cost-spec.md` (converged revision 3), with
-  fused tick adopted — the #34 item.
+  crosses through BOTH shortcut arms. CURED for the walk by the
+  anchor-web/watermark discipline of
+  `design/before-tick-cost-spec.md` (the wide crosses read limb
+  and touch e 1.00 at flat constants, board- and
+  envelope-pinned). The RESIDUAL, found by that cure's own
+  adversarial review: the chained memo's site RESOLUTION is
+  Θ(k²) accumulator digit touches on consumption-order
+  adversaries [measured ×3.9/doubling; the memo-chain and
+  memo-comb families, gate-enforced red pins in
+  `tests/meter.rs`] — a currency the limb column cannot see, and
+  the same machinery carried a semantic staleness bug the
+  families' first differential crossing caught (fixed, minimized
+  seed committed). Both candidate resolutions were refuted ahead
+  of implementation (the comb family kills
+  previously-consumed-site anchoring too), so the memo discipline
+  is back in the spec's design loop with the position-anchored
+  seed — the spec's §9 round-3 record; still the #34 item. A
+  pricing obligation under §6, not an exploit (local-depth
+  multiplier).
 
 ## 6. The design invariant and the denomination criterion
 

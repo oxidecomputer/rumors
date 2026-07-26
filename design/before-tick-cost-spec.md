@@ -2,8 +2,14 @@
 
 Status: the statement of record for #34 (the tick limb cure and
 fusion), committed 2026-07-25 at **revision 3** — converged after two
-adversarial attack/fix rounds (the record is §9) — under the user's
-standing authorization of 2026-07-25 (fused tick pre-approved given
+adversarial attack/fix rounds, then **reopened at the kernel tier at
+round 3** (the record is §9): the landed realization's memo
+resolution is refuted in cost (red-pinned) and both candidate cure
+shapes are refuted ahead of implementation, so the memo discipline
+returns to the design loop with the position-anchored seed; the
+walk, the watermark web, L6 (corrected multiplicative), and the
+orbit lemma stand pinned. Under the user's standing authorization of
+2026-07-25 (fused tick pre-approved given
 linearity with small constants; confer only on a superlinear honest
 optimum, a §6 denomination change, or a representation-forced
 redesign). Formal ratification by Finch lands as a dated amendment
@@ -434,7 +440,7 @@ bound).
 | limb ops | **T-tick: amortized O(n + m)** | **[validated-on-model, kernel-pending]**: L1 + L2 validated composed on the limb-faithful model, fourteen schedules (compressed stack and anchored-entry/lifetime disciplines normative); the pricing chain (L2×L6) stated; kernel re-measurement mandatory at the red pin; current kernel quadratic both arms **[measured]** |
 | heap | O(depth) frames + O(n + m) total digits; builder output | **[derived]** L5, pinned by existing heap columns |
 | segments | today O(paired depth) recursion (red-pinned at ×4, owner **P4.2**); eventual profile **O(1) grown segments** via explicit stacks — the watermark stack and the grow probe's bit-coded frames are the natural vehicle, so P4.2 implements against this line. Sequencing note (attack round one, A2): on the fused walk, the route-DP fold reads skipped id subtrees per-bit on leaf-under-internal-id arms — P4.2's §11.4 word-scale skip on those arms interacts with the fused path; P4.2's sequencing decision must name the fused walk, and the before/after table judges the interaction | **[measured]** red today; target [derived] |
-| denominator | **input-denominated stands** (n + m packed bits; §6's do-not-re-denominate list). Supporting lemma L6 **[derived, pin candidate; held under attack]**: `size(tick(e, i)) ≤ size(e) + O(size(i))` — fill's output deltas telescope input deltas (width ≤ max input code + log range length; a raise's recoded neighbor delta telescopes the same way — the cliff-boundary attack found no counterexample); grow adds one increment (≤ 2 recoded deltas, O(1) bits each) or one expansion chain (O(id depth at the site) topology bits + unit deltas ≤ O(m)). Land as a proptest pin with the cure (any quantity computable two ways gets a pin). | |
+| denominator | **input-denominated stands** (n + m packed bits; §6's do-not-re-denominate list). Supporting lemma L6 **[measured, pinned; the additive form is REFUTED]**: `size(tick(e, i)) ≤ 2·size(e) + 4·size(i) + 32` (`tick_output_is_input_bounded`, committed with its shrunk counterexample seeds — grow's zero leaf and a raise's landing can each re-code one delta against a wide neighbor, duplicating one input code's width once, so no additive slack survives; the honest constant is the factor 2, realized at 1.5 by construction). Fill's output deltas otherwise telescope input deltas; grow adds one increment or one expansion chain ≤ O(m). The pricing chain carries the constant: Σ emitted ≤ 2·input + O(id), still input-denominated. The ORBIT is separately pinned (the round-3 lemma below): the factor cannot compound along `tick^k`. | |
 
 ## 5. If T-tick fails
 
@@ -651,7 +657,9 @@ against a wide neighbor, duplicating one input code's width once
 (a 175-bit event under a 6-bit id ticks to 255 bits, the shrunk
 counterexample; committed as a seed) — and the honest bound is
 the constant-factor `size(tick(e, i)) ≤ 2·size(e) + 4·size(i) +
-32`, pinned at 8,192 cases. The pricing chain (A3) survives with
+32`, pinned (the committed pin runs at proptest's default 256
+cases per execution; 8,192 cases was a one-off verification run,
+recorded here as such). The pricing chain (A3) survives with
 the constant carried: Σ emitted code widths ≤ 2·input + O(id) is
 still input-denominated, so T-tick's O(n + m) conclusion is
 unchanged; §4's L6 row reads with this correction. Realization choices, each conforming
@@ -743,10 +751,11 @@ agent as written.
    path). Recorded here as the spec's recommendation: adopt, as the
    separate post-cure commit inside #34's charter; judged by the
    before/after table, no red pin.
-3. **L6, the output-bound pin** (`size(tick output) ≤ size(input) +
-   O(id)`) — land with the cure? REC: yes (two-ways-computable gets
-   a pin; it also protects the input denomination the board rests
-   on).
+3. **L6, the output-bound pin** — landed with the cure in its
+   corrected multiplicative form (`≤ 2·size(e) + 4·size(i) + 32`;
+   the additive form is refuted, §4's row and the round-3 record):
+   two-ways-computable gets a pin, and it protects the input
+   denomination the board rests on.
 4. **Segments ownership**: keep the ×4 recursion-depth residual with
    P4.2 (the iterative rewrite rides the watermark stack naturally)?
    REC: yes; the cure must not silently change the segments profile
@@ -878,6 +887,108 @@ against `accum.rs` directly.
 | L6 output bound | [derived, pin candidate] — held both rounds; now load-bearing via the pricing chain |
 | Fusion | [derived] — held both rounds; first-divergence alignment |
 | T-tick overall | **[validated-on-model, kernel-pending]** |
+
+**Round 3** (the kernel tier: the cure review + its fix round,
+2026-07-25; findings F1–F7 in the review's report, dispositions
+here). Attack verdict on the landed cure: semantically sound and
+linear on everything then committed, but **T-tick's realization
+REFUTED in the memo resolution** — and the fix round then found the
+same machinery **semantically wrong** on a family the suite had
+never crossed.
+
+- **F1 — the memo resolution is Θ(k²) in touch currency
+  [measured, kernel]**: the walk resolves each consumed site
+  against an anchor by folding the recorded chain interval between
+  two recording sequence numbers; consumption order (range starts)
+  permutes recording order (range closes), so links are re-read
+  once per crossing instead of dying at first read. Witness
+  families committed as generators with gate-enforced red pins
+  (`memo_chain(k, distinct)`: k consumption-sibling sites, touch
+  growth ×3.94/doubling; `memo_comb(d)`: interleaved shallow and
+  covering sites, ×3.92; the shared-minimum control flat at ×1.25
+  per byte — the records are not the cost, the resolution is).
+- **Both charter cure shapes REFUTED before implementation**
+  [derived + modeled, the fix round's telescoping check]:
+  anchoring to the *previously consumed* site telescopes only
+  sibling chains — `memo_comb`'s interleaving keeps consecutive
+  consumptions Θ(d) apart in recording order under it too
+  (modeled: ×3.97/doubling, same class as the current
+  realization); recording diffs *literally against the enclosing
+  site* is unrecordable (the parent's minimum is not final at the
+  child's close, and finalization corrections fan out). The cure
+  was therefore NOT landed this round — no green, no merge, and no
+  mechanism that satisfies the pin without the property. The next
+  design round's seed: **position-anchored per-site records** —
+  each site's minimum recorded relative to the walk's own live
+  state at the site's range start (the innermost armed watermark,
+  or the height where none is armed), so each record is created
+  once, moved at its consume, and dies — with two named open
+  corners: (i) pre-arming site blocks share one wide seed (the
+  fan-out threat re-enters unless the block's records ride a
+  register/diff structure of their own); (ii) the pre-scan emits
+  interior raises in post-order while the walk emits them in
+  pre-order, so instant-anchored watermark readings differ
+  between recorder and consumer exactly where an ancestor's
+  deferred raise is pending — the recorder must anchor to
+  quantities invariant under that reordering.
+- **A SEMANTIC bug in the chained memo, found by the new
+  families' first pool crossing [measured, minimized, fixed]**:
+  in the watermark-carried max arm, the re-anchored relation
+  follower installed AFTER the raise emission missed that
+  emission's own arm fold and went stale by the arm's delta —
+  later sites resolved high by it (minimized: `memo_chain(3) ×
+  memo_comb_id(2)` raised a leaf to 4 where the oracle says 3).
+  Fixed by installing the follower before the emission; the
+  differential pools now carry both families event- and id-side
+  including cross-family pairs (the genre that caught it) and a
+  4096-site closed-form witness. The lesson joins the record: the
+  cost families and the semantic suite must cross — a family
+  landed only as a cost witness leaves its shapes' semantics
+  untested.
+- **F2 — the acceptance currency was watched nowhere on the tick
+  surface [confirmed, fixed]**: the tick envelope rows moved onto
+  the five-meter harness (heap, segments, limb, scan, touch),
+  ceilings ×1.25 and liveness floors ×0.75 over fresh
+  measurements; every touch-carrying envelope row now floors the
+  touch column (a ceiling over a stopped counter proves nothing).
+  Board cells carry no touch column until #35's currencies axis;
+  the red pins are gate-enforced tests, which a board red is not.
+- **F3 — the ORBIT LEMMA [measured, pinned]**: iterated tick does
+  not compound. Orbit values are bounded by max input value + k,
+  so codes stay within max(input width, log k) + O(1); live node
+  count ≤ input leaves + id internal nodes; expansion recurrence
+  under alternating ids is size-idempotent (re-coding, not
+  stacking — measured oscillating in a fixed band over 2048
+  ticks); hence `bits(tick^k) ≤ bits(tick^1) + 4·bits(id) +
+  4·⌈log2(k+1)⌉ + 8` after the one-step ≤2× transient. Pinned:
+  `tick_orbit_growth_is_transient_plus_log` (arbitrary pairs, 48
+  ticks) and `tick_deep_orbits_stay_banded` (the fixed wide pair
+  over 4096 ticks, frozen at +24 bits; the alternating disjoint
+  pair over 2048, banded). Note the two conjecture clauses the
+  measurements refuted en route: "once expanded, never expands
+  again" fails under alternation, and fill's collapse does
+  recreate the duplicating configuration — both harmlessly,
+  because re-firing replaces rather than accumulates.
+- **F4/F6/F7 — prose and provenance corrected**: §4's L6 row and
+  §8's item 3 now carry the multiplicative form (the additive form
+  presented as held was stale); the 8,192-case provenance is
+  restated as the one-off it was (the committed pin runs at the
+  256-case default); `fill.rs`'s `# Cost` states the quadratic
+  memo resolution honestly with the red pins named, and the
+  pre-scan recorder's per-site sign read joins the comparison
+  enumeration. F5 (the memo-drain checksum) was verified adequate
+  unchanged.
+
+**Per-lemma status after round 3**: L0 [measured, landed] — held;
+L1 [measured-on-model] — held (the walk and web read linear on
+every committed family); **L2/L4's memo-resolution realization
+[REFUTED at kernel, red-pinned; the position-anchored redesign is
+the next round's charter]**; L3 [derived] + the recorder's sign
+read; L5 [derived] — held; L6 **[measured, pinned, multiplicative]**;
+the orbit lemma **[measured, pinned]**; fusion [derived] — held,
+BLOCKED behind the memo redesign (no fusion over a refuted
+realization); **T-tick overall: [open at the kernel tier] — the
+target stands, its realization returns to the design loop.**
 
 **Convergence assessment (fix round two)**: **CONVERGED at the spec
 tier, revision 3.** The loop's convergence rule — a round with no
