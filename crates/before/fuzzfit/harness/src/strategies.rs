@@ -451,13 +451,14 @@ impl B {
     }
 
     /// Extract versions from `clocks` in the given order into a fresh
-    /// contiguous range and fold them (`join_all`), respecting the fold
-    /// budget.
+    /// contiguous range and fold them (`join_all`, or occasionally
+    /// `meet_all`, so both fold rows sample), respecting the fold budget.
     fn join_all_versions(&mut self, clocks: &[Reg]) -> Option<Reg> {
         let n = (clocks.len() as u32).min(self.budget.max_fold);
         if n == 0 || self.ops.len() + n as usize + 1 > self.budget.max_ops {
             return None;
         }
+        let meet = self.rng.gen_bool(0.25);
         let base = self.slots.len() as Reg;
         for &c in &clocks[..n as usize] {
             let dst = self.alloc(Ty::V);
@@ -465,7 +466,11 @@ impl B {
             self.slots[dst as usize] = Ty::Dead; // consumed by the fold below
         }
         let dst = self.alloc(Ty::V);
-        self.push(Op::VersionJoinAll { dst, src: base, n });
+        if meet {
+            self.push(Op::VersionMeetAll { dst, src: base, n });
+        } else {
+            self.push(Op::VersionJoinAll { dst, src: base, n });
+        }
         Some(dst)
     }
 
@@ -591,6 +596,11 @@ impl B {
                         if self.room() {
                             let dst = self.alloc(Ty::C);
                             self.push(Op::ClockDecode { dst });
+                        }
+                        if self.room() {
+                            // The clock-side output-dominated row.
+                            let dst = self.alloc(Ty::V);
+                            self.push(Op::ClockOwnVersion { dst, src: c });
                         }
                     }
                 }
@@ -1278,7 +1288,7 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
                 let i = b.rng.gen_range(0..per_universe.len());
                 let j = (i + b.rng.gen_range(1..per_universe.len())) % per_universe.len();
                 let (ui, uj) = (per_universe[i].clone(), per_universe[j].clone());
-                match b.rng.gen_range(0..8u32) {
+                match b.rng.gen_range(0..9u32) {
                     0 => {
                         if let (Some(&a), Some(&bb)) = (
                             pick(&mut b.rng, &ui.versions),
@@ -1364,11 +1374,33 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
                             }
                         }
                     }
-                    _ => {
+                    7 => {
                         if let (Some(&c), Some(&v)) =
                             (pick(&mut b.rng, &ui.clocks), pick(&mut b.rng, &uj.versions))
                         {
                             b.recv(c, v);
+                        }
+                    }
+                    _ => {
+                        // A bare seed party as the extreme foreign operand:
+                        // it overlaps every other universe's party (never
+                        // disjoint, join always rejects) and covers them.
+                        if let Some(&p) = pick(&mut b.rng, &uj.parties) {
+                            if b.room() {
+                                let fresh = b.alloc(Ty::P);
+                                b.push(Op::PartySeed { dst: fresh });
+                                if b.room() {
+                                    b.push(Op::PartyIsDisjoint { a: fresh, b: p });
+                                }
+                                if b.room() {
+                                    b.push(Op::PartyCovers { a: fresh, b: p });
+                                }
+                                if b.room() {
+                                    b.slots[p as usize] = Ty::Dead;
+                                    b.push(Op::PartyJoin { a: fresh, b: p });
+                                    per_universe[j].parties.retain(|&r| r != p);
+                                }
+                            }
                         }
                     }
                 }

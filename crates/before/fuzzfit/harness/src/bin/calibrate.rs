@@ -7,8 +7,8 @@
 //! byte-identical bands, and a bands diff always means a real change
 //! (guest codegen, kernels, strategies), never noise.
 //!
-//! Usage: `calibrate [programs]` (default 384; the committed pins state
-//! their corpus size).
+//! Usage: `calibrate [programs]` (default 1536, the corpus of record; the
+//! committed pins state their corpus size per kernel).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -25,7 +25,7 @@ fn main() {
     let programs: usize = std::env::args()
         .nth(1)
         .map(|s| s.parse().expect("programs must be a number"))
-        .unwrap_or(384);
+        .unwrap_or(1536);
 
     let mut runner = TestRunner::deterministic();
     let strategy = any_family();

@@ -17,6 +17,11 @@ use wasmtime::{Config, Engine, Instance, Memory, Module, Store, TypedFunc, Val};
 /// reported as a harness failure rather than wrapping.
 const FUEL_TANK: u64 = u64::MAX / 2;
 
+/// Register slots pre-reserved in every fresh guest: comfortably above the
+/// strategies' op budget (one new register per op at most), so the file
+/// never reallocates during a measured call.
+const REGS_RESERVE: u32 = 16 * 1024;
+
 /// The wasm stack ceiling handed to wasmtime. The guest's traversals recurse
 /// on tree depth and `stacker` cannot grow a wasm stack (its fallback runs
 /// the callback in place), so deep inputs consume real wasm stack; the
@@ -90,11 +95,17 @@ impl Guest {
         let memory = instance
             .get_memory(&mut store, "memory")
             .expect("cdylib guests export linear memory");
-        Guest {
+        let mut guest = Guest {
             store,
             instance,
             memory,
-        }
+        };
+        // Pre-reserve the register file to the program budget so no
+        // measured kernel ever pays the file's reallocation inside its
+        // fuel window (see the guest's `ff_regs_reserve` doc).
+        let reserved = guest.call("ff_regs_reserve", &[REGS_RESERVE]);
+        assert_eq!(reserved.ret, 0, "ff_regs_reserve failed");
+        guest
     }
 
     /// Call exported kernel `name` with u32 `args`, measuring fuel.
