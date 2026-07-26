@@ -931,8 +931,8 @@ By mechanism: the grow-branch scan drops are the eliminated probe
 pass and byte compare (4 traversals → 2); the touch/limb drops are
 copy-on-first-divergence (fill's discarded output never built); the
 heap drops on BOTH branches are the deferred output buffer (the
-builder no longer coexisting with the collapse scan's transient at
-peak). Board: 51 of the 83 tick-carrying rows moved per scale with
+verbatim-reference mode keeps the builder and the collapse scan's
+transient from coexisting at peak). Board: 51 of the 83 tick-carrying rows moved per scale with
 zero status flips; grow-branch touch bands re-pinned downward under
 the at-risk-floor protocol in the fusion commit; one committed
 tripwire reshaped with its seed (`grow_bushy_is_linear` — the
