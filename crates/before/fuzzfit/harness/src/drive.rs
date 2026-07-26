@@ -7,7 +7,11 @@
 //! the disagreement is a harness bug or a genuine wasm-vs-native divergence,
 //! and both must stop the run loudly.
 
+use proptest::strategy::{Strategy, ValueTree};
+use proptest::test_runner::TestRunner;
+
 use crate::ops::{Malformed, Mirror, Op};
+use crate::strategies::{any_family, build, Family};
 use crate::wasm::Guest;
 
 /// One measured step: the band key, the denominated size, and the fuel.
@@ -74,4 +78,34 @@ pub fn run_program(program: &[Op]) -> Result<Vec<Sample>, Malformed> {
         );
     }
     Ok(samples)
+}
+
+/// Drive the deterministic corpus: the family stream comes from proptest's
+/// deterministic runner and each program's seed is its case index, so any
+/// two consumers observe byte-identical samples for the same `programs`
+/// count. The calibration sweep pins bands from this stream; the
+/// enforcement suite's staleness cross-check refits a prefix of it, and
+/// the two agree exactly because they are the same stream.
+///
+/// # Panics
+///
+/// Propagates [`run_program`]'s differential panics; a malformed program
+/// (a generator bug) also panics, since the deterministic stream is the
+/// corpus of record and must be entirely runnable.
+pub fn for_each_deterministic_program(
+    programs: usize,
+    mut visit: impl FnMut(usize, &Family, &[Sample]),
+) {
+    let mut runner = TestRunner::deterministic();
+    let strategy = any_family();
+    for case in 0..programs {
+        let family = strategy
+            .new_tree(&mut runner)
+            .expect("family strategy cannot fail")
+            .current();
+        let program = build(&family, case as u64);
+        let samples = run_program(&program)
+            .unwrap_or_else(|m| panic!("malformed program from {family:?}: {}", m.op));
+        visit(case, &family, &samples);
+    }
 }

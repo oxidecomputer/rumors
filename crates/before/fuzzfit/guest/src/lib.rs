@@ -802,16 +802,17 @@ pub extern "C" fn ff_rank_add(dst: u32, a: u32, b: u32) -> i32 {
     let Some(ra) = take_r(a) else {
         return ERR_REG;
     };
-    let sum = with_r(b, |rb| ra.clone() + rb);
-    match sum {
+    // `ra` moves into the closure: on the (harness-bug) error path the value
+    // is lost, which is fine — the harness aborts the case on any nonzero
+    // return. Keeping the happy path move-only keeps the measured window
+    // exactly one public operation, no defensive clones (the same
+    // discipline as `ff_version_join`).
+    match with_r(b, |rb| ra + rb) {
         Some(s) => {
             put(dst, Val::R(s));
             OK
         }
-        None => {
-            put(a, Val::R(ra));
-            ERR_REG
-        }
+        None => ERR_REG,
     }
 }
 
@@ -849,4 +850,29 @@ pub extern "C" fn ff_rank_checked_sub(dst: u32, a: u32, b: u32) -> i32 {
         Some(Some(None)) => ERR_OP,
         _ => ERR_REG,
     }
+}
+
+// ─── instrument self-test (measured, deliberately not a kernel) ──────────────
+
+/// A deliberately quadratic burner: `n²` iterations, each pinned by
+/// `black_box` so no strength reduction can collapse the nest into a
+/// closed form that reads linear.
+///
+/// Not a kernel: no `before` operation runs here, no strategy emits it,
+/// and calibration never bands it. The enforcement suite calls it
+/// directly as an instrument-liveness check — the full detection path
+/// (wasm execution, fuel metering, band judgment) must flag this genuine
+/// superlinear mechanism ABOVE a linear band, or the instrument is blind
+/// whatever the real kernels read.
+#[no_mangle]
+pub extern "C" fn ff_selftest_quadratic(n: u32) -> i32 {
+    let mut acc: u64 = 0;
+    for i in 0..u64::from(n) {
+        for j in 0..u64::from(n) {
+            acc = std::hint::black_box(acc ^ i.wrapping_mul(31).wrapping_add(j));
+        }
+    }
+    // Consume the accumulator so the whole nest is observable work.
+    std::hint::black_box(acc);
+    OK
 }

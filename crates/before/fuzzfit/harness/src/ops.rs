@@ -21,9 +21,13 @@
 //!   `Clock::own_version`) and **balanced share splitting**
 //!   (`Party::forks(n)`, whose output is `n` packed parties) are judged
 //!   against input + packed output (canonical coding cannot be padded);
-//! - **rank operations** denominate against value content, proxied here by
-//!   the rank's decimal rendering (digits ∝ numerator bits; the constant
-//!   folds into the fit's intercept).
+//! - **rank operations** denominate against value content
+//!   (`bits(num) + exp`), proxied here by the rank's rendering
+//!   (`num/2^exp`): the numerator term is proportional (its constant folds
+//!   into the fit's intercept) while `exp` enters as its digit count —
+//!   logarithmically compressed against the criterion. The compression
+//!   only under-counts the denominator, which reads as *more* fuel per
+//!   denominated bit, so the proxy can mask no superlinear growth.
 //!
 //! # The mirror
 //!
@@ -138,6 +142,9 @@ pub enum Op {
     RankCmp { a: Reg, b: Reg },
     /// `Rank::checked_sub` (underflow reports as a rejection).
     RankCheckedSub { dst: Reg, a: Reg, b: Reg },
+    /// `Rank` `Display` into the stage (the rank's only text direction:
+    /// `Rank` has no `FromStr` and no packed codec).
+    RankDisplay { src: Reg },
 }
 
 impl Op {
@@ -187,6 +194,7 @@ impl Op {
             Op::RankAdd { .. } => "ff_rank_add",
             Op::RankCmp { .. } => "ff_rank_cmp",
             Op::RankCheckedSub { .. } => "ff_rank_checked_sub",
+            Op::RankDisplay { .. } => "ff_rank_display",
         }
     }
 
@@ -228,7 +236,8 @@ impl Op {
             | Op::VersionDisplay { src }
             | Op::PartyEncode { src }
             | Op::PartyDisplay { src }
-            | Op::ClockEncode { src } => vec![src],
+            | Op::ClockEncode { src }
+            | Op::RankDisplay { src } => vec![src],
             Op::VersionDecode { dst }
             | Op::VersionFromstr { dst }
             | Op::PartyDecode { dst }
@@ -802,6 +811,17 @@ impl Mirror {
                     }
                     None => done(denom, ERR_OP),
                 }
+            }
+            Op::RankDisplay { src } => {
+                let rank = self.rank(src).ok_or_else(malformed)?;
+                let input = Self::rank_bits(rank);
+                let text = rank.to_string();
+                // Text I/O: value-content input + text output. For ranks
+                // the input proxy is itself the rendering, so the two
+                // halves coincide up to the constant the intercept absorbs.
+                let denom = input + (text.len() as u64) * 8;
+                self.stage = text.into_bytes();
+                done(denom, OK)
             }
         }
     }

@@ -2,11 +2,25 @@
 //! leg's fitter.
 //!
 //! Each public operation gets one fitted line of `log₁₀ fuel` against
-//! `log₁₀ denom_bits`, with the *residual width* (the maximum absolute
-//! residual of every sample against the line) recorded alongside. The width
-//! is what makes the line a *band*: enforcement asserts membership in
-//! `line ± (width + margin)`, so the fit's looseness is explicit and
-//! committed, never implicit in a tolerance constant chosen after the fact.
+//! `log₁₀ denom_bits`, with two *residual widths* — the maximum positive
+//! residual (the ceiling's distance from the line) and the maximum
+//! negative residual magnitude (the floor's) — recorded alongside. The
+//! widths are what make the line a *band*: enforcement asserts membership
+//! in `line − (width_below + margin) ..= line + (width_above + margin)`,
+//! so the fit's looseness is explicit and committed, never implicit in a
+//! tolerance constant chosen after the fact.
+//!
+//! # The two widths do different jobs
+//!
+//! The ceiling carries the asymptotic claim (above it is a regression
+//! flag); the floor carries liveness (below it is a dead meter or an
+//! unmeasured path). Pricing them separately matters because the residual
+//! cloud is one-sidedly heavy: at every size, fast-path steps (an early
+//! comparison exit, a join whose operand shapes coalesce) undercut the
+//! median law by decades, while honest work sits near it. A single
+//! symmetric max-|residual| width would let that cheap mass inflate the
+//! *ceiling* — pricing the regression flag off the fast paths — until a
+//! superlinear mechanism's whole in-range excess fits inside it.
 //!
 //! # Medians in, spikes out
 //!
@@ -16,8 +30,8 @@
 //! lets that mass drag the slope far from the median law (readings up to
 //! +0.4 slope on flat-median kernels). The slope is therefore fitted over
 //! *half-decade bucket medians* — the stable location statistic per size —
-//! while the width is still taken over *all* samples against that line, so
-//! bounded amortization spikes land inside the committed band and only
+//! while the widths are still taken over *all* samples against that line,
+//! so bounded amortization spikes land inside the committed band and only
 //! unbounded (asymptotic) departures escape it.
 //!
 //! Operations whose sampled denominators span less than a decade, or fewer
@@ -27,6 +41,8 @@
 
 use std::collections::BTreeMap;
 
+use crate::bands::Band;
+
 /// One fitted band over a kernel's samples.
 #[derive(Debug, Clone, Copy)]
 pub struct Fit {
@@ -34,8 +50,13 @@ pub struct Fit {
     pub slope: f64,
     /// Fitted intercept: `log₁₀ fuel` at `denom_bits = 1`.
     pub intercept: f64,
-    /// Maximum absolute residual of the whole corpus against the line.
-    pub width: f64,
+    /// Maximum positive residual of the whole corpus against the line:
+    /// the ceiling's distance (the regression flag's threshold rides on
+    /// this side).
+    pub width_above: f64,
+    /// Maximum negative residual magnitude: the floor's distance (the
+    /// liveness flag's threshold rides on this side).
+    pub width_below: f64,
     /// Sample count behind the fit.
     pub samples: usize,
     /// Smallest denominator seen (bits).
@@ -132,17 +153,41 @@ pub fn fit(samples: &[(u64, u64)]) -> Option<Fit> {
         let slope = sxy / sxx;
         (slope, my - slope * mx)
     };
-    let width = logs
-        .iter()
-        .map(|&(x, y)| (y - (intercept + slope * x)).abs())
-        .fold(0.0f64, f64::max);
+    let (width_above, width_below) = logs.iter().fold((0.0f64, 0.0f64), |(wa, wb), &(x, y)| {
+        let residual = y - (intercept + slope * x);
+        (wa.max(residual), wb.max(-residual))
+    });
     Some(Fit {
         slope,
         intercept,
-        width,
+        width_above,
+        width_below,
         samples: samples.len(),
         min_denom,
         max_denom,
         constant,
     })
 }
+
+/// The largest disagreement, in `log₁₀ fuel`, between a fresh fit's line
+/// and a pinned band's line over the fresh fit's own denominator range.
+///
+/// Both lines are affine in `log₁₀ d`, so the maximum over the interval
+/// is attained at an endpoint. This is the staleness cross-check's
+/// distance: the pin is computable two ways — the committed constants and
+/// a fresh fit of the same deterministic sample stream — and a divergence
+/// beyond tolerance means the pin no longer describes the code that is
+/// running (a toolchain shift, a kernel change, a generator-population
+/// change) and demands a deliberate re-pin, never a silent drift.
+pub fn line_divergence(f: &Fit, band: &Band) -> f64 {
+    [f.min_denom, f.max_denom]
+        .into_iter()
+        .map(|d| {
+            let x = (d as f64).log10();
+            ((f.intercept + f.slope * x) - (band.intercept + band.slope * x)).abs()
+        })
+        .fold(0.0, f64::max)
+}
+
+#[cfg(test)]
+mod tests;

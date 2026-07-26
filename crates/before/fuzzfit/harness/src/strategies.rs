@@ -34,10 +34,26 @@
 //! (packed growth per public op is amortized constant per tick/fork), which
 //! keeps iterated joins from compounding exponentially and doubles as the
 //! honesty bound for composed cases: a program's total denominated work is
-//! within a constant of its op budget. Magnitude is explored only up to the
-//! tick budget — astronomically wide leaf values are reachable through the
-//! API only by paying that many ticks, so the wide-magnitude regime remains
-//! the meter board's hand-built territory by design.
+//! within a constant of its op budget. Most families run under [`BUDGET`];
+//! the reach family ([`Family::Escalation`]) runs under
+//! [`ESCALATION_BUDGET`] — see [`budget_for`].
+//!
+//! # Scope: what the generators deliberately never construct
+//!
+//! - **Wide magnitude.** Operands are built exclusively through
+//!   value-producing operations, so a `2^b`-wide leaf costs `2^b` ticks
+//!   here — even though `Version::decode` reaches one from `O(b)` bits of
+//!   crafted input. Crafted codec input, and with it the wide-magnitude
+//!   regime, deliberately remains the meter board's hand-built territory;
+//!   this instrument's envelope is the region reachable by paying for
+//!   values one operation at a time.
+//! - **Codec rejection.** The staged bytes are always the canonical
+//!   encoding (or rendering) the immediately preceding encode/display step
+//!   produced, so `decode`/`FromStr` rejection paths are never measured
+//!   here; malformed-input cost is the decode fuzz targets' and the meter
+//!   board's territory. The rejection arms this harness *does* measure are
+//!   the operation-level ones (`join`/`sync`/`without`/`meet_all` on
+//!   overlap, emptiness, or underflow), predicted per case by the mirror.
 
 use proptest::prelude::*;
 use rand::seq::SliceRandom;
@@ -70,6 +86,28 @@ pub const BUDGET: Budget = Budget {
     max_forks: 384,
     max_fold: 64,
 };
+
+/// The reach family's budget: several times [`BUDGET`]'s fork cap, so the
+/// pair, fold, and query rows see denominators decades past the rest of
+/// the roster and the fitted *slope* — not the band's width — carries the
+/// asymptotic judgment there. Construction cost is quadratic in the reach
+/// (every op pays the current size), which is why this budget belongs to
+/// one low-weighted family instead of the whole roster.
+pub const ESCALATION_BUDGET: Budget = Budget {
+    max_ops: 8_000,
+    max_ticks: 3_000,
+    max_forks: 2_048,
+    max_fold: 64,
+};
+
+/// The budget a family's programs run under (the builder enforces it
+/// unconditionally, whatever the drawn dimensions).
+pub fn budget_for(family: &Family) -> Budget {
+    match family {
+        Family::Escalation { .. } => ESCALATION_BUDGET,
+        _ => BUDGET,
+    }
+}
 
 /// One family instantiation: a named archetype with its dimensions.
 ///
@@ -197,6 +235,16 @@ pub enum Family {
         universes: u32,
         /// Cross-battery size.
         ops: u32,
+    },
+    /// The reach family: one universe grown under [`ESCALATION_BUDGET`]
+    /// to several times the roster's fork cap, with a size ladder of
+    /// snapshot clocks so the pair, fold, and query rows sample every
+    /// half-decade bucket up to the escalated top — slope leverage for
+    /// the wide-cloud kernels, and the large coupled `Party::join`
+    /// regime.
+    Escalation {
+        /// Spine depth in forks: the reach knob.
+        depth: u32,
     },
 }
 
@@ -610,6 +658,9 @@ impl B {
                         pick(&mut self.rng, &pools.ranks),
                     ) {
                         self.push(Op::RankCmp { a, b });
+                        if self.room() {
+                            self.push(Op::RankDisplay { src: a });
+                        }
                         if self.room() {
                             let dst = self.alloc(Ty::R);
                             self.slots[dst as usize] = Ty::Dead; // may underflow
@@ -1234,6 +1285,85 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                 }
             }
         }
+        Family::Escalation { depth } => {
+            let Some(seed) = b.clock_seed() else {
+                return pools;
+            };
+            // Two scattered party accumulators over alternating spine
+            // children: disjoint by linearity (one universe, no id sliver
+            // duplicated), each a scatter of O(depth) never-coalescing
+            // intervals — so every accumulation step below is a
+            // *successful* coupled `Party::join` at a strictly growing
+            // size, and the two finished halves are the large coupled
+            // query operands.
+            let mut acc = [None::<Reg>, None::<Reg>];
+            // Snapshot cadence: enough kept clocks to populate every fit
+            // bucket across the reach while leaving the fold width for
+            // them all (the fold budget is 64).
+            let keep_every = (depth / 40).max(4);
+            for i in 0..depth {
+                let Some(child) = b.fork(seed) else { break };
+                // One tick per level: the seed's id deepens every fork, so
+                // each tick lands at a fresh position and the event tree's
+                // packed bits grow linearly with depth (repeat ticks at one
+                // position would only bump a counter).
+                if !b.tick(seed) {
+                    break;
+                }
+                if i % keep_every == 0 {
+                    // The size ladder: each kept child freezes the seed's
+                    // event tree at this depth, so the kept clocks span
+                    // the whole reach rather than just its endpoints.
+                    pools.clocks.push(child);
+                } else if let Some((p, _v)) = b.split_parts(child) {
+                    let lane = &mut acc[(i % 2) as usize];
+                    match *lane {
+                        None => *lane = Some(p),
+                        Some(a) => {
+                            if b.room() {
+                                b.slots[p as usize] = Ty::Dead;
+                                b.push(Op::PartyJoin { a, b: p });
+                            }
+                        }
+                    }
+                }
+            }
+            // The coupled large-party rows: queries between the two
+            // disjoint halves at top size, then the largest coupled
+            // `Party::join` the harness constructs.
+            if let [Some(pa), Some(pb)] = acc {
+                if b.room() {
+                    b.push(Op::PartyIsDisjoint { a: pa, b: pb });
+                }
+                if b.room() {
+                    b.push(Op::PartyCovers { a: pa, b: pb });
+                }
+                if b.room() {
+                    b.slots[pb as usize] = Ty::Dead;
+                    b.push(Op::PartyJoin { a: pa, b: pb });
+                }
+                pools.parties.push(pa);
+            }
+            // Clock rows at top size: sync the seed against the deepest
+            // snapshot (same universe, disjoint: the success arm at
+            // scale).
+            if let Some(&snap) = pools.clocks.last() {
+                b.sync(seed, snap);
+            }
+            if let Some(v) = b.version_of(seed) {
+                pools.versions.push(v);
+                if let Some(r) = b.rank(v) {
+                    pools.ranks.push(r);
+                }
+            }
+            pools.clocks.push(seed);
+            // The escalated fold: versions extracted from the whole
+            // ladder, seed included — fold denominators sum the ladder.
+            let ladder = pools.clocks.clone();
+            if let Some(folded) = b.join_all_versions(&ladder) {
+                pools.versions.push(folded);
+            }
+        }
         Family::Independent { .. } => {
             unreachable!("Independent is expanded by build(), not construct()")
         }
@@ -1271,7 +1401,7 @@ fn reduced_family(rng: &mut ChaCha8Rng) -> Family {
 /// Build the full program for one family draw: construction, then the
 /// measurement battery (cross-universe for the independent regime).
 pub fn build(family: &Family, seed: u64) -> Vec<Op> {
-    let mut b = B::new(seed, BUDGET);
+    let mut b = B::new(seed, budget_for(family));
     match *family {
         Family::Independent { universes, ops } => {
             let mut per_universe: Vec<Pools> = Vec::new();
@@ -1288,7 +1418,7 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
                 let i = b.rng.gen_range(0..per_universe.len());
                 let j = (i + b.rng.gen_range(1..per_universe.len())) % per_universe.len();
                 let (ui, uj) = (per_universe[i].clone(), per_universe[j].clone());
-                match b.rng.gen_range(0..9u32) {
+                match b.rng.gen_range(0..13u32) {
                     0 => {
                         if let (Some(&a), Some(&bb)) = (
                             pick(&mut b.rng, &ui.versions),
@@ -1381,6 +1511,83 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
                             b.recv(c, v);
                         }
                     }
+                    8 => {
+                        // Cross clock join: separately seeded universes
+                        // always overlap, so this is `Clock::join`'s
+                        // rejection arm, priced as its own outcome (the
+                        // mirror predicts it per case).
+                        if let (Some(&ca), Some(&cb)) =
+                            (pick(&mut b.rng, &ui.clocks), pick(&mut b.rng, &uj.clocks))
+                        {
+                            b.clock_join(ca, cb);
+                            per_universe[j].clocks.retain(|&r| r != cb);
+                        }
+                    }
+                    9 => {
+                        // Cross reassembly: `from_parts` composes a party
+                        // and a version from different universes into a
+                        // mongrel clock — meaningless as a value, but the
+                        // cost claim binds on it. Spare halves, so the
+                        // universes' principals survive.
+                        if let (Some(&p), Some(&c)) =
+                            (pick(&mut b.rng, &ui.parties), pick(&mut b.rng, &uj.clocks))
+                        {
+                            if b.forks < b.budget.max_forks && b.room() {
+                                b.forks += 1;
+                                let spare_p = b.alloc(Ty::P);
+                                b.push(Op::PartyFork {
+                                    dst: spare_p,
+                                    src: p,
+                                });
+                                if let Some(spare_v) = b.version_of(c) {
+                                    b.assemble_parts(spare_p, spare_v);
+                                }
+                            }
+                        }
+                    }
+                    10 => {
+                        // Cross fold: operands drawn from every universe
+                        // at once, shuffled, so the fold rows see
+                        // interleaved foreign shapes.
+                        let mut mixed: Vec<Reg> = per_universe
+                            .iter()
+                            .flat_map(|u| u.clocks.iter().copied())
+                            .collect();
+                        if mixed.len() >= 2 {
+                            mixed.shuffle(&mut b.rng);
+                            mixed.truncate(b.rng.gen_range(2..=16.min(mixed.len())));
+                            b.join_all_versions(&mixed);
+                        }
+                    }
+                    11 => {
+                        // Cross difference: a spare share minus a foreign
+                        // party. Foreign coverage makes the empty
+                        // difference likely, so `Party::without`'s
+                        // rejection arm is priced beside its success arm,
+                        // per the mirror's prediction.
+                        if let (Some(&pi), Some(&pj)) =
+                            (pick(&mut b.rng, &ui.parties), pick(&mut b.rng, &uj.parties))
+                        {
+                            if b.forks < b.budget.max_forks && b.room() {
+                                b.forks += 1;
+                                let spare = b.alloc(Ty::P);
+                                b.push(Op::PartyFork {
+                                    dst: spare,
+                                    src: pi,
+                                });
+                                if b.room() {
+                                    b.slots[spare as usize] = Ty::Dead;
+                                    let dst = b.alloc(Ty::P);
+                                    b.slots[dst as usize] = Ty::Dead; // may be empty
+                                    b.push(Op::PartyWithout {
+                                        dst,
+                                        a: spare,
+                                        b: pj,
+                                    });
+                                }
+                            }
+                        }
+                    }
                     _ => {
                         // A bare seed party as the extreme foreign operand:
                         // it overlaps every other universe's party (never
@@ -1427,39 +1634,47 @@ pub fn any_program() -> impl Strategy<Value = Vec<Op>> {
 }
 
 /// A strategy over [`Family`] draws (dimensions included).
+///
+/// The roster is uniform except [`Family::Escalation`], weighted at one
+/// draw in ~137: its programs cost quadratically in their reach (every
+/// construction op pays the current size), so a handful per corpus buys
+/// the reach without the corpus paying escalated prices everywhere.
 pub fn any_family() -> impl Strategy<Value = Family> {
     prop_oneof![
-        (2u32..=192, 0u32..=3).prop_map(|(depth, ticks_per_level)| Family::DenseSpine {
+        8 => (2u32..=192, 0u32..=3).prop_map(|(depth, ticks_per_level)| Family::DenseSpine {
             depth,
             ticks_per_level
         }),
-        (16u32..=1024, 2u32..=64)
+        8 => (16u32..=1024, 2u32..=64)
             .prop_map(|(root_ticks, depth)| Family::BigRoot { root_ticks, depth }),
-        (16u32..=2048).prop_map(|ticks| Family::HugeLeaf { ticks }),
-        (2u32..=32, 1u32..=8).prop_map(|(teeth, magnitude)| Family::CliffComb { teeth, magnitude }),
-        (2u32..=96, any::<bool>())
+        8 => (16u32..=2048).prop_map(|ticks| Family::HugeLeaf { ticks }),
+        8 => (2u32..=32, 1u32..=8)
+            .prop_map(|(teeth, magnitude)| Family::CliffComb { teeth, magnitude }),
+        8 => (2u32..=96, any::<bool>())
             .prop_map(|(depth, divert)| Family::IdPairLockstep { depth, divert }),
-        (2u32..=32, 1u32..=8)
+        8 => (2u32..=32, 1u32..=8)
             .prop_map(|(teeth, magnitude)| Family::CombScatter { teeth, magnitude }),
-        (2u32..=64, 8u32..=512)
+        8 => (2u32..=64, 8u32..=512)
             .prop_map(|(depth, total_ticks)| Family::Harmonic { depth, total_ticks }),
-        (4u32..=64).prop_map(|clocks| Family::ScatterFold { clocks }),
-        (2u32..=64, 1u32..=6).prop_map(|(depth, ticks)| Family::NestedFull { depth, ticks }),
-        (1u32..=512, 2u32..=64)
+        8 => (4u32..=64).prop_map(|clocks| Family::ScatterFold { clocks }),
+        8 => (2u32..=64, 1u32..=6).prop_map(|(depth, ticks)| Family::NestedFull { depth, ticks }),
+        8 => (1u32..=512, 2u32..=64)
             .prop_map(|(tail_ticks, depth)| Family::WideTail { tail_ticks, depth }),
-        (2u32..=48).prop_map(|depth| Family::Staircase { depth }),
-        (2u32..=24, 1u32..=7, any::<bool>()).prop_map(|(teeth, magnitude, hifloor)| {
+        8 => (2u32..=48).prop_map(|depth| Family::Staircase { depth }),
+        8 => (2u32..=24, 1u32..=7, any::<bool>()).prop_map(|(teeth, magnitude, hifloor)| {
             Family::RevealComb {
                 teeth,
                 magnitude,
                 hifloor,
             }
         }),
-        (2u32..=48).prop_map(|teeth| Family::PureComb { teeth }),
-        (2u32..=32, any::<bool>())
+        8 => (2u32..=48).prop_map(|teeth| Family::PureComb { teeth }),
+        8 => (2u32..=32, any::<bool>())
             .prop_map(|(teeth, plateau)| Family::AscendCliff { teeth, plateau }),
-        (16u32..=256).prop_map(|ops| Family::Benign { ops }),
-        (32u32..=512).prop_map(|ops| Family::Combination { ops }),
-        (2u32..=4, 16u32..=128).prop_map(|(universes, ops)| Family::Independent { universes, ops }),
+        8 => (16u32..=256).prop_map(|ops| Family::Benign { ops }),
+        8 => (32u32..=512).prop_map(|ops| Family::Combination { ops }),
+        8 => (2u32..=4, 16u32..=128)
+            .prop_map(|(universes, ops)| Family::Independent { universes, ops }),
+        1 => (256u32..=1792).prop_map(|depth| Family::Escalation { depth }),
     ]
 }
