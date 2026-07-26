@@ -5,7 +5,8 @@
 //! operations × currencies — and this module is the third axis's
 //! definition. A *currency* is one deterministic meter the criterion
 //! judges (peak heap bytes, grown stack segments, big-integer limb
-//! operations, packed-stream scan bits); [`ByCurrency`] is the container
+//! operations, packed-stream scan bits, accumulator digit touches);
+//! [`ByCurrency`] is the container
 //! with **one field per currency**, and every per-currency quantity on the
 //! board — a cell's liveness declarations, a sample's counter readings, a
 //! result's scores — is a `ByCurrency<T>`.
@@ -35,6 +36,8 @@ pub enum Currency {
     Limb,
     /// Packed-stream scan bits (traversal cost; `scan-meter`).
     Scan,
+    /// Accumulator digit touches (digit-state cost; `limb-meter`).
+    Touch,
 }
 
 impl Currency {
@@ -45,6 +48,7 @@ impl Currency {
             Currency::Segments => "segments",
             Currency::Limb => "limb",
             Currency::Scan => "scan",
+            Currency::Touch => "touch",
         }
     }
 }
@@ -64,6 +68,8 @@ pub struct ByCurrency<T> {
     pub limb: T,
     /// The scan column's value.
     pub scan: T,
+    /// The touch column's value.
+    pub touch: T,
 }
 
 impl<T> ByCurrency<T> {
@@ -73,18 +79,20 @@ impl<T> ByCurrency<T> {
     /// The exhaustive destructure is deliberate: a currency added to the
     /// axis fails to compile here until it joins the iteration, so no
     /// judgment or render loop can silently skip it.
-    pub fn each(&self) -> [(Currency, &T); 4] {
+    pub fn each(&self) -> [(Currency, &T); 5] {
         let ByCurrency {
             heap,
             segments,
             limb,
             scan,
+            touch,
         } = self;
         [
             (Currency::Heap, heap),
             (Currency::Segments, segments),
             (Currency::Limb, limb),
             (Currency::Scan, scan),
+            (Currency::Touch, touch),
         ]
     }
 
@@ -95,6 +103,7 @@ impl<T> ByCurrency<T> {
             Currency::Segments => &self.segments,
             Currency::Limb => &self.limb,
             Currency::Scan => &self.scan,
+            Currency::Touch => &self.touch,
         }
     }
 }

@@ -269,12 +269,14 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
                 segments: na(PROBE_NA),
                 limb: na(PROBE_NA),
                 scan: na(PROBE_NA),
+                touch: na(PROBE_NA),
             },
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
                 limb: Some(ops),
                 scan: None,
+                touch: None,
             },
         }
     };
@@ -343,7 +345,14 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             segments: na(PROBE_NA),
             limb: na(PROBE_NA),
             scan: na(PROBE_NA),
+            touch: na(PROBE_NA),
         }
+    }
+    /// The committed walk convention with the touch column honestly
+    /// undeclared: the probe folds no accumulator, and the leg under test
+    /// is the scan floor.
+    fn probe_walk_floors(packed_bytes: usize) -> Floors {
+        walk_floors(packed_bytes, na(PROBE_NA))
     }
 
     let sample = |depth: usize, floors_of: fn(usize) -> Floors| -> Sample {
@@ -364,6 +373,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
                 segments: Some(0),
                 limb: None,
                 scan: Some(scanned),
+                touch: None,
             },
         }
     };
@@ -384,8 +394,8 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
     let floored = evaluate(
         "bypass_probe",
         "dense",
-        sample(1_000, walk_floors),
-        sample(2_000, walk_floors),
+        sample(1_000, probe_walk_floors),
+        sample(2_000, probe_walk_floors),
     );
     assert_eq!(
         floored.red,
