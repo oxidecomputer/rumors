@@ -15,6 +15,7 @@ use core::cmp::Ordering;
 use proptest::prelude::*;
 use rayon::prelude::*;
 
+use crate::codec::Bits;
 use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
     wide_tooth_comb, Packed,
@@ -22,7 +23,7 @@ use crate::meter::{
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
-use crate::version::skyline::{encode, Encoded};
+use crate::version::skyline::encode;
 use crate::{oracle, Clock, Version};
 
 use super::{causal_cmp, concurrent, eq, le};
@@ -182,7 +183,7 @@ fn family_pairs_agree() {
 /// plateau consumption, zero deltas across subtree boundaries.
 #[test]
 fn exhaustive_small_scope_agrees() {
-    let pool: Vec<(oracle::Version, Version, Encoded)> = all_normal_events(EV_SMALL_DEPTH)
+    let pool: Vec<(oracle::Version, Version, Bits)> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| {
             let v = from_oracle_version(t);
@@ -244,7 +245,7 @@ proptest! {
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
-        let pool: Vec<(oracle::Version, &Version, Encoded)> = clocks
+        let pool: Vec<(oracle::Version, &Version, Bits)> = clocks
             .iter()
             .map(|c| (to_oracle_version(c.version()), c.version(), encode(c.version())))
             .collect();

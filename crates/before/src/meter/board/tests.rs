@@ -316,9 +316,7 @@ fn mandatory_limbs_match_hand_counts() {
 /// no arithmetic, no allocation).
 #[cfg(feature = "scan-meter")]
 fn bypass_walk(v: &Version) -> usize {
-    let enc = v.as_encoded();
-    let all = crate::codec::bytes_as_bits(&enc.bytes);
-    let bits = &all[..enc.bits];
+    let bits = v.as_bits();
     (0..bits.len()).filter(|&i| bits[i]).count()
 }
 

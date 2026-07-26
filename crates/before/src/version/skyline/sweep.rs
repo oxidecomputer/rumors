@@ -105,8 +105,6 @@ use crate::codec::accum::Accum;
 use crate::codec::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
 use crate::step;
 
-use super::Encoded;
-
 /// The causal order of the versions two skyline streams denote; `None`
 /// is concurrent.
 ///
@@ -118,10 +116,9 @@ use super::Encoded;
 /// # Panics
 ///
 /// Panics if either operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes — or
-/// declares more live bits than its bytes hold.
-pub fn causal_cmp(a: &Encoded, b: &Encoded) -> Option<Ordering> {
-    match sweep(live(a), live(b), Mode::Order) {
+/// [`validate`](fn@super::validate) first on untrusted bytes.
+pub fn causal_cmp(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
+    match sweep(a, b, Mode::Order) {
         (true, true) => Some(Ordering::Equal),
         (true, false) => Some(Ordering::Less),
         (false, true) => Some(Ordering::Greater),
@@ -139,14 +136,13 @@ pub fn causal_cmp(a: &Encoded, b: &Encoded) -> Option<Ordering> {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand or an overrunning live-bit count,
-/// exactly as [`causal_cmp`] does.
+/// Panics on a non-canonical operand, exactly as [`causal_cmp`] does.
 ///
 /// Test- and meter-only: production equality is the stored forms' byte
 /// equality (canonical uniqueness makes them the same test).
 #[cfg(any(test, feature = "meter"))]
-pub fn eq(a: &Encoded, b: &Encoded) -> bool {
-    let (le, ge) = sweep(live(a), live(b), Mode::Equality);
+pub fn eq(a: &BitsSlice, b: &BitsSlice) -> bool {
+    let (le, ge) = sweep(a, b, Mode::Equality);
     le && ge
 }
 
@@ -159,14 +155,13 @@ pub fn eq(a: &Encoded, b: &Encoded) -> bool {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand or an overrunning live-bit count,
-/// exactly as [`causal_cmp`] does.
+/// Panics on a non-canonical operand, exactly as [`causal_cmp`] does.
 ///
 /// Test- and meter-only: production concurrency checks go through
 /// [`Version::concurrent`](crate::Version::concurrent) over the same
 /// sweep.
 #[cfg(any(test, feature = "meter"))]
-pub fn concurrent(a: &Encoded, b: &Encoded) -> bool {
+pub fn concurrent(a: &BitsSlice, b: &BitsSlice) -> bool {
     causal_cmp(a, b).is_none()
 }
 
@@ -178,23 +173,13 @@ pub fn concurrent(a: &Encoded, b: &Encoded) -> bool {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand or an overrunning live-bit count,
-/// exactly as [`causal_cmp`] does.
+/// Panics on a non-canonical operand, exactly as [`causal_cmp`] does.
 ///
 /// Test- and meter-only: production ordering goes through the
 /// `PartialOrd` surface over [`causal_cmp`].
 #[cfg(any(test, feature = "meter"))]
-pub fn le(a: &Encoded, b: &Encoded) -> bool {
-    sweep(live(a), live(b), Mode::Domination).0
-}
-
-/// Borrow one operand's live bits.
-///
-/// # Panics
-///
-/// Panics if the operand declares more live bits than its bytes hold.
-fn live(enc: &Encoded) -> &BitsSlice {
-    super::live_bits(&enc.bytes, enc.bits)
+pub fn le(a: &BitsSlice, b: &BitsSlice) -> bool {
+    sweep(a, b, Mode::Domination).0
 }
 
 /// The question a sweep answers, hence the earliest point it may stop.

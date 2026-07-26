@@ -2,9 +2,10 @@
 //! version mutably and applies operations in place, each committing as it
 //! runs.
 
+use crate::codec::Bits;
 use crate::Party;
 
-use super::skyline::{self, Encoded};
+use super::skyline;
 use super::Version;
 
 /// A batch of operations on one [`Version`], applied through a single
@@ -43,7 +44,7 @@ impl Batch<'_> {
     /// assert_eq!(v.to_string(), "1");
     /// ```
     pub fn tick(&mut self, party: &Party) -> &mut Self {
-        self.version.0 = skyline::fill::tick(&self.version.0, party);
+        *self.version = Version::from_bits(skyline::fill::tick(&self.version.0, party));
         self
     }
 
@@ -83,20 +84,20 @@ impl Batch<'_> {
     /// wholesale (a copy, byte-identical to what the merge would emit). The
     /// identity path is the common seed pattern: folds seeded with
     /// [`Version::new`] (`join_all`, `Sum`) hit it on their first join.
-    pub(super) fn join_view(&mut self, incoming: &Encoded) -> &mut Self {
+    pub(super) fn join_view(&mut self, incoming: &Bits) -> &mut Self {
         if self.version.0 == *incoming {
             return self; // a ∨ a = a
         }
-        if skyline::is_empty_encoded(incoming) {
+        if skyline::is_empty_stream(incoming) {
             return self; // v ∨ 0 = v: nothing to fold in
         }
-        if skyline::is_empty_encoded(&self.version.0) {
+        if skyline::is_empty_stream(&self.version.0) {
             // 0 ∨ v = v: adopt the incoming stream wholesale. Both streams
             // are canonical, so the copy equals the merge byte for byte.
-            self.version.0 = incoming.clone();
+            *self.version = Version::from_bits(incoming.clone());
             return self;
         }
-        self.version.0 = skyline::emit::join(&self.version.0, incoming);
+        *self.version = Version::from_bits(skyline::emit::join(&self.version.0, incoming));
         self
     }
 
@@ -112,19 +113,19 @@ impl Batch<'_> {
     /// empty version as the *absorbing* element, `0 ∧ v = 0` — an empty
     /// current is already the answer, and an empty incoming makes the result
     /// the empty version outright, no merge sweep either way.
-    pub(super) fn meet_view(&mut self, incoming: &Encoded) -> &mut Self {
+    pub(super) fn meet_view(&mut self, incoming: &Bits) -> &mut Self {
         if self.version.0 == *incoming {
             return self; // a ∧ a == a
         }
-        if skyline::is_empty_encoded(&self.version.0) {
+        if skyline::is_empty_stream(&self.version.0) {
             return self; // 0 ∧ v = 0: already empty, nothing can shrink it
         }
-        if skyline::is_empty_encoded(incoming) {
+        if skyline::is_empty_stream(incoming) {
             // v ∧ 0 = 0: the result is the empty version, whatever `v` was.
             self.replace_with(Version::new());
             return self;
         }
-        self.version.0 = skyline::emit::meet(&self.version.0, incoming);
+        *self.version = Version::from_bits(skyline::emit::meet(&self.version.0, incoming));
         self
     }
 
@@ -155,7 +156,7 @@ impl Batch<'_> {
     }
 
     /// A read-only view of the version's stored skyline stream.
-    pub(super) fn view(&self) -> &Encoded {
+    pub(super) fn view(&self) -> &Bits {
         &self.version.0
     }
 }

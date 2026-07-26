@@ -6,10 +6,18 @@ use bitvec::prelude::*;
 use crate::error::Decode;
 
 /// The packed storage form: a most-significant-bit-first bit stream over bytes.
-pub(crate) type Bits = BitVec<u8, Msb0>;
+///
+/// This is the at-rest form of a `Party`/`Version`: the canonical packed
+/// preorder bit stream together with its exact live length, in one
+/// container. The raw byte slice ([`BitVec::as_raw_slice`]) *is* the wire
+/// encoding — the final partial byte is zero-padded (see
+/// [`zero_dead_bits`]) — and the live length is a cached parse product the
+/// wire legitimately omits, because the streams are self-delimiting at the
+/// bit level.
+pub type Bits = BitVec<u8, Msb0>;
 
 /// A borrowed view of the packed storage form.
-pub(crate) type BitsSlice = BitSlice<u8, Msb0>;
+pub type BitsSlice = BitSlice<u8, Msb0>;
 
 /// Borrow bytes as an MSB-first bit stream without first copying them into a
 /// [`Bits`].
@@ -31,6 +39,21 @@ pub(crate) fn bytes_as_bits(bytes: &[u8]) -> &BitsSlice {
 /// `as_bytes`, [`Hash`](core::hash::Hash), and the borsh wire form rest on.
 pub(crate) fn zero_dead_bits(bits: &mut Bits) {
     bits.set_uninitialized(false);
+}
+
+/// Whether a stored stream's dead bits are zero: the canonical-storage
+/// check behind the `as_bytes` debug asserts.
+///
+/// Only the final partial byte of [`BitVec::as_raw_slice`] can hold dead
+/// bits (the slice covers exactly the live bits' bytes), so this is one
+/// mask test — `O(1)`, cheap enough to assert on every raw-byte read.
+pub(crate) fn dead_bits_are_zero(bits: &Bits) -> bool {
+    let live_in_last = bits.len() % 8;
+    live_in_last == 0
+        || bits
+            .as_raw_slice()
+            .last()
+            .is_none_or(|last| last & (0xFF >> live_in_last) == 0)
 }
 
 /// Streams a bit-concatenation of canonical bit slices to a writer, packing

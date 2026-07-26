@@ -368,9 +368,9 @@ fn operator_meet(a: &Version, b: &Version) -> Version {
 /// output stream, not merely the value it denotes.
 fn skyline_join(a: &Version, b: &Version) -> Version {
     let out = skyline::emit::join(&skyline::encode(a), &skyline::encode(b));
-    let decoded = skyline::decode(&out.bytes, out.bits).expect("an emitted join is canonical");
+    let decoded = skyline::decode(&out).expect("an emitted join is canonical");
     assert_eq!(
-        out.bits as u64,
+        out.len() as u64,
         tier2_size(&packed_bits_of(&to_oracle_version(&decoded))).total_bits,
         "the emitted join stream must be exactly the canonical coded size"
     );
@@ -380,9 +380,9 @@ fn skyline_join(a: &Version, b: &Version) -> Version {
 /// The emission kernel's meet, called directly (no short-circuits).
 fn skyline_meet(a: &Version, b: &Version) -> Version {
     let out = skyline::emit::meet(&skyline::encode(a), &skyline::encode(b));
-    let decoded = skyline::decode(&out.bytes, out.bits).expect("an emitted meet is canonical");
+    let decoded = skyline::decode(&out).expect("an emitted meet is canonical");
     assert_eq!(
-        out.bits as u64,
+        out.len() as u64,
         tier2_size(&packed_bits_of(&to_oracle_version(&decoded))).total_bits,
         "the emitted meet stream must be exactly the canonical coded size"
     );

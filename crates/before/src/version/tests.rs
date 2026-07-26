@@ -569,9 +569,9 @@ proptest! {
         // The general path, bypassing the short-circuit: the merge kernel on
         // the identity cases lands on `v`'s canonical bytes.
         let general_left =
-            Version::from_encoded(skyline::emit::join(empty.as_encoded(), v.as_encoded()));
+            Version::from_bits(skyline::emit::join(empty.as_bits(), v.as_bits()));
         let general_right =
-            Version::from_encoded(skyline::emit::join(v.as_encoded(), empty.as_encoded()));
+            Version::from_bits(skyline::emit::join(v.as_bits(), empty.as_bits()));
         prop_assert_eq!(general_left.encode(), v.encode());
         prop_assert_eq!(general_right.encode(), v.encode());
 
@@ -600,9 +600,9 @@ proptest! {
         // The general path, bypassing the short-circuit: the merge kernel on
         // the absorbing cases lands on the canonical empty bytes.
         let general_left =
-            Version::from_encoded(skyline::emit::meet(empty.as_encoded(), v.as_encoded()));
+            Version::from_bits(skyline::emit::meet(empty.as_bits(), v.as_bits()));
         let general_right =
-            Version::from_encoded(skyline::emit::meet(v.as_encoded(), empty.as_encoded()));
+            Version::from_bits(skyline::emit::meet(v.as_bits(), empty.as_bits()));
         prop_assert_eq!(general_left.encode(), empty.encode());
         prop_assert_eq!(general_right.encode(), empty.encode());
 
@@ -854,7 +854,7 @@ proptest! {
         let b = from_oracle_version(&ob);
         // The walk's verdict, taken from the comparison sweep directly.
         let walk_eq =
-            skyline::sweep::causal_cmp(a.as_encoded(), b.as_encoded()) == Some(Ordering::Equal);
+            skyline::sweep::causal_cmp(a.as_bits(), b.as_bits()) == Some(Ordering::Equal);
 
         prop_assert_eq!(a == b, walk_eq);
         // The equality direction: a version equals its own clone.
@@ -1820,4 +1820,16 @@ proptest! {
         let halves = (&v / imp[k].party()) | (&v / child.party());
         prop_assert_eq!(halves, whole);
     }
+}
+
+/// The at-rest form is the wire bytes in a length-carrying container: a
+/// [`Version`] is exactly one `codec::Bits` (pointer, live bit length,
+/// capacity — 24 bytes on 64-bit), and a [`Clock`](crate::Clock) is a
+/// `Party` plus a `Version` (48). A regression here means the storage
+/// grew a field beside the container — the cached live length must ride
+/// inside it, since the wire legitimately omits it.
+#[test]
+fn at_rest_size_is_one_container_per_stream() {
+    assert_eq!(core::mem::size_of::<Version>(), 24);
+    assert_eq!(core::mem::size_of::<crate::Clock>(), 48);
 }
