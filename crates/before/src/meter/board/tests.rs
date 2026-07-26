@@ -33,8 +33,9 @@ fn version_of(p: &Packed) -> Version {
     p.version()
 }
 
-/// The two limb-floor derivations split exactly where their rustdoc says:
-/// on a plateau shape (equal wide leaves behind unit deltas) the
+/// The two limb-floor derivations split exactly where their rustdoc says.
+///
+/// On a plateau shape (equal wide leaves behind unit deltas) the
 /// stream-derived floor counts the stored width once — the wide boundary
 /// codes alone — while the tree-derived floor demands it per site, work no
 /// conforming walk does; on a single wide leaf the two coincide (the one
@@ -524,13 +525,15 @@ fn join_all_overlap_upfront_test_reads_flat() {
 }
 
 /// The flat-denominator shape's packed-byte fit manufactures a superlinear
-/// exponent out of measured flat per-tooth work; the value-content fit
-/// reads the same measurements linear. This is the tripwire the
-/// comb-scatter exponent re-denomination rests on: the comparison sweep's
-/// limb work per tooth is flat across a tooth-count doubling (the honest
-/// linear witness), the packed denominator grows under x1.5 because the
-/// fixed 1000-bit magnitude dominates it (the intercept premise), and the
-/// two fits disagree by an exponent class on identical readings.
+/// exponent out of measured flat per-tooth work.
+///
+/// The value-content fit reads the same measurements linear. This is the
+/// tripwire the comb-scatter exponent re-denomination rests on: the
+/// comparison sweep's limb work per tooth is flat across a tooth-count
+/// doubling (the honest linear witness), the packed denominator grows
+/// under x1.5 because the fixed 1000-bit magnitude dominates it (the
+/// intercept premise), and the two fits disagree by an exponent class on
+/// identical readings.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn flat_denominator_packed_fit_manufactures_an_exponent() {
@@ -580,11 +583,12 @@ fn flat_denominator_packed_fit_manufactures_an_exponent() {
 }
 
 /// A genuinely quadratic-in-teeth walk still reads red against the value
-/// content denominator: the re-denomination corrects the fit's axis, never
-/// the criterion's teeth. The probe does one metered accumulator pass per
-/// tooth over all earlier teeth — Theta(teeth^2) limb ops on a
-/// content-linear operand — and its content fit lands a full exponent
-/// class over the ceiling.
+/// content denominator: the re-denomination corrects the fit's axis,
+/// never the criterion's teeth.
+///
+/// The probe does one metered accumulator pass per tooth over all earlier
+/// teeth — Theta(teeth^2) limb ops on a content-linear operand — and its
+/// content fit lands a full exponent class over the ceiling.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn quadratic_in_teeth_work_reads_red_against_the_content_denominator() {
@@ -614,13 +618,14 @@ fn quadratic_in_teeth_work_reads_red_against_the_content_denominator() {
 }
 
 /// The exponent guards judge the denominator's ability to scale and the
-/// heap reading's materiality, never the reading's growth: the same
-/// amplifier-shaped readings read green where the operand pair cannot
-/// scale (6 -> 7 bytes: the fit divides by a vanishing log) or where both
-/// heap readings sit inside the flat allowance the constant leg already
-/// forgives, and read red the moment the denominator honestly doubles or
-/// the readings clear the allowance. Both directions pinned so neither
-/// guard can silently widen into an exemption hole.
+/// heap reading's materiality, never the reading's growth.
+///
+/// The same amplifier-shaped readings read green where the operand pair
+/// cannot scale (6 -> 7 bytes: the fit divides by a vanishing log) or
+/// where both heap readings sit inside the flat allowance the constant
+/// leg already forgives, and read red the moment the denominator honestly
+/// doubles or the readings clear the allowance. Both directions pinned so
+/// neither guard can silently widen into an exemption hole.
 #[test]
 fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
     use super::{evaluate, na, ByCurrency, Floors, Sample, HEAP_FLAT_ALLOWANCE_BYTES};
