@@ -17,29 +17,34 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The board's exact cell count: 46 operation rows over 19 shapes (874
-/// combinations) minus the 154 where the shape's bundle supplies no
+/// The board's exact cell count: 64 operation rows over 19 shapes (1216
+/// combinations) minus the 227 where the shape's bundle supplies no
 /// operand for the row's signature.
 ///
 /// Derived per shape from the operand bundles. A version-only shape
 /// (dense, bigroot, hugeleaf, cliff, harmonic) runs the 18 version-pair
 /// rows, the 4 linear-functional rows, the 2 rank rows, its tick and
-/// projection cells, and the 11 clock rows: 33 each. The id pair
+/// projection cells, the 11 clock rows, and its 8 rejection rows (the 5
+/// version rejections and the 3 clock rejections): 41 each. The id pair
 /// (parties only) runs the 10 party rows, the adversarial-party tick
-/// row, its projection cell, and the 11 clock rows: 23. The eleven cross
+/// row, its projection cell, the 11 clock rows, and its 13 rejection
+/// rows (5 party rejections, `party_without_none`, 3 clock rejections,
+/// and the 4 overlap rows its id source mints): 36. The eleven cross
 /// shapes (comb-scatter and the ten tick-walk crosses: nested-full,
 /// nested-wide, mirror-wide, mirror-narrow, staircase, reveal-comb,
 /// reveal-hifloor, pure-comb, ascend-cliff, ascend-plateau) carry a
 /// version, a mounted party pair, and a clock, so each runs the
-/// version-only 33 plus the adversarial-party tick row and the 10 party
-/// rows: 44 each. Scatter runs its 2 fold rows; benign runs every row
-/// (46, both fold controls included).
-/// 33 x 5 + 23 + 44 x 11 + 2 + 46 = 720.
+/// version-only 41 plus the adversarial-party tick row, the 10 party
+/// rows, and the 10 id-side rejection rows: 62 each. Scatter runs its 2
+/// fold rows (its bundle carries fold operands alone, so no rejection
+/// row applies); benign runs every row (64, both fold controls
+/// included).
+/// 41 x 5 + 36 + 62 x 11 + 2 + 64 = 989.
 /// The table is fixed and applicability depends on the
 /// family alone (`board::run` enforces this per cell), so the count is
 /// deterministic at every scale; a row added to or dropped from the table
 /// must move this pin.
-const EXPECTED_CELLS: usize = 720;
+const EXPECTED_CELLS: usize = 989;
 
 /// The board runs to completion at tiny sizes: every cell prepares,
 /// measures, and renders, and the matrix keeps covering the full operation

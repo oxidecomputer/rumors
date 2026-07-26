@@ -152,6 +152,19 @@
 //! full-liveness proof; the leg that bounds work no counter sees is the
 //! time exponent judged over the bench suite (below).
 //!
+//! The rejection rows floor scan alone: their committed shapes place the
+//! defect at the stream's end, and a self-delimiting stream's terminal
+//! defect (or an overlap at both operands' preorder ends, under a coding
+//! with no random access) is only discoverable by parsing to it, while
+//! heap, limb, and touch are honestly not-applicable — rejection
+//! materializes no result and forces neither value work nor an
+//! accumulator fold. The text-rejection rows declare no floor on any
+//! column, by the same honest derivation: no deterministic counter
+//! watches text-byte consumption, and a parser may find the defect in
+//! tokenization before any packed or value work — their ceilings judge
+//! live readings (the shipped parsers do metered work greedily) and the
+//! bench mirror times them like every row.
+//!
 //! Four cells are watched by neither leg, an exposure accepted here so it
 //! is stated rather than silent: `version_hash`, `party_hash`,
 //! `clock_hash`, and `version_eq` on the benign family. Hashing folds the
@@ -268,6 +281,32 @@
 //! emits a rank whose numerator width and exponent are each linear in the
 //! packed bits the fold read, so a ceiling per content byte is a ceiling
 //! per wire byte up to the fold's own constant.
+//!
+//! # The rejection surface
+//!
+//! Cost claims are total: rejecting an input is an outcome with a cost,
+//! bounded like any other, whether or not the caller honored the usage
+//! invariants. The rejection rows price the fallible surface — overlap
+//! (`*_join_overlap`, `clock_sync_overlap`, `party_join_all_overlap`),
+//! the empty difference (`party_without_none`), strict decode
+//! (`*_decode_truncated`/`_trailing`/`_noncanon`), and text parse
+//! (`*_parse_trailing`/`_noncanon`, driving `FromStr`) — with the defect
+//! **maximally deferred** in every shape: an early-exit-only measurement
+//! would be the cheapest artifact that passes, so each row places its
+//! defect where rejection must consume as much input as possible (the
+//! last byte truncated, trailing bits after the complete stream, a
+//! non-canonical pair closing at the stream's last position, the one
+//! overlapping region at both operands' preorder ends, junk after the
+//! whole valid text). Rejections produce no output, so every rejection
+//! row is denominated against the fed stream alone — packed bytes, or
+//! text bytes on the parse rows at the general (not κ) limb ceiling: the
+//! radix-work term prices conversion of the accepting direction, and a
+//! rejection forces no conversion. Overlap operands come from the
+//! overlap-mount adapter ([`overlap_mounted_pair`]), the disjoint-mount
+//! adapter's counterpart; its outputs are semantically void by design
+//! (see the adapter). The design doc's §13 enumeration is the durable
+//! record of which fallible operations are rowed and which carry a
+//! bounded-or-delegated reason (mirrored in the coverage list below).
 //!
 //! # Reading the numbers
 //!
@@ -413,6 +452,27 @@
 //!   the public boundary, their resources are pinned by the envelope
 //!   scenarios in `tests/meter.rs`, and their agreement with the
 //!   recursive oracle is pinned by their differential suites.
+//! - **The rejection surface's bounded-or-delegated remainder** (the
+//!   rejection rows above price the rest): `Clock::join_all`'s overlap
+//!   hand-back runs the identical up-front `is_disjoint`-against-self
+//!   walk `party_join_all_overlap` prices, inline; clock non-canonicality
+//!   — packed or text — is the component validators on the same streams
+//!   the version and party non-canonical rows drive;
+//!   [`Decode::Anonymous`](crate::error::Decode) is the accepting parse
+//!   of the empty stream (a zero-byte operand, no scaling axis) and
+//!   [`Parse::Anonymous`](crate::error::Parse) the one-token `"0"`;
+//!   [`Decode::Io`](crate::error::Decode) is the caller's reader — a
+//!   failing reader is a truncation carrying an error, priced by the
+//!   truncated rows — and `encode_to`'s error the caller's writer, at
+//!   most the encode row's work before it propagates; the `TryFrom`
+//!   literal rejections have word-scale or type-bounded operands;
+//!   `Version::meet_all`'s `None` is the empty iterator;
+//!   `Rank::checked_sub`'s `None` is measured on the `rank_pair_ops`
+//!   row, which attempts both directions; other decode non-canonicality
+//!   genres (a negative running height, nonzero padding) ride the same
+//!   single validator pass at the same full-parse cost as the committed
+//!   maximally-deferred tails; serde/borsh deserialize errors are the
+//!   strict decoder through the wrappers (the decode rejection rows).
 
 mod currency;
 #[cfg(test)]
@@ -428,6 +488,7 @@ use std::io::{self, Write};
 use std::rc::Rc;
 
 use crate::codec::{self, Base};
+use crate::error::{Decode, Parse};
 use crate::{causally, Clock, Party, Rank, Version};
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
@@ -680,6 +741,13 @@ const ASCEND_CLIFF_BASE: usize = 1_000;
 /// row: small, so the pair's cost is carried entirely by the mismatch.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 
+/// Probes per accumulator byte (as a divisor) on the
+/// `party_join_all_overlap` row: the probe count scales with the
+/// accumulator so the row's exponent reads the fold's per-input re-scan
+/// against a denominator both sides of which double together, and the
+/// divisor keeps the row inside the board's runtime budget.
+const OVERLAP_FOLD_INPUT_DIVISOR: usize = 64;
+
 /// Benign clock population at scale 1.0.
 const BENIGN_BASE_CLOCKS: usize = 256;
 
@@ -884,6 +952,11 @@ struct FamilyData {
     /// population and the benign shape's organic control.
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+    /// An overlapping packed party pair within one universe, minted by the
+    /// overlap-mount adapter from the same id source as `parties` (the
+    /// post-pass): the rejection rows' operands. Semantically void by
+    /// design — see [`overlap_mounted_pair`].
+    overlap: Option<(Vec<u8>, Vec<u8>)>,
     /// The mismatched rank pair, derived from `version` in the post-pass.
     ///
     /// Precomputed here (shape-derived rank, small integer rank) so the
@@ -908,6 +981,7 @@ impl FamilyData {
             cross: None,
             output_dominated: false,
             fold: None,
+            overlap: None,
             rank_pair: None,
         }
     }
@@ -1097,6 +1171,19 @@ impl FamilyData {
         if data.parties.is_none() {
             if let Some((_, id)) = &data.cross {
                 data.parties = Some(disjoint_mounted_pair(id));
+            }
+        }
+        // Every id source also mints an overlapping pair through the
+        // overlap-mount adapter, for the rejection rows: the cross id
+        // where the shape has one, the first natural party otherwise.
+        if data.overlap.is_none() {
+            let id = data
+                .cross
+                .as_ref()
+                .map(|(_, id)| id)
+                .or_else(|| data.parties.as_ref().map(|(a, _)| a));
+            if let Some(id) = id {
+                data.overlap = Some(overlap_mounted_pair(id));
             }
         }
         data
@@ -1317,6 +1404,247 @@ fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     (a, b)
 }
 
+/// The overlap-mount adapter: lift one packed id shape into an
+/// *overlapping* party pair whose single shared region sits at both
+/// operands' preorder ends — the disjoint-mount adapter's counterpart,
+/// for the rejection rows.
+///
+/// `a` mounts the shape under a fresh root's left child and a marker
+/// under its right; `b` mounts the shape under the right child alone.
+/// The marker is a single-child chain along the shape's rightmost-present
+/// path ending in a terminal at the shape's preorder-last owned position,
+/// so the pair's one overlap is the last position a lockstep walk over
+/// `b`'s side reaches, with every earlier region disjoint — rejection
+/// consumes essentially both streams before the witnessing pair meets.
+///
+/// The outputs are **semantically void by design**: a well-formed pair
+/// that no legal fork/join history produces (two claims on one region),
+/// built on purpose because the crate's cost claims are total — the
+/// rejection rows price what rejecting such a pair costs, and nothing
+/// downstream treats the pair as meaningful. Runs at bundle build,
+/// outside any measurement, and asserts the overlap it mints (both
+/// halves decode canonically on the way).
+fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let shape = decode_party(id);
+    let bits = shape.as_bits();
+    let path = rightmost_terminal_path(bits);
+    assert!(
+        !path.is_empty(),
+        "the overlap-mount adapter needs a non-terminal shape: a full shape's mount would \
+         not be normal form"
+    );
+    let mut a = codec::Bits::with_capacity(bits.len() + 2 * path.len() + 4);
+    a.push(true); // root: both children present
+    a.push(true);
+    a.extend_from_bitslice(bits); // left: the shape
+    for &go_right in &path {
+        // right: the marker chain, one single-child node per level
+        a.push(!go_right);
+        a.push(go_right);
+    }
+    a.push(false); // the marker's terminal, at the shape's last owned position
+    a.push(false);
+    codec::zero_dead_bits(&mut a);
+    let mut b = codec::Bits::with_capacity(bits.len() + 2);
+    b.push(false); // root: right child only
+    b.push(true);
+    b.extend_from_bitslice(bits); // right: the shape
+    codec::zero_dead_bits(&mut b);
+    let (a, b) = (a.into_vec(), b.into_vec());
+    assert!(
+        !decode_party(&a).is_disjoint(&decode_party(&b)),
+        "the overlap-mount adapter must mint an overlapping pair"
+    );
+    (a, b)
+}
+
+/// The branch choices (`false` left, `true` right) from an id tree's root
+/// to its preorder-last terminal: at every node, the last present child.
+///
+/// Preorder lays each subtree's bits contiguously, so the stream's final
+/// tag belongs to the node reached by always taking the rightmost present
+/// child; left subtrees along the way are skipped (each exactly once, so
+/// the walk is linear). Runs at bundle build, outside any measurement.
+fn rightmost_terminal_path(bits: &codec::BitsSlice) -> Vec<bool> {
+    let mut pos = 0usize;
+    let mut path = Vec::new();
+    loop {
+        let left = bits[pos];
+        let right = bits[pos + 1];
+        pos += 2;
+        if !left && !right {
+            return path; // the terminal
+        }
+        if right {
+            if left {
+                pos = crate::idbits::skip_subtree(pos, |at| {
+                    let children = usize::from(bits[at]) + usize::from(bits[at + 1]);
+                    (children, at + 2)
+                });
+            }
+            path.push(true);
+        } else {
+            path.push(false);
+        }
+    }
+}
+
+/// The overlap fold's probe: a right-mounted full leaf — `(0, 1)`, one
+/// packed byte — overlapping the a-mount's whole right half (the marker's
+/// region).
+///
+/// The `party_join_all_overlap` row's per-input operand. The witnessing
+/// pair sits in the right half, and the packed coding has no random
+/// access, so testing the probe against the accumulator must skip-scan
+/// the accumulator's entire left shape to reach it: Θ(accumulator) scan
+/// work per O(1)-byte input — the separation the row prices.
+fn overlap_fold_probe() -> Vec<u8> {
+    let mut probe = codec::Bits::with_capacity(4);
+    probe.push(false); // root: right child only
+    probe.push(true);
+    probe.push(false); // the right child: a full leaf
+    probe.push(false);
+    codec::zero_dead_bits(&mut probe);
+    probe.into_vec()
+}
+
+/// `bytes` with its last byte dropped: a strict prefix of a preorder
+/// stream, which has an open subtree at every position before its true
+/// end — the maximally-deferred [`Truncated`](crate::error::Decode)
+/// defect, discoverable only by parsing to the cut.
+fn truncated_bytes(bytes: &[u8]) -> Vec<u8> {
+    assert!(
+        bytes.len() >= 2,
+        "a truncation row needs a stream of at least two bytes"
+    );
+    bytes[..bytes.len() - 1].to_vec()
+}
+
+/// `bytes` with a `0xFF` byte appended after the complete valid stream:
+/// the maximally-deferred [`TrailingBits`](crate::error::Decode) defect —
+/// the whole tree parses before the nonzero tail is seen.
+fn trailing_bytes(bytes: &[u8]) -> Vec<u8> {
+    let mut out = bytes.to_vec();
+    out.push(0xFF);
+    out
+}
+
+/// The bit position of a version stream's preorder-last leaf flag.
+///
+/// Iterative over the packed form, outside any measurement; the last
+/// node of a preorder event stream is always a leaf (an internal node's
+/// children would follow it).
+fn last_leaf_flag_pos(v: &Version) -> usize {
+    let all = codec::bytes_as_bits(v.as_bytes());
+    let bits = &all[..v.encoded_bits()];
+    let mut pos = 0usize;
+    let mut pending = 1usize;
+    let mut last = 0usize;
+    while pending > 0 {
+        pending -= 1;
+        let flag = pos;
+        let internal = bits[pos];
+        pos += 1;
+        if internal {
+            pending += 2;
+            continue;
+        }
+        let (_, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        pos = next;
+        last = flag;
+    }
+    last
+}
+
+/// `v`'s stream with its preorder-last leaf split into an equal-sibling
+/// pair: the left child keeps the old leaf's delta code (same
+/// predecessor, same value), the right child's delta is zero — the
+/// minimality violation the validator can only judge at that pair's
+/// close, the stream's last position. The maximally-deferred
+/// [`NotCanonical`](crate::error::Decode) defect.
+fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
+    let all = codec::bytes_as_bits(v.as_bytes());
+    let bits = &all[..v.encoded_bits()];
+    let leaf = last_leaf_flag_pos(v);
+    let mut out = codec::Bits::with_capacity(bits.len() + 4);
+    out.extend_from_bitslice(&bits[..leaf]);
+    out.push(true); // the old leaf's position becomes an internal node
+    out.extend_from_bitslice(&bits[leaf..]); // left child: the old leaf verbatim
+    out.push(false); // right child: a leaf equal to its sibling
+    codec::encode_int(&mut out, &Base::from(0u32)); // zero delta
+    codec::zero_dead_bits(&mut out);
+    out.into_vec()
+}
+
+/// `p`'s stream with its preorder-last terminal split into a collapsible
+/// `(1, 1)`: two full children, judged non-normal at the node's close —
+/// the stream's last position. The maximally-deferred
+/// [`NotCanonical`](crate::error::Decode) defect on the id side.
+fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {
+    let bits = p.as_bits();
+    let end = bits.len();
+    assert!(
+        !bits[end - 2] && !bits[end - 1],
+        "a preorder id stream ends in a terminal tag"
+    );
+    let mut out = codec::Bits::with_capacity(end + 4);
+    out.extend_from_bitslice(&bits[..end - 2]);
+    out.push(true); // the last terminal becomes a node with both children
+    out.push(true);
+    for _ in 0..2 {
+        out.push(false); // each child a terminal: the collapsible (1, 1)
+        out.push(false);
+    }
+    codec::zero_dead_bits(&mut out);
+    out.into_vec()
+}
+
+/// `text` with junk appended after the complete valid notation: the
+/// parser consumes the whole text before the trailing defect is seen
+/// ([`Parse::Syntax`](crate::error::Parse)).
+fn trailing_text(text: &str) -> String {
+    let mut out = text.to_owned();
+    out.push('x');
+    out
+}
+
+/// A clock's text with junk inserted before the closing paren, inside the
+/// version component: the clock parser's outer-paren check rejects
+/// *appended* junk in O(1), so the deferred defect rides the version
+/// side, which parses in full first.
+fn clock_trailing_text(text: &str) -> String {
+    let mut out = text.to_owned();
+    assert_eq!(out.pop(), Some(')'), "a clock renders as (id, event)");
+    out.push_str("x)");
+    out
+}
+
+/// `text` with its last spelled value `t` re-spelled `(0, t, t)`: equal
+/// sibling leaves, well-formed and judged non-canonical at that node's
+/// close — the text's end
+/// ([`Parse::NotCanonical`](crate::error::Parse)).
+fn version_noncanonical_text(text: &str) -> String {
+    let end = text
+        .rfind(|c: char| c.is_ascii_digit())
+        .expect("a version's text spells at least one value")
+        + 1;
+    let start = text[..end]
+        .rfind(|c: char| !c.is_ascii_digit())
+        .map_or(0, |i| i + 1);
+    let t = &text[start..end];
+    format!("{}(0, {t}, {t}){}", &text[..start], &text[end..])
+}
+
+/// `text` with its last `1` token re-spelled `(1, 1)`: the collapsible
+/// pair, judged non-normal at the node's close, at the text's end
+/// ([`Parse::NotCanonical`](crate::error::Parse)).
+fn party_noncanonical_text(text: &str) -> String {
+    let at = text
+        .rfind('1')
+        .expect("a party's text spells at least one owned leaf");
+    format!("{}(1, 1){}", &text[..at], &text[at + 1..])
+}
+
 /// Decode packed bytes the board itself generated.
 fn decode_version(bytes: &[u8]) -> Version {
     Version::decode(bytes).expect("board-generated version bytes are canonical")
@@ -1483,6 +1811,103 @@ const NA_TOUCH_SEED_RAISE: &str = "a tick whose party owns the whole tree raises
 /// Touch NA: an empty version's tick is pure id-directed growth.
 const NA_TOUCH_GROW: &str = "the empty version's tick is id-directed growth: the grow kernel \
      runs no accumulator";
+
+/// Scan floor (rejection rows): the defect sits at the stream's end.
+const WHY_SCAN_REJECT_END: &str = "rejection with the defect at the stream's end by \
+     construction: a self-delimiting stream's truncation, trailing bits, or non-canonical \
+     tail is only discoverable by parsing to it";
+/// Scan floor (overlap rejection rows): the witnessing overlap sits at
+/// the operands' preorder ends.
+const WHY_SCAN_OVERLAP_END: &str = "the pair's one overlapping region sits at both \
+     operands' preorder ends by construction, and the packed coding has no random access: \
+     any correct rejection scans to it";
+/// Heap NA on rejection rows: no result is materialized.
+const NA_HEAP_REJECTION: &str = "a rejecting or empty outcome materializes no result, and \
+     buffering the fed stream is not semantically forced: allocation stays the \
+     implementation's choice";
+/// Limb NA on rejection rows: value work may be deferred past the defect.
+const NA_LIMB_REJECTION: &str = "rejection forces no value materialization: a strict \
+     validator may defer magnitude work past the walk that finds the defect";
+/// Touch NA on rejection rows: no accumulator fold is forced.
+const NA_TOUCH_REJECTION: &str = "rejection forces no accumulator fold: digit-state work \
+     may be deferred past the walk that finds the defect";
+/// Scan NA on text-rejection rows: nothing forces packed work before the
+/// text defect is found.
+const NA_SCAN_TEXT_REJECTION: &str = "rejection of malformed text forces no packed-stream \
+     work: the defect may be found in tokenization before any packed validation runs (no \
+     deterministic counter watches text-byte consumption; the ceilings judge these cells' \
+     live readings and the bench mirror carries their time leg)";
+
+/// The packed-stream rejection rows' floors: scan floored at one bit per
+/// fed byte under `why` (the defect-placement derivation), everything
+/// else honestly not-applicable — rejection materializes no result and
+/// forces neither value work nor an accumulator fold.
+fn rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
+    Floors {
+        heap: na(NA_HEAP_REJECTION),
+        limb: na(NA_LIMB_REJECTION),
+        segments: seg_ceiling_only(),
+        scan: Liveness::Floor {
+            min: (fed_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
+            why,
+        },
+        touch: na(NA_TOUCH_REJECTION),
+    }
+}
+
+/// The id-side rejection rows' floors: as [`rejection_floors`], with the
+/// stronger id-tree reasons on the value columns (id trees store no
+/// magnitudes at all, rejected or not).
+fn id_rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
+    Floors {
+        heap: na(NA_HEAP_REJECTION),
+        limb: na(NA_LIMB_ID_TREE),
+        segments: seg_ceiling_only(),
+        scan: Liveness::Floor {
+            min: (fed_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
+            why,
+        },
+        touch: na(NA_TOUCH_ID_TREE),
+    }
+}
+
+/// Scan floor (clock overlap rows): the rejection gate is the party join,
+/// so the floor covers the id bytes alone.
+const WHY_SCAN_OVERLAP_CLOCK: &str = "the pair's one overlapping region sits at both id \
+     operands' preorder ends by construction and the packed coding has no random access, \
+     so any correct rejection scans the id streams to it; the version operands ride unread \
+     (the party join is the rejection gate), so the floor covers the id bytes alone";
+
+/// The clock overlap rows' floors: the scan floor derives from the id
+/// bytes alone (the party join is the rejection gate; the version
+/// operands are fed but rejection never reads them), everything else the
+/// rejection convention.
+fn clock_overlap_floors(id_bytes: usize) -> Floors {
+    Floors {
+        heap: na(NA_HEAP_REJECTION),
+        limb: na(NA_LIMB_REJECTION),
+        segments: seg_ceiling_only(),
+        scan: Liveness::Floor {
+            min: (id_bytes as f64 * SCAN_FLOOR_BITS_PER_INPUT_BYTE) as u64,
+            why: WHY_SCAN_OVERLAP_CLOCK,
+        },
+        touch: na(NA_TOUCH_REJECTION),
+    }
+}
+
+/// The text-rejection rows' floors: none, by honest derivation (no
+/// deterministic counter watches text-byte consumption, and a parser may
+/// find the defect before any packed or value work); `limb`/`touch` take
+/// the caller's operand-specific reason (id trees have no values at all).
+fn text_rejection_floors(limb: Liveness, touch: Liveness) -> Floors {
+    Floors {
+        heap: na(NA_HEAP_REJECTION),
+        limb,
+        segments: seg_ceiling_only(),
+        scan: na(NA_SCAN_TEXT_REJECTION),
+        touch,
+    }
+}
 
 /// A delta-fold touch floor over `deltas` stored delta codes, or NA when
 /// the operand streams store none.
@@ -3025,6 +3450,369 @@ fn ops() -> Vec<Op> {
                     let mut hasher = DefaultHasher::new();
                     clock.hash(&mut hasher);
                     (hasher.finish(), clock)
+                }))
+            },
+        },
+        // ── the rejection surface (the module doc's rejection section) ─
+        Op {
+            name: "version_decode_truncated",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let bytes = f.version.clone()?;
+                let fed = truncated_bytes(&bytes);
+                let n = fed.len();
+                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err =
+                        Version::decode(&fed[..]).expect_err("a truncated stream is rejected");
+                    assert!(
+                        matches!(err, Decode::Truncated),
+                        "the placed defect is the cut, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "version_decode_trailing",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let bytes = f.version.clone()?;
+                let fed = trailing_bytes(&bytes);
+                let n = fed.len();
+                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err =
+                        Version::decode(&fed[..]).expect_err("a trailing-bits stream is rejected");
+                    assert!(
+                        matches!(err, Decode::TrailingBits),
+                        "the placed defect is the appended tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "version_decode_noncanon",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let (v, _) = f.version()?;
+                let fed = version_noncanonical_bytes(&v);
+                let n = fed.len();
+                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err =
+                        Version::decode(&fed[..]).expect_err("a non-canonical tail is rejected");
+                    assert!(
+                        matches!(err, Decode::NotCanonical),
+                        "the placed defect is the equal-sibling tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "version_parse_trailing",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let (v, _) = f.version()?;
+                let fed = trailing_text(&v.to_string());
+                let n = fed.len();
+                let floors = text_rejection_floors(na(NA_LIMB_REJECTION), na(NA_TOUCH_REJECTION));
+                Some(Cell::new(n, floors, move || {
+                    let err = fed
+                        .parse::<Version>()
+                        .expect_err("trailing junk after valid text is rejected");
+                    assert!(
+                        matches!(err, Parse::Syntax),
+                        "the placed defect is the trailing junk, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "version_parse_noncanon",
+            group: OpGroup::Version,
+            prepare: |f| {
+                let (v, _) = f.version()?;
+                let fed = version_noncanonical_text(&v.to_string());
+                let n = fed.len();
+                let floors = text_rejection_floors(na(NA_LIMB_REJECTION), na(NA_TOUCH_REJECTION));
+                Some(Cell::new(n, floors, move || {
+                    let err = fed
+                        .parse::<Version>()
+                        .expect_err("a non-canonical tail is rejected");
+                    assert!(
+                        matches!(err, Parse::NotCanonical),
+                        "the placed defect is the equal-sibling tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "party_decode_truncated",
+            group: OpGroup::Party,
+            prepare: |f| {
+                let bytes = f.parties.as_ref().map(|(a, _)| a.clone())?;
+                let fed = truncated_bytes(&bytes);
+                let n = fed.len();
+                let floors = id_rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err = Party::decode(&fed[..]).expect_err("a truncated stream is rejected");
+                    assert!(
+                        matches!(err, Decode::Truncated),
+                        "the placed defect is the cut, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "party_decode_trailing",
+            group: OpGroup::Party,
+            prepare: |f| {
+                let bytes = f.parties.as_ref().map(|(a, _)| a.clone())?;
+                let fed = trailing_bytes(&bytes);
+                let n = fed.len();
+                let floors = id_rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err =
+                        Party::decode(&fed[..]).expect_err("a trailing-bits stream is rejected");
+                    assert!(
+                        matches!(err, Decode::TrailingBits),
+                        "the placed defect is the appended tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "party_decode_noncanon",
+            group: OpGroup::Party,
+            prepare: |f| {
+                let (a, _, _) = f.party_pair()?;
+                let fed = party_noncanonical_bytes(&a);
+                let n = fed.len();
+                let floors = id_rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err =
+                        Party::decode(&fed[..]).expect_err("a non-canonical tail is rejected");
+                    assert!(
+                        matches!(err, Decode::NotCanonical),
+                        "the placed defect is the collapsible (1, 1) tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "party_parse_trailing",
+            group: OpGroup::Party,
+            prepare: |f| {
+                let (a, _, _) = f.party_pair()?;
+                let fed = trailing_text(&a.to_string());
+                let n = fed.len();
+                let floors = text_rejection_floors(na(NA_LIMB_ID_TREE), na(NA_TOUCH_ID_TREE));
+                Some(Cell::new(n, floors, move || {
+                    let err = fed
+                        .parse::<Party>()
+                        .expect_err("trailing junk after valid text is rejected");
+                    assert!(
+                        matches!(err, Parse::Syntax),
+                        "the placed defect is the trailing junk, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "party_parse_noncanon",
+            group: OpGroup::Party,
+            prepare: |f| {
+                let (a, _, _) = f.party_pair()?;
+                let fed = party_noncanonical_text(&a.to_string());
+                let n = fed.len();
+                let floors = text_rejection_floors(na(NA_LIMB_ID_TREE), na(NA_TOUCH_ID_TREE));
+                Some(Cell::new(n, floors, move || {
+                    let err = fed
+                        .parse::<Party>()
+                        .expect_err("a non-canonical tail is rejected");
+                    assert!(
+                        matches!(err, Parse::NotCanonical),
+                        "the placed defect is the collapsible (1, 1) tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "clock_decode_truncated",
+            group: OpGroup::Clock,
+            prepare: |f| {
+                let (clock, _) = f.clock()?;
+                let fed = truncated_bytes(&clock.encode());
+                let n = fed.len();
+                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err = Clock::decode(&fed[..]).expect_err("a truncated stream is rejected");
+                    assert!(
+                        matches!(err, Decode::Truncated),
+                        "the placed defect is the cut, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "clock_decode_trailing",
+            group: OpGroup::Clock,
+            prepare: |f| {
+                let (clock, _) = f.clock()?;
+                let fed = trailing_bytes(&clock.encode());
+                let n = fed.len();
+                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                Some(Cell::new(n, floors, move || {
+                    let err =
+                        Clock::decode(&fed[..]).expect_err("a trailing-bits stream is rejected");
+                    assert!(
+                        matches!(err, Decode::TrailingBits),
+                        "the placed defect is the appended tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "clock_parse_trailing",
+            group: OpGroup::Clock,
+            prepare: |f| {
+                let (clock, _) = f.clock()?;
+                let fed = clock_trailing_text(&clock.to_string());
+                let n = fed.len();
+                let floors = text_rejection_floors(na(NA_LIMB_REJECTION), na(NA_TOUCH_REJECTION));
+                Some(Cell::new(n, floors, move || {
+                    let err = fed
+                        .parse::<Clock>()
+                        .expect_err("junk inside the stamp's parens is rejected");
+                    assert!(
+                        matches!(err, Parse::Syntax),
+                        "the placed defect is the inner junk, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "party_join_overlap",
+            group: OpGroup::Party,
+            prepare: |f| {
+                let (a_bytes, b_bytes) = f.overlap.clone()?;
+                let n = a_bytes.len() + b_bytes.len();
+                let mut a = decode_party(&a_bytes);
+                let b = decode_party(&b_bytes);
+                let floors = id_rejection_floors(n, WHY_SCAN_OVERLAP_END);
+                Some(Cell::new(n, floors, move || {
+                    let back = a
+                        .join(b)
+                        .expect_err("the overlap-mounted pair must be rejected");
+                    (back, a)
+                }))
+            },
+        },
+        Op {
+            name: "clock_join_overlap",
+            group: OpGroup::Clock,
+            prepare: |f| {
+                let (a_bytes, b_bytes) = f.overlap.clone()?;
+                let id_bytes = a_bytes.len() + b_bytes.len();
+                // Versions ride along where the bundle has them (empty
+                // otherwise); rejection does no version work — the party
+                // join is the gate — so the scan floor covers the ids.
+                let (v, w, nv) = match f.version_pair() {
+                    Some(pair) => pair,
+                    None => (Version::new(), Version::new(), 2),
+                };
+                let n = id_bytes + nv;
+                let mut a = Clock::from_parts(decode_party(&a_bytes), v);
+                let b = Clock::from_parts(decode_party(&b_bytes), w);
+                Some(Cell::new(n, clock_overlap_floors(id_bytes), move || {
+                    let back = a
+                        .join(b)
+                        .expect_err("the overlap-mounted pair must be rejected");
+                    (back, a)
+                }))
+            },
+        },
+        Op {
+            name: "clock_sync_overlap",
+            group: OpGroup::Clock,
+            prepare: |f| {
+                let (a_bytes, b_bytes) = f.overlap.clone()?;
+                let id_bytes = a_bytes.len() + b_bytes.len();
+                let (v, w, nv) = match f.version_pair() {
+                    Some(pair) => pair,
+                    None => (Version::new(), Version::new(), 2),
+                };
+                let n = id_bytes + nv;
+                let mut a = Clock::from_parts(decode_party(&a_bytes), v);
+                let mut b = Clock::from_parts(decode_party(&b_bytes), w);
+                Some(Cell::new(n, clock_overlap_floors(id_bytes), move || {
+                    let err = a
+                        .sync(&mut b)
+                        .expect_err("the overlap-mounted pair must be rejected");
+                    (err, a, b)
+                }))
+            },
+        },
+        Op {
+            name: "party_join_all_overlap",
+            group: OpGroup::Fold,
+            prepare: |f| {
+                // One large accumulator, many one-byte probes each
+                // overlapping its right half behind the whole left shape:
+                // every probe is tested against the fixed accumulator (a
+                // skip-scan of the left shape per test) and handed back,
+                // and the probe count scales with the accumulator (the
+                // divisor's rustdoc), so the row reads the fold's
+                // per-input re-scan.
+                let (a_bytes, _) = f.overlap.clone()?;
+                let acc = decode_party(&a_bytes);
+                let probe = overlap_fold_probe();
+                assert!(
+                    !acc.is_disjoint(&decode_party(&probe)),
+                    "the fold probe overlaps the a-mount's right half"
+                );
+                let count = (a_bytes.len() / OVERLAP_FOLD_INPUT_DIVISOR).max(MIN_SIZE_PARAM);
+                let inputs: Vec<Party> = (0..count).map(|_| decode_party(&probe)).collect();
+                let n = a_bytes.len() + count * probe.len();
+                let floors = id_rejection_floors(n, WHY_SCAN_EXAMINES);
+                Some(Cell::new(n, floors, move || {
+                    let mut acc = acc;
+                    let back = acc
+                        .join_all(inputs)
+                        .expect_err("every probe overlaps the accumulator");
+                    assert_eq!(back.len(), count, "every probe is handed back");
+                    (back, acc)
+                }))
+            },
+        },
+        Op {
+            name: "party_without_none",
+            group: OpGroup::Party,
+            prepare: |f| {
+                // Identical-region operands: the diff walks both streams in
+                // full, and the empty remainder is known only at the end.
+                let bytes = f.parties.as_ref().map(|(a, _)| a.clone())?;
+                let n = bytes.len() * 2;
+                let a = decode_party(&bytes);
+                let b = decode_party(&bytes);
+                let floors = id_rejection_floors(n, WHY_SCAN_EXAMINES);
+                Some(Cell::new(n, floors, move || {
+                    let gone = a.without(&b);
+                    assert!(gone.is_none(), "removing a covering region leaves nothing");
+                    (gone, b)
                 }))
             },
         },
