@@ -1180,6 +1180,59 @@ one full gate.
 
 **C3 — P3.10: realization verification, re-pins, and the
 before/after table.**
+
+*Queue of record* (enumerated 2026-07-26 at the round's opening,
+gathered from every C3/OPEN owner mention in this document and the
+κ rustdoc's hand-off; the deterministic-meter items run in this
+round, the bench-harness items are sequenced after it because the
+κ re-pin and the denomination moves below change exactly the
+readings those runs would capture):
+
+1. Board re-run at both scales, movement vs §17.3 (bullet 1
+   below); this round.
+2. The κ re-derivation (§6, the κ rustdoc's hand-off, the ten
+   κ-owned text reds + the #35 κ-text extension); this round.
+3. The comb-scatter κ-genre adjudication (single-cell column
+   attribution before any classification is accepted); this
+   round.
+4. The §6 `n_io` ruling on the six plateau projection cells
+   (§3's OPEN entry; pre-approved by the owner 2026-07-26 with
+   the O(`n_io`)-tightness rider: apply mechanically if the
+   measured cost tracks the output, escalate only if it does
+   not); this round.
+5. The comb-scatter flat-denominator column classification
+   (§17.3's #35 genre 1 and error-path genre 2; the cliff
+   generators' leaf-delta representation question is the
+   substance); this round.
+6. The cliff limb-floor re-derivation (three ×4 liveness trips);
+   this round.
+7. The plateau limb-floor re-derivation (§17.3's #35 genre 2,
+   18 default / 20 ×4 trips); this round.
+8. The judgment-layer question (sub-allowance exponents:
+   `rank_sum`/`rank_pair_ops` × benign, the
+   `party_join_all_overlap × benign` ×4 rider); decide once,
+   apply to the genre; this round.
+9. Bench-rider population (`BOARD_RED_BENCH_RIDERS` lands with
+   the reds' classification, per the #35 amendment); this round,
+   after items 3–5.
+10. The §17.3 reconciliation and restated sums (bullet 6);
+    this round.
+11. The judge-roster realization (fifteen bigroot expectations
+    leave on the banked evidence; the display pair resolves with
+    the κ re-derivation; the schoolbook expectation is
+    permanent) plus `bench-judge`/`bench-judge-record` exit 0
+    both scales both modes with record numbers captured: bench
+    harness, sequenced immediately after this round's re-pins.
+12. Envelope tightening (the twelve event-side rows): deferred
+    to P5.1's envelope finalization, one downward re-pin from
+    post-C3 stable readings instead of two.
+13. The before/after table of record: bench harness, after
+    item 11.
+
+Adjacent but not C3's: #24 (the user's decision, post-C3) and
+the stack-container measured phase (§17.5, C3-adjacent, its own
+harness).
+
 *What*:
 - Board re-run at both scales (release, single runs under the
   determinism tripwire); every
