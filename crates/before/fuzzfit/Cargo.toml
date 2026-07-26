@@ -1,0 +1,25 @@
+# Standalone fuzz-fit workspace. The empty `[workspace]` table detaches it
+# from the parent `rumors` workspace, so the ordinary gate never builds it
+# (the harness carries wasmtime, a heavy tool-side dependency that must stay
+# out of the production crates' graph; the guest builds only for
+# wasm32-unknown-unknown). Build/run through the `just fuzzfit-*` recipes.
+#
+# Two members:
+#   guest    the wasm kernel: `before`'s public operations behind a C-ABI
+#            register machine, compiled to wasm32-unknown-unknown and executed
+#            under wasmtime fuel metering
+#   harness  the native side: shape-biased proptest strategies, the wasmtime
+#            driver, the calibration fitter, and the enforcement suite
+[workspace]
+members = ["guest", "harness"]
+resolver = "2"
+
+# The guest's profile is part of the measurement's provenance: fuel counts
+# instructions of THIS codegen. codegen-units = 1 keeps function layout
+# independent of build parallelism; panic = "abort" keeps unwinding tables
+# (and their instruction overhead) out of the kernels. Debug assertions stay
+# off so fuel prices the production work alone (the amp-board's release-only
+# rule, applied to instruction counts).
+[profile.release]
+codegen-units = 1
+panic = "abort"

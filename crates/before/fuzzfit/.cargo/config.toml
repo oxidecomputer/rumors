@@ -1,0 +1,7 @@
+# Build into the repo root's target/ (its own subdirectory) instead of a
+# workspace-local target dir: the gate's doclint sweeps every .rs under
+# crates/, and wasmtime's build scripts generate rustdoc'd sources that
+# would otherwise land inside this tree and fail it. The repo root target/
+# is outside every gate sweep.
+[build]
+target-dir = "../../../target/fuzzfit"
