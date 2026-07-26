@@ -1,6 +1,8 @@
-use crate::error::Parse;
-use crate::recurse::descend;
+use smallvec::SmallVec;
 
+use crate::error::Parse;
+
+use super::tree::PARSE_STACK_INLINE;
 use super::{validate_id, Base, Bits};
 
 /// A whitespace-skipping byte cursor over the input string. The grammar is pure
@@ -70,12 +72,13 @@ pub(crate) fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
 /// Parse one id tree in the paper's grammar (`0 | 1 | (i1, i2)`) into canonical
 /// bits, strictly validating normal form.
 ///
-/// Recursive, guarded by [`crate::recurse`] so deep nesting grows the stack onto
-/// the heap rather than overflowing.
+/// Iterative, like the packed-tree parsers in [`super::tree`]: depth lives on
+/// an explicit frame stack, never the call stack, so nesting depth cannot
+/// overflow.
 pub(crate) fn parse_id_str(s: &str) -> Result<Bits, Parse> {
     let mut cur = Cur::new(s);
     let mut bits = Bits::new();
-    descend!(0, parse_id_node(&mut cur, &mut bits, 0))?;
+    parse_id_tree(&mut cur, &mut bits)?;
     if cur.peek().is_some() {
         return Err(Parse::Syntax); // trailing junk
     }
@@ -95,42 +98,83 @@ enum IdKind {
     Node,
 }
 
-/// Parse one id subtree, appending its canonical bits and reporting what it was.
+/// While building a node bottom-up, what its subtree still needs from the
+/// text: the node's reserved 2-bit tag slot rides in the frame so the
+/// children's presence patches in at the close paren.
+enum IdFrame {
+    /// The next subtree is the node's left child.
+    NeedLeft {
+        /// The node's tag position in the output bits.
+        tag: usize,
+    },
+    /// The left child is parsed and its `,` consumed; the next subtree is
+    /// the node's right child.
+    NeedRight {
+        /// The node's tag position in the output bits.
+        tag: usize,
+        /// What the left child was (the presence patch and the
+        /// collapsible-node check both need it).
+        left: IdKind,
+    },
+}
+
+/// Parse one id tree, appending its canonical bits.
 ///
 /// A `0` emits nothing (absence); a node reserves a 2-bit tag, parses its
 /// children, then patches the tag to their presence — rejecting a collapsible
-/// `(0, 0)` / `(1, 1)`. Routed through the amortized stack-growth guard.
-fn parse_id_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<IdKind, Parse> {
-    match cur.bump() {
-        Some(b'(') => {
-            let tag = bits.len();
-            bits.push(false); // placeholder, patched once the children are known
-            bits.push(false);
-            let left = descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?;
-            if cur.bump() != Some(b',') {
-                return Err(Parse::Syntax);
+/// `(0, 0)` / `(1, 1)` once its `)` has parsed (a structural defect outranks
+/// the canonicality check, exactly the token order of the grammar). One
+/// frame per unfinished ancestor, [`PARSE_STACK_INLINE`] frames inline.
+fn parse_id_tree(cur: &mut Cur, bits: &mut Bits) -> Result<(), Parse> {
+    let mut stack: SmallVec<[IdFrame; PARSE_STACK_INLINE]> = SmallVec::new();
+    loop {
+        // One atom: a leaf token, or a `(` opening the next unfinished node.
+        let mut kind = match cur.bump() {
+            Some(b'(') => {
+                let tag = bits.len();
+                bits.push(false); // placeholder, patched once the children are known
+                bits.push(false);
+                stack.push(IdFrame::NeedLeft { tag });
+                continue; // descend into the left child
             }
-            let right = descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?;
-            if cur.bump() != Some(b')') {
-                return Err(Parse::Syntax);
+            Some(b'0') => IdKind::Empty, // a `0` is absence: no bits
+            Some(b'1') => {
+                bits.push(false); // terminal tag `00`
+                bits.push(false);
+                IdKind::Terminal
             }
-            match (left, right) {
-                (IdKind::Empty, IdKind::Empty) => Err(Parse::NotCanonical), // (0, 0)
-                (IdKind::Terminal, IdKind::Terminal) => Err(Parse::NotCanonical), // (1, 1)
-                _ => {
-                    bits.set(tag, left != IdKind::Empty); // bit 0 = left present
-                    bits.set(tag + 1, right != IdKind::Empty); // bit 1 = right present
-                    Ok(IdKind::Node)
+            _ => return Err(Parse::Syntax),
+        };
+        // Attach the completed subtree to its parent, possibly completing
+        // the parent too.
+        loop {
+            match stack.pop() {
+                None => return Ok(()), // the root is complete
+                Some(IdFrame::NeedLeft { tag }) => {
+                    if cur.bump() != Some(b',') {
+                        return Err(Parse::Syntax);
+                    }
+                    stack.push(IdFrame::NeedRight { tag, left: kind });
+                    break; // go parse the right child
+                }
+                Some(IdFrame::NeedRight { tag, left }) => {
+                    if cur.bump() != Some(b')') {
+                        return Err(Parse::Syntax);
+                    }
+                    match (left, kind) {
+                        (IdKind::Empty, IdKind::Empty) => return Err(Parse::NotCanonical), // (0, 0)
+                        (IdKind::Terminal, IdKind::Terminal) => {
+                            return Err(Parse::NotCanonical); // (1, 1)
+                        }
+                        _ => {
+                            bits.set(tag, left != IdKind::Empty); // bit 0 = left present
+                            bits.set(tag + 1, kind != IdKind::Empty); // bit 1 = right present
+                            kind = IdKind::Node;
+                        }
+                    }
                 }
             }
         }
-        Some(b'0') => Ok(IdKind::Empty), // a `0` is absence: no bits
-        Some(b'1') => {
-            bits.push(false); // terminal tag `00`
-            bits.push(false);
-            Ok(IdKind::Terminal)
-        }
-        _ => Err(Parse::Syntax),
     }
 }
 
