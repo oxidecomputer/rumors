@@ -26,12 +26,16 @@ This file indexes the *time leg* only.
    carried by the board module doc's not-applicable list with a
    mechanism-based reason. Anything in neither place is a coverage gap.
 
-## The judged cell inventory (207 cells)
+## The judged cell inventory (223 cells)
 
-46 board operation rows × their applicable families (205 cells), plus
-the judge-only wide-display pair (2). Families: `dense`, `bigroot`,
+46 board operation rows × their applicable families (221 cells, the
+smoke pin's derivation in `tests/amp_board_smoke.rs`), plus the
+judge-only wide-display pair (2). Families: `dense`, `bigroot`,
 `hugeleaf`, `cliff` (the four event shapes), `id-pair`, `comb-scatter`,
-`harmonic`, `scatter`, `benign` (the organic control).
+`harmonic`, `scatter`, the eight tick-cross shapes (`nested-full`,
+`nested-wide`, `mirror-wide`, `mirror-narrow`, `staircase`,
+`reveal-comb`, `reveal-hifloor`, `pure-comb` — reached only by the two
+tick rows), and `benign` (the organic control).
 
 | Row (bench group) | Families | Public operations timed |
 |---|---|---|
@@ -44,7 +48,7 @@ the judge-only wide-display pair (2). Families: `dense`, `bigroot`,
 | `version_join_assign` | dense, bigroot, hugeleaf, cliff, benign | `BitOrAssign` |
 | `version_meet` | dense, bigroot, hugeleaf, cliff, benign | `BitAnd` |
 | `version_meet_assign` | dense, bigroot, hugeleaf, cliff, benign | `BitAndAssign` |
-| `version_tick` | dense, bigroot, hugeleaf, cliff, benign | `Version::tick`, `batch::Version::tick` (adversarial version × small party) |
+| `version_tick` | dense, bigroot, hugeleaf, cliff, the eight tick-cross shapes, benign | `Version::tick`, `batch::Version::tick` (adversarial version × small party; the tick crosses carry their own (event, id) pair) |
 | `version_tick_adv_party` | id-pair, benign | the same tick, adversarial party × small version; `Party::tick` is its mirror |
 | `version_batch_snapshot` | dense, bigroot, hugeleaf, cliff, benign | `batch::Version::snapshot` |
 | `version_rank` | dense, bigroot, hugeleaf, cliff, harmonic, benign | `Version::rank` (and `Ranked::from`) |
@@ -72,7 +76,7 @@ the judge-only wide-display pair (2). Families: `dense`, `bigroot`,
 | `party_hash` | id-pair, benign | `Hash` on `Party` |
 | `clock_decode` | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::decode` |
 | `clock_encode` | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::encode` |
-| `clock_tick` | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::tick` (`send` by definition; `batch::Clock::tick`) |
+| `clock_tick` | dense, bigroot, hugeleaf, cliff, id-pair, the eight tick-cross shapes, benign | `Clock::tick` (`send` by definition; `batch::Clock::tick`) |
 | `clock_fork` | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::fork`, `batch::Clock::fork` |
 | `clock_join` | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::join`, `batch::Clock::join` |
 | `clock_sync` | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::sync`, `batch::Clock::sync` |
