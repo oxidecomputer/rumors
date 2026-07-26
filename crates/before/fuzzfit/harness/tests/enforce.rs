@@ -38,7 +38,7 @@ use fuzzfit_harness::bands::{
 };
 use fuzzfit_harness::curve::{local_slope_excess, SHAPE_EXEMPT, SLOPE_ALLOWANCE};
 use fuzzfit_harness::drive::{for_each_deterministic_program, run_program, Sample};
-use fuzzfit_harness::strategies::{any_program, build, Family};
+use fuzzfit_harness::strategies::{any_program, build, Family, ESCALATION_REPLAYS};
 use fuzzfit_harness::wasm::Guest;
 
 /// Judge one program's samples on both enforcement legs, panicking with
@@ -274,7 +274,8 @@ fn refit_of_the_deterministic_prefix_matches_the_pin() {
 /// regime nearly three times per default run.)
 #[test]
 fn the_escalated_regime_stays_in_the_pinned_bands() {
-    let program = build(&Family::Escalation { depth: 1024 }, 0xE5CA);
+    let (depth, seed) = ESCALATION_REPLAYS[0];
+    let program = build(&Family::Escalation { depth }, seed);
     let samples = run_program(&program)
         .unwrap_or_else(|m| panic!("malformed escalation program at {}", m.op));
     judge(&samples);
@@ -291,7 +292,8 @@ fn the_escalated_regime_stays_in_the_pinned_bands() {
 /// deepest constructible spine, a different seed, the same judgment.
 #[test]
 fn the_escalation_depth_cap_stays_in_the_pinned_bands() {
-    let program = build(&Family::Escalation { depth: 1792 }, 0x1792);
+    let (depth, seed) = ESCALATION_REPLAYS[1];
+    let program = build(&Family::Escalation { depth }, seed);
     let samples = run_program(&program)
         .unwrap_or_else(|m| panic!("malformed escalation program at {}", m.op));
     judge(&samples);
