@@ -162,18 +162,27 @@
 //! ceiling generous to scheduler noise and impassable for a quadratic's
 //! ~2.0.
 //!
-//! # Acceptance scales
+//! # Acceptance scales and the profile of record
 //!
 //! Every cell runs at a size scale; the inner loop uses the default
 //! (scale 1, seconds of runtime). Segment counts have a ~1 MiB growth
 //! threshold, so recursion-frame amplifiers whose onset sits above the
 //! default depths read false green there — **campaign acceptance is
 //! therefore all cells green at BOTH the default scale and the record
-//! scale [`RECORD_SCALE`] (`just amp-board-record`), three identical runs
-//! each, plus the bench judge green across the same two scales**. Record
+//! scale [`RECORD_SCALE`] (`just amp-board-record`), one run each (the
+//! determinism legs above are what prove a reading reproducible), plus
+//! the bench judge green across the same two scales**. Record
 //! runs are acceptance-time only; the enforced
 //! per-operation record remains the process-isolated envelope suite in
 //! `tests/meter.rs`.
+//!
+//! Readings of record come from the **release profile** (the `amp-board*`
+//! recipes): debug assertions perform metered work — `Base` comparisons
+//! through the limb shim, probe cursors that record scan bits — so a dev
+//! board measures the algorithm plus its verification scaffolding, while
+//! release measures the production work alone, the honest denominator. A
+//! dev run remains a legitimate debugging view (the assertions themselves
+//! are live there); its readings must never be pinned.
 //!
 //! # Denomination
 //!
@@ -509,7 +518,8 @@ pub const TEXT_BYTES_PER_RADIX_UNIT: f64 = 8.0;
 /// ×4 is the witnessed calibration floor — the scale at which every known
 /// segment-onset amplifier read red under pre-fix code — so acceptance runs
 /// pin it. **Campaign acceptance is all cells green at BOTH the default
-/// scale and this one, three identical runs each**; a record run is
+/// scale and this one, one run each under the determinism tripwire**; a
+/// record run is
 /// acceptance-time only (the inner loop stays at the default scale, and the
 /// enforced per-operation record remains the envelope suite in
 /// `tests/meter.rs` regardless of board onset).
