@@ -1822,8 +1822,9 @@ proptest! {
     }
 }
 
-/// The at-rest form is the wire bytes in a length-carrying container: a
-/// [`Version`] is exactly one `codec::Bits` (pointer, live bit length,
+/// The at-rest form is the wire bytes in a length-carrying container.
+///
+/// A [`Version`] is exactly one `codec::Bits` (pointer, live bit length,
 /// capacity — 24 bytes on 64-bit), and a [`Clock`](crate::Clock) is a
 /// `Party` plus a `Version` (48). A regression here means the storage
 /// grew a field beside the container — the cached live length must ride
@@ -1835,12 +1836,13 @@ fn at_rest_size_is_one_container_per_stream() {
 }
 
 proptest! {
-    /// The byte-level equality the stored form uses (`codec::canonical_eq`:
-    /// raw bytes plus live length) agrees with a plain bit-level compare of
-    /// the live streams on arbitrary pairs, in both operand orders — the
-    /// cross-check that the canonical-raw-slice invariant (dead bits zeroed
-    /// at every storage seam) really licenses the byte shortcut. Equal
-    /// values must also hash equally (`Eq`/`Hash` consistency).
+    /// Byte-level equality (`codec::canonical_eq`) agrees with a plain
+    /// bit-level compare of the live streams, in both operand orders.
+    ///
+    /// The cross-check that the canonical-raw-slice invariant (dead bits
+    /// zeroed at every storage seam) really licenses the byte shortcut
+    /// over raw bytes plus live length. Equal values must also hash
+    /// equally (`Eq`/`Hash` consistency).
     #[test]
     fn byte_equality_matches_bit_equality(
         oa in arb_oracle_version(),
