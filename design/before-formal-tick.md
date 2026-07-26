@@ -27,26 +27,32 @@ performance — so nothing here is conditioned on them. (Owner's ruling,
 2026-07-26: semantic claims are conditional on the invariants; cost and
 equivalence claims are total.)
 
-### Theorem A — unconditional equivalence, including rejections
+### Theorem A — unconditional equivalence over logical trees
 
-> The skyline implementation and the paper's reference implementation of
-> tick denote **the same total function** at the byte level:
-> both are total functions `Bytes → Result<Bytes, Error>`, and they are
-> equal — agreeing on every accepted input's output bytes AND on exactly
-> which inputs are rejected.
+> The skyline implementation and the paper's reference implementation
+> of tick compute **the same total function over logical trees**,
+> related by the reverse conversion from the production representation:
+> for every accepted byte string `b`, converting the skyline tick's
+> result back to a logical tree equals the paper's event applied to
+> `b`'s logical tree. The paper specifies no wire format, so no
+> byte-level behavior is attributed to the reference side (owner
+> ruling, 2026-07-26); the byte level enters only through
+> production-side artifacts, formalized once.
 
-No canonicality hypothesis: the rejection set is part of the proved
-artifact, not a side condition. Consequences and sub-obligations:
+No canonicality hypothesis and no invariant hypothesis. Consequences
+and sub-obligations:
 
-- **The canonicality specification is formalized**: the accepted set of
-  byte strings is characterized (minimal topology, natural heights, exact
-  stream, bounded zero pad), and both sides reject its complement.
-- **Error classification**: whether the two sides must agree on *which*
-  error (truncated vs non-canonical vs trailing) or merely on rejection
-  is a statement-document decision (Phase 0), recorded with rationale
-  before any proof is attempted.
-- **The coding bijection** (canonical stream ↔ minimal tree) is a lemma
-  of the accepted-set characterization, not an axiom.
+- **The canonicality specification is formalized** as a production-side
+  artifact: the accepted set of byte strings is characterized (minimal
+  topology, natural heights, exact stream, bounded zero pad), and the
+  production decode is proved to reject exactly its complement.
+- **The coding bijection** (canonical stream ↔ minimal logical tree) is
+  a lemma of the accepted-set characterization, not an axiom; the
+  theorem statement's reverse conversion is its tree-ward direction.
+- **Error classification**: whether the rejection characterization
+  distinguishes error classes (truncated vs non-canonical vs trailing)
+  or proves membership only is a statement-document decision (Phase 0),
+  recorded with rationale before any proof is attempted.
 - This theorem kernel-pins the crate's bedrock identity claim — decode
   strictly rejects non-canonical input, which is what
   byte-equality-as-semantic-equality (`Eq`/`Hash` over raw bytes) rests
@@ -78,10 +84,11 @@ the release-profile amplification board, and the fuzz-fit instruction
 bands. The statement of record must say this in so many words
 (statement-faithfulness: never weaker than stated, never stronger than
 proven). Theorem A narrows the gap from the other side — it binds the
-*reference semantics* to the *skyline semantics* at the byte level, so
-the empirical fleet's oracle-differential leg is guarding a formally
-unique function — but no claim in this campaign asserts properties of
-compiled Rust.
+*reference semantics* to the *skyline semantics* over logical trees,
+with the byte level bound by the production-side canonicality
+artifacts, so the empirical fleet's oracle-differential leg is
+guarding a formally unique function — but no claim in this campaign
+asserts properties of compiled Rust.
 
 ## 3. Inheritance from the hardening campaign
 
@@ -166,9 +173,11 @@ a scope recommendation. **GATE: the owner confers on the effort report
 before Phase 2 is committed to.** Phase 1 may proceed on the owner's
 approval of the statement document alone.
 
-**Phase 1 — Theorem A.** The accepted-set characterization; the coding
-bijection; the commutation square (skyline tick ∘ decode ≡ decode ∘
-reference event, extended to rejection agreement). Acceptance: the
+**Phase 1 — Theorem A.** The accepted-set characterization and the
+production decode's rejection-exactness; the coding bijection; the
+commutation square over logical trees (the skyline tick's output,
+reverse-converted, ≡ the paper's event on the input's tree, for every
+accepted input). Acceptance: the
 theorem statement audited EXACT against the statement of record; the
 executable models remain calibrated (the proof may not drift the
 transcription); the rejection-set characterization cross-checked against
@@ -235,3 +244,8 @@ durable map from theorem names to English claims.
   into this campaign as Phase 0's first deliverable — one read serves as
   both the spec's ratification and this campaign's input fixing; the
   hardening campaign no longer tracks it.
+- 2026-07-26 (owner): Theorem A equates over logical trees via the
+  reverse conversion from the production representation. The paper
+  specifies no wire format, so the reference side carries no byte-level
+  behavior; the canonicality specification and the coding bijection are
+  production-side artifacts, formalized once.
