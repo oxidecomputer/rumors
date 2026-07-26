@@ -1,16 +1,21 @@
-//! Differential pins for the skyline fill and the tick splice.
+//! Differential pins for the fused tick against the recursive oracle.
 //!
-//! `fill` is held to the recursive oracle (`oracle::Version::fill`
-//! through the bridge) over every pool, with canonical uniqueness
-//! making the differential total: the filled stream must equal the
-//! oracle's encoded result byte for byte. The `tick` asserts run the
-//! module function against the public `Version::tick`, which routes to
-//! the same kernel — an entry-agreement and determinism pin, not an
-//! independent value; the splice's value correctness rests on the fill
-//! oracle here and the grow suite's oracle and brute-force pins
-//! (`grow/tests.rs`), so each branch is pinned, not just their
-//! composition. The deep-spine case derives its expected values in
-//! closed form (its test doc states each derivation).
+//! Two committed differentials are the entire pin of the fused walk and
+//! its changed flag, both total by canonical uniqueness: [`tick`] must
+//! equal the recursive oracle's `event` byte for byte, and the walk's
+//! changed flag must read exactly `fill(i, e) ≠ e` decided by the
+//! oracle's `fill` — over every committed family crossed with
+//! adversarial parties, the exhaustive small scope, arbitrary pairs,
+//! and organic histories. The flag is emitted-differs-from-input,
+//! plateau-aligned: a value-reproducing raise must not trip it, and the
+//! first emitted leaf compares absolute against absolute (the worked
+//! corner cases pin both). The oracle walks on native frames with
+//! materialized magnitudes, so these grids run at oracle-sized
+//! operands; large-operand coverage lives in the deep closed-form
+//! witnesses below, the meter suite's closed-form output asserts at its
+//! pinned scales, and the board's determinism tripwire. The unchanged
+//! branch's splice is additionally held to the oracle's inflation, the
+//! brute-force search, and a reference route probe in `grow/tests.rs`.
 
 use proptest::prelude::*;
 use rayon::prelude::*;
@@ -33,7 +38,7 @@ use crate::testing::{generators, optrace};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Version};
 
-use super::{fill, tick};
+use super::{fused_fill, tick, FillOutcome};
 
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -45,36 +50,59 @@ fn party_of(p: &Packed) -> Party {
     Party::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
 }
 
-/// Assert the fill kernel against the recursive oracle on one pair, and
-/// that its output validates as canonical.
-fn assert_fill(v: &Version, p: &Party) {
+/// Whether the fused walk's changed flag tripped on one pair.
+fn flag_of(v: &Version, p: &Party) -> bool {
+    matches!(fused_fill(&encode(v), p), FillOutcome::Changed(_))
+}
+
+/// The two differentials of record on one pair, plus entry agreement
+/// and canonicality.
+///
+/// The changed flag must read exactly what the recursive oracle's
+/// `fill` decides (`fill(i, e) ≠ e`), the changed branch's stream must
+/// be the oracle's fill byte for byte, and the whole `tick` must be the
+/// oracle's `event` byte for byte — canonical uniqueness makes all
+/// three total. The public `Version::tick` routes to the same kernel;
+/// asserting it too pins entry agreement and determinism.
+fn assert_tick(v: &Version, p: &Party) {
     let enc = encode(v);
-    let out = fill(&enc, p);
-    validate(&out).expect("a filled stream is canonical");
-    let oracle = to_oracle_version(v).fill_for_test(&to_oracle_party(p));
+    let filled = from_oracle_version(&to_oracle_version(v).fill_for_test(&to_oracle_party(p)));
+    let changed = filled != *v;
+    match fused_fill(&enc, p) {
+        FillOutcome::Changed(bits) => {
+            assert!(
+                changed,
+                "the changed flag tripped but the oracle's fill is the identity: {v} with {p}"
+            );
+            assert_eq!(
+                bits,
+                encode(&filled),
+                "the changed branch must be the oracle's fill: {v} with {p}"
+            );
+        }
+        FillOutcome::Unchanged(_) => {
+            assert!(
+                !changed,
+                "the changed flag stayed clear but the oracle's fill moved the tree: {v} with {p}"
+            );
+        }
+    }
+    let out = tick(&enc, p);
+    validate(&out).expect("a ticked stream is canonical");
+    let mut oracle = to_oracle_version(v);
+    oracle.tick(&to_oracle_party(p));
     assert_eq!(
         out,
         encode(&from_oracle_version(&oracle)),
-        "fill must match the recursive oracle: {v} with {p}"
+        "tick must register the recursive oracle's event: {v} with {p}"
     );
-}
-
-/// Assert the tick splice through both entry points on one pair, and
-/// that the output validates as canonical.
-///
-/// The module function runs against the public `Version::tick`, which
-/// routes to the same kernel: this pins entry agreement and
-/// determinism, not an independent value.
-fn assert_tick(v: &Version, p: &Party) {
-    let out = tick(&encode(v), p);
     let mut expected = v.clone();
     expected.tick(p);
     assert_eq!(
         out,
         encode(&expected),
-        "the tick splice and the public tick must agree: {v} with {p}"
+        "the module tick and the public tick must agree: {v} with {p}"
     );
-    validate(&out).expect("a ticked stream is canonical");
 }
 
 /// The adversarial event pool: every §2 family at two scales, plus the
@@ -127,9 +155,9 @@ fn event_pool() -> Vec<Version> {
 }
 
 /// The adversarial party pool: the seed, deep and diverted unary
-/// spines, scattered ownership, and every exhaustive small-scope id —
-/// including the empty id, which `fill` (unlike `grow`) accepts as the
-/// identity arm.
+/// spines, scattered ownership, and every owning exhaustive
+/// small-scope id (an empty id never ticks: the public contract
+/// requires an owning party).
 fn party_pool() -> Vec<Party> {
     let mut pool = vec![
         Party::seed(),
@@ -159,32 +187,34 @@ fn party_pool() -> Vec<Party> {
         party_of(&ascend_cliff_id(1)),
         party_of(&ascend_cliff_id(6)),
     ];
-    pool.extend(all_normal_ids(2).iter().map(from_oracle_party));
+    for oid in all_normal_ids(2) {
+        let p = from_oracle_party(&oid);
+        if !p.as_bits().is_empty() {
+            pool.push(p);
+        }
+    }
     pool
 }
 
-/// Every event-family × party-family pair fills byte-identically to
-/// the recursive oracle and ticks in agreement through both entry
-/// points (owning parties; the empty id has no tick).
+/// Every event-family × party-family pair ticks byte-identically to
+/// the recursive oracle's event, with the changed flag agreeing with
+/// the oracle's fill, through both entry points.
 #[test]
-fn family_pairs_fill_and_tick_identically() {
+fn family_pairs_tick_and_flag_identically() {
     let events = event_pool();
     let parties = party_pool();
     events.par_iter().for_each(|v| {
         for p in &parties {
-            assert_fill(v, p);
-            if !p.as_bits().is_empty() {
-                assert_tick(v, p);
-            }
+            assert_tick(v, p);
         }
     });
 }
 
-/// Exhaustive small scope: every normal-form event tree × every
-/// normal-form id fills byte-identically to the recursive oracle, and
-/// every owning id ticks in agreement through both entry points.
+/// Exhaustive small scope: every normal-form event tree × every owning
+/// normal-form id ticks byte-identically to the recursive oracle's
+/// event, with the changed flag agreeing with the oracle's fill.
 #[test]
-fn exhaustive_small_scope_fills_and_ticks_identically() {
+fn exhaustive_small_scope_ticks_and_flags_identically() {
     let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(from_oracle_version)
@@ -192,22 +222,27 @@ fn exhaustive_small_scope_fills_and_ticks_identically() {
     let parties: Vec<Party> = all_normal_ids(ID_SMALL_DEPTH)
         .iter()
         .map(from_oracle_party)
+        .filter(|p| !p.as_bits().is_empty())
         .collect();
     events.par_iter().for_each(|v| {
         for p in &parties {
-            assert_fill(v, p);
-            if !p.as_bits().is_empty() {
-                assert_tick(v, p);
-            }
+            assert_tick(v, p);
         }
     });
 }
 
-/// The worked examples, pinned end to end: the full-id collapse, both
-/// shortcut raises (taken and declined), and a nested arm.
+/// The worked fill examples, pinned end to end through the fused
+/// tick.
+///
+/// The cases: the full-id collapse, both shortcut raises (taken
+/// and declined), and a nested arm — each a changed-flag trip whose
+/// tick is the collapse itself, plus the declined raise whose flag
+/// stays clear.
 #[test]
-fn worked_examples_fill_exactly() {
-    let cases: [(&str, &str, &str); 6] = [
+fn worked_examples_tick_exactly() {
+    // (party, before, fill's result): fill moves the tree, so the tick
+    // IS fill's result.
+    let changed: [(&str, &str, &str); 5] = [
         // The full id collapses the whole tree to its max (heights 2
         // and 3; the collapse is the higher plateau).
         ("1", "(2, 0, 1)", "3"),
@@ -216,9 +251,6 @@ fn worked_examples_fill_exactly() {
         ("(1, 0)", "(2, 0, 1)", "3"),
         // Right-full, mirrored.
         ("(0, 1)", "(2, 1, 0)", "3"),
-        // Right-full where the raise is declined (max(er) = 3 already
-        // clears min(el') = 2): nothing changes.
-        ("(0, 1)", "(2, 0, 1)", "(2, 0, 1)"),
         // Left-full over an internal left child: the whole el subtree
         // collapses into the raised leaf.
         ("(1, 0)", "(2, (0, 1, 0), 3)", "5"),
@@ -226,30 +258,68 @@ fn worked_examples_fill_exactly() {
         // inner raise lifts the root's minimum, and norm re-lifts it.
         ("((1, 0), 0)", "(1, (0, 0, 1), 2)", "(2, 0, 1)"),
     ];
-    for (party, before, after) in cases {
+    for (party, before, after) in changed {
         let p: Party = party.parse().expect("test party literals parse");
         let v: Version = before.parse().expect("test version literals parse");
         let expected: Version = after.parse().expect("test version literals parse");
-        assert_eq!(
-            fill(&encode(&v), &p),
-            encode(&expected),
-            "fill of {before} with {party} must yield {after}"
-        );
-        assert_fill(&v, &p);
+        match fused_fill(&encode(&v), &p) {
+            FillOutcome::Changed(bits) => assert_eq!(
+                bits,
+                encode(&expected),
+                "fill of {before} with {party} must yield {after}"
+            ),
+            FillOutcome::Unchanged(_) => {
+                panic!("fill of {before} with {party} moves the tree: the flag must trip")
+            }
+        }
+        assert_tick(&v, &p);
     }
+    // Right-full where the raise is declined (max(er) = 3 already
+    // clears min(el') = 2): fill is the identity, the flag stays
+    // clear, and the tick is the grow branch.
+    let p: Party = "(0, 1)".parse().expect("test party literals parse");
+    let v: Version = "(2, 0, 1)".parse().expect("test version literals parse");
+    assert!(
+        !flag_of(&v, &p),
+        "a declined raise reproduces the input: the flag must stay clear"
+    );
+    assert_tick(&v, &p);
 }
 
-/// The splice takes both branches: a fill that simplifies is the tick,
-/// and a fill that changes nothing falls through to grow.
+/// The changed flag's corner cases, pinned as worked examples: the
+/// flag is emitted-differs-from-input, plateau-aligned, never "an arm
+/// fired".
+///
+/// A raise that reproduces the existing leaf value exactly must not
+/// trip it (`max(max(el), min(er′)) = el` is the paper's equation
+/// producing the input leaf verbatim — here the flag's first
+/// comparison is also the stream's first plateau, so the match
+/// compares one absolute code against another, never a delta against
+/// an absolute); a collapse that shifts which input leaf is first
+/// trips on topology (the replaced range is not a single leaf) before
+/// any code comparison is reached.
 #[test]
-fn tick_splices_fill_and_grow() {
-    // fill simplifies: the collapse is the tick.
-    let v: Version = "(2, 0, 1)".parse().expect("test literals parse");
-    let p: Party = "(1, 0)".parse().expect("test literals parse");
-    assert_eq!(tick(&encode(&v), &p), encode(&"3".parse().unwrap()));
-    // fill is the identity: grow registers the event.
-    let v: Version = "(0, 1, 0)".parse().expect("test literals parse");
-    assert_eq!(tick(&encode(&v), &p), encode(&"(0, 2, 0)".parse().unwrap()));
+fn flag_reads_plateau_divergence_not_arm_firing() {
+    // Left-full raise, value-reproducing at the stream's head:
+    // max(max(el) = 1, min(er) = 0) = 1 = el. The first emitted leaf
+    // is the raise's — absolute against absolute — and the flag stays
+    // clear.
+    let p: Party = "(1, 0)".parse().expect("test party literals parse");
+    let v: Version = "(2, 1, 0)".parse().expect("test version literals parse");
+    assert!(
+        !flag_of(&v, &p),
+        "a value-reproducing raise emits the input plateau: no divergence"
+    );
+    assert_tick(&v, &p);
+
+    // The same arm over a multi-leaf left child: the collapse shifts
+    // which leaf is first, so the flag trips on topology — the range
+    // replaced by one leaf was a node — before any code comparison.
+    let v: Version = "(2, (0, 1, 0), 5)".parse().expect("test literals parse");
+    assert!(
+        flag_of(&v, &p),
+        "a collapse that moves topology trips the flag on the plateau's depth"
+    );
     assert_tick(&v, &p);
 }
 
@@ -258,7 +328,7 @@ fn tick_splices_fill_and_grow() {
 /// 1-leaf at the bottom left.
 ///
 /// Built as a text literal — the parser is iterative — so the expected
-/// tree shares no walk with fill or grow.
+/// tree shares no walk with the kernel under test.
 fn left_spike(depth: usize) -> Version {
     let mut text = "(0, ".repeat(depth - 1);
     text.push_str("(0, 1, 0)");
@@ -267,131 +337,138 @@ fn left_spike(depth: usize) -> Version {
 }
 
 /// Deep spines in every regime stay correct at depths that would
-/// overflow a native-frame walk: the collapse scan, the pass-through
-/// copy, and the two-cursor descent.
+/// overflow a native-frame walk.
 ///
-/// The recursive `oracle` enums walk on native frames (they are the
-/// small-scope reference, not a deep-input one), so the value witnesses
-/// here are closed forms, derived per case: the full id collapses the
-/// whole spine to one leaf at its maximum height — the alternating
-/// spine's only nonzero leaf is the `1` at the bottom pair — and that
-/// collapse is the tick; the deep unary id over the empty version fills
-/// to the identity (fill of a leaf under a node id is the leaf) and
-/// ticks to the left spike, the expansion chain to its owned tip; and
-/// over the deep spine the same id turns left into the spine's depth-2
-/// zero leaf (the spine's structure continues right there), so fill is
-/// again the identity and the grown tree raises exactly the owned
-/// region from 0 to 1 — the pointwise max with the spike, realized
-/// through the independently-pinned join kernel and byte-exact by
-/// canonical uniqueness. The nested-full-sibling id over its matched
-/// spine fills to the identity, derived: every level's right-full
-/// raise is `max(max(er), min(fill(il, el)))`, where `er` is a single
-/// leaf (its own maximum) and the left range's minimum stays at the
-/// spine's floor of zero, so no raise ever moves a value — and the id
-/// terminus pairs with a leaf (the untouched-leaf arm). The case
-/// drives the deferred right-full decision and its per-level raise
-/// bookkeeping at full depth with a value witness the small scope
-/// pins against the oracle. The mirror id over the wide-tail spine
-/// collapses to the single wide leaf, derived bottom-up: the deepest
-/// left-full raise is `max(max(el), min(fill(ir, er)))` with `el` a
-/// lone zero leaf and `er` the wide tail itself (a leaf's minimum is
-/// its value), so the raise lifts the zero leaf to the tail's value,
-/// the equal sibling pair collapses, and each enclosing level sees
-/// the same wide leaf as its right minimum — the collapse telescopes
-/// to the root. The case drives the memoized pre-scan at full depth
-/// with wide minima in every memo entry, and the collapse is the
-/// tick (fill changed the tree). The staircase under the unary id
-/// spine fills to the identity — its levels pair internal × internal
-/// down to the terminus, whose left-full raise `max(max(a), min(b))`
-/// with `a` one step above `b` returns `a` itself — and its tick
-/// increments the id's owned tip, the bottom-left leaf; every
+/// The regimes: the collapse scan, the
+/// pass-through copy, the two-cursor descent, the memoized pre-scan,
+/// and both fused epilogues (the prefix materialization and the
+/// route-driven splice).
+///
+/// The recursive oracle walks on native frames (it is the small-scope
+/// reference, not a deep-input one), so the value witnesses here are
+/// closed forms, derived per case: the full id collapses the whole
+/// spine to one leaf at its maximum height — the alternating spine's
+/// only nonzero leaf is the `1` at the bottom pair — and that collapse
+/// trips the flag, so it is also the tick; the deep unary id over the
+/// empty version leaves the flag clear (fill of a leaf under a node id
+/// is the leaf) and ticks to the left spike, the expansion chain to
+/// its owned tip; and over the deep spine the same id turns left into
+/// the spine's depth-2 zero leaf (the spine's structure continues
+/// right there), so the flag again stays clear and the grown tree
+/// raises exactly the owned region from 0 to 1 — the pointwise max
+/// with the spike, realized through the independently-pinned join
+/// kernel and byte-exact by canonical uniqueness. The nested-full-
+/// sibling id over its matched spine leaves the flag clear, derived:
+/// every level's right-full raise is `max(max(er), min(fill(il, el)))`,
+/// where `er` is a single leaf (its own maximum) and the left range's
+/// minimum stays at the spine's floor of zero, so no raise ever moves
+/// a value — and the id terminus pairs with a leaf (the untouched-leaf
+/// arm). The case drives the deferred right-full decision and its
+/// per-level raise bookkeeping at full depth with a value witness the
+/// small scope pins against the oracle. The mirror id over the
+/// wide-tail spine collapses to the single wide leaf, derived
+/// bottom-up: the deepest left-full raise is `max(max(el),
+/// min(fill(ir, er)))` with `el` a lone zero leaf and `er` the wide
+/// tail itself (a leaf's minimum is its value), so the raise lifts the
+/// zero leaf to the tail's value, the equal sibling pair collapses,
+/// and each enclosing level sees the same wide leaf as its right
+/// minimum — the collapse telescopes to the root. The case drives the
+/// memoized pre-scan at full depth with wide minima in every memo
+/// entry, and the collapse trips the flag. The staircase under the
+/// unary id spine leaves the flag clear — its levels pair internal ×
+/// internal down to the terminus, whose left-full raise `max(max(a),
+/// min(b))` with `a` one step above `b` returns `a` itself — and its
+/// tick increments the id's owned tip, the bottom-left leaf; every
 /// consumed leaf undercuts every open range on the way, the
-/// full-penetration minimum-update schedule. Canonicality, fill
-/// idempotence, and tick entry agreement ride along on every case.
+/// full-penetration minimum-update schedule. A changed pair's output
+/// re-ticks through the grow branch (fill is idempotent, restated as
+/// the flag reading clear on a filled stream); canonicality and tick
+/// entry agreement ride along on every case.
 #[test]
-fn deep_spines_fill_and_tick_identically() {
-    let assert_deep = |v: &Version, p: &Party| {
-        let out = fill(&encode(v), p);
-        validate(&out).expect("a filled stream is canonical");
-        let again = fill(&out, p);
-        assert_eq!(again, out, "deep fill must be idempotent");
-        assert_tick(v, p);
-        out
+fn deep_spines_tick_and_flag_identically() {
+    // A changed pair: the flag trips, the fill-branch stream is the
+    // derived closed form, and re-running the walk on that stream
+    // leaves the flag clear (fill idempotence, flag-denominated).
+    let assert_deep_changed = |v: &Version, p: &Party, expected: &Version| {
+        let enc = encode(v);
+        match fused_fill(&enc, p) {
+            FillOutcome::Changed(bits) => {
+                validate(&bits).expect("a filled stream is canonical");
+                assert_eq!(bits, encode(expected), "the derived closed form");
+                let again: Version = Version::from_bits(bits.clone());
+                assert!(
+                    !flag_of(&again, p),
+                    "a filled stream re-ticks through the grow branch"
+                );
+            }
+            FillOutcome::Unchanged(_) => panic!("fill moves this pair: the flag must trip"),
+        }
+        assert_eq!(
+            tick(&enc, p),
+            encode(expected),
+            "tick takes the fill branch: the collapse"
+        );
+        let mut ticked = v.clone();
+        ticked.tick(p);
+        assert_eq!(encode(&ticked), encode(expected), "entry agreement");
     };
+    // An unchanged pair: the flag stays clear and the tick is the
+    // derived grow closed form.
+    let assert_deep_unchanged = |v: &Version, p: &Party, grown: &Version| {
+        let enc = encode(v);
+        assert!(!flag_of(v, p), "fill is the identity: the flag stays clear");
+        let out = tick(&enc, p);
+        validate(&out).expect("a ticked stream is canonical");
+        assert_eq!(out, encode(grown), "the derived grow closed form");
+        let mut ticked = v.clone();
+        ticked.tick(p);
+        assert_eq!(encode(&ticked), encode(grown), "entry agreement");
+    };
+
     let deep_ev = version_of(&alt_spine(4096));
     let deep_id = party_of(&id_spine(4096, false));
     let spike = left_spike(4096);
     let one: Version = "1".parse().expect("test literals parse");
 
-    // The full id: the collapse to the maximum leaf is the fill, and
-    // fill changed the tree, so it is also the tick.
-    let filled = assert_deep(&deep_ev, &Party::seed());
-    assert_eq!(
-        filled,
-        encode(&one),
-        "the full id collapses the spine to its maximum leaf"
-    );
-    assert_eq!(
-        tick(&encode(&deep_ev), &Party::seed()),
-        encode(&one),
-        "tick takes the fill branch: the collapse"
-    );
+    // The full id: the collapse to the maximum leaf.
+    assert_deep_changed(&deep_ev, &Party::seed(), &one);
 
     // The deep unary id over the empty version: identity fill, so tick
-    // falls through to grow's expansion chain.
-    let filled = assert_deep(&Version::new(), &deep_id);
-    assert_eq!(
-        filled,
-        encode(&Version::new()),
-        "fill of a leaf under a node id is the identity"
-    );
-    assert_eq!(
-        tick(&encode(&Version::new()), &deep_id),
-        encode(&spike),
-        "tick grows the expansion chain to the owned tip"
-    );
+    // grows the expansion chain to the owned tip.
+    assert_deep_unchanged(&Version::new(), &deep_id, &spike);
 
     // Both deep: no fully-owned region meets a subdividable subtree, so
     // fill is the identity; the grown tree is the pointwise max with
     // the spike.
-    let filled = assert_deep(&deep_ev, &deep_id);
-    assert_eq!(
-        filled,
-        encode(&deep_ev),
-        "no full-id region: fill is the identity"
-    );
-    assert_eq!(
-        tick(&encode(&deep_ev), &deep_id),
-        encode(&(&deep_ev | &spike)),
-        "the grown stream is the pointwise max with the spike"
-    );
+    assert_deep_unchanged(&deep_ev, &deep_id, &(&deep_ev | &spike));
 
     // The nested-full-sibling id over its matched spine: a right-full
     // shortcut site at every one of the 4096 levels — the deferred
     // right-full decision and its raise bookkeeping at full depth.
     // Fill is the identity (the doc comment's derivation: each raise
-    // maxes a lone leaf against a zero minimum), and the small scope
-    // pins the same cross against the oracle at every depth it
-    // enumerates.
+    // maxes a lone leaf against a zero minimum), so the tick registers
+    // the inflation: the id's cheapest site is the terminus leaf at
+    // the bottom right, `(0, 0, 1)` over the matched spine's zero —
+    // the pointwise max with the deepest-right unit spike.
     let mut text = "(0, ".repeat(4095);
     text.push_str("(0, 0, 1)");
     text.push_str(&", 0)".repeat(4095));
     let matched: Version = text.parse().expect("the matched spine literal parses");
     let nested = party_of(&nested_full_id(4096));
-    let filled = assert_deep(&matched, &nested);
-    assert_eq!(
-        filled,
-        encode(&matched),
+    assert!(
+        !flag_of(&matched, &nested),
         "every nested raise maxes a lone leaf against a zero minimum: identity"
     );
+    let mut grown = matched.clone();
+    grown.tick(&nested);
+    validate(&encode(&grown)).expect("a ticked stream is canonical");
 
     // The mirror id over the wide-tail spine: a left-full shortcut
     // site at every one of the 4096 levels — the memoized pre-scan at
     // full depth, every memo entry a wide minimum. The deepest raise
-    // lifts its zero leaf to the tail's value (a leaf's minimum is
-    // its value), the equal pair collapses, and the collapse
-    // telescopes to the root: fill is the single wide leaf, and the
-    // collapse is the tick.
+    // lifts its zero leaf to the tail's value, the equal pair
+    // collapses, and the collapse telescopes to the root: fill is the
+    // single wide leaf, and the flag trips.
     let mut text = "(0, 0, ".repeat(4095);
     text.push_str(&format!("(0, 0, {})", u64::MAX));
     text.push_str(&")".repeat(4095));
@@ -401,17 +478,7 @@ fn deep_spines_fill_and_tick_identically() {
         .parse()
         .expect("the leaf literal parses");
     let mirror = party_of(&nested_left_full_id(4096));
-    let filled = assert_deep(&tail, &mirror);
-    assert_eq!(
-        filled,
-        encode(&wide_leaf),
-        "the deepest raise meets the tail and the collapse telescopes to the root"
-    );
-    assert_eq!(
-        tick(&encode(&tail), &mirror),
-        encode(&wide_leaf),
-        "tick takes the fill branch: the telescoped collapse"
-    );
+    assert_deep_changed(&tail, &mirror, &wide_leaf);
 
     // The descending staircase under the unary id spine: every
     // consumed leaf undercuts every open range — the full-penetration
@@ -426,22 +493,12 @@ fn deep_spines_fill_and_tick_identically() {
     text.push_str(&", 0)".repeat(4095));
     let stairs: Version = text.parse().expect("the staircase literal parses");
     let spine_id = party_of(&id_spine(4096, false));
-    let filled = assert_deep(&stairs, &spine_id);
-    assert_eq!(
-        filled,
-        encode(&stairs),
-        "no full region meets a subdividable subtree: identity"
-    );
     let mut text = "(0, ".to_string();
     text.push_str(&"(1, ".repeat(4094));
     text.push_str("(1, 2, 0)");
     text.push_str(&", 0)".repeat(4095));
     let grown: Version = text.parse().expect("the grown staircase literal parses");
-    assert_eq!(
-        tick(&encode(&stairs), &spine_id),
-        encode(&grown),
-        "tick increments the owned bottom-left leaf"
-    );
+    assert_deep_unchanged(&stairs, &spine_id, &grown);
 
     // The memo chain at 4096 sites: every interior left-full site
     // collapses its `(0, 0, j)` node to the leaf `j` (the raise meets
@@ -459,16 +516,7 @@ fn deep_spines_fill_and_tick_identically() {
     let expected: Version = text.parse().expect("the chain literal parses");
     let chain = memo_chain(k as usize, true).version();
     let chain_id = party_of(&memo_chain_id(k as usize));
-    assert_eq!(
-        fill(&encode(&chain), &chain_id),
-        encode(&expected),
-        "every site's raise meets its single-leaf range"
-    );
-    assert_eq!(
-        tick(&encode(&chain), &chain_id),
-        encode(&expected),
-        "tick takes the fill branch: the sites collapse"
-    );
+    assert_deep_changed(&chain, &chain_id, &expected);
 
     // The reveal comb at 4096 sites: every site's left-full raise meets
     // its single-leaf range at the shared minimum `2^b` (the raise is
@@ -488,16 +536,7 @@ fn deep_spines_fill_and_tick_identically() {
     let expected: Version = text.parse().expect("the reveal-comb literal parses");
     let comb = reveal_comb(k, b).version();
     let comb_id = party_of(&reveal_comb_id(k));
-    assert_eq!(
-        fill(&encode(&comb), &comb_id),
-        encode(&expected),
-        "every site's raise meets its single-leaf range at the shared minimum"
-    );
-    assert_eq!(
-        tick(&encode(&comb), &comb_id),
-        encode(&expected),
-        "tick takes the fill branch: the sites collapse to the wide leaf"
-    );
+    assert_deep_changed(&comb, &comb_id, &expected);
 
     // The ascending cliff at 4096 spine nodes: fill is the identity
     // (no id region covers a subdividable subtree at its minimum), so
@@ -518,51 +557,55 @@ fn deep_spines_fill_and_tick_identically() {
         .expect("the grown ascending-cliff literal parses");
     let cliff = ascend_cliff(k, b).version();
     let cliff_id = party_of(&ascend_cliff_id(k));
-    assert_eq!(
-        fill(&encode(&cliff), &cliff_id),
-        encode(&cliff),
-        "no full region meets a subdividable subtree: identity"
-    );
-    assert_eq!(
-        tick(&encode(&cliff), &cliff_id),
-        encode(&expected),
-        "tick grows the owned cliff leaf to (0, 1, 0)"
-    );
+    assert_deep_unchanged(&cliff, &cliff_id, &expected);
+}
+
+/// The tick takes both branches: a fill that simplifies is the tick,
+/// and a fill that changes nothing falls through to the grow splice.
+#[test]
+fn tick_splices_fill_and_grow() {
+    // fill simplifies: the collapse is the tick.
+    let v: Version = "(2, 0, 1)".parse().expect("test literals parse");
+    let p: Party = "(1, 0)".parse().expect("test literals parse");
+    assert_eq!(tick(&encode(&v), &p), encode(&"3".parse().unwrap()));
+    // fill is the identity: grow registers the event.
+    let v: Version = "(0, 1, 0)".parse().expect("test literals parse");
+    assert_eq!(tick(&encode(&v), &p), encode(&"(0, 2, 0)".parse().unwrap()));
+    assert_tick(&v, &p);
 }
 
 proptest! {
-    /// Arbitrary parties over arbitrary normal-form versions fill
-    /// byte-identically to the recursive oracle (and tick through both
-    /// entry points, when the party owns anything), magnitudes past
+    /// Arbitrary owning parties over arbitrary normal-form versions
+    /// tick byte-identically to the recursive oracle's event, with the
+    /// changed flag agreeing with the oracle's fill, magnitudes past
     /// `u64::MAX` included.
     #[test]
-    fn arbitrary_pairs_fill_and_tick_identically(
+    fn arbitrary_pairs_tick_and_flag_identically(
         op in generators::arb_oracle_party_nonempty(),
         ov in generators::arb_oracle_version(),
     ) {
         let p = from_oracle_party(&op);
         let v = from_oracle_version(&ov);
-        assert_fill(&v, &p);
         if !p.as_bits().is_empty() {
             assert_tick(&v, &p);
         }
     }
 
-    /// Organic histories fill byte-identically to the recursive oracle
-    /// and tick in agreement through both entry points.
+    /// Organic histories tick byte-identically to the recursive
+    /// oracle's event, with the changed flag agreeing with the
+    /// oracle's fill.
     ///
     /// Every clock produced by one fork/tick/send/sync/join history is
     /// exercised from its own party — and from every *other* clock's
     /// party, the concurrent-editor shape.
     #[test]
-    fn organic_histories_fill_and_tick_identically(ops in optrace::world_strategy_up_to(40)) {
+    fn organic_histories_tick_and_flag_identically(ops in optrace::world_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
         for a in &clocks {
             for b in &clocks {
-                assert_fill(a.version(), b.party());
                 if !b.party().as_bits().is_empty() {
                     assert_tick(a.version(), b.party());
                 }

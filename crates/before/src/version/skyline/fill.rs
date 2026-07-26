@@ -1,14 +1,30 @@
-//! `fill` and the `tick` splice on skyline streams: simplify against an
-//! id without registering an event; grow when nothing simplifies.
+//! The fused `tick` on skyline streams: one fill walk carrying the
+//! changed flag and grow's route, then at most one splice.
 //!
-//! `fill(id, e)` collapses every event subtree the id fully owns to a
-//! single leaf at that subtree's maximum height, raising a collapsed
-//! child to its sibling's filled minimum where that lets the parent
-//! simplify (the paper's shortcut arms); `tick` is `fill`, falling back
-//! to the [`grow`](super::grow) emit when `fill` changes nothing. The
-//! walk pairs the packed id (`IdReader`) against the skyline topology
-//! recursively and streams one `(depth, payload code)` plateau per
-//! output leaf to the collapsing builder, which derives the union
+//! The paper's `event` is `fill`, kept iff it moved the tree, else the
+//! cheapest inflation (`grow`). `fill(id, e)` collapses every event
+//! subtree the id fully owns to a single leaf at that subtree's maximum
+//! height, raising a collapsed child to its sibling's filled minimum
+//! where that lets the parent simplify (the paper's shortcut arms).
+//! [`tick`] runs the whole `event` in **one fill walk plus at most one
+//! splice**: the walk decides `fill(id, e) ≠ e` in-pass — the *changed
+//! flag*, tripping at the first emitted plateau that differs from the
+//! input plateau it replaces — and folds grow's `(expansions, depth)`
+//! route DP over the same `(id, event)` nodes it is already visiting
+//! (both live in the `fuse` submodule; the flag's decision rules and
+//! the route fold's arms are specified there against the equations).
+//! While the flag is clear the output is byte-identical to the consumed
+//! input prefix, so nothing is built: the first divergence materializes
+//! that prefix wholesale and the walk continues as a direct emission,
+//! while a walk that never diverges skips output work entirely and
+//! hands its recorded route to [`grow`](super::grow)'s splice emit.
+//! The changed branch therefore costs one walk; the unchanged (grow)
+//! branch costs one walk plus one splice, with fill's discarded output
+//! never built at all.
+//!
+//! The walk pairs the packed id (`IdReader`) against the skyline
+//! topology recursively and streams one `(depth, payload code)` plateau
+//! per output leaf to the collapsing builder, which derives the union
 //! topology and performs the equal-sibling normalization. A shortcut
 //! raise needs no builder repair: the raised value is known before its
 //! leaf is emitted. The right-full arm gets it by deferral — the raised
@@ -53,7 +69,12 @@
 //! most once more (the memo turns every interior left-full site into
 //! a lookup, and distinct fresh scans cover disjoint sibling ranges);
 //! the absent-sibling extremum scans read their range once ahead of
-//! the walk's own copy (a flat ×2, never nesting).
+//! the walk's own copy (a flat ×2, never nesting). The fused route
+//! fold adds no reads of its own — its id reads are the tags the
+//! walk's skips pay anyway — and each of the two branch epilogues is
+//! one more bounded pass: a divergence replays the matched prefix
+//! once, and the unchanged branch's splice emit reads both streams
+//! once.
 //!
 //! Limb: accumulator digit touches are amortized linear in the two
 //! packed streams [measured: exponent 1.00 with flat constants on
@@ -116,16 +137,20 @@
 //!
 //! # Testing
 //!
-//! `fill` is held to the recursive oracle (`oracle::Version::fill`
-//! through the bridge) over the adversarial families crossed with
-//! adversarial parties, arbitrary pairs, organic histories, and the
-//! exhaustive small scope — canonical uniqueness makes the differential
-//! total. `tick` runs through both entry points (the module function
-//! and the public `Version::tick`), pinning the splice's plumbing; its
-//! two branches take their value witnesses from the fill oracle and the
-//! grow suite's oracle and brute-force pins, so each branch is pinned,
-//! not just their composition. Deep spines are held to closed-form
-//! expected values.
+//! Two committed differentials pin the fused walk directly to the
+//! recursive oracle, and they are the entire pin of the flag seam:
+//! `tick` byte-identical to the oracle's `event`, and the changed flag
+//! ≡ (the oracle's `fill` moved the tree) — over the adversarial
+//! families crossed with adversarial parties, arbitrary pairs, organic
+//! histories, and the exhaustive small scope, with canonical
+//! uniqueness making both differentials total. The grow suite
+//! (`grow/tests.rs`) additionally holds the unchanged branch to the
+//! oracle's inflation, the brute-force minimal-inflation search, and a
+//! reference recursive route probe. The oracle walks on native frames
+//! with materialized magnitudes, so these differentials run at
+//! oracle-sized operands; the large-operand coverage lives in the deep
+//! closed-form witnesses here, the meter suite's closed-form output
+//! asserts at its pinned scales, and the board's determinism tripwire.
 
 use core::cmp::Ordering;
 
@@ -135,10 +160,12 @@ use crate::idbits::{IdNode, IdReader};
 use crate::recurse::descend;
 use crate::step;
 
+use self::fuse::{Out, RouteProbe, COST_FREE};
 use self::watermark::{fold, MinStack, Signed};
-use super::build::SkylineBuilder;
+use super::grow::{Cost, COST_MAX};
 use super::{gamma_code, unzigzag, zigzag_signed};
 
+mod fuse;
 mod watermark;
 
 /// The follower slot carrying `min − prev_out` while the output delta
@@ -150,14 +177,18 @@ const OUT_FOLLOWER: usize = 0;
 /// the recording head, `min − m_ref` for the level it serves.
 const REL_FOLLOWER: usize = 1;
 
-/// Register one event on the version a skyline stream denotes, from the
-/// perspective of a packed id: `fill` if it simplifies the tree, else
-/// the [`grow`](super::grow::grow) inflation.
+/// Register one event on the version a skyline stream denotes, from
+/// the perspective of a packed id.
 ///
-/// The differential suite pins each branch against its witness (the
-/// recursive oracle's fill; the oracle's and the brute-force minimal
-/// inflation). Canonical uniqueness makes the splice's test exact:
-/// `fill` changed something iff its stream differs from the input.
+/// The event is `fill` if it
+/// simplifies the tree, else the [`grow`](super::grow) inflation —
+/// one fused walk, then at most one splice (the module doc carries
+/// the fusion).
+///
+/// The differential suite pins the whole `event` against the recursive
+/// oracle and the changed flag against the oracle's `fill`, with the
+/// unchanged branch additionally held to the brute-force minimal
+/// inflation and a reference route probe (`grow/tests.rs`).
 ///
 /// # Panics
 ///
@@ -167,27 +198,34 @@ const REL_FOLLOWER: usize = 1;
 /// and the grow fallback requires an owning id (debug builds assert it;
 /// the result on an empty id is unspecified in release builds).
 pub fn tick(ev: &BitsSlice, id: &crate::Party) -> Bits {
-    let filled = fill(ev, id);
-    if filled.as_bitslice() == ev {
-        super::grow::grow(ev, id)
-    } else {
-        filled
+    match fused_fill(ev, id) {
+        FillOutcome::Changed(bits) => bits,
+        FillOutcome::Unchanged(route) => super::grow::emit(ev, id.as_bits(), &route),
     }
 }
 
-/// `fill(id, e)` on skyline streams: collapse fully-owned subtrees to
-/// their maxima (with the paper's sibling raises), as a canonical
-/// skyline stream.
+/// The fused walk's verdict: `fill` moved the tree (its output stands
+/// as the tick), or it was the identity and the recorded route drives
+/// the grow splice.
+pub(super) enum FillOutcome {
+    /// `fill(id, e) ≠ e`: the canonical filled stream.
+    Changed(Bits),
+    /// `fill(id, e) = e`: the inflation route for
+    /// [`grow::emit`](super::grow::emit).
+    Unchanged(super::grow::Route),
+}
+
+/// Run the fill walk over one `(event, id)` pair with the fused state
+/// live.
 ///
-/// The module doc carries the walk, the relative-height discipline, and
-/// the cost bounds. The output is byte-identical to the recursive
-/// oracle's fill (the differential suite pins it).
+/// The changed flag decides the branch, and the route rides
+/// along for the unchanged one (the module and `fuse` docs carry
+/// both).
 ///
 /// # Panics
 ///
-/// Panics if the event operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes.
-pub fn fill(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
+/// Panics if the event operand is not a canonical skyline stream.
+pub(super) fn fused_fill(ev_bits: &BitsSlice, id: &crate::Party) -> FillOutcome {
     let id_bits = id.as_bits();
     let mut walk = FillWalk {
         ev: ev_bits,
@@ -197,10 +235,12 @@ pub fn fill(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
         gap: Accum::new(),
         w_anchored: false,
         started: false,
+        range_is_leaf: false,
         stack: MinStack::new(),
         memo: Memo::new(),
         corr: Corr::None,
-        out: SkylineBuilder::with_capacity(ev_bits.len()),
+        out: Out::verbatim(),
+        probe: RouteProbe::new(id_bits.len()),
     };
     let mut id = IdReader::root(id_bits);
     walk.stack.open();
@@ -226,12 +266,16 @@ pub fn fill(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
     );
     // Canonicalizing the storage is `Version::from_bits`'s job, the
     // single gate a stream passes through when it becomes a stored value.
-    walk.out.finish()
+    match walk.out.finish(ev_bits) {
+        Some(bits) => FillOutcome::Changed(bits),
+        None => FillOutcome::Unchanged(walk.probe.take_route()),
+    }
 }
 
-/// The fill walk: input cursor, relative-height state, and the output
-/// builder. The `&mut` [`IdReader`] threads alongside as the recursion
-/// argument, exactly as the packed walks thread theirs.
+/// The fill walk: input cursor, relative-height state, the fused
+/// changed-flag output, and the route probe. The `&mut` [`IdReader`]
+/// threads alongside as the recursion argument, exactly as the packed
+/// walks thread theirs.
 struct FillWalk<'a> {
     /// The input skyline stream.
     ev: &'a BitsSlice,
@@ -253,6 +297,13 @@ struct FillWalk<'a> {
     /// Whether any output leaf has been emitted (the first is coded
     /// absolute).
     started: bool,
+    /// Whether the range the last consuming max scan covered was a
+    /// single leaf.
+    ///
+    /// The changed flag's topology test at the emission that replaces
+    /// the range: a multi-leaf range collapsing to one leaf is a
+    /// divergence before any code comparison.
+    range_is_leaf: bool,
     /// The walk's range-minimum watermarks (the anchor web).
     stack: MinStack,
     /// Left-full minima computed ahead of the walk (the frame ledger).
@@ -269,8 +320,13 @@ struct FillWalk<'a> {
     /// it is exactly the queue-front link's reference at every
     /// consume.
     corr: Corr,
-    /// The collapsing output builder.
-    out: SkylineBuilder,
+    /// The changed flag's realization: the verbatim reference until the
+    /// first divergent plateau, the collapsing builder after (the
+    /// `fuse` doc).
+    out: Out,
+    /// Grow's route DP, folded in post-order while the flag is clear
+    /// (the `fuse` doc).
+    probe: RouteProbe,
 }
 
 /// The memoized pre-scan's output — the frame ledger: per left-full
@@ -390,37 +446,51 @@ impl FillWalk<'_> {
     /// `id`, emitting its plateaus and advancing both cursors past
     /// their subtrees.
     ///
+    /// Returns the subtree's inflation cost for the
+    /// route fold (meaningless once the walk has diverged — the probe
+    /// is dead and the route unread).
+    ///
     /// The enclosing range's watermark frame (opened by the caller)
     /// accumulates this subtree's emitted minimum; no per-subtree
-    /// quantity is returned or materialized.
-    fn rec(&mut self, id: &mut IdReader, depth: usize) {
+    /// quantity is returned or materialized beyond the word-pair cost.
+    fn rec(&mut self, id: &mut IdReader, depth: usize) -> Cost {
         let (left, right) = match id.read() {
-            // fill(0, e) = e: the id owns nothing here.
-            IdNode::Empty => return self.copy_subtree(depth),
-            // fill(1, e) = max(e): a fully-owned region collapses.
+            // fill(0, e) = e: the id owns nothing here, and grow can
+            // inflate nothing (`grow` skips absent regions).
+            IdNode::Empty => {
+                self.copy_subtree(depth);
+                return COST_MAX;
+            }
+            // fill(1, e) = max(e): a fully-owned region collapses. On a
+            // route-live walk the region is a single leaf — a node
+            // would collapse to fewer plateaus and trip the flag at the
+            // emission below — so the cost is the free increment
+            // `grow(1, n) = (n + 1, 0)`.
             IdNode::Full => {
                 let above = self.scan_max_consuming();
                 self.emit_offset(depth, above);
-                return;
+                return COST_FREE;
             }
             IdNode::Internal { left, right } => (left, right),
         };
+        // The branch's route key: the 2-bit tag `read` just consumed
+        // (an `Internal` reader is always a real cursor).
+        let key = id.pos() - 2;
         if !self.read_flag() {
             // fill((il, ir), Leaf n) = Leaf n: an event leaf is already
-            // simple; lazy-skip the dominated id children.
+            // simple; the dominated id children are lazy-skipped, and
+            // the route's expansion fold rides the skips.
             let (neg, mag) = self.consume_payload();
             self.emit_step(depth, neg, mag);
-            if left {
-                id.skip();
-            }
-            if right {
-                id.skip();
-            }
-            return;
+            return self.probe.expand(key, id, left, right);
         }
 
         // An id node over an event node: the shortcut arms collapse a
         // fully-owned child, raised to its sibling's filled minimum.
+        // Either way the branch's cost folds both children — a full
+        // child is the free increment, an absent one is infeasible —
+        // and the chosen direction records at the branch's id key.
+        let (l_cost, r_cost);
         if left && matches!(id.peek(), IdNode::Full) {
             // `il` full: the left child collapses to
             // `max(max(el), min(fill(ir, er)))`. The max comes from the
@@ -432,87 +502,94 @@ impl FillWalk<'_> {
             // `el`'s last leaf, exactly the pre-scan's entry).
             id.skip();
             let above = self.scan_max_consuming();
+            l_cost = COST_FREE;
             if !right {
                 // An absent right child is fill(0, er): its minimum is
                 // min(er), priced by the scan that reads the range.
                 let raise = scan_min_from(self.ev, self.pos, self.first_read);
                 let value_off = signed_max(&above, &raise);
                 self.emit_offset(depth + 1, value_off);
-                self.child(id, right, depth);
-                return;
-            }
-            let outermost = self.pos >= self.memo.covered_until;
-            debug_assert_eq!(
-                outermost,
-                matches!(self.corr, Corr::None),
-                "a fresh scan starts exactly where no ledger relation is live"
-            );
-            if outermost {
-                // Uncovered: one fresh pre-scan records this site and
-                // every left-full site inside its span.
-                self.memo.begin_scan();
-                let mut scan = PreScan {
-                    ev: self.ev,
-                    stack: MinStack::new(),
-                    entry_net: Some(Accum::new()),
-                    pending_rel: None,
-                    memo: &mut self.memo,
-                    keeper: Accum::new(),
-                    first_slot: usize::MAX,
-                    head_level: 0,
-                    suspend: Vec::new(),
-                };
-                let slot = scan.reserve(self.pos);
-                scan.stack.open();
-                let mut reader = IdReader::at(id.bits(), id.pos());
-                let end = descend!(
-                    depth,
-                    scan.rec(self.pos, self.first_read, &mut reader, depth, 1)
-                );
-                scan.record(slot, 0);
-                let rel = scan.stack.follower_take(REL_FOLLOWER);
-                scan.stack.retire(rel);
-                scan.stack.close();
-                debug_assert!(scan.suspend.is_empty(), "every suspended level resolves");
-                self.memo.covered_until = end;
-            }
-            self.consume_site(&above, depth);
-            self.child(id, right, depth);
-            self.pop_site(outermost);
-            return;
-        }
-        // Fill the left child first; the id cursor then sits exactly at
-        // the right child's tag, so the right-full arm is one `O(1)`
-        // peek — no lookahead over the left id subtree.
-        self.child(id, left, depth);
-        if right && matches!(id.peek(), IdNode::Full) {
-            // `ir` full: the right child collapses to
-            // `max(max(er), min(fill(il, el)))`. The minimum is the
-            // enclosing frame's own watermark — its only emissions so
-            // far are the left child's — so the decision is one sign
-            // read against the priced scan maximum.
-            id.skip();
-            let above = self.scan_max_consuming();
-            if self.stack.compare_above(&above) == Ordering::Less {
-                self.emit_at_min(depth + 1);
+                r_cost = self.child(id, right, depth);
             } else {
-                self.emit_offset(depth + 1, above);
+                let outermost = self.pos >= self.memo.covered_until;
+                debug_assert_eq!(
+                    outermost,
+                    matches!(self.corr, Corr::None),
+                    "a fresh scan starts exactly where no ledger relation is live"
+                );
+                if outermost {
+                    // Uncovered: one fresh pre-scan records this site and
+                    // every left-full site inside its span.
+                    self.memo.begin_scan();
+                    let mut scan = PreScan {
+                        ev: self.ev,
+                        stack: MinStack::new(),
+                        entry_net: Some(Accum::new()),
+                        pending_rel: None,
+                        memo: &mut self.memo,
+                        keeper: Accum::new(),
+                        first_slot: usize::MAX,
+                        head_level: 0,
+                        suspend: Vec::new(),
+                    };
+                    let slot = scan.reserve(self.pos);
+                    scan.stack.open();
+                    let mut reader = IdReader::at(id.bits(), id.pos());
+                    let end = descend!(
+                        depth,
+                        scan.rec(self.pos, self.first_read, &mut reader, depth, 1)
+                    );
+                    scan.record(slot, 0);
+                    let rel = scan.stack.follower_take(REL_FOLLOWER);
+                    scan.stack.retire(rel);
+                    scan.stack.close();
+                    debug_assert!(scan.suspend.is_empty(), "every suspended level resolves");
+                    self.memo.covered_until = end;
+                }
+                self.consume_site(&above, depth);
+                r_cost = self.child(id, right, depth);
+                self.pop_site(outermost);
             }
-            return;
+        } else {
+            // Fill the left child first; the id cursor then sits exactly
+            // at the right child's tag, so the right-full arm is one
+            // `O(1)` peek — no lookahead over the left id subtree.
+            l_cost = self.child(id, left, depth);
+            if right && matches!(id.peek(), IdNode::Full) {
+                // `ir` full: the right child collapses to
+                // `max(max(er), min(fill(il, el)))`. The minimum is the
+                // enclosing frame's own watermark — its only emissions
+                // so far are the left child's — so the decision is one
+                // sign read against the priced scan maximum.
+                id.skip();
+                let above = self.scan_max_consuming();
+                if self.stack.compare_above(&above) == Ordering::Less {
+                    self.emit_at_min(depth + 1);
+                } else {
+                    self.emit_offset(depth + 1, above);
+                }
+                r_cost = COST_FREE;
+            } else {
+                r_cost = self.child(id, right, depth);
+            }
         }
-        self.child(id, right, depth);
+        self.probe.join(key, l_cost, r_cost)
     }
 
     /// Fill one id child over its event child inside its own watermark
-    /// frame: thread the real cursor where the child is present, a
+    /// frame.
+    ///
+    /// Threads the real cursor where the child is present, a
     /// synthetic [`IdReader::Empty`] (the `fill(0, e) = e` arm) where
-    /// it is absent.
-    fn child(&mut self, id: &mut IdReader, present: bool, depth: usize) {
+    /// it is absent; returns the child's inflation cost for the route
+    /// fold.
+    fn child(&mut self, id: &mut IdReader, present: bool, depth: usize) -> Cost {
         self.stack.open();
         let mut empty = IdReader::Empty;
         let c = if present { &mut *id } else { &mut empty };
-        descend!(depth + 1, self.rec(c, depth + 1));
+        let cost = descend!(depth + 1, self.rec(c, depth + 1));
         self.stack.close();
+        cost
     }
 
     /// Read one topology flag at the cursor, recording the scanned bit.
@@ -633,8 +710,13 @@ impl FillWalk<'_> {
         let sign = acc.sign();
         fold(&mut acc, !above.0, &above.1);
         if sign == Ordering::Less {
-            // The minimum side: acc is exactly `h − m_s`, the below
-            // the arming moves into the web.
+            // The minimum side: the raise lifts the emitted value
+            // strictly above the consumed range's maximum, so a
+            // verbatim walk diverges here (the first-leaf write below
+            // needs the builder live).
+            self.diverge();
+            // acc is exactly `h − m_s`, the below the arming moves
+            // into the web.
             if !self.started {
                 // First output leaf, coded absolute: v = h − below.
                 let mut v = self.stack.lease();
@@ -697,11 +779,36 @@ impl FillWalk<'_> {
         }
     }
 
+    /// Trip the changed flag: the emission in flight differs from the
+    /// input plateau it replaces.
+    ///
+    /// The matched prefix materializes into
+    /// the real builder and the route probe dies (the flag routed this
+    /// pair to the fill branch, where no route is read); a no-op once
+    /// diverged.
+    fn diverge(&mut self) {
+        if self.out.is_verbatim() {
+            self.probe.kill();
+            self.out.materialize(self.ev);
+        }
+    }
+
     /// Emit a pass-through leaf at the current input height: the output
     /// delta is the live gap (the step is already folded in), which
     /// equals the input step itself whenever the streams agree.
+    ///
+    /// A pass-through leaf can never trip the changed flag: its depth
+    /// is the consumed input leaf's own, and its delta re-codes the
+    /// step just consumed against an unchanged predecessor —
+    /// byte-identical by canonical uniqueness — so a verbatim walk
+    /// records the match and skips the emission body outright.
     fn emit_step(&mut self, depth: usize, neg: bool, mag: Base) {
         self.stack.emit_here();
+        if self.out.note_match(self.pos) {
+            self.started = true;
+            self.gap.reset();
+            return;
+        }
         if !self.started {
             // The output's first leaf is coded absolute. A pass-through
             // first leaf is the input's first (every consumed-but-not-
@@ -739,8 +846,30 @@ impl FillWalk<'_> {
 
     /// Emit a leaf whose value is `h + off`: a collapsed region's max,
     /// or a shortcut arm's raised value decided against the watermark.
+    ///
+    /// The changed flag's decision site: the emission replaces the
+    /// range the caller's consuming scan just covered, so it reproduces
+    /// the input plateau iff that range was a single leaf (else the
+    /// collapse moved topology — the range's first plateau sits
+    /// strictly deeper than this one) and the offset's value is zero
+    /// (the emitted value is exactly the consumed leaf's height, hence
+    /// the same delta — or, at the stream's head, the same absolute:
+    /// output position ≡ input position while the walk is verbatim, so
+    /// a first leaf compares absolute against absolute). A
+    /// value-reproducing raise is a match, never a divergence.
     fn emit_offset(&mut self, depth: usize, off: Signed) {
         self.stack.emit_offset(&off);
+        if self.out.is_verbatim() {
+            if self.range_is_leaf && off.1 == Base::ZERO {
+                if self.out.note_match(self.pos) {
+                    self.started = true;
+                    self.gap.reset();
+                    return;
+                }
+            } else {
+                self.diverge();
+            }
+        }
         if !self.started {
             // First output leaf: materialize the absolute — its width
             // is the emitted code's own (the height so far is the
@@ -782,7 +911,13 @@ impl FillWalk<'_> {
     /// (the right-full arm's min side): the watermark web is unchanged
     /// (the value neither undercuts nor exceeds it), and the output
     /// delta re-anchors to the watermark.
+    ///
+    /// Always a divergence on a verbatim walk: the arm fires only when
+    /// the tracked minimum strictly exceeds `h + above`, and `h + above`
+    /// is the consumed range's maximum — at or above every input
+    /// plateau the emission replaces — so the emitted value moved.
     fn emit_at_min(&mut self, depth: usize) {
+        self.diverge();
         debug_assert!(self.started, "a tracked minimum implies an emission");
         // Emitting the true minimum retires any latent, so the fresh
         // zero follower below installs against an exact anchor. Funded:
@@ -854,6 +989,11 @@ impl FillWalk<'_> {
     /// scanned range's own content, which prices every later fold of
     /// it.
     fn scan_max_consuming(&mut self) -> Signed {
+        // The changed flag's topology record: the emission replacing
+        // this range reproduces the input's topology iff the range is
+        // a single leaf — exactly its first flag bit. An unmetered
+        // peek of the bit the scan is about to read as its first flag.
+        self.range_is_leaf = !self.ev[self.pos];
         let mut path = Bits::new();
         let mut above = self.stack.lease();
         let mut armed = false;

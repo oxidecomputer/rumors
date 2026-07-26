@@ -1,16 +1,23 @@
-//! Differential pins for the skyline grow against three witnesses.
+//! Differential pins for the grow splice against three witnesses, on
+//! the pairs it is reachable for.
 //!
-//! The recursive oracle's `grow` (through the bridge) is the byte-level
-//! value witness — canonical uniqueness makes the differential total:
-//! the grown stream must equal the oracle's normalized, encoded
-//! inflation byte for byte — a reference *recursive* probe pins the
-//! iterative probe's [`Route`] bit vector — the explicit guard against
-//! a probe/emit coordinate drift, which would misread a direction
-//! silently rather than panic — and the brute-force minimal-inflation
-//! search holds the whole kernel to `grow`'s defining optimality
-//! directly, not merely to another implementation of the same dynamic
-//! program. The deep-spine case swaps the native-frame oracle for
-//! closed-form expected values (its test doc states each derivation).
+//! The splice runs exactly when the fused walk's changed flag stays
+//! clear (`fill(i, e) = e`), so every grid here decides the branch per
+//! pair and holds the grow-branch members to: the recursive oracle's
+//! `grow` (through the bridge) as the byte-level value witness —
+//! canonical uniqueness makes the differential total; a reference
+//! *recursive* probe pinning the fused walk's [`Route`] bit vector —
+//! the explicit guard against a walk/emit coordinate drift, which
+//! would misread a direction silently rather than panic; and the
+//! brute-force minimal-inflation search, holding the whole kernel to
+//! `grow`'s defining optimality directly, not merely to another
+//! implementation of the same dynamic program. The deterministic grids
+//! pin their grow-branch pair counts exactly, so a regression that
+//! silently reroutes pairs to the fill branch cannot pass vacuously.
+//! The deep-spine case swaps the native-frame oracle for closed-form
+//! expected values (its test doc states each derivation).
+
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use proptest::prelude::*;
 use rayon::prelude::*;
@@ -30,10 +37,11 @@ use crate::testing::exhaustive::{
 };
 use crate::testing::grow_brute_force::best_inflation;
 use crate::testing::{generators, optrace};
+use crate::version::skyline::fill::{fused_fill, tick, FillOutcome};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Version};
 
-use super::{grow, id_tag, probe, Cost, EvScan, Kind, Route, COST_MAX};
+use super::{id_tag, Cost, EvScan, Route, COST_MAX};
 
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -45,45 +53,57 @@ fn party_of(p: &Packed) -> Party {
     Party::decode(&p.bytes[..]).expect("meter shapes are strict normal form")
 }
 
-/// Assert the kernel's output validates as canonical on one pair, pin
-/// the iterative probe's route against the recursive reference bit for
-/// bit, and hold the grown stream to the recursive oracle's inflation
-/// byte for byte.
-fn assert_grow(v: &Version, p: &Party) {
-    let out = assert_grow_depth_safe(v, p);
-    let (raw, _) = to_oracle_version(v).grow_for_test(&to_oracle_party(p));
-    assert_eq!(
-        out,
-        encode(&from_oracle_version(&raw.normalized_for_test())),
-        "grow must register the recursive oracle's inflation: {v} with {p}"
-    );
+/// Assert the grow branch on one pair when the pair takes it.
+///
+/// The
+/// fused walk's route must equal the recursive reference probe's bit
+/// for bit, and the ticked stream must validate and register the
+/// recursive oracle's inflation byte for byte; the return says
+/// whether the pair took the grow branch, so the deterministic grids
+/// can pin their coverage counts.
+fn assert_grow(v: &Version, p: &Party) -> bool {
+    match assert_grow_depth_safe(v, p) {
+        None => false,
+        Some(out) => {
+            let (raw, _) = to_oracle_version(v).grow_for_test(&to_oracle_party(p));
+            assert_eq!(
+                out,
+                encode(&from_oracle_version(&raw.normalized_for_test())),
+                "grow must register the recursive oracle's inflation: {v} with {p}"
+            );
+            true
+        }
+    }
 }
 
-/// The depth-safe half of [`assert_grow`]: canonicality and the route
-/// pin (both walks are stack-guarded), returning the grown stream.
+/// The depth-safe half of [`assert_grow`].
+///
+/// Runs the branch decision,
+/// the route pin, and canonicality (the fused walk, the reference
+/// probe, and the splice are all stack-guarded or iterative),
+/// returning the ticked stream on the grow branch.
 ///
 /// The recursive oracle walks on native frames, so the deep-spine test
 /// calls this directly and takes its value witnesses from closed forms
 /// instead.
-fn assert_grow_depth_safe(v: &Version, p: &Party) -> Bits {
+fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<Bits> {
     let enc = encode(v);
-    let out = grow(&enc, p);
-    validate(&out).expect("a grown stream is canonical");
-
-    let ev_bits = enc.as_bitslice();
-    let id_bits = p.as_bits();
-    let mut iterative = Route::new(id_bits.len(), ev_bits.len());
-    let iterative_cost = probe(ev_bits, id_bits, &mut iterative);
-    let (reference, reference_cost) = reference_probe(ev_bits, id_bits);
-    assert_eq!(
-        iterative_cost, reference_cost,
-        "the iterative probe's root cost must match the recursive reference: {v} with {p}"
-    );
-    assert_eq!(
-        iterative.dirs, reference.dirs,
-        "the iterative probe's route must match the recursive reference bit for bit: {v} with {p}"
-    );
-    out
+    match fused_fill(&enc, p) {
+        // fill moved the tree: the splice is unreachable for this pair.
+        FillOutcome::Changed(_) => None,
+        FillOutcome::Unchanged(route) => {
+            let (reference, _) = reference_probe(enc.as_bitslice(), p.as_bits());
+            assert_eq!(
+                route.dirs(),
+                reference.dirs(),
+                "the fused walk's route must match the recursive reference bit for bit: \
+                 {v} with {p}"
+            );
+            let out = tick(&enc, p);
+            validate(&out).expect("a grown stream is canonical");
+            Some(out)
+        }
+    }
 }
 
 // ───────────── the reference recursive probe ─────────────
@@ -98,10 +118,10 @@ enum RefId {
 }
 
 /// Probe the cheapest inflation by direct recursion over the `(id, ev)`
-/// shape — the transliteration of the recursive walk the iterative probe
-/// replaces, kept as its structural witness.
+/// shape — the transliteration of the recursive walk whose route fold
+/// the fused tick walk carries, kept as its structural witness.
 fn reference_probe(ev_bits: &BitsSlice, id_bits: &BitsSlice) -> (Route, Cost) {
-    let mut route = Route::new(id_bits.len(), ev_bits.len());
+    let mut route = Route::new(id_bits.len());
     let mut ev = EvScan::new(ev_bits);
     let mut id_pos = 0usize;
     let root = if id_bits.is_empty() {
@@ -139,20 +159,13 @@ fn rec(
             if ev_zero {
                 return (0, 0);
             }
-            let key = ev.pos();
             if ev.read().is_none() {
-                let l = descend!(
-                    depth + 1,
-                    rec(route, ev, id_bits, id_pos, RefId::Full, false, depth + 1)
-                );
-                let r = descend!(
-                    depth + 1,
-                    rec(route, ev, id_bits, id_pos, RefId::Full, false, depth + 1)
-                );
-                combine(route, Kind::FullEvNode, key, l, r)
-            } else {
-                (0, 0)
+                // The reference is driven only on grow-branch pairs,
+                // where a fully-owned region is always a single leaf:
+                // fill(1, node) collapses it and trips the flag.
+                unreachable!("a full id over an event node collapses under fill");
             }
+            (0, 0)
         }
         RefId::At => {
             let key = *id_pos;
@@ -161,36 +174,33 @@ fn rec(
             if !l && !r {
                 return rec(route, ev, id_bits, id_pos, RefId::Full, ev_zero, depth);
             }
-            let kind = if ev_zero || ev.read().is_some() {
-                Kind::Expand
-            } else {
-                Kind::Both
-            };
-            let zero = kind == Kind::Expand;
+            let expand = ev_zero || ev.read().is_some();
             let la = if l { RefId::At } else { RefId::Empty };
             let lc = descend!(
                 depth + 1,
-                rec(route, ev, id_bits, id_pos, la, zero, depth + 1)
+                rec(route, ev, id_bits, id_pos, la, expand, depth + 1)
             );
             let ra = if r { RefId::At } else { RefId::Empty };
             let rc = descend!(
                 depth + 1,
-                rec(route, ev, id_bits, id_pos, ra, zero, depth + 1)
+                rec(route, ev, id_bits, id_pos, ra, expand, depth + 1)
             );
-            combine(route, kind, key, lc, rc)
+            combine(route, expand, key, lc, rc)
         }
     }
 }
 
 /// Pick the cheaper child, record the direction, and fold the branch
-/// cost, exactly as the iterative probe's pop arm does.
-fn combine(route: &mut Route, kind: Kind, key: usize, left: Cost, right: Cost) -> Cost {
+/// cost — one expansion and one depth per expansion-chain level, one
+/// depth otherwise — exactly as the fused walk's fold does.
+fn combine(route: &mut Route, expand: bool, key: usize, left: Cost, right: Cost) -> Cost {
     let left_chosen = left < right;
-    route.record(kind, key, left_chosen);
+    route.record(key, left_chosen);
     let m = if left_chosen { left } else { right };
-    match kind {
-        Kind::Expand => (m.0.saturating_add(1), m.1.saturating_add(1)),
-        Kind::Both | Kind::FullEvNode => (m.0, m.1.saturating_add(1)),
+    if expand {
+        (m.0.saturating_add(1), m.1.saturating_add(1))
+    } else {
+        (m.0, m.1.saturating_add(1))
     }
 }
 
@@ -241,70 +251,112 @@ fn party_pool() -> Vec<Party> {
     pool
 }
 
-/// Every event-family × party-family pair grows byte-identically to
-/// the recursive oracle, validates, and probes route-identically to
-/// the recursive reference.
+/// The grow-branch pair count the family grid must reach.
+///
+/// The grids'
+/// pools are deterministic, so the count is exact, and a regression
+/// that reroutes pairs to the fill branch (vacuously passing the
+/// per-pair asserts) moves this pin.
+const FAMILY_GROW_PAIRS: usize = 182;
+
+/// Every grow-branch event-family × party-family pair ticks
+/// byte-identically to the recursive oracle's inflation.
+///
+/// Each pair
+/// also validates and probes route-identically to the recursive
+/// reference, and the grow-branch coverage count is pinned exactly.
 #[test]
 fn family_pairs_grow_identically() {
     let events = event_pool();
     let parties = party_pool();
+    let taken = AtomicUsize::new(0);
     events.par_iter().for_each(|v| {
         for p in &parties {
-            assert_grow(v, p);
+            if assert_grow(v, p) {
+                taken.fetch_add(1, Ordering::Relaxed);
+            }
         }
     });
+    assert_eq!(
+        taken.load(Ordering::Relaxed),
+        FAMILY_GROW_PAIRS,
+        "the family grid's grow-branch coverage moved: re-derive the pin \
+         from the deterministic pools"
+    );
 }
 
-/// Exhaustive small scope: every normal-form event tree × every
-/// owning normal-form id grows byte-identically to the recursive
-/// oracle AND to the brute-force right-favoring minimal inflation.
+/// The grow-branch pair count the exhaustive grid must reach (see
+/// [`FAMILY_GROW_PAIRS`]).
+const EXHAUSTIVE_GROW_PAIRS: usize = 114_621;
+
+/// Exhaustive small scope: every grow-branch pair grows identically
+/// to the oracle and the brute force.
 ///
-/// Brute force reaches every branch genre — increments, expansions at
-/// every depth, both collapse directions at the inflation point, ties
-/// in both cost components — deterministically rather than by
-/// sampling.
+/// Each normal-form event tree ×
+/// owning normal-form id on the grow branch must tick byte-identically
+/// to the recursive oracle's inflation AND to the brute-force
+/// right-favoring minimal inflation, with the coverage count pinned
+/// exactly.
+///
+/// Brute force reaches every reachable branch genre — increments,
+/// expansions at every depth, ties in both cost components —
+/// deterministically rather than by sampling.
 #[test]
 fn exhaustive_small_scope_grows_identically() {
-    let events: Vec<(Version, Bits)> = all_normal_events(EV_SMALL_DEPTH)
+    let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
-        .map(|t| {
-            let v = from_oracle_version(t);
-            let e = encode(&v);
-            (v, e)
-        })
+        .map(from_oracle_version)
         .collect();
     let parties: Vec<Party> = all_normal_ids(ID_SMALL_DEPTH)
         .iter()
         .map(from_oracle_party)
         .filter(|p| !p.as_bits().is_empty())
         .collect();
-    events.par_iter().for_each(|(v, enc)| {
+    let taken = AtomicUsize::new(0);
+    events.par_iter().for_each(|v| {
         for p in &parties {
-            assert_grow(v, p);
-            let (best, _) = best_inflation(&to_oracle_party(p), &to_oracle_version(v))
-                .expect("an owning id always inflates");
-            let minimal = from_oracle_version(&best.normalized_for_test());
-            assert_eq!(
-                grow(enc, p),
-                encode(&minimal),
-                "grow must register the brute-force minimal inflation: {v} with {p}"
-            );
+            if let Some(out) = assert_grow_depth_safe(v, p) {
+                taken.fetch_add(1, Ordering::Relaxed);
+                let (raw, _) = to_oracle_version(v).grow_for_test(&to_oracle_party(p));
+                assert_eq!(
+                    out,
+                    encode(&from_oracle_version(&raw.normalized_for_test())),
+                    "grow must register the recursive oracle's inflation: {v} with {p}"
+                );
+                let (best, _) = best_inflation(&to_oracle_party(p), &to_oracle_version(v))
+                    .expect("an owning id always inflates");
+                let minimal = from_oracle_version(&best.normalized_for_test());
+                assert_eq!(
+                    out,
+                    encode(&minimal),
+                    "grow must register the brute-force minimal inflation: {v} with {p}"
+                );
+            }
         }
     });
+    assert_eq!(
+        taken.load(Ordering::Relaxed),
+        EXHAUSTIVE_GROW_PAIRS,
+        "the exhaustive grid's grow-branch coverage moved: re-derive the pin \
+         from the enumerated scope"
+    );
 }
 
-/// The worked examples, pinned end to end: a plain increment, both
-/// collapse directions at the inflation point, and one- and two-level
-/// expansion chains.
+/// The worked examples, pinned end to end: a plain increment and one-
+/// and two-level expansion chains, on pairs whose fill is the identity.
+///
+/// The increment-equalizes-collapse genre has no member here: making
+/// the grown leaf equal its leaf sibling requires ownership of a leaf
+/// sitting one below that sibling, and fill's raise preempts exactly
+/// that configuration (the owned leaf is lifted to the sibling range's
+/// minimum first), so such pairs take the fill branch and the splice
+/// never sees them; the exhaustive grid holds every *reachable* pair
+/// to the oracle either way.
 #[test]
 fn worked_examples_grow_exactly() {
-    let cases: [(&str, &str, &str); 6] = [
+    let cases: [(&str, &str, &str); 4] = [
         // The id owns the left half: the free increment.
         ("(1, 0)", "(0, 1, 0)", "(0, 2, 0)"),
-        // Incrementing the right leaf equalizes the pair: collapse.
-        ("(0, 1)", "(1, 1, 0)", "2"),
-        // Incrementing the left leaf equalizes the pair: collapse.
-        ("(1, 0)", "(1, 0, 1)", "2"),
         // An id node over a leaf: one expansion, grown side left.
         ("(1, 0)", "3", "(3, 1, 0)"),
         // Mirrored: grown side right.
@@ -317,11 +369,14 @@ fn worked_examples_grow_exactly() {
         let v: Version = before.parse().expect("test version literals parse");
         let expected: Version = after.parse().expect("test version literals parse");
         assert_eq!(
-            grow(&encode(&v), &p),
+            tick(&encode(&v), &p),
             encode(&expected),
             "grow of {before} with {party} must yield {after}"
         );
-        assert_grow(&v, &p);
+        assert!(
+            assert_grow(&v, &p),
+            "the worked grow examples are grow-branch pairs by construction"
+        );
     }
 }
 
@@ -338,47 +393,38 @@ fn left_spike(depth: usize) -> Version {
     text.parse().expect("the spike literal is normal form")
 }
 
-/// Deep spines in every regime stay correct at depths that would
+/// Deep spines in the grow branch stay correct at depths that would
 /// overflow a native-frame walk.
 ///
-/// The regimes: the frame-count adversary (alternating spine under the
-/// full id), a deep expansion chain (unary id spine over one leaf), and
-/// a deep two-cursor descent (both spines together), all long before
-/// the resource envelopes notice.
+/// The regimes: a deep expansion chain (unary id spine over one leaf)
+/// and a deep two-cursor descent mixing into an id-only expansion
+/// where the id outruns the event, all long before the resource
+/// envelopes notice.
 ///
 /// The recursive oracle walks on native frames, so the value witnesses
-/// here are closed forms, derived per case: under the full id the
-/// cheapest increment by `(expansions, depth)` is the root's right zero
-/// leaf (depth 1; everything under the spine's internal child is
-/// deeper), so the grown tree is the pointwise max with `(0, 0, 1)`;
-/// the deep unary id over the empty version grows the expansion chain
-/// to its owned tip, the left spike; and over the deep spine the same
-/// id turns left into the spine's depth-2 zero leaf, so the forced
-/// route raises exactly the owned region from 0 to 1 — the pointwise
-/// max with the spike. Each max is realized through the
-/// independently-pinned join kernel and is byte-exact by canonical
-/// uniqueness; canonicality and the route pin ride along.
+/// here are closed forms, derived per case: the deep unary id over the
+/// empty version grows the expansion chain to its owned tip, the left
+/// spike; and over the deep alternating spine the same id turns left
+/// into the spine's depth-2 zero leaf, so the forced route raises
+/// exactly the owned region from 0 to 1 — the pointwise max with the
+/// spike. Each max is realized through the independently-pinned join
+/// kernel and is byte-exact by canonical uniqueness; canonicality and
+/// the route pin (the reference probe is stack-guarded) ride along.
 #[test]
 fn deep_spines_grow_identically() {
-    let deep_ev = version_of(&alt_spine(4096));
-    let bump: Version = "(0, 0, 1)".parse().expect("test literals parse");
-    let out = assert_grow_depth_safe(&deep_ev, &Party::seed());
-    assert_eq!(
-        out,
-        encode(&(&deep_ev | &bump)),
-        "the full id increments the root's right zero leaf"
-    );
-
     let deep_id = party_of(&id_spine(4096, false));
     let spike = left_spike(4096);
-    let out = assert_grow_depth_safe(&Version::new(), &deep_id);
+    let out = assert_grow_depth_safe(&Version::new(), &deep_id)
+        .expect("a leaf under a node id is a grow-branch pair");
     assert_eq!(
         out,
         encode(&spike),
         "grow expands the chain to the owned tip"
     );
 
-    let out = assert_grow_depth_safe(&deep_ev, &deep_id);
+    let deep_ev = version_of(&alt_spine(4096));
+    let out = assert_grow_depth_safe(&deep_ev, &deep_id)
+        .expect("no full-id region meets a subdividable subtree: a grow-branch pair");
     assert_eq!(
         out,
         encode(&(&deep_ev | &spike)),
@@ -388,11 +434,16 @@ fn deep_spines_grow_identically() {
 
 proptest! {
     /// Arbitrary owning parties over arbitrary normal-form versions
-    /// grow byte-identically to the recursive oracle.
+    /// grow identically to the oracle and the brute force.
     ///
-    /// Magnitudes past `u64::MAX` included; each pair also validates,
-    /// probes route-identically, and registers exactly the brute-force
-    /// minimal inflation.
+    /// Every
+    /// grow-branch pair must tick byte-identically to the recursive
+    /// oracle's inflation and to the brute-force minimal inflation,
+    /// with the route pinned against the recursive reference.
+    ///
+    /// Magnitudes past `u64::MAX` included. The branch split itself is
+    /// pinned by the fill suite's flag differential, so a fill-branch
+    /// draw here is covered coverage, not a skip.
     #[test]
     fn arbitrary_pairs_grow_identically(
         op in generators::arb_oracle_party_nonempty(),
@@ -400,20 +451,24 @@ proptest! {
     ) {
         let p = from_oracle_party(&op);
         let v = from_oracle_version(&ov);
-        assert_grow(&v, &p);
-        let (best, _) = best_inflation(&op, &ov).expect("an owning id always inflates");
-        let minimal = from_oracle_version(&best.normalized_for_test());
-        prop_assert_eq!(
-            grow(&encode(&v), &p),
-            encode(&minimal),
-            "grow must register the brute-force minimal inflation: {} with {}", v, p
-        );
+        if assert_grow(&v, &p) {
+            let (best, _) = best_inflation(&op, &ov).expect("an owning id always inflates");
+            let minimal = from_oracle_version(&best.normalized_for_test());
+            prop_assert_eq!(
+                tick(&encode(&v), &p),
+                encode(&minimal),
+                "grow must register the brute-force minimal inflation: {} with {}", v, p
+            );
+        }
     }
 
-    /// Every clock produced by one organic fork/tick/send/sync/join
-    /// history grows its version from its own party byte-identically
-    /// to the recursive oracle — and from every *other* clock's
-    /// party, the concurrent-editor shape.
+    /// Organic histories grow byte-identically to the recursive
+    /// oracle on the grow-branch pairs they produce.
+    ///
+    /// Every clock from
+    /// one fork/tick/send/sync/join history is exercised from its own
+    /// party — and from every *other* clock's party, the
+    /// concurrent-editor shape.
     #[test]
     fn organic_histories_grow_identically(ops in optrace::world_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];

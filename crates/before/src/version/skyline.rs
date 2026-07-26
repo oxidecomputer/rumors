@@ -24,10 +24,11 @@
 //! re-delta-coding pointwise max/min into a canonical stream through the
 //! collapsing output builder; the [`query`] submodule answers the linear
 //! functionals (rank, distance, lag, min_ticks) and projection from the
-//! same leaf sweeps; the [`fill`](mod@fill) and [`grow`](mod@grow)
-//! submodules register an event — fill raises full regions in place, and
-//! grow performs the cheapest inflation via an iterative topology-only
-//! probe, then a splice emit that rebuilds one root-to-leaf path; the
+//! same leaf sweeps; the [`fill`](mod@fill) submodule registers an event
+//! (the fused tick: one fill walk deciding in-pass whether raising full
+//! regions changed the stream, else the cheapest inflation along the
+//! route the walk recorded), with the [`grow`](mod@grow) submodule's
+//! splice emit rebuilding the one chosen root-to-leaf path; the
 //! [`text`] submodule renders and parses the paper's text notation
 //! directly on the streams. Every kernel is differentially pinned against
 //! the recursive oracle (`crate::oracle`), and the meter surface

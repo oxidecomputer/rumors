@@ -1488,37 +1488,22 @@ fn skyline_meet_wide_tooth_envelope() {
     assert_eq!(out, expected, "the emitted meet must match the oracle");
 }
 
-// The grow envelope table: pinned ceiling = measured ×1.25, rounded up.
-// The trailing comment on each line is the measurement of record
-// (2026-07-23, aarch64-apple-darwin, dev profile, three identical runs)
-// the ceiling derives from. Re-pin by rerunning under `--no-capture`
-// with `--all-features` and reading the MEASURED lines.
-// The limb floor column is the measured value ×0.75, rounded down (the
-// module doc's liveness-floor convention).
-#[rustfmt::skip]
-mod grow_env {
-    use super::{sweep_envelope, SweepEnvelope};
-    //                                                                peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
-    pub const SKYLINE_GROW_ALT_SPINE: SweepEnvelope  = sweep_envelope(  345_315,        0,        10, 1_406_282, 6); //  276_252, 0,       8, 1_125_025
-    pub const SKYLINE_GROW_PROBE_ALT_SPINE: SweepEnvelope = sweep_envelope(286_720,      0,         0,   468_760, 0); //  229_376, 0,       0,   375_008
-    pub const SKYLINE_GROW_ID_SPINE: SweepEnvelope   = sweep_envelope(  487_727,        0,   625_015, 2_812_519, 375_009); //  390_181, 0, 500_012, 2_250_015
-    pub const SKYLINE_GROW_CROSS: SweepEnvelope      = sweep_envelope(  669_830,        0,   625_010, 4_218_777, 375_006); //  535_864, 0, 500_008, 3_375_021
-}
-
-/// One grow scenario's operand bytes: the skyline event stream plus the
-/// packed id.
-fn grow_input_bytes(ev: &meter::skyline::Bits, id: &Party) -> usize {
-    ev.as_raw_slice().len() + id.encoded_bits().div_ceil(8)
-}
+// ─── grow-branch tick scenarios ─────────────────────────────────────────────
+//
+// The deep expansion shapes: pairs whose fill is the identity, so the
+// fused tick records the inflation route on its one walk and replays it
+// through the splice emit. These rows measure the whole public tick —
+// walk, route fold, and splice — on the shapes whose id side dominates
+// (their envelopes live in `query_env` with the other tick rows).
 
 /// The version that is `1` on the leftmost `2^-depth` interval and `0`
 /// everywhere else: `depth` nested nodes, all bases zero, the single
 /// 1-leaf at the bottom left.
 ///
-/// This is what growing a version that is zero over the owned region
+/// This is what ticking a version that is zero over the owned region
 /// registers for a depth-`depth` unary id spine. Built as a text
 /// literal (the parser is iterative), so the expected tree shares no
-/// walk with the grow under measurement.
+/// walk with the tick under measurement.
 fn left_spike(depth: usize) -> Version {
     let mut text = "(0, ".repeat(depth - 1);
     text.push_str("(0, 1, 0)");
@@ -1526,109 +1511,58 @@ fn left_spike(depth: usize) -> Version {
     text.parse().expect("the spike literal is normal form")
 }
 
-/// The probe alone on the frame-count adversary stays within its
-/// envelope.
-///
-/// The alternating spine packs one branch node into ~4 stream bits, so
-/// this row's heap ceiling is the direct pin on the probe's per-level
-/// frame state (the route is pre-allocated outside the measurement) —
-/// bits per level, about one byte of stack per input byte, where
-/// machine-word frames would cost ~32.
-#[test]
-fn skyline_grow_probe_alt_spine_envelope() {
-    let v = version_of(&meter::alt_spine(DENSE_DEPTH));
-    let party = Party::seed();
-    let a = meter::skyline::encode(&v);
-    let mut probe = meter::skyline::grow::Probe::for_operands(&a, &party);
-    sweep_metered(
-        "skyline_grow_probe_alt_spine",
-        grow_input_bytes(&a, &party),
-        &grow_env::SKYLINE_GROW_PROBE_ALT_SPINE,
-        || probe.run(&a, &party),
-    );
-}
-
-/// Growing the alternating spine's skyline under the seed party stays
+/// Ticking the empty version under a 250k-deep unary id spine stays
 /// within its envelope.
 ///
-/// The full id puts every one of the ~125k branch nodes on the probe's
-/// frame stack at peak — the shape where one machine-word frame per level
-/// would dwarf the ~4-bit-per-level input — with zero grown segments and
-/// the frames held in bit stacks. The value witness is closed-form: the
-/// cheapest increment by `(expansions, depth)` is the root's right zero
-/// leaf (depth 1; everything under the spine's internal child is
-/// deeper), so the grown tree is the pointwise max with `(0, 0, 1)` —
-/// realized through the independently-tested join, byte-exact by
-/// canonical uniqueness.
+/// The walk is one event leaf whose route fold is the iterative id
+/// scan (bit-stack frames, nothing recurses), and the emit codes the
+/// whole expansion chain as fresh one-bit deltas. The value witness is
+/// closed-form: the expansion chain to the owned tip is exactly the
+/// left spike literal.
 #[test]
-fn skyline_grow_alt_spine_envelope() {
-    let v = version_of(&meter::alt_spine(DENSE_DEPTH));
-    let party = Party::seed();
-    let a = meter::skyline::encode(&v);
-    let bump: Version = "(0, 0, 1)".parse().expect("test literals parse");
-    let expected = meter::skyline::encode(&(&v | &bump));
-    let out = sweep_metered(
-        "skyline_grow_alt_spine",
-        grow_input_bytes(&a, &party),
-        &grow_env::SKYLINE_GROW_ALT_SPINE,
-        || meter::skyline::grow::grow(&a, &party),
-    );
-    assert_eq!(
-        out, expected,
-        "the grown stream must be the derived closed form"
-    );
-}
-
-/// Growing the empty version under a 250k-deep unary id spine stays
-/// within its envelope.
-///
-/// The probe degenerates to the iterative id scan (one Expand frame per
-/// level), the emit codes the whole expansion chain as fresh one-bit
-/// deltas, and nothing recurses. The value witness is closed-form: the
-/// expansion chain to the owned tip is exactly the left spike literal.
-#[test]
-fn skyline_grow_id_spine_envelope() {
-    let v = Version::new();
+fn tick_expand_spine_envelope() {
+    let mut v = Version::new();
     let party = party_of(&meter::id_spine(ID_DEPTH, false));
-    let a = meter::skyline::encode(&v);
-    let expected = meter::skyline::encode(&left_spike(ID_DEPTH));
-    let out = sweep_metered(
-        "skyline_grow_id_spine",
-        grow_input_bytes(&a, &party),
-        &grow_env::SKYLINE_GROW_ID_SPINE,
-        || meter::skyline::grow::grow(&a, &party),
+    let input = meter::skyline::encode(&v).len() / 8 + party.encoded_bits().div_ceil(8);
+    query_metered(
+        "tick_expand_spine",
+        input,
+        &query_env::TICK_EXPAND_SPINE,
+        || v.tick(&party),
     );
     assert_eq!(
-        out, expected,
-        "the grown stream must be the derived closed form"
+        v,
+        left_spike(ID_DEPTH),
+        "the ticked version must be the derived closed form"
     );
 }
 
-/// Growing the alternating spine under a deep unary id spine stays
+/// Ticking the alternating spine under a deep unary id spine stays
 /// within its envelope.
 ///
-/// The regimes mix — two-cursor branch frames down the shared spine, an
-/// id-only expansion where the id outruns the event — with the same
-/// bit-stack ceilings as the pure shapes. The value witness is
-/// closed-form: the unary id turns left into the spine's depth-2 zero
-/// leaf, so the forced route raises exactly the owned region from 0 to
-/// 1 — the pointwise max with the left spike, realized through the
+/// The regimes mix — the two-cursor fused walk down the shared spine,
+/// an id-only expansion fold where the id outruns the event — and the
+/// splice replays the recorded route. The value witness is closed-form:
+/// the unary id turns left into the spine's depth-2 zero leaf, so the
+/// forced route raises exactly the owned region from 0 to 1 — the
+/// pointwise max with the left spike, realized through the
 /// independently-tested join, byte-exact by canonical uniqueness.
 #[test]
-fn skyline_grow_cross_envelope() {
-    let v = version_of(&meter::alt_spine(DENSE_DEPTH));
+fn tick_expand_cross_envelope() {
+    let ev = meter::alt_spine(DENSE_DEPTH);
+    let mut v = version_of(&ev);
     let party = party_of(&meter::id_spine(ID_DEPTH, false));
-    let a = meter::skyline::encode(&v);
-    let expected = meter::skyline::encode(&(&v | &left_spike(ID_DEPTH)));
-    let out = sweep_metered(
-        "skyline_grow_cross",
-        grow_input_bytes(&a, &party),
-        &grow_env::SKYLINE_GROW_CROSS,
-        || meter::skyline::grow::grow(&a, &party),
+    let expected = &v | &left_spike(ID_DEPTH);
+    let input = ev.bytes.len() + party.encoded_bits().div_ceil(8);
+    query_metered(
+        "tick_expand_cross",
+        input,
+        &query_env::TICK_EXPAND_CROSS,
+        || v.tick(&party),
     );
     assert_eq!(
-        out, expected,
-        "the grown stream must be the derived closed form"
+        v, expected,
+        "the ticked version must be the derived closed form"
     );
 }
 
@@ -3127,9 +3061,18 @@ mod query_env {
     // digit touches, which the four-column table these rows came from
     // never watched (nor scanned bits). Ceilings ×1.25 and floors ×0.75
     // over the measurements of record below.
-    pub const TICK_DENSE: QueryEnvelope                   = query_envelope(    89_345,        0,   312_508,   468_765,   156_272, 187_504, 93_762); // 71_476 -> 71_484 (the five-meter harness), 132 -> 0 (the anchor web's frames fit the guarded stack), 250_006 -> 250_008, 375_012, 125_017
-    pub const TICK_NESTED_WIDE: QueryEnvelope             = query_envelope(     9_628,        7,    30_259,    80_028,    45_815, 18_155, 27_489); // 7_702, 5 (the fill splice recurses), 24_207, 64_022, 36_652 (the anchor web reads the wide first payload O(1) times)
-    pub const TICK_MIRROR_WIDE: QueryEnvelope             = query_envelope(    34_246,       10,    50_390,   160_003,   131_948, 30_234, 79_169); // 27_397, 8 (the fill splice recurses), 40_312, 128_002, 105_559 -> 109_560 (2026-07-26, the latent boundary register's O(1) tag work per close; the older ceiling stands) (the frame ledger stores no link for the shared wide minimum; heap parity with one queue word per site)
+    pub const TICK_DENSE: QueryEnvelope                   = query_envelope(    58_815,        0,   312_508,   468_765,   156_272, 187_504, 93_762); // 71_484 -> 47_052 (2026-07-26, the fused tick: copy-on-first-divergence defers the output buffer past the collapse scan, so the scan path and the builder no longer coexist at peak), 0, 250_008, 375_012, 125_017 (work columns byte-identical across the fusion)
+    pub const TICK_NESTED_WIDE: QueryEnvelope             = query_envelope(     9_628,        7,    30_259,    80_028,    45_815, 18_155, 27_489); // 7_702, 5 -> 6 (2026-07-26, the fused walk's wider frames cross one more segment boundary; the ceiling stands), 24_207 -> 24_209 (2026-07-26, the fused tick; the ceiling stands), 64_022, 36_652 (the anchor web reads the wide first payload O(1) times)
+    pub const TICK_MIRROR_WIDE: QueryEnvelope             = query_envelope(    32_467,       10,    50_390,   160_003,   131_948, 30_234, 79_169); // 27_397 -> 25_973 (2026-07-26, the fused tick's deferred output buffer), 8, 40_312, 128_002, 105_559 -> 109_560 (2026-07-26, the latent boundary register's O(1) tag work per close; the older ceiling stands) (the frame ledger stores no link for the shared wide minimum; heap parity with one queue word per site)
+    // The expansion rows (2026-07-26, the fused tick): grow-branch deep
+    // ticks measuring the whole public tick — walk, route fold, splice.
+    // Baselines at the fusion's landing; the composed path's grow-only
+    // measurements of record (splice passes alone, 2026-07-23) were
+    // 390_181 heap / 500_012 limb / 2_250_015 scan on the spine and
+    // 535_864 / 500_008 / 3_375_021 on the cross, without the fill
+    // walk the tick also paid.
+    pub const TICK_EXPAND_SPINE: QueryEnvelope            = query_envelope(   435_455,        0,   625_015, 2_187_519,         4, 375_009, 2); // 348_364, 0, 500_012, 1_750_015, 3 (an empty version's tick folds one word-scale payload: near-zero accumulator work)
+    pub const TICK_EXPAND_CROSS: QueryEnvelope            = query_envelope(   611_237,        0,   937_513, 3_593_782,   312_517, 562_507, 187_509); // 488_989, 0, 750_010, 2_875_025, 250_013
 }
 
 /// Run one query scenario body under all five meters and assert its
@@ -3564,10 +3507,11 @@ mod memo_resolution_cost {
     ///
     /// `k` consumption-sibling sites' links each die into their own
     /// raise decision — one fold per link across the whole walk
-    /// [measured: ×2.00 across the doubling, 62,023 → 124,023 at the
-    /// pinned sizes (60,023 → 120,023 before the latent boundary
-    /// register's O(1) tag work per close, 2026-07-26); ×3.94 under
-    /// the refuted recording-chain interval resolution].
+    /// [measured: ×2.00 across the doubling, 62,021 → 124,021 at the
+    /// pinned sizes (62,023 → 124,023 before the fused tick,
+    /// 2026-07-26; 60,023 → 120,023 before the latent boundary
+    /// register's O(1) tag work per close); ×3.94 under the refuted
+    /// recording-chain interval resolution].
     #[test]
     fn memo_chain_distinct_resolution_reads_linear() {
         let small = tick_run(meter::memo_chain(1_000, true), meter::memo_chain_id(1_000));
@@ -3628,10 +3572,11 @@ mod memo_resolution_cost {
     /// The absolute ceiling is the k-independence assert — a
     /// discipline that materializes one wide record per site (the
     /// refuted floor-anchored recording) adds the width once per
-    /// site and blows it [measured: 94,725 touches at k = 2,000,
-    /// b = 2,048 (88,726, from which the pinned band derives, before
-    /// the latent boundary register's O(1) tag work per close,
-    /// 2026-07-26; the older ceiling stands over the rise) — a
+    /// site and blows it [measured: 94,723 touches at k = 2,000,
+    /// b = 2,048 (94,725 before the fused tick, 2026-07-26; 88,726,
+    /// from which the pinned band derives, before the latent boundary
+    /// register's O(1) tag work per close; the older ceiling stands
+    /// over the rise) — a
     /// per-site fan-out at that width would add ~64 touches per site
     /// on top of the ~43-touch linear slope].
     #[test]
@@ -3692,8 +3637,9 @@ mod memo_resolution_cost {
     ///
     /// The descending run undercuts every open range while `d`
     /// sibling records ride the one live ledger head [measured:
-    /// ×2.00 across the doubling, 84,819 → 169,619; 80,019 → 160,019
-    /// before the latent boundary register landed, 2026-07-26]. A discipline
+    /// ×2.00 across the doubling, 84,817 → 169,617 (84,819 → 169,619
+    /// before the fused tick, 2026-07-26; 80,019 → 160,019 before the
+    /// latent boundary register landed)]. A discipline
     /// keeping one live record per open level folds all `d` per
     /// drop — the refuted live-anchored followers' tombstone.
     #[test]
@@ -3711,9 +3657,9 @@ mod memo_resolution_cost {
     /// decide-then-emit ordering violation (a relation installed
     /// after the raise's arm) produces wrong values its oracle
     /// differential catches; this pin carries the cost leg
-    /// [measured: ×2.00 across the doubling, 48,052 → 96,052;
-    /// 46,452 → 92,852 before the latent boundary register landed,
-    /// 2026-07-26].
+    /// [measured: ×2.00 across the doubling, 48,048 → 96,048
+    /// (48,052 → 96,052 before the fused tick, 2026-07-26; 46,452 →
+    /// 92,852 before the latent boundary register landed)].
     #[test]
     fn descending_raises_stay_linear_under_min_movement() {
         let small = tick_run(
@@ -3813,10 +3759,11 @@ mod width_circulation_cost {
     /// Semantics first: the tick is the closed form (every site
     /// collapses to the shared plateau leaf; the covering raise stays
     /// at the floor), so this pin carries the cost leg alone. The
-    /// signature [measured: 48,857 → 97,705 touches across
+    /// signature [measured: 48,853 → 97,701 touches across
     /// (k, b) = (1,000, 1,024) → (2,000, 2,048), ×2.00 on a ×2.00
-    /// input; 738,449 → 2,884,881 (×3.91) before the latent boundary
-    /// register landed, 2026-07-26]: the consume-minted width-b
+    /// input (48,857 → 97,705 before the fused tick, 2026-07-26, the
+    /// pinned band's derivation; 738,449 → 2,884,881 (×3.91) before
+    /// the latent boundary register landed)]: the consume-minted width-b
     /// boundary difference parks in the latent register at the site's
     /// close and the next consume's arm recycles it by a narrow
     /// anchor-relative fold, so no hop re-reads the width. A reading
@@ -3883,9 +3830,11 @@ mod width_circulation_cost {
     /// Semantics first: fill is the identity here (no left-full site
     /// exists), so the tick is grow's closed form — the shallowest
     /// owned leaf expands, ties right. The signature [measured:
-    /// per-byte 5.18 → 4.46 across b = 1,024 → 2,048 at k = 1,000
-    /// (the widening input divides a flat count); 50.8 → 82.0 (×1.61)
-    /// before the latent boundary register landed, 2026-07-26]: each
+    /// per-byte 3.71 → 3.20 across b = 1,024 → 2,048 at k = 1,000
+    /// (the widening input divides a flat count; 5.18 → 4.46 before
+    /// the fused tick skipped the matched pass-through emissions'
+    /// output materializations, 2026-07-26; 50.8 → 82.0 (×1.61)
+    /// before the latent boundary register landed)]: each
     /// wide leaf's frame closes its width-`b` boundary into the latent
     /// register by move and the next arm recycles it at the zero
     /// inter-site offset — no memo, no pre-scan, and no site consume
@@ -3928,16 +3877,16 @@ mod width_circulation_cost {
             large.input,
         );
         assert!(
-            large.touches <= 9_127,
+            large.touches <= 6_544,
             "pure_comb: {} touches at (k, b) = (1,000, 2,048) exceed the pinned \
-             ceiling 9,127 (measured 7,302 x1.25, 2026-07-26)",
+             ceiling 6,544 (measured 5,235 x1.25, 2026-07-26, the fused tick)",
             large.touches,
         );
         assert!(
-            large.touches >= 5_476,
-            "pure_comb: {} touches read below the 5,476 liveness floor \
-             (measured 7,302 x0.75, 2026-07-26): the cycle's work left the \
-             metered representation",
+            large.touches >= 3_926,
+            "pure_comb: {} touches read below the 3,926 liveness floor \
+             (measured 5,235 x0.75, 2026-07-26, the fused tick): the cycle's \
+             work left the metered representation",
             large.touches,
         );
     }
@@ -4046,10 +3995,12 @@ mod width_circulation_cost {
     /// subdividable subtree at its minimum), so the tick is grow's
     /// closed form — the owned cliff leaf expands to `(0, 1, 0)` — and
     /// this pin carries the cost leg alone. The signature [measured:
-    /// 12,626 → 25,234 touches across (k, b) =
-    /// (1,000, 2,048) → (2,000, 4,096), ×2.00 on a ×2.00 input;
+    /// 10,495 → 20,975 touches across (k, b) =
+    /// (1,000, 2,048) → (2,000, 4,096), ×2.00 on a ×2.00 input
+    /// (12,626 → 25,234 before the fused tick skipped the matched
+    /// pass-through emissions' output materializations, 2026-07-26;
     /// 203,435 → 790,851 (×3.89) before the cascade's fold direction
-    /// inverted, 2026-07-26]: the cliff's single wide undercut
+    /// inverted)]: the cliff's single wide undercut
     /// penetrates k − 1 nonzero unit boundary differences, each dying
     /// by one fold into the surviving residue at the difference's own
     /// width, top-index domination deciding every hop in O(1). A
@@ -4089,27 +4040,29 @@ mod width_circulation_cost {
             large.touches,
         );
         assert!(
-            large.touches <= 31_542,
+            large.touches <= 26_219,
             "ascend_cliff: {} touches at (k, b) = (2,000, 4,096) exceed the pinned \
-             ceiling 31,542 (measured 25,234 x1.25, 2026-07-26)",
+             ceiling 26,219 (measured 20,975 x1.25, 2026-07-26, the fused tick)",
             large.touches,
         );
         assert!(
-            large.touches >= 18_925,
-            "ascend_cliff: {} touches read below the 18,925 liveness floor \
-             (measured 25,234 x0.75, 2026-07-26): the cascade's work left the \
-             metered representation",
+            large.touches >= 15_731,
+            "ascend_cliff: {} touches read below the 15,731 liveness floor \
+             (measured 20,975 x0.75, 2026-07-26, the fused tick): the cascade's \
+             work left the metered representation",
             large.touches,
         );
     }
 
     /// Absolute touch ceiling on the leveled control's larger run,
-    /// measured 13,240 ×1.25 (2026-07-26, three identical runs).
-    const PLATEAU_TOUCH_CEILING: u64 = 16_550;
+    /// measured 8,981 ×1.25 (2026-07-26, three identical runs of the
+    /// fused tick; 13,240 before it skipped the matched pass-through
+    /// emissions' output materializations).
+    const PLATEAU_TOUCH_CEILING: u64 = 11_227;
 
     /// Touch liveness floor paired with [`PLATEAU_TOUCH_CEILING`]:
     /// measured ×0.75.
-    const PLATEAU_TOUCH_FLOOR: u64 = 9_930;
+    const PLATEAU_TOUCH_FLOOR: u64 = 6_735;
 
     /// GREEN PIN: the leveled control is flat — identical spine,
     /// identical arming schedule, identical cliff undercut, all
@@ -4172,13 +4125,13 @@ mod width_circulation_cost {
         assert!(
             large.touches <= PLATEAU_TOUCH_CEILING,
             "ascend_cliff_plateau: {} touches exceed the pinned ceiling \
-             {PLATEAU_TOUCH_CEILING} (measured 13,240 x1.25)",
+             {PLATEAU_TOUCH_CEILING} (measured 8,981 x1.25)",
             large.touches,
         );
         assert!(
             large.touches >= PLATEAU_TOUCH_FLOOR,
             "ascend_cliff_plateau: {} touches read below the {PLATEAU_TOUCH_FLOOR} \
-             liveness floor (measured 13,240 x0.75): the cascade's work left the \
+             liveness floor (measured 8,981 x0.75): the cascade's work left the \
              metered representation",
             large.touches,
         );
