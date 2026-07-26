@@ -83,7 +83,7 @@ share:
 
 ## 3. Findings ledger
 
-All cured; each family
+All cured except the entries marked OPEN; each family
 above witnesses at least one. Mechanism detail and measurements are
 in git history; the cures are pinned by the enforced envelopes and
 board cells named.
@@ -228,6 +228,37 @@ board cells named.
   residue-width axis — the staircase descends (every residue
   narrow), and this family is its ascending mirror. A pricing
   obligation under §6, not an exploit.
+- **OPEN — plateau projection output-domination** (2026-07-26;
+  materialized by the #35 board product, which crossed every
+  shape with every operation its bundle supplies): projecting a
+  shared-wide-plateau event through its site-owning comb id
+  (`version_project`/`clock_own_version` × {reveal-comb,
+  reveal-hifloor, pure-comb}) re-materializes a wide absolute
+  value per kept site — mandatory output Θ(k·b) against a
+  Θ(k + b) input, exactly the comb-scatter case §6 already prices
+  by `n_io`, but these six cells read under the input denominator
+  and are red on every column at ×4 [measured — board rows at the
+  #35 tip, both scales]. The reading is a denomination gap, not a
+  kernel finding; the cure is declaring the output domination
+  (output read back from the actual result, §6's rule) at the
+  owning phase, never a silent green. Owner: the §6 denomination
+  criterion at C3; §17.3 carries the cells.
+- **OPEN — profile-dependent meter readings** (2026-07-26; found
+  by the #35 dev-vs-release identity check, which STOPPED the
+  planned `--release` switch of the board recipes): 102
+  `debug_assert!` sites in the production kernels perform metered
+  work — `Base` comparisons through the limb shim
+  (`codec/base.rs`'s subtraction-underflow and shift guards),
+  skyline grow probes that consume metered cursors — so dev and
+  release builds measure different programs: at the default scale
+  limb readings differ on 95 of 720 cells, scan on 59, heap on 3
+  (release lower; no verdict flips; denominators byte-identical)
+  [measured — dev and release renders at the #35 tip,
+  byte-compared]. Every committed pin is dev-denominated, so the
+  board recipes stay dev until the owner rules which profile's
+  reading is the number of record; the candidate cures are
+  assertion-scoped meter suspension or release-profile re-pinning,
+  each a criterion change, neither taken unilaterally.
 
 ## 6. The design invariant and the denomination criterion
 
@@ -424,14 +455,27 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **207 cells at this
+public operation surface × §2's families — **720 cells at this
 tip**, membership pinned by the smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`)
 from deterministic meters only: peak heap, grown stacker segments,
-limb ops, scanned/written bits. **The board reads no clock**: its
+limb ops, scanned/written bits. The board is a generalized
+cartesian product over three declarative axes (amendment of
+2026-07-26 below): shapes declare operand bundles, operations
+declare the slots their signatures consume, and every judged
+quantity carries one field per metering currency
+(`board::ByCurrency`), so every-shape-everywhere and
+every-currency-everywhere hold structurally — adding a shape or
+operation grows the product, and adding a currency is a compile
+error until every operation declares a floor or a written NA for
+it. **The board reads no clock**: its
 entire rendered output is byte-identical at a given scale under
 any machine load, no stripping, no carve-outs [measured — under a
-sustained parallel-build load generator]. Wall time is judged
+sustained parallel-build load generator], and the claim is
+enforced on two legs — the runner measures every cell twice in
+process and panics on any counter disagreement, and the gate's
+`just amp-board-determinism` byte-compares two cross-process
+renders. Wall time is judged
 nowhere in the gate; the time leg lives in the bench judge below,
 at `just bench-judge` / `just all` cadence.
 
@@ -498,8 +542,13 @@ summed measured-body wall per family.
 
 **The bench judge** (`tools/benchjudge`, stdlib Python;
 `benches/board.rs` driven by the board's own cell table so bench
-IDs mirror board cells by construction — 223 judged cells: the
-221 board cells plus the wide-display pair): fits each cell's
+IDs mirror board cells by construction — the pinned mode times
+227 cells: the 225 designed-pairing board cells derived by rule
+from the axes (`board::BenchMode::Pinned`: each shape's
+designed-stress groups, the organic control, and the board-red
+riders) plus the wide-display pair; `BOARD_BENCH_MODE=full`,
+`just bench-judge-full`, times the whole 720-cell product plus
+the pair for final verdicts): fits each cell's
 wall exponent `ln(median_hi/median_lo) / ln(denom_hi/denom_lo)`
 across two saved criterion baselines (scales 1 and record),
 denominated against the board's per-cell denominator bytes (never
@@ -545,10 +594,43 @@ C2 and C3 every judge run fails on the fifteen realized greens BY
 DESIGN — that failure is C3's realization evidence, banked
 verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
-**Numbers of record at this tip** [measured 2026-07-26, the
-fold-direction cure record; dev profile, limb+scan meters
-lit]: board **206 green / 19 red at the default scale; 193 / 32
-at ×4** over **225 cells** (amended 2026-07-26, the fold-direction
+**Numbers of record at this tip** [measured 2026-07-26, the #35
+product refactor; dev profile, limb+scan meters lit]: board
+**627 green / 93 red at the default scale; 616 / 104 at ×4** over
+**720 cells**
+(amended 2026-07-26, the #35 board product refactor —
+**PENDING RATIFICATION by the project owner** on the two protocol
+changes it carries. The board became the three-axis product above:
+the hand-picked crossings dissolved into per-shape operand bundles
+(a cross shape's version is its event side; its id side becomes a
+disjoint party pair through the disjoint-mount adapter, one fresh
+root with the shape under opposite children, so independently
+generated ids never share a universe), 225 → 720 cells, smoke pin
+re-derived (33 × 5 version shapes + 23 id-pair + 44 × 11 cross
+shapes + 2 scatter + 46 benign). Every pre-existing cell's
+rendered row is **byte-identical** at both scales against fresh
+pre-refactor runs at the parent tip — the movement is exactly the
+495 new cells, whose 74 (default) / 72 (×4) new reds are triaged
+in §17.3 under their owning genres, none exponent-class on a
+linear input axis. Protocol change 1: the determinism tripwire —
+the runner self-verifies every cell twice in process and the
+gate's `amp-board-determinism` recipe byte-compares two
+cross-process renders — **replaces the two-identical-runs-per-scale
+convention**; acceptance runs are single runs per scale once
+ratified. Protocol change 2: the board recipes were slated for
+`--release`, and the switch is **stopped on evidence**: dev and
+release measure different programs — 102 `debug_assert!` sites in
+the production kernels do metered work (a `Base` comparison in
+`Sub`, cursor-consuming skyline probes), so limb readings differ
+on 95 cells, scan on 59, heap on 3 at the default scale (no
+verdict flips; release reads lower). Until the owner rules which
+profile's reading is the number of record — and the committed
+pins are all dev-denominated — the recipes stay dev. The
+board-red bench riders (`board::BOARD_RED_BENCH_RIDERS`) are
+committed empty: populating them with the 78 unclassified new
+reds would put unrostered time-exponent reds in every judge run,
+so the riders land with the reds' classification)
+(amended 2026-07-26, the fold-direction
 cure: the ascending cliff and its leveled control joined the tick
 rows at 221 → 225 cells; every pre-existing cell byte-identical at
 both scales, the movement exactly the four new cells; the cure
@@ -596,7 +678,10 @@ all-green means the board green on counters and floors at BOTH
 scales (three identical runs each) AND the bench judge
 roster-satisfied at both scales in both modes** — at P5.5 with
 the bigroot set emptied and only the permanent text expectations
-remaining.
+remaining. The 2026-07-26 #35 amendment above proposes replacing
+"three identical runs each" with the committed determinism
+tripwire (single runs per scale); that replacement is PENDING
+RATIFICATION, and until ratified the three-run convention stands.
 
 ## 14. Execution plan
 
@@ -847,7 +932,7 @@ exposed type's bytes/text/serde forms snapshot-pinned in-crate);
 the benign rank-pair operand scaling if C3 chose that arm; the
 §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over 225 cells)
+### 17.3 Owned-red accounting (current; over 720 cells)
 
 Reconciled 2026-07-25 from a fresh board reading at the fix-round
 tip (both scales enumerated cell by cell; the apparent
@@ -955,7 +1040,68 @@ board's own axis; the exponent claim is axis-invariant, the
 constant is not. Sums:
 default 206 + 19 = 225; record 193 + 32 = 225.
 
-Default, 17 = 198 green + 17: **ten κ-text constants**
+Amended 2026-07-26 (the #35 board product refactor): the product
+took the base 225 → 720 with every pre-existing cell's row
+byte-identical at both scales; the 74 (default) / 72 (×4) new
+reds fall into five genres, each with one owner, none
+exponent-class on a linear input axis:
+
+- **The comb-scatter column** (21 default / 19 ×4: the
+  merge/compare/query limb exponents, the tick pair's limb+scan
+  exponents, `version_decode`/`version_rank`/`clock_decode` with
+  their limb floors, and at the default scale
+  `clock_encode`/`rank_sum` heap exponents and `clock_fork`'s
+  scan exponent). The family scales tooth *count* at fixed
+  1000-bit tooth magnitude, and the skyline coding stores the
+  oscillation as unit deltas, so its packed bytes grow ×1.18 per
+  level doubling while value-content-linear work doubles: every
+  exponent on the column reads against a nearly flat denominator
+  (log 2 / log 1.18 ≈ 4). The same value-content-vs-packed-bytes
+  question as the three κ-genre exponents, now a column; owner:
+  **C3's classification question**, and the cliff generators'
+  leaf-delta representation question is the substance.
+- **Twenty (×4; 18 default) plateau limb-floor trips**
+  (`version_decode`/`version_rank`/`version_distance`/
+  `version_lag`/`clock_decode` × {ascend-cliff, ascend-plateau,
+  pure-comb, reveal-comb}): the tree-derived mandatory-limb floor
+  (`mandatory_limbs_version`, one limb per 64 bits of every
+  min-lifted stored base) over-demands on plateau shapes whose
+  stream stores its width once and steps by units — a conforming
+  walk provably does less limb work than the decoded tree's
+  absolute values imply, the same over-derivation as the cliff
+  limb-floor trips; owner: **C3's floor re-derivation**.
+- **The κ-text extension** (28 default / 25 ×4:
+  `version_from_str`/`clock_from_str`/`version_display`/
+  `clock_display` × {harmonic, nested-full, nested-wide,
+  mirror-narrow, mirror-wide, staircase, reveal-hifloor}, limb/`R`
+  over κ, the dense-like shapes also over the display heap
+  constant, plus `version_display × nested-wide`'s ×4 heap
+  constant): per-value gamma-encode arithmetic on small-value
+  trees, the exact genre of the ten pre-existing κ-text
+  constants; owner: **the κ/C3 re-derivation**.
+- **Six plateau projection cells** (`version_project`/
+  `clock_own_version` × {reveal-comb, reveal-hifloor, pure-comb};
+  every column red at ×4): projecting the plateau event through
+  the site-owning comb id re-materializes a wide absolute value
+  per kept site — mandatory output Θ(k·b) against a Θ(k + b)
+  input, read under the input denominator. The comb-scatter
+  output-domination case on the plateau crosses, needing the same
+  `n_io` treatment §6 grants that cross; OPEN in §3; owner: **the
+  §6 denomination criterion at C3**. Never re-denominated by the
+  refactor itself (a green earned by re-derivation is not a
+  migration).
+- **`version_min_ticks` heap constants** (mirror-narrow at both
+  scales, mirror-wide joining at ×4): the query walk's per-level
+  owned heap entries on the deep left-full memo shapes — the
+  mirror-narrow linear-heap-constant genre; owner: **#34's
+  diff-coded memo record** (the tick-side cure priced the tick
+  rows; the query walk's reading is the same constant genre).
+
+Sums: default 627 + 93 = 720; record 616 + 104 = 720.
+
+Default, 93 = 627 green + 93: the 74 new reds above + the
+nineteen pre-existing (byte-identical through the refactor):
+**ten κ-text constants**
 (`version_display`/`clock_display` × {dense, bigroot, benign},
 `version_from_str`/`clock_from_str` × {dense, benign} — limb/`R`
 vs κ; the κ/C3 re-derivation) + **four fold marginals**
@@ -964,11 +1110,17 @@ reduction's n·log n; the C2-adjacent n-cursor merge) + **three
 κ-genre exponents** (`version_min_ticks × cliff`,
 `version_project × comb-scatter`, `clock_own_version ×
 comb-scatter`; single-cell column attribution at C3 BEFORE the
-classification is accepted).
+classification is accepted) + **the ascending-cliff pair's heap
+constants** (the round-7 record).
 
-Record scale, 26 = 189 green + 26: the eight P4.2 tick-walk
+Record scale, 104 = 616 green + 104: the 72 new reds above + the
+thirty-two pre-existing (byte-identical through the refactor):
+the eight P4.2 tick-walk
 segments legs above (nested-full ×2, nested-wide ×2,
-mirror-narrow ×2, staircase ×2) + **the ten κ-text constants**
+mirror-narrow ×2, staircase ×2) + the pure-comb pair's and
+plateau-control pair's segments legs and the ascending-cliff
+pair's heap-constant + segments legs (the round-5/round-7
+records) + **the ten κ-text constants**
 (as above) + **two id-side parser recursion cells**
 (`party_from_str`/`clock_from_str` × id-pair — segments e 1.78,
 count 48: the text parser's remaining recursive walk; owner
