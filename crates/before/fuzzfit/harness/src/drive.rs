@@ -80,12 +80,14 @@ pub fn run_program(program: &[Op]) -> Result<Vec<Sample>, Malformed> {
     Ok(samples)
 }
 
-/// Drive the deterministic corpus: the family stream comes from proptest's
-/// deterministic runner and each program's seed is its case index, so any
-/// two consumers observe byte-identical samples for the same `programs`
-/// count. The calibration sweep pins bands from this stream; the
-/// enforcement suite's staleness cross-check refits a prefix of it, and
-/// the two agree exactly because they are the same stream.
+/// Drive the deterministic corpus, visiting each program's samples.
+///
+/// The family stream comes from proptest's deterministic runner and each
+/// program's seed is its case index, so any two consumers observe
+/// byte-identical samples for the same `programs` count. The calibration
+/// sweep pins bands from this stream; the enforcement suite's staleness
+/// cross-check refits a prefix of it, and the two agree exactly because
+/// they are the same stream.
 ///
 /// # Panics
 ///

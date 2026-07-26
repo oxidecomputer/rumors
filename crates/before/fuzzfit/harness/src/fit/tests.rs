@@ -1,7 +1,8 @@
-//! The staleness comparator's own tripwires: [`line_divergence`] must
-//! read zero against an agreeing pin and read the exact perturbation
-//! against a hand-perturbed one — proven before the cross-check's
-//! tolerance means anything.
+//! The staleness comparator's own tripwires.
+//!
+//! [`line_divergence`] must read zero against an agreeing pin and read
+//! the exact perturbation against a hand-perturbed one — proven before
+//! the cross-check's tolerance means anything.
 
 use super::{fit, line_divergence, Fit};
 use crate::bands::Band;
@@ -41,9 +42,10 @@ fn agreeing_pin_reads_zero() {
 }
 
 /// A perturbed intercept reads back as exactly the perturbation, and a
-/// perturbed slope as its full effect at the range's far endpoint: the
-/// comparator is alive on both parameters, so a stale pin cannot slip
-/// under a tolerance smaller than its drift.
+/// perturbed slope as its full effect at the range's far endpoint.
+///
+/// The comparator is alive on both parameters, so a stale pin cannot
+/// slip under a tolerance smaller than its drift.
 #[test]
 fn perturbed_pin_reads_its_perturbation() {
     let f = linear_fit();

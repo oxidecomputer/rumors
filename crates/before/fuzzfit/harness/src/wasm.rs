@@ -17,10 +17,11 @@ use wasmtime::{Config, Engine, Instance, Memory, Module, Store, TypedFunc, Val};
 /// reported as a harness failure rather than wrapping.
 const FUEL_TANK: u64 = u64::MAX / 2;
 
-/// Register slots pre-reserved in every fresh guest: comfortably above the
-/// largest strategy budget's op cap times the worst per-op allocation (two
-/// registers, `into_parts`), so the file never reallocates during a
-/// measured call.
+/// Register slots pre-reserved in every fresh guest.
+///
+/// Comfortably above the largest strategy budget's op cap times the
+/// worst per-op allocation (two registers, `into_parts`), so the file
+/// never reallocates during a measured call.
 const REGS_RESERVE: u32 = 32 * 1024;
 
 /// The wasm stack ceiling handed to wasmtime.
