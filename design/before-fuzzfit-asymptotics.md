@@ -1,8 +1,13 @@
 # The fuzz-fit asymptotics harness
 
-Statement of the instrument (2026-07-26). Code of record:
-`crates/before/fuzzfit` (detached workspace: `guest/` + `harness/`);
-recipes `just fuzzfit-build`, `just fuzzfit`, `just fuzzfit-calibrate`.
+Statement of the instrument. Code of record: `crates/before/fuzzfit`
+(detached workspace: `guest/` + `harness/`); recipes `just fuzzfit-build`,
+`just fuzzfit`, `just fuzzfit-calibrate`. The pinned bands, the judgment
+constants, and the dated movement annotations live in
+`harness/src/bands.rs`; this document is the instrument of record for
+`before`'s instruction-count asymptotics (the campaign document,
+`design/before-adversarial-resource-amplification.md`, cites it as such
+from its metering-gate section).
 
 ## 1. What it guards, and what it adds
 
@@ -41,12 +46,13 @@ twice, in lockstep:
   executed wasm instruction, so a reading is deterministic,
   host-independent, and byte-reproducible under any machine load.
 
-The probe of record (2026-07-26, `harness/src/bin/probe.rs`): fuel for a
-fixed call sequence is byte-identical across fresh in-process instances
-and across process invocations; the per-call overhead baseline (`ff_nop`)
-is 2 fuel; guest results byte-match the native mirror. The lockstep replay
-doubles as a standing wasm-vs-native differential oracle: every live
-register's final bytes must agree.
+The probe (`harness/src/bin/probe.rs`, re-run at each pin; the readings
+below are the pin of record's): fuel for a fixed call sequence is
+byte-identical across fresh in-process instances and across process
+invocations; the per-call overhead baseline (`ff_nop`) is 2 fuel; guest
+results byte-match the native mirror. The lockstep replay doubles as a
+standing wasm-vs-native differential oracle: every live register's final
+bytes must agree.
 
 Wall time and hardware counters are never read. Fuel constants are an
 artifact of the guest codegen (they differ from native constants); the
@@ -72,17 +78,16 @@ sit on top of the roster:
 - **Combination programs**: weighted random walks over the whole op
   vocabulary, operands drawn from everything constructed so far —
   the composition space between the named shapes.
-- **Independent programs** (two operand regimes, per the project owner's
-  direction 2026-07-26): every multi-operand operation is exercised both
-  on *coupled* operands (one universe, valid together — every other
-  family) and on operands from *separately seeded universes*, where the
-  result is meaningless but the cost claim still binds — including
-  cross-universe `Clock::join`, `Clock::from_parts` on mongrel halves,
-  mixed-universe folds, and `Party::without` against foreign parties.
-  Operations that reject such operands (`Party::join`,
-  `Clock::join`/`sync` on overlap, `without` on emptiness) have the
-  rejection arm measured as its own outcome, predicted by the mirror per
-  case, never assumed.
+- **Independent programs** (the two operand regimes; owner ruling, §9):
+  every multi-operand operation is exercised both on *coupled* operands
+  (one universe, valid together — every other family) and on operands
+  from *separately seeded universes*, where the result is meaningless
+  but the cost claim still binds — including cross-universe
+  `Clock::join`, `Clock::from_parts` on mongrel halves, mixed-universe
+  folds, and `Party::without` against foreign parties. Operations that
+  reject such operands (`Party::join`, `Clock::join`/`sync` on overlap,
+  `without` on emptiness) have the rejection arm measured as its own
+  outcome, predicted by the mirror per case, never assumed.
 - **Escalation programs** (`Family::Escalation`, low-weighted, its own
   budget): one universe grown far past the roster's fork cap with a
   snapshot-clock size ladder, so the pair, fold, and query rows sample
@@ -107,11 +112,11 @@ coupled party joins to 7.7k bits over 13.4k samples, single-operand and
 rejection rows to 9–21k bits) and fold *width* (the ScatterFold width
 ladder: shuffled folds at doubling widths up to 1024 in every draw). A
 degenerate fold reduction is quadratic in width at fixed operand size,
-and byte reach cannot stand in for width reach — §8's first
-demonstration attempt is the proof. §8's round-2 demonstrations are the
-matching proof for the other axis: reach a kernel's arms never sample
-is reach the instrument does not have, whatever the burner self-test
-says.
+and byte reach cannot stand in for width reach — §8's width-degenerate
+fold demonstration is the proof. §8's reachless-kernel demonstration is
+the matching proof for the other axis: reach a kernel's arms never
+sample is reach the instrument does not have, whatever the burner
+self-test says.
 
 Budgets (`strategies::BUDGET`, `strategies::ESCALATION_BUDGET`) cap
 ops, ticks, forks, and fold width unconditionally in the builder,
@@ -147,7 +152,7 @@ proxy can mask no superlinear growth).
 ## 5. Bands: calibration and enforcement
 
 **Calibration** (`just fuzzfit-calibrate`) sweeps a deterministic corpus
-(1536 programs, ~979k steps; proptest's deterministic runner + case-index
+(1536 programs, ~985k steps; proptest's deterministic runner + case-index
 seeds; two sweeps are byte-identical) and fits, per *band key* —
 kernel × outcome, so an operation's rejection arm (`ERR_OP`, predicted
 per step by the mirror) is priced separately from its success path,
@@ -162,21 +167,21 @@ other's ceiling — `log₁₀ fuel` against `log₁₀ denom`:
   one-sidedly heavy: the **ceiling** (`width_above`, max positive
   residual of all floored samples) carries the asymptotic claim, and the
   **floor** (`width_below`, max negative-residual magnitude) carries
-  liveness. A single symmetric max-|residual| width let the fast-path
-  cloud price the ceiling — ±1.4..2.8 on the pair/fold/query rows, room
-  a superlinear mechanism's whole in-range excess fit inside; the split
-  ceilings read +0.1..0.9 over the same corpus. Bounded amortization
-  spikes still land inside the committed band; only unbounded
-  (asymptotic) departures escape;
+  liveness. A single symmetric max-|residual| width would let the
+  fast-path cloud price the ceiling — ±1.4..2.9 on the pair/fold/query
+  rows, room a superlinear mechanism's whole in-range excess fits
+  inside; the split ceilings read +0.1..0.9 over the same corpus.
+  Bounded amortization spikes still land inside the committed band; only
+  unbounded (asymptotic) departures escape;
 - kernels spanning under a decade (or three buckets) classify **constant**
   (slope 0). This classification is honest only when the generators
   genuinely cannot grow the row — the two seed rows. Everywhere else a
   constant band means "span too narrow to fit," which enforces no slope
-  at all: §8's round-2 demonstrations built a quadratic that rode green
-  behind exactly such a row, which is why the reach family's cadence
-  battery exists and every non-seed row now fits over a real span (the
-  O(1) rows read as fitted slope ≈ 0 with near-zero width — `into_parts`
-  and `from_parts` — which is a *proof* of constancy, not an abstention).
+  at all — the trap §8's reachless-kernel demonstration exploits, and
+  why the reach family's cadence battery exists. Every non-seed row fits
+  over a real span; the O(1) rows read as fitted slope ≈ 0 with
+  near-zero width (`into_parts` and `from_parts`), which is a *proof* of
+  constancy, not an abstention.
 
 The result is rewritten atomically into `harness/src/bands.rs` and
 committed — reviewed like a snapshot, with a dated movement annotation in
@@ -194,10 +199,10 @@ replays two *fixed* escalation programs besides (depth 1024 and the
 family's 1792 depth cap, distinct seeds: the sentry's random draws pick
 the reach family about once in 137 cases, so without the deterministic
 replays a typical run never leaves the small-operand regime and the
-at-scale bands have no standing exercise — §8's M1 demonstration reads
-red through the mid-depth replay alone; the second replay keeps the
-upper depth range and the reach proof off a single (depth, seed) point),
-and judges two legs with different failure modes:
+at-scale bands have no standing exercise — §8's reachless-kernel
+mechanism reads red through the mid-depth replay alone; the second
+replay keeps the upper depth range and the reach proof off a single
+(depth, seed) point), and judges two legs with different failure modes:
 
 - the **point leg**: every measured step lands in its band key's band at
   its size, judged only at `denom ≥ min_denom`. Above-band is an
@@ -205,13 +210,13 @@ and judges two legs with different failure modes:
   without a band fails (totality). The two flags carry different claims
   and get different slack: the ceiling's margin stays tight (+0.2,
   allocator-history variance), while the floor's sits at 1.0 — a
-  liveness threshold left inside the honest cheap tail's dispersion (a
-  committed seed's `join_all` step reads 0.29 below the corpus floor
-  width) relocates that dispersion into flakiness, and every pinned
-  floor still clears a dead meter's nop-level reading with the slack
-  subtracted (narrowest measured gap 0.17 decades, `ff_rank_cmp` at
-  its 128-bit fit floor, widening with size; calibration re-derives
-  the minimum on every re-pin).
+  liveness threshold left inside the honest cheap tail's dispersion
+  relocates that dispersion into flakiness (the derivation is at
+  `bands::ENFORCE_MARGIN_BELOW`), and every pinned floor still clears a
+  dead meter's nop-level reading with the slack subtracted (narrowest
+  measured gap 0.14 decades, `ff_rank_cmp` at its 128-bit fit floor,
+  widening with size; calibration re-derives the minimum on every
+  re-pin).
 - the **shape leg** (`curve.rs`): no band key's within-case bucket-median
   trend out-climbs its pinned slope by more than a measured allowance
   (+0.3; the corpus's observed healthy maximum re-derives on every
@@ -243,9 +248,9 @@ tripwire:
   small-input cost, and Below when stalled. This proves the
   wasm-execution → fuel-metering → judgment path can flag a quadratic at
   all; it says nothing about whether the *generators* place real
-  kernels where a regression must flag — §8's round-2 demonstrations
-  rode green past a green burner. Generator reach is accepted only by
-  reconstruction demonstrations against the roster itself.
+  kernels where a regression must flag — a reachless kernel rides
+  green past a green burner (§8). Generator reach is accepted
+  only by reconstruction demonstrations against the roster itself.
 - **pin staleness** (the quantity-computable-two-ways convention): the
   suite refits the deterministic 256-program prefix of the calibration
   stream and, for every band key on the committed `REFIT_COVERAGE` list
@@ -253,91 +258,81 @@ tripwire:
   rejection arm spans under a decade inside the prefix and
   classification-flips against its fitted pin, so calibration prints it
   as uncovered for the re-pinner instead of listing it), requires a
-  prefix fit to exist, its constant/linear classification to match the pin's (a flip
-  is the reach-regression tell — the generators stopped placing that
-  key where its slope is measurable — and fails as a stale pin, never
-  a silent skip), and its line to agree within a measured tolerance
-  (0.7, above the observed 0.55 prefix-vs-corpus sampling dispersion;
-  `fit::line_divergence`). Coverage decay, flips, and drift each fail
-  by name. The comparator's own tripwire is committed (`fit/tests.rs`:
-  a hand-perturbed pin reads back exactly its perturbation). This is a
-  drift detector, not a mechanism catcher: §8 records that the join_all
-  mutant slipped under its tolerance while the point leg flagged it.
+  prefix fit to exist, its constant/linear classification to match the
+  pin's (a flip is the reach-regression tell — the generators stopped
+  placing that key where its slope is measurable — and fails as a stale
+  pin, never a silent skip), and its line to agree within a measured
+  tolerance (0.7, above the observed 0.55 prefix-vs-corpus sampling
+  dispersion; `fit::line_divergence`). Coverage decay, flips, and drift
+  each fail by name. The comparator's own tripwire is committed
+  (`fit/tests.rs`: a hand-perturbed pin reads back exactly its
+  perturbation). This is a drift detector, not a mechanism catcher: §8's
+  width-degenerate fold slips under its tolerance while the point leg
+  flags it.
 - **pin provenance**: the building toolchain must equal
   `bands::PINNED_RUSTC` (§2).
 
-## 6. Findings of the pin of record (2026-07-26)
+## 6. The pin of record (2026-07-26, at the merge onto the campaign line)
 
-The owner's expectation was confirmation, and confirmation is what the
-instrument produced — all 49 band keys (44 kernels, five sampled
-rejection arms) read linear-or-flatter within every family above the
-floor. The mechanical form of that claim is the shape diagnostic:
-across every evidence-bearing (band key, case) pair in the corpus, the
-maximum within-case slope excess over the pin is +0.006. The pooled
-envelope slopes above 1.1 — the success rows in 1.10–1.24 and the
-rejection arms in 1.32–1.48 — are ground-truthed (`bin/diag`, the
-fit-free bucket-median view) to known mechanisms:
+49 band keys: 44 kernels, of which five have sampled rejection arms
+(`clock_join` and `clock_sync` on overlap, `party_join` on overlap,
+`party_without` on emptiness, `rank_checked_sub` on underflow). The one
+deliberately unpriced outcome is `meet_all([])`'s `None`:
+production-reachable but structurally constant — no operand exists, so
+there is nothing for a regression to scale with and nothing to
+denominate a cost against (the generators' fold operands come from
+constructed clock populations, never an empty range; `judge`'s totality
+panic prices every outcome the generators do sample).
 
-- **Family-mixture composition** (the dominant genre: `ff_clock_tick`
-  1.15, `ff_version_cmp`/`concurrent` 1.15, `ff_version_decode` 1.16,
-  `ff_version_rank` 1.15, `ff_version_min_ticks` 1.14,
-  `ff_version_lag` 1.09, `ff_party_join` 1.24,
-  `ff_party_is_disjoint` 1.21): families' per-bit cost levels differ
-  severalfold, and the cheap families' mass sits in the small buckets,
-  so the pooled envelope tilts along a line no single family follows.
-  Representative medians: `party_is_disjoint` at 8–25 fuel/bit on the
-  scatter populations against ~50 flat on the structured shapes;
-  `clock_tick` at ~590–750 on harmonic/big-root mass against ~1500 flat
-  on dense spines; `version_cmp` falling within every family (174→69 on
-  Combination, 252→112 on RevealComb, flat 243 at 10⁴ bits on
-  Escalation). Pinning the envelope is correct for enforcement
-  (per-step judgments hold under any mixture), and the within-case
-  shape leg is the standing check that no lane's own trend rises.
-- `ff_clock_tick`'s Harmonic lane is the one mild riser: 751→858
-  fuel/bit across its top half-decade (~+0.11 local), bounded and
-  inside the shape allowance; DenseSpine (1472→1494), BigRoot
-  (1598→1649), and NestedFull (1235→1178, falling) are flat.
-- `ff_party_covers` 1.07: same mixture genre, re-measured on this
-  corpus. The reach family put flat ~69-fuel/bit samples at 10³·⁵
-  bits (DenseSpine's lane is flat ~80 across two decades), which pulled
-  the pooled envelope down from the 1.18 the pre-reach corpus read;
-  what remains is the cross-universe mixes' cheap mass (~36–58
-  fuel/bit) under-pricing the small buckets. No lane rises.
-- `ff_version_meet` 1.03 with a +0.30 ceiling: the escalation meet
-  ladder's dense adjacent-rung meets now dominate the row, collapsing
-  what was a +0.87-ceiling thin cloud onto a tight near-linear law —
-  the row §8's residual-risk analysis names as the widest thin-per-case
-  surface is now the opposite.
+All 49 band keys read linear-or-flatter within every family above the
+128-bit fit floor. The mechanical form of that claim is the shape
+diagnostic: across every evidence-bearing (band key, case) pair in the
+corpus, the maximum within-case slope excess over the pin is +0.006
+(re-derived at each re-pin; `bin/diag`, the fit-free bucket-median
+view, is the per-family ground truth). Pooled envelope slopes above 1.1
+are composition, not mechanism:
+
+- **Family-mixture composition** (the success rows in 1.14–1.24:
+  `ff_version_cmp`/`concurrent` 1.15, `ff_version_decode` 1.17,
+  `ff_version_rank` 1.16, `ff_version_min_ticks` 1.14,
+  `ff_party_is_disjoint` 1.20, `ff_party_join` 1.24): families' per-bit
+  cost levels differ severalfold, and the cheap families' mass sits in
+  the small buckets, so the pooled envelope tilts along a line no
+  single family follows. Pinning the envelope is correct for
+  enforcement (per-step judgments hold under any mixture), and the
+  within-case shape leg is the standing check that no lane's own trend
+  rises.
 - **Rejection-arm mixture** (`ff_clock_join [err]` 1.37,
   `ff_clock_sync [err]` 1.39, `ff_party_join [err]` 1.48,
   `ff_party_without [err]` 1.32): the same composition at smaller n —
   cross-universe rejections detect their overlap near the root and
   dominate the small buckets cheaply, while the escalation family's
-  codec-duplicate and deferred-overlap rejections scan deep at the top
-  (per-lane medians are flat per bit: the duplicate `clock_join`
-  rejection reads ~42 fuel/bit across two decades).
+  codec-duplicate and deferred-overlap rejections scan deep at the top.
 - `ff_version_join_all` 1.14: `join_all`'s documented balanced
   binary-counter fold — every input passes through O(log n) joins, and
-  the width ladder samples the factor across widths 8..1024 (healthy
-  ladder medians 2906→5897 fuel/bit); fold width is budget-capped, so
-  the factor is bounded and the band prices it. `ff_version_meet_all`
-  1.05 is the same row under the ladder's economics: meets of
-  snapshots that share the cadence recv's events no longer collapse to
-  a common floor immediately, so the envelope sits near linear.
+  the width ladder samples the factor across widths 8..1024; fold width
+  is budget-capped, so the factor is bounded and the band prices it.
+  `ff_version_meet_all` 1.06 is the same row under the ladder's
+  economics: the cadence recv's shared events keep adjacent-rung meets
+  from collapsing to a common floor immediately, so the envelope sits
+  near linear.
 - `ff_rank_display` 1.10: the schoolbook decimal radix conversion the
   meter board's text-I/O legs document (digits × limbs), read against
   the text denominator within this instrument's rank reach (≤7k bits);
   the board owns the record-scale conversion regime. The other rank
-  rows sit sublinear (0.42–0.56) now that the pool holds unequal ranks:
-  `checked_sub`'s underflow arm pins flat (−0.12, the ordering
+  rows sit sublinear (0.41–0.57) on the pooled unequal-rank battery:
+  `checked_sub`'s underflow arm pins flat (−0.13, the ordering
   pre-check's early exit) and its success band carries the
   alignment-subtract mass beside the equal-operand fast path.
-- One real catch during bring-up, of the harness itself: the register
-  file's `Vec` doubling landed inside a measured window and read as an
-  above-band flag on `ff_party_seed`. Fixed by pre-reserving at
-  instantiation; the shrunken seed is committed and replays against the
-  fix. The instrument's first blood was drawn on its own bookkeeping —
-  the enforcement leg works.
+- `ff_version_meet` 1.04 with a +0.31 ceiling: the escalation meet
+  ladder's dense adjacent-rung meets dominate the row and hold the
+  band tight — this is the row §8's residual-risk analysis watches as
+  the widest thin-per-case surface, and the ladder is what keeps it
+  neither wide nor thin.
+
+Movement between pins is recorded where the constants live: the dated
+movement annotation in `harness/src/bands.rs`'s module doc, one entry
+per re-pin, split by mechanism.
 
 ## 7. Platform note
 
@@ -347,130 +342,57 @@ harness raises wasmtime's ceiling to 48 MiB and the budgets cap depth far
 below it. Native depth guarantees are the depth-100k stack-safety test's
 business, not this instrument's.
 
-## 8. Demonstrations ledger
+## 8. Adequacy: demonstrations by construction, and the residual risk
 
-Reconstruction demonstrations: the instrument's catching power is
-accepted by construction — a known-bad mechanism built, run against the
-committed criteria, and shown red — never by argument. Each entry
-records the mechanism, the commands, and the readings.
+The instrument's catching power is accepted by construction — a
+known-bad mechanism built, run against the committed criteria, and
+shown red — never by argument. Five mechanism genres are accepted this
+way; each acceptance is a dated record in git history at its pin
+commit, and each forced a committed defense that stands in the tree:
 
-### 2026-07-26 — the left-fold quadratic fold (round-1 review acceptance)
-
-The mechanism: `Version::join_all`'s balanced binary-counter reduction
-replaced by the left fold its own comment warns about (`iter.fold(new,
-|acc, v| acc | &v)`) — quadratic scan work on populations whose
-accumulator never coalesces. Real work, so no `black_box` is needed
-(synthetic arithmetic mutants strength-reduce; see the adequacy burner
-for that arm). The differential oracle is silent on it by design:
-associativity makes both groupings value-identical.
-
-**Attempt 1 read green, and the failure is the entry's finding.** With
-folds capped at 64 operands, the mutant's whole in-range excess is
-bounded near `n / (2 log₂ n)`: measured mutant/healthy top-bucket
-median ratio was 3.5x (+0.55 decades) at width 256 — inside even the
-split ceiling once the sentry's 48 draws mostly missed wide folds. Two
-lessons, both structural: this mutant is quadratic in fold *width*, not
-operand bytes, so byte-size reach (the escalation spine) cannot amplify
-it; and a reach axis the sentry samples rarely is a reach axis the
-instrument does not have. The staleness cross-check also stayed green
-under the mutant (its prefix-refit divergence sat under the 0.7
-tolerance) — it is a calibration-drift detector, not a mechanism
-catcher, and is documented as such.
-
-The fix: `max_fold` 64→1024, ScatterFold populations to 1024, and a
-doubling *width ladder* of shuffled folds in every ScatterFold draw, so
-the fold rows are sampled along the width axis in every case. Measured
-mutant/healthy ladder medians after the fix (diag, `ScatterFold`
-filter): 1.34x at 10² bits rising to 10.2x (+1.01 decades) at 10⁴·⁵,
-against a re-pinned join_all ceiling of +0.350 (+0.2 margin).
-
-**Attempt 2, against the re-pinned bands** (`cargo nextest run -p
-fuzzfit-harness --cargo-profile release -E 'binary(enforce)'` with the
-mutant applied and the guest rebuilt):
-
-> ABOVE BAND (asymptotic regression): ff_version_join_all at 765 bits
-> consumed 5183049 fuel; the pinned law predicts ~10^6.163
-> +0.350/-2.110
-
-(the marginal-looking excess is the *shrunk minimal* case — proptest
-shrank to the smallest failing fold; pre-shrink cases sat decades
-over). Reverting the mutant and rebuilding: the full suite reads green,
-15/15, with the shrunk shape committed as a permanent replay seed
-(`harness/tests/enforce.proptest-regressions`) that passes on the
-balanced fold and meets any future width-degenerate fold first.
-
-### 2026-07-26 — the reachless-kernel quadratic (round-2 review acceptance)
-
-The round-2 review's M1: a `black_box`-pinned quadratic (n²/32 in
-encoded bits) inside `Clock::recv`. Seven kernels then had constant
-bands with sub-decade spans — "span too narrow to fit," enforcing no
-slope — and the mutant rode green through all fifteen tests: reach a
-kernel's rows never sample is reach the instrument does not have,
-whatever the burner self-test proves about the judgment path.
-
-The fix: the escalation cadence battery (§3) routes escalated operands
-through every single-operand row, the pin re-keys and refits every row
-over real spans, and one fixed escalation program replays in every
-suite run. Re-constructed against the new pin, the mutant reads red
-through that deterministic replay:
-
-> ABOVE BAND (asymptotic regression): ff_clock_recv at 10698 bits
-> consumed 54983245 fuel; the pinned law predicts ~10^7.218
-> +0.314/-0.467
-
-The 48 random sentry draws alone stayed green under the mutant — the
-deterministic replay, not the draws, carries the at-scale detection,
-which is why it is a committed test and not a probability.
-
-### 2026-07-26 — the rejection-arm quadratic (round-2 review acceptance)
-
-The round-2 review's M2: a `black_box`-pinned quadratic (n²/16 in
-encoded bits) on `Party::join`'s `Err` branch. Rejection outcomes were
-then priced inside the success bands, whose ceilings sit decades above
-the rejections' cheap cloud — the mutant rode green while the
-cross-universe lane's cost visibly rose.
-
-The fix: the band key is kernel × outcome (§5), and the escalation
-family constructs rejections whose work scales with operand size
-(codec-duplicate overlap along the ladder; the deferred-overlap poison
-between the finished halves). Re-constructed against the outcome-keyed
-pin, the mutant reads red three ways at once — the deterministic
-replay:
-
-> ABOVE BAND (asymptotic regression): ff_party_join [err] at 588 bits
-> consumed 308650 fuel; the pinned law predicts ~10^4.509 +0.455/-0.865
-
-plus the random sentry itself (which shrank a minimal cross-universe
-rejection shape, committed as a permanent replay seed) and the
-staleness cross-check (the rejection arm's refit line left its
-tolerance). Reverting the mutant: the committed seed exposed a real
-instrument defect on *healthy* code — its `join_all` step read BELOW
-the pinned floor by 0.29 widths, an honest cheap fold the corpus never
-sampled. The floor's slack was the ceiling's 0.2, calibrated for
-allocator variance, silently reused for a claim it doesn't fit;
-liveness needs decade-scale sensitivity only, so the floor margin is
-now priced at 1.0 inside the measured gap between honest cheap readings
-and dead-meter readings (§5), and the seed replays in-band forever.
-
-### 2026-07-26 — the tilting mild superlinearity (residual-risk probe)
-
-The round-2 review's residual risk: smooth mild superlinearity
-(~n^1.3) on wide thin-per-case rows — the shape leg abstains without
-within-case evidence, and `ff_version_meet`'s +0.87 ceiling over ~2
-decades left ε ≈ +0.54 of slope headroom to the point leg. The cheap
-mitigation inside the architecture: the escalation meet ladder (§3)
-gives the row dense within-case mass, which both feeds the shape leg
-and — the larger effect — collapses the pinned ceiling to +0.30.
-Demonstrated by construction (n²/64 `black_box` work in
-`ff_version_meet`, sized inside the round-2 pin's ceiling):
-
-> ABOVE BAND (asymptotic regression): ff_version_meet at 6755 bits
-> consumed 11199862 fuel; the pinned law predicts ~10^6.545
-> +0.302/-2.850
-
-That reading is 10^7.05 against the round-2 pin's 10^7.20 ceiling at
-the same size: the mechanism the round-2 criteria blessed is red under
-the meet-ladder pin.
+- **The width-degenerate fold** (`Version::join_all` as the left fold
+  its own comment warns about — quadratic in fold *width* at fixed
+  operand bytes; associativity makes the differential oracle blind to
+  it, and byte reach cannot amplify it): reads red through the point
+  leg on the fold rows. Forced the width-reach axis — `max_fold` 1024
+  and the shuffled doubling ladder in every ScatterFold draw — and a
+  permanent replay seed (`harness/tests/enforce.proptest-regressions`)
+  that passes on the balanced fold and meets any width-degenerate fold
+  first.
+- **The reachless-kernel quadratic** (`black_box`-pinned n² inside
+  `Clock::recv` while that row spans under a decade — a
+  constant-classified band enforces no slope): reads red
+  deterministically through the mid-depth escalation replay. Forced
+  the escalation cadence battery, real fitted spans on every non-seed
+  row, and the two fixed replays as committed tests — the 48 random
+  sentry draws alone stay green under this mechanism, which is why
+  at-scale detection is a committed test and not a probability.
+- **The rejection-arm quadratic** (`black_box`-pinned n² on
+  `Party::join`'s `Err` branch, priced inside a success ceiling that
+  sits decades above the rejections' cheap cloud): reads red three
+  ways — the escalation replay, the sentry (whose shrunk
+  cross-universe rejection shape is a committed seed), and the
+  staleness cross-check. Forced outcome-keyed bands (kernel × outcome)
+  and escalated rejection construction (codec-duplicate overlap along
+  the ladder; the deferred-overlap poison between the finished
+  halves). Replaying the committed seed on healthy code also priced
+  the floor margin: liveness needs decade-scale sensitivity only, so
+  `ENFORCE_MARGIN_BELOW` is 1.0, inside the measured gap between
+  honest cheap readings and dead-meter readings (§5).
+- **The in-ceiling mild superlinearity** (n²/64 `black_box` work in
+  `Version::meet`, sized inside a wide thin-per-case ceiling): reads
+  red against the meet-ladder pin — the ladder's dense within-case
+  mass both feeds the shape leg and holds the pinned ceiling tight
+  (+0.31), so the headroom the mechanism needs does not exist.
+- **The unpriced-arm quadratic** (`black_box`-pinned n² on
+  `Rank::checked_sub`'s underflow arm, which an equal-operand rank
+  pool never fires): reads red through the sentry, met first by a
+  committed replay seed. Forced the pooled unequal-rank battery —
+  every distance/lag output joins the pool and `checked_sub` issues in
+  both operand orders, so any unequal pair fires the underflow arm in
+  exactly one order and the arm pins its own band — plus `judge`'s
+  totality panic, which fails any sampled outcome with no band by
+  name.
 
 **Residual risk, bounded honestly.** Within the instrument's reach, a
 smooth superlinear mechanism with a small enough constant escapes both
@@ -479,20 +401,20 @@ legs whenever its whole in-reach rise stays inside
 `pinned slope + 0.3` (shape leg, where evidence exists). Per row that
 bounds the escaping exponent at `slope + min(0.3,
 (width_above + 0.2)/span_decades)`, shape-exempt rows uncapped;
-against the pin of record: ~1.28 on the post-ladder `version_meet`
-(slope 1.03, (0.31 + 0.2)/2.08 = 0.24; was ~1.68 pre-ladder), ~1.23 on
-`version_join` (slope 1.01, (0.24 + 0.2)/2.01 = 0.22), ~1.16 on
-`version_project` (slope 0.86, (0.58 + 0.2)/2.52 = 0.31, capped at the
-shape leg's 0.3), and ~1.42 on the shape-exempt `meet_all` (slope
-1.05, (0.89 + 0.2)/2.95 = 0.37, uncapped — no within-case leg
-backstops the fold rows). Tightening further is architectural —
-per-family bands or per-case baselines, and a shape allowance
-re-derived from fresh-draw dispersion rather than the corpus maximum
-(+0.006 today, 50x under the 0.3 allowance) — and deliberately out of
-scope for this round. The bound is a property of any reach-limited
-envelope instrument: it prices mechanisms by their in-reach excess,
-and a mechanism whose in-reach excess is sub-threshold is, within the
-priced envelope, behaviorally the envelope.
+against the pin of record: ~1.28 on `version_meet`
+(slope 1.04, (0.31 + 0.2)/2.08 = 0.24), ~1.23 on `version_join`
+(slope 1.01, (0.24 + 0.2)/2.01 = 0.22), ~1.17 on `version_project`
+(slope 0.87, (0.58 + 0.2)/2.52 = 0.31, capped at the shape leg's 0.3),
+and ~1.42 on the shape-exempt `meet_all` (slope 1.06,
+(0.89 + 0.2)/2.95 = 0.37, uncapped — no within-case leg backstops the
+fold rows). Tightening further is architectural — per-family bands or
+per-case baselines, and a shape allowance re-derived from fresh-draw
+dispersion rather than the corpus maximum (+0.006 today, 50x under the
+0.3 allowance) — and deliberately out of scope. The bound is a
+property of any reach-limited envelope instrument: it prices
+mechanisms by their in-reach excess, and a mechanism whose in-reach
+excess is sub-threshold is, within the priced envelope, behaviorally
+the envelope.
 
 **The meter is inside the threat model, and its degradation bound is
 measured.** A partially dead meter — fuel uniformly undercounted by a
@@ -500,51 +422,21 @@ factor k — shifts every reading down `log₁₀ k` without tilting any
 slope, so neither leg's shape criteria see it; the floor's 1.0-decade
 liveness slack absorbs the shift, and what bounds it is the staleness
 cross-check's line comparison against the pinned intercepts. Measured
-against this pin (a uniform ÷k probe in the fuel readout, judged by
-the deterministic detectors — the prefix refit and both escalation
-replays): k = 2 hides (readings drop 0.30 decades; the worst refit
-divergence reads 0.646, `ff_version_meet_all`, under the 0.7
-tolerance); k = 3 is caught (`ff_version_meet_all` diverges 0.822).
-The accepted residual until the next re-pin: meter degradation under
-~3× — equivalently, up to ~0.48 decades of effective extra ceiling
-generosity — can hide, and a real regression must exceed
-`width_above + 0.2 + log₁₀ k` to flag through it. No new machinery
-guards this, by the dissolution counterweight's ruling: a dedicated
-meter-calibration instrument would exist mostly to defend itself,
-while the staleness check already bounds the exposure and re-derives
-its evidence at every re-pin.
+against the pin of record (a uniform ÷k probe in the fuel readout,
+judged by the deterministic detectors — the prefix refit and both
+escalation replays): k = 2 hides (every deterministic detector reads
+green); k = 3 is caught (`ff_version_meet_all`'s prefix refit diverges
+0.820 against the 0.7 tolerance). The accepted residual until the next
+re-pin: meter degradation under ~3× — equivalently, up to ~0.48
+decades of effective extra ceiling generosity — can hide, and a real
+regression must exceed `width_above + 0.2 + log₁₀ k` to flag through
+it. No new machinery guards this, by the dissolution counterweight's
+ruling (§9): a dedicated meter-calibration instrument would exist
+mostly to defend itself, while the staleness check already bounds the
+exposure and re-derives its evidence at every re-pin.
 
-### 2026-07-26 — the underflow-arm quadratic (round-3 review acceptance)
-
-The round-3 review's F1: `Rank::checked_sub`'s underflow arm was priced
-nowhere. The battery's rank pool held exactly one rank per program, so
-`RankCheckedSub` always drew equal operands — the rejection arm never
-fired anywhere in the corpus, and the success band priced only the
-equal-operand `Rank::ZERO` fast path (the `Greater`
-alignment-shift-subtract arm, the one that allocates, was sampled only
-transitively through `distance`/`lag`). A `black_box`-pinned quadratic
-(n² in both operands' content bits) on the `Ordering::Less → None` arm
-rode the whole suite green.
-
-The fix: the battery pools every distance/lag output it emits and
-issues `checked_sub` in both operand orders — any unequal pair fires
-the underflow arm in exactly one order — so the arm pins its own band
-(slope −0.12 over 128..2.5k bits: the ordering pre-check's early exit)
-and the success band carries the subtraction mass. `judge`'s totality
-panic (a sampled outcome with no band fails by name) keeps the arm
-priced from here on. Re-constructed against the re-pinned bands, the
-mutant reads red through the sentry, met first by an
-already-committed replay seed re-expanded under the new generator:
-
-> ABOVE BAND (asymptotic regression): ff_rank_checked_sub [err] at
-> 3400 bits consumed 110986041 fuel; the pinned law predicts ~10^2.312
-> +0.338/-0.202
-
-(5.2 decades over the ceiling). Reverting the mutant and rebuilding:
-the full suite reads green, 17/17, with no new seed to commit — the
-committed corpus already meets this genre first.
-
-### Standing (continuous) demonstrations
+**Standing (continuous) demonstrations**, run by every suite
+invocation:
 
 - `ff_selftest_quadratic`: the guest's black_box-pinned quadratic burner
   must read ABOVE a linear band (and a stalled reading Below) on every
@@ -554,13 +446,58 @@ committed corpus already meets this genre first.
   1792 depth cap, distinct seeds): the reach regime's bands —
   single-operand rows, rejection arms, the deferred-overlap scans, the
   meet ladder — get exercised deterministically on every suite run,
-  across the family's whole depth range; §8's M1 re-construction reads
-  red through the mid-depth replay alone.
+  across the family's whole depth range.
 - `curve/tests.rs` and `fit/tests.rs`: the shape leg's and the staleness
   comparator's synthetic tripwires (quadratic flags / flat passes /
   under-evidenced abstains; a perturbed pin reads back its
   perturbation).
 - The staleness cross-check's committed `REFIT_COVERAGE` list: every
   band key covered at pin time must keep its prefix fit, its
-  classification, and its line — reach decay (the genre M1 exploited)
-  fails by name instead of shrinking a count.
+  classification, and its line — reach decay (the genre the
+  reachless-kernel demonstration exploits) fails by name instead of
+  shrinking a count.
+- The committed proptest seeds (`enforce.proptest-regressions`): every
+  shape a red run ever shrank replays in-band on healthy code, forever.
+
+## 9. Decision record (dated; owner rulings and major design decisions)
+
+- **2026-07-26 (owner): two operand regimes.** Every multi-operand
+  operation is exercised under both coupled and independent operand
+  scaling — one universe, valid by construction; and separately seeded
+  universes, where the result is meaningless but the cost claim still
+  binds. Rejection arms are legitimate outcomes, measured and priced,
+  never filtered.
+- **2026-07-26: bands are keyed kernel × outcome.** A rejection arm can
+  legitimately undercut its success line by decades; pooling the two
+  lets a superlinear regression in either hide under the other's
+  ceiling. (Accepted by the rejection-arm reconstruction, §8.)
+- **2026-07-26: reach runs on two axes** — operand bytes (the
+  escalation family: spine, size ladder, cadence battery, meet ladder,
+  escalated rejections, two fixed replays) and fold width (the
+  ScatterFold doubling ladder to 1024). (Accepted by the
+  width-degenerate fold and reachless-kernel reconstructions, §8.)
+- **2026-07-26: asymmetric enforcement margins.** The ceiling's margin
+  is 0.2 (allocator-history variance; the regression claim stays
+  tight); the floor's is 1.0 (liveness needs decade-scale sensitivity
+  only, and a floor threshold inside the honest cheap tail's dispersion
+  is flakiness, not sensitivity). Derivations at `bands::ENFORCE_MARGIN`
+  and `bands::ENFORCE_MARGIN_BELOW`.
+- **2026-07-26 (owner, exclusion of record): `meet_all([])` stays
+  unpriced.** Production-reachable but structurally constant — no
+  operand exists, so there is nothing for a regression to scale with
+  and nothing to denominate a cost against.
+- **2026-07-26 (the dissolution counterweight): the sub-3× uniform
+  meter-degradation residual is accepted without new machinery.** The
+  staleness cross-check bounds the exposure and re-derives its evidence
+  at every re-pin; a dedicated meter-calibration instrument would exist
+  mostly to defend itself. (The bound's measurement is §8's.)
+- **2026-07-26: judgment constants re-derive, never persist on trust.**
+  Calibration re-prints the shape allowance's, the refit tolerance's,
+  and the floor margin's observed evidence on every re-pin, so each
+  re-pinner re-derives the constants' standing instead of inheriting
+  it.
+- **2026-07-26 (the merge onto the campaign line): re-pin absorbing the
+  main line's kernel work.** The movement annotation in
+  `harness/src/bands.rs` records the mechanisms; sample counts per band
+  key are unchanged (the deterministic corpus replayed identically), so
+  every movement is guest fuel.
