@@ -7,10 +7,10 @@ use crate::error::Decode;
 /// This is the at-rest form of a `Party`/`Version`: the canonical packed
 /// preorder bit stream together with its exact live length, in one
 /// container. The raw byte slice ([`BitVec::as_raw_slice`]) *is* the wire
-/// encoding — the final partial byte is zero-padded (see
-/// [`zero_dead_bits`]) — and the live length is a cached parse product the
-/// wire legitimately omits, because the streams are self-delimiting at the
-/// bit level.
+/// encoding — the final partial byte's dead bits are zeroed at every
+/// storage seam (`zero_dead_bits`) — and the live length is a cached parse
+/// product the wire legitimately omits, because the streams are
+/// self-delimiting at the bit level.
 pub type Bits = BitVec<u8, Msb0>;
 
 /// A borrowed view of the packed storage form.
