@@ -10,7 +10,7 @@
 use crate::ops::{Malformed, Mirror, Op};
 use crate::wasm::Guest;
 
-/// One measured step: the band key, the §6 denominator, and the fuel.
+/// One measured step: the band key, the denominated size, and the fuel.
 #[derive(Debug, Clone, Copy)]
 pub struct Sample {
     /// The kernel name (the calibration's and enforcement's band key).

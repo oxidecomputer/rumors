@@ -22,17 +22,21 @@ const FUEL_TANK: u64 = u64::MAX / 2;
 /// never reallocates during a measured call.
 const REGS_RESERVE: u32 = 16 * 1024;
 
-/// The wasm stack ceiling handed to wasmtime. The guest's traversals recurse
-/// on tree depth and `stacker` cannot grow a wasm stack (its fallback runs
-/// the callback in place), so deep inputs consume real wasm stack; the
-/// strategies' budgets cap depth well below this.
+/// The wasm stack ceiling handed to wasmtime.
+///
+/// The guest's traversals recurse on tree depth and `stacker` cannot grow
+/// a wasm stack (its fallback runs the callback in place), so deep inputs
+/// consume real wasm stack; the strategies' budgets cap depth well below
+/// this.
 const MAX_WASM_STACK: usize = 48 * 1024 * 1024;
 
 /// Locate the compiled guest module.
 ///
 /// Precedence: the `FUZZFIT_GUEST_WASM` environment variable (explicit
-/// provenance), then the detached workspace's own release target dir. The
-/// `just fuzzfit-*` recipes build the guest before anything queries this.
+/// provenance), then `CARGO_TARGET_DIR`, then the workspace's configured
+/// target dir (`.cargo/config.toml` points it at the repo root's
+/// `target/fuzzfit`). The `just fuzzfit-*` recipes build the guest before
+/// anything queries this.
 pub fn guest_wasm_path() -> PathBuf {
     if let Ok(path) = std::env::var("FUZZFIT_GUEST_WASM") {
         return PathBuf::from(path);
@@ -41,7 +45,7 @@ pub fn guest_wasm_path() -> PathBuf {
         return PathBuf::from(target).join("wasm32-unknown-unknown/release/fuzzfit_guest.wasm");
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../target/wasm32-unknown-unknown/release/fuzzfit_guest.wasm")
+        .join("../../../../target/fuzzfit/wasm32-unknown-unknown/release/fuzzfit_guest.wasm")
 }
 
 /// The process-wide engine and compiled module.
