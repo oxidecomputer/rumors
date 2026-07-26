@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 31cdcc6aaf0a225da910d0e2bcb54a25f39df83dcf7d456c270d273373b0f8af # shrinks to ops = [], i = 0
+cc efc8c71743550ba86fc5570df8a995e98acd5d89474da049a93fa8fa06dc607c # shrinks to oacc = (Node(Leaf(false), Leaf(true)), Leaf(Base(0))), (pool, picks) = ([(Node(Node(Leaf(false), Leaf(true)), Leaf(true)), Node(Base(1), Node(Base(0), Node(Base(0), Leaf(Base(1)), Leaf(Base(0))), Leaf(Base(1))), Node(Base(10876700799140741101), Leaf(Base(0)), Leaf(Base(7570043274568810515))))), (Node(Leaf(false), Node(Leaf(true), Node(Node(Leaf(false), Leaf(true)), Leaf(true)))), Node(Base(18446744073709551621), Node(Base(6807376076975526245), Leaf(Base(0)), Leaf(Base(3))), Node(Base(0), Leaf(Base(0)), Leaf(Base(15707562773966350075)))))], [1, 0])
