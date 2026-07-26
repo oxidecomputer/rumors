@@ -18,7 +18,7 @@
 //! the walk's own watermark for the enclosing range. The left-full
 //! arm's raised leaf precedes the range its minimum comes from, so it
 //! alone pre-scans (`PreScan`) — memoized: one fresh scan records
-//! every interior left-full site's minimum as a chain of differences
+//! every interior left-full site's minimum as a frame-ledger link
 //! (the `Memo` doc), so no stream position is ever pre-scanned twice
 //! and no minimum is materialized.
 //!
@@ -37,9 +37,12 @@
 //! after a raise took the tracked minimum) rides the same web, so
 //! every emitted code is materialized once, post-collapse, at the
 //! width the code itself prices. The pre-scan runs the same discipline
-//! on its own web, and the walk resolves each recorded site against
-//! its innermost open anchor by one chain-interval fold — memoized
-//! minima are diffs between recorded values, never absolutes.
+//! on its own web, and each memoized minimum travels as one ledger
+//! link — a difference against a reference the walk already holds
+//! when it arrives (the previous sibling site's minimum, the forest
+//! parent's, or the scan-entry height), never an absolute — folded
+//! into the live relation exactly once, at the raise decision it
+//! serves.
 //!
 //! # Cost
 //!
@@ -51,40 +54,41 @@
 //! the absent-sibling extremum scans read their range once ahead of
 //! the walk's own copy (a flat ×2, never nesting).
 //!
-//! Limb: accumulator digit touches are linear on the walk and the
-//! watermark web [measured: exponent 1.00 with flat constants 5–21
-//! touches/byte on the matched spine, both wide × deep shortcut
-//! crosses, the shared-minimum memo chain, and the descending
-//! staircase, at both scales] but QUADRATIC worst case in the memo
-//! resolution: the walk resolves each consumed site against an anchor
-//! by folding the chain interval between two recording sequence
-//! numbers, and consumption order (range starts) permutes recording
-//! order (range closes), so a chain link is re-read once per crossing
-//! interval rather than dying at its first read — Θ(k) links per site
-//! on consumption-order adversaries [measured: ×3.9 touch growth per
-//! size doubling on the distinct-minimum memo families; the red pins
-//! in `tests/meter.rs`'s memo module, which the linear re-realization
-//! must flip]. Everywhere else: each consumed delta folds into O(1)
+//! Limb: accumulator digit touches are amortized linear in the two
+//! packed streams [measured: exponent 1.00 with flat constants on the
+//! matched spine, both wide × deep shortcut crosses, the memo
+//! families — distinct and shared minima, interleaved combs, the
+//! wide fan-out — and the descending staircase; the memo module of
+//! `tests/meter.rs` pins the families that separate this from every
+//! refuted resolution]. Each consumed delta folds into O(1)
 //! accumulators; each emission's watermark update is one amortized
 //! sign read plus a propagation whose every fold is a dying operand or
 //! the one surviving fold the update's own priced width bounds; each
 //! emitted code is materialized once, post-collapse, at its own width;
 //! the watermark compares fold and restore only the priced offset (or
-//! answer post-sign by top-index domination); the pre-scan's recorder
-//! reads one amortized sign per site (the zero-link test); the
-//! extremum scans' reset-on-cross folds are priced by the range they
-//! scan; the absent-sibling raise compares materialized offsets both
-//! priced by their own scans; the builder's equal-sibling seam is a
-//! one-bit code check. Wide content is read only where an operand
-//! dies, a bounded-count lifetime read, or a code prices it — the
+//! answer post-sign by top-index domination); the extremum scans'
+//! reset-on-cross folds are priced by the range they scan; the
+//! absent-sibling raise compares materialized offsets both priced by
+//! their own scans; the builder's equal-sibling seam is a one-bit
+//! code check. The ledger's own operands obey the same lifetime
+//! rules: each link is created once at its site's close (the head
+//! moves into the queue, or a deferred first-child link is cloned
+//! once at its own width), read once at its consume, and dies into
+//! the raise decision; the keeper and suspend folds each read a
+//! dying operand or a link's own priced width; the one live follower
+//! (the head, walk-side the relation) receives the per-event fold
+//! the watermark discipline already prices, and the pre-scan's
+//! recorder adds one amortized sign read per site (the zero-link
+//! test). Wide content is read only where an operand dies, a
+//! bounded-count lifetime read, or a code prices it — the
 //! height↔watermark anchor switches read the surviving web once,
-//! priced by the switch emission's own code; the chain links above are
-//! the one exception, and their discipline is the open cure.
+//! priced by the switch emission's own code.
 //!
 //! Heap: O(paired depth) transient frames plus O(n + m) total live
-//! digits; the memo holds one machine word per covered site plus one
-//! accumulator per *nonzero* chain link [measured: ≤ 14 bytes/byte on
-//! every tick family at both scales, the narrow memo chain included].
+//! digits; the memo holds one queue entry per covered site — an
+//! accumulator only where the link is nonzero, so sites sharing one
+//! minimum store nothing — plus one suspended entry per open
+//! site-nesting level.
 //!
 //! Recursion is guarded by `crate::recurse` throughout; the
 //! recursion-depth segments residual at the record scale belongs to
@@ -121,9 +125,9 @@ mod watermark;
 /// is watermark-anchored (a raise just emitted the tracked minimum).
 const OUT_FOLLOWER: usize = 0;
 
-/// The follower slot carrying `min − m_anchor` while the memo consumer
-/// is anchored at a resolved site minimum (walk side), or
-/// `min − m_lastrecorded` between recordings (pre-scan side).
+/// The follower slot carrying the live ledger relation: walk-side
+/// `min − m_r` while the reference is watermark-carried; pre-scan-side
+/// the recording head, `min − m_ref` for the level it serves.
 const REL_FOLLOWER: usize = 1;
 
 /// Register one event on the version a skyline stream denotes, from the
@@ -179,7 +183,6 @@ pub fn fill(ev: &Encoded, id: &crate::Party) -> Encoded {
         stack: MinStack::new(),
         memo: Memo::new(),
         corr: Corr::None,
-        anchor: 0,
         out: SkylineBuilder::with_capacity(ev_bits.len()),
     };
     let mut id = IdReader::root(id_bits);
@@ -200,10 +203,9 @@ pub fn fill(ev: &Encoded, id: &crate::Party) -> Encoded {
         walk.memo.recorded_check, walk.memo.consumed_check,
         "the walk consumed the recorded sites, in order"
     );
-    debug_assert_eq!(walk.anchor, 0, "every anchor frame pops");
     debug_assert!(
         matches!(walk.corr, Corr::None),
-        "the anchor relation dies with its last frame"
+        "the ledger relation dies with the outermost site"
     );
     let mut bits = walk.out.finish();
     let live = bits.len();
@@ -240,45 +242,56 @@ struct FillWalk<'a> {
     started: bool,
     /// The walk's range-minimum watermarks (the anchor web).
     stack: MinStack,
-    /// Left-full minima computed ahead of the walk (the chained memo).
+    /// Left-full minima computed ahead of the walk (the frame ledger).
     ///
     /// A fresh pre-scan records every interior left-full site it
     /// evaluates, and the walk consumes each entry exactly once on
     /// arrival — so no position is pre-scanned twice.
     memo: Memo,
-    /// The relation of the innermost resolved site minimum to the
-    /// walk's live state (its consumption anchor).
+    /// The relation of the walk's ledger reference to its live state:
+    /// each consume re-anchors it to the consumed site's minimum, and
+    /// each site's range close re-anchors it from the walk's own web
+    /// (which holds that site's minimum natively at that instant), so
+    /// it is exactly the queue-front link's reference at every
+    /// consume.
     corr: Corr,
-    /// The innermost open consumed site's recording sequence number
-    /// (0: none open); enclosing anchors ride the recursion's own
-    /// frames, and the chain segment between two anchors telescopes
-    /// their minima's difference.
-    anchor: u32,
     /// The collapsing output builder.
     out: SkylineBuilder,
 }
 
-/// The memoized pre-scan's output: per left-full site, in the walk's
-/// arrival order, the site minimum diff-coded along the recording
-/// chain.
+/// The memoized pre-scan's output — the frame ledger: per left-full
+/// site, in the walk's arrival (pre-order) order, one optional link
+/// resolving the site's minimum against a reference the walk already
+/// holds when it arrives.
 ///
-/// Entry `j` (recording order = the pre-scan's range-close order)
-/// holds `m_j − m_{j−1}`, with `m_0` the fresh scan's entry height —
-/// so the chain interval `(a, s]` telescopes to `m_s − m_a` for any
-/// two recordings, and the walk resolves each site against its
-/// innermost open anchor by one interval fold. Zero differences (a
-/// nested chain of sites sharing one minimum) are not stored at all:
-/// the chain keeps only nonzero links by sequence number.
+/// The reference discipline: a site with an earlier sibling under the
+/// same forest parent stores `m_s − m_prev`; a forest parent's first
+/// child stores `m_s − m_parent`, written at the parent's own close —
+/// when the parent's minimum is final — into the child's earlier
+/// queue slot (the queue is written out of order, consumed in order);
+/// the scan's outermost site stores `m_root − h(scan entry)`. The
+/// walk's arrival-order relation is exactly that reference at every
+/// consume: the site before a first child is its parent (the live
+/// relation), and the site before a later sibling is the previous
+/// sibling (re-anchored from the walk's own web at that sibling's
+/// range close). Zero links are not stored at all, so sibling or
+/// nested sites sharing one minimum cost nothing — one wide shared
+/// minimum is never materialized per covering site. Each stored link
+/// is created once, read once at its consume, and dies into the raise
+/// decision.
 struct Memo {
-    /// Per site, in consumption (stream) order: its recording sequence
-    /// number (1-based; 0 is the scan-entry pseudo-anchor).
+    /// Per site, in consumption (stream) order: 0 when the site's
+    /// link is zero, else the 1-based index of its link in `links` —
+    /// one machine word per site, so sites sharing minima store
+    /// nothing beyond it.
     queue: Vec<u32>,
+    /// The nonzero links, in write order (sibling links land at their
+    /// sites' closes, deferred first-child links at their parents') —
+    /// the queue's indices decouple write order from consumption
+    /// order.
+    links: Vec<Accum>,
     /// The consumption cursor into `queue`.
     cursor: usize,
-    /// Nonzero chain links, ascending by recording sequence.
-    chain: Vec<(u32, Accum)>,
-    /// The recording counter for the current fresh scan.
-    seq: u32,
     /// The end position of the current fresh scan's span: sites before
     /// it are recorded; a site at or past it launches a new scan.
     covered_until: usize,
@@ -303,9 +316,8 @@ impl Memo {
     fn new() -> Self {
         Memo {
             queue: Vec::new(),
+            links: Vec::new(),
             cursor: 0,
-            chain: Vec::new(),
-            seq: 0,
             covered_until: 0,
             #[cfg(debug_assertions)]
             recorded_check: 0,
@@ -314,7 +326,7 @@ impl Memo {
         }
     }
 
-    /// Reset for a new fresh scan, keeping allocations.
+    /// Reset for a new fresh scan, keeping the queue allocation.
     fn begin_scan(&mut self) {
         debug_assert_eq!(self.cursor, self.queue.len(), "the prior scan drained");
         #[cfg(debug_assertions)]
@@ -323,47 +335,39 @@ impl Memo {
             "the walk consumed the recorded sites, in order"
         );
         self.queue.clear();
+        self.links.clear();
         self.cursor = 0;
-        for (_, link) in self.chain.drain(..) {
-            drop(link);
-        }
-        self.seq = 0;
     }
 
-    /// Fold `m_to − m_from` into `acc`: the chain interval between two
-    /// recording sequence numbers, each nonzero link read once per
-    /// crossing.
-    fn fold_interval(&self, acc: &mut Accum, from: u32, to: u32) {
-        let (lo, hi, add) = if to >= from {
-            (from, to, true)
-        } else {
-            (to, from, false)
-        };
-        let start = self.chain.partition_point(|(seq, _)| *seq <= lo);
-        for (seq, link) in &self.chain[start..] {
-            if *seq > hi {
-                break;
-            }
-            if add {
-                acc.add_accum(link);
-            } else {
-                acc.sub_accum(link);
-            }
+    /// Store a nonzero link for `slot`, in write order.
+    fn set_link(&mut self, slot: usize, link: Accum) {
+        self.links.push(link);
+        self.queue[slot] = u32::try_from(self.links.len()).expect("site count fits u32");
+    }
+
+    /// Take `slot`'s link out for its one consuming read, if nonzero.
+    fn take_link(&mut self, slot: usize) -> Option<Accum> {
+        match self.queue[slot] {
+            0 => None,
+            idx => Some(core::mem::take(&mut self.links[idx as usize - 1])),
         }
     }
 }
 
-/// The relation of the innermost resolved site minimum (`m_a`, the
-/// anchor) to the walk's live state.
+/// The relation of the walk's ledger reference (`m_r`: the last
+/// consumed site's minimum, re-anchored to each closing site on the
+/// way out) to the walk's live state.
 enum Corr {
-    /// No site is resolved (no anchor frame is open).
+    /// No site is open or resolved (only a fresh scan's outermost site
+    /// consumes in this state; its reference is the scan-entry height,
+    /// which is the walk's height at that instant).
     None,
-    /// `h − m_a`, folding input deltas: the anchor was resolved but the
-    /// raise took the scan-maximum side, so the relation is
-    /// height-carried.
+    /// `h − m_r`, folding input deltas: the reference is
+    /// height-carried (the last raise took the scan-maximum side).
     H(Accum),
-    /// `min − m_a` rides the stack's [`REL_FOLLOWER`]: the raise took
-    /// the minimum side, so the relation is watermark-carried.
+    /// `min − m_r` rides the stack's [`REL_FOLLOWER`]: the reference
+    /// is watermark-carried (the last raise took the minimum side, or
+    /// a site's close re-anchored from the walk's own web).
     Min,
 }
 
@@ -408,7 +412,7 @@ impl FillWalk<'_> {
             // `max(max(el), min(fill(ir, er)))`. The max comes from the
             // consuming scan of `el`; the min — needed before the
             // raised leaf is emitted, ahead of `er`'s walk — from the
-            // chained memo when an enclosing pre-scan already evaluated
+            // frame ledger when an enclosing pre-scan already evaluated
             // this site, else from one fresh (and recording) pre-scan
             // of the right sibling, anchored at `h` (which sits at
             // `el`'s last leaf, exactly the pre-scan's entry).
@@ -423,7 +427,13 @@ impl FillWalk<'_> {
                 self.child(id, right, depth);
                 return;
             }
-            if self.pos >= self.memo.covered_until {
+            let outermost = self.pos >= self.memo.covered_until;
+            debug_assert_eq!(
+                outermost,
+                matches!(self.corr, Corr::None),
+                "a fresh scan starts exactly where no ledger relation is live"
+            );
+            if outermost {
                 // Uncovered: one fresh pre-scan records this site and
                 // every left-full site inside its span.
                 self.memo.begin_scan();
@@ -433,24 +443,28 @@ impl FillWalk<'_> {
                     entry_net: Some(Accum::new()),
                     pending_rel: None,
                     memo: &mut self.memo,
+                    keeper: Accum::new(),
+                    first_slot: usize::MAX,
+                    head_level: 0,
+                    suspend: Vec::new(),
                 };
                 let slot = scan.reserve(self.pos);
                 scan.stack.open();
                 let mut reader = IdReader::at(id.bits(), id.pos());
                 let end = descend!(
                     depth,
-                    scan.rec(self.pos, self.first_read, &mut reader, depth)
+                    scan.rec(self.pos, self.first_read, &mut reader, depth, 1)
                 );
-                scan.record(slot);
+                scan.record(slot, 0);
                 let rel = scan.stack.follower_take(REL_FOLLOWER);
                 scan.stack.retire(rel);
                 scan.stack.close();
+                debug_assert!(scan.suspend.is_empty(), "every suspended level resolves");
                 self.memo.covered_until = end;
             }
-            let enclosing = self.anchor;
             self.consume_site(&above, depth);
             self.child(id, right, depth);
-            self.pop_anchor(enclosing);
+            self.pop_site(outermost);
             return;
         }
         // Fill the left child first; the id cursor then sits exactly at
@@ -520,9 +534,9 @@ impl FillWalk<'_> {
         (neg, mag)
     }
 
-    /// Consume the queue-front memoized site: resolve its minimum
-    /// against the innermost open anchor by one chain-interval fold,
-    /// decide the raise, emit, and open the site's anchor frame.
+    /// Consume the queue-front memoized site: resolve its minimum by
+    /// one fold of its ledger link into the live relation, decide the
+    /// raise, and emit.
     fn consume_site(&mut self, above: &Signed, depth: usize) {
         debug_assert!(
             self.memo.cursor < self.memo.queue.len(),
@@ -532,24 +546,26 @@ impl FillWalk<'_> {
         {
             self.memo.consumed_check = position_check(self.memo.consumed_check, self.pos);
         }
-        let seq = self.memo.queue[self.memo.cursor];
+        let link = self.memo.take_link(self.memo.cursor);
         self.memo.cursor += 1;
-        let anchor = self.anchor;
         match core::mem::replace(&mut self.corr, Corr::None) {
             Corr::None => {
-                debug_assert_eq!(self.anchor, 0, "an anchor keeps a relation");
-                // Base: the anchor is the fresh scan's entry height,
-                // which is the walk's height right here — the relation
-                // starts at zero.
+                // Base: the outermost site's reference is the fresh
+                // scan's entry height, which is the walk's height
+                // right here — the relation starts at zero.
                 let acc = self.stack.lease();
-                self.consume_h_anchored(acc, anchor, seq, above, depth);
+                self.consume_h_anchored(acc, link, above, depth);
             }
-            Corr::H(acc) => self.consume_h_anchored(acc, anchor, seq, above, depth),
+            Corr::H(acc) => self.consume_h_anchored(acc, link, above, depth),
             Corr::Min => {
-                // d_arm = m_s − min = (m_s − m_a) − (min − m_a).
+                // d_arm = m_s − min = (m_s − m_r) − (min − m_r): the
+                // link dies into the decision.
                 let mut d = self.stack.follower_take(REL_FOLLOWER);
                 d.negate();
-                self.memo.fold_interval(&mut d, anchor, seq);
+                if let Some(link) = link {
+                    d.add_accum(&link);
+                    self.stack.retire(link);
+                }
                 if self.stack.compare_above_vs(above, &d) == Ordering::Less {
                     // The minimum side: arm at m_s and emit there.
                     self.stack.arm_relative(d);
@@ -568,26 +584,28 @@ impl FillWalk<'_> {
                     self.emit_offset(depth + 1, above.clone());
                 }
                 self.corr = Corr::Min;
-                self.anchor = seq;
             }
         }
     }
 
     /// [`consume_site`](Self::consume_site) with a height-carried
-    /// relation `acc = h − m_a`.
+    /// relation `acc = h − m_r`.
     fn consume_h_anchored(
         &mut self,
         mut acc: Accum,
-        anchor: u32,
-        seq: u32,
+        link: Option<Accum>,
         above: &Signed,
         depth: usize,
     ) {
-        // The decision is sign((h + above) − m_s) = sign(acc + above +
-        // (m_a − m_s)); either way acc then holds h − m_s, so the
-        // relation re-anchors to this site for free.
+        // The decision is sign((h + above) − m_s) = sign(acc + above −
+        // link); the link stays folded in, so acc then holds h − m_s
+        // and the relation re-anchors to this site for free. The link
+        // dies here — its one read.
         fold(&mut acc, above.0, &above.1);
-        self.memo.fold_interval(&mut acc, seq, anchor);
+        if let Some(link) = link {
+            acc.sub_accum(&link);
+            self.stack.retire(link);
+        }
         let sign = acc.sign();
         fold(&mut acc, !above.0, &above.1);
         if sign == Ordering::Less {
@@ -620,36 +638,32 @@ impl FillWalk<'_> {
             self.emit_offset(depth + 1, above.clone());
             self.corr = Corr::H(acc);
         }
-        self.anchor = seq;
     }
 
-    /// Close the innermost consumed site's anchor frame, restoring the
-    /// enclosing anchor `a` (saved on the caller's own frame):
-    /// re-anchor the relation by one chain-interval fold, or retire it
-    /// with the last frame.
-    fn pop_anchor(&mut self, a: u32) {
-        let s = core::mem::replace(&mut self.anchor, a);
-        debug_assert_ne!(s, 0, "a consumed site closes once");
-        if a == 0 {
-            match core::mem::replace(&mut self.corr, Corr::None) {
-                Corr::None => unreachable!("an open anchor keeps a relation"),
-                Corr::H(acc) => self.stack.retire(acc),
-                Corr::Min => {
-                    let rel = self.stack.follower_take(REL_FOLLOWER);
-                    self.stack.retire(rel);
-                }
-            }
-            return;
-        }
-        // Re-anchor from m_s to m_a: fold m_s − m_a in.
-        match &mut self.corr {
-            Corr::None => unreachable!("an open anchor keeps a relation"),
-            Corr::H(acc) => self.memo.fold_interval(acc, a, s),
+    /// Close a consumed site's range: the old relation retires, and —
+    /// for an interior site — the reference re-anchors to this site's
+    /// minimum from the walk's own web, at zero cost.
+    ///
+    /// The web holds `m_s` natively at this instant: the site's node
+    /// frame has absorbed exactly the range's emissions (whose minimum
+    /// is `m_s`) and the raised leaf, and a raise never falls below
+    /// its own site's minimum (the fill equations' `max`), so the
+    /// tracked minimum IS `m_s`. The next consume at the enclosing
+    /// level is this site's next sibling, whose ledger link is
+    /// relative to exactly this minimum.
+    fn pop_site(&mut self, outermost: bool) {
+        match core::mem::replace(&mut self.corr, Corr::None) {
+            Corr::None => unreachable!("a consumed site keeps a relation"),
+            Corr::H(acc) => self.stack.retire(acc),
             Corr::Min => {
-                let mut rel = self.stack.follower_take(REL_FOLLOWER);
-                self.memo.fold_interval(&mut rel, a, s);
-                self.stack.follower_set(REL_FOLLOWER, rel);
+                let rel = self.stack.follower_take(REL_FOLLOWER);
+                self.stack.retire(rel);
             }
+        }
+        if !outermost {
+            let zero = self.stack.lease();
+            self.stack.follower_set(REL_FOLLOWER, zero);
+            self.corr = Corr::Min;
         }
     }
 
@@ -903,7 +917,7 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
 /// site's right sibling.
 ///
 /// Computes every interior left-full site's `min(fill(ir, er))` on
-/// its own watermark web and records each as a chain link (the
+/// its own watermark web and records each as a frame-ledger link (the
 /// [`Memo`] doc), so the walk arrives with every raise argument
 /// resolved and no position is pre-scanned twice.
 ///
@@ -928,18 +942,48 @@ struct PreScan<'a, 'm> {
     /// The pre-scan's own range-minimum watermarks.
     stack: MinStack,
     /// `h′ − h(scan entry)`, alive until the first virtual arming
-    /// seeds the recording relation.
+    /// seeds the recording head.
     entry_net: Option<Accum>,
-    /// The seeded relation awaiting the arming that installs it.
+    /// The seeded head awaiting the arming that installs it.
     pending_rel: Option<Accum>,
-    /// The chain under construction.
+    /// The ledger under construction.
     memo: &'m mut Memo,
+    /// The sibling-chain keeper for the level the head serves:
+    /// `m_latest − m_first` over the level's recorded sites, folded
+    /// forward one link width per sibling record. It dies into the
+    /// level's deferred first-child link at the forest parent's close.
+    keeper: Accum,
+    /// The queue slot of the head's level's first site, whose link
+    /// (`m_first − m_parent`) is deferred to the parent's own record —
+    /// the one reference not final at the child's close.
+    first_slot: usize,
+    /// The site-nesting level the head currently serves (0: the
+    /// outermost site's own level, whose reference is the scan-entry
+    /// height and never defers).
+    head_level: u32,
+    /// Suspended outer levels, innermost last: the outer head's final
+    /// value (`m_first(inner) − m_ref(outer)` — immutable once pushed,
+    /// both minima fixed), the outer keeper, the outer first slot, and
+    /// the outer level. LIFO by the site forest's nesting.
+    suspend: Vec<(Accum, Accum, usize, u32)>,
 }
 
 impl PreScan<'_, '_> {
     /// The pre-scan image of the walk's arms over the subtree at
     /// `pos`: same reads, virtual emissions; returns the range end.
-    fn rec(&mut self, pos: usize, first: bool, id: &mut IdReader, depth: usize) -> usize {
+    ///
+    /// `level` is the site-nesting depth of this position — how many
+    /// left-full sites of this scan enclose it — so the sites found
+    /// directly here record at `level` and their own ranges recurse at
+    /// `level + 1`.
+    fn rec(
+        &mut self,
+        pos: usize,
+        first: bool,
+        id: &mut IdReader,
+        depth: usize,
+        level: u32,
+    ) -> usize {
         let (left, right) = match id.read() {
             IdNode::Empty => return self.copy_range(pos, first),
             // Unreachable for canonical ids: every entry hands in a
@@ -989,14 +1033,14 @@ impl PreScan<'_, '_> {
                 return end;
             }
             let slot = self.reserve(l_end);
-            let end = self.child(l_end, false, id, true, depth);
-            self.record(slot);
+            let end = self.child(l_end, false, id, true, depth, level + 1);
+            self.record(slot, level);
             if self.stack.compare_above(&above) != Ordering::Less {
                 self.emit_offset(&above);
             }
             return end;
         }
-        let l_end = self.child(pos, first, id, left, depth);
+        let l_end = self.child(pos, first, id, left, depth, level);
         if right && matches!(id.peek(), IdNode::Full) {
             // The right-full raise never undercuts the minimum it is
             // raised to, so only the max side is a new virtual value.
@@ -1007,7 +1051,7 @@ impl PreScan<'_, '_> {
             }
             return end;
         }
-        self.child(l_end, false, id, right, depth)
+        self.child(l_end, false, id, right, depth, level)
     }
 
     /// One child range inside its own frame, mirroring the walk's.
@@ -1018,11 +1062,12 @@ impl PreScan<'_, '_> {
         id: &mut IdReader,
         present: bool,
         depth: usize,
+        level: u32,
     ) -> usize {
         self.stack.open();
         let mut empty = IdReader::Empty;
         let c = if present { &mut *id } else { &mut empty };
-        let end = descend!(depth + 1, self.rec(pos, first, c, depth + 1));
+        let end = descend!(depth + 1, self.rec(pos, first, c, depth + 1, level));
         self.stack.close();
         end
     }
@@ -1041,21 +1086,96 @@ impl PreScan<'_, '_> {
         slot
     }
 
-    /// Record the just-closed site range's minimum as one chain link:
-    /// the recording relation moves out (zero links are not stored),
-    /// and the relation restarts at this minimum.
-    fn record(&mut self, slot: usize) {
-        self.memo.seq += 1;
-        let seq = self.memo.seq;
-        let mut rel = self.stack.follower_take(REL_FOLLOWER);
-        if rel.sign() == Ordering::Equal {
-            self.stack.retire(rel);
-        } else {
-            self.memo.chain.push((seq, rel));
+    /// Record the just-closed site's ledger link and re-anchor the
+    /// head to this site's minimum.
+    ///
+    /// Runs at the moment the site's range has closed and its raise
+    /// has not yet been emitted: the innermost armed minimum is
+    /// exactly this site's `m_s` (its node frame holds only the
+    /// range's emissions, and a raise never falls below its own
+    /// site's minimum), so the head reads `m_s − m_ref` verbatim. A
+    /// sibling record moves the head into the queue as its link; a
+    /// level's first record defers its link to the forest parent's
+    /// own record — the parent's minimum is not final yet — and
+    /// suspends the outer head, whose value is immutable from here on
+    /// (both its endpoints are final minima).
+    fn record(&mut self, slot: usize, level: u32) {
+        // A deeper level is complete iff the head still serves it:
+        // its forest parent is THIS site, whose minimum is final now.
+        while self.head_level > level {
+            self.resolve_inner();
         }
+        if self.head_level == level {
+            // A sibling record (the scan's outermost site records
+            // here too, as the sibling of the entry-height
+            // pseudo-site): the head IS the link, `m_s − m_prev`.
+            let mut head = self.stack.follower_take(REL_FOLLOWER);
+            if head.sign() == Ordering::Equal {
+                self.stack.retire(head);
+            } else {
+                if level > 0 {
+                    // keeper: m_latest − m_first, one fold at the
+                    // link's own width (its consume read prices it).
+                    self.keeper.add_accum(&head);
+                }
+                self.memo.set_link(slot, head);
+            }
+        } else {
+            debug_assert!(self.head_level < level, "levels resolve LIFO");
+            // This level's first site: suspend the outer head by
+            // move — its value (m_s − m_ref(outer)) is immutable now.
+            let head = self.stack.follower_take(REL_FOLLOWER);
+            let keeper = core::mem::replace(&mut self.keeper, self.stack.lease());
+            self.suspend
+                .push((head, keeper, self.first_slot, self.head_level));
+            self.first_slot = slot;
+            self.head_level = level;
+        }
+        // The head restarts at this site's minimum, installed BEFORE
+        // the raise emission below: the raise can arm pending frames
+        // (moving the tracked minimum), and only an installed
+        // follower receives that arm's fold — installed after, the
+        // reference goes stale by exactly the arm's delta.
         let zero = self.stack.lease();
         self.stack.follower_set(REL_FOLLOWER, zero);
-        self.memo.queue[slot] = seq;
+    }
+
+    /// Resolve the innermost suspended level: its forest parent's
+    /// minimum is final — it is the tracked minimum right now — so
+    /// the deferred first-child link is one fold away, and the outer
+    /// head resumes through the suspended diff.
+    fn resolve_inner(&mut self) {
+        // x := (min − m_last) + (m_last − m_first) = min − m_first;
+        // the keeper dies into it (its buffer is re-armed for the
+        // outer level below — nothing is minted per resolve).
+        let mut x = self.stack.follower_take(REL_FOLLOWER);
+        x.add_accum(&self.keeper);
+        if x.sign() != Ordering::Equal {
+            // link(first) = m_first − m_parent = −x: one clone at the
+            // link's own width, priced by its consume read.
+            let mut link = self.stack.lease();
+            link.add_accum(&x);
+            link.negate();
+            self.memo.set_link(self.first_slot, link);
+        }
+        // The outer head resumes: (m_first − m_ref(outer)) + (min −
+        // m_first). The fold runs NARROW side INTO wide survivor: x
+        // dies at the link's own funded width (zero when the minima
+        // are shared), while the suspended diff's content — wide when
+        // one wide minimum spans a whole first-child chain — is moved,
+        // never re-read, so a nested chain over one wide minimum
+        // costs nothing per level.
+        let (mut susp, keeper, first_slot, level) = self
+            .suspend
+            .pop()
+            .expect("a deeper head level implies a suspended outer level");
+        susp.add_accum(&x);
+        self.stack.retire(x);
+        let dead = core::mem::replace(&mut self.keeper, keeper);
+        self.stack.retire(dead);
+        self.first_slot = first_slot;
+        self.head_level = level;
+        self.stack.follower_set(REL_FOLLOWER, susp);
     }
 
     /// Read one payload, folding the step into the height side of the
