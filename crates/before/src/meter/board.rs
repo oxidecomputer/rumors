@@ -105,9 +105,17 @@
 //!   same-form equality) or whose operands have no packed stream at all
 //!   (the rank pair).
 //! - **Limb** floors bind where big-integer arithmetic is semantically
-//!   mandatory: an operation that must materialize or fold a magnitude
-//!   wider than [`MACHINE_WORD_MAGNITUDE_BITS`] touches at least one limb
-//!   per 64 bits of that magnitude. Narrow-magnitude cells are
+//!   mandatory, at two derivations. The rows that read the stored form
+//!   as-is (decode, the rank/distance/lag folds, and the tick walk)
+//!   floor at the *stream's own codes*: one limb per 64 bits of every
+//!   stored payload code wider than [`MACHINE_WORD_MAGNITUDE_BITS`] — a
+//!   plateau of equal wide leaves stores its width once and steps by
+//!   unit deltas after, and a conforming walk provably need not
+//!   materialize each leaf's absolute value, so a tree-derived floor
+//!   would demand limb work no conforming walk does. The value-
+//!   materializing parse rows (`FromStr` must convert every spelled
+//!   value) floor at the *decoded tree's* stored bases: one limb per
+//!   64 bits of every base wider than the bound. Narrow cells are
 //!   not-applicable (machine words suffice), as are operations whose
 //!   contract forces no arithmetic at all.
 //! - **Touch** floors are deterministic-liveness declarations, like the
@@ -1708,11 +1716,12 @@ const NA_SCAN_BYTE_COPY: &str =
 const NA_SCAN_NO_STREAM: &str = "operands are decoded rank values: no packed stream exists";
 /// Scan NA: a trivial (seed) operand stores no bits to scan.
 const NA_SCAN_SEED_PARTY: &str = "the forked party is the seed: its packed form is empty";
-/// Limb floor: wide magnitudes are folded limb by limb.
+/// Limb floor: the parse rows materialize every wide spelled value.
 const WHY_LIMB_WIDE: &str = "a magnitude wider than the machine-word bound must be materialized \
-     or folded limb by limb: one op per 64 magnitude bits";
-/// Limb floor: the tick walk decodes every stored wide payload code.
-const WHY_LIMB_TICK_STREAM: &str = "every payload code of the stored stream wider than the \
+     or folded limb by limb: one op per 64 magnitude bits (the parse direction converts every \
+     spelled value, so the decoded tree's stored bases are all mandatory)";
+/// Limb floor: a walk over the stored form decodes every wide payload code.
+const WHY_LIMB_STREAM: &str = "every payload code of the stored stream wider than the \
      machine-word bound must be decoded limb by limb: one op per 64 code bits (the stream's \
      own codes, not the decoded tree's values — a plateau of equal wide leaves stores its \
      width once)";
@@ -1986,8 +1995,27 @@ fn scan_touch() -> Liveness {
     }
 }
 
-/// A wide-magnitude limb floor, or NA when every magnitude fits machine
-/// words.
+/// A stored-stream limb floor (one limb per 64 bits of every wide payload
+/// code), or NA when every code fits machine words: the honest floor for
+/// rows that read the stored form as-is (decode, the query folds, the tick
+/// walk), which provably need not materialize the decoded tree's absolute
+/// values.
+fn limb_stream(mandatory_limbs: u64) -> Liveness {
+    if mandatory_limbs == 0 {
+        Liveness::NotApplicable {
+            reason: NA_LIMB_NARROW,
+        }
+    } else {
+        Liveness::Floor {
+            min: mandatory_limbs,
+            why: WHY_LIMB_STREAM,
+        }
+    }
+}
+
+/// A wide-magnitude limb floor over the decoded tree's stored bases, or NA
+/// when every base fits machine words: the honest floor for the
+/// value-materializing parse rows alone.
 fn limb_wide(mandatory_limbs: u64) -> Liveness {
     if mandatory_limbs == 0 {
         Liveness::NotApplicable {
@@ -2069,17 +2097,9 @@ fn walk_floors(packed_bytes: usize, touch: Liveness) -> Floors {
 /// materialize each leaf's absolute value — a tree-derived floor would
 /// demand limb work no conforming walk does.
 fn tick_walk_floors(version: &Version, packed_bytes: usize) -> Floors {
-    let limbs = mandatory_limbs_stream(version);
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        limb: if limbs == 0 {
-            na(NA_LIMB_NARROW)
-        } else {
-            Liveness::Floor {
-                min: limbs,
-                why: WHY_LIMB_TICK_STREAM,
-            }
-        },
+        limb: limb_stream(mandatory_limbs_stream(version)),
         segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (packed_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),
@@ -2129,9 +2149,12 @@ fn mandatory_limbs_stream(v: &Version) -> u64 {
 ///
 /// Materializing or folding such a value cannot touch fewer limbs than the
 /// value has, whatever the representation; narrower values may legitimately
-/// live in machine words and count zero. The walk mirrors
-/// [`radix_units_version`]: iterative over the packed form, outside any
-/// measurement.
+/// live in machine words and count zero. This is the floor for the
+/// value-materializing parse rows alone (`FromStr` converts every spelled
+/// base); rows that read the stored form as-is floor at
+/// [`mandatory_limbs_stream`], whose derivation explains the split. The
+/// walk mirrors [`radix_units_version`]: iterative over the packed form,
+/// outside any measurement.
 fn mandatory_limbs_version(v: &Version) -> u64 {
     let mut limbs = 0u64;
     for base in stored_bases(v) {
@@ -2497,7 +2520,7 @@ fn ops() -> Vec<Op> {
                 let v = decode_version(&bytes);
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
-                    limb: limb_wide(mandatory_limbs_version(&v)),
+                    limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
                     touch: touch_wide_stream(&v),
@@ -2672,7 +2695,7 @@ fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: limb_wide(mandatory_limbs_version(&v)),
+                    limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_deltas(&v)),
@@ -2770,7 +2793,7 @@ fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
+                    limb: limb_stream(mandatory_limbs_stream(&v) + mandatory_limbs_stream(&w)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_deltas(&v) + stored_deltas(&w)),
@@ -2785,7 +2808,7 @@ fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
+                    limb: limb_stream(mandatory_limbs_stream(&v) + mandatory_limbs_stream(&w)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_deltas(&v) + stored_deltas(&w)),
@@ -3232,7 +3255,7 @@ fn ops() -> Vec<Op> {
                 let bytes = clock.encode();
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
-                    limb: limb_wide(mandatory_limbs_version(clock.version())),
+                    limb: limb_stream(mandatory_limbs_stream(clock.version())),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
                     touch: touch_wide_stream(clock.version()),
