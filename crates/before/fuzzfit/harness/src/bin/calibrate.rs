@@ -16,11 +16,13 @@
 //! healthy within-case slope excess (the shape leg's `SLOPE_ALLOWANCE`),
 //! the prefix-refit-vs-pin line divergence (the staleness check's
 //! `REFIT_TOLERANCE`), the band keys the prefix leaves uncovered
-//! (the complement of the generated `REFIT_COVERAGE` list), and the
+//! (the complement of the generated `REFIT_COVERAGE` list), the
 //! narrowest floor-vs-nop gap (the liveness margin
 //! `ENFORCE_MARGIN_BELOW`'s claim that a dead meter reads below every
-//! effective floor) — so a re-pin re-derives the constants' evidence
-//! instead of trusting last time's.
+//! effective floor), and the enforcement replays' worst ceiling excess
+//! (the calibration-vs-enforcement gap the ceiling margin
+//! `ENFORCE_MARGIN` absorbs) — so a re-pin re-derives the constants'
+//! evidence instead of trusting last time's.
 //!
 //! Usage: `calibrate [programs]` (default 1536, the corpus of record; the
 //! committed pins state their corpus size per band).
@@ -29,10 +31,11 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use fuzzfit_harness::bands::{Band, ENFORCE_MARGIN_BELOW, REFIT_PREFIX_PROGRAMS};
+use fuzzfit_harness::bands::{Band, ENFORCE_MARGIN, ENFORCE_MARGIN_BELOW, REFIT_PREFIX_PROGRAMS};
 use fuzzfit_harness::curve::{local_slope_excess, MIN_BUCKETS, MIN_PER_BUCKET, SHAPE_EXEMPT};
-use fuzzfit_harness::drive::for_each_deterministic_program;
+use fuzzfit_harness::drive::{for_each_deterministic_program, run_program};
 use fuzzfit_harness::fit::{fit, line_divergence, Fit};
+use fuzzfit_harness::strategies::{build, Family, ESCALATION_REPLAYS};
 use fuzzfit_harness::wasm::Guest;
 
 /// A [`Band`] transcribing a fresh [`Fit`] (what the pin will say).
@@ -211,14 +214,49 @@ fn main() {
             if *rejected { " [err]" } else { "" }
         );
     }
+    // The ceiling margin's evidence: the enforcement suite's fixed
+    // escalation replays are deterministic enforcement-context programs
+    // outside the calibration corpus (different seeds), so their worst
+    // ceiling excess — over judged steps, residual minus the fitted
+    // ceiling width — is the observed calibration-vs-enforcement gap
+    // ENFORCE_MARGIN must absorb. The replays' samples never enter the
+    // fits: they are evidence, not pin input.
+    let mut ceiling_max: Option<(f64, Key, u32)> = None;
+    for (depth, seed) in ESCALATION_REPLAYS {
+        let program = build(&Family::Escalation { depth }, seed);
+        let samples = run_program(&program)
+            .unwrap_or_else(|m| panic!("malformed escalation replay at {}", m.op));
+        for s in &samples {
+            let key = (s.kernel, s.rejected);
+            let Some(f) = fits.get(&key) else { continue };
+            if s.denom_bits < f.min_denom {
+                continue;
+            }
+            let line = f.intercept + f.slope * (s.denom_bits as f64).log10();
+            let excess = (s.fuel.max(1) as f64).log10() - line - f.width_above;
+            if ceiling_max.as_ref().is_none_or(|(m, ..)| excess > *m) {
+                ceiling_max = Some((excess, key, depth));
+            }
+        }
+    }
+    match &ceiling_max {
+        Some((excess, (kernel, rejected), depth)) => eprintln!(
+            "ceiling evidence: max enforcement-replay ceiling excess {excess:+.3} \
+             ({kernel}{}, escalation depth {depth}) against ENFORCE_MARGIN {ENFORCE_MARGIN}",
+            if *rejected { " [err]" } else { "" }
+        ),
+        None => eprintln!("ceiling evidence: the replays produced no judged steps"),
+    }
 
     let bands_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bands.rs");
     let current = std::fs::read_to_string(&bands_path).expect("bands.rs exists");
     let marker = "/// The toolchain that pinned";
-    let head = current
-        .split(marker)
-        .next()
-        .expect("split always yields a first piece");
+    // The marker line is prose in a generated region: a rewording that
+    // loses it must fail here by name, never silently splice the whole
+    // file into the head.
+    let head = &current[..current
+        .find(marker)
+        .expect("bands.rs splice marker present")];
     let rustc = env!("FUZZFIT_RUSTC_VERSION");
     // A plain multi-line literal (continuation lines at column zero): the
     // emitted `///` lines keep their paragraph structure both in the

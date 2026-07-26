@@ -495,8 +495,8 @@ pub extern "C" fn ff_version_lag(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Version::min_ticks`; the value returns through `ff_stage_len`-style
-/// reads being unnecessary — it is the return value.
+/// `Version::min_ticks`; the count is the `i64` return value itself, so
+/// no staging round-trip is involved.
 #[no_mangle]
 pub extern "C" fn ff_version_min_ticks(src: u32) -> i64 {
     match with_v(src, |v| v.min_ticks()) {

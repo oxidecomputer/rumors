@@ -2,9 +2,11 @@
 //! (no guest required), so a generator bug fails here before it can confuse
 //! a fuel reading.
 
+use std::collections::BTreeSet;
+
 use proptest::prelude::*;
 
-use fuzzfit_harness::bands::{judge_against, Band, Verdict};
+use fuzzfit_harness::bands::{judge_against, Band, Verdict, BANDS};
 use fuzzfit_harness::ops::{Mirror, Op};
 use fuzzfit_harness::strategies::{any_family, budget_for, build};
 
@@ -79,6 +81,98 @@ proptest! {
     #[test]
     fn generation_is_deterministic(family in any_family(), seed in any::<u64>()) {
         prop_assert_eq!(build(&family, seed), build(&family, seed));
+    }
+}
+
+/// The pinned bands and the op vocabulary name the same kernels, pinned
+/// here as an expectation list: every roster kernel has at least one
+/// pinned band, and every pinned band prices a roster kernel.
+///
+/// A kernel added without a re-pin, and a band orphaned by a kernel
+/// removal or rename, each fail by name in a diff a reviewer sees (the
+/// `REFIT_COVERAGE` pattern) — before any generator has to happen to
+/// sample the hole. The roster is one representative op per `Op`
+/// variant: a variant added to the vocabulary belongs in this list, and
+/// its kernel in the pinned bands.
+#[test]
+fn bands_and_op_roster_name_the_same_kernels() {
+    let roster: Vec<Op> = vec![
+        Op::ClockSeed { dst: 0 },
+        Op::ClockTick { c: 0 },
+        Op::ClockFork { dst: 0, src: 0 },
+        Op::ClockJoin { a: 0, b: 0 },
+        Op::ClockSend { c: 0 },
+        Op::ClockRecv { c: 0, v: 0 },
+        Op::ClockSync { a: 0, b: 0 },
+        Op::ClockOwnVersion { dst: 0, src: 0 },
+        Op::ClockVersion { dst: 0, src: 0 },
+        Op::ClockIntoParts {
+            dst_p: 0,
+            dst_v: 0,
+            src: 0,
+        },
+        Op::ClockFromParts { dst: 0, p: 0, v: 0 },
+        Op::ClockEncode { src: 0 },
+        Op::ClockDecode { dst: 0 },
+        Op::VersionTick { v: 0, p: 0 },
+        Op::VersionJoin { dst: 0, a: 0, b: 0 },
+        Op::VersionMeet { dst: 0, a: 0, b: 0 },
+        Op::VersionProject { dst: 0, v: 0, p: 0 },
+        Op::VersionCmp { a: 0, b: 0 },
+        Op::VersionConcurrent { a: 0, b: 0 },
+        Op::VersionRank { dst: 0, src: 0 },
+        Op::VersionDistance { dst: 0, a: 0, b: 0 },
+        Op::VersionLag { dst: 0, a: 0, b: 0 },
+        Op::VersionMinTicks { src: 0 },
+        Op::VersionJoinAll {
+            dst: 0,
+            src: 0,
+            n: 0,
+        },
+        Op::VersionMeetAll {
+            dst: 0,
+            src: 0,
+            n: 0,
+        },
+        Op::VersionEncode { src: 0 },
+        Op::VersionDecode { dst: 0 },
+        Op::VersionDisplay { src: 0 },
+        Op::VersionFromstr { dst: 0 },
+        Op::PartySeed { dst: 0 },
+        Op::PartyFork { dst: 0, src: 0 },
+        Op::PartyForks {
+            dst: 0,
+            src: 0,
+            n: 0,
+        },
+        Op::PartyJoin { a: 0, b: 0 },
+        Op::PartyIsDisjoint { a: 0, b: 0 },
+        Op::PartyCovers { a: 0, b: 0 },
+        Op::PartyWithout { dst: 0, a: 0, b: 0 },
+        Op::PartyEncode { src: 0 },
+        Op::PartyDecode { dst: 0 },
+        Op::PartyDisplay { src: 0 },
+        Op::PartyFromstr { dst: 0 },
+        Op::RankAdd { dst: 0, a: 0, b: 0 },
+        Op::RankCmp { a: 0, b: 0 },
+        Op::RankCheckedSub { dst: 0, a: 0, b: 0 },
+        Op::RankDisplay { src: 0 },
+    ];
+    let kernels: BTreeSet<&'static str> = roster.iter().map(Op::kernel).collect();
+    for kernel in &kernels {
+        assert!(
+            BANDS.iter().any(|band| band.kernel == *kernel),
+            "kernel {kernel} has no pinned band: \
+             re-pin with `just fuzzfit-calibrate` and commit src/bands.rs"
+        );
+    }
+    for band in BANDS {
+        assert!(
+            kernels.contains(band.kernel),
+            "pinned band {} prices no roster kernel: a stale pin or a roster hole; \
+             re-pin with `just fuzzfit-calibrate` or extend the roster above",
+            band.kernel
+        );
     }
 }
 

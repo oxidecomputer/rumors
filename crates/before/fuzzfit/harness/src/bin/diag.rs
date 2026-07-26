@@ -19,6 +19,7 @@ use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::TestRunner;
 
 use fuzzfit_harness::drive::run_program;
+use fuzzfit_harness::fit::BUCKETS_PER_DECADE;
 use fuzzfit_harness::strategies::{any_family, build};
 
 fn main() {
@@ -55,10 +56,11 @@ fn main() {
         if !filter.is_empty() && !kernel.contains(&filter) {
             continue;
         }
-        // Buckets of half a decade over the denominator.
+        // Buckets of half a decade over the denominator (the fitter's
+        // exact geometry).
         let mut buckets: BTreeMap<u32, Vec<f64>> = BTreeMap::new();
         for &(d, f) in samples {
-            let key = (2.0 * (d.max(1) as f64).log10()).floor() as u32;
+            let key = (BUCKETS_PER_DECADE * (d.max(1) as f64).log10()).floor() as u32;
             buckets.entry(key).or_default().push(f as f64 / d as f64);
         }
         println!(
@@ -73,7 +75,7 @@ fn main() {
             let max = ratios[ratios.len() - 1];
             println!(
                 "  denom 10^{:>4.1}: n={:6}  fuel/bit median {:>10.1}  p90 {:>10.1}  max {:>10.1}",
-                key as f64 / 2.0,
+                key as f64 / BUCKETS_PER_DECADE,
                 ratios.len(),
                 median,
                 p90,
