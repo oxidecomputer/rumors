@@ -5,7 +5,11 @@
 //! driven by the board's own cell table (`meter::board::bench_cells`) — so
 //! the IDs mirror the board exactly: the board cell `version_rank × harmonic`
 //! is the bench `version_rank/harmonic`, and a red board cell names the bench
-//! that times it. The deterministic record stays with the board and the
+//! that times it. The cell set is a `board::BenchMode` slice of the board's
+//! shape × operation product, chosen by `BOARD_BENCH_MODE`
+//! (`common::sidecar::mode_from_env`): the default pinned subset for the
+//! judge recipes' cadence, the full product for final verdicts — both
+//! derived from the board's own axis declarations, never a second list. The deterministic record stays with the board and the
 //! envelope suite (`tests/meter.rs`); these rows exist so a wall-time
 //! regression (or win) on any operation × shape is a first-class,
 //! criterion-tracked number — and so the bench judge (`tools/benchjudge`,
@@ -119,7 +123,7 @@ const WIDE_DISPLAY_FAMILY: &str = "hugeleaf";
 /// pair.
 fn bench_board(c: &mut Criterion) {
     let scale = sidecar::scale_from_env();
-    let cells = board::bench_cells(scale);
+    let cells = board::bench_cells(scale, sidecar::mode_from_env());
     let wide = WideDisplay::build(scale);
     // Cell IDs are `op/family` and denominators are the board's own
     // per-cell bytes, in board row order; the wide-display pair rides the

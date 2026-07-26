@@ -8,6 +8,33 @@
 //! `O(n + m)` in the packed input bits — with no bound on value magnitude,
 //! tree depth, or encoded size.
 //!
+//! # The product over three axes
+//!
+//! The board is a generalized cartesian product over three declarative
+//! axes, and coverage holds structurally rather than by per-cell wiring:
+//!
+//! - **Shapes** ([`FAMILIES`]): each shape builds an *operand bundle* —
+//!   a version, a disjoint party pair, a designated event × id cross, a
+//!   fold population — and a uniform post-pass derives the rest (a
+//!   cross shape's version is its event side; its id side becomes a
+//!   party pair through the disjoint-mount adapter; every version gains
+//!   its ticked counterpart and rank pair). A shape reaches every
+//!   operation its bundle supplies: adding a shape grows the product
+//!   without naming any operation.
+//! - **Operations** (the row table): each row declares the bundle slots
+//!   its signature consumes and prepares its cell from them alone —
+//!   never from the shape's identity — so adding an operation grows the
+//!   product across every shape that supplies its operands.
+//! - **Currencies** ([`ByCurrency`]): every judged quantity — the
+//!   declarations, the readings, the scores — carries one field per
+//!   metering currency, and the judgment iterates the axis itself.
+//!   Adding a currency is a compile error at every declaration site
+//!   until each operation answers its floor-or-NA question ([`Floors`]),
+//!   so a meter can never be half-wired onto the board.
+//!
+//! The deterministic board always runs the whole product (the smoke test
+//! pins the count); the wall-clock mirror selects with [`BenchMode`].
+//!
 //! # The criterion
 //!
 //! Each cell runs its operation at two input scales (the second twice the
@@ -186,8 +213,8 @@
 //! codec directions (the coding is canonical 1:1, so input bytes are the
 //! honest bound); every scalar, comparison, and query row (word-sized or
 //! borrowed results); and the packed-output mutator rows (`join`, `meet`,
-//! `tick`, `batch_snapshot`, `fork`, `recv`, `sync`, `without`, and the
-//! non-cross projection cells) — their input denomination rests on output
+//! `tick`, `batch_snapshot`, `fork`, `recv`, `sync`, `without`, and every
+//! projection cell outside the output-domination cross) — their input denomination rests on output
 //! coding ≤ inputs + O(1) per overlay boundary, which is pinned for
 //! join/meet as the 1-Lipschitz proptest in
 //! [`tier2`](crate::meter::tier2)'s test suite rather than assumed.
@@ -213,27 +240,30 @@
 //!
 //! # Families
 //!
-//! The five adversarial shapes from [`meter`](crate::meter) — the dense
-//! event spine, `bigroot`, `hugeleaf`, the boundary comb (`cliff`, at
+//! Every shape from [`meter`](crate::meter) reaches every operation its
+//! operand bundle supplies (the product section above): the event shapes —
+//! the dense spine, `bigroot`, `hugeleaf`, the boundary comb (`cliff`, at
 //! `k = n` so its value content grows quadratically in its packed input),
-//! and the diverted id-spine pair — plus `benign`: a fixed-seed
-//! pseudo-random population of forked, ticked clocks, the control row that
-//! keeps the ceilings honest on organic inputs. Event families exercise
-//! `Version` (and `Clock`) operations; the id pair exercises `Party` (and
-//! `Clock`) operations; `benign` provides both. Where an operation needs a
+//! and `harmonic` — carry a version; the diverted id-spine pair carries a
+//! disjoint party pair; the eleven cross shapes (`comb-scatter` and the
+//! ten tick-walk crosses) carry a version, a mounted party pair, and a
+//! clock; `benign` — a fixed-seed pseudo-random population of forked,
+//! ticked clocks, the control row that keeps the ceilings honest on
+//! organic inputs — carries everything. Where an operation needs a
 //! `Party` and a `Version`, the board crosses adversarial party × small
-//! version and small party × adversarial version.
+//! version, small party × adversarial version, and — on the cross
+//! shapes — the designated adversarial × adversarial pairing.
 //!
-//! Three columns exist for dedicated cell sets and are skipped by every
-//! other row:
+//! Three shapes carry a genre note beyond their variant docs:
 //!
-//! - `comb-scatter`, for exactly two cells: the adversarial × adversarial
-//!   projection cross (boundary-comb version × scattered party) whose
-//!   mandatory output dominates its input — the case the small-operand
-//!   crosses above cannot exhibit.
-//! - `harmonic` (`meter::harmonic`, a 1-leaf at every depth), for the
-//!   linear-functional rows (`rank`/`distance`/`lag`/`min_ticks`) and the
-//!   rank rows (`rank_pair_ops`, `rank_sum`): its rank's numerator is as
+//! - `comb-scatter`: the projection cross (boundary-comb version ×
+//!   scattered party) whose mandatory output dominates its input — the
+//!   case the small-operand crosses cannot exhibit; its two projection
+//!   cells are the board's only I/O-denominated non-text cells.
+//! - `harmonic` (`meter::harmonic`, a 1-leaf at every depth), built
+//!   against the linear-functional rows (`rank`/`distance`/`lag`/
+//!   `min_ticks`) and the rank rows (`rank_pair_ops`, `rank_sum`): its
+//!   rank's numerator is as
 //!   wide as the depth already walked at every level, so a fold that
 //!   re-shifts its accumulated numerator per level reads limb exponent ~2
 //!   here while `dense` (a one-bit numerator) stays the linear control.
@@ -242,7 +272,8 @@
 //!   \[measured — limb exponent 1.00, constant within 2% of `dense`, both
 //!   scales\]: the column is the tripwire that goes red under the
 //!   re-shifting genre.
-//! - `scatter`, for the two fold rows (`version_join_all`,
+//! - `scatter`, whose bundle carries fold operands alone, for the two
+//!   fold rows (`version_join_all`,
 //!   `party_join_all`; both also keep a `benign` control cell, folding the
 //!   organic population in construction order): balanced-forked
 //!   single-tick operands ordered evens before odds, so a sequential
@@ -649,43 +680,43 @@ enum FamilyKind {
     /// The output-domination cross: boundary comb × scattered party.
     CombScatter,
     /// The harmonic spine `H(d)`: the rank fold's wide-numerator
-    /// adversary, reached only by the linear-functional rows and the rank
-    /// pair.
+    /// adversary, designed against the linear-functional rows and the
+    /// rank pair.
     Harmonic,
     /// The scatter-ordered fold population: balanced-forked single-tick
-    /// operands whose join accumulator never coalesces, reached only by
-    /// the fold rows.
+    /// operands whose join accumulator never coalesces; its bundle
+    /// carries fold operands alone, so only the fold rows apply.
     Scatter,
     /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`.
     ///
     /// Every level a right-full shortcut site, the deepest stacking of
     /// the walk's deferred right-full decisions and raise bookkeeping
-    /// on narrow values — reached only by the two tick rows.
+    /// on narrow values — the designated cross of the two tick rows.
     NestedFull,
     /// The wide right-full cross: `bigroot(b, d)` × `N(d)`.
     ///
     /// The stream's first payload is coded absolute, so the deepest
     /// subtree's net movement carries the root's full magnitude and
     /// every level's bookkeeping meets it — width × depth through the
-    /// right-full arm. Reached only by the two tick rows.
+    /// right-full arm. The designated cross of the two tick rows.
     NestedWide,
     /// The wide left-full (memo) cross: `wide_tail(b, d)` × `M(d)`.
     ///
     /// Every proper subtree nets the tail's full magnitude while every
     /// level is a memoized pre-scan site — width × depth through the
-    /// left-full arm and the pre-scan's own chains. Reached only by the
-    /// two tick rows.
+    /// left-full arm and the pre-scan's own chains. The designated cross
+    /// of the two tick rows.
     MirrorWide,
     /// The narrow left-full (memo) cross: `wide_tail(1, d)` × `M(d)`.
     ///
     /// The memoized pre-scan machinery itself, all values word-scale.
-    /// Reached only by the two tick rows.
+    /// The designated cross of the two tick rows.
     MirrorNarrow,
     /// The descending staircase `D(d)` × the unary id spine `I(d)`.
     ///
     /// Every consumed leaf undercuts every open range's minimum —
     /// full-penetration minimum updates at every level, all values
-    /// word-scale. Reached only by the two tick rows.
+    /// word-scale. The designated cross of the two tick rows.
     Staircase,
     /// The reveal-comb cross: `reveal_comb(s, s)` × its own id.
     ///
@@ -696,21 +727,21 @@ enum FamilyKind {
     /// popped at every close — the unfunded width circulation, in the
     /// touch currency these columns do not carry (the gate pins in
     /// `tests/meter.rs` enforce it; the bench mirror's time leg sees
-    /// it). Reached only by the two tick rows.
+    /// it). The designated cross of the two tick rows.
     RevealComb,
     /// The reveal-comb control: `reveal_comb_hifloor(s, s)` × the
     /// reveal-comb id.
     ///
     /// Identical forest and close-reveal cycle with the floor raised
     /// to `2^s − 2`, so the circulated boundary difference is O(1)
-    /// wide: the gap control. Reached only by the two tick rows.
+    /// wide: the gap control. The designated cross of the two tick rows.
     RevealHifloor,
     /// The pure-comb cross: `pure_comb(s, s)` × its own id.
     ///
     /// The reveal comb's cycle with no left-full site anywhere — no
     /// memo, no pre-scan, no site consume: the base watermark stack's
     /// own arm-move + close-pop width circulation, isolated from the
-    /// frame ledger. Reached only by the two tick rows.
+    /// frame ledger. The designated cross of the two tick rows.
     PureComb,
     /// The ascending-cliff cross: `ascend_cliff(s, s)` × its own id.
     ///
@@ -718,8 +749,8 @@ enum FamilyKind {
     /// differences and a terminal 0-cliff drives one width-`s` undercut
     /// residue through all of them — the cascade whose per-hop fold
     /// direction the gate pins in `tests/meter.rs` price in the touch
-    /// currency these columns do not carry. Reached only by the two
-    /// tick rows.
+    /// currency these columns do not carry. The designated cross of the
+    /// two tick rows.
     AscendCliff,
     /// The ascending-cliff control: `ascend_cliff_plateau(s, s)` × the
     /// ascending-cliff id.
@@ -727,7 +758,7 @@ enum FamilyKind {
     /// Identical spine, arming schedule, and cliff undercut with every
     /// leaf leveled, so the difference stack is one compressed zero run
     /// the residue passes whole in O(1): the hop-schedule control.
-    /// Reached only by the two tick rows.
+    /// The designated cross of the two tick rows.
     AscendPlateau,
     /// The fixed-seed organic control population.
     Benign,
@@ -756,40 +787,47 @@ const FAMILIES: [FamilyKind; 19] = [
     FamilyKind::Benign,
 ];
 
-/// One family instantiated at one scale: the packed operands every row's
+/// One shape instantiated at one scale: the operand bundle every row's
 /// `prepare` decodes fresh (outside measurement).
+///
+/// The bundle is the shape axis's declaration: each slot a shape fills
+/// flows to every operation whose signature consumes it, so a shape's
+/// reach is structural — build a shape with a version and it appears on
+/// every version row; give it an id side and it appears on every party
+/// row through the disjoint-mount adapter. The derived slots (`version2`,
+/// `rank_pair`, a cross shape's `version` and `parties`) are filled by
+/// one uniform post-pass in [`FamilyData::build`], never per shape.
 struct FamilyData {
     kind: FamilyKind,
     name: &'static str,
-    /// The family's primary packed version (event families and benign).
+    /// The shape's primary packed version (a cross shape's event side).
     version: Option<Vec<u8>>,
-    /// The comparison counterpart: `version` plus one seed tick, packed.
+    /// The comparison counterpart, derived uniformly: `version` plus one
+    /// seed tick, packed.
     version2: Option<Vec<u8>>,
-    /// A disjoint packed party pair (the id pair and benign halves).
+    /// A disjoint packed party pair within one universe: natural for the
+    /// id pair and the benign halves, minted by the disjoint-mount
+    /// adapter from a cross shape's id side.
     parties: Option<(Vec<u8>, Vec<u8>)>,
-    /// The projection cross's packed (comb version, scattered party) — the
-    /// comb-scatter family only, reached by nothing but the two cross cells.
+    /// The designated packed (event version, id party) cross: the pairing
+    /// the shape was built around, driving the tick rows' walk floors and
+    /// the clock rows' operand choice.
+    ///
+    /// Each cross shape's variant doc states the arm and cost genre its
+    /// cross drives.
     cross: Option<(Vec<u8>, Vec<u8>)>,
-    /// The measure operand and its ticked counterpart — the harmonic family
-    /// only, reached by nothing but the linear-functional rows
-    /// (`rank`/`distance`/`lag`/`min_ticks`) and the rank rows
-    /// (`rank_pair_ops`, `rank_sum`).
-    measure: Option<(Vec<u8>, Vec<u8>)>,
-    /// The packed fold operands (versions, parties), reached by nothing but
-    /// the two fold rows: the scatter family's adversarially ordered
-    /// population and the benign family's organic control.
+    /// Whether the cross's mandatory projection output dominates its
+    /// input (the comb-scatter shape): the projection rows I/O-denominate
+    /// exactly these cells (the module doc's Denomination section).
+    output_dominated: bool,
+    /// The packed fold operands (versions, parties), consumed by the two
+    /// fold rows alone: the scatter shape's adversarially ordered
+    /// population and the benign shape's organic control.
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
-    /// The tick cross's packed (event, id) pair — the tick-walk
-    /// families only, reached by nothing but the two tick rows.
+    /// The mismatched rank pair, derived from `version` in the post-pass.
     ///
-    /// Each tick-walk family's variant doc (nested-full and -wide,
-    /// both mirrors, the staircase) states the arm and cost genre its
-    /// cross drives.
-    tick_cross: Option<(Vec<u8>, Vec<u8>)>,
-    /// The mismatched rank pair — the rank-row families only.
-    ///
-    /// Precomputed here (family-derived rank, small integer rank) so the
+    /// Precomputed here (shape-derived rank, small integer rank) so the
     /// `rank_pair_ops` and `rank_sum` prepares clone their operands instead
     /// of re-running the rank fold:
     /// the bench harness calls prepare once per timed iteration, and the
@@ -799,9 +837,31 @@ struct FamilyData {
 }
 
 impl FamilyData {
-    /// Build a family's operands at `scale`, doubled `level` times.
+    /// A bundle with every slot empty, for a build arm to fill with what
+    /// the shape honestly has.
+    fn bare(kind: FamilyKind, name: &'static str) -> FamilyData {
+        FamilyData {
+            kind,
+            name,
+            version: None,
+            version2: None,
+            parties: None,
+            cross: None,
+            output_dominated: false,
+            fold: None,
+            rank_pair: None,
+        }
+    }
+
+    /// Build a shape's operand bundle at `scale`, doubled `level` times.
     ///
-    /// `level` 0 and 1 are the two measurement scales of every cell.
+    /// `level` 0 and 1 are the two measurement scales of every cell. The
+    /// arm fills the slots the shape natively has; the post-pass below
+    /// derives the rest uniformly (a cross shape's version is its event
+    /// side, its party pair is the disjoint-mount adapter over its id
+    /// side; every version gains its ticked counterpart and its rank
+    /// pair), so a new shape reaches every operation its bundle supplies
+    /// without naming any.
     fn build(kind: FamilyKind, scale: f64, level: u32) -> FamilyData {
         let size = |base: usize| -> usize {
             let scaled = ((base as f64) * scale).round() as usize;
@@ -835,65 +895,37 @@ impl FamilyData {
                     super::cliff_comb(scale, scale).version().encode(),
                 )
             }
-            FamilyKind::IdPair => FamilyData {
-                kind,
-                name: "id-pair",
-                version: None,
-                version2: None,
-                parties: Some((
+            FamilyKind::IdPair => {
+                let mut data = Self::bare(kind, "id-pair");
+                data.parties = Some((
                     super::id_spine(size(ID_BASE_DEPTH), false).bytes,
                     super::id_spine(size(ID_BASE_DEPTH), true).bytes,
-                )),
-                cross: None,
-                measure: None,
-                fold: None,
-                tick_cross: None,
-                rank_pair: None,
-            },
+                ));
+                data
+            }
             FamilyKind::CombScatter => {
                 let teeth = size(CROSS_BASE_TEETH);
-                FamilyData {
-                    kind,
-                    name: "comb-scatter",
-                    version: None,
-                    version2: None,
-                    parties: None,
-                    cross: Some((
-                        super::cliff_comb(CROSS_TOOTH_MAGNITUDE_BITS, teeth)
-                            .version()
-                            .encode(),
-                        super::scattered_id(teeth / 2).bytes,
-                    )),
-                    measure: None,
-                    fold: None,
-                    tick_cross: None,
-                    rank_pair: None,
-                }
+                let mut data = Self::bare(kind, "comb-scatter");
+                data.cross = Some((
+                    super::cliff_comb(CROSS_TOOTH_MAGNITUDE_BITS, teeth)
+                        .version()
+                        .encode(),
+                    super::scattered_id(teeth / 2).bytes,
+                ));
+                data.output_dominated = true;
+                data
             }
-            FamilyKind::Harmonic => {
-                let bytes = super::harmonic(size(HARMONIC_BASE_DEPTH))
+            FamilyKind::Harmonic => Self::event(
+                kind,
+                "harmonic",
+                super::harmonic(size(HARMONIC_BASE_DEPTH))
                     .version()
-                    .encode();
-                let v = decode_version(&bytes);
-                let mut w = v;
-                w.tick(&Party::seed());
-                FamilyData {
-                    kind,
-                    name: "harmonic",
-                    version: None,
-                    version2: None,
-                    parties: None,
-                    cross: None,
-                    measure: Some((bytes, w.encode())),
-                    fold: None,
-                    tick_cross: None,
-                    rank_pair: None,
-                }
-            }
+                    .encode(),
+            ),
             FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
             FamilyKind::NestedFull => {
                 let d = size(NESTED_BASE_DEPTH);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "nested-full",
                     super::dense(d).version().encode(),
@@ -902,7 +934,7 @@ impl FamilyData {
             }
             FamilyKind::NestedWide => {
                 let s = size(NESTED_WIDE_BASE);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "nested-wide",
                     super::bigroot(s, s).version().encode(),
@@ -911,7 +943,7 @@ impl FamilyData {
             }
             FamilyKind::MirrorWide => {
                 let s = size(MIRROR_WIDE_BASE);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "mirror-wide",
                     super::wide_tail(s, s).version().encode(),
@@ -920,7 +952,7 @@ impl FamilyData {
             }
             FamilyKind::MirrorNarrow => {
                 let d = size(MIRROR_NARROW_BASE_DEPTH);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "mirror-narrow",
                     super::wide_tail(1, d).version().encode(),
@@ -929,7 +961,7 @@ impl FamilyData {
             }
             FamilyKind::Staircase => {
                 let d = size(STAIRCASE_BASE_DEPTH);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "staircase",
                     super::staircase(d).version().encode(),
@@ -938,7 +970,7 @@ impl FamilyData {
             }
             FamilyKind::RevealComb => {
                 let s = size(REVEAL_COMB_BASE);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "reveal-comb",
                     super::reveal_comb(s, s).version().encode(),
@@ -947,7 +979,7 @@ impl FamilyData {
             }
             FamilyKind::RevealHifloor => {
                 let s = size(REVEAL_COMB_BASE);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "reveal-hifloor",
                     super::reveal_comb_hifloor(s, s).version().encode(),
@@ -956,7 +988,7 @@ impl FamilyData {
             }
             FamilyKind::PureComb => {
                 let s = size(PURE_COMB_BASE);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "pure-comb",
                     super::pure_comb(s, s).version().encode(),
@@ -965,7 +997,7 @@ impl FamilyData {
             }
             FamilyKind::AscendCliff => {
                 let s = size(ASCEND_CLIFF_BASE);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "ascend-cliff",
                     super::ascend_cliff(s, s).version().encode(),
@@ -974,7 +1006,7 @@ impl FamilyData {
             }
             FamilyKind::AscendPlateau => {
                 let s = size(ASCEND_CLIFF_BASE);
-                Self::tick_cross_family(
+                Self::cross_family(
                     kind,
                     "ascend-plateau",
                     super::ascend_cliff_plateau(s, s).version().encode(),
@@ -983,21 +1015,30 @@ impl FamilyData {
             }
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
         };
-        // The rank-row families: the spine shapes that maximize the
-        // exponent mismatch, plus the benign control (the `rank_pair_ops`
-        // and `rank_sum` rows' applicability set).
-        if matches!(
-            kind,
-            FamilyKind::Dense | FamilyKind::Harmonic | FamilyKind::Benign
-        ) {
-            let (v, _) = data
-                .measure_version()
-                .expect("the rank-pair families all carry a measure operand");
-            let a = v.rank();
+        // ── the bundle post-pass: the derived slots, uniform across shapes ──
+        // A cross shape's primary version is its event side.
+        if data.version.is_none() {
+            data.version = data.cross.as_ref().map(|(v, _)| v.clone());
+        }
+        // Every version gains its ticked comparison counterpart and its
+        // mismatched rank pair (shape-derived rank against a small integer
+        // rank, the pair whose exponent mismatch the rank rows price).
+        if let Some(bytes) = &data.version {
+            let v = decode_version(bytes);
+            let mut w = v.clone();
+            w.tick(&Party::seed());
+            data.version2 = Some(w.encode());
             let b = Version::try_from(RANK_PAIR_INTEGER_TICKS)
                 .expect("a small integer version is valid")
                 .rank();
-            data.rank_pair = Some((a, b));
+            data.rank_pair = Some((v.rank(), b));
+        }
+        // A cross shape's id side becomes a disjoint party pair through
+        // the mount adapter.
+        if data.parties.is_none() {
+            if let Some((_, id)) = &data.cross {
+                data.parties = Some(disjoint_mounted_pair(id));
+            }
         }
         data
     }
@@ -1039,59 +1080,34 @@ impl FamilyData {
                 .collect(),
         );
         let parties = scatter_order(parties.iter().map(Party::encode).collect());
-        FamilyData {
-            kind: FamilyKind::Scatter,
-            name: "scatter",
-            version: None,
-            version2: None,
-            parties: None,
-            cross: None,
-            measure: None,
-            fold: Some((versions, parties)),
-            tick_cross: None,
-            rank_pair: None,
-        }
+        let mut data = Self::bare(FamilyKind::Scatter, "scatter");
+        data.fold = Some((versions, parties));
+        data
     }
 
-    /// Wrap a tick-cross-only family: a packed (event, id) pair reached
-    /// by nothing but the two tick rows.
-    fn tick_cross_family(
+    /// Wrap a cross shape: a packed (event, id) pair built as one
+    /// adversarial pairing.
+    ///
+    /// The cross drives the tick rows' walk floors and the clock rows'
+    /// operand choice directly; the post-pass derives the shape's version
+    /// (the event side) and its disjoint party pair (the mounted id side),
+    /// so the shape also reaches every version and party row.
+    fn cross_family(
         kind: FamilyKind,
         name: &'static str,
         version: Vec<u8>,
         id: Vec<u8>,
     ) -> FamilyData {
-        FamilyData {
-            kind,
-            name,
-            version: None,
-            version2: None,
-            parties: None,
-            cross: None,
-            measure: None,
-            fold: None,
-            tick_cross: Some((version, id)),
-            rank_pair: None,
-        }
+        let mut data = Self::bare(kind, name);
+        data.cross = Some((version, id));
+        data
     }
 
-    /// Wrap an event shape's wire bytes and derive its ticked counterpart.
+    /// Wrap an event shape's wire bytes.
     fn event(kind: FamilyKind, name: &'static str, bytes: Vec<u8>) -> FamilyData {
-        let v = decode_version(&bytes);
-        let mut w = v;
-        w.tick(&Party::seed());
-        FamilyData {
-            kind,
-            name,
-            version: Some(bytes),
-            version2: Some(w.encode()),
-            parties: None,
-            cross: None,
-            measure: None,
-            fold: None,
-            tick_cross: None,
-            rank_pair: None,
-        }
+        let mut data = Self::bare(kind, name);
+        data.version = Some(bytes);
+        data
     }
 
     /// Build the benign control: `n` clocks forked at random from a seed,
@@ -1111,8 +1127,6 @@ impl FamilyData {
             }
         }
         let version = Version::join_all(clocks.iter().map(|c| c.version().clone()));
-        let mut version2 = version.clone();
-        version2.tick(&Party::seed());
         // The fold rows' organic control: the population's own versions and
         // parties in construction order (the adversarial ordering belongs to
         // the scatter family alone).
@@ -1131,18 +1145,11 @@ impl FamilyData {
             let half = if i % 2 == 0 { &mut a } else { &mut b };
             half.join(p).expect("forked parties are pairwise disjoint");
         }
-        FamilyData {
-            kind: FamilyKind::Benign,
-            name: "benign",
-            version: Some(version.encode()),
-            version2: Some(version2.encode()),
-            parties: Some((a.encode(), b.encode())),
-            cross: None,
-            measure: None,
-            fold,
-            tick_cross: None,
-            rank_pair: None,
-        }
+        let mut data = Self::bare(FamilyKind::Benign, "benign");
+        data.version = Some(version.encode());
+        data.parties = Some((a.encode(), b.encode()));
+        data.fold = fold;
+        data
     }
 
     /// The primary version, decoded fresh, with its packed byte length.
@@ -1158,69 +1165,47 @@ impl FamilyData {
         Some((v, decode_version(bytes2), n + bytes2.len()))
     }
 
-    /// The linear-functional measure operand: the family's packed version,
-    /// or the harmonic spine on the measure family.
-    ///
-    /// The `rank`/`distance`/`lag`/`min_ticks` rows (and the rank rows)
-    /// read operands through this, so they alone gain the harmonic column;
-    /// every other row sees the harmonic family as inapplicable.
-    fn measure_version(&self) -> Option<(Version, usize)> {
-        match &self.measure {
-            Some((bytes, _)) => Some((decode_version(bytes), bytes.len())),
-            None => self.version(),
-        }
-    }
-
-    /// Both measure operands decoded fresh, with combined packed length
-    /// (the harmonic spine and its ticked counterpart on the measure
-    /// family).
-    fn measure_version_pair(&self) -> Option<(Version, Version, usize)> {
-        match &self.measure {
-            Some((bytes, bytes2)) => Some((
-                decode_version(bytes),
-                decode_version(bytes2),
-                bytes.len() + bytes2.len(),
-            )),
-            None => self.version_pair(),
-        }
-    }
-
     /// The disjoint party pair decoded fresh, with combined byte length.
     fn party_pair(&self) -> Option<(Party, Party, usize)> {
         let (a, b) = self.parties.as_ref()?;
         Some((decode_party(a), decode_party(b), a.len() + b.len()))
     }
 
-    /// The tick cross decoded fresh (event version, id party), with
-    /// combined packed byte length — the tick-walk families only, so
-    /// the tick rows alone gain their columns.
-    fn tick_cross(&self) -> Option<(Version, Party, usize)> {
-        let (v, p) = self.tick_cross.as_ref()?;
+    /// The designated cross decoded fresh (event version, id party), with
+    /// combined packed byte length.
+    fn cross(&self) -> Option<(Version, Party, usize)> {
+        let (v, p) = self.cross.as_ref()?;
         Some((decode_version(v), decode_party(p), v.len() + p.len()))
     }
 
-    /// One clock per family: small party × adversarial version for the
-    /// event families, adversarial party × small version for the id pair
-    /// and the benign halves.
+    /// One clock per shape, from the bundle's slots: a cross shape pairs
+    /// its own id and event sides; a version-bearing shape pairs the seed
+    /// party with the adversarial version; a party-only shape pairs the
+    /// adversarial party with the empty version.
     fn clock(&self) -> Option<(Clock, usize)> {
-        match self.kind {
-            FamilyKind::IdPair => {
-                let (a, _, _) = self.party_pair()?;
-                let n = self.parties.as_ref().map(|(a, _)| a.len())?;
-                Some((Clock::from_parts(a, Version::new()), n + 1))
-            }
-
-            _ => {
-                let (v, n) = self.version()?;
-                Some((Clock::from_parts(Party::seed(), v), n + 1))
-            }
+        if let Some((v, p, n)) = self.cross() {
+            return Some((Clock::from_parts(p, v), n));
         }
+        if let Some((v, n)) = self.version() {
+            return Some((Clock::from_parts(Party::seed(), v), n + 1));
+        }
+        let (a, _, _) = self.party_pair()?;
+        let n = self.parties.as_ref().map(|(a, _)| a.len())?;
+        Some((Clock::from_parts(a, Version::new()), n + 1))
     }
 
-    /// Two joinable clocks (disjoint parties), with combined operand bytes.
+    /// Two joinable clocks (disjoint parties), with combined operand
+    /// bytes, from the bundle's slots: a shape with both a party pair and
+    /// versions crosses them; a party-only pair rides empty versions; a
+    /// version-only shape forks a seed pair around its version pair.
     fn clock_pair(&self) -> Option<(Clock, Clock, usize)> {
-        match self.kind {
-            FamilyKind::IdPair => {
+        match (self.parties.is_some(), self.version.is_some()) {
+            (true, true) => {
+                let (a, b, np) = self.party_pair()?;
+                let (v, w, nv) = self.version_pair()?;
+                Some((Clock::from_parts(a, v), Clock::from_parts(b, w), np + nv))
+            }
+            (true, false) => {
                 let (a, b, n) = self.party_pair()?;
                 Some((
                     Clock::from_parts(a, Version::new()),
@@ -1228,19 +1213,45 @@ impl FamilyData {
                     n + 2,
                 ))
             }
-            FamilyKind::Benign => {
-                let (a, b, np) = self.party_pair()?;
-                let (v, w, nv) = self.version_pair()?;
-                Some((Clock::from_parts(a, v), Clock::from_parts(b, w), np + nv))
-            }
-            _ => {
+            (false, true) => {
                 let (v, w, n) = self.version_pair()?;
                 let mut p = Party::seed();
                 let q = p.fork();
                 Some((Clock::from_parts(p, v), Clock::from_parts(q, w), n + 2))
             }
+            (false, false) => None,
         }
     }
+}
+
+/// The disjoint-mount adapter: lift one packed id shape into a disjoint
+/// party pair inside a single universe.
+///
+/// The pair mounts the shape under opposite children of a fresh root —
+/// `(shape, ·)` and `(·, shape)` — so the halves are disjoint by
+/// construction and joining them merely reunites the root's two subtrees:
+/// two independently-generated id shapes are never asked to share a
+/// universe (linearity of parties is the invariant everything rests on —
+/// the crate docs' safety rules). Each half is the shape itself one level
+/// deeper, so party cells on a mounted shape measure the shape plus one
+/// root tag. Runs at bundle build, outside any measurement, and asserts
+/// the disjointness it mints.
+fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let shape = decode_party(id);
+    let mount = |left: bool| -> Vec<u8> {
+        let mut bits = codec::Bits::with_capacity(shape.as_bits().len() + 2);
+        bits.push(left);
+        bits.push(!left);
+        bits.extend_from_bitslice(shape.as_bits());
+        codec::zero_dead_bits(&mut bits);
+        bits.into_vec()
+    };
+    let (a, b) = (mount(true), mount(false));
+    assert!(
+        decode_party(&a).is_disjoint(&decode_party(&b)),
+        "the disjoint-mount adapter must mint a disjoint pair"
+    );
+    (a, b)
 }
 
 /// Decode packed bytes the board itself generated.
@@ -1773,9 +1784,75 @@ fn version_output_bytes(v: &Version) -> usize {
 struct Op {
     /// The row label, `type_operation`.
     name: &'static str,
-    /// Build the cell for one family, or `None` where the family provides
-    /// no operand for this operation.
+    /// The signature group the row belongs to on the operation axis.
+    group: OpGroup,
+    /// Build the cell for one shape, or `None` where the shape's bundle
+    /// supplies no operand for this operation's signature.
     prepare: fn(&FamilyData) -> Option<Cell>,
+}
+
+/// The operation axis's signature groups.
+///
+/// A group names the operand signature a row consumes; the bench mirror's
+/// pinned subset pairs each shape with the groups it was designed to
+/// stress ([`designed`]), so the subset is a rule over the same two axes
+/// the board's product runs on, never a second cell list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpGroup {
+    /// Rows over a shape's version operands (codec, comparison, merge,
+    /// text, hash rows).
+    Version,
+    /// The linear-functional query rows: `rank`, `distance`, `lag`,
+    /// `min_ticks`.
+    Measure,
+    /// The rank-value rows: `rank_pair_ops`, `rank_sum`.
+    Rank,
+    /// The tick rows, driven through a cross shape's designated pairing.
+    Tick,
+    /// The projection rows: `version_project`, `clock_own_version`.
+    Projection,
+    /// The fold rows: `version_join_all`, `party_join_all`.
+    Fold,
+    /// Rows over a shape's disjoint party pair.
+    Party,
+    /// Rows over a shape's clock (the tick and projection clock rows
+    /// carry their own groups above).
+    Clock,
+}
+
+/// The shape × operation-group pairings each shape was designed to
+/// stress: the bench mirror's diagonal.
+///
+/// Declared per shape, on the shape axis, so the pinned bench subset is
+/// derived — a shape added to the axis must answer which groups it was
+/// built against (the exhaustive match), and the subset follows. The
+/// deterministic board itself never consults this: it runs the whole
+/// product.
+fn designed(kind: FamilyKind, group: OpGroup) -> bool {
+    match kind {
+        // The original full-surface adversaries and the organic control,
+        // plus the two population shapes (whose bundles already narrow
+        // them to their party/fold rows).
+        FamilyKind::Dense | FamilyKind::Benign | FamilyKind::IdPair | FamilyKind::Scatter => true,
+        // The magnitude shapes predate the rank rows' mismatch pair and
+        // were never its designed adversary.
+        FamilyKind::Bigroot | FamilyKind::Hugeleaf | FamilyKind::Cliff => group != OpGroup::Rank,
+        // The rank fold's wide-numerator adversary.
+        FamilyKind::Harmonic => matches!(group, OpGroup::Measure | OpGroup::Rank),
+        // The output-domination cross.
+        FamilyKind::CombScatter => group == OpGroup::Projection,
+        // The tick-walk crosses.
+        FamilyKind::NestedFull
+        | FamilyKind::NestedWide
+        | FamilyKind::MirrorWide
+        | FamilyKind::MirrorNarrow
+        | FamilyKind::Staircase
+        | FamilyKind::RevealComb
+        | FamilyKind::RevealHifloor
+        | FamilyKind::PureComb
+        | FamilyKind::AscendCliff
+        | FamilyKind::AscendPlateau => group == OpGroup::Tick,
+    }
 }
 
 /// The operation table: every public operation with a meaningful packed
@@ -1786,6 +1863,7 @@ fn ops() -> Vec<Op> {
         // ── Version ────────────────────────────────────────────────────
         Op {
             name: "version_decode",
+            group: OpGroup::Version,
             prepare: |f| {
                 let bytes = f.version.clone()?;
                 let floors = Floors {
@@ -1801,6 +1879,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_encode",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, n) = f.version()?;
                 let floors = Floors {
@@ -1814,6 +1893,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_cmp",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
                 Some(Cell::new(n, walk_floors(n), move || {
@@ -1824,6 +1904,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_eq",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
@@ -1837,6 +1918,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_concurrent",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
                 Some(Cell::new(n, walk_floors(n), move || {
@@ -1846,6 +1928,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_join",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
                 Some(Cell::new(n, walk_floors(n), move || (&v | &w, v, w)))
@@ -1853,6 +1936,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_join_assign",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
                 Some(Cell::new(n, walk_floors(n), move || {
@@ -1863,6 +1947,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_meet",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
                 Some(Cell::new(n, walk_floors(n), move || (&v & &w, v, w)))
@@ -1870,6 +1955,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_meet_assign",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
                 Some(Cell::new(n, walk_floors(n), move || {
@@ -1880,11 +1966,12 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_tick",
+            group: OpGroup::Tick,
             prepare: |f| {
                 // The tick-walk families carry their own (event, id)
                 // pair; every other family ticks its version with the
                 // seed.
-                if let Some((mut v, party, n)) = f.tick_cross() {
+                if let Some((mut v, party, n)) = f.cross() {
                     let floors = tick_walk_floors(&v, n);
                     return Some(Cell::new(n, floors, move || {
                         v.tick(&party);
@@ -1901,6 +1988,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_tick_adv_party",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
@@ -1913,6 +2001,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_batch_snapshot",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
@@ -1928,8 +2017,9 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_rank",
+            group: OpGroup::Measure,
             prepare: |f| {
-                let (v, n) = f.measure_version()?;
+                let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: limb_wide(mandatory_limbs_version(&v)),
@@ -1941,6 +2031,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "rank_pair_ops",
+            group: OpGroup::Rank,
             prepare: |f| {
                 // The mismatched pair: a family-derived rank (maximal
                 // exponent on the spines) against a small integer rank, on
@@ -1971,6 +2062,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "rank_sum",
+            group: OpGroup::Rank,
             prepare: |f| {
                 // The mixed fold: the family-derived rank (maximal exponent
                 // on the spines) summed high-first with one small integer
@@ -1982,7 +2074,7 @@ fn ops() -> Vec<Op> {
                 // operation. The denominator is the summands' total value
                 // content (the module doc's rank denomination).
                 let (a, _) = f.rank_pair.clone()?;
-                let (_, k) = f.measure_version()?;
+                let (_, k) = f.version()?;
                 let ones: Vec<Rank> = (0..k)
                     .map(|i| {
                         Version::try_from(i as u64 % 7 + 1)
@@ -2017,8 +2109,9 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_distance",
+            group: OpGroup::Measure,
             prepare: |f| {
-                let (v, w, n) = f.measure_version_pair()?;
+                let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
@@ -2030,8 +2123,9 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_lag",
+            group: OpGroup::Measure,
             prepare: |f| {
-                let (v, w, n) = f.measure_version_pair()?;
+                let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
@@ -2043,8 +2137,9 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_min_ticks",
+            group: OpGroup::Measure,
             prepare: |f| {
-                let (v, n) = f.measure_version()?;
+                let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_WORD_FOLD),
@@ -2056,6 +2151,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_join_all",
+            group: OpGroup::Fold,
             prepare: |f| {
                 let (versions, _) = f.fold.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
@@ -2067,26 +2163,17 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_project",
-            prepare: |f| match f.kind {
-                // Adversarial party × small version.
-                FamilyKind::IdPair => {
-                    let (a, _, _) = f.party_pair()?;
-                    let n = f.parties.as_ref().map(|(a, _)| a.len())?;
-                    let mut v = Version::new();
-                    v.tick(&a);
-                    let input = n + v.encode().len();
-                    Some(Cell::new(input, walk_floors(input), move || {
-                        (&v / &a, v, a)
-                    }))
-                }
-                // Adversarial × adversarial: comb version × scattered party,
-                // I/O-denominated (the output is mandatory and dominates).
-                FamilyKind::CombScatter => {
+            group: OpGroup::Projection,
+            prepare: |f| {
+                // Adversarial × adversarial with mandatory dominating
+                // output: the declared output-domination cross,
+                // I/O-denominated.
+                if f.output_dominated {
                     let (v_bytes, p_bytes) = f.cross.as_ref()?;
                     let n = v_bytes.len() + p_bytes.len();
                     let v = decode_version(v_bytes);
                     let p = decode_party(p_bytes);
-                    Some(Cell::io(
+                    return Some(Cell::io(
                         n,
                         walk_floors(n),
                         |r| {
@@ -2096,20 +2183,36 @@ fn ops() -> Vec<Op> {
                             version_output_bytes(out)
                         },
                         move || (&v / &p, v, p),
-                    ))
+                    ));
+                }
+                // A cross shape without output domination projects its
+                // event side through its id side, input-denominated (the
+                // module doc's do-not-re-denominate list).
+                if let Some((v, p, n)) = f.cross() {
+                    return Some(Cell::new(n, walk_floors(n), move || (&v / &p, v, p)));
                 }
                 // Small (half-interval) party × adversarial version.
-                _ => {
+                if f.version.is_some() {
                     let (v, n) = f.version()?;
                     let half = Party::seed().fork();
-                    Some(Cell::new(n + 1, walk_floors(n), move || {
+                    return Some(Cell::new(n + 1, walk_floors(n), move || {
                         (&v / &half, v, half)
-                    }))
+                    }));
                 }
+                // Adversarial party × small version.
+                let (a, _, _) = f.party_pair()?;
+                let n = f.parties.as_ref().map(|(a, _)| a.len())?;
+                let mut v = Version::new();
+                v.tick(&a);
+                let input = n + v.encode().len();
+                Some(Cell::new(input, walk_floors(input), move || {
+                    (&v / &a, v, a)
+                }))
             },
         },
         Op {
             name: "version_display",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, n) = f.version()?;
                 let spec = TextSpec {
@@ -2138,6 +2241,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_from_str",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, _) = f.version()?;
                 let s = v.to_string();
@@ -2172,6 +2276,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "version_hash",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, n) = f.version()?;
                 let floors = Floors {
@@ -2189,6 +2294,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "causally_contains",
+            group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
                 Some(Cell::new(n, walk_floors(n), move || {
@@ -2200,6 +2306,7 @@ fn ops() -> Vec<Op> {
         // ── Party ──────────────────────────────────────────────────────
         Op {
             name: "party_decode",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (a, b) = f.parties.clone()?;
                 let n = a.len() + b.len();
@@ -2216,6 +2323,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_encode",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
@@ -2230,6 +2338,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_fork",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (mut a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
@@ -2251,6 +2360,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_join",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (mut a, b, n) = f.party_pair()?;
                 let floors = Floors {
@@ -2267,6 +2377,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_join_all",
+            group: OpGroup::Fold,
             prepare: |f| {
                 let (_, parties) = f.fold.as_ref()?;
                 let n = parties.iter().map(Vec::len).sum();
@@ -2289,6 +2400,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_covers",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (a, b, n) = f.party_pair()?;
                 let floors = Floors {
@@ -2302,6 +2414,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_disjoint",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (a, b, n) = f.party_pair()?;
                 let floors = Floors {
@@ -2315,6 +2428,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_without",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (_, b, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(_, b)| b.len())?;
@@ -2331,6 +2445,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_display",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
@@ -2360,6 +2475,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_from_str",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (a, _, _) = f.party_pair()?;
                 let s = a.to_string();
@@ -2391,6 +2507,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "party_hash",
+            group: OpGroup::Party,
             prepare: |f| {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
@@ -2410,6 +2527,7 @@ fn ops() -> Vec<Op> {
         // ── Clock ──────────────────────────────────────────────────────
         Op {
             name: "clock_decode",
+            group: OpGroup::Clock,
             prepare: |f| {
                 let (clock, _) = f.clock()?;
                 let bytes = clock.encode();
@@ -2426,6 +2544,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "clock_encode",
+            group: OpGroup::Clock,
             prepare: |f| {
                 let (clock, n) = f.clock()?;
                 let floors = Floors {
@@ -2439,10 +2558,11 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "clock_tick",
+            group: OpGroup::Tick,
             prepare: |f| {
                 // The tick-walk families tick their own (id, event)
                 // clock; they reach no other clock row.
-                if let Some((v, p, n)) = f.tick_cross() {
+                if let Some((v, p, n)) = f.cross() {
                     let floors = tick_walk_floors(&v, n);
                     let mut clock = Clock::from_parts(p, v);
                     return Some(Cell::new(n, floors, move || {
@@ -2459,6 +2579,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "clock_fork",
+            group: OpGroup::Clock,
             prepare: |f| {
                 let (mut clock, n) = f.clock()?;
                 let floors = Floors {
@@ -2479,6 +2600,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "clock_join",
+            group: OpGroup::Clock,
             prepare: |f| {
                 let (mut a, b, n) = f.clock_pair()?;
                 Some(Cell::new(n, walk_floors(n), move || {
@@ -2489,6 +2611,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "clock_sync",
+            group: OpGroup::Clock,
             prepare: |f| {
                 let (mut a, mut b, n) = f.clock_pair()?;
                 Some(Cell::new(n, walk_floors(n), move || {
@@ -2499,40 +2622,40 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "clock_recv",
-            prepare: |f| match f.kind {
-                // Adversarial party × small received version.
-                FamilyKind::IdPair => {
-                    let (a, _, _) = f.party_pair()?;
-                    let n = f.parties.as_ref().map(|(a, _)| a.len())?;
-                    let mut clock = Clock::from_parts(a, Version::new());
-                    let msg = Version::try_from(1u64).expect("a one-tick version is valid");
-                    Some(Cell::new(n + 2, walk_floors(n), move || {
-                        clock.recv(&msg);
-                        (clock, msg)
-                    }))
-                }
+            group: OpGroup::Clock,
+            prepare: |f| {
                 // Small clock × adversarial received version.
-                _ => {
-                    let (v, n) = f.version()?;
+                if let Some((v, n)) = f.version() {
                     let mut clock = Clock::seed();
-                    Some(Cell::new(n + 2, walk_floors(n), move || {
+                    return Some(Cell::new(n + 2, walk_floors(n), move || {
                         clock.recv(&v);
                         (clock, v)
-                    }))
+                    }));
                 }
+                // Adversarial party × small received version.
+                let (a, _, _) = f.party_pair()?;
+                let n = f.parties.as_ref().map(|(a, _)| a.len())?;
+                let mut clock = Clock::from_parts(a, Version::new());
+                let msg = Version::try_from(1u64).expect("a one-tick version is valid");
+                Some(Cell::new(n + 2, walk_floors(n), move || {
+                    clock.recv(&msg);
+                    (clock, msg)
+                }))
             },
         },
         Op {
             name: "clock_own_version",
-            prepare: |f| match f.kind {
-                // Adversarial × adversarial: a clock holding the comb whose
-                // party is the scattered id, I/O-denominated (the module
-                // doc's output-domination cross).
-                FamilyKind::CombScatter => {
+            group: OpGroup::Projection,
+            prepare: |f| {
+                // Adversarial × adversarial with mandatory dominating
+                // output: a clock holding the cross's event side whose
+                // party is its id side, I/O-denominated (the module doc's
+                // output-domination cross).
+                if f.output_dominated {
                     let (v_bytes, p_bytes) = f.cross.as_ref()?;
                     let n = v_bytes.len() + p_bytes.len();
                     let clock = Clock::from_parts(decode_party(p_bytes), decode_version(v_bytes));
-                    Some(Cell::io(
+                    return Some(Cell::io(
                         n,
                         walk_floors(n),
                         |r| {
@@ -2542,18 +2665,17 @@ fn ops() -> Vec<Op> {
                             version_output_bytes(out)
                         },
                         move || (clock.own_version(), clock),
-                    ))
+                    ));
                 }
-                _ => {
-                    let (clock, n) = f.clock()?;
-                    Some(Cell::new(n, walk_floors(n), move || {
-                        (clock.own_version(), clock)
-                    }))
-                }
+                let (clock, n) = f.clock()?;
+                Some(Cell::new(n, walk_floors(n), move || {
+                    (clock.own_version(), clock)
+                }))
             },
         },
         Op {
             name: "clock_display",
+            group: OpGroup::Clock,
             prepare: |f| {
                 let (clock, n) = f.clock()?;
                 let spec = TextSpec {
@@ -2582,6 +2704,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "clock_from_str",
+            group: OpGroup::Clock,
             prepare: |f| {
                 let (clock, _) = f.clock()?;
                 let s = clock.to_string();
@@ -2613,6 +2736,7 @@ fn ops() -> Vec<Op> {
         },
         Op {
             name: "clock_hash",
+            group: OpGroup::Clock,
             prepare: |f| {
                 let (clock, n) = f.clock()?;
                 let floors = Floors {
@@ -3127,16 +3251,42 @@ impl BenchCell {
     }
 }
 
-/// Every applicable board cell at `scale`, in board row order.
+/// Which slice of the shape × operation product a bench run times.
+///
+/// The deterministic board always runs the whole product (its cells are
+/// cheap counters); wall-clock benching is not, so the mirror has two
+/// modes, both derived from the same axis declarations — the subset is a
+/// rule over the product, never a second hand-maintained cell list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BenchMode {
+    /// The pinned rule-derived subset: every operation on the benign
+    /// control, each shape's designed-stress pairings ([`designed`]), and
+    /// the board-red riders ([`BOARD_RED_BENCH_RIDERS`]).
+    Pinned,
+    /// The whole product: the mode for final verdicts.
+    Full,
+}
+
+/// Board-red cells outside the designed pairings that the pinned bench
+/// subset must still time: the deterministic board's standing reds each
+/// keep a time leg.
+///
+/// Membership is by `(operation, family)` cell name, expectations live in
+/// the judge's roster as ever; a red cured on the board leaves this list
+/// in the same change that cures it.
+pub const BOARD_RED_BENCH_RIDERS: &[(&str, &str)] = &[];
+
+/// Every board cell of the chosen [`BenchMode`] at `scale`, in board row
+/// order.
 ///
 /// `scale` multiplies the family base sizes exactly as [`run`]'s does; the
-/// cells are the applicable op × family pairings at that scale, at one
+/// cells are op × family pairings applicable at that scale, at one
 /// measurement level (a bench varies repetition, not size).
 ///
 /// # Panics
 ///
 /// Panics if `scale` is not a strictly positive finite number.
-pub fn bench_cells(scale: f64) -> Vec<BenchCell> {
+pub fn bench_cells(scale: f64, mode: BenchMode) -> Vec<BenchCell> {
     assert!(
         scale > 0.0 && scale.is_finite(),
         "bench cells: scale must be a positive finite number"
@@ -3148,7 +3298,14 @@ pub fn bench_cells(scale: f64) -> Vec<BenchCell> {
     let mut cells = Vec::new();
     for op in ops() {
         for family in &families {
-            if (op.prepare)(family).is_some() {
+            let include = match mode {
+                BenchMode::Full => true,
+                BenchMode::Pinned => {
+                    designed(family.kind, op.group)
+                        || BOARD_RED_BENCH_RIDERS.contains(&(op.name, family.name))
+                }
+            };
+            if include && (op.prepare)(family).is_some() {
                 cells.push(BenchCell {
                     op: op.name,
                     family: family.name,
