@@ -243,22 +243,42 @@ board cells named.
   (output read back from the actual result, §6's rule) at the
   owning phase, never a silent green. Owner: the §6 denomination
   criterion at C3; §17.3 carries the cells.
-- **OPEN — profile-dependent meter readings** (2026-07-26; found
-  by the #35 dev-vs-release identity check, which STOPPED the
-  planned `--release` switch of the board recipes): 102
-  `debug_assert!` sites in the production kernels perform metered
-  work — `Base` comparisons through the limb shim
+- **Profile-dependent meter readings** (2026-07-26; found by the
+  #35 dev-vs-release identity check, which stopped the planned
+  `--release` switch of the board recipes pending the owner's
+  ruling): 102 `debug_assert!` sites in the production kernels
+  perform metered work — `Base` comparisons through the limb shim
   (`codec/base.rs`'s subtraction-underflow and shift guards),
   skyline grow probes that consume metered cursors — so dev and
   release builds measure different programs: at the default scale
-  limb readings differ on 95 of 720 cells, scan on 59, heap on 3
+  limb readings differed on 95 of 720 cells, scan on 59, heap on 3
   (release lower; no verdict flips; denominators byte-identical)
   [measured — dev and release renders at the #35 tip,
-  byte-compared]. Every committed pin is dev-denominated, so the
-  board recipes stay dev until the owner rules which profile's
-  reading is the number of record; the candidate cures are
-  assertion-scoped meter suspension or release-profile re-pinning,
-  each a criterion change, neither taken unilaterally.
+  byte-compared]. RESOLVED by the owner's ratification (2026-07-26,
+  §13): **release is the board's measurement of record** — dev
+  counters measure algorithm plus verification scaffolding, release
+  the production work alone, the honest denominator — with dev runs
+  a debugging view whose readings are never pinned; assertion-scoped
+  meter suspension REJECTED on doctrine (a metering-pause mechanism
+  is an F2 hazard). The one assertion whose metered work moved a
+  rendered exponent class — `id_is_empty`'s normal-form check
+  re-parsing its whole input through the metered cursor, doubling
+  every decode path's dev scan (16.0 vs 8.0 bits/B on
+  `party_decode`) and carrying `clock_decode × comb-scatter`'s scan
+  leg across the 1.15 ceiling in dev only (e 1.25 vs 1.13) — was
+  repaired per the ratified policy: the helper spot-checks the O(1)
+  consequences of its contract, and the full O(n) assertion moved to
+  the diff kernel's emission seam (`Party::without`), the one caller
+  whose input is not just-parsed bytes, where the detection value
+  genuinely requires the expensive form (owned in §17.3). Post-repair
+  dev-vs-release divergence: zero verdict flips and zero exponent-leg
+  ceiling crossings on any work column at either scale, scan
+  divergence 59 → 13 cells (the owned seam) [measured — post-repair
+  dev and release renders, byte-compared]. The record-scale segments
+  columns remain profile-dependent by codegen (release frames are
+  smaller, so onset shifts and counts drop; every affected cell reads
+  red on segment count under both profiles) — the recursion-depth
+  genre P4.2 owns, not assertion work.
 
 ## 6. The design invariant and the denomination criterion
 
@@ -457,8 +477,12 @@ The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
 public operation surface × §2's families — **720 cells at this
 tip**, membership pinned by the smoke test — judged at two scales
-(default; `board::RECORD_SCALE` = ×4, `just amp-board-record`)
-from deterministic meters only: peak heap, grown stacker segments,
+(default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
+the **release profile**, the measurement of record (ratified
+2026-07-26: debug assertions perform metered work, so dev boards
+price verification scaffolding into the counters; dev runs are a
+debugging view, never pinned), from deterministic meters only:
+peak heap, grown stacker segments,
 limb ops, scanned/written bits. The board is a generalized
 cartesian product over three declarative axes (amendment of
 2026-07-26 below): shapes declare operand bundles, operations
@@ -594,12 +618,13 @@ C2 and C3 every judge run fails on the fifteen realized greens BY
 DESIGN — that failure is C3's realization evidence, banked
 verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
-**Numbers of record at this tip** [measured 2026-07-26, the #35
-product refactor; dev profile, limb+scan meters lit]: board
+**Numbers of record at this tip** [measured 2026-07-26; release
+profile — the profile of record — limb+scan meters lit]: board
 **627 green / 93 red at the default scale; 616 / 104 at ×4** over
-**720 cells**
+**720 cells**, the same verdict sums as the dev renders at this
+tip (the profile switch flipped no verdict at either scale)
 (amended 2026-07-26, the #35 board product refactor —
-**PENDING RATIFICATION by the project owner** on the two protocol
+**RATIFIED by the project owner, 2026-07-26**, on the two protocol
 changes it carries. The board became the three-axis product above:
 the hand-picked crossings dissolved into per-shape operand bundles
 (a cross shape's version is its event side; its id side becomes a
@@ -612,20 +637,35 @@ rendered row is **byte-identical** at both scales against fresh
 pre-refactor runs at the parent tip — the movement is exactly the
 495 new cells, whose 74 (default) / 72 (×4) new reds are triaged
 in §17.3 under their owning genres, none exponent-class on a
-linear input axis. Protocol change 1: the determinism tripwire —
+linear input axis. Protocol change 1 (ratified): the determinism
+tripwire —
 the runner self-verifies every cell twice in process and the
 gate's `amp-board-determinism` recipe byte-compares two
 cross-process renders — **replaces the two-identical-runs-per-scale
-convention**; acceptance runs are single runs per scale once
-ratified. Protocol change 2: the board recipes were slated for
-`--release`, and the switch is **stopped on evidence**: dev and
+convention**; acceptance runs are single runs per scale. The
+tripwire holds under release: both scales' release renders are
+byte-identical across processes, and the in-process self-verify
+passes on every cell [measured — paired release renders at the
+ratification tip, byte-compared]. Protocol change 2 (ratified):
+**release is the board's measurement of record** and the board
+recipes run `--release`. Dev and
 release measure different programs — 102 `debug_assert!` sites in
 the production kernels do metered work (a `Base` comparison in
-`Sub`, cursor-consuming skyline probes), so limb readings differ
-on 95 cells, scan on 59, heap on 3 at the default scale (no
-verdict flips; release reads lower). Until the owner rules which
-profile's reading is the number of record — and the committed
-pins are all dev-denominated — the recipes stay dev. The
+`Sub`, cursor-consuming skyline probes), so dev counters price
+algorithm plus verification scaffolding while release prices the
+production work alone, the honest denominator; dev boards stay
+runnable as a debugging view, never the record; assertion-scoped
+meter suspension is REJECTED on doctrine (a metering-pause
+mechanism is an F2 hazard — do not build one). At ratification the
+switch moved limb readings
+on 95 cells (default) / 90 (×4), scan on 59, heap on 3/11, and the
+×4 segment counts on 16 P4.2-owned legs (no
+verdict flips at either scale; release reads lower; denominators
+byte-identical). One dev-only exponent-class artifact fell under
+the ratified assertion-repair policy and was repaired
+(`id_is_empty`, §3's profile entry and §17.3); the segments
+movement is codegen frame size, owned by P4.2, not assertion
+work. The
 board-red bench riders (`board::BOARD_RED_BENCH_RIDERS`) are
 committed empty: populating them with the 78 unclassified new
 reds would put unrostered time-exponent reds in every judge run,
@@ -673,15 +713,16 @@ exit 1 on exactly the fifteen banked realization violations; the
 three reds all rostered-expected. Workspace sweep at C0:
 1183/1183, roster retired, unqualified green since.
 
-**Acceptance (the campaign's, re-denominated 2026-07-24):
-all-green means the board green on counters and floors at BOTH
-scales (three identical runs each) AND the bench judge
-roster-satisfied at both scales in both modes** — at P5.5 with
-the bigroot set emptied and only the permanent text expectations
-remaining. The 2026-07-26 #35 amendment above proposes replacing
-"three identical runs each" with the committed determinism
-tripwire (single runs per scale); that replacement is PENDING
-RATIFICATION, and until ratified the three-run convention stands.
+**Acceptance (the campaign's, re-denominated 2026-07-24; protocol
+ratified 2026-07-26): all-green means the release-profile board
+green on counters and floors at BOTH scales, one run each under
+the committed determinism tripwire (the runner's in-process
+double measurement plus the gate's cross-process byte-compare),
+AND the bench judge roster-satisfied at both scales in both
+modes** — at P5.5 with the bigroot set emptied and only the
+permanent text expectations remaining. A release record-scale run
+costs ~20 s wall [measured — the ratification baseline runs]; dev
+runs remain a debugging view and never satisfy acceptance.
 
 ## 14. Execution plan
 
@@ -799,7 +840,8 @@ one full gate.
 **C3 — P3.10: realization verification, re-pins, and the
 before/after table.**
 *What*:
-- Board re-run at both scales, three identical runs each; every
+- Board re-run at both scales (release, single runs under the
+  determinism tripwire); every
   movement against §17.3's accounting.
 - **The judge roster empties its realized set**: the fifteen
   bigroot expectations leave on the banked evidence (fitted
@@ -894,8 +936,11 @@ re-pin deliberately under either ordering. *Kills*: none
 (constants). *Acceptance*: the audit list recorded; benches.
 
 **P5.1 — envelope finalization**: every `tests/meter.rs` envelope
-and board ceiling tightened to final constants at record scale,
-three identical runs; `ID_WITHOUT`'s final ratchet (the one row
+and board ceiling tightened to final constants at record scale
+(the board's constants at release, single runs under the
+determinism tripwire; the envelope suite's in its own dev-run
+process-isolated harness, where its pins live);
+`ID_WITHOUT`'s final ratchet (the one row
 no earlier item re-pins).
 
 **P5.2 — proportional fuzz cap**: counting-allocator harness with
@@ -1097,6 +1142,41 @@ exponent-class on a linear input axis:
   diff-coded memo record** (the tick-side cure priced the tick
   rows; the query walk's reading is the same constant genre).
 
+Amended 2026-07-26 (the profile of record moves to release; the
+#35 protocol ratification): the release renders carry the same
+verdict as dev on every cell at both scales — the sums below are
+unchanged and no red changed owner — so the movement is readings
+only, re-cited at release where this section quotes them: limb
+constants on 95 (default) / 90 (×4) cells (release lower; the
+largest drops on the plateau-projection constants, 193.4 →
+145.4/B on the pure-comb pair at the default scale), heap
+constants on 3 / 11 cells (all `party_without`: the owned
+assertion seam below), scan constants on 13 cells after the
+assertion repair below, and the ×4 segment counts on the sixteen
+P4.2-owned recursion legs — per tick op: nested-full 7,
+nested-wide 2, mirror-narrow 7, staircase 14, ascend-cliff 4,
+ascend-plateau 4, pure-comb 4; the id-side parser pair at
+count 12 — release frames are smaller, so segment onset shifts
+with codegen: the segments currency is profile-dependent by
+nature, every affected cell reads red on segment count under both
+profiles, and P4.2's iterative walks remain the cure. The
+assertion repair (the ratified policy's one trigger):
+`id_is_empty` asserted normal form by re-parsing its whole input
+through the metered cursor, doubling every decode path's dev scan
+(`party_decode` 16.0 vs 8.0 bits/B) and carrying `clock_decode ×
+comb-scatter`'s scan leg across the 1.15 ceiling in dev only
+(e 1.25 vs 1.13, the one dev-vs-release exponent-class divergence
+on a work column); it now spot-checks the O(1) consequences of
+its contract (root tag arity vs stream length), and the full O(n)
+normal-form assertion moved to `Party::without` — the diff
+kernel's emission seam, the one caller whose input is not
+just-parsed bytes. That seam is the recorded, owned dev-profile
+divergence: the check genuinely requires the full parse (a
+collapsible node can hide anywhere in the emission), so
+`party_without`'s dev scan reads ~16 bits/B above release by
+design, and its dev heap carries the parse stack. Release
+readings — the record — carry no assertion work anywhere.
+
 Sums: default 627 + 93 = 720; record 616 + 104 = 720.
 
 Default, 93 = 627 green + 93: the 74 new reds above + the
@@ -1122,8 +1202,9 @@ plateau-control pair's segments legs and the ascending-cliff
 pair's heap-constant + segments legs (the round-5/round-7
 records) + **the ten κ-text constants**
 (as above) + **two id-side parser recursion cells**
-(`party_from_str`/`clock_from_str` × id-pair — segments e 1.78,
-count 48: the text parser's remaining recursive walk; owner
+(`party_from_str`/`clock_from_str` × id-pair — segments e
+3.58/3.59, count 12 at the release profile of record: the text
+parser's remaining recursive walk; owner
 **P4.2**, the explicit-stack residual) + **three cliff
 limb-floor liveness trips** (`version_decode`/`version_rank`/
 `clock_decode` × cliff — measured ~10.4k limbs against a floor
