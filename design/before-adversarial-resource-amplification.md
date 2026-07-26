@@ -77,12 +77,15 @@ share:
 | memo churn / descending raises | in-flight records under full-penetration drops; raises landing below the frame minimum | one live ledger head (the live-anchored followers' tombstone); the decide-then-emit ordering's oracle tripwire |
 | memo chain | `k` consumption-sibling single-leaf left-full sites under one covering site, minima distinct or shared | the memo resolution's touch cost (#34: quadratic re-reads, red-pinned; the shared twin is the flat control) |
 | memo comb | shallow and covering left-full sites interleaved per level | consumption order Θ(d) from recording order — refutes chain-walking resolutions under every record-to-record anchoring |
+| reveal comb / hifloor | `k` sibling left-full sites sharing one `2^b` minimum over a zero floor, the left-leaning spine closing each site's frame back into the floor frame between consumes; the control's floor raised to `2^b − 2` | the tick walk's unfunded width circulation (#34 round 5: Θ(k·b) touches on a Θ(k + b) input AND output, red-pinned); the narrow-gap control is flat — the wide gap drives it, not the shape |
+| pure comb | the same left-leaning comb with bare `2^b` leaves and no left-full site anywhere | the base watermark stack's own arm-move + close-pop width cycle, ~2 wide folds per site — the defect predates the frame ledger, which amplifies it ~10× |
 
 ## 3. Findings ledger
 
-All cured; each family above witnesses at least one. Mechanism
-detail and measurements are in git history; the cures are pinned by
-the enforced envelopes and board cells named.
+All cured except the last entry (open, red-pinned); each family
+above witnesses at least one. Mechanism detail and measurements are
+in git history; the cures are pinned by the enforced envelopes and
+board cells named.
 
 - **V1** (quadratic memory+time; per-frame owned path sums in
   compare/combine): cured by the difference accumulator + the
@@ -148,6 +151,41 @@ the enforced envelopes and board cells named.
   descending raises (the decide-then-emit ordering's oracle
   tripwire, verified live). A pricing obligation under §6, not an
   exploit (local-depth multiplier).
+- **Tick's width-circulation cycle** (2026-07-25; found by the
+  frame ledger's adversarial review; OPEN, red-pinned —
+  instruments before cures): on a shared-wide-minimum comb whose
+  spine closes each site's frame back into the floor frame between
+  consecutive consumes, the consume decision mints a width-`b`
+  boundary difference, the site's close pops it back into the base
+  stack and the relation follower, and the next consume re-mints
+  it — every object individually create-once/read-once/die, the
+  width circulating through per-object-legal moves with no input
+  delta, no output code, and no undercut descent funding any hop
+  (the spec's I4 funded-cascade clause enumerates undercut hops
+  only; L1/I4 reopen, T-tick REFUTED-pending-revision, spec §9
+  round 5). Θ(k·b) accumulator touches on a Θ(k + b) input whose
+  output is Θ(k + b) too, so the blowup survives the I/O
+  denominator: reveal_comb per-byte 146.9 → 267.7 → 478.7 → 808.8
+  as `b` doubles at k = 1,000; ×3.91 touches on ×2.00 input across
+  the joint doubling — gate-pinned ≥ ×3.5 until the cure re-pins
+  it flat. Attribution pinned at both layers: pure_comb (no
+  left-full site, no memo, no pre-scan) pays ~2 wide folds per
+  site in the base watermark stack alone (per-byte 30.4 → 50.8 →
+  82.0, pinned ≥ ×1.45 per doubling) — the defect predates the
+  frame ledger, whose follower ferry amplifies it ~10× (~21 wide
+  folds per site on reveal_comb). The high-floor control
+  (identical forest and cycle, consume-time gap 2) pins GREEN flat
+  and width-independent: the wide gap is the driver. Semantics are
+  exact everywhere (oracle differentials across the pools plus a
+  4096-site closed-form witness; every pin pairs its cost leg with
+  the shape's closed-form tick). The executable emit model
+  reproduces the class unmodified, at the base layer's constant —
+  the coming design round calibrates against it. Board tick-cross
+  rows at both scales read green on every counter column (the
+  touch currency rides no board column); the four
+  `version_tick`/`clock_tick` × `reveal-comb`/`pure-comb` time-leg
+  cells are rostered as owned reds. A pricing obligation under §6,
+  not an exploit (the shape needs the local id's site forest).
 
 ## 6. The design invariant and the denomination criterion
 

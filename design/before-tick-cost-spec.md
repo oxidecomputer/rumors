@@ -18,6 +18,13 @@ two's amendments — the adversarial record is
 §9, which now carries the convergence assessment: **converged at the
 spec tier; the residual obligations are implementation-tier and
 already normative in §7**.
+*Amendment 2026-07-25 (round 5, the reveal-comb refutation)*:
+**T-tick is REFUTED-pending-revision at the kernel tier** — the
+frame-ledger cure's adversarial review found an unfunded
+width-circulation cycle (arm-up/close-reveal hops, outside I4's
+funded-cascade enumeration); L1/I4 reopen at the spec tier, the
+family is red-pinned in the gate, and the model tier reproduces it.
+The record is §9 round 5.
 Spec-first: this is the English statement of record the cure
 implements against; deviations get dated amendments.
 Statement-faithfulness governs every claim below — never weaker than
@@ -147,6 +154,16 @@ invariant, not a hostile-peer exploit.
 > **O(n + m) Accum digit touches** in the two packed operands' bits,
 > with no bound on value magnitude, tree depth, or encoded size —
 > alongside the already-achieved O(n + m) scan bits.
+
+*Amendment 2026-07-25 (round 5)*: **T-tick is
+REFUTED-pending-revision at the kernel tier** — the reveal-comb
+family measures Θ(k·b) touches on a Θ(k + b) input whose output is
+Θ(k + b) too, through an unfunded width-circulation cycle I4's
+funded-cascade clause does not enumerate; L1/I4 reopen at the spec
+tier, and the model tier reproduces the family (§9 round 5, the
+record of record). The status paragraph below describes the
+document as of round 2 and is superseded where §9's later rounds
+say so.
 
 Status: **[validated-on-model, kernel-pending]** — every lemma is
 [measured], [measured-on-model], or [derived] with no load-bearing
@@ -1067,6 +1084,115 @@ per site]; L6 [measured, pinned, multiplicative]; the orbit lemma
 cure's adversarial review**; **T-tick: [measured at kernel on
 every committed family; the §7 acceptance stands met at the
 board and gate tier]**.
+
+**Round 5** (the kernel tier: the frame-ledger cure's adversarial
+review + its red-pin round, 2026-07-25). Attack verdict:
+**T-tick REFUTED at the kernel by a new family** (2026-07-25;
+semantics exact everywhere — the failure is cost-only). Recorded
+here as instruments-before-cures: generators, differential-pool
+membership, and gate pins land with this record; the cure is the
+next design round's charter, not this one's.
+
+- **The family — `reveal_comb(k, b)`, red-pinned [measured,
+  kernel, three identical runs; the review's probe reproduced
+  exactly on the committed generators]**: one covering left-full
+  site over a left-leaning comb `a_i = node(0, a_{i−1}, site_i)`,
+  floor `leaf(0)` at the deepest left, `site_i = (1, (1, 0)) over
+  node(0, leaf(2^b − 1), leaf(2^b))` — k sibling sites sharing one
+  wide minimum `W = 2^b`, the left-leaning spine closing each
+  site's node frame back into the 0-floor frame between
+  consecutive consumes. Touches are **Θ(k·b) on input Θ(k + b)**:
+  per-byte 146.9 → 267.7 → 478.7 → 808.8 as b doubles at
+  k = 1,000; the joint doubling (1,000, 1,024) → (2,000, 2,048)
+  reads 738,449 → 2,884,881 touches — ×3.91 on a ×2.00 input.
+  **The denominator**: the output is Θ(k + b) too (every site's
+  fill collapses to the shared plateau leaf; per-site output
+  deltas are γ-unit codes), so the blowup survives the
+  input+output denomination — this is a true amplifier under the
+  spec's own denominator, not an output-priced cost.
+- **The mechanism — an unfunded width-circulation cycle; I4's
+  funded-cascade enumeration is incomplete**: per site, the
+  consume decision mints a width-b boundary `Diff(W)` between the
+  site's frame and the floor frame (`arm_relative`, fed by the
+  negated relation follower through `compare_above_vs`); the
+  site's close pops it (`close`'s dying-diff fold), refilling the
+  base stack's `t` and the relation follower with the width; the
+  next consume negates the follower into the next `d_arm` and
+  mints the next `Diff(W)`. Every object individually satisfies
+  create-once/read-once/die — the width circulates through
+  per-object-legal moves with NO input delta, NO output code, and
+  NO undercut descent funding any hop. I4's funded-cascade clause
+  prices only full-penetration *undercut* hops (height descent
+  paid in input delta codes); arm-up and close-reveal hops are
+  unfunded by its enumeration. **L1 and I4 reopen at the spec
+  tier.**
+- **Attribution, both layers pinned [measured]**: `pure_comb(k, b)`
+  — the same comb with no left-full site anywhere (bare
+  leaf-under-internal-id frames; no memo, no pre-scan, no site
+  consume) — is width-scaling at ~2 wide folds per site (per-byte
+  30.4 → 50.8 → 82.0 as b doubles at k = 1,000): the base L1
+  watermark stack's own arm-move + close-pop cycle, predating the
+  frame ledger. The ledger amplifies it ~10× — `reveal_comb` runs
+  ~21 width-b folds per site (the follower ferry,
+  `compare_above_vs`, `arm_relative`, and the pre-scan head's
+  mirrored folds).
+- **The control — `reveal_comb_hifloor(k, b)`, green-pinned**:
+  identical forest, identical ids, identical deferral and
+  close-reveal cycle, floor raised to `W − 2` so the consume-time
+  gap is 2 — flat and width-independent (per-byte 21.4 → 18.9
+  across the width *quadrupling* b = 512 → 2,048 at k = 1,000;
+  absolute band 56,831 ×1.25/×0.75). The wide GAP is the driver,
+  not the site forest, not the deferral, not the close-reveal
+  schedule.
+- **Model reproduction — YES [measured-on-model]**: the committed
+  round-two harness (`emit_model.py`, unmodified) fed a reveal
+  schedule (k sites armed at one shared wide minimum over a
+  0-floor frame, close-reveal between consecutive consumes; the
+  input pays the width once) reproduces the class: per-unit
+  13.72 → 21.62 → 37.25 → 67.77 as b doubles at k = 1,000 (the
+  width term's ratio → ×2 as it dominates the additive constant),
+  flat per unit in k, joint-doubling ratio 3.16 → 3.47 → 3.69
+  (→ ×4). The width lives in `close_consume`'s dying-diff fold
+  and the relation bookkeeping — the same placement as the
+  kernel's. The model's per-site constant (~2.4 wide folds)
+  matches the BASE layer (`pure_comb`'s ~2), not the
+  ledger-amplified kernel (~21): the model contains no pre-scan
+  and no ledger, so it reproduces exactly the L1 half of the
+  attribution split. The model is sound on this genre; the coming
+  design round can calibrate candidate disciplines against it.
+- **The instruments landed with this record**: three generators
+  (`reveal_comb`, `reveal_comb_hifloor`, `pure_comb` + ids) in
+  the differential pools event- and id-side at two scales plus a
+  4096-site closed-form deep witness (semantics exact against the
+  recursive oracle before any cost was pinned); gate red pins in
+  `tests/meter.rs` (`reveal_comb` ≥ ×3.5 across the joint
+  doubling, `pure_comb` ≥ ×1.45 per-byte across the width
+  doubling — each paired with its shape's closed-form tick and
+  the one-touch-per-byte liveness floor, each failing the moment
+  the circulation is cured, to be re-pinned flat, never deleted)
+  and the hifloor green pin; board tick-cross rows for all three
+  at both scales (215 → 221 cells; every counter column green at
+  the default scale — the touch currency rides no board column,
+  so the four `version_tick`/`clock_tick` × `reveal-comb`/
+  `pure-comb` cells joined the bench judge's roster as owned
+  reds: the fitted time exponent is the one board-side leg that
+  sees the circulation).
+
+**Per-lemma status after round 5**: L0 [measured, landed] — held;
+**L1/I4 [REOPENED at the spec tier: the funded-cascade clause
+enumerates undercut hops only; arm-up/close-reveal hops circulate
+width unfunded — red-pinned at the kernel, reproduced on the
+model]**; L2/L4's memo realization [measured at kernel — linear on
+the consumption-order families; the ledger's ferry additionally
+*amplifies* the reopened L1 cycle ~10× on the reveal comb]; L3
+[derived] — held; L5 [derived + measured] — held; L6 [measured,
+pinned, multiplicative] — held; the orbit lemma [measured,
+pinned] — held; fusion [derived] — BLOCKED again behind the L1/I4
+revision (no fusion over a refuted realization); **T-tick:
+REFUTED-pending-revision (2026-07-25) — the statement's target
+stands, its I4 funding argument does not; the revision is the
+next design round's charter, seeded with the width-circulation
+mechanism and both attribution layers.**
 
 **Convergence assessment (fix round two)**: **CONVERGED at the spec
 tier, revision 3.** The loop's convergence rule — a round with no
