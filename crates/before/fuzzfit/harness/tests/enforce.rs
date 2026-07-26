@@ -19,10 +19,11 @@
 //! read ABOVE a linear band), the pin's provenance (the building toolchain
 //! must match the pinning one), the pin's staleness (a fresh refit of the
 //! deterministic corpus prefix must agree with the committed lines on
-//! every covered band key), and the escalated regime itself (a fixed
-//! reach-family program replays on every run, so the instrument's deep
-//! reach — including the at-scale rejection arms — never rides on the
-//! sentry's rare escalation draws alone).
+//! every covered band key), and the escalated regime itself (two fixed
+//! reach-family programs — mid-depth and the depth cap, distinct seeds —
+//! replay on every run, so the instrument's deep reach — including the
+//! at-scale rejection arms — never rides on the sentry's rare escalation
+//! draws alone).
 //!
 //! Case count: 48 by default (the calibration corpus is the big sweep; this
 //! is the sentry); override with `PROPTEST_CASES`.
@@ -268,10 +269,29 @@ fn refit_of_the_deterministic_prefix_matches_the_pin() {
 /// no standing proof its at-scale bands (the seven single-operand rows,
 /// the rejection arms, the deep-overlap scans) still bite. This replay is
 /// that proof: one escalation program at fixed depth and seed, judged on
-/// both legs like any sentry case.
+/// both legs like any sentry case. (The cross-universe rejection arms
+/// need no fixed replay: the sentry's family roster draws the independent
+/// regime nearly three times per default run.)
 #[test]
 fn the_escalated_regime_stays_in_the_pinned_bands() {
     let program = build(&Family::Escalation { depth: 1024 }, 0xE5CA);
+    let samples = run_program(&program)
+        .unwrap_or_else(|m| panic!("malformed escalation program at {}", m.op));
+    judge(&samples);
+}
+
+/// The escalated regime's far end, on an independent seed: a second fixed
+/// reach-family program at the family's depth cap must land every step in
+/// its band and every trend under its slope, deterministically.
+///
+/// The depth-1024 replay alone would leave the family's upper depth range
+/// (1025..=1792) riding on sentry draws that arrive about once in five
+/// runs, and would hang the whole deterministic reach proof on a single
+/// (depth, seed) point. This replay pins the other end of the reach: the
+/// deepest constructible spine, a different seed, the same judgment.
+#[test]
+fn the_escalation_depth_cap_stays_in_the_pinned_bands() {
+    let program = build(&Family::Escalation { depth: 1792 }, 0x1792);
     let samples = run_program(&program)
         .unwrap_or_else(|m| panic!("malformed escalation program at {}", m.op));
     judge(&samples);
