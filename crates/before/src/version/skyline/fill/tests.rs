@@ -9,11 +9,17 @@
 //! and organic histories. The flag is emitted-differs-from-input,
 //! plateau-aligned: a value-reproducing raise must not trip it, and the
 //! first emitted leaf compares absolute against absolute (the worked
-//! corner cases pin both). The oracle walks on native frames with
-//! materialized magnitudes, so these grids run at oracle-sized
-//! operands; large-operand coverage lives in the deep closed-form
-//! witnesses below, the meter suite's closed-form output asserts at its
-//! pinned scales, and the board's determinism tripwire. The unchanged
+//! corner cases pin both). The oracle walks on native frames, so these
+//! grids run at oracle-sized depths; deep-input coverage lives in the
+//! closed-form witnesses below, the meter suite's closed-form output
+//! asserts at its pinned scales, and the board's determinism tripwire.
+//! Those are size-axis instruments: none of them discriminates the
+//! width of the flag's value comparison, so that axis is pinned
+//! separately — the full-width worked witnesses below (a
+//! multiple-of-`2^64` raise offset must read nonzero; a wide
+//! value-reproducing raise must read a full-width zero) and
+//! `generators::arb_base`'s `2^64`-aligned arm, which keeps generator
+//! mass on offsets whose low limb is zero. The unchanged
 //! branch's splice is additionally held to the oracle's inflation, the
 //! brute-force search, and a reference route probe in `grow/tests.rs`.
 
@@ -319,6 +325,48 @@ fn flag_reads_plateau_divergence_not_arm_firing() {
     assert!(
         flag_of(&v, &p),
         "a collapse that moves topology trips the flag on the plateau's depth"
+    );
+    assert_tick(&v, &p);
+}
+
+/// The flag's value comparison is full-width: a raise offset that is
+/// a nonzero multiple of `2^64` must read nonzero.
+///
+/// Such an offset's low 64 bits are all zero, so a comparison
+/// truncated to one limb would read it as zero, leave the flag clear,
+/// and mis-route the pair to the grow branch — wrong tick output. The
+/// dual rides along: a wide raise that reproduces the input leaf
+/// exactly computes its zero offset from wide operands, and the
+/// comparison must read that zero at full width — the flag must stay
+/// clear. Both directions assert the flag and the tick output against
+/// the recursive oracle. Ongoing generator mass for the class lives
+/// in `generators::arb_base`'s `2^64`-aligned arm.
+#[test]
+fn flag_compares_offsets_at_full_width() {
+    // Left-full raise over a single zero leaf against min(er) = 2^64:
+    // the emitted offset is exactly 2^64 — nonzero only above the low
+    // limb — so the flag must trip, and the tick is fill's collapse
+    // to the single wide leaf.
+    let p: Party = "(1, 0)".parse().expect("test party literals parse");
+    let v: Version = "(0, 0, 18446744073709551616)"
+        .parse()
+        .expect("test version literals parse");
+    assert!(
+        flag_of(&v, &p),
+        "a multiple-of-2^64 raise offset reads nonzero: the flag must trip"
+    );
+    assert_tick(&v, &p);
+
+    // The declined dual: max(max(el) = 2^64, min(er) = 0) = el — the
+    // raise reproduces the wide input leaf, the offset is a zero
+    // computed as the difference of two wide values, and the flag
+    // must stay clear.
+    let v: Version = "(0, 18446744073709551616, 0)"
+        .parse()
+        .expect("test version literals parse");
+    assert!(
+        !flag_of(&v, &p),
+        "a wide value-reproducing raise reads a full-width zero: the flag stays clear"
     );
     assert_tick(&v, &p);
 }

@@ -264,7 +264,12 @@ const ARB_NODES: u32 = 16;
 /// Mixes a dense small range (where collapses and `one_zero` corners live) with
 /// values straddling `u64::MAX`, so a generated event tree can have
 /// root-to-leaf path sums that would overflow `u64`. The big-value arms are
-/// built from `u128` conversions and shifted powers, well beyond `u64`.
+/// built from `u128` conversions and shifted powers, well beyond `u64`. The
+/// `2^64`-aligned arm produces small nonzero multiples of `2^64`: values (and
+/// differences of two draws — the fused tick's raise offsets) whose low limb
+/// is exactly zero, the class a limb-truncated value comparison misreads as
+/// zero. The fill flag's full-width worked witnesses pin that comparison
+/// pointwise; this arm keeps the class under ongoing generator mass.
 pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
     prop_oneof![
         6 => (0u64..6).prop_map(codec::Base::from),
@@ -272,6 +277,7 @@ pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
         1 => (u64::MAX - 4..=u64::MAX).prop_map(codec::Base::from),
         1 => any::<u128>().prop_map(|n| codec::Base::from(n) + codec::Base::from(u64::MAX)),
         1 => (0u32..96).prop_map(|k| (codec::Base::from(1u8) << k) + codec::Base::from(1u8)),
+        1 => (1u64..8).prop_map(|k| codec::Base::from(k) << 64u32),
     ]
 }
 

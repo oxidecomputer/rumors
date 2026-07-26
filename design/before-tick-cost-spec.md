@@ -639,7 +639,21 @@ oracle-bounded (native frames, materialized magnitudes): the
 large-operand coverage rides the deep 4096-level closed-form
 witnesses, the meter suite's closed-form output asserts at its
 pinned scales (k = 1,000–4,096), and the board's determinism
-tripwire.
+tripwire. *Amendment 2026-07-26 (the fusion review's fix round)*:
+those three instruments cover the size axis only — the review
+constructed a low-64-bit-truncated value compare at the walk's
+flag site that all three bless (a raise offset that is a nonzero
+multiple of 2^64 reads as zero under truncation; the flag stays
+clear and the pair mis-routes to grow) — so the width axis of the
+flag's value comparison is pinned separately: committed full-width
+flag witnesses (an offset of exactly 2^64 must trip the flag; a
+wide value-reproducing raise's full-width-zero offset must not),
+a 2^64-aligned arm in the arbitrary base generator keeping the
+low-limb-zero class under ongoing generator mass (the arm caught
+the re-planted mutant through the arbitrary-pairs differential
+independently of the fixed witnesses; the shrunk seed is
+committed), and the acceptance demonstration that the re-planted
+mutant reads red under both before reverting.
 
 Today's tick on the **grow branch** traverses the event stream ~4×:
 fill's walk (+ builder emission), the byte compare, grow's
