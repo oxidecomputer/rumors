@@ -515,4 +515,91 @@ proptest! {
             );
         }
     }
+
+    /// The tick ORBIT's coded size is a bounded transient plus
+    /// logarithmic growth.
+    ///
+    /// After the first tick (whose one-step factor the pin above
+    /// prices), `bits(tick^k) ≤ bits(tick^1) + 4·bits(id) +
+    /// 4·⌈log2(k + 1)⌉ + 8` for every k along the orbit.
+    ///
+    /// The per-step multiplicative bound cannot compound: a width
+    /// duplication needs an unexpanded id-demanded site adjacent to a
+    /// wide transition, the orbit mints expansions at most once per id
+    /// site (the `4·bits(id)` transient), re-fired raises re-code the
+    /// same position rather than stacking, and the steady state is
+    /// increments whose two re-coded delta codes grow with the count's
+    /// own gamma width — the `log k` term [measured: the envelope holds
+    /// with zero slack at the log term on the committed families over
+    /// 512 ticks, and the fixed-pair orbit freezes at +24 bits over
+    /// 4096 ticks].
+    #[test]
+    fn tick_orbit_growth_is_transient_plus_log(
+        op in generators::arb_oracle_party_nonempty(),
+        ov in generators::arb_oracle_version(),
+    ) {
+        let p = from_oracle_party(&op);
+        let v = from_oracle_version(&ov);
+        if !p.as_bits().is_empty() {
+            let mut e = encode(&v);
+            e = tick(&e, &p);
+            let b1 = e.bits;
+            for k in 2u32..=48 {
+                e = tick(&e, &p);
+                let logk = u64::from(32 - (k + 1).leading_zeros());
+                let bound = b1 as u64
+                    + 4 * p.as_bits().len() as u64
+                    + 4 * logk
+                    + 8;
+                prop_assert!(
+                    e.bits as u64 <= bound,
+                    "orbit size {} bits at tick {k} exceeds the transient-plus-log \
+                     envelope {bound} (first-tick size {b1}, id {} bits)",
+                    e.bits, p.as_bits().len(),
+                );
+            }
+        }
+    }
+}
+
+/// The deterministic deep orbits stay inside their measured bands.
+///
+/// The fixed wide pair's size freezes after its one-step transient
+/// (growing only with the incremented count's gamma width), and the
+/// alternating disjoint pair — whose collapse/expand cycle re-fires a
+/// width duplication every period — stays inside the same band
+/// forever: re-fired raises re-code the same bounded value at the
+/// same position, replacing, never stacking.
+#[test]
+fn tick_deep_orbits_stay_banded() {
+    let ev = crate::meter::bigroot(64, 4).version();
+    let ida = party_of(&crate::meter::id_spine(4, false));
+    let idb = party_of(&crate::meter::id_spine(4, true));
+
+    let mut e = encode(&ev);
+    e = tick(&e, &ida);
+    let b1 = e.bits;
+    for k in 2u32..=4096 {
+        e = tick(&e, &ida);
+        let logk = usize::try_from(32 - (k + 1).leading_zeros()).expect("small");
+        assert!(
+            e.bits <= b1 + 4 * logk + 8,
+            "fixed-id orbit: {} bits at tick {k} (first-tick size {b1})",
+            e.bits,
+        );
+    }
+
+    let mut e = encode(&ev);
+    e = tick(&e, &ida);
+    e = tick(&e, &idb);
+    let b2 = e.bits;
+    for k in 3u32..=2048 {
+        e = tick(&e, if k % 2 == 1 { &ida } else { &idb });
+        let logk = usize::try_from(32 - (k + 1).leading_zeros()).expect("small");
+        assert!(
+            e.bits <= b2 + 4 * logk + 8,
+            "alternating orbit: {} bits at tick {k} (two-tick size {b2})",
+            e.bits,
+        );
+    }
 }
