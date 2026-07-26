@@ -3701,4 +3701,148 @@ mod width_circulation_cost {
             large.touches,
         );
     }
+
+    /// The grown ascending-cliff closed form: the input spine with the
+    /// cliff grown to `(0, 1, 0)`.
+    fn ascend_cliff_ticked(k: usize, b: usize) -> Version {
+        let w = UBig::ONE << b;
+        let mut text = String::new();
+        for i in 1..=k {
+            text.push_str(&format!("(0, {}, ", &w + UBig::from(i)));
+        }
+        text.push_str("(0, 1, 0)");
+        text.push_str(&")".repeat(k));
+        text.parse()
+            .expect("the grown ascending-cliff literal parses")
+    }
+
+    /// RED PIN: the undercut cascade's hops are residue-width-scaled —
+    /// touches grow by at least ×3.5 across the joint (k, b) doubling
+    /// on a ×2 input, where a dying-digit-funded cascade reads ~×2.
+    ///
+    /// Semantics first: fill is the identity (no id region covers a
+    /// subdividable subtree at its minimum), so the tick is grow's
+    /// closed form — the owned cliff leaf expands to `(0, 1, 0)` — and
+    /// the failure is cost-only. Then the signature [measured:
+    /// 203,435 → 790,851 touches across (k, b) =
+    /// (1,000, 2,048) → (2,000, 4,096), ×3.89 on a ×2.00 input]: the
+    /// cliff's single wide undercut penetrates k − 1 nonzero unit
+    /// boundary differences, and each hop folds the width-b surviving
+    /// residue into the popped unit diff — the surviving side's
+    /// digits, re-read per hop — instead of the dying diff's.
+    #[test]
+    fn ascend_cliff_undercut_cascade_reads_residue_width() {
+        let small = tick_run(
+            meter::ascend_cliff(1_000, 2_048),
+            meter::ascend_cliff_id(1_000),
+        );
+        assert_eq!(
+            small.ticked,
+            ascend_cliff_ticked(1_000, 2_048),
+            "ascend_cliff ticks to grow's closed form: the failure is cost-only"
+        );
+        let large = tick_run(
+            meter::ascend_cliff(2_000, 4_096),
+            meter::ascend_cliff_id(2_000),
+        );
+        assert_eq!(
+            large.ticked,
+            ascend_cliff_ticked(2_000, 4_096),
+            "ascend_cliff ticks to grow's closed form: the failure is cost-only"
+        );
+        eprintln!(
+            "MEASURED ascend_cliff: small={}/{}B large={}/{}B",
+            small.touches, small.input, large.touches, large.input,
+        );
+        assert!(
+            u128::from(large.touches) * 2 >= u128::from(small.touches) * 7,
+            "ascend_cliff: touch growth across the joint doubling fell under x3.5 \
+             ({} -> {}): the cascade's residue-width hop cost is gone — re-pin \
+             this family flat per unit (the cure's acceptance), never delete the \
+             family",
+            small.touches,
+            large.touches,
+        );
+    }
+
+    /// Absolute touch ceiling on the leveled control's larger run,
+    /// measured 13,240 ×1.25 (2026-07-26, three identical runs).
+    const PLATEAU_TOUCH_CEILING: u64 = 16_550;
+
+    /// Touch liveness floor paired with [`PLATEAU_TOUCH_CEILING`]:
+    /// measured ×0.75.
+    const PLATEAU_TOUCH_FLOOR: u64 = 9_930;
+
+    /// GREEN PIN: the leveled control is flat — identical spine,
+    /// identical arming schedule, identical cliff undercut, all
+    /// boundary differences zero.
+    ///
+    /// Per-byte touches stay flat (×1.25) across the joint (k, b)
+    /// doubling the ascending family scales with [measured: 4.02 →
+    /// 4.01 per byte across (1,000, 2,048) → (2,000, 4,096),
+    /// 2026-07-26], under an absolute band on the larger run. The
+    /// nonzero differences are the cascade's cost driver — with the
+    /// stack one compressed zero run, the same wide undercut passes it
+    /// whole in O(1) — so the hop schedule, not the undercut or the
+    /// spine, carries the red family's growth.
+    #[test]
+    fn ascend_cliff_plateau_control_is_flat_per_unit() {
+        let expected = |k: usize, b: usize| -> Version {
+            let w = (UBig::ONE << b) + UBig::from(1u8);
+            let mut text = String::new();
+            for _ in 0..k {
+                text.push_str(&format!("(0, {w}, "));
+            }
+            text.push_str("(0, 1, 0)");
+            text.push_str(&")".repeat(k));
+            text.parse()
+                .expect("the grown leveled-cliff literal parses")
+        };
+        let small = tick_run(
+            meter::ascend_cliff_plateau(1_000, 2_048),
+            meter::ascend_cliff_id(1_000),
+        );
+        assert_eq!(
+            small.ticked,
+            expected(1_000, 2_048),
+            "the leveled control ticks to grow's closed form"
+        );
+        let large = tick_run(
+            meter::ascend_cliff_plateau(2_000, 4_096),
+            meter::ascend_cliff_id(2_000),
+        );
+        assert_eq!(
+            large.ticked,
+            expected(2_000, 4_096),
+            "the leveled control ticks to grow's closed form"
+        );
+        eprintln!(
+            "MEASURED ascend_cliff_plateau: small={}/{}B large={}/{}B",
+            small.touches, small.input, large.touches, large.input,
+        );
+        assert!(
+            u128::from(large.touches) * u128::from(small.input) * 4
+                <= u128::from(small.touches) * u128::from(large.input) * 5,
+            "ascend_cliff_plateau: per-byte touch cost grew more than x1.25 across \
+             the joint doubling: {}/{}B -> {}/{}B — the zero-run cascade has \
+             picked up a width term",
+            small.touches,
+            small.input,
+            large.touches,
+            large.input,
+        );
+        assert!(
+            large.touches <= PLATEAU_TOUCH_CEILING,
+            "ascend_cliff_plateau: {} touches exceed the pinned ceiling \
+             {PLATEAU_TOUCH_CEILING} (measured 13,240 x1.25)",
+            large.touches,
+        );
+        assert!(
+            large.touches >= PLATEAU_TOUCH_FLOOR,
+            "ascend_cliff_plateau: {} touches read below the {PLATEAU_TOUCH_FLOOR} \
+             liveness floor (measured 13,240 x0.75): the cascade's work left the \
+             metered representation",
+            large.touches,
+        );
+    }
 }
