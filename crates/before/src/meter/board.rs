@@ -278,11 +278,17 @@
 //!   on measured flat per-tooth work, and a genuinely quadratic-in-teeth
 //!   probe still reads red against the content denominator.
 //! - **Output-dominated projection** (`version_project` and
-//!   `clock_own_version` on the comb × scattered-party cross): `n_io` is
-//!   packed input + packed output. The cross exists because a scattered
-//!   party keeps a wide magnitude per kept tooth — `Θ(e·k)` mandatory output
-//!   bits — and a packed output cannot be padded, so `n_io` is the honest
-//!   denominator on all three columns at the unchanged ceilings.
+//!   `clock_own_version` on the comb × scattered-party cross and the
+//!   plateau-comb crosses — reveal-comb, reveal-hifloor, pure-comb):
+//!   `n_io` is packed input + packed output. These crosses exist because
+//!   the id keeps a wide magnitude per owned site — the scattered party a
+//!   wide magnitude per kept tooth (`Θ(e·k)` mandatory output bits), the
+//!   plateau ids a re-materialized `2^b`-scale code per kept site
+//!   (`Θ(k·b)` output on a `Θ(k + b)` input) — and a packed output cannot
+//!   be padded, so `n_io` is the honest denominator on all columns at the
+//!   unchanged ceilings, with the projection sweep measured
+//!   O(`n_io`)-tight on every one (exponents ≈ 1.0 against `n_io`, scan
+//!   at the walk's usual 8 bits per `n_io` byte).
 //!
 //! The **output-honesty assertion** closes the pad-the-output door on the
 //! text side: any text stream entering a denominator must satisfy
@@ -972,8 +978,9 @@ struct FamilyData {
     /// cross drives.
     cross: Option<(Vec<u8>, Vec<u8>)>,
     /// Whether the cross's mandatory projection output dominates its
-    /// input (the comb-scatter shape): the projection rows I/O-denominate
-    /// exactly these cells (the module doc's Denomination section).
+    /// input (the comb-scatter and plateau-comb shapes): the projection
+    /// rows I/O-denominate exactly these cells (the module doc's
+    /// Denomination section).
     output_dominated: bool,
     /// The bundle's value content in bytes, `Some` only on the
     /// flat-denominator shape (comb-scatter): the denominator every
@@ -1142,30 +1149,48 @@ impl FamilyData {
             }
             FamilyKind::RevealComb => {
                 let s = size(REVEAL_COMB_BASE);
-                Self::cross_family(
+                let mut data = Self::cross_family(
                     kind,
                     "reveal-comb",
                     super::reveal_comb(s, s).version().encode(),
                     super::reveal_comb_id(s).bytes,
-                )
+                );
+                // Projecting the shared-wide-plateau event through its
+                // site-owning comb id re-materializes a wide absolute
+                // value per kept site: mandatory output Theta(k*b) on a
+                // Theta(k + b) input, the same output domination the
+                // comb-scatter cross declares [measured: output x4 per
+                // input doubling, every work column within x4 of it].
+                data.output_dominated = true;
+                data
             }
             FamilyKind::RevealHifloor => {
                 let s = size(REVEAL_COMB_BASE);
-                Self::cross_family(
+                let mut data = Self::cross_family(
                     kind,
                     "reveal-hifloor",
                     super::reveal_comb_hifloor(s, s).version().encode(),
                     super::reveal_comb_id(s).bytes,
-                )
+                );
+                // The raised floor changes the consume-time gap, not the
+                // projection's re-materialized wide sites: the same
+                // output domination as reveal-comb.
+                data.output_dominated = true;
+                data
             }
             FamilyKind::PureComb => {
                 let s = size(PURE_COMB_BASE);
-                Self::cross_family(
+                let mut data = Self::cross_family(
                     kind,
                     "pure-comb",
                     super::pure_comb(s, s).version().encode(),
                     super::pure_comb_id(s).bytes,
-                )
+                );
+                // Bare wide leaves under the site-owning id: the masked
+                // skyline spells a wide code per owned site, the same
+                // output domination as reveal-comb.
+                data.output_dominated = true;
+                data
             }
             FamilyKind::AscendCliff => {
                 let s = size(ASCEND_CLIFF_BASE);
