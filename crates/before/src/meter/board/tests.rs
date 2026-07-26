@@ -406,19 +406,22 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
     );
 }
 
-/// RED PIN (2026-07-26, the error-path round): `Party::join_all`'s
-/// up-front per-input disjointness test walks the fixed accumulator once
-/// per input, and the packed coding has no random access, so a population
-/// of one-byte probes overlapping the accumulator's right half behind its
-/// whole left shape costs Θ(inputs × accumulator) scan work — the count
-/// grows ~×4 across a joint doubling of accumulator and input count where
-/// linear work grows ×2. Pinned ≥ ×3.5 growth until a cure lands; the
-/// cure's commit re-pins the growth flat (≤ ×2.2) in the same change
-/// (instruments before cures). The board's `party_join_all_overlap` row
-/// carries the same reading at the scales of record; ownership and the
-/// cure's design question (a per-call answer is honestly linear — the
-/// fold's repetition against one fixed operand is what amplifies) live in
-/// the design doc's §3 OPEN entry.
+/// RED PIN (2026-07-26, the error-path round): the join_all up-front
+/// re-scan reads quadratic.
+///
+/// `Party::join_all`'s up-front per-input disjointness test walks the
+/// fixed accumulator once per input, and the packed coding has no random
+/// access, so a population of one-byte probes overlapping the
+/// accumulator's right half behind its whole left shape costs
+/// Θ(inputs × accumulator) scan work — the count grows ~×4 across a
+/// joint doubling of accumulator and input count where linear work grows
+/// ×2. Pinned ≥ ×3.5 growth until a cure lands; the cure's commit
+/// re-pins the growth flat (≤ ×2.2) in the same change (instruments
+/// before cures). The board's `party_join_all_overlap` row carries the
+/// same reading at the scales of record; ownership and the cure's design
+/// question (a per-call answer is honestly linear — the fold's
+/// repetition against one fixed operand is what amplifies) live in the
+/// design doc's §3 OPEN entry.
 #[cfg(feature = "scan-meter")]
 #[test]
 fn join_all_overlap_upfront_rescan_reads_quadratic() {

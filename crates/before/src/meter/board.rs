@@ -742,10 +742,12 @@ const ASCEND_CLIFF_BASE: usize = 1_000;
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 
 /// Probes per accumulator byte (as a divisor) on the
-/// `party_join_all_overlap` row: the probe count scales with the
-/// accumulator so the row's exponent reads the fold's per-input re-scan
-/// against a denominator both sides of which double together, and the
-/// divisor keeps the row inside the board's runtime budget.
+/// `party_join_all_overlap` row.
+///
+/// The probe count scales with the accumulator so the row's exponent
+/// reads the fold's per-input re-scan against a denominator both sides
+/// of which double together, and the divisor keeps the row inside the
+/// board's runtime budget.
 const OVERLAP_FOLD_INPUT_DIVISOR: usize = 64;
 
 /// Benign clock population at scale 1.0.
@@ -952,10 +954,12 @@ struct FamilyData {
     /// population and the benign shape's organic control.
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
-    /// An overlapping packed party pair within one universe, minted by the
-    /// overlap-mount adapter from the same id source as `parties` (the
-    /// post-pass): the rejection rows' operands. Semantically void by
-    /// design — see [`overlap_mounted_pair`].
+    /// An overlapping packed party pair within one universe: the
+    /// rejection rows' operands.
+    ///
+    /// Minted by the overlap-mount adapter from the same id source as
+    /// `parties` (the post-pass); semantically void by design — see
+    /// [`overlap_mounted_pair`].
     overlap: Option<(Vec<u8>, Vec<u8>)>,
     /// The mismatched rank pair, derived from `version` in the post-pass.
     ///
@@ -1508,10 +1512,12 @@ fn overlap_fold_probe() -> Vec<u8> {
     probe.into_vec()
 }
 
-/// `bytes` with its last byte dropped: a strict prefix of a preorder
-/// stream, which has an open subtree at every position before its true
-/// end — the maximally-deferred [`Truncated`](crate::error::Decode)
-/// defect, discoverable only by parsing to the cut.
+/// `bytes` with its last byte dropped.
+///
+/// A strict prefix of a preorder stream has an open subtree at every
+/// position before its true end, so this is the maximally-deferred
+/// [`Truncated`](crate::error::Decode) defect — discoverable only by
+/// parsing to the cut.
 fn truncated_bytes(bytes: &[u8]) -> Vec<u8> {
     assert!(
         bytes.len() >= 2,
@@ -1557,10 +1563,12 @@ fn last_leaf_flag_pos(v: &Version) -> usize {
 }
 
 /// `v`'s stream with its preorder-last leaf split into an equal-sibling
-/// pair: the left child keeps the old leaf's delta code (same
-/// predecessor, same value), the right child's delta is zero — the
-/// minimality violation the validator can only judge at that pair's
-/// close, the stream's last position. The maximally-deferred
+/// pair.
+///
+/// The left child keeps the old leaf's delta code (same predecessor,
+/// same value); the right child's delta is zero — the minimality
+/// violation the validator can only judge at that pair's close, the
+/// stream's last position. The maximally-deferred
 /// [`NotCanonical`](crate::error::Decode) defect.
 fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
     let all = codec::bytes_as_bits(v.as_bytes());
@@ -1577,8 +1585,10 @@ fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
 }
 
 /// `p`'s stream with its preorder-last terminal split into a collapsible
-/// `(1, 1)`: two full children, judged non-normal at the node's close —
-/// the stream's last position. The maximally-deferred
+/// `(1, 1)`.
+///
+/// Two full children, judged non-normal at the node's close — the
+/// stream's last position: the maximally-deferred
 /// [`NotCanonical`](crate::error::Decode) defect on the id side.
 fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {
     let bits = p.as_bits();
@@ -1609,9 +1619,11 @@ fn trailing_text(text: &str) -> String {
 }
 
 /// A clock's text with junk inserted before the closing paren, inside the
-/// version component: the clock parser's outer-paren check rejects
-/// *appended* junk in O(1), so the deferred defect rides the version
-/// side, which parses in full first.
+/// version component.
+///
+/// The clock parser's outer-paren check rejects *appended* junk in O(1),
+/// so the deferred defect rides the version side, which parses in full
+/// first.
 fn clock_trailing_text(text: &str) -> String {
     let mut out = text.to_owned();
     assert_eq!(out.pop(), Some(')'), "a clock renders as (id, event)");
@@ -1838,10 +1850,12 @@ const NA_SCAN_TEXT_REJECTION: &str = "rejection of malformed text forces no pack
      deterministic counter watches text-byte consumption; the ceilings judge these cells' \
      live readings and the bench mirror carries their time leg)";
 
-/// The packed-stream rejection rows' floors: scan floored at one bit per
-/// fed byte under `why` (the defect-placement derivation), everything
-/// else honestly not-applicable — rejection materializes no result and
-/// forces neither value work nor an accumulator fold.
+/// The packed-stream rejection rows' floors.
+///
+/// Scan is floored at one bit per fed byte under `why` (the
+/// defect-placement derivation); everything else is honestly
+/// not-applicable — rejection materializes no result and forces neither
+/// value work nor an accumulator fold.
 fn rejection_floors(fed_bytes: usize, why: &'static str) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
@@ -1878,10 +1892,11 @@ const WHY_SCAN_OVERLAP_CLOCK: &str = "the pair's one overlapping region sits at 
      so any correct rejection scans the id streams to it; the version operands ride unread \
      (the party join is the rejection gate), so the floor covers the id bytes alone";
 
-/// The clock overlap rows' floors: the scan floor derives from the id
-/// bytes alone (the party join is the rejection gate; the version
-/// operands are fed but rejection never reads them), everything else the
-/// rejection convention.
+/// The clock overlap rows' floors.
+///
+/// The scan floor derives from the id bytes alone (the party join is the
+/// rejection gate; the version operands are fed but rejection never
+/// reads them); everything else is the rejection convention.
 fn clock_overlap_floors(id_bytes: usize) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
@@ -1895,10 +1910,12 @@ fn clock_overlap_floors(id_bytes: usize) -> Floors {
     }
 }
 
-/// The text-rejection rows' floors: none, by honest derivation (no
-/// deterministic counter watches text-byte consumption, and a parser may
-/// find the defect before any packed or value work); `limb`/`touch` take
-/// the caller's operand-specific reason (id trees have no values at all).
+/// The text-rejection rows' floors: none, by honest derivation.
+///
+/// No deterministic counter watches text-byte consumption, and a parser
+/// may find the defect before any packed or value work; `limb`/`touch`
+/// take the caller's operand-specific reason (id trees have no values at
+/// all).
 fn text_rejection_floors(limb: Liveness, touch: Liveness) -> Floors {
     Floors {
         heap: na(NA_HEAP_REJECTION),
