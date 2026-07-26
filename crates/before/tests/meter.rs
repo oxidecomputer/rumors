@@ -3621,9 +3621,11 @@ mod width_circulation_cost {
     }
 
     /// Absolute touch ceiling on the high-floor control's larger run,
-    /// measured 50,837 ×1.25 (2026-07-26, three identical runs;
-    /// 56,831 → 50,837 when the latent boundary register landed — the
-    /// deleted close and consume folds this family paid narrow).
+    /// measured 50,837 ×1.25 (2026-07-26, three identical runs).
+    ///
+    /// Movement: 56,831 → 50,837 when the latent boundary register
+    /// landed — the deleted close and consume folds this family paid
+    /// narrow.
     const HIFLOOR_TOUCH_CEILING: u64 = 63_547;
 
     /// Touch liveness floor paired with [`HIFLOOR_TOUCH_CEILING`]:

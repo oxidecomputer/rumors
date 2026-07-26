@@ -101,10 +101,12 @@ pub(super) struct MinStack {
     /// latent lives); zero-valued while `armed == 0`.
     t: Accum,
     /// The latent boundary `Λ = A − m`: the anchor's stale excess over
-    /// the innermost armed frame's true minimum. Strictly positive when
-    /// present; at most one lives, conceptually at the top of the
-    /// difference stack; it holds no height content (heights fold into
-    /// `t` only) and dies with the last armed frame.
+    /// the innermost armed frame's true minimum.
+    ///
+    /// Strictly positive when present; at most one lives, conceptually
+    /// at the top of the difference stack; it holds no height content
+    /// (heights fold into `t` only) and dies with the last armed
+    /// frame.
     latent: Option<Accum>,
     /// Per follower slot: whether the stored content is anchor-relative
     /// (`f_true = f_stored − Λ`). Set only while the latent lives; a
@@ -233,11 +235,12 @@ impl MinStack {
         }
     }
 
-    /// Retire the latent into the true minimum: the anchor re-bases to
-    /// `m` (`t += Λ` by min-into-max buffer merge), each tagged
-    /// follower resolves by one fold of the dying latent (its
-    /// death-event fan-out), and the tags clear. A no-op while no
-    /// latent lives.
+    /// Retire the latent into the true minimum.
+    ///
+    /// The anchor re-bases to `m` (`t += Λ` by min-into-max buffer
+    /// merge), each tagged follower resolves by one fold of the dying
+    /// latent (its death-event fan-out), and the tags clear. A no-op
+    /// while no latent lives.
     ///
     /// Callers fund the death: a comparable-scale decision (the merge's
     /// near-cancellation), an emission whose output code the latent's
@@ -383,12 +386,13 @@ impl MinStack {
     }
 
     /// Drop the true minimum to `v = A + t` (`t < 0`, the true-undercut
-    /// decision already made): `t` dies into the residue, a live latent
-    /// annihilates into it, and each active follower absorbs the
-    /// anchor-relative drop `A − v` — one fold that also resolves a set
-    /// tag, since a tagged follower's content is anchor-relative and
-    /// the new anchor is `v` itself. The caller re-seats `t` for the
-    /// new anchor.
+    /// decision already made).
+    ///
+    /// `t` dies into the residue, a live latent annihilates into it,
+    /// and each active follower absorbs the anchor-relative drop
+    /// `A − v` — one fold that also resolves a set tag, since a tagged
+    /// follower's content is anchor-relative and the new anchor is `v`
+    /// itself. The caller re-seats `t` for the new anchor.
     fn undercut(&mut self) {
         let mut residue = core::mem::take(&mut self.t);
         residue.negate();
@@ -503,13 +507,15 @@ impl MinStack {
     }
 
     /// Arm bookkeeping shared by the arming paths, after `t` is seated
-    /// for the new anchor `A = v` and `armed` counts the new frames:
-    /// fold the anchor-relative offset `d = v − A_old` into each active
-    /// follower (resolving set tags — the offset is exactly the tagged
-    /// content's shift to the new anchor, where the latent is spent),
-    /// merge the offset with any latent into the true boundary
-    /// `v − m_old`, and push it (a positive difference), count it (an
-    /// exact meet), or propagate it (an arming undercut's residue).
+    /// for the new anchor `A = v` and `armed` counts the new frames.
+    ///
+    /// Folds the anchor-relative offset `d = v − A_old` into each
+    /// active follower (resolving set tags — the offset is exactly the
+    /// tagged content's shift to the new anchor, where the latent is
+    /// spent), merges the offset with any latent into the true
+    /// boundary `v − m_old`, and pushes it (a positive difference),
+    /// counts it (an exact meet), or propagates it (an arming
+    /// undercut's residue).
     fn push_boundary(&mut self, d: Accum, pending: usize) {
         for slot in 0..self.followers.len() {
             if let Some(follower) = &mut self.followers[slot] {
