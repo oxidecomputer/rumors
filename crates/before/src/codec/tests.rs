@@ -1144,3 +1144,270 @@ fn parse_stacks_spill_past_inline_capacity() {
         party,
     );
 }
+
+// ───────────────────────────── id text parser pin ─────────────────────────────
+//
+// A recursive reference transcription of the id grammar (`0 | 1 | (i1, i2)`)
+// pins `parse_id_str`'s whole behavior surface — accepted language, emitted
+// canonical bits, and error variants with their precedence (a structural
+// `Syntax` defect outranks the `(0, 0)`/`(1, 1)` canonicality check at the
+// same node). The reference recurses on native frames, so the differential
+// runs at small scope; the production parser's depth behavior is pinned by
+// `parse_stacks_spill_past_inline_capacity` and the deep board families.
+
+/// The reference mirror of the production parser's subtree classification:
+/// what a parsed id subtree turned out to be.
+#[derive(Clone, Copy, PartialEq)]
+enum RefIdKind {
+    /// A `0`: no bits emitted (absence).
+    Empty,
+    /// A `1`: the terminal tag `00`.
+    Terminal,
+    /// An internal node.
+    Node,
+}
+
+/// The reference cursor: byte-level, skipping ASCII whitespace before every
+/// token, exactly the grammar's tokenization.
+struct RefCur<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl RefCur<'_> {
+    fn skip_ws(&mut self) {
+        while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_whitespace() {
+            self.pos += 1;
+        }
+    }
+
+    fn peek(&mut self) -> Option<u8> {
+        self.skip_ws();
+        self.bytes.get(self.pos).copied()
+    }
+
+    fn bump(&mut self) -> Option<u8> {
+        self.skip_ws();
+        let c = self.bytes.get(self.pos).copied();
+        if c.is_some() {
+            self.pos += 1;
+        }
+        c
+    }
+}
+
+/// One reference id subtree: append its canonical bits, report its kind.
+///
+/// The recursive image of the grammar with the production parser's exact
+/// error precedence: each token defect is a `Syntax` error at the point the
+/// token is demanded, and a node's collapsible-children check (`(0, 0)` /
+/// `(1, 1)` → `NotCanonical`) runs only after its closing paren parsed.
+fn ref_parse_id_node(cur: &mut RefCur, bits: &mut Bits) -> Result<RefIdKind, crate::error::Parse> {
+    use crate::error::Parse;
+    match cur.bump() {
+        Some(b'(') => {
+            let tag = bits.len();
+            bits.push(false);
+            bits.push(false);
+            let left = ref_parse_id_node(cur, bits)?;
+            if cur.bump() != Some(b',') {
+                return Err(Parse::Syntax);
+            }
+            let right = ref_parse_id_node(cur, bits)?;
+            if cur.bump() != Some(b')') {
+                return Err(Parse::Syntax);
+            }
+            match (left, right) {
+                (RefIdKind::Empty, RefIdKind::Empty) => Err(Parse::NotCanonical),
+                (RefIdKind::Terminal, RefIdKind::Terminal) => Err(Parse::NotCanonical),
+                _ => {
+                    bits.set(tag, left != RefIdKind::Empty);
+                    bits.set(tag + 1, right != RefIdKind::Empty);
+                    Ok(RefIdKind::Node)
+                }
+            }
+        }
+        Some(b'0') => Ok(RefIdKind::Empty),
+        Some(b'1') => {
+            bits.push(false);
+            bits.push(false);
+            Ok(RefIdKind::Terminal)
+        }
+        _ => Err(crate::error::Parse::Syntax),
+    }
+}
+
+/// The reference id-string parser: one tree, no trailing input, normal form
+/// revalidated on the emitted bits — `parse_id_str`'s exact contract.
+fn ref_parse_id_str(s: &str) -> Result<Bits, crate::error::Parse> {
+    let mut cur = RefCur {
+        bytes: s.as_bytes(),
+        pos: 0,
+    };
+    let mut bits = Bits::new();
+    ref_parse_id_node(&mut cur, &mut bits)?;
+    if cur.peek().is_some() {
+        return Err(crate::error::Parse::Syntax);
+    }
+    super::validate_id(&bits)?;
+    Ok(bits)
+}
+
+/// Assert the production parser and the recursive reference agree on one
+/// input: same acceptance, same canonical bits, same error variant.
+fn assert_id_parse_matches_reference(s: &str) -> Result<(), TestCaseError> {
+    let prod = super::parse_id_str(s);
+    let reference = ref_parse_id_str(s);
+    prop_assert_eq!(
+        &prod,
+        &reference,
+        "parser disagrees with the recursive reference on {:?}",
+        s
+    );
+    Ok(())
+}
+
+/// The production id parser matches the recursive reference on every string
+/// up to length 7 over the grammar alphabet (plus a space): identical
+/// accept/reject verdicts, identical canonical bits, identical error
+/// variants — the exhaustive small-scope leg of the parser pin.
+#[test]
+fn id_text_parser_matches_reference_exhaustively() {
+    const ALPHABET: &[u8] = b"()01, ";
+    const MAX_LEN: usize = 7;
+    let mut buf = [0u8; MAX_LEN];
+    for len in 0..=MAX_LEN {
+        let mut idx = vec![0usize; len];
+        loop {
+            for (i, &j) in idx.iter().enumerate() {
+                buf[i] = ALPHABET[j];
+            }
+            let s = core::str::from_utf8(&buf[..len]).expect("ASCII alphabet");
+            assert_id_parse_matches_reference(s).expect("differential holds");
+            // Odometer over the alphabet.
+            let mut k = len;
+            loop {
+                if k == 0 {
+                    break;
+                }
+                k -= 1;
+                idx[k] += 1;
+                if idx[k] < ALPHABET.len() {
+                    break;
+                }
+                idx[k] = 0;
+            }
+            if idx.iter().all(|&j| j == 0) {
+                break;
+            }
+        }
+        if len == 0 {
+            continue;
+        }
+    }
+}
+
+/// Splice pseudo-random ASCII whitespace between the characters of a
+/// rendered id, deterministically from `seed` (xorshift64).
+fn inject_whitespace(s: &str, seed: u64) -> String {
+    const WS: &[u8] = b" \t\n\r";
+    let mut rng = seed | 1;
+    let mut step = || {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng
+    };
+    let mut out = String::new();
+    for c in s.chars() {
+        if step() % 4 == 0 {
+            out.push(WS[(step() % WS.len() as u64) as usize] as char);
+        }
+        out.push(c);
+    }
+    if step() % 4 == 0 {
+        out.push(' ');
+    }
+    out
+}
+
+proptest! {
+    /// On rendered arbitrary normal-form ids — whitespace-injected in
+    /// pseudo-random positions — the production parser matches the
+    /// recursive reference, and both recover the party's exact canonical
+    /// bits (the round-trip leg of the parser pin).
+    #[test]
+    fn id_text_parser_matches_reference_on_rendered_ids(
+        op in arb_oracle_party_nonempty(),
+        seed in any::<u64>(),
+    ) {
+        let party = from_oracle_party(&op);
+        let rendered = party.to_string();
+        let spaced = inject_whitespace(&rendered, seed);
+        assert_id_parse_matches_reference(&rendered)?;
+        assert_id_parse_matches_reference(&spaced)?;
+        let bits = super::parse_id_str(&spaced).expect("a rendered id parses");
+        prop_assert_eq!(bits, party.as_bits().to_bitvec());
+    }
+}
+
+proptest! {
+    /// On rendered ids perturbed by random single-character edits (insert,
+    /// delete, or replace, drawn from the grammar alphabet), the production
+    /// parser and the recursive reference return the identical verdict —
+    /// the rejection-surface leg of the parser pin.
+    #[test]
+    fn id_text_parser_matches_reference_on_mutations(
+        op in arb_oracle_party_nonempty(),
+        edits in proptest::collection::vec((any::<u32>(), any::<u32>(), 0u8..3), 1..4),
+    ) {
+        const ALPHABET: &[u8] = b"()01, x";
+        let mut s: Vec<u8> = from_oracle_party(&op).to_string().into_bytes();
+        for (pos, ch, kind) in edits {
+            let c = ALPHABET[ch as usize % ALPHABET.len()];
+            match kind {
+                0 => {
+                    let at = pos as usize % (s.len() + 1);
+                    s.insert(at, c);
+                }
+                1 if !s.is_empty() => {
+                    let at = pos as usize % s.len();
+                    s.remove(at);
+                }
+                _ if !s.is_empty() => {
+                    let at = pos as usize % s.len();
+                    s[at] = c;
+                }
+                _ => {}
+            }
+        }
+        let s = String::from_utf8(s).expect("ASCII edits of an ASCII render");
+        assert_id_parse_matches_reference(&s)?;
+    }
+}
+
+/// Point pins for the parser's error precedence and token tolerance: a
+/// structural defect is `Syntax` even when a canonicality defect is also
+/// present ("(0, 0" truncated), a well-formed collapsible node is
+/// `NotCanonical`, trailing input is `Syntax`, whitespace is skipped
+/// between any two tokens, and the bare `0` parses to the empty bit
+/// stream (rejecting anonymity is the caller's job, not the grammar's).
+#[test]
+fn id_text_parser_error_precedence_pins() {
+    use crate::error::Parse;
+    assert_eq!(super::parse_id_str("(0, 0"), Err(Parse::Syntax));
+    assert_eq!(super::parse_id_str("(0, 0)"), Err(Parse::NotCanonical));
+    assert_eq!(super::parse_id_str("(1, 1)"), Err(Parse::NotCanonical));
+    assert_eq!(super::parse_id_str("((1, 1), 0)"), Err(Parse::NotCanonical));
+    assert_eq!(super::parse_id_str("(1, 0) 1"), Err(Parse::Syntax));
+    assert_eq!(super::parse_id_str(""), Err(Parse::Syntax));
+    assert_eq!(super::parse_id_str("(1 0)"), Err(Parse::Syntax));
+    assert_eq!(super::parse_id_str("(1, 0"), Err(Parse::Syntax));
+    assert_eq!(super::parse_id_str("1"), Ok(bitvec![u8, Msb0; 0, 0]));
+    assert_eq!(super::parse_id_str("0"), Ok(Bits::new()));
+    let spaced = super::parse_id_str(" ( 1 ,\t( 0 ,\n1 ) )\r").expect("whitespace between tokens");
+    assert_eq!(
+        spaced,
+        super::parse_id_str("(1, (0, 1))").expect("compact form")
+    );
+}
