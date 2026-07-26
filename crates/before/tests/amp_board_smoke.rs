@@ -17,8 +17,8 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The board's exact cell count: 46 operation rows over 14 families (644
-/// combinations) minus the 429 where the family provides no operand.
+/// The board's exact cell count: 46 operation rows over 17 families (782
+/// combinations) minus the 561 where the family provides no operand.
 ///
 /// Derived per family: the four event families run every row except the
 /// 10 party rows, the adversarial-party tick row, and the two fold rows
@@ -27,16 +27,17 @@ const SMOKE_SCALE: f64 = 0.02;
 /// pair runs its 23 (10 party rows, the tick row, 11 clock rows,
 /// projection); comb-scatter runs its 2 projection cells; harmonic runs
 /// its 6 (the four linear-functional rows plus the two rank rows);
-/// scatter runs its 2 fold rows; the five tick-walk families
-/// (nested-full, nested-wide, mirror-wide, mirror-narrow, staircase)
-/// run their 2 tick rows each (10 cells); benign runs every row (46,
-/// the fold rows' organic control included).
-/// 33 + 93 + 23 + 2 + 6 + 2 + 10 + 46 = 215.
+/// scatter runs its 2 fold rows; the eight tick-walk families
+/// (nested-full, nested-wide, mirror-wide, mirror-narrow, staircase,
+/// reveal-comb, reveal-hifloor, pure-comb) run their 2 tick rows each
+/// (16 cells); benign runs every row (46, the fold rows' organic
+/// control included).
+/// 33 + 93 + 23 + 2 + 6 + 2 + 16 + 46 = 221.
 /// The table is fixed and applicability depends on the
 /// family alone (`board::run` enforces this per cell), so the count is
 /// deterministic at every scale; a row added to or dropped from the table
 /// must move this pin.
-const EXPECTED_CELLS: usize = 215;
+const EXPECTED_CELLS: usize = 221;
 
 /// The board runs to completion at tiny sizes: every cell prepares,
 /// measures, and renders, and the matrix keeps covering the full operation

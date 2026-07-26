@@ -1,5 +1,5 @@
 {
-  "notes": "The bench judge's expected-verdict roster (tools/benchjudge --roster): membership by cell name, the board-side sibling of the gate's expected-failure test roster. Every cell is judged at the ceiling its bench sidecar declares (general 1.3, text 1.7; tools/benchjudge states both derivations) — this file carries expectations only and can never select a ceiling. `red` cells must be judged and read red at their own ceiling: the counter-red bigroot sweeps whose cures are owned by the C2 kernel flip, the two hugeleaf display rows whose wide-value rendering fits over the general ceiling now that the word-window decode fast path has stripped the small-code overhead from the measurement (owned by the text column's kappa/C2 hand-off; the class question resolves there), plus the permanent schoolbook display tripwire (`display_schoolbook/hugeleaf`, a text-ceiling cell: green means the tripwire went dark). `boundary` cells fit within the fit-noise band of their own ceiling (fit_noise_band in tools/benchjudge states the derivation) and may read either verdict; the set is empty at this tip. The bigroot set and the display pair empty at C3; the schoolbook expectation is permanent. The sampling pin lists both modes because these are exponent-class expectations, which hold under quick and record sampling alike (record-mode wide-pair exponents measured 1.464/2.001, 2026-07-24); the profile and the scale pair stay singly pinned. Membership is pinned by crates/before/tests/bench_judge_roster.rs.",
+  "notes": "The bench judge's expected-verdict roster (tools/benchjudge --roster): membership by cell name, the board-side sibling of the gate's expected-failure test roster. Every cell is judged at the ceiling its bench sidecar declares (general 1.3, text 1.7; tools/benchjudge states both derivations) \u2014 this file carries expectations only and can never select a ceiling. `red` cells must be judged and read red at their own ceiling: the counter-red bigroot sweeps whose cures are owned by the C2 kernel flip, the two hugeleaf display rows whose wide-value rendering fits over the general ceiling now that the word-window decode fast path has stripped the small-code overhead from the measurement (owned by the text column's kappa/C2 hand-off; the class question resolves there), plus the permanent schoolbook display tripwire (`display_schoolbook/hugeleaf`, a text-ceiling cell: green means the tripwire went dark), plus the four width-circulation tick crosses (`version_tick`/`clock_tick` on `reveal-comb` and `pure-comb`): their Theta(k*b) accumulator-touch cost rides no board counter column (the touch currency lands with the currencies-axis refactor), so the fitted time exponent is the one board-side leg that sees it \u2014 expected red until the tick walk's close-reveal width circulation is cured (the gate red pins in crates/before/tests/meter.rs are the enforcement; owner #34, T-tick reopened 2026-07-25). `boundary` cells fit within the fit-noise band of their own ceiling (fit_noise_band in tools/benchjudge states the derivation) and may read either verdict; the set is empty at this tip. The bigroot set and the display pair empty at C3; the schoolbook expectation is permanent. The sampling pin lists both modes because these are exponent-class expectations, which hold under quick and record sampling alike (record-mode wide-pair exponents measured 1.464/2.001, 2026-07-24); the profile and the scale pair stay singly pinned. Membership is pinned by crates/before/tests/bench_judge_roster.rs.",
   "configuration": {
     "profile": "optimized",
     "sampling": [
@@ -27,7 +27,11 @@
     "clock_recv/bigroot",
     "version_display/hugeleaf",
     "clock_display/hugeleaf",
-    "display_schoolbook/hugeleaf"
+    "display_schoolbook/hugeleaf",
+    "version_tick/reveal-comb",
+    "clock_tick/reveal-comb",
+    "version_tick/pure-comb",
+    "clock_tick/pure-comb"
   ],
   "boundary": []
 }
