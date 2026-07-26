@@ -110,6 +110,35 @@ pub const ESCALATION_BUDGET: Budget = Budget {
     max_fold: 1_024,
 };
 
+/// Shift-overflow guard on the comb families' magnitude exponents.
+///
+/// The drawn `magnitude` becomes a shift count (`1 << magnitude`), so a
+/// draw-range widening past 31 would otherwise overflow the shift. The
+/// cap never binds today — the magnitude draws top out at 8 — it makes
+/// the shift's definedness local to the construction instead of resting
+/// on the draw ranges, and bounds a capped tooth's tick count (2¹⁰ − 1)
+/// far below the tick budgets.
+const MAGNITUDE_SHIFT_CAP: u32 = 10;
+
+/// The escalation family's depth cap: the top of [`any_family`]'s draw
+/// range.
+///
+/// Also the depth of the enforcement suite's fixed depth-cap replay
+/// ([`ESCALATION_REPLAYS`]) — one constant, so widening the family's
+/// range cannot silently leave the replay pinned below the family's
+/// true far end.
+pub const ESCALATION_MAX_DEPTH: u32 = 1792;
+
+/// The enforcement suite's fixed escalation replays, as (depth, seed).
+///
+/// One mid-reach rung and the depth cap, on distinct seeds: the
+/// deterministic reach proof the enforcement suite replays every run.
+/// `bin/calibrate` replays the same two programs — enforcement-context
+/// executions outside the calibration corpus — to measure the ceiling
+/// excess [`crate::bands::ENFORCE_MARGIN`] must absorb, so the two
+/// consumers must agree on the (depth, seed) pins.
+pub const ESCALATION_REPLAYS: [(u32, u64); 2] = [(1024, 0xE5CA), (ESCALATION_MAX_DEPTH, 0x1792)];
+
 /// The budget a family's programs run under (the builder enforces it
 /// unconditionally, whatever the drawn dimensions).
 pub fn budget_for(family: &Family) -> Budget {
@@ -516,6 +545,39 @@ impl B {
         Some(dst)
     }
 
+    /// `Party::forks(n)`: balanced shares into `n` fresh contiguous slots,
+    /// debiting the fork budget by `n`. Returns the base register.
+    fn party_forks(&mut self, src: Reg, n: u32) -> Option<Reg> {
+        if !self.room() || self.forks + n > self.budget.max_forks {
+            return None;
+        }
+        self.forks += n;
+        let dst = self.slots.len() as Reg;
+        for _ in 0..n {
+            self.alloc(Ty::P);
+        }
+        self.push(Op::PartyForks { dst, src, n });
+        Some(dst)
+    }
+
+    /// `Party::without` into a fresh slot (`a` is consumed).
+    ///
+    /// When the difference can be empty (`may_reject`), the result slot
+    /// is dead to later draws: the mirror reports emptiness as a
+    /// rejection and the guest writes nothing.
+    fn party_without(&mut self, a: Reg, b: Reg, may_reject: bool) -> Option<Reg> {
+        if !self.room() {
+            return None;
+        }
+        self.slots[a as usize] = Ty::Dead;
+        let dst = self.alloc(Ty::P);
+        if may_reject {
+            self.slots[dst as usize] = Ty::Dead;
+        }
+        self.push(Op::PartyWithout { dst, a, b });
+        Some(dst)
+    }
+
     // ── version ops ──
 
     fn version_tick(&mut self, v: Reg, p: Reg) -> bool {
@@ -857,7 +919,7 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                 return pools;
             };
             let shares = b.fork_balanced(seed, teeth);
-            let high = (1u32 << magnitude.min(10)).saturating_sub(1);
+            let high = (1u32 << magnitude.min(MAGNITUDE_SHIFT_CAP)).saturating_sub(1);
             for (i, &tooth) in shares.iter().enumerate() {
                 let n = if i % 2 == 0 {
                     high + b.rng.gen_range(0..=2)
@@ -924,7 +986,7 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                 return pools;
             };
             let shares = b.fork_balanced(seed, teeth);
-            let high = (1u32 << magnitude.min(10)).saturating_sub(1);
+            let high = (1u32 << magnitude.min(MAGNITUDE_SHIFT_CAP)).saturating_sub(1);
             for (i, &tooth) in shares.iter().enumerate() {
                 b.tick_n(tooth, if i % 2 == 0 { high } else { 0 });
             }
@@ -1114,7 +1176,7 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                 return pools;
             };
             let shares = b.fork_balanced(seed, teeth);
-            let site = (1u32 << magnitude.min(8)).saturating_sub(1);
+            let site = (1u32 << magnitude.min(MAGNITUDE_SHIFT_CAP)).saturating_sub(1);
             let floor = if hifloor { site.saturating_sub(2) } else { 0 };
             for (i, &tooth) in shares.iter().enumerate() {
                 // Equal-sibling sites over the floor.
@@ -1339,10 +1401,7 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                     }
                     16 => {
                         if let Some(&p) = pick(&mut b.rng, &pools.parties) {
-                            if b.forks < b.budget.max_forks && b.room() {
-                                b.forks += 1;
-                                let dst = b.alloc(Ty::P);
-                                b.push(Op::PartyFork { dst, src: p });
+                            if let Some(dst) = b.party_fork(p) {
                                 pools.parties.push(dst);
                             }
                         }
@@ -1351,34 +1410,17 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                         // A balanced party split through the forks iterator.
                         if let Some(&p) = pick(&mut b.rng, &pools.parties) {
                             let n = b.rng.gen_range(2..=6u32);
-                            if b.forks + n <= b.budget.max_forks && b.room() {
-                                b.forks += n;
-                                let dst = b.slots.len() as Reg;
-                                for _ in 0..n {
-                                    b.alloc(Ty::P);
-                                }
-                                b.push(Op::PartyForks { dst, src: p, n });
+                            if let Some(dst) = b.party_forks(p, n) {
                                 pools.parties.extend(dst..dst + n);
                             }
                         }
                     }
                     18 => {
-                        // Party difference on a spare fork.
+                        // Party difference on a spare fork (the difference
+                        // may be empty).
                         if let Some(&p) = pick(&mut b.rng, &pools.parties) {
-                            if b.forks < b.budget.max_forks && b.room() {
-                                b.forks += 1;
-                                let spare = b.alloc(Ty::P);
-                                b.push(Op::PartyFork { dst: spare, src: p });
-                                if b.room() {
-                                    b.slots[spare as usize] = Ty::Dead;
-                                    let dst = b.alloc(Ty::P);
-                                    b.slots[dst as usize] = Ty::Dead; // may be empty
-                                    b.push(Op::PartyWithout {
-                                        dst,
-                                        a: spare,
-                                        b: p,
-                                    });
-                                }
+                            if let Some(spare) = b.party_fork(p) {
+                                b.party_without(spare, p, true);
                             }
                         }
                     }
@@ -1485,53 +1527,32 @@ fn construct(b: &mut B, family: &Family) -> Pools {
                                 }
                             }
                             1 => {
+                                // Reserve op room for the n rejoins riding
+                                // on the split before emitting it (the
+                                // split itself is one op).
                                 let n = 3u32;
-                                if b.forks + n <= b.budget.max_forks
-                                    && b.ops.len() + (n as usize) < b.budget.max_ops
-                                {
-                                    b.forks += n;
-                                    let dst = b.slots.len() as Reg;
-                                    for _ in 0..n {
-                                        b.alloc(Ty::P);
-                                    }
-                                    b.push(Op::PartyForks { dst, src: lane, n });
-                                    for k in 0..n {
-                                        b.party_join(lane, dst + k);
+                                if b.ops.len() + (n as usize) < b.budget.max_ops {
+                                    if let Some(dst) = b.party_forks(lane, n) {
+                                        for k in 0..n {
+                                            b.party_join(lane, dst + k);
+                                        }
                                     }
                                 }
                             }
                             2 => {
                                 if let Some(spare) = b.party_fork(lane) {
-                                    if b.room() {
-                                        b.slots[spare as usize] = Ty::Dead;
-                                        let dst = b.alloc(Ty::P);
-                                        b.push(Op::PartyWithout {
-                                            dst,
-                                            a: spare,
-                                            b: lane,
-                                        });
+                                    if let Some(dst) = b.party_without(spare, lane, false) {
                                         b.party_join(lane, dst);
                                     }
                                 }
                             }
                             _ => {
+                                // Empty difference (equal regions): the
+                                // rejection arm at this size, both
+                                // operands lane-sized; the duplicate is
+                                // consumed and the lane never touched.
                                 if let Some(dup) = b.party_dup(lane) {
-                                    if b.room() {
-                                        b.slots[dup as usize] = Ty::Dead;
-                                        let dst = b.alloc(Ty::P);
-                                        // Empty difference (equal
-                                        // regions): the rejection arm at
-                                        // this size, both operands
-                                        // lane-sized; the duplicate is
-                                        // consumed and the lane never
-                                        // touched.
-                                        b.slots[dst as usize] = Ty::Dead;
-                                        b.push(Op::PartyWithout {
-                                            dst,
-                                            a: dup,
-                                            b: lane,
-                                        });
-                                    }
+                                    b.party_without(dup, lane, true);
                                 }
                             }
                         }
@@ -1791,13 +1812,7 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
                         if let (Some(&p), Some(&c)) =
                             (pick(&mut b.rng, &ui.parties), pick(&mut b.rng, &uj.clocks))
                         {
-                            if b.forks < b.budget.max_forks && b.room() {
-                                b.forks += 1;
-                                let spare_p = b.alloc(Ty::P);
-                                b.push(Op::PartyFork {
-                                    dst: spare_p,
-                                    src: p,
-                                });
+                            if let Some(spare_p) = b.party_fork(p) {
                                 if let Some(spare_v) = b.version_of(c) {
                                     b.assemble_parts(spare_p, spare_v);
                                 }
@@ -1827,23 +1842,8 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
                         if let (Some(&pi), Some(&pj)) =
                             (pick(&mut b.rng, &ui.parties), pick(&mut b.rng, &uj.parties))
                         {
-                            if b.forks < b.budget.max_forks && b.room() {
-                                b.forks += 1;
-                                let spare = b.alloc(Ty::P);
-                                b.push(Op::PartyFork {
-                                    dst: spare,
-                                    src: pi,
-                                });
-                                if b.room() {
-                                    b.slots[spare as usize] = Ty::Dead;
-                                    let dst = b.alloc(Ty::P);
-                                    b.slots[dst as usize] = Ty::Dead; // may be empty
-                                    b.push(Op::PartyWithout {
-                                        dst,
-                                        a: spare,
-                                        b: pj,
-                                    });
-                                }
+                            if let Some(spare) = b.party_fork(pi) {
+                                b.party_without(spare, pj, true);
                             }
                         }
                     }
@@ -1934,6 +1934,6 @@ pub fn any_family() -> impl Strategy<Value = Family> {
         8 => (32u32..=512).prop_map(|ops| Family::Combination { ops }),
         8 => (2u32..=4, 16u32..=128)
             .prop_map(|(universes, ops)| Family::Independent { universes, ops }),
-        1 => (256u32..=1792).prop_map(|depth| Family::Escalation { depth }),
+        1 => (256u32..=ESCALATION_MAX_DEPTH).prop_map(|depth| Family::Escalation { depth }),
     ]
 }
