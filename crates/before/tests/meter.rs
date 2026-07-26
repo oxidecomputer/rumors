@@ -168,7 +168,9 @@ mod envelope {
     pub const DECODE_DENSE: Envelope    = envelope(   120_045,        0,       625_003, 375_001); // 11_072_549 -> 96_036 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 250_002 -> 500_002 (2026-07-25, C2: operations route to the skyline kernels)
     pub const CMP_DENSE: Envelope       = envelope(    30_740,        0,       312_505, 187_503); //          8 -> 24_592, 192 -> 0, 2_000_010 -> 250_004 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep)
     pub const JOIN_DENSE: Envelope      = envelope(   188_892,        0,       937_505, 562_503); //  4_797_477 -> 151_113, 240 -> 0, 3_000_008 -> 750_004 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
-    pub const TICK_DENSE: Envelope      = envelope(    89_345,      165,       312_508, 187_504); //  9_469_952 -> 71_476, 132 (the fill splice recurses), 1_000_004 -> 250_006 (2026-07-25, C2: operations route to the skyline kernels: the fill splice)
+    // The tick rows live in `query_env`: the tick walk's cost currency
+    // is accumulator digit touches (with scanned bits beside it), which
+    // this four-column table never watched.
     pub const DECODE_BIGROOT: Envelope  = envelope(    60_090,        0,        50_790, 30_474); //  1_396_905 -> 48_072 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 20_630 -> 40_632 (2026-07-25, C2: operations route to the skyline kernels)
     pub const CMP_BIGROOT: Envelope     = envelope(    40_350,        0,        25_790, 15_474); // 56_416_936 -> 32_280, 12 -> 0, 37_606_270 -> 20_632 (2026-07-25, C2: operations route to the skyline kernels: the iterative sweep; the V1 kill realized)
     pub const JOIN_BIGROOT: Envelope    = envelope(   102_250,        0,        76_583, 45_949); // 56_849_753 -> 81_800, 16 -> 0, 87_631_274 -> 61_266 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel; the V1 kill realized)
@@ -179,8 +181,6 @@ mod envelope {
     pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0, 0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
     pub const DECODE_CLIFF: Envelope    = envelope(     4_052,        0,        12_903, 7_741); //    607_489 -> 3_241 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 40_960 -> 10_322 (2026-07-25, C2: operations route to the skyline kernels)
-    pub const TICK_NESTED_WIDE: Envelope = envelope(     9_628,        7,        30_259, 18_155); //      7_702, 5 (the fill splice recurses), 24_207 (2026-07-25, the tick limb cure: the anchor web reads the wide first payload O(1) times)
-    pub const TICK_MIRROR_WIDE: Envelope = envelope(    34_237,        9,        50_390, 30_234); //     27_389, 7 (the fill splice recurses), 40_312 (2026-07-25, the tick limb cure: the chained memo shares the one wide minimum)
     pub const CMP_CLIFF: Envelope       = envelope(     1_710,        0,         7_765, 4_659); //        496 -> 1_368 (2026-07-25, C2: operations route to the skyline kernels: the sweep holds two accumulators), 0, 190_474 -> 6_212 (2026-07-25, C2: operations route to the skyline kernels: the cliff-immune sweep)
     pub const JOIN_CLIFF: Envelope      = envelope(     7_913,        0,        25_869, 15_521); //  1_411_489 -> 6_330, 0, 384_008 -> 20_695 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
     // Skyline validator rows (2026-07-23, new scenarios): the V5
@@ -370,7 +370,7 @@ fn tick_dense_envelope() {
     let p = meter::dense(DENSE_DEPTH);
     let mut v = version_of(&p);
     let seed = Party::seed();
-    metered("tick_dense", p.bytes.len(), &envelope::TICK_DENSE, || {
+    query_metered("tick_dense", p.bytes.len(), &query_env::TICK_DENSE, || {
         v.tick(&seed)
     });
     drop(v);
@@ -387,10 +387,10 @@ fn tick_nested_wide_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    metered(
+    query_metered(
         "tick_nested_wide",
         input,
-        &envelope::TICK_NESTED_WIDE,
+        &query_env::TICK_NESTED_WIDE,
         || v.tick(&p),
     );
     drop(v);
@@ -407,10 +407,10 @@ fn tick_mirror_wide_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    metered(
+    query_metered(
         "tick_mirror_wide",
         input,
-        &envelope::TICK_MIRROR_WIDE,
+        &query_env::TICK_MIRROR_WIDE,
         || v.tick(&p),
     );
     drop(v);
@@ -564,10 +564,13 @@ fn join_cliff_envelope() {
 // the raw-accumulator Sum (one normalization at the end; its limb column
 // moved 156,312,196 -> 3,908 when the fold landed).
 
-/// One rank scenario's pinned ceilings: [`Envelope`]'s three columns plus
-/// accumulator digit touches, asserted when the `limb-meter` feature is
-/// lit.
-struct RankEnvelope {
+/// One touch-priced scenario's pinned ceilings, asserted when the
+/// `limb-meter` feature is lit.
+///
+/// [`Envelope`]'s three columns plus accumulator digit touches — the
+/// rank folds' and the tick walk's own cost currency: wide content
+/// moves through `Accum`s that the heap and limb columns cannot see.
+struct TouchEnvelope {
     /// Peak heap delta over the scenario body, in bytes.
     peak_heap: usize,
     /// Stack segments grown during the scenario body.
@@ -582,22 +585,30 @@ struct RankEnvelope {
     /// module doc's floor convention.
     #[cfg(feature = "limb-meter")]
     limb_floor: u64,
+    /// Liveness floor under the touch column: measured ×0.75.
+    ///
+    /// A touch reading below it means the scenario's accumulator work
+    /// left the metered representation, and every touch ceiling above
+    /// would hold vacuously.
+    #[cfg(feature = "limb-meter")]
+    touch_floor: u64,
 }
 
-/// Build a [`RankEnvelope`] from the four pinned columns and the limb
-/// floor.
+/// Build a [`TouchEnvelope`] from the four pinned columns and the two
+/// liveness floors.
 ///
 /// The limb and touch columns are carried only when the `limb-meter`
 /// feature compiles their counters in; the leading underscores keep the
 /// parameters warning-free in the other configuration.
-const fn rank_envelope(
+const fn touch_envelope(
     peak_heap: usize,
     segments: u64,
     _limb_ops: u64,
     _touches: u64,
     _limb_floor: u64,
-) -> RankEnvelope {
-    RankEnvelope {
+    _touch_floor: u64,
+) -> TouchEnvelope {
+    TouchEnvelope {
         peak_heap,
         segments,
         #[cfg(feature = "limb-meter")]
@@ -606,10 +617,13 @@ const fn rank_envelope(
         touches: _touches,
         #[cfg(feature = "limb-meter")]
         limb_floor: _limb_floor,
+        #[cfg(feature = "limb-meter")]
+        touch_floor: _touch_floor,
     }
 }
 
-// The rank envelope table: pinned ceiling = measured ×1.25, rounded up,
+// The touch-priced envelope table (the rank rows): pinned ceiling =
+// measured ×1.25, rounded up,
 // and only ever tightened: where a remeasure rises while staying inside
 // an existing ceiling (the spilled-numerator heap cells, which carry the
 // backend's `len/8 + 2` words of growth headroom per heap allocation),
@@ -628,21 +642,26 @@ const fn rank_envelope(
 // the same work newly counted, not a weakening.
 #[rustfmt::skip]
 mod rank_env {
-    use super::{rank_envelope, RankEnvelope};
-    //                                                            peak heap, segments,    limb ops, touches, limb floor       measured: peak heap, segments, limb ops (movement), touches
-    pub const RANK_DENSE: RankEnvelope         = rank_envelope(      81_950,        0,     312_507, 156_259, 187_503); //          0 -> 65_560, 240 -> 0, 3 -> 250_005, 0 -> 125_007 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
-    pub const RANK_BIGROOT: RankEnvelope       = rank_envelope(      76_895,        0,      27_744, 21_493, 16_646); //     41_368 -> 61_516, 16 -> 0, 2_191 -> 22_195, 4_689 -> 17_194 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
-    pub const RANK_HARMONIC: RankEnvelope      = rank_envelope(      73_000,        0,     166_402, 248_324, 99_840); //     33_840 -> 58_400, 124 -> 0, 2_049 -> 133_121, 67_522 -> 198_659 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
-    pub const RANK_PAIR_MISMATCH: RankEnvelope = rank_envelope(     234_400,        0,      68_380,      0, 41_028); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output) -> 54_704 (2026-07-24, metered trailing_zeros), 0
-    pub const RANK_SUM_MIXED: RankEnvelope     = rank_envelope(      78_140,        0,       9_769, 22_268, 5_861); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization) -> 7_815 (2026-07-24, metered trailing_zeros), 17_814
+    use super::{touch_envelope, TouchEnvelope};
+    //                                                             peak heap, segments,    limb ops, touches, limb floor, touch floor       measured: peak heap, segments, limb ops (movement), touches
+    pub const RANK_DENSE: TouchEnvelope         = touch_envelope(      81_950,        0,     312_507, 156_259, 187_503, 93_755); //          0 -> 65_560, 240 -> 0, 3 -> 250_005, 0 -> 125_007 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
+    pub const RANK_BIGROOT: TouchEnvelope       = touch_envelope(      76_895,        0,      27_744, 21_493, 16_646, 12_895); //     41_368 -> 61_516, 16 -> 0, 2_191 -> 22_195, 4_689 -> 17_194 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
+    pub const RANK_HARMONIC: TouchEnvelope      = touch_envelope(      73_000,        0,     166_402, 248_324, 99_840, 148_994); //     33_840 -> 58_400, 124 -> 0, 2_049 -> 133_121, 67_522 -> 198_659 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
+    pub const RANK_PAIR_MISMATCH: TouchEnvelope = touch_envelope(     234_400,        0,      68_380,      0, 41_028, 0); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output) -> 54_704 (2026-07-24, metered trailing_zeros), 0
+    pub const RANK_SUM_MIXED: TouchEnvelope     = touch_envelope(      78_140,        0,       9_769, 22_268, 5_861, 13_360); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization) -> 7_815 (2026-07-24, metered trailing_zeros), 17_814
 }
 
-/// Run one rank scenario body under all four meters and assert its
-/// envelope.
+/// Run one touch-priced scenario body under all four meters and assert
+/// its envelope, both liveness floors included.
 ///
 /// [`metered`]'s harness plus the accumulator touch column; prints the
 /// measured numbers so re-pinning never requires editing the harness.
-fn rank_metered<R>(name: &str, input_bytes: usize, env: &RankEnvelope, f: impl FnOnce() -> R) -> R {
+fn touch_metered<R>(
+    name: &str,
+    input_bytes: usize,
+    env: &TouchEnvelope,
+    f: impl FnOnce() -> R,
+) -> R {
     meter::reset_stack_segments();
     #[cfg(feature = "limb-meter")]
     meter::reset_limb_ops();
@@ -694,6 +713,13 @@ fn rank_metered<R>(name: &str, input_bytes: usize, env: &RankEnvelope, f: impl F
          the meter is not watching this work",
         env.limb_floor,
     );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        touches >= env.touch_floor,
+        "{name}: touch counter reads {touches}, below the {} liveness floor: \
+         the accumulator work left the metered representation",
+        env.touch_floor,
+    );
     r
 }
 
@@ -704,7 +730,7 @@ fn rank_metered<R>(name: &str, input_bytes: usize, env: &RankEnvelope, f: impl F
 fn rank_dense_envelope() {
     let p = meter::dense(DENSE_DEPTH);
     let v = version_of(&p);
-    let r = rank_metered("rank_dense", p.bytes.len(), &rank_env::RANK_DENSE, || {
+    let r = touch_metered("rank_dense", p.bytes.len(), &rank_env::RANK_DENSE, || {
         v.rank()
     });
     consumed(r);
@@ -716,7 +742,7 @@ fn rank_dense_envelope() {
 fn rank_bigroot_envelope() {
     let p = meter::bigroot(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
     let v = version_of(&p);
-    let r = rank_metered(
+    let r = touch_metered(
         "rank_bigroot",
         p.bytes.len(),
         &rank_env::RANK_BIGROOT,
@@ -735,7 +761,7 @@ fn rank_bigroot_envelope() {
 fn rank_harmonic_envelope() {
     let p = meter::harmonic(RANK_HARMONIC_DEPTH);
     let v = version_of(&p);
-    let r = rank_metered(
+    let r = touch_metered(
         "rank_harmonic",
         p.bytes.len(),
         &rank_env::RANK_HARMONIC,
@@ -764,7 +790,7 @@ fn rank_pair_mismatch_envelope() {
     // Informational denominator: the pair's value content in bytes
     // (numerator bits + exponent, over eight).
     let content_bytes = RANK_PAIR_DEPTH / 8 + 1;
-    let r = rank_metered(
+    let r = touch_metered(
         "rank_pair_mismatch",
         content_bytes,
         &rank_env::RANK_PAIR_MISMATCH,
@@ -809,7 +835,7 @@ fn rank_sum_mixed_envelope() {
         .collect();
     let content_bytes = RANK_SUM_EXP_DEPTH / 8 + RANK_SUM_COUNT;
     let ranks: Vec<before::Rank> = std::iter::once(high).chain(ones).collect();
-    let r = rank_metered(
+    let r = touch_metered(
         "rank_sum_mixed",
         content_bytes,
         &rank_env::RANK_SUM_MIXED,
@@ -2709,10 +2735,18 @@ struct QueryEnvelope {
     /// module doc's floor convention.
     #[cfg(feature = "limb-meter")]
     limb_floor: u64,
+    /// Liveness floor under the touch column: measured ×0.75.
+    ///
+    /// A touch reading below it means the scenario's accumulator work
+    /// left the metered representation, and every touch ceiling above
+    /// would hold vacuously (zero where the measured count is zero,
+    /// under which the floor asserts nothing).
+    #[cfg(feature = "limb-meter")]
+    touch_floor: u64,
 }
 
 /// Build a [`QueryEnvelope`] from the five pinned columns and the limb
-/// floor.
+/// and touch floors.
 ///
 /// The limb, scan, and touch columns are carried only when their features
 /// compile the counters in; the leading underscores keep the parameters
@@ -2724,6 +2758,7 @@ const fn query_envelope(
     _scan_bits: u64,
     _touches: u64,
     _limb_floor: u64,
+    _touch_floor: u64,
 ) -> QueryEnvelope {
     QueryEnvelope {
         peak_heap,
@@ -2736,6 +2771,8 @@ const fn query_envelope(
         touches: _touches,
         #[cfg(feature = "limb-meter")]
         limb_floor: _limb_floor,
+        #[cfg(feature = "limb-meter")]
+        touch_floor: _touch_floor,
     }
 }
 
@@ -2752,17 +2789,25 @@ const fn query_envelope(
 #[rustfmt::skip]
 mod query_env {
     use super::{query_envelope, QueryEnvelope};
-    //                                                                        peak heap, segments,  limb ops, scan bits,   touches, limb floor       measured: heap, seg, limb, scan, touches
-    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    81_950,        0,   312_505, 1_093_772,   156_259, 187_503); // 65_560, 0, 250_004 -> 250_005 (2026-07-24, metered trailing_zeros), 875_017, 125_007
-    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199, 16_646); // 60_088 -> 61_516 (2026-07-24, dashu-int backend), 0, 21_413 -> 22_195 (2026-07-24, metered trailing_zeros), 310_024, 17_194
-    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324, 99_840); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097 -> 133_121 (2026-07-24, metered trailing_zeros), 458_763, 198_659
-    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008, 4_707); // 2_460 -> 2_540 (2026-07-24, dashu-int backend), 0, 6_244 -> 6_277 (2026-07-24, metered trailing_zeros), 38_917, 6_406
-    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580, 17_755); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641 -> 23_674 (2026-07-24, metered trailing_zeros), 2_397_055, 26_864
-    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255, 187_501); // 24_576, 0, 250_002, 375_006, 125_004
-    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62, 12); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
-    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (2026-07-25, single-record id tags), 35_939
-    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       488,        0,   317_380,   330_913,    63_347, 190_428); // 73_216 -> 390, 0, 690_310 -> 253_904 (sequential 14_281_732), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
-    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   365_540,         0, 0); // 336, 0, 0, 292_432 (sequential 3_284_952), 0
+    //                                                                        peak heap, segments,  limb ops, scan bits,   touches, limb floor, touch floor       measured: heap, seg, limb, scan, touches
+    pub const SKYLINE_RANK_DENSE: QueryEnvelope           = query_envelope(    81_950,        0,   312_505, 1_093_772,   156_259, 187_503, 93_755); // 65_560, 0, 250_004 -> 250_005 (2026-07-24, metered trailing_zeros), 875_017, 125_007
+    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope         = query_envelope(    67_145,        0,    26_767,   387_530,    17_199, 16_646, 12_895); // 60_088 -> 61_516 (2026-07-24, dashu-int backend), 0, 21_413 -> 22_195 (2026-07-24, metered trailing_zeros), 310_024, 17_194
+    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324, 99_840, 148_994); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097 -> 133_121 (2026-07-24, metered trailing_zeros), 458_763, 198_659
+    pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008, 4_707, 4_804); // 2_460 -> 2_540 (2026-07-24, dashu-int backend), 0, 6_244 -> 6_277 (2026-07-24, metered trailing_zeros), 38_917, 6_406
+    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580, 17_755, 20_148); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641 -> 23_674 (2026-07-24, metered trailing_zeros), 2_397_055, 26_864
+    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255, 187_501, 93_753); // 24_576, 0, 250_002, 375_006, 125_004
+    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62, 12, 36); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
+    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (2026-07-25, single-record id tags), 35_939
+    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       488,        0,   317_380,   330_913,    63_347, 190_428, 38_007); // 73_216 -> 390, 0, 690_310 -> 253_904 (sequential 14_281_732), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
+    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   365_540,         0, 0, 0); // 336, 0, 0, 292_432 (sequential 3_284_952), 0
+    // Tick rows (2026-07-25, the #34 currency round): moved onto the
+    // five-meter harness — the tick walk's cost currency is accumulator
+    // digit touches, which the four-column table these rows came from
+    // never watched (nor scanned bits). Ceilings ×1.25 and floors ×0.75
+    // over the measurements of record below.
+    pub const TICK_DENSE: QueryEnvelope                   = query_envelope(    89_345,        0,   312_508,   468_765,   156_272, 187_504, 93_762); // 71_476 -> 71_484 (the five-meter harness), 132 -> 0 (the anchor web's frames fit the guarded stack), 250_006 -> 250_008, 375_012, 125_017
+    pub const TICK_NESTED_WIDE: QueryEnvelope             = query_envelope(     9_628,        7,    30_259,    80_028,    45_815, 18_155, 27_489); // 7_702, 5 (the fill splice recurses), 24_207, 64_022, 36_652 (the anchor web reads the wide first payload O(1) times)
+    pub const TICK_MIRROR_WIDE: QueryEnvelope             = query_envelope(    34_237,        9,    50_390,   160_003,   111_798, 30_234, 67_078); // 27_389, 7 (the fill splice recurses), 40_312, 128_002, 89_438 (the chained memo shares the one wide minimum)
 }
 
 /// Run one query scenario body under all five meters and assert its
@@ -2839,6 +2884,13 @@ fn query_metered<R>(
         "{name}: limb counter reads {limb_ops}, below the {} liveness floor: \
          the meter is not watching this work",
         env.limb_floor,
+    );
+    #[cfg(feature = "limb-meter")]
+    assert!(
+        touches >= env.touch_floor,
+        "{name}: touch counter reads {touches}, below the {} liveness floor: \
+         the accumulator work left the metered representation",
+        env.touch_floor,
     );
     r
 }
@@ -3102,4 +3154,134 @@ fn fold_party_scatter_envelope() {
         },
     );
     assert!(acc.is_seed(), "the scattered forks reunite the seed region");
+}
+
+// ─── the memo resolution's touch cost (the #34 red pin) ─────────────────────
+//
+// The committed witnesses that the memoized pre-scan's site RESOLUTION is
+// quadratic in accumulator digit touches on consumption-order adversaries,
+// while the records themselves are not the cost (the shared-minimum
+// control is flat). These are red pins in the instruments-before-cures
+// sense: each quadratic test asserts the DEFECT'S measured signature, so
+// the cure cannot land silently — flipping these tests to flat per-unit
+// assertions (with re-measured constants) is part of its acceptance.
+// The mechanism, stated so the re-pin can check it died: the walk resolves
+// each consumed site against an anchor by folding the recorded difference
+// chain between two recording sequence numbers, and consumption order
+// (site-range starts) permutes recording order (site-range closes), so
+// chain links between them are re-read once per crossing rather than
+// dying at their first read — Θ(k) links per site on these families.
+// The comb family additionally witnesses that anchoring the resolution to
+// the previously CONSUMED site telescopes only sibling chains: its
+// interleaved shallow/covering sites keep consecutive consumptions Θ(d)
+// apart in recording order under that anchoring too, so a cure must
+// resolve sites against the walk's own live state (position-anchored
+// records), not against other records.
+#[cfg(feature = "limb-meter")]
+mod memo_resolution_cost {
+    use before::meter::{self, accum::touch_meter};
+    use before::Party;
+
+    /// One tick run over a memo family cross: total packed input bytes
+    /// (event + id) and the accumulator digit touches of the tick body.
+    struct Run {
+        input: u64,
+        touches: u64,
+    }
+
+    /// Tick the event × id cross and read the touch counter over the
+    /// tick body alone.
+    ///
+    /// Enforces a one-touch-per-input-byte liveness floor before
+    /// returning: the walk folds every consumed delta into the height
+    /// accumulator, so a reading below the floor means the walk's
+    /// accumulator work left the metered representation and any ratio
+    /// over it would hold vacuously.
+    fn tick_run(ev: meter::Packed, id: meter::Packed) -> Run {
+        let mut v = ev.version();
+        let p = Party::decode(&*id.bytes).expect("the generator's id is canonical");
+        let input = (ev.bytes.len() + id.bytes.len()) as u64;
+        touch_meter::reset();
+        v.tick(&p);
+        let run = Run {
+            input,
+            touches: touch_meter::touches(),
+        };
+        assert!(
+            run.touches >= run.input,
+            "memo family at {input} input bytes: {} digit touches under the \
+             one-per-byte floor: the walk's accumulator work is not metered",
+            run.touches,
+        );
+        run
+    }
+
+    /// Assert the quadratic signature: touches grow by at least ×3.5
+    /// across a size doubling (a linear resolution reads ~×2, the
+    /// measured defect ~×3.9).
+    fn assert_quadratic(name: &str, small: &Run, large: &Run) {
+        eprintln!(
+            "MEASURED {name}: small={}/{}B large={}/{}B",
+            small.touches, small.input, large.touches, large.input,
+        );
+        assert!(
+            u128::from(large.touches) * 2 >= u128::from(small.touches) * 7,
+            "{name}: touch growth across the doubling fell under x3.5 \
+             ({} -> {}): the memo resolution's quadratic term is gone — \
+             re-pin this family flat per unit (the cure's acceptance), \
+             never delete the family",
+            small.touches,
+            large.touches,
+        );
+    }
+
+    /// RED PIN: resolving the flat memo chain's distinct-minimum sites is
+    /// quadratic in digit touches — `k` consumption-sibling sites whose
+    /// recorded differences are all nonzero cost Θ(k) chain-link folds
+    /// each.
+    #[test]
+    fn memo_chain_distinct_resolution_reads_quadratic() {
+        let small = tick_run(meter::memo_chain(1_000, true), meter::memo_chain_id(1_000));
+        let large = tick_run(meter::memo_chain(2_000, true), meter::memo_chain_id(2_000));
+        assert_quadratic("memo_chain_distinct", &small, &large);
+    }
+
+    /// The shared-minimum control stays flat per input byte (×1.25
+    /// across the doubling).
+    ///
+    /// Zero recorded differences are unstored, so the same site
+    /// structure with nothing to resolve costs linear touches — the
+    /// quadratic lives in the resolution, not the records.
+    #[test]
+    fn memo_chain_shared_control_is_flat_per_unit() {
+        let small = tick_run(meter::memo_chain(1_000, false), meter::memo_chain_id(1_000));
+        let large = tick_run(meter::memo_chain(2_000, false), meter::memo_chain_id(2_000));
+        eprintln!(
+            "MEASURED memo_chain_shared: small={}/{}B large={}/{}B",
+            small.touches, small.input, large.touches, large.input,
+        );
+        assert!(
+            u128::from(large.touches) * u128::from(small.input) * 4
+                <= u128::from(small.touches) * u128::from(large.input) * 5,
+            "memo_chain_shared: per-byte touch cost grew more than x1.25 across \
+             the size doubling: {}/{}B -> {}/{}B",
+            small.touches,
+            small.input,
+            large.touches,
+            large.input,
+        );
+    }
+
+    /// RED PIN: resolving the memo comb's interleaved sites is quadratic
+    /// in digit touches.
+    ///
+    /// Consecutive consumptions sit Θ(d) apart in recording order,
+    /// under the enclosing-site anchoring and the previously-consumed-
+    /// site anchoring alike.
+    #[test]
+    fn memo_comb_resolution_reads_quadratic() {
+        let small = tick_run(meter::memo_comb(500), meter::memo_comb_id(500));
+        let large = tick_run(meter::memo_comb(1_000), meter::memo_comb_id(1_000));
+        assert_quadratic("memo_comb", &small, &large);
+    }
 }
