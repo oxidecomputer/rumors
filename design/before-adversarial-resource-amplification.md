@@ -858,8 +858,8 @@ fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-26; release
 profile, single runs per scale under the determinism tripwire —
-the `board-c3-{lo,hi}.txt` renders]: board **966 green / 23 red at
-the default scale; 951 / 38 at ×4** over **989 cells**. The red
+the `board-unify24-{lo,hi}.txt` renders]: board **966 green / 23 red at
+the default scale; 954 / 35 at ×4** over **989 cells**. The red
 roster, every red with exactly one owner, is §17.3; the
 cell-count and verdict lineage across the campaign's rounds
 (200 → 989) is in git history at the commits §14 names.
@@ -986,6 +986,15 @@ commits):
 - **The fuzz-fit harness** (2026-07-26, merged `a91bd97b`):
   instruction-count asymptotics instrument; its record is
   `design/before-fuzzfit-asymptotics.md`.
+- **#24, the boolean-skyline unification** (2026-07-26,
+  `447f6985`, `2cd73716`): id `diff` converted to the sweep, its
+  depth recursion dissolved; `party_without_none × id-pair` ×4
+  flipped green (54 grown segments → 0), the order-coupled tick
+  and parser segment counts re-rolled downward (work columns
+  byte-identical; two tick × nested-wide cells read green at a
+  flat count), converted-cell scan/heap constants re-metered
+  green→green; sums 966 + 23 / 954 + 35 over 989. Landed shape
+  and the predicate-leg reversal: §17.5.
 
 Remaining plan: **C3's bench-harness remainder** (§17.2: the
 judge-roster realization, envelope tightening at P5.1, the
@@ -1107,17 +1116,16 @@ preceding cells' stack usage in the shared board process, so a
 kernel change anywhere in the binary can re-roll the counts on
 untouched kernels' rows — segment-count movement on a row whose
 work columns are byte-identical is triaged as order coupling, not
-kernel movement; the counts of record are §17.3's. *Sequencing
-risk, resolve at #24 decision time*: the word-scale skip fits the
-lockstep walk shape, not a leaf-enumerating sweep — if it lands
-first, the predicate-sweep constants regress relative to it; the
-id predicate envelope rows re-pin deliberately under either
-ordering. The skip also interacts with the fused tick's route
-fold, which reads each skipped id subtree per 2-bit tag on
-leaf-under-internal-id arms — P4.2's sequencing decision must
-name the fused walk, and the spec's §9 round-8 table carries the
-landed interaction baseline. *Kills*: none (constants).
-*Acceptance*: the audit list recorded; benches.
+kernel movement; the counts of record are §17.3's. *Sequencing,
+resolved at #24 (2026-07-26)*: the id predicates stay on the
+lockstep walk (§17.5), which is exactly the shape the word-scale
+skip fits; `diff`'s sweep enumerates leaves and never skips, so
+the skip does not touch it. The skip also interacts with the
+fused tick's route fold, which reads each skipped id subtree per
+2-bit tag on leaf-under-internal-id arms — P4.2's sequencing
+decision must name the fused walk, and the spec's §9 round-8
+table carries the landed interaction baseline. *Kills*: none
+(constants). *Acceptance*: the audit list recorded; benches.
 
 **P5.1 — envelope finalization**: every `tests/meter.rs` envelope
 and board ceiling tightened to final constants at record scale
@@ -1163,8 +1171,8 @@ if C3 chose that arm; the §14 acceptance entry recorded.
 
 ### 17.3 Owned-red accounting (current; over 989 cells)
 
-Sums [measured 2026-07-26, the `board-c3-{lo,hi}.txt` renders]:
-**default 966 + 23 = 989; record 951 + 38 = 989.** Every red has
+Sums [measured 2026-07-26, the `board-unify24-{lo,hi}.txt` renders]:
+**default 966 + 23 = 989; record 954 + 35 = 989.** Every red has
 exactly one owner and the sums close; the per-round movement
 lineage (each round's flips, bucketed by mechanism, with every
 untouched cell verified byte-identical) is in git history at the
@@ -1230,18 +1238,22 @@ The red roster, both scales enumerated from the renders:
   mix while the exponent holds 1.00. A future re-pin of this cell
   must re-measure on the board's own axis; the exponent claim is
   axis-invariant, the constant is not.
-- **The ×4 segments legs** (20 cells: `version_tick`/`clock_tick`
-  × {nested-full, nested-wide, mirror-narrow, staircase,
-  pure-comb, ascend-cliff, ascend-plateau}, the id-side parser
-  cells `party_from_str`/`clock_from_str`/`party_parse_trailing`/
-  `party_parse_noncanon`/`clock_parse_trailing` × id-pair, and
-  `party_without_none × id-pair`): owner **P4.2**, the
-  recursion-depth genre (profile-dependent by codegen and
-  order-coupled across the shared board process — the triage
-  convention at P4.2's entry). Counts of record at this tip, per
-  tick op: nested-full 7, nested-wide 2, mirror-narrow 7,
-  staircase 14, pure-comb 4, ascend-cliff 4, ascend-plateau 4;
-  the parser cells 16/16/16/8/16; `party_without_none` 54.
+- **The ×4 segments legs** (17 cells: `version_tick`/`clock_tick`
+  × {nested-full, mirror-narrow, staircase, pure-comb,
+  ascend-cliff, ascend-plateau}, and the id-side parser cells
+  `party_from_str`/`clock_from_str`/`party_parse_trailing`/
+  `party_parse_noncanon`/`clock_parse_trailing` × id-pair — the
+  id set-algebra side is clear: `diff` runs as the #24
+  boolean-skyline sweep (§17.5), so the id-side residue is
+  parser-only): owner **P4.2**, the recursion-depth genre
+  (profile-dependent by codegen and order-coupled across the
+  shared board process — the triage convention at P4.2's entry;
+  the #24 landing re-rolled the untouched tick and parser counts
+  downward with work columns byte-identical, and `version_tick`/
+  `clock_tick` × nested-wide re-rolled to a flat 1 and read
+  green). Counts of record at this tip, per tick op: nested-full
+  7, mirror-narrow 7, staircase 14, pure-comb 2, ascend-cliff 2,
+  ascend-plateau 2; the parser cells 12/12/12/6/12.
 
 Bench riders (`BOARD_RED_BENCH_RIDERS`) are committed empty: the
 surviving reds are classified above, but a rider outside the
@@ -1252,23 +1264,37 @@ reviewed diff — item 11's (§17.2).
 ### 17.5 Post-campaign docket (user directives)
 
 - **#24, the boolean-skyline unification (the user's decision,
-  post-C3; probe verdict GO-WITH-SHAPE 2026-07-24).** Under the
-  skyline coding a `Party` is a boolean skyline; the id
-  predicates are sweep kernels over the boolean semiring. The
-  probe measured the comparison sweep 57% boundary bookkeeping
-  vs 13% value plumbing (proceed condition met), found no
-  type-system friction (the leaf-cursor trait's associated State
-  keeps the accumulator out of the boolean instantiation), and
-  confirmed one specialization: verdict logic does not
-  generalize. Shape of record: genericize `advance` + `Side` +
-  the leaf-cursor contract only (~70 lines); an id cursor
-  (~100 lines); `covers`/`is_disjoint` as boolean folds (~25
-  each), retiring the lockstep vocabulary; `sum`/`without`/
-  `complement` stay on their walks (copy-splice and retagging
-  have no sweep analogue). Net lines a wash; the payoff is one
-  walk discipline retired. Sequencing risk vs the word-scale
-  skip recorded at P4.2. If confirmed early enough, land before
-  P5.4 so the crate docs present the unified model once.
+  post-C3; probe verdict GO-WITH-SHAPE 2026-07-24; landed
+  2026-07-26, `2cd73716`, with the construction/predicate split
+  reversed).** Under the skyline coding a `Party` is a boolean
+  skyline. Landed shape: `diff` rides the sweep — an id leaf
+  cursor per operand presenting absent children as synthetic
+  unowned plateaus, the event sweep's advance/tie rule
+  transferred verbatim (no boolean carve-out; the boolean side
+  needs no accumulator, each cursor's one owned bit replaces the
+  running difference), one output plateau per elementary interval
+  into a leaf-driven collapsing id builder (positions on a
+  delta-coded bit stack) — dissolving the id family's one depth
+  recursion, its `descend!` guard, and the two-pass complement
+  retagging. `party_without_none × id-pair` ×4: 54 grown
+  segments → 0; the id-side segments residue is parser-only
+  (§17.3). The 2026-07-24 shape's predicate leg is reversed on
+  cost evidence: `covers`/`is_disjoint` stay on the lockstep —
+  a verdict-only walk carries no per-level state (the pending
+  stack queues nothing on unary chains; `ID_COVERS`/`ID_DISJOINT`
+  pin ~zero transient heap), where a leaf-enumerating sweep pays
+  two path-bit stacks per operand depth for interval geometry a
+  predicate never reads — so that conversion would multiply a
+  pinned near-zero envelope to retire no red. `sum` stays on its
+  frames walk (copy-splice has no sweep analogue), as recorded
+  in 2026-07-24's verdict. Converted-cell re-metering (scan
+  constants moved both directions at exponent 1.00: each input
+  tag now read exactly once where the structural walk peeked and
+  read; output written reserve-and-patch where it spliced; heap
+  up ≤ 7.4 B/B, the recursion state relocated to metered bit
+  stacks — the `ID_JOIN` precedent class) is enumerated in the
+  #24 board diff; `id_without`'s envelope re-measured
+  byte-identical (518 219 B peak, 0 segments).
 - **Extract the accumulator as a workspace crate** (unpublished
   until a second consumer stabilizes the API; its amortization
   contract is subtle — reads mutate).
