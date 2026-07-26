@@ -398,8 +398,8 @@ fn tick_nested_wide_envelope() {
 
 /// Ticking the wide memo chain (a wide-tail spine under the
 /// nested-left-full id) stays within its envelope: the pre-scan's
-/// chained memo shares the one wide minimum instead of materializing
-/// it once per site.
+/// frame ledger stores no link for the shared wide minimum, so
+/// nothing is materialized per site.
 #[test]
 fn tick_mirror_wide_envelope() {
     let ev = meter::wide_tail(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
@@ -2807,7 +2807,7 @@ mod query_env {
     // over the measurements of record below.
     pub const TICK_DENSE: QueryEnvelope                   = query_envelope(    89_345,        0,   312_508,   468_765,   156_272, 187_504, 93_762); // 71_476 -> 71_484 (the five-meter harness), 132 -> 0 (the anchor web's frames fit the guarded stack), 250_006 -> 250_008, 375_012, 125_017
     pub const TICK_NESTED_WIDE: QueryEnvelope             = query_envelope(     9_628,        7,    30_259,    80_028,    45_815, 18_155, 27_489); // 7_702, 5 (the fill splice recurses), 24_207, 64_022, 36_652 (the anchor web reads the wide first payload O(1) times)
-    pub const TICK_MIRROR_WIDE: QueryEnvelope             = query_envelope(    34_237,        9,    50_390,   160_003,   111_798, 30_234, 67_078); // 27_389, 7 (the fill splice recurses), 40_312, 128_002, 89_438 (the chained memo shares the one wide minimum)
+    pub const TICK_MIRROR_WIDE: QueryEnvelope             = query_envelope(    34_246,       10,    50_390,   160_003,   131_948, 30_234, 79_169); // 27_397, 8 (the fill splice recurses), 40_312, 128_002, 105_559 (the frame ledger stores no link for the shared wide minimum; heap parity with one queue word per site)
 }
 
 /// Run one query scenario body under all five meters and assert its
@@ -3156,27 +3156,22 @@ fn fold_party_scatter_envelope() {
     assert!(acc.is_seed(), "the scattered forks reunite the seed region");
 }
 
-// ─── the memo resolution's touch cost (the #34 red pin) ─────────────────────
+// ─── the memo resolution's touch cost (the frame ledger's pins) ─────────────
 //
-// The committed witnesses that the memoized pre-scan's site RESOLUTION is
-// quadratic in accumulator digit touches on consumption-order adversaries,
-// while the records themselves are not the cost (the shared-minimum
-// control is flat). These are red pins in the instruments-before-cures
-// sense: each quadratic test asserts the DEFECT'S measured signature, so
-// the cure cannot land silently — flipping these tests to flat per-unit
-// assertions (with re-measured constants) is part of its acceptance.
-// The mechanism, stated so the re-pin can check it died: the walk resolves
-// each consumed site against an anchor by folding the recorded difference
-// chain between two recording sequence numbers, and consumption order
-// (site-range starts) permutes recording order (site-range closes), so
-// chain links between them are re-read once per crossing rather than
-// dying at their first read — Θ(k) links per site on these families.
-// The comb family additionally witnesses that anchoring the resolution to
-// the previously CONSUMED site telescopes only sibling chains: its
-// interleaved shallow/covering sites keep consecutive consumptions Θ(d)
-// apart in recording order under that anchoring too, so a cure must
-// resolve sites against the walk's own live state (position-anchored
-// records), not against other records.
+// The committed witnesses that the memoized pre-scan's site resolution is
+// LINEAR in accumulator digit touches on consumption-order adversaries —
+// every ledger link read exactly once, dying into the raise decision it
+// serves — while the shared-minimum control shows the records themselves
+// cost nothing (zero links are unstored). Each family separates the
+// frame ledger from a refuted resolution, so a regression re-admitting
+// one reads over the x2.5 doubling ceiling: the chain family defeats any
+// resolution that re-reads recorded differences per crossing interval
+// (consumption order permutes recording order, so interval folds pay
+// Θ(k) links per site); the comb family additionally defeats anchoring
+// to the previously consumed site (its interleaved shallow/covering
+// sites keep consecutive consumptions Θ(d) apart in recording order
+// under that anchoring too) — a conforming resolution reads sites
+// against the walk's own live relation, one link fold each.
 #[cfg(feature = "limb-meter")]
 mod memo_resolution_cost {
     use before::meter::{self, accum::touch_meter};
@@ -3216,34 +3211,37 @@ mod memo_resolution_cost {
         run
     }
 
-    /// Assert the quadratic signature: touches grow by at least ×3.5
-    /// across a size doubling (a linear resolution reads ~×2, the
-    /// measured defect ~×3.9).
-    fn assert_quadratic(name: &str, small: &Run, large: &Run) {
+    /// Assert the linear signature: touches grow by at most ×2.5
+    /// across a size doubling (measured ×2.0 under the frame ledger;
+    /// a resolution that re-reads links once per crossing reads ~×3.9
+    /// here). A reading over the ceiling means a link is being read
+    /// more than once — re-pin only with a cure, never by deleting
+    /// the family.
+    fn assert_flat(name: &str, small: &Run, large: &Run) {
         eprintln!(
             "MEASURED {name}: small={}/{}B large={}/{}B",
             small.touches, small.input, large.touches, large.input,
         );
         assert!(
-            u128::from(large.touches) * 2 >= u128::from(small.touches) * 7,
-            "{name}: touch growth across the doubling fell under x3.5 \
-             ({} -> {}): the memo resolution's quadratic term is gone — \
-             re-pin this family flat per unit (the cure's acceptance), \
-             never delete the family",
+            u128::from(large.touches) * 2 <= u128::from(small.touches) * 5,
+            "{name}: touch growth across the doubling exceeds x2.5 \
+             ({} -> {}): a ledger link is being read more than once",
             small.touches,
             large.touches,
         );
     }
 
-    /// RED PIN: resolving the flat memo chain's distinct-minimum sites is
-    /// quadratic in digit touches — `k` consumption-sibling sites whose
-    /// recorded differences are all nonzero cost Θ(k) chain-link folds
-    /// each.
+    /// Resolving the flat memo chain's distinct-minimum sites is linear
+    /// in digit touches: `k` consumption-sibling sites' links each die
+    /// into their own raise decision — one fold per link across the
+    /// whole walk [measured: ×2.00 across the doubling, 60,024 →
+    /// 120,024 at the pinned sizes; ×3.94 under the refuted
+    /// recording-chain interval resolution].
     #[test]
-    fn memo_chain_distinct_resolution_reads_quadratic() {
+    fn memo_chain_distinct_resolution_reads_linear() {
         let small = tick_run(meter::memo_chain(1_000, true), meter::memo_chain_id(1_000));
         let large = tick_run(meter::memo_chain(2_000, true), meter::memo_chain_id(2_000));
-        assert_quadratic("memo_chain_distinct", &small, &large);
+        assert_flat("memo_chain_distinct", &small, &large);
     }
 
     /// The shared-minimum control stays flat per input byte (×1.25
@@ -3272,16 +3270,19 @@ mod memo_resolution_cost {
         );
     }
 
-    /// RED PIN: resolving the memo comb's interleaved sites is quadratic
-    /// in digit touches.
+    /// Resolving the memo comb's interleaved sites is linear in digit
+    /// touches.
     ///
-    /// Consecutive consumptions sit Θ(d) apart in recording order,
-    /// under the enclosing-site anchoring and the previously-consumed-
-    /// site anchoring alike.
+    /// Consecutive consumptions sit Θ(d) apart in recording order —
+    /// the shape that defeated the recording-chain and the
+    /// previously-consumed-site resolutions alike — but every ledger
+    /// link is a sibling or first-child difference read exactly once
+    /// [measured: ×2.00 across the doubling, 44,532 → 89,032 at the
+    /// pinned sizes; ×3.92 under the refuted interval resolution].
     #[test]
-    fn memo_comb_resolution_reads_quadratic() {
+    fn memo_comb_resolution_reads_linear() {
         let small = tick_run(meter::memo_comb(500), meter::memo_comb_id(500));
         let large = tick_run(meter::memo_comb(1_000), meter::memo_comb_id(1_000));
-        assert_quadratic("memo_comb", &small, &large);
+        assert_flat("memo_comb", &small, &large);
     }
 }
