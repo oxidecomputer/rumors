@@ -244,7 +244,7 @@ fn schoolbook_limb_ops(text: &str, chunk_digits: usize) -> u64 {
 #[cfg(feature = "limb-meter")]
 #[test]
 fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
-    use super::{evaluate, na, Floors, Sample};
+    use super::{evaluate, na, ByCurrency, Floors, Sample};
 
     let measure = |packed: &Packed| -> Sample {
         let v = version_of(packed);
@@ -266,13 +266,16 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
             text_row: true,
             floors: Floors {
                 heap: na(PROBE_NA),
+                segments: na(PROBE_NA),
                 limb: na(PROBE_NA),
                 scan: na(PROBE_NA),
             },
-            peak_heap: 0,
-            segments: 0,
-            limb: Some(ops),
-            scan: None,
+            readings: ByCurrency {
+                heap: Some(0),
+                segments: Some(0),
+                limb: Some(ops),
+                scan: None,
+            },
         }
     };
     // The spine-over-magnitude family is also constant-blind to chunking.
@@ -290,8 +293,8 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
          exponent leg (limb exponent {:?} vs {MAX_SCALING_EXPONENT}, constant {:?} limb/R \
          vs κ {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT}): quadratic conversion under κ is excluded \
          by that leg alone",
-        cell.limb_exp,
-        cell.limb_per_byte
+        cell.scores.limb.exp,
+        cell.scores.limb.per_unit
     );
 }
 
@@ -333,12 +336,13 @@ fn bypass_walk(v: &Version) -> usize {
 #[cfg(feature = "scan-meter")]
 #[test]
 fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
-    use super::{evaluate, na, walk_floors, Floors, Sample, SCAN_FLOOR_TRIP};
+    use super::{evaluate, na, walk_floors, ByCurrency, Floors, Sample, SCAN_FLOOR_TRIP};
 
     const PROBE_NA: &str = "probe: the ceilings-alone leg declares no floors";
     fn na_floors(_packed_bytes: usize) -> Floors {
         Floors {
             heap: na(PROBE_NA),
+            segments: na(PROBE_NA),
             limb: na(PROBE_NA),
             scan: na(PROBE_NA),
         }
@@ -357,10 +361,12 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             limb_denom: n as u64,
             text_row: false,
             floors: floors_of(n),
-            peak_heap: 0,
-            segments: 0,
-            limb: None,
-            scan: Some(scanned),
+            readings: ByCurrency {
+                heap: Some(0),
+                segments: Some(0),
+                limb: None,
+                scan: Some(scanned),
+            },
         }
     };
 

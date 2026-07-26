@@ -341,8 +341,11 @@
 //!   scenarios in `tests/meter.rs`, and their agreement with the
 //!   recursive oracle is pinned by their differential suites.
 
+mod currency;
 #[cfg(test)]
 mod tests;
+
+pub use currency::{ByCurrency, Currency, Floors, Liveness};
 
 use std::any::Any;
 use std::cmp::Ordering;
@@ -1266,49 +1269,6 @@ impl XorShift {
 
 // ─── liveness floors ────────────────────────────────────────────────────────
 
-/// One judged column's liveness declaration for one cell: the least the
-/// counter must read if the meter is watching the work, or the reason no
-/// floor can bind.
-///
-/// Every cell carries one per floored column (see [`Floors`]); the module
-/// doc's Liveness floors section records the derivation conventions.
-#[derive(Clone, Copy)]
-pub enum Liveness {
-    /// The counter must read at least `min`; `why` is the semantic
-    /// derivation (or the documented deterministic-liveness rationale).
-    Floor {
-        /// The least count a watching meter can honestly read.
-        min: u64,
-        /// The derivation, rendered in the board's legend.
-        why: &'static str,
-    },
-    /// No floor can bind on this cell; the reason renders in the legend.
-    NotApplicable {
-        /// Why the column cannot be floored here.
-        reason: &'static str,
-    },
-}
-
-/// A cell's floor-or-NA declarations, one per floored column.
-///
-/// Constructing a board cell requires answering the floor question for
-/// heap, limb, and scan — a cell cannot enter the board without the
-/// answers.
-/// Segments has no field: it is ceiling-only by policy (the target is walks
-/// that never grow the stack, so its honest floor is zero, and a zero floor
-/// asserts nothing).
-#[derive(Clone, Copy)]
-pub struct Floors {
-    /// The peak-heap column's declaration.
-    pub heap: Liveness,
-    /// The limb column's declaration (checked only when the counter is
-    /// compiled in).
-    pub limb: Liveness,
-    /// The scan column's declaration (checked only when the counter is
-    /// compiled in).
-    pub scan: Liveness,
-}
-
 // The floor derivations and not-applicable reasons, shared across rows so
 // the rendered legend stays small and uniform.
 
@@ -1435,12 +1395,24 @@ fn na(reason: &'static str) -> Liveness {
     Liveness::NotApplicable { reason }
 }
 
+/// Segments NA: the policy declaration every cell carries on the segments
+/// currency.
+const NA_SEG_CEILING_ONLY: &str = "ceiling-only by policy: the target is walks that never grow \
+     the stack, so the honest floor is zero and a zero floor asserts nothing";
+
+/// The segments currency's declaration: ceiling-only by policy, on every
+/// cell.
+fn seg_ceiling_only() -> Liveness {
+    na(NA_SEG_CEILING_ONLY)
+}
+
 /// The floors of the many rows that must walk their operands but are forced
 /// into neither allocation nor arithmetic: scan floored, heap and limb NA.
 fn walk_floors(packed_bytes: usize) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
         limb: na(NA_LIMB_NOT_FORCED),
+        segments: seg_ceiling_only(),
         scan: scan_examines(packed_bytes),
     }
 }
@@ -1470,6 +1442,7 @@ fn tick_walk_floors(version: &Version, packed_bytes: usize) -> Floors {
                 why: WHY_LIMB_TICK_STREAM,
             }
         },
+        segments: seg_ceiling_only(),
         scan: Liveness::Floor {
             min: (packed_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),
             why: WHY_SCAN_TICK_WALK,
@@ -1818,6 +1791,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
                     limb: limb_wide(mandatory_limbs_version(&decode_version(&bytes))),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
                 };
                 Some(Cell::new(bytes.len(), floors, move || {
@@ -1832,6 +1806,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(n),
                     limb: na(NA_LIMB_NOT_FORCED),
+                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                 };
                 Some(Cell::new(n, floors, move || (v.encode(), v)))
@@ -1854,6 +1829,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_NOT_FORCED),
+                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_EQ_BYTES),
                 };
                 Some(Cell::new(n, floors, move || (v == w, v, w)))
@@ -1957,6 +1933,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: limb_wide(mandatory_limbs_version(&v)),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::new(n, floors, move || (v.rank(), v)))
@@ -1979,6 +1956,7 @@ fn ops() -> Vec<Op> {
                         min: a.content_bits().max(b.content_bits()).div_ceil(64),
                         why: WHY_LIMB_RANK_PAIR,
                     },
+                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_NO_STREAM),
                 };
                 Some(Cell::new(n, floors, move || {
@@ -2029,6 +2007,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb,
+                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_NO_STREAM),
                 };
                 Some(Cell::new(n, floors, move || {
@@ -2043,6 +2022,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::new(n, floors, move || (v.distance(&w), v, w)))
@@ -2055,6 +2035,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::new(n, floors, move || (v.lag(&w), v, w)))
@@ -2067,6 +2048,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_WORD_FOLD),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::new(n, floors, move || (v.min_ticks(), v)))
@@ -2137,6 +2119,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(n),
                     limb: na(NA_LIMB_DEPENDENCY),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::text(
@@ -2167,6 +2150,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(packed),
                     limb: limb_wide(mandatory_limbs_version(&v)),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(packed),
                 };
                 Some(Cell::text(
@@ -2193,6 +2177,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_NOT_FORCED),
+                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                 };
                 Some(Cell::new(n, floors, move || {
@@ -2221,6 +2206,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(n),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::new(n, floors, move || {
@@ -2236,6 +2222,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(n),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                 };
                 Some(Cell::new(n, floors, move || (a.encode(), a)))
@@ -2249,6 +2236,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: if a.is_seed() {
                         na(NA_SCAN_SEED_PARTY)
                     } else {
@@ -2268,6 +2256,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::new(n, floors, move || {
@@ -2287,6 +2276,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::new(n, floors, move || {
@@ -2304,6 +2294,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: scan_touch(),
                 };
                 Some(Cell::new(n, floors, move || (a.covers(&b), a, b)))
@@ -2316,6 +2307,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::new(n, floors, move || (a.is_disjoint(&b), a, b)))
@@ -2329,6 +2321,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::new(n + 1, floors, move || {
@@ -2348,6 +2341,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(n),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::text(
@@ -2378,6 +2372,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(packed),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(packed),
                 };
                 Some(Cell::text(
@@ -2402,6 +2397,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
+                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                 };
                 Some(Cell::new(n, floors, move || {
@@ -2420,6 +2416,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
                     limb: limb_wide(mandatory_limbs_version(clock.version())),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
                 };
                 Some(Cell::new(bytes.len(), floors, move || {
@@ -2434,6 +2431,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(n),
                     limb: na(NA_LIMB_NOT_FORCED),
+                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                 };
                 Some(Cell::new(n, floors, move || (clock.encode(), clock)))
@@ -2466,6 +2464,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_fork_child(clock.version()),
                     limb: na(NA_LIMB_NOT_FORCED),
+                    segments: seg_ceiling_only(),
                     scan: if clock.party().is_seed() {
                         na(NA_SCAN_SEED_PARTY)
                     } else {
@@ -2564,6 +2563,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(n),
                     limb: na(NA_LIMB_DEPENDENCY),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(n),
                 };
                 Some(Cell::text(
@@ -2594,6 +2594,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: heap_materializes(packed),
                     limb: limb_wide(mandatory_limbs_version(clock.version())),
+                    segments: seg_ceiling_only(),
                     scan: scan_examines(packed),
                 };
                 Some(Cell::text(
@@ -2617,6 +2618,7 @@ fn ops() -> Vec<Op> {
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_NOT_FORCED),
+                    segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
                 };
                 Some(Cell::new(n, floors, move || {
@@ -2646,10 +2648,10 @@ struct Sample {
     /// The cell's liveness declarations; each sample carries its own since
     /// floors scale with the sample's operands.
     floors: Floors,
-    peak_heap: usize,
-    segments: u64,
-    limb: Option<u64>,
-    scan: Option<u64>,
+    /// Every currency's counter reading over the body; `None` where the
+    /// counter is not compiled in (the feature-gated limb and scan
+    /// columns render `off` and are exempt from judgment).
+    readings: ByCurrency<Option<u64>>,
 }
 
 /// Run one prepared cell under all meters.
@@ -2691,10 +2693,12 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
         limb_denom,
         text_row,
         floors: cell.floors,
-        peak_heap,
-        segments,
-        limb,
-        scan,
+        readings: ByCurrency {
+            heap: Some(peak_heap as u64),
+            segments: Some(segments),
+            limb,
+            scan,
+        },
     }
 }
 
@@ -2760,6 +2764,11 @@ fn exponent(m1: u64, m2: u64, n1: usize, n2: usize) -> f64 {
 /// mechanism.
 const HEAP_FLOOR_TRIP: &str =
     "heap floor: counter reads below floor: the meter is not watching this work";
+/// The segments column's floor-trip message (unreachable while segments is
+/// ceiling-only by policy; the judgment loop still carries it so a future
+/// segments floor binds without a code change).
+const SEG_FLOOR_TRIP: &str =
+    "segments floor: counter reads below floor: the meter is not watching this work";
 /// The limb column's floor-trip message.
 const LIMB_FLOOR_TRIP: &str =
     "limb floor: counter reads below floor: the meter is not watching this work";
@@ -2776,107 +2785,119 @@ fn below_floor(liveness: Liveness, count: u64) -> bool {
     }
 }
 
-/// One evaluated cell: both samples, derived scores, and the verdict.
+/// One judged column's derived scores: the fitted exponent and the larger
+/// scale's per-unit constant (`None` where the counter is off).
+#[derive(Clone, Copy)]
+struct Score {
+    exp: Option<f64>,
+    per_unit: Option<f64>,
+}
+
+/// One evaluated cell: both samples, per-currency scores, and the verdict.
 struct CellResult {
     op: &'static str,
     family: &'static str,
     s1: Sample,
     s2: Sample,
-    heap_exp: f64,
-    heap_per_byte: f64,
-    seg_exp: f64,
-    limb_exp: Option<f64>,
-    limb_per_byte: Option<f64>,
-    scan_exp: Option<f64>,
-    scan_per_byte: Option<f64>,
+    scores: ByCurrency<Score>,
     /// The meters over their bounds; empty means green.
     red: Vec<&'static str>,
 }
 
-/// Score a cell's two samples against the exponent bound and the ceilings.
+/// Score a cell's two samples against the exponent bound, the ceilings,
+/// and the liveness floors, per currency.
 ///
 /// Every exponent — the limb column's included — is judged against the
 /// denominator bytes (packed input, or `n_io` on the I/O-denominated
 /// cells), never against `R`: `R` is the schoolbook cost law, so a limb
 /// exponent against it reads a flat ~1 on exactly the quadratic converters
 /// the bound exists to catch. Constants are judged per denominator byte,
-/// except the text rows' limb constant, which is per `R` unit under the κ
-/// ceiling.
+/// except segments (an absolute count: the target is walks that never grow
+/// the stack) and the text rows' limb constant, which is per `R` unit
+/// under the κ ceiling. The loops run over the currency axis itself
+/// ([`ByCurrency::each`]), so a currency added to the axis is judged on
+/// every cell or the destructuring fails to compile.
 fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> CellResult {
-    let heap_exp = exponent(
-        s1.peak_heap as u64,
-        s2.peak_heap as u64,
-        s1.denom_bytes,
-        s2.denom_bytes,
-    );
-    let heap_per_byte =
-        s2.peak_heap.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES) as f64 / s2.denom_bytes as f64;
-    let seg_exp = exponent(s1.segments, s2.segments, s1.denom_bytes, s2.denom_bytes);
-    let limb_ceiling = if s2.text_row {
-        MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT
-    } else {
-        MAX_LIMB_OPS_PER_INPUT_BYTE
+    let score = |c: Currency| -> Score {
+        let (Some(m1), Some(m2)) = (*s1.readings.get(c), *s2.readings.get(c)) else {
+            return Score {
+                exp: None,
+                per_unit: None,
+            };
+        };
+        let exp = exponent(m1, m2, s1.denom_bytes, s2.denom_bytes);
+        let per_unit = match c {
+            Currency::Heap => {
+                m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64) as f64 / s2.denom_bytes as f64
+            }
+            Currency::Segments => m2 as f64,
+            Currency::Limb => m2 as f64 / s2.limb_denom as f64,
+            Currency::Scan => m2 as f64 / s2.denom_bytes as f64,
+        };
+        Score {
+            exp: Some(exp),
+            per_unit: Some(per_unit),
+        }
     };
-    let (limb_exp, limb_per_byte) = match (s1.limb, s2.limb) {
-        (Some(l1), Some(l2)) => (
-            Some(exponent(l1, l2, s1.denom_bytes, s2.denom_bytes)),
-            Some(l2 as f64 / s2.limb_denom as f64),
-        ),
-        _ => (None, None),
-    };
-    let (scan_exp, scan_per_byte) = match (s1.scan, s2.scan) {
-        (Some(b1), Some(b2)) => (
-            Some(exponent(b1, b2, s1.denom_bytes, s2.denom_bytes)),
-            Some(b2 as f64 / s2.denom_bytes as f64),
-        ),
-        _ => (None, None),
+    let scores = ByCurrency {
+        heap: score(Currency::Heap),
+        segments: score(Currency::Segments),
+        limb: score(Currency::Limb),
+        scan: score(Currency::Scan),
     };
 
     let mut red = Vec::new();
-    if heap_exp > MAX_SCALING_EXPONENT {
-        red.push("heap exponent");
-    }
-    if heap_per_byte > MAX_HEAP_BYTES_PER_INPUT_BYTE {
-        red.push("heap constant");
-    }
-    if seg_exp > MAX_SCALING_EXPONENT {
-        red.push("segments exponent");
-    }
-    if s2.segments > MAX_GROWN_STACK_SEGMENTS {
-        red.push("segments count");
-    }
-    if limb_exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
-        red.push("limb exponent");
-    }
-    if limb_per_byte.is_some_and(|c| c > limb_ceiling) {
-        red.push("limb constant");
-    }
-    if scan_exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
-        red.push("scan exponent");
-    }
-    if scan_per_byte.is_some_and(|c| c > MAX_SCAN_BITS_PER_INPUT_BYTE) {
-        red.push("scan constant");
+    for (c, s) in scores.each() {
+        let (ceiling, exp_label, const_label) = match c {
+            Currency::Heap => (
+                MAX_HEAP_BYTES_PER_INPUT_BYTE,
+                "heap exponent",
+                "heap constant",
+            ),
+            Currency::Segments => (
+                MAX_GROWN_STACK_SEGMENTS as f64,
+                "segments exponent",
+                "segments count",
+            ),
+            Currency::Limb => (
+                if s2.text_row {
+                    MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT
+                } else {
+                    MAX_LIMB_OPS_PER_INPUT_BYTE
+                },
+                "limb exponent",
+                "limb constant",
+            ),
+            Currency::Scan => (
+                MAX_SCAN_BITS_PER_INPUT_BYTE,
+                "scan exponent",
+                "scan constant",
+            ),
+        };
+        if s.exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
+            red.push(exp_label);
+        }
+        if s.per_unit.is_some_and(|v| v > ceiling) {
+            red.push(const_label);
+        }
     }
     // The liveness floors bind in this same pass, at both scales: a counter
     // reading below the least a watching meter could honestly read means the
     // meter is not watching the work the ceilings claim to bound.
-    if [&s1, &s2]
-        .iter()
-        .any(|s| below_floor(s.floors.heap, s.peak_heap as u64))
-    {
-        red.push(HEAP_FLOOR_TRIP);
-    }
-    if [&s1, &s2]
-        .iter()
-        .any(|s| s.limb.is_some_and(|l| below_floor(s.floors.limb, l)))
-    {
-        red.push(LIMB_FLOOR_TRIP);
-    }
-    if [&s1, &s2]
-        .iter()
-        .any(|s| s.scan.is_some_and(|b| below_floor(s.floors.scan, b)))
-    {
-        red.push(SCAN_FLOOR_TRIP);
+    for (c, _) in scores.each() {
+        let trip = match c {
+            Currency::Heap => HEAP_FLOOR_TRIP,
+            Currency::Segments => SEG_FLOOR_TRIP,
+            Currency::Limb => LIMB_FLOOR_TRIP,
+            Currency::Scan => SCAN_FLOOR_TRIP,
+        };
+        if [&s1, &s2].iter().any(|s| {
+            s.readings
+                .get(c)
+                .is_some_and(|r| below_floor(*s.floors.get(c), r))
+        }) {
+            red.push(trip);
+        }
     }
 
     CellResult {
@@ -2884,13 +2905,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         family,
         s1,
         s2,
-        heap_exp,
-        heap_per_byte,
-        seg_exp,
-        limb_exp,
-        limb_per_byte,
-        scan_exp,
-        scan_per_byte,
+        scores,
         red,
     }
 }
@@ -2916,14 +2931,14 @@ fn floor_value(liveness: Liveness) -> String {
 /// in the legend above the matrix).
 fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     let verdict = if r.red.is_empty() { "GREEN" } else { "RED" };
-    let limb = match (r.limb_exp, r.limb_per_byte) {
+    let limb = match (r.scores.limb.exp, r.scores.limb.per_unit) {
         (Some(e), Some(c)) => {
             let unit = if r.s2.text_row { "/R" } else { "/B" };
             format!("limb[e{e:5.2} {c:>10.1}{unit}]")
         }
         _ => "limb[      off      ]".to_string(),
     };
-    let scan = match (r.scan_exp, r.scan_per_byte) {
+    let scan = match (r.scores.scan.exp, r.scores.scan.per_unit) {
         (Some(e), Some(c)) => format!("scan[e{e:5.2} {c:>10.1}/B]"),
         _ => "scan[      off      ]".to_string(),
     };
@@ -2941,10 +2956,10 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         family = r.family,
         n1 = r.s1.denom_bytes,
         n2 = r.s2.denom_bytes,
-        he = r.heap_exp,
-        hc = r.heap_per_byte,
-        se = r.seg_exp,
-        sc = r.s2.segments,
+        he = r.scores.heap.exp.unwrap_or(0.0),
+        hc = r.scores.heap.per_unit.unwrap_or(0.0),
+        se = r.scores.segments.exp.unwrap_or(0.0),
+        sc = r.s2.readings.segments.unwrap_or(0),
         fh = floor_value(r.s2.floors.heap),
         fl = floor_value(r.s2.floors.limb),
         fs = floor_value(r.s2.floors.scan),
@@ -3012,14 +3027,12 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
     writeln!(out, "liveness declarations on this board:")?;
     let mut legend = std::collections::BTreeSet::new();
     for r in &results {
-        for (column, liveness) in [
-            ("heap", r.s2.floors.heap),
-            ("limb", r.s2.floors.limb),
-            ("scan", r.s2.floors.scan),
-        ] {
+        for (currency, liveness) in r.s2.floors.each() {
             legend.insert(match liveness {
-                Liveness::Floor { why, .. } => format!("  {column} floor: {why}"),
-                Liveness::NotApplicable { reason } => format!("  {column} n/a: {reason}"),
+                Liveness::Floor { why, .. } => format!("  {} floor: {why}", currency.label()),
+                Liveness::NotApplicable { reason } => {
+                    format!("  {} n/a: {reason}", currency.label())
+                }
             });
         }
     }
