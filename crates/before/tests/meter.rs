@@ -2807,7 +2807,7 @@ mod query_env {
     // over the measurements of record below.
     pub const TICK_DENSE: QueryEnvelope                   = query_envelope(    89_345,        0,   312_508,   468_765,   156_272, 187_504, 93_762); // 71_476 -> 71_484 (the five-meter harness), 132 -> 0 (the anchor web's frames fit the guarded stack), 250_006 -> 250_008, 375_012, 125_017
     pub const TICK_NESTED_WIDE: QueryEnvelope             = query_envelope(     9_628,        7,    30_259,    80_028,    45_815, 18_155, 27_489); // 7_702, 5 (the fill splice recurses), 24_207, 64_022, 36_652 (the anchor web reads the wide first payload O(1) times)
-    pub const TICK_MIRROR_WIDE: QueryEnvelope             = query_envelope(    34_246,       10,    50_390,   160_003,   131_948, 30_234, 79_169); // 27_397, 8 (the fill splice recurses), 40_312, 128_002, 105_559 (the frame ledger stores no link for the shared wide minimum; heap parity with one queue word per site)
+    pub const TICK_MIRROR_WIDE: QueryEnvelope             = query_envelope(    34_246,       10,    50_390,   160_003,   131_948, 30_234, 79_169); // 27_397, 8 (the fill splice recurses), 40_312, 128_002, 105_559 -> 109_560 (2026-07-26, the latent boundary register's O(1) tag work per close; the older ceiling stands) (the frame ledger stores no link for the shared wide minimum; heap parity with one queue word per site)
 }
 
 /// Run one query scenario body under all five meters and assert its
@@ -3242,9 +3242,10 @@ mod memo_resolution_cost {
     ///
     /// `k` consumption-sibling sites' links each die into their own
     /// raise decision — one fold per link across the whole walk
-    /// [measured: ×2.00 across the doubling, 60,023 → 120,023 at the
-    /// pinned sizes; ×3.94 under the refuted recording-chain interval
-    /// resolution].
+    /// [measured: ×2.00 across the doubling, 62,023 → 124,023 at the
+    /// pinned sizes (60,023 → 120,023 before the latent boundary
+    /// register's O(1) tag work per close, 2026-07-26); ×3.94 under
+    /// the refuted recording-chain interval resolution].
     #[test]
     fn memo_chain_distinct_resolution_reads_linear() {
         let small = tick_run(meter::memo_chain(1_000, true), meter::memo_chain_id(1_000));
@@ -3285,8 +3286,10 @@ mod memo_resolution_cost {
     /// the shape that defeated the recording-chain and the
     /// previously-consumed-site resolutions alike — but every ledger
     /// link is a sibling or first-child difference read exactly once
-    /// [measured: ×2.00 across the doubling, 43,532 → 87,032 at the
-    /// pinned sizes; ×3.92 under the refuted interval resolution].
+    /// [measured: ×2.00 across the doubling, 44,032 → 88,032 at the
+    /// pinned sizes (43,532 → 87,032 before the latent boundary
+    /// register's O(1) tag work per close, 2026-07-26); ×3.92 under
+    /// the refuted interval resolution].
     #[test]
     fn memo_comb_resolution_reads_linear() {
         let small = tick_run(meter::memo_comb(500), meter::memo_comb_id(500));
@@ -3303,9 +3306,12 @@ mod memo_resolution_cost {
     /// The absolute ceiling is the k-independence assert — a
     /// discipline that materializes one wide record per site (the
     /// refuted floor-anchored recording) adds the width once per
-    /// site and blows it [measured: 88,726 touches at k = 2,000,
-    /// b = 2,048 — a per-site fan-out at that width would add ~64
-    /// touches per site on top of the ~43-touch linear slope].
+    /// site and blows it [measured: 94,725 touches at k = 2,000,
+    /// b = 2,048 (88,726, from which the pinned band derives, before
+    /// the latent boundary register's O(1) tag work per close,
+    /// 2026-07-26; the older ceiling stands over the rise) — a
+    /// per-site fan-out at that width would add ~64 touches per site
+    /// on top of the ~43-touch linear slope].
     #[test]
     fn memo_fanout_wide_cost_is_site_count_independent() {
         let small = tick_run(
@@ -3364,7 +3370,8 @@ mod memo_resolution_cost {
     ///
     /// The descending run undercuts every open range while `d`
     /// sibling records ride the one live ledger head [measured:
-    /// ×2.00 across the doubling, 80,019 → 160,019]. A discipline
+    /// ×2.00 across the doubling, 84,819 → 169,619; 80,019 → 160,019
+    /// before the latent boundary register landed, 2026-07-26]. A discipline
     /// keeping one live record per open level folds all `d` per
     /// drop — the refuted live-anchored followers' tombstone.
     #[test]
@@ -3382,7 +3389,9 @@ mod memo_resolution_cost {
     /// decide-then-emit ordering violation (a relation installed
     /// after the raise's arm) produces wrong values its oracle
     /// differential catches; this pin carries the cost leg
-    /// [measured: ×2.00 across the doubling, 46,452 → 92,852].
+    /// [measured: ×2.00 across the doubling, 48,052 → 96,052;
+    /// 46,452 → 92,852 before the latent boundary register landed,
+    /// 2026-07-26].
     #[test]
     fn descending_raises_stay_linear_under_min_movement() {
         let small = tick_run(
@@ -3397,30 +3406,34 @@ mod memo_resolution_cost {
     }
 }
 
-// ─── the width-circulation cycle's touch cost (the reveal-comb red pins) ────
+// ─── the width-circulation cycle's touch cost (the reveal-comb pins) ────────
 //
 // The committed witnesses that the tick walk's close-reveal cycle pays
-// the wide consume-time GAP once per site — Θ(k·b) accumulator digit
-// touches on a Θ(k + b) input whose output is Θ(k + b) too, so the
-// blowup survives the input+output denominator (each site's fill
-// collapses to the shared plateau leaf; the per-site output deltas are
-// unit codes). Semantics are exact on every family here — the oracle
-// differential pools carry the full crossing, and each pin below
-// asserts its shape's closed-form tick — so the failure is cost-only:
-// an unfunded width circulation. Per site, the consume decision mints a
-// width-b boundary difference between the site's frame and the floor
-// frame; the site's close pops it, refilling the base stack and the
-// live relation follower with the width; the next consume folds the
-// follower back into the next arming difference. Every object
-// individually is created once, read once, and dies — the width
-// circulates through per-object-legal moves with no input delta, no
-// output code, and no undercut descent funding any hop. The high-floor
-// control (identical forest, identical deferral and close-reveal cycle,
-// consume-time gap 2) reads flat and width-independent: the wide gap is
-// the driver, not the shape. The pure comb (no left-full site anywhere:
-// no memo, no pre-scan) pays the same cycle at ~2 wide folds per site
-// in the base watermark stack alone — the defect predates the frame
-// ledger, whose follower ferry and consume folds amplify it ~10×.
+// the wide consume-time GAP at most once total — never once per site.
+// The families: k sibling sites sharing one wide minimum over a low
+// floor, each site's node frame closing back into the floor frame
+// between consecutive consumes, so a per-site width leak reads Θ(k·b)
+// touches on a Θ(k + b) input whose output is Θ(k + b) too (each
+// site's fill collapses to the shared plateau leaf; the per-site
+// output deltas are unit codes) — an amplification the input+output
+// denominator cannot excuse. The watermark stack's latent boundary
+// register is what these pins hold: a close MOVES the popped wide
+// boundary into the register and the next consume's arm recycles it
+// by a narrow anchor-relative fold, with the relation follower going
+// anchor-relative under a one-bit tag — so the cycle's marginal cost
+// is the unit inter-site movement, and touches read ×2 across the
+// joint (k, b) doubling. A regression re-introducing any per-site
+// width read (a close that folds the boundary into the stack or a
+// follower, a consume that grosses the anchor-to-floor gap into its
+// decision) drives these families back toward ×4 and the ceilings
+// below catch it. Semantics are exact on every family here — the
+// oracle differential pools carry the full crossing, and each pin
+// below asserts its shape's closed-form tick — so these pins carry
+// the cost leg alone. The high-floor control (identical forest,
+// identical deferral and close-reveal cycle, consume-time gap 2)
+// separates the wide gap from the shape; the pure comb (no left-full
+// site anywhere: no memo, no pre-scan) pins the base watermark
+// stack's own arm-move + close-pop cycle in isolation.
 #[cfg(feature = "limb-meter")]
 mod width_circulation_cost {
     use before::meter::{self, accum::touch_meter};
@@ -3471,19 +3484,22 @@ mod width_circulation_cost {
         (UBig::ONE << b).to_string()
     }
 
-    /// RED PIN: the reveal comb's close-reveal cycle is width-scaled —
-    /// touches grow by at least ×3.5 across the joint (k, b) doubling
-    /// on a ×2 input, where a gap-funded walk reads ~×2.
+    /// The reveal comb's close-reveal cycle is gap-funded flat —
+    /// touches grow by at most ×2.5 across the joint (k, b) doubling
+    /// on a ×2 input, under an absolute band on the larger run.
     ///
     /// Semantics first: the tick is the closed form (every site
     /// collapses to the shared plateau leaf; the covering raise stays
-    /// at the floor), so the failure is cost-only. Then the signature
-    /// [measured: 738,449 → 2,884,881 touches across
-    /// (k, b) = (1,000, 1,024) → (2,000, 2,048), ×3.91 on a ×2.00
-    /// input]: per site, the consume-minted width-b boundary
-    /// difference is popped at the site's close and re-minted at the
-    /// next consume — no input delta, no output code, and no undercut
-    /// descent funds the hop, so the width is re-paid k times.
+    /// at the floor), so this pin carries the cost leg alone. The
+    /// signature [measured: 48,857 → 97,705 touches across
+    /// (k, b) = (1,000, 1,024) → (2,000, 2,048), ×2.00 on a ×2.00
+    /// input; 738,449 → 2,884,881 (×3.91) before the latent boundary
+    /// register landed, 2026-07-26]: the consume-minted width-b
+    /// boundary difference parks in the latent register at the site's
+    /// close and the next consume's arm recycles it by a narrow
+    /// anchor-relative fold, so no hop re-reads the width. A reading
+    /// over the growth ceiling means a per-site width read is back —
+    /// re-pin only with a cure, never by deleting the family.
     #[test]
     fn reveal_comb_close_reveal_cycle_reads_width_quadratic() {
         let expected = |k: usize, b: usize| -> Version {
@@ -3516,31 +3532,43 @@ mod width_circulation_cost {
             small.touches, small.input, large.touches, large.input,
         );
         assert!(
-            u128::from(large.touches) * 2 >= u128::from(small.touches) * 7,
-            "reveal_comb: touch growth across the joint doubling fell under x3.5 \
-             ({} -> {}): the close-reveal width circulation is gone — re-pin this \
-             family flat per unit (the cure's acceptance), never delete the family",
+            u128::from(large.touches) * 2 <= u128::from(small.touches) * 5,
+            "reveal_comb: touch growth across the joint doubling exceeds x2.5 \
+             ({} -> {}): a per-site width read is back in the close-reveal cycle",
             small.touches,
+            large.touches,
+        );
+        assert!(
+            large.touches <= 122_131,
+            "reveal_comb: {} touches at (k, b) = (2,000, 2,048) exceed the pinned \
+             ceiling 122,131 (measured 97,705 x1.25, 2026-07-26)",
+            large.touches,
+        );
+        assert!(
+            large.touches >= 73_278,
+            "reveal_comb: {} touches read below the 73,278 liveness floor \
+             (measured 97,705 x0.75, 2026-07-26): the cycle's work left the \
+             metered representation",
             large.touches,
         );
     }
 
-    /// RED PIN: the pure comb's arm-move + close-pop cycle is
-    /// width-scaled in the base watermark stack alone — at least
-    /// ×1.45 per-byte touch growth across a width doubling at fixed
-    /// site count.
-    ///
-    /// A gap-funded walk reads flat (~×1.0) here.
+    /// The pure comb's arm-move + close-pop cycle is flat in the base
+    /// watermark stack alone — at most ×1.15 per-byte touch growth
+    /// across a width doubling at fixed site count, under an absolute
+    /// band on the larger run.
     ///
     /// Semantics first: fill is the identity here (no left-full site
     /// exists), so the tick is grow's closed form — the shallowest
-    /// owned leaf expands, ties right. Then the signature [measured:
-    /// per-byte 50.8 → 82.0 across b = 1,024 → 2,048 at k = 1,000,
-    /// ×1.61]: each wide leaf's frame arms `2^b` above the floor and
-    /// its close pops the width back — ~2 wide folds per site with no
-    /// memo, no pre-scan, and no site consume anywhere, so the defect
-    /// predates the frame ledger (which amplifies this same cycle
-    /// ~10× on the reveal comb).
+    /// owned leaf expands, ties right. The signature [measured:
+    /// per-byte 5.18 → 4.46 across b = 1,024 → 2,048 at k = 1,000
+    /// (the widening input divides a flat count); 50.8 → 82.0 (×1.61)
+    /// before the latent boundary register landed, 2026-07-26]: each
+    /// wide leaf's frame closes its width-`b` boundary into the latent
+    /// register by move and the next arm recycles it at the zero
+    /// inter-site offset — no memo, no pre-scan, and no site consume
+    /// anywhere, so this family pins the base stack's own cycle in
+    /// isolation from the frame ledger.
     #[test]
     fn pure_comb_width_cycle_reads_width_scaled() {
         let expected = |k: usize, b: usize| -> Version {
@@ -3568,36 +3596,51 @@ mod width_circulation_cost {
         );
         assert!(
             u128::from(large.touches) * u128::from(small.input) * 100
-                >= u128::from(small.touches) * u128::from(large.input) * 145,
-            "pure_comb: per-byte touch growth across the width doubling fell under \
-             x1.45 ({}/{}B -> {}/{}B): the base stack's width circulation is gone — \
-             re-pin this family flat per unit (the cure's acceptance), never delete \
-             the family",
+                <= u128::from(small.touches) * u128::from(large.input) * 115,
+            "pure_comb: per-byte touch growth across the width doubling exceeds \
+             x1.15 ({}/{}B -> {}/{}B): the base stack's arm-move + close-pop cycle \
+             has picked up a width term",
             small.touches,
             small.input,
             large.touches,
             large.input,
         );
+        assert!(
+            large.touches <= 9_127,
+            "pure_comb: {} touches at (k, b) = (1,000, 2,048) exceed the pinned \
+             ceiling 9,127 (measured 7,302 x1.25, 2026-07-26)",
+            large.touches,
+        );
+        assert!(
+            large.touches >= 5_476,
+            "pure_comb: {} touches read below the 5,476 liveness floor \
+             (measured 7,302 x0.75, 2026-07-26): the cycle's work left the \
+             metered representation",
+            large.touches,
+        );
     }
 
     /// Absolute touch ceiling on the high-floor control's larger run,
-    /// measured 56,831 ×1.25 (2026-07-25, three identical runs).
-    const HIFLOOR_TOUCH_CEILING: u64 = 71_039;
+    /// measured 50,837 ×1.25 (2026-07-26, three identical runs;
+    /// 56,831 → 50,837 when the latent boundary register landed — the
+    /// deleted close and consume folds this family paid narrow).
+    const HIFLOOR_TOUCH_CEILING: u64 = 63_547;
 
     /// Touch liveness floor paired with [`HIFLOOR_TOUCH_CEILING`]:
     /// measured ×0.75.
-    const HIFLOOR_TOUCH_FLOOR: u64 = 42_623;
+    const HIFLOOR_TOUCH_FLOOR: u64 = 38_127;
 
     /// GREEN PIN: the high-floor control is flat and width-independent
     /// — identical forest, identical deferral and close-reveal cycle,
     /// consume-time gap 2.
     ///
     /// Per-byte touches stay flat (×1.25) across the width QUADRUPLING
-    /// the red family scales with [measured: 21.4 → 18.9 per byte
-    /// across b = 512 → 2,048 at k = 1,000], under an absolute band on
-    /// the larger run. The wide GAP is the cycle's cost driver — not
-    /// the site forest, not the deferral, not the close-reveal
-    /// schedule, all of which this family shares with the red one.
+    /// the wide family scales with [measured: 19.1 → 16.9 per byte
+    /// across b = 512 → 2,048 at k = 1,000; 21.4 → 18.9 before the
+    /// latent boundary register landed, 2026-07-26], under an absolute
+    /// band on the larger run. The wide GAP is the cycle's cost driver
+    /// — not the site forest, not the deferral, not the close-reveal
+    /// schedule, all of which this family shares with the wide one.
     #[test]
     fn reveal_comb_hifloor_control_is_flat_per_unit() {
         let expected = |k: usize, b: usize| -> Version {
@@ -3645,13 +3688,13 @@ mod width_circulation_cost {
         assert!(
             large.touches <= HIFLOOR_TOUCH_CEILING,
             "reveal_comb_hifloor: {} touches exceed the pinned ceiling \
-             {HIFLOOR_TOUCH_CEILING} (measured 56,831 x1.25)",
+             {HIFLOOR_TOUCH_CEILING} (measured 50,837 x1.25)",
             large.touches,
         );
         assert!(
             large.touches >= HIFLOOR_TOUCH_FLOOR,
             "reveal_comb_hifloor: {} touches read below the {HIFLOOR_TOUCH_FLOOR} \
-             liveness floor (measured 56,831 x0.75): the cycle's work left the \
+             liveness floor (measured 50,837 x0.75): the cycle's work left the \
              metered representation",
             large.touches,
         );
