@@ -28,7 +28,7 @@ fn main() {
     party.tick(&mut version);
     let expected = version.encode();
 
-    let mut run = |label: &str| {
+    let run = |label: &str| {
         let mut guest = Guest::new();
         let nop = guest.call("ff_nop", &[]);
         guest.stage_write(&v_bytes);

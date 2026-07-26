@@ -21,10 +21,10 @@
 //!   (missing register, wrong type, operation error). The harness treats any
 //!   nonzero return as a harness bug and aborts the case: its generators
 //!   construct programs that are valid by construction.
-//! - Staging (`ff_stage_prepare` + a host-side memory write, `ff_stage_ptr`
-//!   + a host-side read) executes no measured code; the measured kernels
-//!   (`*_decode`, `*_encode`, `*_display`, `*_fromstr`) then read or write
-//!   the staged bytes inside the fuel window.
+//! - Staging (`ff_stage_prepare` plus a host-side memory write,
+//!   `ff_stage_ptr` plus a host-side read) executes no measured code; the
+//!   measured kernels (`*_decode`, `*_encode`, `*_display`, `*_fromstr`)
+//!   then read or write the staged bytes inside the fuel window.
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -792,6 +792,18 @@ pub extern "C" fn ff_rank_add(dst: u32, a: u32, b: u32) -> i32 {
             ERR_REG
         }
     }
+}
+
+/// Render the `Rank` in `src` to text in the staging buffer (the harness's
+/// end-of-program differential reads ranks as text; `Rank` has no codec).
+#[no_mangle]
+pub extern "C" fn ff_rank_display(src: u32) -> i32 {
+    code(with_r(src, |r| {
+        let mut s = String::new();
+        write!(s, "{r}").expect("Display into String cannot fail");
+        STAGE.with_borrow_mut(|stage| *stage = s.into_bytes());
+        OK
+    }))
 }
 
 /// `Ord` on ranks: 0 `Less`, 1 `Equal`, 2 `Greater`.
