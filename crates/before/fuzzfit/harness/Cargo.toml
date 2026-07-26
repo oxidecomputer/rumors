@@ -24,3 +24,9 @@ proptest = "1"
 # documented-portable generator the parent crate's corpus sweeps use.
 rand = "0.8"
 rand_chacha = "0.3"
+
+[build-dependencies]
+# Identifies the building toolchain (`build.rs` embeds it): fuel constants
+# are a function of the guest codegen, so the suite refuses to judge
+# against bands pinned under a different rustc.
+rustc_version = "0.4"

@@ -22,11 +22,19 @@
 //!   mask drift.
 //! - **Enforcement** (`tests/enforce.rs`): a proptest family draws random
 //!   programs from [`strategies`], executes them step-by-step in the guest,
-//!   and asserts every measured step's fuel lands inside the pinned band for
-//!   its size. Above-band is a regression flag; below-band is a liveness
-//!   flag (a band a dead measurement passes is decoration). Fuel determinism
-//!   makes replay exact, so a failure shrinks to a minimal out-of-band shape
-//!   and rides along as a committed proptest seed.
+//!   and judges on two legs with different failure modes — every measured
+//!   step's fuel must land inside the pinned band for its size (the point
+//!   leg: above-band is a regression flag; below-band is a liveness flag,
+//!   since a band a dead measurement passes is decoration), and every
+//!   kernel's within-case bucket-median trend must not out-climb its
+//!   pinned slope ([`curve`], the shape leg: a mechanism that tilts into
+//!   a wide band keeps its point residuals small, and only the trend sees
+//!   it). A staleness cross-check refits a deterministic prefix of the
+//!   calibration stream and compares lines against the pin, so calibration
+//!   drift fails loud instead of silently widening the gap between pin and
+//!   reality. Fuel determinism makes replay exact, so a failure shrinks to
+//!   a minimal out-of-band shape and rides along as a committed proptest
+//!   seed.
 //!
 //! Every program executes twice: natively (the mirror, which computes each
 //! step's denominator from real operand sizes and the expected result bytes)
@@ -34,6 +42,7 @@
 //! wasm-vs-native differential oracle: result encodings must byte-match.
 
 pub mod bands;
+pub mod curve;
 pub mod drive;
 pub mod fit;
 pub mod ops;

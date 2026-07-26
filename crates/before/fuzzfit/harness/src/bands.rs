@@ -8,34 +8,69 @@
 //! with a dated movement annotation.
 //!
 //! Band semantics: a step of kernel `k` with denominator `d` bits and fuel
-//! `f` is in-band iff
+//! `f` is in-band iff, writing `r = log₁₀ f − (intercept + slope · log₁₀ d)`,
 //!
 //! ```text
-//! |log₁₀ f − (intercept + slope · log₁₀ d)| ≤ width + ENFORCE_MARGIN
+//! −(width_below + ENFORCE_MARGIN) ≤ r ≤ width_above + ENFORCE_MARGIN
 //! ```
 //!
 //! judged only for `d ≥ min_denom` (below the calibrated range the line
 //! extrapolates the intercept's constant overhead downward, which
-//! false-flags genuinely cheap small cases; above the calibrated range the
-//! line extrapolates deliberately — catching growth beyond the corpus is
-//! the instrument's purpose). Above-band is a regression flag; below-band
-//! is a liveness flag (a dead fuel meter or an accidentally-constant
-//! kernel reads below its own band, never silently green).
+//! false-flags genuinely cheap small cases; the rare fresh draw above
+//! `max_denom` is judged against the extrapolated line — but enforcement
+//! shares the calibration leg's generators and budgets, so the catching
+//! power lives *inside* the calibrated span, which is why the ceiling is
+//! priced from the positive residuals alone and the reach families exist).
+//! Above-band is a regression flag; below-band is a liveness flag (a dead
+//! fuel meter or an accidentally-constant kernel reads below its own band,
+//! never silently green). The two widths are priced separately because the
+//! residual cloud is one-sidedly heavy — see [`crate::fit`].
 //!
 //! # Pin of record
 //!
-//! Pinned 2026-07-26 (initial pin): corpus 1536 programs (~670k measured
-//! steps), guest at wasm32-unknown-unknown release (codegen-units 1,
-//! panic=abort) under rustc 1.96.1, wasmtime 47 fuel. All 45 kernels read
-//! linear-or-better above the 128-bit fit floor: slopes 0.0–1.11 across
-//! the surface, with three envelope readings above 1.1, each
-//! ground-truthed per shape (`bin/diag` bucket medians):
-//! `ff_version_join_all` 1.24 / `ff_version_meet_all` 1.16 carry
-//! `join_all`'s documented balanced-fold log factor, and `ff_clock_tick`
-//! 1.22 is a family-mixture artifact (every family's own fuel/bit medians
-//! are flat or falling; cheap-constant shapes dominate the small buckets).
-//! A toolchain bump that shifts any constant is a re-pin event, dated
-//! here.
+//! Pinned 2026-07-26: corpus 1536 programs (~763k measured steps), guest
+//! at wasm32-unknown-unknown release (codegen-units 1, panic=abort) under
+//! the toolchain in [`PINNED_RUSTC`], wasmtime 47 fuel. This pin is a
+//! measurement-population re-pin over the same kernels: the reach family,
+//! the cross-universe battery arms, the `ff_rank_display` row, and the
+//! split widths landed together, so every band's population changed.
+//!
+//! All 44 kernels read linear within every family above the 128-bit fit
+//! floor — the within-case shape diagnostic's maximum healthy excess over
+//! the whole corpus is +0.030 (see [`crate::curve`]) — while nine pooled
+//! envelope slopes sit in 1.10–1.17, each ground-truthed per family
+//! (`bin/diag`) as composition: families' per-bit cost levels differ
+//! severalfold (deep structured shapes ~80 fuel/bit on `party_covers`
+//! against ~36–58 for the cross-universe mixes; ~1500 fuel/bit on
+//! `clock_tick`'s dense spines against ~570–750 for harmonic/big-root
+//! mass), and the cheap families' mass sits in the small buckets, tilting
+//! the pooled envelope no single family follows. `ff_clock_tick`'s own
+//! Harmonic lane does rise locally (~+0.11 across its top half-decade,
+//! 751→858 fuel/bit) — mild, bounded, and inside the shape allowance.
+//!
+//! Movement against the previous pin, by mechanism (movement > 0.05):
+//!
+//! - **Reach reclassifications** — kernels the old corpus sampled under a
+//!   decade, now fitted over real spans: `clock_sync` const→1.03,
+//!   `party_join` const→1.00 (19 samples→12k, to 9.1k bits),
+//!   `rank_add`/`rank_checked_sub`/`rank_cmp` const→0.50/0.60/0.68.
+//! - **Mixture recomposition** — escalated top buckets re-tilt pooled
+//!   envelopes: up on `version_cmp`/`concurrent` 0.93→1.16,
+//!   `version_distance` 0.75→1.09, `version_lag` 0.75→1.10,
+//!   `version_join` 0.72→1.04, `version_meet` 0.81→1.14,
+//!   `version_project` 0.89→1.01, `version_rank` 1.04→1.16,
+//!   `version_decode` 1.11→1.17, `version_min_ticks` 1.07→1.14,
+//!   `clock_fork` 0.70→0.88, `clock_version` 0.13→0.37, `clock_encode`
+//!   0.13→0.33, `version_encode` 0.17→0.43; down where reach made the
+//!   top buckets family-pure: `version_join_all` 1.24→1.03 (the fold's
+//!   log factor flattens at scale), `party_covers` 1.18→1.06,
+//!   `clock_tick` 1.22→1.15.
+//! - **Early-exit economics at scale** — `version_meet_all` 1.16→−0.43:
+//!   escalated ladder meets collapse toward the common floor almost
+//!   immediately (~0.2 fuel/bit at 10⁵ bits against ~500–600 at 10²), so
+//!   the envelope falls with size; sublinear, benign.
+//! - **New row** — `ff_rank_display` 1.12 (the schoolbook radix
+//!   conversion the board's text-I/O legs document, within its reach).
 
 /// One pinned band (see the module doc for the membership predicate).
 #[derive(Debug, Clone, Copy)]
@@ -46,8 +81,12 @@ pub struct Band {
     pub slope: f64,
     /// Pinned intercept (`log₁₀` fuel at 1 bit).
     pub intercept: f64,
-    /// Pinned residual width (max |residual| over the calibration corpus).
-    pub width: f64,
+    /// Pinned ceiling width: max positive residual over the calibration
+    /// corpus (the regression flag's threshold).
+    pub width_above: f64,
+    /// Pinned floor width: max negative residual magnitude over the
+    /// calibration corpus (the liveness flag's threshold).
+    pub width_below: f64,
     /// Smallest calibrated denominator (bits): the judgment floor.
     pub min_denom: u64,
     /// Largest calibrated denominator (bits), recorded for provenance.
@@ -62,6 +101,34 @@ pub struct Band {
 /// allocator-history variance between calibration and enforcement contexts
 /// (≈ 1.6× in fuel).
 pub const ENFORCE_MARGIN: f64 = 0.2;
+
+/// The staleness cross-check's prefix length: the enforcement suite refits
+/// the first `REFIT_PREFIX_PROGRAMS` programs of the deterministic
+/// calibration stream (`drive::for_each_deterministic_program`) and
+/// compares each kernel's fresh line against its pin, so a pin the current
+/// code would no longer produce fails loud instead of silently drifting. A
+/// prefix, because a full-corpus refit would duplicate the calibration
+/// sweep inside every suite run.
+pub const REFIT_PREFIX_PROGRAMS: usize = 256;
+
+/// Largest allowed [`crate::fit::line_divergence`] between the prefix
+/// refit and the pin, in `log₁₀` units.
+///
+/// Measured 2026-07-26 at pin time (`bin/calibrate` re-derives the
+/// evidence on every re-pin): the prefix's own sampling difference from
+/// the full corpus peaks at 0.463 (`ff_version_meet`, the widest residual
+/// cloud on the surface). The tolerance sits 1.5x above that, so the
+/// check is deaf to sub-half-decade drift on the worst kernel but fails
+/// loud on anything past ~5x in fuel constants — a staleness detector,
+/// not the criterion of record.
+pub const REFIT_TOLERANCE: f64 = 0.7;
+
+/// Fewest kernels the prefix refit must actually compare (matching
+/// classification, enough samples): the coverage floor that keeps the
+/// staleness check from passing vacuously on an under-sampled prefix.
+/// Measured 2026-07-26: the prefix covers 43 of 44 kernels; pinned just
+/// under.
+pub const REFIT_MIN_KERNELS: usize = 40;
 
 /// Look up a kernel's pinned band.
 pub fn band_for(kernel: &str) -> Option<&'static Band> {
@@ -93,446 +160,509 @@ pub fn judge_against(band: &Band, denom_bits: u64, fuel: u64) -> Verdict {
     }
     let predicted = band.intercept + band.slope * (denom_bits as f64).log10();
     let actual = (fuel.max(1) as f64).log10();
-    if actual > predicted + band.width + ENFORCE_MARGIN {
+    if actual > predicted + band.width_above + ENFORCE_MARGIN {
         Verdict::Above
-    } else if actual < predicted - band.width - ENFORCE_MARGIN {
+    } else if actual < predicted - band.width_below - ENFORCE_MARGIN {
         Verdict::Below
     } else {
         Verdict::InBand
     }
 }
 
+/// The toolchain that pinned the constants below, as `rustc --version`
+/// reports it. Generated by `just fuzzfit-calibrate` alongside [`BANDS`]:
+/// guest codegen (and so every fuel constant) is a function of this
+/// compiler, and the suite asserts the building toolchain matches, so a
+/// toolchain bump reads red until the bands are re-pinned. wasmtime (the
+/// fuel schedule's other half) is pinned exactly by the workspace
+/// `Cargo.lock`; bumping it there is likewise a re-pin event.
+pub const PINNED_RUSTC: &str = "rustc 1.96.1 (31fca3adb 2026-06-26)";
+
 /// The pinned bands. Generated by `just fuzzfit-calibrate` — review the
 /// diff like a snapshot, commit with a dated movement annotation.
 pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_clock_decode",
-        slope: 1.082415,
-        intercept: 2.055138,
-        width: 0.130966,
+        slope: 1.089509,
+        intercept: 2.029273,
+        width_above: 0.140648,
+        width_below: 0.116840,
         min_denom: 128,
-        max_denom: 1752,
-        samples: 324,
+        max_denom: 8352,
+        samples: 327,
         constant: false,
     },
     Band {
         kernel: "ff_clock_encode",
-        slope: 0.126712,
-        intercept: 2.763078,
-        width: 0.171088,
+        slope: 0.330497,
+        intercept: 2.249096,
+        width_above: 0.163431,
+        width_below: 0.260436,
         min_denom: 128,
-        max_denom: 1745,
-        samples: 318,
+        max_denom: 8346,
+        samples: 309,
         constant: false,
     },
     Band {
         kernel: "ff_clock_fork",
-        slope: 0.698046,
-        intercept: 2.211625,
-        width: 0.299323,
+        slope: 0.882916,
+        intercept: 1.745686,
+        width_above: 0.255141,
+        width_below: 0.305206,
         min_denom: 128,
-        max_denom: 1736,
-        samples: 24240,
+        max_denom: 10782,
+        samples: 35036,
         constant: false,
     },
     Band {
         kernel: "ff_clock_from_parts",
         slope: 0.000000,
         intercept: 2.390935,
-        width: 0.000000,
-        min_denom: 128,
-        max_denom: 322,
-        samples: 154,
+        width_above: 0.000000,
+        width_below: 0.000000,
+        min_denom: 129,
+        max_denom: 431,
+        samples: 114,
         constant: true,
     },
     Band {
         kernel: "ff_clock_into_parts",
         slope: 0.000000,
         intercept: 2.511883,
-        width: 0.000000,
+        width_above: 0.000000,
+        width_below: 0.000000,
         min_denom: 128,
-        max_denom: 2120,
-        samples: 1126,
+        max_denom: 10782,
+        samples: 13124,
         constant: false,
     },
     Band {
         kernel: "ff_clock_join",
-        slope: 0.992389,
-        intercept: 2.627494,
-        width: 1.335418,
+        slope: 0.974456,
+        intercept: 2.686414,
+        width_above: 0.291397,
+        width_below: 2.265419,
         min_denom: 128,
-        max_denom: 3843,
-        samples: 9988,
+        max_denom: 3801,
+        samples: 9738,
         constant: false,
     },
     Band {
         kernel: "ff_clock_own_version",
-        slope: 1.054787,
-        intercept: 2.436250,
-        width: 0.223861,
-        min_denom: 130,
-        max_denom: 2354,
-        samples: 415,
+        slope: 1.051099,
+        intercept: 2.438902,
+        width_above: 0.165335,
+        width_below: 0.173737,
+        min_denom: 128,
+        max_denom: 11959,
+        samples: 421,
         constant: false,
     },
     Band {
         kernel: "ff_clock_recv",
         slope: 0.000000,
-        intercept: 5.398051,
-        width: 0.596606,
+        intercept: 5.384576,
+        width_above: 0.581956,
+        width_below: 0.592738,
         min_denom: 128,
-        max_denom: 668,
-        samples: 1996,
+        max_denom: 635,
+        samples: 1559,
         constant: true,
     },
     Band {
         kernel: "ff_clock_seed",
         slope: 0.000000,
-        intercept: 3.140015,
-        width: 0.007352,
+        intercept: 3.139967,
+        width_above: 0.007400,
+        width_below: 0.002613,
         min_denom: 8,
         max_denom: 8,
-        samples: 1709,
+        samples: 1704,
         constant: true,
     },
     Band {
         kernel: "ff_clock_send",
         slope: 0.000000,
-        intercept: 5.325439,
-        width: 0.383104,
+        intercept: 5.308979,
+        width_above: 0.319817,
+        width_below: 0.339772,
         min_denom: 128,
-        max_denom: 395,
-        samples: 1036,
+        max_denom: 364,
+        samples: 708,
         constant: true,
     },
     Band {
         kernel: "ff_clock_sync",
-        slope: 0.000000,
-        intercept: 4.693572,
-        width: 1.832636,
+        slope: 1.025226,
+        intercept: 2.542807,
+        width_above: 0.301938,
+        width_below: 2.291001,
         min_denom: 128,
-        max_denom: 685,
-        samples: 1015,
-        constant: true,
+        max_denom: 21457,
+        samples: 600,
+        constant: false,
     },
     Band {
         kernel: "ff_clock_tick",
-        slope: 1.215812,
-        intercept: 2.530475,
-        width: 0.339619,
+        slope: 1.150897,
+        intercept: 2.714202,
+        width_above: 0.313394,
+        width_below: 0.285983,
         min_denom: 128,
-        max_denom: 1743,
-        samples: 115604,
+        max_denom: 10782,
+        samples: 119841,
         constant: false,
     },
     Band {
         kernel: "ff_clock_version",
-        slope: 0.128529,
-        intercept: 2.255309,
-        width: 0.121817,
+        slope: 0.369452,
+        intercept: 1.636228,
+        width_above: 0.204147,
+        width_below: 0.147964,
         min_denom: 128,
-        max_denom: 1745,
-        samples: 3877,
+        max_denom: 10787,
+        samples: 3340,
         constant: false,
     },
     Band {
         kernel: "ff_party_covers",
-        slope: 1.176105,
-        intercept: 1.381467,
-        width: 1.388802,
+        slope: 1.060879,
+        intercept: 1.670390,
+        width_above: 0.106707,
+        width_below: 1.419562,
         min_denom: 128,
-        max_denom: 1536,
-        samples: 809,
+        max_denom: 11388,
+        samples: 826,
         constant: false,
     },
     Band {
         kernel: "ff_party_decode",
-        slope: 0.000000,
-        intercept: 4.244647,
-        width: 0.458936,
+        slope: 0.979424,
+        intercept: 1.878060,
+        width_above: 0.045728,
+        width_below: 0.008709,
         min_denom: 128,
-        max_denom: 768,
-        samples: 242,
-        constant: true,
+        max_denom: 6072,
+        samples: 239,
+        constant: false,
     },
     Band {
         kernel: "ff_party_display",
-        slope: 0.887561,
-        intercept: 1.576045,
-        width: 0.060139,
+        slope: 0.939180,
+        intercept: 1.426578,
+        width_above: 0.093635,
+        width_below: 0.058461,
         min_denom: 136,
-        max_denom: 8456,
-        samples: 1895,
+        max_denom: 67554,
+        samples: 1765,
         constant: false,
     },
     Band {
         kernel: "ff_party_encode",
-        slope: 0.000000,
-        intercept: 2.948518,
-        width: 0.253036,
+        slope: 0.351028,
+        intercept: 2.132274,
+        width_above: 0.185126,
+        width_below: 0.367991,
         min_denom: 128,
-        max_denom: 768,
-        samples: 216,
-        constant: true,
+        max_denom: 6066,
+        samples: 197,
+        constant: false,
     },
     Band {
         kernel: "ff_party_fork",
-        slope: 0.215261,
-        intercept: 3.385433,
-        width: 0.157225,
-        min_denom: 4,
-        max_denom: 54,
-        samples: 2472,
-        constant: false,
+        slope: 0.000000,
+        intercept: 4.123384,
+        width_above: 0.098760,
+        width_below: 0.051649,
+        min_denom: 132,
+        max_denom: 184,
+        samples: 13,
+        constant: true,
     },
     Band {
         kernel: "ff_party_forks",
         slope: 0.000000,
-        intercept: 4.416270,
-        width: 0.275479,
+        intercept: 4.416253,
+        width_above: 0.196775,
+        width_below: 0.275713,
         min_denom: 128,
-        max_denom: 384,
-        samples: 557,
+        max_denom: 342,
+        samples: 334,
         constant: true,
     },
     Band {
         kernel: "ff_party_fromstr",
-        slope: 0.986711,
-        intercept: 1.381346,
-        width: 0.168032,
+        slope: 1.007710,
+        intercept: 1.327211,
+        width_above: 0.178220,
+        width_below: 0.105466,
         min_denom: 136,
-        max_denom: 8456,
-        samples: 1895,
+        max_denom: 67554,
+        samples: 1765,
         constant: false,
     },
     Band {
         kernel: "ff_party_is_disjoint",
-        slope: 1.039986,
-        intercept: 1.576993,
-        width: 1.414217,
+        slope: 1.024592,
+        intercept: 1.611722,
+        width_above: 0.269679,
+        width_below: 1.414156,
         min_denom: 128,
-        max_denom: 1536,
-        samples: 809,
+        max_denom: 11388,
+        samples: 826,
         constant: false,
     },
     Band {
         kernel: "ff_party_join",
-        slope: 0.000000,
-        intercept: 3.299379,
-        width: 0.838987,
-        min_denom: 134,
-        max_denom: 210,
-        samples: 19,
-        constant: true,
+        slope: 0.994595,
+        intercept: 2.443972,
+        width_above: 0.117430,
+        width_below: 1.801406,
+        min_denom: 128,
+        max_denom: 9138,
+        samples: 12095,
+        constant: false,
     },
     Band {
         kernel: "ff_party_seed",
         slope: 0.000000,
-        intercept: 2.694338,
-        width: 0.024993,
+        intercept: 2.694181,
+        width_above: 0.025150,
+        width_below: 0.003100,
         min_denom: 8,
         max_denom: 8,
-        samples: 145,
+        samples: 112,
         constant: true,
     },
     Band {
         kernel: "ff_party_without",
         slope: 0.000000,
-        intercept: 4.034040,
-        width: 0.382181,
-        min_denom: 12,
-        max_denom: 112,
-        samples: 1205,
+        intercept: 3.922377,
+        width_above: 0.086010,
+        width_below: 0.090380,
+        min_denom: 134,
+        max_denom: 204,
+        samples: 5,
         constant: true,
     },
     Band {
         kernel: "ff_rank_add",
-        slope: 0.000000,
-        intercept: 3.144689,
-        width: 0.412096,
+        slope: 0.504442,
+        intercept: 1.883181,
+        width_above: 0.233027,
+        width_below: 0.245093,
         min_denom: 128,
-        max_denom: 1024,
-        samples: 489,
-        constant: true,
+        max_denom: 7072,
+        samples: 491,
+        constant: false,
     },
     Band {
         kernel: "ff_rank_checked_sub",
-        slope: 0.000000,
-        intercept: 2.941837,
-        width: 0.211063,
+        slope: 0.604469,
+        intercept: 1.410730,
+        width_above: 0.206506,
+        width_below: 0.150459,
         min_denom: 128,
-        max_denom: 1024,
-        samples: 495,
-        constant: true,
+        max_denom: 7072,
+        samples: 514,
+        constant: false,
     },
     Band {
         kernel: "ff_rank_cmp",
-        slope: 0.000000,
-        intercept: 2.833538,
-        width: 0.257425,
+        slope: 0.682950,
+        intercept: 1.103930,
+        width_above: 0.227065,
+        width_below: 0.155913,
         min_denom: 128,
-        max_denom: 1024,
-        samples: 495,
-        constant: true,
+        max_denom: 7072,
+        samples: 514,
+        constant: false,
+    },
+    Band {
+        kernel: "ff_rank_display",
+        slope: 1.118336,
+        intercept: 0.673733,
+        width_above: 0.255901,
+        width_below: 0.122987,
+        min_denom: 128,
+        max_denom: 7072,
+        samples: 514,
+        constant: false,
     },
     Band {
         kernel: "ff_version_cmp",
-        slope: 0.933421,
-        intercept: 2.323029,
-        width: 0.984104,
+        slope: 1.155820,
+        intercept: 1.754353,
+        width_above: 0.340668,
+        width_below: 0.921637,
         min_denom: 128,
-        max_denom: 2713,
-        samples: 1985,
+        max_denom: 15414,
+        samples: 1856,
         constant: false,
     },
     Band {
         kernel: "ff_version_concurrent",
-        slope: 0.933421,
-        intercept: 2.323029,
-        width: 0.988282,
+        slope: 1.155920,
+        intercept: 1.753986,
+        width_above: 0.340511,
+        width_below: 0.922255,
         min_denom: 128,
-        max_denom: 2713,
-        samples: 1985,
+        max_denom: 15414,
+        samples: 1856,
         constant: false,
     },
     Band {
         kernel: "ff_version_decode",
-        slope: 1.109993,
-        intercept: 1.934668,
-        width: 0.402864,
+        slope: 1.167655,
+        intercept: 1.787056,
+        width_above: 0.345483,
+        width_below: 0.425173,
         min_denom: 128,
-        max_denom: 1312,
-        samples: 1174,
+        max_denom: 7712,
+        samples: 1197,
         constant: false,
     },
     Band {
         kernel: "ff_version_display",
-        slope: 0.936101,
-        intercept: 2.033258,
-        width: 0.134441,
-        min_denom: 148,
-        max_denom: 13593,
-        samples: 2142,
+        slope: 0.965229,
+        intercept: 1.944388,
+        width_above: 0.129664,
+        width_below: 0.129421,
+        min_denom: 141,
+        max_denom: 99666,
+        samples: 2159,
         constant: false,
     },
     Band {
         kernel: "ff_version_distance",
-        slope: 0.749182,
-        intercept: 3.677449,
-        width: 0.455267,
+        slope: 1.090552,
+        intercept: 2.827619,
+        width_above: 0.332828,
+        width_below: 0.469793,
         min_denom: 128,
-        max_denom: 2713,
-        samples: 1901,
+        max_denom: 15414,
+        samples: 1792,
         constant: false,
     },
     Band {
         kernel: "ff_version_encode",
-        slope: 0.167066,
-        intercept: 2.177363,
-        width: 0.193326,
+        slope: 0.428255,
+        intercept: 1.513436,
+        width_above: 0.214905,
+        width_below: 0.255662,
         min_denom: 128,
-        max_denom: 1305,
-        samples: 1138,
+        max_denom: 7707,
+        samples: 1171,
         constant: false,
     },
     Band {
         kernel: "ff_version_fromstr",
-        slope: 0.939297,
-        intercept: 2.222513,
-        width: 0.085004,
-        min_denom: 148,
-        max_denom: 13593,
-        samples: 2142,
+        slope: 0.962487,
+        intercept: 2.153453,
+        width_above: 0.091629,
+        width_below: 0.087472,
+        min_denom: 141,
+        max_denom: 99666,
+        samples: 2159,
         constant: false,
     },
     Band {
         kernel: "ff_version_join",
-        slope: 0.723720,
-        intercept: 3.407399,
-        width: 2.695071,
+        slope: 1.035922,
+        intercept: 2.181840,
+        width_above: 0.678322,
+        width_below: 3.394598,
         min_denom: 128,
-        max_denom: 2722,
-        samples: 2250,
+        max_denom: 11257,
+        samples: 2192,
         constant: false,
     },
     Band {
         kernel: "ff_version_join_all",
-        slope: 1.236484,
-        intercept: 2.291292,
-        width: 1.923247,
+        slope: 1.026029,
+        intercept: 2.903651,
+        width_above: 0.556371,
+        width_below: 1.861921,
         min_denom: 128,
-        max_denom: 1949,
-        samples: 900,
+        max_denom: 164376,
+        samples: 805,
         constant: false,
     },
     Band {
         kernel: "ff_version_lag",
-        slope: 0.749224,
-        intercept: 3.481327,
-        width: 0.470738,
+        slope: 1.099925,
+        intercept: 2.611139,
+        width_above: 0.369399,
+        width_below: 0.483252,
         min_denom: 128,
-        max_denom: 2713,
-        samples: 1901,
+        max_denom: 15414,
+        samples: 1792,
         constant: false,
     },
     Band {
         kernel: "ff_version_meet",
-        slope: 0.805070,
-        intercept: 3.171135,
-        width: 2.766509,
+        slope: 1.136964,
+        intercept: 1.780205,
+        width_above: 0.875646,
+        width_below: 2.326723,
         min_denom: 128,
-        max_denom: 2713,
-        samples: 830,
+        max_denom: 14484,
+        samples: 727,
         constant: false,
     },
     Band {
         kernel: "ff_version_meet_all",
-        slope: 1.156108,
-        intercept: 2.273315,
-        width: 1.809139,
+        slope: -0.432263,
+        intercept: 6.470523,
+        width_above: 1.007512,
+        width_below: 1.989218,
         min_denom: 128,
-        max_denom: 1841,
-        samples: 325,
+        max_denom: 112796,
+        samples: 288,
         constant: false,
     },
     Band {
         kernel: "ff_version_min_ticks",
-        slope: 1.067837,
-        intercept: 2.299422,
-        width: 0.510549,
+        slope: 1.144146,
+        intercept: 2.091769,
+        width_above: 0.329266,
+        width_below: 0.503275,
         min_denom: 128,
-        max_denom: 1361,
-        samples: 1093,
+        max_denom: 7707,
+        samples: 1101,
         constant: false,
     },
     Band {
         kernel: "ff_version_project",
-        slope: 0.890349,
-        intercept: 2.853050,
-        width: 0.497042,
+        slope: 1.011051,
+        intercept: 2.542778,
+        width_above: 0.484951,
+        width_below: 0.366235,
         min_denom: 128,
-        max_denom: 3482,
-        samples: 1535,
+        max_denom: 21566,
+        samples: 1525,
         constant: false,
     },
     Band {
         kernel: "ff_version_rank",
-        slope: 1.043958,
-        intercept: 2.332280,
-        width: 0.422945,
+        slope: 1.158643,
+        intercept: 2.040785,
+        width_above: 0.373017,
+        width_below: 0.437006,
         min_denom: 128,
-        max_denom: 1361,
-        samples: 1892,
+        max_denom: 7707,
+        samples: 1911,
         constant: false,
     },
     Band {
         kernel: "ff_version_tick",
         slope: 0.000000,
-        intercept: 5.519609,
-        width: 0.958890,
+        intercept: 5.512303,
+        width_above: 0.632976,
+        width_below: 1.057321,
         min_denom: 128,
         max_denom: 701,
-        samples: 533,
+        samples: 484,
         constant: true,
     },
 ];

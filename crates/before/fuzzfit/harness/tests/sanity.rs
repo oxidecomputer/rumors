@@ -6,18 +6,19 @@ use proptest::prelude::*;
 
 use fuzzfit_harness::bands::{judge_against, Band, Verdict};
 use fuzzfit_harness::ops::{Mirror, Op};
-use fuzzfit_harness::strategies::{any_family, build, BUDGET};
+use fuzzfit_harness::strategies::{any_family, budget_for, build};
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
-    /// Every generated program respects the budget: op count, total ticks,
-    /// total forks, and fold width never exceed [`BUDGET`], whatever the
-    /// family and dimensions drawn.
+    /// Every generated program respects its family's budget: op count,
+    /// total ticks, total forks, and fold width never exceed
+    /// [`budget_for`]'s caps, whatever the dimensions drawn.
     #[test]
     fn programs_respect_the_budget(family in any_family(), seed in any::<u64>()) {
+        let budget = budget_for(&family);
         let program = build(&family, seed);
-        prop_assert!(program.len() <= BUDGET.max_ops, "{} ops", program.len());
+        prop_assert!(program.len() <= budget.max_ops, "{} ops", program.len());
         let mut ticks = 0u32;
         let mut forks = 0u32;
         for op in &program {
@@ -26,13 +27,13 @@ proptest! {
                 Op::ClockFork { .. } | Op::PartyFork { .. } => forks += 1,
                 Op::PartyForks { n, .. } => forks += n,
                 Op::VersionJoinAll { n, .. } | Op::VersionMeetAll { n, .. } => {
-                    prop_assert!(*n <= BUDGET.max_fold, "fold width {n}");
+                    prop_assert!(*n <= budget.max_fold, "fold width {n}");
                 }
                 _ => {}
             }
         }
-        prop_assert!(ticks <= BUDGET.max_ticks, "{ticks} ticks");
-        prop_assert!(forks <= BUDGET.max_forks, "{forks} forks");
+        prop_assert!(ticks <= budget.max_ticks, "{ticks} ticks");
+        prop_assert!(forks <= budget.max_forks, "{forks} forks");
     }
 
     /// Every generated program is well-formed: the native mirror executes
@@ -90,12 +91,13 @@ proptest! {
 #[test]
 fn judgment_flags_quadratic_and_dead_readings() {
     // A synthetic linear band: fuel ≈ 100 · d (slope 1, intercept 2),
-    // width ±0.3, calibrated over 10³..10⁶ bits.
+    // width +0.3/-0.3, calibrated over 10³..10⁶ bits.
     let band = Band {
         kernel: "synthetic_linear",
         slope: 1.0,
         intercept: 2.0,
-        width: 0.3,
+        width_above: 0.3,
+        width_below: 0.3,
         min_denom: 1_000,
         max_denom: 1_000_000,
         samples: 1000,
