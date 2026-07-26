@@ -568,8 +568,10 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **720 cells at this
-tip**, membership pinned by the smoke test — judged at two scales
+public operation surface × §2's families — **989 cells at this
+tip** (amended 2026-07-26, the error-path round: the 18 rejection
+rows below added 269 cells, 720 → 989), membership pinned by the
+smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
 the **release profile**, the measurement of record (ratified
 2026-07-26: debug assertions perform metered work, so dev boards
@@ -788,11 +790,13 @@ times them like every row.
 **The bench judge** (`tools/benchjudge`, stdlib Python;
 `benches/board.rs` driven by the board's own cell table so bench
 IDs mirror board cells by construction — the pinned mode times
-227 cells: the 225 designed-pairing board cells derived by rule
+290 cells: the 288 designed-pairing board cells derived by rule
 from the axes (`board::BenchMode::Pinned`: each shape's
 designed-stress groups, the organic control, and the board-red
-riders) plus the wide-display pair; `BOARD_BENCH_MODE=full`,
-`just bench-judge-full`, times the whole 720-cell product plus
+riders; 225 → 288 at the error-path round, the rejection rows'
+designed pairings, count verified against the criterion `--list`)
+plus the wide-display pair; `BOARD_BENCH_MODE=full`,
+`just bench-judge-full`, times the whole 989-cell product plus
 the pair for final verdicts): fits each cell's
 wall exponent `ln(median_hi/median_lo) / ln(denom_hi/denom_lo)`
 across two saved criterion baselines (scales 1 and record),
@@ -841,8 +845,20 @@ verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-26; release
 profile — the profile of record — limb+scan+touch meters lit]:
-board **628 green / 92 red at the default scale; 618 / 102 at ×4**
-over **720 cells**
+board **879 green / 110 red at the default scale; 863 / 126 at ×4**
+over **989 cells**
+(amended 2026-07-26, the error-path round: the 18 rejection rows
+added 269 cells, 720 → 989, and every pre-existing cell's rendered
+row is **byte-identical** at both scales against the #39
+acceptance renders [measured — the touch39 and errpath45 renders,
+mechanically stripped and byte-compared] — the movement is exactly
+the new cells, whose 18 (default) / 24 (×4) reds are triaged in
+§17.3 under four genres: the round's own OPEN join_all re-scan
+finding (red-pinned), the comb-scatter flat-denominator column,
+the id-side parser recursion, and the diff kernel's both-internal
+recursion, the last two P4.2's standing genre. Sums 628 + 92 = 720
+→ 879 + 110 = 989 default; 618 + 102 = 720 → 863 + 126 = 989 at
+×4)
 (amended 2026-07-26, the #39 instrumentation ratchet: the touch
 currency joined the board as the fifth judged column, live on
 every cell with a floor-or-NA declaration per operation; every
@@ -1242,7 +1258,7 @@ exposed type's bytes/text/serde forms snapshot-pinned in-crate);
 the benign rank-pair operand scaling if C3 chose that arm; the
 §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over 720 cells)
+### 17.3 Owned-red accounting (current; over 989 cells)
 
 Reconciled 2026-07-25 from a fresh board reading at the fix-round
 tip (both scales enumerated cell by cell; the apparent
@@ -1491,9 +1507,57 @@ and the `party_fork` heap declaration (generic in-place NA → the
 fork-child deterministic-liveness floor; all twelve cells hold
 their readings above it).
 
-Sums: default 628 + 92 = 720; record 618 + 102 = 720.
+Amended 2026-07-26 (the error-path round): the 18 rejection rows
+took the base 720 → 989 with every pre-existing cell's row
+byte-identical at both scales (the #39 acceptance renders,
+mechanically stripped and byte-compared); the 18 (default) /
+24 (×4) new reds fall into four genres, each with one owner:
 
-Default, 92 = 628 green + 92: the #35 refactor's new reds less the
+- **The join_all up-front re-scan** (11 default / 13 ×4:
+  `party_join_all_overlap` × every overlap-bearing family at ×4;
+  comb-scatter and benign read green at the default scale only
+  because the probe count clamps at its minimum there — the
+  non-monotone-verdict genre §13 records, and the ×4 reading is
+  the honest one): scan e ~2.0 at constants 47–2,954 bits/B —
+  the fold's per-input re-walk of the fixed accumulator, §3's
+  OPEN entry, gate-pinned ≥ ×3.5
+  (`join_all_overlap_upfront_rescan_reads_quadratic`). The benign
+  ×4 cell also reads a sub-allowance heap exponent (e 2.39 over a
+  near-zero constant, the hand-back vector's growth) — the
+  §17.2-C3 judgment-layer genre riding a cell already red on
+  scan. Owner: **§17.2's join_all open item (this round)**.
+- **The comb-scatter flat-denominator column** (7 / 7:
+  `version_decode_truncated`/`_trailing`/`_noncanon` and
+  `clock_decode_truncated`/`_trailing` × comb-scatter — limb and
+  touch exponents over honest constants of 2.8–5.8 ops/B, the
+  validator's per-tooth work against packed bytes growing ×1.24
+  per doubling — plus `clock_join_overlap`/`clock_sync_overlap` ×
+  comb-scatter, heap and scan exponents over near-zero readings
+  (the id side grows with the teeth while the version-dominated
+  denominator stays nearly flat)): the standing column question,
+  no new mechanism. Owner: **C3's classification question**.
+- **The id-side parser recursion** (0 / 3:
+  `party_parse_trailing` (12 grown segments, e 3.58),
+  `party_parse_noncanon` (6), `clock_parse_trailing` (12) ×
+  id-pair at ×4): the same recursive `parse_id_node` the
+  accepting `party_from_str`/`clock_from_str` × id-pair reds
+  already carry. Owner: **P4.2**, the explicit-stack residual.
+- **The diff kernel's both-internal recursion** (0 / 1:
+  `party_without_none × id-pair` at ×4, segments e 1.49 / 62
+  grown): `diff` recurses exactly where both operands are
+  internal — the documented deliberate exception whose
+  one-shallow-operand-caps-depth reasoning does not bind on
+  identical deep operands, the shape this row commits. Owner:
+  **P4.2** (its audit list gains this site's deep-both-internal
+  case; the pre-existing `party_without` row never reached it —
+  its seed minuend keeps the walk shallow).
+
+Sums: default 879 + 110 = 989; record 863 + 126 = 989.
+
+Default, 110 = the 92 pre-existing below + the 18 error-path reds
+above. Record, 126 = the 102 pre-existing below + the 24 above.
+
+Default, 92 pre-existing: the #35 refactor's new reds less the
 #40-flipped `clock_encode × comb-scatter` (73) + the
 nineteen pre-existing (byte-identical through the refactor):
 **ten κ-text constants**
@@ -1508,8 +1572,8 @@ comb-scatter`; single-cell column attribution at C3 BEFORE the
 classification is accepted) + **the ascending-cliff pair's heap
 constants** (the round-7 record).
 
-Record scale, 102 = 618 green + 102: the 72 new reds above + the
-thirty pre-existing:
+Record scale, 102 pre-existing: the 72 #35 reds above + the
+thirty older:
 the six P4.2 tick-walk
 segments legs above (nested-full ×2,
 mirror-narrow ×2, staircase ×2 — the nested-wide pair left at
