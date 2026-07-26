@@ -3716,20 +3716,24 @@ mod width_circulation_cost {
             .expect("the grown ascending-cliff literal parses")
     }
 
-    /// RED PIN: the undercut cascade's hops are residue-width-scaled —
-    /// touches grow by at least ×3.5 across the joint (k, b) doubling
-    /// on a ×2 input, where a dying-digit-funded cascade reads ~×2.
+    /// The undercut cascade is dying-digit-funded flat — touches grow
+    /// by at most ×2.5 across the joint (k, b) doubling on a ×2 input,
+    /// under an absolute band on the larger run.
     ///
     /// Semantics first: fill is the identity (no id region covers a
     /// subdividable subtree at its minimum), so the tick is grow's
     /// closed form — the owned cliff leaf expands to `(0, 1, 0)` — and
-    /// the failure is cost-only. Then the signature [measured:
-    /// 203,435 → 790,851 touches across (k, b) =
-    /// (1,000, 2,048) → (2,000, 4,096), ×3.89 on a ×2.00 input]: the
-    /// cliff's single wide undercut penetrates k − 1 nonzero unit
-    /// boundary differences, and each hop folds the width-b surviving
-    /// residue into the popped unit diff — the surviving side's
-    /// digits, re-read per hop — instead of the dying diff's.
+    /// this pin carries the cost leg alone. The signature [measured:
+    /// 12,626 → 25,234 touches across (k, b) =
+    /// (1,000, 2,048) → (2,000, 4,096), ×2.00 on a ×2.00 input;
+    /// 203,435 → 790,851 (×3.89) before the cascade's fold direction
+    /// inverted, 2026-07-26]: the cliff's single wide undercut
+    /// penetrates k − 1 nonzero unit boundary differences, each dying
+    /// by one fold into the surviving residue at the difference's own
+    /// width, top-index domination deciding every hop in O(1). A
+    /// reading over the growth ceiling means a per-hop residue-width
+    /// read is back — re-pin only with a cure, never by deleting the
+    /// family.
     #[test]
     fn ascend_cliff_undercut_cascade_reads_residue_width() {
         let small = tick_run(
@@ -3755,12 +3759,24 @@ mod width_circulation_cost {
             small.touches, small.input, large.touches, large.input,
         );
         assert!(
-            u128::from(large.touches) * 2 >= u128::from(small.touches) * 7,
-            "ascend_cliff: touch growth across the joint doubling fell under x3.5 \
-             ({} -> {}): the cascade's residue-width hop cost is gone — re-pin \
-             this family flat per unit (the cure's acceptance), never delete the \
-             family",
+            u128::from(large.touches) * 2 <= u128::from(small.touches) * 5,
+            "ascend_cliff: touch growth across the joint doubling exceeds x2.5 \
+             ({} -> {}): a per-hop residue-width read is back in the undercut \
+             cascade",
             small.touches,
+            large.touches,
+        );
+        assert!(
+            large.touches <= 31_542,
+            "ascend_cliff: {} touches at (k, b) = (2,000, 4,096) exceed the pinned \
+             ceiling 31,542 (measured 25,234 x1.25, 2026-07-26)",
+            large.touches,
+        );
+        assert!(
+            large.touches >= 18_925,
+            "ascend_cliff: {} touches read below the 18,925 liveness floor \
+             (measured 25,234 x0.75, 2026-07-26): the cascade's work left the \
+             metered representation",
             large.touches,
         );
     }
