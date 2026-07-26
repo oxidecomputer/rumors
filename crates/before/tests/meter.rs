@@ -3526,9 +3526,11 @@ mod width_circulation_cost {
     }
 
     /// RED PIN: the pure comb's arm-move + close-pop cycle is
-    /// width-scaled in the base watermark stack alone — per-byte
-    /// touches grow by at least ×1.45 across a width doubling at fixed
-    /// site count, where a gap-funded walk reads flat (~×1.0).
+    /// width-scaled in the base watermark stack alone — at least
+    /// ×1.45 per-byte touch growth across a width doubling at fixed
+    /// site count.
+    ///
+    /// A gap-funded walk reads flat (~×1.0) here.
     ///
     /// Semantics first: fill is the identity here (no left-full site
     /// exists), so the tick is grow's closed form — the shallowest

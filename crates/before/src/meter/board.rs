@@ -556,17 +556,21 @@ const MIRROR_NARROW_BASE_DEPTH: usize = 1_500;
 const STAIRCASE_BASE_DEPTH: usize = 1_500;
 
 /// Reveal-comb site count and plateau-magnitude bits at scale 1.0
-/// (equal, so the doubling scales the site count and the circulated
-/// width together — the cycle's cost genre is their product; packed
-/// pair ~1 KiB). The close-reveal cycle's per-site cost is steeper
+/// (equal; packed pair ~1 KiB).
+///
+/// One parameter drives both, so the doubling scales the site count
+/// and the circulated width together — the cycle's cost genre is
+/// their product. The close-reveal cycle's per-site cost is steeper
 /// than the mirror families' chains, so the base sits at the
 /// mirror-wide level.
 const REVEAL_COMB_BASE: usize = 500;
 
 /// Pure-comb level count and leaf-magnitude bits at scale 1.0 (equal,
-/// as above; packed pair ~1 KiB). The base watermark stack's own
-/// cycle runs at ~2 wide folds per level — a tenth of the reveal
-/// comb's constant — so the base sits higher for comparable work.
+/// as above; packed pair ~1 KiB).
+///
+/// The base watermark stack's own cycle runs at ~2 wide folds per
+/// level — a tenth of the reveal comb's constant — so the base sits
+/// higher for comparable work.
 const PURE_COMB_BASE: usize = 1_000;
 
 /// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops`
