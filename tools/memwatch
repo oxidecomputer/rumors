@@ -25,7 +25,7 @@
 #
 # Usage:
 #   memwatch cargo nextest run --workspace --all-features
-#   PROC_LIMIT_GB=16 SWAP_LIMIT_GB=24 memwatch cargo bench ...
+#   PROC_LIMIT_GB=24 SWAP_LIMIT_GB=32 memwatch cargo bench ...
 #
 # Events are echoed and appended to $LOG (default /tmp/memwatch.log). The
 # swap check is macOS-specific and degrades to a no-op elsewhere.
@@ -37,8 +37,8 @@ set -u
 # tower that fails to be boxed and erased in the right place sends codegen
 # memory exponential, and this tripwire exists to catch that runaway, not
 # to budget legitimate builds. Override per invocation when one needs more.
-PROC_LIMIT_GB="${PROC_LIMIT_GB:-20}"
-SWAP_LIMIT_GB="${SWAP_LIMIT_GB:-20}"
+PROC_LIMIT_GB="${PROC_LIMIT_GB:-16}"
+SWAP_LIMIT_GB="${SWAP_LIMIT_GB:-24}"
 LOG="${LOG:-/tmp/memwatch.log}"
 INTERVAL="${INTERVAL:-2}"
 HEARTBEAT_EVERY="${HEARTBEAT_EVERY:-60}"   # ticks between status lines
