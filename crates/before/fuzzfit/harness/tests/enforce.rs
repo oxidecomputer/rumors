@@ -31,7 +31,7 @@ use fuzzfit_harness::bands::{
     band_for, judge_against, Verdict, BANDS, PINNED_RUSTC, REFIT_MIN_KERNELS,
     REFIT_PREFIX_PROGRAMS, REFIT_TOLERANCE,
 };
-use fuzzfit_harness::curve::{local_slope_excess, SLOPE_ALLOWANCE};
+use fuzzfit_harness::curve::{local_slope_excess, SHAPE_EXEMPT, SLOPE_ALLOWANCE};
 use fuzzfit_harness::drive::{for_each_deterministic_program, run_program};
 use fuzzfit_harness::fit::{fit, line_divergence};
 use fuzzfit_harness::strategies::any_program;
@@ -226,8 +226,13 @@ proptest! {
         }
         // The shape leg: within one case the population is family-pure,
         // so a rising bucket-median trend is the mechanism's own
-        // curvature, not mixture tilt.
+        // curvature, not mixture tilt. The fold rows are exempt (their
+        // honest law trends along the width axis; the point leg owns
+        // them).
         for (kernel, group) in &by_kernel {
+            if SHAPE_EXEMPT.contains(kernel) {
+                continue;
+            }
             let band = band_for(kernel).expect("checked above");
             if let Some(excess) = local_slope_excess(band, group) {
                 prop_assert!(

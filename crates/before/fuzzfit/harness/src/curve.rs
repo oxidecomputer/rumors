@@ -34,6 +34,19 @@ use std::collections::BTreeMap;
 
 use crate::bands::Band;
 
+/// Rows the shape leg abstains on: the fold kernels.
+///
+/// Their in-band law legitimately carries a documented, budget-bounded
+/// log factor along the fold-*width* axis (`Version::join_all`'s balanced
+/// reduction passes every input through O(log n) joins), so a
+/// within-case width ladder trends above the pooled pinned slope for the
+/// honest mechanism too — a flag here would read the factor, not a
+/// regression. The point leg owns these rows instead: the generators'
+/// width ladder puts a degenerate (left-fold) reduction's excess, which
+/// grows as n / log n, far past the pinned ceiling inside the reachable
+/// width range.
+pub const SHAPE_EXEMPT: &[&str] = &["ff_version_join_all", "ff_version_meet_all"];
+
 /// Minimum populated floored buckets a within-case trend needs.
 pub const MIN_BUCKETS: usize = 3;
 
