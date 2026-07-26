@@ -573,6 +573,16 @@ const REVEAL_COMB_BASE: usize = 500;
 /// higher for comparable work.
 const PURE_COMB_BASE: usize = 1_000;
 
+/// Ascending-cliff spine length and leaf-magnitude bits at scale 1.0
+/// (equal, so the doubling scales the hop count and the residue width
+/// together — the cascade's cost genre is their product; packed pair
+/// ~1 KiB).
+///
+/// The cascade runs at ~4 touches per input byte on the cured fold
+/// direction — the leveled control's constant — so the base sits at
+/// the pure-comb level for comparable work.
+const ASCEND_CLIFF_BASE: usize = 1_000;
+
 /// Ticks behind the integer (exponent-zero) rank of the `rank_pair_ops`
 /// row: small, so the pair's cost is carried entirely by the mismatch.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
@@ -699,12 +709,29 @@ enum FamilyKind {
     /// own arm-move + close-pop width circulation, isolated from the
     /// frame ledger. Reached only by the two tick rows.
     PureComb,
+    /// The ascending-cliff cross: `ascend_cliff(s, s)` × its own id.
+    ///
+    /// `s` ascending wide leaves stack `s − 1` nonzero unit boundary
+    /// differences and a terminal 0-cliff drives one width-`s` undercut
+    /// residue through all of them — the cascade whose per-hop fold
+    /// direction the gate pins in `tests/meter.rs` price in the touch
+    /// currency these columns do not carry. Reached only by the two
+    /// tick rows.
+    AscendCliff,
+    /// The ascending-cliff control: `ascend_cliff_plateau(s, s)` × the
+    /// ascending-cliff id.
+    ///
+    /// Identical spine, arming schedule, and cliff undercut with every
+    /// leaf leveled, so the difference stack is one compressed zero run
+    /// the residue passes whole in O(1): the hop-schedule control.
+    /// Reached only by the two tick rows.
+    AscendPlateau,
     /// The fixed-seed organic control population.
     Benign,
 }
 
 /// Every family, in display order.
-const FAMILIES: [FamilyKind; 17] = [
+const FAMILIES: [FamilyKind; 19] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -721,6 +748,8 @@ const FAMILIES: [FamilyKind; 17] = [
     FamilyKind::RevealComb,
     FamilyKind::RevealHifloor,
     FamilyKind::PureComb,
+    FamilyKind::AscendCliff,
+    FamilyKind::AscendPlateau,
     FamilyKind::Benign,
 ];
 
@@ -929,6 +958,24 @@ impl FamilyData {
                     "pure-comb",
                     super::pure_comb(s, s).version().encode(),
                     super::pure_comb_id(s).bytes,
+                )
+            }
+            FamilyKind::AscendCliff => {
+                let s = size(ASCEND_CLIFF_BASE);
+                Self::tick_cross_family(
+                    kind,
+                    "ascend-cliff",
+                    super::ascend_cliff(s, s).version().encode(),
+                    super::ascend_cliff_id(s).bytes,
+                )
+            }
+            FamilyKind::AscendPlateau => {
+                let s = size(ASCEND_CLIFF_BASE);
+                Self::tick_cross_family(
+                    kind,
+                    "ascend-plateau",
+                    super::ascend_cliff_plateau(s, s).version().encode(),
+                    super::ascend_cliff_id(s).bytes,
                 )
             }
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
