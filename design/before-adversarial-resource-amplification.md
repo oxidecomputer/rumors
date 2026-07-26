@@ -386,6 +386,18 @@ carries the do-not-re-denominate list. Rank rows denominate
 against value content `bits(num) + exp`, which every public
 construction path bounds by the producing wire.
 
+Amendment (2026-07-26, the error-path round): **rejection rows
+denominate against the fed stream alone.** A rejection produces
+no output, so the text rule's `n_io` degenerates to its input
+side: a `FromStr` rejection row is judged per fed *text* byte at
+the general limb ceiling (no radix-work term — `R` prices
+conversion of the accepting direction, and a rejection forces no
+conversion), and a decode/overlap rejection row per fed packed
+byte. The pad-the-output door does not open here (the fed stream
+is the adversary's own input: padding it inflates the denominator
+only by bytes the operation is genuinely asked to consume), so no
+honesty ceiling is needed on the rejection side.
+
 Statement-faithfulness (the user's standing bar) applies to every
 claim in this document and the code's prose: never weaker than
 stated, never stronger than proven.
@@ -634,6 +646,113 @@ against an n·log n constant can read red at default and green at
 ×4 (`party_join_all × scatter` era) — record-scale greenness
 never clears a default red. Record-scale runtime budget: ≤ 30 s
 summed measured-body wall per family.
+
+### The rejection surface (fallible operations, enumerated 2026-07-26)
+
+Cost claims are total: rejecting an input is an outcome with a
+cost, bounded like any other, whether or not the caller honored
+the usage invariants. (The linearity-of-parties rule is a
+*semantic* safety rule, not a soundness rule — nothing crashes if
+violated, programs just stop meaning what the caller wants; the
+owner's ruling, 2026-07-26. Semantic claims stay conditional on
+the invariants; cost claims are unconditional.) The board's
+rejection rows (this round) measure the rejection side under all
+five currencies, with the defect **maximally deferred** in every
+committed shape — an early-exit-only measurement is the cheapest
+artifact that would pass, so every shape places its defect where
+rejection must consume as much input as possible:
+
+- **Overlap** (`Party::join`, `Clock::join`, `Clock::sync` —
+  `Err` on non-disjoint parties): the `party_join_overlap`/
+  `clock_join_overlap`/`clock_sync_overlap` rows, over the
+  overlap-mount adapter (the disjoint-mount adapter's
+  counterpart): `a` = the shape mounted left plus a marker chain
+  along the shape's rightmost-present path, `b` = the shape
+  mounted right, so the pair's one overlapping position is the
+  shape's preorder-last terminal — the last position the lockstep
+  walk reaches, with every earlier region disjoint. Adapter
+  outputs are semantically void by design (a well-formed pair no
+  legal fork/join history produces); the cost claim is what the
+  rows price. Clock overlap rejection does no version work (the
+  party join is the gate; `clock/batch.rs`).
+- **Overlap hand-back in the folds** (`Party::join_all` —
+  `Err(Vec)` returning every overlapping input): the
+  `party_join_all_overlap` row — one large mounted accumulator,
+  many tiny probes (rightmost chain truncated at
+  `OVERLAP_PROBE_PATH_LEVELS`, then full) each overlapping the
+  accumulator's last owned region, all handed back.
+  `Clock::join_all` runs the identical up-front
+  `is_disjoint`-against-self walk inline, so the party row prices
+  both (delegation, the board doc's NA list).
+- **Empty difference** (`Party::without` → `None` when `other`
+  covers `self`): the `party_without_none` row, identical-region
+  operands, so the diff walks both streams in full and the empty
+  result is known only at the end.
+- **Strict decode** (`Version`/`Party`/`Clock::decode` —
+  `Decode`): `*_decode_truncated` (the last byte dropped: a
+  strict prefix of a preorder stream has an open subtree at every
+  earlier position, so EOF is discoverable only at the end),
+  `*_decode_trailing` (a `0xFF` byte appended after the complete
+  valid stream), for all three types; `version_decode_noncanon`
+  (the preorder-last leaf split into an equal-sibling pair — a
+  zero right-sibling delta, the minimality violation the
+  validator can only see at that pair's close, the stream's last
+  position) and `party_decode_noncanon` (the preorder-last
+  terminal split into a collapsible `(1, 1)`, same argument).
+  Clock non-canonicality is the component validators on the same
+  streams (delegation). Not rowed, with reasons:
+  `Decode::Anonymous` (the accepting parse of the empty stream —
+  a zero-byte operand, no adversarial scaling axis);
+  `Decode::Io` (the caller's reader; a failing reader is a
+  truncation carrying an error, priced by the truncated rows);
+  other non-canonicality genres (a delta driving the running
+  height negative, nonzero padding) ride the same single
+  validator pass at the same full-parse cost — the committed
+  tails are the maximally-deferred representatives.
+- **Text parse** (`FromStr` for all three — `Parse`):
+  `version_parse_trailing`/`party_parse_trailing`/
+  `clock_parse_trailing` (junk after the complete valid text; the
+  clock's junk sits inside the outer parens so the version
+  component parses in full first — the clock parser's outer-paren
+  check rejects appended junk in O(1), an early exit the row
+  deliberately avoids) and `version_parse_noncanon` (the last
+  spelled value `t` re-spelled `(0, t, t)`: equal sibling leaves,
+  judged at that node's close, the text's end) /
+  `party_parse_noncanon` (the last `1` re-spelled `(1, 1)`).
+  The P3.8 text round priced the *accepting* direction (κ, the
+  delegating-parser and schoolbook pins, the metered id renderer);
+  these rows extend it to the rejecting direction and duplicate
+  none of it. `Parse::Anonymous` ("0") is a word-scale input —
+  not rowed. Clock text non-canonicality: component delegation.
+- **Not rowed, bounded or delegated**: `Version::meet_all` →
+  `None` on an empty iterator (no operand); the `TryFrom`
+  literal forms (`u8`/`bool`/tuples/`u64`/`(I, E)` — word-scale
+  or type-bounded operands); `encode_to`'s `io::Error` (the
+  caller's writer: at most the encode row's work before the
+  error propagates); `Rank::checked_sub` → `None` (measured on
+  the `rank_pair_ops` row, which attempts both directions);
+  serde/borsh deserialize errors (the strict decoder through the
+  wrappers — the decode rejection rows; the borsh wire cursor
+  rides the standing unmetered-wire note above).
+
+Rejection-row conventions (this round): **denomination** — a
+rejection produces no output, so every rejection row denominates
+against the fed stream alone (packed bytes, or text bytes on the
+parse rows; the §6 amendment). **Floors** — packed-stream
+rejection rows floor scan at one bit per fed byte with the
+defect-placement derivation (a self-delimiting stream's terminal
+defect is only discoverable by parsing to it; the overlap rows'
+witnessing position sits at both operands' stream ends and the
+packed coding has no random access); heap, limb, and touch are
+NA on rejection rows — rejection materializes no result and
+forces neither value work nor an accumulator fold (a validator
+may defer both past the topology walk that finds the defect).
+Text-rejection rows declare no floor on any column, by honest
+derivation: no deterministic counter watches text-byte
+consumption, and a parser may find the defect in tokenization
+before any packed or value work — their ceilings judge live
+readings (the parsers do metered work greedily) and the time leg
+times them like every row.
 
 **The bench judge** (`tools/benchjudge`, stdlib Python;
 `benches/board.rs` driven by the board's own cell table so bench
