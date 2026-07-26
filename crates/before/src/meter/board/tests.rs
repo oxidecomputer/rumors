@@ -12,17 +12,18 @@
 //! doubling, over a build-liveness floor) lives here too, beside the board
 //! row that carries it.
 
-use crate::meter::{bigroot, dense, hugeleaf, reveal_comb, Packed};
+use crate::meter::{bigroot, cliff_comb, dense, hugeleaf, reveal_comb, Packed};
 use crate::{Party, Version};
 
 use super::{
-    assert_honest_text, mandatory_limbs_stream, mandatory_limbs_version, radix_units_party,
-    radix_units_version, TEXT_BYTES_PER_RADIX_UNIT,
+    assert_honest_text, exponent, mandatory_limbs_stream, mandatory_limbs_version,
+    radix_units_party, radix_units_version, value_content_bytes, MAX_SCALING_EXPONENT,
+    TEXT_BYTES_PER_RADIX_UNIT,
 };
 // The limb-priced tripwires read the touch counter, so they compile only
 // with the `limb-meter` feature; these names have no ungated user.
 #[cfg(feature = "limb-meter")]
-use super::{version_output_bytes, MAX_SCALING_EXPONENT, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT};
+use super::{version_output_bytes, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT};
 
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -308,6 +309,7 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
         const PROBE_NA: &str = "probe: the limb exponent leg alone is under test";
         Sample {
             denom_bytes: n_io,
+            exp_denom_bytes: n_io,
             limb_denom: r,
             text_row: true,
             floors: Floors {
@@ -411,6 +413,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
         assert!(ones > 0, "the bypass walk does real work over real bits");
         Sample {
             denom_bytes: n,
+            exp_denom_bytes: n,
             limb_denom: n as u64,
             text_row: false,
             floors: floors_of(n),
@@ -507,5 +510,95 @@ fn join_all_overlap_upfront_test_reads_flat() {
         "join_all's up-front overlap test reads x{growth:.2} scan growth across the joint \
          doubling ({lo} -> {hi} bits), over the pinned x{MAX_SCAN_GROWTH}: work scaling with \
          the fixed accumulator re-entered the per-input path"
+    );
+}
+
+/// The flat-denominator shape's packed-byte fit manufactures a superlinear
+/// exponent out of measured flat per-tooth work; the value-content fit
+/// reads the same measurements linear. This is the tripwire the
+/// comb-scatter exponent re-denomination rests on: the comparison sweep's
+/// limb work per tooth is flat across a tooth-count doubling (the honest
+/// linear witness), the packed denominator grows under x1.5 because the
+/// fixed 1000-bit magnitude dominates it (the intercept premise), and the
+/// two fits disagree by an exponent class on identical readings.
+#[cfg(feature = "limb-meter")]
+#[test]
+fn flat_denominator_packed_fit_manufactures_an_exponent() {
+    let measure = |teeth: usize| -> (usize, usize, u64) {
+        let v = version_of(&cliff_comb(1_000, teeth));
+        let mut w = v.clone();
+        w.tick(&Party::seed());
+        let packed = v.encode().len() + w.encode().len();
+        let content = value_content_bytes(&v) + value_content_bytes(&w);
+        crate::meter::reset_limb_ops();
+        let ord = v.partial_cmp(&w);
+        let ops = crate::meter::limb_ops();
+        assert!(ord.is_some(), "a ticked counterpart stays comparable");
+        (packed, content, ops)
+    };
+    let (packed1, content1, ops1) = measure(128);
+    let (packed2, content2, ops2) = measure(256);
+    // The intercept premise and the content axis's liveness.
+    let packed_growth = packed2 as f64 / packed1 as f64;
+    let content_growth = content2 as f64 / content1 as f64;
+    assert!(
+        packed_growth < 1.5,
+        "the packed denominator must be intercept-dominated: grew x{packed_growth:.2}"
+    );
+    assert!(
+        (1.9..=2.1).contains(&content_growth),
+        "the value content must track the doubled tooth count: grew x{content_growth:.2}"
+    );
+    // The honest linear witness: per-tooth limb work is flat.
+    let per_tooth = (ops1 as f64 / 128.0, ops2 as f64 / 256.0);
+    assert!(
+        per_tooth.1 <= per_tooth.0 * 1.25,
+        "per-tooth limb work must be flat across the doubling: {per_tooth:?}"
+    );
+    // The same readings, two fits, an exponent class apart.
+    let packed_fit = exponent(ops1, ops2, packed1, packed2);
+    let content_fit = exponent(ops1, ops2, content1, content2);
+    assert!(
+        packed_fit > 2.0 * MAX_SCALING_EXPONENT,
+        "the packed fit must manufacture a superlinear exponent from flat marginal work: \
+         read {packed_fit:.2}"
+    );
+    assert!(
+        content_fit <= MAX_SCALING_EXPONENT,
+        "the content fit must read the same measurements linear: read {content_fit:.2}"
+    );
+}
+
+/// A genuinely quadratic-in-teeth walk still reads red against the value
+/// content denominator: the re-denomination corrects the fit's axis, never
+/// the criterion's teeth. The probe does one metered accumulator pass per
+/// tooth over all earlier teeth — Theta(teeth^2) limb ops on a
+/// content-linear operand — and its content fit lands a full exponent
+/// class over the ceiling.
+#[cfg(feature = "limb-meter")]
+#[test]
+fn quadratic_in_teeth_work_reads_red_against_the_content_denominator() {
+    use crate::codec::Base;
+    let measure = |teeth: usize| -> (usize, u64) {
+        let v = version_of(&cliff_comb(1_000, teeth));
+        let content = value_content_bytes(&v);
+        crate::meter::reset_limb_ops();
+        let mut acc = Base::from(0u32);
+        for i in 0..teeth {
+            for _ in 0..i {
+                acc += 1u32;
+            }
+        }
+        let ops = crate::meter::limb_ops();
+        assert!(acc > Base::from(0u32), "the probe's fold is live");
+        (content, ops)
+    };
+    let (content1, ops1) = measure(128);
+    let (content2, ops2) = measure(256);
+    let content_fit = exponent(ops1, ops2, content1, content2);
+    assert!(
+        content_fit > MAX_SCALING_EXPONENT,
+        "a quadratic-in-teeth probe must read red against the content denominator: \
+         read {content_fit:.2}"
     );
 }
