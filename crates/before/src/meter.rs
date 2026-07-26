@@ -661,6 +661,169 @@ pub fn staircase(d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The memo-chain event `Q(k, distinct)`: a right-leaning spine of `k`
+/// single-leaf left-full sites, `~(14k + 9)` bits distinct (γ(j) codes),
+/// `13k + 9` shared.
+///
+/// Layout: the root `1 · γ(0)` with left leaf `0 · γ(0)`, then per level
+/// `j = 1..=k` the spine node `1 · γ(0)` over the site node
+/// `1 · γ(0) · 0 · γ(0) · 0 · γ(v_j)` (leaves 0 and `v_j`), terminated by
+/// `0 · γ(0)`. With `distinct`, `v_j = j`; else every `v_j = 1`. Crossed
+/// with [`memo_chain_id`], the root is one covering left-full site and
+/// every `(0, 0, v_j)` node an interior left-full site whose range is the
+/// single leaf `v_j` — `k` consumption-sibling memo records in one fresh
+/// scan, minima `v_j`. Distinct minima make every recorded difference
+/// nonzero; the shared twin's differences are all zero (the unstored
+/// case), so the pair separates per-record bookkeeping from work that
+/// scales with the differences the records carry. Normal form holds
+/// everywhere: every node's subtree minimum is its left leaf's 0, and the
+/// only leaf pairs are `(0, v_j)` with `v_j ≥ 1`.
+///
+/// # Panics
+///
+/// Panics if `k == 0`.
+pub fn memo_chain(k: usize, distinct: bool) -> Packed {
+    assert!(k >= 1, "the memo chain needs at least one interior site");
+    let mut bits = Bits::with_capacity(14 * k + 9);
+    bits.push(true); // the root: the covering site's node
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // the covering site's collapsed left leaf
+    for j in 1..=k {
+        bits.push(true); // spine node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        bits.push(true); // the interior site's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf(&mut bits, 0); // its collapsed left leaf
+        ev_leaf(&mut bits, if distinct { j as u64 } else { 1 }); // its range: one leaf, the site minimum
+    }
+    ev_leaf(&mut bits, 0); // the spine terminal
+    Packed::from_bits(bits)
+}
+
+/// The memo-chain id over [`memo_chain`]: `(1, ·)` at the root and at
+/// every interior site, `10k + 8` bits.
+///
+/// Layout: the root tag `11` with full left terminal `00`, then per level
+/// the spine tag `11`, the site id `(1, (1, 0))` (`11 · 00 · 10 · 00`),
+/// terminated by `(1, 0)` (`10 · 00`). Normal form: no `(1, 1)` node —
+/// every full child's sibling is internal or absent.
+///
+/// # Panics
+///
+/// Panics if `k == 0`.
+pub fn memo_chain_id(k: usize) -> Packed {
+    assert!(k >= 1, "the memo-chain id needs at least one interior site");
+    let mut bits = Bits::with_capacity(10 * k + 8);
+    bits.push(true); // the root: full left child ...
+    bits.push(true); // ... over the spine
+    bits.push(false); // the full left terminal
+    bits.push(false);
+    for _ in 0..k {
+        bits.push(true); // spine tag: the site id, then the spine
+        bits.push(true);
+        bits.push(true); // the site id: full left child ...
+        bits.push(true); // ... and an internal right
+        bits.push(false); // the full left terminal
+        bits.push(false);
+        bits.push(true); // the site's range id: `(1, 0)`
+        bits.push(false);
+        bits.push(false);
+        bits.push(false);
+    }
+    bits.push(true); // the spine terminus: `(1, 0)`
+    bits.push(false);
+    bits.push(false);
+    bits.push(false);
+    Packed::from_bits(bits)
+}
+
+/// The memo-comb event `B(d)`: `d` alternating levels of a single-leaf
+/// site and a covering site, `~(18d + 2·γlen(d))` bits.
+///
+/// Layout: the root `1 · γ(0)` with left leaf `0 · γ(0)`, then per level
+/// `i = 1..=d`: `1 · γ(0)` (the covering site `X_{i+1}`'s range root)
+/// over `1 · γ(0) · 0 · γ(0) · 0 · γ(i)` (the single-leaf site `A_i`,
+/// minimum `i`) and `1 · γ(0) · 0 · γ(0)` (the next covering site's
+/// node), terminated by the leaf `0 · γ(d + 1)`. Crossed with
+/// [`memo_comb_id`], one fresh scan records `2d + 1` sites whose ranges
+/// interleave shallow (`A_i`, closing early) with covering (`X_i`,
+/// closing late): recording order runs `A_1..A_d` then `X_{d+1}..X_1`
+/// while the walk consumes `X_1, A_1, X_2, A_2, …` — every consecutive
+/// consumption is Θ(d) apart in recording order, with ascending site
+/// minima (`m(A_i) = m(X_i) = i`, the tail `d + 1`) keeping ~2d recorded
+/// differences nonzero. Any resolution that walks recorded differences
+/// between consecutively consumed sites — against the enclosing site or
+/// the previously consumed one alike — re-reads Θ(d) of them per site;
+/// per-site records anchored to the walk's own live state read O(1).
+/// Normal form: every node's subtree minimum is 0 via its zero leaves,
+/// and no equal leaf pair exists.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn memo_comb(d: usize) -> Packed {
+    assert!(d >= 1, "the memo comb needs at least one level");
+    let mut bits = Bits::with_capacity(20 * d + 24);
+    bits.push(true); // the root: the outermost covering site's node
+    codec::encode_int(&mut bits, &Base::ZERO);
+    ev_leaf(&mut bits, 0); // its collapsed left leaf
+    for i in 1..=d {
+        bits.push(true); // the covering range's root
+        codec::encode_int(&mut bits, &Base::ZERO);
+        bits.push(true); // the single-leaf site's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf(&mut bits, 0); // its collapsed left leaf
+        ev_leaf(&mut bits, i as u64); // its range: minimum `i`
+        bits.push(true); // the next covering site's node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        ev_leaf(&mut bits, 0); // its collapsed left leaf
+    }
+    ev_leaf(&mut bits, d as u64 + 1); // the innermost range: one leaf
+    Packed::from_bits(bits)
+}
+
+/// The memo-comb id over [`memo_comb`]: a covering `(1, ·)` site per
+/// level interleaved with the single-leaf sites' `(1, (1, 0))`,
+/// `14d + 12` bits.
+///
+/// Layout: the root tag `11 · 00`, then per level `11` (the covering
+/// range's node) · `11 · 00 · 10 · 00` (the single-leaf site) ·
+/// `11 · 00` (the next covering site), terminated by `10 · 00`. Normal
+/// form: no `(1, 1)` node.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+pub fn memo_comb_id(d: usize) -> Packed {
+    assert!(d >= 1, "the memo-comb id needs at least one level");
+    let mut bits = Bits::with_capacity(14 * d + 12);
+    bits.push(true); // the root: full left child over the comb
+    bits.push(true);
+    bits.push(false); // the full left terminal
+    bits.push(false);
+    for _ in 0..d {
+        bits.push(true); // the covering range's node
+        bits.push(true);
+        bits.push(true); // the single-leaf site: full left ...
+        bits.push(true); // ... over its one-leaf range
+        bits.push(false); // the full left terminal
+        bits.push(false);
+        bits.push(true); // the range id: `(1, 0)`
+        bits.push(false);
+        bits.push(false);
+        bits.push(false);
+        bits.push(true); // the next covering site: full left ...
+        bits.push(true); // ... over the rest
+        bits.push(false); // the full left terminal
+        bits.push(false);
+    }
+    bits.push(true); // the innermost range id: `(1, 0)`
+    bits.push(false);
+    bits.push(false);
+    bits.push(false);
+    Packed::from_bits(bits)
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> Base {
     pow2(b) - &Base::from(1u8)
