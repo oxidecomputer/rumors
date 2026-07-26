@@ -181,6 +181,14 @@ and every lemma's realization is [measured] on every committed
 family. I4′ (width conservation, stated with I4 below) subsumes
 I4's funding enumeration; L1 carries its cost clause as L1′. The
 record is §9 round 6.
+*Amendment 2026-07-26 (round 8, the fusion landing)*: **§6's fusion
+is LANDED** — `tick` is one fused fill walk (changed flag + route
+fold) plus at most one splice; byte-identity and the flag are pinned
+directly against the recursive oracle under the owner rulings of
+2026-07-26 (§6's amendment), every committed family holds its band
+or re-pins tighter, and the board's tick rows moved with zero status
+flips. The record is §9 round 8; T-tick's status is unchanged (the
+fused walk is the same discipline over the same web).
 
 Status: **[validated-on-model, kernel-pending]** — every lemma is
 [measured], [measured-on-model], or [derived] with no load-bearing
@@ -556,7 +564,7 @@ bound).
 | scan bits | O(n + m), constant ≤ 2 reads/position + flat ×2 sibling scans | **[measured]** landed, e 1.00 both arms |
 | limb ops | **T-tick: amortized O(n + m)** | **[measured at kernel, rounds 6–7]**: I4′/L1′ + L2 realized by the latent-boundary register and round 7's fold-direction cure; linear on every committed family including the close-reveal genre (reveal-comb ×2.00 across the joint doubling, pure-comb flat per byte, hifloor/mirror-wide/fanout inside their bands) and the undercut-cascade genre (ascend-cliff ×2.00 across the joint doubling); the model tier validated the discipline composed across the fourteen committed schedules plus the seven round-6 attack schedules |
 | heap | O(depth) frames + O(n + m) total digits; builder output | **[derived]** L5, pinned by existing heap columns |
-| segments | today O(paired depth) recursion (red-pinned at ×4, owner **P4.2**); eventual profile **O(1) grown segments** via explicit stacks — the watermark stack and the grow probe's bit-coded frames are the natural vehicle, so P4.2 implements against this line. Sequencing note (attack round one, A2): on the fused walk, the route-DP fold reads skipped id subtrees per-bit on leaf-under-internal-id arms — P4.2's §11.4 word-scale skip on those arms interacts with the fused path; P4.2's sequencing decision must name the fused walk, and the before/after table judges the interaction | **[measured]** red today; target [derived] |
+| segments | today O(paired depth) recursion (red-pinned at ×4, owner **P4.2**); eventual profile **O(1) grown segments** via explicit stacks — the watermark stack's discipline and the fused walk's bit-coded expansion frames (`fill/fuse.rs`) are the natural vehicle, so P4.2 implements against this line. Sequencing note (attack round one, A2; restated at the round-8 landing): the fused walk's route fold reads each skipped id subtree per 2-bit tag on leaf-under-internal-id arms (the expansion DP visits every node the skip visits) — P4.2's §11.4 word-scale skip on those arms interacts with the landed fused walk; P4.2's sequencing decision must name it, and the round-8 before/after table carries the landed interaction baseline | **[measured]** red today; target [derived] |
 | denominator | **input-denominated stands** (n + m packed bits; §6's do-not-re-denominate list). Supporting lemma L6 **[measured, pinned; the additive form is REFUTED]**: `size(tick(e, i)) ≤ 2·size(e) + 4·size(i) + 32` (`tick_output_is_input_bounded`, committed with its shrunk counterexample seeds — grow's zero leaf and a raise's landing can each re-code one delta against a wide neighbor, duplicating one input code's width once, so no additive slack survives; the honest constant is the factor 2, realized at 1.5 by construction). Fill's output deltas otherwise telescope input deltas; grow adds one increment or one expansion chain ≤ O(m). The pricing chain carries the constant: Σ emitted ≤ 2·input + O(id), still input-denominated. The ORBIT is separately pinned (the round-3 lemma below): the factor cannot compound along `tick^k`. | |
 
 ## 5. If T-tick fails
@@ -601,6 +609,37 @@ within the skyline representation if at all possible):
    sites) is walk-structural, not coding-structural.
 
 ## 6. The fusion assessment (fill + grow → one tick pass)
+
+*Amendment 2026-07-26 (round 8, the landing; two owner rulings of
+2026-07-26 supersede clauses below as transcription choices)*: the
+fusion is **LANDED** (the shape, numbers, and re-pins are §9 round
+8). (i) The composed fill/compare/grow path is **not retained** —
+the "stays in-tree as the oracle-facing composition" clause below is
+superseded: the differentials of record pin the fused `tick`
+directly to the recursive oracle (`tick` byte-identical to the
+oracle's `event`; the changed flag ≡ the oracle's `fill` moved the
+tree) across every committed family, the exhaustive small scope,
+arbitrary pairs, and organic histories, and the grow branch is
+additionally held to the oracle's inflation, the brute-force
+minimal-inflation search, and a reference recursive route probe
+pinning the walk's route bit for bit. Standalone `fill`/`grow`
+entry points and the iterative topology-only probe went with the
+composition (the fused walk records the route itself). (ii) **No
+runtime byte-compare assert is retained** — the "debug_assert
+through at least one release cycle" clause is superseded: the
+committed differentials are the entire pin of the flag seam (the
+standing practice retires expensive dev-build asserts as soon as
+proptests cover semantic equivalence to the oracle, and the same
+round landed exactly that coverage). A1 (the first emitted leaf
+compares absolute against absolute) and A3 (pooling — the watermark
+stack's lease/retire pool, which the fused walk's new paths never
+bypass) stand as landed; A2 is restated at §4's segments row against
+the landed fold. The size reach of the oracle differentials is
+oracle-bounded (native frames, materialized magnitudes): the
+large-operand coverage rides the deep 4096-level closed-form
+witnesses, the meter suite's closed-form output asserts at its
+pinned scales (k = 1,000–4,096), and the board's determinism
+tripwire.
 
 Today's tick on the **grow branch** traverses the event stream ~4×:
 fill's walk (+ builder emission), the byte compare, grow's
@@ -845,7 +884,12 @@ argument, cite the invariant; if by measurement, name the families);
 cure-earned constants. **No green, no merge.** If fusion is
 ratified: its separate commit adds the flag-equivalence differential
 + tick-composition byte-identity, and the before/after table gains
-the grow-branch traversal delta.
+the grow-branch traversal delta. *Amendment 2026-07-26 (round 8)*:
+landed in that shape under the owner rulings recorded at §6 — the
+flag differential pins against the recursive oracle's `fill` and
+the byte-identity differential against the oracle's `event` (no
+composed skyline path is retained to differentiate against), and
+the before/after table (§9 round 8) carries the grow-branch delta.
 
 Cure sequencing within #34: red pin commit → watermark rewrite of
 the walk (right-full arm first — it is self-contained) → the
@@ -879,7 +923,9 @@ agent as written.
    unless the honest optimum turns out superlinear (§5's escalation
    path). Recorded here as the spec's recommendation: adopt, as the
    separate post-cure commit inside #34's charter; judged by the
-   before/after table, no red pin.
+   before/after table, no red pin. *Landed 2026-07-26* (§9 round 8),
+   with the differential shape per the owner rulings at §6's
+   amendment.
 3. **L6, the output-bound pin** — landed with the cure in its
    corrected multiplicative form (`≤ 2·size(e) + 4·size(i) + 32`;
    the additive form is refuted, §4's row and the round-3 record):
@@ -1522,3 +1568,141 @@ board red, linear]; L6 [measured, pinned, multiplicative] — held;
 the orbit lemma [measured, pinned] — held; **T-tick: the theorem
 under I4′, [measured at kernel] on every committed family
 (2026-07-26, round 7)**.
+
+**Round 8** (the fusion: fill + grow → one tick pass, 2026-07-26).
+§6's design landed as one bisectable commit under the owner rulings
+recorded at §6's amendment (no composed path retained; no runtime
+byte-compare assert; differentials pinned directly to the recursive
+oracle).
+
+- **The landed shape** (`fill.rs` + its `fuse` submodule; the splice
+  in `grow.rs`): the walk's output starts as a *verbatim reference*
+  — while every emitted plateau equals the input plateau it replaces
+  (pass-throughs by construction; collapse/raise emissions iff the
+  consumed range was a single leaf and the offset's value is zero;
+  the raise-to-minimum arms diverge unconditionally, their value
+  strictly exceeding the range maximum), nothing is built — and the
+  first divergence materializes the matched prefix wholesale into
+  the collapsing builder (copy-on-first-divergence as §6 derived,
+  realized as a builder mode, not a shadow build). Grow's
+  (expansions, depth) route DP rides the same walk: two fold sites
+  in the recursion (the internal-node join and the
+  leaf-under-internal-id expansion fold, whose per-tag id reads are
+  exactly the reads the lazy skips already paid) recording one
+  direction bit per id branch position; the probe dies at the first
+  divergence, so the fill branch pays route bookkeeping only over
+  its matched prefix. The unchanged branch hands the route to the
+  splice emit, whose full-id-over-event-node arm is now asserted
+  unreachable (fill would have collapsed the region and tripped the
+  flag), shrinking the route to id-keyed bits only. Deleted with the
+  composition: the iterative topology-only probe and its bit-coded
+  frame machinery, the ev-keyed route block, the standalone
+  `fill`/`grow` entry points, and the probe's envelope rows (the two
+  reachable grow scenarios re-target the full fused tick as
+  `tick_expand_spine`/`tick_expand_cross`, fresh five-meter
+  baselines with the grow-only measurements of record kept in the
+  annotation; the frame-adversary probe rows dissolve with the
+  instrument they pinned).
+- **The differentials, all green on first run against the fused
+  kernel**: `tick` ≡ the oracle's `event` and flag ≡ (the oracle's
+  `fill` moved the tree), over the family grids, the exhaustive
+  small scope, arbitrary pairs, organic histories, the flag's
+  worked corner cases (a value-reproducing raise does not trip;
+  a collapse shifting the first leaf trips on topology), and the
+  deep 4096-level closed-form witnesses re-denominated in flag
+  terms (fill idempotence restated as "a filled stream re-ticks
+  through the grow branch"). The grow suite decides the branch per
+  pair and pins its coverage exactly — 182 grow-branch family pairs
+  and 114,621 exhaustive pairs (tamper-evident against a regression
+  that reroutes pairs to the fill branch and passes vacuously) —
+  holding each to the oracle's inflation, the brute-force minimal
+  inflation, and a reference recursive probe whose route must equal
+  the walk's bit for bit.
+- **The before/after table** (version_tick board rows, default
+  scale, per-byte constants; the record scale moves identically —
+  identical constants, e 1.00 on every moved column; full artifacts
+  `board-fusion-{lo,hi}.txt` against `board-joinallcure-{lo,hi}.txt`):
+
+  | family | branch | limb/B | scan/B | touch/B | heap/B |
+  |---|---|---|---|---|---|
+  | benign | fill | 4.3 = | 8.0 = | 5.2 = | byte-identical |
+  | dense | fill | 5.3 = | 8.0 = | 2.7 = | 0.2 → 0.0 |
+  | nested-wide | fill | 5.4 = | 14.2 = | 8.1 = | byte-identical |
+  | mirror-wide | fill | 8.9 = | 28.4 = | 24.3 = | e 0.94 → 0.91 |
+  | reveal-comb | fill | 8.0 = | 22.5 → 22.9 | 17.8 = | 0.3 → 0.0 |
+  | nested-full | grow | 9.1 → 6.9 | 37.7 → 24.0 | 10.3 → 8.0 | 0.3 → 0.0 |
+  | staircase | grow | 11.4 → 4.6 | 40.0 → 24.0 | 12.6 → 9.1 | 0.5 → 0.0 |
+  | hugeleaf | grow | 0.4 → 0.3 | 48.0 → 32.0 | 0.6 → 0.5 | 4.7 → 2.6 |
+  | pure-comb | grow | 4.4 → 1.5 | 37.1 → 22.5 | 5.2 → 3.7 | = |
+  | ascend-cliff | grow | 4.6 → 1.6 | 41.4 → 25.4 | 8.9 → 7.4 | 64.4 → 63.0 (owned red stays) |
+  | ascend-plateau | grow | 5.6 → 2.0 | 41.8 → 25.8 | 5.6 → 3.8 | 0.3 → 0.0 |
+
+  By mechanism: the scan drops on grow-branch rows are the
+  eliminated probe pass and byte compare (4 traversals → 2:
+  version_tick_adv_party scans read 44.0 → 28.0, 20.8 → 8.0,
+  29.3 → 16.0 across its families); the touch/limb drops are
+  copy-on-first-divergence (fill's discarded output never built:
+  no gap materialization per matched emission, no builder); the
+  heap drops on BOTH branches are the deferred output buffer (the
+  builder no longer coexists with the collapse scan's transient at
+  peak — tick_dense's envelope heap read 71,484 → 47,052 on exactly
+  this); the route bookkeeping tax is invisible at board resolution
+  (benign, dense, nested-wide byte-identical on every work column —
+  the §6 parity question answered at exact parity; the one
+  measurable trace is +2 limb ops and one extra stack segment on
+  the tick_nested_wide envelope row, and reveal-comb's +0.4 scan
+  bits/B prefix replay, all inside standing ceilings).
+- **The board account**: 989 cells at both scales, cell count
+  unchanged; 51 of the 83 tick-carrying rows (version_tick,
+  version_tick_adv_party, clock_tick, clock_send, clock_recv,
+  version_batch_snapshot) moved per scale with **zero status
+  flips**; sums 890/99 → 891/98 default (the one flip is a non-tick
+  RED → GREEN: party_without_none × id-pair's segments count 2 → 0)
+  and 873/116 → 873/116 record. Non-tick rows are byte-identical on
+  every column except the segments column of six id-pair parse rows
+  at the record scale (readings moved in both directions, e.g.
+  70 → 54 and 12 → 16, statuses unchanged — already red in the
+  P4.2-owned recursion genre): the segments counter reads stacker's
+  process-global segment growth, which is coupled to the preceding
+  cells' stack usage in the shared board process, and the fused
+  walk's changed stack profile re-rolls it; the parse kernels
+  themselves are untouched and their heap/limb/scan/touch columns
+  are byte-identical.
+- **Meter re-pins, all in the fusion commit** (instruments doctrine;
+  parent readings are the committed measurements of record): the
+  grow-branch touch bands re-pin downward under the at-risk-floor
+  protocol — ascend_cliff 25,234 → 20,975 (ratio ×2.00 held),
+  ascend_cliff_plateau 13,240 → 8,981, pure_comb 7,302 → 5,235
+  (falling per byte) — each ×1.25/×0.75 re-derived; the fill-branch
+  families drift by −2..−4 touches (the measured-of-record chains
+  updated; bands stand); tick_dense's heap ceiling tightens
+  89,345 → 58,815 and tick_mirror_wide's 34,246 → 32,467 on the
+  deferred-buffer drop, with work columns byte-identical.
+- **One committed tripwire reshaped, with its seed**: the
+  `grow_bushy_is_linear` two-point step budget was stable only
+  because the deleted probe pass added a deterministic ~n floor at
+  every scale — the fused splice walks only the chosen path, so a
+  bushy id whose cheapest route drifts with scale swings the
+  measured constant by up to the input's own size (the shrunk
+  counterexample, scale 125 → 500, rode an all-left route at the
+  small point; committed as a proptest seed). The pin now drives
+  `(bushy(scale), 1)`: the bushy subtree still makes the fold weigh
+  two feasible children at every branch, and the terminal pins the
+  route — and the splice's skip — scale-independent.
+- **A reachability note for the record**: the splice's
+  equal-sibling collapse at the inflation point is fill-preempted
+  on every pair the fused tick can route to it — making the grown
+  leaf equal its leaf sibling requires ownership of a leaf one
+  below that sibling, which fill's raise lifts first, tripping the
+  flag — so the grow suite's worked examples carry the reachable
+  genres (increments, expansion chains) and the exhaustive grid
+  holds every reachable pair; the builder's normalization stays, as
+  shared machinery the fill branch exercises.
+
+**Per-lemma status after round 8**: unchanged from round 7 on every
+lemma (the fused walk runs the same anchor-web discipline over the
+same stream; only the output mode and the route passenger are new);
+**fusion: LANDED [measured at kernel, both scales, zero status
+flips]**; **T-tick: the theorem under I4′, [measured at kernel] on
+every committed family, now realized inside the fused tick
+(2026-07-26, round 8)**.
