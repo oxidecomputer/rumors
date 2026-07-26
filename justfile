@@ -214,6 +214,44 @@ fuzz secs=fuzz_smoke_secs:
     cargo +{{ nightly_toolchain }} fuzz run fuzz_decode corpus/fuzz_decode seeds/fuzz_decode -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
 
+# The fuzz-fit asymptotics harness lives in a detached workspace
+# (crates/before/fuzzfit, the fuzz-target idiom), so the ordinary gate never
+# builds it and wasmtime stays out of the production crates' graph. The
+# guest compiles before's public surface to wasm32-unknown-unknown; the
+# harness replays fuzzed operation programs natively and under wasmtime
+# fuel metering (deterministic instruction counts, byte-reproducible under
+# any load) and judges every step against the pinned per-operation fuel
+# bands in harness/src/bands.rs. design/before-fuzzfit-asymptotics.md is
+# the instrument's design record.
+
+# Build the fuzz-fit wasm guest and its harness (both halves).
+[working-directory("crates/before/fuzzfit")]
+fuzzfit-build:
+    cargo build -p fuzzfit-guest --release --target wasm32-unknown-unknown
+    {{ justfile_directory() }}/tools/memwatch cargo build -p fuzzfit-harness --tests --release
+
+# Run the fuzz-fit suites: generator sanity, meter liveness, the judgment
+# and shape-leg tripwires, the quadratic-burner adequacy check, the
+# toolchain-pin and staleness cross-checks, and the enforcement sentry
+# (48 fuzzed programs against the pinned bands, point and shape legs). A
+# failure shrinks to a minimal out-of-band shape and writes a proptest
+# seed file — commit any seed that appears.
+
+# Run the fuzz-fit asymptotics suites against the pinned fuel bands.
+[working-directory("crates/before/fuzzfit")]
+fuzzfit: fuzzfit-build
+    {{ justfile_directory() }}/tools/memwatch cargo nextest run --cargo-profile release
+
+# Re-fit the pinned bands from the deterministic corpus of record (1536
+# programs; byte-reproducible, so any diff is a real change). Rewrites
+# harness/src/bands.rs atomically: review the diff like a snapshot and
+# commit with a dated movement annotation in the module doc.
+
+# Re-fit and rewrite the fuzz-fit harness's pinned fuel bands.
+[working-directory("crates/before/fuzzfit")]
+fuzzfit-calibrate: fuzzfit-build
+    cargo run --release -p fuzzfit-harness --bin calibrate
+
 # ── the formal tier (formal/lean; needs elan) ────────────────────────────────
 # The proofs are kernel-checked by `lake build` (pins, negative controls,
 # invariant preservation); `eventdag` is the progress-lemma oracle and
