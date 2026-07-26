@@ -77,12 +77,12 @@ share:
 | memo churn / descending raises | in-flight records under full-penetration drops; raises landing below the frame minimum | one live ledger head (the live-anchored followers' tombstone); the decide-then-emit ordering's oracle tripwire |
 | memo chain | `k` consumption-sibling single-leaf left-full sites under one covering site, minima distinct or shared | the memo resolution's touch cost (#34: quadratic re-reads, red-pinned; the shared twin is the flat control) |
 | memo comb | shallow and covering left-full sites interleaved per level | consumption order Θ(d) from recording order — refutes chain-walking resolutions under every record-to-record anchoring |
-| reveal comb / hifloor | `k` sibling left-full sites sharing one `2^b` minimum over a zero floor, the left-leaning spine closing each site's frame back into the floor frame between consumes; the control's floor raised to `2^b − 2` | the tick walk's unfunded width circulation (#34 round 5: Θ(k·b) touches on a Θ(k + b) input AND output, red-pinned); the narrow-gap control is flat — the wide gap drives it, not the shape |
-| pure comb | the same left-leaning comb with bare `2^b` leaves and no left-full site anywhere | the base watermark stack's own arm-move + close-pop width cycle, ~2 wide folds per site — the defect predates the frame ledger, which amplifies it ~10× |
+| reveal comb / hifloor | `k` sibling left-full sites sharing one `2^b` minimum over a zero floor, the left-leaning spine closing each site's frame back into the floor frame between consumes; the control's floor raised to `2^b − 2` | the tick walk's width-circulation cure (#34 rounds 5–6: read Θ(k·b) touches on a Θ(k + b) input AND output until the latent boundary register landed; pinned flat ×2.00 across the joint doubling since, 2026-07-26); the narrow-gap control is flat — the wide gap was the driver, not the shape |
+| pure comb | the same left-leaning comb with bare `2^b` leaves and no left-full site anywhere | the base watermark stack's own arm-move + close-pop cycle in isolation (~2 wide folds per site until the register landed; pinned flat per byte since, 2026-07-26) — the layer the frame ledger amplified ~10× |
 
 ## 3. Findings ledger
 
-All cured except the last entry (open, red-pinned); each family
+All cured; each family
 above witnesses at least one. Mechanism detail and measurements are
 in git history; the cures are pinned by the enforced envelopes and
 board cells named.
@@ -152,8 +152,18 @@ board cells named.
   tripwire, verified live). A pricing obligation under §6, not an
   exploit (local-depth multiplier).
 - **Tick's width-circulation cycle** (2026-07-25; found by the
-  frame ledger's adversarial review; OPEN, red-pinned —
-  instruments before cures): on a shared-wide-minimum comb whose
+  frame ledger's adversarial review; **CURED 2026-07-26** — the
+  latent boundary register, spec §9 round 6: closes move the popped
+  boundary into a per-stack register instead of folding it, arms
+  recycle the register at the narrow anchor-relative offset, and
+  followers ride a one-bit anchor-relative tag, so the cycle's
+  marginal cost is the unit inter-site movement; reveal_comb
+  738,449 → 2,884,881 touches (×3.91) became 48,857 → 97,705
+  (×2.00 exactly), pure_comb per-byte 50.8 → 82.0 became 5.18 →
+  4.46, both re-pinned flat with absolute bands, the hifloor
+  control's band tightened to its cured measurement, byte-identity
+  and board sums unchanged at both scales. The refutation record,
+  kept as found): on a shared-wide-minimum comb whose
   spine closes each site's frame back into the floor frame between
   consecutive consumes, the consume decision mints a width-`b`
   boundary difference, the site's close pops it back into the base
@@ -161,31 +171,35 @@ board cells named.
   it — every object individually create-once/read-once/die, the
   width circulating through per-object-legal moves with no input
   delta, no output code, and no undercut descent funding any hop
-  (the spec's I4 funded-cascade clause enumerates undercut hops
-  only; L1/I4 reopen, T-tick REFUTED-pending-revision, spec §9
-  round 5). Θ(k·b) accumulator touches on a Θ(k + b) input whose
+  (I4's funded-cascade clause enumerated undercut hops only;
+  L1/I4 reopened and T-tick read REFUTED-pending-revision at spec
+  §9 round 5, resolved by round 6's I4′ width-conservation
+  invariant). Θ(k·b) accumulator touches on a Θ(k + b) input whose
   output is Θ(k + b) too, so the blowup survives the I/O
   denominator: reveal_comb per-byte 146.9 → 267.7 → 478.7 → 808.8
   as `b` doubles at k = 1,000; ×3.91 touches on ×2.00 input across
-  the joint doubling — gate-pinned ≥ ×3.5 until the cure re-pins
-  it flat. Attribution pinned at both layers: pure_comb (no
-  left-full site, no memo, no pre-scan) pays ~2 wide folds per
-  site in the base watermark stack alone (per-byte 30.4 → 50.8 →
-  82.0, pinned ≥ ×1.45 per doubling) — the defect predates the
-  frame ledger, whose follower ferry amplifies it ~10× (~21 wide
+  the joint doubling — gate-pinned ≥ ×3.5 until the cure landed
+  and re-pinned it flat. Attribution pinned at both layers:
+  pure_comb (no left-full site, no memo, no pre-scan) paid ~2 wide
+  folds per site in the base watermark stack alone (per-byte 30.4 →
+  50.8 → 82.0, pinned ≥ ×1.45 per doubling until the same
+  re-pin) — the defect predated the
+  frame ledger, whose follower ferry amplified it ~10× (~21 wide
   folds per site on reveal_comb). The high-floor control
   (identical forest and cycle, consume-time gap 2) pins GREEN flat
-  and width-independent: the wide gap is the driver. Semantics are
+  and width-independent: the wide gap was the driver. Semantics are
   exact everywhere (oracle differentials across the pools plus a
   4096-site closed-form witness; every pin pairs its cost leg with
   the shape's closed-form tick). The executable emit model
-  reproduces the class unmodified, at the base layer's constant —
-  the coming design round calibrates against it. Board tick-cross
+  reproduced the class unmodified, at the base layer's constant —
+  the cure round calibrated against it. Board tick-cross
   rows at both scales read green on every counter column (the
   touch currency rides no board column); the four
   `version_tick`/`clock_tick` × `reveal-comb`/`pure-comb` time-leg
-  cells are rostered as owned reds. A pricing obligation under §6,
-  not an exploit (the shape needs the local id's site forest).
+  cells joined the bench-judge roster as owned reds at the
+  refutation and leave it with the cure's linear readings. A
+  pricing obligation under §6, not an exploit (the shape needed the
+  local id's site forest).
 
 ## 6. The design invariant and the denomination criterion
 
@@ -492,20 +506,28 @@ for numbers of record) judges through the same roster — the
 expectations are exponent classes, valid under either sampling
 regime. Population at this tip: the fifteen bigroot sweeps + the
 hugeleaf display pair (κ/C2-owned) + the permanent schoolbook
-tripwire + the four width-circulation tick crosses
-(`version_tick`/`clock_tick` × `reveal-comb`/`pure-comb`,
-#34-owned, empty at the tick cure — the touch currency rides no
-board counter column, so the time leg is the one board-side leg
-that sees the cycle); boundary empty. **The bigroot set and the display pair
+tripwire; boundary empty. The four width-circulation tick crosses
+(`version_tick`/`clock_tick` × `reveal-comb`/`pure-comb`) left
+the set 2026-07-26 when the latent boundary register landed —
+their touch currency rode no board counter column, so the time
+leg was the one board-side leg that saw the cycle, and it now
+reads green at the general ceiling. **The bigroot set and the display pair
 empty at C3; the schoolbook expectation is permanent.** Between
 C2 and C3 every judge run fails on the fifteen realized greens BY
 DESIGN — that failure is C3's realization evidence, banked
 verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
-**Numbers of record at this tip** [measured 2026-07-25, the
-#34 cure record; dev profile, limb+scan meters lit]: board
-**198 green / 17 red at the default scale; 189 / 26 at ×4** over
-**215 cells** (amended 2026-07-25, the #34 cure: the anchor-web
+**Numbers of record at this tip** [measured 2026-07-26, the
+width-circulation cure record; dev profile, limb+scan meters
+lit]: board **204 green / 17 red at the default scale; 193 / 28
+at ×4** over **221 cells** (amended 2026-07-26, the latent
+boundary register: the round-5 tick-cross rows joined at 215 →
+221 cells and the cure moved no counter cell's verdict — sums
+byte-stable across the cure at both scales, movement only in the
+reveal-comb heap constants, down, and the record-scale segment
+onsets inside the P4.2-owned reds; the four width-circulation
+judge legs left the roster, 22 → 18)
+(amended 2026-07-25, the #34 cure: the anchor-web
 walk and the chained-memo pre-scan flipped every #34-owned red —
 nested-wide limb e 1.57/1.83 → 1.00 at 5.4/B flat across scales;
 mirror-wide limb e 1.86/1.94 → 1.00 at 8.9/B and heap e
