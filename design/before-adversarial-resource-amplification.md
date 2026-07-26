@@ -438,23 +438,29 @@ degenerate into exemption holes:
   text input + packed output (FromStr), output read from the
   actual result. The limb column carries **two legs**: the
   *constant* leg against the radix-work denominator
-  `R = n_io + Σ digitsᵢ × limbsᵢ` (the schoolbook conversion cost
-  law) at κ = 0.25 limb/`R` unit — provisional [derived: 4× under
-  measured schoolbook, ~4× over the D&C extrapolation], re-pinned
-  from the observed meter at record scale at C3 (the κ rustdoc's
-  hand-off) — and the *exponent* leg against `n_io` (never `R`, on
-  which any schoolbook converter reads a flat ~1) at the unchanged
-  1.15. Two legs because each catches what the other cannot: the
-  chunked-schoolbook refutation (2026-07-23) demonstrated a
-  still-quadratic converter slipping under κ, so the exponent leg
-  enforces the complexity class and κ the constant. Both
-  anti-softening tripwires are committed in `meter::board`'s suite
-  (the digit-by-digit parser must exceed κ; the chunked probe,
-  driven through `evaluate` itself, must slip under κ and read red
-  on exactly the limb exponent). An output-honesty ceiling closes
-  the pad-the-output door — re-denominated at C2 from wire bits to
-  radix units (forced by the delta coding; derivation at the
-  constant, tripwire re-pinned).
+  `R = n_io + Σᵢ (digitsᵢ × limbsᵢ + 10)` over the spelled event
+  values — the honest text cost law: schoolbook conversion plus
+  the delta⇄absolute pipeline's per-value arithmetic term of 10
+  radix units (`TEXT_PIPELINE_LIMB_OPS_PER_VALUE`; [measured at
+  C3, release, record scale: the production kernels spend 5–9
+  limb ops per spelled value across the small-value families,
+  both directions]; id tokens contribute nothing) — at
+  κ = 0.75 limb/`R` unit [measured at C3: honest cells read
+  ≤ 0.59, the staircase pipeline; digit-by-digit schoolbook reads
+  ~1, still excluded] — and the *exponent* leg against `n_io`
+  (never `R`, on which any schoolbook converter reads a flat ~1)
+  at the unchanged 1.15. Two legs because each catches what the
+  other cannot: the chunked-schoolbook refutation (2026-07-23)
+  demonstrated a still-quadratic converter slipping under κ, so
+  the exponent leg enforces the complexity class and κ the
+  constant. Both anti-softening tripwires are committed in
+  `meter::board`'s suite (the digit-by-digit parser must exceed
+  κ; the chunked probe, driven through `evaluate` itself, must
+  slip under κ and read red on exactly the limb exponent). An
+  output-honesty ceiling closes the pad-the-output door, asserted
+  against the conversion units alone (the pipeline term must not
+  loosen it; radix units, forced by the delta coding, derivation
+  at the constant, tripwire pinned).
 - **Output-dominated projection** (`version_project`/
   `clock_own_version` on comb × scattered-party and, since C3
   applied the owner's pre-approved ruling to the plateau crosses,

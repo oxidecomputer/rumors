@@ -23,7 +23,10 @@ use super::{
 // The limb-priced tripwires read the touch counter, so they compile only
 // with the `limb-meter` feature; these names have no ungated user.
 #[cfg(feature = "limb-meter")]
-use super::{version_output_bytes, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT};
+use super::{
+    stored_bases, version_output_bytes, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT,
+    TEXT_PIPELINE_LIMB_OPS_PER_VALUE,
+};
 
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -160,7 +163,9 @@ fn delegating_parser_stays_under_the_text_limb_ceiling() {
         let v = version_of(&packed);
         let s = v.to_string();
         let n_io = s.len() + version_output_bytes(&v);
-        let r = n_io as u64 + radix_units_version(&v);
+        let r = n_io as u64
+            + radix_units_version(&v)
+            + TEXT_PIPELINE_LIMB_OPS_PER_VALUE * stored_bases(&v).len() as u64;
         crate::meter::reset_limb_ops();
         let parsed: Version = s.parse().expect("a displayed version parses back");
         let ops = crate::meter::limb_ops();
@@ -190,10 +195,11 @@ fn delegating_parser_stays_under_the_text_limb_ceiling() {
 ///
 /// The probe folds each digit through one metered `mul; add` pair —
 /// `Θ(digits × limbs)` at the largest constant the strategy admits — and
-/// scores ~1 limb per `R` unit on the magnitude families, about 4× the
-/// pinned κ (`R` is the schoolbook cost law itself). This pin is the
-/// constant leg's anti-softening tripwire: it fails if κ drifts up to
-/// where digit-by-digit conversion passes.
+/// scores ~1 limb per `R` unit on the magnitude families, over the pinned
+/// κ (the pipeline term is negligible where conversion dominates, so `R`
+/// is the schoolbook cost law there). This pin is the constant leg's
+/// anti-softening tripwire: it fails if κ drifts up to where digit-by-digit
+/// conversion passes.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn schoolbook_probe_exceeds_the_text_limb_ceiling() {
@@ -204,7 +210,9 @@ fn schoolbook_probe_exceeds_the_text_limb_ceiling() {
         let v = version_of(&packed);
         let s = v.to_string();
         let n_io = s.len() + version_output_bytes(&v);
-        let r = n_io as u64 + radix_units_version(&v);
+        let r = n_io as u64
+            + radix_units_version(&v)
+            + TEXT_PIPELINE_LIMB_OPS_PER_VALUE * stored_bases(&v).len() as u64;
         let ops = schoolbook_limb_ops(&s, 1);
         let score = ops as f64 / r as f64;
         assert!(
@@ -297,7 +305,9 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
         let v = version_of(packed);
         let s = v.to_string();
         let n_io = s.len() + version_output_bytes(&v);
-        let r = n_io as u64 + radix_units_version(&v);
+        let r = n_io as u64
+            + radix_units_version(&v)
+            + TEXT_PIPELINE_LIMB_OPS_PER_VALUE * stored_bases(&v).len() as u64;
         let ops = schoolbook_limb_ops(&s, SCHOOLBOOK_CHUNK_DIGITS);
         let score = ops as f64 / r as f64;
         assert!(
