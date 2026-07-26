@@ -1673,13 +1673,16 @@ oracle).
   flips**; sums 890/99 → 891/98 default (the one flip is a non-tick
   RED → GREEN: party_without_none × id-pair's segments count 2 → 0)
   and 873/116 → 873/116 record. Non-tick rows are byte-identical on
-  every column except the segments column of six id-pair parse rows
-  at the record scale (readings moved in both directions, e.g.
-  70 → 54 and 12 → 16, statuses unchanged — already red in the
-  P4.2-owned recursion genre): the segments counter reads stacker's
+  every column except the segments column of six id-pair rows at
+  the record scale — five parse kernels (`party_from_str`,
+  `clock_from_str`, `party_parse_trailing`, `party_parse_noncanon`,
+  `clock_parse_trailing`) and the diff kernel's
+  `party_without_none` — readings moved in both directions (e.g.
+  70 → 54 and 12 → 16), statuses unchanged, already red in the
+  P4.2-owned recursion genre: the segments counter reads stacker's
   process-global segment growth, which is coupled to the preceding
   cells' stack usage in the shared board process, and the fused
-  walk's changed stack profile re-rolls it; the parse kernels
+  walk's changed stack profile re-rolls it; the six kernels
   themselves are untouched and their heap/limb/scan/touch columns
   are byte-identical.
 - **Meter re-pins, all in the fusion commit** (instruments doctrine;

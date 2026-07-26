@@ -1083,11 +1083,19 @@ commits):
   deviation of record (2026-07-25): the ×4 segments leg stayed
   red, P4.2-owned — the linear acceptance was met on the work
   columns.
+- **#34: the tick limb cure and the fusion** (2026-07-25..26,
+  red pin `dc9a2c31`, the anchor-web walk `12b5e9a3` + the
+  chained-memo pre-scan `39009918` through the round-5..7 cures,
+  the fused tick `80131954`): T-tick — amortized O(n + m) Accum
+  digit touches — realized inside the fused tick; every
+  #34-owned red flipped at both scales, and the fusion moved 51
+  tick-row constants per scale with zero verdict flips. The
+  design loop's record is the spec's §9 (rounds 3–8); the cell
+  accounting is §17.3's amendments.
 
-Remaining plan: **#34** (the tick limb cure + fusion per
-`design/before-tick-cost-spec.md`, red pin first) → **C3**
-(§17.2) → **P4.2** residual audit → **P5.1–P5.5** closeout, with
-the boolean-skyline decision (#24, the user's) after C3.
+Remaining plan: **C3** (§17.2) → **P4.2** residual audit →
+**P5.1–P5.5** closeout, with the boolean-skyline decision (#24,
+the user's) after C3.
 
 Acceptance for the effort: the §13 acceptance criterion; plus the
 two 2026-07-25 user rulings:
@@ -1107,25 +1115,26 @@ ideal.** Fundamentally-superlinear problems (radix conversion,
 multiplication-equivalent up to log factors; n log n
 comparison-ordered n-way folds) satisfy the bar at their
 problem's own optimum, stated and priced. The tick kernel's
-limb dimension — quadratic on wide × deep crosses (§3) — is
-below the bar; its cure is committed (#34, the tick cost spec).
+limb dimension was below the bar — quadratic on wide × deep
+crosses (§3) — until #34's cure landed it at amortized
+O(n + m), realized inside the fused tick (the tick cost spec).
 
 ## 17. Work items of record
 
 ### 17.2 Open items, with acceptance contracts
 
-**In flight (2026-07-25): #34's red-pin round.** The fill
-linearization's review bookkeeping rides it: the ghost prose
+**#34's red-pin round (done 2026-07-25).** The fill
+linearization's review bookkeeping rode it: the ghost prose
 re-denominated to the deferral design (`fill.rs`'s
 drift-accumulator sentence, the tests' drift-stack phrasing,
 `nested_full_id`'s and the board family's
 lookahead-and-pre-scan present-tense rustdoc); `fill.rs`'s
-`# Cost` restated to the measured truth (scan linear; limb
-quadratic both arms, red-pinned, cure committed) until the cure
-re-derives it; the tick cells' floors raised from the generic
-walk floors toward honest measured counts; #33's acceptance
-deviation (the ×4 segments residual, P4.2-owned) recorded as a
-dated amendment here. *Acceptance*: the red-pin contract in
+`# Cost` restated to the measured truth at each stage (the
+red-pinned quadratic until the cure re-derived it); the tick
+cells' floors raised from the generic walk floors toward honest
+measured counts; #33's acceptance deviation (the ×4 segments
+residual, P4.2-owned) recorded as a dated amendment here.
+*Acceptance*: met — the red-pin contract in
 `design/before-tick-cost-spec.md` §7 plus these ride-alongs;
 one full gate.
 
@@ -1192,27 +1201,29 @@ before/after table.**
 constants). *Risk*: a cell green at default but red at record —
 that is the two-scale design working; the cell's owner reopens.
 
-**#34 — the tick limb cure and fusion (committed, user rulings;
-the hot path — every tick calls fill).**
+**#34 — the tick limb cure and fusion (done: the cure
+2026-07-25, the fusion 2026-07-26; the hot path — every tick
+calls fill).**
 The statement of record is `design/before-tick-cost-spec.md`
-(converged revision 3); its §7 acceptance contract is binding and
-this entry only sequences it. Target: T-tick — amortized
-O(n + m) Accum digit touches — via the anchor-web discipline
-(the zero-run-compressed watermark stack, anchored entries,
-per-operand lifetime pricing, the L2×L6 pricing chain), then
-fused tick (one walk carrying fill emission, the changed flag,
-and grow's route DP; copy-on-first-divergence) as a separate
-post-cure commit. Sequencing: red pin first (four wide×deep
-cells through both shortcut arms + descending-staircase cells,
-measured not assumed + mirror-narrow green memo cells with
-honest floors + judge roster entries owned here), then the
-watermark rewrite (right-full arm first), then the pre-scan/memo
-conversion, then fusion. Byte-identity at every stage; all
-pinned cells green at both scales; the L6 output-bound proptest
-pin lands with the cure; `fill.rs # Cost` restates exactly what
-is proven; §13/§17.3 amendments with sums restated; Accum
-pooling per the spec's §6 constants note. No green, no merge.
-*Deps*: none open; sequenced before C3's before/after table.
+(converged revision 3); its §7 acceptance contract was binding
+and was met in the sequenced shape: red pin first (the wide×deep
+and descending-staircase cells measured not assumed;
+mirror-narrow's green memo cells held at honest floors), then
+T-tick — amortized O(n + m) Accum digit touches — via the
+anchor-web discipline (the zero-run-compressed watermark stack,
+anchored entries, per-operand lifetime pricing, the L2×L6
+pricing chain; §17.3's 2026-07-25 amendments carry the
+cell-exact flips), then the fused tick as its own bisectable
+commit (one walk carrying fill emission, the changed flag, and
+grow's route DP; copy-on-first-divergence; the owner rulings and
+the landed record are the spec's §6 amendment and §9 round 8;
+§17.3's fusion amendment restates the sums). Byte-identity held
+at every stage; the L6 output-bound proptest pin landed with the
+cure; `fill.rs # Cost` restates exactly what is proven; Accum
+pooling per the spec's §6 constants note. The flag seam's
+full-width witnesses and `arb_base`'s `2^64`-aligned arm (the
+fusion review's fix round) pin the width axis the size-axis
+instruments do not discriminate.
 
 **The join_all up-front re-scan (done 2026-07-26, the error-path
 round's cure).** The §3 entry's cure, landed as the per-call
@@ -1236,12 +1247,25 @@ sub-allowance heap-exponent red (the C3 judgment-layer genre
 that rode it; its scan legs flipped green), and the segments
 column moved on six tick/diff cells whose every other column is
 byte-identical (the P4.2 codegen-onset genre).
+
+**P4.2 — residual recursion and word-scale scanning.**
 Audit every remaining `recurse::descend!` site post-C2; convert
 survivors per the explicit-stack pattern or record why they stay;
 apply the word-at-a-time subtree skip (popcount pending-counter
 delta, mid-word zero-crossing exit; the item earlier drafts
 numbered §11.4) to `idbits` and the skyline topology stream where
-benches justify. *Sequencing risk, resolve at #24 decision time*:
+benches justify. Triage convention for the genre's segments
+currency (the fusion round's finding, spec §9 round 8): the
+counter reads the stacker's process-global segment cache, which
+is order-coupled to the preceding cells' stack usage in the
+shared board process, so a kernel change anywhere in the binary
+can re-roll the counts on untouched kernels' rows — the fusion
+round moved the six record-scale id-pair rows in both directions
+(70 → 54 and 12 → 16) with statuses unchanged and every other
+column byte-identical. Segment-count movement on a row whose
+work columns are byte-identical is triaged as order coupling,
+not kernel movement; the counts of record re-cite in §17.3's
+owning amendment. *Sequencing risk, resolve at #24 decision time*:
 the word-scale skip fits the lockstep walk shape, not a
 leaf-enumerating sweep — if it lands first, the predicate-sweep
 constants regress relative to it; the id predicate envelope rows
@@ -1630,6 +1654,36 @@ Sums after the cure amendment: default 890 + 99 = 989; record
 + 1 segments onset (`party_without_none × id-pair`). Record,
 116 = 126 − 12 flips (`party_join_all_overlap` × the 11 plus
 comb-scatter) + 2 segments onsets (the tick × nested-wide pair).
+
+Amended 2026-07-26 (the #34 fusion landing; single release runs
+at both scales, strip-diffed cell-exact against the
+join_all-cure tip boards — `board-fusion-{lo,hi}.txt`): 51 of
+the 83 tick-carrying rows per scale moved on work-column
+constants — the eliminated probe pass and byte compare,
+copy-on-first-divergence, the deferred output buffer; the
+mechanism table and re-pins are spec §9 round 8 — with zero
+verdict flips among them. The ascending-cliff pair's owned heap
+constant re-cites at the fused walk: 63.0 (default) / 65.3 (×4)
+B/B, exponent 1.00, the cell red as before. One verdict flip,
+not a tick row: `party_without_none × id-pair` at the default
+scale RED → GREEN, 2 → 0 grown segments — the same order-coupled
+cell the join_all cure amendment above added as its +1 segments
+onset. The record-scale id-pair segment counts re-cite at the
+fusion tip, readings moved in both directions with statuses
+unchanged (each already red in the P4.2-owned recursion genre):
+the parser pair `party_from_str`/`clock_from_str` 12 → 16
+(e 4.00), `party_parse_trailing` 12 → 16, `party_parse_noncanon`
+6 → 8, `clock_parse_trailing` 12 → 16, `party_without_none`
+70 → 54 — five parse kernels plus the diff kernel. Every other
+column on those rows is byte-identical, and the ×4 tick-op
+segment counts hold (nested-full 7, nested-wide 2, mirror-narrow
+7, staircase 14, pure-comb 4, ascend-cliff 4, ascend-plateau 4).
+Triage mechanism, recorded at P4.2's §17.2 entry: the segments
+counter reads the stacker's process-global segment cache, which
+is order-coupled to the preceding cells' stack usage in the
+shared board process — a kernel change anywhere in the binary
+re-rolls the counts on untouched kernels' rows. Sums: default
+891 + 98 = 989; record 873 + 116 = 989.
 
 Default, 92 pre-existing: the #35 refactor's new reds less the
 #40-flipped `clock_encode × comb-scatter` (73) + the
