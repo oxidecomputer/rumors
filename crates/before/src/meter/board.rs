@@ -38,7 +38,7 @@
 //! # The criterion
 //!
 //! Each cell runs its operation at two input scales (the second twice the
-//! first) and reads four deterministic meters over the body alone:
+//! first) and reads five deterministic meters over the body alone:
 //!
 //! - **peak heap bytes**, from a caller-installed counting allocator
 //!   (see [`HeapMeter`]);
@@ -54,7 +54,15 @@
 //!   feature compiles the counter into the stream primitives; traversal
 //!   work over the packed forms — the id-side walks and folds above all —
 //!   allocates nothing, recurses nothing, and does no `Base` arithmetic, so
-//!   this is the one column that sees it.
+//!   this is the one column that sees it;
+//! - **accumulator digit touches**
+//!   ([`accum::touch_meter`](crate::codec::accum::touch_meter)), only when
+//!   the `limb-meter` feature compiles the counter into the accumulator:
+//!   digit-state cost is work done *wider*, not more often — a walk that
+//!   re-reads a wide running value per step allocates nothing extra,
+//!   recurses nothing, does O(1) `Base` ops, and scans no extra bits, so
+//!   this is the one deterministic column that sees the genre (the tick
+//!   walk's width-circulation finding lived entirely in this currency).
 //!
 //! Per meter the board derives a **scaling exponent**
 //! `log(m₂/m₁) / log(n₂/n₁)` (`n` = the cell's denominator bytes, below —
@@ -65,15 +73,15 @@
 //! every constant is under its pinned ceiling
 //! ([`MAX_HEAP_BYTES_PER_INPUT_BYTE`] over [`HEAP_FLAT_ALLOWANCE_BYTES`],
 //! [`MAX_GROWN_STACK_SEGMENTS`], [`MAX_LIMB_OPS_PER_INPUT_BYTE`],
-//! [`MAX_SCAN_BITS_PER_INPUT_BYTE`] — or, on
-//! the text rows' limb column, [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]), and
+//! [`MAX_SCAN_BITS_PER_INPUT_BYTE`], [`MAX_TOUCHES_PER_INPUT_BYTE`] — or,
+//! on the text rows' limb column, [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`]), and
 //! every committed liveness floor is met; **RED** otherwise, with the
 //! offending meters named.
 //!
 //! # Liveness floors
 //!
 //! A ceiling over a counter proves the *instrumented* work is small, not
-//! that the operation is cheap: three of the four judged columns are sensors
+//! that the operation is cheap: four of the five judged columns are sensors
 //! inside the implementation, and an implementation change can re-route work
 //! around them, leaving the ceiling green over a counter that reads nothing.
 //! Every cell therefore carries, per judged column, a [`Liveness`]
@@ -102,6 +110,27 @@
 //!   per 64 bits of that magnitude. Narrow-magnitude cells are
 //!   not-applicable (machine words suffice), as are operations whose
 //!   contract forces no arithmetic at all.
+//! - **Touch** floors are deterministic-liveness declarations, like the
+//!   fork rows' heap floor, at two derivations. The delta-folding kernels
+//!   (the comparison sweep, the merge emitters, the query rank folds, the
+//!   tick walk, the text parse) land every stored delta in the running
+//!   accumulator, at least one digit touch per delta ([`stored_deltas`]) —
+//!   the same one-per-delta floor the envelope suite's flatness pins
+//!   commit. The validator batches word-scale deltas in the accumulator's
+//!   lazy zone, so the decode rows floor only what it must fold digit by
+//!   digit: one touch per 64 bits of every stored code wider than the
+//!   machine-word bound ([`touch_wide_stream`], the stream-derived
+//!   convention the tick rows' limb floor uses). Either floor is what a
+//!   representation change trips deliberately: height or difference state
+//!   moving off the metered accumulator into an unmetered big integer is
+//!   exactly the migration this column exists to catch, so the trip is the
+//!   designed stop-and-look, and an honest re-representation lowers the
+//!   floor in a diff that shows the new derivation. Not-applicable genres:
+//!   id-only walks (no magnitudes, no digit state), wholesale byte moves
+//!   and hashes, plain big-integer arithmetic over decoded values (the
+//!   rank pair), the renderer's delta-sized summaries, minimum folds and
+//!   projections (word-scale bookkeeping and verbatim splices force no
+//!   fold), and operands whose streams store no delta codes.
 //! - **Heap** floors bind on the codec and text rows, whose results must
 //!   materialize at least their packed bytes; everywhere else allocation is
 //!   not semantically forced (and the heap meter reads the process
@@ -447,6 +476,22 @@ pub const MAX_LIMB_OPS_PER_INPUT_BYTE: f64 = 128.0;
 /// only a walk that re-scans state growing with the input — the fold genre —
 /// goes red on this column.
 pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 96.0;
+
+/// Green requires at most this many accumulator digit touches per
+/// denominator byte (asserted only when the `limb-meter` feature is lit).
+///
+/// Calibrated against the benign control and the green adversarial
+/// families at the release profile of record: the delta-folding kernels
+/// (validate, sweep, emit, the query folds, the text parse) touch a
+/// handful of digits per delta code — single digits per packed byte on
+/// organic shapes — and the heaviest honest reader measured is the
+/// mirror-narrow tick cross (the memo machinery's per-site resolution) at
+/// 30.8 touches per input byte at the default scale, 24.3 at the record
+/// scale \[measured 2026-07-26, release, both scales\]. The ceiling sits
+/// at 96, scan's own margin convention, so only a walk that re-reads
+/// digit state growing with the input — the width-circulation genre —
+/// goes red on this column's constant.
+pub const MAX_TOUCHES_PER_INPUT_BYTE: f64 = 96.0;
 
 /// Scan liveness floor: an operation that must examine its packed operands
 /// scans at least this many bits per packed input byte.
@@ -1364,6 +1409,114 @@ const WHY_SCAN_TICK_WALK: &str = "the paired fill walk examines every topology b
      constants 2–5× above";
 /// The tick-cross scan floor: full examination of every input bit.
 const TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE: u64 = 8;
+/// Touch floor (deterministic-liveness): the kernel folds every stored
+/// delta code through the metered accumulator.
+const WHY_TOUCH_DELTA_FOLD: &str = "deterministic-liveness: the kernel folds each stored delta \
+     code of its version operands through the metered accumulator today, at least one digit \
+     touch per delta; digit state moving to an unmetered representation lowers this floor \
+     deliberately";
+/// Touch floor (deterministic-liveness): the rank fold lands every summand
+/// in the running accumulator.
+const WHY_TOUCH_RANK_SUM: &str = "deterministic-liveness: the fold lands every summand in the \
+     running accumulator today, at least one digit touch per summand; digit state moving to an \
+     unmetered representation lowers this floor deliberately";
+/// Touch NA: id trees carry no digit state at all.
+const NA_TOUCH_ID_TREE: &str = "id trees store no magnitudes: there is no digit state to meter";
+/// Touch NA: the contract forces no accumulator fold.
+const NA_TOUCH_NOT_FORCED: &str = "magnitudes may be moved, hashed, or compared wholesale \
+     without a running fold: no accumulator work is in the contract";
+/// Touch NA: decoded rank values combine through plain big-integer
+/// arithmetic (the limb column's work).
+const NA_TOUCH_RANK_ARITHMETIC: &str = "decoded rank values combine through big-integer \
+     arithmetic the limb column prices: no accumulator is in the contract";
+/// Touch NA: the renderer's summaries are delta-sized values, not a
+/// running accumulator.
+const NA_TOUCH_RENDER_SUMMARIES: &str = "the renderer derives its printed bases from \
+     delta-sized relative summaries without a running accumulator: no digit state is in the \
+     contract (the parse direction carries the floor)";
+/// Touch NA: the operand streams store no delta codes to fold.
+const NA_TOUCH_NO_DELTAS: &str =
+    "the operand streams store no delta codes: there is no fold to meter";
+/// Touch floor (deterministic-liveness): the validator folds wide stored
+/// codes through the accumulator digit by digit.
+const WHY_TOUCH_WIDE_STREAM: &str = "deterministic-liveness: the validator's running height \
+     folds every stored payload code wider than the machine-word bound through the metered \
+     accumulator today, at least one digit touch per 64 code bits (word-scale deltas \
+     legitimately batch in the accumulator's lazy zone); digit state moving to an unmetered \
+     representation lowers this floor deliberately";
+/// Touch NA: every stored code batches in the accumulator's lazy zone.
+const NA_TOUCH_LAZY_BATCH: &str = "every stored code fits the machine-word bound: word-scale \
+     deltas batch in the accumulator's lazy zone and force no digit touches";
+/// Touch NA: the minimum fold rides word-scale bookkeeping.
+const NA_TOUCH_MIN_FOLD: &str = "the walk tracks its minimum through comparisons and \
+     word-scale bookkeeping: no accumulator fold is forced";
+/// Touch NA: a projection may splice owned regions verbatim.
+const NA_TOUCH_PROJECTION: &str = "the projection may keep owned regions verbatim and re-base \
+     boundaries through plain arithmetic: no accumulator fold is forced";
+
+/// The decode rows' touch floor: one digit touch per 64 bits of every
+/// stored code wider than the machine-word bound, or NA when every code is
+/// word-scale (the same stream-derived convention as the tick rows' limb
+/// floor — a tree-derived floor would demand fold work no conforming
+/// validator does).
+fn touch_wide_stream(v: &Version) -> Liveness {
+    let limbs = mandatory_limbs_stream(v);
+    if limbs == 0 {
+        na(NA_TOUCH_LAZY_BATCH)
+    } else {
+        Liveness::Floor {
+            min: limbs,
+            why: WHY_TOUCH_WIDE_STREAM,
+        }
+    }
+}
+/// Touch NA: a tick against the seed party raises in place.
+const NA_TOUCH_SEED_RAISE: &str = "a tick whose party owns the whole tree raises bases in \
+     place through plain arithmetic: no delta fold is in the contract";
+/// Touch NA: an empty version's tick is pure id-directed growth.
+const NA_TOUCH_GROW: &str = "the empty version's tick is id-directed growth: the grow kernel \
+     runs no accumulator";
+
+/// A delta-fold touch floor over `deltas` stored delta codes, or NA when
+/// the operand streams store none.
+fn touch_delta_fold(deltas: u64) -> Liveness {
+    if deltas == 0 {
+        na(NA_TOUCH_NO_DELTAS)
+    } else {
+        Liveness::Floor {
+            min: deltas,
+            why: WHY_TOUCH_DELTA_FOLD,
+        }
+    }
+}
+
+/// The stored delta codes of a version's packed stream: every leaf's
+/// payload code after the first (the absolute root height).
+///
+/// The delta-folding kernels (validate, sweep, emit, the query folds, the
+/// text parse) land each of these in the running accumulator, so the count
+/// is the touch column's deterministic-liveness floor. Iterative over the
+/// packed form, outside any measurement.
+fn stored_deltas(v: &Version) -> u64 {
+    let all = codec::bytes_as_bits(v.as_bytes());
+    let bits = &all[..v.encoded_bits()];
+    let mut pos = 0usize;
+    let mut pending = 1usize;
+    let mut leaves = 0u64;
+    while pending > 0 {
+        pending -= 1;
+        let internal = bits[pos];
+        pos += 1;
+        if internal {
+            pending += 2;
+            continue;
+        }
+        let (_, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        pos = next;
+        leaves += 1;
+    }
+    leaves.saturating_sub(1)
+}
 
 /// A full-examination scan floor over `packed_bytes` of operand.
 fn scan_examines(packed_bytes: usize) -> Liveness {
@@ -1436,13 +1589,16 @@ fn seg_ceiling_only() -> Liveness {
 }
 
 /// The floors of the many rows that must walk their operands but are forced
-/// into neither allocation nor arithmetic: scan floored, heap and limb NA.
-fn walk_floors(packed_bytes: usize) -> Floors {
+/// into neither allocation nor arithmetic: scan floored, heap and limb NA,
+/// the touch declaration the caller's (each walk row answers the
+/// accumulator question for its own kernel).
+fn walk_floors(packed_bytes: usize, touch: Liveness) -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
         limb: na(NA_LIMB_NOT_FORCED),
         segments: seg_ceiling_only(),
         scan: scan_examines(packed_bytes),
+        touch,
     }
 }
 
@@ -1476,6 +1632,7 @@ fn tick_walk_floors(version: &Version, packed_bytes: usize) -> Floors {
             min: (packed_bytes as u64).saturating_mul(TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE),
             why: WHY_SCAN_TICK_WALK,
         },
+        touch: touch_delta_fold(stored_deltas(version)),
     }
 }
 
@@ -1884,11 +2041,13 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let bytes = f.version.clone()?;
+                let v = decode_version(&bytes);
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
-                    limb: limb_wide(mandatory_limbs_version(&decode_version(&bytes))),
+                    limb: limb_wide(mandatory_limbs_version(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
+                    touch: touch_wide_stream(&v),
                 };
                 Some(Cell::new(bytes.len(), floors, move || {
                     decode_version(&bytes)
@@ -1905,6 +2064,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
+                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || (v.encode(), v)))
             },
@@ -1914,7 +2074,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, walk_floors(n), move || {
+                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                Some(Cell::new(n, walk_floors(n, touch), move || {
                     let ord: Option<Ordering> = v.partial_cmp(&w);
                     (ord, v, w)
                 }))
@@ -1930,6 +2091,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_EQ_BYTES),
+                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || (v == w, v, w)))
             },
@@ -1939,7 +2101,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, walk_floors(n), move || {
+                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                Some(Cell::new(n, walk_floors(n, touch), move || {
                     (v.concurrent(&w), v, w)
                 }))
             },
@@ -1949,7 +2112,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, walk_floors(n), move || (&v | &w, v, w)))
+                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                Some(Cell::new(n, walk_floors(n, touch), move || (&v | &w, v, w)))
             },
         },
         Op {
@@ -1957,7 +2121,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, walk_floors(n), move || {
+                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                Some(Cell::new(n, walk_floors(n, touch), move || {
                     v |= &w;
                     (v, w)
                 }))
@@ -1968,7 +2133,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, walk_floors(n), move || (&v & &w, v, w)))
+                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                Some(Cell::new(n, walk_floors(n, touch), move || (&v & &w, v, w)))
             },
         },
         Op {
@@ -1976,7 +2142,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, walk_floors(n), move || {
+                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                Some(Cell::new(n, walk_floors(n, touch), move || {
                     v &= &w;
                     (v, w)
                 }))
@@ -1998,10 +2165,14 @@ fn ops() -> Vec<Op> {
                 }
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
-                Some(Cell::new(n + 1, walk_floors(n), move || {
-                    v.tick(&party);
-                    v
-                }))
+                Some(Cell::new(
+                    n + 1,
+                    walk_floors(n, na(NA_TOUCH_SEED_RAISE)),
+                    move || {
+                        v.tick(&party);
+                        v
+                    },
+                ))
             },
         },
         Op {
@@ -2011,10 +2182,14 @@ fn ops() -> Vec<Op> {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let mut v = Version::new();
-                Some(Cell::new(n + 1, walk_floors(n), move || {
-                    v.tick(&a);
-                    (v, a)
-                }))
+                Some(Cell::new(
+                    n + 1,
+                    walk_floors(n, na(NA_TOUCH_GROW)),
+                    move || {
+                        v.tick(&a);
+                        (v, a)
+                    },
+                ))
             },
         },
         Op {
@@ -2023,14 +2198,18 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
-                Some(Cell::new(n + 1, walk_floors(n), move || {
-                    let snap = {
-                        let mut batch = v.batch();
-                        batch.tick(&party);
-                        batch.snapshot()
-                    };
-                    (snap, v)
-                }))
+                Some(Cell::new(
+                    n + 1,
+                    walk_floors(n, na(NA_TOUCH_SEED_RAISE)),
+                    move || {
+                        let snap = {
+                            let mut batch = v.batch();
+                            batch.tick(&party);
+                            batch.snapshot()
+                        };
+                        (snap, v)
+                    },
+                ))
             },
         },
         Op {
@@ -2043,6 +2222,7 @@ fn ops() -> Vec<Op> {
                     limb: limb_wide(mandatory_limbs_version(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: touch_delta_fold(stored_deltas(&v)),
                 };
                 Some(Cell::new(n, floors, move || (v.rank(), v)))
             },
@@ -2067,6 +2247,7 @@ fn ops() -> Vec<Op> {
                     },
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_NO_STREAM),
+                    touch: na(NA_TOUCH_RANK_ARITHMETIC),
                 };
                 Some(Cell::new(n, floors, move || {
                     let ord = a.cmp(&b);
@@ -2119,6 +2300,10 @@ fn ops() -> Vec<Op> {
                     limb,
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_NO_STREAM),
+                    touch: Liveness::Floor {
+                        min: ones.len() as u64 + 1,
+                        why: WHY_TOUCH_RANK_SUM,
+                    },
                 };
                 Some(Cell::new(n, floors, move || {
                     std::iter::once(a).chain(ones).sum::<Rank>()
@@ -2135,6 +2320,7 @@ fn ops() -> Vec<Op> {
                     limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: touch_delta_fold(stored_deltas(&v) + stored_deltas(&w)),
                 };
                 Some(Cell::new(n, floors, move || (v.distance(&w), v, w)))
             },
@@ -2149,6 +2335,7 @@ fn ops() -> Vec<Op> {
                     limb: limb_wide(mandatory_limbs_version(&v) + mandatory_limbs_version(&w)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: touch_delta_fold(stored_deltas(&v) + stored_deltas(&w)),
                 };
                 Some(Cell::new(n, floors, move || (v.lag(&w), v, w)))
             },
@@ -2163,6 +2350,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_WORD_FOLD),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: na(NA_TOUCH_MIN_FOLD),
                 };
                 Some(Cell::new(n, floors, move || (v.min_ticks(), v)))
             },
@@ -2174,7 +2362,8 @@ fn ops() -> Vec<Op> {
                 let (versions, _) = f.fold.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
                 let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
-                Some(Cell::new(n, walk_floors(n), move || {
+                let touch = touch_delta_fold(versions.iter().map(stored_deltas).sum());
+                Some(Cell::new(n, walk_floors(n, touch), move || {
                     Version::join_all(versions)
                 }))
             },
@@ -2193,7 +2382,7 @@ fn ops() -> Vec<Op> {
                     let p = decode_party(p_bytes);
                     return Some(Cell::io(
                         n,
-                        walk_floors(n),
+                        walk_floors(n, na(NA_TOUCH_PROJECTION)),
                         |r| {
                             let (out, _, _) = r
                                 .downcast_ref::<(Version, Version, Party)>()
@@ -2207,15 +2396,21 @@ fn ops() -> Vec<Op> {
                 // event side through its id side, input-denominated (the
                 // module doc's do-not-re-denominate list).
                 if let Some((v, p, n)) = f.cross() {
-                    return Some(Cell::new(n, walk_floors(n), move || (&v / &p, v, p)));
+                    return Some(Cell::new(
+                        n,
+                        walk_floors(n, na(NA_TOUCH_PROJECTION)),
+                        move || (&v / &p, v, p),
+                    ));
                 }
                 // Small (half-interval) party × adversarial version.
                 if f.version.is_some() {
                     let (v, n) = f.version()?;
                     let half = Party::seed().fork();
-                    return Some(Cell::new(n + 1, walk_floors(n), move || {
-                        (&v / &half, v, half)
-                    }));
+                    return Some(Cell::new(
+                        n + 1,
+                        walk_floors(n, na(NA_TOUCH_PROJECTION)),
+                        move || (&v / &half, v, half),
+                    ));
                 }
                 // Adversarial party × small version.
                 let (a, _, _) = f.party_pair()?;
@@ -2223,9 +2418,11 @@ fn ops() -> Vec<Op> {
                 let mut v = Version::new();
                 v.tick(&a);
                 let input = n + v.encode().len();
-                Some(Cell::new(input, walk_floors(input), move || {
-                    (&v / &a, v, a)
-                }))
+                Some(Cell::new(
+                    input,
+                    walk_floors(input, na(NA_TOUCH_PROJECTION)),
+                    move || (&v / &a, v, a),
+                ))
             },
         },
         Op {
@@ -2242,6 +2439,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_DEPENDENCY),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: na(NA_TOUCH_RENDER_SUMMARIES),
                 };
                 Some(Cell::text(
                     n,
@@ -2274,6 +2472,7 @@ fn ops() -> Vec<Op> {
                     limb: limb_wide(mandatory_limbs_version(&v)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(packed),
+                    touch: touch_delta_fold(stored_deltas(&v)),
                 };
                 Some(Cell::text(
                     s.len(),
@@ -2302,6 +2501,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
+                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || {
                     let mut hasher = DefaultHasher::new();
@@ -2315,7 +2515,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                Some(Cell::new(n, walk_floors(n), move || {
+                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                Some(Cell::new(n, walk_floors(n, touch), move || {
                     let hit = causally::since(&v).contains(&w);
                     (hit, v, w)
                 }))
@@ -2333,6 +2534,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || {
                     (decode_party(&a), decode_party(&b))
@@ -2350,6 +2552,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || (a.encode(), a)))
             },
@@ -2369,6 +2572,7 @@ fn ops() -> Vec<Op> {
                     } else {
                         scan_touch()
                     },
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || {
                     let child = a.fork();
@@ -2386,6 +2590,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || {
                     let joined = a.join(b).is_ok();
@@ -2407,6 +2612,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || {
                     let mut acc = acc;
@@ -2426,6 +2632,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_touch(),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || (a.covers(&b), a, b)))
             },
@@ -2440,6 +2647,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || (a.is_disjoint(&b), a, b)))
             },
@@ -2455,6 +2663,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n + 1, floors, move || {
                     (Party::seed().without(&b), b)
@@ -2476,6 +2685,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::text(
                     n,
@@ -2508,6 +2718,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(packed),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::text(
                     s.len(),
@@ -2534,6 +2745,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
+                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || {
                     let mut hasher = DefaultHasher::new();
@@ -2554,6 +2766,7 @@ fn ops() -> Vec<Op> {
                     limb: limb_wide(mandatory_limbs_version(clock.version())),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(bytes.len()),
+                    touch: touch_wide_stream(clock.version()),
                 };
                 Some(Cell::new(bytes.len(), floors, move || {
                     Clock::decode(&bytes[..]).expect("an encoded clock decodes back")
@@ -2570,6 +2783,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
+                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || (clock.encode(), clock)))
             },
@@ -2589,7 +2803,15 @@ fn ops() -> Vec<Op> {
                     }));
                 }
                 let (mut clock, n) = f.clock()?;
-                Some(Cell::new(n, walk_floors(n), move || {
+                // A version-bearing shape's clock ticks its seed party (an
+                // in-place raise); the id pair's clock ticks an empty
+                // version (pure growth). Neither runs the accumulator.
+                let touch = if clock.version().is_empty() {
+                    na(NA_TOUCH_GROW)
+                } else {
+                    na(NA_TOUCH_SEED_RAISE)
+                };
+                Some(Cell::new(n, walk_floors(n, touch), move || {
                     clock.tick();
                     clock
                 }))
@@ -2609,6 +2831,7 @@ fn ops() -> Vec<Op> {
                     } else {
                         scan_touch()
                     },
+                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || {
                     let child = clock.fork();
@@ -2621,7 +2844,9 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Clock,
             prepare: |f| {
                 let (mut a, b, n) = f.clock_pair()?;
-                Some(Cell::new(n, walk_floors(n), move || {
+                let touch =
+                    touch_delta_fold(stored_deltas(a.version()) + stored_deltas(b.version()));
+                Some(Cell::new(n, walk_floors(n, touch), move || {
                     let joined = a.join(b).is_ok();
                     (joined, a)
                 }))
@@ -2632,7 +2857,9 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Clock,
             prepare: |f| {
                 let (mut a, mut b, n) = f.clock_pair()?;
-                Some(Cell::new(n, walk_floors(n), move || {
+                let touch =
+                    touch_delta_fold(stored_deltas(a.version()) + stored_deltas(b.version()));
+                Some(Cell::new(n, walk_floors(n, touch), move || {
                     let synced = a.sync(&mut b).is_ok();
                     (synced, a, b)
                 }))
@@ -2645,7 +2872,8 @@ fn ops() -> Vec<Op> {
                 // Small clock × adversarial received version.
                 if let Some((v, n)) = f.version() {
                     let mut clock = Clock::seed();
-                    return Some(Cell::new(n + 2, walk_floors(n), move || {
+                    let touch = touch_delta_fold(stored_deltas(&v));
+                    return Some(Cell::new(n + 2, walk_floors(n, touch), move || {
                         clock.recv(&v);
                         (clock, v)
                     }));
@@ -2655,7 +2883,8 @@ fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let mut clock = Clock::from_parts(a, Version::new());
                 let msg = Version::try_from(1u64).expect("a one-tick version is valid");
-                Some(Cell::new(n + 2, walk_floors(n), move || {
+                let touch = touch_delta_fold(stored_deltas(&msg));
+                Some(Cell::new(n + 2, walk_floors(n, touch), move || {
                     clock.recv(&msg);
                     (clock, msg)
                 }))
@@ -2675,7 +2904,7 @@ fn ops() -> Vec<Op> {
                     let clock = Clock::from_parts(decode_party(p_bytes), decode_version(v_bytes));
                     return Some(Cell::io(
                         n,
-                        walk_floors(n),
+                        walk_floors(n, na(NA_TOUCH_PROJECTION)),
                         |r| {
                             let (out, _) = r
                                 .downcast_ref::<(Version, Clock)>()
@@ -2686,9 +2915,11 @@ fn ops() -> Vec<Op> {
                     ));
                 }
                 let (clock, n) = f.clock()?;
-                Some(Cell::new(n, walk_floors(n), move || {
-                    (clock.own_version(), clock)
-                }))
+                Some(Cell::new(
+                    n,
+                    walk_floors(n, na(NA_TOUCH_PROJECTION)),
+                    move || (clock.own_version(), clock),
+                ))
             },
         },
         Op {
@@ -2705,6 +2936,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_DEPENDENCY),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
+                    touch: na(NA_TOUCH_RENDER_SUMMARIES),
                 };
                 Some(Cell::text(
                     n,
@@ -2737,6 +2969,7 @@ fn ops() -> Vec<Op> {
                     limb: limb_wide(mandatory_limbs_version(clock.version())),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(packed),
+                    touch: touch_delta_fold(stored_deltas(clock.version())),
                 };
                 Some(Cell::text(
                     s.len(),
@@ -2762,6 +2995,7 @@ fn ops() -> Vec<Op> {
                     limb: na(NA_LIMB_NOT_FORCED),
                     segments: seg_ceiling_only(),
                     scan: na(NA_SCAN_BYTE_COPY),
+                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || {
                     let mut hasher = DefaultHasher::new();
@@ -2791,8 +3025,8 @@ struct Sample {
     /// floors scale with the sample's operands.
     floors: Floors,
     /// Every currency's counter reading over the body; `None` where the
-    /// counter is not compiled in (the feature-gated limb and scan
-    /// columns render `off` and are exempt from judgment).
+    /// counter is not compiled in (the feature-gated limb, scan, and
+    /// touch columns render `off` and are exempt from judgment).
     readings: ByCurrency<Option<u64>>,
 }
 
@@ -2806,6 +3040,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
     super::reset_stack_segments();
     reset_limb();
     reset_scan();
+    reset_touch();
     (heap.reset_peak)();
     let baseline = (heap.current)();
     let result = (cell.body)();
@@ -2813,6 +3048,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
     let segments = super::stack_segments();
     let limb = read_limb();
     let scan = read_scan();
+    let touch = read_touch();
     let (denom_bytes, limb_denom, text_row) = match cell.denom {
         Denom::Input => (cell.input_bytes, cell.input_bytes as u64, false),
         Denom::Io(spec) => {
@@ -2840,6 +3076,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell) -> Sample {
             segments: Some(segments),
             limb,
             scan,
+            touch,
         },
     }
 }
@@ -2863,6 +3100,28 @@ fn read_limb() -> Option<u64> {
 /// Without the `limb-meter` feature the limb column is absent.
 #[cfg(not(feature = "limb-meter"))]
 fn read_limb() -> Option<u64> {
+    None
+}
+
+/// Reset the touch counter when the `limb-meter` feature carries one.
+#[cfg(feature = "limb-meter")]
+fn reset_touch() {
+    crate::codec::accum::touch_meter::reset();
+}
+
+/// Without the `limb-meter` feature there is no touch counter to reset.
+#[cfg(not(feature = "limb-meter"))]
+fn reset_touch() {}
+
+/// Read the touch counter, or `None` without the `limb-meter` feature.
+#[cfg(feature = "limb-meter")]
+fn read_touch() -> Option<u64> {
+    Some(crate::codec::accum::touch_meter::touches())
+}
+
+/// Without the `limb-meter` feature the touch column is absent.
+#[cfg(not(feature = "limb-meter"))]
+fn read_touch() -> Option<u64> {
     None
 }
 
@@ -2917,6 +3176,9 @@ const LIMB_FLOOR_TRIP: &str =
 /// The scan column's floor-trip message.
 const SCAN_FLOOR_TRIP: &str =
     "scan floor: counter reads below floor: the meter is not watching this work";
+/// The touch column's floor-trip message.
+const TOUCH_FLOOR_TRIP: &str =
+    "touch floor: counter reads below floor: the meter is not watching this work";
 
 /// Whether `count` sits below a committed floor (an NA declaration never
 /// trips).
@@ -2997,7 +3259,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
             }
             Currency::Segments => m2 as f64,
             Currency::Limb => m2 as f64 / s2.limb_denom as f64,
-            Currency::Scan => m2 as f64 / s2.denom_bytes as f64,
+            Currency::Scan | Currency::Touch => m2 as f64 / s2.denom_bytes as f64,
         };
         Score {
             exp: Some(exp),
@@ -3009,6 +3271,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         segments: score(Currency::Segments),
         limb: score(Currency::Limb),
         scan: score(Currency::Scan),
+        touch: score(Currency::Touch),
     };
 
     let mut red = Vec::new();
@@ -3038,6 +3301,11 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
                 "scan exponent",
                 "scan constant",
             ),
+            Currency::Touch => (
+                MAX_TOUCHES_PER_INPUT_BYTE,
+                "touch exponent",
+                "touch constant",
+            ),
         };
         if s.exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
             red.push(exp_label);
@@ -3055,6 +3323,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
             Currency::Segments => SEG_FLOOR_TRIP,
             Currency::Limb => LIMB_FLOOR_TRIP,
             Currency::Scan => SCAN_FLOOR_TRIP,
+            Currency::Touch => TOUCH_FLOOR_TRIP,
         };
         if [&s1, &s2].iter().any(|s| {
             s.readings
@@ -3107,6 +3376,10 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         (Some(e), Some(c)) => format!("scan[e{e:5.2} {c:>10.1}/B]"),
         _ => "scan[      off      ]".to_string(),
     };
+    let touch = match (r.scores.touch.exp, r.scores.touch.per_unit) {
+        (Some(e), Some(c)) => format!("touch[e{e:5.2} {c:>10.1}/B]"),
+        _ => "touch[      off      ]".to_string(),
+    };
     let reasons = if r.red.is_empty() {
         String::new()
     } else {
@@ -3115,8 +3388,8 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     writeln!(
         out,
         "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
-         heap[e{he:5.2} {hc:>10.1}/B]  seg[e{se:5.2} {sc:>4}]  {limb}  {scan}  \
-         flr[h {fh:>6} l {fl:>6} s {fs:>6}]{reasons}",
+         heap[e{he:5.2} {hc:>10.1}/B]  seg[e{se:5.2} {sc:>4}]  {limb}  {scan}  {touch}  \
+         flr[h {fh:>6} l {fl:>6} s {fs:>6} t {ft:>6}]{reasons}",
         op = r.op,
         family = r.family,
         n1 = r.s1.denom_bytes,
@@ -3128,6 +3401,7 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         fh = floor_value(r.s2.floors.heap),
         fl = floor_value(r.s2.floors.limb),
         fs = floor_value(r.s2.floors.scan),
+        ft = floor_value(r.s2.floors.touch),
     )
 }
 
@@ -3193,7 +3467,8 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
          segments <= {MAX_GROWN_STACK_SEGMENTS}, \
          limb <= {MAX_LIMB_OPS_PER_INPUT_BYTE} ops/B \
          (text rows: <= {MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT} ops/R), \
-         scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B; \
+         scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B, \
+         touch <= {MAX_TOUCHES_PER_INPUT_BYTE} touches/B; \
          and every committed liveness floor met (flr[...]: a counter below its floor is red: \
          the meter is not watching that work; segments is ceiling-only by policy, its honest \
          floor is zero). every judged quantity is a deterministic counter: the time-exponent \
