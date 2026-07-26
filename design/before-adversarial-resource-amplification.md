@@ -456,8 +456,8 @@ summed measured-body wall per family.
 
 **The bench judge** (`tools/benchjudge`, stdlib Python;
 `benches/board.rs` driven by the board's own cell table so bench
-IDs mirror board cells by construction — 207 judged cells: the
-205 board cells plus the wide-display pair): fits each cell's
+IDs mirror board cells by construction — 223 judged cells: the
+221 board cells plus the wide-display pair): fits each cell's
 wall exponent `ln(median_hi/median_lo) / ln(denom_hi/denom_lo)`
 across two saved criterion baselines (scales 1 and record),
 denominated against the board's per-cell denominator bytes (never
@@ -492,7 +492,11 @@ for numbers of record) judges through the same roster — the
 expectations are exponent classes, valid under either sampling
 regime. Population at this tip: the fifteen bigroot sweeps + the
 hugeleaf display pair (κ/C2-owned) + the permanent schoolbook
-tripwire; boundary empty. **The bigroot set and the display pair
+tripwire + the four width-circulation tick crosses
+(`version_tick`/`clock_tick` × `reveal-comb`/`pure-comb`,
+#34-owned, empty at the tick cure — the touch currency rides no
+board counter column, so the time leg is the one board-side leg
+that sees the cycle); boundary empty. **The bigroot set and the display pair
 empty at C3; the schoolbook expectation is permanent.** Between
 C2 and C3 every judge run fails on the fifteen realized greens BY
 DESIGN — that failure is C3's realization evidence, banked
