@@ -1,19 +1,18 @@
 # `before`: adversarial resource amplification in Version and Party computation
 
-Status: execution in progress on branch `before-hardening`. The
-audit (2026-07-22), the Tier 2 decision (2026-07-23), the pre-flip
-kernel window (2026-07-23/24), C0 (2026-07-24), and C2 — the flag
-day, commit `91fac33d` (2026-07-25) — are complete; the campaign
-stands at C3's bench-harness remainder (§17.2's queue of record,
-items 11–13; the deterministic round landed 2026-07-26), then the
-materializing emitters, the P4 residual audit, and P5 closeout.
-This document was compressed 2026-07-25 (user directive): it
-specifies the criteria the instrumentation enforces and the work
-that remains; landed-work narratives, superseded amendment chains,
-and measurement logs whose conclusions are pinned in code live in
-git history (`git log design/before-adversarial-resource-amplification.md`),
-which is the provenance record. Completed phases appear as the
-ledger in §14.
+Status: execution in progress on branch `before-hardening`. Complete:
+the audit, the Tier 2 decision, the pre-flip kernel window, C0, C2
+(the flag day), the tick limb cure and fusion (#34), and C3's
+denomination and classification round. The campaign stands at C3's
+bench-harness remainder (§17.2's queue of record, items 11–13), then
+the materializing emitters, the P4.2 residual audit, and P5 closeout.
+This document is the single canonical source for the criteria the
+instrumentation enforces and the work that remains, written to the
+current state of the tree; the compact history is the decision record
+(§12) and the phase ledger (§14), and everything else — landed-work
+narratives, superseded amendment chains, measurement logs whose
+conclusions are pinned in code — lives in git history
+(`git log design/before-adversarial-resource-amplification.md`).
 
 Scope: `rumors`' model of record is authenticated-honest-peer, so
 none of this is a `rumors` security finding — an authorized peer
@@ -39,12 +38,12 @@ can an adversary craft canonical, normal-form inputs whose
 encoded size — and can the library compute with cost proportional
 to the packed size, **without bounding inputs** and **without
 losing the compactness of the representation or the `O(n + m)`
-operation costs**? Answer: yes — seven amplifier classes were
-found (§3), all removable, because every quantity the algorithms
-need at a node is either one of two global accumulators or bounded
-by that node's own coded size. The fix of record is the Tier 2
-skyline representation (§10), DECIDED 2026-07-23 and the shipped
-production coding since C2 (2026-07-25).
+operation costs**? Answer: yes — the audit found seven amplifier
+classes and the campaign's adversarial rounds a further set (§3's
+ledger), all cured, because every quantity the algorithms need at a
+node is either one of two global accumulators or bounded by that
+node's own coded size. The fix of record is the Tier 2 skyline
+representation (§10), the shipped production coding since C2.
 
 ## 2. Input families
 
@@ -68,27 +67,28 @@ share:
 | alternating spine | deep alternating-binary topology | frame-count adversaries (grow) |
 | id spine I(d) / id-pair | unary chains, shared prefix, divergent tips | two-operand id walks at full lockstep depth (P1) |
 | scatter | n single-tick organic versions, evens before odds | fold accumulator growth (V7) |
-| comb-scatter | cliff comb × scattered party | output-dominated projection |
+| comb-scatter | cliff comb × scattered party | output-dominated projection; the flat-denominator exponent rule (§6) |
 | benign | small organic values | the control; the parity floor's referent |
-| nested-full-sibling | `(x,1)` repeated down a spine × matching event spine | the paired tick walk at maximal shortcut depth (the fill red pin's family; scan-linear since the cure) |
-| nested-wide | bigroot magnitude × the nested-full id | the wide right-full chain: the absolute first payload nets the deepest subtree and every ancestor's materialized sum re-touches it (#34) |
-| mirror / wide tail | `(1,x)` down a right spine × a zero spine with one wide tail leaf | the memoized pre-scan at full depth — wide minima in every memo entry, wide nets per level (#34); the unit-tail cross is the memo machinery's own cell |
-| descending staircase | monotone-descending unit-delta leaves × the unary id spine | full-penetration minimum updates at every level, width-independent (the cure's propagation witness) |
-| memo chain / comb | consumption-sibling and interleaved left-full site forests | the ledger's linearity on consumption-order adversaries (every refuted memo resolution reads quadratic) |
+| nested-full-sibling | `(x,1)` repeated down a spine × matching event spine | the paired tick walk at maximal shortcut depth (the fill linearization's family; pinned scan-linear) |
+| nested-wide | bigroot magnitude × the nested-full id | the wide right-full return chain (#34's genre; pinned limb-flat) |
+| mirror / wide tail | `(1,x)` down a right spine × a zero spine with one wide tail leaf | the memoized pre-scan at full depth with wide minima per level (#34's genre); the unit-tail cross is the memo machinery's own cell |
+| descending staircase | monotone-descending unit-delta leaves × the unary id spine | full-penetration minimum updates at every level, width-independent (the anchor-web walk's propagation witness) |
+| memo chain | `k` consumption-sibling single-leaf left-full sites under one covering site, minima distinct or shared | the frame ledger's resolution cost, pinned flat ×2.00 across the doubling (the shared twin is the flat control) |
+| memo comb | shallow and covering left-full sites interleaved per level | consumption order Θ(d) from recording order — refutes chain-walking resolutions under every record-to-record anchoring; pinned flat |
 | memo fan-out / oscillation | one wide minimum shared by k sites over a unit plateau; minima alternating wide/narrow | the fan-out's k-independent wide cost (absolute touch ceiling) and its funding control |
-| memo churn / descending raises | in-flight records under full-penetration drops; raises landing below the frame minimum | one live ledger head (the live-anchored followers' tombstone); the decide-then-emit ordering's oracle tripwire |
-| memo chain | `k` consumption-sibling single-leaf left-full sites under one covering site, minima distinct or shared | the memo resolution's touch cost (#34: quadratic re-reads, red-pinned; the shared twin is the flat control) |
-| memo comb | shallow and covering left-full sites interleaved per level | consumption order Θ(d) from recording order — refutes chain-walking resolutions under every record-to-record anchoring |
-| reveal comb / hifloor | `k` sibling left-full sites sharing one `2^b` minimum over a zero floor, the left-leaning spine closing each site's frame back into the floor frame between consumes; the control's floor raised to `2^b − 2` | the tick walk's width-circulation cure (#34 rounds 5–6: read Θ(k·b) touches on a Θ(k + b) input AND output until the latent boundary register landed; pinned flat ×2.00 across the joint doubling since, 2026-07-26); the narrow-gap control is flat — the wide gap was the driver, not the shape |
-| pure comb | the same left-leaning comb with bare `2^b` leaves and no left-full site anywhere | the base watermark stack's own arm-move + close-pop cycle in isolation (~2 wide folds per site until the register landed; pinned flat per byte since, 2026-07-26) — the layer the frame ledger amplified ~10× |
-| ascending cliff / plateau | `k` ascending wide left leaves `2^b + i` down a right spine over a terminal 0-cliff, id descending to the cliff; the control's leaves leveled at `2^b + 1` | the undercut cascade's fold direction (#34 round 7: one wide residue through k − 1 nonzero unit differences read Θ(k·b) touches on a Θ(k + b) input AND output until propagate's hops folded dying-side digits under domination decisions; pinned flat ×2.00 across the joint doubling since, 2026-07-26); the leveled control (differences all zero, the residue passes the compressed run whole) is flat — the nonzero hop schedule is the axis, not the undercut or the spine |
+| memo churn / descending raises | in-flight records under full-penetration drops; raises landing below the frame minimum | one live ledger head; the decide-then-emit ordering's oracle tripwire |
+| reveal comb / hifloor | `k` sibling left-full sites sharing one `2^b` minimum over a zero floor, the left-leaning spine closing each site's frame back into the floor frame between consumes; the control's floor raised to `2^b − 2` | the tick walk's width-circulation genre (the spec's §9 rounds 5–6), pinned flat ×2.00 across the joint doubling; the narrow-gap control is flat — the wide gap is the driver, not the shape |
+| pure comb | the same left-leaning comb with bare `2^b` leaves and no left-full site anywhere | the base watermark stack's own arm-move + close-pop cycle in isolation, pinned flat per byte — the layer the frame ledger amplified ~10× before the round-6 cure |
+| ascending cliff / plateau | `k` ascending wide left leaves `2^b + i` down a right spine over a terminal 0-cliff, id descending to the cliff; the control's leaves leveled at `2^b + 1` | the undercut cascade's fold direction (the spec's §9 round 7), pinned flat ×2.00 across the joint doubling; the leveled control is flat — the nonzero hop schedule is the axis, not the undercut or the spine |
 
 ## 3. Findings ledger
 
-All cured except the entries marked OPEN; each family
-above witnesses at least one. Mechanism detail and measurements are
-in git history; the cures are pinned by the enforced envelopes and
-board cells named.
+Every finding is cured, closed, or landed as a ratchet; each family
+above witnesses at least one. Mechanism detail and pre-cure
+measurements are in git history at the commits §14 names; the tick
+genres' refutation-and-cure records are
+`design/before-tick-cost-spec.md` §9. The cures are pinned by the
+enforced envelopes and board cells named.
 
 - **V1** (quadratic memory+time; per-frame owned path sums in
   compare/combine): cured by the difference accumulator + the
@@ -115,309 +115,177 @@ board cells named.
   `Sum<Rank>`): balanced binary-counter reduction on all five fold
   surfaces + the raw-accumulator `Sum`. The reduction's own
   n·log n reads marginally red against flat ceilings on the
-  benign/scatter fold cells — owned, C2-adjacent n-cursor merge
-  (§17.3).
-- **Fill's lookahead/pre-scan terms** (found post-C2 by review:
-  worst case O(|ev| × local-id-depth), quadratic on matched
-  spines with zero shortcut sites; the multiplier is the LOCAL
-  id's depth — not wire-suppliable by a hostile peer): cured
-  2026-07-25 under the nested-full red pin — the right-full arm
-  deferred to an O(1) peek at the cursor's arrival, the left-full
-  pre-scan memoized (no position scanned twice). Scan columns
-  e 1.00 both arms; the recursion-depth segments residual rides
-  P4.2's pin (§17.3).
-- **Fill/tick's limb-dimension re-touching** (2026-07-25; found
-  by the linearization's adversarial review, widened by the spec
-  probes): materialized per-subtree `(min, net)` magnitudes cost
-  Θ(width) limb work per ancestor, quadratic on wide × deep
-  crosses through BOTH shortcut arms. CURED for the walk by the
-  anchor-web/watermark discipline of
-  `design/before-tick-cost-spec.md` (the wide crosses read limb
-  and touch e 1.00 at flat constants, board- and
-  envelope-pinned). The residual its own
-  adversarial review found — the memo's site resolution at Θ(k²)
-  accumulator digit touches on consumption-order adversaries, in
-  a currency the limb column cannot see — is CURED by the frame
-  ledger (the spec's §9 round-4 record): one link per site,
-  sibling-chained, first-child links deferred to the parent's
-  close, zero links unstored, each link read once and dying into
-  its raise decision [measured: ×2.00 touch growth across the
-  doubling on the memo-chain and memo-comb families, ×3.94/×3.92
-  under the refuted chain — the gate pins flipped with the cure,
-  re-pinned never deleted]. The same machinery had carried a
-  semantic staleness bug the families' first differential
-  crossing caught (fixed, minimized seed committed). Four ledger
-  adversaries guard the cure: the wide fan-out (k-independence by
-  absolute touch ceiling), the oscillating funding control, the
-  churn family (one live head through full-penetration drops —
-  the refuted live-anchored followers' tombstone), and the
-  descending raises (the decide-then-emit ordering's oracle
-  tripwire, verified live). A pricing obligation under §6, not an
-  exploit (local-depth multiplier).
-- **Tick's width-circulation cycle** (2026-07-25; found by the
-  frame ledger's adversarial review; **CURED 2026-07-26** — the
-  latent boundary register, spec §9 round 6: closes move the popped
-  boundary into a per-stack register instead of folding it, arms
-  recycle the register at the narrow anchor-relative offset, and
-  followers ride a one-bit anchor-relative tag, so the cycle's
-  marginal cost is the unit inter-site movement; reveal_comb
-  738,449 → 2,884,881 touches (×3.91) became 48,857 → 97,705
-  (×2.00 exactly), pure_comb per-byte 50.8 → 82.0 became 5.18 →
-  4.46, both re-pinned flat with absolute bands, the hifloor
-  control's band tightened to its cured measurement, byte-identity
-  and board sums unchanged at both scales. The refutation record,
-  kept as found): on a shared-wide-minimum comb whose
-  spine closes each site's frame back into the floor frame between
-  consecutive consumes, the consume decision mints a width-`b`
-  boundary difference, the site's close pops it back into the base
-  stack and the relation follower, and the next consume re-mints
-  it — every object individually create-once/read-once/die, the
-  width circulating through per-object-legal moves with no input
-  delta, no output code, and no undercut descent funding any hop
-  (I4's funded-cascade clause enumerated undercut hops only;
-  L1/I4 reopened and T-tick read REFUTED-pending-revision at spec
-  §9 round 5, resolved by round 6's I4′ width-conservation
-  invariant). Θ(k·b) accumulator touches on a Θ(k + b) input whose
-  output is Θ(k + b) too, so the blowup survives the I/O
-  denominator: reveal_comb per-byte 146.9 → 267.7 → 478.7 → 808.8
-  as `b` doubles at k = 1,000; ×3.91 touches on ×2.00 input across
-  the joint doubling — gate-pinned ≥ ×3.5 until the cure landed
-  and re-pinned it flat. Attribution pinned at both layers:
-  pure_comb (no left-full site, no memo, no pre-scan) paid ~2 wide
-  folds per site in the base watermark stack alone (per-byte 30.4 →
-  50.8 → 82.0, pinned ≥ ×1.45 per doubling until the same
-  re-pin) — the defect predated the
-  frame ledger, whose follower ferry amplified it ~10× (~21 wide
-  folds per site on reveal_comb). The high-floor control
-  (identical forest and cycle, consume-time gap 2) pins GREEN flat
-  and width-independent: the wide gap was the driver. Semantics are
-  exact everywhere (oracle differentials across the pools plus a
-  4096-site closed-form witness; every pin pairs its cost leg with
-  the shape's closed-form tick). The executable emit model
-  reproduced the class unmodified, at the base layer's constant —
-  the cure round calibrated against it. Board tick-cross
-  rows at both scales read green on every counter column (the
-  touch currency rides no board column); the four
-  `version_tick`/`clock_tick` × `reveal-comb`/`pure-comb` time-leg
-  cells joined the bench-judge roster as owned reds at the
-  refutation and leave it with the cure's linear readings. A
-  pricing obligation under §6, not an exploit (the shape needed the
-  local id's site forest).
-- **Propagate's fold direction** (2026-07-26; round 6's disclosed
-  kernel–prose divergence, constructed into a reachable family by
-  the round-6 landing's adversarial review; **CURED 2026-07-26** —
-  spec §9 round 7): the undercut cascade folded the wide surviving
-  residue into each popped narrow dying difference — the surviving
-  side's digits, re-read per hop — where width conservation (I4′
-  rule 2) demands the dying side's. The ascending cliff (k
-  ascending wide leaves stacking k − 1 nonzero unit differences
-  under one wide terminal undercut) read Θ(k·b) accumulator touches
-  on a Θ(k + b) input whose output is Θ(k + b) too: 203,435 →
-  790,851 (×3.89 on ×2.00 input) across the joint doubling,
-  gate-pinned ≥ ×3.5 until the cure re-pinned it flat at 12,626 →
-  25,234 (×2.00 exactly, band 31,542/18,925). The cure inverts the
-  hop: top-index domination decides each hop's direction in O(1)
+  benign/scatter fold cells — owned by §17.2's fold-marginals item
+  (the n-cursor merge).
+- **Fill's lookahead/pre-scan terms** (2026-07-25): worst case
+  O(|ev| × local-id-depth), quadratic on matched spines with zero
+  shortcut sites — the multiplier is the LOCAL id's depth, not
+  wire-suppliable by a hostile peer. Cured under the nested-full
+  red pin: the right-full arm deferred to an O(1) peek at the
+  cursor's arrival, the left-full pre-scan memoized (no position
+  scanned twice). Scan e 1.00 both arms; the recursion-depth
+  segments residual rides P4.2's pin. A pricing obligation under
+  §6, not an exploit.
+- **Fill/tick's limb-dimension re-touching** (#34, 2026-07-25/26):
+  materialized per-subtree `(min, net)` magnitudes cost Θ(width)
+  limb work per ancestor — quadratic on wide × deep crosses through
+  BOTH shortcut arms — and the memo's site resolution read Θ(k²)
+  accumulator digit touches on consumption-order adversaries, in a
+  currency the limb column cannot see. Cured by the anchor-web
+  watermark discipline plus the frame ledger of the tick cost spec
+  (its §9 rounds 3–4): the wide crosses read limb and touch e 1.00
+  at flat constants; memo-chain and memo-comb read ×2.00 touch
+  growth across the doubling (×3.94/×3.92 under the refuted chain),
+  the pins re-pinned never deleted. Four ledger adversaries guard
+  the cure: the wide fan-out (k-independence by absolute touch
+  ceiling), the oscillating funding control, the churn family (one
+  live head through full-penetration drops), and the descending
+  raises (the decide-then-emit ordering's oracle tripwire, verified
+  live). The same machinery had carried a semantic staleness bug
+  the families' first differential crossing caught (fixed,
+  minimized seed committed) — cost families and the semantic suite
+  must cross. A pricing obligation under §6 (local-depth
+  multiplier).
+- **Tick's width-circulation cycle** (found 2026-07-25 by the
+  ledger cure's adversarial review; cured 2026-07-26, the spec's §9
+  rounds 5–6): on the reveal comb, the consume/close cycle
+  circulated a width-`b` boundary difference through
+  per-object-legal moves with no input delta, no output code, and
+  no funded descent — Θ(k·b) accumulator touches on Θ(k + b) input
+  AND output (×3.91 across the joint doubling), with the base
+  watermark stack alone paying ~2 wide folds per site and the frame
+  ledger's follower ferry amplifying that ~10×. Cured by the latent
+  boundary register (the spec's I4′ width conservation): reveal-comb
+  reads ×2.00 exactly across the joint doubling and pure-comb flat
+  per byte, both re-pinned with absolute bands; the high-floor
+  control pins green, flat, and width-independent — the wide gap
+  was the driver, not the site forest or the schedule. Semantics
+  exact throughout (oracle differentials plus closed-form
+  witnesses). A pricing obligation under §6, not an exploit.
+- **Propagate's fold direction** (found and cured 2026-07-26, the
+  spec's §9 round 7): the undercut cascade folded the wide
+  surviving residue into each popped narrow dying difference —
+  Θ(k·b) touches on Θ(k + b) input and output on the ascending
+  cliff (×3.89 across the joint doubling), and a heap amplifier
+  (each popped difference's buffer widened to residue width,
+  heap e 1.82). Cured by inverting the hop to the spec's I4′
+  rule 2: top-index domination decides each hop's direction in O(1)
   before any fold, the dying side funds the fold that consumes it,
-  and width guards keep comparable-scale hops on the old path at
-  zero extra touches — every other committed MEASURED reading
-  byte-identical across the cure, byte-identity across the full
-  differential suite. The same defect was a heap amplifier (each
-  popped difference's buffer widened to residue width: board heap
-  e 1.82 → 1.00 on the family). The leveled control (differences
-  all zero) is flat and byte-identical across the cure: the
-  nonzero hop schedule is the axis. Witness-axis advisory recorded
-  (spec §7): undercut families need both a depth axis and a
-  residue-width axis — the staircase descends (every residue
-  narrow), and this family is its ascending mirror. A pricing
-  obligation under §6, not an exploit.
-- **Plateau projection output-domination** (CLOSED at C3
-  2026-07-26 under the owner's pre-approved §6 ruling):
+  width guards keep comparable-scale hops at zero extra touches.
+  ×2.00 exactly re-pinned flat; heap e 1.00; every other committed
+  MEASURED reading byte-identical across the cure; the leveled
+  control flat and byte-identical — the nonzero hop schedule is the
+  axis. A pricing obligation under §6, not an exploit.
+- **Plateau projection output-domination** (closed at C3,
+  2026-07-26, under the owner's pre-approved §6 ruling):
   `version_project`/`clock_own_version` × {reveal-comb,
   reveal-hifloor, pure-comb} re-materialize a wide absolute value
   per kept site — mandatory output Θ(k·b) on a Θ(k + b) input —
   and are `n_io`-denominated like the comb-scatter cross. The
   owner's O(`n_io`)-tightness rider is met [measured, release,
-  both scales: output ×4.0 per input doubling; limb e 0.96–0.99
-  at ≤ 0.20/B, scan e 1.00 at 8 bits/B, touch e ≈ 0.99 at
-  ≤ 0.13/B, heap e 1.00 at 2.1 B/B]; the six `n_io` board cells
-  are the committed check. A denomination gap, not a kernel
-  finding.
-- **Profile-dependent meter readings** (2026-07-26; found by the
-  #35 dev-vs-release identity check, which stopped the planned
-  `--release` switch of the board recipes pending the owner's
-  ruling): 102 `debug_assert!` sites in the production kernels
-  perform metered work — `Base` comparisons through the limb shim
-  (`codec/base.rs`'s subtraction-underflow and shift guards),
-  skyline grow probes that consume metered cursors — so dev and
-  release builds measure different programs: at the default scale
-  limb readings differed on 95 of 720 cells, scan on 59, heap on 3
-  (release lower; no verdict flips; denominators byte-identical)
-  [measured — dev and release renders at the #35 tip,
-  byte-compared]. RESOLVED by the owner's ratification (2026-07-26,
-  §13): **release is the board's measurement of record** — dev
-  counters measure algorithm plus verification scaffolding, release
-  the production work alone, the honest denominator — with dev runs
-  a debugging view whose readings are never pinned; assertion-scoped
-  meter suspension REJECTED on doctrine (a metering-pause mechanism
-  is an F2 hazard). The one assertion whose metered work moved a
-  rendered exponent class — `id_is_empty`'s normal-form check
-  re-parsing its whole input through the metered cursor, doubling
-  every decode path's dev scan (16.0 vs 8.0 bits/B on
-  `party_decode`) and carrying `clock_decode × comb-scatter`'s scan
-  leg across the 1.15 ceiling in dev only (e 1.25 vs 1.13) — was
-  repaired per the ratified policy: the helper spot-checks the O(1)
-  consequences of its contract, and the full O(n) assertion moved to
-  the diff kernel's emission seam (`Party::without`), the one caller
-  whose input is not just-parsed bytes, where the detection value
-  genuinely requires the expensive form (owned in §17.3). Post-repair
-  dev-vs-release divergence: zero verdict flips and zero exponent-leg
-  ceiling crossings on any work column at either scale, scan
-  divergence 59 → 13 cells (the owned seam) [measured — post-repair
-  dev and release renders, byte-compared]. The record-scale segments
-  columns remain profile-dependent by codegen (release frames are
-  smaller, so onset shifts and counts drop; every affected cell reads
-  red on segment count under both profiles) — the recursion-depth
-  genre P4.2 owns, not assertion work.
-- **LANDED — the join_all up-front re-scan cure: the per-call id
-  index** (found 2026-07-26 by the error-path round's rejection
-  survey; cured the same day). `Party::join_all` and
-  `Clock::join_all` test every input against the *fixed*
-  accumulator up front — semantically load-bearing for the
-  best-effort hand-back granularity — and each test as a cursor
-  walk re-scanned the accumulator (no random access in the packed
-  coding): Θ(inputs × accumulator) scan on a
-  Θ(accumulator + inputs) operand set, e 2.00–2.14 at
-  47–2,954 bits/B across the overlap families [measured at the
-  parent tip]. Each *call* was honestly linear; the fold's
-  repetition against one fixed operand was the amplifier, on the
-  rejection and success paths alike. The landed mechanism is the
-  entry's first candidate, `IdIndex` (`party/ops/index.rs`): built
-  once per fold call in two linear passes (every both-present
-  node's right-child position, one `u32` per such node — transient
-  state strictly under the operand; a `u32`-overflow operand
-  ≥ 512 MiB falls back to the cursor walk), it answers each
-  up-front test in O(input) node visits plus one
-  O(log accumulator) table search per both-present visit,
-  addressing indexed-side children in O(1) and skipping their
-  subtrees by never visiting them. A pure predicate-mechanism
-  swap: hand-back contents, order, and accumulator bytes are
-  decided by the identical fold, pinned differentially against
-  the cursor-walk discipline preserved as `testing::fold_oracle`
-  (arbitrary pool-with-repetition mixes, overlap position
-  first/interior/last, duplicates, all-overlapping deferred
-  witness, none-overlapping; a deliberate wrong-child mutation
-  trips four differentials). The second candidate
-  (coalesce-first) was rejected by probe: on the witnessing
-  population itself — duplicate probes overlapping the
-  accumulator *and* each other — nothing coalesces, so it
-  degenerates to the same per-input tests while reordering and
-  regrouping the hand-back vector the contract documents
-  (an input the fixed-`self` test hands back individually would
-  instead surface later, possibly merged); not curative where it
-  is priced, and semantics-breaking everywhere. Numbers: the gate
-  pin re-pinned in the cure's own commit,
-  `join_all_overlap_upfront_test_reads_flat` — growth across the
-  joint doubling ×4 (the ≥ ×3.5 red era) → ×2.00 measured
-  (33,036 → 66,060 bits), pinned ≤ ×2.05 over a liveness floor of
-  one full accumulator pass; the board row reads scan e 1.00 at
-  15.9 bits/B on *every* family at both scales (the index build's
-  two tag passes dominate), heap gaining the table's constant, at
-  most 10.6/B (nested-full, ×4) under the 16 ceiling. Cell
-  accounting and the success-path re-attribution: §17.3's
-  2026-07-26 cure amendment.
-- **The instrumentation census's blind spots** (2026-07-26; found
-  by a read-only census of meter coverage hunting the F2 genre —
-  work routed through a mechanism whose meter exists but is not
-  pinned on that surface, or through a mechanism with no meter at
-  all; every unpinned surface probed measured touch-linear, so all
-  items were missing ratchets, not live amplifiers. Dispositions,
-  landed by the #39 round): **the board had no touch column**
-  (structural: the tick F2 quadratic would have been invisible on
-  the board even at record scale) — LANDED as the fifth
-  `ByCurrency` field, ceiling + floor-or-NA on every cell of the
-  720-product (§13). **Emit (join/meet/recv/sync/folds) and text
-  parse carried live touch counters with zero pins** — parse the
-  touch-heaviest surface measured (~18× emit) — LANDED: board
-  per-delta floors plus gate-side cliff-comb flatness pins over
-  one-touch-per-delta liveness floors (per delta for the emitter,
-  per text byte for the parse — its honest denominator), beside a
-  render zero-touch conservation pin so accumulator work cannot
-  migrate between the text directions silently; `text.rs`'s
-  enforcement claim re-worded to name exactly what is pinned (it
-  had cited aggregate ceilings that carried no touch column).
-  **Validate/decode touches unpinned** — LANDED as stream-derived
-  wide-code board floors (the validator batches word-scale deltas
-  in the accumulator's lazy zone: a per-delta floor over-demands,
-  measured 0.0 touches/B on dense — the same over-derivation
-  trap as the tree-derived limb floors §17.3 owns). **Cmp** —
-  LANDED (board per-delta floors; the pre-existing cliff flat pin
-  stands). **Id covers/disjoint pinned nothing that sees the
-  walk's work** (every enforced column structurally near-zero;
-  the cost is scan) — LANDED: absolute scan ceilings ×1.25 over
-  full-examination floors, flat per byte across a depth doubling.
-  **Fork/split had no envelope row and bypasses the scan hooks**
-  — LANDED as fork's first envelope row (heap prices the
-  materialized halves; the scan pin records the split kernel's
-  deliberately raw path at 2 bits, so wiring it into the metered
-  primitives is a deliberate re-pin) and the board `party_fork`
-  heap declaration corrected to the fork-child floor; metering
-  the raw writes themselves DEFERRED with reason (O(n) copies,
-  low risk, and the wiring would move board scan readings — a
-  deliberate future re-denomination, not a rider on this round).
-  **The Shl width undercount** (operand+1 recorded for a widening
-  shift, so a shift-and-discard loop would read near-zero) —
-  LANDED: the shim records output width; the rank-pair envelope
-  re-pinned 54,704 → 70,328 limb ops as a re-denomination with the
-  movement annotated. **The tick envelope rows' missing scan
-  column, and the four-envelope-harness split that produced every
-  per-surface blindness above** (each harness was built for the
-  columns its first surface needed; later surfaces inherited the
-  blindness) — DEFERRED, named for a future round: collapse
-  `Envelope`/`TouchEnvelope`/`SweepEnvelope`/`QueryEnvelope` into
-  one five-column shape with per-column floor-or-NA, the #35
-  totality mechanism applied to the gate suite; until then the
-  board's tick × scan floors and touch column carry the cross-op
-  cover. Not exploits: ratchets against the F2 migration genre.
-- **Iterated-operation size trajectories** (2026-07-26, the #38
-  ORBIT PINS round; no amplification found — six committed
-  deterministic pins, one per orbit genre): the board prices single
-  calls, and a single-call bound does not preclude compounding
-  across calls — an operation linear per call can grow its own next
-  input until iterated application is quadratic in total. The tick
-  orbit pins (`tick_orbit_growth_is_transient_plus_log`,
-  `tick_deep_orbits_stay_banded`) were the in-tree precedent; this
-  round landed the remaining legs as byte-exact trajectory pins
-  (deterministic schedules, shape asserted at every step or at
-  octave resolution, each pin carrying its liveness floor).
-  **Fork orbits** (`party::tests`): the chain and the fan are
-  exactly affine — both halves read exactly `2 + 2k` bits at the
-  k-th fork over 512 steps (one two-bit level per split, nothing
-  compounding), and the fan unwinds along the same trajectory to a
-  byte-identical seed. **Fork+join round trips** (`clock::tests`):
-  the untick'd round trip is byte-stationary over 256 rounds; the
-  ticked variant returns the party byte-identical every round while
-  the version stays one fixed two-leaf scaffold whose counter costs
-  exactly `7 + 2⌊log2 k⌋` bits over 512 rounds — gamma width, never
-  a ratcheting tree. **The paper's §6 churn scenario**
-  (`churn_orbit_sizes_reach_a_bounded_band`; fork + tick +
-  anonymous exchange + retiring join per round on a fixed
-  arithmetic schedule, population 8, 4096 rounds): max id bits
-  plateau in a fixed band — octave maxima [20, 26, 42, 70, 92,
-  100, 122, 134, 132, 132], tail no higher than the plateau's
-  first octave — and max version bits grow per doubling only
-  ([24, 58, 102, 126, 176, 226, 270, 335, 383, 425]; tail steps
-  65 → 48 → 42 bits/octave, logarithmic). **The paper's §6 static
-  scenario** (`static_orbit_ids_freeze_and_versions_grow_log`,
-  8 peers, 4096 rounds): every id byte-identical forever, max
-  version bits monotone and exactly `8i − 4` over the octave
-  ending at round `2^i` — 8 bits per doubling, the counters'
-  gamma widths. The paper's "stabilizes with a minor logarithmic
-  component" is now a committed criterion, not a chart
-  (`examples/space_consumption.rs` remains the statistical
-  reproduction). Board and bench-judge roster untouched: orbits
-  are a test-surface pin genre, not board rows — single-call
-  denomination stays the board's job, trajectory shape the
-  orbits'.
+  both scales: output ×4.0 per input doubling; limb e 0.96–0.99 at
+  ≤ 0.2/B, scan e 1.00 at 8 bits/B, touch e 0.99 at ≤ 0.1/B, heap
+  e 1.00 at 2.1 B/B]; the six `n_io` board cells are the committed
+  check. A denomination gap, not a kernel finding.
+- **Profile-dependent meter readings** (2026-07-26; resolved by the
+  owner's ratification, §12): 102 `debug_assert!` sites in the
+  production kernels perform metered work (`Base` comparisons
+  through the limb shim, skyline grow probes consuming metered
+  cursors), so dev and release builds measure different programs.
+  **Release is the board's measurement of record** — it prices the
+  production work alone, the honest denominator; dev runs are a
+  debugging view, never pinned; assertion-scoped meter suspension
+  REJECTED on doctrine (a metering-pause mechanism is an F2
+  hazard). The one assertion whose metered work moved a rendered
+  exponent class was repaired per the ratified policy:
+  `id_is_empty` spot-checks the O(1) consequences of its contract,
+  and the full O(n) normal-form assertion moved to the diff
+  kernel's emission seam (`Party::without`), the one caller whose
+  input is not just-parsed bytes — the recorded, owned dev-profile
+  divergence (its dev scan reads ~16 bits/B above release by
+  design). Post-repair dev-vs-release divergence: zero verdict
+  flips and zero exponent-leg ceiling crossings on any work column
+  at either scale; scan divergence confined to the owned seam's 13
+  cells [measured — post-repair renders, byte-compared]. The
+  record-scale segments columns remain profile-dependent by codegen
+  (release frames are smaller, so onset shifts) — P4.2's genre, not
+  assertion work.
+- **The join_all up-front re-scan** (found and cured 2026-07-26).
+  `Party::join_all` and `Clock::join_all` test every input against
+  the *fixed* accumulator up front — semantically load-bearing for
+  the best-effort hand-back granularity — and each test as a cursor
+  walk re-scanned the accumulator: Θ(inputs × accumulator) scan on
+  a Θ(accumulator + inputs) operand set, e 2.00–2.14 at 47–2,954
+  bits/B across the overlap families [measured at the parent tip].
+  The landed cure is `IdIndex` (`party/ops/index.rs`): built once
+  per fold call in two linear passes (one `u32` per both-present
+  node — transient state strictly under the operand; a
+  `u32`-overflow operand ≥ 512 MiB falls back to the cursor walk),
+  answering each up-front test in O(input) node visits plus one
+  O(log accumulator) table search per both-present visit. A pure
+  predicate-mechanism swap: hand-back contents, order, and
+  accumulator bytes are decided by the identical fold, pinned
+  differentially against the cursor-walk discipline preserved as
+  `testing::fold_oracle` (a deliberate wrong-child mutation trips
+  four differentials). The coalesce-first candidate was REJECTED by
+  probe: on the witnessing population nothing coalesces, so it
+  degenerates to the same per-input tests while reordering the
+  hand-back vector the contract documents — not curative where
+  priced, semantics-breaking everywhere. Pins:
+  `join_all_overlap_upfront_test_reads_flat` — ×2.00 measured
+  across the joint doubling (was ×4), ceiling ≤ ×2.05 over a
+  liveness floor of one full accumulator pass; the board row reads
+  scan e 1.00 at 15.7–15.9 bits/B on every family at both scales,
+  heap at most 10.6/B under the 16 ceiling.
+- **The instrumentation census's blind spots** (#39, 2026-07-26; a
+  read-only census hunting the F2 genre — work routed through a
+  meter that exists but is not pinned on that surface, or through
+  no meter at all; every unpinned surface probed measured
+  touch-linear, so all items were missing ratchets, not live
+  amplifiers). Landed: **the touch column** as the board's fifth
+  judged currency, ceiling + floor-or-NA on every cell (the tick F2
+  quadratic would otherwise have been board-invisible); **emit and
+  text-parse touch pins** (board per-delta floors, gate-side
+  cliff-comb flatness pins over one-touch-per-delta liveness
+  floors, a render zero-touch conservation pin so accumulator work
+  cannot migrate between the text directions silently); **decode
+  touch floors** stream-derived (the validator batches word-scale
+  deltas in the accumulator's lazy zone, so a per-delta floor
+  over-demands); **cmp per-delta floors**; **covers/disjoint
+  absolute scan ceilings** ×1.25 over full-examination floors;
+  **fork's first envelope row** (heap prices the materialized
+  halves; the split kernel's deliberately raw 2-bit scan recorded
+  so wiring it into the metered primitives is a deliberate re-pin)
+  and the board `party_fork` heap declaration corrected to the
+  fork-child floor; **the Shl width re-denomination** (the shim
+  records output width; the rank-pair envelope re-pinned
+  54,704 → 70,328 limb ops with the movement annotated). DEFERRED
+  with reasons: metering fork's raw writes (O(n) copies, low risk,
+  wiring moves board scan readings — a deliberate future
+  re-denomination); collapsing the four envelope harnesses into one
+  five-column shape with per-column floor-or-NA (the #35 totality
+  mechanism applied to the gate suite — named for a future round;
+  until then the board's tick × scan floors and touch column carry
+  the cross-op cover). Ratchets against the F2 migration genre, not
+  exploits.
+- **Iterated-operation size trajectories** (#38, 2026-07-26; no
+  amplification found — six committed deterministic pins, one per
+  orbit genre): the board prices single calls, and a single-call
+  bound does not preclude compounding across calls. **Fork
+  orbits**: chain and fan exactly affine — both halves read exactly
+  `2 + 2k` bits at the k-th fork over 512 steps, the fan unwinding
+  to a byte-identical seed. **Fork+join round trips**: the untick'd
+  trip byte-stationary over 256 rounds; the ticked variant's party
+  byte-identical every round, the version one fixed two-leaf
+  scaffold costing exactly `7 + 2⌊log2 k⌋` bits over 512 rounds.
+  **The paper's §6 churn scenario** (4096 rounds): max id bits
+  plateau in a fixed band; max version bits logarithmic per octave.
+  **The paper's §6 static scenario**: ids byte-identical forever;
+  max version bits exactly `8i − 4` at the octave ending `2^i`.
+  The paper's "stabilizes with a minor logarithmic component" is a
+  committed criterion, not a chart. Board and judge roster
+  untouched: orbits are a test-surface pin genre — single-call
+  denomination stays the board's job, trajectory shape the orbits'.
 
 ## 6. The design invariant and the denomination criterion
 
@@ -428,12 +296,11 @@ Adopted as the crate's contract, enforced by §13:
 > `O(n + m)` in the packed input bits — with no bound on value
 > magnitude, tree depth, or encoded size.**
 
-Denomination (the criterion of record, 2026-07-23, ratified with
-the DECIDED entry; Gate B): "packed operands" denominates every
-operation *except* the two classes whose mandatory output is
-asymptotically larger than any constant times their input — an
-input-only bound is unsatisfiable by construction there and would
-degenerate into exemption holes:
+Denomination (the criterion of record; Gate B): "packed operands"
+denominates every operation *except* the three classes whose
+mandatory output is asymptotically larger than any constant times
+their input — an input-only bound is unsatisfiable by construction
+there and would degenerate into exemption holes:
 
 - **Text I/O** (`Display`/`FromStr` for Version/Party/Clock):
   judged against `n_io` = packed input + text output (Display) or
@@ -462,14 +329,31 @@ degenerate into exemption holes:
   output-honesty ceiling closes the pad-the-output door, asserted
   against the conversion units alone (the pipeline term must not
   loosen it; radix units, forced by the delta coding, derivation
-  at the constant, tripwire pinned).
+  at the constant, tripwire pinned). The pipeline term's decision
+  record is §12's C3 entry — **pending owner ratification**.
 - **Output-dominated projection** (`version_project`/
-  `clock_own_version` on comb × scattered-party and, since C3
-  applied the owner's pre-approved ruling to the plateau crosses,
-  on reveal-comb/reveal-hifloor/pure-comb): judged against
+  `clock_own_version` on comb × scattered-party and on the plateau
+  crosses reveal-comb/reveal-hifloor/pure-comb, per the owner's
+  pre-approved ruling applied at C3): judged against
   `n_io` = packed input + packed output (canonical coding cannot
   be padded), with the sweep measured O(`n_io`)-tight — the
   owner's rider — on every declared cross.
+- **Balanced share splitting** (`Party::forks(n)`): its mandatory
+  output is `n` packed parties, so it is judged against
+  `n_io` = packed input + Σ packed share bits (canonical coding
+  cannot be padded). The fuzz-fit mirror computes this from the
+  actual shares.
+
+**Rejection rows denominate against the fed stream alone.** A
+rejection produces no output, so the text rule's `n_io` degenerates
+to its input side: a `FromStr` rejection row is judged per fed
+*text* byte at the general limb ceiling (no radix-work term — `R`
+prices conversion of the accepting direction, and a rejection
+forces no conversion), and a decode/overlap rejection row per fed
+packed byte. The pad-the-output door does not open here (the fed
+stream is the adversary's own input: padding it inflates the
+denominator only by bytes the operation is genuinely asked to
+consume), so no honesty ceiling is needed on the rejection side.
 
 Everything else stays input-denominated — both codec directions
 (canonical 1:1), all scalar/comparison/query rows, and the
@@ -479,60 +363,35 @@ union of the inputs'; total bits within 4 per input leaf of the
 inputs' sum) rather than assumed. `meter::board`'s module doc
 carries the do-not-re-denominate list. Rank rows denominate
 against value content `bits(num) + exp`, which every public
-construction path bounds by the producing wire.
+construction path bounds by the producing wire; for consumers
+without access to the crate-private parts, the `num/2^exp`
+rendering's length is an admissible proxy — the numerator term is
+proportional (`digits ≈ 0.301 · bits(num)`) while `exp` contributes
+only its own digit count, so the proxy strictly *under-counts* the
+denominator, over-flags, and never masks: a cost linear against the
+proxy is linear against the criterion.
 
-- **Flat-denominator shapes fit their exponents against value
-  content** (C3, 2026-07-26 — the comb-scatter classification,
-  closed). The shape scales tooth count at a fixed 1000-bit
-  magnitude: packed bytes are intercept-dominated (~×1.2 per
-  level) while value content (§10.6's Σ leaf-height bits) and
-  measured per-tooth work double, so a packed-byte power-law fit
-  manufactures e ≈ 4 out of flat marginal work [measured]. The
-  shape's input-denominated cells fit exponents against the
-  bundle's value content (event-side leaf-height bits + id-side
-  packed bytes; row-disclosed as `expd[content ...]`); constants
-  and floors stay per packed byte; I/O cells keep `n_io`; the
-  bench mirror's denominators follow. Tripwires in
-  `meter::board::tests`: the packed fit must stay broken on
-  measured-flat work over the intercept premise, and a
-  quadratic-in-teeth probe must read red against content. The
-  column's work is linear on its honest denominator; no cell
-  exceeds it.
-
-Amendment (2026-07-26, the error-path round): **rejection rows
-denominate against the fed stream alone.** A rejection produces
-no output, so the text rule's `n_io` degenerates to its input
-side: a `FromStr` rejection row is judged per fed *text* byte at
-the general limb ceiling (no radix-work term — `R` prices
-conversion of the accepting direction, and a rejection forces no
-conversion), and a decode/overlap rejection row per fed packed
-byte. The pad-the-output door does not open here (the fed stream
-is the adversary's own input: padding it inflates the denominator
-only by bytes the operation is genuinely asked to consume), so no
-honesty ceiling is needed on the rejection side.
+**Flat-denominator shapes fit their exponents against value
+content** (the comb-scatter classification, closed at C3). The
+shape scales tooth count at a fixed 1000-bit magnitude: packed
+bytes are intercept-dominated (~×1.2 per level) while value content
+(§10.6's Σ leaf-height bits) and measured per-tooth work double, so
+a packed-byte power-law fit manufactures e ≈ 4 out of flat marginal
+work [measured]. The shape's input-denominated cells fit exponents
+against the bundle's value content (event-side leaf-height bits +
+id-side packed bytes; row-disclosed as `expd[content ...]`);
+constants and floors stay per packed byte; I/O cells keep `n_io`;
+the bench mirror's denominators follow. Tripwires in
+`meter::board::tests`: the packed fit must stay broken on
+measured-flat work over the intercept premise, and a
+quadratic-in-teeth probe must read red against content. The
+column's work is linear on its honest denominator; no cell exceeds
+it. The rule's decision record is §12's C3 entry — **pending owner
+ratification**.
 
 Statement-faithfulness (the user's standing bar) applies to every
 claim in this document and the code's prose: never weaker than
 stated, never stronger than proven.
-
-**Amendment (2026-07-26, with the fuzz-fit harness):** balanced
-share splitting (`Party::forks(n)`) is a third output-denominated
-class — its mandatory output is `n` packed parties, asymptotically
-larger than any constant times its input, so it is judged against
-`n_io` = packed input + Σ packed share bits (canonical coding
-cannot be padded). The fuzz-fit mirror computes this from the
-actual shares.
-
-**Amendment (2026-07-26, with the fuzz-fit harness):** the rank
-value-content denominator `bits(num) + exp` admits, for consumers
-without access to the crate-private parts, the rendering proxy:
-the `num/2^exp` rendering's length, in which the numerator term is
-proportional (`digits ≈ 0.301 · bits(num)`) while `exp`
-contributes only its own digit count — logarithmically compressed
-against the criterion. The compression strictly *under-counts* the
-denominator, which can only read as more cost per denominated bit,
-so the proxy over-flags and never masks; a cost linear against the
-proxy is linear against the criterion.
 
 ## 10. The skyline representation (shipped at C2)
 
@@ -629,7 +488,7 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   tripwire, e ≈ 1.99) — judged at the text ceiling 1.7, separation
   ≥ 2× the fit-noise band, laundering attacks pinned failing in
   `tools/benchjudge --self-test`.
-- **SUPERSEDED 2026-07-24: min-of-K wall hardening** — the board's
+- **RETIRED 2026-07-24: min-of-K wall hardening** — the board's
   wall judgment was deleted, not calibrated (user decision): the
   board reads no clock; the time leg lives in the bench judge on
   criterion's statistics.
@@ -649,87 +508,126 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   (§17.5; the user's decision, post-C3).
 - **DECIDED 2026-07-25 (Finch): the tick/fill cost effort runs
   spec-first under an adversarial design loop** — attack/fix
-  rounds on the design document itself until convergence (a round
-  with no falsifications), a lateral-redesign fork on
-  unsatisfying local optima. Performance within the campaign's
-  bars decides the design; readability is a tie-breaker, never a
-  veto (the recursive oracle is the readable paper-faithful
-  reference, the differential suite carries semantics, the
-  kernel's prose explains the walk against the oracle's
-  equations). **Fused tick is pre-approved** given linearity with
-  small constants. Confer-with-Finch stop conditions: a
-  superlinear honest optimum; a §6 denomination change; linear
-  achievable only via an at-rest representation change (the
-  discovery is welcome and reported — obstruction, sketch, blast
-  radius — the action always held). The spec of record:
-  `design/before-tick-cost-spec.md`, converged at revision 3
-  after two rounds (round 1 FALSIFIED two clauses, fixes
-  validated in-harness; round 2 HOLDS with the emission
-  discipline validated on the limb-faithful composed model);
-  Finch's ratification lands there as a dated amendment.
+  rounds on the design document itself until convergence, a
+  lateral-redesign fork on unsatisfying local optima. Performance
+  within the campaign's bars decides the design; readability is a
+  tie-breaker, never a veto. **Fused tick pre-approved** given
+  linearity with small constants. Confer-with-Finch stop
+  conditions: a superlinear honest optimum; a §6 denomination
+  change; linear achievable only via an at-rest representation
+  change. The spec of record: `design/before-tick-cost-spec.md`;
+  its design-loop record (seven adversarial rounds plus the fusion
+  landing) is that document's §9; Finch's ratification lands there
+  as a dated amendment (the formal campaign's Phase 0 schedules
+  the ratification read).
+- **DECIDED 2026-07-26 (owner, at the fusion landing)**: no
+  composed fill/compare/grow path retained — the differentials of
+  record pin the fused `tick` directly to the recursive oracle —
+  and no runtime byte-compare assert retained (committed
+  differentials are the entire pin of the flag seam, per the
+  standing practice that proptest coverage retires shadow-recompute
+  asserts). Recorded with the landed shape at the spec's §6 and §9
+  round 8; commit `80131954`.
+- **RATIFIED 2026-07-26 (owner): the board protocol** (commits
+  `cca70c01`, `61afb65b`): (1) the determinism tripwire — the
+  runner's in-process double measurement plus the gate's
+  cross-process byte-compare — replaces the
+  two-identical-runs-per-scale convention; acceptance runs are
+  single runs per scale. (2) **Release is the board's measurement
+  of record** and the board recipes run `--release`: dev counters
+  price algorithm plus verification scaffolding, release the
+  production work alone; dev boards stay runnable as a debugging
+  view, never the record; assertion-scoped meter suspension
+  REJECTED on doctrine (a metering-pause mechanism is an F2
+  hazard — do not build one). Rider: the ratified assertion-repair
+  policy (fix the assertion's cost, never pause the meter) — the
+  one exponent-class trigger repaired at `df3c1cb9`.
+- **DECIDED 2026-07-26 (owner): rejection cost is total** — cost
+  claims are unconditional over outcomes (rejecting an input is an
+  outcome with a bounded cost), while the linearity-of-parties rule
+  stays a *semantic* safety rule (nothing crashes if violated).
+  Rejection rows denominate against the fed stream alone (§6); the
+  rejection surface's enumeration and conventions are §13's.
+- **DECIDED 2026-07-26 (C3, the pre-approved arm applied): the six
+  plateau projection cells are `n_io`-denominated**, the
+  O(`n_io`)-tightness rider measured and met (§3's closed entry;
+  commit `1c32bb56`).
+- **DECIDED 2026-07-26 (C3): the judgment layer's exponent guards**
+  — exponent legs are fitted only where the cell's denominator pair
+  scales (≥ ×1.5 between probes) and, on heap, where a reading
+  clears the flat allowance the constant leg already forgives;
+  unjudged exponents render `-.--` and the cell rides its constants
+  and floors; guard tripwires committed (commit `87e82b34`).
+- **AMENDED 2026-07-26 (C3, the κ re-derivation, commit
+  `48c6f7b5`) — pending owner ratification (2026-07-26)**: the text
+  limb constant leg's denominator gains the per-spelled-value
+  pipeline term (`R = n_io + Σᵢ (digitsᵢ × limbsᵢ + 10)`,
+  `TEXT_PIPELINE_LIMB_OPS_PER_VALUE`), and κ re-pins 0.25 → 0.75
+  over it — the honest text cost law includes the delta⇄absolute
+  pipeline's per-value arithmetic, measured 5–9 ops per spelled
+  value on the production kernels. Rationale: without the term,
+  small-value trees judge gamma-pipeline arithmetic against pure
+  conversion work and read falsely red.
+- **AMENDED 2026-07-26 (C3, the comb-scatter classification,
+  commit `ce8f9e69`) — pending owner ratification (2026-07-26)**:
+  flat-denominator shapes fit their exponents against value
+  content (§6's rule); packed-byte fits on the shape manufacture
+  e ≈ 4 from flat marginal work over the intercept premise.
+  Rationale: the exponent leg must read the work's scaling axis,
+  and the shape's packed bytes do not scale with it.
 
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **989 cells at this
-tip** (amended 2026-07-26, the error-path round: the 18 rejection
-rows below added 269 cells, 720 → 989), membership pinned by the
-smoke test — judged at two scales
+public operation surface × §2's families — **989 cells**,
+membership pinned by the smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
-the **release profile**, the measurement of record (ratified
-2026-07-26: debug assertions perform metered work, so dev boards
-price verification scaffolding into the counters; dev runs are a
-debugging view, never pinned), from deterministic meters only:
-peak heap, grown stacker segments,
-limb ops, scanned/written bits, and — since the touch column landed
-(2026-07-26, the #39 instrumentation ratchet) — accumulator digit
-touches, so every cell is six-column: verdict plus five judged
-counter columns. The board is a generalized
-cartesian product over three declarative axes (amendment of
-2026-07-26 below): shapes declare operand bundles, operations
-declare the slots their signatures consume, and every judged
-quantity carries one field per metering currency
+the **release profile**, the measurement of record (§12's
+ratification), from deterministic meters only: peak heap, grown
+stacker segments, limb ops, scanned/written bits, and accumulator
+digit touches, so every cell is six-column: verdict plus five
+judged counter columns. The board is a generalized cartesian
+product over three declarative axes: shapes declare operand
+bundles, operations declare the slots their signatures consume,
+and every judged quantity carries one field per metering currency
 (`board::ByCurrency`), so every-shape-everywhere and
 every-currency-everywhere hold structurally — adding a shape or
 operation grows the product, and adding a currency is a compile
 error until every operation declares a floor or a written NA for
-it. **The board reads no clock**: its
-entire rendered output is byte-identical at a given scale under
-any machine load, no stripping, no carve-outs [measured — under a
-sustained parallel-build load generator], and the claim is
-enforced on two legs — the runner measures every cell twice in
-process and panics on any counter disagreement, and the gate's
+it. **The board reads no clock**: its entire rendered output is
+byte-identical at a given scale under any machine load, no
+stripping, no carve-outs [measured — under a sustained
+parallel-build load generator], and the claim is enforced on two
+legs — the runner measures every cell twice in process and panics
+on any counter disagreement, and the gate's
 `just amp-board-determinism` byte-compares two cross-process
-renders. Wall time is judged
-nowhere in the gate; the time leg lives in the bench judge below,
-at `just bench-judge` / `just all` cadence. Instruction-count
-asymptotics are the fuzz-fit harness's territory
-(`crates/before/fuzzfit`, `just fuzzfit`: fuzzed operation
-programs replayed under wasmtime fuel, deterministic and
-load-independent, judged against pinned per-operation fuel
-bands); its design record, `design/before-fuzzfit-asymptotics.md`,
-is the instrument of record for that claim.
+renders. Wall time is judged nowhere in the gate; the time leg
+lives in the bench judge below, at `just bench-judge` / `just all`
+cadence. Instruction-count asymptotics are the fuzz-fit harness's
+territory (`crates/before/fuzzfit`, `just fuzzfit`: fuzzed
+operation programs replayed under wasmtime fuel, deterministic and
+load-independent, judged against pinned per-operation fuel bands);
+its design record, `design/before-fuzzfit-asymptotics.md`, is the
+instrument of record for that claim.
 
 Ceilings: scaling exponent ≤ 1.15 (per cell, fitted across the
 two scales against the cell's denominator bytes); heap ≤ 16 B per
 denominator byte over an 8 KiB flat allowance; grown segments
 ≤ 1; limb ≤ 128 ops/byte on input-denominated rows; the text rows
 per §6 (κ constant leg + n_io exponent leg); scan ≤ 96 bits/byte
-on walk rows; touch ≤ 96 digit touches/byte (calibrated 2026-07-26,
+on walk rows; touch ≤ 96 digit touches/byte (calibrated at
 release: heaviest honest reader the mirror-narrow tick cross at
-30.8/B default, 24.3/B record — scan's own margin convention).
+30.8/B default, 30.9/B record — scan's own margin convention).
 Exponent legs are fitted only where the cell's denominator pair
-scales (≥ ×1.5 between probes — a pair that does not scale with
-the knob has no scaling axis, and the fit divides by a vanishing
-log) and, on heap, where a reading clears the flat allowance the
-constant leg already forgives; an unjudged exponent renders
-`-.--` and the cell rides its constants and floors (C3's
-judgment-layer ruling, guard tripwires committed in
-`meter::board::tests` — the same readings must read red the
-moment the denominator honestly doubles or the readings clear the
-allowance). Green = all columns within ceilings AND all floors
-met.
+scales (≥ ×1.5 between probes) and, on heap, where a reading
+clears the flat allowance the constant leg already forgives; an
+unjudged exponent renders `-.--` and the cell rides its constants
+and floors (§12's judgment-layer decision; guard tripwires
+committed in `meter::board::tests` — the same readings must read
+red the moment the denominator honestly doubles or the readings
+clear the allowance). Green = all columns within ceilings AND all
+floors met.
 
 **Liveness floors** (user ruling 2026-07-24: the board judges the
 API surface as well as the implementation — a ceiling over a dead
@@ -741,37 +639,34 @@ work"). Conventions of record: scan floors 1 bit per packed
 operand byte on every row that must examine its operands
 (early-exit rows floor at 2 bits — the root codes); limb floors
 where big-integer arithmetic is semantically mandatory, at two
-derivations since C3 re-derived the walk rows' (the same split
-the touch floors always had): rows that read the stored form
-as-is (decode, rank/distance/lag, tick) floor at one op per 64
-bits of every stored payload *code* wider than 128 bits — a
-plateau of equal wide leaves stores its width once, so a
-tree-derived floor demands limb work no conforming walk does —
-and the value-materializing parse rows floor at one op per 64
-bits of every stored *base* wider than 128 bits (conversion
-must materialize every spelled value); heap floors on codec
-and text rows (the result materializes at least its packed
+derivations (the same split the touch floors carry): rows that
+read the stored form as-is (decode, rank/distance/lag, tick)
+floor at one op per 64 bits of every stored payload *code* wider
+than 128 bits — a plateau of equal wide leaves stores its width
+once, so a tree-derived floor demands limb work no conforming
+walk does — and the value-materializing parse rows floor at one
+op per 64 bits of every stored *base* wider than 128 bits
+(conversion must materialize every spelled value); heap floors on
+codec and text rows (the result materializes at least its packed
 bytes), plus the fork rows' deterministic-liveness child-copy
-floors (clock fork since the floors landed; party fork since #39 —
-fork builds both halves, so the generic in-place NA misstated it);
-touch floors (2026-07-26, #39) at two deterministic-liveness
+floors (fork builds both halves, so the generic in-place NA would
+misstate it); touch floors at two deterministic-liveness
 derivations — one touch per stored delta on the delta-folding
 kernels (sweep, emit, query folds, tick, parse: the envelope
 suite's committed one-per-delta convention), one touch per 64 bits
 of every stored wide code on the decode rows (the validator
 legitimately batches word-scale deltas in the accumulator's lazy
 zone, so a per-delta floor over-demands there — the stream-derived
-convention, deliberately NOT the tree-derived one whose
-over-derivation §17.3 already owns on the limb column);
-segments ceiling-only (its honest floor is zero). NA
-genres: wholesale byte moves (encode, hash, and — since main's
-byte-decided equality — `version_eq`, whose exposure sentence and
-time-leg backstop are on the board face), operands with no packed
-stream, empty forms. A floor trip is a designed stop-and-look; an
-implementation that legitimately does less work lowers the floor
-deliberately. Floors have caught three live regressions to date
-(the id-renderer scan vacuity; main's unmetered window fast
-paths; the byte-decided equality) — the instrument works.
+convention, deliberately NOT the tree-derived one); segments
+ceiling-only (its honest floor is zero). NA genres: wholesale byte
+moves (encode, hash, and — by byte-decided equality —
+`version_eq`, whose exposure sentence and time-leg backstop are on
+the board face), operands with no packed stream, empty forms. A
+floor trip is a designed stop-and-look; an implementation that
+legitimately does less work lowers the floor deliberately. Floors
+have caught three live regressions to date (the id-renderer scan
+vacuity; main's unmetered window fast paths; the byte-decided
+equality) — the instrument works.
 
 Scan-meter contract notes in force: the gamma window fast paths
 record the same `2k+1` bits the per-bit loop prices (fast and
@@ -781,8 +676,7 @@ is deliberately unmetered (no board row prices the wire path;
 change with its own recalibration); the `max_depth` caller-side
 record double-counts uniformly (2×, deterministic) and carries a
 `TODO-recalibrate` for its own future commit that must re-measure
-the pins pricing that walk; the `IdLeafCursor::descend` tag
-double-record is in the post-flip fix round (§17.2 in-flight).
+the pins pricing that walk.
 
 Tripwires (every criterion demonstrates the status quo fails it):
 `bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors`
@@ -807,12 +701,8 @@ summed measured-body wall per family.
 
 Cost claims are total: rejecting an input is an outcome with a
 cost, bounded like any other, whether or not the caller honored
-the usage invariants. (The linearity-of-parties rule is a
-*semantic* safety rule, not a soundness rule — nothing crashes if
-violated, programs just stop meaning what the caller wants; the
-owner's ruling, 2026-07-26. Semantic claims stay conditional on
-the invariants; cost claims are unconditional.) The board's
-rejection rows (this round) measure the rejection side under all
+the usage invariants (§12's rejection-cost decision). The board's
+18 rejection rows (269 cells) measure the rejection side under all
 five currencies, with the defect **maximally deferred** in every
 committed shape — an early-exit-only measurement is the cheapest
 artifact that would pass, so every shape places its defect where
@@ -897,24 +787,23 @@ rejection must consume as much input as possible:
   wrappers — the decode rejection rows; the borsh wire cursor
   rides the standing unmetered-wire note above).
 
-Rejection-row conventions (this round): **denomination** — a
-rejection produces no output, so every rejection row denominates
-against the fed stream alone (packed bytes, or text bytes on the
-parse rows; the §6 amendment). **Floors** — packed-stream
-rejection rows floor scan at one bit per fed byte with the
-defect-placement derivation (a self-delimiting stream's terminal
-defect is only discoverable by parsing to it; the overlap rows'
-witnessing position sits at both operands' stream ends and the
-packed coding has no random access); heap, limb, and touch are
-NA on rejection rows — rejection materializes no result and
-forces neither value work nor an accumulator fold (a validator
-may defer both past the topology walk that finds the defect).
-Text-rejection rows declare no floor on any column, by honest
-derivation: no deterministic counter watches text-byte
-consumption, and a parser may find the defect in tokenization
-before any packed or value work — their ceilings judge live
-readings (the parsers do metered work greedily) and the time leg
-times them like every row.
+Rejection-row conventions: **denomination** — a rejection produces
+no output, so every rejection row denominates against the fed
+stream alone (packed bytes, or text bytes on the parse rows; §6).
+**Floors** — packed-stream rejection rows floor scan at one bit
+per fed byte with the defect-placement derivation (a
+self-delimiting stream's terminal defect is only discoverable by
+parsing to it; the overlap rows' witnessing position sits at both
+operands' stream ends and the packed coding has no random access);
+heap, limb, and touch are NA on rejection rows — rejection
+materializes no result and forces neither value work nor an
+accumulator fold (a validator may defer both past the topology
+walk that finds the defect). Text-rejection rows declare no floor
+on any column, by honest derivation: no deterministic counter
+watches text-byte consumption, and a parser may find the defect in
+tokenization before any packed or value work — their ceilings
+judge live readings (the parsers do metered work greedily) and the
+time leg times them like every row.
 
 **The bench judge** (`tools/benchjudge`, stdlib Python;
 `benches/board.rs` driven by the board's own cell table so bench
@@ -922,9 +811,8 @@ IDs mirror board cells by construction — the pinned mode times
 290 cells: the 288 designed-pairing board cells derived by rule
 from the axes (`board::BenchMode::Pinned`: each shape's
 designed-stress groups, the organic control, and the board-red
-riders; 225 → 288 at the error-path round, the rejection rows'
-designed pairings, count verified against the criterion `--list`)
-plus the wide-display pair; `BOARD_BENCH_MODE=full`,
+riders; count verified against the criterion `--list`) plus the
+wide-display pair; `BOARD_BENCH_MODE=full`,
 `just bench-judge-full`, times the whole 989-cell product plus
 the pair for final verdicts): fits each cell's
 wall exponent `ln(median_hi/median_lo) / ln(denom_hi/denom_lo)`
@@ -961,175 +849,31 @@ for numbers of record) judges through the same roster — the
 expectations are exponent classes, valid under either sampling
 regime. Population at this tip: the fifteen bigroot sweeps + the
 hugeleaf display pair (κ/C2-owned) + the permanent schoolbook
-tripwire; boundary empty. The four width-circulation tick crosses
-(`version_tick`/`clock_tick` × `reveal-comb`/`pure-comb`) left
-the set 2026-07-26 when the latent boundary register landed —
-their touch currency rode no board counter column, so the time
-leg was the one board-side leg that saw the cycle, and it now
-reads green at the general ceiling. **The bigroot set and the display pair
-empty at C3; the schoolbook expectation is permanent.** Between
-C2 and C3 every judge run fails on the fifteen realized greens BY
-DESIGN — that failure is C3's realization evidence, banked
-verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
+tripwire; boundary empty. **The bigroot set and the display pair
+empty at C3's item 11; the schoolbook expectation is permanent.**
+Between C2 and that realization every judge run fails on the
+fifteen realized greens BY DESIGN — that failure is C3's
+realization evidence, banked verbatim at the flip (e 0.94–1.00
+fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-26; release
-profile — the profile of record — limb+scan+touch meters lit]:
-board **966 green / 23 red at the default scale; 951 / 38 at ×4**
-over **989 cells**
-(amended 2026-07-26, C3: 891 + 98 → 966 + 23 default,
-873 + 116 → 951 + 38 at ×4; the 75/78 flips are bucketed by
-mechanism and the surviving roster re-enumerated in §17.3's C3
-amendment; zero cells flipped red)
-(amended 2026-07-26, the #34 fusion landing: 890 + 99 → 891 + 98
-default — `party_without_none × id-pair`'s order-coupled
-segments flip — with the tick-row constant movement recorded in
-§17.3's fusion amendment)
-(amended 2026-07-26, the join_all cure — §3's landed entry:
-879 + 110 → 890 + 99 default, 863 + 126 → 873 + 116 at ×4; the
-twelve flips per scale, the benign heap-exponent rider, the
-success-path re-attribution, and the six segments-onset movements
-are enumerated cell-exact in §17.3's cure amendment; every other
-cell byte-identical at both scales against the error-path round's
-renders [measured — strip-diffed])
-(amended 2026-07-26, the error-path round: the 18 rejection rows
-added 269 cells, 720 → 989, and every pre-existing cell's rendered
-row is **byte-identical** at both scales against the #39
-acceptance renders [measured — the touch39 and errpath45 renders,
-mechanically stripped and byte-compared] — the movement is exactly
-the new cells, whose 18 (default) / 24 (×4) reds are triaged in
-§17.3 under four genres: the round's own OPEN join_all re-scan
-finding (red-pinned), the comb-scatter flat-denominator column,
-the id-side parser recursion, and the diff kernel's both-internal
-recursion, the last two P4.2's standing genre. Sums 628 + 92 = 720
-→ 879 + 110 = 989 default; 618 + 102 = 720 → 863 + 126 = 989 at
-×4)
-(amended 2026-07-26, the #39 instrumentation ratchet: the touch
-currency joined the board as the fifth judged column, live on
-every cell with a floor-or-NA declaration per operation; every
-pre-existing column's rendered value byte-identical at both scales
-except the widening-shift limb re-denomination — the shift shim
-now records output width, operand plus shifted-in limbs, moving
-limb constants on the `rank_pair_ops` row and four `distance`/
-`lag` cells by at most +0.2/B, no verdict flips — and the
-`party_fork` heap declaration, which became the fork-child floor.
-The touch column's 24 red reasons all land on already-red cells in
-two owned genres, the comb-scatter column (18) and the plateau
-projection cells (6); zero touch floor trips at either scale)
-(amended 2026-07-26, the #40 representation migration — Version's
-at-rest form is `codec::Bits`, byte-level Eq/Hash, BitWriter
-dissolved into raw-slice writes: heap and record-scale segment
-readings moved down on 41 cells (default) / 45 (×4), flipping
-three owned reds GREEN — `clock_encode × comb-scatter`'s
-default-scale heap exponent (the comb-scatter genre count 21 → 20)
-and the `version_tick`/`clock_tick` × nested-wide record-scale
-segment legs (the P4.2 genre, eight legs → six; nested-wide's ×4
-segment count now 1, under the ceiling) — and lowering the
-remaining ×4 tick-op segment counts to: nested-full 7,
-mirror-narrow 7, staircase 14, ascend-cliff 2, ascend-plateau 2,
-pure-comb 2, the id-side parser pair still 12; sums 627/93 →
-628/92 default, 616/104 → 618/102 record; no other verdict moved.
-The dev-render agreement claim rides at its own tip: the profile
-ratification's no-flip comparison was made before these rounds)
-(amended 2026-07-26, the #35 board product refactor —
-**RATIFIED by the project owner, 2026-07-26**, on the two protocol
-changes it carries. The board became the three-axis product above:
-the hand-picked crossings dissolved into per-shape operand bundles
-(a cross shape's version is its event side; its id side becomes a
-disjoint party pair through the disjoint-mount adapter, one fresh
-root with the shape under opposite children, so independently
-generated ids never share a universe), 225 → 720 cells, smoke pin
-re-derived (33 × 5 version shapes + 23 id-pair + 44 × 11 cross
-shapes + 2 scatter + 46 benign). Every pre-existing cell's
-rendered row is **byte-identical** at both scales against fresh
-pre-refactor runs at the parent tip — the movement is exactly the
-495 new cells, whose 74 (default) / 72 (×4) new reds are triaged
-in §17.3 under their owning genres, none exponent-class on a
-linear input axis. Protocol change 1 (ratified): the determinism
-tripwire —
-the runner self-verifies every cell twice in process and the
-gate's `amp-board-determinism` recipe byte-compares two
-cross-process renders — **replaces the two-identical-runs-per-scale
-convention**; acceptance runs are single runs per scale. The
-tripwire holds under release: both scales' release renders are
-byte-identical across processes, and the in-process self-verify
-passes on every cell [measured — paired release renders at the
-ratification tip, byte-compared]. Protocol change 2 (ratified):
-**release is the board's measurement of record** and the board
-recipes run `--release`. Dev and
-release measure different programs — 102 `debug_assert!` sites in
-the production kernels do metered work (a `Base` comparison in
-`Sub`, cursor-consuming skyline probes), so dev counters price
-algorithm plus verification scaffolding while release prices the
-production work alone, the honest denominator; dev boards stay
-runnable as a debugging view, never the record; assertion-scoped
-meter suspension is REJECTED on doctrine (a metering-pause
-mechanism is an F2 hazard — do not build one). At ratification the
-switch moved limb readings
-on 95 cells (default) / 90 (×4), scan on 59, heap on 3/11, and the
-×4 segment counts on 16 P4.2-owned legs (no
-verdict flips at either scale; release reads lower; denominators
-byte-identical). One dev-only exponent-class artifact fell under
-the ratified assertion-repair policy and was repaired
-(`id_is_empty`, §3's profile entry and §17.3); the segments
-movement is codegen frame size, owned by P4.2, not assertion
-work. The
-board-red bench riders (`board::BOARD_RED_BENCH_RIDERS`) are
-committed empty: populating them with the 78 unclassified new
-reds would put unrostered time-exponent reds in every judge run,
-so the riders land with the reds' classification)
-(amended 2026-07-26, the fold-direction
-cure: the ascending cliff and its leveled control joined the tick
-rows at 221 → 225 cells; every pre-existing cell byte-identical at
-both scales, the movement exactly the four new cells; the cure
-moved the ascend-cliff heap column e 1.82 → 1.00 — the old fold
-direction widened every popped difference's buffer to residue
-width — and the residual reds are owned: the family's
-heap-constant (k simultaneously-armed nonzero differences, one
-pooled unit-width buffer each; linear, the mirror-narrow genre)
-and the record-scale segment onsets on both new families inside
-the P4.2-owned recursion genre; the judge roster is unchanged, the
-new time-leg cells green-by-default at the general ceiling)
-(amended 2026-07-26, the latent
-boundary register: the round-5 tick-cross rows joined at 215 →
-221 cells and the cure moved no counter cell's verdict — sums
-byte-stable across the cure at both scales, movement only in the
-reveal-comb heap constants, down, and the record-scale segment
-onsets inside the P4.2-owned reds; the four width-circulation
-judge legs left the roster, 22 → 18)
-(amended 2026-07-25, the #34 cure: the anchor-web
-walk and the chained-memo pre-scan flipped every #34-owned red —
-nested-wide limb e 1.57/1.83 → 1.00 at 5.4/B flat across scales;
-mirror-wide limb e 1.86/1.94 → 1.00 at 8.9/B and heap e
-1.63/1.84 → 0.97/0.99 at 11.2/9.1 per byte, zero grown segments;
-mirror-narrow heap constant 93.2/95.6 → 13.9/9.0 per byte;
-staircase held green, limb 11.4 → 16.0/B e 1.00; nested-full's
-limb constant dropped 20.6 → 9.1/B. The ×4 segments residual
-stays — the recursion-depth genre, P4.2-owned — with counts
-re-pinned deliberately to the new walk's call shape: nested-full
-11, nested-wide 5, mirror-narrow 12, staircase 22, mirror-wide 0.
-The four #34 judge legs left the roster with the flip, 22 → 18;
-C3's run verifies the wall leg. §17.3 restates the sums)
-(amended 2026-07-25, the #34 red pin: four new
-tick-walk families — nested-wide, mirror-wide, mirror-narrow,
-staircase — landed as board columns with full-examination scan
-floors (8 bits/B) and mandatory-width limb floors on the wide
-crosses; their pre-cure readings and the linearization's own
-flip are in git history at the pin and cure commits). The judge's last honest reading, at the
-flip commit over 202 cells: **157 green / 3 red / 42 sub-floor**,
-exit 1 on exactly the fifteen banked realization violations; the
-three reds all rostered-expected. Workspace sweep at C0:
-1183/1183, roster retired, unqualified green since.
+profile, single runs per scale under the determinism tripwire —
+the `board-c3-{lo,hi}.txt` renders]: board **966 green / 23 red at
+the default scale; 951 / 38 at ×4** over **989 cells**. The red
+roster, every red with exactly one owner, is §17.3; the
+cell-count and verdict lineage across the campaign's rounds
+(200 → 989) is in git history at the commits §14 names.
 
-**Acceptance (the campaign's, re-denominated 2026-07-24; protocol
-ratified 2026-07-26): all-green means the release-profile board
-green on counters and floors at BOTH scales, one run each under
-the committed determinism tripwire (the runner's in-process
-double measurement plus the gate's cross-process byte-compare),
-AND the bench judge roster-satisfied at both scales in both
-modes** — at P5.5 with the bigroot set emptied and only the
-permanent text expectations remaining. A release record-scale run
-costs ~20 s wall [measured — the ratification baseline runs]; dev
-runs remain a debugging view and never satisfy acceptance.
+**Acceptance (the campaign's; protocol per §12's ratification):
+all-green means the release-profile board green on counters and
+floors at BOTH scales, one run each under the committed
+determinism tripwire (the runner's in-process double measurement
+plus the gate's cross-process byte-compare), AND the bench judge
+roster-satisfied at both scales in both modes** — at P5.5 with the
+bigroot set emptied and only the permanent text expectations
+remaining. A release record-scale run costs ~20 s wall [measured —
+the ratification baseline runs]; dev runs remain a debugging view
+and never satisfy acceptance.
 
 ## 14. Execution plan
 
@@ -1153,27 +897,26 @@ commits):
   the bench judge + roster; surface-judgment floors; P4.1 id
   walks (segments → 0); dashu swap; canary retirement; RNG
   consolidation. Board 137/63 and 128/72 at the window's seal.
-- **C0** (2026-07-24, §17.2 P3.1's landed entry `1e96e6fd`):
-  rebase onto the link-transport merge; §14's sixteen-test stall
-  roster RETIRED (sweep 1183/1183; the committed stall seeds are
-  link-transport's regression pins; any test failure anywhere
-  blocks again, no provenance carve-out); the merge-seam re-sweep
-  and the meter-coverage fix round (main's unmetered fast paths
-  under the campaign's floors; five-cell vacuity catch cured;
-  `version_eq` re-denominated; two owned kills realized early by
-  main's byte-decided equality); board 139/61 and 130/70.
-- **C2** (2026-07-25, commit `91fac33d`; fill kernel `c43740b8`;
-  seed-corpus cure `61d1bcd4`; §17.2 P3.9's landed entry): the
-  flag day — storage flipped, every operation routed to the
-  kernels, old codec deleted, 27 snapshots re-pinned (bytes-only
-  review: zero blocking), `BOOKMARK_FORMAT_VERSION` 1→2 with a
-  reject test, byte-pinned doctests re-run. Board 185/15 and
-  184/16 over 200 cells; 49 staged kills realized, zero
-  unexplained movement; the judge's fifteen realization greens
-  banked. Deviations of record: output-honesty in radix units;
-  three newly κ-genre cells pending adjudication (§17.2 C3);
-  tier2/compactness denominated against the packed construction
-  language; bridge recursions descend-guarded.
+- **C0** (2026-07-24, `1e96e6fd`): rebase onto the link-transport
+  merge; the sixteen-test stall roster RETIRED (sweep 1183/1183;
+  the committed stall seeds are link-transport's regression pins;
+  any test failure anywhere blocks again, no provenance
+  carve-out); the merge-seam re-sweep and the meter-coverage fix
+  round (main's unmetered fast paths under the campaign's floors;
+  five-cell vacuity catch cured; `version_eq` re-denominated).
+  Board 139/61 and 130/70.
+- **C2** (2026-07-25, `91fac33d`; fill kernel `c43740b8`;
+  seed-corpus cure `61d1bcd4`): the flag day — storage flipped,
+  every operation routed to the kernels, old codec deleted, 27
+  snapshots re-pinned (bytes-only review: zero blocking),
+  `BOOKMARK_FORMAT_VERSION` 1→2 with a reject test, byte-pinned
+  doctests re-run. Board 185/15 and 184/16 over 200 cells; 49
+  staged kills realized, zero unexplained movement; the judge's
+  fifteen realization greens banked (the judge's last honest
+  pre-realization reading, at the flip commit over 202 cells:
+  157 green / 3 red / 42 sub-floor, exit 1 on exactly the fifteen
+  banked violations). Workspace sweep at C0: 1183/1183, roster
+  retired, unqualified green since.
 - **Bench-coverage integration** (2026-07-25, `1312fba6`..
   `10232626`): the coverage branch merged (rustdoc-JSON API index,
   `benches/COVERAGE.md` — the census's living home; `rank_sum`
@@ -1191,29 +934,64 @@ commits):
   re-scan genres quadratic (scan/limb e 2.00), the cure flipped
   them (scan e 1.00 both arms, deep-4096 differential 67.4 s →
   1.3 s); board 190/17 default, 187/20 record over 207. Its
-  adversarial review then REFUTED the limb-dimension O(n+m)
+  adversarial review then refuted the limb-dimension O(n+m)
   claim (§3's re-touching entry) — the finding that opened #34
-  and the tick cost spec's design loop (two attack/fix rounds to
-  convergence; the loop record is the spec's §9). Acceptance
-  deviation of record (2026-07-25): the ×4 segments leg stayed
-  red, P4.2-owned — the linear acceptance was met on the work
-  columns.
+  and the tick cost spec's design loop. Acceptance deviation of
+  record (2026-07-25): the ×4 segments leg stayed red,
+  P4.2-owned — the linear acceptance was met on the work columns.
 - **#34: the tick limb cure and the fusion** (2026-07-25..26,
-  red pin `dc9a2c31`, the anchor-web walk `12b5e9a3` + the
-  chained-memo pre-scan `39009918` through the round-5..7 cures,
-  the fused tick `80131954`): T-tick — amortized O(n + m) Accum
-  digit touches — realized inside the fused tick; every
-  #34-owned red flipped at both scales, and the fusion moved 51
-  tick-row constants per scale with zero verdict flips. The
-  design loop's record is the spec's §9 (rounds 3–8); the cell
-  accounting is §17.3's amendments.
+  red pin `dc9a2c31`; the anchor-web walk `12b5e9a3` + the
+  chained-memo pre-scan `39009918`; the frame ledger `4934db86` +
+  `952159f7`; the latent boundary register `43d625e7` +
+  `12a85d2f`; the fold-direction cure `b31ca059` (red pin
+  `8fdba3d4`..`b0136781`, flip `5f40eec3`); the fused tick
+  `80131954` with the flag width pin `74d6ec5e`): T-tick —
+  amortized O(n + m) Accum digit touches — realized inside the
+  fused tick; every #34-owned red flipped at both scales, and the
+  fusion moved 51 tick-row constants per scale with zero verdict
+  flips. The design loop's record is the spec's §9 (rounds 1–8).
+- **The #35 board product refactor** (2026-07-26, `a4a233ae`..
+  `cc4762c4`, ratified `cca70c01`/`61afb65b`): the three-axis
+  product (bundles × slots × currencies), 225 → 720 cells, every
+  pre-existing cell byte-identical; the determinism tripwire and
+  the release profile of record ratified (§12); the
+  assertion-repair policy's one trigger fixed (`df3c1cb9`).
+- **The #40 representation migration** (2026-07-26, `8181247a` +
+  `cbd52a94`): Version's at-rest form is `codec::Bits` (the wire
+  bytes in a length-carrying container) with byte-level Eq/Hash;
+  heap and record-scale segment readings moved down on 41/45
+  cells, flipping three owned reds green.
+- **The #39 instrumentation ratchet** (2026-07-26, `da80fa27` +
+  `7b7f35d0`): the touch currency joined the board as the fifth
+  judged column; the census's pin ratchets landed (§3's entry);
+  zero verdict changes from the column itself.
+- **The error-path round** (2026-07-26, `51509259`, red pin
+  `90e88144`): the rejection surface joined the board (18 rows,
+  269 cells, 720 → 989); the join_all re-scan found and
+  red-pinned.
+- **The join_all cure** (2026-07-26, `5aabc765` + `b71e146e`):
+  the per-call `IdIndex`; twelve reds flipped per scale;
+  `party_join_all × scatter` re-attributed green at default.
+- **Orbit pins (#38)** (2026-07-26, `0ac28993`): six deterministic
+  size-trajectory pins; no cell moved.
+- **C3's denomination and classification round** (2026-07-26,
+  `ab2cd0c4`, `ce8f9e69`, `1c32bb56`, `48c6f7b5`, `87e82b34`;
+  reconciliation `e74275ce`): queue items 1–10 done — stream-
+  derived limb floors, the content-exponent denominator, the
+  plateau `n_io` ruling, the κ re-derivation, the judgment-layer
+  guards; 75 (default) / 78 (×4) reds flipped green, zero flipped
+  red, every flip bucketed by mechanism; sums 966 + 23 / 951 + 38
+  over 989. The round opened the materializing-emitters item
+  (§17.2).
+- **The fuzz-fit harness** (2026-07-26, merged `a91bd97b`):
+  instruction-count asymptotics instrument; its record is
+  `design/before-fuzzfit-asymptotics.md`.
 
-Remaining plan: **C3's bench-harness remainder** (the queue of
-record's items 11–13: the judge-roster realization, envelope
-tightening at P5.1, the before/after table) → **the materializing
-emitters** (§17.2, opened at C3) → **P4.2** residual audit →
-**P5.1–P5.5** closeout, with the boolean-skyline decision (#24,
-the user's) after C3.
+Remaining plan: **C3's bench-harness remainder** (§17.2: the
+judge-roster realization, envelope tightening at P5.1, the
+before/after table) → **the materializing emitters** (§17.2) →
+**P4.2** residual audit → **P5.1–P5.5** closeout, with the
+boolean-skyline decision (#24, the user's) after C3.
 
 Acceptance for the effort: the §13 acceptance criterion; plus the
 two 2026-07-25 user rulings:
@@ -1232,172 +1010,63 @@ subquadratic in its total input, worst case; linear is the
 ideal.** Fundamentally-superlinear problems (radix conversion,
 multiplication-equivalent up to log factors; n log n
 comparison-ordered n-way folds) satisfy the bar at their
-problem's own optimum, stated and priced. The tick kernel's
-limb dimension was below the bar — quadratic on wide × deep
-crosses (§3) — until #34's cure landed it at amortized
-O(n + m), realized inside the fused tick (the tick cost spec).
+problem's own optimum, stated and priced. The tick kernel's limb
+dimension sits at amortized O(n + m), realized inside the fused
+tick (the tick cost spec's T-tick).
 
 ## 17. Work items of record
 
 ### 17.2 Open items, with acceptance contracts
 
-**#34's red-pin round (done 2026-07-25).** The fill
-linearization's review bookkeeping rode it: the ghost prose
-re-denominated to the deferral design (`fill.rs`'s
-drift-accumulator sentence, the tests' drift-stack phrasing,
-`nested_full_id`'s and the board family's
-lookahead-and-pre-scan present-tense rustdoc); `fill.rs`'s
-`# Cost` restated to the measured truth at each stage (the
-red-pinned quadratic until the cure re-derived it); the tick
-cells' floors raised from the generic walk floors toward honest
-measured counts; #33's acceptance deviation (the ×4 segments
-residual, P4.2-owned) recorded as a dated amendment here.
-*Acceptance*: met — the red-pin contract in
-`design/before-tick-cost-spec.md` §7 plus these ride-alongs;
-one full gate.
+**C3's bench-harness remainder (the queue of record, items
+11–13).** Items 1–10 of the round's queue are done (§14's C3
+entry; the cell-exact movement is §17.3). Sequenced next, in
+order:
 
-**C3 — P3.10: realization verification, re-pins, and the
-before/after table.**
+11. **The judge-roster realization**: the fifteen bigroot
+    expectations leave on the banked evidence (fitted e 0.94–1.00
+    at the flip); the hugeleaf display pair resolves with the κ
+    re-derivation — its ceiling class stays **text 1.7**,
+    unchanged deliberately: radix conversion is fundamentally
+    superlinear (honest D&C measured wall e ≈ 1.47 over the
+    general 1.3), so the pair's class is the text ceiling on the
+    merits; the schoolbook tripwire stays permanently. Roster
+    membership pin updated in the same change, and the
+    `BOARD_RED_BENCH_RIDERS` population rides this diff (riders
+    and roster edits are one judge-verified change; the riders are
+    committed empty until then — an unrostered red whose time leg
+    reads red fails every judge run). `bench-judge` and
+    `bench-judge-record` must then exit 0 — roster-satisfied — at
+    both scales in both modes, with full-sampling record numbers
+    captured.
+12. **Envelope tightening** (the twelve event-side rows:
+    DECODE/CMP/JOIN × DENSE/BIGROOT/HUGELEAF/CLIFF as applicable,
+    TICK_DENSE): deferred to P5.1's envelope finalization, one
+    downward re-pin from post-C3 stable readings instead of two.
+13. **The before/after table of record** (judged under §14's two
+    rulings). Protocol, mandatory: re-bench the pre-C2 tip under
+    the FINAL harness — a temp worktree at the last pre-flip
+    commit with the current bench files grafted on (they call only
+    the public API), full sampling both tips, warm target dirs —
+    **never the stored `base` baselines**, which are contaminated
+    for delta purposes (the RNG consolidation regenerated every
+    bench input family, and they mix sampling modes). Any benign
+    regression beyond "slight" is a finding; the parity floor is
+    the bar.
 
-*Queue of record* (enumerated 2026-07-26 at the round's opening,
-gathered from every C3/OPEN owner mention in this document and the
-κ rustdoc's hand-off; the deterministic-meter items run in this
-round, the bench-harness items are sequenced after it because the
-κ re-pin and the denomination moves below change exactly the
-readings those runs would capture):
-
-1. Board re-run at both scales, movement vs §17.3 (bullet 1
-   below); this round.
-2. The κ re-derivation (§6, the κ rustdoc's hand-off, the ten
-   κ-owned text reds + the #35 κ-text extension); this round.
-3. The comb-scatter κ-genre adjudication (single-cell column
-   attribution before any classification is accepted); this
-   round.
-4. The §6 `n_io` ruling on the six plateau projection cells
-   (§3's OPEN entry; pre-approved by the owner 2026-07-26 with
-   the O(`n_io`)-tightness rider: apply mechanically if the
-   measured cost tracks the output, escalate only if it does
-   not); this round.
-5. The comb-scatter flat-denominator column classification
-   (§17.3's #35 genre 1 and error-path genre 2; the cliff
-   generators' leaf-delta representation question is the
-   substance); this round.
-6. The cliff limb-floor re-derivation (three ×4 liveness trips);
-   this round.
-7. The plateau limb-floor re-derivation (§17.3's #35 genre 2,
-   18 default / 20 ×4 trips); this round.
-8. The judgment-layer question (sub-allowance exponents:
-   `rank_sum`/`rank_pair_ops` × benign, the
-   `party_join_all_overlap × benign` ×4 rider); decide once,
-   apply to the genre; this round.
-9. Bench-rider population (`BOARD_RED_BENCH_RIDERS` lands with
-   the reds' classification, per the #35 amendment); this round,
-   after items 3–5.
-10. The §17.3 reconciliation and restated sums (bullet 6);
-    this round.
-11. The judge-roster realization (fifteen bigroot expectations
-    leave on the banked evidence; the display pair resolves with
-    the κ re-derivation; the schoolbook expectation is
-    permanent) plus `bench-judge`/`bench-judge-record` exit 0
-    both scales both modes with record numbers captured: bench
-    harness, sequenced immediately after this round's re-pins.
-12. Envelope tightening (the twelve event-side rows): deferred
-    to P5.1's envelope finalization, one downward re-pin from
-    post-C3 stable readings instead of two.
-13. The before/after table of record: bench harness, after
-    item 11.
-
-Adjacent but not C3's: #24 (the user's decision, post-C3) and
-the stack-container measured phase (§17.5, C3-adjacent, its own
+*Risk*: a cell green at default but red at record — that is the
+two-scale design working; the cell's owner reopens. Adjacent but
+not C3's: #24 (the user's decision, post-C3) and the
+stack-container measured phase (§17.5, C3-adjacent, its own
 harness).
-
-Round outcome (2026-07-26): items 1–8 and 10 are DONE — the
-mechanisms, adjudications, and the cell-exact movement are
-§17.3's C3 amendment; §6 carries the flat-denominator and κ
-amendments; §13 the judgment-layer guards. Item 9's riders stay
-committed empty (the disposition, with reasoning, is at the C3
-amendment's tail: riders and roster edits are one judge-verified
-diff, item 11's). Items 11–13 remain: the bench-harness
-remainder, sequenced next. The round also opened one item, the
-materializing emitters (below): the render heap constants and
-the mirror-wide display superlinearity that the κ re-derivation
-exposed as kernel findings rather than denomination gaps, plus
-the projection builder's capacity-phase heap.
-
-*What*:
-- Board re-run at both scales (release, single runs under the
-  determinism tripwire); every
-  movement against §17.3's accounting.
-- **The judge roster empties its realized set**: the fifteen
-  bigroot expectations leave on the banked evidence (fitted
-  e 0.94–1.00 at the flip); the hugeleaf display pair resolves
-  with the κ re-derivation below; the schoolbook tripwire stays
-  permanently. Roster membership pin updated in the same change.
-  `bench-judge` and `bench-judge-record` must then exit 0 —
-  roster-satisfied — at both scales in both modes, and
-  full-sampling record numbers are captured.
-- **The κ re-derivation** (DONE at C3): κ re-pinned 0.25 → 0.75
-  over the pipeline-term denominator (§6), from the kernels'
-  observed record-scale release meter; the ten κ-owned text reds
-  resolved (eight flipped; the display-heap and mirror-wide
-  members reclassified to the materializing emitters item). The
-  display pair's ceiling class stays **text 1.7**, unchanged
-  deliberately: radix conversion is fundamentally superlinear
-  (honest D&C measured wall e ≈ 1.47 over the general 1.3), so
-  the pair's class is the text ceiling on the merits — the
-  sidecar declaration stands, and the roster edit rides item 11.
-- **The comb-scatter κ-genre adjudication** (DONE at C3): the
-  single-cell column attribution REFUTED the flip-time
-  classification for all three cells — none was κ-genre.
-  `version_min_ticks × cliff` was a sub-allowance heap exponent
-  (the judgment-layer guard's genre; its work columns are green,
-  so the `height_word`-per-leaf note stays a prose observation
-  with no board reading behind it); the projection pair measures
-  I/O-linear on every work column, so `query.rs`'s claim is
-  CONFIRMED and the pair's default-scale residual is the
-  capacity-phase heap genre (§17.3's C3 roster).
-- **The cliff limb-floor re-derivation** (DONE at C3, with the
-  plateau trips): the walk rows floor at the stream's own codes
-  (`mandatory_limbs_stream`; derivation rationale at the
-  constant), the parse rows keep the tree-derived floor, and the
-  split is pinned in `meter::board::tests`.
-- **The §17.3 reconciliation** (DONE at C3): the C3 amendment
-  buckets every flip by mechanism, restates the sums (966 + 23
-  default; 951 + 38 record), and re-enumerates the surviving
-  roster with owners.
-- **The judgment-layer question** (DECIDED at C3, the guard arm,
-  applied to the genre): exponent legs are fitted only where the
-  denominator pair scales ≥ ×1.5 (the benign rank pair's 6 → 7
-  bytes has no scaling axis — operand scaling could not fix it,
-  since rank content barely grows with the population knob) and,
-  on heap, where a reading clears the flat allowance the constant
-  leg already forgives; unjudged exponents render `-.--`;
-  tripwires pin both directions (§13).
-- **Envelope tightening**: every event-side envelope in
-  `tests/meter.rs` re-pinned downward at sweep-earned constants
-  (the twelve rows: DECODE/CMP/JOIN × DENSE/BIGROOT/HUGELEAF/
-  CLIFF as applicable, TICK_DENSE) in the commit that earns them.
-- **The before/after table of record** (judged under §14's two
-  rulings). Protocol, mandatory: re-bench the pre-C2 tip under
-  the FINAL harness — a temp worktree at the last pre-flip
-  commit with the current bench files grafted on (they call only
-  the public API), full sampling both tips, warm target dirs —
-  **never the stored `base` baselines**, which are contaminated
-  for delta purposes (the RNG consolidation regenerated every
-  bench input family, and they mix sampling modes). Any benign
-  regression beyond "slight" is a finding; the parity floor is
-  the bar.
-*Deps*: the fix round above (its window restoration moves wall
-constants). *Risk*: a cell green at default but red at record —
-that is the two-scale design working; the cell's owner reopens.
 
 **The materializing emitters (opened at C3, 2026-07-26).**
 Three C3-classified residuals share one seam — the emitters that
 materialize before they write — and its cure round owns them
-(§17.3's C3 roster carries the cells and readings):
+(§17.3's roster carries the cells and readings):
 - The render's finalize pass materializes a per-node `Base`
   vector, digit arena, and offset table before emit: the display
-  heap constants (14 cells per scale, 14.4–33.2 B per `n_io`
+  heap constants (14 cells per scale, 17.4–33.2 B per `n_io`
   byte, linear). Candidate cure: convert bases to digits at
   their close (dropping the `Base` vector) or a two-pass
   finalize — either priced against κ's pipeline budget before
@@ -1418,76 +1087,37 @@ byte-identity across the differential suite; movement annotated
 against the parent boards; any κ movement re-derived at the
 constant.
 
-**#34 — the tick limb cure and fusion (done: the cure
-2026-07-25, the fusion 2026-07-26; the hot path — every tick
-calls fill).**
-The statement of record is `design/before-tick-cost-spec.md`
-(converged revision 3); its §7 acceptance contract was binding
-and was met in the sequenced shape: red pin first (the wide×deep
-and descending-staircase cells measured not assumed;
-mirror-narrow's green memo cells held at honest floors), then
-T-tick — amortized O(n + m) Accum digit touches — via the
-anchor-web discipline (the zero-run-compressed watermark stack,
-anchored entries, per-operand lifetime pricing, the L2×L6
-pricing chain; §17.3's 2026-07-25 amendments carry the
-cell-exact flips), then the fused tick as its own bisectable
-commit (one walk carrying fill emission, the changed flag, and
-grow's route DP; copy-on-first-divergence; the owner rulings and
-the landed record are the spec's §6 amendment and §9 round 8;
-§17.3's fusion amendment restates the sums). Byte-identity held
-at every stage; the L6 output-bound proptest pin landed with the
-cure; `fill.rs # Cost` restates exactly what is proven; Accum
-pooling per the spec's §6 constants note. The flag seam's
-full-width witnesses and `arb_base`'s `2^64`-aligned arm (the
-fusion review's fix round) pin the width axis the size-axis
-instruments do not discriminate.
-
-**The join_all up-front re-scan (done 2026-07-26, the error-path
-round's cure).** The §3 entry's cure, landed as the per-call
-decode-once index of `self` (`IdIndex`; the coalesce-first
-candidate rejected by probe — §3 records the decision): the
-Θ(inputs × accumulator) per-input re-walk dissolved with the
-hand-back granularity preserved verbatim, pinned differentially
-against the cursor-walk discipline held as
-`testing::fold_oracle`. Acceptance met: the red pin (≥ ×3.5 scan
-growth across a joint doubling) re-pinned flat in the cure's own
-commit at the measured ×2.00, ceiling ≤ ×2.05 over a
-build-liveness floor (`join_all_overlap_upfront_test_reads_flat`);
-the board row's scan exponent 1.00 at 15.9 bits/B on every family
-at both scales; the success-path fold rows re-attributed with
-movement annotated against the parent-tip boards (§17.3's
-2026-07-26 cure amendment — `party_join_all × scatter` flips
-green at default); byte-identity across the differential suite.
-Two acceptance deviations, both annotated there: the
-`party_join_all_overlap × benign` ×4 cell keeps its
-sub-allowance heap-exponent red (the C3 judgment-layer genre
-that rode it; its scan legs flipped green), and the segments
-column moved on six tick/diff cells whose every other column is
-byte-identical (the P4.2 codegen-onset genre).
+**The fold marginals — the n-cursor merge (C2-adjacent).** The
+V7 reduction's n·log n reads marginally red against flat ceilings
+on the fold cells (§17.3's fold-marginals genre). Candidate cure:
+an n-cursor merge replacing the binary-counter reduction's
+re-comparisons. *Acceptance*: the owned cells flip or the n·log n
+optimum is recorded as the problem's own (the asymptotic bar's
+fundamentally-superlinear clause) with the ceiling re-derived.
 
 **P4.2 — residual recursion and word-scale scanning.**
 Audit every remaining `recurse::descend!` site post-C2; convert
 survivors per the explicit-stack pattern or record why they stay;
 apply the word-at-a-time subtree skip (popcount pending-counter
-delta, mid-word zero-crossing exit; the item earlier drafts
-numbered §11.4) to `idbits` and the skyline topology stream where
-benches justify. Triage convention for the genre's segments
-currency (the fusion round's finding, spec §9 round 8): the
-counter reads the stacker's process-global segment cache, which
-is order-coupled to the preceding cells' stack usage in the
-shared board process, so a kernel change anywhere in the binary
-can re-roll the counts on untouched kernels' rows — the fusion
-round moved the six record-scale id-pair rows in both directions
-(70 → 54 and 12 → 16) with statuses unchanged and every other
-column byte-identical. Segment-count movement on a row whose
-work columns are byte-identical is triaged as order coupling,
-not kernel movement; the counts of record re-cite in §17.3's
-owning amendment. *Sequencing risk, resolve at #24 decision time*:
-the word-scale skip fits the lockstep walk shape, not a
-leaf-enumerating sweep — if it lands first, the predicate-sweep
-constants regress relative to it; the id predicate envelope rows
-re-pin deliberately under either ordering. *Kills*: none
-(constants). *Acceptance*: the audit list recorded; benches.
+delta, mid-word zero-crossing exit) to `idbits` and the skyline
+topology stream where benches justify. Triage convention for the
+genre's segments currency: the counter reads the stacker's
+process-global segment cache, which is order-coupled to the
+preceding cells' stack usage in the shared board process, so a
+kernel change anywhere in the binary can re-roll the counts on
+untouched kernels' rows — segment-count movement on a row whose
+work columns are byte-identical is triaged as order coupling, not
+kernel movement; the counts of record are §17.3's. *Sequencing
+risk, resolve at #24 decision time*: the word-scale skip fits the
+lockstep walk shape, not a leaf-enumerating sweep — if it lands
+first, the predicate-sweep constants regress relative to it; the
+id predicate envelope rows re-pin deliberately under either
+ordering. The skip also interacts with the fused tick's route
+fold, which reads each skipped id subtree per 2-bit tag on
+leaf-under-internal-id arms — P4.2's sequencing decision must
+name the fused walk, and the spec's §9 round-8 table carries the
+landed interaction baseline. *Kills*: none (constants).
+*Acceptance*: the audit list recorded; benches.
 
 **P5.1 — envelope finalization**: every `tests/meter.rs` envelope
 and board ceiling tightened to final constants at record scale
@@ -1520,458 +1150,48 @@ improvement pass (the frozen-docs slot).
 
 **P5.5 — acceptance sweep of record**: `just all` clean; the §13
 acceptance criterion met in full (board all-green both scales
-three runs; judge roster-satisfied both scales both modes, only
-permanent expectations); the before/after table showing the
-parity floor met everywhere and improvement where claimed; the
-coverage audit re-run with an empty gap list (method: walk the
-board's op enumeration and the board-doc NA list; every public
-operation names its two oracle legs and its resource pin — the
-representation-pin leg per the 2026-07-23 directive: every
-exposed type's bytes/text/serde forms snapshot-pinned in-crate);
-the benign rank-pair operand scaling if C3 chose that arm; the
-§14 acceptance entry recorded.
+under the ratified single-run protocol; judge roster-satisfied
+both scales both modes, only permanent expectations); the
+before/after table showing the parity floor met everywhere and
+improvement where claimed; the coverage audit re-run with an
+empty gap list (method: walk the board's op enumeration and the
+board-doc NA list; every public operation names its two oracle
+legs and its resource pin — the representation-pin leg per the
+2026-07-23 directive: every exposed type's bytes/text/serde forms
+snapshot-pinned in-crate); the benign rank-pair operand scaling
+if C3 chose that arm; the §14 acceptance entry recorded.
 
 ### 17.3 Owned-red accounting (current; over 989 cells)
 
-Reconciled 2026-07-25 from a fresh board reading at the fix-round
-tip (both scales enumerated cell by cell; the apparent
-discrepancy dissolved — the flip entry's ×4 categories contained
-the cliff and id-pair cells without enumerating them). Every red
-has exactly one owner and the sums close:
+Sums [measured 2026-07-26, the `board-c3-{lo,hi}.txt` renders]:
+**default 966 + 23 = 989; record 951 + 38 = 989.** Every red has
+exactly one owner and the sums close; the per-round movement
+lineage (each round's flips, bucketed by mechanism, with every
+untouched cell verified byte-identical) is in git history at the
+commits §14 names.
 
-Amended 2026-07-25 (the fill red pin, and its cure the same day):
-the nested-full tick cells pinned the kernel quadratic — scan and
-limb exponents 2.00 [measured] with constants two orders over
-their ceilings, segments e 2.90 at ×4 — and the O(n+m) rewrite
-flipped every work column green (scan/limb e 1.00, heap 0.3/B;
-byte-identity against the recursive oracle, the exhaustive scope,
-and the closed-form deep witnesses held throughout; the deep-4096
-differential's wall fell 67.4 s → 1.3 s in the debug harness).
-The ×4 residual: segments only, e 1.49 / 28 grown — the walk's
-recursion depth, owned by **P4.2** (iterative walk, built behind
-the stack-container seam and measured per the 2026-07-25
-directive), red in advance by this same family. The judge legs
-left the roster with the cure (C3's run verifies the wall).
-Heap constants on width-carrying families moved +0.3–0.5/B, all
-green: the walk's per-subtree signed returns materialize wide
-magnitudes once per node — the limb-dimension re-touching §3
-records and the #34 red pin below prices.
-
-Amended 2026-07-25 (the #34 red pin): four tick-walk families
-join the board (eight cells; smoke pin 207 → 215, derivation
-restated there), all measured on the landed kernel, twice per
-scale byte-identical, no movement on any pre-existing cell:
-
-- `version_tick`/`clock_tick` × **nested-wide**: RED, limb
-  exponent 1.57 at 43.6/B (default) and 1.83 at 126.3/B (×4) —
-  the wide right-full return chain; owner **#34**. At ×4 also
-  segments e 2.42 / 16 grown — owner **P4.2**.
-- `version_tick`/`clock_tick` × **mirror-wide**: RED, limb
-  e 1.86 at 142.9/B and heap e 1.63 at 352.9/B (default); limb
-  e 1.94 at 518.9/B, heap e 1.84 at 1,098.1/B (×4) — the memo
-  arm's wide chains and wide owned entries; owner **#34**. At ×4
-  also segments e 2.00 / 4 — owner **P4.2**.
-- `version_tick`/`clock_tick` × **mirror-narrow**: RED, heap
-  constant 93.2/B default / 95.6/B ×4 at exponent 1.00 — the
-  memo's one owned heap entry per left-full site, linear in
-  count but a constant the ceiling honestly rejects; owner
-  **#34** (the diff-coded memo). At ×4 also segments e 1.64 /
-  50 — owner **P4.2**. Deviation from the spec's §7 expectation
-  (green with honest floors) recorded there as a dated
-  amendment: the meters read the memo's constant, and the pin
-  keeps the honest reading.
-- `version_tick`/`clock_tick` × **staircase**: GREEN at the
-  default scale on every work column (limb 29.7/B, scan 40.0/B,
-  e 1.00 — the landed kernel is linear on narrow
-  full-penetration schedules; the cell holds the cure's
-  propagation to the same reading); at ×4 RED on segments only,
-  e 1.49 / 56 — owner **P4.2**.
-
-Amended 2026-07-25 (the #34 cure): the anchor-web walk (stage
-one, the per-subtree materialized returns dissolved into the
-zero-run-compressed watermark stack) and the chained-memo
-pre-scan (stage two, per-site minima diff-coded along the
-recording chain, resolved by interval folds against per-level
-anchors) flipped every #34-owned red at both scales —
-nested-wide and mirror-wide limb/heap e 1.00 at flat constants
-(5.4 and 8.9 limb/B; mirror-wide heap 11.2/9.1 per byte with
-zero grown segments at ×4), mirror-narrow's memo heap constant
-93.2/95.6 → 13.9/9.0 per byte, staircase and nested-full held
-green with the staircase's full-penetration propagation flat
-(limb 16.0/B) — byte-identity across the full differential
-suite including the mirror telescoped-collapse witness, two
-identical board runs per scale, scan columns unchanged on every
-cell, and the only non-tick movement the tick-calling
-`version_batch_snapshot`/`clock_recv` heap improvements. The ×4
-segments residual (recursion depth, owner **P4.2**) stays on
-eight tick-walk legs with counts re-pinned deliberately to the
-new walk's call shape: nested-full 11, nested-wide 5,
-mirror-narrow 12, staircase 22 (mirror-wide 0 — its walk is
-shallow once the memo chains). The four #34 judge legs left the
-roster with the flip (22 → 18, membership pin updated); the L6
-output-bound proptest (`tick_output_is_input_bounded`) and the
-`TICK_NESTED_WIDE`/`TICK_MIRROR_WIDE` envelope rows pin the
-cure-earned constants. Sums: default 198 + 17 = 215; record
-189 + 26 = 215.
-
-Amended 2026-07-26 (the width-circulation and fold-direction
-rounds): the six round-5 width-circulation cells and the four
-round-7 ascending-cliff cells moved the base 215 → 221 → 225.
-New reds, each owned: the pure-comb pair's ×4 segments (the
-recursion-depth genre, **P4.2**) took the record sum 26 → 28 at
-round 5; the ascending-cliff pair is red at both scales on the
-heap constant (64.4/66.7 B/B at exponent 1.00 — the first
-committed family to hold k simultaneously-armed nonzero boundary
-differences, one pooled unit-width buffer each; linear in the
-input, honestly over the 16 B/B ceiling, the mirror-narrow genre;
-owner: the round-7 record, spec §9 — a small-buffer diff-stack
-representation is the candidate cure if one is ever warranted)
-and at ×4 additionally on segments (e 3.81 / 14, **P4.2**), and
-the plateau control pair at ×4 on segments only (**P4.2**). The
-64.4/66.7 constant is specific to the board's joint (s,s) axis,
-where the armed count k and the per-difference width b grow
-together: at fixed b the peak heap is exactly affine in k —
-91.3 B per armed nonzero difference plus a 2,905 B floor, ~104
-B/B on the k-axis alone — and the B/B reading drifts with the
-k:b mix (49.6 → 81.3 across k-doublings) while the exponent
-holds 1.00. A future re-pin of this cell must re-measure on the
-board's own axis; the exponent claim is axis-invariant, the
-constant is not. Sums:
-default 206 + 19 = 225; record 193 + 32 = 225.
-
-Amended 2026-07-26 (the #35 board product refactor): the product
-took the base 225 → 720 with every pre-existing cell's row
-byte-identical at both scales; the 74 (default) / 72 (×4) new
-reds fall into five genres, each with one owner, none
-exponent-class on a linear input axis:
-
-- **The comb-scatter column** (21 default / 19 ×4: the
-  merge/compare/query limb exponents, the tick pair's limb+scan
-  exponents, `version_decode`/`version_rank`/`clock_decode` with
-  their limb floors, and at the default scale
-  `clock_encode`/`rank_sum` heap exponents and `clock_fork`'s
-  scan exponent). The family scales tooth *count* at fixed
-  1000-bit tooth magnitude, and the skyline coding stores the
-  oscillation as unit deltas, so its packed bytes grow ×1.18 per
-  level doubling while value-content-linear work doubles: every
-  exponent on the column reads against a nearly flat denominator
-  (log 2 / log 1.18 ≈ 4). The same value-content-vs-packed-bytes
-  question as the three exponents C3 adjudicated; **CLOSED at C3**
-  by the §6 flat-denominator amendment (exponents fitted against
-  value content — the substance of the leaf-delta representation
-  question; constants and floors stay per packed byte): the
-  column's work measured linear per tooth, every cell green.
-- **Twenty (×4; 18 default) plateau limb-floor trips**
-  (`version_decode`/`version_rank`/`version_distance`/
-  `version_lag`/`clock_decode` × {ascend-cliff, ascend-plateau,
-  pure-comb, reveal-comb}): the tree-derived mandatory-limb floor
-  (`mandatory_limbs_version`, one limb per 64 bits of every
-  min-lifted stored base) over-demands on plateau shapes whose
-  stream stores its width once and steps by units — a conforming
-  walk provably does less limb work than the decoded tree's
-  absolute values imply, the same over-derivation as the cliff
-  limb-floor trips; **CLOSED at C3**: the walk rows floor at the
-  stream's own codes (`mandatory_limbs_stream`), the parse rows
-  keep the tree-derived floor, and the derivation split is pinned
-  in `meter::board::tests`.
-- **The κ-text extension** (28 default / 25 ×4:
-  `version_from_str`/`clock_from_str`/`version_display`/
-  `clock_display` × {harmonic, nested-full, nested-wide,
-  mirror-narrow, mirror-wide, staircase, reveal-hifloor}, limb/`R`
-  over κ, the dense-like shapes also over the display heap
-  constant, plus `version_display × nested-wide`'s ×4 heap
-  constant): per-value gamma-encode arithmetic on small-value
-  trees, the exact genre of the ten pre-existing κ-text
-  constants; **RESOLVED at C3** by the κ re-derivation (the
-  limb/`R` legs, green under the pipeline-term denominator) with
-  the two survivors reclassified into the render-materialization
-  genre below (the display heap constants; the mirror-wide
-  display limb exponent, a genuine kernel superlinearity).
-- **Six plateau projection cells** (`version_project`/
-  `clock_own_version` × {reveal-comb, reveal-hifloor, pure-comb};
-  every column red at ×4): projecting the plateau event through
-  the site-owning comb id re-materializes a wide absolute value
-  per kept site — mandatory output Θ(k·b) against a Θ(k + b)
-  input, read under the input denominator. The comb-scatter
-  output-domination case on the plateau crosses, needing the same
-  `n_io` treatment §6 grants that cross; **CLOSED at C3** under
-  the owner's pre-approved ruling with the O(`n_io`)-tightness
-  rider measured and met (§3's closed entry).
-- **`version_min_ticks` heap constants** (mirror-narrow at both
-  scales, mirror-wide joining at ×4): the query walk's per-level
-  owned heap entries on the deep left-full memo shapes — the
-  mirror-narrow linear-heap-constant genre; owner: **#34's
-  diff-coded memo record** (the tick-side cure priced the tick
-  rows; the query walk's reading is the same constant genre).
-
-Amended 2026-07-26 (the profile of record moves to release; the
-#35 protocol ratification): the release renders carry the same
-verdict as dev on every cell at both scales — the sums below are
-unchanged and no red changed owner — so the movement is readings
-only, re-cited at release where this section quotes them: limb
-constants on 95 (default) / 90 (×4) cells (release lower; the
-largest drops on the plateau-projection constants, 193.4 →
-145.4/B on the pure-comb pair at the default scale), heap
-constants on 3 / 11 cells (all `party_without`: the owned
-assertion seam below), scan constants on 13 cells after the
-assertion repair below, and the ×4 segment counts on the sixteen
-P4.2-owned recursion legs — per tick op: nested-full 7,
-nested-wide 2, mirror-narrow 7, staircase 14, ascend-cliff 4,
-ascend-plateau 4, pure-comb 4; the id-side parser pair at
-count 12 — release frames are smaller, so segment onset shifts
-with codegen: the segments currency is profile-dependent by
-nature, every affected cell reads red on segment count under both
-profiles, and P4.2's iterative walks remain the cure. The
-assertion repair (the ratified policy's one trigger):
-`id_is_empty` asserted normal form by re-parsing its whole input
-through the metered cursor, doubling every decode path's dev scan
-(`party_decode` 16.0 vs 8.0 bits/B) and carrying `clock_decode ×
-comb-scatter`'s scan leg across the 1.15 ceiling in dev only
-(e 1.25 vs 1.13, the one dev-vs-release exponent-class divergence
-on a work column); it now spot-checks the O(1) consequences of
-its contract (root tag arity vs stream length), and the full O(n)
-normal-form assertion moved to `Party::without` — the diff
-kernel's emission seam, the one caller whose input is not
-just-parsed bytes. That seam is the recorded, owned dev-profile
-divergence: the check genuinely requires the full parse (a
-collapsible node can hide anywhere in the emission), so
-`party_without`'s dev scan reads ~16 bits/B above release by
-design, and its dev heap carries the parse stack. Release
-readings — the record — carry no assertion work anywhere.
-
-Amended 2026-07-26 (the #40 representation migration; this
-re-cite owed by the #39 round's doc pass): Version's at-rest move
-to `codec::Bits` with byte-level Eq/Hash lowered heap and
-record-scale segment readings on 41 cells (default) / 45 (×4)
-[measured — the pre- and post-migration release renders,
-byte-compared cell by cell] and flipped three owned reds GREEN,
-each closed in its owning genre with the genre surviving on its
-other cells:
-
-- `clock_encode × comb-scatter` (default scale, heap exponent):
-  leaves the comb-scatter column's genre, 21 → 20 default cells;
-  the column's limb/scan/touch exponents and floors carried the
-  genre until C3 closed it (the §6 flat-denominator amendment).
-- `version_tick`/`clock_tick` × **nested-wide** (record scale,
-  segments): leave the P4.2 recursion genre, eight pre-existing
-  tick-walk segment legs → six (nested-full ×2, mirror-narrow ×2,
-  staircase ×2); nested-wide's ×4 segment count reads 1, under
-  the ceiling. The remaining ×4 tick-op segment counts re-cite at
-  the migrated representation: nested-full 7, mirror-narrow 7,
-  staircase 14, ascend-cliff 2, ascend-plateau 2, pure-comb 2;
-  the id-side parser pair holds at 12. Owner unchanged (**P4.2**,
-  iterative walks remain the cure).
-
-No other verdict moved at either scale; the ascend-cliff heap
-constants (64.4/66.7 B/B) and every genre list below are verified
-current against the migrated renders by mechanical grep.
-
-Amended 2026-07-26 (the #39 instrumentation ratchet): the touch
-currency joined the board as the fifth judged column — every cell
-now carries a touch reading, ceiling (96/B), and floor-or-NA
-declaration; the heaviest honest green reader is the mirror-narrow
-tick cross (30.8/B default, 24.3/B record). The column changed no
-verdict: its 24 red reasons all land on already-red cells in two
-owned genres — the comb-scatter column (18 cells: touch exponents
-join the limb exponents, the same flat-denominator question) and
-the plateau projection cells (6: `version_project`/
-`clock_own_version` × {reveal-comb, reveal-hifloor, pure-comb},
-touch exponent ~1.9 joining every-column reds; the §3 OPEN
-denomination entry now includes the touch column among the columns
-awaiting the `n_io` re-denomination). Zero touch floor trips at
-either scale. Two deliberate old-column movements ride the same
-round, neither a verdict change: the widening-shift limb
-re-denomination (`rank_pair_ops` row and four `distance`/`lag`
-cells, at most +0.2/B — the exponent-alignment work newly counted,
-envelope re-pinned 54,704 → 70,328 with the movement annotated)
-and the `party_fork` heap declaration (generic in-place NA → the
-fork-child deterministic-liveness floor; all twelve cells hold
-their readings above it).
-
-Amended 2026-07-26 (the error-path round): the 18 rejection rows
-took the base 720 → 989 with every pre-existing cell's row
-byte-identical at both scales (the #39 acceptance renders,
-mechanically stripped and byte-compared); the 18 (default) /
-24 (×4) new reds fall into four genres, each with one owner:
-
-- **The join_all up-front re-scan** (11 default / 13 ×4:
-  `party_join_all_overlap` × every overlap-bearing family at ×4;
-  comb-scatter and benign read green at the default scale only
-  because the probe count clamps at its minimum there — the
-  non-monotone-verdict genre §13 records, and the ×4 reading is
-  the honest one): scan e ~2.0 at constants 47–2,954 bits/B —
-  the fold's per-input re-walk of the fixed accumulator, §3's
-  OPEN entry, gate-pinned ≥ ×3.5
-  (`join_all_overlap_upfront_rescan_reads_quadratic`). The benign
-  ×4 cell also reads a sub-allowance heap exponent (e 2.39 over a
-  near-zero constant, the hand-back vector's growth) — the
-  §17.2-C3 judgment-layer genre riding a cell already red on
-  scan. Owner: **§17.2's join_all open item (this round)**.
-- **The comb-scatter flat-denominator column** (7 / 7:
-  `version_decode_truncated`/`_trailing`/`_noncanon` and
-  `clock_decode_truncated`/`_trailing` × comb-scatter — limb and
-  touch exponents over honest constants of 2.8–5.8 ops/B, the
-  validator's per-tooth work against packed bytes growing ×1.24
-  per doubling — plus `clock_join_overlap`/`clock_sync_overlap` ×
-  comb-scatter, heap and scan exponents over near-zero readings
-  (the id side grows with the teeth while the version-dominated
-  denominator stays nearly flat)): the standing column question,
-  no new mechanism; **CLOSED at C3** with the column (the §6
-  flat-denominator amendment; every cell green under the content
-  exponent denominator).
-- **The id-side parser recursion** (0 / 3:
-  `party_parse_trailing` (12 grown segments, e 3.58),
-  `party_parse_noncanon` (6), `clock_parse_trailing` (12) ×
-  id-pair at ×4): the same recursive `parse_id_node` the
-  accepting `party_from_str`/`clock_from_str` × id-pair reds
-  already carry. Owner: **P4.2**, the explicit-stack residual.
-- **The diff kernel's both-internal recursion** (0 / 1:
-  `party_without_none × id-pair` at ×4, segments e 1.49 / 62
-  grown): `diff` recurses exactly where both operands are
-  internal — the documented deliberate exception whose
-  one-shallow-operand-caps-depth reasoning does not bind on
-  identical deep operands, the shape this row commits. Owner:
-  **P4.2** (its audit list gains this site's deep-both-internal
-  case; the pre-existing `party_without` row never reached it —
-  its seed minuend keeps the walk shallow).
-
-Sums: default 879 + 110 = 989; record 863 + 126 = 989.
-
-Default, 110 = the 92 pre-existing below + the 18 error-path reds
-above. Record, 126 = the 102 pre-existing below + the 24 above.
-
-Amended 2026-07-26 (the join_all cure, §3's landed entry; single
-release runs at both scales, strip-diffed cell-exact against the
-parent-tip boards — every cell not named here byte-identical):
-
-- **The join_all genre empties, less one rider.** All 11 default
-  and 12 of 13 ×4 `party_join_all_overlap` reds flip GREEN: scan
-  e 2.00–2.14 at 47–2,954 bits/B → e 1.00 at 15.9 bits/B on every
-  family at both scales; heap gains the index table's constant,
-  at most 10.6/B (nested-full ×4), e 1.00, under the 16 ceiling.
-  The survivor, `party_join_all_overlap × benign` ×4: its scan
-  legs flip green (e 2.13 → 1.00) and the cell stays RED on the
-  sub-allowance heap exponent alone (e 2.39 → 1.17 over a 0.0/B
-  constant, the hand-back vector's growth against a near-constant
-  denominator) — the §17.2-C3 judgment-layer genre this
-  accounting already assigned while it rode a scan-red cell;
-  **CLOSED at C3** by the heap-materiality exponent guard.
-- **The success path re-attributed** (the same up-front test
-  priced it): `party_join_all × scatter` flips RED → GREEN at
-  default (scan constant 98.6 → 91.9 bits/B under the 96 ceiling;
-  ×4 stays green, 87.0 → 81.0); `party_join_all × benign` moves
-  106.2 → 100.1 (default) and 123.5 → 116.9 (×4) bits/B, still
-  RED on the scan constant — the n·log n coalescing constant the
-  non-monotone-verdict caveat records, its owner unchanged.
-- **Segments-onset movement, six cells, no other column moved**
-  (every deterministic work counter byte-identical; the segments
-  column's documented codegen sensitivity — frame sizes shifted
-  under the new code in the binary; owner **P4.2**, whose genre
-  list already carries every site): `version_tick`/`clock_tick`
-  × nested-wide ×4 go GREEN → RED at 1 → 2 grown segments against
-  the flat ceiling of 1; `version_tick`/`clock_tick` ×
-  pure-comb/ascend-cliff/ascend-plateau ×4 (already red on
-  segments) read 2 → 4 grown; `party_without_none × id-pair`
-  (the diff both-internal recursion) goes GREEN → RED at default
-  (0 → 2 grown) and reads 62 → 70 at ×4 where it was already red.
-
-Sums after the cure amendment: default 890 + 99 = 989; record
-873 + 116 = 989. Default, 99 = 110 − 12 flips
-(11 `party_join_all_overlap` + `party_join_all × scatter`)
-+ 1 segments onset (`party_without_none × id-pair`). Record,
-116 = 126 − 12 flips (`party_join_all_overlap` × the 11 plus
-comb-scatter) + 2 segments onsets (the tick × nested-wide pair).
-
-Amended 2026-07-26 (the #34 fusion landing; single release runs
-at both scales, strip-diffed cell-exact against the
-join_all-cure tip boards — `board-fusion-{lo,hi}.txt`): 51 of
-the 83 tick-carrying rows per scale moved on work-column
-constants — the eliminated probe pass and byte compare,
-copy-on-first-divergence, the deferred output buffer; the
-mechanism table and re-pins are spec §9 round 8 — with zero
-verdict flips among them. The ascending-cliff pair's owned heap
-constant re-cites at the fused walk: 63.0 (default) / 65.3 (×4)
-B/B, exponent 1.00, the cell red as before. One verdict flip,
-not a tick row: `party_without_none × id-pair` at the default
-scale RED → GREEN, 2 → 0 grown segments — the same order-coupled
-cell the join_all cure amendment above added as its +1 segments
-onset. The record-scale id-pair segment counts re-cite at the
-fusion tip, readings moved in both directions with statuses
-unchanged (each already red in the P4.2-owned recursion genre):
-the parser pair `party_from_str`/`clock_from_str` 12 → 16
-(e 4.00), `party_parse_trailing` 12 → 16, `party_parse_noncanon`
-6 → 8, `clock_parse_trailing` 12 → 16, `party_without_none`
-70 → 54 — five parse kernels plus the diff kernel. Every other
-column on those rows is byte-identical, and the ×4 tick-op
-segment counts hold (nested-full 7, nested-wide 2, mirror-narrow
-7, staircase 14, pure-comb 4, ascend-cliff 4, ascend-plateau 4).
-Triage mechanism, recorded at P4.2's §17.2 entry: the segments
-counter reads the stacker's process-global segment cache, which
-is order-coupled to the preceding cells' stack usage in the
-shared board process — a kernel change anywhere in the binary
-re-rolls the counts on untouched kernels' rows. Sums: default
-891 + 98 = 989; record 873 + 116 = 989.
-
-Amended 2026-07-26 (C3's denomination and classification round;
-single release runs at both scales — `board-c3-{lo,hi}.txt` — the
-derivation runs first verified the 0ac28993 base byte-identical to
-`board-fusion-{lo,hi}.txt` at both scales, so the orbit-pin commit
-moved no cell). 75 (default) / 78 (×4) reds flipped GREEN, zero
-cells flipped red, and every flip lands in one of C3's five
-declared mechanisms [measured — the pre/post renders,
-mechanically diffed and bucketed]:
-
-- **Stream-derived limb floors** (18 default / 23 ×4): the cliff,
-  plateau, and comb-scatter floor-liveness trips on
-  decode/rank/distance/lag/clock_decode.
-- **The content exponent denominator** (27 / 26): the whole
-  comb-scatter column, rejection rows included.
-- **The plateau projection `n_io` ruling** (6 / 6).
-- **The κ re-derivation** (23 / 20): every text limb-constant
-  red; the display rows red on heap alone keep that reason.
-- **The judgment-layer guards** (1 / 3): `version_min_ticks ×
-  cliff` (adjudicated: a sub-allowance heap exponent, never
-  κ-genre), `rank_sum`/`rank_pair_ops` × benign,
-  `party_join_all_overlap × benign`.
-
-The three flip-recorded "κ-genre exponents" are adjudicated
-against single-cell column attribution: none was κ-genre.
-`version_min_ticks × cliff` was judgment-layer noise (above);
-`version_project`/`clock_own_version` × comb-scatter measure
-I/O-linear on every work column (limb e 1.01 at 0.3/B under
-`n_io`) — `query.rs`'s I/O-linearity claim is CONFIRMED — and
-their default-scale red is the heap exponent alone, the
-capacity-phase genre below.
-
-Sums: **default 966 + 23 = 989; record 951 + 38 = 989.**
-
-The current red roster (post-C3, both scales enumerated from the
-`board-c3` renders; every red has exactly one owner):
+The red roster, both scales enumerated from the renders:
 
 - **The render materialization genre** (14 default / 14 ×4 heap
   constants: `version_display` × {dense, bigroot, harmonic,
   nested-full, nested-wide, mirror-wide, mirror-narrow,
   staircase}, `clock_display` × {dense, bigroot, harmonic,
-  nested-full, mirror-narrow, staircase} — 14.4–33.2 B per `n_io`
+  nested-full, mirror-narrow, staircase} — 17.4–33.2 B per `n_io`
   byte at exponent ~1.00): the render's finalize pass
   materializes a per-node `Base` vector, a digit arena, and an
   offset table before the emit pass — linear, honestly over the
   16 B/B ceiling. Owner: **the materializing emitters item
-  (§17.2, opened at C3)**; candidate cure: convert bases to
-  digits at their close (dropping the `Base` vector) or a
-  two-pass finalize, judged against κ's pipeline budget.
+  (§17.2)**.
 - **The render merge's wide-summary re-read**
   (`version_display`/`clock_display` × mirror-wide: limb
-  exponent 1.55 default / 1.81 ×4, the ×4 constants over κ;
+  exponent 1.55–1.56 default / 1.81 ×4, the ×4 constants over κ;
   `version_display`'s heap constant rides the genre above):
   the finalize merge re-folds wide relative summaries per
   ancestor on the wide×deep right-spine shape — the #34
   re-touching genre alive in the render walk; parse on the same
   shape is linear (6.05 ops/node [measured]), so the text is not
   the obstruction. A genuine kernel superlinearity, red on an
-  honest denominator. Owner: **the materializing emitters item**;
-  candidate cure: the anchor-web discipline applied to the render
-  summaries.
+  honest denominator. Owner: **the materializing emitters item**.
 - **The capacity-phase heap exponent** (`version_project`/
   `clock_own_version` × comb-scatter, default scale only): work
   I/O-linear on every column; peak heap linear in the output with
@@ -1984,30 +1204,50 @@ The current red roster (post-C3, both scales enumerated from the
   discipline stabilizes the measured quantity).
 - **The fold marginals** (default: `version_join_all` ×
   {scatter, benign} limb/scan exponents, `party_join_all ×
-  benign` scan constant; ×4: `party_join_all × benign` only —
-  the version-side pair reads green there, the n·log n
-  signature): owner unchanged, **the C2-adjacent n-cursor
-  merge**.
-- **`version_min_ticks` heap constants** (mirror-narrow both
-  scales, mirror-wide joining at ×4) and **the ascending-cliff
-  tick pair's heap constants** (63.0/65.3 B/B, e 1.00): owners
-  unchanged (**#34's diff-coded memo record**; **the round-7
-  record**).
-- **The ×4 segments legs** (16 cells: the tick ops ×
-  {nested-full, nested-wide, mirror-narrow, staircase, pure-comb,
-  ascend-cliff, ascend-plateau}, the id-side parser cells
-  `party_from_str`/`clock_from_str`/`party_parse_trailing`/
+  benign` scan constant at 100.1 bits/B; ×4: `party_join_all ×
+  benign` only, 116.9 bits/B — the version-side pair reads green
+  there, the n·log n signature): owner **the n-cursor merge item
+  (§17.2)**.
+- **`version_min_ticks` heap constants** (mirror-narrow at both
+  scales, mirror-wide joining at ×4): the query walk's per-level
+  owned heap entries on the deep left-full memo shapes — linear
+  in site count, a constant the ceiling honestly rejects; the
+  same constant genre as the tick memo's diff-coded record (the
+  spec's §9 round 4). Owner: an accepted stated-band residual
+  with the diff-coded memo as the candidate cure if one is ever
+  warranted.
+- **The ascending-cliff tick pair's heap constants** (63.0/65.3
+  B/B, e 1.00 — the one committed family holding k
+  simultaneously-armed nonzero boundary differences, one pooled
+  unit-width buffer each; linear in the input, honestly over the
+  16 B/B ceiling): owner: the spec's §9 round-7 record — a
+  small-buffer diff-stack representation is the candidate cure if
+  one is ever warranted. The constant is specific to the board's
+  joint (s,s) axis, where the armed count k and the
+  per-difference width b grow together: at fixed b the peak heap
+  is exactly affine in k (91.3 B per armed nonzero difference
+  plus a 2,905 B floor) and the B/B reading drifts with the k:b
+  mix while the exponent holds 1.00. A future re-pin of this cell
+  must re-measure on the board's own axis; the exponent claim is
+  axis-invariant, the constant is not.
+- **The ×4 segments legs** (20 cells: `version_tick`/`clock_tick`
+  × {nested-full, nested-wide, mirror-narrow, staircase,
+  pure-comb, ascend-cliff, ascend-plateau}, the id-side parser
+  cells `party_from_str`/`clock_from_str`/`party_parse_trailing`/
   `party_parse_noncanon`/`clock_parse_trailing` × id-pair, and
-  `party_without_none × id-pair`): owner unchanged, **P4.2**, the
-  recursion-depth genre.
+  `party_without_none × id-pair`): owner **P4.2**, the
+  recursion-depth genre (profile-dependent by codegen and
+  order-coupled across the shared board process — the triage
+  convention at P4.2's entry). Counts of record at this tip, per
+  tick op: nested-full 7, nested-wide 2, mirror-narrow 7,
+  staircase 14, pure-comb 4, ascend-cliff 4, ascend-plateau 4;
+  the parser cells 16/16/16/8/16; `party_without_none` 54.
 
-Bench riders (`BOARD_RED_BENCH_RIDERS`) stay committed empty at
-C3: the surviving reds are classified above, but a rider outside
-the judge's expected-red roster whose time leg reads red fails
-every judge run, so the rider population and the roster edit are
-one reviewed diff, landed with the judge-verification item that
-C3's queue sequences immediately after this round (the queue of
-record, item 11; item 9's disposition).
+Bench riders (`BOARD_RED_BENCH_RIDERS`) are committed empty: the
+surviving reds are classified above, but a rider outside the
+judge's expected-red roster whose time leg reads red fails every
+judge run, so the rider population and the roster edit are one
+reviewed diff — item 11's (§17.2).
 
 ### 17.5 Post-campaign docket (user directives)
 
@@ -2062,6 +1302,12 @@ record, item 11; item 9's disposition).
   re-pins those rows deliberately (the parity-floor ruling's
   genre). Where a packed bit-stack (2 bits/level) suffices,
   neither applies and the bit-stack stays.
+- **The envelope-harness unification** (the #39 census's deferred
+  disposition): collapse the four envelope harness shapes in
+  `tests/meter.rs` into one five-column shape with per-column
+  floor-or-NA — the #35 totality mechanism applied to the gate
+  suite; P5-window candidate, beside the standing
+  harness-triplication item below.
 - **Defended keeps (2026-07-24 scaffolding sweep) — adjudicated
   once, not relitigated**: the limb/scan/segment/touch meters and
   their floors (domain-semantic; no external tool can produce
