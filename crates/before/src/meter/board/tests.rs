@@ -612,3 +612,92 @@ fn quadratic_in_teeth_work_reads_red_against_the_content_denominator() {
          read {content_fit:.2}"
     );
 }
+
+/// The exponent guards judge the denominator's ability to scale and the
+/// heap reading's materiality, never the reading's growth: the same
+/// amplifier-shaped readings read green where the operand pair cannot
+/// scale (6 -> 7 bytes: the fit divides by a vanishing log) or where both
+/// heap readings sit inside the flat allowance the constant leg already
+/// forgives, and read red the moment the denominator honestly doubles or
+/// the readings clear the allowance. Both directions pinned so neither
+/// guard can silently widen into an exemption hole.
+#[test]
+fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
+    use super::{evaluate, na, ByCurrency, Floors, Sample, HEAP_FLAT_ALLOWANCE_BYTES};
+    const PROBE_NA: &str = "probe: the exponent guards alone are under test";
+    let sample = |denom: usize, heap: u64, limb: u64| -> Sample {
+        Sample {
+            denom_bytes: denom,
+            exp_denom_bytes: denom,
+            limb_denom: denom as u64,
+            text_row: false,
+            floors: Floors {
+                heap: na(PROBE_NA),
+                segments: na(PROBE_NA),
+                limb: na(PROBE_NA),
+                scan: na(PROBE_NA),
+                touch: na(PROBE_NA),
+            },
+            readings: ByCurrency {
+                heap: Some(heap),
+                segments: Some(0),
+                limb: Some(limb),
+                scan: None,
+                touch: None,
+            },
+        }
+    };
+    // A x5 limb growth over a denominator pair that cannot scale: the fit
+    // is noise amplification, unjudged; the identical readings over an
+    // honestly doubling pair are a real amplifier, red.
+    let sub_scaling = evaluate(
+        "guard_probe",
+        "sub-scaling",
+        sample(6, 0, 12),
+        sample(7, 0, 60),
+    );
+    assert!(
+        !sub_scaling.red.iter().any(|r| r.contains("limb exponent")),
+        "a non-scaling denominator pair must leave the exponent unjudged: {:?}",
+        sub_scaling.red
+    );
+    let scaling = evaluate(
+        "guard_probe",
+        "scaling",
+        sample(6, 0, 12),
+        sample(12, 0, 60),
+    );
+    assert!(
+        scaling.red.contains(&"limb exponent"),
+        "the same readings over an honestly doubling denominator must stay red: {:?}",
+        scaling.red
+    );
+    // A cubic-shaped heap growth entirely inside the flat allowance is
+    // size-class noise, unjudged; the same shape clearing the allowance
+    // is judged and red.
+    let sub_allowance = evaluate(
+        "guard_probe",
+        "sub-allowance",
+        sample(100, 100, 0),
+        sample(200, 800, 0),
+    );
+    assert!(
+        !sub_allowance
+            .red
+            .iter()
+            .any(|r| r.contains("heap exponent")),
+        "sub-allowance heap readings must leave the exponent unjudged: {:?}",
+        sub_allowance.red
+    );
+    let over_allowance = evaluate(
+        "guard_probe",
+        "over-allowance",
+        sample(100_000, HEAP_FLAT_ALLOWANCE_BYTES as u64 + 1_000, 0),
+        sample(200_000, 8 * (HEAP_FLAT_ALLOWANCE_BYTES as u64 + 1_000), 0),
+    );
+    assert!(
+        over_allowance.red.contains(&"heap exponent"),
+        "heap readings clearing the allowance must be judged and red: {:?}",
+        over_allowance.red
+    );
+}
