@@ -29,8 +29,9 @@
 //! the write). The walk carries the last consumed input height on one
 //! cliff-immune [`Accum`], and every range minimum the shortcut arms
 //! can ask for lives in one shared anchor web — the `watermark`
-//! module's stack: `h − min` for the innermost
-//! open range plus nonnegative, zero-run-compressed differences
+//! module's stack: `h − A` for an anchor at or above the innermost
+//! open range's minimum (the excess parked in the stack's latent
+//! register) plus nonnegative, zero-run-compressed differences
 //! outward, so each consumed delta folds into O(1) accumulators and a
 //! raise's comparison is an amortized-O(1) sign read. The output-delta
 //! register (`h − prev_out` between pass-throughs, watermark-relative
@@ -55,35 +56,31 @@
 //! the walk's own copy (a flat ×2, never nesting).
 //!
 //! Limb: accumulator digit touches are amortized linear in the two
-//! packed streams on the consumption-order and undercut genres
-//! [measured: exponent 1.00 with flat constants on the matched
-//! spine, both wide × deep shortcut crosses, the memo families —
-//! distinct and shared minima, interleaved combs, the wide fan-out —
-//! and the descending staircase; the memo module of `tests/meter.rs`
-//! pins the families that separate this from every refuted
-//! resolution] — but NOT on the close-reveal genre: k sibling sites
-//! sharing one wide minimum over a low floor, with each site's node
-//! frame closing back into the floor frame between consecutive
-//! consumes, cost Θ(k·b) touches on a Θ(k + b) input whose output is
-//! Θ(k + b) too [measured: ×3.91 across a joint ×2.00 doubling; the
-//! reveal-comb red pins in `tests/meter.rs`'s `width_circulation_cost`
-//! module hold the reading until the cure re-pins it flat]. The
-//! consume-minted arming difference is popped at the site's close,
-//! refilling the stack and the relation follower with the width the
-//! next consume re-mints — per-object-legal moves circulating one
-//! width unfunded; the same cycle runs at ~2 wide folds per site in
-//! the watermark stack alone with no site anywhere (bare
-//! leaf-under-internal-id frames over the same comb), and the
-//! ledger's ferry amplifies it ~10×. The narrow-gap control (floor
-//! 2 below the shared minimum) is flat and width-independent. On
-//! the linear genres the discipline holds as measured: each
-//! consumed delta folds into O(1)
-//! accumulators; each emission's watermark update is one amortized
-//! sign read plus a propagation whose every fold is a dying operand or
-//! the one surviving fold the update's own priced width bounds; each
-//! emitted code is materialized once, post-collapse, at its own width;
-//! the watermark compares fold and restore only the priced offset (or
-//! answer post-sign by top-index domination); the extremum scans'
+//! packed streams [measured: exponent 1.00 with flat constants on
+//! the matched spine, both wide × deep shortcut crosses, the memo
+//! families — distinct and shared minima, interleaved combs, the
+//! wide fan-out — the descending staircase, and the close-reveal
+//! genre (k sibling sites sharing one wide minimum over a low floor,
+//! each site's node frame closing back into the floor frame between
+//! consecutive consumes): the reveal comb reads ×2.00 across a joint
+//! ×2.00 doubling and the bare-frame pure comb reads flat per byte
+//! across a width doubling — the `width_circulation_cost` and memo
+//! modules of `tests/meter.rs` pin the families that separate this
+//! from every refuted discipline]. The cost invariant conserves
+//! width: every touch is paid by a consumed input code, an emitted
+//! output code, or the death of the digits it reads. Each consumed
+//! delta folds into O(1) accumulators; each emission's watermark
+//! update is one amortized sign read plus a propagation whose every
+//! fold is a dying operand or the one surviving fold the update's own
+//! priced width bounds; a close moves its popped boundary into the
+//! watermark stack's latent register and an arm recycles the register
+//! into the new boundary, so the close-reveal cycle's wide content
+//! shuttles by moves at a narrow anchor-relative marginal cost (the
+//! `watermark` module doc carries the register's discipline); each
+//! emitted code is materialized once, post-collapse, at its own
+//! width; the watermark compares fold and restore only the priced
+//! offset (or answer post-sign by top-index domination, through the
+//! latent ladder where one is parked); the extremum scans'
 //! reset-on-cross folds are priced by the range they scan; the
 //! absent-sibling raise compares materialized offsets both priced by
 //! their own scans; the builder's equal-sibling seam is a one-bit
@@ -94,12 +91,14 @@
 //! the raise decision; the keeper and suspend folds each read a
 //! dying operand or a link's own priced width; the one live follower
 //! (the head, walk-side the relation) receives the per-event fold
-//! the watermark discipline already prices, and the pre-scan's
-//! recorder adds one amortized sign read per site (the zero-link
-//! test). Wide content is read only where an operand dies, a
-//! bounded-count lifetime read, or a code prices it — the
-//! height↔watermark anchor switches read the surviving web once,
-//! priced by the switch emission's own code.
+//! the watermark discipline already prices — closes excepted, where
+//! it rides the latent tag untouched — and the pre-scan's recorder
+//! adds one amortized sign read per site (the zero-link test). Wide
+//! content is read only where an operand dies, a bounded-count
+//! lifetime read, or a code prices it — the height↔watermark anchor
+//! switches read the surviving web once, priced by the switch
+//! emission's own code, with a parked latent cancelling symbolically
+//! on the watermark-to-height switch and retiring on the other.
 //!
 //! Heap: O(paired depth) transient frames plus O(n + m) total live
 //! digits; the memo holds one queue entry per covered site — an
