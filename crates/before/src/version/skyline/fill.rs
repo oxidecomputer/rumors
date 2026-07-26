@@ -576,8 +576,15 @@ impl FillWalk<'_> {
             }
             Corr::H(acc) => self.consume_h_anchored(acc, link, above, depth),
             Corr::Min => {
-                // d_arm = m_s − min = (m_s − m_r) − (min − m_r): the
-                // link dies into the decision.
+                // d_arm = m_s − A = (m_s − m_r) − (f_stored = A − m_r):
+                // the link dies into the decision, and taking the
+                // relation raw keeps everything anchor-relative — the
+                // latent a preceding close parked cancels out of the
+                // comparison and the arming alike, so the cycle's cost
+                // is the narrow inter-site movement, never the parked
+                // width. (Without the tag, f = m − m_r would gross the
+                // full anchor-to-floor gap into d_arm at every
+                // consume.)
                 let mut d = self.stack.follower_take(REL_FOLLOWER);
                 d.negate();
                 if let Some(link) = link {
@@ -591,9 +598,12 @@ impl FillWalk<'_> {
                     let zero = self.stack.lease();
                     self.stack.follower_set(REL_FOLLOWER, zero);
                 } else {
-                    // The relation re-anchors to m_s: min − m_s. The
-                    // follower installs BEFORE the emission: the raise
-                    // can arm a pending frame (moving the tracked
+                    // The relation re-anchors to m_s: the negated
+                    // decision quantity is `A − m_s`, exactly the
+                    // anchor-relative content `follower_set` tags when
+                    // a latent lives (and `min − m_s` when none does).
+                    // The follower installs BEFORE the emission: the
+                    // raise can arm a pending frame (moving the tracked
                     // minimum), and only an installed follower receives
                     // that arm's fold — installed after, the relation
                     // goes stale by exactly the arm's delta.
@@ -679,6 +689,12 @@ impl FillWalk<'_> {
             }
         }
         if !outermost {
+            // The fresh relation starts at zero against the tracked
+            // minimum, so the anchor must be exact: a latent parked by
+            // a nested site's close retires here (its one death,
+            // funded by the mint the input's re-widening climb paid
+            // for); the consume cycle's arm has already drained it.
+            self.stack.resolve_latent();
             let zero = self.stack.lease();
             self.stack.follower_set(REL_FOLLOWER, zero);
             self.corr = Corr::Min;
@@ -772,6 +788,16 @@ impl FillWalk<'_> {
     /// delta re-anchors to the watermark.
     fn emit_at_min(&mut self, depth: usize) {
         debug_assert!(self.started, "a tracked minimum implies an emission");
+        // Emitting the true minimum retires any latent, so the fresh
+        // zero follower below installs against an exact anchor. Funded:
+        // a watermark-anchored delta to the minimum is at least the
+        // anchor's stale excess (the previous output sits at or above
+        // the anchor while the tag is set), so the emitted code prices
+        // the resolve; on the height-anchored switch the resolve rides
+        // the dying divergence gap and the code jointly. The consume
+        // path's arm has already drained the register, so its in-cycle
+        // case pays nothing here.
+        self.stack.resolve_latent();
         let delta = if self.w_anchored {
             // d_out = min − prev_out: the follower verbatim — no read
             // of the wide web at all, the repeated-raise fast path.
@@ -1122,6 +1148,17 @@ impl PreScan<'_, '_> {
     /// suspends the outer head, whose value is immutable from here on
     /// (both its endpoints are final minima).
     fn record(&mut self, slot: usize, level: u32) {
+        // The head and the suspends store true minimum differences, so
+        // no anchor-relative content may escape into the ledger: a
+        // latent parked by a nested site's close retires here (its one
+        // death), making every head read below exact. The recording
+        // cycle's own arm has already drained the register, so the
+        // sibling-chain case pays nothing.
+        self.stack.resolve_latent();
+        debug_assert!(
+            !self.stack.latent_live(),
+            "ledger links and suspends never snapshot a latent-relative quantity"
+        );
         // A deeper level is complete iff the head still serves it:
         // its forest parent is THIS site, whose minimum is final now.
         while self.head_level > level {
