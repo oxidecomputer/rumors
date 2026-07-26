@@ -681,14 +681,20 @@ impl MinStack {
                     // comparable-scale hop pays no extra read. Tops
                     // are honest: a pushed difference had its sign
                     // read at push, and the residue collapses under
-                    // its own reads here.
+                    // its own reads here. Both sides are strictly
+                    // positive, so a decided domination is always
+                    // `Greater`; each arm requires the sign anyway so
+                    // that a violated positivity invariant falls
+                    // through to the total fold-then-sign path (the
+                    // debug asserts keep the violation loud) instead
+                    // of folding in the wrong direction.
                     if residue.digit_count() >= d.digit_count() + 2 {
                         let (sign, decided) = residue.sign_dominates_at(d.digit_count() - 1);
                         debug_assert!(
                             !decided || sign == Ordering::Greater,
                             "the residue is strictly positive"
                         );
-                        if decided {
+                        if decided && sign == Ordering::Greater {
                             // The residue dwarfs the difference: d
                             // dies by its one fold into the surviving
                             // residue, which stays positive and keeps
@@ -705,7 +711,7 @@ impl MinStack {
                             !decided || sign == Ordering::Greater,
                             "stacked differences are strictly positive"
                         );
-                        if decided {
+                        if decided && sign == Ordering::Greater {
                             // The difference dwarfs the residue: the
                             // drop stops here, and the dying residue's
                             // terminal fold shrinks the survivor.
