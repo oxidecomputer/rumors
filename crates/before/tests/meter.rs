@@ -2513,8 +2513,8 @@ fn packed_bit(bytes: &[u8], i: usize) -> bool {
 }
 
 /// `without` subtracting an id spine from the seed stays within its envelope
-/// (the complement emitter is iterative, so the subtrahend's depth alone
-/// must grow no stack segments).
+/// (the sweep is iterative, so the subtrahend's depth alone must grow no
+/// stack segments).
 #[test]
 fn id_without_envelope() {
     let pb = meter::id_spine(ID_DEPTH, true);

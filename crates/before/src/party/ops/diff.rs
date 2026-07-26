@@ -1,9 +1,35 @@
+//! The region difference `self \ other`, as a boolean-skyline sweep.
+//!
+//! Under the packed coding an id *is* a boolean skyline: a dyadic tiling
+//! of the unit interval into owned (`1`) and unowned (`0`) plateaus,
+//! listed left to right in preorder, with an absent child standing for an
+//! unowned plateau that occupies no bits. Region difference is pointwise
+//! `a ∧ ¬b` over that interval, so it rides the event side's sweep
+//! discipline (the skyline sweep module carries the boundary
+//! bookkeeping): two leaf cursors walk the operands' overlay partition,
+//! one output plateau — owned exactly where `self` is and `other` is
+//! not — is appended per elementary interval at the deeper cursor's
+//! depth, and the collapsing output builder
+//! ([`IdSkylineBuilder`](super::build::IdSkylineBuilder)) re-derives the
+//! canonical id from the depth sequence. What the event sweep's
+//! accumulator does for integer heights, a single owned bit per cursor
+//! does here: the boolean semiring needs no running difference, only the
+//! two current values.
+//!
+//! Nothing recurses and nothing is skipped: every topology tag of either
+//! operand is read exactly once, the transient state is bits per open
+//! ancestor (two cursor paths and the builder's stacks), and identical
+//! deep operands — the shape on which a structural walk's recursion
+//! depth tracks the full tree depth — cost bits, not stack frames or
+//! grown segments.
+
+use core::cmp::Ordering;
+
 use crate::codec::{Bits, BitsSlice};
-use crate::idbits::{IdNode, IdReader};
-use crate::recurse::descend;
+use crate::idbits::IdReader;
 use crate::step;
 
-use super::build::{Built, IdBuilder};
+use super::build::IdSkylineBuilder;
 
 impl IdReader<'_> {
     /// The region *difference* `self \ other` (normal-form ids): the part of
@@ -22,270 +48,193 @@ impl IdReader<'_> {
     /// sub-share out of a region you already hold, and consuming the original,
     /// can never synthesize a region shared with a third live party.
     ///
-    /// `O(n + m)`: the both-internal case threads (no skip); `diff(0, b)` and
-    /// `diff(a, 1)` skip the dominated side once; `diff(a, 0)` copies `a` and
-    /// `diff(1, b)` complements `b`, each bounded by the output size.
-    ///
-    /// The cursor form of `oracle::Party::without`. It recurses only where
-    /// *both* operands are internal — so one shallow operand caps the
-    /// recursion depth, and [`crate::recurse`] guards what remains. The
-    /// one-sided `diff(1, b)` arm emits `complement(b)` iteratively (see
-    /// [`DiffWalk::complement`]), so a deep subtrahend under a full region
-    /// drives no recursion at all.
-    pub(crate) fn diff(mut self, mut other: IdReader) -> Bits {
-        let mut walk = DiffWalk {
-            // `self \ other` is a subregion of `self`, but `diff(1, b)` emits
-            // `complement(b)`, which can be as large as `other`. Both inputs
-            // combined is a safe bound; normalization only shrinks it.
-            out: IdBuilder::with_capacity(self.bits().len() + other.bits().len()),
-        };
-        descend!(0, walk.rec(&mut self, &mut other, 0));
-        walk.out.finish()
+    /// `O(n + m)`: the sweep form of `oracle::Party::without` (the module
+    /// doc), reading each operand's tags exactly once and emitting one
+    /// output plateau per elementary interval of the overlay.
+    pub(crate) fn diff(self, other: IdReader) -> Bits {
+        // `self \ other ⊆ self`, but over a full `self` plateau the output
+        // is `other`'s complement, which can be as large as `other`. Both
+        // inputs combined is a safe bound; normalization only shrinks it.
+        let mut out = IdSkylineBuilder::with_capacity(self.bits().len() + other.bits().len());
+        let mut a = IdLeafCursor::open(self);
+        let mut b = IdLeafCursor::open(other);
+        loop {
+            // One plateau per elementary interval — the deeper cursor's,
+            // since overlapping dyadic intervals nest — owned where `self`
+            // survives `other`.
+            out.leaf(a.depth().max(b.depth()), a.owned() && !b.owned());
+            if a.done() && b.done() {
+                return out.finish();
+            }
+            advance(&mut a, &mut b);
+        }
     }
 }
 
-/// The single output builder of a [`diff`](IdReader::diff) walk; the `&mut`
-/// readers carry the traversal state, exactly as in [`sum`](IdReader::sum).
-struct DiffWalk {
-    out: IdBuilder,
-}
-
-impl DiffWalk {
-    /// Difference the subtrees at the two `&mut` readers, emitting into `out`
-    /// and advancing both readers past their subtrees.
-    ///
-    /// Reads as a match on the
-    /// two id nodes: `diff(0, b) = 0` and `diff(a, 1) = 0` keep nothing (skip
-    /// both sides), `diff(a, 0) = a` copies the survivor verbatim, `diff(1, b) =
-    /// complement(b)` keeps what `b` lacks, and two nodes recurse and normalize
-    /// on close.
-    ///
-    /// The kept side is [`peek`](IdReader::peek)ed, not read, so `copy_reader`
-    /// can splice its whole subtree.
-    fn rec(&mut self, a: &mut IdReader, b: &mut IdReader, depth: usize) -> Built {
-        match (a.peek(), b.peek()) {
-            // diff(0, b) = 0: `self` owns nothing here. Skip both to resync.
-            (IdNode::Empty, _) => {
-                a.skip();
-                b.skip();
-                Built::Empty
-            }
-            // diff(a, 0) = a: `other` owns nothing here, so keep `a` verbatim.
-            (_, IdNode::Empty) => {
-                let out_root = self.out.copy_reader(a);
-                b.skip();
-                out_root
-            }
-            // diff(a, 1) = 0: `other` owns the whole region, nothing survives.
-            (_, IdNode::Full) => {
-                a.skip();
-                b.skip();
-                Built::Empty
-            }
-            // diff(1, b) = complement(b): `self` owns everything here, so the
-            // survivors are exactly the region `b` does *not* own.
-            (IdNode::Full, _) => {
-                a.skip(); // consume the full `1` leaf
-                self.complement(b)
-            }
-            // Both internal: difference each child pair (threading the real
-            // cursor into present children, a synthetic `Empty` into absent
-            // ones), then close the node, which normalizes.
-            (
-                IdNode::Internal {
-                    left: al,
-                    right: ar,
-                },
-                IdNode::Internal {
-                    left: bl,
-                    right: br,
-                },
-            ) => {
-                a.read();
-                b.read();
-                let node = self.out.open();
-                let left = self.child(a, al, b, bl, depth);
-                let right = self.child(a, ar, b, br, depth);
-                self.out.close_node(node, left, right)
-            }
-        }
-    }
-
-    /// Difference one child pair: thread the real cursor where the child is
-    /// present, a synthetic [`Empty`](IdReader::Empty) where it is absent.
-    fn child(
-        &mut self,
-        a: &mut IdReader,
-        a_present: bool,
-        b: &mut IdReader,
-        b_present: bool,
-        depth: usize,
-    ) -> Built {
-        let mut empty_a = IdReader::Empty;
-        let mut empty_b = IdReader::Empty;
-        let ca = if a_present { a } else { &mut empty_a };
-        let cb = if b_present { b } else { &mut empty_b };
-        descend!(depth + 1, self.rec(ca, cb, depth + 1))
-    }
-
-    /// Emit `complement(b)` — the region `b` does *not* own — advancing `b` past
-    /// its subtree.
-    ///
-    /// `complement(0) = 1`, `complement(1) = 0`, and an internal node
-    /// complements each child: an absent child (a `0`) complements to a
-    /// terminal, a terminal child to an absent `0`. On a normal id this is a
-    /// *structure-preserving map*: an internal node's complement is always
-    /// internal (two terminal children would complement from `(0, 0)`, two
-    /// absent children from `(1, 1)`, neither representable), so the
-    /// complemented tree is already normal and the output is a straight
-    /// retagging of the input tag stream, with no close-time collapse.
-    ///
-    /// Iterative, two passes over the subtree's fixed-width tag stream, so a
-    /// deep `b` costs neither recursion frames nor per-level heap frames —
-    /// the traversal state is a handful of bits per level:
-    ///
-    /// - Every output tag bit is local to the node's own read except one: a
-    ///   both-children node's *right*-presence bit, which flips on whether
-    ///   its right child is internal, and that child's tag sits an entire
-    ///   left subtree ahead. Pass 1 resolves it by scanning the tags
-    ///   *backward* (reverse preorder: children before parents), stacking
-    ///   each completed subtree's root kind on a bit stack — a node pops its
-    ///   children's kinds, left on top — and recording every both-children
-    ///   node's right-child kind; pass 2 visits those nodes in the exact
-    ///   reverse order, so it pops the records straight off the stack.
-    /// - Pass 2 emits each output tag at its node's read and orders the
-    ///   deferred emission — the terminal in an absent right child's slot,
-    ///   due only after the left subtree's output — through a two-bit
-    ///   pending entry per open ancestor: the [`skip_subtree`] counter
-    ///   refined into *what to do* when the subtree under it closes.
-    ///
-    /// [`skip_subtree`]: crate::idbits::skip_subtree
-    fn complement(&mut self, b: &mut IdReader) -> Built {
-        // complement(0) = 1: only ever a synthetic reader (an absent child).
-        if matches!(b, IdReader::Empty) {
-            return self.out.terminal();
-        }
-        // complement(1) = 0: consume the terminal, emit nothing.
-        if matches!(b.peek(), IdNode::Full) {
-            b.skip();
-            return Built::Empty;
-        }
-        let bits = b.bits();
-        let start = b.pos();
-        b.skip();
-        let end = b.pos();
-
-        // Pass 1 (backward): resolve each both-children node's right-child
-        // kind, in reverse preorder.
-        let mut kinds = Bits::new();
-        let mut right_kinds = Bits::new();
-        let mut at = end;
-        while at > start {
-            at -= 2;
-            step!();
-            match (bits[at], bits[at + 1]) {
-                // A terminal: a completed leaf subtree.
-                (false, false) => kinds.push(false),
-                // Both children present: their subtrees completed last (left)
-                // and second-to-last (right). Record the right kind.
-                (true, true) => {
-                    kinds.pop().expect("left child kind is on the stack");
-                    let right = kinds.pop().expect("right child kind is on the stack");
-                    right_kinds.push(right);
-                    kinds.push(true);
-                }
-                // One child: consume its completed subtree.
-                _ => {
-                    kinds.pop().expect("the only child's kind is on the stack");
-                    kinds.push(true);
-                }
-            }
-        }
-        debug_assert_eq!(kinds.len(), 1, "the scan completes exactly one subtree");
-
-        // Pass 2 (forward): emit the retagged stream in preorder. An output
-        // presence bit is set where the input child complements to something
-        // present: an absent or internal input child (a terminal child
-        // complements to an absent `0`).
-        let mut pending = Bits::new();
-        let mut at = start;
-        while at < end {
-            step!();
-            let tag = (bits[at], bits[at + 1]);
-            at += 2;
-            match tag {
-                // A terminal complements to an absent child: emit nothing.
-                // Its subtree is complete, so unwind the ancestors it closes.
-                (false, false) => loop {
-                    let Some((deferred, synthetic)) = pop_pending(&mut pending) else {
-                        debug_assert_eq!(at, end, "the unwind past the root ends the subtree");
-                        break;
-                    };
-                    if deferred && synthetic {
-                        // The ancestor's absent right child complements to a
-                        // terminal in this slot; the ancestor then closes too.
-                        self.out.terminal();
-                    } else if deferred {
-                        // The ancestor's real right subtree is next in the
-                        // stream; it stays open, nothing more due at its close.
-                        push_pending(&mut pending, false, false);
-                        break;
-                    }
-                    // A pass-through ancestor closes with its child.
-                },
-                // Absent right child: its slot complements to a terminal,
-                // due after the left subtree's output.
-                (true, false) => {
-                    self.out.push_tag(next_is_internal(bits, at), true);
-                    push_pending(&mut pending, true, true);
-                }
-                // Absent left child: its slot complements to a terminal,
-                // due right here (preorder: left output precedes right).
-                (false, true) => {
-                    self.out.push_tag(true, next_is_internal(bits, at));
-                    self.out.terminal();
-                    push_pending(&mut pending, false, false);
-                }
-                // Both children: the left kind is local (its tag is next);
-                // the right kind was recorded by pass 1.
-                (true, true) => {
-                    let right = right_kinds
-                        .pop()
-                        .expect("pass 1 recorded this node's right kind");
-                    self.out.push_tag(next_is_internal(bits, at), right);
-                    push_pending(&mut pending, true, false);
-                }
-            }
-        }
-        debug_assert!(pending.is_empty(), "every opened ancestor closes");
-        debug_assert!(
-            right_kinds.is_empty(),
-            "pass 2 consumes every recorded kind"
-        );
-        Built::Node
-    }
-}
-
-/// Whether the tag at `at` is an internal node (any child present) — the
-/// complement emitter's one-tag lookahead at the next node in the stream.
-fn next_is_internal(bits: &BitsSlice, at: usize) -> bool {
-    bits[at] || bits[at + 1]
-}
-
-/// Push one open ancestor's two-bit pending entry.
+/// Advance the overlay walk one boundary: step the deeper cursor, and the
+/// other in the same step on a tie.
 ///
-/// `deferred` = an action is due when the subtree now being read closes;
-/// `synthetic` = that action is emitting the terminal an absent right child
-/// complements to (otherwise the real right subtree follows in the stream).
-fn push_pending(stack: &mut Bits, deferred: bool, synthetic: bool) {
-    stack.push(deferred);
-    stack.push(synthetic);
+/// The event sweep's `advance` on boolean cursors — overlapping dyadic
+/// intervals nest, so the deeper plateau ends first or ties, and a tie at
+/// unequal depths is visible as the deeper side's flip level rising to or
+/// above the shallower side's depth (the skyline sweep module derives the
+/// bookkeeping). The two sides of a tie then close to the same flip
+/// level, debug-asserted here exactly as there.
+fn advance(a: &mut IdLeafCursor, b: &mut IdLeafCursor) {
+    match a.depth().cmp(&b.depth()) {
+        Ordering::Greater => {
+            let fa = a.step();
+            if fa <= b.depth() {
+                let fb = b.step();
+                debug_assert_eq!(fa, fb, "tied boundaries close to one shared flip level");
+            }
+        }
+        Ordering::Less => {
+            let fb = b.step();
+            if fb <= a.depth() {
+                let fa = a.step();
+                debug_assert_eq!(fb, fa, "tied boundaries close to one shared flip level");
+            }
+        }
+        Ordering::Equal => {
+            let fa = a.step();
+            let fb = b.step();
+            debug_assert_eq!(
+                fa, fb,
+                "equal-depth plateaus share their whole path, so their flip levels agree"
+            );
+        }
+    }
 }
 
-/// Pop one two-bit pending entry as `(deferred, synthetic)`, or `None` when
-/// no ancestor is open.
-fn pop_pending(stack: &mut Bits) -> Option<(bool, bool)> {
-    let synthetic = stack.pop()?;
-    let deferred = stack.pop().expect("pending entries are two bits");
-    Some((deferred, synthetic))
+/// A cursor at the current plateau of one packed id, read as a boolean
+/// skyline.
+///
+/// The id-side sibling of the event sweep's leaf cursor: the tag stream
+/// is consumed forward exactly once, the root-to-plateau path is the only
+/// per-depth state, and the same three dyadic facts (the deeper plateau
+/// ends first; ties close to one shared flip level; the all-right path is
+/// the exhausted tiling) drive [`advance`]. An absent child — a stored
+/// `0` occupies no bits — is presented as a synthetic unowned plateau at
+/// the child's own depth, so the cursor always tiles the whole interval.
+struct IdLeafCursor<'a> {
+    bits: &'a BitsSlice,
+    /// The next unread tag's bit offset. Preorder consumption keeps it at
+    /// the subtree of the next *present* child slot the walk flips into;
+    /// synthetic plateaus consume nothing.
+    pos: usize,
+    /// Root-to-plateau branch directions: `false` inside a left child
+    /// slot, `true` inside a right.
+    path: Bits,
+    /// One bit per open left-branch level, innermost last: whether that
+    /// ancestor's right child is present in the stream (`false` = the
+    /// right slot is a synthetic unowned plateau).
+    pending_right: Bits,
+    /// Count of left-branch levels in `path`: zero exactly at the final
+    /// plateau (the all-right path), so [`done`](Self::done) is `O(1)`.
+    open_lefts: usize,
+    /// Whether the current plateau is owned.
+    owned: bool,
+}
+
+impl<'a> IdLeafCursor<'a> {
+    /// Open an id at its first plateau. A synthetic
+    /// [`Empty`](IdReader::Empty) reader is the anonymous `0` id: one
+    /// unowned plateau covering the whole interval.
+    fn open(src: IdReader<'a>) -> Self {
+        let mut this = IdLeafCursor {
+            bits: BitsSlice::empty(),
+            pos: 0,
+            path: Bits::new(),
+            pending_right: Bits::new(),
+            open_lefts: 0,
+            owned: false,
+        };
+        if let IdReader::At { bits, pos } = src {
+            this.bits = bits;
+            this.pos = pos;
+            this.descend();
+        }
+        this
+    }
+
+    /// The current plateau's depth: its interval has width `2^-depth`.
+    fn depth(&self) -> usize {
+        self.path.len()
+    }
+
+    /// Whether the current plateau is the tiling's last (it ends at the
+    /// unit interval's right edge).
+    fn done(&self) -> bool {
+        self.open_lefts == 0
+    }
+
+    /// Whether the current plateau is owned.
+    fn owned(&self) -> bool {
+        self.owned
+    }
+
+    /// Advance past the current plateau to the next, returning the flip
+    /// level's depth for the caller's tie test.
+    ///
+    /// Pops the trailing right-branch levels (each an ancestor whose
+    /// subtree the consumed plateau completed), then steps the deepest
+    /// left-branch level to its right child slot: a present subtree is
+    /// descended, an absent one is the synthetic unowned plateau at the
+    /// flip level itself.
+    ///
+    /// Never called on a final plateau: a sweep stops when both cursors
+    /// are done, and the skyline sweep module's bookkeeping (which this
+    /// cursor inherits) shows a final plateau is never the advanced side
+    /// before then.
+    fn step(&mut self) -> usize {
+        loop {
+            match self.path.pop() {
+                Some(true) => continue, // this ancestor closed with the plateau
+                Some(false) => break,   // the flip level: its right slot is next
+                None => unreachable!(
+                    "the advanced cursor is never at its final plateau: an all-right path means the tiling is consumed"
+                ),
+            }
+        }
+        self.open_lefts -= 1;
+        self.path.push(true);
+        let flip = self.path.len();
+        let right_present = self
+            .pending_right
+            .pop()
+            .expect("every open left branch queues its right slot");
+        if right_present {
+            self.descend();
+        } else {
+            self.owned = false;
+        }
+        flip
+    }
+
+    /// Descend from `pos` into the present subtree there, to its first
+    /// plateau: read each internal tag and enter its left slot, stopping
+    /// at a terminal (an owned plateau) or an absent left child (a
+    /// synthetic unowned plateau).
+    fn descend(&mut self) {
+        loop {
+            step!();
+            crate::codec::scan::record_bits(2); // one 2-bit tag read
+            let (left, right) = (self.bits[self.pos], self.bits[self.pos + 1]);
+            self.pos += 2;
+            if !left && !right {
+                // The terminal `1` leaf.
+                self.owned = true;
+                return;
+            }
+            self.path.push(false);
+            self.pending_right.push(right);
+            self.open_lefts += 1;
+            if !left {
+                // An absent left child: an unowned plateau, no bits.
+                self.owned = false;
+                return;
+            }
+        }
+    }
 }
