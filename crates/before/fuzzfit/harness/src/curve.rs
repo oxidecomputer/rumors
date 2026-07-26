@@ -33,6 +33,7 @@
 use std::collections::BTreeMap;
 
 use crate::bands::Band;
+use crate::fit::BUCKETS_PER_DECADE;
 
 /// Rows the shape leg abstains on: the fold kernels.
 ///
@@ -88,7 +89,7 @@ pub fn local_slope_excess(band: &Band, samples: &[(u64, u64)]) -> Option<f64> {
         let x = (d as f64).log10();
         let y = (f.max(1) as f64).log10();
         buckets
-            .entry((x * 2.0).floor() as i64)
+            .entry((x * BUCKETS_PER_DECADE).floor() as i64)
             .or_default()
             .push((x, y));
     }
