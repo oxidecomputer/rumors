@@ -22,7 +22,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use fuzzfit_harness::bands::{Band, REFIT_PREFIX_PROGRAMS};
-use fuzzfit_harness::curve::{local_slope_excess, MIN_BUCKETS, MIN_PER_BUCKET};
+use fuzzfit_harness::curve::{local_slope_excess, MIN_BUCKETS, MIN_PER_BUCKET, SHAPE_EXEMPT};
 use fuzzfit_harness::drive::for_each_deterministic_program;
 use fuzzfit_harness::fit::{fit, line_divergence, Fit};
 
@@ -75,7 +75,7 @@ fn main() {
                 .push((s.denom_bits, s.fuel));
         }
         for (kernel, group) in case_kernels {
-            if group.len() >= MIN_BUCKETS * MIN_PER_BUCKET {
+            if !SHAPE_EXEMPT.contains(&kernel) && group.len() >= MIN_BUCKETS * MIN_PER_BUCKET {
                 shape_cases.push((case, format!("{family:?}"), kernel, group));
             }
         }

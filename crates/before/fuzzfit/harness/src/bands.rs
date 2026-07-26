@@ -28,44 +28,49 @@
 //!
 //! # Pin of record
 //!
-//! Pinned 2026-07-26: corpus 1536 programs (~763k measured steps), guest
+//! Pinned 2026-07-26: corpus 1536 programs (~973k measured steps), guest
 //! at wasm32-unknown-unknown release (codegen-units 1, panic=abort) under
 //! the toolchain in [`PINNED_RUSTC`], wasmtime 47 fuel. This pin is a
 //! measurement-population re-pin over the same kernels: the reach family,
-//! the cross-universe battery arms, the `ff_rank_display` row, and the
-//! split widths landed together, so every band's population changed.
+//! the fold-width ladder, the cross-universe battery arms, the
+//! `ff_rank_display` row, and the split widths landed together, so every
+//! band's population changed.
 //!
 //! All 44 kernels read linear within every family above the 128-bit fit
 //! floor — the within-case shape diagnostic's maximum healthy excess over
-//! the whole corpus is +0.030 (see [`crate::curve`]) — while nine pooled
-//! envelope slopes sit in 1.10–1.17, each ground-truthed per family
-//! (`bin/diag`) as composition: families' per-bit cost levels differ
-//! severalfold (deep structured shapes ~80 fuel/bit on `party_covers`
-//! against ~36–58 for the cross-universe mixes; ~1500 fuel/bit on
-//! `clock_tick`'s dense spines against ~570–750 for harmonic/big-root
-//! mass), and the cheap families' mass sits in the small buckets, tilting
-//! the pooled envelope no single family follows. `ff_clock_tick`'s own
-//! Harmonic lane does rise locally (~+0.11 across its top half-decade,
-//! 751→858 fuel/bit) — mild, bounded, and inside the shape allowance.
+//! the whole corpus is +0.030 (see [`crate::curve`]) — while twelve
+//! pooled envelope slopes sit in 1.10–1.23, each ground-truthed per
+//! family (`bin/diag`) as composition: families' per-bit cost levels
+//! differ severalfold and the cheap families' mass sits in the small
+//! buckets, tilting a pooled envelope no single family follows (the
+//! scatter populations' fast party rows at 8–25 fuel/bit under the
+//! structured shapes' ~80 on `party_is_disjoint`; ~570–750 fuel/bit
+//! harmonic/big-root tick mass under the dense spines' ~1500 on
+//! `clock_tick`; every lane's own medians are flat or falling).
+//! `ff_clock_tick`'s Harmonic lane is the one mild riser (~+0.11 across
+//! its top half-decade, 751→858 fuel/bit) — bounded, inside the shape
+//! allowance. `ff_version_join_all` 1.145 carries the balanced fold's
+//! documented log factor along the width ladder (fold width is
+//! budget-capped, so the factor is bounded and the band prices it).
 //!
 //! Movement against the previous pin, by mechanism (movement > 0.05):
 //!
 //! - **Reach reclassifications** — kernels the old corpus sampled under a
 //!   decade, now fitted over real spans: `clock_sync` const→1.03,
-//!   `party_join` const→1.00 (19 samples→12k, to 9.1k bits),
+//!   `party_join` const→1.23 (19 samples→12.8k, to 9.1k bits),
 //!   `rank_add`/`rank_checked_sub`/`rank_cmp` const→0.50/0.60/0.68.
-//! - **Mixture recomposition** — escalated top buckets re-tilt pooled
-//!   envelopes: up on `version_cmp`/`concurrent` 0.93→1.16,
-//!   `version_distance` 0.75→1.09, `version_lag` 0.75→1.10,
-//!   `version_join` 0.72→1.04, `version_meet` 0.81→1.14,
-//!   `version_project` 0.89→1.01, `version_rank` 1.04→1.16,
+//! - **Mixture recomposition** — reach-family top buckets and the scatter
+//!   populations' cheap small-bucket mass re-tilt pooled envelopes: up on
+//!   `version_cmp`/`concurrent` 0.93→1.16, `version_distance` 0.75→1.09,
+//!   `version_lag` 0.75→1.10, `version_join` 0.72→1.04, `version_meet`
+//!   0.81→1.14, `version_project` 0.89→1.00, `version_rank` 1.04→1.16,
 //!   `version_decode` 1.11→1.17, `version_min_ticks` 1.07→1.14,
-//!   `clock_fork` 0.70→0.88, `clock_version` 0.13→0.37, `clock_encode`
-//!   0.13→0.33, `version_encode` 0.17→0.43; down where reach made the
-//!   top buckets family-pure: `version_join_all` 1.24→1.03 (the fold's
-//!   log factor flattens at scale), `party_covers` 1.18→1.06,
-//!   `clock_tick` 1.22→1.15.
-//! - **Early-exit economics at scale** — `version_meet_all` 1.16→−0.43:
+//!   `party_is_disjoint` 1.04→1.20, `clock_fork` 0.70→0.88,
+//!   `clock_version` 0.13→0.37, `clock_encode` 0.13→0.33,
+//!   `version_encode` 0.17→0.43; down where reach made the top buckets
+//!   family-pure: `version_join_all` 1.24→1.15, `party_covers`
+//!   1.18→1.09, `clock_tick` 1.22→1.15.
+//! - **Early-exit economics at scale** — `version_meet_all` 1.16→−0.26:
 //!   escalated ladder meets collapse toward the common floor almost
 //!   immediately (~0.2 fuel/bit at 10⁵ bits against ~500–600 at 10²), so
 //!   the envelope falls with size; sublinear, benign.
@@ -326,46 +331,46 @@ pub const BANDS: &[Band] = &[
     },
     Band {
         kernel: "ff_party_covers",
-        slope: 1.060879,
-        intercept: 1.670390,
-        width_above: 0.106707,
-        width_below: 1.419562,
+        slope: 1.086274,
+        intercept: 1.565519,
+        width_above: 0.157396,
+        width_below: 1.380205,
         min_denom: 128,
         max_denom: 11388,
-        samples: 826,
+        samples: 909,
         constant: false,
     },
     Band {
         kernel: "ff_party_decode",
-        slope: 0.979424,
-        intercept: 1.878060,
-        width_above: 0.045728,
-        width_below: 0.008709,
+        slope: 0.993359,
+        intercept: 1.831024,
+        width_above: 0.063032,
+        width_below: 0.020265,
         min_denom: 128,
         max_denom: 6072,
-        samples: 239,
+        samples: 383,
         constant: false,
     },
     Band {
         kernel: "ff_party_display",
-        slope: 0.939180,
-        intercept: 1.426578,
-        width_above: 0.093635,
-        width_below: 0.058461,
+        slope: 0.940913,
+        intercept: 1.412717,
+        width_above: 0.103572,
+        width_below: 0.050329,
         min_denom: 136,
         max_denom: 67554,
-        samples: 1765,
+        samples: 1795,
         constant: false,
     },
     Band {
         kernel: "ff_party_encode",
-        slope: 0.351028,
-        intercept: 2.132274,
-        width_above: 0.185126,
-        width_below: 0.367991,
+        slope: 0.364911,
+        intercept: 2.086356,
+        width_above: 0.216475,
+        width_below: 0.360956,
         min_denom: 128,
         max_denom: 6066,
-        samples: 197,
+        samples: 340,
         constant: false,
     },
     Band {
@@ -392,35 +397,35 @@ pub const BANDS: &[Band] = &[
     },
     Band {
         kernel: "ff_party_fromstr",
-        slope: 1.007710,
-        intercept: 1.327211,
-        width_above: 0.178220,
-        width_below: 0.105466,
+        slope: 1.011285,
+        intercept: 1.288952,
+        width_above: 0.185211,
+        width_below: 0.080114,
         min_denom: 136,
         max_denom: 67554,
-        samples: 1765,
+        samples: 1795,
         constant: false,
     },
     Band {
         kernel: "ff_party_is_disjoint",
-        slope: 1.024592,
-        intercept: 1.611722,
-        width_above: 0.269679,
-        width_below: 1.414156,
+        slope: 1.195990,
+        intercept: 0.914788,
+        width_above: 0.382179,
+        width_below: 1.104593,
         min_denom: 128,
         max_denom: 11388,
-        samples: 826,
+        samples: 909,
         constant: false,
     },
     Band {
         kernel: "ff_party_join",
-        slope: 0.994595,
-        intercept: 2.443972,
-        width_above: 0.117430,
-        width_below: 1.801406,
+        slope: 1.233748,
+        intercept: 1.635355,
+        width_above: 0.314095,
+        width_below: 1.533292,
         min_denom: 128,
         max_denom: 9138,
-        samples: 12095,
+        samples: 12809,
         constant: false,
     },
     Band {
@@ -524,13 +529,13 @@ pub const BANDS: &[Band] = &[
     },
     Band {
         kernel: "ff_version_display",
-        slope: 0.965229,
-        intercept: 1.944388,
-        width_above: 0.129664,
-        width_below: 0.129421,
+        slope: 0.970089,
+        intercept: 1.924769,
+        width_above: 0.136729,
+        width_below: 0.124935,
         min_denom: 141,
         max_denom: 99666,
-        samples: 2159,
+        samples: 2162,
         constant: false,
     },
     Band {
@@ -557,13 +562,13 @@ pub const BANDS: &[Band] = &[
     },
     Band {
         kernel: "ff_version_fromstr",
-        slope: 0.962487,
-        intercept: 2.153453,
-        width_above: 0.091629,
-        width_below: 0.087472,
+        slope: 0.967593,
+        intercept: 2.131931,
+        width_above: 0.101212,
+        width_below: 0.081161,
         min_denom: 141,
         max_denom: 99666,
-        samples: 2159,
+        samples: 2162,
         constant: false,
     },
     Band {
@@ -579,13 +584,13 @@ pub const BANDS: &[Band] = &[
     },
     Band {
         kernel: "ff_version_join_all",
-        slope: 1.026029,
-        intercept: 2.903651,
-        width_above: 0.556371,
-        width_below: 1.861921,
+        slope: 1.144654,
+        intercept: 2.862179,
+        width_above: 0.349963,
+        width_below: 2.110002,
         min_denom: 128,
         max_denom: 164376,
-        samples: 805,
+        samples: 1256,
         constant: false,
     },
     Band {
@@ -612,13 +617,13 @@ pub const BANDS: &[Band] = &[
     },
     Band {
         kernel: "ff_version_meet_all",
-        slope: -0.432263,
-        intercept: 6.470523,
-        width_above: 1.007512,
-        width_below: 1.989218,
+        slope: -0.257643,
+        intercept: 5.844826,
+        width_above: 1.063772,
+        width_below: 1.758662,
         min_denom: 128,
         max_denom: 112796,
-        samples: 288,
+        samples: 442,
         constant: false,
     },
     Band {
@@ -634,13 +639,13 @@ pub const BANDS: &[Band] = &[
     },
     Band {
         kernel: "ff_version_project",
-        slope: 1.011051,
-        intercept: 2.542778,
-        width_above: 0.484951,
-        width_below: 0.366235,
+        slope: 1.003594,
+        intercept: 2.574758,
+        width_above: 0.597143,
+        width_below: 0.376163,
         min_denom: 128,
         max_denom: 21566,
-        samples: 1525,
+        samples: 1583,
         constant: false,
     },
     Band {

@@ -83,8 +83,8 @@ pub struct Budget {
 pub const BUDGET: Budget = Budget {
     max_ops: 6_000,
     max_ticks: 3_000,
-    max_forks: 384,
-    max_fold: 64,
+    max_forks: 1_536,
+    max_fold: 1_024,
 };
 
 /// The reach family's budget: several times [`BUDGET`]'s fork cap, so the
@@ -97,7 +97,7 @@ pub const ESCALATION_BUDGET: Budget = Budget {
     max_ops: 8_000,
     max_ticks: 3_000,
     max_forks: 2_048,
-    max_fold: 64,
+    max_fold: 1_024,
 };
 
 /// The budget a family's programs run under (the builder enforces it
@@ -902,6 +902,19 @@ fn construct(b: &mut B, family: &Family) -> Pools {
             // coalesces.
             let mut order = std::mem::take(&mut shares);
             order.shuffle(&mut b.rng);
+            // The width ladder: shuffled folds at doubling widths below
+            // the full population, so every case samples the fold rows
+            // along the *width* axis — the axis a degenerate (left-fold)
+            // reduction is quadratic in, and one that byte-size reach
+            // cannot stand in for.
+            let mut width = 8usize;
+            while width < order.len() {
+                let mut subset = order.clone();
+                subset.shuffle(&mut b.rng);
+                subset.truncate(width);
+                b.join_all_versions(&subset);
+                width *= 2;
+            }
             if let Some(folded) = b.join_all_versions(&order) {
                 pools.versions.push(folded);
             }
@@ -1656,7 +1669,7 @@ pub fn any_family() -> impl Strategy<Value = Family> {
             .prop_map(|(teeth, magnitude)| Family::CombScatter { teeth, magnitude }),
         8 => (2u32..=64, 8u32..=512)
             .prop_map(|(depth, total_ticks)| Family::Harmonic { depth, total_ticks }),
-        8 => (4u32..=64).prop_map(|clocks| Family::ScatterFold { clocks }),
+        8 => (8u32..=1024).prop_map(|clocks| Family::ScatterFold { clocks }),
         8 => (2u32..=64, 1u32..=6).prop_map(|(depth, ticks)| Family::NestedFull { depth, ticks }),
         8 => (1u32..=512, 2u32..=64)
             .prop_map(|(tail_ticks, depth)| Family::WideTail { tail_ticks, depth }),
