@@ -1400,6 +1400,11 @@ const WHY_HEAP_MATERIALIZES: &str =
 const WHY_HEAP_FORK_CHILD: &str = "deterministic-liveness: the forked child carries its own \
      copy of the version's packed bits today; a shared-buffer representation would lower this \
      floor deliberately";
+/// Heap floor (deterministic-liveness): a forked party materializes its
+/// child half's packed id bits.
+const WHY_HEAP_FORK_HALF: &str = "deterministic-liveness: the forked child materializes its \
+     own packed id bits today (fork builds both halves, not an in-place edit); a shared-buffer \
+     representation would lower this floor deliberately";
 /// Heap NA: allocation is not semantically forced.
 const NA_HEAP_IN_PLACE: &str = "may compute in place or return word-scale results: allocation \
      is not semantically forced (the process allocator itself cannot be re-routed around)";
@@ -2563,8 +2568,24 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (mut a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
+                // Fork builds both halves, so the child's own packed bytes
+                // floor the heap (probed on a fresh decode, outside
+                // measurement); the generic in-place NA would misstate
+                // what fork does.
+                let child_bytes = {
+                    let bytes = f.parties.as_ref().map(|(a, _)| a.clone())?;
+                    let mut probe = decode_party(&bytes);
+                    (probe.fork().encoded_bits() / 8) as u64
+                };
                 let floors = Floors {
-                    heap: na(NA_HEAP_IN_PLACE),
+                    heap: if child_bytes == 0 {
+                        na(NA_HEAP_IN_PLACE)
+                    } else {
+                        Liveness::Floor {
+                            min: child_bytes,
+                            why: WHY_HEAP_FORK_HALF,
+                        }
+                    },
                     limb: na(NA_LIMB_ID_TREE),
                     segments: seg_ceiling_only(),
                     scan: if a.is_seed() {

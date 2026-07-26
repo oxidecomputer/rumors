@@ -647,7 +647,7 @@ mod rank_env {
     pub const RANK_DENSE: TouchEnvelope         = touch_envelope(      81_950,        0,     312_507, 156_259, 187_503, 93_755); //          0 -> 65_560, 240 -> 0, 3 -> 250_005, 0 -> 125_007 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
     pub const RANK_BIGROOT: TouchEnvelope       = touch_envelope(      76_895,        0,      27_744, 21_493, 16_646, 12_895); //     41_368 -> 61_516, 16 -> 0, 2_191 -> 22_195, 4_689 -> 17_194 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
     pub const RANK_HARMONIC: TouchEnvelope      = touch_envelope(      73_000,        0,     166_402, 248_324, 99_840, 148_994); //     33_840 -> 58_400, 124 -> 0, 2_049 -> 133_121, 67_522 -> 198_659 (2026-07-25, C2: operations route to the skyline kernels: the query fold reads delta payloads)
-    pub const RANK_PAIR_MISMATCH: TouchEnvelope = touch_envelope(     234_400,        0,      68_380,      0, 41_028, 0); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output) -> 54_704 (2026-07-24, metered trailing_zeros), 0
+    pub const RANK_PAIR_MISMATCH: TouchEnvelope = touch_envelope(     234_400,        0,      87_910,      0, 52_746, 0); //    187_520 -> 211_016 (2026-07-24, dashu-int backend),   0, 54_710 -> 39_078 (class-first cmp; the rest is checked_sub's and add's mandatory output) -> 54_704 (2026-07-24, metered trailing_zeros) -> 70_328 (2026-07-26, widening shifts record output width: a re-denomination, the exponent-alignment work newly counted), 0
     pub const RANK_SUM_MIXED: TouchEnvelope     = touch_envelope(      78_140,        0,       9_769, 22_268, 5_861, 13_360); //     62_512,   0, 156_312_196 -> 3_908 (raw accumulator, one normalization) -> 7_815 (2026-07-24, metered trailing_zeros), 17_814
 }
 
@@ -2006,6 +2006,172 @@ mod skyline_flatness {
         );
     }
 
+    /// Join the `k = n = scale` boundary comb's skyline stream with a
+    /// one-tick stream and record both counters over the emission body
+    /// alone.
+    ///
+    /// Enforces the same touch-meter liveness floor as [`comb_cmp_run`]:
+    /// the emitter's running difference lands every comb delta, so an
+    /// emission whose difference state is not the metered accumulator
+    /// fails loudly here instead of passing the flatness ratio vacuously
+    /// at zero touches.
+    fn comb_join_run(scale: usize) -> Run {
+        let packed = meter::cliff_comb(scale, scale);
+        let v = packed.version();
+        let a = meter::skyline::encode(&v);
+        let mut one = before::Version::new();
+        one.tick(&before::Party::seed());
+        let b = meter::skyline::encode(&one);
+        let expected = meter::skyline::encode(&(&v | &one));
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let out = meter::skyline::emit::join(&a, &b);
+        let run = Run {
+            // 2n + 1 leaves: 2n delta codes follow the first leaf.
+            deltas: 2 * scale as u64,
+            bytes: (a.as_raw_slice().len() + b.as_raw_slice().len()) as u64,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert_eq!(out, expected, "the emitted join must match the packed join");
+        assert!(
+            run.touches >= run.deltas,
+            "skyline_comb_join scale {scale}: {} digit touches under the {}-delta floor: \
+             the emitter's difference state is not running on the metered accumulator",
+            run.touches,
+            run.deltas,
+        );
+        run
+    }
+
+    /// The join emitter's per-delta accumulator touches and per-byte limb
+    /// work stay flat across a `k = n` doubling of the boundary comb
+    /// joined with a one-tick stream.
+    ///
+    /// The running difference crosses the `2^k` carry boundary at every
+    /// delta and each crossing stays amortized O(1) — the emission-side
+    /// cliff-immunity witness, the merge counterpart of the comparison
+    /// pin above (join, meet, `recv`, `sync`, and the fold operators all
+    /// ride this emitter). Each run also carries the one-touch-per-delta
+    /// liveness floor (in [`comb_join_run`]), so flatness is asserted
+    /// over a meter proven live.
+    #[test]
+    fn skyline_join_cliff_cost_is_flat_per_unit() {
+        let small = comb_join_run(512);
+        let large = comb_join_run(1_024);
+        assert_flat(
+            "join_touches",
+            "delta",
+            (small.touches, small.deltas),
+            (large.touches, large.deltas),
+        );
+        assert_flat(
+            "join_limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
+
+    /// Parse the `k = n = scale` boundary comb's rendered text and record
+    /// the touch counter over the parse body alone (the text is rendered
+    /// outside the metered window).
+    ///
+    /// Enforces the same touch-meter liveness floor as [`comb_run`]: the
+    /// parse extracts each leaf's delta from the running path-sum
+    /// accumulator, so a parse whose accumulator left the metered
+    /// representation fails loudly here instead of passing the flatness
+    /// ratio vacuously at zero touches.
+    fn comb_parse_run(scale: usize) -> Run {
+        let packed = meter::cliff_comb(scale, scale);
+        let v = packed.version();
+        let s = v.to_string();
+        let expected = meter::skyline::encode(&v);
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let out = meter::skyline::text::parse(&s).expect("rendered text parses back");
+        let run = Run {
+            // 2n + 1 leaves: 2n delta codes follow the first leaf.
+            deltas: 2 * scale as u64,
+            bytes: s.len() as u64,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert_eq!(
+            out, expected,
+            "the parse must build the transcoder's stream"
+        );
+        assert!(
+            run.touches >= run.deltas,
+            "skyline_comb_parse scale {scale}: {} digit touches under the {}-delta floor: \
+             the parse's path-sum accumulator is not running on the metered representation",
+            run.touches,
+            run.deltas,
+        );
+        run
+    }
+
+    /// The text parse's per-text-byte accumulator touches stay flat
+    /// across a `k = n` doubling of the boundary comb's rendered text:
+    /// the path-sum accumulator is cliff-immune on the crate's canonical
+    /// untrusted-input surface.
+    ///
+    /// The parse is the touch-heaviest public surface measured, and its
+    /// per-base ≤2× accumulator charge is what this pin holds in the
+    /// aggregate (the `SKYLINE_PARSE_*` envelopes carry the other four
+    /// columns). Text bytes are the row's honest denominator: each
+    /// parsed base's join costs digit touches proportional to the base's
+    /// own spelled width, so the comb's quadratically growing text pays
+    /// for its own accumulator work — per delta the same reading grows
+    /// with the tooth width and would misread as amplification. Each run
+    /// also carries the one-touch-per-delta liveness floor (in
+    /// [`comb_parse_run`]), so flatness is asserted over a meter proven
+    /// live.
+    #[test]
+    fn skyline_parse_cliff_touch_cost_is_flat_per_unit() {
+        let small = comb_parse_run(512);
+        let large = comb_parse_run(1_024);
+        assert_flat(
+            "parse_touches",
+            "text_byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+    }
+
+    /// Rendering records exactly zero accumulator digit touches: the
+    /// renderer's relative-coordinate summaries carry no running
+    /// accumulator, and this pin is the conservation tripwire on the
+    /// text seam.
+    ///
+    /// The parse direction carries the touch floor and flatness pins
+    /// above; the render direction pins the measured zero, so render
+    /// adopting an accumulator — or parse-side accumulator work leaking
+    /// into the render path — moves a pinned constant instead of
+    /// arriving silently. Re-pin only with the derivation that prices
+    /// the new accumulator work.
+    #[test]
+    fn skyline_render_records_zero_touches() {
+        for (packed, name) in [
+            (meter::dense(4_096), "dense"),
+            (meter::cliff_comb(512, 512), "cliff"),
+            (meter::bigroot(8_000, 2_000), "bigroot"),
+        ] {
+            let v = packed.version();
+            let enc = meter::skyline::encode(&v);
+            touch_meter::reset();
+            let out = meter::skyline::text::render(&enc);
+            assert!(!out.is_empty(), "the render does real work");
+            assert_eq!(
+                touch_meter::touches(),
+                0,
+                "skyline_render_{name}: the renderer touched the accumulator; its \
+                 delta-sized summaries are priced by the limb and heap columns, so new \
+                 accumulator work here needs its own pin, not a silent arrival"
+            );
+        }
+    }
+
     /// Tooth width (bits) one notch under the rank freeze threshold's
     /// 256-bit digit bound: the band's flat side.
     const FREEZE_BAND_UNDER_BITS: usize = 192;
@@ -2426,6 +2592,165 @@ fn id_without_envelope() {
     assert!(
         r.is_some(),
         "the seed strictly covers a spine, so the complement is non-empty"
+    );
+}
+
+// ─── id walk scan cost (the covers/disjoint scan pins) ──────────────────────
+//
+// The id walks' entire cost is scan bits: they allocate nothing, recurse
+// nothing, and do no arithmetic, so the `ID_COVERS`/`ID_DISJOINT` envelope
+// columns are all structurally near-zero and this counter is the one
+// deterministic meter that sees the work. These pins hold each walk's scan
+// reading to an absolute ceiling (measured ×1.25) over a full-examination
+// liveness floor (one bit per packed operand byte — the diverted pair
+// forces both walks to full lockstep depth), and to per-byte flatness
+// (×1.25) across a depth doubling, so a re-scanning walk or a walk that
+// leaves the metered primitives moves a committed number instead of
+// passing every near-zero column unchanged.
+#[cfg(feature = "scan-meter")]
+mod id_walk_scan_cost {
+    use super::{id_pair_input_bytes, party_of, ID_DEPTH};
+    use before::meter;
+
+    /// One walk run: packed operand bytes and the bits scanned by the
+    /// walk body alone.
+    struct Run {
+        bytes: u64,
+        bits: u64,
+    }
+
+    /// Absolute scan ceilings at the [`ID_DEPTH`] pair, measured
+    /// 2026-07-26 ×1.25: covers 1,000,004 bits on 125,002 packed bytes
+    /// (8 bits per byte: every stored tag read once, both operands).
+    const COVERS_SCAN_CEILING_BITS: u64 = 1_250_005;
+
+    /// The disjoint walk's ceiling paired with
+    /// [`COVERS_SCAN_CEILING_BITS`] (measured 1,000,004 bits, the same
+    /// full lockstep walk).
+    const DISJOINT_SCAN_CEILING_BITS: u64 = 1_250_005;
+
+    /// Run one id-pair walk at `depth` and read the scan counter over
+    /// the body alone, enforcing the full-examination liveness floor.
+    fn walk_run(
+        name: &str,
+        depth: usize,
+        body: impl FnOnce(&before::Party, &before::Party),
+    ) -> Run {
+        let pa = meter::id_spine(depth, false);
+        let pb = meter::id_spine(depth, true);
+        let bytes = id_pair_input_bytes(&pa, &pb) as u64;
+        let a = party_of(&pa);
+        let b = party_of(&pb);
+        meter::reset_scan_bits();
+        body(&a, &b);
+        let bits = meter::scan_bits();
+        eprintln!("MEASURED id_walk_scan_{name}: depth={depth} bytes={bytes} scan_bits={bits}");
+        assert!(
+            bits >= bytes,
+            "id_walk_scan_{name}: {bits} scanned bits under the one-bit-per-byte floor over \
+             {bytes} packed bytes: the walk left the metered primitives"
+        );
+        Run { bytes, bits }
+    }
+
+    /// Per-byte scan cost stays flat (×1.25) across the depth doubling.
+    fn assert_flat(name: &str, small: &Run, large: &Run) {
+        assert!(
+            u128::from(large.bits) * u128::from(small.bytes) * 4
+                <= u128::from(small.bits) * u128::from(large.bytes) * 5,
+            "id_walk_scan_{name}: per-byte scan cost grew more than x1.25 across the depth \
+             doubling: {}/{} -> {}/{}",
+            small.bits,
+            small.bytes,
+            large.bits,
+            large.bytes,
+        );
+    }
+
+    /// The covers walk's scan bits are absolute-pinned, floored, and flat
+    /// per byte across a depth doubling of the diverted spine pair (which
+    /// admits no early exit).
+    ///
+    /// The walk's cost is invisible to every other deterministic meter, so
+    /// this pin is what a re-scanning `covers` (quadratic restarts) or an
+    /// unmetered raw-indexing walk moves.
+    #[test]
+    fn id_covers_scan_cost_is_pinned_and_flat() {
+        let small = walk_run("covers_small", ID_DEPTH / 2, |a, b| {
+            assert!(!a.covers(b), "the divert arms are disjoint");
+        });
+        let large = walk_run("covers", ID_DEPTH, |a, b| {
+            assert!(!a.covers(b), "the divert arms are disjoint");
+        });
+        assert_flat("covers", &small, &large);
+        assert!(
+            large.bits <= COVERS_SCAN_CEILING_BITS,
+            "id_covers: {} scanned bits exceed the pinned ceiling {COVERS_SCAN_CEILING_BITS}",
+            large.bits,
+        );
+    }
+
+    /// The disjoint walk's scan bits are absolute-pinned, floored, and
+    /// flat per byte across a depth doubling of the diverted spine pair
+    /// (disjoint operands, so the walk runs to completion).
+    ///
+    /// Same rationale as the covers pin: scan is the one live column on
+    /// this walk.
+    #[test]
+    fn id_disjoint_scan_cost_is_pinned_and_flat() {
+        let small = walk_run("disjoint_small", ID_DEPTH / 2, |a, b| {
+            assert!(a.is_disjoint(b), "the divert arms own disjoint regions");
+        });
+        let large = walk_run("disjoint", ID_DEPTH, |a, b| {
+            assert!(a.is_disjoint(b), "the divert arms own disjoint regions");
+        });
+        assert_flat("disjoint", &small, &large);
+        assert!(
+            large.bits <= DISJOINT_SCAN_CEILING_BITS,
+            "id_disjoint: {} scanned bits exceed the pinned ceiling \
+             {DISJOINT_SCAN_CEILING_BITS}",
+            large.bits,
+        );
+    }
+}
+
+// ─── fork envelope (the split kernel's committed cost record) ───────────────
+
+/// The fork envelope: measured 2026-07-26 ×1.25 (dev profile, the envelope
+/// suite's convention).
+///
+/// The split kernel builds both halves by raw bit-slice writes and walks
+/// the spine by raw indexing — deliberately outside the scan primitives —
+/// so the scan column pins the raw path's near-zero reading: routing the
+/// walk or the writes through the metered primitives is a deliberate
+/// re-pin (the number moving is the point), and until then the heap
+/// column is the one that prices the halves' materialization.
+#[rustfmt::skip]
+mod fork_env {
+    use super::{sweep_envelope, SweepEnvelope};
+    //                                                    peak heap, segments, limb ops, scan bits, limb floor      measured: peak heap, segments, limb ops, scan bits
+    pub const ID_FORK: SweepEnvelope = sweep_envelope(      156_253,        0,        0,         3, 0); //   125_002 (both halves materialize, ~2x the packed input), 0, 0, 2 (the raw split path; 2026-07-26)
+}
+
+/// Forking the deep id spine stays within its envelope, and the halves
+/// rejoin into the original party byte for byte.
+///
+/// Fork is the one id operation with no committed cost record: its halves
+/// materialize (the heap column prices them), its spine walk is iterative
+/// (zero segments), and its writes are raw (the scan pin above). The
+/// rejoin closes the semantic leg: fork then join is the identity.
+#[test]
+fn id_fork_envelope() {
+    let pa = meter::id_spine(ID_DEPTH, false);
+    let input = pa.bytes.len();
+    let original = pa.bytes.clone();
+    let mut a = party_of(&pa);
+    let child = sweep_metered("id_fork", input, &fork_env::ID_FORK, || a.fork());
+    a.join(child).expect("a fork's halves are disjoint");
+    assert_eq!(
+        a.encode(),
+        original,
+        "fork then join must reconstruct the original party"
     );
 }
 

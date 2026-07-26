@@ -25,9 +25,14 @@
 //!   zigzag-coded, and fed to the collapsing output builder. The
 //!   accumulator is the cliff-immune [`Accum`]: a plain big-integer running
 //!   value re-imports the boundary comb's quadratic carry genre. The ≤2×
-//!   charge is enforced structurally (one join, one leave per base) plus
-//!   the `SKYLINE_PARSE_*` aggregate ceilings and floors in
-//!   `tests/meter.rs`, not by a per-base assertion.
+//!   charge is enforced structurally (one join, one leave per base) plus,
+//!   in `tests/meter.rs`, the `SKYLINE_PARSE_*` aggregate ceilings and
+//!   floors on the heap/segment/limb/scan columns and the parse touch pin
+//!   (per-text-byte accumulator touches flat across a comb doubling, over
+//!   a one-touch-per-delta liveness floor) — never by a per-base
+//!   assertion. The render direction's zero-touch conservation pin lives
+//!   beside it, so accumulator work cannot migrate between the two text
+//!   directions without moving a committed number.
 //!
 //! Both walks are iterative — explicit frame vectors and a phase bit
 //! stack, never the call stack — so depth grows no stack segments at any
