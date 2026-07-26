@@ -1,0 +1,40 @@
+//! The fuzz-fit asymptotics harness: fuel-metered fits of `before`'s public
+//! operations over fuzzed shapes.
+//!
+//! The crate's asymptotic claims (every public operation amortized linear in
+//! its denominated size) are guarded elsewhere by chosen adversarial families
+//! and per-currency meters. This instrument closes the two structural blind
+//! spots of chosen families: shapes nobody chose, and work that escapes the
+//! metered currencies. The kernels run compiled to wasm32-unknown-unknown
+//! under wasmtime *fuel* metering — fuel decrements per executed wasm
+//! instruction, so a reading is deterministic, host-independent, and
+//! byte-reproducible under any machine load. Wall time and hardware counters
+//! are never read. Constants differ from native codegen; *slopes* are what
+//! the instrument fits and enforces.
+//!
+//! Two legs, sharing one program vocabulary ([`ops`]):
+//!
+//! - **Calibration** (`bin/calibrate`): size-stratified random sampling per
+//!   public operation, log-log regression of fuel against the operation's
+//!   denominated size, producing per-operation pinned bands (slope,
+//!   intercept, residual width) committed in [`bands`]. The fit is never
+//!   recomputed inside the enforcement leg: refitting on every run would
+//!   mask drift.
+//! - **Enforcement** (`tests/enforce.rs`): a proptest family draws random
+//!   programs from [`strategies`], executes them step-by-step in the guest,
+//!   and asserts every measured step's fuel lands inside the pinned band for
+//!   its size. Above-band is a regression flag; below-band is a liveness
+//!   flag (a band a dead measurement passes is decoration). Fuel determinism
+//!   makes replay exact, so a failure shrinks to a minimal out-of-band shape
+//!   and rides along as a committed proptest seed.
+//!
+//! Every program executes twice: natively (the mirror, which computes each
+//! step's denominator from real operand sizes and the expected result bytes)
+//! and in the guest (which supplies fuel). The mirror doubles as a
+//! wasm-vs-native differential oracle: result encodings must byte-match.
+
+pub mod bands;
+pub mod fit;
+pub mod ops;
+pub mod strategies;
+pub mod wasm;
