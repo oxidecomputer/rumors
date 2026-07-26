@@ -4,7 +4,9 @@ Status: execution in progress on branch `before-hardening`. The
 audit (2026-07-22), the Tier 2 decision (2026-07-23), the pre-flip
 kernel window (2026-07-23/24), C0 (2026-07-24), and C2 — the flag
 day, commit `91fac33d` (2026-07-25) — are complete; the campaign
-stands at C3 (§17.2), then the P4 residual audit, then P5 closeout.
+stands at C3's bench-harness remainder (§17.2's queue of record,
+items 11–13; the deterministic round landed 2026-07-26), then the
+materializing emitters, the P4 residual audit, and P5 closeout.
 This document was compressed 2026-07-25 (user directive): it
 specifies the criteria the instrumentation enforces and the work
 that remains; landed-work narratives, superseded amendment chains,
@@ -947,8 +949,16 @@ verbatim at the flip (e 0.94–1.00 fitted on all fifteen).
 
 **Numbers of record at this tip** [measured 2026-07-26; release
 profile — the profile of record — limb+scan+touch meters lit]:
-board **890 green / 99 red at the default scale; 873 / 116 at ×4**
+board **966 green / 23 red at the default scale; 951 / 38 at ×4**
 over **989 cells**
+(amended 2026-07-26, C3: 891 + 98 → 966 + 23 default,
+873 + 116 → 951 + 38 at ×4; the 75/78 flips are bucketed by
+mechanism and the surviving roster re-enumerated in §17.3's C3
+amendment; zero cells flipped red)
+(amended 2026-07-26, the #34 fusion landing: 890 + 99 → 891 + 98
+default — `party_without_none × id-pair`'s order-coupled
+segments flip — with the tick-row constant movement recorded in
+§17.3's fusion amendment)
 (amended 2026-07-26, the join_all cure — §3's landed entry:
 879 + 110 → 890 + 99 default, 863 + 126 → 873 + 116 at ×4; the
 twelve flips per scale, the benign heap-exponent rider, the
@@ -1173,7 +1183,10 @@ commits):
   design loop's record is the spec's §9 (rounds 3–8); the cell
   accounting is §17.3's amendments.
 
-Remaining plan: **C3** (§17.2) → **P4.2** residual audit →
+Remaining plan: **C3's bench-harness remainder** (the queue of
+record's items 11–13: the judge-roster realization, envelope
+tightening at P5.1, the before/after table) → **the materializing
+emitters** (§17.2, opened at C3) → **P4.2** residual audit →
 **P5.1–P5.5** closeout, with the boolean-skyline decision (#24,
 the user's) after C3.
 
@@ -1273,6 +1286,19 @@ Adjacent but not C3's: #24 (the user's decision, post-C3) and
 the stack-container measured phase (§17.5, C3-adjacent, its own
 harness).
 
+Round outcome (2026-07-26): items 1–8 and 10 are DONE — the
+mechanisms, adjudications, and the cell-exact movement are
+§17.3's C3 amendment; §6 carries the flat-denominator and κ
+amendments; §13 the judgment-layer guards. Item 9's riders stay
+committed empty (the disposition, with reasoning, is at the C3
+amendment's tail: riders and roster edits are one judge-verified
+diff, item 11's). Items 11–13 remain: the bench-harness
+remainder, sequenced next. The round also opened one item, the
+materializing emitters (below): the render heap constants and
+the mirror-wide display superlinearity that the κ re-derivation
+exposed as kernel findings rather than denomination gaps, plus
+the projection builder's capacity-phase heap.
+
 *What*:
 - Board re-run at both scales (release, single runs under the
   determinism tripwire); every
@@ -1285,37 +1311,43 @@ harness).
   `bench-judge` and `bench-judge-record` must then exit 0 —
   roster-satisfied — at both scales in both modes, and
   full-sampling record numbers are captured.
-- **The κ re-derivation** (the text column's hand-off): κ = 0.25
-  re-pinned from the kernels' observed meter at record scale;
-  the ten κ-owned text reds and the display pair's ceiling-class
-  question (general 1.3 vs text 1.7 — the class is the sidecar's
-  to declare, changed deliberately or not at all) resolve here.
-- **The comb-scatter κ-genre adjudication**: the flip recorded
-  `version_min_ticks × cliff`, `version_project × comb-scatter`,
-  `clock_own_version × comb-scatter` as newly κ-genre (both
-  denominator sides delta-coded) — but `query.rs` claims the
-  projection sweep is I/O-linear on exactly that cross. Run a
-  single-cell column attribution (which column went red, at what
-  reading) BEFORE accepting the classification; either the
-  classification or the prose is wrong. min_ticks' case is
-  arguable as a missing optimization (it reads `height_word` per
-  leaf where rank's frozen/live split avoids exactly that).
-- **The cliff limb-floor re-derivation**: `version_decode`/
-  `version_rank`/`clock_decode` × cliff trip floor-liveness —
-  the floors' per-tooth derivations predate the skyline coding's
-  ~150× collapse of cliff's packed size. Re-derive from what the
-  operation must do on the NEW coding; floors keep their
-  derivation rationale.
-- **The §17.3 reconciliation**: done 2026-07-25 (the accounting
-  there is cell-exact at both scales); C3 re-enumerates after its
-  re-pins and restates the sums.
-- **The judgment-layer question**: `rank_sum × benign` (record)
-  and `rank_pair_ops × benign` read manufactured exponents over
-  sub-allowance heap / near-constant denominators. Either the
-  exponent leg learns a sub-allowance guard (a criterion change,
-  deliberate) or the benign operands scale with the knob (the
-  P5.5-recorded one-line population change). Decide once, apply
-  to the genre.
+- **The κ re-derivation** (DONE at C3): κ re-pinned 0.25 → 0.75
+  over the pipeline-term denominator (§6), from the kernels'
+  observed record-scale release meter; the ten κ-owned text reds
+  resolved (eight flipped; the display-heap and mirror-wide
+  members reclassified to the materializing emitters item). The
+  display pair's ceiling class stays **text 1.7**, unchanged
+  deliberately: radix conversion is fundamentally superlinear
+  (honest D&C measured wall e ≈ 1.47 over the general 1.3), so
+  the pair's class is the text ceiling on the merits — the
+  sidecar declaration stands, and the roster edit rides item 11.
+- **The comb-scatter κ-genre adjudication** (DONE at C3): the
+  single-cell column attribution REFUTED the flip-time
+  classification for all three cells — none was κ-genre.
+  `version_min_ticks × cliff` was a sub-allowance heap exponent
+  (the judgment-layer guard's genre; its work columns are green,
+  so the `height_word`-per-leaf note stays a prose observation
+  with no board reading behind it); the projection pair measures
+  I/O-linear on every work column, so `query.rs`'s claim is
+  CONFIRMED and the pair's default-scale residual is the
+  capacity-phase heap genre (§17.3's C3 roster).
+- **The cliff limb-floor re-derivation** (DONE at C3, with the
+  plateau trips): the walk rows floor at the stream's own codes
+  (`mandatory_limbs_stream`; derivation rationale at the
+  constant), the parse rows keep the tree-derived floor, and the
+  split is pinned in `meter::board::tests`.
+- **The §17.3 reconciliation** (DONE at C3): the C3 amendment
+  buckets every flip by mechanism, restates the sums (966 + 23
+  default; 951 + 38 record), and re-enumerates the surviving
+  roster with owners.
+- **The judgment-layer question** (DECIDED at C3, the guard arm,
+  applied to the genre): exponent legs are fitted only where the
+  denominator pair scales ≥ ×1.5 (the benign rank pair's 6 → 7
+  bytes has no scaling axis — operand scaling could not fix it,
+  since rank content barely grows with the population knob) and,
+  on heap, where a reading clears the flat allowance the constant
+  leg already forgives; unjudged exponents render `-.--`;
+  tripwires pin both directions (§13).
 - **Envelope tightening**: every event-side envelope in
   `tests/meter.rs` re-pinned downward at sweep-earned constants
   (the twelve rows: DECODE/CMP/JOIN × DENSE/BIGROOT/HUGELEAF/
@@ -1333,6 +1365,33 @@ harness).
 *Deps*: the fix round above (its window restoration moves wall
 constants). *Risk*: a cell green at default but red at record —
 that is the two-scale design working; the cell's owner reopens.
+
+**The materializing emitters (opened at C3, 2026-07-26).**
+Three C3-classified residuals share one seam — the emitters that
+materialize before they write — and its cure round owns them
+(§17.3's C3 roster carries the cells and readings):
+- The render's finalize pass materializes a per-node `Base`
+  vector, digit arena, and offset table before emit: the display
+  heap constants (14 cells per scale, 14.4–33.2 B per `n_io`
+  byte, linear). Candidate cure: convert bases to digits at
+  their close (dropping the `Base` vector) or a two-pass
+  finalize — either priced against κ's pipeline budget before
+  landing.
+- The render merge re-folds wide relative summaries per ancestor
+  on wide×deep right-spine shapes (mirror-wide display, limb
+  e 1.81 at ×4): the #34 re-touching genre alive in the render
+  walk; the anchor-web discipline is the candidate cure. Parse is
+  linear on the same shape, so the text format is not the
+  obstruction.
+- The projection output builder's growth transient makes peak
+  heap capacity-phase-dependent (the projection × comb-scatter
+  default-scale heap exponent): a finalization/shrink discipline
+  stabilizes the measured quantity — the doctrine's "feed the
+  threshold stable inputs" arm, kernel-side.
+*Acceptance*: the cells above flip green at both scales with
+byte-identity across the differential suite; movement annotated
+against the parent boards; any κ movement re-derived at the
+constant.
 
 **#34 — the tick limb cure and fusion (done: the cure
 2026-07-25, the fusion 2026-07-26; the hot path — every tick
@@ -1572,9 +1631,11 @@ exponent-class on a linear input axis:
   level doubling while value-content-linear work doubles: every
   exponent on the column reads against a nearly flat denominator
   (log 2 / log 1.18 ≈ 4). The same value-content-vs-packed-bytes
-  question as the three κ-genre exponents, now a column; owner:
-  **C3's classification question**, and the cliff generators'
-  leaf-delta representation question is the substance.
+  question as the three exponents C3 adjudicated; **CLOSED at C3**
+  by the §6 flat-denominator amendment (exponents fitted against
+  value content — the substance of the leaf-delta representation
+  question; constants and floors stay per packed byte): the
+  column's work measured linear per tooth, every cell green.
 - **Twenty (×4; 18 default) plateau limb-floor trips**
   (`version_decode`/`version_rank`/`version_distance`/
   `version_lag`/`clock_decode` × {ascend-cliff, ascend-plateau,
@@ -1584,7 +1645,10 @@ exponent-class on a linear input axis:
   stream stores its width once and steps by units — a conforming
   walk provably does less limb work than the decoded tree's
   absolute values imply, the same over-derivation as the cliff
-  limb-floor trips; owner: **C3's floor re-derivation**.
+  limb-floor trips; **CLOSED at C3**: the walk rows floor at the
+  stream's own codes (`mandatory_limbs_stream`), the parse rows
+  keep the tree-derived floor, and the derivation split is pinned
+  in `meter::board::tests`.
 - **The κ-text extension** (28 default / 25 ×4:
   `version_from_str`/`clock_from_str`/`version_display`/
   `clock_display` × {harmonic, nested-full, nested-wide,
@@ -1593,7 +1657,11 @@ exponent-class on a linear input axis:
   constant, plus `version_display × nested-wide`'s ×4 heap
   constant): per-value gamma-encode arithmetic on small-value
   trees, the exact genre of the ten pre-existing κ-text
-  constants; owner: **the κ/C3 re-derivation**.
+  constants; **RESOLVED at C3** by the κ re-derivation (the
+  limb/`R` legs, green under the pipeline-term denominator) with
+  the two survivors reclassified into the render-materialization
+  genre below (the display heap constants; the mirror-wide
+  display limb exponent, a genuine kernel superlinearity).
 - **Six plateau projection cells** (`version_project`/
   `clock_own_version` × {reveal-comb, reveal-hifloor, pure-comb};
   every column red at ×4): projecting the plateau event through
@@ -1601,10 +1669,9 @@ exponent-class on a linear input axis:
   per kept site — mandatory output Θ(k·b) against a Θ(k + b)
   input, read under the input denominator. The comb-scatter
   output-domination case on the plateau crosses, needing the same
-  `n_io` treatment §6 grants that cross; OPEN in §3; owner: **the
-  §6 denomination criterion at C3**. Never re-denominated by the
-  refactor itself (a green earned by re-derivation is not a
-  migration).
+  `n_io` treatment §6 grants that cross; **CLOSED at C3** under
+  the owner's pre-approved ruling with the O(`n_io`)-tightness
+  rider measured and met (§3's closed entry).
 - **`version_min_ticks` heap constants** (mirror-narrow at both
   scales, mirror-wide joining at ×4): the query walk's per-level
   owned heap entries on the deep left-full memo shapes — the
@@ -1658,8 +1725,8 @@ other cells:
 
 - `clock_encode × comb-scatter` (default scale, heap exponent):
   leaves the comb-scatter column's genre, 21 → 20 default cells;
-  the column's limb/scan/touch exponents and floors still carry
-  the genre, owner unchanged (**C3's classification question**).
+  the column's limb/scan/touch exponents and floors carried the
+  genre until C3 closed it (the §6 flat-denominator amendment).
 - `version_tick`/`clock_tick` × **nested-wide** (record scale,
   segments): leave the P4.2 recursion genre, eight pre-existing
   tick-walk segment legs → six (nested-full ×2, mirror-narrow ×2,
@@ -1724,7 +1791,9 @@ mechanically stripped and byte-compared); the 18 (default) /
   comb-scatter, heap and scan exponents over near-zero readings
   (the id side grows with the teeth while the version-dominated
   denominator stays nearly flat)): the standing column question,
-  no new mechanism. Owner: **C3's classification question**.
+  no new mechanism; **CLOSED at C3** with the column (the §6
+  flat-denominator amendment; every cell green under the content
+  exponent denominator).
 - **The id-side parser recursion** (0 / 3:
   `party_parse_trailing` (12 grown segments, e 3.58),
   `party_parse_noncanon` (6), `clock_parse_trailing` (12) ×
@@ -1760,8 +1829,8 @@ parent-tip boards — every cell not named here byte-identical):
   sub-allowance heap exponent alone (e 2.39 → 1.17 over a 0.0/B
   constant, the hand-back vector's growth against a near-constant
   denominator) — the §17.2-C3 judgment-layer genre this
-  accounting already assigned while it rode a scan-red cell.
-  Owner: **C3's judgment-layer question** (unchanged).
+  accounting already assigned while it rode a scan-red cell;
+  **CLOSED at C3** by the heap-materiality exponent guard.
 - **The success path re-attributed** (the same up-front test
   priced it): `party_join_all × scatter` flips RED → GREEN at
   default (scan constant 98.6 → 91.9 bits/B under the 96 ceiling;
@@ -1818,45 +1887,102 @@ shared board process — a kernel change anywhere in the binary
 re-rolls the counts on untouched kernels' rows. Sums: default
 891 + 98 = 989; record 873 + 116 = 989.
 
-Default, 92 pre-existing: the #35 refactor's new reds less the
-#40-flipped `clock_encode × comb-scatter` (73) + the
-nineteen pre-existing (byte-identical through the refactor):
-**ten κ-text constants**
-(`version_display`/`clock_display` × {dense, bigroot, benign},
-`version_from_str`/`clock_from_str` × {dense, benign} — limb/`R`
-vs κ; the κ/C3 re-derivation) + **four fold marginals**
-(`version_join_all`/`party_join_all` × {scatter, benign} — the
-reduction's n·log n; the C2-adjacent n-cursor merge) + **three
-κ-genre exponents** (`version_min_ticks × cliff`,
-`version_project × comb-scatter`, `clock_own_version ×
-comb-scatter`; single-cell column attribution at C3 BEFORE the
-classification is accepted) + **the ascending-cliff pair's heap
-constants** (the round-7 record).
+Amended 2026-07-26 (C3's denomination and classification round;
+single release runs at both scales — `board-c3-{lo,hi}.txt` — the
+derivation runs first verified the 0ac28993 base byte-identical to
+`board-fusion-{lo,hi}.txt` at both scales, so the orbit-pin commit
+moved no cell). 75 (default) / 78 (×4) reds flipped GREEN, zero
+cells flipped red, and every flip lands in one of C3's five
+declared mechanisms [measured — the pre/post renders,
+mechanically diffed and bucketed]:
 
-Record scale, 102 pre-existing: the 72 #35 reds above + the
-thirty older:
-the six P4.2 tick-walk
-segments legs above (nested-full ×2,
-mirror-narrow ×2, staircase ×2 — the nested-wide pair left at
-#40) + the pure-comb pair's and
-plateau-control pair's segments legs and the ascending-cliff
-pair's heap-constant + segments legs (the round-5/round-7
-records) + **the ten κ-text constants**
-(as above) + **two id-side parser recursion cells**
-(`party_from_str`/`clock_from_str` × id-pair — segments e
-3.58/3.59, count 12 at the release profile of record: the text
-parser's remaining recursive walk; owner
-**P4.2**, the explicit-stack residual) + **three cliff
-limb-floor liveness trips** (`version_decode`/`version_rank`/
-`clock_decode` × cliff — measured ~10.4k limbs against a floor
-of 16384 derived before the coding collapsed cliff's packed size
-~150×; owner: C3's floor re-derivation) + **two judgment-layer
-artifacts** (`rank_sum`/`rank_pair_ops` × benign — exponent legs
-over near-zero denominators under flat allowances; owner: C3's
-criterion question) + **one fold marginal**
-(`party_join_all × benign`; the version-side pair reads green at
-×4, the n·log n signature). `version_join_all × scatter` is also
-green at ×4 (same signature).
+- **Stream-derived limb floors** (18 default / 23 ×4): the cliff,
+  plateau, and comb-scatter floor-liveness trips on
+  decode/rank/distance/lag/clock_decode.
+- **The content exponent denominator** (27 / 26): the whole
+  comb-scatter column, rejection rows included.
+- **The plateau projection `n_io` ruling** (6 / 6).
+- **The κ re-derivation** (23 / 20): every text limb-constant
+  red; the display rows red on heap alone keep that reason.
+- **The judgment-layer guards** (1 / 3): `version_min_ticks ×
+  cliff` (adjudicated: a sub-allowance heap exponent, never
+  κ-genre), `rank_sum`/`rank_pair_ops` × benign,
+  `party_join_all_overlap × benign`.
+
+The three flip-recorded "κ-genre exponents" are adjudicated
+against single-cell column attribution: none was κ-genre.
+`version_min_ticks × cliff` was judgment-layer noise (above);
+`version_project`/`clock_own_version` × comb-scatter measure
+I/O-linear on every work column (limb e 1.01 at 0.3/B under
+`n_io`) — `query.rs`'s I/O-linearity claim is CONFIRMED — and
+their default-scale red is the heap exponent alone, the
+capacity-phase genre below.
+
+Sums: **default 966 + 23 = 989; record 951 + 38 = 989.**
+
+The current red roster (post-C3, both scales enumerated from the
+`board-c3` renders; every red has exactly one owner):
+
+- **The render materialization genre** (14 default / 14 ×4 heap
+  constants: `version_display` × {dense, bigroot, harmonic,
+  nested-full, nested-wide, mirror-wide, mirror-narrow,
+  staircase}, `clock_display` × {dense, bigroot, harmonic,
+  nested-full, mirror-narrow, staircase} — 14.4–33.2 B per `n_io`
+  byte at exponent ~1.00): the render's finalize pass
+  materializes a per-node `Base` vector, a digit arena, and an
+  offset table before the emit pass — linear, honestly over the
+  16 B/B ceiling. Owner: **the materializing emitters item
+  (§17.2, opened at C3)**; candidate cure: convert bases to
+  digits at their close (dropping the `Base` vector) or a
+  two-pass finalize, judged against κ's pipeline budget.
+- **The render merge's wide-summary re-read**
+  (`version_display`/`clock_display` × mirror-wide: limb
+  exponent 1.55 default / 1.81 ×4, the ×4 constants over κ;
+  `version_display`'s heap constant rides the genre above):
+  the finalize merge re-folds wide relative summaries per
+  ancestor on the wide×deep right-spine shape — the #34
+  re-touching genre alive in the render walk; parse on the same
+  shape is linear (6.05 ops/node [measured]), so the text is not
+  the obstruction. A genuine kernel superlinearity, red on an
+  honest denominator. Owner: **the materializing emitters item**;
+  candidate cure: the anchor-web discipline applied to the render
+  summaries.
+- **The capacity-phase heap exponent** (`version_project`/
+  `clock_own_version` × comb-scatter, default scale only): work
+  I/O-linear on every column; peak heap linear in the output with
+  an allocator/buffer-doubling phase (scratch-to-output measured
+  0.67–1.84 across four probe points, non-monotone; the two-point
+  fit reads e 1.38 at default and 0.70 at ×4). The instrument
+  wobbles, not the kernel — but the reading is honest and stays
+  red rather than softening the ceiling. Owner: **the
+  materializing emitters item** (builder finalization/shrink
+  discipline stabilizes the measured quantity).
+- **The fold marginals** (default: `version_join_all` ×
+  {scatter, benign} limb/scan exponents, `party_join_all ×
+  benign` scan constant; ×4: `party_join_all × benign` only —
+  the version-side pair reads green there, the n·log n
+  signature): owner unchanged, **the C2-adjacent n-cursor
+  merge**.
+- **`version_min_ticks` heap constants** (mirror-narrow both
+  scales, mirror-wide joining at ×4) and **the ascending-cliff
+  tick pair's heap constants** (63.0/65.3 B/B, e 1.00): owners
+  unchanged (**#34's diff-coded memo record**; **the round-7
+  record**).
+- **The ×4 segments legs** (16 cells: the tick ops ×
+  {nested-full, nested-wide, mirror-narrow, staircase, pure-comb,
+  ascend-cliff, ascend-plateau}, the id-side parser cells
+  `party_from_str`/`clock_from_str`/`party_parse_trailing`/
+  `party_parse_noncanon`/`clock_parse_trailing` × id-pair, and
+  `party_without_none × id-pair`): owner unchanged, **P4.2**, the
+  recursion-depth genre.
+
+Bench riders (`BOARD_RED_BENCH_RIDERS`) stay committed empty at
+C3: the surviving reds are classified above, but a rider outside
+the judge's expected-red roster whose time leg reads red fails
+every judge run, so the rider population and the roster edit are
+one reviewed diff, landed with the judge-verification item that
+C3's queue sequences immediately after this round (the queue of
+record, item 11; item 9's disposition).
 
 ### 17.5 Post-campaign docket (user directives)
 
