@@ -115,7 +115,7 @@ use crate::codec::{self, Base, Bits, BitsSlice};
 use crate::step;
 
 use super::build::SkylineBuilder;
-use super::{gamma_code, live_bits, unzigzag, zigzag_signed, Encoded};
+use super::{gamma_code, unzigzag, zigzag_signed};
 
 /// Lexicographic inflation cost `(expansions, depth)`: prefer fewer
 /// leaf-to-node expansions, then a shallower spot.
@@ -149,12 +149,10 @@ const FRAME_CTRL_BITS: usize = 3;
 /// # Panics
 ///
 /// Panics if the event operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes — or
-/// declares more live bits than its bytes hold. Debug builds also panic
-/// when the id owns nothing (the precondition above; the result on an
-/// empty id is unspecified in release builds).
-pub fn grow(ev: &Encoded, id: &crate::Party) -> Encoded {
-    let ev_bits = live_bits(&ev.bytes, ev.bits);
+/// [`validate`](fn@super::validate) first on untrusted bytes. Debug
+/// builds also panic when the id owns nothing (the precondition above;
+/// the result on an empty id is unspecified in release builds).
+pub fn grow(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
     let id_bits = id.as_bits();
     debug_assert!(
         !id_bits.is_empty(),
@@ -162,13 +160,9 @@ pub fn grow(ev: &Encoded, id: &crate::Party) -> Encoded {
     );
     let mut route = Route::new(id_bits.len(), ev_bits.len());
     probe(ev_bits, id_bits, &mut route);
-    let mut bits = emit(ev_bits, id_bits, &route);
-    let live = bits.len();
-    codec::zero_dead_bits(&mut bits);
-    Encoded {
-        bytes: bits.into_vec(),
-        bits: live,
-    }
+    // Canonicalizing the storage is `Version::from_bits`'s job, the
+    // single gate a stream passes through when it becomes a stored value.
+    emit(ev_bits, id_bits, &route)
 }
 
 /// A grow probe with its route storage pre-allocated, so the
@@ -186,19 +180,19 @@ pub struct Probe(Route);
 #[cfg(any(test, feature = "meter"))]
 impl Probe {
     /// Pre-allocate route storage sized to the two operands.
-    pub fn for_operands(ev: &Encoded, id: &crate::Party) -> Self {
-        Probe(Route::new(id.as_bits().len(), ev.bits))
+    pub fn for_operands(ev: &BitsSlice, id: &crate::Party) -> Self {
+        Probe(Route::new(id.as_bits().len(), ev.len()))
     }
 
     /// Run the probe over the operands, filling the pre-allocated route.
     ///
     /// # Panics
     ///
-    /// Panics if the event operand is not a canonical skyline stream or
-    /// declares more live bits than its bytes hold, exactly as [`grow`]
-    /// does; the operands must be the pair the storage was sized for.
-    pub fn run(&mut self, ev: &Encoded, id: &crate::Party) {
-        probe(live_bits(&ev.bytes, ev.bits), id.as_bits(), &mut self.0);
+    /// Panics if the event operand is not a canonical skyline stream,
+    /// exactly as [`grow`] does; the operands must be the pair the
+    /// storage was sized for.
+    pub fn run(&mut self, ev: &BitsSlice, id: &crate::Party) {
+        probe(ev, id.as_bits(), &mut self.0);
     }
 }
 

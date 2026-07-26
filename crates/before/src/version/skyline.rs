@@ -118,11 +118,15 @@
 //!   segment, limb, and accumulator-touch envelopes on the adversarial
 //!   families.
 
-use crate::codec::{self, Base, Bits, BitsSlice};
+use crate::codec::{self, Base};
 #[cfg(any(test, feature = "meter"))]
 use crate::error::Decode;
 #[cfg(any(test, feature = "meter"))]
 use crate::Version;
+
+// The storage aliases, re-exported so the resource-envelope suite can
+// name the streams this module's entry points exchange.
+pub use crate::codec::{Bits, BitsSlice};
 
 mod build;
 // The strict byte-level decode of one whole stream: consumed by this
@@ -155,27 +159,15 @@ pub(crate) use validate::{validate_bits, validate_prefix};
 #[cfg(feature = "borsh")]
 pub(crate) use validate::validate_from;
 
-/// A skyline bit stream packed into bytes, with its exact live bit length.
-///
-/// `bytes` is the stream zero-padded to a byte boundary; `bits` is the live
-/// length before that padding. The pair is what the byte-level entry points
-/// exchange: the stream is not self-delimiting at the byte level, so the
-/// live length travels with the bytes.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Encoded {
-    /// The skyline stream, final partial byte zero-padded.
-    pub bytes: Vec<u8>,
-    /// The exact number of live bits in `bytes` before the zero pad.
-    pub bits: usize,
-}
-
 /// A [`Version`]'s canonical skyline stream: the stored form, cloned.
 ///
 /// Test- and meter-only: production callers reach the stored stream
 /// through [`Version::as_bytes`]/[`Version::encode`].
 #[cfg(any(test, feature = "meter"))]
-pub fn encode(version: &Version) -> Encoded {
-    version.as_encoded().clone()
+pub fn encode(version: &Version) -> Bits {
+    let mut bits = version.as_bits().to_bitvec();
+    codec::zero_dead_bits(&mut bits);
+    bits
 }
 
 /// Strictly validate a skyline stream without materializing any height.
@@ -188,16 +180,12 @@ pub fn encode(version: &Version) -> Encoded {
 /// tree), or [`Decode::NotCanonical`] (collapsible sibling leaves, or a
 /// delta driving the running height negative).
 ///
-/// # Panics
-///
-/// Panics if `bits` exceeds the live bits in `bytes`.
-///
 /// Test- and meter-only: the production byte-level entries
 /// ([`Version::decode`], the borsh leg) run the underlying pass through
 /// `validate_prefix`/`validate_from` directly.
 #[cfg(any(test, feature = "meter"))]
-pub fn validate(bytes: &[u8], bits: usize) -> Result<(), Decode> {
-    validate_bits(live_bits(bytes, bits))
+pub fn validate(bits: &BitsSlice) -> Result<(), Decode> {
+    validate_bits(bits)
 }
 
 /// Strictly validate a skyline stream and wrap it as a [`Version`].
@@ -207,39 +195,20 @@ pub fn validate(bytes: &[u8], bits: usize) -> Result<(), Decode> {
 /// form *is* this coding), so decoding materializes nothing beyond the
 /// copy.
 ///
-/// # Panics
-///
-/// Panics if `bits` exceeds the live bits in `bytes`.
-///
 /// Test- and meter-only: the production decode ([`Version::decode`])
 /// validates the prefix and adopts the buffer without this wrapper.
 #[cfg(any(test, feature = "meter"))]
-pub fn decode(bytes: &[u8], bits: usize) -> Result<Version, Decode> {
-    decode_bits(live_bits(bytes, bits))
-}
-
-/// Borrow the live prefix of a padded byte stream as bits.
-///
-/// # Panics
-///
-/// Panics if `bits` exceeds the live bits in `bytes`.
-fn live_bits(bytes: &[u8], bits: usize) -> &BitsSlice {
-    let all = codec::bytes_as_bits(bytes);
-    assert!(
-        bits <= all.len(),
-        "skyline stream length overruns its bytes: {bits} live bits declared over {} available",
-        all.len(),
-    );
-    &all[..bits]
+pub fn decode(bits: &BitsSlice) -> Result<Version, Decode> {
+    decode_bits(bits)
 }
 
 /// Whether a skyline stream is the canonical empty version.
 ///
 /// The empty version is exactly the 2-bit stream `01` (leaf flag `0`, then
-/// gamma(0), the single bit `1`), stored zero-padded as the byte `0x40`.
-/// Canonical uniqueness makes this O(1) test the whole question.
-pub(crate) fn is_empty_encoded(enc: &Encoded) -> bool {
-    enc.bits == 2 && enc.bytes.first() == Some(&0x40)
+/// gamma(0), the single bit `1`). Canonical uniqueness makes this O(1)
+/// test the whole question.
+pub(crate) fn is_empty_stream(bits: &BitsSlice) -> bool {
+    bits.len() == 2 && !bits[0] && bits[1]
 }
 
 /// Map the signed difference `cur − prev` to its zigzag magnitude:

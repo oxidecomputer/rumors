@@ -10,8 +10,6 @@ use crate::codec;
 use crate::error::{Decode, Parse};
 use crate::Party;
 
-use self::skyline::Encoded;
-
 mod batch;
 mod rank;
 mod ranked;
@@ -59,13 +57,18 @@ mod tests;
 /// let merged = va | vb;
 /// assert!(merged > va && merged > vb);  // the join dominates both inputs
 /// ```
-// `PartialEq` is the macro's byte compare (see `causal_cmp_impls!`): the
-// stored skyline stream is a canonical unique representation, so byte
-// equality is exactly causal equality — and the derived `Hash` over the
-// same bytes stays consistent with it. clippy can't see the invariant.
+// At rest, a `Version` is its canonical skyline stream in a
+// length-carrying container ([`codec::Bits`]): the raw byte slice IS the
+// wire encoding (`from_bits` zeroes the dead pad bits at the seam), and
+// the live bit length is a cached parse product the wire legitimately
+// omits — the stream is self-delimiting at the bit level. Canonical
+// uniqueness makes byte equality exactly causal equality; `PartialEq` is
+// the macro's stream compare (see `causal_cmp_impls!`), and the derived
+// `Hash` over the same stream stays consistent with it. clippy can't see
+// the invariant.
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Eq, Hash)]
-pub struct Version(Encoded);
+pub struct Version(codec::Bits);
 
 impl Version {
     /// The empty [`Version`], representing no [`tick`](Version::tick)s.
@@ -95,7 +98,7 @@ impl Version {
         // `Version::new` and `codec::encode_int`). The stored skyline
         // stream is a unique representation, so this O(1) bit test is the
         // whole question — no allocation, no walk.
-        let empty = skyline::is_empty_encoded(&self.0);
+        let empty = skyline::is_empty_stream(&self.0);
         debug_assert_eq!(
             empty,
             *self == Version::new(),
@@ -330,7 +333,7 @@ impl Version {
     }
 
     /// A read-only view of this version's stored skyline stream.
-    fn view(&self) -> &Encoded {
+    fn view(&self) -> &codec::Bits {
         &self.0
     }
 
@@ -346,7 +349,7 @@ impl Version {
     /// assert_eq!(Version::decode(&v.encode()[..]).unwrap(), v);
     /// ```
     pub fn encode(&self) -> Vec<u8> {
-        self.0.bytes.clone()
+        self.as_bytes().to_vec()
     }
 
     /// Encode a [`Version`] to an arbitrary writer.
@@ -358,7 +361,7 @@ impl Version {
     /// assert_eq!(buf, Version::new().encode());
     /// ```
     pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_all(&self.0.bytes)
+        writer.write_all(self.as_bytes())
     }
 
     /// Decode a [`Version`] from a reader of canonical bytes.
@@ -393,7 +396,7 @@ impl Version {
     /// assert_eq!(Version::new().encoded_bits(), 2);
     /// ```
     pub fn encoded_bits(&self) -> usize {
-        self.0.bits
+        self.0.len()
     }
 
     /// The canonical packed bytes of this [`Version`]: what
@@ -415,15 +418,19 @@ impl Version {
     /// assert_eq!(v.as_bytes(), v.encode().as_slice());
     /// ```
     pub fn as_bytes(&self) -> &[u8] {
-        &self.0.bytes
+        debug_assert!(
+            codec::dead_bits_are_zero(&self.0),
+            "non-canonical Version storage: dead bits past the live length must be zero",
+        );
+        self.0.as_raw_slice()
     }
 
-    /// The stored skyline stream, borrowed. Test- and meter-only: the
-    /// meter surface's `skyline::encode` and the differential bridges
-    /// read it; production code goes through [`Self::as_bytes`] or the
-    /// crate-internal `view`.
+    /// The stored skyline stream, borrowed as live bits. Test- and
+    /// meter-only: the meter surface's `skyline::encode` and the
+    /// differential bridges read it; production code goes through
+    /// [`Self::as_bytes`] or the crate-internal `view`.
     #[cfg(any(test, feature = "meter"))]
-    pub(crate) fn as_encoded(&self) -> &Encoded {
+    pub(crate) fn as_bits(&self) -> &codec::BitsSlice {
         &self.0
     }
 
@@ -435,19 +442,8 @@ impl Version {
     /// past the live length so the stored bytes are canonical (see
     /// [`codec::zero_dead_bits`]).
     pub(crate) fn from_bits(mut bits: codec::Bits) -> Self {
-        let live = bits.len();
         codec::zero_dead_bits(&mut bits);
-        Version(Encoded {
-            bytes: bits.into_vec(),
-            bits: live,
-        })
-    }
-
-    /// Wrap an already-canonical skyline stream. Test-only: the kernel
-    /// suites lift builder-shaped outputs back into `Version` with it.
-    #[cfg(test)]
-    pub(crate) fn from_encoded(enc: Encoded) -> Self {
-        Version(enc)
+        Version(bits)
     }
 }
 
@@ -532,7 +528,7 @@ impl core::fmt::Debug for Version {
 impl core::str::FromStr for Version {
     type Err = Parse;
     fn from_str(s: &str) -> Result<Self, Parse> {
-        Ok(Version(skyline::text::parse(s)?))
+        Ok(Version::from_bits(skyline::text::parse(s)?))
     }
 }
 
@@ -545,7 +541,7 @@ impl core::str::FromStr for Version {
 impl TryFrom<u64> for Version {
     type Error = Parse;
     fn try_from(n: u64) -> Result<Self, Parse> {
-        Ok(Version(skyline::literal::leaf(n)))
+        Ok(Version::from_bits(skyline::literal::leaf(n)))
     }
 }
 
@@ -566,7 +562,7 @@ where
     fn try_from((n, l, r): (u64, T, S)) -> Result<Self, Parse> {
         let l = Version::try_from(l)?;
         let r = Version::try_from(r)?;
-        Ok(Version(skyline::literal::node(n, &l.0, &r.0)?))
+        Ok(Version::from_bits(skyline::literal::node(n, &l.0, &r.0)?))
     }
 }
 
@@ -747,7 +743,7 @@ binop_matrix! {
 impl Div<&Party> for &Version {
     type Output = Version;
     fn div(self, party: &Party) -> Version {
-        Version(skyline::query::project(&self.0, party))
+        Version::from_bits(skyline::query::project(&self.0, party))
     }
 }
 
@@ -760,7 +756,7 @@ impl Div<&Party> for Version {
 
 impl DivAssign<&Party> for Version {
     fn div_assign(&mut self, party: &Party) {
-        self.0 = skyline::query::project(&self.0, party);
+        *self = Version::from_bits(skyline::query::project(&self.0, party));
     }
 }
 

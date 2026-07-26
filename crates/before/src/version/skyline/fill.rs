@@ -137,7 +137,7 @@ use crate::step;
 
 use self::watermark::{fold, MinStack, Signed};
 use super::build::SkylineBuilder;
-use super::{gamma_code, live_bits, unzigzag, zigzag_signed, Encoded};
+use super::{gamma_code, unzigzag, zigzag_signed};
 
 mod watermark;
 
@@ -162,14 +162,13 @@ const REL_FOLLOWER: usize = 1;
 /// # Panics
 ///
 /// Panics if the event operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes — or
-/// declares more live bits than its bytes hold. The id must own at
-/// least one region: an empty id leaves `fill` the identity, and the
-/// grow fallback requires an owning id (debug builds assert it; the
-/// result on an empty id is unspecified in release builds).
-pub fn tick(ev: &Encoded, id: &crate::Party) -> Encoded {
+/// [`validate`](fn@super::validate) first on untrusted bytes. The id
+/// must own at least one region: an empty id leaves `fill` the identity,
+/// and the grow fallback requires an owning id (debug builds assert it;
+/// the result on an empty id is unspecified in release builds).
+pub fn tick(ev: &BitsSlice, id: &crate::Party) -> Bits {
     let filled = fill(ev, id);
-    if filled == *ev {
+    if filled.as_bitslice() == ev {
         super::grow::grow(ev, id)
     } else {
         filled
@@ -187,10 +186,8 @@ pub fn tick(ev: &Encoded, id: &crate::Party) -> Encoded {
 /// # Panics
 ///
 /// Panics if the event operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes — or
-/// declares more live bits than its bytes hold.
-pub fn fill(ev: &Encoded, id: &crate::Party) -> Encoded {
-    let ev_bits = live_bits(&ev.bytes, ev.bits);
+/// [`validate`](fn@super::validate) first on untrusted bytes.
+pub fn fill(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
     let id_bits = id.as_bits();
     let mut walk = FillWalk {
         ev: ev_bits,
@@ -227,13 +224,9 @@ pub fn fill(ev: &Encoded, id: &crate::Party) -> Encoded {
         matches!(walk.corr, Corr::None),
         "the ledger relation dies with the outermost site"
     );
-    let mut bits = walk.out.finish();
-    let live = bits.len();
-    codec::zero_dead_bits(&mut bits);
-    Encoded {
-        bytes: bits.into_vec(),
-        bits: live,
-    }
+    // Canonicalizing the storage is `Version::from_bits`'s job, the
+    // single gate a stream passes through when it becomes a stored value.
+    walk.out.finish()
 }
 
 /// The fill walk: input cursor, relative-height state, and the output

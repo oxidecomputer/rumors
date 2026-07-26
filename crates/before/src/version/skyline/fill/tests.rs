@@ -50,7 +50,7 @@ fn party_of(p: &Packed) -> Party {
 fn assert_fill(v: &Version, p: &Party) {
     let enc = encode(v);
     let out = fill(&enc, p);
-    validate(&out.bytes, out.bits).expect("a filled stream is canonical");
+    validate(&out).expect("a filled stream is canonical");
     let oracle = to_oracle_version(v).fill_for_test(&to_oracle_party(p));
     assert_eq!(
         out,
@@ -74,7 +74,7 @@ fn assert_tick(v: &Version, p: &Party) {
         encode(&expected),
         "the tick splice and the public tick must agree: {v} with {p}"
     );
-    validate(&out.bytes, out.bits).expect("a ticked stream is canonical");
+    validate(&out).expect("a ticked stream is canonical");
 }
 
 /// The adversarial event pool: every §2 family at two scales, plus the
@@ -312,7 +312,7 @@ fn left_spike(depth: usize) -> Version {
 fn deep_spines_fill_and_tick_identically() {
     let assert_deep = |v: &Version, p: &Party| {
         let out = fill(&encode(v), p);
-        validate(&out.bytes, out.bits).expect("a filled stream is canonical");
+        validate(&out).expect("a filled stream is canonical");
         let again = fill(&out, p);
         assert_eq!(again, out, "deep fill must be idempotent");
         assert_tick(v, p);
@@ -596,11 +596,11 @@ proptest! {
         if !p.as_bits().is_empty() {
             let ev = encode(&v);
             let out = tick(&ev, &p);
-            let bound = 2 * ev.bits + 4 * p.as_bits().len() + 32;
+            let bound = 2 * ev.len() + 4 * p.as_bits().len() + 32;
             prop_assert!(
-                out.bits <= bound,
+                out.len() <= bound,
                 "tick output {} bits exceeds input envelope {} (event {}, id {})",
-                out.bits, bound, ev.bits, p.as_bits().len(),
+                out.len(), bound, ev.len(), p.as_bits().len(),
             );
         }
     }
@@ -632,7 +632,7 @@ proptest! {
         if !p.as_bits().is_empty() {
             let mut e = encode(&v);
             e = tick(&e, &p);
-            let b1 = e.bits;
+            let b1 = e.len();
             for k in 2u32..=48 {
                 e = tick(&e, &p);
                 let logk = u64::from(32 - (k + 1).leading_zeros());
@@ -641,10 +641,10 @@ proptest! {
                     + 4 * logk
                     + 8;
                 prop_assert!(
-                    e.bits as u64 <= bound,
+                    e.len() as u64 <= bound,
                     "orbit size {} bits at tick {k} exceeds the transient-plus-log \
                      envelope {bound} (first-tick size {b1}, id {} bits)",
-                    e.bits, p.as_bits().len(),
+                    e.len(), p.as_bits().len(),
                 );
             }
         }
@@ -667,28 +667,28 @@ fn tick_deep_orbits_stay_banded() {
 
     let mut e = encode(&ev);
     e = tick(&e, &ida);
-    let b1 = e.bits;
+    let b1 = e.len();
     for k in 2u32..=4096 {
         e = tick(&e, &ida);
         let logk = usize::try_from(32 - (k + 1).leading_zeros()).expect("small");
         assert!(
-            e.bits <= b1 + 4 * logk + 8,
+            e.len() <= b1 + 4 * logk + 8,
             "fixed-id orbit: {} bits at tick {k} (first-tick size {b1})",
-            e.bits,
+            e.len(),
         );
     }
 
     let mut e = encode(&ev);
     e = tick(&e, &ida);
     e = tick(&e, &idb);
-    let b2 = e.bits;
+    let b2 = e.len();
     for k in 3u32..=2048 {
         e = tick(&e, if k % 2 == 1 { &ida } else { &idb });
         let logk = usize::try_from(32 - (k + 1).leading_zeros()).expect("small");
         assert!(
-            e.bits <= b2 + 4 * logk + 8,
+            e.len() <= b2 + 4 * logk + 8,
             "alternating orbit: {} bits at tick {k} (two-tick size {b2})",
-            e.bits,
+            e.len(),
         );
     }
 }

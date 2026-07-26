@@ -36,8 +36,7 @@ fn version_of(p: &Packed) -> Version {
 
 /// The stored skyline stream of a version, as live bits.
 fn stream_of(v: &Version) -> Bits {
-    let enc = v.as_encoded();
-    codec::bytes_as_bits(&enc.bytes)[..enc.bits].to_bitvec()
+    v.as_bits().to_bitvec()
 }
 
 // ─── hand-pinned streams ────────────────────────────────────────────────────
@@ -357,8 +356,8 @@ fn exhaustive_small_scope_agrees_and_is_injective() {
         let enc = super::encode(&v);
         // Key on padded bytes plus the live length: distinct versions must
         // differ somewhere a decoder can see.
-        let mut key = enc.bytes.clone();
-        key.extend_from_slice(&enc.bits.to_le_bytes());
+        let mut key = enc.as_raw_slice().to_vec();
+        key.extend_from_slice(&enc.len().to_le_bytes());
         assert!(
             seen.insert(key),
             "two distinct versions encoded to one skyline stream: {v}"

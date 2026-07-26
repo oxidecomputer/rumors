@@ -50,13 +50,13 @@ use core::fmt::Write as _;
 
 use crate::codec::accum::Accum;
 use crate::codec::text::{parse_base, Cur};
-use crate::codec::{self, Base, BitCursor, Bits, SliceCursor};
+use crate::codec::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
 use crate::error::Parse;
 use crate::step;
 
 use super::build::SkylineBuilder;
 use super::emit::signed_sum;
-use super::{gamma_code, unzigzag, validate_bits, zigzag_signed, Encoded};
+use super::{gamma_code, unzigzag, validate_bits, zigzag_signed};
 
 #[cfg(test)]
 mod tests;
@@ -120,8 +120,7 @@ enum Frame {
 /// # Panics
 ///
 /// Panics if the stream is not a canonical skyline encoding.
-pub fn render(enc: &Encoded) -> String {
-    let bits = super::live_bits(&enc.bytes, enc.bits);
+pub fn render(bits: &BitsSlice) -> String {
     let mut cursor = SliceCursor::new(bits, 0);
 
     // Finalize: topology flags, and every node's printed base derived in
@@ -281,7 +280,7 @@ fn merge(parent: usize, left: Summary, right: Summary, bases: &mut [Base]) -> Su
 /// reported after the whole syntax pass, so syntax errors — including
 /// trailing junk — outrank [`Parse::NotCanonical`]; the built stream is
 /// then gated through the strict validator.
-pub fn parse(s: &str) -> Result<Encoded, Parse> {
+pub fn parse(s: &str) -> Result<Bits, Parse> {
     /// What a parsed subtree contributes to its parent's normal-form
     /// check: its written base and whether it is a single leaf.
     struct Child {
@@ -395,12 +394,9 @@ pub fn parse(s: &str) -> Result<Encoded, Parse> {
     if !canonical {
         return Err(Parse::NotCanonical);
     }
-    let mut bits = builder.finish();
+    let bits = builder.finish();
     validate_bits(&bits).expect("a canonical text parse builds a canonical skyline stream");
-    let live = bits.len();
-    codec::zero_dead_bits(&mut bits);
-    Ok(Encoded {
-        bytes: bits.into_vec(),
-        bits: live,
-    })
+    // Canonicalizing the storage is `Version::from_bits`'s job, the
+    // single gate a stream passes through when it becomes a stored value.
+    Ok(bits)
 }

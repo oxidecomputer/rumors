@@ -178,9 +178,7 @@ pub(crate) fn to_oracle_party(p: &Party) -> oracle::Party {
 /// stored skyline stream: absolute leaf heights become a raw tree, which
 /// one normalization pass min-lifts into the oracle's canonical spelling.
 pub(crate) fn to_oracle_version(v: &Version) -> oracle::Version {
-    let enc = v.as_encoded();
-    let all = codec::bytes_as_bits(&enc.bytes);
-    let raw = read_ev(&all[..enc.bits], 0, &mut None).0;
+    let raw = read_ev(v.as_bits(), 0, &mut None).0;
     raw.normalized_for_test()
 }
 

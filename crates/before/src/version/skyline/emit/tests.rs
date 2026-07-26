@@ -19,6 +19,7 @@ use rayon::prelude::*;
 
 use crate::codec::accum::Accum;
 use crate::codec::Base;
+use crate::codec::{Bits, BitsSlice};
 use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
     wide_tooth_comb, Packed,
@@ -27,7 +28,7 @@ use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
 use crate::version::skyline::sweep::{LeafCursor, Side, Step};
-use crate::version::skyline::{encode, validate, Encoded};
+use crate::version::skyline::{encode, validate};
 use crate::{Clock, Version};
 
 use super::{join, meet};
@@ -48,11 +49,11 @@ fn assert_emits(a: &Version, b: &Version) {
     for (x, y) in [(&ea, &eb), (&eb, &ea)] {
         let out = join(x, y);
         assert_eq!(out, joined, "join must match the oracle: {a} vs {b}");
-        validate(&out.bytes, out.bits).expect("an emitted join is canonical");
+        validate(&out).expect("an emitted join is canonical");
         assert_pointwise(x, y, &out, false);
         let out = meet(x, y);
         assert_eq!(out, met, "meet must match the oracle: {a} vs {b}");
-        validate(&out.bytes, out.bits).expect("an emitted meet is canonical");
+        validate(&out).expect("an emitted meet is canonical");
         assert_pointwise(x, y, &out, true);
     }
 }
@@ -65,13 +66,10 @@ fn assert_emits(a: &Version, b: &Version) {
 /// does) with one signed accumulator per stream pair, advancing
 /// whichever cursors' plateaus end first — the deepest cursors step,
 /// per the nesting rule the sweeps rest on.
-fn assert_pointwise(a: &Encoded, b: &Encoded, out: &Encoded, meet: bool) {
-    let a_bits = crate::version::skyline::live_bits(&a.bytes, a.bits);
-    let b_bits = crate::version::skyline::live_bits(&b.bytes, b.bits);
-    let o_bits = crate::version::skyline::live_bits(&out.bytes, out.bits);
-    let (mut ca, ha) = LeafCursor::open(a_bits);
-    let (mut cb, hb) = LeafCursor::open(b_bits);
-    let (mut co, ho) = LeafCursor::open(o_bits);
+fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
+    let (mut ca, ha) = LeafCursor::open(a);
+    let (mut cb, hb) = LeafCursor::open(b);
+    let (mut co, ho) = LeafCursor::open(out);
     // Signed differences out − a and out − b: the pointwise claim reads
     // off their signs without materializing any height. The cursors'
     // built-in folds go to a scratch accumulator.
@@ -235,7 +233,7 @@ fn flat_over_deep_collapses_totally() {
 /// collapse cascades — deterministically rather than by sampling.
 #[test]
 fn exhaustive_small_scope_emits_identically() {
-    let pool: Vec<(crate::oracle::Version, Version, Encoded)> = all_normal_events(EV_SMALL_DEPTH)
+    let pool: Vec<(crate::oracle::Version, Version, Bits)> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| {
             let v = from_oracle_version(t);
@@ -264,7 +262,7 @@ fn exhaustive_small_scope_emits_identically() {
 /// operators, as byte equality of canonical streams.
 #[test]
 fn family_lattice_laws_hold_on_the_kernel() {
-    let pool: Vec<Encoded> = family_pool().iter().map(encode).collect();
+    let pool: Vec<Bits> = family_pool().iter().map(encode).collect();
     for ea in &pool {
         assert_eq!(join(ea, ea), *ea, "join is idempotent");
         assert_eq!(meet(ea, ea), *ea, "meet is idempotent");
@@ -282,7 +280,7 @@ fn family_lattice_laws_hold_on_the_kernel() {
 /// Associativity holds on the emitted streams over every family triple.
 #[test]
 fn family_associativity_holds_on_the_kernel() {
-    let pool: Vec<Encoded> = family_pool().iter().map(encode).collect();
+    let pool: Vec<Bits> = family_pool().iter().map(encode).collect();
     pool.par_iter().for_each(|ea| {
         for eb in &pool {
             for ec in &pool {
@@ -347,7 +345,7 @@ proptest! {
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
-        let pool: Vec<(crate::oracle::Version, &Version, Encoded)> = clocks
+        let pool: Vec<(crate::oracle::Version, &Version, Bits)> = clocks
             .iter()
             .map(|c| (to_oracle_version(c.version()), c.version(), encode(c.version())))
             .collect();

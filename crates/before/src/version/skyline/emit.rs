@@ -65,11 +65,11 @@
 use core::cmp::Ordering;
 
 use crate::codec::accum::Accum;
-use crate::codec::{self, Base, BitsSlice};
+use crate::codec::{Base, Bits, BitsSlice};
 
 use super::build::SkylineBuilder;
 use super::sweep::{advance, LeafCursor, Side, Step};
-use super::{gamma_code, zigzag_signed, Encoded};
+use super::{gamma_code, zigzag_signed};
 
 /// The join (pointwise max) of the versions two skyline streams denote,
 /// as a canonical skyline stream.
@@ -81,9 +81,8 @@ use super::{gamma_code, zigzag_signed, Encoded};
 /// # Panics
 ///
 /// Panics if either operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes — or
-/// declares more live bits than its bytes hold.
-pub fn join(a: &Encoded, b: &Encoded) -> Encoded {
+/// [`validate`](fn@super::validate) first on untrusted bytes.
+pub fn join(a: &BitsSlice, b: &BitsSlice) -> Bits {
     emit(a, b, Op::Join)
 }
 
@@ -94,9 +93,8 @@ pub fn join(a: &Encoded, b: &Encoded) -> Encoded {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand or an overrunning live-bit count,
-/// exactly as [`join`] does.
-pub fn meet(a: &Encoded, b: &Encoded) -> Encoded {
+/// Panics on a non-canonical operand, exactly as [`join`] does.
+pub fn meet(a: &BitsSlice, b: &BitsSlice) -> Bits {
     emit(a, b, Op::Meet)
 }
 
@@ -122,9 +120,7 @@ impl Op {
 }
 
 /// Run the emission sweep.
-fn emit(a: &Encoded, b: &Encoded, op: Op) -> Encoded {
-    let a_bits = live(a);
-    let b_bits = live(b);
+fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
     let mut diff = Accum::new();
     let (mut ca, a_first) = LeafCursor::open(a_bits);
     let (mut cb, b_first) = LeafCursor::open(b_bits);
@@ -157,22 +153,10 @@ fn emit(a: &Encoded, b: &Encoded, op: Op) -> Encoded {
         );
     }
 
-    let mut bits = out.finish();
-    let live = bits.len();
-    codec::zero_dead_bits(&mut bits);
-    Encoded {
-        bytes: bits.into_vec(),
-        bits: live,
-    }
-}
-
-/// Borrow one operand's live bits.
-///
-/// # Panics
-///
-/// Panics if the operand declares more live bits than its bytes hold.
-fn live(enc: &Encoded) -> &BitsSlice {
-    super::live_bits(&enc.bytes, enc.bits)
+    // Canonicalizing the storage (zeroing dead pad bits) is the job of
+    // `Version::from_bits`, the single gate a stream passes through when
+    // it becomes a stored value; intermediate streams stay as built.
+    out.finish()
 }
 
 /// One side's signed step delta at the boundary just crossed: zero when

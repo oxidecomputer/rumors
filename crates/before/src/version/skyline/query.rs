@@ -108,7 +108,7 @@ use crate::Rank;
 use super::build::SkylineBuilder;
 use super::emit::{self, signed_sum};
 use super::sweep::{LeafCursor, Side, Step};
-use super::{gamma_code, zigzag_signed, Encoded};
+use super::{gamma_code, zigzag_signed};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32
 /// digits, over the just-folded delta's own width: a fold that leaves
@@ -133,12 +133,10 @@ const FREEZE_ALLOWANCE_DIGITS: usize = 8;
 /// # Panics
 ///
 /// Panics if the operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes — or declares
-/// more live bits than its bytes hold, or is deeper than `u32::MAX`
-/// levels (the rank exponent would overflow; such a stream exceeds
-/// 2 GiB).
-pub fn rank(enc: &Encoded) -> Rank {
-    let bits = live(enc);
+/// [`validate`](fn@super::validate) first on untrusted bytes — or is
+/// deeper than `u32::MAX` levels (the rank exponent would overflow; such
+/// a stream exceeds 2 GiB).
+pub fn rank(bits: &BitsSlice) -> Rank {
     let max_depth = max_depth(bits);
     let scale =
         u32::try_from(max_depth).expect("rank exponent overflows u32: stream deeper than 2^32");
@@ -276,9 +274,9 @@ fn u32_digits(value: &Base) -> Vec<u32> {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand, an overrunning live-bit count, or
-/// a stream deeper than `u32::MAX` levels, exactly as [`rank`](fn@rank) does.
-pub fn distance(a: &Encoded, b: &Encoded) -> Rank {
+/// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
+/// levels, exactly as [`rank`](fn@rank) does.
+pub fn distance(a: &BitsSlice, b: &BitsSlice) -> Rank {
     let join = rank(&emit::join(a, b));
     let meet = rank(&emit::meet(a, b));
     join.checked_sub(&meet)
@@ -293,9 +291,9 @@ pub fn distance(a: &Encoded, b: &Encoded) -> Rank {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand, an overrunning live-bit count, or
-/// a stream deeper than `u32::MAX` levels, exactly as [`rank`](fn@rank) does.
-pub fn lag(a: &Encoded, b: &Encoded) -> Rank {
+/// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
+/// levels, exactly as [`rank`](fn@rank) does.
+pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
     let join = rank(&emit::join(a, b));
     join.checked_sub(&rank(a))
         .expect("the join dominates self, so its rank is at least self's")
@@ -318,10 +316,8 @@ pub fn lag(a: &Encoded, b: &Encoded) -> Rank {
 /// # Panics
 ///
 /// Panics if the operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes — or declares
-/// more live bits than its bytes hold.
-pub fn min_ticks(enc: &Encoded) -> u64 {
-    let bits = live(enc);
+/// [`validate`](fn@super::validate) first on untrusted bytes.
+pub fn min_ticks(bits: &BitsSlice) -> u64 {
     let (mut cursor, first) = LeafCursor::open(bits);
     let mut height = Accum::new();
     height.add_base(&first);
@@ -406,11 +402,9 @@ fn height_word(height: &mut Accum) -> Option<u64> {
 ///
 /// # Panics
 ///
-/// Panics if the skyline operand is not a canonical stream or declares
-/// more live bits than its bytes hold.
-pub fn project(ev: &Encoded, id: &crate::Party) -> Encoded {
+/// Panics if the skyline operand is not a canonical stream.
+pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
     let id_bits = id.as_bits();
-    let ev_bits = live(ev);
     let (mut sc, first) = LeafCursor::open(ev_bits);
     let mut ic = IdLeafCursor::open(id_bits);
     let mut height = Accum::new();
@@ -451,13 +445,9 @@ pub fn project(ev: &Encoded, id: &crate::Party) -> Encoded {
             gamma_code(&zigzag_signed(negative, magnitude)),
         );
     }
-    let mut bits = out.finish();
-    let live = bits.len();
-    codec::zero_dead_bits(&mut bits);
-    Encoded {
-        bytes: bits.into_vec(),
-        bits: live,
-    }
+    // Canonicalizing the storage is `Version::from_bits`'s job, the
+    // single gate a stream passes through when it becomes a stored value.
+    out.finish()
 }
 
 /// The current absolute height, materialized at an ownership transition.
@@ -648,15 +638,6 @@ impl<'a> IdLeafCursor<'a> {
             }
         }
     }
-}
-
-/// Borrow one operand's live bits.
-///
-/// # Panics
-///
-/// Panics if the operand declares more live bits than its bytes hold.
-fn live(enc: &Encoded) -> &BitsSlice {
-    super::live_bits(&enc.bytes, enc.bits)
 }
 
 /// The maximum leaf depth of a skyline stream: one topology-only

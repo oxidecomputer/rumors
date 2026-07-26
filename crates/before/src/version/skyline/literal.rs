@@ -9,17 +9,17 @@
 //! function, but its inner node hoards a liftable minimum, so it is not
 //! the normal spelling and is refused.
 
-use crate::codec::{self, Base, BitCursor, Bits, SliceCursor};
+use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, SliceCursor};
 use crate::error::Parse;
 
-use super::{unzigzag, validate_bits, zigzag, Encoded};
+use super::{unzigzag, validate_bits, zigzag};
 
 /// The skyline stream of an event leaf with base `n`.
-pub(crate) fn leaf(n: u64) -> Encoded {
+pub(crate) fn leaf(n: u64) -> Bits {
     let mut bits = Bits::new();
     bits.push(false); // topology: a leaf
     codec::encode_int(&mut bits, &Base::from(n)); // absolute height
-    seal(bits)
+    bits
 }
 
 /// Compose an event node with base `n` from two already-canonical child
@@ -29,7 +29,7 @@ pub(crate) fn leaf(n: u64) -> Encoded {
 /// (neither child's minimum leaf height is zero — normal form stores the
 /// shared minimum at the parent) or when the node is collapsible (two leaf
 /// children of equal height, which is just the leaf itself).
-pub(crate) fn node(n: u64, l: &Encoded, r: &Encoded) -> Result<Encoded, Parse> {
+pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> {
     let (l_topo, l_heights) = scan(l);
     let (r_topo, r_heights) = scan(r);
 
@@ -74,14 +74,14 @@ pub(crate) fn node(n: u64, l: &Encoded, r: &Encoded) -> Result<Encoded, Parse> {
         validate_bits(&out).is_ok(),
         "a min-lift-checked literal composition is canonical",
     );
-    Ok(seal(out))
+    // Canonicalizing the storage is `Version::from_bits`'s job, the
+    // single gate a stream passes through when it becomes a stored value.
+    Ok(out)
 }
 
 /// Split a canonical stream into its topology flags and absolute leaf
 /// heights.
-fn scan(enc: &Encoded) -> (Bits, Vec<Base>) {
-    let all = codec::bytes_as_bits(&enc.bytes);
-    let bits = &all[..enc.bits];
+fn scan(bits: &BitsSlice) -> (Bits, Vec<Base>) {
     let mut cursor = SliceCursor::new(bits, 0);
     let mut topology = Bits::new();
     let mut heights: Vec<Base> = Vec::new();
@@ -114,14 +114,4 @@ fn scan(enc: &Encoded) -> (Bits, Vec<Base>) {
         heights.push(value);
     }
     (topology, heights)
-}
-
-/// Canonicalize a composed stream's storage.
-fn seal(mut bits: Bits) -> Encoded {
-    let live = bits.len();
-    codec::zero_dead_bits(&mut bits);
-    Encoded {
-        bytes: bits.into_vec(),
-        bits: live,
-    }
 }

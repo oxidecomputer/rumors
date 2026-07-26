@@ -15,6 +15,7 @@
 use proptest::prelude::*;
 use rayon::prelude::*;
 
+use crate::codec::Bits;
 use crate::codec::BitsSlice;
 use crate::meter::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
@@ -29,7 +30,7 @@ use crate::testing::exhaustive::{
 };
 use crate::testing::grow_brute_force::best_inflation;
 use crate::testing::{generators, optrace};
-use crate::version::skyline::{encode, live_bits, validate, Encoded};
+use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Version};
 
 use super::{grow, id_tag, probe, Cost, EvScan, Kind, Route, COST_MAX};
@@ -64,12 +65,12 @@ fn assert_grow(v: &Version, p: &Party) {
 /// The recursive oracle walks on native frames, so the deep-spine test
 /// calls this directly and takes its value witnesses from closed forms
 /// instead.
-fn assert_grow_depth_safe(v: &Version, p: &Party) -> Encoded {
+fn assert_grow_depth_safe(v: &Version, p: &Party) -> Bits {
     let enc = encode(v);
     let out = grow(&enc, p);
-    validate(&out.bytes, out.bits).expect("a grown stream is canonical");
+    validate(&out).expect("a grown stream is canonical");
 
-    let ev_bits = live_bits(&enc.bytes, enc.bits);
+    let ev_bits = enc.as_bitslice();
     let id_bits = p.as_bits();
     let mut iterative = Route::new(id_bits.len(), ev_bits.len());
     let iterative_cost = probe(ev_bits, id_bits, &mut iterative);
@@ -264,7 +265,7 @@ fn family_pairs_grow_identically() {
 /// sampling.
 #[test]
 fn exhaustive_small_scope_grows_identically() {
-    let events: Vec<(Version, Encoded)> = all_normal_events(EV_SMALL_DEPTH)
+    let events: Vec<(Version, Bits)> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| {
             let v = from_oracle_version(t);
