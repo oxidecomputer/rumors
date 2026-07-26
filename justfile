@@ -230,10 +230,12 @@ fuzzfit-build:
     cargo build -p fuzzfit-guest --release --target wasm32-unknown-unknown
     {{ justfile_directory() }}/tools/memwatch cargo build -p fuzzfit-harness --tests --release
 
-# Run the fuzz-fit suites: generator sanity, meter liveness, the band
-# tripwire, and the enforcement sentry (48 fuzzed programs against the
-# pinned bands). A failure shrinks to a minimal out-of-band shape and
-# writes a proptest seed file — commit any seed that appears.
+# Run the fuzz-fit suites: generator sanity, meter liveness, the judgment
+# and shape-leg tripwires, the quadratic-burner adequacy check, the
+# toolchain-pin and staleness cross-checks, and the enforcement sentry
+# (48 fuzzed programs against the pinned bands, point and shape legs). A
+# failure shrinks to a minimal out-of-band shape and writes a proptest
+# seed file — commit any seed that appears.
 
 # Run the fuzz-fit asymptotics suites against the pinned fuel bands.
 [working-directory("crates/before/fuzzfit")]

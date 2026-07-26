@@ -317,6 +317,25 @@ Statement-faithfulness (the user's standing bar) applies to every
 claim in this document and the code's prose: never weaker than
 stated, never stronger than proven.
 
+**Amendment (2026-07-26, with the fuzz-fit harness):** balanced
+share splitting (`Party::forks(n)`) is a third output-denominated
+class — its mandatory output is `n` packed parties, asymptotically
+larger than any constant times its input, so it is judged against
+`n_io` = packed input + Σ packed share bits (canonical coding
+cannot be padded). The fuzz-fit mirror computes this from the
+actual shares.
+
+**Amendment (2026-07-26, with the fuzz-fit harness):** the rank
+value-content denominator `bits(num) + exp` admits, for consumers
+without access to the crate-private parts, the rendering proxy:
+the `num/2^exp` rendering's length, in which the numerator term is
+proportional (`digits ≈ 0.301 · bits(num)`) while `exp`
+contributes only its own digit count — logarithmically compressed
+against the criterion. The compression strictly *under-counts* the
+denominator, which can only read as more cost per denominated bit,
+so the proxy over-flags and never masks; a cost linear against the
+proxy is linear against the criterion.
+
 ## 10. The skyline representation (shipped at C2)
 
 Preorder topology bits; at each leaf position, in-stream: the
