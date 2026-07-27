@@ -1237,9 +1237,10 @@ fn rank_known_values() {
 proptest! {
     /// Differential. The impl's cursor-threaded `rank` fold matches the
     /// recursive oracle's area fold (`oracle::Version::rank`) on every
-    /// version any causal history produces; the function-space leg
-    /// (`rank_realizes_riemann_sum`) supplies the independent second
-    /// computation.
+    /// version any causal history produces.
+    ///
+    /// The function-space leg (`rank_realizes_riemann_sum`) supplies the
+    /// independent second computation.
     #[test]
     fn rank_matches_oracle(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
