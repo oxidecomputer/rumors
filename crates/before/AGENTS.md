@@ -3,7 +3,8 @@
 A guidepost, not a manual: the documentation of record is the rustdoc and,
 for the algorithms, the ITC 2008 paper (`reference/itc2008.md`). Read the
 crate docs for the model (`Party`/`Version`/`Clock`, the Law of
-Disjointness), `version/event/mod.rs` for how the traversals work, and
+Disjointness) and the public `implementation` module for the design essay,
+`version/skyline.rs` for the stored coding and its operation kernels, and
 `testing/` module docs for the differential-test architecture (recursive
 oracle, function-space oracle, exhaustive small-scope, algebraic laws).
 
