@@ -786,7 +786,8 @@ pub(crate) fn extract_public_fns() -> BTreeSet<String> {
 
 /// The self-type name from an impl header's remainder (after `impl`):
 /// skip a balanced generics list, then read the first identifier.
-fn parse_impl_self_type(rest: &str) -> Option<String> {
+/// Shared with the complexity-claims scanner, which walks the same files.
+pub(crate) fn parse_impl_self_type(rest: &str) -> Option<String> {
     let mut chars = rest.chars().peekable();
     if chars.peek() == Some(&'<') {
         let mut depth = 0usize;
@@ -811,7 +812,8 @@ fn parse_impl_self_type(rest: &str) -> Option<String> {
 }
 
 /// The function name from the remainder after `pub fn `.
-fn fn_name(rest: &str) -> &str {
+/// Shared with the complexity-claims scanner, which walks the same files.
+pub(crate) fn fn_name(rest: &str) -> &str {
     rest.split(|c: char| !c.is_alphanumeric() && c != '_')
         .next()
         .unwrap_or("")

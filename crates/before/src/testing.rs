@@ -13,6 +13,7 @@
 
 pub(crate) mod bridge;
 pub(crate) mod complexity;
+pub(crate) mod complexity_claims;
 pub(crate) mod generators;
 pub(crate) mod grow_brute_force;
 pub(crate) mod metrics;
