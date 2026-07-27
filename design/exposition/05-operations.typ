@@ -18,6 +18,11 @@ plateau by plateau, and every operation the API asks is some fold over
 that shared walk. The walk is @sweep; everything after it is a payload
 bolted onto it.
 
+One omission from the introduction's list is repaired here: besides
+the operations named there, @id-ops also derives the party
+predicates `covers` and `disjoint` — the latter the safety condition
+every join checks.
+
 And one sentence fixes what "asymptotically optimal" means
 throughout. Every operation here answers a whole-value question whose
 verdict can still change at its operands' final codes (the coding is
@@ -131,8 +136,11 @@ height_ — after the leading plateau, whose absolute the operands' own
 leading codes supply.
 
 Per elementary interval the output equals one operand — the _side_:
-$a$ where $D > 0$, $b$ where $D < 0$, unchanged (both agree) where
-$D = 0$, for max; the mirror for min. Two cases at each boundary:
+$a$ where $D > 0$, $b$ where $D < 0$, for max; the mirror for min.
+At $D = 0$ the walk keeps whatever side it already held (_sticky_,
+as the worked table says) — an arbitrary choice that costs nothing,
+since at $D = 0$ the operands agree and either side's step yields
+the same output. Two cases at each boundary:
 
 - *Same side.* The output moves with its side, so the output delta
   _is_ that side's own step delta — zero if the boundary belonged to
@@ -169,9 +177,11 @@ $a = (0, 1, 0)$, a 9-bit stream, and $b = (0, 0, (0, 0, 2))$, a
     [$[1\/2, 3\/4)$], [$delta_a = -1$, $delta_b = 0$ (tie: both
       advanced)], [$0$], [$a$ (sticky)],
     [depth 2, same side: $delta = delta_a = -1$ (code `010`)],
-    [$[3\/4, 1)$], [$delta_b = +2$ ($b$ deeper: $b$ alone)], [$-2$],
+    [$[3\/4, 1)$], [$delta_b = +2$ ($b$ deeper: $b$ alone;
+      $delta_a = 0$)], [$-2$],
     [switch to $b$],
-    [depth 2, jump $= -D' + delta_a = +2$ (code `00101`)],
+    [depth 2, jump $= -D' + delta_a = -(-2) + 0 = +2$ (code
+      `00101`)],
   ),
   kind: image,
   caption: [The join of @fig-overlay's operands, boundary by
@@ -220,9 +230,11 @@ switch consumed, at least three bits each, that never fund another
 emission — so its code costs at most theirs plus a few bits' slack
 (the zigzag re-fold contributes a constant of its own). What we
 offer here is that shape, not a per-boundary ledger closing to the
-exact constant: the inequality itself, with its $-2$, is verified
-mechanically in our implementation as a structural bound over the
-coding, and the shape is why it is believable. Joins never blow up — the inequality is what lets a
+exact constant. The exact inequality has a full derivation in our
+work (longer than this section wants), and it is additionally
+property-tested across roughly 1.5 million generated operand pairs,
+where the $-2$ is attained — _derived and measured_, in the
+introduction's taxonomy; here, sketched. Joins never blow up — the inequality is what lets a
 system fold thousands of versions together with a predictable memory
 ceiling.
 
@@ -256,15 +268,22 @@ boolean-skyline sweep, emitting $1$ where $p$ owns and $q$ does not.
 The predicates — _covers_ ($q$'s owned region $subset.eq$ $p$'s) and
 _disjoint_ (no owned region shared, the safety condition every join
 checks) — are lockstep verdict walks: no emission, and $O(1)$ state
-in total, since a subtree one side skips is delimited by the
-outstanding-obligation count of @coding rather than by anything
-stacked per level; early exit at the first refuting position.
+in total. The id grammar has its own obligation counter (@coding's
+device transposed: each stored node contributes its child count
+minus one, and the subtree ends when the count dies), so a subtree
+one side skips is delimited by one counter rather than by anything
+stacked per level; and the two cursors stay structurally aligned
+because they diverge only where one side ends a region, re-joining
+at that same position. Early exit at the first refuting position.
 
 == Projection, and pricing by mandatory output <projection>
 
 The projection $v \/ p$ masks a version's skyline to a party's owned
 region: owned intervals keep their plateaus, unowned intervals emit
-zero. The sweep is the overlay walk of $v$'s stream against $p$'s,
+zero. (What a caller does with it: ask what a share itself has
+witnessed — the slice of history a participant's own region vouches
+for — the question behind auditing a share's contribution or
+splitting responsibility when shares move.) The sweep is the overlay walk of $v$'s stream against $p$'s,
 emitting through the collapsing builder; heights stay relative except
 at ownership transitions, where the output re-enters the skyline at a
 plateau's absolute height — and the emitted code at that transition
@@ -359,7 +378,8 @@ distinct versions denote distinct functions (@canonical's uniqueness
 argument), which then differ over some plateau of positive width. Lag is the one-sided
 "how much of $b$ have I not seen", the natural backpressure signal
 for anti-entropy protocols. Note the pass count these identities buy
-the composites: two emissions and two rank folds, every piece linear.
+the composites: two emissions and two rank folds for distance, one
+emission and two folds for lag, every piece linear.
 
 *Minimum ticks.* The fewest tick operations that could have produced
 $v$, over all fork/tick/join histories, equals the sum of the
@@ -378,9 +398,11 @@ and that a single tick raises by at most one.
 The last is where to look closely. `grow`'s increment raises one
 leaf term by one, and enclosing minima can only rise, which
 subtracts: at most $+1$. A `fill` collapse replaces a subtree's
-contribution to $M$ — itself at least the subtree's maximum, since
-building any function costs at least its tallest point — by exactly
-that maximum: never an increase. And a `fill` raise lifts an owned
+contribution to $M$ by exactly the subtree's maximum, and the
+contribution was at least that already — over any subtree,
+$M = M_"left" + M_"right" - mu >= max_"left" + max_"right" -
+min(max_"left", max_"right") = max$, by induction from the leaves —
+so a collapse never increases $M$. And a `fill` raise lifts an owned
 plateau _exactly to the adjacent filled minimum_, so the leaf term
 and the enclosing node's minimum term rise by the same amount and
 cancel. No tick raises $M$ by more than one, so any history reaching
@@ -390,20 +412,13 @@ tick the whole currently-owned region $mu(x) - mu("parent"(x))$
 times, then fork into the two children — the counts spent are
 exactly the normalized bases, summing to $M(v)$.
 
-The sweep folds subtree minima with one machine word per open
-ancestor, saturating: the operation's contract is _exact below
-$2^64$, clamped at $2^64 - 1$ above_ — semantically comfortable
-because a count beyond $2^64$ is beyond any history a system will
-ever run, and callers use the clamp as a magnitude. Saturation is
-also why words suffice: any single height beyond word range forces
-the clamped answer immediately (the count dominates every leaf
-height), so the fold exits early rather than escalating to wide
-arithmetic. This is the one walk in the system that pays a machine
-word rather than bits per open ancestor — eight bytes against the
-level's roughly three input bits, a constant near twenty, linear and
-priced, kept because the fold's values are words by construction. Not every fold needs the accumulator; the funding
-question is asked per fold, and here the honest answer is "a word
-suffices."
+The count is an unbounded natural — heights are unbounded, so the
+sum is too — and the sweep computes it exactly at any magnitude with
+nothing this document has not already built: pending subtree minima
+nest, so they ride the same difference coordinates as every fold
+before them, and the sum accumulates on the accumulator, each folded
+code funding its own touches. One funded linear pass, exact, on
+every input.
 
 == Tick: `fill`, `grow`, and the watermark web <tick>
 
@@ -440,11 +455,13 @@ boundary and lets ancestors collapse in turn. The cap at the
 sibling's minimum is _not_ a safety constraint — over its own region
 a participant may inflate as far as it likes (@model: any inflation
 over the id is a legal successor) — it is parsimony, the paper's own
-"does not dominate more events than needed" desideratum, with a
-size rationale behind it: raising exactly to the sibling's minimum
-is the largest raise that still merges plateaus; raising past it
-would claim events no observation forced _and_ re-split what it just
-merged.
+"does not dominate more events than needed" desideratum, and it has
+an exact characterization in the minimum-tick measure of @measures:
+up to the sibling's minimum, a raise costs nothing (the leaf term
+and the enclosing minimum rise together); past it, the version would
+claim events no observation forced. When the filled sibling is
+itself flat, the capped raise moreover merges the pair outright —
+the case the worked trace below exhibits.
 
 === The walk, and its one lookahead <tick-walk>
 
@@ -488,13 +505,18 @@ way the stream order makes vivid:
   for the right quantity: the arm's equation asks for
   $min("fill"(i_r, e_r))$, the minimum of what `fill` _will emit_
   over the range, so the _pre-scan_ simulates the fill there rather
-  than merely reading heights. Nested left-full sites inside the
-  scanned range need no scans of their own: a site's minimum is a
-  suffix quantity of its own range, so the single left-to-right
-  pass keeps pending minima and settles each as its range closes.
-  Done naively per arm, nested left-full sites would still re-scan
-  shared suffixes quadratically; the pre-scan is therefore
-  _memoized_ — one fresh scan per uncovered range, with
+  than merely reading heights. That sounds circular — the simulated
+  fill has left-full arms of its own, each wanting a further
+  lookahead — but one lemma flattens it: a filled owned child takes
+  $max(max(e_l), min(e'_r))$, which is never _below_ $min(e'_r)$,
+  so the minimum over a whole arm equals the right range's minimum
+  whether or not the raise fires. Every site's needed quantity is
+  therefore a pure suffix quantity of its own range, and one
+  left-to-right pass can keep pending minima and settle each as its
+  range closes — no nested scans. What naive repetition would still
+  do is re-scan shared suffixes once per enclosing arm,
+  quadratically; the pre-scan is therefore _memoized_ — one fresh
+  scan per uncovered range, with
   every interior left-full site's minimum recorded on the way, so no
   stream position is ever pre-scanned twice. The walk's total read
   budget is at most two passes per position, flat — tick is the other
@@ -736,7 +758,15 @@ $ "size"("tick"^k (i, e)) <= "size"("tick"(i, e)) + 4 dot "size"(i) + 4 ceil(log
 
 — after the first tick's possible doubling, everything further is
 logarithmic in $k$: the doubling is a one-step transient, not a
-ratchet a peer could crank.
+ratchet a peer could crank. The mechanism behind each term, since
+this is the bound that a tick-cranking peer tests: iterated ticks
+cannot add nodes beyond the id's own resolution — an expansion
+chain fires only where an event leaf still sits above id structure,
+and once split, the region stays split — so the node budget is
+spent at most once, the lone $4 dot "size"(i)$; and $k$ ticks raise
+values by at most $k$, so the re-coded payloads widen by at most
+$ceil(log_2 (k + 1))$ gamma bits apiece, the logarithmic term.
+(Derived and pinned by enforced tests in our work.)
 
 Together: every code tick emits is priced by codes tick read, up to
 constants, and the funded-sweep bound $O(n + m)$ — scan bits, digit

@@ -46,10 +46,10 @@ the right thing to store:
   fully determined. The paper's per-node bases are an artifact of
   spelling the same information top-down — the artifact that forced
   every walk in @naive to maintain path sums. The distinction bites
-  as soon as a base is nonzero: the paper's tree $(1, 0, (0, 0, 1))$
-  has a leaf _written_ $0$ that _stands_ at absolute height $1$ (the
-  base above it), and denotes the plateau heights $1, 1, 2$ — which
-  is all the skyline stores.
+  as soon as a base is nonzero: the paper's tree $(1, 0, 2)$ has a
+  leaf _written_ $0$ that _stands_ at absolute height $1$ (the base
+  above it), and denotes the plateau heights $1, 3$ — which is all
+  the skyline stores.
 
 So we store the shape, and the leaf heights, and nothing else.
 
@@ -151,9 +151,11 @@ terminal, four bits in all:
 #align(center, bitrow((("10", "t", [node: left child only]), ("00", "t", [terminal: owned]))))
 
 At a hundred participants with stable membership, a party measures
-about three bytes; sustained fork-and-retire churn fragments
-ownership and raises it to a few tens (measured: the paper's own
-space-consumption scenarios, reproduced on our implementation). The
+about three bytes (derived: a depth-seven share is sixteen bits;
+the small measured excess is fragmentation); sustained
+fork-and-retire churn fragments ownership further, raising it to a
+few tens of bytes (measured: the paper's own space-consumption
+scenarios, reproduced on our implementation). The
 id side of the system is, by design, nearly free.
 
 One boundary case rounds out the coding. The paper's _anonymous_
@@ -181,9 +183,9 @@ decode boundary:
   right-sibling leaf may never carry a zero delta when its brother is
   a leaf. (A zero delta between consecutive leaves that are _not_
   siblings is a real, canonical shape: two equal plateaus separated
-  by a subtree boundary — exactly the heights $1, 1, 2$ of the
-  $(1, 0, (0, 0, 1))$ example above, whose constant run spans no
-  dyadic interval.)
+  by a subtree boundary. The paper's tree $(1, 0, (0, 0, 1))$ —
+  heights $1, 1, 2$ — is the smallest instance: its constant run at
+  height $1$ spans $[0, 3\/4)$, which no dyadic interval covers.)
 + *Nonnegative heights.* The payload stream is signed; nothing else
   stops a delta from driving the running height below zero, so the
   decoder must.
@@ -193,8 +195,8 @@ decode boundary:
 Parties get the same discipline, with rules matched to their coding:
 no stored node whose two children are both terminals (a wholly-owned
 pair is one terminal spelled as two — the id-side sibling merge), and
-the same exactness; unowned-as-absence needs no rule, since an owned
-`0` subtree has no spelling to forbid. Both codings' rules are
+the same exactness; unowned-as-absence needs no third rule, since
+an unowned subtree has no spelling to forbid. Both codings' rules are
 enforced at every decode boundary, so clock bytes — the two streams
 concatenated — inherit the uniqueness below.
 

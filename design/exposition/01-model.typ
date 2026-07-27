@@ -34,16 +34,17 @@ piece of arithmetic:
   plateau heights, delta-coded, bit-packed, in one contiguous buffer —
   rather than the tree that spells it. The representation is canonical
   (one bit string per value, so byte equality _is_ semantic equality),
-  compact (within $4.3%$ of the information-theoretic floor for the
-  family it covers; @compactness), and sweepable: every operation the
+  compact (within $4.3%$ of the information-theoretic floor
+  asymptotically and $6.7%$ at hundred-byte sizes, for the family it
+  covers; @compactness), and sweepable: every operation the
   clock API asks for is computable in a bounded number of
   left-to-right passes — one for most operations, two where a
   lookahead or a measure's pre-pass is inherent.
 
 - *The accumulator* (@accum): every sweep maintains a running signed
   integer — a running height, a running difference of heights, a
-  running area. Delta coding makes those integers enormous while the
-  deltas stay cheap, and ordinary big-integer arithmetic then leaks a
+  running area. The values run enormous while delta coding keeps
+  their codes cheap, and ordinary big-integer arithmetic then leaks a
   quadratic through carry propagation. A redundant signed-digit
   accumulator with no normalized region anywhere makes every
   word-sized update and every sign query amortized constant-time, and
@@ -70,8 +71,8 @@ every well-formed input — any value magnitude, any tree depth, any
 shape, crafted by an adversary or produced by an unlucky workload —
 time and transient memory are proportional to the bits the operation
 reads plus the bits it must write, with no bounds on the input and
-every known boundary of the argument stated where it lives (the
-paragraph after next collects them). Malformed inputs are rejected,
+every known boundary of the argument stated where it lives (the next
+paragraph collects them). Malformed inputs are rejected,
 and rejection obeys the same proportionality. Each section's cost argument is one clause of
 that claim; the accumulator is the clause the others lean on.
 
@@ -184,11 +185,12 @@ double duty; each such use is flagged where it occurs):
       count; the watermark gap $h - m$ in @tick],
     [$ell$ (again)], [in @compactness only: a walk's step count and
       a family's plateau count],
-    [$S$], [a stream's maximum leaf depth; in @compactness,
-      $cal(F)(n)$ names the version family so the letter stays
-      free],
+    [$S$], [a stream's maximum leaf depth (@compactness writes its
+      version family $cal(F)(n)$, avoiding the letter)],
     [$n$ (again)], [in @model and @naive only, the paper's own
       grammar uses $n, n_1, n_2$ for event-node values],
+    [$m$ (again)], [in @model, a lift amount; in @tick, a range
+      minimum ($m_0, m_1, dots$)],
   ),
   kind: table,
   caption: [Notation. Lengths are in bits unless bytes are named.],

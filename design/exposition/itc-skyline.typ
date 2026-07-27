@@ -39,7 +39,8 @@
   measured before the cures, a thirty-kilobyte operand pair cost
   nearly two hundred megabytes of transient memory inside one
   comparison, and
-  a half-megabyte value took over fourteen seconds to decode. This
+  a value half a megabyte wide (a one-megabyte code) took over
+  fourteen seconds to decode. This
   document develops, from first principles, a representation under
   which every primitive clock operation is a bounded number of linear
   passes over its packed operands and its mandatory output — one pass
@@ -50,8 +51,9 @@
   to maintain and cheap to ask about. We derive each operation as a
   sweep, give the informal argument that each is asymptotically
   optimal, derive a worst-case counting bound placing the encoding
-  within $4.3%$ of the information-theoretic floor for the family of
-  values it covers, and examine the constant factors — why the
+  within $4.3%$ of the information-theoretic floor asymptotically —
+  $6.7%$ at realistic hundred-byte sizes — for the family of values
+  it covers, and examine the constant factors — why the
   representation is the shape caches, branch predictors, and
   word-parallel decoders want. A single thesis organizes the design:
   every bit is touched a bounded number of times, and every touch is

@@ -148,8 +148,9 @@ the document's own contents were produced by it:
 
 The skyline representation and its accumulator were presented as an
 efficiency story, and they are one: within $4.3%$ of the counting
-floor at rest (against the family the coding reaches — the framing
-@ctf-caveat keeps honest), linear sweeps for every operation, constants a small
+floor at rest asymptotically, $6.7%$ at hundred-byte sizes (against
+the family the coding reaches — the framing @ctf-caveat keeps
+honest), linear sweeps for every operation, constants a small
 multiple of reading cost, on the access pattern the machine likes
 best. But the deeper claim, and the one this document was written to
 make legible, is about _worst cases as a design material_. Every
