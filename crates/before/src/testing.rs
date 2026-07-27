@@ -24,3 +24,4 @@ pub(crate) mod compactness;
 pub(crate) mod exhaustive;
 pub(crate) mod semantic_oracle;
 mod snapshots;
+pub(crate) mod triangle;
