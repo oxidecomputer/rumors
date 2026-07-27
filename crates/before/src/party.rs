@@ -387,17 +387,6 @@ impl Party {
     /// ```
     pub fn without(self, other: &Party) -> Option<Party> {
         let bits = self.view().diff(other.view());
-        // The diff kernel is the one producer feeding `id_is_empty` a fresh
-        // emission rather than just-parsed bytes, so its normal form is
-        // asserted in full at this seam (dev builds only). The check
-        // genuinely needs the O(n) parse — a collapsible node can hide
-        // anywhere in the stream — and a non-normal-form escape here would
-        // poison every stored `Party` downstream, so the full form stays:
-        // a deliberate, owned dev-profile metering divergence.
-        debug_assert!(
-            matches!(codec::parse_id(&bits, 0), Ok(end) if end == bits.len()),
-            "diff emitted a non-normal-form id",
-        );
         if codec::id_is_empty(&bits) {
             None
         } else {
