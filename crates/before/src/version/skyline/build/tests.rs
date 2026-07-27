@@ -44,20 +44,20 @@ fn bits(s: &str) -> Bits {
         .collect()
 }
 
-/// A single depth-0 leaf builds the two-bit stream `0 gamma(v)`: no
+/// A single depth-0 leaf builds the two-bit stream `1 gamma(v)`: no
 /// topology derivation, no collapse.
 #[test]
 fn single_leaf_is_flag_plus_code() {
-    assert_eq!(built(vec![(0, gamma(0))]), bits("0 1"));
+    assert_eq!(built(vec![(0, gamma(0))]), bits("1 1"));
 }
 
 /// Distinct sibling leaves keep their pair: `(3, 6)` at depth 1 builds
-/// `1 0 gamma(3) 0 zigzag(+3)` with no truncation anywhere.
+/// `0 1 gamma(3) 1 zigzag(+3)` with no truncation anywhere.
 #[test]
 fn distinct_siblings_stay_a_pair() {
     let stream = built(vec![(1, gamma(3)), (1, delta(false, 3))]);
     // gamma(3) = 00100, zigzag(+3) = 6 -> gamma(6) = 00111.
-    assert_eq!(stream, bits("1 0 00100 0 00111"));
+    assert_eq!(stream, bits("0 1 00100 1 00111"));
 }
 
 /// A zero-delta right sibling absorbs into its held left sibling: the
@@ -67,7 +67,7 @@ fn distinct_siblings_stay_a_pair() {
 fn equal_siblings_absorb() {
     let stream = built(vec![(1, gamma(5)), (1, delta(false, 0))]);
     // gamma(5) = 00110; the depth-1 pair collapsed to one depth-0 leaf.
-    assert_eq!(stream, bits("0 00110"));
+    assert_eq!(stream, bits("1 00110"));
 }
 
 /// The absorb cascade climbs: four equal leaves at depth 2 collapse
@@ -80,7 +80,7 @@ fn uniform_region_cascades_to_one_leaf() {
         (2, delta(false, 0)),
         (1, delta(false, 0)),
     ]);
-    assert_eq!(stream, bits("0 0001000"));
+    assert_eq!(stream, bits("1 0001000"));
 }
 
 /// Re-anchor: a right subtree that merges into a leaf equal to its
@@ -93,7 +93,7 @@ fn merged_right_subtree_reanchors_over_left_leaf() {
         (2, delta(false, 0)),
         (2, delta(false, 0)),
     ]);
-    assert_eq!(stream, bits("0 00101"));
+    assert_eq!(stream, bits("1 00101"));
 }
 
 /// A zero delta across a subtree boundary is canonical and survives: in
@@ -106,8 +106,8 @@ fn zero_delta_against_internal_sibling_survives() {
         (2, delta(false, 2)),
         (1, delta(false, 0)),
     ]);
-    // 1 (root) 1 (left pair) 0 gamma(3) 0 zigzag(+2)=4 0 zigzag(0).
-    assert_eq!(stream, bits("1 1 0 00100 0 00101 0 1"));
+    // 0 (root) 0 (left pair) 1 gamma(3) 1 zigzag(+2)=4 1 zigzag(0).
+    assert_eq!(stream, bits("0 0 1 00100 1 00101 1 1"));
 }
 
 /// Deep uniformity around a wide code stays a single leaf: a depth-8
@@ -136,7 +136,7 @@ fn absorb_cascade_climbs_a_left_spine() {
         (2, delta(false, 0)),
         (1, delta(false, 0)),
     ];
-    assert_eq!(built(leaves), bits("0 00100"));
+    assert_eq!(built(leaves), bits("1 00100"));
 }
 
 /// Re-anchor cascades down a right spine: the uniform tiling of
@@ -151,7 +151,7 @@ fn reanchor_cascade_climbs_chained_levels() {
         (3, delta(false, 0)),
         (3, delta(false, 0)),
     ];
-    assert_eq!(built(leaves), bits("0 00110"));
+    assert_eq!(built(leaves), bits("1 00110"));
 }
 
 /// Collapse is value-driven, not shape-driven: the mixed tiling
@@ -164,14 +164,14 @@ fn partial_equality_collapses_only_the_equal_pair() {
         (2, delta(false, 0)),
         (2, delta(false, 0)),
     ]);
-    assert_eq!(collapsed, bits("0 011"));
+    assert_eq!(collapsed, bits("1 011"));
     let kept = built(vec![
         (1, gamma(2)),
         (2, delta(false, 0)),
         (2, delta(false, 7)),
     ]);
-    // 1 (root) 0 gamma(2) 1 (right pair) 0 zigzag(0) 0 zigzag(+7)=14.
-    assert_eq!(kept, bits("1 0 011 1 0 1 0 0001111"));
+    // 0 (root) 1 gamma(2) 0 (right pair) 1 zigzag(0) 1 zigzag(+7)=14.
+    assert_eq!(kept, bits("0 1 011 0 1 1 1 0001111"));
 }
 
 /// One subtree's continuation range for [`SkylineBuilder::continue_verbatim`]:
@@ -203,9 +203,9 @@ fn continuation(
         }
         let rel = depth - root_depth;
         let entered = rel - path.len();
-        range.extend(std::iter::repeat_n(true, entered));
+        range.extend(std::iter::repeat_n(false, entered));
         path.extend(std::iter::repeat_n(false, entered));
-        range.push(false);
+        range.push(true);
         range.extend_from_bitslice(code);
     }
     let (last_depth, last_code) = leaves.last().expect("a continuation has at least one leaf");

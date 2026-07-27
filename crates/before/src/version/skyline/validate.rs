@@ -19,7 +19,7 @@
 use core::cmp::Ordering;
 
 use crate::codec::accum::Accum;
-use crate::codec::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
+use crate::codec::{Base, BitCursor, Bits, BitsSlice, DsiCursor};
 use crate::error::Decode;
 
 use super::unzigzag;
@@ -30,7 +30,7 @@ use super::unzigzag;
 /// before the last live bit is [`Decode::TrailingBits`]; everything else
 /// is [`validate_from`]'s contract.
 pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
-    let mut cursor = SliceCursor::new(bits, 0);
+    let mut cursor = DsiCursor::new(bits);
     validate_from(&mut cursor)?;
     if cursor.position() != bits.len() {
         return Err(Decode::TrailingBits);
@@ -45,7 +45,7 @@ pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
 /// bit-self-delimiting (one complete tree), so the returned end position
 /// is where any zero padding must begin.
 pub(crate) fn validate_prefix(bits: &BitsSlice) -> Result<usize, Decode> {
-    let mut cursor = SliceCursor::new(bits, 0);
+    let mut cursor = DsiCursor::new(bits);
     validate_from(&mut cursor)?;
     Ok(cursor.position())
 }
@@ -72,17 +72,18 @@ where
     let mut seen_leaf = false;
 
     loop {
-        let internal = cursor.read_bit()?;
-        if internal {
+        // One whole descent per unary read: `k` internal nodes opened,
+        // then the leaf whose flag terminates the run.
+        let k = cursor.read_unary()?;
+        for _ in 0..k {
             open.push(false); // left-complete: the left child comes next
             open.push(false); // left-was-leaf: placeholder until it does
-            continue;
         }
 
-        // A leaf: decode its payload and update the running height,
-        // through the cursor's own `read_int` so a windowing cursor
-        // (the slice cursor; the wire-side reader) takes its word-wise
-        // fast path.
+        // The leaf: decode its payload and update the running height,
+        // through the cursor's own `read_int` so a word-parallel cursor
+        // (the production reader; the wire-side reader's window) takes
+        // its fast path.
         let code = cursor.read_int()?;
         let mut zero_delta = false;
         if seen_leaf {

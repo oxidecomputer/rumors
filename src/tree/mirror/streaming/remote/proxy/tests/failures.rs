@@ -282,7 +282,17 @@ fn every_transport_fault_surface_is_reachable() {
     ];
 
     for (operation, unit) in variants {
-        let (left, right) = stacked_pair();
+        // The faulted (left) side must be the elected responder: the
+        // Accept surface's mechanism — a destroyed incoming stream
+        // surfacing from the receiver that provably needed it — requires
+        // the faulted endpoint to be the one awaiting the initiator's
+        // opening supply streams.
+        let (a, b) = stacked_pair();
+        let (left, right) = if harness::left_initiates(&a, &b) {
+            (b, a)
+        } else {
+            (a, b)
+        };
         let fault = IoFault {
             operation,
             after: 0,

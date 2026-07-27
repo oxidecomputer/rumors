@@ -9,7 +9,7 @@
 //! function, but its inner node hoards a liftable minimum, so it is not
 //! the normal spelling and is refused.
 
-use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, SliceCursor};
+use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, DsiCursor};
 use crate::error::Parse;
 
 use super::{unzigzag, zigzag};
@@ -17,7 +17,7 @@ use super::{unzigzag, zigzag};
 /// The skyline stream of an event leaf with base `n`.
 pub(crate) fn leaf(n: u64) -> Bits {
     let mut bits = Bits::new();
-    bits.push(false); // topology: a leaf
+    bits.push(true); // topology: a leaf
     codec::encode_int(&mut bits, &Base::from(n)); // absolute height
     bits
 }
@@ -50,7 +50,7 @@ pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> 
 
     let n = Base::from(n);
     let mut bits = Bits::new();
-    bits.push(true); // topology: this node
+    bits.push(false); // topology: this node
     bits.extend_from_bitslice(&l_topo); // then the left subtree's topology…
     bits.extend_from_bitslice(&r_topo); // …then the right's — but the
                                         // payloads interleave, so re-emit.
@@ -58,10 +58,10 @@ pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> 
     let mut topo = bits.iter().by_vals();
     let mut heights = l_heights.iter().chain(r_heights.iter());
     let mut prev: Option<Base> = None;
-    for internal in &mut topo {
-        out.push(internal);
-        if internal {
-            continue;
+    for flag in &mut topo {
+        out.push(flag);
+        if !flag {
+            continue; // an internal node carries no payload
         }
         let height = heights.next().expect("one height per leaf") + &n;
         match &prev {
@@ -75,24 +75,26 @@ pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> 
     Ok(out)
 }
 
-/// Split a canonical stream into its topology flags and absolute leaf
-/// heights.
+/// Split a canonical stream into its topology flags (wire convention:
+/// `0` internal, `1` leaf) and absolute leaf heights.
 fn scan(bits: &BitsSlice) -> (Bits, Vec<Base>) {
-    let mut cursor = SliceCursor::new(bits, 0);
+    let mut cursor = DsiCursor::new(bits);
     let mut topology = Bits::new();
     let mut heights: Vec<Base> = Vec::new();
     let mut pending = 1usize;
     while pending > 0 {
-        pending -= 1;
-        let internal = cursor
-            .read_bit()
+        // One whole descent per unary read: `k` internal nodes, then the
+        // leaf whose flag terminates the run. Each internal node opens
+        // two children and closes itself; the leaf closes itself.
+        let k = cursor
+            .read_unary()
             .expect("a canonical stream holds a complete tree");
-        topology.push(internal);
-        if internal {
-            pending += 2;
-            continue;
+        for _ in 0..k {
+            topology.push(false);
         }
-        // The cursor's own `read_int`: word-wise payload decode.
+        topology.push(true);
+        pending = pending + k - 1;
+        // The cursor's own `read_int`: word-parallel payload decode.
         let code = cursor
             .read_int()
             .expect("a canonical stream holds a complete payload per leaf");

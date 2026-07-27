@@ -41,14 +41,14 @@ fn stream_of(v: &Version) -> Bits {
 
 // ─── hand-pinned streams ────────────────────────────────────────────────────
 
-/// The empty version is the leaf 0 in both codings: topology `0` plus
-/// `gamma(0)`, the two-bit stream `01`, and it round-trips.
+/// The empty version is the leaf 0: topology `1` (a leaf) plus
+/// `gamma(0)`, the two-bit stream `11`, and it round-trips.
 #[test]
 fn empty_version_is_the_two_bit_stream() {
     let v = Version::new();
     let bits = stream_of(&v);
     assert_eq!(bits.len(), 2);
-    assert!(!bits[0], "a leaf's topology flag is 0");
+    assert!(bits[0], "a leaf's topology flag is 1");
     assert!(bits[1], "gamma(0) is the single bit 1");
     assert_eq!(decode_bits(&bits).expect("canonical"), v);
 }
@@ -66,9 +66,9 @@ fn one_fork_matches_hand_derivation() {
     let bits = stream_of(&v);
     // Preorder: internal root, leaf(gamma(1) = 010), leaf(gamma(4) = 00101).
     let expected: Vec<bool> = [
-        true, // root: internal
-        false, false, true, false, // left leaf: flag 0, gamma(1)
-        false, false, false, true, false, true, // right leaf: flag 0, gamma(4)
+        false, // root: internal (flag 0)
+        true, false, true, false, // left leaf: flag 1, gamma(1)
+        true, false, false, true, false, true, // right leaf: flag 1, gamma(4)
     ]
     .to_vec();
     assert_eq!(bits.iter().by_vals().collect::<Vec<bool>>(), expected);
@@ -79,7 +79,7 @@ fn one_fork_matches_hand_derivation() {
 
 /// Append a leaf carrying a raw payload value (the caller pre-zigzags).
 fn push_leaf(bits: &mut Bits, payload: u64) {
-    bits.push(false);
+    bits.push(true);
     codec::encode_int(bits, &Base::from(payload));
 }
 
@@ -89,7 +89,7 @@ fn push_leaf(bits: &mut Bits, payload: u64) {
 fn rejects_zero_right_sibling_delta() {
     // (5, 5): internal root, leaf height 5, then delta 0.
     let mut bits = Bits::new();
-    bits.push(true);
+    bits.push(false); // root: internal
     push_leaf(&mut bits, 5); // gamma(5): the first leaf, absolute
     push_leaf(&mut bits, 0); // zigzag(0) = 0 -> gamma(0): equal sibling
     assert!(matches!(validate_bits(&bits), Err(Decode::NotCanonical)));
@@ -112,8 +112,8 @@ fn accepts_zero_delta_across_a_subtree_boundary() {
         oracle::Version::leaf(1u64),
     ));
     let mut bits = Bits::new();
-    bits.push(true); // root
-    bits.push(true); // left child: internal
+    bits.push(false); // root: internal
+    bits.push(false); // left child: internal
     push_leaf(&mut bits, 0); // leaf 0: gamma(0), absolute
     push_leaf(&mut bits, 2); // leaf 1: zigzag(+1) = 2
     push_leaf(&mut bits, 0); // leaf 1 again: zigzag(0) = 0, non-sibling
@@ -129,7 +129,7 @@ fn accepts_zero_delta_across_a_subtree_boundary() {
 fn rejects_negative_running_height() {
     // (1, -1): internal root, leaf height 1, then delta -2.
     let mut bits = Bits::new();
-    bits.push(true);
+    bits.push(false); // root: internal
     push_leaf(&mut bits, 1); // first leaf: height 1
     push_leaf(&mut bits, 3); // zigzag(-2) = 3: height would be -1
     assert!(matches!(validate_bits(&bits), Err(Decode::NotCanonical)));
@@ -142,9 +142,9 @@ fn rejects_negative_height_midstream() {
     // Root over leaf(1) and (node over leaf(-1), leaf(5)): the middle leaf
     // dips negative before the last one recovers.
     let mut bits = Bits::new();
-    bits.push(true); // root
+    bits.push(false); // root: internal
     push_leaf(&mut bits, 1); // first leaf: height 1
-    bits.push(true); // right child: internal
+    bits.push(false); // right child: internal
     push_leaf(&mut bits, 3); // zigzag(-2) = 3: height -1, invalid here
     push_leaf(&mut bits, 12); // zigzag(+6) = 12: would recover to 5
     assert!(matches!(validate_bits(&bits), Err(Decode::NotCanonical)));
@@ -221,6 +221,117 @@ fn zigzag_is_a_bijection_without_negative_zero() {
             (Base::ZERO, Base::from(mag))
         };
         assert_eq!(zigzag(&prev, &cur), Base::from(m));
+    }
+}
+
+// ─── the topology-flag bijection ────────────────────────────────────────────
+//
+// The stored coding flags `0` internal / `1` leaf. These pins prove that
+// convention is exactly a per-node flag inversion away from the flag-`1`-
+// internal spelling of the same grammar: an independent test-only encoder
+// emits the inverted-flag stream from the oracle tree, and transcoding it
+// (inverting one bit per node, payload codes copied verbatim) lands
+// byte-for-byte on the stored stream. Bit counts, code positions, and the
+// grammar therefore map 1:1 between the two spellings, which is what makes
+// the flag choice a pure re-denomination: canonicality structure and the
+// rejection surface carry over node for node.
+
+/// Emit the flag-inverted skyline spelling of a normal-form oracle tree:
+/// per-node preorder flag `1` internal / `0` leaf, payloads exactly the
+/// stored coding's (first leaf absolute, later leaves zigzag deltas).
+fn inverted_flag_stream(t: &oracle::Version) -> Bits {
+    fn walk(t: &oracle::Version, offset: &Base, prev: &mut Option<Base>, out: &mut Bits) {
+        match t {
+            oracle::Version::Leaf(n) => {
+                out.push(false); // leaf flag, inverted spelling
+                let height = offset + n;
+                match prev.replace(height.clone()) {
+                    None => codec::encode_int(out, &height),
+                    Some(p) => codec::encode_int(out, &zigzag(&p, &height)),
+                }
+            }
+            oracle::Version::Node(n, l, r) => {
+                out.push(true); // internal flag, inverted spelling
+                let offset = offset + n;
+                walk(l, &offset, prev, out);
+                walk(r, &offset, prev, out);
+            }
+        }
+    }
+    let mut out = Bits::new();
+    walk(t, &Base::ZERO, &mut None, &mut out);
+    out
+}
+
+/// Transcode between the two flag spellings: walk the stream by its own
+/// grammar (`internal` says which flag value opens two children), invert
+/// exactly the one flag bit per node, and copy every payload code
+/// verbatim.
+fn flip_topology_flags(bits: &Bits, internal: bool) -> Bits {
+    let mut out = Bits::with_capacity(bits.len());
+    let mut pos = 0usize;
+    let mut pending = 1usize;
+    while pending > 0 {
+        pending -= 1;
+        let flag = bits[pos];
+        out.push(!flag);
+        pos += 1;
+        if flag == internal {
+            pending += 2;
+            continue;
+        }
+        let (_, next) = codec::decode_int(bits, pos).expect("a payload code per leaf");
+        out.extend_from_bitslice(&bits[pos..next]);
+        pos = next;
+    }
+    assert_eq!(pos, bits.len(), "the transcode consumes exactly one tree");
+    out
+}
+
+/// Assert the bijection on one tree: inverting the inverted-flag
+/// spelling's topology bits yields exactly the stored stream, and
+/// inverting the stored stream's yields the inverted spelling back.
+fn assert_flag_bijection(t: &oracle::Version) {
+    let stored = stream_of(&from_oracle_version(t));
+    let inverted = inverted_flag_stream(t);
+    assert_eq!(
+        flip_topology_flags(&inverted, true),
+        stored,
+        "flipping the inverted spelling's topology flags must land on the stored stream"
+    );
+    assert_eq!(
+        flip_topology_flags(&stored, false),
+        inverted,
+        "flipping the stored stream's topology flags must land on the inverted spelling"
+    );
+}
+
+/// The flag bijection holds across the adversarial families, wide (the
+/// gamma wide arm) and deep (long unary runs) members included.
+#[test]
+fn topology_flag_bijection_on_generator_families() {
+    for p in [
+        dense(1),
+        dense(1_000),
+        bigroot(1_000, 200),
+        hugeleaf(5_000),
+        cliff_comb(64, 64),
+        wide_tooth_comb(512, 192, 64),
+        alt_spine(64),
+        cancelling_chain(64, 64),
+    ] {
+        assert_flag_bijection(&to_oracle_version(&version_of(&p)));
+    }
+    assert_flag_bijection(&to_oracle_version(&Version::new()));
+}
+
+proptest! {
+    /// The flag bijection holds on arbitrary normal-form trees
+    /// (magnitudes past `u64::MAX` included) and on every version of an
+    /// organic history.
+    #[test]
+    fn topology_flag_bijection_on_arbitrary_trees(t in generators::arb_oracle_version()) {
+        assert_flag_bijection(&t);
     }
 }
 

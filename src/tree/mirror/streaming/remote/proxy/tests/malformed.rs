@@ -86,13 +86,15 @@ fn reserved_signals_propagate_through_the_full_proxy() {
 /// The injected byte is a continuing `Match` aimed at the opening-supply
 /// stream — whose grammar admits only supplies and ends — and the
 /// receiving proxy retains the exact placement rejection through the full
-/// stack.
+/// stack. The corrupt side must be the elected *initiator*: its first
+/// data frame is an opening supply, the stream the mutated signal must
+/// land in.
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {
     const OPENING_MATCH_CONTINUE_SIGNAL: u8 = 0;
 
     let (left, right) = deep_pair();
-    let corrupt_left = right.ceiling.as_bytes() < left.ceiling.as_bytes();
+    let corrupt_left = harness::left_initiates(&left, &right);
     let script = Script::new(
         FrameSelector::First,
         FrameMutation::Signal(OPENING_MATCH_CONTINUE_SIGNAL),
@@ -121,23 +123,23 @@ fn phase_invalid_signal_propagates_through_the_full_proxy() {
 /// Canonical query ordering is enforced when corruption occurs inside an
 /// otherwise honest, live proxy session.
 ///
-/// The corrupt physical side is arranged to be the elected *responder*
-/// (the lesser canonical version): with the opening question riding the
-/// greeting rather than a wire frame, the responder's disputed-child
-/// listing is the one query frame every divergent session still carries.
+/// The corrupt physical side is arranged to be the elected *responder*:
+/// with the opening question riding the greeting rather than a wire
+/// frame, the responder's disputed-child listing is the one query frame
+/// every divergent session still carries.
 #[test]
 fn unordered_query_propagates_through_the_full_proxy() {
     for corrupt_left in [false, true] {
         let (a, b) = deep_pair();
-        let (greater, lesser) = if a.ceiling.as_bytes() > b.ceiling.as_bytes() {
+        let (initiator, responder) = if harness::left_initiates(&a, &b) {
             (a, b)
         } else {
             (b, a)
         };
         let (left, right) = if corrupt_left {
-            (lesser, greater)
+            (responder, initiator)
         } else {
-            (greater, lesser)
+            (initiator, responder)
         };
         let script = Script::new(FrameSelector::Query, FrameMutation::UnorderQuery);
         let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(

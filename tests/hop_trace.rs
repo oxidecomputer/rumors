@@ -525,15 +525,15 @@ fn trace_redaction_session() {
 /// side holding a two-leaf subtree under one root radix.
 ///
 /// The staging reuses `gossip_snapshot.rs`'s searched values: the
-/// initiator's two keys share first byte `4c` and its ballast counterpart's
-/// three keys land at `5b`, `41`, and `b9`, so no root child is populated
+/// initiator's two keys share first byte `b4` and its ballast counterpart's
+/// three keys land at `9f`, `e3`, and `e5`, so no root child is populated
 /// on both sides and the session is pure transfer in both directions.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let right = bootstrap_fork(&left);
-    left.batch().send(1).send(522);
+    left.batch().send(1).send(148);
     right.batch().send(100).send(101).send(102);
 
     // Fixture self-checks: mirror the searched shape so drift in hashing or

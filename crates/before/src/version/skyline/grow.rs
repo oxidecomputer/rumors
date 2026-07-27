@@ -77,7 +77,7 @@
 //! which would misread a direction silently rather than panic. Deep
 //! spines swap the native-frame oracle for closed-form expected values.
 
-use crate::codec::{self, Base, Bits, BitsSlice};
+use crate::codec::{self, Base, BitCursor, Bits, BitsSlice};
 use crate::step;
 
 use super::build::SkylineBuilder;
@@ -147,21 +147,32 @@ impl Route {
 /// Reads node flags and *skips* leaf payload codes by width — the emit
 /// never materializes a height it does not re-code — and skips whole
 /// subtrees with a pending-children counter. The reference recursive
-/// probe (`tests`) shares it.
+/// probe (`tests`) shares it. The reads ride the word-parallel cursor;
+/// the node reads stay single-flag because the walk interleaves with
+/// the id stream one node at a time — there is no run to batch.
 struct EvScan<'a> {
     bits: &'a BitsSlice,
-    pos: usize,
+    cursor: codec::DsiCursor<'a>,
 }
 
 impl<'a> EvScan<'a> {
     /// A cursor at the stream's root.
     fn new(bits: &'a BitsSlice) -> Self {
-        EvScan { bits, pos: 0 }
+        EvScan {
+            bits,
+            cursor: codec::DsiCursor::new(bits),
+        }
     }
 
     /// The cursor's bit position: the next node's flag.
     fn pos(&self) -> usize {
-        self.pos
+        self.cursor.position()
+    }
+
+    /// Move the cursor to `pos` (a node-flag position located by a
+    /// side scan): `O(1)`, nothing is read or recorded.
+    fn seek(&mut self, pos: usize) {
+        self.cursor = codec::DsiCursor::new_at(self.bits, pos);
     }
 
     /// Decode the node at the cursor and advance past its header:
@@ -173,15 +184,13 @@ impl<'a> EvScan<'a> {
     /// Panics if the stream is not a canonical skyline encoding.
     fn read(&mut self) -> Option<core::ops::Range<usize>> {
         step!();
-        codec::scan::record_bits(1);
-        let internal = self.bits[self.pos];
-        self.pos += 1;
-        if internal {
+        let leaf = self.cursor.read_bit().expect("canonical skyline bits");
+        if !leaf {
             None
         } else {
-            let start = self.pos;
-            self.pos = codec::skip_int(self.bits, start).expect("canonical skyline bits");
-            Some(start..self.pos)
+            let start = self.cursor.position();
+            self.cursor.skip_int().expect("canonical skyline bits");
+            Some(start..self.cursor.position())
         }
     }
 
@@ -195,17 +204,15 @@ impl<'a> EvScan<'a> {
     /// Panics if the stream is not a canonical skyline encoding.
     #[cfg(test)]
     fn skip(&mut self) {
-        let bits = self.bits;
-        self.pos = crate::idbits::skip_subtree(self.pos, |at| {
+        // One unary read per descent: `k` internal nodes open two
+        // children each, and the terminating leaf closes one.
+        let mut pending = 1usize;
+        while pending > 0 {
             step!();
-            codec::scan::record_bits(1);
-            if bits[at] {
-                (2, at + 1)
-            } else {
-                let next = codec::skip_int(bits, at + 1).expect("canonical skyline bits");
-                (0, next)
-            }
-        });
+            let k = self.cursor.read_unary().expect("canonical skyline bits");
+            self.cursor.skip_int().expect("canonical skyline bits");
+            pending = pending + k - 1;
+        }
     }
 }
 
@@ -264,22 +271,17 @@ struct Subtree {
 ///
 /// Panics if the stream is not a canonical skyline encoding.
 fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
-    let mut pos = start;
+    let mut cursor = codec::DsiCursor::new_at(bits, start);
     let mut path = Bits::new();
-    // Descend to the leftmost leaf.
-    loop {
-        step!();
-        codec::scan::record_bits(1);
-        let internal = bits[pos];
-        pos += 1;
-        if !internal {
-            break;
-        }
+    // Descend to the leftmost leaf: one unary read.
+    step!();
+    let k = cursor.read_unary().expect("canonical skyline bits");
+    for _ in 0..k {
         path.push(false);
     }
-    let code_start = pos;
-    pos = codec::skip_int(bits, pos).expect("canonical skyline bits");
-    let first_code = code_start..pos;
+    let code_start = cursor.position();
+    cursor.skip_int().expect("canonical skyline bits");
+    let first_code = code_start..cursor.position();
     let first_rel_depth = path.len();
     let mut last_code = first_code.clone();
     let mut last_rel_depth = first_rel_depth;
@@ -298,23 +300,18 @@ fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
             break;
         }
         // Descend to the next leaf.
-        loop {
-            step!();
-            codec::scan::record_bits(1);
-            let internal = bits[pos];
-            pos += 1;
-            if !internal {
-                break;
-            }
+        step!();
+        let k = cursor.read_unary().expect("canonical skyline bits");
+        for _ in 0..k {
             path.push(false);
         }
-        let code_start = pos;
-        pos = codec::skip_int(bits, pos).expect("canonical skyline bits");
-        last_code = code_start..pos;
+        let code_start = cursor.position();
+        cursor.skip_int().expect("canonical skyline bits");
+        last_code = code_start..cursor.position();
         last_rel_depth = path.len();
     }
     Subtree {
-        end: pos,
+        end: cursor.position(),
         first_code,
         first_rel_depth,
         last_code,
@@ -329,7 +326,7 @@ fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
 /// successor repair when the grown leaf precedes it); the remainder is
 /// one verbatim splice.
 fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, repair: Repair) {
-    let info = scan_subtree(ev.bits, ev.pos);
+    let info = scan_subtree(ev.bits, ev.pos());
     let orig = &ev.bits[info.first_code.clone()];
     let first_code = match repair {
         Repair::None => orig.to_bitvec(),
@@ -346,7 +343,7 @@ fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, rep
             info.last_code.len(),
         );
     }
-    ev.pos = info.end;
+    ev.seek(info.end);
 }
 
 /// Re-code one leaf payload with its height stepped by one:
