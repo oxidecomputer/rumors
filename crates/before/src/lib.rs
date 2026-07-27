@@ -71,14 +71,15 @@
 //! [`Party`]s and [`Clock`]s are linear ([`!Clone`](Clone)): moved, never
 //! duplicated, because duplicating identity is exactly what breaks a causal
 //! clock. [`Version`]s are freely [`Clone`]able. A tick pairs the two
-//! halves — [`Party::tick`] and [`Version::tick`] record an event for a
-//! party in a version, and [`Clock::tick`] does the same for its own pair.
+//! halves — `party.tick(&mut version)` and `version.tick(&party)` are the
+//! same act from either receiver ([`Party::tick`], [`Version::tick`]) — and
+//! [`Clock::tick`] performs it on its own pair.
 //! The [`batch`] module chains several operations through one borrow; the
 //! [`iter`] module forks `n` peers in one balanced split.
 //!
 //! ## Version vector or vector clock?
 //!
-//! [`before`](crate) implements both classic constructions; the difference is
+//! [`before`](crate) can play either classic role; the difference is
 //! entirely in how you use it. [*Version
 //! vectors*](https://en.wikipedia.org/wiki/Version_vector) order **data** —
 //! they answer "has this replica seen that write?" — so participants record
@@ -190,14 +191,22 @@
 //! [*disjoint*](Party::is_disjoint) from it. (A party is a set of id-space
 //! intervals — see [How it works](#how-it-works); disjoint parties share
 //! none.) Two parties *interact* when one is [`join`](Clock::join)ed or
-//! [`sync`](Clock::sync)ed with the other, and whenever versions they tick
+//! [`sync`](Clock::sync)ed (a mutual join) with the other, and whenever versions they tick
 //! meet in a comparison or a join. Only the first kind is fenced: join and
 //! sync do verify their operands, and refuse overlapping parties. The
 //! second kind is where corruption lives — a version carries no record of
 //! who ticked it, so a version written through a duplicated identity is
 //! indistinguishable from a healthy one, and comparisons simply begin
 //! reporting causal order that never happened. Nothing panics; the answers
-//! are just wrong. The caller must ensure both:
+//! are just wrong.
+//!
+//! The two rules below are what make the Law hold: obey them and every two
+//! live parties in a system are disjoint by construction. An overlap error
+//! from a join or sync is therefore always a symptom, never the disease —
+//! some rule was already broken upstream (a pre-fork copy came back into
+//! play, or a second seed leaked in), and the fence caught one visible
+//! consequence of it; the rest of the damage may already be silent. The
+//! caller must ensure both:
 //!
 //! 1. **Singularity.** A system of clocks has one [`Clock::seed`] (or
 //!    [`Party::seed`]), created once, from which every [`Clock`] and
@@ -252,8 +261,8 @@
 //!   predicate is causal containment.
 //! - **Sorting**: where a *total* order over versions is needed, [`Rank`]
 //!   measures a version by a quantity that strictly grows with every tick
-//!   — the exact area under the version's history function (see [How it
-//!   works](#how-it-works)) — so `v < w` implies
+//!   — the exact area under the version's history function, drawn out in
+//!   [`implementation`] — so `v < w` implies
 //!   `v.rank() < w.rank()`: causes always sort before their effects. Only
 //!   concurrent versions can tie, and any deterministic tiebreak then
 //!   yields the same total order on every replica. [`Ranked`] packages a
@@ -509,7 +518,8 @@ pub mod implementation {
     //! because neighboring plateaus tend to sit close in height even when
     //! both stand very tall. A difference can be negative, so it is first
     //! folded onto the naturals (*zigzag*: `+k → 2k`, `−k → 2k−1`) and then
-    //! written as a variable-length integer code (*Elias gamma*) that
+    //! written as a variable-length integer code (*Elias gamma*, applied to
+    //! the number plus one so that zero stays codable) that
     //! spends bits in proportion to the number's size — so a run of
     //! similar heights costs a few bits per leaf no matter how tall it
     //! stands. Our example `(0, 1, (0, 0, 2))` becomes five topology flags
@@ -544,16 +554,21 @@ pub mod implementation {
     //! pointwise max — `max(1, 0)`, `max(0, 0)`, `max(0, 2)` — and what it
     //! carries between pieces is not two absolute heights but one running
     //! *difference* between the sides, updated from the deltas the streams
-    //! themselves supply. Comparison is the same walk with no output: the
-    //! sign of that difference, watched across the whole sweep, settles
-    //! `<`, `>`, `==`, or concurrent. The measures fold over the same
-    //! alignment — [`rank`](crate::Version::rank) accumulates area;
-    //! [`distance`](crate::Version::distance) and
-    //! [`lag`](crate::Version::lag) accumulate the area the operands don't
-    //! share, both ways or one way; [`min_ticks`](crate::Version::min_ticks)
-    //! counts the fewest events that could have built the skyline — and so
-    //! does the projection `v / &p`, which keeps `v`'s skyline where party
-    //! `p` owns and zeroes it elsewhere.
+    //! themselves supply. (The output is delta-coded like its inputs, so
+    //! each emitted step falls out of the two input steps and that running
+    //! difference — no absolute height is ever reconstructed.) Comparison
+    //! is the same walk with no output: the sign of that difference,
+    //! watched across the whole sweep, settles `<`, `>`, `==`, or
+    //! concurrent. The two-operand measures ride the same aligned walk:
+    //! [`distance`](crate::Version::distance) accumulates the area the
+    //! operands don't share, [`lag`](crate::Version::lag) its one-way half
+    //! (what the other side holds that `self` does not). The one-operand
+    //! measures are sweeps of a single stream —
+    //! [`rank`](crate::Version::rank) accumulates area,
+    //! [`min_ticks`](crate::Version::min_ticks) the fewest events that
+    //! could have built the skyline — and the projection `v / &p` sweeps
+    //! `v`'s stream against party `p`'s, keeping the skyline where `p`
+    //! owns and zeroing it elsewhere.
     //!
     //! ```
     //! use before::Version;
