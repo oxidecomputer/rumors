@@ -18,7 +18,8 @@
 //!   fold population — and a uniform post-pass derives the rest (a
 //!   cross shape's version is its event side; its id side becomes a
 //!   party pair through the disjoint-mount adapter; every version gains
-//!   its ticked counterpart and rank pair). A shape reaches every
+//!   its rank pair, and its ticked comparison counterpart wherever the
+//!   shape did not build its own pairing). A shape reaches every
 //!   operation its bundle supplies: adding a shape grows the product
 //!   without naming any operation.
 //! - **Operations** (the row table): each row declares the bundle slots
@@ -100,7 +101,14 @@
 //!   [`SCAN_FLOOR_BITS_PER_INPUT_BYTE`] bit per packed byte (an eighth of
 //!   the stored bits); operations that may legitimately exit at the first
 //!   divergence still read the root codes, floored at
-//!   [`SCAN_TOUCH_FLOOR_BITS`]. Not-applicable is reserved for operations
+//!   [`SCAN_TOUCH_FLOOR_BITS`]. Which of the two binds is derived per
+//!   cell from the operands wherever the contract admits an early exit:
+//!   the comparison rows floor at the root codes exactly when their pair
+//!   is concurrent (a comparable pair must certify dominance over every
+//!   region, so it keeps the full floor), and the tick-floor fold does so
+//!   exactly when its stream stores a payload code wider than a machine
+//!   word (the fold may saturate at that height and stop).
+//!   Not-applicable is reserved for operations
 //!   whose contract is a wholesale byte move or compare (encode, hash,
 //!   same-form equality) or whose operands have no packed stream at all
 //!   (the rank pair).
@@ -138,7 +146,9 @@
 //!   and hashes, plain big-integer arithmetic over decoded values (the
 //!   rank pair), the renderer's delta-sized summaries, minimum folds and
 //!   projections (word-scale bookkeeping and verbatim splices force no
-//!   fold), and operands whose streams store no delta codes.
+//!   fold), comparisons over concurrent operands (one witness divergence
+//!   per direction decides, so no fold count is forced), and operands
+//!   whose streams store no delta codes.
 //! - **Heap** floors bind on the codec and text rows, whose results must
 //!   materialize at least their packed bytes; everywhere else allocation is
 //!   not semantically forced (and the heap meter reads the process
@@ -362,7 +372,11 @@
 //! and `harmonic` — carry a version; the diverted id-spine pair carries a
 //! disjoint party pair; the eleven cross shapes (`comb-scatter` and the
 //! ten tick-walk crosses) carry a version, a mounted party pair, and a
-//! clock; `benign` — a fixed-seed pseudo-random population of forked,
+//! clock; the two version-pair shapes — `jump-pair` (the cross-stream
+//! freeze wedge) and `concurrent-pair` (the emit side-switch density
+//! population) — carry a version pair of their own construction, so
+//! their comparison rows run the pairing the shape was built around
+//! rather than the ticked counterpart; `benign` — a fixed-seed pseudo-random population of forked,
 //! ticked clocks, the control row that keeps the ceilings honest on
 //! organic inputs — carries everything. Where an operation needs a
 //! `Party` and a `Version`, the board crosses adversarial party × small
@@ -820,6 +834,38 @@ const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 /// runtime budget.
 const OVERLAP_FOLD_INPUT_DIVISOR: usize = 64;
 
+/// Two-operand jump-comb teeth at scale 1.0 (packed pair ~35 KiB, the
+/// teeth operand's per-level wide codes dominating).
+///
+/// One knob drives the tooth count and, through
+/// [`JUMP_PAIR_DIGIT_DIVISOR`], the freeze-position digit count, at the
+/// fixed tooth magnitude [`JUMP_PAIR_MAGNITUDE_BITS`]: the cross-stream
+/// freeze re-arm work is teeth × digits × magnitude, so the doubling
+/// scales the freeze count and the position density together while the
+/// packed pair grows linearly — the separating choice that makes the
+/// wedge read on the exponent leg rather than hide in a constant.
+const JUMP_PAIR_BASE_TEETH: usize = 256;
+
+/// Tooth magnitude (bits) of the two-operand jump comb, fixed across
+/// scales: comfortably over the freeze allowance's 256-bit digit bound,
+/// so every cheap fold behind a wide switch jump fires the eviction.
+const JUMP_PAIR_MAGNITUDE_BITS: usize = 512;
+
+/// Freeze-position digits per tooth (as a divisor) on the two-operand
+/// jump comb.
+///
+/// The digit count scales with the teeth at an eighth: deep enough that
+/// per-freeze position work reads its exponent across the doubling,
+/// shallow enough that the shared spine stays a small fraction of the
+/// packed pair.
+const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
+
+/// Concurrent-pair forked-party count at scale 1.0, rounded up to a
+/// power of two at every scale (the balanced fork and the alternating
+/// dominance schedule both need it; the level doubling then doubles it
+/// exactly).
+const CONCURRENT_BASE_LEAVES: usize = 1_024;
+
 /// Benign clock population at scale 1.0.
 const BENIGN_BASE_CLOCKS: usize = 256;
 
@@ -959,12 +1005,27 @@ enum FamilyKind {
     /// the residue passes whole in O(1): the hop-schedule control.
     /// The designated cross of the two tick rows.
     AscendPlateau,
+    /// The two-operand jump comb `jump_pair(k, m, d)`: the cross-stream
+    /// freeze re-arm wedge.
+    ///
+    /// The pair's meet interleaves one operand's wide switch jumps with
+    /// the other's cheap codes, so the distance row's rank fold freezes
+    /// `2m` times at a `d`-digit position — each operand
+    /// certified-linear alone (the generator doc carries the mechanism).
+    JumpPair,
+    /// The concurrent pair `concurrent_pair(n)`: the emit side-switch
+    /// density population.
+    ///
+    /// Organically forked and ticked so the sweep's side switch fires at
+    /// every one of the `n − 1` overlay boundaries, join and meet alike
+    /// — the pairing the ticked counterpart cannot reach.
+    ConcurrentPair,
     /// The fixed-seed organic control population.
     Benign,
 }
 
 /// Every family, in display order.
-const FAMILIES: [FamilyKind; 19] = [
+const FAMILIES: [FamilyKind; 21] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -983,6 +1044,8 @@ const FAMILIES: [FamilyKind; 19] = [
     FamilyKind::PureComb,
     FamilyKind::AscendCliff,
     FamilyKind::AscendPlateau,
+    FamilyKind::JumpPair,
+    FamilyKind::ConcurrentPair,
     FamilyKind::Benign,
 ];
 
@@ -1001,8 +1064,12 @@ struct FamilyData {
     name: &'static str,
     /// The shape's primary packed version (a cross shape's event side).
     version: Option<Vec<u8>>,
-    /// The comparison counterpart, derived uniformly: `version` plus one
-    /// seed tick, packed.
+    /// The comparison counterpart: `version` plus one seed tick, packed.
+    ///
+    /// Derived uniformly by the post-pass — except on the pair shapes
+    /// (jump-pair, concurrent-pair), whose build arms fill it with the
+    /// pairing the shape was constructed around and the post-pass leaves
+    /// in place.
     version2: Option<Vec<u8>>,
     /// A disjoint packed party pair within one universe: natural for the
     /// id pair and the benign halves, minted by the disjoint-mount
@@ -1075,9 +1142,10 @@ impl FamilyData {
     /// arm fills the slots the shape natively has; the post-pass below
     /// derives the rest uniformly (a cross shape's version is its event
     /// side, its party pair is the disjoint-mount adapter over its id
-    /// side; every version gains its ticked counterpart and its rank
-    /// pair), so a new shape reaches every operation its bundle supplies
-    /// without naming any.
+    /// side; every version gains its rank pair, and its ticked
+    /// counterpart wherever the arm built no pairing of its own), so a
+    /// new shape reaches every operation its bundle supplies without
+    /// naming any.
     fn build(kind: FamilyKind, scale: f64, level: u32) -> FamilyData {
         let size = |base: usize| -> usize {
             let scaled = ((base as f64) * scale).round() as usize;
@@ -1249,6 +1317,21 @@ impl FamilyData {
                     super::ascend_cliff_id(s).bytes,
                 )
             }
+            FamilyKind::JumpPair => {
+                let m = size(JUMP_PAIR_BASE_TEETH);
+                let d = (m / JUMP_PAIR_DIGIT_DIVISOR).max(1);
+                let (a, b) = super::jump_pair(JUMP_PAIR_MAGNITUDE_BITS, m, d);
+                let mut data = Self::event(kind, "jump-pair", a.version().encode());
+                data.version2 = Some(b.version().encode());
+                data
+            }
+            FamilyKind::ConcurrentPair => {
+                let n = size(CONCURRENT_BASE_LEAVES).next_power_of_two();
+                let (v, w) = super::concurrent_pair(n);
+                let mut data = Self::event(kind, "concurrent-pair", v.encode());
+                data.version2 = Some(w.encode());
+                data
+            }
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
         };
         // ── the bundle post-pass: the derived slots, uniform across shapes ──
@@ -1256,14 +1339,17 @@ impl FamilyData {
         if data.version.is_none() {
             data.version = data.cross.as_ref().map(|(v, _)| v.clone());
         }
-        // Every version gains its ticked comparison counterpart and its
-        // mismatched rank pair (shape-derived rank against a small integer
-        // rank, the pair whose exponent mismatch the rank rows price).
+        // Every version gains its ticked comparison counterpart (where
+        // the shape did not build its own pairing) and its mismatched
+        // rank pair (shape-derived rank against a small integer rank,
+        // the pair whose exponent mismatch the rank rows price).
         if let Some(bytes) = &data.version {
             let v = decode_version(bytes);
-            let mut w = v.clone();
-            w.tick(&Party::seed());
-            data.version2 = Some(w.encode());
+            if data.version2.is_none() {
+                let mut w = v.clone();
+                w.tick(&Party::seed());
+                data.version2 = Some(w.encode());
+            }
             let b = Version::try_from(RANK_PAIR_INTEGER_TICKS)
                 .expect("a small integer version is valid")
                 .rank();
@@ -2174,6 +2260,75 @@ fn walk_floors(packed_bytes: usize, touch: Liveness) -> Floors {
     }
 }
 
+/// Touch NA on comparison rows whose operands are concurrent: no
+/// delta-fold count is forced when one witness divergence per direction
+/// decides the answer.
+const NA_TOUCH_CONCURRENT_OPERANDS: &str = "the operands are concurrent, so the comparison \
+     may decide at one witness divergence per direction: no delta-fold count is forced";
+
+/// The comparison rows' floors, derived from the operands themselves
+/// (outside any measurement).
+///
+/// A comparable pair must be walked to the end — certifying dominance
+/// means checking every region — so the full-examination scan floor and
+/// the every-stored-delta touch floor bind; a concurrent pair may be
+/// decided at one witness divergence per direction, so only the
+/// root-codes scan floor does.
+fn comparison_floors(v: &Version, w: &Version, packed_bytes: usize) -> Floors {
+    if v.partial_cmp(w).is_some() {
+        walk_floors(
+            packed_bytes,
+            touch_delta_fold(stored_deltas(v) + stored_deltas(w)),
+        )
+    } else {
+        Floors {
+            heap: na(NA_HEAP_IN_PLACE),
+            limb: na(NA_LIMB_NOT_FORCED),
+            segments: seg_ceiling_only(),
+            scan: scan_touch(),
+            touch: na(NA_TOUCH_CONCURRENT_OPERANDS),
+        }
+    }
+}
+
+/// Scan floor (`version_min_ticks` on a stream holding a wide payload
+/// code): the fold may exit the moment a height leaves the `u64` range.
+const WHY_SCAN_MIN_TICKS_SATURATES: &str = "the stream stores a payload code wider than a \
+     machine word, so the tick-floor fold may saturate and exit at its first wide height: \
+     only the root codes are forced";
+
+/// The min_ticks row's scan floor, derived from the operand (outside
+/// any measurement).
+///
+/// A stream holding any payload code wider than a machine word may
+/// saturate the `u64` tick floor mid-walk and exit there — a
+/// full-examination floor would demand scan work no conforming fold
+/// does — while a word-scale stream must be walked whole.
+fn min_ticks_scan_floor(v: &Version, packed_bytes: usize) -> Liveness {
+    let all = codec::bytes_as_bits(v.as_bytes());
+    let bits = &all[..v.encoded_bits()];
+    let mut pos = 0usize;
+    let mut pending = 1usize;
+    while pending > 0 {
+        pending -= 1;
+        let internal = bits[pos];
+        pos += 1;
+        if internal {
+            pending += 2;
+            continue;
+        }
+        let (code, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
+        pos = next;
+        if code.bits() > 64 {
+            return Liveness::Floor {
+                min: SCAN_TOUCH_FLOOR_BITS,
+                why: WHY_SCAN_MIN_TICKS_SATURATES,
+            };
+        }
+    }
+    scan_examines(packed_bytes)
+}
+
 /// The tick-cross rows' floors: full-examination scan, per-stored-code
 /// limb, in-place heap.
 ///
@@ -2652,6 +2807,10 @@ fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         | FamilyKind::PureComb
         | FamilyKind::AscendCliff
         | FamilyKind::AscendPlateau => group == OpGroup::Tick,
+        // The version-pair shapes, built against the linear-functional
+        // query rows: the cross-stream freeze wedge (distance's meet-leg
+        // rank fold) and the emit side-switch density population.
+        FamilyKind::JumpPair | FamilyKind::ConcurrentPair => group == OpGroup::Measure,
     }
 }
 
@@ -2699,8 +2858,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
-                Some(Cell::new(n, walk_floors(n, touch), move || {
+                let floors = comparison_floors(&v, &w, n);
+                Some(Cell::new(n, floors, move || {
                     let ord: Option<Ordering> = v.partial_cmp(&w);
                     (ord, v, w)
                 }))
@@ -2726,10 +2885,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
-                Some(Cell::new(n, walk_floors(n, touch), move || {
-                    (v.concurrent(&w), v, w)
-                }))
+                let floors = comparison_floors(&v, &w, n);
+                Some(Cell::new(n, floors, move || (v.concurrent(&w), v, w)))
             },
         },
         Op {
@@ -2974,7 +3131,7 @@ fn ops() -> Vec<Op> {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_WORD_FOLD),
                     segments: seg_ceiling_only(),
-                    scan: scan_examines(n),
+                    scan: min_ticks_scan_floor(&v, n),
                     touch: na(NA_TOUCH_MIN_FOLD),
                 };
                 Some(Cell::new(n, floors, move || (v.min_ticks(), v)))
@@ -3142,8 +3299,8 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
-                Some(Cell::new(n, walk_floors(n, touch), move || {
+                let floors = comparison_floors(&v, &w, n);
+                Some(Cell::new(n, floors, move || {
                     let hit = causally::since(&v).contains(&w);
                     (hit, v, w)
                 }))

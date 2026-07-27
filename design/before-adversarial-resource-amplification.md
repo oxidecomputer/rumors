@@ -80,6 +80,8 @@ share:
 | reveal comb / hifloor | `k` sibling left-full sites sharing one `2^b` minimum over a zero floor, the left-leaning spine closing each site's frame back into the floor frame between consumes; the control's floor raised to `2^b − 2` | the tick walk's width-circulation genre (the spec's §9 rounds 5–6), pinned flat ×2.00 across the joint doubling; the narrow-gap control is flat — the wide gap is the driver, not the shape |
 | pure comb | the same left-leaning comb with bare `2^b` leaves and no left-full site anywhere | the base watermark stack's own arm-move + close-pop cycle in isolation, pinned flat per byte — the layer the frame ledger amplified ~10× before the round-6 cure |
 | ascending cliff / plateau | `k` ascending wide left leaves `2^b + i` down a right spine over a terminal 0-cliff, id descending to the cliff; the control's leaves leveled at `2^b + 1` | the undercut cascade's fold direction (the spec's §9 round 7), pinned flat ×2.00 across the joint doubling; the leveled control is flat — the nonzero hop schedule is the axis, not the undercut or the spine |
+| two-operand jump comb | a version pair on one shared spine turning right every 33rd level (`d` isolated freeze-position digits), then `m` comb levels: bare `2^k + 3` teeth over `(1, 0)` gaps on one operand, a hoisted `2^k + 1` plateau with unit bumps on the other | the cross-stream freeze re-arm wedge: the meet's rank fold freezes `2m` times at a `d`-digit position, each eviction triggered by the operand that did not pay for the drift — distance superlinear (the standing red) while either operand's own rank is flat |
+| concurrent pair | a balanced fork of `n` single-leaf parties, both operands ticked on every leaf, dominance alternating by parity, adjacent plateaus never equal | the emit side switch at every one of the `n − 1` overlay boundaries, join and meet alike (the ticked-counterpart pairing reaches at most one switch corpus-wide) |
 
 ## 3. Findings ledger
 
@@ -950,6 +952,89 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   names, a possible `merge_into_wider` rename or spare-buffer
   newtype, an owner call on MSRV/`no_std` statements, and
   dissolving before's private `U64Limbs` twin into the crate seam.
+- **INSTRUMENTS LANDED 2026-07-27 (the distance/lag co-sweep's
+  gating families; instruments before cures).** Two committed
+  pair families close the coverage gaps the materialization probe
+  named (§2.4 of the constants frontier), with the CURRENT
+  architecture's cost pinned before any cure:
+  (i) **Two-operand jump comb** (`meter::jump_pair(k, m, d)`,
+  family `jump-pair`): both operands share a descent spine that
+  turns right every 33rd level — `d` isolated freeze-position
+  bits the balanced signed compaction cannot merge — then an
+  `m`-level comb where the teeth operand stores bare `2^k + 3`
+  leaves over `(1, 0)` gaps and the band operand rides a
+  once-paid `2^k + 1` plateau with unit bumps. Their meet
+  interleaves them (`+W, −1, −W, −1` per level), so the rank fold
+  freezes `2m` times, every eviction triggered by a cheap code
+  from the operand that did NOT pay for the drift, at a
+  `d`-digit freeze position. **FINDING, red-pinned: the
+  cross-stream funding hole is real and quadratic-class.**
+  `version_distance × jump-pair` reads limb/touch exponents
+  1.67/1.76 at the default scale pair and 1.89/1.93 at ×4
+  (envelope scale: 7.23 → 12.42 limb-ops per packed byte across
+  one (m, d) doubling, ×1.72); either operand's own rank is flat
+  (board `version_rank` green; the envelope band's two operand
+  controls flat at ×1.00 and ×1.07), and `lag` — no meet leg;
+  the join collapses every comb level because the band shades the
+  gaps — is linear at ~0.95 limb-ops/B: the wedge is exactly the
+  meet-side rank fold, reached only through the two-operand
+  public surface with each input individually innocuous. Pinned
+  red in four instruments: the board cell (both scales), the
+  `DISTANCE_JUMP_PAIR` envelope + the `skyline_flatness` growth
+  floor (per-byte limb work must rise ≥ ×1.5 across the doubling
+  — the cure trips it deliberately and flips it to a flatness
+  bound), the bench judge roster (`version_distance/jump-pair`
+  red; a green time leg before the cure means the leg went dark),
+  and `Version::distance`'s `# Complexity` re-classed to
+  superlinear worst-case time (claims roster moved in the same
+  change — the prose was factually wrong against the measured
+  code).
+  (ii) **Concurrent pair** (`meter::concurrent_pair(n)`, family
+  `concurrent-pair`): a balanced fork of `n` single-leaf parties,
+  both operands ticked on every leaf with dominance alternating
+  by parity and adjacent plateaus never equal, so the emit side
+  switch fires at every one of the `n − 1` overlay boundaries —
+  join and meet alike — where the corpus-of-record pairing
+  (`w = v + one seed tick`) reached at most one switch
+  corpus-wide. Achieved density at the envelope scale
+  (n = 4,096): 4,095 switches per emission over 5,889 packed
+  bytes ≈ 0.70 switches per input byte per emission (distance
+  runs two emissions: ~1.39/B). The realized-schedule witness is
+  semantic: distance = the integer rank 2 exactly, at every `n`,
+  pinned beside exact join/meet plateau counts. Honest linear
+  pins: `DISTANCE_CONCURRENT`/`LAG_CONCURRENT` envelopes, board
+  cells green at both scales.
+  Board wiring: two `FamilyKind`s (both `designed` against the
+  Measure group), the `version2` bundle slot now family-fillable
+  (the post-pass derives the ticked counterpart only where a
+  build arm left it empty), 1071 cells (the smoke pin moved:
+  41 × 7 version-bearing + 36 + 62 × 11 + 2 + 64). Two floor
+  derivations were corrected — forced honestly by the first
+  operands that reach the early exits, all readings untouched:
+  the comparison rows floor at the root codes exactly when the
+  pair is concurrent (a comparable pair keeps the full floor),
+  and `version_min_ticks` floors at the root codes exactly when
+  the stream stores a payload code wider than a machine word
+  (the fold may saturate and stop). Boards of record
+  (`board-dlfam66-{lo,hi}.txt`): default 1047/24, record
+  1050/21 — every pre-existing cell byte-identical to 966/23 and
+  969/20 except the `flr` scan column of `version_min_ticks` on
+  the eleven wide-code families (the corrected declaration;
+  every reading, exponent, constant, and verdict identical).
+  Cross-checked against the relayed one-sided `is_zero`
+  contract: neither family's pins assume zero detection fires —
+  the fold's live component is freshly reset at each eviction,
+  and every pinned number is measured, so the pins price the
+  general path.
+  Recorded for later phases, not touched here: the fuzzfit
+  corpus could gain a concurrent-pair operand arm (its fuel
+  bands are an in-flight seam; phase-2 item), and the cure phase
+  owes the overlay-scale freeze re-derivation plus digit-exact
+  differential pins against the composed forms and the oracle —
+  its improvement must move five committed readings at once: the
+  `DISTANCE_JUMP_PAIR` envelope, the growth-floor band (to
+  flat), the board cell (to green), the judge roster entry, and
+  the distance complexity class.
 
 ## 13. The metering gate
 
@@ -1535,16 +1620,31 @@ legs and its resource pin — the representation-pin leg per the
 snapshot-pinned in-crate); the benign rank-pair operand scaling
 if C3 chose that arm; the §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over 989 cells)
+### 17.3 Owned-red accounting (current; over 1071 cells)
 
-Sums [measured 2026-07-26, the `board-p42-{lo,hi}.txt` renders]:
-**default 966 + 23 = 989; record 969 + 20 = 989.** Every red has
-exactly one owner and the sums close; the per-round movement
+Sums [measured 2026-07-27, the `board-dlfam66-{lo,hi}.txt`
+renders — the instruments-phase boards; the prior boards of
+record read 966 + 23 / 969 + 20 over 989 cells]:
+**default 1047 + 24 = 1071; record 1050 + 21 = 1071.** Every red
+has exactly one owner and the sums close; the per-round movement
 lineage (each round's flips, bucketed by mechanism, with every
 untouched cell verified byte-identical) is in git history at the
 commits §14 names.
 
 The red roster, both scales enumerated from the renders:
+
+- **The cross-stream freeze wedge** (`version_distance ×
+  jump-pair`: limb/touch exponents 1.67/1.76 default, 1.89/1.93
+  ×4 — the one exponent-class red on an input-denominated query
+  row): the meet-leg rank fold's freeze corrections, re-armed
+  across the overlay by the operand that did not pay for the
+  drift, at a freeze position the balanced compaction cannot
+  collapse. A genuine kernel superlinearity on an honest
+  denominator, landed deliberately as the instruments-phase
+  standing red (§12's 2026-07-27 instruments entry carries the
+  mechanism and the five committed readings the cure must move).
+  Owner: **the fused distance/lag co-sweep** (the constants
+  frontier's §2.4 dissolution path).
 
 - **The render materialization genre** (14 default / 14 ×4 heap
   constants: `version_display` × {dense, bigroot, harmonic,

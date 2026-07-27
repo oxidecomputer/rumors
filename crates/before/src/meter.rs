@@ -1372,6 +1372,211 @@ pub fn ascend_cliff_id(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// Shared-spine levels per freeze-position digit in [`jump_pair`].
+///
+/// Each right-descent turn sets one isolated bit of the rank fold's
+/// freeze position, and a 33-level stride keeps successive bits more
+/// than a full base-2^32 digit apart, so the balanced signed-digit
+/// compaction (which cancels only ones-runs) can never merge two of
+/// them into one term.
+const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
+
+/// The two-operand jump comb `JP(k, m, d)`: a version pair whose
+/// distance runs the rank fold's freeze machinery `2m` times at a
+/// `d`-digit freeze position — each operand certified-linear alone.
+///
+/// Both operands share a descent spine of `33d` zero-base levels that
+/// turns right every 33rd level (one 0-leaf consumed *before* the comb
+/// per turn — the `d` isolated position bits the stride constant
+/// derives) and left elsewhere (those 0-leaf siblings trail after), then
+/// diverge in an `m`-level right-leaning comb at the spine's bottom.
+/// Per comb level, over a quarter-interval *tooth* and a quarter-interval
+/// *gap*:
+///
+/// - the **teeth operand** `A` stores a bare wide tooth leaf `2^k + 3`
+///   and a gap pair `(1, 0)` — its skyline oscillates `0 ↔ 2^k + 3`, so
+///   consecutive wide folds cancel adjacently and `A`'s own rank fold
+///   never freezes (bounded oscillation, paid by its own codes);
+/// - the **band operand** `B` rides a plateau: a two-leaf band
+///   `(2^k + 2, 2^k + 1)` across the tooth and a `2^k + 1` gap leaf,
+///   with the width hoisted once into the comb root's stored base — one
+///   wide code in `B`'s whole stream, unit deltas after.
+///
+/// Their **meet** interleaves them: `min` follows `B`'s band inside every
+/// tooth and `A`'s `(1, 0)` floor across every gap, so the emitted stream
+/// runs `+**W**, −1, −**W**, −1` per level — a wide switch jump funded by
+/// `A`'s tooth code, then a cheap code from the *other* operand one fold
+/// behind it. Each cheap fold catches the live component `~2^k` wide
+/// under a 1-digit code and fires a freeze (`k ≥ 320` bits clears the
+/// 8-digit allowance): `2m` freezes per distance, re-armed across the
+/// overlay by the operand that did not pay for the drift. Each freeze's
+/// correction multiplies the `k`-bit drift by every nonzero compacted
+/// digit of the freeze position — the `d` stride bits — so the pair
+/// prices freeze work at `Θ(m · d · k)` limb work against a
+/// `Θ(m·k + d)`-bit input, while the **join** (the band shades every
+/// gap) collapses to unit steps around one climb and stays linear, and
+/// either operand's own rank is flat. The uncertified funding shape of
+/// the freeze discipline (`version/skyline/query.rs`'s cost section),
+/// reached through the public two-operand surface with both inputs
+/// individually innocuous.
+///
+/// Layout, shared spine (level `ℓ = 0..33d`): `1 · γ(0)`, with the
+/// 0-leaf `0 · γ(0)` emitted before the descent at right turns
+/// (`ℓ ≡ 32 mod 33`) and queued after it otherwise — 4 bits per level.
+/// Comb level `i = 1..=m`, teeth operand: `1 · γ(0)` (spine `c_i`),
+/// `1 · γ(0)` (the tooth/gap pair node), `0 · γ(2^k + 3)` (the tooth),
+/// `1 · γ(0) · 0 · γ(1) · 0 · γ(0)` (the gap pair) — `2k + 14` bits.
+/// Band operand: `1 · γ(2^k + 1)` at `c_1` (the hoisted plateau base,
+/// `2k + 2` bits) and `1 · γ(0)` below, `1 · γ(0)` (the pair node),
+/// `1 · γ(0) · 0 · γ(1) · 0 · γ(0)` (the band pair, relative), `0 · γ(0)`
+/// (the gap leaf) — 14 bits per level plus the one wide root code. Both
+/// end in the comb terminal `0 · γ(0)` and the trailing left-turn
+/// siblings. Totals: `132d + m(2k + 14) + 2` bits (teeth) and
+/// `132d + 14m + 2k + 2` bits (band). Normal form holds everywhere:
+/// every spine and pair node has a 0-leaf or 0-min child in reach, the
+/// band comb's plateau lift sits on `c_1`'s own base, and no two sibling
+/// leaves are equal (`(1, 0)` pairs; every wide leaf pairs with an
+/// internal node).
+///
+/// # Panics
+///
+/// Panics if `k < 3` (the closed form needs `γ(2^k + 3)` at `2k + 1`
+/// bits), `m == 0`, or `d == 0`.
+pub fn jump_pair(k: usize, m: usize, d: usize) -> (Packed, Packed) {
+    (
+        jump_pair_operand(k, m, d, false),
+        jump_pair_operand(k, m, d, true),
+    )
+}
+
+/// One [`jump_pair`] operand: the teeth stream, or the band stream with
+/// `band`.
+fn jump_pair_operand(k: usize, m: usize, d: usize, band: bool) -> Packed {
+    assert!(k >= 3, "the jump pair needs a wide tooth magnitude");
+    assert!(m >= 1, "the jump pair needs at least one comb level");
+    assert!(d >= 1, "the jump pair needs at least one position digit");
+    let depth = JUMP_PAIR_DIGIT_STRIDE * d;
+    let tooth = &pow2(k) + 3u64;
+    let plateau = &pow2(k) + 1u64;
+    let zero = Base::ZERO;
+    let mut bits = Bits::with_capacity(132 * d + m * (2 * k + 14) + 2);
+    // The shared descent spine: right turns every 33rd level consume
+    // their 0-leaf before the comb (the freeze-position bits), left
+    // turns queue theirs after it.
+    let mut trailing = 0usize;
+    for level in 0..depth {
+        bits.push(true); // spine node flag
+        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        if (level + 1) % JUMP_PAIR_DIGIT_STRIDE == 0 {
+            ev_leaf(&mut bits, 0); // right turn: the leaf leads the descent
+        } else {
+            trailing += 1; // left turn: the leaf trails the whole subtree
+        }
+    }
+    // The comb: c_i = node(pair_i, c_{i+1}), terminal leaf under c_m.
+    for i in 0..m {
+        bits.push(true); // comb spine node c_i
+        codec::encode_int(
+            &mut bits,
+            // The band stream's one wide code: the plateau lift, hoisted
+            // to the comb root by min-lifted normal form.
+            if band && i == 0 { &plateau } else { &zero },
+        );
+        bits.push(true); // the tooth/gap pair node
+        codec::encode_int(&mut bits, &Base::ZERO);
+        if band {
+            bits.push(true); // the band node across the tooth interval
+            codec::encode_int(&mut bits, &Base::ZERO);
+            ev_leaf(&mut bits, 1); // band leaf 2^k + 2, relative 1
+            ev_leaf(&mut bits, 0); // band leaf 2^k + 1, relative 0
+            ev_leaf(&mut bits, 0); // gap leaf 2^k + 1, relative 0
+        } else {
+            ev_leaf_wide(&mut bits, &tooth); // the tooth: 2^k + 3
+            bits.push(true); // the gap pair node
+            codec::encode_int(&mut bits, &Base::ZERO);
+            ev_leaf(&mut bits, 1); // gap leaf 1
+            ev_leaf(&mut bits, 0); // gap leaf 0
+        }
+    }
+    ev_leaf(&mut bits, 0); // the comb terminal: c_m's right child
+    for _ in 0..trailing {
+        ev_leaf(&mut bits, 0); // the left turns' siblings, innermost first
+    }
+    Packed::from_bits(bits)
+}
+
+/// The concurrent pair `CP(n)`: two organically built versions over one
+/// balanced fork of `n` parties, ticked so every adjacent region flips
+/// which operand dominates — the emit side-switch population.
+///
+/// The seed party forks balanced to `n` single-leaf owners (leaf `i` of
+/// the depth-`log2 n` fork tree). Each version joins `n` independent
+/// per-party histories — party `i`'s empty version ticked to its target
+/// alone, then all `n` merged through `join_all`'s balanced fold, so
+/// construction is `O(n log n)` and every tick lands exactly one height
+/// unit (an isolated history has no higher neighbor for the tick's fill
+/// leg to lift toward). The targets make the winner alternate by leaf
+/// parity with no two adjacent plateaus ever equal: leaf `i` reaches
+/// `3 + (i mod 3)` ticks on the dominant side and `1 + (i mod 3)` on
+/// the other, the dominant side even-`i` for the first version and
+/// odd-`i` for the second. The join's plateau sequence is `3 + (i mod 3)` and
+/// the meet's `1 + (i mod 3)` — each adjacent-distinct, so neither
+/// emission ever collapses a boundary and **every one of the `n − 1`
+/// overlay boundaries is a side switch, in the join and the meet
+/// alike** (the corpus pairing `w = v + one seed tick` reaches at most
+/// one). All heights are word-scale: the family prices the switch
+/// machinery's density, not width. Every leaf's dominant and dominated
+/// heights differ by exactly 2, so `distance = Σᵢ 2/n` — the integer
+/// rank 2 at every `n`, which the generator's test pins as the semantic
+/// witness that the schedule realized the heights it claims.
+///
+/// # Panics
+///
+/// Panics if `n` is not a power of two at least 2 (the balanced fork
+/// and the parity schedule both need it).
+pub fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
+    assert!(
+        n >= 2 && n.is_power_of_two(),
+        "the concurrent pair needs a power-of-two party count"
+    );
+    let mut parties = vec![crate::Party::seed()];
+    while parties.len() < n {
+        let mut next = Vec::with_capacity(parties.len() * 2);
+        for mut p in parties {
+            let q = p.fork();
+            next.push(p);
+            next.push(q);
+        }
+        parties = next;
+    }
+    let history = |p: &crate::Party, ticks: u64| {
+        let mut h = crate::Version::new();
+        for _ in 0..ticks {
+            h.tick(p);
+        }
+        h
+    };
+    let mut v_parts = Vec::with_capacity(n);
+    let mut w_parts = Vec::with_capacity(n);
+    for (i, p) in parties.iter().enumerate() {
+        let dominant = 3 + (i % 3) as u64;
+        let other = 1 + (i % 3) as u64;
+        let (v_ticks, w_ticks) = if i % 2 == 0 {
+            (dominant, other)
+        } else {
+            (other, dominant)
+        };
+        // Independent per-party histories: each operand advances on
+        // every party, the schedule alone decides who dominates where.
+        v_parts.push(history(p, v_ticks));
+        w_parts.push(history(p, w_ticks));
+    }
+    (
+        crate::Version::join_all(v_parts),
+        crate::Version::join_all(w_parts),
+    )
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> Base {
     pow2(b) - &Base::from(1u8)
