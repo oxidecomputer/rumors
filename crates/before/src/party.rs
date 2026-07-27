@@ -46,6 +46,16 @@ mod tests;
 /// Like [`Clock`](crate::Clock), [`Party`] is [`!Clone`](Clone): duplicating a
 /// live party would violate the linearity which interval tree clocks require.
 ///
+/// # Complexity
+///
+/// A party's *packed size* `|p|` is the length of
+/// [`encode`](Party::encode)'s bytes (borrowable without copying as
+/// [`as_bytes`](Party::as_bytes); exact to the bit as
+/// [`encoded_bits`](Party::encoded_bits)); every `# Complexity` section on
+/// this type's operations is denominated in packed sizes. `==` and
+/// hashing are `O(|p|)` time with no allocation; each remaining cost is
+/// on its operation.
+///
 /// ```
 /// use before::Party;
 /// let mut whole = Party::seed();
@@ -85,6 +95,10 @@ impl Party {
     /// seeds need not be; if they ever interact, causal history is silently
     /// corrupted.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time and space.
+    ///
     /// ```
     /// assert_eq!(before::Party::seed().to_string(), "1");
     /// ```
@@ -102,6 +116,10 @@ impl Party {
     /// again once every fork has been [`join`](Party::join)ed back. A
     /// bootstrapped descendant, holding a forked sub-region, is never the seed.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time and space: one comparison against the two-bit seed form.
+    ///
     /// ```
     /// use before::Party;
     /// let mut p = Party::seed();
@@ -117,6 +135,11 @@ impl Party {
     }
 
     /// Advance the [`Version`] from the perspective of [`Party`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(|v| + |p|)` time and space, as [`Version::tick`] (see its
+    /// per-call note on wide values).
     ///
     /// ```
     /// use before::{Party, Version};
@@ -136,6 +159,10 @@ impl Party {
     /// tree, with worse memory use and performance. Prefer to vary which party
     /// is forked, or use [`forks`](Party::forks) to generate a fixed number of
     /// balanced forks.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|p|)` time and space: both halves are built fresh.
     ///
     /// ```
     /// use before::Party;
@@ -167,6 +194,12 @@ impl Party {
     /// For the consuming counterpart that splits into exactly `N` shares with no
     /// residual, see [`From<Party>`](Party) for `[Party; N]`.
     ///
+    /// # Complexity
+    ///
+    /// `O(S)` time and space for a full drain, where `S` is the total
+    /// packed size of the shares produced; shares are built on demand (see
+    /// [`Forks`] for the per-step and early-drop costs).
+    ///
     /// ```
     /// use before::Party;
     /// let mut p = Party::seed();
@@ -189,6 +222,11 @@ impl Party {
     ///
     /// If the parties are not disjoint, `self` is unmodified, and `Err(other)`
     /// is returned.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time and space, accepted or rejected, and the united
+    /// party is `O(|a| + |b|)` bytes itself.
     ///
     /// ```
     /// use before::Party;
@@ -232,6 +270,14 @@ impl Party {
     /// For parties descended from one [`seed`](Party::seed) the error is
     /// unreachable — they are pairwise disjoint — and the returned `Vec` is
     /// then never allocated.
+    ///
+    /// # Complexity
+    ///
+    /// `O(D log k)` time and `O(D)` space, where `D` is the total packed
+    /// size of `self` and the inputs and `k` the number of inputs: each
+    /// input is overlap-tested against `self` in `O(input)` (through an
+    /// index of `self`, built once), then passes through `O(log k)` joins
+    /// of similarly sized operands in a balanced reduction.
     ///
     /// ```
     /// use before::Party;
@@ -312,6 +358,11 @@ impl Party {
     /// Disjoint [`Party`]s may always be [`join`](Party::join)ed without
     /// error.
     ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time; no allocation. A negative answer may return at
+    /// the first shared region.
+    ///
     /// ```
     /// use before::Party;
     /// let mut p = Party::seed();
@@ -345,6 +396,11 @@ impl Party {
     /// another's region can no longer [`join`](Party::join) it. This is how a
     /// caller recognizes an outstanding share as fully reabsorbed.
     ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time; no allocation. A negative answer may return at
+    /// the first uncovered region.
+    ///
     /// ```
     /// use before::Party;
     /// let mut p = Party::seed();
@@ -372,6 +428,11 @@ impl Party {
     /// folds a disjoint share in, `without` cuts a share back out. It
     /// consumes `self` and reads `other` only as a mask, so it introduces no
     /// new aliasing.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time and space, and the remainder is `O(|a| + |b|)`
+    /// bytes itself.
     ///
     /// ```
     /// use before::Party;
@@ -412,6 +473,10 @@ impl Party {
     /// transfers to exactly one side based on an outcome not known at the time
     /// of transfer.
     ///
+    /// # Complexity
+    ///
+    /// `O(|p|)` time and space: one copy of the stored bytes.
+    ///
     /// ```
     /// use before::Party;
     /// let p = Party::seed();
@@ -429,6 +494,12 @@ impl Party {
     /// [`Version`]; see
     /// [`Clock::encode`](crate::Clock::encode).
     ///
+    /// # Complexity
+    ///
+    /// `O(|p|)` time and space: one copy of the stored bytes
+    /// ([`as_bytes`](Self::as_bytes) borrows the same bytes without
+    /// copying).
+    ///
     /// ```
     /// use before::Party;
     /// let p = Party::seed();
@@ -439,6 +510,11 @@ impl Party {
     }
 
     /// Encode a [`Party`] to an arbitrary writer.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|p|)` time: one write of the stored bytes, plus whatever the
+    /// writer itself costs.
     ///
     /// ```
     /// use before::Party;
@@ -453,6 +529,10 @@ impl Party {
     /// The exact length in bits of [`encode`](Self::encode) before its zero-pad
     /// to a byte boundary.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time; no allocation.
+    ///
     /// ```
     /// // The seed is a single terminal: a 2-bit presence tag (`00`).
     /// assert_eq!(before::Party::seed().encoded_bits(), 2);
@@ -463,6 +543,12 @@ impl Party {
 
     /// Decode a [`Party`] from a reader of canonical bytes, strictly rejecting
     /// non-canonical representations.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` time and space in the bytes read, accepted or rejected:
+    /// strict validation is one pass over the stream, and the result
+    /// reuses the read buffer.
     ///
     /// ```
     /// use before::Party;
@@ -520,6 +606,10 @@ impl Party {
     /// [`is_disjoint`](Self::is_disjoint) to reason about whether two parties
     /// may interact.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time: a borrow, no copy.
+    ///
     /// ```
     /// use before::Party;
     /// let p = Party::seed();
@@ -553,6 +643,12 @@ impl Party {
 
 /// Paper notation: `0` / `1` leaves, `(l, r)` nodes. E.g. `(1, (0, 1))`.
 ///
+/// # Complexity
+///
+/// `O(|p| + t)` time and space, the packed party plus the `t` rendered
+/// text bytes: an id spells no numbers, so rendering has no conversion
+/// cost.
+///
 /// ```
 /// use before::Party;
 /// let p: Party = "(1, (0, 1))".parse().unwrap();
@@ -573,6 +669,11 @@ impl core::fmt::Debug for Party {
 
 /// Parse paper notation (`0 | 1 | (i1, i2)`), strictly rejecting non-normal-form input
 /// and the anonymous identity `0` (a standalone `Party` must be a nonzero share).
+///
+/// # Complexity
+///
+/// `O(t + |p|)` time and space, the input text plus the packed party
+/// produced — accepted or rejected.
 ///
 /// ```
 /// use before::Party;
@@ -644,6 +745,10 @@ impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
 /// An id leaf from a single bit: `1` (full) is a valid `Party`; `0` is the anonymous
 /// identity and is rejected here, though it is allowed as a sub-tree in the tuple form.
 ///
+/// # Complexity
+///
+/// `O(1)` time and space.
+///
 /// ```
 /// use before::Party;
 /// assert_eq!(Party::try_from(1).unwrap().to_string(), "1");
@@ -657,6 +762,10 @@ impl TryFrom<u8> for Party {
 }
 
 /// An id leaf from a single boolean: `true` = `1`, `false` = `0`.
+///
+/// # Complexity
+///
+/// `O(1)` time and space.
 ///
 /// ```
 /// use before::Party;
@@ -672,6 +781,10 @@ impl TryFrom<bool> for Party {
 
 /// An id node from a `(left, right)` literal, e.g. `Party::try_from((1u8, (0u8, 1u8)))`.
 /// Rejects a collapsible `(v, v)` (non-canonical) and an all-`0` (anonymous) result.
+///
+/// # Complexity
+///
+/// `O(|p|)` time and space in the party built.
 ///
 /// ```
 /// use before::Party;
