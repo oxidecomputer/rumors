@@ -409,20 +409,20 @@ fn scattered_id_decodes_canonically_at_predicted_length() {
 /// The leaf count of a stored version's skyline stream, by one iterative
 /// topology walk (payload codes skipped unread).
 fn leaf_count(v: &Version) -> usize {
+    use codec::BitCursor;
     let all = codec::bytes_as_bits(v.as_bytes());
     let bits = &all[..v.encoded_bits()];
-    let mut pos = 0usize;
+    let mut cur = codec::DsiCursor::new(bits);
     let mut pending = 1usize;
     let mut leaves = 0usize;
     while pending > 0 {
         pending -= 1;
-        if bits[pos] {
-            pos += 1;
+        if cur.read_bit().expect("a stored stream is canonical") {
+            cur.skip_int().expect("a stored stream is canonical");
+            leaves += 1;
+        } else {
             pending += 2;
-            continue;
         }
-        pos = codec::skip_int(bits, pos + 1).expect("a stored stream is canonical");
-        leaves += 1;
     }
     leaves
 }
