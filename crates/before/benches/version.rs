@@ -1,8 +1,8 @@
 //! `Version` benchmarks: the optimized implementation against the naive
 //! recursive oracle, on the same randomized event trees (see `common`).
 //!
-//! Includes the batch-vs-single-op comparison over repeated ticks, plus the
-//! impl-only byte codec.
+//! Includes the repeated-tick comparison (impl vs oracle over `k` ticks),
+//! plus the impl-only byte codec.
 
 use before::{Party, Version};
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
@@ -65,48 +65,29 @@ fn bench_tick(c: &mut Criterion) {
     g.finish();
 }
 
-/// Repeated mutation: applying `k` ticks, batched and unbatched.
+/// Repeated mutation: applying `k` ticks, one tick at a time.
 ///
-/// The impl applies each tick through the fill splice either way (a batch
-/// is a chaining convenience, not a different engine); the oracle
-/// re-normalizes each tick. Tree size is fixed; `k` is the axis.
-fn bench_batch(c: &mut Criterion) {
+/// The impl applies each tick through the fill splice, paying the
+/// unpack/repack per call; the oracle re-normalizes each tick. Tree size
+/// is fixed; `k` is the axis.
+fn bench_k_ticks(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/k_ticks");
     let mut r = rng(2);
     const TREE: usize = 64;
     let (bytes, iparty, oversion, oparty) = version_and_party(&mut r, TREE);
     for &k in &[1usize, 4, 16, 64] {
-        g.bench_with_input(BenchmarkId::new("before/batched", k), &bytes, |b, bytes| {
+        g.bench_with_input(BenchmarkId::new("before", k), &bytes, |b, bytes| {
             b.iter_batched(
                 || Version::decode(&bytes[..]).unwrap(),
                 |mut v| {
-                    {
-                        let mut batch = v.batch();
-                        for _ in 0..k {
-                            batch.tick(&iparty);
-                        }
+                    for _ in 0..k {
+                        v.tick(&iparty);
                     }
                     black_box(v)
                 },
                 BatchSize::SmallInput,
             );
         });
-        g.bench_with_input(
-            BenchmarkId::new("before/unbatched", k),
-            &bytes,
-            |b, bytes| {
-                b.iter_batched(
-                    || Version::decode(&bytes[..]).unwrap(),
-                    |mut v| {
-                        for _ in 0..k {
-                            v.tick(&iparty);
-                        }
-                        black_box(v)
-                    },
-                    BatchSize::SmallInput,
-                );
-            },
-        );
         g.bench_with_input(BenchmarkId::new("oracle", k), &oversion, |b, oversion| {
             b.iter_batched(
                 || oversion.clone(),
@@ -225,7 +206,7 @@ fn bench_codec(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_tick,
-    bench_batch,
+    bench_k_ticks,
     bench_merge,
     bench_partial_cmp,
     bench_codec

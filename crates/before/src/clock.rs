@@ -1,7 +1,4 @@
 //! A [`Clock`] is a [`Party`] paired with a [`Version`].
-//!
-//! A [`clock::Batch`](Batch) is a borrow of a `Clock` affording the same
-//! interface with chainable operations.
 
 use core::borrow::Borrow;
 use core::ops::{BitOr, BitOrAssign};
@@ -12,10 +9,8 @@ use crate::{
     Party, Version,
 };
 
-mod batch;
 mod forks;
 
-pub use batch::Batch;
 pub use forks::Forks;
 
 #[cfg(test)]
@@ -98,7 +93,7 @@ impl Clock {
     /// assert_eq!(clock.tick().to_string(), "1");
     /// ```
     pub fn tick(&mut self) -> &Version {
-        self.batch().tick();
+        self.version.tick(&self.party);
         self.version()
     }
 
@@ -124,7 +119,9 @@ impl Clock {
     /// assert!(parent.party().is_disjoint(child.party()));
     /// ```
     pub fn fork(&mut self) -> Clock {
-        self.batch().fork()
+        let child_party = self.party.fork();
+        let child_version = self.version.clone();
+        Clock::from_parts(child_party, child_version)
     }
 
     /// Splits `n` balanced child clocks off this [`Clock`], as a lazy
@@ -186,8 +183,14 @@ impl Clock {
     /// assert_eq!(a.party().to_string(), "1");
     /// ```
     pub fn join(&mut self, other: Clock) -> Result<&Version, Clock> {
-        self.batch().join(other)?;
-        Ok(self.version())
+        let (other_party, other_version) = other.into_parts();
+        match self.party.join(other_party) {
+            Ok(()) => {
+                self.version |= &other_version;
+                Ok(self.version())
+            }
+            Err(other_party) => Err(Clock::from_parts(other_party, other_version)),
+        }
     }
 
     /// Absorbs every disjoint [`Clock`] in `iter` into `self`, returning the
@@ -309,7 +312,20 @@ impl Clock {
     /// assert_eq!(a.version(), b.version());
     /// ```
     pub fn sync(&mut self, other: &mut Clock) -> Result<&Version, Overlap> {
-        self.batch().sync(&mut other.batch())?;
+        // Merge both parties into self, then re-split: self keeps one half,
+        // other the other. `join` is the overlap check — on failure it hands
+        // the party back and leaves `self` unchanged, so we restore `other`
+        // and report the overlap.
+        let theirs = core::mem::replace(&mut other.party, Party::anonymous());
+        if let Err(theirs) = self.party.join(theirs) {
+            other.party = theirs;
+            return Err(Overlap);
+        }
+        other.party = self.party.fork();
+
+        // Both histories become the join of the two.
+        self.version |= &other.version;
+        other.version = self.version.clone();
         Ok(self.version())
     }
 
@@ -354,27 +370,8 @@ impl Clock {
     /// assert!(*b.version() > msg);
     /// ```
     pub fn recv(&mut self, version: &Version) -> &Version {
-        self.batch().join_version(version).tick();
-        self.version()
-    }
-
-    /// Begins a batch of operations on this clock.
-    ///
-    /// Operations within a batch chain through one mutable borrow, each
-    /// committing as it runs.
-    ///
-    /// # Complexity
-    ///
-    /// `O(1)` time and space.
-    ///
-    /// ```
-    /// use before::Clock;
-    /// let mut clock = Clock::seed();
-    /// clock.batch().tick().tick();
-    /// assert_eq!(clock.version().to_string(), "2");
-    /// ```
-    pub fn batch(&mut self) -> Batch<'_> {
-        Batch::new(self)
+        self.version |= version;
+        self.tick()
     }
 
     /// Pairs a [`Party`] with a [`Version`] to form a [`Clock`].
@@ -683,19 +680,19 @@ where
 // party) and returns the clock; `|=` merges in place. There is no
 // `Clock | Clock`: a borrowing form would duplicate the clock's party, and
 // reuniting two whole clocks is the fallible `Clock::join`. Every cell folds
-// the version operand into the clock's `version` batch through
-// `Batch::join_version`; `Borrow::borrow` coerces an owned or borrowed
-// operand uniformly to `&Version`, so one `@cell` arm per position covers
-// both forms.
+// the version operand into the clock's `version` through the `Version`
+// join-assign; `Borrow::borrow` coerces an owned or borrowed operand
+// uniformly to `&Version`, so one `@cell` arm per position covers both
+// forms.
 
 /// Generates the `Clock` join matrix.
 ///
 /// A `|` cell owns its clock operand (whichever side it is on) and returns it;
 /// a `|=` cell merges into the receiver in place. Each position — `op_l`/`op_r`
-/// for the clock as the left or right `|` operand, `as_clock`/`as_batch` for
-/// the `|=` receiver — has its own `@cell` arm so the receiver `self` is
-/// written in the same expansion as the method it belongs to (`self` cannot
-/// cross a macro-invocation boundary).
+/// for the clock as the left or right `|` operand, `as_clock` for the `|=`
+/// receiver — has its own `@cell` arm so the receiver `self` is written in
+/// the same expansion as the method it belongs to (`self` cannot cross a
+/// macro-invocation boundary).
 macro_rules! clock_join_matrix {
     ($($kind:tt $lhs:ty, $rhs:ty);* $(;)?) => {
         $( clock_join_matrix!(@cell $kind $lhs, $rhs); )*
@@ -704,7 +701,7 @@ macro_rules! clock_join_matrix {
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(mut self, r: $rhs) -> Clock {
-                self.batch().join_version(r.borrow());
+                self.version |= r.borrow();
                 self
             }
         }
@@ -713,7 +710,7 @@ macro_rules! clock_join_matrix {
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(self, mut r: $rhs) -> Clock {
-                r.batch().join_version(self.borrow());
+                r.version |= self.borrow();
                 r
             }
         }
@@ -721,26 +718,17 @@ macro_rules! clock_join_matrix {
     (@cell as_clock $lhs:ty, $rhs:ty) => {
         impl BitOrAssign<$rhs> for $lhs {
             fn bitor_assign(&mut self, r: $rhs) {
-                self.batch().join_version(r.borrow());
-            }
-        }
-    };
-    (@cell as_batch $lhs:ty, $rhs:ty) => {
-        impl BitOrAssign<$rhs> for $lhs {
-            fn bitor_assign(&mut self, r: $rhs) {
-                self.join_version(r.borrow());
+                self.version |= r.borrow();
             }
         }
     };
 }
 
 clock_join_matrix! {
-    op_l     Clock,     Version;
-    op_l     Clock,     &Version;
-    op_r     Version,   Clock;
-    op_r     &Version,  Clock;
-    as_clock Clock,     Version;
-    as_clock Clock,     &Version;
-    as_batch Batch<'_>, Version;
-    as_batch Batch<'_>, &Version;
+    op_l     Clock,    Version;
+    op_l     Clock,    &Version;
+    op_r     Version,  Clock;
+    op_r     &Version, Clock;
+    as_clock Clock,    Version;
+    as_clock Clock,    &Version;
 }

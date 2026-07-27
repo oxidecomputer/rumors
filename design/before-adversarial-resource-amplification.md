@@ -856,12 +856,46 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   the 16 B/B ceiling; the exponent leg is the only red). Boards at both scales:
   byte-identical to the boards of record, 966/23 and 969/20 — no
   movement, no change landed.
-
-## 13. The metering gate
+- **DECIDED 2026-07-27 (owner, #72): the batch API is removed from
+  `before`** — `Version::batch`/`Clock::batch`, the two `Batch`
+  handles, and the `batch` re-export module — as "a footgun waiting
+  to be accidentally discharged": the surface looked like it
+  amortizes work and amortized nothing. The accretion story is the
+  dissolution doctrine's textbook case: the original `Batch` held a
+  deferred `work` state and its docs claimed multi-op efficiency;
+  C2 (§12's flag-day entry) moved the operation kernels onto the
+  packed stream, every op commits as it runs, and the working form
+  ceased to exist — the handle survived its justification as pure
+  chaining sugar priced as an economy. The honest replacement for
+  repeated ticks is the ticks(n) surface, probe-verified in
+  `design/probe-ticks-68.md`. Landed shape: the `|`/`&`/comparison
+  matrices collapse to owned/borrowed `Version` cells (the
+  `join_view`/`meet_view` cores now live on `Version`; `Clock`'s
+  join/sync/recv inline their part-wise bodies); the roster
+  totality tests were the removal's mechanical proof — the
+  `pub fn` extraction and both rosters fail on either side's
+  leftovers — with 2 method rows, 9 batch-module rows, and the two
+  batch `SURFACE_SOURCES` dropped from the triangle suite, 10
+  claim rows from the complexity roster, and the
+  `version_batch_snapshot` board row retired (the board pin moved
+  989 → 972 cells with the diff; bench mirror 974 judged cells,
+  pinned subset 298). Tests whose entire subject was the handle
+  were deleted, not rewritten into vacuity
+  (`representation_parity`, `batch_equals_value_level`,
+  `no_arith_batch_preserves_version`, `commit_on_drop`); the
+  operator-matrix differentials were re-scoped to the surviving
+  cells. rumors refactor (its own public `Batch` — a real
+  amortizer at the rumors layer, batching sends/redactions into
+  one commit — is untouched): the C2-era census of ~8 production
+  call sites had already collapsed to one — `tree.rs::act`'s
+  per-action version chain, now a plain `tick`-and-`clone` loop —
+  plus three test-side ticks (`tree/tests.rs`); every other
+  `.batch()` in the workspace is rumors' own surviving API. No
+  wire snapshot moved.
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **989 cells**,
+public operation surface × §2's families — **972 cells**,
 membership pinned by the smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
 the **release profile**, the measurement of record (§12's
@@ -1089,12 +1123,12 @@ time leg times them like every row.
 **The bench judge** (`tools/benchjudge`, stdlib Python;
 `benches/board.rs` driven by the board's own cell table so bench
 IDs mirror board cells by construction — the pinned mode times
-290 cells: the 288 designed-pairing board cells derived by rule
+298 cells: the 296 designed-pairing board cells derived by rule
 from the axes (`board::BenchMode::Pinned`: each shape's
 designed-stress groups, the organic control, and the board-red
 riders; count verified against the criterion `--list`) plus the
 wide-display pair; `BOARD_BENCH_MODE=full`,
-`just bench-judge-full`, times the whole 989-cell product plus
+`just bench-judge-full`, times the whole 972-cell product plus
 the pair for final verdicts): fits each cell's
 wall exponent `ln(median_hi/median_lo) / ln(denom_hi/denom_lo)`
 across two saved criterion baselines (scales 1 and record),
@@ -1143,11 +1177,13 @@ ceiling: a constant-factor counter red is not a time-exponent red
 
 **Numbers of record at this tip** [measured 2026-07-26; release
 profile, single runs per scale under the determinism tripwire —
-the `board-p42-{lo,hi}.txt` renders]: board **966 green / 23 red at
-the default scale; 969 / 20 at ×4** over **989 cells**. The red
-roster, every red with exactly one owner, is §17.3; the
+the `board-p42-{lo,hi}.txt` renders; re-denominated 2026-07-27,
+#72: the 17 `version_batch_snapshot` cells, green at both scales,
+leave the product with the batch removal]: board **949 green /
+23 red at the default scale; 952 / 20 at ×4** over **972 cells**.
+The red roster, every red with exactly one owner, is §17.3; the
 cell-count and verdict lineage across the campaign's rounds
-(200 → 989) is in git history at the commits §14 names.
+(200 → 972) is in git history at the commits §14 names.
 
 **Acceptance (the campaign's; protocol per §12's ratification):
 all-green means the release-profile board green on counters and
@@ -1441,10 +1477,12 @@ legs and its resource pin — the representation-pin leg per the
 snapshot-pinned in-crate); the benign rank-pair operand scaling
 if C3 chose that arm; the §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over 989 cells)
+### 17.3 Owned-red accounting (current; over 972 cells)
 
-Sums [measured 2026-07-26, the `board-p42-{lo,hi}.txt` renders]:
-**default 966 + 23 = 989; record 969 + 20 = 989.** Every red has
+Sums [measured 2026-07-26, the `board-p42-{lo,hi}.txt` renders;
+re-denominated 2026-07-27, #72: 17 green cells left the product
+with the batch removal]:
+**default 949 + 23 = 972; record 952 + 20 = 972.** Every red has
 exactly one owner and the sums close; the per-round movement
 lineage (each round's flips, bucketed by mechanism, with every
 untouched cell verified byte-identical) is in git history at the

@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 
 use proptest::prelude::*;
 
-use super::{skyline, Batch, Ranked, Version};
+use super::{skyline, Ranked, Version};
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
 use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
 use crate::testing::generators::{
@@ -98,31 +98,6 @@ proptest! {
     }
 }
 
-proptest! {
-    /// The comparison matrix agrees: `cmp(a,b)`, `cmp(a.batch(),b)`,
-    /// `cmp(a,b.batch())`, and `cmp(a.batch(),b.batch())` all equal the bare
-    /// version comparison (a fresh batch reflects its version).
-    #[test]
-    fn representation_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let a = from_oracle_version(&vs[i % n]);
-        let b = from_oracle_version(&vs[j % n]);
-        let base = a.partial_cmp(&b);
-
-        let mut ba = a.clone();
-        let mut bb = b.clone();
-        let batch_a = ba.batch();
-        let batch_b = bb.batch();
-
-        prop_assert_eq!(batch_a.partial_cmp(&b), base); // Batch vs Version
-        prop_assert_eq!(a.partial_cmp(&batch_b), base); // Version vs Batch
-        prop_assert_eq!(batch_a.partial_cmp(&batch_b), base); // Batch vs Batch
-        prop_assert_eq!(a == b, batch_a == batch_b); // PartialEq matrix agrees
-    }
-}
-
 /// Assert one comparison-matrix cell agrees with `expected`.
 ///
 /// Checks its `partial_cmp` (`PartialOrd`) and `==`/`!=` (`PartialEq`), plus
@@ -154,16 +129,14 @@ where
 }
 
 proptest! {
-    /// The full comparison matrix over {Version, Batch}² agrees with the
-    /// oracle's verdict on the same pair.
+    /// The full comparison matrix over owned and borrowed `Version`
+    /// operands agrees with the oracle's verdict on the same pair.
     ///
-    /// Every owned and borrowed form of each operand, covering all twenty-four
+    /// Every owned and borrowed form of each operand, covering all six
     /// generated `PartialEq`/`PartialOrd` impls plus the `&Lhs`/`&Rhs` std
     /// blanket forms. Pinning every cell to one source of truth is the "the
     /// cells can't drift out of sync" guarantee; invoking every cell is the "no
-    /// cell recurses forever" guarantee. Each `Batch` operand is a fresh batch
-    /// over a clone (read-only here, so reused across the operators within a
-    /// cell).
+    /// cell recurses forever" guarantee.
     #[test]
     fn compare_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -178,28 +151,6 @@ proptest! {
         assert_cmp_cell(&a, b.clone(), expected)?;
         assert_cmp_cell(a.clone(), &b, expected)?;
         assert_cmp_cell(&a, &b, expected)?;
-
-        // Version × Batch.
-        { let mut cb = b.clone(); assert_cmp_cell(a.clone(), cb.batch(), expected)?; }
-        { let mut cb = b.clone(); assert_cmp_cell(&a, cb.batch(), expected)?; }
-        { let mut cb = b.clone(); let rb = cb.batch(); assert_cmp_cell(a.clone(), &rb, expected)?; }
-        { let mut cb = b.clone(); let rb = cb.batch(); assert_cmp_cell(&a, &rb, expected)?; }
-
-        // Batch × Version.
-        { let mut ca = a.clone(); assert_cmp_cell(ca.batch(), b.clone(), expected)?; }
-        { let mut ca = a.clone(); let lb = ca.batch(); assert_cmp_cell(&lb, b.clone(), expected)?; }
-        { let mut ca = a.clone(); assert_cmp_cell(ca.batch(), &b, expected)?; }
-        { let mut ca = a.clone(); let lb = ca.batch(); assert_cmp_cell(&lb, &b, expected)?; }
-
-        // Batch × Batch.
-        { let mut ca = a.clone(); let mut cb = b.clone();
-          assert_cmp_cell(ca.batch(), cb.batch(), expected)?; }
-        { let mut ca = a.clone(); let mut cb = b.clone(); let rb = cb.batch();
-          assert_cmp_cell(ca.batch(), &rb, expected)?; }
-        { let mut ca = a.clone(); let mut cb = b.clone(); let lb = ca.batch();
-          assert_cmp_cell(&lb, cb.batch(), expected)?; }
-        { let mut ca = a.clone(); let mut cb = b.clone(); let lb = ca.batch(); let rb = cb.batch();
-          assert_cmp_cell(&lb, &rb, expected)?; }
     }
 }
 
@@ -351,13 +302,12 @@ proptest! {
 }
 
 proptest! {
-    /// Every assigning / batch join surface on `Version` yields the same result
+    /// Every assigning join surface on `Version` yields the same result
     /// as `a | b`, which `merge_matches_oracle` already pins to the oracle's
     /// `join`.
     ///
-    /// Covers `Version |= Version`, the `From<&mut Version>` batch conversion,
-    /// and the `Batch |= &Version` operator — none of which
-    /// the by-value `|` differential reaches.
+    /// Covers `Version |= Version` and `Version |= &Version` — neither of
+    /// which the by-value `|` differential reaches.
     #[test]
     fn version_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -372,25 +322,19 @@ proptest! {
         assign |= b.clone();
         prop_assert!(assign == expected);
 
-        // `Batch |= &Version`, over a batch built via `From<&mut Version>`.
-        let mut batched = a.clone();
-        {
-            let mut batch: Batch = (&mut batched).into();
-            batch |= &b;
-        }
-        prop_assert!(batched == expected);
+        // `Version |= &Version`.
+        let mut assign_ref = a.clone();
+        assign_ref |= &b;
+        prop_assert!(assign_ref == expected);
     }
 }
 
 proptest! {
-    /// The full `|` (BitOr) matrix over {Version, Batch}² — every owned and
-    /// borrowed form of each operand — equals the oracle's `join`.
+    /// The full `|` (BitOr) matrix over owned and borrowed `Version`
+    /// operands equals the oracle's `join`.
     ///
-    /// `merge_matches_oracle` already pins the bare Version×Version case. A
-    /// fresh `Batch` reflects its `Version`, so each of the sixteen
-    /// representation/reference cells must agree. Each `Batch` operand gets its
-    /// own clone in a tight scope: an owned-`Batch` operand is consumed by `|`,
-    /// so a fresh one is built per cell.
+    /// `merge_matches_oracle` already pins the bare owned/owned case; each
+    /// of the four reference cells must agree with it.
     #[test]
     fn join_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -405,38 +349,12 @@ proptest! {
         prop_assert!(&a | b.clone() == expected);
         prop_assert!(a.clone() | &b == expected);
         prop_assert!(&a | &b == expected);
-
-        // Version × Batch.
-        { let mut bb = b.clone(); prop_assert!(a.clone() | bb.batch() == expected); }
-        { let mut bb = b.clone(); prop_assert!(&a | bb.batch() == expected); }
-        { let mut bb = b.clone(); let r = bb.batch(); prop_assert!(a.clone() | &r == expected); }
-        { let mut bb = b.clone(); let r = bb.batch(); prop_assert!(&a | &r == expected); }
-
-        // Batch × Version.
-        { let mut aa = a.clone(); prop_assert!(aa.batch() | b.clone() == expected); }
-        { let mut aa = a.clone(); prop_assert!(aa.batch() | &b == expected); }
-        { let mut aa = a.clone(); let l = aa.batch(); prop_assert!(&l | b.clone() == expected); }
-        { let mut aa = a.clone(); let l = aa.batch(); prop_assert!(&l | &b == expected); }
-
-        // Batch × Batch.
-        { let mut aa = a.clone(); let mut bb = b.clone();
-          prop_assert!(aa.batch() | bb.batch() == expected); }
-        { let mut aa = a.clone(); let mut bb = b.clone(); let r = bb.batch();
-          prop_assert!(aa.batch() | &r == expected); }
-        { let mut aa = a.clone(); let mut bb = b.clone(); let l = aa.batch();
-          prop_assert!(&l | bb.batch() == expected); }
-        { let mut aa = a.clone(); let mut bb = b.clone(); let l = aa.batch(); let r = bb.batch();
-          prop_assert!(&l | &r == expected); }
     }
 }
 
 proptest! {
-    /// The full `|=` (BitOrAssign) matrix: {Version, Batch} left operands
-    /// against {Version, Batch} right operands, every reference form, all
-    /// landing on the oracle's `join`.
-    ///
-    /// A `Batch` left operand applies in place, scoped so its underlying
-    /// `Version` is checked afterward.
+    /// The full `|=` (BitOrAssign) matrix — owned and borrowed right
+    /// operands — lands on the oracle's `join`.
     #[test]
     fn join_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -449,33 +367,16 @@ proptest! {
         // Version |= Version / &Version.
         { let mut x = a.clone(); x |= b.clone(); prop_assert!(x == expected); }
         { let mut x = a.clone(); x |= &b; prop_assert!(x == expected); }
-
-        // Version |= Batch / &Batch.
-        { let mut x = a.clone(); let mut bb = b.clone(); x |= bb.batch(); prop_assert!(x == expected); }
-        { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch(); x |= &r; prop_assert!(x == expected); }
-
-        // Batch |= Version / &Version (applied in place).
-        { let mut x = a.clone(); { let mut bx = x.batch(); bx |= b.clone(); } prop_assert!(x == expected); }
-        { let mut x = a.clone(); { let mut bx = x.batch(); bx |= &b; } prop_assert!(x == expected); }
-
-        // Batch |= Batch / &Batch (applied in place).
-        { let mut x = a.clone(); let mut bb = b.clone();
-          { let mut bx = x.batch(); bx |= bb.batch(); } prop_assert!(x == expected); }
-        { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch();
-          { let mut bx = x.batch(); bx |= &r; } prop_assert!(x == expected); }
     }
 }
 
 proptest! {
-    /// The full `&` (BitAnd) matrix over {Version, Batch}² — every owned and
-    /// borrowed form of each operand — equals the oracle's `meet`, dual to
+    /// The full `&` (BitAnd) matrix over owned and borrowed `Version`
+    /// operands equals the oracle's `meet`, dual to
     /// [`join_matrix_matches_oracle`].
     ///
-    /// `meet_matches_oracle` pins the bare Version×Version cell; a fresh
-    /// `Batch` reflects its `Version`, so each of the sixteen
-    /// representation/reference cells must agree. Each `Batch` operand gets its
-    /// own clone in a tight scope: an owned-`Batch` operand is consumed by `&`,
-    /// so a fresh one is built per cell.
+    /// `meet_matches_oracle` pins the bare owned/owned cell; each of the
+    /// four reference cells must agree with it.
     #[test]
     fn meet_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -490,39 +391,13 @@ proptest! {
         prop_assert!(&a & b.clone() == expected);
         prop_assert!(a.clone() & &b == expected);
         prop_assert!(&a & &b == expected);
-
-        // Version × Batch.
-        { let mut bb = b.clone(); prop_assert!(a.clone() & bb.batch() == expected); }
-        { let mut bb = b.clone(); prop_assert!(&a & bb.batch() == expected); }
-        { let mut bb = b.clone(); let r = bb.batch(); prop_assert!(a.clone() & &r == expected); }
-        { let mut bb = b.clone(); let r = bb.batch(); prop_assert!(&a & &r == expected); }
-
-        // Batch × Version.
-        { let mut aa = a.clone(); prop_assert!(aa.batch() & b.clone() == expected); }
-        { let mut aa = a.clone(); prop_assert!(aa.batch() & &b == expected); }
-        { let mut aa = a.clone(); let l = aa.batch(); prop_assert!(&l & b.clone() == expected); }
-        { let mut aa = a.clone(); let l = aa.batch(); prop_assert!(&l & &b == expected); }
-
-        // Batch × Batch.
-        { let mut aa = a.clone(); let mut bb = b.clone();
-          prop_assert!(aa.batch() & bb.batch() == expected); }
-        { let mut aa = a.clone(); let mut bb = b.clone(); let r = bb.batch();
-          prop_assert!(aa.batch() & &r == expected); }
-        { let mut aa = a.clone(); let mut bb = b.clone(); let l = aa.batch();
-          prop_assert!(&l & bb.batch() == expected); }
-        { let mut aa = a.clone(); let mut bb = b.clone(); let l = aa.batch(); let r = bb.batch();
-          prop_assert!(&l & &r == expected); }
     }
 }
 
 proptest! {
-    /// The full `&=` (BitAndAssign) matrix: {Version, Batch} left operands
-    /// against {Version, Batch} right operands, every reference form, all
-    /// landing on the oracle's `meet`.
-    ///
-    /// Dual to [`join_assign_matrix_matches_oracle`]. A `Batch` left operand
-    /// applies in place, scoped so its underlying `Version` is checked
-    /// afterward.
+    /// The full `&=` (BitAndAssign) matrix — owned and borrowed right
+    /// operands — lands on the oracle's `meet`, dual to
+    /// [`join_assign_matrix_matches_oracle`].
     #[test]
     fn meet_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -535,20 +410,6 @@ proptest! {
         // Version &= Version / &Version.
         { let mut x = a.clone(); x &= b.clone(); prop_assert!(x == expected); }
         { let mut x = a.clone(); x &= &b; prop_assert!(x == expected); }
-
-        // Version &= Batch / &Batch.
-        { let mut x = a.clone(); let mut bb = b.clone(); x &= bb.batch(); prop_assert!(x == expected); }
-        { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch(); x &= &r; prop_assert!(x == expected); }
-
-        // Batch &= Version / &Version (applied in place).
-        { let mut x = a.clone(); { let mut bx = x.batch(); bx &= b.clone(); } prop_assert!(x == expected); }
-        { let mut x = a.clone(); { let mut bx = x.batch(); bx &= &b; } prop_assert!(x == expected); }
-
-        // Batch &= Batch / &Batch (applied in place).
-        { let mut x = a.clone(); let mut bb = b.clone();
-          { let mut bx = x.batch(); bx &= bb.batch(); } prop_assert!(x == expected); }
-        { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch();
-          { let mut bx = x.batch(); bx &= &r; } prop_assert!(x == expected); }
     }
 }
 
