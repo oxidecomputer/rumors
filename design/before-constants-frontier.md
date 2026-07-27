@@ -96,7 +96,8 @@ case for adopting it is dissolution of hand-rolled coding surface.
 Write-side impedance (word sinks against the byte-backed stores) is
 real; prototype before committing. Future-protocol note: inverting
 the internal-node topology bit would make descend a single
-word-parallel unary read.
+word-parallel unary read. Taken 2026-07-27 (#67): flag inverted and
+the read side adopted wholesale inside the same unshipped revision.
 
 ### 2.2 Fusing the composites
 
