@@ -13,8 +13,9 @@
 //! Interval tree clocks give the same causal answers in much less space,
 //! often by more than an order of magnitude, and in dynamic settings they
 //! *recycle identity*: a departing participant [`join`](Clock::join)s its
-//! clock back in, returning its share of the id space — and its history — to
-//! the survivors, so the clocks avoid unbounded growth.
+//! clock into a surviving peer's, returning its share of the *id space* —
+//! the range of identity the participants partition among themselves — and
+//! its history, so the clocks avoid unbounded growth.
 //!
 //! ## Quickstart
 //!
@@ -64,7 +65,7 @@
 //! |---------------------|-------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 //! | [`Party`]           | a distinct entity which may emit events         | [`tick`](Party::tick), [`fork`](Party::fork)([`s`](Party::forks)), [`join`](Party::join), [`is_disjoint`](Party::is_disjoint)                                     |
 //! | [`Version`]         | a causal timestamp (history of known events)    | [`tick`](Version::tick), [`PartialOrd`] (`<`, `<=`, [`concurrent`](Version::concurrent)), join (`\|`), meet (`&`), [`rank`](Version::rank)                        |
-//! | [`Clock`]           | a [`Party`] paired with its current [`Version`] | [`tick`](Clock::tick), [`fork`](Clock::fork)([`s`](Clock::forks)), [`join`](Clock::join), [`send`](Clock::send), [`recv`](Clock::recv), join (`\|`) a [`Version`] |
+//! | [`Clock`]           | a [`Party`] paired with its current [`Version`] | [`tick`](Clock::tick), [`fork`](Clock::fork)([`s`](Clock::forks)), [`join`](Clock::join), [`send`](Clock::send), [`recv`](Clock::recv), join (`\|`, `\|=`) a [`Version`] |
 //! | [`Rank`]/[`Ranked`] | a total order extending the causal order       | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub)                                                                               |
 //!
 //! [`Party`]s and [`Clock`]s are linear ([`!Clone`](Clone)): moved, never
@@ -158,7 +159,7 @@
 //! // Alice marks a "send" event locally and then sends her version to Bob
 //! let msg = alice.send();
 //!
-//! // Bob incorporates Alice's version, then marking a "recv" event locally
+//! // Bob incorporates Alice's version, then marks a "recv" event locally
 //! bob.recv(&msg);
 //!
 //! // Bob's clock now strictly dominates the message, and also Alice's
@@ -172,7 +173,7 @@
 //! assert!(bob.version().concurrent(alice.version()));
 //!
 //! // Unlike with version vectors, there is no way to re-synchronize two
-//! // versions to become strictly equal by sending or receiving messages,
+//! // versions to become equal by sending or receiving messages,
 //! // because receiving a message records a local event unknown to the
 //! // sender by definition -- so if Bob sends to Alice, then vice-versa,
 //! // then Bob's version will strictly dominate Alice's, because he knows
@@ -186,13 +187,17 @@
 //!
 //! Interval tree clocks are correct only under the Law of Disjointness: no
 //! [`Party`] may ever interact with another [`Party`] that is not
-//! [*disjoint*](Party::is_disjoint) from it — tick versions that will meet
-//! in a comparison or a join, or be [`join`](Clock::join)ed or
-//! [`sync`](Clock::sync)ed themselves. (A party is a set of id-space
+//! [*disjoint*](Party::is_disjoint) from it. (A party is a set of id-space
 //! intervals — see [How it works](#how-it-works); disjoint parties share
-//! none.) Violations are not detected: nothing panics and nothing errors —
-//! comparisons simply begin reporting causal order that never happened. The
-//! caller must ensure both:
+//! none.) Two parties *interact* when one is [`join`](Clock::join)ed or
+//! [`sync`](Clock::sync)ed with the other, and whenever versions they tick
+//! meet in a comparison or a join. Only the first kind is fenced: join and
+//! sync do verify their operands, and refuse overlapping parties. The
+//! second kind is where corruption lives — a version carries no record of
+//! who ticked it, so a version written through a duplicated identity is
+//! indistinguishable from a healthy one, and comparisons simply begin
+//! reporting causal order that never happened. Nothing panics; the answers
+//! are just wrong. The caller must ensure both:
 //!
 //! 1. **Singularity.** A system of clocks has one [`Clock::seed`] (or
 //!    [`Party::seed`]), created once, from which every [`Clock`] and
@@ -247,7 +252,8 @@
 //!   predicate is causal containment.
 //! - **Sorting**: where a *total* order over versions is needed, [`Rank`]
 //!   measures a version by a quantity that strictly grows with every tick
-//!   (the exact area under its event tree), so `v < w` implies
+//!   — the exact area under the version's history function (see [How it
+//!   works](#how-it-works)) — so `v < w` implies
 //!   `v.rank() < w.rank()`: causes always sort before their effects. Only
 //!   concurrent versions can tie, and any deterministic tiebreak then
 //!   yields the same total order on every replica. [`Ranked`] packages a
@@ -473,19 +479,20 @@ pub mod implementation {
     //! one packed bit stream in one heap buffer. There is no node graph
     //! behind the API — the tree exists only as the order of bits in the
     //! stream — so [`encode`](crate::Version::encode) is a copy of the
-    //! stored bytes, [`decode`](crate::Version::decode) validates the input
-    //! and adopts the buffer as the new value's own storage (no re-encode,
-    //! no second copy), and a value's memory footprint is its wire
-    //! footprint.
+    //! stored bytes, [`decode`](crate::Version::decode) is one validating
+    //! pass over bytes read straight into the new value's own storage
+    //! (nothing is re-encoded or rebuilt), and a value's memory footprint
+    //! is its wire footprint.
     //!
-    //! **Ids.** A party's tree is written in preorder, two bits per node,
-    //! answering "does a left child follow?" and "does a right child
-    //! follow?". A wholly unowned region is simply *absent* — its parent's
-    //! tag already said so, and no bits follow — while the childless tag is
-    //! a terminal, a wholly owned region. So the seed, owning everything,
-    //! is one terminal: two bits. The party `(1, 0)` that keeps the left
-    //! half after one fork is a left-only node and then its terminal: four
-    //! bits.
+    //! **Ids.** The paper writes a party's tree with `1` for an owned
+    //! leaf, `0` for an unowned one, and `(l, r)` for a node — `(1, 0)`
+    //! owns exactly the left half. The stream writes that tree in
+    //! preorder, two bits per node, answering "does a left child follow?"
+    //! and "does a right child follow?". An unowned region is simply
+    //! *absent* — its parent's tag already said so, and no bits follow —
+    //! while the childless tag is a terminal, a wholly owned region. So
+    //! the seed, owning everything, is one terminal: two bits; and
+    //! `(1, 0)` is a left-only node and then its terminal: four bits.
     //!
     //! ```
     //! use before::Party;
@@ -567,8 +574,7 @@ pub mod implementation {
     //! A tick is the one asymmetric sweep: it pairs the party's id stream
     //! against the version's and first plays the paper's `fill`, collapsing
     //! every subtree the party wholly owns to a single plateau at that
-    //! subtree's maximum height (plus the paper's shortcut raises where
-    //! that lets a parent simplify). If filling changed the stream
+    //! subtree's maximum height. If filling changed the stream
     //! anywhere, the flattening itself recorded the event. If it changed
     //! nothing, the same walk has already scored every point where the
     //! party could grow instead — cheapest by fewest added nodes, then by
