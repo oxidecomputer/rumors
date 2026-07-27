@@ -125,10 +125,12 @@ proptest! {
     }
 
     /// The width-dispatching entry points agree with the raw wide/small
-    /// entry points: a stream applied through `add_base`/`sub_base` (via
-    /// the [`Magnitude`](super::Magnitude) implementation on `UBig`, word-
-    /// scale and wide values both) matches the oracle at every sign and at
-    /// the final value.
+    /// entry points against the oracle.
+    ///
+    /// A stream applied through `add_base`/`sub_base` — via the
+    /// [`Magnitude`](super::Magnitude) implementation on `UBig`,
+    /// word-scale and wide values both — matches the oracle at every
+    /// sign and at the final value.
     #[test]
     fn magnitude_entry_points_match_the_oracle(
         ops in proptest::collection::vec(
@@ -219,12 +221,14 @@ proptest! {
 
     /// Accumulator-into-accumulator merges preserve the value: building two
     /// operands from independent streams and merging one into the other at
-    /// an arbitrary shift equals the oracle's `x + y · 2^s`.
+    /// an arbitrary shift, added or subtracted, equals the oracle's
+    /// `x ± y · 2^s`.
     #[test]
     fn merges_match_the_oracle(
         x_ops in proptest::collection::vec(arb_op(), 1..60),
         y_ops in proptest::collection::vec(arb_op(), 1..60),
         merge_shift in 0u64..200,
+        subtract: bool,
     ) {
         let mut x = Accumulator::new();
         let mut x_oracle = IBig::from(0);
@@ -236,8 +240,13 @@ proptest! {
         for op in &y_ops {
             apply(&mut y, &mut y_oracle, op);
         }
-        x.add_accum_shl(&y, merge_shift);
-        x_oracle += y_oracle << merge_shift as usize;
+        if subtract {
+            x.sub_accum_shl(&y, merge_shift);
+            x_oracle -= y_oracle << merge_shift as usize;
+        } else {
+            x.add_accum_shl(&y, merge_shift);
+            x_oracle += y_oracle << merge_shift as usize;
+        }
         assert_value(&x, &x_oracle);
     }
 
@@ -407,6 +416,24 @@ fn u64_entry_points_cover_the_full_range() {
     assert_value(&acc, &oracle);
 }
 
+/// A redundantly spelled zero reads `is_zero() == false` until a sign
+/// read collapses it: the canonical-spelling contract `is_zero` documents,
+/// pinned so any change to it is deliberate.
+#[test]
+fn redundant_zero_reads_nonzero_until_collapsed() {
+    let mut acc = Accumulator::new();
+    acc.add_wide(&(UBig::from(1u8) << 32usize));
+    acc.sub_small(1 << 32);
+    let (sign, magnitude) = acc.sign_magnitude();
+    assert_eq!((sign, magnitude), (Ordering::Equal, UBig::ZERO));
+    assert!(!acc.is_zero(), "cancelling digits spell zero redundantly");
+    assert_eq!(acc.sign(), Ordering::Equal);
+    assert!(
+        acc.is_zero(),
+        "the sign read collapses to the canonical zero"
+    );
+}
+
 /// A fresh accumulator (and its `Default`) holds exactly zero.
 #[test]
 fn new_and_default_hold_zero() {
@@ -461,18 +488,26 @@ proptest! {
         assert_value(&x, &IBig::from(0));
     }
 
-    /// `is_zero` is exact without a scan: after any stream it agrees with
-    /// the oracle's zero test, before any sign read has collapsed the
-    /// digits.
+    /// `is_zero` is one-sided and a sign read canonicalizes.
+    ///
+    /// After any stream, `is_zero() == true` implies the value is zero,
+    /// and whenever the value is zero a `sign` read collapses the
+    /// spelling so `is_zero` reads true afterward.
     #[test]
-    fn is_zero_agrees_with_the_oracle(
+    fn is_zero_is_sound_and_sign_canonicalizes(
         ops in proptest::collection::vec(arb_op(), 1..120),
     ) {
         let mut acc = Accumulator::new();
         let mut oracle = IBig::from(0);
         for op in &ops {
             apply(&mut acc, &mut oracle, op);
-            prop_assert_eq!(acc.is_zero(), oracle == IBig::ZERO);
+            if acc.is_zero() {
+                prop_assert_eq!(&oracle, &IBig::ZERO);
+            }
+            if acc.sign() == Ordering::Equal {
+                prop_assert_eq!(&oracle, &IBig::ZERO);
+                prop_assert!(acc.is_zero(), "a sign read canonicalizes zero");
+            }
         }
     }
 

@@ -52,6 +52,11 @@ class Crate:
 CRATES = [
     Crate(name="rumors", readme="README.md"),
     Crate(
+        name="suanpan",
+        readme="crates/suanpan/README.md",
+        rdme_args=["-w", "suanpan"],
+    ),
+    Crate(
         name="before",
         readme="crates/before/README.md",
         rdme_args=["-w", "before"],

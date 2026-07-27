@@ -48,10 +48,11 @@ fn from_limbs(limbs: &[u64]) -> UBig {
 }
 
 proptest! {
-    /// The `Base` entry points agree with the oracle: a stream applied
-    /// through `add_base`/`sub_base` (spilled and inline magnitudes both,
-    /// so both arms of `Base`'s width dispatch fire) matches the oracle
+    /// A stream applied through `add_base`/`sub_base` matches the oracle
     /// at every sign and at the final value.
+    ///
+    /// Spilled and inline magnitudes both, so both arms of `Base`'s width
+    /// dispatch fire.
     #[test]
     fn base_entry_points_match_the_oracle(
         ops in proptest::collection::vec(
@@ -78,10 +79,11 @@ proptest! {
         assert_value(&acc, &oracle);
     }
 
-    /// The shifted `Base` entry points hold `±x · 2^s` exactly: a stream
-    /// mixing `add_base_shl` and `sub_base_shl` at arbitrary sub-digit and
-    /// multi-digit shifts matches the oracle's explicitly shifted value at
-    /// every sign and at the final value.
+    /// The shifted `Base` entry points hold `±x · 2^s` exactly.
+    ///
+    /// A stream mixing `add_base_shl` and `sub_base_shl` at arbitrary
+    /// sub-digit and multi-digit shifts matches the oracle's explicitly
+    /// shifted value at every sign and at the final value.
     #[test]
     fn shifted_base_entry_points_match_the_oracle(
         ops in proptest::collection::vec(
