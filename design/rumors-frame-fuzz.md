@@ -334,3 +334,46 @@ grows organically thereafter.
    dominance enough? *Recommendation:* keep it — it is the only total,
    public-API check that a committed post-garbage state remains
    operable, and it runs only on the rare committed outcomes.
+
+## Addendum (2026-07-27): the unbounded-allocation objection, answered by the denominator
+
+Raised at spec review: a protocol-valid arbitrary counterparty can
+induce large allocation (buffers; a large tree), and long valid
+streams necessarily describe large trees — is bounded-cost fuzzing
+coherent at all? Resolution, in four parts, now binding on the
+implementation:
+
+1. **No expansion mechanisms exist.** The wire has no backreferences,
+   no compression, no repeat forms; hash references never materialize
+   subtrees (we hold them already or fail fast). Every materialized
+   node is paid for by received wire bytes, so allocation is linear in
+   what the peer actually sent, and a fuzz input is finite.
+2. **Random-valid-stream statistics are critical, not explosive.** The
+   version grammar's one-bit flag makes random branching critical
+   Galton–Watson (offspring 0 or 2, mean 1): a random valid stream is
+   almost surely a finite tree, heavy-tailed (P(size > N) ~ N^(-1/2)),
+   and in every case bounded by the input's own length. Conditioning
+   on a long valid stream yields a big tree the peer bought
+   byte-by-byte.
+3. **The real genre is declared-size pre-allocation, promoted to a
+   named contract.** The only door to allocation ahead of payment is a
+   length-prefixed frame whose declared size is reserved before its
+   bytes arrive. Contract (first-class, alongside section 3's):
+   **allocation tracks received bytes, never declared sizes** — a
+   reservation keyed to a declared length that outruns receipt is a
+   finding regardless of whether the stream would eventually have been
+   valid.
+4. **Caps are denominated per received byte against the documented
+   session cost claim** (measured honest-replay headroom, per open
+   question 3) — so legitimately expensive valid traffic sits under
+   the cap by construction, and a trip is either an amplification bug
+   or a wrong complexity claim, both findings. Conceded scope limit:
+   cumulative replica growth across an unbounded session is
+   legitimate; the harness bounds only per-finite-input totals, which
+   is a fuzzer's proper scope.
+
+Consequence for the harness: the finding taxonomy in section 1 gains
+"allocation ahead of receipt" as its own class, and the heap cap
+assertion runs continuously during the play phase (not only at
+resolve), so a declared-size reservation trips at the moment of
+over-reservation with the offending frame in hand.
