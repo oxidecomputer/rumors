@@ -731,12 +731,11 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   envelope audit: every oracle-facing suite bounded (arb
   generators depth 4, op-traces ≤ 120 ops, family grids scale
   ≤ 64, exhaustive depth ≤ 4; the 4096-spine and 100k-spine
-  suites are impl-only with closed-form witnesses). OPEN to the
-  owner (dissolution question): whether deterministic
-  verdict-pair totality over the 65536-id corpus is worth an
-  hour-scale detached run, against deep = tick pin + per-id
-  checks at minutes — the instrument stays as ratified until
-  ruled.
+  suites are impl-only with closed-form witnesses). DECIDED
+  2026-07-27 (owner): the hour-scale verdict-pair totality test
+  stays, and stays out of the gate — `#[ignore]`d, run detached
+  on demand, its budget and machine annotation the contract for
+  whoever runs it.
 - **DECIDED 2026-07-27 (#54): the diff sweep settles covered
   subtrees as blocks — the early-exit constants recovered, both
   arms linear.** Mechanism (`ac10e61b`): dyadic nesting makes
