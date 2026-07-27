@@ -2,10 +2,10 @@
 
 <!-- cargo-rdme start -->
 
-Cliff-immune signed accumulators: redundant balanced signed-digit
-arithmetic whose machine-word adds, subtracts, and sign reads cost
-amortized O(1), and whose wide adds cost O(operand limbs) — on every
-input sequence.
+Cliff-immune signed accumulators: redundant balanced signed digits
+with no carry cliffs anywhere — machine-word deltas and sign reads
+amortized O(1), wide deltas amortized O(operand limbs), on every input
+sequence.
 
 `Accumulator` holds a running signed integer — a running total, a
 running difference of two totals, a running weighted sum — under
@@ -51,34 +51,44 @@ it out.
 An accumulator stores little-endian signed digits `dᵢ: i64` denoting
 `value = Σ dᵢ · 2^(32·i)`, each digit kept in the *lazy zone*
 `|dᵢ| < 2^33` — twice the digit base, and symmetric about zero. The
-representation is *redundant*: a value has many spellings, and the type
-never normalizes. It is *balanced*: digits carry their own signs, so a
-subtraction is just a negated addition and no borrow machinery exists.
+representation is *redundant*: a value has many spellings, no
+operation requires the normal one, and nothing eagerly normalizes. It
+is *balanced*: digits carry their own signs, so a subtraction is just
+a negated addition and no borrow machinery exists.
 
 A write adds its delta into one digit, forming the sum `t` in wider
 (128-bit) intermediate arithmetic so nothing overflows. If `t` is in
 the zone, it becomes the digit and that is the whole write. If not,
 the digit *recenters*: it carries `c = (t + 2^31) >> 32` upward (an
 arithmetic shift) and keeps the remainder `t − c·2^32`, which lands in
-`[−2^31, 2^31)`. A freshly recentered digit therefore needs at least
-`2^33 − 2^31` of further net inflow before it can carry again, while
-every carry passed upward is small (under `2^32`) — so carries thin
-out geometrically with height, and the total carry work is dominated
-by the deltas that entered at the bottom \[derived\]. Machine-word
-deltas are amortized O(1) digit work. A wide delta enters limb by limb
-— throughout this page a *limb* is one 64-bit word of the operand —
-each limb landing as two 32-bit contributions at the digit positions
-it spans, for O(operand limbs) total: independent of how wide the
-*held* value is, and of any power-of-two shift applied on the way in.
+`[−2^31, 2^31)`. Two facts make this cheap \[derived\]: a freshly
+recentered digit must absorb at least `2^33 − 2^31` of further net
+inflow before it can carry again, and a carry chain attenuates fast —
+the first carry out of a word-scale write is at most about `2^32`, and
+the next is already a handful of units, tiny against the inflow the
+digit above needs before it carries on. So sustained carry traffic
+thins out geometrically with height, and the total carry work is
+dominated by the deltas that entered below. The write bounds are
+amortized per call as well as per delta: a single write can be caught
+repaying a run of digits that earlier writes parked near the zone's
+edge, but never more than those writes prepaid.
+
+Machine-word deltas are therefore amortized O(1) digit work. A wide
+delta enters limb by limb — throughout this page a *limb* is one
+64-bit word of the operand's value, independent of the backend's
+internal word size — each limb landing as two contributions at the
+digit positions it spans, for amortized O(operand limbs) total:
+independent of how wide the *held* value is, and of any power-of-two
+shift applied on the way in.
 
 Because *every* write recenters, no region of the representation is
-ever in normal form — hence no boundary an adversarial delta stream
-can oscillate across at less than the cost the stream itself paid, at
-any delta width. The obvious halfway design fails exactly there: a
-two-zone form (a normalized prefix plus a fixed-width lazy window over
-the low digits) has a boundary at the window's top, and a stream of
-deltas one digit wider than the window forces the normalized prefix
-through a full carry per delta. Widening the window moves the
+ever kept in normal form — hence no boundary an adversarial delta
+stream can oscillate across at less than the cost the stream itself
+paid, at any delta width. The obvious halfway design fails exactly
+there: a two-zone form (a normalized prefix plus a fixed-width lazy
+window over the low digits) has a boundary at the window's top, and a
+stream of deltas one digit wider than the window forces the normalized
+prefix through a full carry per delta. Widening the window moves the
 boundary; only having no normalized region removes it.
 
 ## Reading the sign
@@ -115,11 +125,12 @@ does.
 A comparison between totals of wildly different scales should not cost
 the wide one's width. `Accumulator::sign_dominates_at` returns the
 (always exact) sign plus a *certificate*: `decided = true` guarantees
-that for every adjustment `a` with `|a| < 2^(32·(floor + 1))`,
-`sign(v + a) = sign(v)` and `|v| > |a|` — so the caller compares
-against anything at or below the floor's scale without ever folding it
-in. `Accumulator::sign_dominates_word` is the `u64`-sized special
-case:
+that for every adjustment `a` with `|a| < 2^(32·(floor + 1))` —
+including another accumulator held in digits `0..=floor`, whose
+redundant spelling can reach `2.01 · 2^(32·(floor + 1))`; the decision
+margin covers that too — `sign(v + a) = sign(v)` and `|v| > |a|`. So
+the caller compares against anything at or below the floor's scale
+without ever folding it in:
 
 ```rust
 use core::cmp::Ordering;
@@ -127,28 +138,33 @@ use suanpan::{Accumulator, UBig};
 
 let mut watermark = Accumulator::new();
 watermark.add_wide(&(UBig::from(1u8) << 300usize));
-// Could any adjustment below 2^64 flip the watermark's sign?
-// floor = 64.div_ceil(32) − 1 = 1: certainty without a wide fold.
-let (sign, decided) = watermark.sign_dominates_at(1);
+// Could any adjustment below 2^128 flip the watermark's sign?
+// floor = 128.div_ceil(32) − 1 = 3: certainty without a wide fold.
+let (sign, decided) = watermark.sign_dominates_at(3);
 assert_eq!((sign, decided), (Ordering::Greater, true));
 ```
 
+For `u64`-scale adjustments,
+`sign_dominates_word` is the
+shorthand.
+
 ## The operations
 
-All costs in digit touches, derived above. Rows marked *amortized* are
-worst-case over the whole operation sequence; the rest are worst-case
-per call.
+All costs in digit touches, derived above. *Amortized* bounds hold
+over the whole operation sequence — one write can be caught repaying
+carries that earlier writes parked near the zone's edge, never more
+than they prepaid; unmarked rows are worst-case per call.
 
 | Operation | Cost |
 |---|---|
 | `add_small`, `sub_small`, `add_u64`, `sub_u64` | amortized O(1) |
-| `add_wide`, `sub_wide` | O(operand limbs), whatever the held width |
-| `add_wide_shl`, `sub_wide_shl` | O(operand limbs), independent of the shift |
-| `add_base`, `sub_base` | amortized O(1) word-scale, O(operand limbs) wide |
-| `add_base_shl`, `sub_base_shl` | the same dispatch, at any shift |
-| `add_accum`, `sub_accum` | O(operand's held digits) |
-| `add_accum_shl`, `sub_accum_shl` | O(operand's held digits), independent of the shift |
-| `merge_into_wider` | O(narrower operand's held digits) |
+| `add_wide`, `sub_wide` | amortized O(operand limbs), whatever the held width |
+| `add_wide_shl`, `sub_wide_shl` | amortized O(operand limbs), independent of the shift |
+| `add_base`, `sub_base` | word-scale: amortized O(1); wide: amortized O(operand limbs) |
+| `add_base_shl`, `sub_base_shl` | as `add_base`/`sub_base`, at any shift |
+| `add_accum`, `sub_accum` | amortized O(operand's held digits) |
+| `add_accum_shl`, `sub_accum_shl` | amortized O(operand's held digits), independent of the shift |
+| `merge_into_wider` | amortized O(narrower operand's held digits) |
 | `sign`, `is_negative`, `sign_dominates_word`, `sign_dominates_at` | amortized O(1) |
 | `is_zero`, `digit_count` | O(1) |
 | `shl`, `negate`, `reset`, `sign_magnitude` | O(held digits) |
@@ -168,16 +184,18 @@ The accumulator spends representation slack to buy worst-case bounds;
 when nothing exploits the slack, simpler types win. If the total fits
 `i64`/`i128`, use `i64`/`i128`. If the deltas never change sign, a
 plain big integer is already amortized O(1) per delta (the binary
-counter argument) and needs no slack. The accumulator earns its keep
-when deltas mix signs — when the total can be driven onto a carry
-boundary and oscillated — or when sign reads interleave with
-cancelling updates. And this is an accumulator, not a number type: it
-adds, subtracts, scales by powers of two (left only — a right shift
-would need normalization), reads its sign, and converts out through
-`sign_magnitude` — no multiplication,
-no division, and no ordering between two accumulators except by
-subtracting one from the other (or from a
-`clone`) and reading the difference's sign.
+counter argument: each carry clears a bit an earlier increment set, so
+carries never outnumber increments) and needs no slack. The
+accumulator earns its keep when deltas mix signs — when the total can
+be driven onto a carry boundary and oscillated — or when sign reads
+interleave with cancelling updates. And this is an accumulator, not a
+number type: it adds, subtracts, scales by powers of two (left only —
+a right shift would need normalization), reads its sign, and converts
+out through `sign_magnitude` — no
+multiplication, no division, and no ordering between two accumulators
+except by subtracting one from the other and reading the difference's
+sign (subtract from a `clone` when the receiver's
+value must survive the comparison).
 
 ## Metering
 
@@ -193,9 +211,11 @@ touch is one relaxed atomic increment.
 ## Interop
 
 `UBig` is `dashu_int::UBig`, re-exported so callers can name exactly
-the type this crate compiled against. `Accumulator` is `Clone`,
-`Default`, `Debug`, and `Send + Sync`; `touch-meter` is the crate's
-only feature.
+the type this crate compiled against. The crate requires `std`.
+`Accumulator` is `Clone`, `Default`, `Debug`, and `Send + Sync` —
+and deliberately not `PartialEq`: two spellings of one value would
+compare unequal, so compare by subtracting and reading the
+difference's sign. `touch-meter` is the crate's only feature.
 
 ## Testing
 
