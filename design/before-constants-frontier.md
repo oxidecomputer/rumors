@@ -87,20 +87,25 @@ then decide whether the third stage joins.
 
 ### 2.3 Scratch reuse and exact pre-sizing
 
-Mechanism: every walk allocates its builders per call; the
-capacity-phase artifact on the board is buffer-doubling mid-walk. Two
-independent moves: (a) a caller-opaque reusable scratch (thread-local
-or a `&mut Scratch` parameter on the sessions that already thread
-state), amortizing allocation across calls; (b) exact or
-one-sided-bound pre-sizing from the operands' known sizes (an output
-of size ≤ n+m is derivable for the joins; the builder can reserve
-once). (b) also dissolves the capacity-phase red as a side effect.
+Re-scoped 2026-07-27 (the presize-61 probe): pre-sizing from operand
+sizes is landed everywhere it has a site — every output builder
+reserves once at construction — and the capacity-phase red is owned
+by the one op whose output is not size-derivable: projection output
+is mandatorily Θ(|v|·|p|) bits on a Θ(|v|+|p|) input, so the ev+id
+reserve under-runs by the output/input ratio (45–119 at the board's
+probe points) and the builder's doubling chain, anchored at the input
+size, steps across the default probe pair. The amplification ledger's
+§12 (2026-07-27 capacity-phase finding) carries the fitted law and
+the priced cures — a size pre-walk feeding one exact reserve, or a
+segmented output — with the disposition open. What remains of this
+direction: (a) a caller-opaque reusable scratch (thread-local or a
+`&mut Scratch` parameter on the sessions that already thread state),
+amortizing builder allocation across calls.
 
 Seam: none semantic; the meters price it immediately (heap column
 movement must be annotated).
 
-Probe: (b) first — it is a two-line reserve change per builder with a
-board diff as the verdict.
+Probe: (a) on the walks a session repeats, board diff as the verdict.
 
 ### 2.4 Rank extraction without materialized intermediates
 
