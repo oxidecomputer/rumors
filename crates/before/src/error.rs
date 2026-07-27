@@ -55,7 +55,7 @@ pub enum Decode {
     #[error("party is anonymous")]
     Anonymous,
     /// The underlying reader failed.
-    #[error("read error: {0:?}")]
+    #[error("read error: {0}")]
     Io(std::io::Error),
 }
 

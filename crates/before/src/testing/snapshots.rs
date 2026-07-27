@@ -241,8 +241,8 @@ fn rank_rendered_forms() {
 /// These strings are the crate's error representation — what a caller's
 /// logs and wrapped error chains show — so a wording change must be a
 /// deliberate re-pin here, never a silent drift. `Decode::Io`'s rendering
-/// wraps the underlying `std::io::Error`'s Debug form, which std owns, so
-/// its row pins only the crate-owned prefix.
+/// wraps the underlying `std::io::Error`'s own Display output, which std
+/// owns, so its row pins only the crate-owned prefix.
 #[test]
 fn error_display_strings() {
     let block = [
