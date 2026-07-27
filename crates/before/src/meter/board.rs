@@ -4671,7 +4671,30 @@ pub enum BenchMode {
 /// Membership is by `(operation, family)` cell name, expectations live in
 /// the judge's roster as ever; a red cured on the board leaves this list
 /// in the same change that cures it.
-pub const BOARD_RED_BENCH_RIDERS: &[(&str, &str)] = &[];
+///
+/// The current membership (realized 2026-07-26 against the boards of
+/// record, 23 default / 20 ×4 reds): the board's standing reds are the
+/// materializing-emitter display cells, the tick/min_ticks heap-constant
+/// cells, the join_all fold marginals, and the capacity-phase projection
+/// artifact cells — of those, the cells below are the ones the designed
+/// pairings do not already time (the display and min_ticks rows on the
+/// tick-cross and harmonic shapes, which those shapes were not designed
+/// to stress).
+pub const BOARD_RED_BENCH_RIDERS: &[(&str, &str)] = &[
+    ("version_min_ticks", "mirror-wide"),
+    ("version_min_ticks", "mirror-narrow"),
+    ("version_display", "harmonic"),
+    ("version_display", "nested-full"),
+    ("version_display", "nested-wide"),
+    ("version_display", "mirror-wide"),
+    ("version_display", "mirror-narrow"),
+    ("version_display", "staircase"),
+    ("clock_display", "harmonic"),
+    ("clock_display", "nested-full"),
+    ("clock_display", "mirror-wide"),
+    ("clock_display", "mirror-narrow"),
+    ("clock_display", "staircase"),
+];
 
 /// Every board cell of the chosen [`BenchMode`] at `scale`, in board row
 /// order.
