@@ -16,8 +16,8 @@
 
 use proptest::prelude::*;
 use rayon::prelude::*;
+use suanpan::Accumulator;
 
-use crate::codec::accum::Accum;
 use crate::codec::Base;
 use crate::codec::{Bits, BitsSlice};
 use crate::meter::{
@@ -73,13 +73,13 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
     // Signed differences out − a and out − b: the pointwise claim reads
     // off their signs without materializing any height. The cursors'
     // built-in folds go to a scratch accumulator.
-    let mut scratch = Accum::new();
-    let mut oa = Accum::new();
-    oa.add_base(&ho);
-    oa.sub_base(&ha);
-    let mut ob = Accum::new();
-    ob.add_base(&ho);
-    ob.sub_base(&hb);
+    let mut scratch = Accumulator::new();
+    let mut oa = Accumulator::new();
+    oa.add_magnitude(&ho);
+    oa.sub_magnitude(&ha);
+    let mut ob = Accumulator::new();
+    ob.add_magnitude(&ho);
+    ob.sub_magnitude(&hb);
     let mut intervals = 0u64;
     loop {
         intervals += 1;
@@ -155,11 +155,11 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
 
 /// Fold one raw step delta into a signed difference, subtracting when
 /// the stream sits on the difference's negative side.
-fn fold_signed(diff: &mut Accum, subtract: bool, step: &Step) {
+fn fold_signed(diff: &mut Accumulator, subtract: bool, step: &Step) {
     if step.negative != subtract {
-        diff.sub_base(&step.magnitude);
+        diff.sub_magnitude(&step.magnitude);
     } else {
-        diff.add_base(&step.magnitude);
+        diff.add_magnitude(&step.magnitude);
     }
 }
 

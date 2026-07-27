@@ -127,7 +127,7 @@ proptest! {
     /// The width-dispatching entry points agree with the raw wide/small
     /// entry points against the oracle.
     ///
-    /// A stream applied through `add_base`/`sub_base` — via the
+    /// A stream applied through `add_magnitude`/`sub_magnitude` — via the
     /// [`Magnitude`](super::Magnitude) implementation on `UBig`,
     /// word-scale and wide values both — matches the oracle at every
     /// sign and at the final value.
@@ -145,10 +145,10 @@ proptest! {
             // One to three limbs per value, so the stream exercises the
             // word-sized dispatch path and the wide one both.
             if *negative {
-                acc.sub_base(&value);
+                acc.sub_magnitude(&value);
                 oracle -= IBig::from(value);
             } else {
-                acc.add_base(&value);
+                acc.add_magnitude(&value);
                 oracle += IBig::from(value);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
@@ -158,7 +158,7 @@ proptest! {
 
     /// The shifted entry points hold `x · 2^s` exactly.
     ///
-    /// A stream applied through `add_base_shl` at arbitrary sub-digit and
+    /// A stream applied through `add_magnitude_shl` at arbitrary sub-digit and
     /// multi-digit shifts, mixed with unshifted subtractions, matches the
     /// oracle's explicitly shifted value at every sign and at the final
     /// value.
@@ -177,7 +177,7 @@ proptest! {
                 acc.sub_wide(&value);
                 oracle -= IBig::from(value);
             } else {
-                acc.add_base_shl(&value, *shift);
+                acc.add_magnitude_shl(&value, *shift);
                 oracle += IBig::from(value << *shift as usize);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
@@ -186,7 +186,7 @@ proptest! {
     }
 
     /// The shifted subtraction entry points hold `−x · 2^s` exactly: a
-    /// stream mixing `sub_base_shl` and `sub_wide_shl` at arbitrary shifts
+    /// stream mixing `sub_magnitude_shl` and `sub_wide_shl` at arbitrary shifts
     /// with unshifted additions matches the oracle at every sign and at
     /// the final value.
     #[test]
@@ -202,7 +202,7 @@ proptest! {
             let value = from_limbs(limbs);
             match arm {
                 0 => {
-                    acc.sub_base_shl(&value, *shift);
+                    acc.sub_magnitude_shl(&value, *shift);
                     oracle -= IBig::from(value << *shift as usize);
                 }
                 1 => {

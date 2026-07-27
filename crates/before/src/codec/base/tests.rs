@@ -11,9 +11,9 @@ use core::cmp::Ordering;
 
 use dashu_int::{IBig, Sign, UBig};
 use proptest::prelude::*;
+use suanpan::Accumulator;
 
-use super::Accum;
-use crate::codec::Base;
+use super::Base;
 
 /// The oracle's sign as the accumulator reports it.
 fn oracle_sign(oracle: &IBig) -> Ordering {
@@ -29,7 +29,7 @@ fn oracle_sign(oracle: &IBig) -> Ordering {
 
 /// Assert the accumulator's full value equals the oracle's, sign and
 /// magnitude both.
-fn assert_value(acc: &Accum, oracle: &IBig) {
+fn assert_value(acc: &Accumulator, oracle: &IBig) {
     let (sign, magnitude) = acc.sign_magnitude();
     assert_eq!(sign, oracle_sign(oracle), "sign_magnitude sign");
     // The sign was just asserted, so signing the magnitude with it makes
@@ -48,7 +48,7 @@ fn from_limbs(limbs: &[u64]) -> UBig {
 }
 
 proptest! {
-    /// A stream applied through `add_base`/`sub_base` matches the oracle
+    /// A stream applied through `add_magnitude`/`sub_magnitude` matches the oracle
     /// at every sign and at the final value.
     ///
     /// Spilled and inline magnitudes both, so both arms of `Base`'s width
@@ -60,7 +60,7 @@ proptest! {
             1..200,
         ),
     ) {
-        let mut acc = Accum::new();
+        let mut acc = Accumulator::new();
         let mut oracle = IBig::from(0);
         for (negative, limbs) in &ops {
             let value = from_limbs(limbs);
@@ -68,10 +68,10 @@ proptest! {
             // word-sized dispatch path and the wide one both.
             let base = Base::from(value.clone());
             if *negative {
-                acc.sub_base(&base);
+                acc.sub_magnitude(&base);
                 oracle -= IBig::from(value);
             } else {
-                acc.add_base(&base);
+                acc.add_magnitude(&base);
                 oracle += IBig::from(value);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
@@ -81,7 +81,7 @@ proptest! {
 
     /// The shifted `Base` entry points hold `±x · 2^s` exactly.
     ///
-    /// A stream mixing `add_base_shl` and `sub_base_shl` at arbitrary
+    /// A stream mixing `add_magnitude_shl` and `sub_magnitude_shl` at arbitrary
     /// sub-digit and multi-digit shifts matches the oracle's explicitly
     /// shifted value at every sign and at the final value.
     #[test]
@@ -91,16 +91,16 @@ proptest! {
             1..200,
         ),
     ) {
-        let mut acc = Accum::new();
+        let mut acc = Accumulator::new();
         let mut oracle = IBig::from(0);
         for (negative, limbs, shift) in &ops {
             let value = from_limbs(limbs);
             let base = Base::from(value.clone());
             if *negative {
-                acc.sub_base_shl(&base, *shift);
+                acc.sub_magnitude_shl(&base, *shift);
                 oracle -= IBig::from(value << *shift as usize);
             } else {
-                acc.add_base_shl(&base, *shift);
+                acc.add_magnitude_shl(&base, *shift);
                 oracle += IBig::from(value << *shift as usize);
             }
             prop_assert_eq!(acc.sign(), oracle_sign(&oracle));

@@ -23,7 +23,7 @@
 //!   base charged at most twice), and at each leaf the accumulator holds
 //!   exactly the leaf-to-leaf delta the skyline payload codes — extracted,
 //!   zigzag-coded, and fed to the collapsing output builder. The
-//!   accumulator is the cliff-immune [`Accum`]: a plain big-integer running
+//!   accumulator is the cliff-immune [`Accumulator`]: a plain big-integer running
 //!   value re-imports the boundary comb's quadratic carry genre. The ≤2×
 //!   charge is enforced structurally (one join, one leave per base) plus,
 //!   in `tests/meter.rs`, the `SKYLINE_PARSE_*` aggregate ceilings and
@@ -53,7 +53,8 @@
 use core::cmp::Ordering;
 use core::fmt::Write as _;
 
-use crate::codec::accum::Accum;
+use suanpan::Accumulator;
+
 use crate::codec::text::{parse_base, Cur};
 use crate::codec::{Base, BitCursor, Bits, BitsSlice, DsiCursor};
 use crate::error::Parse;
@@ -311,7 +312,7 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
     let mut builder = SkylineBuilder::with_capacity(s.len());
     let mut frames: Vec<EvFrame> = Vec::new();
     // The signed height movement since the last emitted leaf.
-    let mut delta = Accum::new();
+    let mut delta = Accumulator::new();
     let mut emitted_first = false;
     let mut canonical = true;
 
@@ -325,7 +326,7 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
                 if cur.bump() != Some(b',') {
                     return Err(Parse::Syntax);
                 }
-                delta.add_base(&base);
+                delta.add_magnitude(&base);
                 frames.push(EvFrame::NeedLeft { base });
                 continue 'nodes;
             }
@@ -333,7 +334,7 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
             _ => return Err(Parse::Syntax),
         }
         let base = parse_base(&mut cur)?;
-        delta.add_base(&base);
+        delta.add_magnitude(&base);
 
         // Emit the leaf's plateau: the accumulated movement is exactly the
         // leaf-to-leaf delta (absolute for the first leaf), and extracting
@@ -355,7 +356,7 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
             Ordering::Equal => {}
         }
         builder.leaf(frames.len(), code);
-        delta.sub_base(&base); // the leaf's base exits the path
+        delta.sub_magnitude(&base); // the leaf's base exits the path
 
         // Close every node the leaf completes.
         let mut summary = Child {
@@ -389,7 +390,7 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
                     if left.is_leaf && summary.is_leaf && left.base == summary.base {
                         canonical = false;
                     }
-                    delta.sub_base(&base); // the closed node's base exits the path
+                    delta.sub_magnitude(&base); // the closed node's base exits the path
                     summary = Child {
                         base,
                         is_leaf: false,
