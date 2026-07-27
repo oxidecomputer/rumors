@@ -227,8 +227,17 @@ impl PartialOrd for Rank {
 // reference forms mirror [`Base`]'s own `Add` matrix so callers need not place
 // borrows by hand.
 
-/// Addition of two ranks: align exponents, add numerators, renormalize. Exact
-/// at any magnitude (the numerator spills to a bignum).
+/// Adds two ranks: the exact sum of the two areas.
+///
+/// Rank addition is *measure* arithmetic, not history arithmetic: areas
+/// add, histories join. Its meaning comes from the rank being a valuation
+/// on the version lattice — `rank(a | b) + rank(a & b) == rank(a) +
+/// rank(b)` — which is what makes
+/// [`distance`](crate::Version::distance) a metric and lets its directed
+/// halves recombine (`a.lag(b) + b.lag(a) == a.distance(b)`). Use `+` to
+/// aggregate measures — a total replication backlog across peers, a
+/// budget consumed so far — never to combine histories; that is the
+/// version join `|`.
 impl Add<&Rank> for &Rank {
     type Output = Rank;
     fn add(self, rhs: &Rank) -> Rank {

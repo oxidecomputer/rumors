@@ -177,7 +177,7 @@ pub fn delta_before<'a>(start: &'a Version, end: &'a Version) -> Result<Range<'a
 }
 
 impl<'a> Range<'a> {
-    /// Refine the start bound to *strictly since* `start` (see [`since`]).
+    /// Refines the start bound to *strictly since* `start` (see [`since`]).
     ///
     /// # Errors
     ///
@@ -193,7 +193,7 @@ impl<'a> Range<'a> {
         .validated()
     }
 
-    /// Refine the start bound to *not strictly before* `start` (see
+    /// Refines the start bound to *not strictly before* `start` (see
     /// [`not_before`]).
     ///
     /// # Errors
@@ -210,7 +210,7 @@ impl<'a> Range<'a> {
         .validated()
     }
 
-    /// Refine the end bound to *known at* `end` (see [`known_at`]).
+    /// Refines the end bound to *known at* `end` (see [`known_at`]).
     ///
     /// # Errors
     ///
@@ -224,7 +224,7 @@ impl<'a> Range<'a> {
         .validated()
     }
 
-    /// Refine the end bound to *strictly before* `end` (see [`before`]).
+    /// Refines the end bound to *strictly before* `end` (see [`before`]).
     ///
     /// # Errors
     ///
@@ -284,7 +284,7 @@ impl<'a> Range<'a> {
         self.placement_of(version) == Ordering::Equal
     }
 
-    /// Totally order `version` against this range.
+    /// Totally orders `version` against this range.
     ///
     /// Where the causal order on [`Version`]s alone is partial, a version's
     /// placement relative to a range is always one of exactly three cases:
