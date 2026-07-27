@@ -329,7 +329,7 @@ there and would degenerate into exemption holes:
   against the conversion units alone (the pipeline term must not
   loosen it; radix units, forced by the delta coding, derivation
   at the constant, tripwire pinned). The pipeline term's decision
-  record is §12's C3 entry — **pending owner ratification**.
+  record is §12's C3 entry (ratified by owner, 2026-07-26).
 - **Output-dominated projection** (`version_project`/
   `clock_own_version` on comb × scattered-party and on the plateau
   crosses reveal-comb/reveal-hifloor/pure-comb, per the owner's
@@ -385,8 +385,8 @@ the bench mirror's denominators follow. Tripwires in
 measured-flat work over the intercept premise, and a
 quadratic-in-teeth probe must read red against content. The
 column's work is linear on its honest denominator; no cell exceeds
-it. The rule's decision record is §12's C3 entry — **pending owner
-ratification**.
+it. The rule's decision record is §12's C3 entry (ratified by
+owner, 2026-07-26).
 
 Statement-faithfulness (the user's standing bar) applies to every
 claim in this document and the code's prose: never weaker than
@@ -558,7 +558,7 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   unjudged exponents render `-.--` and the cell rides its constants
   and floors; guard tripwires committed (commit `87e82b34`).
 - **AMENDED 2026-07-26 (C3, the κ re-derivation, commit
-  `48c6f7b5`) — pending owner ratification (2026-07-26)**: the text
+  `48c6f7b5`; ratified by owner, 2026-07-26)**: the text
   limb constant leg's denominator gains the per-spelled-value
   pipeline term (`R = n_io + Σᵢ (digitsᵢ × limbsᵢ + 10)`,
   `TEXT_PIPELINE_LIMB_OPS_PER_VALUE`), and κ re-pins 0.25 → 0.75
@@ -568,7 +568,7 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   small-value trees judge gamma-pipeline arithmetic against pure
   conversion work and read falsely red.
 - **AMENDED 2026-07-26 (C3, the comb-scatter classification,
-  commit `ce8f9e69`) — pending owner ratification (2026-07-26)**:
+  commit `ce8f9e69`; ratified by owner, 2026-07-26)**:
   flat-denominator shapes fit their exponents against value
   content (§6's rule); packed-byte fits on the shape manufacture
   e ≈ 4 from flat marginal work over the intercept premise.
@@ -623,9 +623,9 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   citation checks and per-leg adequacy tripwires. Rationale: one
   reference spelling per contract, every public op's binding (or
   exclusion) named in a diff a reviewer sees. Function-space-leg
-  dispositions stemming from the proposed FS boundary are marked
-  in-roster **pending owner ratification (2026-07-26)**; no FS
-  differential was added or removed.
+  dispositions stemming from the FS boundary are marked in-roster
+  (ratified by owner, 2026-07-26); no FS differential was added or
+  removed.
 - **DECIDED 2026-07-27 (P5 measurement closeout): envelopes
   re-pinned, item 11 realized, record sampling retired from the
   standing cadence.** (i) The envelope suite re-measured whole
@@ -1354,7 +1354,9 @@ roster expectation move as one reviewed diff, judge-verified.
   up ≤ 7.4 B/B, the recursion state relocated to metered bit
   stacks — the `ID_JOIN` precedent class) is enumerated in the
   #24 board diff; `id_without`'s envelope re-measured
-  byte-identical (518 219 B peak, 0 segments).
+  byte-identical (518 219 B peak, 0 segments). The 26 green→green
+  re-metered cells are the enumerated verdict-neutral class
+  (ratified by owner, 2026-07-26).
 - **Extract the accumulator as a workspace crate** (unpublished
   until a second consumer stabilizes the API; its amortization
   contract is subtle — reads mutate).
