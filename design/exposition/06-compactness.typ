@@ -11,14 +11,15 @@ number honest.
 
 == The framing <ctf>
 
-For each $n$, let $S(n)$ be the set of versions whose canonical
-stream fits in $n$ bits, and let $H(n) = log_2 |S(n)|$. _Any_
-injective assignment of bit strings to the members of $S(n)$ — ours,
-or the best conceivable replacement, prefix-free or not — must give
-some member at least $H(n)$ bits or so: fewer than $2^(H(n))$
-distinct strings are shorter than $H(n)$, and there are $2^(H(n))$
-members to name. Our coding spends at most $n$ on every member, by
-definition of $S(n)$. So the
+For each $n$, let $cal(F)(n)$ be the family of versions whose
+canonical stream fits in $n$ bits, and let
+$H(n) = log_2 |cal(F)(n)|$. _Any_ injective assignment of bit
+strings to the members of $cal(F)(n)$ — ours, or the best
+conceivable replacement, prefix-free or not — must give some member
+at least $H(n)$ bits or so: fewer than $2^(H(n))$ distinct strings
+are shorter than $H(n)$, and there are $2^(H(n))$ members to name.
+Our coding spends at most $n$ on every member, by definition of
+$cal(F)(n)$. So the
 _worst-case multiplicative overhead_ of the coding, against a floor
 that any competitor also faces on the same set, is
 
@@ -27,9 +28,9 @@ $ n / H(n), $
 and the statement holds at every $n$ simultaneously — there is no
 cherry-picked operating point. Note precisely what kind of claim
 this is: worst case against worst case — our longest spelling on
-$S(n)$ against the longest spelling any coding must have on
-$S(n)$ — not a bound on any particular version's cost, and not an
-average. This is the standard competitive framing for universal
+$cal(F)(n)$ against the longest spelling any coding must have on
+$cal(F)(n)$ — not a bound on any particular version's cost, and not
+an average. This is the standard competitive framing for universal
 codes, and its self-referential flavor (the
 coding's own reach defines the set) is both its strength — no
 external model of "likely versions" is smuggled in — and the source
@@ -75,9 +76,9 @@ $ Delta(x) = (1 - 2 x A)^2 - 4 x^2 A A' $
 
 vanishes. Substituting $A$ and $A'$ and clearing denominators,
 $Delta = 0$ reduces to $(1 - 2 x^2 - 2 x^3)^2 = 8 x^8$, whose two
-sign branches give two quartics; the minus branch
+sign branches give two quartics; the one shown,
 
-$ 1 - 2 x^2 - 2 x^3 - 2 sqrt(2) x^4 = 0 $
+$ 1 - 2 x^2 - 2 x^3 - 2 sqrt(2) x^4 = 0, $
 
 carries the smaller positive root and hence the operative
 singularity, $x_c = 0.514500dots$ — safely inside $G$'s own radius of
@@ -89,8 +90,12 @@ with
 $ alpha = log_2 (1 / x_c) = 0.958757dots, $
 
 hence — summing over lengths up to $n$ changes nothing, since the
-series is geometrically dominated by its last terms —
-$H(n) = alpha n - 3/2 log_2 n + O(1)$ and
+series is geometrically dominated by its last terms — the
+sibling-merge-only grammar counts
+$H_0 (n) = alpha n - 3/2 log_2 n + O(1)$ bits of choice. The true
+$H(n)$ subtracts nonnegativity's further $Theta(log n)$-bit pruning
+(@nonneg prices it: about three more bits at $n = 800$), which
+changes nothing at the asymptote:
 
 $ n / H(n) --> 1 / alpha = 1.043017dots $
 
@@ -142,9 +147,11 @@ is $Theta(ell^(-1\/2))$ (Sparre–Andersen-type universality). A
 polynomial factor does not move the exponential growth rate, so
 $alpha$ is untouched; the effect on $H$ is $Theta(log n)$ bits. This
 is the section's one probabilistic step — the second of the
-introduction's three boundaries — and it is heuristic in one honest
-respect: the steps share a total bit budget, so they are only
-approximately independent draws. We lean on it solely for the
+introduction's three boundaries — and it is heuristic in two honest
+respects: the steps share a total bit budget, so they are only
+approximately independent draws; and they are lattice-valued with an
+atom at zero, so the $ell^(-1\/2)$ _rate_ is the universality
+statement rather than the exact fluctuation identity. We lean on it solely for the
 asymptotic rate; the finite-$n$ numbers below come from exact
 bracketing counts that do not touch it, and the census corroborates
 the rate directly (about three bits of $H$ at $n = 800$, growing
@@ -176,7 +183,7 @@ where the exact count is out of computational reach):
     the validated closed form, beyond the brackets' computational
     reach. At 100 bytes — a realistic version under heavy history —
     the coding is within $6.7%$ of the floor: $4.3$ points of
-    sibling-merge tax, about $1.9$ of universal finite-size effect
+    sibling-merge tax, about $2.0$ of universal finite-size effect
     (the $(3\/2) log_2 n$ term every maximal code pays), and about
     $0.4$ of nonnegativity tax.],
 ) <fig-overhead>
@@ -218,12 +225,14 @@ constraint.
 
 The catch is where those codes win: the versions delta covers more
 cheaply are exactly the few-plateau, giant-payload ones, and it pays
-pointwise on small values — gamma is better than or equal to both
-on every value up to 30, and loses ground steadily from 31 on.
+pointwise on small values — gamma is better than or equal to delta
+on every value up to 30 and loses ground steadily from 31 on, while
+omega does not overtake gamma until values in the hundreds.
 Measured across organic gossip
 histories, 85 to 93 percent of payload values are at most 15
-(normalization exists precisely to keep neighboring plateaus
-close), and re-coding those corpora under delta or omega costs six
+(`fill`'s flattening, not the coding, is what keeps neighboring
+plateaus close — @coding), and re-coding those corpora under delta
+or omega costs six
 to nine percent _more_ total bytes — the workload number that
 settles the bet the counting metric alone cannot. The $4.3%$
 counting tax and the factor-2 exposure on uniformly-wide families

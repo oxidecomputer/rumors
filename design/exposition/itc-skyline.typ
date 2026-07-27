@@ -37,7 +37,8 @@
   program yields an implementation that is correct — and quadratic, in
   time and in transient memory, on inputs it must be expected to meet:
   measured before the cures, a thirty-kilobyte operand pair cost
-  hundreds of megabytes of transient memory inside one comparison, and
+  nearly two hundred megabytes of transient memory inside one
+  comparison, and
   a half-megabyte value took over fourteen seconds to decode. This
   document develops, from first principles, a representation under
   which every primitive clock operation is a bounded number of linear

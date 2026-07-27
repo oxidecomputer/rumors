@@ -171,8 +171,8 @@ $ s <- s dot 2^32 + a_i quad ("digit index" i "descending"), $
 which after scanning down to index $i$ equals, in closed form,
 $sum_(j = i)^("top") a_j dot 2^(32(j - i))$: the _exact_ value of the
 scanned suffix in units of $2^(32 i)$. (The fold only continues while
-$|s| <= 2$, so after a step $|s| < 3 dot 2^32 + 2^33$ — the partial
-itself always fits comfortably in fixed-width arithmetic.) The digits
+$|s| <= 2$, so after a step $|s| < 2 dot 2^32 + 2^33 = 2^34$ — the
+partial itself always fits comfortably in fixed-width arithmetic.) The digits
 not yet scanned contribute, in the same units, at most
 
 $ sum_(j < i) (2^33 - 1) dot 2^(32(j - i)) < (2^33 - 1) / (2^32 - 1) approx 2.0000000005, $
@@ -238,13 +238,15 @@ accumulators, and
   deposited (each digit dies at most once)._
 ])
 
-Equivalently, with potential $Phi = $ total digits held live across
-all accumulators: $Phi$ grows only when input codes are consumed, and
-by at most their width (one bookkeeping exception: a collapse
-deposits at most two digits while zeroing at least as many, so it
-never increases $Phi$); every touch not covered by a consumed or
-emitted code is covered by a drop in $Phi$. Summing over the sweep,
-total work is $O("input bits" + "output bits")$.
+Equivalently, with potential $Phi = $ the number of _nonzero_ digits
+across all live accumulators (storage lanes are never freed; a digit
+_dies_ when a write or a collapse sets it to zero): $Phi$ grows only
+when input codes are consumed, and by at most their width (one
+bookkeeping exception: a collapse zeroes every digit it scanned —
+at least two, or it would not have descended — and deposits at most
+two, so it never increases $Phi$); every touch not covered by a
+consumed or emitted code is covered by a drop in $Phi$. Summing over
+the sweep, total work is $O("input bits" + "output bits")$.
 
 The discipline has teeth as rules of craft: wide values are _moved_,
 never copied (a move is a buffer swap, $O(1)$, $Phi$-neutral); when

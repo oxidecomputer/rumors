@@ -74,8 +74,10 @@ numbers entirely:
   depth is at most the shallower cursor's depth — a stack operation,
   not a comparison of positions.
 + *The all-right path is the exhausted stream.* A leaf whose path is
-  all right turns is the last plateau, ending at 1. Canonical
-  operands therefore exhaust exactly together, which is both the loop
+  all right turns is the last plateau, ending at 1. Complete
+  operands therefore exhaust exactly together (completeness, not
+  canonicality, is what this needs — every well-formed stream
+  denotes a total function on $[0, 1)$), which is both the loop
   condition and a free structural check.
 
 Each topology bit of either stream is read at most once, each path bit
@@ -125,7 +127,8 @@ walk and differ in one branch. What emission adds to comparison is an
 output: one plateau per elementary interval, at the depth of the
 deeper cursor (nesting makes that the interval's exact width), with a
 payload delta the walk must produce _without knowing any absolute
-height_.
+height_ — after the leading plateau, whose absolute the operands' own
+leading codes supply.
 
 Per elementary interval the output equals one operand — the _side_:
 $a$ where $D > 0$, $b$ where $D < 0$, unchanged (both agree) where
@@ -203,23 +206,23 @@ $ "size"(a or b) <= "size"(a) + "size"(b) - 2 "bits" $
 
 (similarly for meet). The topology half of the reason is immediate —
 the output's plateau boundaries are a subset of the operands'
-together, and merging only shrinks the tree. The payload half needs
-the boundary algebra above plus one code-length fact: gamma is nearly
-subadditive,
+together, and merging only shrinks the tree. The payload half rests
+on the boundary algebra above plus one code-length fact: gamma is
+nearly subadditive,
 
 $ "len"(gamma("of" v_1 + v_2)) <= "len"(gamma("of" v_1)) + "len"(gamma("of" v_2)) + 1 "bit," $
 
 because $(v_1 + 1)(v_2 + 1) >= v_1 + v_2 + 1$ makes the sum's
 logarithm at most the summands' logarithms together. A same-side
 output delta _is_ an input delta at its own length; a switch's jump
-is a signed sum of the deltas folded at its boundary, so its code
-costs at most theirs plus a constant — and each boundary that emits
-one output code _consumed_ its folded input codes, which never fund
-another emission. Summed across the sweep the output's payload bits
-are covered by the input's, constant slack per boundary absorbed by
-the topology half's savings. (The sketch gives the shape; the exact
-constant, tight at the empty pair, is verified mechanically in our
-implementation as a structural bound over the coding.) Joins never blow up — the inequality is what lets a
+is a signed sum of the deltas folded at its own boundary — codes the
+switch consumed, at least three bits each, that never fund another
+emission — so its code costs at most theirs plus a few bits' slack
+(the zigzag re-fold contributes a constant of its own). What we
+offer here is that shape, not a per-boundary ledger closing to the
+exact constant: the inequality itself, with its $-2$, is verified
+mechanically in our implementation as a structural bound over the
+coding, and the shape is why it is believable. Joins never blow up — the inequality is what lets a
 system fold thousands of versions together with a predictable memory
 ceiling.
 
@@ -252,8 +255,10 @@ carved when something less than a full retirement moves) is the same
 boolean-skyline sweep, emitting $1$ where $p$ owns and $q$ does not.
 The predicates — _covers_ ($q$'s owned region $subset.eq$ $p$'s) and
 _disjoint_ (no owned region shared, the safety condition every join
-checks) — are lockstep verdict walks: no emission, no per-level
-state at all, early exit at the first refuting position.
+checks) — are lockstep verdict walks: no emission, and $O(1)$ state
+in total, since a subtree one side skips is delimited by the
+outstanding-obligation count of @coding rather than by anything
+stacked per level; early exit at the first refuting position.
 
 == Projection, and pricing by mandatory output <projection>
 
@@ -300,8 +305,9 @@ legitimate tiebreak).
 
 Computing it is a one-cursor sweep with a weighted fold: add
 $h_i dot 2^(S - d_i)$ per leaf (numerator units, $S$ the maximum
-depth, found by one topology-only pre-pass — rank is one of the
-two-pass operations the introduction owned up to). The naive fold
+depth, found by one pre-pass that reads flags and hops over payloads
+by their coded lengths — rank is one of the two-pass operations the
+introduction owned up to). The naive fold
 materializes $h_i$ per leaf — the boundary comb makes that
 $Theta(n dot k)$ again. The cure splits the running height into
 _frozen + live_, $h = F + L$: $L$, an accumulator holding the drift
@@ -365,9 +371,10 @@ $x$ is $mu(x) - mu("parent"(x))$, and the sum telescopes:
 $ sum_x "base"(x) = sum_("leaves") h - sum_("internal") mu =: M(v). $
 
 Both directions of the identity deserve their sketch, since an API's
-meaning rests on it. _Floor_: $M$ is a measure on versions that
+meaning rests on it. _Floor_: $M$ is a functional on versions that
 forks preserve (both halves keep the event component), that joins
-are subadditive in, and that a single tick raises by at most one.
+are subadditive in — the one clause we state here without proof —
+and that a single tick raises by at most one.
 The last is where to look closely. `grow`'s increment raises one
 leaf term by one, and enclosing minima can only rise, which
 subtracts: at most $+1$. A `fill` collapse replaces a subtree's
@@ -381,9 +388,7 @@ $v$ spends at least $M(v)$ ticks. _Achieved_, by mirroring the
 telescoping rather than the leaves: at each node from the root down,
 tick the whole currently-owned region $mu(x) - mu("parent"(x))$
 times, then fork into the two children — the counts spent are
-exactly the normalized bases, summing to $M(v)$. (Derived in our
-work; the join-subadditivity step is the one to check if you check
-one.)
+exactly the normalized bases, summing to $M(v)$.
 
 The sweep folds subtree minima with one machine word per open
 ancestor, saturating: the operation's contract is _exact below
@@ -479,11 +484,17 @@ way the stream order makes vivid:
   already produced — a _watermark_. The walk keeps it as it goes:
   no lookahead, no second pass.
 - *Left-full arm* ($(1, i_r)$): the raised leaf is emitted _before_
-  the range its minimum comes from. The walk must look ahead: a
-  _pre-scan_ of the right sibling's range computes the minimum
-  `fill` will emit there. Done naively per arm, nested left-full
-  sites re-scan shared suffixes quadratically; the pre-scan is
-  therefore _memoized_ — one fresh scan per uncovered range, with
+  the range its minimum comes from. The walk must look ahead — and
+  for the right quantity: the arm's equation asks for
+  $min("fill"(i_r, e_r))$, the minimum of what `fill` _will emit_
+  over the range, so the _pre-scan_ simulates the fill there rather
+  than merely reading heights. Nested left-full sites inside the
+  scanned range need no scans of their own: a site's minimum is a
+  suffix quantity of its own range, so the single left-to-right
+  pass keeps pending minima and settles each as its range closes.
+  Done naively per arm, nested left-full sites would still re-scan
+  shared suffixes quadratically; the pre-scan is therefore
+  _memoized_ — one fresh scan per uncovered range, with
   every interior left-full site's minimum recorded on the way, so no
   stream position is ever pre-scanned twice. The walk's total read
   budget is at most two passes per position, flat — tick is the other
@@ -604,11 +615,11 @@ costs through @funding's three funding sources:
   floor, deciding from top digits without touching $r$'s width.
   The distinction between move and fold is not pedantry:
   fold-on-close re-folds a wide boundary difference on every
-  close/reopen cycle, and a comb of $k$ sibling sites sharing one
-  $2^b$-scale minimum — the *reveal comb*, the last of @families'
-  constructions — then circulates that width $k$ times with no
-  input or output code funding any crossing: a genuine
-  $Theta(k dot b)$ amplifier on $Theta(k + b)$ input, found by
+  close/reopen cycle, and a comb of $t$ sibling sites sharing one
+  $2^k$-scale minimum — the *reveal comb*$(t, k)$, the last of
+  @families' constructions — then circulates that width $t$ times
+  with no input or output code funding any crossing: a genuine
+  $Theta(t dot k)$ amplifier on $Theta(t + k)$ input, found by
   adversarial construction against an earlier design of this very
   walk, and cured by making the close a move. Moves are free;
   deaths pay; nothing is read twice at width.
@@ -703,7 +714,7 @@ as good as a bound on what tick emits. Two facts close the loop,
 both derived and then pinned by enforced tests in our
 implementation. First, the one-step bound:
 
-$ "size"("tick"(e, i)) <= 2 dot "size"(e) + 4 dot "size"(i) + 32 "bits." $
+$ "size"("tick"(i, e)) <= 2 dot "size"(e) + 4 dot "size"(i) + 32 "bits." $
 
 Each term has a mechanism. The factor 2 on the event side is real
 and tight in kind: a raise can re-code one delta against a wide
@@ -721,7 +732,7 @@ absorbs the first leaf's absolute code and byte-boundary slack.
 Second, the growth does not compound. In closed form, for $k$
 iterated ticks against the same party:
 
-$ "size"("tick"^k (e, i)) <= "size"("tick"(e, i)) + 4 dot "size"(i) + 4 ceil(log_2 (k + 1)) + 8 "bits" $
+$ "size"("tick"^k (i, e)) <= "size"("tick"(i, e)) + 4 dot "size"(i) + 4 ceil(log_2 (k + 1)) + 8 "bits" $
 
 — after the first tick's possible doubling, everything further is
 logarithmic in $k$: the doubling is a one-step transient, not a

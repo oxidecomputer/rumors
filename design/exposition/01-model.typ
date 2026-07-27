@@ -69,9 +69,10 @@ It is _resilient to arbitrary adverse inputs_: for every operation and
 every well-formed input — any value magnitude, any tree depth, any
 shape, crafted by an adversary or produced by an unlucky workload —
 time and transient memory are proportional to the bits the operation
-reads plus the bits it must write, with no caveats and no bounds on
-the input. Malformed inputs are rejected, and rejection obeys the
-same proportionality. Each section's cost argument is one clause of
+reads plus the bits it must write, with no bounds on the input and
+every known boundary of the argument stated where it lives (the
+paragraph after next collects them). Malformed inputs are rejected,
+and rejection obeys the same proportionality. Each section's cost argument is one clause of
 that claim; the accumulator is the clause the others lean on.
 
 *Provenance of claims.* Every cost statement in this document is one
@@ -87,10 +88,12 @@ transient bytes) are deterministic and machine-independent, so
 nanosecond bands indicate a class while counter readings are exact.
 Three
 arguments have known boundaries, each stated where it lives rather
-than smoothed over: one uncertified input shape in rank's funding
+than smoothed over — one uncertified input shape in rank's funding
 argument (@measures), one probabilistic step in the counting bound
 (@nonneg), and one framing choice in what the compactness floor is
-measured against (@ctf-caveat).
+measured against (@ctf-caveat) — plus one machine effect the linear
+bound absorbs rather than eliminates (@words); @closing collects all
+four.
 
 *What this document does not cover.* The library around this design
 has concerns this exposition deliberately omits: the API and its
@@ -118,9 +121,9 @@ value _lifts_ its whole subtree.
 
 The three operations:
 
-- *fork* splits a stamp's id into two disjoint ids covering the same
-  intervals, both keeping the event tree: two participants where there
-  was one.
+- *fork* splits a stamp's id into two disjoint ids whose union is
+  the original's region, both keeping the event tree: two
+  participants where there was one.
 - *event* (which we will call *tick*) inflates the event function
   somewhere over the caller's own id — anywhere there will do, since a
   successor timestamp only has to dominate its predecessor, and
@@ -179,7 +182,13 @@ double duty; each such use is flagged where it occurs):
       gamma bucket, an iteration count — local to each use)],
     [$t$], [double duty, flagged in place: a construction's tooth
       count; the watermark gap $h - m$ in @tick],
-    [$S$], [a stream's maximum leaf depth],
+    [$ell$ (again)], [in @compactness only: a walk's step count and
+      a family's plateau count],
+    [$S$], [a stream's maximum leaf depth; in @compactness,
+      $cal(F)(n)$ names the version family so the letter stays
+      free],
+    [$n$ (again)], [in @model and @naive only, the paper's own
+      grammar uses $n, n_1, n_2$ for event-node values],
   ),
   kind: table,
   caption: [Notation. Lengths are in bits unless bytes are named.],
