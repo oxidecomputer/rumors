@@ -162,13 +162,22 @@ where
     /// is. The accept driver and the incoming error route resolve only to
     /// errors, so neither can preempt a completion.
     ///
-    /// One refinement on protocol *failure*: a supply failure the accept
-    /// driver deposited was observed in a strictly earlier poll wave, so a
-    /// protocol error found beside it is the dead transport's symptom
-    /// (writes to a peer that already tore down, decodes of severed
-    /// streams). The terminal then reports the supply failure as the
-    /// session's cause, at direction granularity, unless a stream that
-    /// provably needed the supply already claimed it.
+    /// One refinement on protocol *failure*: a dead stream supply is
+    /// reported as the session's cause even when one of its consequences
+    /// (a write to a peer that already tore down, a decode of a severed
+    /// stream) wins the selection. The accept driver deposits the supply
+    /// failure's I/O detail in the same poll that observes it, and this
+    /// terminal is the deposit's sole consumer, so a consequence caused by
+    /// this process's own cut always finds the deposit already in place.
+    /// On a real transport the peer's cut arrives from outside, so the
+    /// supply failure and a consequence can become ready in the same wave
+    /// with the consequence ahead in the biased order; one final poll of
+    /// the accept driver then flushes the ready failure into the slot.
+    /// That poll never waits — the driver either deposits and parks or is
+    /// pending — so the session still imposes no deadline of its own (the
+    /// link contract's liveness posture). The deposit is surfaced at
+    /// direction granularity unless a stream that provably needed the
+    /// supply already named itself.
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
@@ -187,20 +196,43 @@ where
             let mut protocol = pin!(Box::pin(complete(tasks, finish)));
             let mut accept = pin!(accept.run());
             let mut stream_errors = pin!(errors.first());
-            tokio::select! {
+            let outcome = tokio::select! {
                 biased;
                 output = &mut protocol => output,
                 error = &mut stream_errors => Err(Error::Stream(error)),
                 error = &mut accept => Err(Error::Accept(error)),
+            };
+            match &outcome {
+                // A violation resolved the accept arm: the driver is
+                // complete and must not be polled again, and a violating
+                // driver never deposited (it returns instead of parking).
+                Ok(_) | Err(Error::Accept(_)) => {}
+                Err(_) => {
+                    // Flush a supply failure that became ready in the
+                    // selected wave but sat behind the biased order; a
+                    // single poll either deposits-and-parks or returns
+                    // pending, never waits.
+                    let _ = futures::poll!(accept.as_mut());
+                }
             }
+            outcome
         };
         match outcome {
             Ok(output) => Ok((output, control_read, control_write)),
             Err(error) => match errors.take_supply_failure() {
-                Some(source) => Err(Error::Stream(StreamError::SupplyClosed {
-                    origin: Origin::direction(remote),
-                    source: Some(source),
-                })),
+                // The dead supply is the root cause and the selected error
+                // its symptom. Keep the reporting stream's origin when the
+                // symptom already named the dead supply.
+                Some(source) => {
+                    let origin = match &error {
+                        Error::Stream(StreamError::SupplyClosed { origin, .. }) => *origin,
+                        _ => Origin::direction(remote),
+                    };
+                    Err(Error::Stream(StreamError::SupplyClosed {
+                        origin,
+                        source: Some(source),
+                    }))
+                }
                 None => Err(error),
             },
         }
