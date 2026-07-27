@@ -35,10 +35,11 @@ $<=$, max, min, masking — is answered interval by interval.
     label-b: [$b = (0,0,(0,0,2))$],
   ),
   caption: [Two skylines and their overlay. Plateau boundaries at ½
-    (from $a$) and ¾ (from $b$) cut $[0,1)$ into three elementary
-    intervals; on each, both operands are constant. The join
-    $a or b$ takes the pointwise max per interval: heights
-    $1, 0, 2$ — the skyline of @fig-skyline.],
+    (from both operands — $b$'s is a zero step between two equal
+    plateaus, invisible in the drawing) and at ¾ (from $b$) cut
+    $[0,1)$ into three elementary intervals; on each, both operands
+    are constant. The join $a or b$ takes the pointwise max per
+    interval: heights $1, 0, 2$ — the skyline of @fig-skyline.],
 ) <fig-overlay>
 
 The walk holds one leaf _cursor_ per operand — the current plateau,
@@ -95,7 +96,7 @@ end).
 Cost: the walk is linear; each word-scale delta folds in amortized
 $O(1)$ digit touches, each wide delta in $O$(its own limbs); each
 per-interval sign read is amortized $O(1)$ by collapse (@sign). The
-carry-cliff comb — the family that broke every normalized design —
+boundary comb — the family that broke every normalized design —
 funds each of its three-bit teeth with $O(1)$ touches. Comparison is
 linear on every input, and its transient state is two path-bit stacks
 and one accumulator: comparing against a deep operand costs its
@@ -202,7 +203,7 @@ over the coding.) Joins never blow up — the inequality is what lets a
 system fold thousands of versions together with a predictable memory
 ceiling.
 
-== The id operations <id-ops>
+== The party operations <id-ops>
 
 The party side runs the same machinery with one-bit heights and no
 accumulator at all; it is worth a moment, both because forks and

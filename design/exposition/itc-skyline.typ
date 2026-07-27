@@ -38,7 +38,7 @@
   time and in transient memory, on inputs it must be expected to meet:
   measured before the cures, a thirty-kilobyte operand pair cost
   hundreds of megabytes of transient memory inside one comparison, and
-  a half-megabyte value took tens of seconds to decode. This document
+  a half-megabyte value took over fourteen seconds to decode. This document
   develops, from first principles, a representation under which every
   clock operation is a bounded number of linear passes over packed
   bits — one pass for most operations, two for the hardest: the
