@@ -76,6 +76,14 @@ impl ExactSizeIterator for Split {}
 /// taken before the iterator drops is [`join`](Party::join)ed back into that
 /// party, so a partial read leaves the original [`Party`] holding everything it
 /// did not hand out.
+///
+/// # Complexity
+///
+/// A full drain is `O(S)` time and space, where `S` is the total packed
+/// size of the shares produced; each `next` builds only the forks on the
+/// path to its share. Dropping the iterator early rejoins the unclaimed
+/// remainder as at most one coarse region per remaining level of the
+/// split — `O(log n)` joins on the pending regions, never a re-split.
 pub struct Forks<'a> {
     /// The borrowed party: keeps the residual share and reabsorbs unconsumed
     /// shares on drop.
@@ -140,6 +148,11 @@ impl Drop for Forks<'_> {
 ///
 /// `N` must be at least 1: a [`Party`] owns a nonempty region and cannot vanish
 /// into zero shares, so `<[Party; 0]>::from` fails to compile.
+///
+/// # Complexity
+///
+/// `O(S)` time and space, where `S` is the total packed size of the `N`
+/// shares.
 ///
 /// ```
 /// use before::Party;
