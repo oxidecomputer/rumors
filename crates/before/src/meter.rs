@@ -27,8 +27,8 @@
 pub mod board;
 pub mod tier2;
 
-/// The cliff-immune signed accumulator, re-exported so the resource-envelope
-/// suite can drive its delta streams and pin its digit-touch cost.
+/// The accumulator seam module: [`suanpan`]'s cliff-immune signed
+/// accumulator under this crate's local name.
 pub use crate::codec::accum;
 
 /// The skyline transcoding codec, re-exported so the resource-envelope

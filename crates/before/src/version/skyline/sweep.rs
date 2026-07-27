@@ -9,7 +9,7 @@
 //! refinement: `a <= b` iff no elementary interval has `a`'s height above
 //! `b`'s, `b <= a` iff none has the reverse, equal iff both hold,
 //! concurrent iff neither. The sweep maintains **one** running signed
-//! difference `D = height_a − height_b` on the cliff-immune [`Accum`],
+//! difference `D = height_a − height_b` on the cliff-immune [`Accumulator`],
 //! folds `sign(D)` once per elementary interval, and advances whichever
 //! cursor's plateau ends first. Nothing recurses, and no synthetic zero
 //! subtree is ever walked
@@ -71,7 +71,7 @@
 //! amortized O(1) digit touches, a wide delta O(its own limbs) — paid by
 //! the code the input spent to express it — and each per-interval
 //! `sign(D)` is amortized O(1) against the writes that preceded it
-//! ([`Accum`]'s module doc carries both arguments; the envelope suite's
+//! ([`suanpan`]'s crate docs carry both arguments; the envelope suite's
 //! flatness rows pin the per-delta cost
 //! flat across a boundary-comb size doubling). Transient space is one
 //! path bit per open ancestor per side plus the accumulator, so comparing
@@ -101,7 +101,8 @@
 
 use core::cmp::Ordering;
 
-use crate::codec::accum::Accum;
+use suanpan::Accumulator;
+
 use crate::codec::{Base, BitCursor, Bits, BitsSlice, DsiCursor};
 use crate::step;
 
@@ -224,7 +225,7 @@ pub(super) enum Side {
 /// Fold one decoded leaf delta into the running difference, oriented by
 /// the side its stream feeds: `a`'s height rising raises `D`, `b`'s
 /// lowers it.
-pub(super) fn fold(diff: &mut Accum, side: Side, negative: bool, magnitude: &Base) {
+pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude: &Base) {
     let raises_diff = match side {
         Side::A => !negative,
         Side::B => negative,
@@ -258,7 +259,7 @@ pub(super) struct Step {
 pub(super) fn advance(
     a: &mut LeafCursor<'_>,
     b: &mut LeafCursor<'_>,
-    diff: &mut Accum,
+    diff: &mut Accumulator,
 ) -> (Option<Step>, Option<Step>) {
     match a.depth().cmp(&b.depth()) {
         Ordering::Greater => {
@@ -303,7 +304,7 @@ pub(super) fn advance(
 /// leaves the direction the mode does not need wherever the folded
 /// prefix left it.
 fn sweep(a_bits: &BitsSlice, b_bits: &BitsSlice, mode: Mode) -> (bool, bool) {
-    let mut diff = Accum::new();
+    let mut diff = Accumulator::new();
     let (mut a, a_first) = LeafCursor::open(a_bits);
     let (mut b, b_first) = LeafCursor::open(b_bits);
     diff.add_base(&a_first);
@@ -387,7 +388,7 @@ impl<'a> LeafCursor<'a> {
     /// called on a final leaf: a sweep stops when both cursors are
     /// done, and the module doc's bookkeeping shows a final leaf is
     /// never the advanced side before then.
-    pub(super) fn step(&mut self, diff: &mut Accum, side: Side) -> Step {
+    pub(super) fn step(&mut self, diff: &mut Accumulator, side: Side) -> Step {
         loop {
             match self.path.pop() {
                 Some(true) => continue, // this ancestor closed with the leaf

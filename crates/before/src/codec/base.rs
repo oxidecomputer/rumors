@@ -364,6 +364,22 @@ impl Hash for Base {
     }
 }
 
+// The accumulator seam: `Base` drives `suanpan::Accumulator`'s
+// width-dispatched entry points (`add_base`, `sub_base_shl`, …) —
+// a word-scale magnitude takes the amortized-O(1) small path, a spilled one
+// the O(operand limbs) wide path — with the inline storage answering the
+// dispatch read in O(1). The differential tests below drive both dispatch
+// arms against an exact `IBig` oracle.
+impl suanpan::Magnitude for Base {
+    fn to_word(&self) -> Option<u64> {
+        self.to_u64()
+    }
+
+    fn as_wide(&self) -> &UBig {
+        &self.0
+    }
+}
+
 impl Ord for Base {
     fn cmp(&self, other: &Self) -> Ordering {
         meter_limbs2(self, other);
@@ -554,3 +570,6 @@ impl BitOr<Base> for Base {
         Base(self.0 | rhs.0)
     }
 }
+
+#[cfg(test)]
+mod tests;

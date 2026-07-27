@@ -56,7 +56,7 @@
 //!   allocates nothing, recurses nothing, and does no `Base` arithmetic, so
 //!   this is the one column that sees it;
 //! - **accumulator digit touches**
-//!   ([`accum::touch_meter`](crate::codec::accum::touch_meter)), only when
+//!   ([`suanpan::touch_meter`]), only when
 //!   the `limb-meter` feature compiles the counter into the accumulator:
 //!   digit-state cost is work done *wider*, not more often — a walk that
 //!   re-reads a wide running value per step allocates nothing extra,
@@ -4132,7 +4132,7 @@ fn read_limb() -> Option<u64> {
 /// Reset the touch counter when the `limb-meter` feature carries one.
 #[cfg(feature = "limb-meter")]
 fn reset_touch() {
-    crate::codec::accum::touch_meter::reset();
+    suanpan::touch_meter::reset();
 }
 
 /// Without the `limb-meter` feature there is no touch counter to reset.
@@ -4142,7 +4142,7 @@ fn reset_touch() {}
 /// Read the touch counter, or `None` without the `limb-meter` feature.
 #[cfg(feature = "limb-meter")]
 fn read_touch() -> Option<u64> {
-    Some(crate::codec::accum::touch_meter::touches())
+    Some(suanpan::touch_meter::touches())
 }
 
 /// Without the `limb-meter` feature the touch column is absent.

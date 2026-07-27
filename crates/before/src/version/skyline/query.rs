@@ -5,7 +5,7 @@
 //! Every fold here is a linear functional or a masking of the version's
 //! step function, so each rides the same machinery as the comparison
 //! sweep — one forward pass of its leaf cursors with the running height
-//! state on the cliff-immune [`Accum`] — plus the piece its own question
+//! state on the cliff-immune [`Accumulator`] — plus the piece its own question
 //! needs:
 //!
 //! - [`rank`](fn@rank) integrates the step function: `Σ heightᵢ · 2^(−depthᵢ)`
@@ -100,7 +100,8 @@
 
 use core::cmp::Ordering;
 
-use crate::codec::accum::Accum;
+use suanpan::Accumulator;
+
 use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, SliceCursor};
 use crate::step;
 use crate::Rank;
@@ -141,11 +142,11 @@ pub fn rank(bits: &BitsSlice) -> Rank {
     let scale =
         u32::try_from(max_depth).expect("rank exponent overflows u32: stream deeper than 2^32");
     let (mut cursor, first) = LeafCursor::open(bits);
-    let mut total = Accum::new();
-    let mut live_height = Accum::new();
-    let mut frozen = Accum::new();
+    let mut total = Accumulator::new();
+    let mut live_height = Accumulator::new();
+    let mut frozen = Accumulator::new();
     frozen.add_base(&first);
-    let mut position = Accum::new();
+    let mut position = Accumulator::new();
     let one = Base::from(1u8);
     loop {
         // Per-leaf: the live component's contribution and the leaf's mass.
@@ -178,7 +179,12 @@ pub fn rank(bits: &BitsSlice) -> Rank {
 /// this freeze, so the sweep debits `drift · position` here — the
 /// summation-by-parts correction, priced by the drift's own width times
 /// the compacted position's nonzero digits, never by the frozen width.
-fn freeze(total: &mut Accum, frozen: &mut Accum, live_height: &mut Accum, position: &Accum) {
+fn freeze(
+    total: &mut Accumulator,
+    frozen: &mut Accumulator,
+    live_height: &mut Accumulator,
+    position: &Accumulator,
+) {
     let (drift_sign, drift) = live_height.sign_magnitude();
     debug_assert_ne!(
         drift_sign,
@@ -202,7 +208,7 @@ fn freeze(total: &mut Accum, frozen: &mut Accum, live_height: &mut Accum, positi
         Ordering::Less => frozen.sub_base(&drift),
         _ => frozen.add_base(&drift),
     }
-    *live_height = Accum::new();
+    *live_height = Accumulator::new();
 }
 
 /// Add (or, with `subtract`, remove) `factor · digits` in the total: one
@@ -213,7 +219,7 @@ fn freeze(total: &mut Accum, frozen: &mut Accum, live_height: &mut Accum, positi
 /// balanced signed digits, so an all-ones run — the usual shape of a
 /// freeze position's dyadic mass — costs one subtract at its floor and
 /// one carry past its top instead of a product per digit.
-fn mul_into(total: &mut Accum, factor: &Base, digits: &Base, subtract: bool) {
+fn mul_into(total: &mut Accumulator, factor: &Base, digits: &Base, subtract: bool) {
     if *factor == Base::ZERO || *digits == Base::ZERO {
         return;
     }
@@ -319,7 +325,7 @@ pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
 /// [`validate`](fn@super::validate) first on untrusted bytes.
 pub fn min_ticks(bits: &BitsSlice) -> u64 {
     let (mut cursor, first) = LeafCursor::open(bits);
-    let mut height = Accum::new();
+    let mut height = Accumulator::new();
     height.add_base(&first);
     // Sums fit u128 by construction: at most 2^64-scale values times a
     // leaf count bounded by the stream's bit length.
@@ -375,7 +381,7 @@ pub fn min_ticks(bits: &BitsSlice) -> u64 {
 /// The sign fold's collapse compacts the representation first, so a
 /// small value always reads O(1) digits; a value needing more than three
 /// digits after the collapse is necessarily past `2^64`.
-fn height_word(height: &mut Accum) -> Option<u64> {
+fn height_word(height: &mut Accumulator) -> Option<u64> {
     match height.sign() {
         Ordering::Equal => return Some(0),
         Ordering::Less => unreachable!("a canonical stream keeps heights nonnegative"),
@@ -407,7 +413,7 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
     let id_bits = id.as_bits();
     let (mut sc, first) = LeafCursor::open(ev_bits);
     let mut ic = IdLeafCursor::open(id_bits);
-    let mut height = Accum::new();
+    let mut height = Accumulator::new();
     height.add_base(&first);
     let mut owned = ic.owned();
     let mut out = SkylineBuilder::with_capacity(ev_bits.len() + id_bits.len());
@@ -455,7 +461,7 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
 /// The sign fold's collapse compacts the accumulator first, so the read
 /// is O(the height's own digits) — priced by the transition code the
 /// caller emits.
-fn absolute_height(height: &mut Accum) -> Base {
+fn absolute_height(height: &mut Accumulator) -> Base {
     let sign = height.sign();
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
     let (_, magnitude) = height.sign_magnitude();
@@ -471,7 +477,7 @@ fn absolute_height(height: &mut Accum) -> Base {
 fn advance_overlay(
     sc: &mut LeafCursor<'_>,
     ic: &mut IdLeafCursor<'_>,
-    height: &mut Accum,
+    height: &mut Accumulator,
 ) -> Option<Step> {
     match sc.depth().cmp(&ic.depth()) {
         Ordering::Greater => {
