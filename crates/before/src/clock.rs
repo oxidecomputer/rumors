@@ -462,7 +462,11 @@ impl Clock {
         self.version() / self.party()
     }
 
-    /// Encode a [`Clock`] as canonical bytes.
+    /// Encodes this [`Clock`] as canonical bytes.
+    ///
+    /// The bytes are the [`Party`]'s encoding followed by the [`Version`]'s:
+    /// each part is byte-aligned and independently canonical, and the party
+    /// is self-delimiting, so the two concatenate with no length prefix.
     ///
     /// # Complexity
     ///
@@ -470,8 +474,11 @@ impl Clock {
     ///
     /// ```
     /// use before::Clock;
-    /// let bytes = Clock::seed().encode();
-    /// assert_eq!(Clock::decode(&bytes[..]).unwrap().encode(), bytes);
+    /// let clock = Clock::seed();
+    /// let bytes = clock.encode();
+    /// assert_eq!(Clock::decode(&bytes[..]).unwrap(), clock);
+    /// // The framing: the party's bytes, then the version's.
+    /// assert_eq!(bytes, [clock.party().encode(), clock.version().encode()].concat());
     /// ```
     pub fn encode(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -646,7 +653,8 @@ impl core::str::FromStr for Clock {
     }
 }
 
-/// A clock from a `(party, version)` literal, e.g. `((1, 0), 5).into()`.
+/// A clock from a `(party, version)` literal, e.g.
+/// `Clock::try_from(((1, 0), 5))`.
 ///
 /// # Complexity
 ///
