@@ -26,6 +26,13 @@ use super::{Rank, Version};
 /// per comparison, every time a sorted container probes a key. Carrying
 /// the rank, sorting `n` versions folds `n` trees, not `O(n log n)`.
 ///
+/// # Complexity
+///
+/// Construction ([`From<Version>`]) is `O(|v|)` time and space in the
+/// version's packed size: the one rank fold. Comparison costs as [`Rank`]
+/// — `O(1)` across distinct magnitude scales, linear on ties (the byte
+/// tiebreak included) — and `==` and hashing are `O(|v|)`.
+///
 /// ```
 /// use before::{Clock, Ranked};
 /// let mut a = Clock::seed();
@@ -51,23 +58,35 @@ pub struct Ranked {
 
 impl Ranked {
     /// The version itself.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` time: a borrow.
     pub fn version(&self) -> &Version {
         &self.version
     }
 
     /// The version's causal [`Rank`], computed at construction.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` time: a borrow.
     pub fn rank(&self) -> &Rank {
         &self.rank
     }
 
     /// Unwrap into the version and its rank.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` time and space: two moves.
     pub fn into_parts(self) -> (Version, Rank) {
         (self.version, self.rank)
     }
 }
 
 impl From<Version> for Ranked {
-    /// Compute and carry the version's rank: one `O(n)` fold, here and
+    /// Compute and carry the version's rank: one `O(|v|)` fold, here and
     /// never again.
     fn from(version: Version) -> Self {
         let rank = version.rank();
