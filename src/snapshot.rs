@@ -114,8 +114,10 @@ impl<T> Snapshot<T> {
     ///
     /// The [`causally`](crate::causally) constructors are an idiomatic way to
     /// specify causal ranges: `range(causally::since(&s))`,
-    /// `range(causally::delta(&s, &e))`,
-    /// `range(causally::not_before(&s).known_at(&e))`, and so on. Plain range
+    /// `range(causally::delta(&s, &e)?)`,
+    /// `range(causally::not_before(&s).known_at(&e)?)`, and so on (pairing a
+    /// start with an end validates that the start lies within the end
+    /// bound). Plain range
     /// syntax like `&v1..=&v2`, `&v1..` also works, as does any other
     /// [`RangeBounds<Version>`](std::ops::RangeBounds) value, such as a
     /// tuple of [`Bound`](std::ops::Bound)s.
