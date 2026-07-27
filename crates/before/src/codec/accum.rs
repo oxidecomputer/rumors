@@ -3,7 +3,7 @@
 //!
 //! The representation (redundant balanced base-2^32 digits), the cost
 //! guarantees, and both amortization arguments live in [`suanpan`]'s crate
-//! docs; this module only binds the seam. [`Base`] drives the accumulator's
+//! docs; this module only binds the seam. `Base` drives the accumulator's
 //! width-dispatched entry points (`add_base`, `sub_base_shl`, …) through
 //! the [`suanpan::Magnitude`] implementation below: a word-scale magnitude
 //! takes the amortized-O(1) small path, a spilled one the O(operand limbs)
