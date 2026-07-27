@@ -328,6 +328,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "stacker",
+ "suanpan",
  "thiserror 2.0.18",
  "trybuild",
 ]
@@ -4611,6 +4612,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "suanpan"
+version = "0.1.0"
+dependencies = [
+ "dashu-int",
+ "proptest",
 ]
 
 [[package]]
