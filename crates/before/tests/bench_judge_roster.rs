@@ -42,42 +42,17 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
     names
 }
 
-/// The roster's red set is exactly the fifteen counter-red bigroot sweeps,
-/// the two hugeleaf display rows, and the permanent schoolbook tripwire.
+/// The roster's red set is exactly the permanent schoolbook tripwire.
 ///
-/// The bigroot sweeps are owned by the C2 kernel flip and the display rows
-/// by the text column's κ/C2 hand-off; both sets empty at C3. The
-/// width-circulation tick crosses (`version_tick`/`clock_tick` on
-/// `reveal-comb` and `pure-comb`) left this set when the latent boundary
-/// register landed (2026-07-26): the gate pins in `tests/meter.rs` hold
-/// those families flat in the touch currency, and the cells are judged
-/// green at the general ceiling like any other. Removing an owned red
-/// silences a standing judgment and adding one launders a new regression
-/// as expected, so both directions must show up as a diff of this pin.
+/// Every honest cell — the designed diagonal and the board-red riders
+/// alike — must fit under its own ceiling; the one required red is the
+/// known-quadratic conversion class the tripwire times, where green means
+/// the tripwire went dark. Removing an owned red silences a standing
+/// judgment and adding one launders a new regression as expected, so both
+/// directions must show up as a diff of this pin.
 #[test]
 fn roster_red_membership_is_pinned() {
-    let mut expected = vec![
-        "causally_contains/bigroot",
-        "clock_display/hugeleaf",
-        "clock_join/bigroot",
-        "clock_recv/bigroot",
-        "clock_sync/bigroot",
-        "clock_tick/bigroot",
-        "display_schoolbook/hugeleaf",
-        "version_batch_snapshot/bigroot",
-        "version_cmp/bigroot",
-        "version_concurrent/bigroot",
-        "version_display/hugeleaf",
-        "version_distance/bigroot",
-        "version_join/bigroot",
-        "version_join_assign/bigroot",
-        "version_lag/bigroot",
-        "version_meet/bigroot",
-        "version_meet_assign/bigroot",
-        "version_tick/bigroot",
-    ];
-    expected.sort();
-    assert_eq!(class(&roster(), "red"), expected);
+    assert_eq!(class(&roster(), "red"), ["display_schoolbook/hugeleaf"]);
 }
 
 /// The roster's boundary set is empty at this tip.
