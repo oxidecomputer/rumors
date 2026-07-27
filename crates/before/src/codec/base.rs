@@ -315,7 +315,7 @@ impl Hash for Base {
 }
 
 // The accumulator seam: `Base` drives `suanpan::Accumulator`'s
-// width-dispatched entry points (`add_base`, `sub_base_shl`, …) —
+// width-dispatched entry points (`add_magnitude`, `sub_magnitude_shl`, …) —
 // a word-scale magnitude takes the amortized-O(1) small path, a spilled one
 // the O(operand limbs) wide path — with the inline storage answering the
 // dispatch read in O(1). The differential tests below drive both dispatch

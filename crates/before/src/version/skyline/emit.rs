@@ -125,8 +125,8 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
     let mut diff = Accumulator::new();
     let (mut ca, a_first) = LeafCursor::open(a_bits);
     let (mut cb, b_first) = LeafCursor::open(b_bits);
-    diff.add_base(&a_first);
-    diff.sub_base(&b_first);
+    diff.add_magnitude(&a_first);
+    diff.sub_magnitude(&b_first);
 
     // The first interval: the winning side's absolute height opens the
     // output. Subadditivity caps the output at the inputs' total, so

@@ -91,15 +91,15 @@ where
             zero_delta = code == Base::ZERO;
             let (negative, magnitude) = unzigzag(code);
             if negative {
-                height.sub_base(&magnitude);
+                height.sub_magnitude(&magnitude);
             } else {
-                height.add_base(&magnitude);
+                height.add_magnitude(&magnitude);
             }
             if negative && height.sign() == Ordering::Less {
                 return Err(Decode::NotCanonical); // a leaf height fell below zero
             }
         } else {
-            height.add_base(&code);
+            height.add_magnitude(&code);
             seen_leaf = true;
         }
 

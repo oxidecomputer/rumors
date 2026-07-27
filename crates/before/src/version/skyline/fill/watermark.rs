@@ -79,9 +79,9 @@ pub(super) type Signed = (bool, Base);
 /// Fold a signed quantity into an accumulator.
 pub(super) fn fold(acc: &mut Accumulator, neg: bool, mag: &Base) {
     if neg {
-        acc.sub_base(mag);
+        acc.sub_magnitude(mag);
     } else {
-        acc.add_base(mag);
+        acc.add_magnitude(mag);
     }
 }
 

@@ -166,8 +166,8 @@ than they prepaid; unmarked rows are worst-case per call.
 | `add_small`, `sub_small`, `add_u64`, `sub_u64` | amortized O(1) |
 | `add_wide`, `sub_wide` | amortized O(operand limbs), whatever the held width |
 | `add_wide_shl`, `sub_wide_shl` | amortized O(operand limbs), independent of the shift |
-| `add_base`, `sub_base` | word-scale: amortized O(1); wide: amortized O(operand limbs) |
-| `add_base_shl`, `sub_base_shl` | as `add_base`/`sub_base`, at any shift |
+| `add_magnitude`, `sub_magnitude` | word-scale: amortized O(1); wide: amortized O(operand limbs) |
+| `add_magnitude_shl`, `sub_magnitude_shl` | as `add_magnitude`/`sub_magnitude`, at any shift |
 | `add_accum`, `sub_accum` | amortized O(operand's held digits) |
 | `add_accum_shl`, `sub_accum_shl` | amortized O(operand's held digits), independent of the shift |
 | `merge_into_wider` | amortized O(narrower operand's held digits) |
@@ -179,8 +179,7 @@ Digit touches are shift-independent; memory is not. A shifted entry
 point grows the digit buffer to cover the shifted position, so memory
 is O(shift / 32) plus the operand's own digits.
 
-The `*_base` entry points (*base*: the operand in its stored, base
-form, whatever type holds it) are generic over `Magnitude`, the seam
+The `*_magnitude` entry points are generic over `Magnitude`, the seam
 for a caller's own stored-magnitude type: the operand reports whether
 it fits a machine word, and the accumulator dispatches to the small or
 wide path accordingly. There is no from-value constructor: build with
