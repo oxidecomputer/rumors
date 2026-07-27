@@ -24,6 +24,15 @@
 //! offers [`contains`](Range::contains) as the authoritative membership
 //! predicate.
 //!
+//! # Complexity
+//!
+//! Every constructor and refinement in this module is `O(1)` time and
+//! space: a [`Range`] stores two borrows. The comparison cost lands in the
+//! membership predicates — [`contains`](Range::contains) and
+//! [`placement_of`](Range::placement_of) make at most two causal
+//! comparisons, each `O(|a| + |b|)` in the operands' packed sizes (see
+//! [`Version`]).
+//!
 //! ```
 //! use before::{Clock, causally};
 //!

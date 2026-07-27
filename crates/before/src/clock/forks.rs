@@ -15,6 +15,14 @@ use crate::{party, Clock, Party, Version};
 /// the residual party share and its version, and is never left empty; party
 /// shares not taken before the iterator drops are rejoined into it (its version
 /// untouched).
+///
+/// # Complexity
+///
+/// A full drain is `O(S + n·|v|)` time and space: the party split's total
+/// packed share size `S` (see [`iter::Party`](crate::iter::Party)) plus
+/// one clone of the parent version per child. Each `next` pays one
+/// version clone plus its share of the split; an early drop rejoins as
+/// the party iterator does, cloning nothing.
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.
@@ -62,6 +70,11 @@ impl ExactSizeIterator for Forks<'_> {}
 ///
 /// `N` must be at least 1, for the same reason as the [`Party`] split: a clock
 /// owns a nonempty party and cannot vanish into zero shares.
+///
+/// # Complexity
+///
+/// `O(S + N·|v|)` time and space: the party split's total packed share
+/// size `S` plus one clone of the version per child.
 ///
 /// ```
 /// use before::Clock;

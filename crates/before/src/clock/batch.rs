@@ -37,6 +37,10 @@ impl<'c> Batch<'c> {
 impl Batch<'_> {
     /// Like [`tick`](Clock::tick), but chainable.
     ///
+    /// # Complexity
+    ///
+    /// `O(|c|)` time and space, as [`Clock::tick`].
+    ///
     /// ```
     /// use before::Clock;
     /// let mut clock = Clock::seed();
@@ -56,6 +60,10 @@ impl Batch<'_> {
 
     /// Like [`fork`](Clock::fork).
     ///
+    /// # Complexity
+    ///
+    /// `O(|c|)` time and space, as [`Clock::fork`].
+    ///
     /// ```
     /// use before::Clock;
     /// let mut parent = Clock::seed();
@@ -69,6 +77,11 @@ impl Batch<'_> {
     }
 
     /// Like [`join`](Clock::join).
+    ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time and space, accepted or rejected, as
+    /// [`Clock::join`].
     ///
     /// ```
     /// use before::Clock;
@@ -88,6 +101,11 @@ impl Batch<'_> {
     }
 
     /// Like [`sync`](Clock::sync).
+    ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time and space, accepted or rejected, as
+    /// [`Clock::sync`].
     ///
     /// ```
     /// use before::Clock;
@@ -117,6 +135,10 @@ impl Batch<'_> {
 
     /// The in-progress version, for comparison (no copy).
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time: a borrow.
+    ///
     /// ```
     /// use before::{Clock, Version};
     /// let mut clock = Clock::seed();
@@ -129,6 +151,10 @@ impl Batch<'_> {
     }
 
     /// The current party (may have changed via fork/join/sync).
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` time: a borrow.
     ///
     /// ```
     /// use before::Clock;

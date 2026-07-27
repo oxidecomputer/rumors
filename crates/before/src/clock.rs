@@ -40,6 +40,17 @@ mod tests;
 /// There is deliberately no `Clock | Clock`: merging two whole clocks is the
 /// fallible [`join`](Clock::join), which must verify the parties are disjoint.
 ///
+/// # Complexity
+///
+/// A clock's *packed size* `|c|` is the length of
+/// [`encode`](Clock::encode)'s bytes — its [`Party`]'s and [`Version`]'s
+/// packed sizes plus at most one padding byte (exact to the bit as
+/// [`encoded_bits`](Clock::encoded_bits)); every `# Complexity` section on
+/// this type's operations is denominated in packed sizes. Joining a
+/// [`Version`] into a clock (`|`, `|=`, either operand order) is
+/// `O(|c| + |v|)` time and space, and `==` and hashing are `O(|c|)`; each
+/// remaining cost is on its operation.
+///
 /// ```
 /// use before::Clock;
 /// let mut a = Clock::seed();
@@ -63,6 +74,10 @@ impl Clock {
     /// independent seeds need not be; if they ever interact, causal history
     /// is silently corrupted.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time and space.
+    ///
     /// ```
     /// assert_eq!(before::Clock::seed().to_string(), "(1, 0)");
     /// ```
@@ -72,6 +87,11 @@ impl Clock {
 
     /// Advance this [`Clock`] by one event for its own [`Party`], returning the
     /// new [`Version`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(|c|)` time and space, as [`Version::tick`] on the clock's parts
+    /// (see its per-call note on wide values).
     ///
     /// ```
     /// let mut clock = before::Clock::seed();
@@ -91,6 +111,11 @@ impl Clock {
     /// tree, with worse memory use and performance. Prefer to vary which clock
     /// is forked, or use [`forks`](Clock::forks) to generate a fixed number of
     /// balanced forks.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|c|)` time and space: the party splits and the version is
+    /// cloned into the child.
     ///
     /// ```
     /// use before::Clock;
@@ -119,6 +144,13 @@ impl Clock {
     /// For the consuming counterpart that splits into exactly `N` clocks, see
     /// [`From<Clock>`](Clock) for `[Clock; N]`.
     ///
+    /// # Complexity
+    ///
+    /// `O(S + n·|v|)` time and space for a full drain, where `S` is the
+    /// total packed size of the party shares and `|v|` the version each of
+    /// the `n` children clones; children are built on demand (see
+    /// [`Forks`]).
+    ///
     /// ```
     /// use before::Clock;
     /// let mut parent = Clock::seed();
@@ -140,6 +172,10 @@ impl Clock {
     ///
     /// If the two clocks' [`Party`]s overlap, `self` is unmodified and
     /// `other` is handed back in the error.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time and space, accepted or rejected.
     ///
     /// ```
     /// use before::Clock;
@@ -175,6 +211,14 @@ impl Clock {
     /// — and whether some return already joined with each other — can
     /// depend on iteration order. Unreachable for clocks descended from one
     /// [`seed`](Clock::seed): their parties are pairwise disjoint.
+    ///
+    /// # Complexity
+    ///
+    /// `O(D log k)` time and `O(D)` space, where `D` is the total packed
+    /// size of `self` and the inputs and `k` the number of inputs — the
+    /// same balanced reduction as [`Party::join_all`], run over both
+    /// halves of each clock, with the same `O(input)` up-front overlap
+    /// test per input.
     ///
     /// ```
     /// use before::Clock;
@@ -252,6 +296,10 @@ impl Clock {
     /// If the [`Clock`]s' [`Party`]s overlap, an error is returned and `self`
     /// and `other` are left unmodified.
     ///
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time and space, accepted or rejected.
+    ///
     /// ```
     /// use before::Clock;
     /// let mut a = Clock::seed();
@@ -273,6 +321,10 @@ impl Clock {
     /// sender to the recipient, who [`recv`](Clock::recv)s it into their own
     /// [`Clock`].
     ///
+    /// # Complexity
+    ///
+    /// `O(|c|)` time and space, as [`tick`](Clock::tick).
+    ///
     /// ```
     /// let mut clock = before::Clock::seed();
     /// let msg = clock.send().clone(); // tick, then hand the version to a peer
@@ -288,6 +340,10 @@ impl Clock {
     /// Equivalent to `self |= version; self.tick()`. The receiving half of
     /// the vector-clock communication pattern described on
     /// [`send`](Clock::send).
+    ///
+    /// # Complexity
+    ///
+    /// `O(|c| + |v|)` time and space: one join, then one tick.
     ///
     /// ```
     /// use before::Clock;
@@ -307,6 +363,10 @@ impl Clock {
     /// Operations within a batch chain through one mutable borrow, each
     /// committing as it runs.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time and space.
+    ///
     /// ```
     /// use before::Clock;
     /// let mut clock = Clock::seed();
@@ -319,6 +379,10 @@ impl Clock {
 
     /// Pair a [`Party`] with a [`Version`] to form a [`Clock`].
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time and space: two moves.
+    ///
     /// ```
     /// use before::{Clock, Party, Version};
     /// let clock = Clock::from_parts(Party::seed(), Version::new());
@@ -329,6 +393,10 @@ impl Clock {
     }
 
     /// Decompose a [`Clock`] into its [`Party`] and [`Version`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` time and space: two moves.
     ///
     /// ```
     /// use before::Clock;
@@ -342,6 +410,10 @@ impl Clock {
 
     /// The [`Party`] whose causal history this clock tracks.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time: a borrow.
+    ///
     /// ```
     /// assert_eq!(before::Clock::seed().party().to_string(), "1");
     /// ```
@@ -350,6 +422,10 @@ impl Clock {
     }
 
     /// Get the current state of the [`Clock`] as a [`Version`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` time: a borrow.
     ///
     /// ```
     /// assert_eq!(before::Clock::seed().version().to_string(), "0");
@@ -362,6 +438,12 @@ impl Clock {
     /// its own [`Party`].
     ///
     /// This is short for `self.version() / self.party()`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|c| + |r|)` time and space, where `|r|` is the result's packed
+    /// size — the projection's bound: the result is not bounded by a
+    /// constant factor of the clock (see the `/` operator on [`Version`]).
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -382,6 +464,10 @@ impl Clock {
 
     /// Encode a [`Clock`] as canonical bytes.
     ///
+    /// # Complexity
+    ///
+    /// `O(|c|)` time and space: one copy of each part's stored bytes.
+    ///
     /// ```
     /// use before::Clock;
     /// let bytes = Clock::seed().encode();
@@ -395,6 +481,11 @@ impl Clock {
     }
 
     /// Encode a [`Clock`]'s canonical bytes to an arbitrary writer.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|c|)` time: one write of each part's stored bytes, plus whatever
+    /// the writer itself costs.
     ///
     /// ```
     /// use before::Clock;
@@ -415,6 +506,11 @@ impl Clock {
 
     /// Decode from a reader of canonical bytes, strictly rejecting malformed or
     /// non-canonical input.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` time and space in the bytes read, accepted or rejected:
+    /// strict validation is one pass over each part's stream.
     ///
     /// ```
     /// use before::Clock;
@@ -446,6 +542,10 @@ impl Clock {
     /// version's last byte is padded: this is the byte-aligned party length plus
     /// the version's own bit length.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time; no allocation.
+    ///
     /// ```
     /// use before::Clock;
     /// let clock = Clock::seed();
@@ -473,6 +573,10 @@ impl Clock {
     /// transfers to exactly one side based on an outcome not known at the time
     /// of transfer.
     ///
+    /// # Complexity
+    ///
+    /// `O(|c|)` time and space: one copy of each part's stored bytes.
+    ///
     /// ```
     /// use before::Clock;
     /// let c = Clock::seed();
@@ -489,6 +593,13 @@ impl Clock {
 
 /// Format a [`Clock`] using the notation in the original paper: `(<id>,
 /// <event>)`, e.g. `(1, 0)` for [`Clock::seed`].
+///
+/// # Complexity
+///
+/// `O(|c| + t)` space, the packed clock plus the `t` rendered text bytes;
+/// time is **superlinear** in the worst case on the version side, which
+/// costs as [`Version`]'s `Display` (value conversion plus the renderer's
+/// summary merge). The party side is linear.
 ///
 /// ```
 /// assert_eq!(before::Clock::seed().to_string(), "(1, 0)");
@@ -511,6 +622,13 @@ impl core::fmt::Debug for Clock {
 /// Parse a stamp `(i, e)` in paper notation, strictly rejecting non-normal-form
 /// input and any anonymous (id `0`) party.
 ///
+/// # Complexity
+///
+/// `O(t + |c|)` time and space, the input text plus the packed clock
+/// produced — accepted or rejected — except that each spelled value wider
+/// than a machine word pays decimal-to-binary conversion, superlinear
+/// (though subquadratic) in that value's width.
+///
 /// ```
 /// use before::Clock;
 /// let clock: Clock = "(1, 0)".parse().unwrap();
@@ -529,6 +647,10 @@ impl core::str::FromStr for Clock {
 }
 
 /// A clock from a `(party, version)` literal, e.g. `((1, 0), 5).into()`.
+///
+/// # Complexity
+///
+/// `O(|c|)` time and space in the clock built.
 ///
 /// ```
 /// use before::Clock;
