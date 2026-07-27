@@ -854,13 +854,16 @@ proptest! {
     /// For arbitrary
     /// divergent trees and an arbitrary causal bound pair (every `Bound`
     /// kind, over versions sampled from both trees' leaves and ceilings plus
-    /// genesis — so dominated, dominating, equal, and concurrent bounds all
-    /// occur), `Tree::range` yields exactly the leaves that
-    /// `before::causally`'s membership predicate admits from the unfiltered
+    /// genesis — so dominated, dominating, equal, concurrent, and crossed
+    /// bounds all occur), `Tree::range` yields exactly the leaves that the
+    /// documented per-bound membership predicate admits from the unfiltered
     /// walk — the prune/promote shortcuts are pure optimization — in
     /// ascending key order; and the frozen spine walk (`Tree::freeze`)
     /// yields the identical sequence. Two independent implementations of
-    /// the same partial-order semantics checking each other.
+    /// the same partial-order semantics checking each other. (The predicate
+    /// is stated inline over the raw `Bound` pair: `Tree::range`'s
+    /// `RangeBounds` surface accepts crossed pairs, which `before::causally`
+    /// validates away at composition.)
     #[test]
     fn range_and_freeze_match_the_naive_filter(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
@@ -893,21 +896,33 @@ proptest! {
         let start = pick(&start_sel, start_kind);
         let end = pick(&end_sel, end_kind);
 
-        // Ground truth: compose the equivalent `causally` range and filter
-        // the unfiltered walk by its membership predicate.
+        // Ground truth: the documented per-bound predicate — contained in
+        // the end bound and not contained in the start bound — applied to
+        // the unfiltered walk. Stated directly over the raw `Bound` pair
+        // rather than a composed `causally` range: composition validates
+        // its bounds, and this generator deliberately also drives crossed
+        // pairs through `Tree::range`'s raw `RangeBounds` surface.
         let admits = |version: &Version| {
-            let mut range = crate::causally::all();
-            match &start {
-                Bound::Included(s) => range = range.not_before(s),
-                Bound::Excluded(s) => range = range.since(s),
-                Bound::Unbounded => {}
-            }
-            match &end {
-                Bound::Included(e) => range = range.known_at(e),
-                Bound::Excluded(e) => range = range.before(e),
-                Bound::Unbounded => {}
-            }
-            range.contains(version)
+            use std::cmp::Ordering;
+            let past_start = match &start {
+                Bound::Unbounded => true,
+                // Not in the start's causal past (greater than or
+                // concurrent to it): not subtracted.
+                Bound::Excluded(s) => {
+                    matches!(version.partial_cmp(s), None | Some(Ordering::Greater))
+                }
+                // As above, but the bound itself also survives.
+                Bound::Included(s) => matches!(
+                    version.partial_cmp(s),
+                    None | Some(Ordering::Equal | Ordering::Greater)
+                ),
+            };
+            let within_end = match &end {
+                Bound::Unbounded => true,
+                Bound::Included(e) => version <= e,
+                Bound::Excluded(e) => version < e,
+            };
+            past_start && within_end
         };
         let naive: Vec<_> = tree
             .iter()

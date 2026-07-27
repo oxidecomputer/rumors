@@ -3,7 +3,7 @@
 use insta::assert_snapshot;
 
 use crate::codec::{encode_int, Base, Bits, BitsSlice};
-use crate::error::{Decode, Overlap, Parse};
+use crate::error::{Crossed, Decode, Overlap, Parse};
 use crate::{Clock, Party, Rank, Version};
 
 /// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`, the same
@@ -241,12 +241,13 @@ fn rank_rendered_forms() {
 /// These strings are the crate's error representation — what a caller's
 /// logs and wrapped error chains show — so a wording change must be a
 /// deliberate re-pin here, never a silent drift. `Decode::Io`'s rendering
-/// wraps the underlying `std::io::Error`'s Debug form, which std owns, so
-/// its row pins only the crate-owned prefix.
+/// wraps the underlying `std::io::Error`'s own Display output, which std
+/// owns, so its row pins only the crate-owned prefix.
 #[test]
 fn error_display_strings() {
     let block = [
         format!("Overlap               {Overlap}"),
+        format!("Crossed               {Crossed}"),
         format!("Decode::Truncated     {}", Decode::Truncated),
         format!("Decode::TrailingBits  {}", Decode::TrailingBits),
         format!("Decode::NotCanonical  {}", Decode::NotCanonical),
@@ -258,6 +259,7 @@ fn error_display_strings() {
     .join("\n");
     assert_snapshot!(block, @r"
     Overlap               parties are not disjoint
+    Crossed               range bounds cross: the start is not within the end
     Decode::Truncated     unexpected end of input
     Decode::TrailingBits  trailing or nonzero padding bits
     Decode::NotCanonical  input is not canonical

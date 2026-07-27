@@ -470,9 +470,10 @@
 //!   print the `version_display` row drives.
 //! - **The same comparisons under another name**: `causally`'s other
 //!   constructors, `Range::placement_of`, and `Range`'s refinement methods
-//!   perform the identical causal comparisons the `causally_contains` row
-//!   measures; `Range`'s bound accessors (including its `RangeBounds`
-//!   view) are borrows.
+//!   (whose composition gate is one validating comparison) perform the
+//!   identical causal comparisons the `causally_contains` row measures;
+//!   `Range`'s bound accessors (including its `RangeBounds` view) are
+//!   borrows.
 //! - **Wrappers**: the `serde`/`borsh` impls serialize as the canonical
 //!   encoding and deserialize through the strict decoder — the
 //!   `encode`/`decode` rows.

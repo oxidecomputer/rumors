@@ -5,7 +5,7 @@
 //! **difference of down-sets**: keep the versions contained in the end bound,
 //! subtract the versions contained in the start bound. The constructors here
 //! name each bound's meaning so a filter reads as a sentence, and every start
-//! composes with every end:
+//! kind composes with every end kind:
 //!
 //! | | end unbounded | [`known_at(e)`](known_at): `v <= e` | [`before(e)`](before): `v < e` |
 //! |---|---|---|---|
@@ -19,6 +19,14 @@
 //! versions), while an end bound of either kind drops them (keeping demands
 //! containment).
 //!
+//! Pairing a start with an end validates the composition: the start version
+//! must lie *within* the end bound (`start <= end` under [`known_at`],
+//! `start < end` under [`before`]), and a pair that crosses is rejected with
+//! [`Crossed`]. The gate is what makes
+//! [`placement_of`](Range::placement_of)'s trichotomy total: a range that
+//! exists subtracts only versions its end bound keeps, so no version can
+//! fail both bounds at once.
+//!
 //! Every constructor returns a [`Range`], which implements
 //! [`RangeBounds<Version>`] so it can be handed to any version-ranged API, and
 //! offers [`contains`](Range::contains) as the authoritative membership
@@ -26,11 +34,12 @@
 //!
 //! # Complexity
 //!
-//! Every constructor and refinement in this module is `O(1)` time and
-//! space: a [`Range`] stores two borrows. The comparison cost lands in the
-//! membership predicates — [`contains`](Range::contains) and
-//! [`placement_of`](Range::placement_of) make at most two causal
-//! comparisons, each `O(|a| + |b|)` in the operands' packed sizes (see
+//! Every constructor in this module is `O(1)` time and space: a [`Range`]
+//! stores two borrows. Pairing a start with an end validates with at most
+//! one causal comparison, and the membership predicates —
+//! [`contains`](Range::contains) and
+//! [`placement_of`](Range::placement_of) — make at most two; each
+//! comparison is `O(|a| + |b|)` in the operands' packed sizes (see
 //! [`Version`]).
 //!
 //! ```
@@ -54,24 +63,30 @@
 //! assert!(causally::known_at(&a2).contains(&a1));
 //! assert!(!causally::known_at(&a2).contains(&b1));
 //!
-//! // Every start composes with every end, in either order.
-//! let range = causally::since(&a1).known_at(&a2);
+//! // Every start kind composes with every end kind, in either order —
+//! // provided the start lies within the end.
+//! let range = causally::since(&a1).known_at(&a2).unwrap();
 //! assert!(range.contains(&a2));
 //! assert!(!range.contains(&b1));
-//! assert_eq!(causally::delta(&a1, &a2), range);
+//! assert_eq!(causally::delta(&a1, &a2).unwrap(), range);
+//! // A crossed pair is rejected at composition: b1 is not within a1.
+//! assert!(causally::delta(&b1, &a1).is_err());
 //! ```
 
 use std::cmp::Ordering;
 use std::ops::{Bound, RangeBounds};
 
+use crate::error::Crossed;
 use crate::Version;
 
 /// A causal version range: a pair of [`Bound`]s.
 ///
 /// Build one with the module's constructors and refine it with the
-/// same-named methods; every composition is valid, in any order, and
-/// setting a bound that is already set keeps the latest value. The struct
-/// implements [`RangeBounds<Version>`] for use with version-ranged APIs.
+/// same-named methods, in either order; setting a bound that is already set
+/// keeps the latest value. Refinement validates the pair — a start that is
+/// not within the end bound is rejected with [`Crossed`] — so every `Range`
+/// that exists is well-formed. The struct implements
+/// [`RangeBounds<Version>`] for use with version-ranged APIs.
 ///
 /// Note that [`Range::contains`] — the causal membership predicate — is
 /// deliberately *not* [`RangeBounds::contains`]: the trait's default method
@@ -100,7 +115,10 @@ pub fn all<'a>() -> Range<'a> {
 /// `start` itself is excluded; this is the resume/subscription shape, where
 /// the boundary version has already been seen.
 pub fn since(start: &Version) -> Range<'_> {
-    all().since(start)
+    Range {
+        start: Bound::Excluded(start),
+        end: Bound::Unbounded,
+    }
 }
 
 /// Everything *not strictly before* `start`: like [`since`], but `start` itself
@@ -110,25 +128,38 @@ pub fn since(start: &Version) -> Range<'_> {
 /// unambiguous where "at or after" would not be, since concurrent versions are
 /// neither.
 pub fn not_before(start: &Version) -> Range<'_> {
-    all().not_before(start)
+    Range {
+        start: Bound::Included(start),
+        end: Bound::Unbounded,
+    }
 }
 
 /// Everything *known at* `end`: its causal past, inclusive.
 pub fn known_at(end: &Version) -> Range<'_> {
-    all().known_at(end)
+    Range {
+        start: Bound::Unbounded,
+        end: Bound::Included(end),
+    }
 }
 
 /// Everything *strictly before* `end`: versions contained in `end`,
 /// exclusive of `end` itself.
 pub fn before(end: &Version) -> Range<'_> {
-    all().before(end)
+    Range {
+        start: Bound::Unbounded,
+        end: Bound::Excluded(end),
+    }
 }
 
 /// The causal delta from `start` to `end`: everything known at `end` but not at
 /// `start`.
 ///
 /// Shorthand for [`since(start)`](since)[`.known_at(end)`](Range::known_at).
-pub fn delta<'a>(start: &'a Version, end: &'a Version) -> Range<'a> {
+///
+/// # Errors
+///
+/// [`Crossed`] unless `start <= end`.
+pub fn delta<'a>(start: &'a Version, end: &'a Version) -> Result<Range<'a>, Crossed> {
     since(start).known_at(end)
 }
 
@@ -136,41 +167,99 @@ pub fn delta<'a>(start: &'a Version, end: &'a Version) -> Range<'a> {
 /// strictly before `end`.
 ///
 /// Shorthand for [`since(start)`](since)[`.before(end)`](Range::before).
-pub fn delta_before<'a>(start: &'a Version, end: &'a Version) -> Range<'a> {
+///
+/// # Errors
+///
+/// [`Crossed`] unless `start < end`.
+pub fn delta_before<'a>(start: &'a Version, end: &'a Version) -> Result<Range<'a>, Crossed> {
     since(start).before(end)
 }
 
 impl<'a> Range<'a> {
     /// Refine the start bound to *strictly since* `start` (see [`since`]).
-    pub fn since(self, start: &'a Version) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`Crossed`] if `start` is not within the end bound: unless
+    /// `start <= end` under [`known_at`](Self::known_at), unless
+    /// `start < end` under [`before`](Self::before). An unbounded end
+    /// accepts every start.
+    pub fn since(self, start: &'a Version) -> Result<Self, Crossed> {
         Self {
             start: Bound::Excluded(start),
             ..self
         }
+        .validated()
     }
 
     /// Refine the start bound to *not strictly before* `start` (see
     /// [`not_before`]).
-    pub fn not_before(self, start: &'a Version) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`Crossed`] if `start` is not within the end bound: unless
+    /// `start <= end` under [`known_at`](Self::known_at), unless
+    /// `start < end` under [`before`](Self::before). An unbounded end
+    /// accepts every start.
+    pub fn not_before(self, start: &'a Version) -> Result<Self, Crossed> {
         Self {
             start: Bound::Included(start),
             ..self
         }
+        .validated()
     }
 
     /// Refine the end bound to *known at* `end` (see [`known_at`]).
-    pub fn known_at(self, end: &'a Version) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`Crossed`] unless the start version, if any, satisfies
+    /// `start <= end`. An unbounded start accepts every end.
+    pub fn known_at(self, end: &'a Version) -> Result<Self, Crossed> {
         Self {
             end: Bound::Included(end),
             ..self
         }
+        .validated()
     }
 
     /// Refine the end bound to *strictly before* `end` (see [`before`]).
-    pub fn before(self, end: &'a Version) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`Crossed`] unless the start version, if any, satisfies
+    /// `start < end`. An unbounded start accepts every end.
+    pub fn before(self, end: &'a Version) -> Result<Self, Crossed> {
         Self {
             end: Bound::Excluded(end),
             ..self
+        }
+        .validated()
+    }
+
+    /// The well-formedness gate every refinement passes through: the start
+    /// version, if any, must lie within the end bound, if any.
+    ///
+    /// The gate makes [`placement_of`](Self::placement_of) a coherent
+    /// trichotomy. A subtracted version sits at or below the start, and a
+    /// start within the end bound pulls everything at or below it within
+    /// too (the strictness required of `start` vs `end` matches the end
+    /// bound's own strictness), so everything the start subtracts the end
+    /// keeps: no version is both below the range and beyond it.
+    fn validated(self) -> Result<Self, Crossed> {
+        let start = match self.start {
+            Bound::Unbounded => return Ok(self),
+            Bound::Included(start) | Bound::Excluded(start) => start,
+        };
+        let within_end = match self.end {
+            Bound::Unbounded => true,
+            Bound::Included(end) => start <= end,
+            Bound::Excluded(end) => start < end,
+        };
+        if within_end {
+            Ok(self)
+        } else {
+            Err(Crossed)
         }
     }
 
@@ -213,9 +302,10 @@ impl<'a> Range<'a> {
     /// overloads back this: a cross-type `PartialEq` whose `==` meant
     /// membership would violate the trait's transitivity contract.)
     ///
-    /// For a *crossed* range (whose start bound is not within its end
-    /// bound) a version can fail both bounds; such a version classifies as
-    /// [`Less`](Ordering::Less). Well-formed ranges have no such case.
+    /// The three cases are also mutually exclusive: composition validates
+    /// that the start bound lies within the end bound (rejecting the pair
+    /// with [`Crossed`] otherwise), so everything the start subtracts the
+    /// end keeps — no version can fail both bounds.
     pub fn placement_of(&self, version: &Version) -> Ordering {
         let past_start = match self.start {
             Bound::Unbounded => true,
