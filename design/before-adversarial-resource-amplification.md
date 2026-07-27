@@ -655,6 +655,14 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   annotation; the annotations are re-denominated to the measured
   open state and the runtime attribution is a filed follow-up
   (#53), owned outside this closeout.
+- **DECIDED 2026-07-27 (owner): the fuzz-fit instrument joins
+  `just gate`** (`fuzzfit-build` then `fuzzfit`; measured basis
+  8.6 s warm build + 59.9 s run). The #24/P4.2 kernel work moved
+  guest fuel and the stale bands sat red for a day because no
+  standing tier executed the harness; in the gate, fuel movement
+  fails the commit that carries it, with `fuzzfit-calibrate` as
+  the deliberate re-pin path. Companion entry in the instrument's
+  own decision record (`design/before-fuzzfit-asymptotics.md` §9).
 
 ## 13. The metering gate
 
