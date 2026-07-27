@@ -737,6 +737,47 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   hour-scale detached run, against deep = tick pin + per-id
   checks at minutes — the instrument stays as ratified until
   ruled.
+- **DECIDED 2026-07-27 (#54): the diff sweep settles covered
+  subtrees as blocks — the early-exit constants recovered, both
+  arms linear.** Mechanism (`ac10e61b`): dyadic nesting makes
+  "does the other operand's current plateau cover this subtree" a
+  depth comparison at every subtree entry, so the sweep settles
+  covered intervals whole — an unowned `other` cover splices the
+  `self` subtree verbatim (`IdSkylineBuilder::subtree`, closing
+  upward as `Built::Node`, which is exactly what plateau-by-plateau
+  re-derivation closes as; a terminal-collapse across a splice
+  boundary is region-theoretically unreachable, since a terminal
+  sibling would mean `other` was empty over the parent and the
+  parent itself would have spliced), an owned `other` or unowned
+  `self` cover consumes the subtree in one iterative skip scan as a
+  single unowned plateau; owned `self` over an `other` subtree
+  remains the plateau-walked complement arm, and same-interval
+  subtree pairs descend in lockstep. Every tag still read at most
+  once; segments 0; heap transient unchanged (path bits). Fuel at
+  1000 bits, per arm (pre-sweep pin → sweep pin → this pin):
+  success 4.63 → 5.81 → 4.72 fitted decades — the +1.18-decade
+  regression cured to within +0.09 of the pre-sweep line, and the
+  10^3-bit bucket median (42 fuel/bit vs the pre-sweep fitted 43)
+  reads parity; emptiness 5.07 → 5.64 → 5.47, top-decade medians
+  flat at ~430 fuel/bit (the full-scan rejections are unchanged at
+  scale). The emptiness arm's pooled envelope tilts to 1.41: the
+  charter's ≤1.05 expectation is disputed with evidence — restoring
+  early exits necessarily re-creates the rejection-mixture genre
+  (cf. `party_join` 1.48), covered rejections now settle in one
+  block scan and undercut the small buckets while `bin/diag`
+  medians and the within-case shape leg (max healthy excess +0.005,
+  unchanged) carry the linearity claim. Differential evidence: all
+  diff differentials, the exhaustive pair leg, and the envelope
+  rows green; a planted wrong-kind splice mutant
+  (`close_up(Built::Empty)`) reddened `without_arbitrary` and
+  `exhaustive_small` before revert. Boards: both scales
+  row-for-row byte-identical to the boards of record — the
+  board's two `without` cells exercise the complement arm
+  (`seed().without(b)`) and the identical-operand rejection, the
+  two paths with no coverable span, so the expected scan-constant
+  movement rightly does not appear there; the fuzzfit corpus, whose
+  fork-derived operand pairs do have coverable spans, is where the
+  cure is priced. Re-pin `d9325886`.
 
 ## 13. The metering gate
 

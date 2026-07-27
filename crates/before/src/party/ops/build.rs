@@ -1,4 +1,4 @@
-use crate::codec::{Bits, PackedBuilder};
+use crate::codec::{Bits, BitsSlice, PackedBuilder};
 use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
@@ -100,6 +100,13 @@ impl IdBuilder {
         }
     }
 
+    /// Append a complete already-normal subtree's bits verbatim (the
+    /// splice records the write), for a spliced child whose kind the
+    /// caller reports to [`close_node`](Self::close_node) itself.
+    pub(super) fn splice(&mut self, src: &BitsSlice) {
+        self.out.splice(src);
+    }
+
     /// Normalize and close the node opened at `node` from what its two children
     /// turned out to be, consuming the open token:
     ///
@@ -150,6 +157,9 @@ impl IdBuilder {
 /// Leaf-driven builder for normalized id output: append one plateau per
 /// elementary interval of a dyadic tiling, in preorder, and take the
 /// canonical id of the region the owned plateaus tile.
+///
+/// A whole already-normal subtree of the tiling may be appended in one
+/// splice instead of plateau by plateau ([`subtree`](Self::subtree)).
 ///
 /// The id-side sibling of the event emission's collapsing builder (the
 /// skyline build module): the preorder leaf depths of a dyadic tiling
@@ -219,6 +229,43 @@ impl IdSkylineBuilder {
             Built::Empty
         };
         self.close_up(kind);
+    }
+
+    /// Append a whole canonical internal subtree at `depth` as one
+    /// verbatim splice: the block form of [`leaf`](Self::leaf), for a
+    /// region whose plateaus are one operand's own tiling unchanged.
+    ///
+    /// `src` must be the complete packed encoding of one *internal*
+    /// subtree in normal form (a fully-owned region is a
+    /// [`leaf`](Self::leaf), and an unowned one contributes no bits).
+    /// The splice preserves the builder's normalization invariants at
+    /// its boundary: the interior needs no repair because a subtree of
+    /// a normal id is itself normal, and the subtree closes upward as
+    /// [`Built::Node`] — exactly what re-deriving it plateau by plateau
+    /// would close as (its root has a child that is neither both-empty
+    /// nor both-terminal), so the ancestors' presence patches and
+    /// collapses are unchanged.
+    pub(super) fn subtree(&mut self, depth: usize, src: &BitsSlice) {
+        debug_assert!(
+            self.root.is_none(),
+            "a subtree arrived after the final plateau: the tiling is complete"
+        );
+        debug_assert!(
+            depth >= self.path.len(),
+            "a subtree depth above its forced flip level: the input is not one preorder tiling"
+        );
+        debug_assert!(
+            src[0] || src[1],
+            "a spliced block is an internal subtree, never a lone terminal"
+        );
+        // Open an ancestor per level entered, exactly as a leaf would.
+        for _ in self.path.len()..depth {
+            let Open(at) = self.out.open();
+            self.tags.push(at);
+            self.path.push(false);
+        }
+        self.out.splice(src);
+        self.close_up(Built::Node);
     }
 
     /// Take the finished canonical stream (empty for a wholly unowned
