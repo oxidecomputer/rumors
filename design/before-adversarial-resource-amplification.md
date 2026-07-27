@@ -892,6 +892,37 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   plus three test-side ticks (`tree/tests.rs`); every other
   `.batch()` in the workspace is rumors' own surviving API. No
   wire snapshot moved.
+- **FINDING 2026-07-27 (#72, at the removal's gate): the
+  `ff_clock_join` rejection band under-prices the full-scan
+  overlap genre at small denominators; pre-existing, not the
+  removal's movement.** The enforcement sentry drew a program
+  whose `Clock::join` overlap rejection at 139 denominated bits
+  consumed 6805 fuel against a pinned ceiling of
+  ~10^(3.156+0.335) plus the 0.2 enforcement margin (~4.9k
+  fuel): +0.68 decades of residual against a +0.335 width.
+  Attribution measured both sides: the identical committed seed
+  reads 6820 fuel at the parent (21f99a7c) and 6805 at the
+  removal tip (−0.2%; the guest kernels drive public ops only
+  and never held a batch handle), so the removal is fuel-neutral
+  and the escape is the band's. Mechanism: the rejection band is
+  one line over a bimodal arm — cheap early overlap detections
+  dominate its small buckets (146 corpus samples, intercept
+  0.22) while full-scan rejections hold the top (the bands
+  module doc's own mixture note) — and a legitimate full-scan
+  rejection at small n (~49 fuel/bit, consistent with the band's
+  own top decade at ~66 fuel/bit) sits above the small-n line.
+  The shrunk program is committed as the finding of record
+  (`enforce.proptest-regressions`, `cc f858383f958c…`), which
+  makes the enforcement leg deterministically red on this branch
+  until the band learns the genre; band re-pins are the protocol
+  pass's seam, so no calibration landed here — a probe run
+  (discarded, not committed) confirmed the fix is evidential,
+  not structural: a 4096-program corpus triples the arm's
+  evidence (146 → 409 samples) and prices the genre in-band
+  (width_above 0.335 → 0.550) with no slope movement
+  (1.370 → 1.374). Sequencing: this branch merges after the
+  protocol pass's recalibration, whose re-pin must cover the
+  committed seed.
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
