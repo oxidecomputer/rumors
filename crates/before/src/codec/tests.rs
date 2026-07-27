@@ -1268,9 +1268,10 @@ fn assert_id_parse_matches_reference(s: &str) -> Result<(), TestCaseError> {
 }
 
 /// The production id parser matches the recursive reference on every string
-/// up to length 7 over the grammar alphabet (plus a space): identical
-/// accept/reject verdicts, identical canonical bits, identical error
-/// variants — the exhaustive small-scope leg of the parser pin.
+/// up to length 7 over the grammar alphabet (plus a space).
+///
+/// Identical accept/reject verdicts, identical canonical bits, identical
+/// error variants — the exhaustive small-scope leg of the parser pin.
 #[test]
 fn id_text_parser_matches_reference_exhaustively() {
     const ALPHABET: &[u8] = b"()01, ";
@@ -1333,9 +1334,10 @@ fn inject_whitespace(s: &str, seed: u64) -> String {
 
 proptest! {
     /// On rendered arbitrary normal-form ids — whitespace-injected in
-    /// pseudo-random positions — the production parser matches the
-    /// recursive reference, and both recover the party's exact canonical
-    /// bits (the round-trip leg of the parser pin).
+    /// pseudo-random positions — the parser matches the reference.
+    ///
+    /// Both recover the party's exact canonical bits: the round-trip leg
+    /// of the parser pin.
     #[test]
     fn id_text_parser_matches_reference_on_rendered_ids(
         op in arb_oracle_party_nonempty(),
@@ -1352,10 +1354,12 @@ proptest! {
 }
 
 proptest! {
-    /// On rendered ids perturbed by random single-character edits (insert,
-    /// delete, or replace, drawn from the grammar alphabet), the production
-    /// parser and the recursive reference return the identical verdict —
-    /// the rejection-surface leg of the parser pin.
+    /// On rendered ids perturbed by random single-character edits, the
+    /// production parser and the recursive reference return the identical
+    /// verdict.
+    ///
+    /// Edits insert, delete, or replace characters drawn from the grammar
+    /// alphabet — the rejection-surface leg of the parser pin.
     #[test]
     fn id_text_parser_matches_reference_on_mutations(
         op in arb_oracle_party_nonempty(),
@@ -1386,8 +1390,9 @@ proptest! {
     }
 }
 
-/// Point pins for the parser's error precedence and token tolerance: a
-/// structural defect is `Syntax` even when a canonicality defect is also
+/// Point pins for the parser's error precedence and token tolerance.
+///
+/// A structural defect is `Syntax` even when a canonicality defect is also
 /// present ("(0, 0" truncated), a well-formed collapsible node is
 /// `NotCanonical`, trailing input is `Syntax`, whitespace is skipped
 /// between any two tokens, and the bare `0` parses to the empty bit
@@ -1413,9 +1418,11 @@ fn id_text_parser_error_precedence_pins() {
 }
 
 /// A 100k-deep id in paper notation renders and parses without native
-/// recursion: the text parser's explicit frame stack carries the nesting
-/// (the text mirror of `clock::tests::deep_tree_stack_safety`'s
-/// packed-codec leg), so parse depth can never overflow the call stack.
+/// recursion.
+///
+/// The text parser's explicit frame stack carries the nesting (the text
+/// mirror of `clock::tests::deep_tree_stack_safety`'s packed-codec leg),
+/// so parse depth can never overflow the call stack.
 #[test]
 fn deep_id_text_roundtrip() {
     const DEPTH: usize = 100_000;
