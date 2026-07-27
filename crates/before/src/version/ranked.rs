@@ -75,7 +75,7 @@ impl Ranked {
         &self.rank
     }
 
-    /// Unwrap into the version and its rank.
+    /// Unwraps into the version and its rank.
     ///
     /// # Complexity
     ///
@@ -86,7 +86,7 @@ impl Ranked {
 }
 
 impl From<Version> for Ranked {
-    /// Compute and carry the version's rank: one `O(|v|)` fold, here and
+    /// Computes and carries the version's rank: one `O(|v|)` fold, here and
     /// never again.
     fn from(version: Version) -> Self {
         let rank = version.rank();
