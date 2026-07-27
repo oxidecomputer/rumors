@@ -1,0 +1,25 @@
+[package]
+name = "suanpan"
+version = "0.1.0"
+edition = "2021"
+description = "Cliff-immune signed accumulators: redundant balanced signed-digit arithmetic with amortized O(1) deltas and sign reads on every input sequence."
+license = "MPL-2.0"
+readme = "README.md"
+
+[dependencies]
+# The arbitrary-precision substrate: wide operands enter as `UBig` (borrowable
+# stored words, so streaming a wide delta allocates nothing) and the final
+# normalized magnitude leaves as one. Default features stay off: `std` alone
+# covers this crate's use.
+dashu-int = { version = "0.5", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+proptest = "1"
+
+[features]
+# Counts every digit read-modify-write (plus one per operand limb read by a
+# wide operation) into a process-global counter read via [`touch_meter`].
+# Digit-touch cost is invisible to heap and step meters — the work is wider,
+# not more frequent — so this is the counter resource envelopes pin. Additive
+# and off by default: one relaxed atomic bump per touch.
+touch-meter = []
