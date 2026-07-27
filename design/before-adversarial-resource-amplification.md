@@ -188,7 +188,7 @@ enforced envelopes and board cells named.
   e 1.00 at 2.1 B/B]; the six `n_io` board cells are the committed
   check. A denomination gap, not a kernel finding.
 - **Profile-dependent meter readings** (2026-07-26; resolved by the
-  owner's ratification, §12): 102 `debug_assert!` sites in the
+  owner's ratification, §12): the 103 `debug_assert!` sites in the
   production kernels perform metered work (`Base` comparisons
   through the limb shim, skyline grow probes consuming metered
   cursors), so dev and release builds measure different programs.
@@ -196,17 +196,12 @@ enforced envelopes and board cells named.
   production work alone, the honest denominator; dev runs are a
   debugging view, never pinned; assertion-scoped meter suspension
   REJECTED on doctrine (a metering-pause mechanism is an F2
-  hazard). The one assertion whose metered work moved a rendered
-  exponent class was repaired per the ratified policy:
-  `id_is_empty` spot-checks the O(1) consequences of its contract,
-  and the full O(n) normal-form assertion moved to the diff
-  kernel's emission seam (`Party::without`), the one caller whose
-  input is not just-parsed bytes — the recorded, owned dev-profile
-  divergence (its dev scan reads ~16 bits/B above release by
-  design). Post-repair dev-vs-release divergence: zero verdict
-  flips and zero exponent-leg ceiling crossings on any work column
-  at either scale; scan divergence confined to the owned seam's 13
-  cells [measured — post-repair renders, byte-compared]. The
+  hazard). `id_is_empty` spot-checks the O(1) consequences of its
+  contract; the diff kernel's emission normal form is held by its
+  differential suites (`without_arbitrary`, the exhaustive
+  small-scope diff leg, the function-space realization) rather than
+  by any shadow re-parse, so no owned dev-profile scan divergence
+  remains at that seam (the oracle-end-state entry, §12). The
   record-scale segments columns were profile-dependent by codegen
   (release frames are smaller, so onset shifts) until P4.2 made the
   walks iterative: both profiles now read zero.
@@ -225,9 +220,13 @@ enforced envelopes and board cells named.
   O(log accumulator) table search per both-present visit. A pure
   predicate-mechanism swap: hand-back contents, order, and
   accumulator bytes are decided by the identical fold, pinned
-  differentially against the cursor-walk discipline preserved as
-  `testing::fold_oracle` (a deliberate wrong-child mutation trips
-  four differentials). The coalesce-first candidate was REJECTED by
+  differentially against the recursive oracle's `join_all`
+  (`oracle::Party`/`oracle::Clock` — the transcribed hand-back
+  contract; a deliberate wrong-child mutation trips the
+  differentials on exactly the committed fold seeds), with the
+  predicate seam itself pinned by
+  `indexed_disjointness_matches_the_cursor_walk[_deep]`. The
+  coalesce-first candidate was REJECTED by
   probe: on the witnessing population nothing coalesces, so it
   degenerates to the same per-input tests while reordering the
   hand-back vector the contract documents — not curative where
@@ -608,6 +607,25 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   replayed codes' decodes) — every reading inside its ceiling,
   work columns byte-identical on all other converted rows, and no
   movement on any unconverted cell at either scale.
+- **DECIDED 2026-07-26 (#50): the oracle end-state — three
+  implementations, one committed roster.** The recursive oracle is
+  the semantic definition of record and now carries the `join_all`
+  hand-back contract (`oracle::Party`/`oracle::Clock`) and
+  `meet_all` (`0ab5bf23`, seeds red through the new differentials
+  before any retirement); `testing::fold_oracle` RETIRED under the
+  ratchet (`f4ed32ed`), the test-local min_ticks/rank oracle
+  duplicates dissolved into the oracle's own methods (`8ac7c0db`),
+  and the three shadow-recompute `debug_assert`s deleted with
+  covering differentials cited per site (`e277ca97`, the 2026-07-26
+  assertions doctrine). The triangle suite
+  (`testing::triangle`, `066623f6`) commits the op × three-leg
+  roster, total against the extracted public-fn surface with live
+  citation checks and per-leg adequacy tripwires. Rationale: one
+  reference spelling per contract, every public op's binding (or
+  exclusion) named in a diff a reviewer sees. Function-space-leg
+  dispositions stemming from the proposed FS boundary are marked
+  in-roster **pending owner ratification (2026-07-26)**; no FS
+  differential was added or removed.
 
 ## 13. The metering gate
 
