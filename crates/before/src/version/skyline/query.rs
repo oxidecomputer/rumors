@@ -647,19 +647,14 @@ impl<'a> IdLeafCursor<'a> {
 ///
 /// Panics if the stream is not a canonical skyline encoding.
 fn max_depth(bits: &BitsSlice) -> usize {
+    let mut cursor = codec::DsiCursor::new(bits);
     let mut path = Bits::new();
     let mut deepest = 0usize;
-    let mut pos = 0usize;
     loop {
-        // Descend to the next leaf.
-        loop {
-            step!();
-            codec::scan::record_bits(1);
-            let internal = bits[pos];
-            pos += 1;
-            if !internal {
-                break;
-            }
+        // Descend to the next leaf: one unary read per descent.
+        step!();
+        let k = cursor.read_unary().expect("canonical skyline bits");
+        for _ in 0..k {
             path.push(false);
         }
         deepest = deepest.max(path.len());
@@ -669,9 +664,9 @@ fn max_depth(bits: &BitsSlice) -> usize {
         // separate recalibration: the scan envelopes in `tests/meter.rs`
         // and the board's pinned scan constants that price this walk must
         // be re-measured when the caller-side record goes.
-        let next = codec::skip_int(bits, pos).expect("canonical skyline bits");
-        codec::scan::record_bits(next - pos);
-        pos = next;
+        let code_start = cursor.position();
+        cursor.skip_int().expect("canonical skyline bits");
+        codec::scan::record_bits(cursor.position() - code_start);
         // Close finished ancestors; the flip continues, no open left
         // branch means the stream is complete.
         loop {

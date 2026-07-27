@@ -165,7 +165,7 @@
 use core::cmp::Ordering;
 
 use crate::codec::accum::Accum;
-use crate::codec::{self, Base, Bits, BitsSlice};
+use crate::codec::{self, Base, BitCursor, Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
 use crate::step;
 
@@ -238,7 +238,7 @@ pub(super) fn fused_fill(ev_bits: &BitsSlice, id: &crate::Party) -> FillOutcome 
     let id_bits = id.as_bits();
     let mut walk = FillWalk {
         ev: ev_bits,
-        pos: 0,
+        cursor: codec::DsiCursor::new(ev_bits),
         first_read: true,
         h: Accum::new(),
         gap: Accum::new(),
@@ -259,7 +259,7 @@ pub(super) fn fused_fill(ev_bits: &BitsSlice, id: &crate::Party) -> FillOutcome 
         walk.stack.retire(follower);
     }
     walk.stack.close();
-    debug_assert_eq!(walk.pos, ev_bits.len(), "fill consumes its whole input");
+    debug_assert_eq!(walk.pos(), ev_bits.len(), "fill consumes its whole input");
     debug_assert!(
         walk.memo.cursor == walk.memo.queue.len(),
         "the walk consumes every memoized minimum"
@@ -286,10 +286,11 @@ pub(super) fn fused_fill(ev_bits: &BitsSlice, id: &crate::Party) -> FillOutcome 
 /// threads alongside as the recursion argument, exactly as the packed
 /// walks thread theirs.
 struct FillWalk<'a> {
-    /// The input skyline stream.
+    /// The input skyline stream (kept beside the cursor for the
+    /// unmetered single-flag peek and the sub-scans' spawn positions).
     ev: &'a BitsSlice,
     /// The input cursor.
-    pos: usize,
+    cursor: codec::DsiCursor<'a>,
     /// Whether the next payload is the stream's first (coded absolute,
     /// not as a delta).
     first_read: bool,
@@ -497,7 +498,7 @@ impl FillWalk<'_> {
                 // The branch's route key: the 2-bit tag `read` just
                 // consumed (an `Internal` reader is always a real cursor).
                 let key = id.pos() - 2;
-                if !self.read_flag() {
+                if self.read_flag() {
                     // fill((il, ir), Leaf n) = Leaf n: an event leaf is
                     // already simple; the dominated id children are
                     // lazy-skipped, and the route's expansion fold rides
@@ -530,7 +531,7 @@ impl FillWalk<'_> {
                         // minimum is min(er), priced by the scan that
                         // reads the range; the copy runs in its own
                         // frame, exactly as a child walk would.
-                        let raise = scan_min_from(self.ev, self.pos, self.first_read);
+                        let raise = scan_min_from(self.ev, self.pos(), self.first_read);
                         let value_off = signed_max(&above, &raise);
                         self.emit_offset(depth + 1, value_off);
                         self.stack.open();
@@ -538,7 +539,7 @@ impl FillWalk<'_> {
                         self.stack.close();
                         break self.probe.join(key, COST_FREE, COST_MAX);
                     }
-                    let outermost = self.pos >= self.memo.covered_until;
+                    let outermost = self.pos() >= self.memo.covered_until;
                     debug_assert_eq!(
                         outermost,
                         matches!(self.corr, Corr::None),
@@ -548,8 +549,10 @@ impl FillWalk<'_> {
                         // Uncovered: one fresh pre-scan records this site
                         // and every left-full site inside its span.
                         self.memo.begin_scan();
+                        let scan_start = self.pos();
                         let mut scan = PreScan {
                             ev: self.ev,
+                            cursor: codec::DsiCursor::new_at(self.ev, scan_start),
                             stack: MinStack::new(),
                             entry_net: Some(Accum::new()),
                             pending_rel: None,
@@ -559,10 +562,10 @@ impl FillWalk<'_> {
                             head_level: 0,
                             suspend: Vec::new(),
                         };
-                        let slot = scan.reserve(self.pos);
+                        let slot = scan.reserve(scan_start);
                         scan.stack.open();
                         let mut reader = IdReader::at(id.bits(), id.pos());
-                        let end = scan.run(self.pos, self.first_read, &mut reader);
+                        let end = scan.run(self.first_read, &mut reader);
                         scan.record(slot, 0);
                         let rel = scan.stack.follower_take(REL_FOLLOWER);
                         scan.stack.retire(rel);
@@ -658,13 +661,18 @@ impl FillWalk<'_> {
         }
     }
 
-    /// Read one topology flag at the cursor, recording the scanned bit.
+    /// The cursor's bit position: the next node's flag.
+    fn pos(&self) -> usize {
+        self.cursor.position()
+    }
+
+    /// Read one topology flag at the cursor (`true` = leaf), recording
+    /// the scanned bit. Single-flag rather than a unary run: the walk
+    /// interleaves with the id stream one node at a time here, so there
+    /// is no run to batch.
     fn read_flag(&mut self) -> bool {
         step!();
-        codec::scan::record_bits(1);
-        let flag = self.ev[self.pos];
-        self.pos += 1;
-        flag
+        self.cursor.read_bit().expect("canonical skyline bits")
     }
 
     /// Decode the payload at the cursor as a signed step (the stream's
@@ -672,8 +680,7 @@ impl FillWalk<'_> {
     /// it into the height-anchored accumulators, and advancing the
     /// cursor.
     fn consume_payload(&mut self) -> Signed {
-        let (code, next) = codec::decode_int(self.ev, self.pos).expect("canonical skyline bits");
-        self.pos = next;
+        let code = self.cursor.read_int().expect("canonical skyline bits");
         let (neg, mag) = if self.first_read {
             self.first_read = false;
             (false, code)
@@ -701,7 +708,7 @@ impl FillWalk<'_> {
         );
         #[cfg(debug_assertions)]
         {
-            self.memo.consumed_check = position_check(self.memo.consumed_check, self.pos);
+            self.memo.consumed_check = position_check(self.memo.consumed_check, self.pos());
         }
         let link = self.memo.take_link(self.memo.cursor);
         self.memo.cursor += 1;
@@ -870,7 +877,7 @@ impl FillWalk<'_> {
     /// records the match and skips the emission body outright.
     fn emit_step(&mut self, depth: usize, neg: bool, mag: Base) {
         self.stack.emit_here();
-        if self.out.note_match(self.pos) {
+        if self.out.note_match(self.pos()) {
             self.started = true;
             self.gap.reset();
             return;
@@ -927,7 +934,7 @@ impl FillWalk<'_> {
         self.stack.emit_offset(&off);
         if self.out.is_verbatim() {
             if self.range_is_leaf && off.1 == Base::ZERO {
-                if self.out.note_match(self.pos) {
+                if self.out.note_match(self.pos()) {
                     self.started = true;
                     self.gap.reset();
                     return;
@@ -1027,7 +1034,10 @@ impl FillWalk<'_> {
     fn copy_subtree(&mut self, depth: usize) {
         let mut path = Bits::new();
         loop {
-            while self.read_flag() {
+            // One whole descent per unary read.
+            step!();
+            let k = self.cursor.read_unary().expect("canonical skyline bits");
+            for _ in 0..k {
                 path.push(false);
             }
             let (neg, mag) = self.consume_payload();
@@ -1057,14 +1067,18 @@ impl FillWalk<'_> {
     fn scan_max_consuming(&mut self) -> Signed {
         // The changed flag's topology record: the emission replacing
         // this range reproduces the input's topology iff the range is
-        // a single leaf — exactly its first flag bit. An unmetered
-        // peek of the bit the scan is about to read as its first flag.
-        self.range_is_leaf = !self.ev[self.pos];
+        // a single leaf — exactly its first flag bit (`1` = leaf). An
+        // unmetered peek of the bit the scan is about to read as its
+        // first flag.
+        self.range_is_leaf = self.ev[self.pos()];
         let mut path = Bits::new();
         let mut above = self.stack.lease();
         let mut armed = false;
         loop {
-            while self.read_flag() {
+            // One whole descent per unary read.
+            step!();
+            let k = self.cursor.read_unary().expect("canonical skyline bits");
+            for _ in 0..k {
                 path.push(false);
             }
             let (neg, mag) = self.consume_payload();
@@ -1257,8 +1271,8 @@ impl Frames {
 /// min(er)`), priced by the scan that reads the range. `first` says
 /// whether the subtree's first payload is the stream's absolute first.
 fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
+    let mut cursor = codec::DsiCursor::new_at(ev, pos);
     let mut path = Bits::new();
-    let mut pos = pos;
     let mut first = first;
     // The net movement `h − h_entry` and the minimum's offset from the
     // *current* height (`min − h`), reset whenever the height crosses
@@ -1267,18 +1281,13 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
     let mut off = Accum::new();
     let mut armed = false;
     loop {
-        loop {
-            step!();
-            codec::scan::record_bits(1);
-            let internal = ev[pos];
-            pos += 1;
-            if !internal {
-                break;
-            }
+        // One whole descent per unary read.
+        step!();
+        let k = cursor.read_unary().expect("canonical skyline bits");
+        for _ in 0..k {
             path.push(false);
         }
-        let (code, next) = codec::decode_int(ev, pos).expect("canonical skyline bits");
-        pos = next;
+        let code = cursor.read_int().expect("canonical skyline bits");
         let (neg, mag) = if first {
             first = false;
             (false, code)
@@ -1338,8 +1347,12 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
 /// the same open/arm/propagate/close discipline as the walk's — so
 /// per-site minima and per-range net movements are never materialized.
 struct PreScan<'a, 'm> {
-    /// The input skyline stream (read, never consumed).
+    /// The input skyline stream (read, never consumed; kept beside the
+    /// cursor for the replay's spawn positions).
     ev: &'a BitsSlice,
+    /// The scan's own forward cursor, opened at the scan's entry; the
+    /// walk's cursor is untouched (the scan never consumes).
+    cursor: codec::DsiCursor<'a>,
     /// The pre-scan's own range-minimum watermarks.
     stack: MinStack,
     /// `h′ − h(scan entry)`, alive until the first virtual arming
@@ -1388,10 +1401,9 @@ impl PreScan<'_, '_> {
     /// per call. The site-nesting level is one plus the count of open
     /// site frames: a site's own range walks at `level + 1`, and its
     /// close records at `level`.
-    fn run(&mut self, pos: usize, first: bool, id: &mut IdReader) -> usize {
+    fn run(&mut self, first: bool, id: &mut IdReader) -> usize {
         let mut frames = PreFrames::new();
         let mut level: u32 = 1;
-        let mut pos = pos;
         let mut first = first;
         'descend: loop {
             // Descend: resolve the range at the cursor, or suspend and
@@ -1401,7 +1413,7 @@ impl PreScan<'_, '_> {
                     // fill(0, e) = e: every leaf a virtual emission. A
                     // real cursor reads this only at an empty root.
                     IdNode::Empty => {
-                        pos = self.copy_range(pos, first);
+                        self.copy_range(first);
                         first = false;
                         break;
                     }
@@ -1411,21 +1423,18 @@ impl PreScan<'_, '_> {
                     // not-full. Kept so the walk realizes
                     // `min(fill(1, e)) = max(e)` totally.
                     IdNode::Full => {
-                        let (above, end) = self.max_range(pos, first);
+                        let above = self.max_range(first);
                         first = false;
                         self.emit_offset(&above);
-                        pos = end;
                         break;
                     }
                     IdNode::Internal { left, right } => (left, right),
                 };
                 step!();
-                codec::scan::record_bits(1);
-                let internal = self.ev[pos];
-                pos += 1;
-                if !internal {
+                let leaf = self.cursor.read_bit().expect("canonical skyline bits");
+                if leaf {
                     // A leaf under an id node stays: one virtual emission.
-                    let (step, end) = self.payload(pos, first);
+                    let step = self.payload(first);
                     first = false;
                     let _ = step;
                     self.emit_here();
@@ -1435,7 +1444,6 @@ impl PreScan<'_, '_> {
                     if right {
                         id.skip();
                     }
-                    pos = end;
                     break;
                 }
                 if left && matches!(id.peek(), IdNode::Full) {
@@ -1443,27 +1451,26 @@ impl PreScan<'_, '_> {
                     // recorded quantity, and its own raise is a virtual
                     // emission.
                     id.skip();
-                    let el_start = pos;
-                    let (above, l_end) = self.max_range(pos, first);
+                    let el_start = self.cursor.position();
+                    let above = self.max_range(first);
                     first = false;
+                    let l_end = self.cursor.position();
                     if !right {
                         // fill(0, er): the leaves stay as they are, and
                         // the walk re-derives this raise from its own
                         // local scan — nothing is recorded.
                         self.stack.open();
-                        let end = self.copy_range(l_end, false);
+                        self.copy_range(false);
                         self.stack.close();
                         if self.stack.compare_above(&above) != Ordering::Less {
                             self.emit_offset(&above);
                         }
-                        pos = end;
                         break;
                     }
                     let slot = self.reserve(l_end);
                     frames.push_site(slot, el_start);
                     level += 1;
                     self.stack.open();
-                    pos = l_end;
                     continue; // walk the sibling range
                 }
                 // An ordinary node: the left child's range first.
@@ -1474,14 +1481,14 @@ impl PreScan<'_, '_> {
                 }
                 // Absent left child: fill(0, el), inlined in the frame
                 // just opened.
-                pos = self.copy_range(pos, first);
+                self.copy_range(first);
                 first = false;
                 break;
             }
             // Ascend: resume suspended nodes as their children complete.
             loop {
                 let Some(top) = frames.top() else {
-                    return pos;
+                    return self.cursor.position();
                 };
                 self.stack.close();
                 match top {
@@ -1509,11 +1516,10 @@ impl PreScan<'_, '_> {
                             // minimum it is raised to, so only the max
                             // side is a new virtual value.
                             id.skip();
-                            let (above, end) = self.max_range(pos, false);
+                            let above = self.max_range(false);
                             if self.stack.compare_above(&above) != Ordering::Less {
                                 self.emit_offset(&above);
                             }
-                            pos = end;
                             frames.pop_node();
                         } else if right {
                             frames.flip_to_await_right();
@@ -1523,7 +1529,7 @@ impl PreScan<'_, '_> {
                             // Absent right child: fill(0, er) in its own
                             // frame.
                             self.stack.open();
-                            pos = self.copy_range(pos, false);
+                            self.copy_range(false);
                             self.stack.close();
                             frames.pop_node();
                         }
@@ -1548,23 +1554,21 @@ impl PreScan<'_, '_> {
     /// collapse ranges are disjoint, so the replays add one flat pass
     /// over those positions, never a nesting one.
     fn replay_max(&mut self, pos: usize) -> Signed {
+        // The replay jumps back to the site's recorded range start, so
+        // it runs on its own cursor; the scan's forward cursor stays
+        // where the sibling walk left it.
+        let mut cursor = codec::DsiCursor::new_at(self.ev, pos);
         let mut path = Bits::new();
-        let mut pos = pos;
         let mut above = self.stack.lease();
         let mut armed = false;
         loop {
-            loop {
-                step!();
-                codec::scan::record_bits(1);
-                let internal = self.ev[pos];
-                pos += 1;
-                if !internal {
-                    break;
-                }
+            // One whole descent per unary read.
+            step!();
+            let k = cursor.read_unary().expect("canonical skyline bits");
+            for _ in 0..k {
                 path.push(false);
             }
-            let (code, next) = codec::decode_int(self.ev, pos).expect("canonical skyline bits");
-            pos = next;
+            let code = cursor.read_int().expect("canonical skyline bits");
             if !armed {
                 armed = true;
             } else {
@@ -1715,16 +1719,16 @@ impl PreScan<'_, '_> {
         self.stack.follower_set(REL_FOLLOWER, susp);
     }
 
-    /// Read one payload, folding the step into the height side of the
-    /// web (and the entry net while it lives).
-    fn payload(&mut self, pos: usize, first: bool) -> (Signed, usize) {
-        let (code, next) = codec::decode_int(self.ev, pos).expect("canonical skyline bits");
+    /// Read one payload at the cursor, folding the step into the height
+    /// side of the web (and the entry net while it lives).
+    fn payload(&mut self, first: bool) -> Signed {
+        let code = self.cursor.read_int().expect("canonical skyline bits");
         let (neg, mag) = if first { (false, code) } else { unzigzag(code) };
         self.stack.fold_height(neg, &mag);
         if let Some(net) = &mut self.entry_net {
             fold(net, neg, &mag);
         }
-        ((neg, mag), next)
+        (neg, mag)
     }
 
     /// A virtual emission at the current height.
@@ -1764,26 +1768,20 @@ impl PreScan<'_, '_> {
         }
     }
 
-    /// Walk an untouched range (`fill(0, e) = e`): every leaf a
-    /// virtual emission at its own height.
-    fn copy_range(&mut self, pos: usize, first: bool) -> usize {
+    /// Walk an untouched range (`fill(0, e) = e`) at the cursor: every
+    /// leaf a virtual emission at its own height.
+    fn copy_range(&mut self, first: bool) {
         let mut path = Bits::new();
-        let mut pos = pos;
         let mut first = first;
         loop {
-            loop {
-                step!();
-                codec::scan::record_bits(1);
-                let internal = self.ev[pos];
-                pos += 1;
-                if !internal {
-                    break;
-                }
+            // One whole descent per unary read.
+            step!();
+            let k = self.cursor.read_unary().expect("canonical skyline bits");
+            for _ in 0..k {
                 path.push(false);
             }
-            let (_, next) = self.payload(pos, first);
+            let _ = self.payload(first);
             first = false;
-            pos = next;
             self.emit_here();
             loop {
                 match path.pop() {
@@ -1792,35 +1790,29 @@ impl PreScan<'_, '_> {
                         path.push(true);
                         break;
                     }
-                    None => return pos,
+                    None => return,
                 }
             }
         }
     }
 
-    /// Scan a collapsing range for its maximum: `max − h′` at exit as
-    /// a nonnegative offset, plus the range end. No virtual emissions
+    /// Scan a collapsing range at the cursor for its maximum:
+    /// `max − h′` at exit as a nonnegative offset. No virtual emissions
     /// — the range's leaves vanish into the raise the caller decides.
-    fn max_range(&mut self, pos: usize, first: bool) -> (Signed, usize) {
+    fn max_range(&mut self, first: bool) -> Signed {
         let mut path = Bits::new();
-        let mut pos = pos;
         let mut first = first;
         let mut above = self.stack.lease();
         let mut armed = false;
         loop {
-            loop {
-                step!();
-                codec::scan::record_bits(1);
-                let internal = self.ev[pos];
-                pos += 1;
-                if !internal {
-                    break;
-                }
+            // One whole descent per unary read.
+            step!();
+            let k = self.cursor.read_unary().expect("canonical skyline bits");
+            for _ in 0..k {
                 path.push(false);
             }
-            let (step, next) = self.payload(pos, first);
+            let step = self.payload(first);
             first = false;
-            pos = next;
             if !armed {
                 armed = true;
             } else {
@@ -1839,7 +1831,7 @@ impl PreScan<'_, '_> {
                     None => {
                         let result = self.stack.materialize(above);
                         debug_assert!(!result.0, "the fold floors at zero");
-                        return (result, pos);
+                        return result;
                     }
                 }
             }

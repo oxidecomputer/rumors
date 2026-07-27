@@ -102,7 +102,7 @@
 use core::cmp::Ordering;
 
 use crate::codec::accum::Accum;
-use crate::codec::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
+use crate::codec::{Base, BitCursor, Bits, BitsSlice, DsiCursor};
 use crate::step;
 
 /// The causal order of the versions two skyline streams denote; `None`
@@ -336,7 +336,7 @@ fn sweep(a_bits: &BitsSlice, b_bits: &BitsSlice, mode: Mode) -> (bool, bool) {
 /// leaf deltas through [`fold`], and emission additionally re-codes
 /// them.
 pub(super) struct LeafCursor<'a> {
-    cursor: SliceCursor<'a>,
+    cursor: DsiCursor<'a>,
     /// Root-to-leaf branch directions, root first.
     path: Bits,
     /// The stream's live bit length; the cursor reaching it is
@@ -354,7 +354,7 @@ impl<'a> LeafCursor<'a> {
     /// Panics if the stream is not a canonical skyline encoding.
     pub(super) fn open(bits: &'a BitsSlice) -> (Self, Base) {
         let mut this = LeafCursor {
-            cursor: SliceCursor::new(bits, 0),
+            cursor: DsiCursor::new(bits),
             path: Bits::new(),
             len: bits.len(),
         };
@@ -419,16 +419,16 @@ impl<'a> LeafCursor<'a> {
     ///
     /// Panics if the stream is not a canonical skyline encoding.
     fn descend(&mut self) -> Base {
-        loop {
-            step!();
-            let internal = self.cursor.read_bit().expect("canonical skyline bits");
-            if !internal {
-                break;
-            }
+        step!();
+        // One word-parallel unary read takes the whole descent: the run
+        // of internal flags ends at the leaf's `1`. The scan meter
+        // records the same run width the per-flag reads would.
+        let k = self.cursor.read_unary().expect("canonical skyline bits");
+        for _ in 0..k {
             self.path.push(false);
         }
         // The cursor's own `read_int`, so the payload decode takes the
-        // word-wise window fast path; the scan meter records the same
+        // word-parallel fast path; the scan meter records the same
         // `2k + 1` bits either way.
         self.cursor.read_int().expect("canonical skyline bits")
     }

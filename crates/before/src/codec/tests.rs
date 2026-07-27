@@ -11,8 +11,8 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::{
-    bytes_as_bits, decode_int, decode_int_from, encode_int, skip_int, Base, BitCursor, Bits,
-    BitsSlice, SliceCursor, PARSE_STACK_INLINE,
+    bytes_as_bits, decode_int, decode_int_from, encode_int, Base, BitCursor, Bits, BitsSlice,
+    DsiCursor, SliceCursor, PARSE_STACK_INLINE,
 };
 use crate::oracle;
 use crate::testing::bridge::{
@@ -105,13 +105,14 @@ fn gamma_truncated() {
 
 // ───────────────── word-window fast paths (differential) ─────────────────
 //
-// `encode_int`, `decode_int`, and `skip_int` each carry a word-wise fast path
-// riding on `gamma::decode_int_window` / `store_be`; the per-bit loop is the
-// specification. These tests pin the fast paths to it differentially, with
-// generators seeded at the window-edge boundaries (prefix length 31/32 around
-// the window's widest provable code, 63/64/65 around the word width, codes
-// straddling the window edge, streams ending mid-code) where a window bug
-// would hide.
+// `encode_int` and `decode_int` carry word-wise fast paths riding on
+// `gamma::decode_int_window` / `store_be`, and the word-parallel cursor's
+// `skip_int` settles a code's width from one unary read; the per-bit loop
+// is the specification. These tests pin the fast paths to it
+// differentially, with generators seeded at the window-edge boundaries
+// (prefix length 31/32 around the window's widest provable code, 63/64/65
+// around the word width, codes straddling the window edge, streams ending
+// mid-code) where a window bug would hide.
 
 /// The per-bit reference emitter, the encode-side differential oracle:
 /// unary prefix then MSB-first mantissa, one push per bit.
@@ -167,13 +168,21 @@ fn assert_decode_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), Te
     Ok(())
 }
 
-/// Assert `skip_int` (windowed) agrees with the per-bit reference at `pos` on
-/// distance and error variant.
+/// Assert the word-parallel cursor's `skip_int` agrees with the per-bit
+/// reference at `pos` on distance and accept/reject.
+///
+/// Runs inside the cursor's stated domain — a byte-aligned slice origin
+/// and `pos` at or inside the live length; every production skip site
+/// satisfies both (stored streams, positions from the same cursor).
 fn assert_skip_matches_bit_loop(bits: &BitsSlice, pos: usize) -> Result<(), TestCaseError> {
-    match (skip_int(bits, pos), skip_int_bitwise(bits, pos)) {
-        (Ok(s), Ok(o)) => prop_assert_eq!(s, o),
-        (Err(s), Err(o)) => {
-            prop_assert_eq!(std::mem::discriminant(&s), std::mem::discriminant(&o));
+    let mut cursor = DsiCursor::new_at(bits, pos);
+    match (cursor.skip_int(), skip_int_bitwise(bits, pos)) {
+        (Ok(()), Ok(o)) => prop_assert_eq!(cursor.position(), o),
+        (Err(_), Err(o)) => {
+            prop_assert!(
+                matches!(o, Decode::Truncated),
+                "the reference rejects Truncated"
+            );
         }
         (s, o) => prop_assert!(false, "skip disagreement at {}: {:?} vs {:?}", pos, s, o),
     }
@@ -258,8 +267,9 @@ proptest! {
 }
 
 proptest! {
-    /// On window-boundary streams, windowed `decode_int` and `skip_int`
-    /// behave exactly like the per-bit loops.
+    /// On window-boundary streams, the windowed `decode_int` and the
+    /// word-parallel cursor's `skip_int` behave exactly like the per-bit
+    /// loops.
     ///
     /// Agreement covers accept/reject, error variant, value, and consumed
     /// bits — at the code position, near and past the stream end, and on a
@@ -272,25 +282,29 @@ proptest! {
         assert_decode_matches_bit_loop(&bits, pos)?;
         assert_skip_matches_bit_loop(&bits, pos)?;
 
-        // The end of the stream, just before it, and past it.
+        // The end of the stream, just before it, and past it (the skip
+        // cursor's domain ends at the live length; `decode_int` alone
+        // covers the past-the-end positions).
         assert_decode_matches_bit_loop(&bits, bits.len().saturating_sub(extra))?;
         assert_skip_matches_bit_loop(&bits, bits.len().saturating_sub(extra))?;
         assert_decode_matches_bit_loop(&bits, bits.len() + extra)?;
-        assert_skip_matches_bit_loop(&bits, bits.len() + extra)?;
 
-        // A slice whose origin is mid-byte in its backing store.
+        // A slice whose origin is mid-byte in its backing store: the
+        // window declines and only the per-bit loop runs. The skip
+        // cursor's domain excludes such slices (stored streams are
+        // byte-aligned), so the decode pair alone covers them.
         if !bits.is_empty() {
             assert_decode_matches_bit_loop(&bits[1..], pos.saturating_sub(1))?;
-            assert_skip_matches_bit_loop(&bits[1..], pos.saturating_sub(1))?;
         }
     }
 }
 
 proptest! {
     /// On arbitrary raw byte streams — mostly invalid input — the windowed
-    /// `decode_int` and `skip_int` agree with the per-bit loops on
-    /// accept/reject, error variant, value, and consumed bits at every
-    /// position.
+    /// `decode_int` and the word-parallel cursor's `skip_int` agree with
+    /// the per-bit loops on accept/reject, error variant, value, and
+    /// consumed bits at every position (the skip at every position inside
+    /// the live length, its cursor's domain).
     #[test]
     fn gamma_word_paths_match_on_arbitrary_bytes(
         bytes in proptest::collection::vec(any::<u8>(), 0..12),
@@ -298,7 +312,7 @@ proptest! {
     ) {
         let bits = bytes_as_bits(&bytes);
         assert_decode_matches_bit_loop(bits, pos)?;
-        assert_skip_matches_bit_loop(bits, pos)?;
+        assert_skip_matches_bit_loop(bits, pos.min(bits.len()))?;
     }
 }
 
@@ -873,10 +887,13 @@ fn decode_never_yields_anonymous_party() {
 /// A stream that ends mid-tree is `Truncated`.
 #[test]
 fn reject_truncated() {
-    // 0xFF is eight node flags in a row — the tree never bottoms out.
+    // 0xFF is eight both-present id tags in a row — the tree never
+    // bottoms out.
     assert!(matches!(Party::decode(&[0xFF][..]), Err(Decode::Truncated)));
+    // 0x00 is eight internal-node flags in a row — the tree never
+    // bottoms out.
     assert!(matches!(
-        Version::decode(&[0xFF][..]),
+        Version::decode(&[0x00][..]),
         Err(Decode::Truncated)
     ));
 }
@@ -1056,7 +1073,9 @@ proptest! {
 fn trailing_zero_byte_rejected_witness() {
     // Canonical encoding of the event `(2, 0, 1)` is exactly two bytes.
     let canonical = Version::try_from((2u64, 0u64, 1u64)).unwrap().encode();
-    assert_eq!(canonical, vec![153, 128], "witness canonical encoding");
+    // Stream `0 1 011 1 011`: internal root (flag 0), leaf flag 1 +
+    // gamma(2), leaf flag 1 + zigzag(+1) = gamma(2).
+    assert_eq!(canonical, vec![93, 128], "witness canonical encoding");
 
     // Appending a whole zero byte must be rejected as TrailingBits — it is NOT
     // padding, because the canonical stream already ended on a byte boundary.
