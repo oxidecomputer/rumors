@@ -521,10 +521,13 @@ pub mod implementation {
     //! ```
     //!
     //! **Versions.** A version's tree is one topology flag per preorder
-    //! node — internal or leaf — with each leaf's plateau height following
-    //! its flag in the stream. Unlike the paper's trees, interior nodes
-    //! carry no numbers: heights are absolute at the leaves, which read
-    //! left to right *are* the skyline. The first height is stored
+    //! node — `0` for an internal node, `1` for a leaf — with each leaf's
+    //! plateau height following its flag in the stream. Unlike the paper's
+    //! trees, interior nodes carry no numbers: heights are absolute at the
+    //! leaves, which read left to right *are* the skyline. And because an
+    //! interior node contributes only its `0`, a descent to a leaf is a
+    //! single run of `0`s ended by the leaf's `1` — one unary read. The
+    //! first height is stored
     //! outright; each later one as the difference from its predecessor,
     //! because neighboring plateaus tend to sit close in height even when
     //! both stand very tall. A difference can be negative, so it is first
