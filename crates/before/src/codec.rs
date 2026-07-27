@@ -6,9 +6,6 @@
 //! that stream to a byte boundary; `decode` parses and *strictly validates*
 //! normal form, then stores the (canonical) consumed prefix.
 
-// A bare re-export of `suanpan`'s accumulator under this crate's local
-// name; `before::meter` re-exports it.
-pub mod accum;
 pub(crate) mod base;
 mod bits;
 mod build;

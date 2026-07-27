@@ -27,7 +27,7 @@ stacker = "0.1"
 # the running sums and differences behind the rank fold and the skyline
 # sweeps. Load-bearing in every build; `Base` plugs into its
 # width-dispatched entry points through the `Magnitude` seam in
-# `codec::accum`, and the `limb-meter` feature below lights its digit-touch
+# `codec::base`, and the `limb-meter` feature below lights its digit-touch
 # counter alongside the limb shim's.
 suanpan = { path = "../suanpan" }
 # Inline-capacity stacks for the iterative tree parsers (`codec/tree.rs`):
@@ -108,7 +108,7 @@ meter = []
 # arithmetic, comparison, equality, and hashing; plus one value-width record
 # per decoded wide-gamma value) into a process-global counter read via
 # `before::meter`, and lights the accumulator's digit-touch counter
-# (`suanpan/touch-meter`, read via `meter::accum::touch_meter`) beside it.
+# (`suanpan/touch-meter`, read via `suanpan::touch_meter`) beside it.
 # Arithmetic-width blowups are invisible to node-count and
 # heap meters; this one sees them. Additive and off by default: it adds one
 # relaxed atomic bump per `Base` operation, so it stays out of the bench
