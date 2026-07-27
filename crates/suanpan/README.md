@@ -58,8 +58,10 @@ operation requires the normal one, and nothing eagerly normalizes. It
 is *balanced*: digits carry their own signs, so a subtraction is just
 a negated addition and no borrow machinery exists.
 
-A write adds its delta into one digit, forming the sum `t` in wider
-(128-bit) intermediate arithmetic so nothing overflows. If `t` is in
+Every deposit a write makes lands in one digit (a machine-word delta
+is one deposit; a wide delta makes one per limb), forming the sum `t`
+in wider (128-bit) intermediate arithmetic so nothing overflows. If
+`t` is in
 the zone, it becomes the digit and that is the whole write. If not,
 the digit *recenters*: it carries `c = (t + 2^31) >> 32` upward (an
 arithmetic shift) and keeps the remainder `t − c·2^32`, which lands in
@@ -71,9 +73,10 @@ the next is already a handful of units, tiny against the inflow the
 digit above needs before it carries on. So sustained carry traffic
 thins out geometrically with height, and the total carry work is
 dominated by the deltas that entered below. The write bounds are
-amortized per call as well as per delta: a single write can be caught
-repaying a run of digits that earlier writes parked near the zone's
-edge, but never more than those writes prepaid.
+amortized: a single call can be caught repaying a run of digits that
+earlier writes parked near the zone's edge, but never more than those
+writes prepaid — over any sequence, total digit work stays O(1) per
+machine-word call and O(operand limbs) per wide call.
 
 Machine-word deltas are therefore amortized O(1) digit work. A wide
 delta enters limb by limb — throughout this page a *limb* is one
@@ -126,13 +129,14 @@ does.
 
 A comparison between totals of wildly different scales should not cost
 the wide one's width. `Accumulator::sign_dominates_at` returns the
-(always exact) sign plus a *certificate*: `decided = true` guarantees
-`sign(v + a) = sign(v)` and `|v| > |a|` for every adjustment `a` with
-`|a| < 2^(32·(floor + 1))` — and moreover for any accumulator held in
-digits `0..=floor`: its redundant spelling can reach
-`2.01 · 2^(32·(floor + 1))`, and the decision margin covers that too.
-So the caller compares against anything at or below the floor's scale
-without ever folding it in:
+(always exact) sign of the held value `v`, plus a *certificate*:
+`decided = true` guarantees `sign(v + a) = sign(v)` and `|v| > |a|`
+for every adjustment `a` with `|a| < 2^(32·(floor + 1))` — and
+moreover for any accumulator held in digits `0..=floor`: its
+redundant spelling can exceed that, bounded by
+`2.01 · 2^(32·(floor + 1))` (the same rounded geometric bound), and
+the decision margin covers that too. So the caller compares against
+anything at or below the floor's scale without ever folding it in:
 
 ```rust
 use core::cmp::Ordering;
@@ -141,7 +145,7 @@ use suanpan::{Accumulator, UBig};
 let mut watermark = Accumulator::new();
 watermark.add_wide(&(UBig::from(1u8) << 300usize));
 // Could any adjustment below 2^128 flip the watermark's sign?
-// floor = 128.div_ceil(32) − 1 = 3: certainty without a wide fold.
+// floor = 128.div_ceil(32) - 1 = 3: certainty without a wide fold.
 let (sign, decided) = watermark.sign_dominates_at(3);
 assert_eq!((sign, decided), (Ordering::Greater, true));
 ```
@@ -203,7 +207,7 @@ sign (subtract from a `clone` when the receiver's
 value must survive the comparison) — or, when the scales differ
 wildly, a domination certificate
 (`sign_dominates_at` with
-`floor = other.digit_count() − 1`) that decides without folding.
+`floor = other.digit_count() - 1`) that decides without folding.
 
 ## Metering
 
@@ -224,11 +228,11 @@ re-exported so callers can name exactly the type this crate compiled
 against. The crate requires `std`; no `no_std` build is offered.
 `Accumulator` is `Clone`, `Default`, `Debug`, and `Send + Sync` —
 though `Sync` buys less than usual: every amortized-O(1) sign query
-takes `&mut self`, so behind a shared reference only
-`is_zero`,
-`digit_count`, and the O(held digits)
-`sign_magnitude` are callable — wrap in
-a lock for shared sign reads. It is deliberately not `PartialEq`: two
+takes `&mut self`, so the value reads available behind a shared
+reference are `is_zero`,
+`digit_count`, the O(held digits)
+`sign_magnitude`, and a
+`clone` — wrap in a lock for shared sign reads. It is deliberately not `PartialEq`: two
 spellings of one value would compare unequal, so compare by
 subtracting and reading the difference's sign. `touch-meter` is the
 crate's only feature.
