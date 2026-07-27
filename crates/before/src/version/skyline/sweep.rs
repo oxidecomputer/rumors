@@ -231,9 +231,9 @@ pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude
         Side::B => negative,
     };
     if raises_diff {
-        diff.add_base(magnitude);
+        diff.add_magnitude(magnitude);
     } else {
-        diff.sub_base(magnitude);
+        diff.sub_magnitude(magnitude);
     }
 }
 
@@ -307,8 +307,8 @@ fn sweep(a_bits: &BitsSlice, b_bits: &BitsSlice, mode: Mode) -> (bool, bool) {
     let mut diff = Accumulator::new();
     let (mut a, a_first) = LeafCursor::open(a_bits);
     let (mut b, b_first) = LeafCursor::open(b_bits);
-    diff.add_base(&a_first);
-    diff.sub_base(&b_first);
+    diff.add_magnitude(&a_first);
+    diff.sub_magnitude(&b_first);
     let (mut le, mut ge) = (true, true);
     loop {
         // One fold per elementary interval: the interval starting at the

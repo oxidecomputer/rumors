@@ -317,7 +317,7 @@ fn sum_ranks<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> R
             acc.shl(u64::from(rank.exp - exp));
             exp = rank.exp;
         }
-        acc.add_base_shl(&rank.num, u64::from(exp - rank.exp));
+        acc.add_magnitude_shl(&rank.num, u64::from(exp - rank.exp));
     }
     let (sign, magnitude) = acc.sign_magnitude();
     debug_assert_ne!(

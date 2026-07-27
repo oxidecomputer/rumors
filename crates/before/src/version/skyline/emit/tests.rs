@@ -75,11 +75,11 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
     // built-in folds go to a scratch accumulator.
     let mut scratch = Accumulator::new();
     let mut oa = Accumulator::new();
-    oa.add_base(&ho);
-    oa.sub_base(&ha);
+    oa.add_magnitude(&ho);
+    oa.sub_magnitude(&ha);
     let mut ob = Accumulator::new();
-    ob.add_base(&ho);
-    ob.sub_base(&hb);
+    ob.add_magnitude(&ho);
+    ob.sub_magnitude(&hb);
     let mut intervals = 0u64;
     loop {
         intervals += 1;
@@ -157,9 +157,9 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
 /// the stream sits on the difference's negative side.
 fn fold_signed(diff: &mut Accumulator, subtract: bool, step: &Step) {
     if step.negative != subtract {
-        diff.sub_base(&step.magnitude);
+        diff.sub_magnitude(&step.magnitude);
     } else {
-        diff.add_base(&step.magnitude);
+        diff.add_magnitude(&step.magnitude);
     }
 }
 

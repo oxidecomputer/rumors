@@ -145,7 +145,7 @@ pub fn rank(bits: &BitsSlice) -> Rank {
     let mut total = Accumulator::new();
     let mut live_height = Accumulator::new();
     let mut frozen = Accumulator::new();
-    frozen.add_base(&first);
+    frozen.add_magnitude(&first);
     let mut position = Accumulator::new();
     let one = Base::from(1u8);
     loop {
@@ -154,7 +154,7 @@ pub fn rank(bits: &BitsSlice) -> Rank {
         if !live_height.is_zero() {
             total.add_accum_shl(&live_height, weight_shift);
         }
-        position.add_base_shl(&one, weight_shift);
+        position.add_magnitude_shl(&one, weight_shift);
         if cursor.done() {
             break;
         }
@@ -205,8 +205,8 @@ fn freeze(
         drift_sign == Ordering::Greater,
     );
     match drift_sign {
-        Ordering::Less => frozen.sub_base(&drift),
-        _ => frozen.add_base(&drift),
+        Ordering::Less => frozen.sub_magnitude(&drift),
+        _ => frozen.add_magnitude(&drift),
     }
     *live_height = Accumulator::new();
 }
@@ -231,9 +231,9 @@ fn mul_into(total: &mut Accumulator, factor: &Base, digits: &Base, subtract: boo
         let mut product = factor.clone();
         product *= u32::try_from(digit).expect("a compacted signed digit fits 32 bits");
         if negative == subtract {
-            total.add_base_shl(&product, shift);
+            total.add_magnitude_shl(&product, shift);
         } else {
-            total.sub_base_shl(&product, shift);
+            total.sub_magnitude_shl(&product, shift);
         }
     };
     let mut shift = 0u64;
@@ -326,7 +326,7 @@ pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
 pub fn min_ticks(bits: &BitsSlice) -> u64 {
     let (mut cursor, first) = LeafCursor::open(bits);
     let mut height = Accumulator::new();
-    height.add_base(&first);
+    height.add_magnitude(&first);
     // Sums fit u128 by construction: at most 2^64-scale values times a
     // leaf count bounded by the stream's bit length.
     let mut leaf_sum: u128 = 0;
@@ -414,7 +414,7 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
     let (mut sc, first) = LeafCursor::open(ev_bits);
     let mut ic = IdLeafCursor::open(id_bits);
     let mut height = Accumulator::new();
-    height.add_base(&first);
+    height.add_magnitude(&first);
     let mut owned = ic.owned();
     let mut out = SkylineBuilder::with_capacity(ev_bits.len() + id_bits.len());
     let opening = if owned { first } else { Base::ZERO };

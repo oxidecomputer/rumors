@@ -162,8 +162,8 @@
 //! | [`add_small`](Accumulator::add_small), [`sub_small`](Accumulator::sub_small), [`add_u64`](Accumulator::add_u64), [`sub_u64`](Accumulator::sub_u64) | amortized O(1) |
 //! | [`add_wide`](Accumulator::add_wide), [`sub_wide`](Accumulator::sub_wide) | amortized O(operand limbs), whatever the held width |
 //! | [`add_wide_shl`](Accumulator::add_wide_shl), [`sub_wide_shl`](Accumulator::sub_wide_shl) | amortized O(operand limbs), independent of the shift |
-//! | [`add_base`](Accumulator::add_base), [`sub_base`](Accumulator::sub_base) | word-scale: amortized O(1); wide: amortized O(operand limbs) |
-//! | [`add_base_shl`](Accumulator::add_base_shl), [`sub_base_shl`](Accumulator::sub_base_shl) | as [`add_base`](Accumulator::add_base)/[`sub_base`](Accumulator::sub_base), at any shift |
+//! | [`add_magnitude`](Accumulator::add_magnitude), [`sub_magnitude`](Accumulator::sub_magnitude) | word-scale: amortized O(1); wide: amortized O(operand limbs) |
+//! | [`add_magnitude_shl`](Accumulator::add_magnitude_shl), [`sub_magnitude_shl`](Accumulator::sub_magnitude_shl) | as [`add_magnitude`](Accumulator::add_magnitude)/[`sub_magnitude`](Accumulator::sub_magnitude), at any shift |
 //! | [`add_accum`](Accumulator::add_accum), [`sub_accum`](Accumulator::sub_accum) | amortized O(operand's held digits) |
 //! | [`add_accum_shl`](Accumulator::add_accum_shl), [`sub_accum_shl`](Accumulator::sub_accum_shl) | amortized O(operand's held digits), independent of the shift |
 //! | [`merge_into_wider`](Accumulator::merge_into_wider) | amortized O(narrower operand's held digits) |
@@ -175,8 +175,7 @@
 //! point grows the digit buffer to cover the shifted position, so memory
 //! is O(shift / 32) plus the operand's own digits.
 //!
-//! The `*_base` entry points (*base*: the operand in its stored, base
-//! form, whatever type holds it) are generic over [`Magnitude`], the seam
+//! The `*_magnitude` entry points are generic over [`Magnitude`], the seam
 //! for a caller's own stored-magnitude type: the operand reports whether
 //! it fits a machine word, and the accumulator dispatches to the small or
 //! wide path accordingly. There is no from-value constructor: build with
@@ -399,7 +398,7 @@ impl DoubleEndedIterator for Limbs<'_> {
 /// An unsigned operand readable at the width it is stored at.
 ///
 /// The seam that lets a caller's own stored-magnitude type drive the
-/// accumulator's `*_base` entry points without conversion: the operand
+/// accumulator's `*_magnitude` entry points without conversion: the operand
 /// reports whether it fits a machine word — the dispatch onto the
 /// amortized-O(1) small path — and otherwise lends its full value to the
 /// wide path. Signedness stays with the caller: route the operand's sign
@@ -524,7 +523,7 @@ impl Accumulator {
     /// A word-scale operand takes the amortized-O(1) small path, a wider
     /// one the amortized-O(operand limbs) wide path; [`Magnitude`] is the
     /// dispatch.
-    pub fn add_base<M: Magnitude>(&mut self, delta: &M) {
+    pub fn add_magnitude<M: Magnitude>(&mut self, delta: &M) {
         match delta.to_word() {
             Some(n) => self.add_u64(n),
             None => self.add_wide(delta.as_wide()),
@@ -533,8 +532,8 @@ impl Accumulator {
 
     /// Subtract a stored magnitude, at the width it is stored at.
     ///
-    /// The subtractive twin of [`add_base`](Accumulator::add_base).
-    pub fn sub_base<M: Magnitude>(&mut self, delta: &M) {
+    /// The subtractive twin of [`add_magnitude`](Accumulator::add_magnitude).
+    pub fn sub_magnitude<M: Magnitude>(&mut self, delta: &M) {
         match delta.to_word() {
             Some(n) => self.sub_u64(n),
             None => self.sub_wide(delta.as_wide()),
@@ -581,7 +580,7 @@ impl Accumulator {
     /// Add a stored magnitude times `2^shift`, at the width it is stored
     /// at.
     ///
-    /// The same width dispatch as [`add_base`](Accumulator::add_base),
+    /// The same width dispatch as [`add_magnitude`](Accumulator::add_magnitude),
     /// with digit touches independent of the shift and
     /// [`add_wide_shl`](Accumulator::add_wide_shl)'s memory note.
     ///
@@ -589,7 +588,7 @@ impl Accumulator {
     ///
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
-    pub fn add_base_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
+    pub fn add_magnitude_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
             Some(n) => self.add_shifted_word(n, false, shift),
@@ -601,14 +600,14 @@ impl Accumulator {
     /// stored at.
     ///
     /// The subtractive twin of
-    /// [`add_base_shl`](Accumulator::add_base_shl): the same width
+    /// [`add_magnitude_shl`](Accumulator::add_magnitude_shl): the same width
     /// dispatch, shift-independent digit touches, and memory note.
     ///
     /// # Panics
     ///
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
-    pub fn sub_base_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
+    pub fn sub_magnitude_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
             Some(n) => self.add_shifted_word(n, true, shift),
