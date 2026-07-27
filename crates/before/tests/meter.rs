@@ -99,6 +99,27 @@ const TICK_CROSS_SCALE: usize = 4_000;
 /// still oscillating across the `2^k` cliff.
 const WIDE_TOOTH_WIDTH_BITS: usize = 192;
 
+/// Tooth magnitude (bits) of the two-operand jump-comb scenarios.
+///
+/// Comfortably over the rank freeze allowance's 256-bit digit bound, so
+/// every cheap fold arriving behind a wide switch jump in the meet
+/// stream fires the eviction.
+const JUMP_PAIR_MAGNITUDE_BITS: usize = 512;
+
+/// Comb levels of the two-operand jump-comb query scenario (the
+/// superlinearity band's small run; the large run doubles it).
+const JUMP_PAIR_TEETH: usize = 512;
+
+/// Freeze-position digits of the two-operand jump-comb query scenario
+/// (an eighth of the teeth, the board family's proportion; the large
+/// run doubles it).
+const JUMP_PAIR_DIGITS: usize = 64;
+
+/// Forked-party count of the concurrent-pair query scenarios: every one
+/// of the `n − 1` overlay boundaries is an emit side switch, in the join
+/// and the meet alike.
+const CONCURRENT_PAIR_LEAVES: usize = 4_096;
+
 /// Depth of the harmonic spine `H(d)` rank scenario: deep enough that the
 /// fold's per-level numerator re-shifts dominate every constant.
 const RANK_HARMONIC_DEPTH: usize = 65_536;
@@ -2363,6 +2384,203 @@ mod skyline_flatness {
             (large.limb_ops, large.bytes),
         );
     }
+
+    /// One public-distance run over the two-operand jump comb
+    /// `JP(k, m, d)`: both counters over the distance body alone, with
+    /// the operands' packed bytes and stored delta codes as the per-unit
+    /// denominators.
+    ///
+    /// Enforces the touch liveness floor (every stored delta lands in
+    /// the metered accumulator) and anchors the result by rank
+    /// modularity before returning.
+    fn distance_jump_pair_run(k: usize, m: usize, d: usize) -> Run {
+        let (pa, pb) = meter::jump_pair(k, m, d);
+        let a = pa.version();
+        let b = pb.version();
+        let bytes = (a.encode().len() + b.encode().len()) as u64;
+        // Per operand: one leaf per shared-spine level (33d), three per
+        // comb level, and the comb terminal; deltas are leaves − 1.
+        let deltas = 2 * (33 * d as u64 + 3 * m as u64);
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let r = a.distance(&b);
+        let run = Run {
+            deltas,
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert!(
+            run.touches >= run.deltas,
+            "distance_jump_pair m={m}: {} digit touches under the {}-delta floor: \
+             the query height state is not running on the metered accumulator",
+            run.touches,
+            run.deltas,
+        );
+        assert_eq!(
+            r,
+            &a.lag(&b) + &b.lag(&a),
+            "the distance must equal the two lags' sum (rank modularity)"
+        );
+        run
+    }
+
+    /// One public-rank run over a single [`meter::jump_pair`] operand:
+    /// the flat control for the cross-stream band below.
+    fn rank_jump_pair_operand_run(k: usize, m: usize, d: usize, band: bool) -> Run {
+        let (pa, pb) = meter::jump_pair(k, m, d);
+        let v = if band { pb.version() } else { pa.version() };
+        let bytes = v.encode().len() as u64;
+        let deltas = 33 * d as u64 + 3 * m as u64;
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let r = v.rank();
+        let run = Run {
+            deltas,
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert!(
+            run.touches >= run.deltas,
+            "rank height state left the accumulator"
+        );
+        drop(r);
+        run
+    }
+
+    /// Comb levels of the band's small run (the large run doubles both
+    /// parameters; the position digits stay an eighth of the teeth, the
+    /// board family's proportion).
+    const DISTANCE_JUMP_PAIR_SMALL_TEETH: usize = 512;
+
+    /// Freeze-position digits of the band's small run.
+    const DISTANCE_JUMP_PAIR_SMALL_DIGITS: usize = 64;
+
+    /// Absolute two-scale touch ceilings for the distance wedge,
+    /// measured 2026-07-27 ×1.25.
+    ///
+    /// The RED pin's ratchet: these hold the CURRENT superlinear cost,
+    /// and the cure's commit tightens them. Measured: small 1,029,327
+    /// touches / 973,702 limbs on 134,706 packed bytes; large 3,735,733
+    /// touches / 3,341,816 limbs on 269,154 bytes (per-byte limb work
+    /// ×1.72 across the doubling — the growth floor below is what
+    /// commits it).
+    const DISTANCE_JUMP_PAIR_TOUCH_CEILINGS: (u64, u64) = (1_286_659, 4_669_667);
+    /// The limb ceilings paired with
+    /// [`DISTANCE_JUMP_PAIR_TOUCH_CEILINGS`].
+    const DISTANCE_JUMP_PAIR_LIMB_CEILINGS: (u64, u64) = (1_217_128, 4_177_270);
+
+    /// Numerator of the standing finding's committed growth floor.
+    ///
+    /// Across the (teeth, digits) doubling, per-byte limb work must
+    /// grow by at least ×[`GROWTH_FLOOR_NUM`]/[`GROWTH_FLOOR_DEN`]. A
+    /// flat implementation reads ~×1 here, so a cure trips this
+    /// assertion deliberately — the flip that converts the red pin into
+    /// a flatness bound with tightened ceilings.
+    const GROWTH_FLOOR_NUM: u64 = 3;
+
+    /// Denominator of the growth floor above.
+    const GROWTH_FLOOR_DEN: u64 = 2;
+
+    /// FINDING (standing red, 2026-07-27): the distance of the
+    /// two-operand jump comb is superlinear in the packed pair.
+    ///
+    /// The mechanism: the meet's rank fold freezes twice per comb level
+    /// (one operand's wide switch jumps re-armed by the other operand's
+    /// cheap codes, the funding shape the freeze discipline does not
+    /// certify), and each freeze's correction pays the drift width
+    /// times the freeze position's nonzero digits, both scaled by the
+    /// doubling.
+    ///
+    /// Committed here as a growth floor (per-byte limb work rises
+    /// ≥ ×1.5 across the doubling) plus absolute two-scale ceilings at
+    /// the current cost, with both single-operand ranks pinned flat
+    /// beside it: each input alone is certified linear — the wedge
+    /// exists only in the two-operand composition.
+    #[test]
+    fn skyline_distance_jump_pair_cross_rearm_is_superlinear() {
+        let k = super::JUMP_PAIR_MAGNITUDE_BITS;
+        let (m, d) = (
+            DISTANCE_JUMP_PAIR_SMALL_TEETH,
+            DISTANCE_JUMP_PAIR_SMALL_DIGITS,
+        );
+        let small = distance_jump_pair_run(k, m, d);
+        let large = distance_jump_pair_run(k, 2 * m, 2 * d);
+        for (run, scale) in [(&small, "small"), (&large, "large")] {
+            eprintln!(
+                "MEASURED distance_jump_pair_{scale}: bytes={} touches={} limb_ops={}",
+                run.bytes, run.touches, run.limb_ops,
+            );
+        }
+        for (run, (touch_ceiling, limb_ceiling), scale) in [
+            (
+                &small,
+                (
+                    DISTANCE_JUMP_PAIR_TOUCH_CEILINGS.0,
+                    DISTANCE_JUMP_PAIR_LIMB_CEILINGS.0,
+                ),
+                "small",
+            ),
+            (
+                &large,
+                (
+                    DISTANCE_JUMP_PAIR_TOUCH_CEILINGS.1,
+                    DISTANCE_JUMP_PAIR_LIMB_CEILINGS.1,
+                ),
+                "large",
+            ),
+        ] {
+            assert!(
+                run.touches <= touch_ceiling,
+                "distance_jump_pair_{scale}: {} touches exceed the pinned ceiling \
+                 {touch_ceiling}: the wedge got worse than its committed record",
+                run.touches,
+            );
+            assert!(
+                run.limb_ops <= limb_ceiling,
+                "distance_jump_pair_{scale}: {} limb ops exceed the pinned ceiling \
+                 {limb_ceiling}: the wedge got worse than its committed record",
+                run.limb_ops,
+            );
+        }
+        // The growth witness: per-byte limb work must rise across the
+        // doubling while the wedge stands uncured. A cure that funds the
+        // cross-stream re-arms trips this deliberately; flip it to
+        // assert_flat and tighten the ceilings in the same change.
+        assert!(
+            u128::from(large.limb_ops) * u128::from(small.bytes) * u128::from(GROWTH_FLOOR_DEN)
+                >= u128::from(small.limb_ops)
+                    * u128::from(large.bytes)
+                    * u128::from(GROWTH_FLOOR_NUM),
+            "distance_jump_pair: per-byte limb work no longer grows across the doubling \
+             ({} / {} B -> {} / {} B): the cross-stream wedge reads cured — re-pin this \
+             family flat and tighten its ceilings",
+            small.limb_ops,
+            small.bytes,
+            large.limb_ops,
+            large.bytes,
+        );
+        // The separation witnesses: either operand alone stays flat —
+        // the teeth operand's wide folds cancel adjacently (bounded
+        // oscillation), the band operand pays its width once.
+        let teeth_small = rank_jump_pair_operand_run(k, m, d, false);
+        let teeth_large = rank_jump_pair_operand_run(k, 2 * m, 2 * d, false);
+        assert_flat(
+            "rank_jump_pair_teeth_limb_ops",
+            "byte",
+            (teeth_small.limb_ops, teeth_small.bytes),
+            (teeth_large.limb_ops, teeth_large.bytes),
+        );
+        let band_small = rank_jump_pair_operand_run(k, m, d, true);
+        let band_large = rank_jump_pair_operand_run(k, 2 * m, 2 * d, true);
+        assert_flat(
+            "rank_jump_pair_band_limb_ops",
+            "byte",
+            (band_small.limb_ops, band_small.bytes),
+            (band_large.limb_ops, band_large.bytes),
+        );
+    }
 }
 
 // ─── id spine pair scenarios ────────────────────────────────────────────────
@@ -3073,6 +3291,18 @@ mod query_env {
     // walk the tick also paid.
     pub const TICK_EXPAND_SPINE: QueryEnvelope            = query_envelope(   435_455,        0,   625_015, 2_187_519,         4, 375_009, 2); // 348_364, 0, 500_012, 1_750_015, 3 (an empty version's tick folds one word-scale payload: near-zero accumulator work)
     pub const TICK_EXPAND_CROSS: QueryEnvelope            = query_envelope(   611_237,        0,   937_513, 3_593_782,   312_517, 562_507, 187_509); // 488_989, 0, 750_010, 2_875_025, 250_013
+    // The version-pair rows (2026-07-27, instruments phase): the public
+    // two-operand queries on the pair families. The jump-pair distance
+    // row is the cross-stream freeze wedge's absolute record at the
+    // enforced scale — a RED pin: its cost is superlinear in the packed
+    // pair (the `skyline_flatness` band test carries the committed
+    // growth witness), and these ceilings hold the *current* wedge cost
+    // until the cure tightens them. The lag and concurrent rows are
+    // honest linear constants.
+    pub const DISTANCE_JUMP_PAIR: QueryEnvelope           = query_envelope(   173_512,        0, 1_217_128, 8_080_673, 1_286_659, 730_276, 771_995); // 138_809, 0, 973_702, 6_464_538, 1_029_327 (2026-07-27, instruments phase: the uncured wedge's record)
+    pub const LAG_JUMP_PAIR: QueryEnvelope                = query_envelope(   173_302,        0,   159_312, 5_393_863,   108_935, 95_586, 65_361); // 138_641, 0, 127_449, 4_315_090, 87_148
+    pub const DISTANCE_CONCURRENT: QueryEnvelope          = query_envelope(     7_455,        0,   208_187,   329_375,    76_803, 124_911, 46_081); // 5_964, 0, 166_549, 263_500, 61_442
+    pub const LAG_CONCURRENT: QueryEnvelope               = query_envelope(     7_455,        0,   119_464,   246_625,    54_620, 71_678, 32_772); // 5_964, 0, 95_571, 197_300, 43_696
 }
 
 /// Run one query scenario body under all five meters and assert its
@@ -3322,6 +3552,118 @@ fn skyline_project_comb_scatter_envelope() {
     );
     let expected = meter::skyline::encode(&(&v / &party));
     assert_eq!(out, expected, "the kernel must match the packed quotient");
+}
+
+// ─── version-pair query scenarios ───────────────────────────────────────────
+//
+// The public two-operand queries on the pair families (the corpus pairing
+// `w = v + one seed tick` collapses the second operand onto a dominating
+// plateau, so the emit side switch and the cross-stream freeze paths went
+// unpriced before these rows). The jump-pair distance row is a RED pin:
+// the meet's rank fold freezes twice per comb level at a dense position,
+// re-armed across the overlay by the operand that did not pay for the
+// drift, and its cost is superlinear in the packed pair — the
+// `skyline_flatness` band test commits the growth witness and the flat
+// single-operand control; this row holds the wedge's absolute cost at the
+// enforced scale until a cure tightens it. The lag row (no meet leg) and
+// both concurrent rows are honest linear records.
+
+/// `Version::distance` on the two-operand jump comb stays within its
+/// red-pinned envelope (the cross-stream freeze wedge's absolute record;
+/// the growth witness lives in the `skyline_flatness` band test).
+///
+/// The result is anchored by rank modularity: the distance must equal
+/// the two lags' sum.
+#[test]
+fn version_distance_jump_pair_envelope() {
+    let (pa, pb) = meter::jump_pair(JUMP_PAIR_MAGNITUDE_BITS, JUMP_PAIR_TEETH, JUMP_PAIR_DIGITS);
+    let a = pa.version();
+    let b = pb.version();
+    let input_bytes = a.encode().len() + b.encode().len();
+    let (r, a, b) = query_metered(
+        "version_distance_jump_pair",
+        input_bytes,
+        &query_env::DISTANCE_JUMP_PAIR,
+        move || {
+            let r = a.distance(&b);
+            (r, a, b)
+        },
+    );
+    assert_eq!(
+        r,
+        &a.lag(&b) + &b.lag(&a),
+        "the distance must equal the two lags' sum (rank modularity)"
+    );
+}
+
+/// `Version::lag` on the two-operand jump comb stays within its
+/// envelope — the within-family control that isolates the finding to
+/// the meet's rank fold.
+///
+/// Lag runs the join leg alone, and the join collapses every comb level
+/// to its two plateaus (the band shades every gap), so the wedge's
+/// freeze storm never reaches it.
+#[test]
+fn version_lag_jump_pair_envelope() {
+    let (pa, pb) = meter::jump_pair(JUMP_PAIR_MAGNITUDE_BITS, JUMP_PAIR_TEETH, JUMP_PAIR_DIGITS);
+    let a = pa.version();
+    let b = pb.version();
+    let input_bytes = a.encode().len() + b.encode().len();
+    query_metered(
+        "version_lag_jump_pair",
+        input_bytes,
+        &query_env::LAG_JUMP_PAIR,
+        move || {
+            let r = a.lag(&b);
+            (r, a, b)
+        },
+    );
+}
+
+/// `Version::distance` on the concurrent pair stays within its
+/// envelope — the emit side switch fired at every one of the `n − 1`
+/// overlay boundaries, join and meet alike, on word-scale heights.
+///
+/// The semantic anchor: the schedule realizes a distance of exactly the
+/// integer rank 2 at every `n` (the generator's construction), so a
+/// misrouted side switch cannot pass as a cheap reading.
+#[test]
+fn version_distance_concurrent_envelope() {
+    let (v, w) = meter::concurrent_pair(CONCURRENT_PAIR_LEAVES);
+    let input_bytes = v.encode().len() + w.encode().len();
+    let (r, _, _) = query_metered(
+        "version_distance_concurrent",
+        input_bytes,
+        &query_env::DISTANCE_CONCURRENT,
+        move || {
+            let r = v.distance(&w);
+            (r, v, w)
+        },
+    );
+    assert_eq!(
+        r,
+        Version::try_from(2u64)
+            .expect("a small integer version is valid")
+            .rank(),
+        "the schedule's heights must be realized end to end"
+    );
+}
+
+/// `Version::lag` on the concurrent pair stays within its envelope —
+/// one emission's worth of side switches (`n − 1`) plus the rank folds.
+#[test]
+fn version_lag_concurrent_envelope() {
+    let (v, w) = meter::concurrent_pair(CONCURRENT_PAIR_LEAVES);
+    let input_bytes = v.encode().len() + w.encode().len();
+    query_metered(
+        "version_lag_concurrent",
+        input_bytes,
+        &query_env::LAG_CONCURRENT,
+        move || {
+            let r = v.lag(&w);
+            (r, v, w)
+        },
+    );
 }
 
 // ─── join-fold scenarios ────────────────────────────────────────────────────

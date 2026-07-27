@@ -42,8 +42,8 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
     names
 }
 
-/// The roster's red set is exactly the permanent schoolbook tripwire and
-/// the hugeleaf display pair.
+/// The roster's red set is exactly the permanent schoolbook tripwire,
+/// the hugeleaf display pair, and the cross-stream freeze wedge.
 ///
 /// Every other cell — the designed diagonal and the board-red riders
 /// alike — must fit under its own ceiling. The tripwire's red is the
@@ -51,7 +51,12 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
 /// tripwire went dark; the display pair's red is the conversion-dominated
 /// hugeleaf-width render (measured e 1.39/1.42 at the general 1.3
 /// ceiling, 2026-07-27), owned by the text column with the class question
-/// open. Removing an owned red silences a standing judgment and adding
+/// open; the wedge's red is the uncured two-operand jump comb, whose
+/// distance runs the meet-leg rank fold's freeze machinery superlinearly
+/// (board limb/touch exponents 1.67–1.93 across both scale pairs,
+/// 2026-07-27) — its dominant work is metered limb arithmetic, so a
+/// green time leg before the cure lands means the leg went dark.
+/// Removing an owned red silences a standing judgment and adding
 /// one launders a new regression as expected, so both directions must
 /// show up as a diff of this pin.
 #[test]
@@ -60,6 +65,7 @@ fn roster_red_membership_is_pinned() {
         "clock_display/hugeleaf",
         "display_schoolbook/hugeleaf",
         "version_display/hugeleaf",
+        "version_distance/jump-pair",
     ];
     expected.sort();
     assert_eq!(class(&roster(), "red"), expected);

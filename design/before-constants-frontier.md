@@ -178,6 +178,15 @@ unexercised), overlay-scale re-derivation of the freeze positions,
 and a digit-exact differential pin against both the composed form and
 the oracle.
 
+**Instruments landed (2026-07-27):** the two gating families are
+committed and pinned — the two-operand jump comb reads the wedge red
+(board `version_distance × jump-pair`, limb/touch exponents 1.67–1.93
+across both scale pairs, plus the envelope growth floor in
+`tests/meter.rs`), and the concurrent pair exercises the emit side
+switch at every overlay boundary — so the co-sweep cure has five
+committed readings to move (the amplification doc's §12 instruments
+entry itemizes them).
+
 **Accumulator prior-art verdict (2026-07-27, surveyed): keep.** No
 maintained external tool provides the accumulator's contract: every
 general-purpose bignum crate normalizes on every add, which is
