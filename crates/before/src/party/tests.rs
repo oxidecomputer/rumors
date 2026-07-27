@@ -6,6 +6,7 @@ use proptest::prelude::*;
 use super::ops::IdIndex;
 use super::Party;
 use crate::idbits::IdReader;
+use crate::oracle;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
 use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
 use crate::testing::fold_oracle;
@@ -201,7 +202,73 @@ fn join_all_agrees_with_oracle_on_all_overlapping_deferred_witness() {
     });
 }
 
+/// Run the production fold and the recursive oracle's `join_all` over one
+/// input population and assert identical outcomes, compared over logical
+/// trees.
+///
+/// Identical outcomes: the same `Ok`/`Err` verdict, the same hand-back
+/// vector (contents *and* order, element-wise over `to_oracle_party`),
+/// and accumulators lowering to the same oracle tree.
+fn assert_join_all_matches_recursive_oracle(mut acc: Party, inputs: Vec<Party>) {
+    let mut oracle_acc = to_oracle_party(&acc);
+    let oracle_inputs: Vec<oracle::Party> = inputs.iter().map(to_oracle_party).collect();
+    let new = acc
+        .join_all(inputs)
+        .map_err(|back| back.iter().map(to_oracle_party).collect::<Vec<_>>());
+    let reference = oracle_acc.join_all(oracle_inputs);
+    assert_eq!(
+        new, reference,
+        "the production fold and the oracle fold must hand back the same inputs in the \
+         same order"
+    );
+    assert_eq!(
+        to_oracle_party(&acc),
+        oracle_acc,
+        "the production fold and the oracle fold must leave the same accumulator"
+    );
+}
+
+proptest! {
+    /// The production `join_all` decides exactly as the recursive oracle's
+    /// `join_all` over arbitrary normal-form mixes.
+    ///
+    /// An arbitrary accumulator against inputs drawn with repetition
+    /// from an arbitrary pool — mixed sizes, duplicates, and every
+    /// overlap disposition (against the accumulator, against each
+    /// other, or none) arise from the draws — with identical hand-backs
+    /// (contents and order) and accumulators lowering to the same
+    /// oracle tree.
+    #[test]
+    fn join_all_matches_the_recursive_oracle(
+        oacc in arb_oracle_party_nonempty(),
+        (pool, picks) in proptest::collection::vec(arb_oracle_party_nonempty(), 1..5)
+            .prop_flat_map(|pool| {
+                let len = pool.len();
+                (Just(pool), proptest::collection::vec(0..len, 0..12))
+            }),
+    ) {
+        let acc = from_oracle_party(&oacc);
+        let inputs: Vec<Party> =
+            picks.iter().map(|&i| from_oracle_party(&pool[i])).collect();
+        assert_join_all_matches_recursive_oracle(acc, inputs);
+    }
+}
+
 // ───────────────────────────── differential vs oracle ─────────────────────────────
+
+proptest! {
+    /// `is_seed` ⟺ the oracle party is the full region, over arbitrary
+    /// normal-form parties.
+    ///
+    /// In normal form the full region is exactly the oracle's
+    /// `Leaf(true)` (= `oracle::Party::seed()`), so the production O(1)
+    /// test is bound to the oracle's notion of fullness; the nonempty
+    /// generator produces the full leaf, so both arms are exercised.
+    #[test]
+    fn is_seed_matches_the_oracle(op in arb_oracle_party_nonempty()) {
+        prop_assert_eq!(from_oracle_party(&op).is_seed(), op == oracle::Party::seed());
+    }
+}
 
 proptest! {
     /// `fork` yields two disjoint halves, both matching the oracle's split;

@@ -69,6 +69,62 @@ impl Clock {
         }
     }
 
+    /// Fold every disjoint [`Clock`] in `inputs` into `self` — the reference
+    /// for [`Clock::join_all`](crate::Clock::join_all), hand-back vector
+    /// (contents *and* order) and final accumulator (party and version both)
+    /// included.
+    ///
+    /// The identical discipline as the [`Party`] reference
+    /// ([`Party::join_all`](Party::join_all)), carrying versions through the
+    /// same decisions: each input's party is tested up front against the
+    /// **fixed** `self`'s (never the running union), accepted inputs
+    /// coalesce in binary-counter groups, a collision at a merge hands back
+    /// a lone input and leaves a coalesced group unmerged, and the
+    /// surviving groups join into `self` at the end.
+    pub fn join_all(&mut self, inputs: impl IntoIterator<Item = Clock>) -> Result<(), Vec<Clock>> {
+        let mut overlapping = Vec::new();
+        let mut stack: Vec<(Clock, u32)> = Vec::new();
+        for other in inputs {
+            if !self.party.is_disjoint(other.party()) {
+                overlapping.push(other);
+                continue;
+            }
+            let mut merged = Some(other);
+            let mut weight = 0u32;
+            while stack.last().is_some_and(|(_, w)| *w == weight) {
+                let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
+                match top.join(merged.take().expect("the operand is held while merging up")) {
+                    Ok(()) => {
+                        merged = Some(top);
+                        weight += 1;
+                    }
+                    Err(back) => {
+                        stack.push((top, weight));
+                        if weight == 0 {
+                            overlapping.push(back);
+                        } else {
+                            stack.push((back, weight));
+                        }
+                        break;
+                    }
+                }
+            }
+            if let Some(merged) = merged {
+                stack.push((merged, weight));
+            }
+        }
+        for (group, _) in stack {
+            if let Err(back) = self.join(group) {
+                overlapping.push(back);
+            }
+        }
+        if overlapping.is_empty() {
+            Ok(())
+        } else {
+            Err(overlapping)
+        }
+    }
+
     pub fn sync(&mut self, other: &mut Clock) -> Result<(), OverlapError> {
         if !self.party.is_disjoint(&other.party) {
             return Err(OverlapError);

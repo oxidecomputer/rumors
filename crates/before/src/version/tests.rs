@@ -1635,6 +1635,42 @@ proptest! {
     }
 }
 
+proptest! {
+    /// The n-ary `meet_all` is the sequential fold on versions.
+    ///
+    /// Over organic version populations in both orders, `meet_all` returns
+    /// exactly the left fold of `&` — and `None` for the empty iterator,
+    /// which has no meet (the lattice has no top element).
+    #[test]
+    fn meet_all_equals_the_sequential_fold(ops in world_strategy()) {
+        let pool = world_versions(&ops);
+        let reference = pool.iter().cloned().reduce(|acc, v| acc & v);
+        prop_assert_eq!(Version::meet_all(pool.clone()), reference.clone());
+        let mut reversed = pool;
+        reversed.reverse();
+        prop_assert_eq!(Version::meet_all(reversed), reference);
+        prop_assert_eq!(Version::meet_all(Vec::new()), None);
+    }
+}
+
+proptest! {
+    /// `meet_all` matches the recursive oracle's fold over arbitrary
+    /// normal-form pools.
+    ///
+    /// `Some` exactly when the pool is nonempty, the production meet of
+    /// every pool lowering to the oracle's; independent arbitrary shapes
+    /// (not just op-trace populations) are the corner where meets
+    /// restructure most.
+    #[test]
+    fn meet_all_matches_oracle(
+        pool in proptest::collection::vec(arb_oracle_version(), 0..8),
+    ) {
+        let prod = Version::meet_all(pool.iter().map(from_oracle_version));
+        let reference = crate::oracle::Version::meet_all(pool.iter().cloned());
+        prop_assert_eq!(prod.map(|v| to_oracle_version(&v)), reference);
+    }
+}
+
 // ─────────────────────────────── ranked ───────────────────────────────
 
 /// `Ranked` known values: a concurrent pair sharing a rank (half vs. the

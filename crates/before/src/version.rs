@@ -303,7 +303,7 @@ impl Version {
     /// if it is empty: the history every input shares.
     ///
     /// Unlike [`join_all`](Self::join_all) this returns an [`Option`], because
-    /// the meet-semilattice has no identity. The empty meet would be the the
+    /// the meet-semilattice has no identity. The empty meet would be the
     /// version dominating all others, but no such [`Version`] exists (every
     /// version can [`tick`](Self::tick) higher), so an empty iterator yields
     /// [`None`].
