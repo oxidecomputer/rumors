@@ -170,11 +170,12 @@ fn settle_a(a: &mut IdLeafCursor, b: &IdLeafCursor) {
     a.consume(!b.owned());
 }
 
-/// Settle an `other` subtree that `a`'s current plateau covers: under an
-/// unowned `a` there is nothing to carve from (a block scan, one unowned
-/// plateau), while under an owned `a` the output is the subtree's
-/// complement, so the sweep must walk it plateau by plateau (an eager
-/// descent, no block).
+/// Settle an `other` subtree that `a`'s current plateau covers.
+///
+/// Under an unowned `a` there is nothing to carve from (a block scan,
+/// one unowned plateau), while under an owned `a` the output is the
+/// subtree's complement, so the sweep must walk it plateau by plateau
+/// (an eager descent, no block).
 ///
 /// The caller guarantees the cover, as in [`settle_a`].
 fn settle_b(a: &IdLeafCursor, b: &mut IdLeafCursor) {
@@ -299,10 +300,11 @@ struct IdLeafCursor<'a> {
 
 impl<'a> IdLeafCursor<'a> {
     /// Open an id at its root, unsettled atop the whole tree (`true`)
-    /// for the sweep to settle against the other operand. A synthetic
-    /// [`Empty`](IdReader::Empty) reader is the anonymous `0` id — one
-    /// unowned plateau covering the whole interval, already settled
-    /// (`false`).
+    /// for the sweep to settle against the other operand.
+    ///
+    /// A synthetic [`Empty`](IdReader::Empty) reader is the anonymous
+    /// `0` id — one unowned plateau covering the whole interval,
+    /// already settled (`false`).
     fn open(src: IdReader<'a>) -> (Self, bool) {
         let mut this = IdLeafCursor {
             bits: BitsSlice::empty(),
@@ -342,9 +344,11 @@ impl<'a> IdLeafCursor<'a> {
     }
 
     /// Advance past the current item to the next slot, returning the
-    /// flip level's depth for the caller's tie test and whether the
-    /// cursor is now unsettled atop a present subtree (an absent slot
-    /// settles immediately as the synthetic unowned plateau).
+    /// flip level's depth for the caller's tie test.
+    ///
+    /// The second return reports whether the cursor is now unsettled
+    /// atop a present subtree; an absent slot settles immediately as
+    /// the synthetic unowned plateau.
     ///
     /// Pops the trailing right-branch levels (each an ancestor whose
     /// subtree the consumed item completed), then steps the deepest

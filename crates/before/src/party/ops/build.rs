@@ -155,9 +155,11 @@ impl IdBuilder {
 }
 
 /// Leaf-driven builder for normalized id output: append one plateau per
-/// elementary interval of a dyadic tiling, in preorder — or a whole
-/// already-normal subtree in one splice ([`subtree`](Self::subtree)) —
-/// and take the canonical id of the region the owned plateaus tile.
+/// elementary interval of a dyadic tiling, in preorder, and take the
+/// canonical id of the region the owned plateaus tile.
+///
+/// A whole already-normal subtree of the tiling may be appended in one
+/// splice instead of plateau by plateau ([`subtree`](Self::subtree)).
 ///
 /// The id-side sibling of the event emission's collapsing builder (the
 /// skyline build module): the preorder leaf depths of a dyadic tiling
