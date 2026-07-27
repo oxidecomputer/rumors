@@ -90,6 +90,63 @@ impl Party {
         Ok(())
     }
 
+    /// Fold every disjoint [`Party`] in `inputs` into `self` — the reference
+    /// for [`Party::join_all`](crate::Party::join_all), hand-back vector
+    /// (contents *and* order) and final accumulator value included.
+    ///
+    /// The contract's granularity, spelled exactly: each input is tested up
+    /// front against the **fixed** `self` — never against the running union;
+    /// `self` does not change until the final joins — and an overlapping
+    /// input is handed back untouched. Accepted inputs coalesce in
+    /// binary-counter groups (an incoming operand merges upward while the
+    /// top group holds as many inputs as it does); a collision at a merge
+    /// hands back a lone incoming input and leaves an already-coalesced
+    /// group on the stack unmerged. The surviving groups join into `self`
+    /// at the end, any group colliding there handed back as one party.
+    pub fn join_all(&mut self, inputs: impl IntoIterator<Item = Party>) -> Result<(), Vec<Party>> {
+        let mut overlapping = Vec::new();
+        let mut stack: Vec<(Party, u32)> = Vec::new();
+        for other in inputs {
+            if !self.is_disjoint(&other) {
+                overlapping.push(other);
+                continue;
+            }
+            let mut merged = Some(other);
+            let mut weight = 0u32;
+            while stack.last().is_some_and(|(_, w)| *w == weight) {
+                let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
+                match top.join(merged.take().expect("the operand is held while merging up")) {
+                    Ok(()) => {
+                        merged = Some(top);
+                        weight += 1;
+                    }
+                    Err(back) => {
+                        stack.push((top, weight));
+                        if weight == 0 {
+                            overlapping.push(back);
+                        } else {
+                            stack.push((back, weight));
+                        }
+                        break;
+                    }
+                }
+            }
+            if let Some(merged) = merged {
+                stack.push((merged, weight));
+            }
+        }
+        for (group, _) in stack {
+            if let Err(back) = self.join(group) {
+                overlapping.push(back);
+            }
+        }
+        if overlapping.is_empty() {
+            Ok(())
+        } else {
+            Err(overlapping)
+        }
+    }
+
     pub fn is_disjoint(&self, other: &Party) -> bool {
         match (self, other) {
             (Party::Leaf(false), _) | (_, Party::Leaf(false)) => true,

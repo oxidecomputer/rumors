@@ -351,6 +351,15 @@ impl Version {
         self.normalized()
     }
 
+    /// The meet (GLB) of every version in `iter`, or [`None`] for an empty
+    /// iterator — the reference for
+    /// [`Version::meet_all`](crate::Version::meet_all): the sequential fold
+    /// of the binary meet, `None` because the meet-semilattice has no
+    /// identity (no version dominates all others).
+    pub fn meet_all(iter: impl IntoIterator<Item = Version>) -> Option<Version> {
+        iter.into_iter().reduce(|acc, v| acc & v)
+    }
+
     pub fn tick(&mut self, party: &Party) {
         *self = self.event(party);
     }
