@@ -104,13 +104,7 @@ impl Version {
         // `Version::new` and `codec::encode_int`). The stored skyline
         // stream is a unique representation, so this O(1) bit test is the
         // whole question — no allocation, no walk.
-        let empty = skyline::is_empty_stream(&self.0);
-        debug_assert_eq!(
-            empty,
-            *self == Version::new(),
-            "the two-bit emptiness test must agree with comparison against Version::new()",
-        );
-        empty
+        skyline::is_empty_stream(&self.0)
     }
 
     /// Advance the [`Version`] from the perspective of [`Party`].

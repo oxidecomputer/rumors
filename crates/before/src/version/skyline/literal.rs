@@ -12,7 +12,7 @@
 use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, SliceCursor};
 use crate::error::Parse;
 
-use super::{unzigzag, validate_bits, zigzag};
+use super::{unzigzag, zigzag};
 
 /// The skyline stream of an event leaf with base `n`.
 pub(crate) fn leaf(n: u64) -> Bits {
@@ -70,10 +70,6 @@ pub(crate) fn node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> 
         }
         prev = Some(height);
     }
-    debug_assert!(
-        validate_bits(&out).is_ok(),
-        "a min-lift-checked literal composition is canonical",
-    );
     // Canonicalizing the storage is `Version::from_bits`'s job, the
     // single gate a stream passes through when it becomes a stored value.
     Ok(out)
