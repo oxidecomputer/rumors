@@ -85,8 +85,8 @@ impl Clock {
         Self::from_parts(Party::seed(), Version::new())
     }
 
-    /// Advance this [`Clock`] by one event for its own [`Party`], returning the
-    /// new [`Version`].
+    /// Advances this [`Clock`] by one event for its own [`Party`], returning
+    /// the new [`Version`].
     ///
     /// # Complexity
     ///
@@ -102,7 +102,7 @@ impl Clock {
         self.version()
     }
 
-    /// Split off a child clock by [`fork`](Party::fork)ing the underlying
+    /// Splits off a child clock by [`fork`](Party::fork)ing the underlying
     /// [`Party`] and copying the underlying [`Version`].
     ///
     /// # Warning
@@ -127,7 +127,7 @@ impl Clock {
         self.batch().fork()
     }
 
-    /// Split `n` balanced child clocks off this [`Clock`], as a lazy
+    /// Splits `n` balanced child clocks off this [`Clock`], as a lazy
     /// [`ExactSizeIterator`].
     ///
     /// The clock analogue of [`Party::forks`]: one balanced split of the
@@ -165,8 +165,8 @@ impl Clock {
         Forks::new(self, n)
     }
 
-    /// Absorb a *disjoint* [`Clock`]'s [`Party`] and [`Version`], returning the
-    /// new [`Version`].
+    /// Absorbs a *disjoint* [`Clock`]'s [`Party`] and [`Version`], returning
+    /// the new [`Version`].
     ///
     /// # Errors
     ///
@@ -190,7 +190,7 @@ impl Clock {
         Ok(self.version())
     }
 
-    /// Absorb every disjoint [`Clock`] in `iter` into `self`, returning the
+    /// Absorbs every disjoint [`Clock`] in `iter` into `self`, returning the
     /// merged [`Version`].
     ///
     /// The collective form of [`join`](Clock::join): `self` seeds the fold, so
@@ -288,8 +288,8 @@ impl Clock {
         }
     }
 
-    /// Reconcile two *disjoint* [`Clock`]s: join their [`Version`]s and
-    /// re-[`fork`](Clock::fork) the [`join`](Clock::join) of their [`Party`]s.
+    /// Reconciles two *disjoint* [`Clock`]s: joins their [`Version`]s and
+    /// re-[`fork`](Clock::fork)s the [`join`](Clock::join) of their [`Party`]s.
     ///
     /// # Errors
     ///
@@ -334,8 +334,8 @@ impl Clock {
         self.tick()
     }
 
-    /// Merge a received [`Version`] into this [`Clock`]'s version, then
-    /// [`tick`](Clock::tick) the [`Clock`].
+    /// Merges a received [`Version`] into this [`Clock`]'s version, then
+    /// [`tick`](Clock::tick)s the [`Clock`].
     ///
     /// Equivalent to `self |= version; self.tick()`. The receiving half of
     /// the vector-clock communication pattern described on
@@ -358,7 +358,7 @@ impl Clock {
         self.version()
     }
 
-    /// Begin a batch of operations on this clock.
+    /// Begins a batch of operations on this clock.
     ///
     /// Operations within a batch chain through one mutable borrow, each
     /// committing as it runs.
@@ -377,7 +377,7 @@ impl Clock {
         Batch::new(self)
     }
 
-    /// Pair a [`Party`] with a [`Version`] to form a [`Clock`].
+    /// Pairs a [`Party`] with a [`Version`] to form a [`Clock`].
     ///
     /// # Complexity
     ///
@@ -392,7 +392,7 @@ impl Clock {
         Clock { party, version }
     }
 
-    /// Decompose a [`Clock`] into its [`Party`] and [`Version`].
+    /// Decomposes a [`Clock`] into its [`Party`] and [`Version`].
     ///
     /// # Complexity
     ///
@@ -421,7 +421,7 @@ impl Clock {
         &self.party
     }
 
-    /// Get the current state of the [`Clock`] as a [`Version`].
+    /// The current state of the [`Clock`], as a [`Version`].
     ///
     /// # Complexity
     ///
@@ -434,8 +434,7 @@ impl Clock {
         &self.version
     }
 
-    /// Get the *slice* of the [`Version`] of the [`Clock`] *which is owned by
-    /// its own [`Party`].
+    /// The *slice* of this clock's [`Version`] owned by its own [`Party`].
     ///
     /// This is short for `self.version() / self.party()`.
     ///
@@ -462,7 +461,11 @@ impl Clock {
         self.version() / self.party()
     }
 
-    /// Encode a [`Clock`] as canonical bytes.
+    /// Encodes this [`Clock`] as canonical bytes.
+    ///
+    /// The bytes are the [`Party`]'s encoding followed by the [`Version`]'s:
+    /// each part is byte-aligned and independently canonical, and the party
+    /// is self-delimiting, so the two concatenate with no length prefix.
     ///
     /// # Complexity
     ///
@@ -470,8 +473,11 @@ impl Clock {
     ///
     /// ```
     /// use before::Clock;
-    /// let bytes = Clock::seed().encode();
-    /// assert_eq!(Clock::decode(&bytes[..]).unwrap().encode(), bytes);
+    /// let clock = Clock::seed();
+    /// let bytes = clock.encode();
+    /// assert_eq!(Clock::decode(&bytes[..]).unwrap(), clock);
+    /// // The framing: the party's bytes, then the version's.
+    /// assert_eq!(bytes, [clock.party().encode(), clock.version().encode()].concat());
     /// ```
     pub fn encode(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -480,7 +486,7 @@ impl Clock {
         bytes
     }
 
-    /// Encode a [`Clock`]'s canonical bytes to an arbitrary writer.
+    /// Encodes this [`Clock`]'s canonical bytes to an arbitrary writer.
     ///
     /// # Complexity
     ///
@@ -504,8 +510,8 @@ impl Clock {
         self.version.encode_to(writer)
     }
 
-    /// Decode from a reader of canonical bytes, strictly rejecting malformed or
-    /// non-canonical input.
+    /// Decodes a [`Clock`] from a reader of canonical bytes, strictly
+    /// rejecting malformed or non-canonical input.
     ///
     /// # Complexity
     ///
@@ -534,8 +540,8 @@ impl Clock {
         Ok(Clock::from_parts(party, version))
     }
 
-    /// Count the number of bits in the encoding of this [`Clock`], not including
-    /// the final byte's padding.
+    /// The exact length in bits of [`encode`](Self::encode), not counting the
+    /// final byte's zero-pad.
     ///
     /// The encoding byte-concatenates the [`Party`] and [`Version`] (see
     /// [`encode`](Self::encode)), so the party occupies whole bytes and only the
@@ -555,7 +561,7 @@ impl Clock {
         8 * self.party().encoded_bits().div_ceil(8) + self.version().encoded_bits()
     }
 
-    /// Duplicate this clock, producing a second handle to the same clock, in
+    /// Duplicates this clock, producing a second handle to the same clock, in
     /// violation of linearity.
     ///
     /// # Warning
@@ -591,8 +597,7 @@ impl Clock {
     }
 }
 
-/// Format a [`Clock`] using the notation in the original paper: `(<id>,
-/// <event>)`, e.g. `(1, 0)` for [`Clock::seed`].
+/// Paper notation: `(<id>, <event>)`, e.g. `(1, 0)` for [`Clock::seed`].
 ///
 /// # Complexity
 ///
@@ -619,7 +624,8 @@ impl core::fmt::Debug for Clock {
     }
 }
 
-/// Parse a stamp `(i, e)` in paper notation, strictly rejecting non-normal-form
+/// Parses a stamp `(i, e)` in paper notation, strictly rejecting
+/// non-normal-form
 /// input and any anonymous (id `0`) party.
 ///
 /// # Complexity
@@ -646,7 +652,8 @@ impl core::str::FromStr for Clock {
     }
 }
 
-/// A clock from a `(party, version)` literal, e.g. `((1, 0), 5).into()`.
+/// A clock from a `(party, version)` literal, e.g.
+/// `Clock::try_from(((1, 0), 5))`.
 ///
 /// # Complexity
 ///

@@ -8,8 +8,12 @@ use crate::{version, Party, Version};
 
 use super::Clock;
 
-/// A batch for a [`Clock`], providing a similar API through one mutable
-/// borrow, with each operation chainable.
+/// A batch of operations on one [`Clock`], applied through a single
+/// mutable borrow with a chainable API.
+///
+/// As with a version [`Batch`](crate::batch::Version), every operation
+/// commits to the underlying clock as it runs: the batch holds no
+/// divergent state.
 ///
 /// ```
 /// use before::Clock;
@@ -166,7 +170,7 @@ impl Batch<'_> {
     }
 }
 
-/// Borrow a [`Clock`] as a [`Batch`]; equivalent to [`Clock::batch`].
+/// Borrows a [`Clock`] as a [`Batch`]; equivalent to [`Clock::batch`].
 ///
 /// ```
 /// use before::{batch, Clock};
