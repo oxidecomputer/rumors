@@ -778,6 +778,34 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   movement rightly does not appear there; the fuzzfit corpus, whose
   fork-derived operand pairs do have coverable spans, is where the
   cure is priced. Re-pin `d9325886`.
+- **Landed 2026-07-27 (#58, owner-ruled): `causally` composition
+  validates; `Decode::Io` displays.** (1) `causally::Range`
+  (`1b7a6d97`): pairing a start with an end passes a
+  well-formedness gate — the start version must lie within the
+  end bound (`start <= end` under `known_at`, `start < end` under
+  `before`) — and a crossed pair returns the new `error::Crossed`,
+  so every range that exists has a total `placement_of` trichotomy
+  and the crossed-range case is unrepresentable rather than
+  documented around. Consequence class: typed error, the crate's
+  convention for compositions that violate a relational invariant
+  (`Overlap` from `Party::join`/`Clock::join`/`sync`); panics and
+  debug_asserts stay reserved for internal infallibility. Free
+  single-bound constructors remain infallible `O(1)`; two-bound
+  compositions cost at most one validating causal comparison (the
+  claims roster re-denominates them; the `causally_contains` row
+  prices the comparison). Family pin:
+  `gate_admits_exactly_the_uncrossed_and_they_cohere` — the
+  composition verdict differentially against `partial_cmp`, plus
+  trichotomy coherence over lattice probes (bottom, bounds, join,
+  meet), all four bound pairings in both composition orders. The
+  rumors tree differential restates its naive-filter oracle inline
+  over raw `Bound` pairs: `Tree::range`'s `RangeBounds` surface
+  still accepts the crossed pairs the generator deliberately
+  drives. (2) `Decode::Io` (`42aca1f2`) renders its wrapped
+  `std::io::Error` by `Display` (`{0}`), not its Debug form; the
+  committed prefix pin (`error_display_strings`) asserts only the
+  crate-owned `read error: ` prefix and did not move, and no wire
+  snapshot was touched.
 
 ## 13. The metering gate
 

@@ -139,6 +139,12 @@ const CAUSALLY_CONSTRUCTOR: &str =
     "stores two borrows; the comparison cost is on the membership predicates \
      (the causally_contains row prices them)";
 
+/// The reason the causally compositions (a start paired with an end) cite
+/// no board row.
+const CAUSALLY_COMPOSITION: &str =
+    "stores two borrows plus at most one validating causal comparison, the \
+     identical comparison the causally_contains row prices";
+
 /// The claims roster of record. One row per public operation, named as
 /// the triangle surface names it; the tests hold it total, its sites
 /// carrying the pinned tokens, and its cited cells alive on the board.
@@ -591,26 +597,26 @@ pub(crate) const CLAIMS: &[Claim] = &[
     ),
     causally("causally::known_at", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
     causally("causally::before", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
-    causally("causally::delta", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
+    causally("causally::delta", Cells::Uncelled(CAUSALLY_COMPOSITION)),
     causally(
         "causally::delta_before",
-        Cells::Uncelled(CAUSALLY_CONSTRUCTOR),
+        Cells::Uncelled(CAUSALLY_COMPOSITION),
     ),
     causally(
         "causally::Range::since",
-        Cells::Uncelled(CAUSALLY_CONSTRUCTOR),
+        Cells::Uncelled(CAUSALLY_COMPOSITION),
     ),
     causally(
         "causally::Range::not_before",
-        Cells::Uncelled(CAUSALLY_CONSTRUCTOR),
+        Cells::Uncelled(CAUSALLY_COMPOSITION),
     ),
     causally(
         "causally::Range::known_at",
-        Cells::Uncelled(CAUSALLY_CONSTRUCTOR),
+        Cells::Uncelled(CAUSALLY_COMPOSITION),
     ),
     causally(
         "causally::Range::before",
-        Cells::Uncelled(CAUSALLY_CONSTRUCTOR),
+        Cells::Uncelled(CAUSALLY_COMPOSITION),
     ),
     causally(
         "causally::Range::contains",
