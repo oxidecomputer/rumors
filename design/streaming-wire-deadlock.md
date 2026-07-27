@@ -1076,8 +1076,11 @@ each is deliberate and the code documents it in place:
   this side will claim, and may drop its link while this side finishes.
   The accept driver therefore parks on transport-class failures (dropping
   undelivered claim slots); a pump that provably needed one fails the
-  session with `StreamError::SupplyClosed`, carrying the deposited I/O
-  cause. Label/epoch/duplicate/unexpected violations remain immediate.
+  session with `StreamError::SupplyClosed`, and the session terminal
+  attaches the deposited I/O cause at selection — the deposited root
+  cause outranks any consequence error racing it to the terminal, so the
+  reported failure is schedule-independent.
+  Label/epoch/duplicate/unexpected violations remain immediate.
 - **Lazy establishment shipped from the start**, per the execution
   decision: senders open on their first frame, receivers claim on their
   first read, vacuous levels never touch the transport, and wire captures

@@ -89,9 +89,11 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
         IoOperation::Connect => {
             matches!(error, RemoteError::Send(SendError::Connect { .. }))
         }
-        // A destroyed incoming stream surfaces from the receiver that
-        // provably needed it, after the parked accept driver deposits the
-        // cause.
+        // A destroyed incoming stream surfaces as the dead supply itself:
+        // the accept driver deposits the cause and the session terminal
+        // attaches it at selection, outranking any racing consequence (a
+        // write or flush failing on the torn transport), so the surface is
+        // schedule-independent.
         IoOperation::Accept => {
             matches!(error, RemoteError::Stream(StreamError::SupplyClosed { .. }))
         }
@@ -234,27 +236,11 @@ proptest! {
 
         if should_inject {
             let error = endpoint_error(&outcome, fail_left)?;
-            // An Accept fault's cut can outrace its own attribution: the
-            // faulted endpoint may fail a write or flush on the torn
-            // transport before the parked accept driver deposits the
-            // cause, and that consequence surface carries the transport's
-            // bare error rather than the injected identity. The
-            // deterministic sweep (`every_transport_fault_surface_is_
-            // reachable`) pins the deposited surface by orienting the
-            // faulted side as the responder; here the generated corpus
-            // reaches the racing arrangement too, so the raced surface is
-            // bounded exactly and the identity is asserted whenever the
-            // deposited surface won.
-            let raced_accept_cut = operation == IoOperation::Accept
-                && matches!(error, RemoteError::Send(_))
-                && injected(error).is_none();
-            if !raced_accept_cut {
-                prop_assert!(
-                    has_expected_surface(error, operation),
-                    "{operation:?}/{unit:?} surfaced as {error:?}",
-                );
-                prop_assert_eq!(injected(error), Some(expected_fault));
-            }
+            prop_assert!(
+                has_expected_surface(error, operation),
+                "{operation:?}/{unit:?} surfaced as {error:?}",
+            );
+            prop_assert_eq!(injected(error), Some(expected_fault));
             // The unfaulted counterparty either fails on the cut it
             // observes or had already completed; a completion must be the
             // oracle's exact result, never a divergent tree.

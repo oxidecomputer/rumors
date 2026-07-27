@@ -1035,6 +1035,43 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   `DISTANCE_JUMP_PAIR` envelope, the growth-floor band (to
   flat), the board cell (to green), the judge roster entry, and
   the distance complexity class.
+- **DECIDED 2026-07-27 (#73, owner-ruled): the mirror proxy's error
+  selection prefers a deposited root cause over a racing consequence,
+  and the transport-fault attribution pin is universal again.** The
+  flip-67 pass had bounded one arrangement (an Accept fault on the
+  elected initiator whose cut fails the endpoint's own flush with a
+  bare BrokenPipe before attribution) as a carve-out in
+  `transport_failures_are_exact_and_fail_fast`, its committed seed
+  replaying green about half the time. Mechanism found: the race was
+  never deposit-vs-consequence — the accept driver deposits the supply
+  failure's I/O cause in the same poll that observes the cut, strictly
+  before any in-process consequence can become ready — but
+  deposit-vs-*claim*: the first `SupplyClosed` reporter drained the
+  deposit slot into a report that then lost the terminal's biased
+  select to the consequence error, stranding the injected identity in
+  an unread channel. Fix at the selection seam (`Work::execute`):
+  reporters never touch the slot (`read_frames` reports `SupplyClosed`
+  with no source); the session terminal is the slot's sole consumer
+  and, on any failed selection, surfaces the deposit as `SupplyClosed`
+  (keeping the reporting stream's origin when the selected symptom
+  already named the dead supply, direction granularity otherwise);
+  plus one final non-waiting poll of the accept driver flushes a
+  supply failure whose readiness lost the biased race inside a single
+  wave — the external-cut genre a real transport can produce,
+  witnessed by `deposited_supply_failure_outranks_a_racing_consequence`
+  (red without that poll). No waiting added anywhere: the flush is one
+  poll (the driver deposits-and-parks or is pending), so the link
+  contract's no-deadline liveness posture stands. Determinism proof:
+  carve-out deleted, then 150 runs of the failures property (the
+  committed seed plus 32 fresh generated cases per run) all green,
+  where the pre-fix seed flipped roughly 50/50; a 30-run replay with
+  the flush poll disabled also all green, attributing the in-harness
+  fix to the slot discipline alone, exactly as the happens-before
+  analysis predicts. The universal pin (surface + injected identity
+  asserted on every injected fault, no carve-outs) is restored; the
+  seed stays committed as the regression witness for the fix.
+  Semantics scope: which error a failed session reports in one race;
+  success paths, wire bytes, and snapshots unmoved.
 
 ## 13. The metering gate
 
