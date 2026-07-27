@@ -300,11 +300,13 @@ proptest! {
 }
 
 proptest! {
-    /// On arbitrary raw byte streams — mostly invalid input — the windowed
-    /// `decode_int` and the word-parallel cursor's `skip_int` agree with
-    /// the per-bit loops on accept/reject, error variant, value, and
-    /// consumed bits at every position (the skip at every position inside
-    /// the live length, its cursor's domain).
+    /// On arbitrary raw byte streams — mostly invalid input — the
+    /// windowed `decode_int` and the word-parallel cursor's `skip_int`
+    /// agree with the per-bit loops.
+    ///
+    /// Agreement covers accept/reject, error variant, value, and
+    /// consumed bits at every position (the skip at every position
+    /// inside the live length, its cursor's domain).
     #[test]
     fn gamma_word_paths_match_on_arbitrary_bytes(
         bytes in proptest::collection::vec(any::<u8>(), 0..12),
