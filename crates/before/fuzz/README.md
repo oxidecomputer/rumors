@@ -27,6 +27,11 @@ cargo install cargo-fuzz
   the trailing bytes as an op script (tick / fork / join / sync / send / receive
   + observers). Pushes adversarially-shaped but canonical trees through the
   skyline kernels every operation runs on.
+- **`fuzz_laws`** decodes versions, parties, and a clock from length-prefixed
+  chunks, then asserts every named law in `before::laws` on them — the same
+  collection the in-tree law proptests drive, here fed hostile-but-canonical
+  values. A violated law panics with the law's name, so the fuzzer minimizes
+  straight to the algebraic defect.
 
 ## Run
 
@@ -36,6 +41,7 @@ From this directory:
 cargo +nightly fuzz build                                                             # build all targets
 cargo +nightly fuzz run fuzz_decode     corpus/fuzz_decode     seeds/fuzz_decode     -- -max_total_time=20
 cargo +nightly fuzz run fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time=20
+cargo +nightly fuzz run fuzz_laws       corpus/fuzz_laws       seeds/fuzz_laws       -- -max_total_time=20
 ```
 
 Drop `-max_total_time` to fuzz indefinitely. Crashes land in `artifacts/<target>/`;
@@ -44,7 +50,9 @@ reproduce with `cargo +nightly fuzz run <target> artifacts/<target>/<crash-file>
 ## Seeds
 
 `seeds/<target>/` holds a small committed seed corpus (canonical encodings of known
-clocks/parties/versions, and a couple of decode-then-ops scripts). Nothing consumes it
+clocks/parties/versions, a couple of decode-then-ops scripts, and law-target chunk
+inputs — including wide-gamma bases, whose 64+-zero unary prefixes random bytes
+essentially never produce). Nothing consumes it
 implicitly: a run reads it only when the seed directory is named as an extra corpus
 argument, as the invocations above (and the `just fuzz` recipe) do — libFuzzer reads
 every named directory and writes new discoveries to the first, so the committed seeds

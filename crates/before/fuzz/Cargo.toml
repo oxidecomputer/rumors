@@ -4,6 +4,7 @@
 #   cargo +nightly fuzz build
 #   cargo +nightly fuzz run fuzz_decode -- -max_total_time=20
 #   cargo +nightly fuzz run fuzz_decode_ops -- -max_total_time=20
+#   cargo +nightly fuzz run fuzz_laws -- -max_total_time=20
 [workspace]
 
 [package]
@@ -26,6 +27,9 @@ peak_alloc = "0.3"
 
 [dependencies.before]
 path = ".."
+# `laws` exposes the named law predicates (`before::laws`) the fuzz_laws
+# target drives; the crate's proptests assert the same collection.
+features = ["laws"]
 
 # The package's lib (src/lib.rs) is the shared harness: the peak-tracking global
 # allocator and the per-input heap cap both targets run under.
@@ -46,6 +50,17 @@ bench = false
 [[bin]]
 name = "fuzz_decode_ops"
 path = "fuzz_targets/fuzz_decode_ops.rs"
+test = false
+doc = false
+bench = false
+
+# Law-driven target: decode versions, parties, and a clock from length-prefixed chunks,
+# then assert every named law in `before::laws` on them — the same collection the
+# in-tree proptests drive, here fed hostile-but-canonical values; a failure panics with
+# the violated law's name.
+[[bin]]
+name = "fuzz_laws"
+path = "fuzz_targets/fuzz_laws.rs"
 test = false
 doc = false
 bench = false

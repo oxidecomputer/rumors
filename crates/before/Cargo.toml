@@ -97,6 +97,10 @@ oracle = []
 # (`src/meter.rs`) as `before::meter`, so the metering test binaries can build
 # worst-case inputs and read the counters they envelope. Bench/test-only.
 meter = []
+# Exposes the named algebraic-law predicates (`src/laws.rs`) as `before::laws`,
+# so the fuzz workspace can drive the same law collection the in-tree proptests
+# assert. Test/fuzz-only.
+laws = []
 # Counts big-integer limb-scale work (operand limbs per `Base` operation:
 # arithmetic, comparison, equality, and hashing; plus one value-width record
 # per decoded wide-gamma value) into a process-global counter read via
