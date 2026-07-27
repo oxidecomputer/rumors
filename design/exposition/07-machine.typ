@@ -27,10 +27,11 @@ The measured picture, per packed input byte:
   (@canonical), so these operations do not process the value at all —
   they move or compare bytes.
 - *Validating decode, comparison, the party predicates* sit at a few
-  to a few tens of nanoseconds per byte — a small multiple (well
-  under ten) of a bare loop that visits every bit of the same buffer
-  and does nothing else. This is the price of actually decoding
-  every code once, plus the canonicality checks.
+  to a few tens of nanoseconds per byte: one to two orders of
+  magnitude above the byte-copy floor, and a single-digit multiple
+  of a bit-serial scan that visits every bit and does nothing else.
+  This is the price of actually decoding every code once, plus the
+  canonicality checks.
 - *The arithmetic sweeps* — join, meet, tick, projection, rank —
   sit roughly an order of magnitude above reading: tens to low
   hundreds of nanoseconds per byte, the cost of decoding every
@@ -73,10 +74,11 @@ hardware prefetchers recognize the pattern and run ahead of it, so
 the stream arrives before it is asked for. The difference is not a
 constant factor on the same curve — it is the difference between
 being latency-bound on pointer chases and bandwidth-bound on a
-prefetched stream, and it is most of why the $2$–$20 times$ above
-survives every shape: there is no input whose _layout_ degrades the
-access pattern, because the access pattern does not depend on the
-input.
+prefetched stream, and it is most of why the per-byte constants stay
+flat across every shape (and why the $2$–$20 times$ on organic
+values never degrades): there is no input whose _layout_ degrades
+the access pattern, because the access pattern does not depend on
+the input.
 
 == Words, not bits <words>
 
@@ -111,14 +113,15 @@ strongly biased and predicts well.
 == Depth without frames <depth-machine>
 
 Every walk is iterative. Suspended ancestors cost about two _bits_
-each on packed stacks in nearly every walk (@validation; the two
-exceptions are stated where they live — `min_ticks` holds a machine
-word per open ancestor, and the watermark stack holds bounded
-differences — each still linear, each priced). A tree $10^5$ levels
-deep — a forty-kilobyte message — costs the overlay walk about
-twenty-five kilobytes of packed stack state (two hundred kilobits)
-and no native stack at all: no overflow, no guard pages, no frame
-setup and teardown in the hot loop. The direct transcription's
+each on packed stacks — the validator's two topology-state bits per
+open ancestor, the overlay walk's one path bit per level per cursor
+(same number, two derivations) — with one stated exception, the
+watermark stack's bounded differences (@tick-web), still linear,
+still priced. A tree $10^5$ levels deep — a forty-kilobyte message —
+costs the overlay walk about twenty-five kilobytes of packed stack
+state (two hundred kilobits) and no native stack at all: no
+overflow, no guard pages, no frame setup and teardown in the hot
+loop. The direct transcription's
 $approx 800 times$ frame amplification (@naive-recursion) is
 replaced by a constant near two-thirds — the state is _smaller_ than
 the input's own topology bits.

@@ -18,6 +18,16 @@ plateau by plateau, and every operation the API asks is some fold over
 that shared walk. The walk is @sweep; everything after it is a payload
 bolted onto it.
 
+And one sentence fixes what "asymptotically optimal" means
+throughout. Every operation here answers a whole-value question whose
+verdict can still change at its operands' final codes (the coding is
+self-delimiting, so nothing short of parsing reveals even where the
+value ends), so no algorithm can beat one full pass in the worst
+case; a bounded number of linear passes is therefore optimal up to
+constants, and the early-exit walks — comparison, the predicates —
+beat the floor on favorable inputs without owing anything on
+unfavorable ones.
+
 == The overlay walk <sweep>
 
 Two skylines partition $[0, 1)$ differently. Overlaying the two
@@ -150,7 +160,8 @@ $a = (0, 1, 0)$, a 9-bit stream, and $b = (0, 0, (0, 0, 2))$, a
     inset: 5.5pt,
     table.header([*interval*], [*folds*], [$D$ *after*], [*side*],
       [*emitted plateau*]),
-    [$[0, 1\/2)$], [—], [$+1$], [$a$],
+    [$[0, 1\/2)$], [$h_a = 1$, $h_b = 0$ (the absolutes)], [$+1$],
+    [$a$],
     [depth 1, absolute $1$ (code `010`)],
     [$[1\/2, 3\/4)$], [$delta_a = -1$, $delta_b = 0$ (tie: both
       advanced)], [$0$], [$a$ (sticky)],
@@ -193,13 +204,22 @@ $ "size"(a or b) <= "size"(a) + "size"(b) - 2 "bits" $
 (similarly for meet). The topology half of the reason is immediate —
 the output's plateau boundaries are a subset of the operands'
 together, and merging only shrinks the tree. The payload half needs
-the boundary algebra above: a same-side output delta _is_ an input
-delta, and a switch's jump is bounded by the deltas folded at its own
-boundary, so each emitted code is covered by the codes consumed since
-the previous emission, and the sum telescopes across the sweep. (The
-sketch gives the shape; the exact constant, tight at the empty pair,
-is verified mechanically in our implementation as a structural bound
-over the coding.) Joins never blow up — the inequality is what lets a
+the boundary algebra above plus one code-length fact: gamma is nearly
+subadditive,
+
+$ "len"(gamma("of" v_1 + v_2)) <= "len"(gamma("of" v_1)) + "len"(gamma("of" v_2)) + 1 "bit," $
+
+because $(v_1 + 1)(v_2 + 1) >= v_1 + v_2 + 1$ makes the sum's
+logarithm at most the summands' logarithms together. A same-side
+output delta _is_ an input delta at its own length; a switch's jump
+is a signed sum of the deltas folded at its boundary, so its code
+costs at most theirs plus a constant — and each boundary that emits
+one output code _consumed_ its folded input codes, which never fund
+another emission. Summed across the sweep the output's payload bits
+are covered by the input's, constant slack per boundary absorbed by
+the topology half's savings. (The sketch gives the shape; the exact
+constant, tight at the empty pair, is verified mechanically in our
+implementation as a structural bound over the coding.) Joins never blow up — the inequality is what lets a
 system fold thousands of versions together with a predictable memory
 ceiling.
 
@@ -257,9 +277,10 @@ given that the result must itself be a canonical stream (a lazy
 "masked view" would dodge it, at the price of every downstream
 consumer carrying the mask forever). No algorithm can beat its own
 output; the honest claim, and the one our implementation is held to,
-is that the sweep is linear in _input plus output_ — and that nothing
-else in this section shares the exception (join's output, by
-subadditivity, never exceeds its input).
+is that the sweep is linear in _input plus output_ — and that
+nothing else in this section has an _unbounded_ output ratio: tick's
+output can exceed its input by at most a constant factor
+(@tick-output), join's not at all.
 
 == The measures <measures>
 
@@ -325,30 +346,44 @@ $ "distance"(a, b) &= integral |h_a - h_b| &&= "rank"(a or b) - "rank"(a and b),
 
 each a difference of linear pieces (the pointwise identities
 $max - min = |a - b|$ and $max - a = (b - a)^+$, integrated).
-Distance is a metric on versions — a genuine one, not a pseudometric,
-because canonical versions are in bijection with their functions
-(@canonical), so distance zero forces equality. Lag is the one-sided
+Distance is a metric on versions — a genuine one, not a
+pseudometric: symmetry and the triangle inequality are inherited
+pointwise from $|dot|$, and distance zero forces equality because
+distinct versions denote distinct functions (@canonical's uniqueness
+argument), which then differ over some plateau of positive width. Lag is the one-sided
 "how much of $b$ have I not seen", the natural backpressure signal
 for anti-entropy protocols. Note the pass count these identities buy
 the composites: two emissions and two rank folds, every piece linear.
 
 *Minimum ticks.* The fewest tick operations that could have produced
 $v$, over all fork/tick/join histories, equals the sum of the
-normalized event tree's node values. Both directions of that identity
-deserve their sketch, since an API's meaning rests on it. _Floor_:
-the node-value sum is a measure on versions that each tick raises by
-at most one (a tick adds at least one fresh event, and its freedom to
-over-raise only merges plateaus, which cannot raise the measure),
-that joins are subadditive in, and that forks preserve — so any
-history reaching $v$ spends at least $v$'s measure in ticks.
-_Achieved_: tick one party per leaf region in a line, $h_i$ times
-each. (Derived in our work; the subadditivity step is the one to
-check if you check one.) The sum has a pleasant skyline form: writing
-$mu(x)$ for the _absolute_ minimum of the skyline over node $x$'s
-interval — so $mu("leaf") = h$ — the normalized base at $x$ is
-$mu(x) - mu("parent"(x))$, and the sum telescopes:
+normalized event tree's node values. The sum has a pleasant skyline
+form: writing $mu(x)$ for the _absolute_ minimum of the skyline over
+node $x$'s interval — so $mu("leaf") = h$ — the normalized base at
+$x$ is $mu(x) - mu("parent"(x))$, and the sum telescopes:
 
-$ sum_x "base"(x) = sum_("leaves") h - sum_("internal") mu. $
+$ sum_x "base"(x) = sum_("leaves") h - sum_("internal") mu =: M(v). $
+
+Both directions of the identity deserve their sketch, since an API's
+meaning rests on it. _Floor_: $M$ is a measure on versions that
+forks preserve (both halves keep the event component), that joins
+are subadditive in, and that a single tick raises by at most one.
+The last is where to look closely. `grow`'s increment raises one
+leaf term by one, and enclosing minima can only rise, which
+subtracts: at most $+1$. A `fill` collapse replaces a subtree's
+contribution to $M$ — itself at least the subtree's maximum, since
+building any function costs at least its tallest point — by exactly
+that maximum: never an increase. And a `fill` raise lifts an owned
+plateau _exactly to the adjacent filled minimum_, so the leaf term
+and the enclosing node's minimum term rise by the same amount and
+cancel. No tick raises $M$ by more than one, so any history reaching
+$v$ spends at least $M(v)$ ticks. _Achieved_, by mirroring the
+telescoping rather than the leaves: at each node from the root down,
+tick the whole currently-owned region $mu(x) - mu("parent"(x))$
+times, then fork into the two children — the counts spent are
+exactly the normalized bases, summing to $M(v)$. (Derived in our
+work; the join-subadditivity step is the one to check if you check
+one.)
 
 The sweep folds subtree minima with one machine word per open
 ancestor, saturating: the operation's contract is _exact below
@@ -396,10 +431,15 @@ maximum (the second arm) — and the two _shortcut arms_ (fourth and
 fifth) additionally let a wholly-owned, freshly collapsed child rise
 to the minimum of its _filled_ sibling, if that is higher. The rise
 is the profitable move: it merges plateaus across the sibling
-boundary and lets ancestors collapse in turn. And it is capped at the
-sibling's minimum because a version must not claim events it has not
-witnessed: the region may flatten only up to what all of it already
-dominates.
+boundary and lets ancestors collapse in turn. The cap at the
+sibling's minimum is _not_ a safety constraint — over its own region
+a participant may inflate as far as it likes (@model: any inflation
+over the id is a legal successor) — it is parsimony, the paper's own
+"does not dominate more events than needed" desideratum, with a
+size rationale behind it: raising exactly to the sibling's minimum
+is the largest raise that still merges plateaus; raising past it
+would claim events no observation forced _and_ re-split what it just
+merged.
 
 === The walk, and its one lookahead <tick-walk>
 
@@ -408,17 +448,23 @@ same collapsing builder as join:
 
 #algo(title: [fill, as a sweep])[
   at each paired position: \
-  #h(1.2em) *unowned* (id absent): copy the event subtree's bits
-    verbatim — after re-coding its first payload against the last
+  #h(1.2em) *unowned* (id absent — arm 1): copy the event subtree's
+    bits verbatim, after re-coding its first payload against the last
     plateau emitted (one boundary code; everything after it is
     delta-coded against neighbors inside the copy, which the mask
     does not disturb). \
-  #h(1.2em) *wholly owned* (id terminal): consume the event subtree,
-    folding its running max; emit one plateau at that max. \
-  #h(1.2em) *mixed* (both descend): descend in stream order,
-    iteratively, pushing two bits of suspended state per level; on a
-    shortcut arm, raise the owned child's plateau to the sibling's
-    filled minimum where that exceeds its max. \
+  #h(1.2em) *wholly owned* (id terminal — arm 2): consume the event
+    subtree, folding its running max; emit one plateau at that max. \
+  #h(1.2em) *event already flat* (id node over an event leaf —
+    arm 3): emit the plateau unchanged; the id's finer structure
+    below has nothing left to flatten. This is the steady-state arm:
+    a region a participant keeps ticking is flat after the first
+    fill. \
+  #h(1.2em) *mixed* (both sides descend — arms 4–6): descend in
+    stream order, iteratively, pushing two bits of suspended state
+    per level; on a shortcut arm (4, 5), raise the owned child's
+    plateau to the sibling's filled minimum where that exceeds its
+    max. \
 ]
 
 Two of the three range quantities are easy. A wholly-owned range's
@@ -545,13 +591,23 @@ costs through @funding's three funding sources:
   form's quadratic on the staircase is reproducible, and the
   compressed form holds every family flat.)
 - *A range close* pops the innermost difference and _moves_ it
-  aside into a one-slot register for the next opener, rather than
-  folding it into the revealed watermark. The distinction is not
-  pedantry: fold-on-close re-folds a wide boundary difference on
-  every close/reopen cycle, and a comb of $k$ sibling sites sharing
-  one $2^b$-scale minimum — the *reveal comb*, the last of
-  @families' constructions — then circulates that width $k$ times
-  with no input or output code funding any crossing: a genuine
+  aside into a one-slot register, rather than folding it into the
+  revealed watermark. The walk's invariant weakens by exactly that
+  slot: with $r$ the parked difference, the revealed range's true
+  gap is $t + r$, resolved lazily — the next opener recycles $r$
+  into its own boundary difference (a move, then a narrow
+  anchor-relative adjustment); a second close before an open folds
+  the narrower of the two parked differences into the wider (a
+  death, funded, which is why one slot suffices); an undercut deep
+  enough to reach $r$ annihilates it (a death again); and
+  comparisons against the composite gap go through the domination
+  floor, deciding from top digits without touching $r$'s width.
+  The distinction between move and fold is not pedantry:
+  fold-on-close re-folds a wide boundary difference on every
+  close/reopen cycle, and a comb of $k$ sibling sites sharing one
+  $2^b$-scale minimum — the *reveal comb*, the last of @families'
+  constructions — then circulates that width $k$ times with no
+  input or output code funding any crossing: a genuine
   $Theta(k dot b)$ amplifier on $Theta(k + b)$ input, found by
   adversarial construction against an earlier design of this very
   walk, and cured by making the close a move. Moves are free;
@@ -566,7 +622,7 @@ instance of the web, not a second mechanism.
 `tick` needs to know whether `fill` changed anything, and the walk
 decides it in-pass: the flag trips at the first emitted plateau that
 differs from the input plateau it replaces. Until then the output
-would be a byte-identical prefix of the input (nothing earlier has
+would be a bit-identical prefix of the input (nothing earlier has
 changed, so no copy needs its boundary payload re-coded) — and
 nothing is built; the first divergence copies the matched prefix
 wholesale and emission continues from there. A walk that never
@@ -596,9 +652,49 @@ tripped and `grow` would never have run.
 The hottest pattern in any real deployment — a participant ticking
 its own version again and again — takes exactly this branch: its
 own region is already flat, `fill` changes nothing, the flag never
-trips, and the tick is two skims and a three-code splice. The
+trips, and the tick is two skims plus a splice that re-codes exactly
+two payloads — the grown leaf's and its successor's. The
 adversarial machinery and the common case land on the same fast
 path; that coincidence is the fusion's whole justification.
+
+=== Two ticks, worked <tick-worked>
+
+The machinery deserves the same concrete treatment join got
+(@fig-worked-join). Two tiny traces, one per branch, both against
+the party $p = (1, 0)$ — owner of the left half, the four-bit stream
+of @id-coding.
+
+*The grow branch* — the hot path. Tick @fig-stream's value,
+$v = (0, 1, (0, 0, 2))$. The walk pairs the streams: the left child
+is wholly owned and already one plateau (height 1, its max); the arm
+asks whether raising it to the right sibling's filled minimum would
+merge anything, and the pre-scan answers: the right range's minimum
+is 0, the owned max 1 already dominates it, no raise. Nothing else
+is owned; every emitted plateau equals its input; the flag never
+trips, so nothing was built. The route fold recorded one direction
+bit (the cheapest inflation lives down the id's left branch:
+$"grow"(1, 1) = 2$, a bare increment, no expansion). The splice then
+copies the topology verbatim and re-codes exactly two payloads: the
+grown leaf's absolute, $1 -> 2$ (`010` $->$ `011`), and its
+successor's delta, $-1 -> -2$ (`010` $->$ `00100`); the final code
+(`00101`) copies untouched. Result:
+$"tick"(v) = (0, 2, (0, 0, 2))$, eighteen bits, built by two skims
+and two re-coded codes — and the reader can check every bit against
+@coding's rules.
+
+*The fill branch* — a raise, a cascade, and the flag. Tick
+$v = (0, 0, 2)$ instead (plateaus $0, 2$; nine bits: flags `011`,
+payloads `1` and `00101`). The owned left plateau's max is 0; the
+pre-scan reports the right range's minimum as 2; the arm raises the
+left plateau to $max(0, 2) = 2$ — the raise-to-minimum move,
+recording the event by flattening. The first emitted plateau (height
+2) differs from the input's (height 0): the flag trips, and emission
+becomes real. The builder receives equal plateaus at depths $1, 1$,
+merges the sibling pair, and the whole version collapses to the
+single leaf $2$ — four bits (`1` then $gamma(3) = mono("011")$).
+One tick took a nine-bit version to a four-bit one: `fill` is why
+skylines shrink under use, and the flag is how the walk knew the
+flattening itself had recorded the event.
 
 === The output side of the ledger <tick-output>
 
@@ -610,12 +706,14 @@ implementation. First, the one-step bound:
 $ "size"("tick"(e, i)) <= 2 dot "size"(e) + 4 dot "size"(i) + 32 "bits." $
 
 Each term has a mechanism. The factor 2 on the event side is real
-and tight in kind — a raise can re-code one delta against a wide
-neighbor, duplicating one input code's width once — and it is where
-an earlier, stronger conjecture died: we first believed the bound
-was additive ($"size"(e) + O(dots)$), and a constructed
-counterexample refuted it, leaving the multiplicative form as the
-honest survivor. The id term covers `grow`'s expansion chain, which
+and tight in kind: a raise can re-code one delta against a wide
+neighbor, duplicating one input code's width once — and because a
+single code can be nearly the entire stream, "one code duplicated"
+_is_ a doubling. That is exactly how an earlier, stronger conjecture
+died: we first believed the bound was additive
+($"size"(e) + O(dots)$), and a constructed counterexample — one wide
+code, duplicated — refuted it, leaving the multiplicative form as
+the honest survivor. The id term covers `grow`'s expansion chain, which
 descends along the id adding a constant number of flag and
 $0 slash plus.minus 1$ payload bits per id level; the additive 32
 absorbs the first leaf's absolute code and byte-boundary slack.
@@ -632,5 +730,7 @@ ratchet a peer could crank.
 Together: every code tick emits is priced by codes tick read, up to
 constants, and the funded-sweep bound $O(n + m)$ — scan bits, digit
 touches, and transient heap alike — holds unconditionally. This is
-the strongest single cost statement in the system, and it is the one
-the naive transcription misses by two polynomial degrees.
+the strongest single cost statement in the system, and the one the
+direct transcription misses by a full polynomial degree — on more
+currencies at once (scan, arithmetic, and transient memory) than any
+other operation.

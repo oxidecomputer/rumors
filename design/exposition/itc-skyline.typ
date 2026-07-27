@@ -38,15 +38,17 @@
   time and in transient memory, on inputs it must be expected to meet:
   measured before the cures, a thirty-kilobyte operand pair cost
   hundreds of megabytes of transient memory inside one comparison, and
-  a half-megabyte value took over fourteen seconds to decode. This document
-  develops, from first principles, a representation under which every
-  clock operation is a bounded number of linear passes over packed
-  bits — one pass for most operations, two for the hardest: the
-  *skyline*, a delta-coded spelling of the clock's step function,
-  paired with a redundant signed-digit *accumulator* that makes every
-  running quantity cheap to maintain and cheap to ask about. We derive
-  each operation as a sweep, give the informal argument that each is
-  asymptotically optimal, derive a counting bound placing the encoding
+  a half-megabyte value took over fourteen seconds to decode. This
+  document develops, from first principles, a representation under
+  which every primitive clock operation is a bounded number of linear
+  passes over its packed operands and its mandatory output — one pass
+  for most, two where a lookahead is inherent, composites summing
+  their parts. The representation is the *skyline*, a delta-coded
+  spelling of the clock's step function, paired with a redundant
+  signed-digit *accumulator* that makes every running quantity cheap
+  to maintain and cheap to ask about. We derive each operation as a
+  sweep, give the informal argument that each is asymptotically
+  optimal, derive a worst-case counting bound placing the encoding
   within $4.3%$ of the information-theoretic floor for the family of
   values it covers, and examine the constant factors — why the
   representation is the shape caches, branch predictors, and

@@ -25,8 +25,12 @@ that any competitor also faces on the same set, is
 $ n / H(n), $
 
 and the statement holds at every $n$ simultaneously — there is no
-cherry-picked operating point. This is the standard competitive
-framing for universal codes, and its self-referential flavor (the
+cherry-picked operating point. Note precisely what kind of claim
+this is: worst case against worst case — our longest spelling on
+$S(n)$ against the longest spelling any coding must have on
+$S(n)$ — not a bound on any particular version's cost, and not an
+average. This is the standard competitive framing for universal
+codes, and its self-referential flavor (the
 coding's own reach defines the set) is both its strength — no
 external model of "likely versions" is smuggled in — and the source
 of the honest caveat in @ctf-caveat.
@@ -97,10 +101,10 @@ a dynamic program over stream lengths, itself cross-pinned against
 brute-force enumeration of every bit string at small lengths — and
 agrees to hundredths of a bit at $n = 800$.)
 
-== The tax is canonicality, all of it <tax>
+== The asymptotic tax is the sibling-merge rule, all of it <tax>
 
-Where do the $4.3%$ go? Run the same computation with the collapse
-rule deleted — every leaf free to carry zero. The payload code
+Where do the $4.3%$ go? Run the same computation with the
+sibling-merge rule deleted — every leaf free to carry zero. The payload code
 satisfies Kraft's equality:
 
 $ sum_(k >= 0) 2^k dot 2^(-(2k + 1)) = sum_(k >= 0) 2^(-(k+1)) = 1, $
@@ -112,22 +116,25 @@ Concretely, the unconstrained characteristic equation
 $1 - 2 x^2 - 4 x^3 = 0$ has its root at exactly $x = 1\/2$: growth
 $2^n$, zero asymptotic redundancy.
 
-So the entire asymptotic gap is the set of strings the canonical form
-_refuses_: spellings with a collapsible sibling pair, excised so that
-each value would have one spelling. The $4.3%$ is not overhead lost
-to a clumsy code — the code is Kraft-tight — it is the measured price
-of "byte equality is value equality," bought once, on purpose, and
-enjoyed by every comparison, hash, and deduplication the system ever
-performs (@canonical). Design decisions rarely come with a price tag
-this exact.
+So the entire asymptotic gap is the set of strings the sibling-merge
+rule _refuses_: spellings with a collapsible pair, excised so that
+each value would have one spelling. (The other canonical rules are
+priced separately: nonnegativity in @nonneg, at $Theta(log n)$ bits;
+exactness for free.) The $4.3%$ is not overhead lost to a clumsy
+code — the code is Kraft-tight — it is the measured price of "byte
+equality is value equality," bought once, on purpose, and enjoyed by
+every comparison, hash, and deduplication the system ever performs
+(@canonical). Design decisions rarely come with a price tag this
+exact.
 
 == Nonnegativity is asymptotically free <nonneg>
 
 The remaining canonical rule — no delta may drive the running height
 negative — prunes more strings, but only polynomially many. The
 zigzag map puts $+m$ and $-m$ in the same gamma bucket (they could
-land in different buckets only if a power of two fell strictly
-between $2m$ and $2m + 1$, and none can), so under the uniform
+split only if the bucket boundary sat between them — that is, if
+$2m + 1$ were itself a power of two, which no odd number above one
+is), so under the uniform
 counting measure on streams of a given length the height walk's
 steps behave as draws from a sign-symmetric distribution; for such
 walks, the probability that all $ell$ partial sums stay nonnegative
@@ -169,9 +176,9 @@ where the exact count is out of computational reach):
     the validated closed form, beyond the brackets' computational
     reach. At 100 bytes — a realistic version under heavy history —
     the coding is within $6.7%$ of the floor: $4.3$ points of
-    canonicality tax, about $1.9$ of universal finite-size effect
-    (the $3/2 log_2 n$ term every maximal code pays), and about
-    $0.4$ of nonnegativity.],
+    sibling-merge tax, about $1.9$ of universal finite-size effect
+    (the $(3\/2) log_2 n$ term every maximal code pays), and about
+    $0.4$ of nonnegativity tax.],
 ) <fig-overhead>
 
 == The caveat that keeps the number honest <ctf-caveat>
@@ -201,15 +208,19 @@ value at $c + O(log c)$, so its counting mass concentrates on
 few-leaf, giant-payload streams, where sibling pairs — the only
 thing pruned — are vanishingly rare. Formally: delta's and omega's
 generating functions are themselves critical exactly at $x = 1\/2$,
-and with them substituted the discriminant stays positive on the
-whole interval (at $x = 1\/2$ it evaluates to $1\/8$), so no branch
-point forms below the code's own singularity and $alpha = 1$: the
-pruning never becomes the binding constraint.
+and on $(0, 1\/2]$ the discriminant stays positive (at $x = 1\/2$
+it evaluates to $1\/8$ — as it does for gamma, whose $G$ however
+survives out to $1\/sqrt(2)$, giving its discriminant the room to
+reach zero at $0.5145$ that delta's and omega's, expiring at
+$1\/2$, never get), so no branch point forms below the code's own
+singularity and $alpha = 1$: the pruning never becomes the binding
+constraint.
 
 The catch is where those codes win: the versions delta covers more
 cheaply are exactly the few-plateau, giant-payload ones, and it pays
 pointwise on small values — gamma is better than or equal to both
-_on every value below 31_. Measured across organic gossip
+on every value up to 30, and loses ground steadily from 31 on.
+Measured across organic gossip
 histories, 85 to 93 percent of payload values are at most 15
 (normalization exists precisely to keep neighboring plateaus
 close), and re-coding those corpora under delta or omega costs six

@@ -2,11 +2,11 @@
 
 = Resilience, as a property of the whole <resilience>
 
-The introduction promised that the four virtues claimed for this
-design — asymptotic optimality, small constants, machine affinity,
-and resilience — are one property wearing four faces. The pieces are
-now all on the table; this section assembles the claim and says
-precisely what it means.
+The introduction claimed resilience as the property the other three
+virtues — asymptotic optimality, small constants, machine affinity —
+do not imply and cannot substitute for. The pieces are now all on the
+table; this section states the property precisely, and shows that one
+discipline produced all four.
 
 == The property <property>
 
@@ -44,8 +44,8 @@ Why hold a clock library to this bar? Because a causal clock is
 infrastructure that _meets bytes_: values arrive from other machines,
 cross trust boundaries at decode, and are computed with in servers
 whose availability is the product. In that position, every
-disproportion between input size and computational cost is a denial-
-of-service primitive for an adversary and an unexplained outage for
+disproportion between input size and computational cost is a
+denial-of-service primitive for an adversary and an unexplained outage for
 an operator — the two audiences differ only in intent. The
 authenticated setting this library actually ships in makes hostile
 peers unlikely; the bar is held anyway, because "unlikely" is not an
@@ -91,17 +91,19 @@ unity:
     [output-dominated ops (@projection)],
     [output the input's size cannot bound],
     [denominate against mandatory output; sweep held I/O-linear],
-    [tick's emissions† (@tick-output)],
+    [tick's emissions (@tick-output)],
     [work priced by output with no output bound],
     [the output inequality: emitted $<= 2 dot$ input $+ O("id")$],
   ),
   caption: [The amplifier genres and their cures. Every cure is the
-    funding discipline of @funding instantiated at one seam; the six
-    rows marked † bottom out in the accumulator's contract.],
+    funding discipline of @funding instantiated at one seam; the five
+    rows marked † bottom out in the accumulator's contract, and the
+    emissions row is what lets that contract's output-funded clause
+    telescope back to input.],
 ) <fig-genres>
 
 Two structural facts stand out. First, _the accumulator is the
-keystone_: the six marked rows bottom out in its contract — amortized
+keystone_: the five marked rows bottom out in its contract — amortized
 $O(1)$ word deltas at any held width, $O("limbs")$ wide deltas at any
 scale, amortized $O(1)$ sign, funded materialization. It is why the
 introduction called it half of the answer rather than an
@@ -155,9 +157,13 @@ structure here — the delta coding, the balanced digits, the
 difference-coded watermarks, the output inequality — was shaped by
 asking what the most hostile input could extract, and the finished
 design's answer is: nothing beyond the bits it brought and the bits
-it is owed back — with the one derivational gap @measures names held
-by a pinned measurement instead of a proof, and the bounded
-branch-prediction cost @words concedes to the machine.
+it is owed back. The complete list of concessions, so the sentence
+above cannot be quoted without them: the derivational gap in rank's
+funding argument, held by a pinned measurement instead of a proof
+(@measures); the probabilistic step in the counting bound's
+asymptotic rate (@nonneg); the framing every compactness claim must
+carry (@ctf-caveat); and the bounded branch-prediction cost the
+linear bound absorbs rather than eliminates (@words).
 
 That is what it means for the implementation of a paper's elegant
 recursive equations to be not only correct, and not only fast, but
