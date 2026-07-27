@@ -179,7 +179,7 @@ mod envelope {
     pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0, 0); //    125_001 -> 223_305, 202 -> 0, 0 (2026-07-24, iterative id walks: frame bits on the heap, no grown segments)
     pub const ID_COVERS: Envelope       = envelope(        10,        0,             0, 0); //          0 -> 8,  85 -> 0, 0 (2026-07-24, iterative id walks)
     pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); //          0 -> 8, 170 -> 0, 0 (2026-07-24, iterative id walks)
-    pub const ID_WITHOUT: Envelope      = envelope(   647_774,        0,             0, 0); //    518_219, 138 -> 0, 0 (2026-07-23, iterative complement)
+    pub const ID_WITHOUT: Envelope      = envelope(   521_110,        0,             0, 0); //    518_219 -> 416_888 (2026-07-26, dev builds run no shadow re-parse of the diff emission: the differential suites carry the normal-form check), 138 -> 0, 0 (2026-07-23, iterative complement)
     pub const DECODE_CLIFF: Envelope    = envelope(     4_052,        0,        12_903, 7_741); //    607_489 -> 3_241 (2026-07-25, C2: operations route to the skyline kernels: wire decode is validate + wrap), 0, 40_960 -> 10_322 (2026-07-25, C2: operations route to the skyline kernels)
     pub const CMP_CLIFF: Envelope       = envelope(     1_710,        0,         7_765, 4_659); //        496 -> 1_368 (2026-07-25, C2: operations route to the skyline kernels: the sweep holds two accumulators), 0, 190_474 -> 6_212 (2026-07-25, C2: operations route to the skyline kernels: the cliff-immune sweep)
     pub const JOIN_CLIFF: Envelope      = envelope(     7_913,        0,        25_869, 15_521); //  1_411_489 -> 6_330, 0, 384_008 -> 20_695 (2026-07-25, C2: operations route to the skyline kernels: the emit kernel)
@@ -3054,8 +3054,8 @@ mod query_env {
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255, 187_501, 93_753); // 24_576, 0, 250_002, 375_006, 125_004
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62, 12, 36); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (2026-07-25, single-record id tags), 35_939
-    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       488,        0,   317_380,   330_913,    63_347, 190_428, 38_007); // 73_216 -> 390, 0, 690_310 -> 253_904 (sequential 14_281_732), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
-    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   365_540,         0, 0, 0); // 336, 0, 0, 292_432 (sequential 3_284_952), 0
+    pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       368,        0,   317_380,   330_913,    63_347, 190_428, 38_007); // 73_216 -> 390 -> 294 (2026-07-26, the at-rest form is codec::Bits, the wire bytes in a length-carrying container), 0, 690_310 -> 253_904 (sequential 14_281_732), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
+    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   322_068,         0, 0, 0); // 336, 0, 0, 292_432 -> 257_654 (2026-07-26, join_all answers its up-front tests through a per-call id index; the 292_432 was a mid-round reading, the C2 flag-day commit itself reads 276_044) (sequential 3_284_952), 0
     // Tick rows (2026-07-25, the #34 currency round): moved onto the
     // five-meter harness — the tick walk's cost currency is accumulator
     // digit touches, which the four-column table these rows came from
