@@ -218,6 +218,13 @@
 //!    its encoding identifies its universe, so that boundary is the
 //!    caller's to police.
 //!
+//!    *What about a universe tag, so mixups could be detected?* There is
+//!    deliberately no mechanism for this. Naming a universe is the concern
+//!    of the library that embeds [`before`](crate), which already has the
+//!    protocol and structures a universe lives in — while a tag stamped
+//!    into every value (a UUID, say) would add 128 bits to values that
+//!    are often a few bytes long, paid across an entire corpus.
+//!
 //! 2. **Linearity.** Operations on [`Clock`]s and [`Party`]s are strictly
 //!    linear: once a [`Clock`] or [`Party`] has been
 //!    [`fork`](Clock::fork)ed, a copy of the pre-fork value must not come
