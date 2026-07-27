@@ -857,6 +857,59 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   the 16 B/B ceiling; the exponent leg is the only red). Boards at both scales:
   byte-identical to the boards of record, 966/23 and 969/20 — no
   movement, no change landed.
+- **Landed 2026-07-27 (suanpan-64, phase 1 of the owner-decided
+  extraction): the accumulator is the workspace crate `suanpan`,
+  type `suanpan::Accumulator`; before consumes it through a pure
+  re-export shim.** Dependency decision: suanpan speaks dashu-int's
+  `UBig` directly (re-exported as `suanpan::UBig`; the IBig
+  differential suite moved with the crate) and the small-helper
+  half moved *as a trait* — a public `suanpan::Magnitude`
+  (word-scale fast path + borrowed wide view) keeps the
+  width-dispatched `*_base` entry points inherent generic methods,
+  which is the only shape under which the shim can stay a bare
+  `pub use suanpan::Accumulator as Accum;` with zero call-site
+  edits (an alias cannot add inherent methods; an extension trait
+  would need imports in the frozen files). Shim shape:
+  `codec::accum` = the re-export, `touch_meter` under
+  `limb-meter → suanpan/touch-meter`, `impl Magnitude for Base`,
+  plus seam-differential tests of the Base dispatch;
+  `meter::accum` re-exports unchanged; zero edits under
+  `version/skyline`, `version/rank.rs`, `party/ops`. Ratchet
+  triple through the new home: all 543 before tests green with the
+  rank touch columns bit-identical to the annotated measured
+  values (125,007 / 17,194 / 198,659 / 17,814 — ceilings and
+  liveness floors both), and the tier-2 plain-sweep known-bad pin
+  still reads quadratic. Fuzzfit: all 18 suites green with NO
+  `#[inline]` annotations and no re-pin — cross-crate codegen
+  parity held on its own (one parity-motivated choice: `sub_accum`
+  keeps its own loop rather than delegating through the new
+  `sub_accum_shl`). Boards byte-identical to the 86e85420 parent
+  at both scales (`board-suanpan64-{before,after}-{lo,hi}.txt`).
+  Docs protocol: four fresh-eyes Fable rounds (47 → 25 → 19 → 24
+  findings; round 4 zero HIGH = convergence; raw reports
+  `suanpan-review-r{1..4}.md` in the job dir). **FINDING (round 1,
+  verified against code): `is_zero` was documented "exact" but
+  reads false on a zero spelled by cancelling digits**
+  (`add_wide(2^32); sub_small(2^32)`); behavior unchanged — the
+  one call site (`skyline/query.rs` rank sweep) uses it as a
+  skip-work fast path where a false negative only costs touches
+  the envelopes pin — the doc now states the one-sided contract,
+  a committed test pins the spelling behavior, and the sweep-rewrite
+  track should read the note before leaning on it. Round 2
+  refuted the ops table's per-call classification of wide writes
+  (digit runs parked near the zone edge make every write bound
+  amortized; table and derivation corrected). New API beyond the
+  move: `sub_wide_shl`, `sub_accum_shl` (subtractive twins,
+  oracle-covered), `Magnitude for UBig`, the `UBig` re-export.
+  Build surface: workspace member added; justfile `clippy-default`
+  and `features` gained suanpan lines; README derived via
+  `tools/readme` (crate added to its roster). Phase 2 (recorded
+  follow-up, post-protocol-pass): rename the call sites
+  `Accum → Accumulator`, delete the shim, and take the API-shape
+  candidates deferred from review — `*_base → *_magnitude`-style
+  names, a possible `merge_into_wider` rename or spare-buffer
+  newtype, an owner call on MSRV/`no_std` statements, and
+  dissolving before's private `U64Limbs` twin into the crate seam.
 
 ## 13. The metering gate
 
