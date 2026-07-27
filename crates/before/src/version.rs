@@ -47,6 +47,24 @@ mod tests;
 /// versions can be [`concurrent`](Version::concurrent), and then `a < b`,
 /// `a == b`, and `a > b` are all false.
 ///
+/// # Complexity
+///
+/// A version's *packed size* `|v|` is the length of
+/// [`encode`](Version::encode)'s bytes (borrowable without copying as
+/// [`as_bytes`](Version::as_bytes); exact to the bit as
+/// [`encoded_bits`](Version::encoded_bits)); every `# Complexity` section
+/// on this type's operations is denominated in packed sizes. Every
+/// comparison cell — `==`, `<`, `<=`,
+/// [`partial_cmp`](PartialOrd::partial_cmp),
+/// [`concurrent`](Version::concurrent) — and every join (`|`, `|=`) and
+/// meet (`&`, `&=`) cell, over any mix of [`Version`] and [`Batch`]
+/// operands, is `O(|a| + |b|)` time and space, and a join or meet result
+/// is `O(|a| + |b|)` bytes itself. Hashing is `O(|v|)`. The costs that
+/// differ live on their operations: the projection `/` (its result can
+/// outgrow its operands), the n-ary folds
+/// ([`join_all`](Version::join_all)), and the text conversions
+/// (`Display` and `FromStr`, documented on their impls).
+///
 /// ```
 /// use before::Clock;
 /// let mut a = Clock::seed();
@@ -79,6 +97,10 @@ impl core::hash::Hash for Version {
 impl Version {
     /// The empty [`Version`], representing no [`tick`](Version::tick)s.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time and space.
+    ///
     /// ```
     /// assert_eq!(before::Version::new().to_string(), "0");
     /// ```
@@ -90,6 +112,10 @@ impl Version {
     }
 
     /// Whether this version records no events: equal to [`Version::new`].
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` time; no allocation.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -109,6 +135,14 @@ impl Version {
 
     /// Advance the [`Version`] from the perspective of [`Party`].
     ///
+    /// # Complexity
+    ///
+    /// `O(|v| + |p|)` time and space, the packed sizes of the version and
+    /// the party. The bound holds per call, wide values included:
+    /// recording one event can re-code a value as wide as the operands
+    /// spell, but that width arrives in the packed operand carrying it and
+    /// is paid at most a constant number of times.
+    ///
     /// ```
     /// use before::{Party, Version};
     /// let mut v = Version::new();
@@ -120,6 +154,10 @@ impl Version {
     }
 
     /// Determine if two [`Version`]s are concurrent, i.e. incomparable.
+    ///
+    /// # Complexity
+    ///
+    /// One causal comparison: `O(|a| + |b|)` time and space.
     ///
     /// ```
     /// use before::Clock;
@@ -151,6 +189,10 @@ impl Version {
     /// refined into two concurrent increments over its halves (forked,
     /// ticked, rejoined), producing the same version with one more tick.
     ///
+    /// # Complexity
+    ///
+    /// `O(|v|)` time and space.
+    ///
     /// ```
     /// use before::Version;
     /// assert_eq!(Version::new().min_ticks(), 0);
@@ -172,7 +214,10 @@ impl Version {
     /// sort before their effects. See [`Rank`] for the measure itself and why
     /// strictness holds.
     ///
-    /// `O(n)` in the event tree.
+    /// # Complexity
+    ///
+    /// `O(|v|)` time and space; the returned rank's numeric size (see
+    /// [`Rank`]) is itself `O(|v|)`.
     ///
     /// ```
     /// use before::Clock;
@@ -201,7 +246,9 @@ impl Version {
     /// history two replicas would have to exchange to converge: zero when they
     /// agree, growing with every event neither shares.
     ///
-    /// `O(n + m)` in the two event trees.
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time and space.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
@@ -229,7 +276,9 @@ impl Version {
     /// already knows everything `other` does), and the two directions sum to
     /// the symmetric distance: `a.lag(b) + b.lag(a) == a.distance(b)`.
     ///
-    /// `O(n + m)` in the two event trees.
+    /// # Complexity
+    ///
+    /// `O(|a| + |b|)` time and space.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
@@ -257,6 +306,13 @@ impl Version {
     /// The meet has no such fold: the lattice has no top element (a version can
     /// always [`tick`](Self::tick) higher), so the empty meet has no value; see
     /// [`meet_all`](Self::meet_all), which returns [`Option`] for that reason.
+    ///
+    /// # Complexity
+    ///
+    /// `O(D log k)` time and `O(D)` space, where `D` is the inputs' total
+    /// packed size and `k` their number: the fold is a balanced reduction,
+    /// so every input passes through `O(log k)` joins of similarly sized
+    /// operands.
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -302,6 +358,12 @@ impl Version {
     /// version can [`tick`](Self::tick) higher), so an empty iterator yields
     /// [`None`].
     ///
+    /// # Complexity
+    ///
+    /// `O(D)` time and space, the inputs' total packed size: a meet only
+    /// shrinks, so each step of the fold is bounded by its smaller
+    /// operand.
+    ///
     /// ```
     /// use before::{Clock, Version};
     /// let mut a = Clock::seed();
@@ -320,6 +382,10 @@ impl Version {
     ///
     /// [`Batch`] chains sequential operations on one version behind a single
     /// mutable borrow.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` time and space.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -343,6 +409,12 @@ impl Version {
     /// concatenation of the encodings of its [`Party`] and [`Version`]; see
     /// [`Clock::encode`](crate::Clock::encode).
     ///
+    /// # Complexity
+    ///
+    /// `O(|v|)` time and space: one copy of the stored bytes
+    /// ([`as_bytes`](Self::as_bytes) borrows the same bytes without
+    /// copying).
+    ///
     /// ```
     /// use before::Version;
     /// let v = Version::new();
@@ -353,6 +425,11 @@ impl Version {
     }
 
     /// Encode a [`Version`] to an arbitrary writer.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|v|)` time: one write of the stored bytes, plus whatever the
+    /// writer itself costs.
     ///
     /// ```
     /// use before::Version;
@@ -365,6 +442,12 @@ impl Version {
     }
 
     /// Decode a [`Version`] from a reader of canonical bytes.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` time and space in the bytes read, accepted or rejected:
+    /// strict validation is one pass over the stream, and the result
+    /// reuses the read buffer.
     ///
     /// ```
     /// use before::Version;
@@ -390,6 +473,10 @@ impl Version {
     /// The exact length in bits of [`encode`](Self::encode) before its zero-pad
     /// to a byte boundary.
     ///
+    /// # Complexity
+    ///
+    /// `O(1)` time; no allocation.
+    ///
     /// ```
     /// use before::Version;
     /// // The empty version is a single `0` leaf: a flag bit plus a value bit.
@@ -411,6 +498,10 @@ impl Version {
     /// meaning; use it only as a deterministic tiebreak between distinct
     /// versions. For causal comparison, use [`PartialOrd`] (`<=`) or
     /// [`concurrent`](Self::concurrent).
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` time: a borrow, no copy.
     ///
     /// ```
     /// use before::Version;
@@ -468,6 +559,11 @@ impl Default for Version {
 // is the `Option`-returning [`Version::meet_all`].
 
 /// Joins the iterator's versions; the empty sum is [`Version::new`].
+///
+/// # Complexity
+///
+/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
+/// it is.
 impl Sum<Version> for Version {
     fn sum<I: Iterator<Item = Version>>(iter: I) -> Version {
         Version::join_all(iter)
@@ -475,6 +571,11 @@ impl Sum<Version> for Version {
 }
 
 /// Joins the iterator's versions; the empty sum is [`Version::new`].
+///
+/// # Complexity
+///
+/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], plus one
+/// clone of each element.
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
         Version::join_all(iter.cloned())
@@ -482,6 +583,11 @@ impl<'a> Sum<&'a Version> for Version {
 }
 
 /// Collects by joining; the empty collection is [`Version::new`].
+///
+/// # Complexity
+///
+/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
+/// it is.
 impl FromIterator<Version> for Version {
     fn from_iter<I: IntoIterator<Item = Version>>(iter: I) -> Version {
         Version::join_all(iter)
@@ -489,6 +595,11 @@ impl FromIterator<Version> for Version {
 }
 
 /// Collects by joining; the empty collection is [`Version::new`].
+///
+/// # Complexity
+///
+/// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], plus one
+/// clone of each element.
 impl<'a> FromIterator<&'a Version> for Version {
     fn from_iter<I: IntoIterator<Item = &'a Version>>(iter: I) -> Version {
         Version::join_all(iter.into_iter().cloned())
@@ -496,6 +607,18 @@ impl<'a> FromIterator<&'a Version> for Version {
 }
 
 /// Paper notation: `n` leaves, `(n, e1, e2)` nodes. E.g. `(1, 2, (0, (1, 0, 2), 0))`.
+///
+/// # Complexity
+///
+/// `O(|v| + t)` space, the packed version plus the `t` rendered text
+/// bytes. Time is **superlinear** in the worst case, on two counts: each
+/// value wider than a machine word pays binary-to-decimal conversion,
+/// superlinear (though subquadratic) in its width; and a deep tree of
+/// wide interior values additionally pays a summary-merge cost that grows
+/// faster than the operand. The merge cost is the renderer's, not the
+/// format's — parsing the same text back pays only the conversion — and
+/// is not contractual: a future release may render in time linear but
+/// for conversion.
 ///
 /// ```
 /// use before::Version;
@@ -521,6 +644,13 @@ impl core::fmt::Debug for Version {
 
 /// Parse paper notation (`n` or `(n, e1, e2)`), strictly rejecting non-normal-form input.
 ///
+/// # Complexity
+///
+/// `O(t + |v|)` time and space, the input text plus the packed version
+/// produced — accepted or rejected — except that each spelled value wider
+/// than a machine word pays decimal-to-binary conversion, superlinear
+/// (though subquadratic) in that value's width.
+///
 /// ```
 /// use before::Version;
 /// let v: Version = "(1, 0, 1)".parse().unwrap();
@@ -534,6 +664,10 @@ impl core::str::FromStr for Version {
 }
 
 /// An event leaf from its base value, e.g. `Version::try_from(3u64)`.
+///
+/// # Complexity
+///
+/// `O(1)` time and space (the value is word-sized).
 ///
 /// ```
 /// use before::Version;
@@ -549,6 +683,10 @@ impl TryFrom<u64> for Version {
 /// An event node from an `(n, left, right)` literal, e.g.
 /// `Version::try_from((1u64, 0u64, (2u64, 0u64, 1u64)))`. Rejects non-normal-form nodes
 /// (no zero-base child, or a collapsible `(n, m, m)`).
+///
+/// # Complexity
+///
+/// `O(|v|)` time and space in the version built.
 ///
 /// ```
 /// use before::Version;
@@ -725,6 +863,15 @@ binop_matrix! {
 /// `v / &p` — the part of the [`Version`] `v` contributed within [`Party`]
 /// `p`'s id region (zero everywhere `p` does not own). The party is borrowed,
 /// not consumed.
+///
+/// # Complexity
+///
+/// `O(|v| + |p| + |r|)` time and space, where `|r|` is the result's packed
+/// size. The result is not bounded by a constant factor of the operands:
+/// masking one broad region of a wide value to a party scattered across it
+/// re-codes that width once per kept fragment, so `|r|` can grow as their
+/// product ([`encoded_bits`](Version::encoded_bits) on the result is the
+/// honest measure).
 ///
 /// ```
 /// use before::Clock;

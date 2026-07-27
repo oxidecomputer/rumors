@@ -37,6 +37,11 @@ impl<'v> Batch<'v> {
 impl Batch<'_> {
     /// Like [`tick`](Version::tick), but chainable.
     ///
+    /// # Complexity
+    ///
+    /// `O(|v| + |p|)` time and space, as [`Version::tick`] (see its
+    /// per-call note on wide values).
+    ///
     /// ```
     /// use before::{Party, Version};
     /// let mut v = Version::new();
@@ -49,6 +54,10 @@ impl Batch<'_> {
     }
 
     /// Like [`concurrent`](Version::concurrent).
+    ///
+    /// # Complexity
+    ///
+    /// One causal comparison: `O(|a| + |b|)` time and space.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -139,6 +148,10 @@ impl Batch<'_> {
     ///
     /// Every operation commits as it runs, so this is a clone of the
     /// underlying version at this point in the chain.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|v|)` time and space: one copy of the stored bytes.
     ///
     /// ```
     /// use before::{Party, Version};

@@ -50,6 +50,23 @@ use crate::codec::Base;
 /// materialized; equality is structural (the stored form is normalized, so
 /// equal values are identical representations, consistent with [`Hash`]).
 ///
+/// # Complexity
+///
+/// A rank has no byte encoding; its costs are denominated in *numeric
+/// size* `‖r‖` — the numerator's bit width plus the exponent — which every
+/// producing fold ([`Version::rank`](crate::Version::rank),
+/// [`distance`](crate::Version::distance), [`lag`](crate::Version::lag))
+/// keeps linear in the packed bits it read. Comparison (`==`, [`Ord`]) is
+/// `O(1)` when the two magnitudes differ in scale and `O(‖a‖ + ‖b‖)` time
+/// with no allocation on scale ties; hashing and cloning are `O(‖r‖)`.
+/// Addition (`+`, `+=`) is `O(‖a‖ + ‖b‖)` time and space, and an n-ary
+/// [`Sum`] is `O(N)` in the summands' total numeric size `N`: the fold
+/// carries one running accumulator, and each summand pays its own width
+/// rather than the accumulator's. Rendering (`Display`) is `O(d)` space
+/// in the `d` decimal digits printed, but its time additionally pays
+/// binary-to-decimal conversion of the numerator, superlinear (though
+/// subquadratic) in its width past a machine word.
+///
 /// ```
 /// use before::Version;
 /// let half: Version = "(0, 1, 0)".parse().unwrap(); // height 1 over half the interval
@@ -92,6 +109,12 @@ impl Rank {
     /// [`distance`](crate::Version::distance) and [`lag`](crate::Version::lag)
     /// measures call this where the lattice guarantees the minuend dominates,
     /// so the [`None`] arm is unreachable for them.
+    ///
+    /// # Complexity
+    ///
+    /// `O(‖a‖ + ‖b‖)` time and space in the operands' numeric size (see
+    /// [the type's note](Rank#complexity)); a [`None`] or zero result costs
+    /// only the comparison, which allocates nothing.
     ///
     /// ```
     /// use before::Version;
