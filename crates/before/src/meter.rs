@@ -106,7 +106,7 @@ fn ev_spine(bits: &mut Bits, d: usize) {
 
 /// The dense event spine `S(d)`: depth `d`, `2d + 1` nodes, `4d + 4` bits.
 ///
-/// The node-count and recursion-depth maximizer; drives every per-node and
+/// The node-count and tree-depth maximizer; drives every per-node and
 /// per-level cost (walk frames and per-level stack state) to
 /// its worst case per input bit.
 ///

@@ -457,7 +457,7 @@ board reds with named candidate cures (the campaign doc's §17.3).
 | scan bits | O(n + m), constant ≤ 2 reads/position + flat ×2 sibling scans | **[measured]** landed, e 1.00 both arms |
 | limb ops | **T-tick: amortized O(n + m)** | **[measured at kernel]**: I4′/L1′ + L2 realized by the latent-boundary register and the fold-direction cure; linear on every committed family including the close-reveal genre (reveal-comb ×2.00 across the joint doubling, pure-comb flat per byte, hifloor/mirror-wide/fanout inside their bands) and the undercut-cascade genre (ascend-cliff ×2.00 across the joint doubling); the model tier validated the discipline composed across the fourteen committed schedules plus the seven round-6 attack schedules |
 | heap | O(depth) frames + O(n + m) total digits; builder output | **[derived]** L5, pinned by existing heap columns |
-| segments | today O(paired depth) recursion (red-pinned at ×4, owner **P4.2**); eventual profile **O(1) grown segments** via explicit stacks — the watermark stack's discipline and the fused walk's bit-coded expansion frames (`fill/fuse.rs`) are the natural vehicle, so P4.2 implements against this line. Sequencing note: the fused walk's route fold reads each skipped id subtree per 2-bit tag on leaf-under-internal-id arms (the expansion DP visits every node the skip visits) — P4.2's word-scale skip on those arms interacts with the landed fused walk; P4.2's sequencing decision must name it, and §9 round 8's before/after table carries the landed interaction baseline | **[measured]** red today; target [derived] |
+| segments | **zero grown segments: the walk and the pre-scan are iterative** (P4.2, landed against this line: suspended ancestors as control bits plus pop-able word deltas — `fill.rs`'s `Frames`/`PreFrames` on the route fold's bit-coded `PopStack` discipline — with a left-full site's collapse maximum re-derived by one bounded replay of its disjoint range instead of parked per frame). The route fold keeps its per-bit tag reads on leaf-under-internal-id arms (the correctness seam the P4.2 sequencing decision names; the word-scale skip on those arms remains a bench-justified option, campaign doc §17.2, and must not trade this seam for a scan constant) | **[measured]** 0 on every committed family at both scales (`board-p42-{lo,hi}.txt`); the deep-fill zero reading committed in `meter::tests`, envelope segments pinned 0 |
 | denominator | **input-denominated stands** (n + m packed bits; the campaign doc's §6 do-not-re-denominate list). Supporting lemma L6 **[measured, pinned; the additive form is REFUTED]**: `size(tick(e, i)) ≤ 2·size(e) + 4·size(i) + 32` (`tick_output_is_input_bounded`, committed with its shrunk counterexample seeds — grow's zero leaf and a raise's landing can each re-code one delta against a wide neighbor, duplicating one input code's width once, so no additive slack survives; the honest constant is the factor 2, realized at 1.5 by construction; the committed pin runs at proptest's default 256 cases). Fill's output deltas otherwise telescope input deltas; grow adds one increment or one expansion chain ≤ O(m). The pricing chain carries the constant: Σ emitted ≤ 2·input + O(id), still input-denominated. The ORBIT is separately pinned: the factor cannot compound along `tick^k` (§9 round 3's orbit lemma: orbit values ≤ max input value + k, codes within max(input width, log k) + O(1), live nodes ≤ input leaves + id internal nodes, `bits(tick^k) ≤ bits(tick^1) + 4·bits(id) + 4·⌈log2(k+1)⌉ + 8` after the one-step ≤2× transient — pinned by `tick_orbit_growth_is_transient_plus_log` and `tick_deep_orbits_stay_banded`). | |
 
 ## 5. If a lemma's realization is ever refuted
@@ -694,10 +694,10 @@ which lands here as a dated amendment:
    the additive form is refuted — §4's row); two-ways-computable
    gets a pin, and it protects the input denomination the board
    rests on.
-4. **Segments ownership**: the ×4 recursion-depth residual stays
-   with P4.2 (the iterative rewrite rides the watermark stack
-   naturally); no cure silently changes the segments profile
-   without re-pinning.
+4. **Segments ownership**: the ×4 recursion-depth residual stayed
+   with P4.2 and is retired there (2026-07-26, the explicit-stack
+   conversion; §4's segments row carries the landed profile); no
+   cure silently changes the segments profile without re-pinning.
 5. **Board mechanics for the tick crosses**: delegated to the
    red-pin agents; smoke-pin counts derived from what actually
    landed and re-verified there, never transcribed arithmetic.
