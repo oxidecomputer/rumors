@@ -806,6 +806,57 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   committed prefix pin (`error_display_strings`) asserts only the
   crate-owned `read error: ` prefix and did not move, and no wire
   snapshot was touched.
+- **FINDING 2026-07-27 (the presize-61 cure attempt; charter
+  premise disputed with evidence): reserve-once pre-sizing is
+  already landed at every builder site, and the capacity-phase
+  pair is owned by the one op whose output is not size-derivable —
+  no reserve change exists to make, and no cell moved.** The
+  frontier's §2.3(b) move ("a two-line reserve change per builder;
+  dissolves the capacity-phase red as a side effect") has no site
+  to land on: all six output builders reserve once from operand
+  sizes at construction and have since the commits that created
+  them — the join/meet sweep (a+b bits), grow (ev+id+64), the
+  projection (ev+id), the text parse (the text's own length), the
+  fused tick fill (ev), and the id diff sweep (self+other). The
+  artifact's mechanism, probed at release on a fine tooth sweep
+  (`cliff_comb(1_000, t)` × `scattered_id(t/2)`, t = 96..1152
+  step 32): projection output is mandatorily Θ(|v|·|p|) bits on a
+  Θ(|v|+|p|) input (the `/` operator rustdoc's documented product
+  growth; output/input reads 45–119 across the four board probe
+  points), so the honest-as-a-floor ev+id reserve under-runs by
+  that ratio and the builder walks a 6–7-step doubling chain
+  anchored at the input size. Peak transient is the last
+  realloc's old+new coexistence, ≈ 3·(n+m)·2^(k−1) with
+  k = ⌈log2(output/(n+m))⌉ — every probed point fits within 2%,
+  the residual the walk's cursor/accumulator/code transients
+  (t = 224: model 166,272 B, measured 167,432) — and the board's
+  default probe pair straddles
+  the k 6→7 step (e 1.38) while the ×4 pair sits inside k = 7
+  (e 0.70, peak tracking the input side, which grows slower than
+  `n_io`). Refuted alongside: a finish-time shrink discipline
+  cannot stabilize this reading — the peak is mid-walk, already
+  set when finish runs (§17.2's projection sub-bullet and §17.3's
+  owner note re-attributed to this entry). Candidate cures,
+  priced but not landed under this charter's no-pre-scan rule:
+  (i) a size pre-walk — the overlay sweep minus emission — feeding
+  one exact reserve (peak → output plus walk transients, both
+  cells flip; price ≈ ×2 on the input-side scan/limb/touch
+  columns, ~+0.3 scan bits per `n_io` byte on this shape against
+  the 96/B ceiling, no output-side re-scan; the text render's
+  two-pass exact-sized discipline is the in-tree precedent);
+  (ii) a segmented output assembled once at finish (peak →
+  ~2×output, phase-free; price one extra copy of the output,
+  +8 scan bits per output byte, and the builder's
+  truncate/extract moves crossing segment boundaries). An
+  un-anchored (organic) growth chain is REJECTED on doctrine: it
+  reads e ≈ 1.0 only because ×2 probe pairs cancel the
+  power-of-two sawtooth in the two-point fit — tuning the point,
+  not fixing the shape. Disposition OPEN to the owner: land (i)
+  or (ii), or ratify the pair as a stated-band residual (the
+  constant leg reads 2.6 B/B at default and 1.6 B/B at ×4 against
+  the 16 B/B ceiling; the exponent leg is the only red). Boards at both scales:
+  byte-identical to the boards of record, 966/23 and 969/20 — no
+  movement, no change landed.
 
 ## 13. The metering gate
 
@@ -1311,13 +1362,19 @@ materialize before they write — and its cure round owns them
   obstruction.
 - The projection output builder's growth transient makes peak
   heap capacity-phase-dependent (the projection × comb-scatter
-  default-scale heap exponent): a finalization/shrink discipline
-  stabilizes the measured quantity — the doctrine's "feed the
-  threshold stable inputs" arm, kernel-side.
+  default-scale heap exponent): not a shrink-discipline target —
+  the peak is the mid-walk realloc's old+new coexistence, already
+  set when finish runs — and not a reserve target either, since
+  the projection's output is not size-derivable from its
+  operands. The cure is a priced choice between a size pre-walk
+  and a segmented output, or a stated-band ratification (§12's
+  2026-07-27 capacity-phase finding, disposition open).
 *Acceptance*: the cells above flip green at both scales with
 byte-identity across the differential suite; movement annotated
 against the parent boards; any κ movement re-derived at the
-constant.
+constant. The projection pair alternatively closes by the
+owner's stated-band ratification (§12's 2026-07-27
+capacity-phase finding).
 
 **The fold marginals — the n-cursor merge (C2-adjacent).** The
 V7 reduction's n·log n reads marginally red against flat ceilings
@@ -1418,14 +1475,19 @@ The red roster, both scales enumerated from the renders:
   honest denominator. Owner: **the materializing emitters item**.
 - **The capacity-phase heap exponent** (`version_project`/
   `clock_own_version` × comb-scatter, default scale only): work
-  I/O-linear on every column; peak heap linear in the output with
-  an allocator/buffer-doubling phase (scratch-to-output measured
-  0.67–1.84 across four probe points, non-monotone; the two-point
-  fit reads e 1.38 at default and 0.70 at ×4). The instrument
-  wobbles, not the kernel — but the reading is honest and stays
-  red rather than softening the ceiling. Owner: **the
-  materializing emitters item** (builder finalization/shrink
-  discipline stabilizes the measured quantity).
+  I/O-linear on every column; peak heap is the output builder's
+  doubling chain anchored at the operand-size reserve —
+  ≈ 3·(n+m)·2^(k−1) bytes, k = ⌈log2(output/(n+m))⌉, fitted
+  within 2% at every probed point — with the default probe pair
+  straddling a k step (e 1.38) and the ×4 pair inside one
+  (e 0.70). The instrument wobbles, not the kernel — the reading
+  is honest and stays red rather than softening the ceiling. The
+  projection's output is not size-derivable from its operands
+  (mandatory Θ(|v|·|p|) on Θ(|v|+|p|) input), so no reserve-once
+  bound exists. Owner: **§12's 2026-07-27 capacity-phase
+  finding** — a priced choice between a size pre-walk and a
+  segmented output, or a stated-band ratification; disposition
+  open.
 - **The fold marginals** (default: `version_join_all` ×
   {scatter, benign} limb/scan exponents, `party_join_all ×
   benign` scan constant at 100.1 bits/B; ×4: `party_join_all ×
