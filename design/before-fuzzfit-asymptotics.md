@@ -504,3 +504,16 @@ invocation:
   `harness/src/bands.rs` records the mechanisms; sample counts per band
   key are unchanged (the deterministic corpus replayed identically), so
   every movement is guest fuel.
+- **2026-07-27: re-pin absorbing the explicit-stack conversions and the
+  skyline diff sweep.** The prefix-refit staleness check caught the
+  stale pin (`ff_party_without` diverged 1.292 against the 0.7
+  tolerance). Movement by mechanism, with owning commits, is annotated
+  in `harness/src/bands.rs`; sample counts and denominator spans per
+  band key are unchanged, so every movement is guest fuel.
+- **2026-07-27 (owner): the instrument joins the commit gate.**
+  `just gate` runs `fuzzfit-build` then `fuzzfit` (measured basis:
+  8.6 s warm build + 59.9 s run). The staleness red above sat outside
+  every tier for a day because nothing standing executed the harness;
+  in the gate, a kernel change that moves fuel fails the commit that
+  carries it, and the deliberate path is a `fuzzfit-calibrate` re-pin
+  riding the same commit.

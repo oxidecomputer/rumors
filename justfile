@@ -135,10 +135,14 @@ readme-check:
 
 # The dependency list is the ordering: build-free lints first for fast
 # failure, then the builds, then the full-feature tests and doctests, then
-# the board's cross-process determinism tripwire.
+# the fuel-band asymptotics check (fuzzfit-build then fuzzfit: the wasm
+# guest's per-operation fuel readings judged against the pinned bands, so
+# a kernel change that moves fuel fails the commit that carries it — the
+# deliberate path is a `just fuzzfit-calibrate` re-pin riding the same
+# commit), then the board's cross-process determinism tripwire.
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest amp-board-determinism
+gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit amp-board-determinism
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -215,14 +219,16 @@ fuzz secs=fuzz_smoke_secs:
     cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
 
 # The fuzz-fit asymptotics harness lives in a detached workspace
-# (crates/before/fuzzfit, the fuzz-target idiom), so the ordinary gate never
-# builds it and wasmtime stays out of the production crates' graph. The
-# guest compiles before's public surface to wasm32-unknown-unknown; the
-# harness replays fuzzed operation programs natively and under wasmtime
-# fuel metering (deterministic instruction counts, byte-reproducible under
-# any load) and judges every step against the pinned per-operation fuel
-# bands in harness/src/bands.rs. design/before-fuzzfit-asymptotics.md is
-# the instrument's design record.
+# (crates/before/fuzzfit, the fuzz-target idiom), so workspace-wide builds
+# never compile it and wasmtime stays out of the production crates' graph;
+# the gate reaches it only through these recipes by name. The guest
+# compiles before's public surface to wasm32-unknown-unknown; the harness
+# replays fuzzed operation programs natively and under wasmtime fuel
+# metering (deterministic instruction counts, byte-reproducible under any
+# load) and judges every step against the pinned per-operation fuel bands
+# in harness/src/bands.rs — the committed cost law for every public
+# operation, so a change that moves an operation's asymptotics fails here
+# and re-pins deliberately (`just fuzzfit-calibrate`) instead of drifting.
 
 # Build the fuzz-fit wasm guest and its harness (both halves).
 [working-directory("crates/before/fuzzfit")]
