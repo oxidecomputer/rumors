@@ -447,8 +447,8 @@ pub mod implementation {
     //!
     //! End-user documentation lives in the [crate docs](crate) and on the
     //! public items; here we discuss the design. Nothing on this page adds
-    //! to the public contract — it explains why the crate behaves, and
-    //! costs, the way the contracts say it does. Where the crate docs' [How
+    //! to the public contract — it explains why the crate's behavior, and
+    //! its costs, are what the contracts say. Where the crate docs' [How
     //! it works](crate#how-it-works) section sketches the paper's model,
     //! this page walks the machinery, one small example in hand.
     //!
@@ -473,8 +473,9 @@ pub mod implementation {
     //! `(n, l, r)` notation, a node's number lifts its whole subtree and
     //! each child covers half its parent's interval). Every operation is a
     //! pointwise statement about the skyline: causal comparison is
-    //! pointwise `<=` — one history contains another exactly when its
-    //! skyline is nowhere lower — join `|` is pointwise max, meet `&` is
+    //! pointwise `<=` — one history contains another exactly when the
+    //! containing skyline is nowhere lower — join `|` is pointwise max,
+    //! meet `&` is
     //! pointwise min, and [`rank`](crate::Version::rank) is the **area
     //! under the skyline**: for the drawing above, `1·½ + 0·¼ + 2·¼ = 1`.
     //! (An area over dyadic intervals is a dyadic rational, `num · 2⁻ᵉˣᵖ`,
@@ -509,6 +510,9 @@ pub mod implementation {
     //! while the childless tag is a terminal, a wholly owned region. So
     //! the seed, owning everything, is one terminal: two bits; and
     //! `(1, 0)` is a left-only node and then its terminal: four bits.
+    //! (An owns-nothing party has no spelling: parties are non-empty by
+    //! construction, and [`without`](crate::Party::without) returns
+    //! `None` sooner than spell one.)
     //!
     //! ```
     //! use before::Party;
@@ -618,8 +622,9 @@ pub mod implementation {
     //! nonnegativity check, never a parsed tree.
     //!
     //! Working this way, the kernels touch memory the way caches like —
-    //! forward, densely, once — and transient state stays proportional to
-    //! the answer rather than to the operand's shape. Heights are
+    //! forward, densely, once — and transient state beyond the output
+    //! being built stays a couple of bits per open ancestor, however the
+    //! operands are shaped. Heights are
     //! arbitrary-precision (a tick can always raise a plateau past any
     //! fixed width): in the stream a height is just its code, however wide,
     //! and during a sweep a decoded value lives inline in machine words
