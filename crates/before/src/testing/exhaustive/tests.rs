@@ -3,9 +3,28 @@
 //! Each `check_*` helper runs one op family over the *entire* enumerated corpus
 //! (every tree, every ordered pair) and diffs the impl against the recursive
 //! oracle — the same structural-agreement contract the sampled differentials
-//! use, but total rather than random. The cross-product is the whole point, so
-//! it is never sampled (that is what the property tests are for); instead two
-//! things keep it tractable:
+//! use, but total rather than random. Every impl reading goes through the
+//! **public ops** (`fork`, `join`, `without`, `is_disjoint`, `covers`, `tick`,
+//! the codec, the event operators), so the suite pins the surface callers
+//! invoke — a drift between an internal walk and its public routing cannot
+//! pass unseen. Two consequences of that choice:
+//!
+//! - **The anonymous id sits out the op checks.** The enumeration includes the
+//!   empty tree, but a standalone [`Party`] is never anonymous (nothing public
+//!   constructs one), so the corpus lowering drops it up front — once, not as a
+//!   per-row test inside the billion-pair loops — matching the ops' public
+//!   domain. The empty *region* is still exercised everywhere it publicly
+//!   occurs: as the absent child inside every non-trivial pair.
+//!
+//! - **Mutating/consuming contracts are checked as such.** `join` mutates its
+//!   receiver and consumes its operand, `without` consumes its receiver, `fork`
+//!   mutates — so those checks duplicate the borrowed corpus entry per pair with
+//!   [`Party::dangerously_alias`] (the public escape hatch for exactly this
+//!   handoff shape) and assert the full public contract, including `join`'s
+//!   leave-self-unmodified/hand-back on overlap.
+//!
+//! The cross-product is the whole point, so it is never sampled (that is what
+//! the property tests are for); instead two things keep it tractable:
 //!
 //! - **Precompute once.** Each oracle tree is lowered to its impl form a single
 //!   time into a `Vec<Party>` / `Vec<Version>` that the pair loops *borrow*,
@@ -20,11 +39,14 @@
 //!
 //! The two entry points wire the helpers to decoupled id/event depth bounds
 //! (events grow far faster, so they are held a level shallower — see the parent
-//! module doc): the gate-resident `exhaustive_small` at [`ID_SMALL_DEPTH`] /
-//! [`EV_SMALL_DEPTH`], and the `#[ignore]`d `exhaustive_deep` at
-//! [`ID_DEEP_DEPTH`] / [`EV_DEEP_DEPTH`].
+//! module doc): the gate-resident [`exhaustive_small`] at [`ID_SMALL_DEPTH`] /
+//! [`EV_SMALL_DEPTH`] runs every helper, and the `#[ignore]`d
+//! [`exhaustive_deep`] at [`ID_DEEP_DEPTH`] / [`EV_DEEP_DEPTH`] runs all but
+//! the structural pair legs (`join`/`without`), which stay at the small bound
+//! — the parent module doc states the split and where the deep structural
+//! coverage lives instead.
 //!
-//! Op *symmetry* (`is_disjoint` symmetric, `sum`/merge commutative, event
+//! Op *symmetry* (`is_disjoint` symmetric, `join` commutative, event
 //! `partial_cmp` anti-symmetric) is NOT relied on to skip half the pairs and is
 //! NOT checked here; it is an intrinsic algebraic property of the impl, tested
 //! directly and oracle-independently in the "intrinsic symmetry laws" section
@@ -37,7 +59,6 @@ use rayon::prelude::*;
 use super::{
     all_normal_events, all_normal_ids, EV_DEEP_DEPTH, EV_SMALL_DEPTH, ID_DEEP_DEPTH, ID_SMALL_DEPTH,
 };
-use crate::idbits::IdReader;
 use crate::oracle;
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
@@ -61,10 +82,15 @@ fn par_for_pairs(n: usize, body: impl Fn(usize, usize) + Sync) {
     });
 }
 
-/// Lower the enumerated oracle ids to their impl `Party` forms, once.
+/// Lower the enumerated oracle ids to their impl `Party` forms, once, dropping
+/// the anonymous tree.
+///
+/// A standalone `Party` is never anonymous — see the module doc. Used by the
+/// intrinsic symmetry laws, which have no oracle side to filter against.
 fn impl_ids(depth: usize) -> Vec<Party> {
     all_normal_ids(depth)
         .iter()
+        .filter(|t| !t.is_empty())
         .map(from_oracle_party)
         .collect()
 }
@@ -82,15 +108,9 @@ fn impl_events(depth: usize) -> Vec<Version> {
 /// Every id tree round-trips: the impl is itself normal form (`decode` accepts
 /// only canonical bits), and lowering after `decode∘encode` recovers the same
 /// oracle tree.
-///
-/// The anonymous id is excluded (a standalone `Party` must own a region;
-/// `decode` rejects `0`).
 fn check_id_codec(ids: &[oracle::Party], imp: &[Party]) {
     (0..ids.len()).into_par_iter().for_each(|i| {
         let oa = &ids[i];
-        if oa.is_empty() {
-            return;
-        }
         let p = &imp[i];
         let bytes = p.encode();
         let decoded = Party::decode(&bytes[..]).expect("canonical id encoding decodes");
@@ -99,64 +119,113 @@ fn check_id_codec(ids: &[oracle::Party], imp: &[Party]) {
     });
 }
 
-/// `split` (the structural op behind `fork`) on every non-empty id matches the oracle's
-/// `split` on both halves, structurally.
-fn check_id_split(ids: &[oracle::Party], imp: &[Party]) {
+/// [`Party::fork`] on every standalone id matches the oracle's fork on both
+/// halves, structurally: the kept half replaces the receiver, the given half is
+/// returned.
+fn check_id_fork(ids: &[oracle::Party], imp: &[Party]) {
     (0..ids.len()).into_par_iter().for_each(|i| {
         let oa = &ids[i];
-        if oa.is_empty() {
-            return;
-        }
-        let mut oracle_self = oa.clone();
-        let oracle_give = oracle_self.fork(); // fork == split; mutates self to the kept half
+        let mut oracle_keep = oa.clone();
+        let oracle_give = oracle_keep.fork();
 
-        let (keep_bits, give_bits) = IdReader::root(imp[i].as_bits()).split();
-        assert!(Party::from_bits(keep_bits) == from_oracle_party(&oracle_self));
-        assert!(Party::from_bits(give_bits) == from_oracle_party(&oracle_give));
+        let mut keep = imp[i].dangerously_alias();
+        let give = keep.fork();
+        assert!(keep == from_oracle_party(&oracle_keep), "fork keep {oa:?}");
+        assert!(give == from_oracle_party(&oracle_give), "fork give {oa:?}");
     });
 }
 
-/// `is_disjoint`, `covers`, `sum`, and `diff` over every *ordered pair* of
-/// ids agree with the oracle.
+/// [`Party::is_disjoint`] and [`Party::covers`] over every *ordered pair* of
+/// standalone ids agree with the oracle.
 ///
-/// The cross-product reaches the overlap (`is_disjoint == false`), partial-
-/// and non-overlap (`covers == false`), overlap-sum (`None`), and
-/// covered-difference (empty) arms exhaustively.
-fn check_id_pairs(ids: &[oracle::Party], imp: &[Party]) {
+/// The cross-product reaches the overlap (`is_disjoint == false`) and partial-
+/// and non-overlap (`covers == false`) arms exhaustively. Both verdicts read
+/// borrowed operands and allocate nothing — the only pair legs cheap enough
+/// to cross the deep bound at all (see the parent module doc's leg split) —
+/// yet the deep `corpus²` product is still the dominant phase of
+/// [`exhaustive_deep`], whose doc carries the measured state.
+fn check_id_pair_verdicts(ids: &[oracle::Party], imp: &[Party]) {
+    par_for_pairs(ids.len(), |i, j| {
+        let (oa, ob) = (&ids[i], &ids[j]);
+        let (ia, ib) = (&imp[i], &imp[j]);
+        assert_eq!(
+            ia.is_disjoint(ib),
+            oa.is_disjoint(ob),
+            "is_disjoint {oa:?} {ob:?}"
+        );
+        assert_eq!(ia.covers(ib), oa.covers(ob), "covers {oa:?} {ob:?}");
+    });
+}
+
+/// [`Party::join`] and [`Party::without`] over every *ordered pair* of
+/// standalone ids agree with the oracle, structurally, through the full
+/// public contracts.
+///
+/// The contracts, exactly: `join` reunites exactly the disjoint pairs and, on
+/// overlap, leaves the receiver unmodified and hands the operand back;
+/// `without` returns the remainder region, or `None` exactly when nothing
+/// remains (the empty region is not a `Party`).
+///
+/// The cross-product reaches the overlap-join (`Err`) and covered-difference
+/// (`None`) arms exhaustively. Both ops build a result tree per pair (and the
+/// operands are duplicated per pair, since `join` mutates and consumes and
+/// `without` consumes), so this check runs at the small bound only — the
+/// parent module doc states the split.
+fn check_id_pair_algebra(ids: &[oracle::Party], imp: &[Party]) {
     par_for_pairs(ids.len(), |i, j| {
         let (oa, ob) = (&ids[i], &ids[j]);
         let (ia, ib) = (&imp[i], &imp[j]);
 
-        let disjoint = oa.is_disjoint(ob);
-        assert_eq!(ia.is_disjoint(ib), disjoint, "is_disjoint {oa:?} {ob:?}");
-
-        assert_eq!(ia.covers(ib), oa.covers(ob), "covers {oa:?} {ob:?}");
-
-        let summed = IdReader::root(ia.as_bits()).sum(IdReader::root(ib.as_bits()));
-        if disjoint {
-            let mut oracle_sum = oa.clone();
-            oracle_sum.join(ob.clone()).expect("disjoint, just checked");
-            let bits = summed.expect("disjoint pair sums");
-            assert!(Party::from_bits(bits) == from_oracle_party(&oracle_sum));
-        } else {
-            assert!(
-                summed.is_none(),
-                "overlapping ids must not sum: {oa:?} {ob:?}"
-            );
+        let mut joined = ia.dangerously_alias();
+        match joined.join(ib.dangerously_alias()) {
+            Ok(()) => {
+                assert!(
+                    oa.is_disjoint(ob),
+                    "join accepted an overlapping pair: {oa:?} {ob:?}"
+                );
+                let mut oracle_join = oa.clone();
+                oracle_join
+                    .join(ob.clone())
+                    .expect("the oracle agrees the pair is disjoint");
+                assert!(
+                    joined == from_oracle_party(&oracle_join),
+                    "join {oa:?} {ob:?}"
+                );
+            }
+            Err(back) => {
+                assert!(
+                    !oa.is_disjoint(ob),
+                    "join refused a disjoint pair: {oa:?} {ob:?}"
+                );
+                assert!(
+                    joined == *ia,
+                    "a refused join must leave the receiver unmodified: {oa:?} {ob:?}"
+                );
+                assert!(
+                    back == *ib,
+                    "a refused join must hand the operand back: {oa:?} {ob:?}"
+                );
+            }
         }
 
-        let removed = IdReader::root(ia.as_bits()).diff(IdReader::root(ib.as_bits()));
         let oracle_diff = oa.without(ob);
-        if oracle_diff.is_empty() {
-            assert!(
-                removed.is_empty(),
-                "covered difference must be empty: {oa:?} \\ {ob:?}"
-            );
-        } else {
-            assert!(
-                Party::from_bits(removed) == from_oracle_party(&oracle_diff),
-                "diff {oa:?} \\ {ob:?}"
-            );
+        match ia.dangerously_alias().without(ib) {
+            Some(rest) => {
+                assert!(
+                    !oracle_diff.is_empty(),
+                    "without found a remainder the oracle says is empty: {oa:?} \\ {ob:?}"
+                );
+                assert!(
+                    rest == from_oracle_party(&oracle_diff),
+                    "without {oa:?} \\ {ob:?}"
+                );
+            }
+            None => {
+                assert!(
+                    oracle_diff.is_empty(),
+                    "without found nothing but the oracle finds a remainder: {oa:?} \\ {ob:?}"
+                );
+            }
         }
     });
 }
@@ -228,9 +297,6 @@ fn check_tick(
 ) {
     (0..ids.len()).into_par_iter().for_each(|i| {
         let op = &ids[i];
-        if op.is_empty() {
-            return; // `tick` requires a non-anonymous id
-        }
         let ip = &imp_ids[i];
         for j in 0..evs.len() {
             let ov = &evs[j];
@@ -273,26 +339,32 @@ fn check_tick(
 
 // ─────────────────────────────── drivers ───────────────────────────────
 
-/// Run every differential op family over the ids enumerated at `id_depth` and
-/// the events at `ev_depth`.
+/// The enumerated corpora at the given bounds, each lowered to its impl form
+/// once so the pair loops borrow rather than re-lower.
 ///
 /// The two corpora grow at different rates, so their bounds are decoupled — see
-/// the module doc. Each corpus is lowered to its impl form once and the pair
-/// loops borrow it.
-fn run_all_at(id_depth: usize, ev_depth: usize) {
-    let ids = all_normal_ids(id_depth);
+/// the parent module doc. The anonymous (empty) id is dropped here, up front:
+/// a standalone `Party` is never anonymous (module doc), and testing emptiness
+/// per row instead would put two boxed-tree walks inside the deep bound's
+/// ~4.3-billion-iteration pair loops.
+#[allow(clippy::type_complexity)]
+fn corpora_at(
+    id_depth: usize,
+    ev_depth: usize,
+) -> (
+    Vec<oracle::Party>,
+    Vec<Party>,
+    Vec<oracle::Version>,
+    Vec<Version>,
+) {
+    let ids: Vec<oracle::Party> = all_normal_ids(id_depth)
+        .into_iter()
+        .filter(|t| !t.is_empty())
+        .collect();
     let evs = all_normal_events(ev_depth);
     let imp_ids: Vec<Party> = ids.iter().map(from_oracle_party).collect();
     let imp_evs: Vec<Version> = evs.iter().map(from_oracle_version).collect();
-
-    check_id_codec(&ids, &imp_ids);
-    check_id_split(&ids, &imp_ids);
-    check_id_pairs(&ids, &imp_ids);
-
-    check_ev_codec(&evs, &imp_evs);
-    check_ev_pairs(&evs, &imp_evs);
-
-    check_tick(&ids, &imp_ids, &evs, &imp_evs);
+    (ids, imp_ids, evs, imp_evs)
 }
 
 /// Sanity-check that the enumeration deduplicates to canonical normal form:
@@ -333,17 +405,36 @@ fn corpus_is_canonical() {
 /// sampling under-hits. Runs in the normal gate.
 #[test]
 fn exhaustive_small() {
-    run_all_at(ID_SMALL_DEPTH, EV_SMALL_DEPTH);
+    let (ids, imp_ids, evs, imp_evs) = corpora_at(ID_SMALL_DEPTH, EV_SMALL_DEPTH);
+
+    check_id_codec(&ids, &imp_ids);
+    check_id_fork(&ids, &imp_ids);
+    check_id_pair_verdicts(&ids, &imp_ids);
+    check_id_pair_algebra(&ids, &imp_ids);
+
+    check_ev_codec(&evs, &imp_evs);
+    check_ev_pairs(&evs, &imp_evs);
+
+    check_tick(&ids, &imp_ids, &evs, &imp_evs);
 }
 
-/// The same total cross-product at the deep depth bound.
+/// The total cross-product at the deep depth bound: every check but the
+/// structural pair legs, which stay at the small bound (see the parent module
+/// doc for the split and where deep structural coverage lives).
 ///
-/// The id corpus jumps to 65536 trees, so the `O(corpus²)` id pair-product
-/// (~4.3 billion pairs) dominates. Its runtime at this tip is measured
-/// hours-scale and unbounded above: a release run (2026-07-27,
-/// aarch64-apple-darwin, 16 cores, fully parallel throughout) had not
-/// completed after 8 h 55 m — budget accordingly, run it detached, and
-/// treat the runtime as open until a completed run re-measures it. It is
+/// The id corpus jumps to 65536 trees, so the `O(corpus²)` id verdict
+/// pair-product (~4.3 billion pairs) dominates everything else — the per-id
+/// checks are seconds, and the `tick` grid (65536 ids × 691 events with the
+/// brute-force minimality pin) extrapolates linearly along its id axis to
+/// about a minute. Measured state (2026-07-27, aarch64-apple-darwin, 16
+/// cores, release, quiet machine): two fully parallel runs were stopped at a
+/// 45-minute cap, one row-major and one cache-tiled, the row-major one
+/// profiled still inside the verdict pair product at 31 minutes — budget
+/// upwards of an hour and run it detached. Sampled-corpus extrapolation
+/// undershoots this product badly (a 268-million-pair stride sample prices
+/// it at under a minute): the expensive verdict pairs are *structurally
+/// similar* trees, which the full cross-product contains in every
+/// near-diagonal block and a strided sample quadratically thins out. It is
 /// `#[ignore]`d to keep the normal gate fast. Run it with:
 ///
 /// ```text
@@ -351,11 +442,20 @@ fn exhaustive_small() {
 /// ```
 ///
 /// (`cargo test`, not nextest: the workspace's nextest profile terminates
-/// any test at 180 seconds, which no run of this enumeration meets).
+/// any test at 180 seconds, which this enumeration exceeds).
 #[test]
-#[ignore = "exhaustive deep enumeration: O(corpus^2) over 65536 ids; hours-scale, run detached"]
+#[ignore = "exhaustive deep enumeration: O(corpus^2) over 65536 ids; hour-scale, run detached"]
 fn exhaustive_deep() {
-    run_all_at(ID_DEEP_DEPTH, EV_DEEP_DEPTH);
+    let (ids, imp_ids, evs, imp_evs) = corpora_at(ID_DEEP_DEPTH, EV_DEEP_DEPTH);
+
+    check_id_codec(&ids, &imp_ids);
+    check_id_fork(&ids, &imp_ids);
+    check_id_pair_verdicts(&ids, &imp_ids);
+
+    check_ev_codec(&evs, &imp_evs);
+    check_ev_pairs(&evs, &imp_evs);
+
+    check_tick(&ids, &imp_ids, &evs, &imp_evs);
 }
 
 // ───────────────────────────── intrinsic symmetry laws ─────────────────────────────
@@ -380,16 +480,25 @@ fn id_is_disjoint_is_symmetric() {
     });
 }
 
-/// `sum` is commutative: `sum(a, b)` and `sum(b, a)` are byte-identical (and
-/// both `None` exactly when the ids overlap), over every ordered pair of
-/// enumerated ids.
+/// `join` is commutative: `a.join(b)` and `b.join(a)` agree on acceptance
+/// (both `Err` exactly when the ids overlap), and the accepted unions are
+/// equal, over every ordered pair of enumerated ids.
 #[test]
-fn id_sum_is_commutative() {
+fn id_join_is_commutative() {
     let imp = impl_ids(ID_SMALL_DEPTH);
     par_for_pairs(imp.len(), |i, j| {
-        let ab = IdReader::root(imp[i].as_bits()).sum(IdReader::root(imp[j].as_bits()));
-        let ba = IdReader::root(imp[j].as_bits()).sum(IdReader::root(imp[i].as_bits()));
-        assert!(ab == ba, "sum not commutative at ({i}, {j})");
+        let mut ab = imp[i].dangerously_alias();
+        let ra = ab.join(imp[j].dangerously_alias());
+        let mut ba = imp[j].dangerously_alias();
+        let rb = ba.join(imp[i].dangerously_alias());
+        assert_eq!(
+            ra.is_ok(),
+            rb.is_ok(),
+            "join acceptance not symmetric at ({i}, {j})",
+        );
+        if ra.is_ok() {
+            assert!(ab == ba, "join not commutative at ({i}, {j})");
+        }
     });
 }
 
