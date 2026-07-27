@@ -135,13 +135,13 @@
 //! site-nesting level.
 //!
 //! Both walks are iterative: suspended ancestors live on explicit
-//! stacks — control bits plus pop-able word deltas ([`Frames`] and
-//! [`PreFrames`], the route fold's own [`PopStack`] discipline) — so
+//! stacks — control bits plus pop-able word deltas (`Frames` and
+//! `PreFrames`, the route fold's own `PopStack` discipline) — so
 //! paired depth costs a few heap bits per level, never a call-stack
 //! frame, and no input depth can grow stacker segments or overflow.
 //! The wide quantity a left-full site's raise decision needs after its
 //! sibling walk is re-derived by one bounded replay of the site's own
-//! collapse range ([`PreScan::replay_max`]) rather than parked per
+//! collapse range (`PreScan::replay_max`) rather than parked per
 //! open site, so frames stay word-free and the transient stays flat
 //! on nested-site chains.
 //!
