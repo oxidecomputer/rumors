@@ -4,7 +4,8 @@ use core::hash::{Hash, Hasher};
 use core::ops::{Add, AddAssign, BitOr, MulAssign, Shl, Shr, Sub, SubAssign};
 
 use dashu_int::ops::BitTest;
-use dashu_int::{UBig, Word};
+use dashu_int::UBig;
+use suanpan::Limbs;
 
 /// Process-global counter of big-integer limb-scale work.
 ///
@@ -231,57 +232,6 @@ impl Base {
     }
 }
 
-/// Stored words per 64-bit limb: 1 where the word is 64 bits, 2 where it
-/// is 32 (wasm32).
-///
-/// Every limb-denominated cost — the limb meter's operand widths,
-/// [`MsbWindows`]'s streamed windows, the accumulator's per-limb wide-delta
-/// pricing — is counted in 64-bit limbs, so pairing narrower storage words
-/// keeps the measured numbers identical across targets.
-pub(crate) const WORDS_PER_LIMB: usize = (u64::BITS / Word::BITS) as usize;
-
-/// The 64-bit limbs of a magnitude, least-significant first.
-///
-/// Borrows the stored word slice and packs [`WORDS_PER_LIMB`] words per
-/// limb, so iteration allocates nothing; the top limb zero-pads any missing
-/// high words. A zero value has no limbs. Double-ended, so MSB-first
-/// consumers reverse it.
-pub(crate) struct U64Limbs<'a> {
-    chunks: core::slice::Chunks<'a, Word>,
-}
-
-impl<'a> U64Limbs<'a> {
-    pub(crate) fn new(value: &'a UBig) -> Self {
-        U64Limbs {
-            chunks: value.as_words().chunks(WORDS_PER_LIMB),
-        }
-    }
-}
-
-/// Pack one limb's worth of stored words (the top chunk may be partial).
-fn pack_limb(chunk: &[Word]) -> u64 {
-    // One face of this cast is a no-op: `Word` is `u64` on 64-bit targets
-    // and `u32` on 32-bit ones, and the cast is what compiles on both.
-    #[allow(clippy::unnecessary_cast)]
-    chunk.iter().enumerate().fold(0u64, |limb, (i, &word)| {
-        limb | ((word as u64) << (i as u32 * Word::BITS))
-    })
-}
-
-impl Iterator for U64Limbs<'_> {
-    type Item = u64;
-
-    fn next(&mut self) -> Option<u64> {
-        self.chunks.next().map(pack_limb)
-    }
-}
-
-impl DoubleEndedIterator for U64Limbs<'_> {
-    fn next_back(&mut self) -> Option<u64> {
-        self.chunks.next_back().map(pack_limb)
-    }
-}
-
 /// The 64-bit windows of a magnitude's bit string, most-significant first.
 ///
 /// The first window is the value's top 64 bits left-aligned (the MSB in
@@ -291,7 +241,7 @@ impl DoubleEndedIterator for U64Limbs<'_> {
 /// value ever exists.
 struct MsbWindows<'a> {
     /// Remaining limbs, top first; exhausted once the tail is consumed.
-    limbs: core::iter::Rev<U64Limbs<'a>>,
+    limbs: core::iter::Rev<Limbs<'a>>,
     /// The previously consumed limb, still owed its low bits.
     held: Option<u64>,
     /// The left-alignment shift: `64 − (bits mod 64)`, zero for a
@@ -303,7 +253,7 @@ impl<'a> MsbWindows<'a> {
     fn new(value: &'a Base) -> Self {
         let bits = value.bits();
         MsbWindows {
-            limbs: U64Limbs::new(&value.0).rev(),
+            limbs: Limbs::new(&value.0).rev(),
             held: None,
             shift: ((64 - bits % 64) % 64) as u32,
         }
