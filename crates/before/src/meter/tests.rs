@@ -204,10 +204,12 @@ fn alt_spine_decodes_canonically_at_predicted_length() {
     assert_eq!(v.to_string(), "(0, (0, 0, (0, 0, 1)), 0)");
 }
 
-/// The stack-segment meter observes deep guarded recursion, resets to zero,
-/// reads the same count for the same descent repeated at the same call depth
-/// (determinism is what makes it envelope-able) — and reads exactly zero over
-/// a deep fill walk, whose explicit stacks put depth on the heap instead.
+/// The stack-segment meter observes deep guarded recursion, resets to
+/// zero, counts deterministically, and reads zero over a deep fill walk.
+///
+/// Determinism — the same count for the same descent repeated at the same
+/// call depth — is what makes the meter envelope-able; the deep fill reads
+/// zero because its explicit stacks put depth on the heap instead.
 ///
 /// Every library walk is iterative, so the meter's liveness needs its own
 /// witness: a test-local descent routed through `recurse::descend!` (the
