@@ -14,7 +14,7 @@
 //! integration test (the checker), so the two cannot drift from each
 //! other; both build against the public API only.
 
-use before::{Clock, Version};
+use before::{Clock, Party, Version};
 
 /// One committed seed file: its fuzz target, file name, and exact bytes.
 pub struct Seed {
@@ -139,6 +139,72 @@ pub fn seed_set() -> Vec<Seed> {
         name: "clock_then_msg",
         bytes: msg,
     });
+
+    // Law-target inputs, in fuzz_laws framing: six length-prefixed chunks —
+    // `[len: u8][bytes]` each — decoded positionally as three Versions, two
+    // Parties, and a Clock. The framing is a wire contract with
+    // `fuzz/fuzz_targets/fuzz_laws.rs` (its `chunk` carves the values in
+    // this order); a change on either side means regenerating the seeds.
+    let laws_chunks = |versions: [&Version; 3], parties: [&Party; 2], clock: &Clock| {
+        let mut bytes = Vec::new();
+        let mut push = |encoded: Vec<u8>| {
+            let len =
+                u8::try_from(encoded.len()).expect("seed values encode within one length byte");
+            bytes.push(len);
+            bytes.extend_from_slice(&encoded);
+        };
+        for version in versions {
+            push(version.encode());
+        }
+        for party in parties {
+            push(party.encode());
+        }
+        push(clock.encode());
+        bytes
+    };
+
+    // A live family: the synced clock's nested version, the sibling's
+    // concurrent version, the empty version, and the two disjoint sibling
+    // parties around the clock itself.
+    seeds.push(Seed {
+        target: "fuzz_laws",
+        name: "laws_family",
+        bytes: laws_chunks(
+            [clock.version(), sibling.version(), &Version::new()],
+            [clock.party(), sibling.party()],
+            &clock,
+        ),
+    });
+
+    // Wide-gamma bases: values past `u64::MAX` open their gamma codes with
+    // a 64+-zero unary prefix — about `2^-64` per random byte stream — so
+    // random fuzzing essentially never reaches the wide-value decode tier.
+    // These seeds fix that thin tail. The parties nest a level deeper than
+    // the family seed's, and the clock pairs a wide history with a quarter
+    // share.
+    let wide_leaf: Version = "340282366920938463463374607431768211456" // 2^128
+        .parse()
+        .expect("a bare wide integer parses as a version leaf");
+    let wide_nested: Version = "(18446744073709551616, 1, (0, 2, 0))" // 2^64 base at the root
+        .parse()
+        .expect("a nested wide event tree parses");
+    let mut quarter_owner = Clock::seed();
+    let mut half = quarter_owner.fork();
+    let quarter = half.fork();
+    seeds.push(Seed {
+        target: "fuzz_laws",
+        name: "laws_wide_gamma",
+        bytes: laws_chunks(
+            [&wide_leaf, &wide_nested, clock.version()],
+            [half.party(), quarter.party()],
+            &Clock::from_parts(
+                quarter_owner.party().dangerously_alias(),
+                wide_nested.clone(),
+            ),
+        ),
+    });
+    // `quarter_owner` exists to nest the parties; only its party is read.
+    let _ = quarter_owner.version();
 
     seeds
 }

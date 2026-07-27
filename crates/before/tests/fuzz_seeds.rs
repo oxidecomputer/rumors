@@ -122,3 +122,63 @@ fn decode_seeds_decode_as_named_and_round_trip() {
         }
     }
 }
+
+/// Carve the next length-prefixed chunk off a `fuzz_laws` seed, exactly as
+/// the target's framing does (part of the wire contract the seed set
+/// documents).
+fn laws_chunk<'d>(data: &mut &'d [u8]) -> &'d [u8] {
+    let Some((&len, rest)) = data.split_first() else {
+        *data = &[];
+        return &[];
+    };
+    let split = (len as usize).min(rest.len());
+    let (bytes, tail) = rest.split_at(split);
+    *data = tail;
+    bytes
+}
+
+/// Every `fuzz_laws` seed decodes positionally per the target's framing —
+/// three versions, two parties, a clock, nothing left over.
+///
+/// So no chunk silently falls back to a default and stops representing the
+/// value it was written for. And the wide-gamma seed really is wide: its
+/// first version is a magnitude past `u64::MAX` (a 21+-digit leaf), the
+/// decode tier random bytes essentially never reach.
+#[test]
+fn laws_seeds_decode_per_framing_and_stay_wide() {
+    let mut saw_wide = false;
+    for seed in fuzz_seed_set::seed_set() {
+        if seed.target != "fuzz_laws" {
+            continue;
+        }
+        let mut data = &seed.bytes[..];
+        let data = &mut data;
+        let versions: Vec<Version> = (0..3)
+            .map(|position| {
+                Version::decode(laws_chunk(data)).unwrap_or_else(|err| {
+                    panic!(
+                        "{}: version chunk {position} fails decode: {err}",
+                        seed.name
+                    )
+                })
+            })
+            .collect();
+        for position in 0..2 {
+            Party::decode(laws_chunk(data)).unwrap_or_else(|err| {
+                panic!("{}: party chunk {position} fails decode: {err}", seed.name)
+            });
+        }
+        Clock::decode(laws_chunk(data))
+            .unwrap_or_else(|err| panic!("{}: clock chunk fails decode: {err}", seed.name));
+        assert!(
+            data.is_empty(),
+            "{}: bytes past the framed chunks",
+            seed.name
+        );
+
+        // A version leaf displays as its bare magnitude; 21+ digits is past
+        // u64::MAX (20 digits), i.e. the wide-gamma decode tier.
+        saw_wide |= versions[0].to_string().len() >= 21;
+    }
+    assert!(saw_wide, "no fuzz_laws seed reaches the wide-gamma tier");
+}

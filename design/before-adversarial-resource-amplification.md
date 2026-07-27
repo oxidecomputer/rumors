@@ -1111,6 +1111,44 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   spells `suanpan::Accumulator`. The spec text itself is
   untouched — it is a statement of record, and the rename amends
   no claim; this entry is the dated cross-reference.
+- **DECIDED 2026-07-27 (#75, owner-commissioned): the algebraic laws
+  factor into `before::laws` — one named-predicate collection, every
+  consumer.** Shape: 12 signature-grouped slices of
+  `(&'static str, fn(...) -> bool)` (`VERSION_{SOLO,PAIR,TRIPLE}`,
+  `PARTY_{SOLO,PAIR,TRIPLE}`, `VERSION_PARTY`, `VERSION_PAIR_PARTY`,
+  `VERSION_PARTY_PAIR`, `RANK_TRIPLE`, `CLOCK_SOLO`, `CLOCK_VERSION`),
+  ~100 laws, predicates private behind public statics (the triangle
+  roster's pub-fn totality is untouched; rows re-cite by predicate
+  name where a bespoke test dissolved). Linearity: predicates take
+  shared borrows and materialize consumable working copies via
+  `dangerously_alias`, confined to the predicate's scope; fallible
+  ops are outcome-quantified (arm and payload both). Visibility:
+  `laws` cargo feature in the `oracle`/`meter` idiom
+  (`#[cfg(any(test, feature = "laws"))] pub mod laws`). Consumers:
+  the algebraic-laws suite's per-group drivers (arbitrary normal
+  forms and organic op-trace populations), the version suite's
+  seeded-adversarial-rank driver, and the `fuzz_laws` target
+  (length-prefixed chunk framing, default fallback per failed chunk,
+  committed seeds including wide-gamma bases — 2^64/2^128 — whose
+  64+-zero unary prefixes random bytes never reach; a gate test pins
+  the seeds' framing and wideness). Dissolved into the collection
+  name-for-name: the bespoke algebraic_laws tests, version/tests'
+  `order_laws`/`lattice_laws`/`meet_lattice_laws`/`monotone_tick`/
+  `div_by_party_laws`/`div_is_additive_over_fork`/
+  `rank_monoid_and_order_laws`/`rank_cross_path_normalization_and_hash`/
+  `ranked_linearly_extends_causality`, clock/tests'
+  `fork_preserves_version`/`peek_does_not_advance`/`own_receive_is_tick`,
+  party/tests' `covers_tracks_fork_join`/`d_join_overlap_hands_back`/
+  `dangerously_alias_aliases_region`/`without_inverts_fork`, and the
+  law-only assertion lines inside `covers_arbitrary`/
+  `disjoint_arbitrary` (their differentials stay). Kept deliberately
+  outside: the exhaustive small-scope suite's four point laws (a
+  totality instrument over enumerations, not a sampled driver), the
+  population/fold laws (`join_all`/`meet_all`/`Sum` folds,
+  `ranked_sort_respects_causality` — not fixed-arity), and the
+  internal-seam `byte_equality_matches_bit_equality`. Recorded
+  future addition: post-ticks laws (`ticks`/`min_ticks`) join the
+  collection with the ticks landing.
 
 ## 13. The metering gate
 

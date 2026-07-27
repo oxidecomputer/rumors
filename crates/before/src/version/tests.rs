@@ -72,33 +72,6 @@ proptest! {
 }
 
 proptest! {
-    /// The order laws on impl versions directly: reflexive, antisymmetric,
-    /// transitive; `==` ⇔ `Some(Equal)`; concurrency ⇔ `None`.
-    #[test]
-    fn order_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let (a, b, c) = (
-            from_oracle_version(&vs[i % n]),
-            from_oracle_version(&vs[j % n]),
-            from_oracle_version(&vs[k % n]),
-        );
-
-        prop_assert_eq!(a.partial_cmp(&a), Some(Ordering::Equal)); // reflexive
-        if le(&a, &b) && le(&b, &a) {
-            prop_assert!(a == b); // antisymmetric
-        }
-        if le(&a, &b) && le(&b, &c) {
-            prop_assert!(le(&a, &c)); // transitive
-        }
-        prop_assert_eq!(a == b, a.partial_cmp(&b) == Some(Ordering::Equal));
-        let concurrent = !le(&a, &b) && !le(&b, &a);
-        prop_assert_eq!(concurrent, a.partial_cmp(&b).is_none());
-    }
-}
-
-proptest! {
     /// The comparison matrix agrees: `cmp(a,b)`, `cmp(a.batch(),b)`,
     /// `cmp(a,b.batch())`, and `cmp(a.batch(),b.batch())` all equal the bare
     /// version comparison (a fresh batch reflects its version).
@@ -613,96 +586,10 @@ proptest! {
     }
 }
 
-proptest! {
-    /// The join lattice laws on impl values: upper bound, least upper bound,
-    /// commutative/associative/idempotent, identity, and absorbing.
-    #[test]
-    fn lattice_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let a = from_oracle_version(&vs[i % n]);
-        let b = from_oracle_version(&vs[j % n]);
-        let c = from_oracle_version(&vs[k % n]);
-
-        let ab = a.clone() | b.clone();
-        prop_assert!(le(&a, &ab) && le(&b, &ab)); // upper bound
-
-        // Least upper bound: any common upper bound dominates a|b.
-        let upper = ab.clone() | c.clone();
-        prop_assert!(le(&a, &upper) && le(&b, &upper));
-        prop_assert!(le(&ab, &upper));
-
-        prop_assert!(ab == (b.clone() | a.clone())); // commutative
-        let lhs = (a.clone() | b.clone()) | c.clone();
-        let rhs = a.clone() | (b.clone() | c.clone());
-        prop_assert!(lhs == rhs); // associative
-        prop_assert!((a.clone() | a.clone()) == a); // idempotent
-
-        prop_assert!((Version::new() | a.clone()) == a); // identity
-
-        if le(&a, &b) {
-            prop_assert!((a.clone() | b.clone()) == b); // absorbing
-        }
-    }
-}
-
-proptest! {
-    /// The meet semilattice laws on impl values: lower bound, greatest lower
-    /// bound, commutative/associative/idempotent, bottom absorbing, and the two
-    /// lattice absorption laws tying `&` to `|`. Dual to [`lattice_laws`].
-    #[test]
-    fn meet_lattice_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
-        let cs = run(&ops);
-        let vs = versions(&cs);
-        let n = vs.len();
-        let a = from_oracle_version(&vs[i % n]);
-        let b = from_oracle_version(&vs[j % n]);
-        let c = from_oracle_version(&vs[k % n]);
-
-        let ab = a.clone() & b.clone();
-        prop_assert!(le(&ab, &a) && le(&ab, &b)); // lower bound
-
-        // Greatest lower bound: any common lower bound is dominated by a&b.
-        let lower = ab.clone() & c.clone();
-        prop_assert!(le(&lower, &a) && le(&lower, &b));
-        prop_assert!(le(&lower, &ab));
-
-        prop_assert!(ab == (b.clone() & a.clone())); // commutative
-        let lhs = (a.clone() & b.clone()) & c.clone();
-        let rhs = a.clone() & (b.clone() & c.clone());
-        prop_assert!(lhs == rhs); // associative
-        prop_assert!((a.clone() & a.clone()) == a); // idempotent
-
-        prop_assert!((Version::new() & a.clone()) == Version::new()); // bottom absorbing
-
-        // Absorption ties the two operations into a lattice.
-        prop_assert!((a.clone() & (a.clone() | b.clone())) == a); // a & (a|b) == a
-        prop_assert!((a.clone() | (a.clone() & b.clone())) == a); // a | (a&b) == a
-
-        if le(&a, &b) {
-            prop_assert!((a.clone() & b.clone()) == a); // a<=b ⇒ a&b == a
-        }
-    }
-}
-
-proptest! {
-    /// `tick` strictly advances the causal order: `a < a.tick(p)`.
-    #[test]
-    fn monotone_tick(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let (party, version) = cs[i % n].trees();
-        let a = from_oracle_version(version);
-        let p = from_oracle_party(party);
-
-        let mut b = a.clone();
-        b.tick(&p);
-        prop_assert!(le(&a, &b)); // a <= a.tick
-        prop_assert!(!le(&b, &a)); // strictly: not a.tick <= a
-        prop_assert!(a != b);
-    }
-}
+// The lattice, order, tick, and projection laws on impl values live in
+// `crate::laws` and are driven by the algebraic-laws suite over both
+// arbitrary normal forms and these same op-trace populations; this file
+// keeps the differential and mechanism-level tests.
 
 // ───────────────────────── complexity (linear scaling) ─────────────────────────
 
@@ -1509,57 +1396,19 @@ proptest! {
         );
     }
 
-    /// `Rank` is a totally ordered commutative monoid and its own laws
-    /// say so: commutativity, associativity, the `ZERO` identity,
-    /// add-monotonicity, and `checked_sub` as the partial inverse with
-    /// `Some` exactly on `rhs <= self`.
-    #[test]
-    fn rank_monoid_and_order_laws(seeds in proptest::collection::vec(any::<u64>(), 3)) {
-        let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
-        let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
-        prop_assert_eq!(a + b, b + a);
-        prop_assert_eq!(&(a + b) + c, a + &(b + c));
-        prop_assert_eq!(a + &super::Rank::ZERO, a.clone());
-        prop_assert!(&(a + b) >= a, "addition never shrinks a rank");
-        prop_assert_eq!(
-            (a + b).checked_sub(b).expect("a + b dominates b"),
-            a.clone()
-        );
-        prop_assert_eq!(a.checked_sub(b).is_some(), b <= a);
-        if let Some(d) = a.checked_sub(b) {
-            prop_assert_eq!(&d + b, a.clone());
-        }
-    }
-
-    /// Value-equal ranks built along different operation paths are one
-    /// structural value.
+    /// Every `laws::RANK_TRIPLE` law (the monoid, order, and cross-path
+    /// normalization laws) holds on adversarial seeded ranks.
     ///
-    /// Pairwise addition, `Sum`, and add-then-subtract land on identical
-    /// representations, equal under `Eq` and under `Hash` — the
-    /// normalization invariant `Ord`'s class-first fast path and every
-    /// container key rest on.
+    /// Mixed magnitude classes, spilled numerators, and perturbed exponents:
+    /// the regime the version-derived driver in the algebraic-laws suite
+    /// cannot reach.
     #[test]
-    fn rank_cross_path_normalization_and_hash(seeds in proptest::collection::vec(any::<u64>(), 3)) {
-        use core::hash::{Hash, Hasher};
-        use std::collections::hash_map::DefaultHasher;
-
-        fn hash_of(r: &super::Rank) -> u64 {
-            let mut h = DefaultHasher::new();
-            r.hash(&mut h);
-            h.finish()
-        }
-
+    fn rank_triple_laws_on_seeded_ranks(seeds in proptest::collection::vec(any::<u64>(), 3)) {
         let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
         let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
-        let via_add = a + b;
-        let via_sum = [a.clone(), b.clone()].into_iter().sum::<super::Rank>();
-        let via_sub = (&(a + b) + c)
-            .checked_sub(c)
-            .expect("the sum dominates its summand");
-        prop_assert_eq!(&via_add, &via_sum);
-        prop_assert_eq!(&via_add, &via_sub);
-        prop_assert_eq!(hash_of(&via_add), hash_of(&via_sum));
-        prop_assert_eq!(hash_of(&via_add), hash_of(&via_sub));
+        for (name, law) in crate::laws::RANK_TRIPLE {
+            prop_assert!(law(a, b, c), "law violated: {}", name);
+        }
     }
 }
 
@@ -1662,32 +1511,6 @@ fn ranked_tiebreaks_equal_ranks_by_bytes() {
 }
 
 proptest! {
-    /// `Ranked`'s total order linearly extends causality.
-    ///
-    /// Causally ordered versions compare in the same direction, equal versions
-    /// compare equal, and *concurrent* versions are tiebroken — `cmp` returns
-    /// `Equal` exactly when the versions are equal, so `Ord` is consistent
-    /// with `Eq`.
-    #[test]
-    fn ranked_linearly_extends_causality(ops in world_strategy()) {
-        let vs: Vec<Version> = versions(&run(&ops)).iter().map(from_oracle_version).collect();
-        for a in &vs {
-            for b in &vs {
-                let ra = Ranked::from(a.clone());
-                let rb = Ranked::from(b.clone());
-                match a.partial_cmp(b) {
-                    Some(ord) => prop_assert_eq!(ra.cmp(&rb), ord),
-                    None => prop_assert_ne!(
-                        ra.cmp(&rb),
-                        Ordering::Equal,
-                        "concurrent versions are tiebroken, never equal",
-                    ),
-                }
-                prop_assert_eq!(ra == rb, a == b);
-            }
-        }
-    }
-
     /// A plain sort of `Ranked` keys delivers causes before effects: in
     /// the sorted sequence, no version is causally dominated by an earlier
     /// one.
@@ -1780,57 +1603,6 @@ fn div_can_fragment_and_raise_min_ticks() {
     let frag = &v / comb;
     assert!(frag <= v); // still a sub-version
     assert_eq!(frag.min_ticks(), 2); // but now two concurrent peaks
-}
-
-proptest! {
-    /// The projection laws over arbitrary histories: sub-version, idempotent,
-    /// event-count-nonincreasing, identity under the seed party, and a
-    /// homomorphism of both join and meet.
-    #[test]
-    fn div_by_party_laws(
-        ops in world_strategy(),
-        i in 0usize..64,
-        j in 0usize..64,
-        k in 0usize..64,
-    ) {
-        let mut imp = vec![Clock::seed()];
-        for op in &ops {
-            step_impl(&mut imp, op);
-        }
-        let n = imp.len();
-        let a = imp[i % n].version().clone();
-        let b = imp[j % n].version().clone();
-        let p = imp[k % n].party();
-
-        let proj = &a / p;
-        prop_assert!(proj <= a); // sub-version
-        prop_assert_eq!(&proj / p, proj.clone()); // idempotent
-        prop_assert_eq!(&a / &Party::seed(), a.clone()); // seed is the identity
-        // a homomorphism of join and of meet
-        prop_assert_eq!((a.clone() | b.clone()) / p, (&a / p) | (&b / p));
-        prop_assert_eq!((a.clone() & b.clone()) / p, (&a / p) & (&b / p));
-    }
-}
-
-proptest! {
-    /// Projection is additive across a fork: a party's contribution equals the
-    /// join of the contributions of the two disjoint halves it forks into. This
-    /// is the homomorphism that the join/meet distribution rests on.
-    #[test]
-    fn div_is_additive_over_fork(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let mut imp = vec![Clock::seed()];
-        for op in &ops {
-            step_impl(&mut imp, op);
-        }
-        let n = imp.len();
-        let v = imp[i % n].version().clone();
-
-        let k = j % n;
-        let whole = &v / imp[k].party(); // the un-forked party's contribution
-        let child = imp[k].fork(); // imp[k] keeps one half, `child` the other
-        let halves = (&v / imp[k].party()) | (&v / child.party());
-        prop_assert_eq!(halves, whole);
-    }
 }
 
 /// The at-rest form is the wire bytes in a length-carrying container.
