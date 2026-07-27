@@ -23,9 +23,11 @@
 //! assert_eq!(magnitude, UBig::from(1u8) << 512usize);
 //! ```
 //!
-//! Every cost this page quotes is a worst-case bound, and every one is
-//! *derived*: the two arguments that carry them (the lazy zone, the
-//! collapsing sign fold) are below, in full.
+//! Every cost this page quotes holds on adversarial input sequences —
+//! the amortized bounds are worst-case over the whole sequence, not
+//! average-case claims — and every one is *derived*: the two arguments
+//! that carry them (the lazy zone, the collapsing sign fold) are below,
+//! in full.
 //!
 //! # The problem: carry cliffs
 //!
@@ -121,11 +123,11 @@
 //! A comparison between totals of wildly different scales should not cost
 //! the wide one's width. [`Accumulator::sign_dominates_at`] returns the
 //! (always exact) sign plus a *certificate*: `decided = true` guarantees
-//! that for every adjustment `a` with `|a| < 2^(32·(floor + 1))` —
-//! including another accumulator held in digits `0..=floor`, whose
-//! redundant spelling can reach `2.01 · 2^(32·(floor + 1))`; the decision
-//! margin covers that too — `sign(v + a) = sign(v)` and `|v| > |a|`. So
-//! the caller compares against anything at or below the floor's scale
+//! `sign(v + a) = sign(v)` and `|v| > |a|` for every adjustment `a` with
+//! `|a| < 2^(32·(floor + 1))` — and moreover for any accumulator held in
+//! digits `0..=floor`: its redundant spelling can reach
+//! `2.01 · 2^(32·(floor + 1))`, and the decision margin covers that too.
+//! So the caller compares against anything at or below the floor's scale
 //! without ever folding it in:
 //!
 //! ```
@@ -169,10 +171,13 @@
 //! point grows the digit buffer to cover the shifted position, so memory
 //! is O(shift / 32) plus the operand's own digits.
 //!
-//! The `*_base` entry points are generic over [`Magnitude`], the seam for
-//! a caller's own stored-magnitude type: the operand reports whether it
-//! fits a machine word, and the accumulator dispatches to the small or
-//! wide path accordingly.
+//! The `*_base` entry points (*base*: the operand in its stored, base
+//! form, whatever type holds it) are generic over [`Magnitude`], the seam
+//! for a caller's own stored-magnitude type: the operand reports whether
+//! it fits a machine word, and the accumulator dispatches to the small or
+//! wide path accordingly. There is no from-value constructor: build with
+//! [`new`](Accumulator::new) (or `Default`) and a single `add_*` call,
+//! read out with [`sign_magnitude`](Accumulator::sign_magnitude).
 //!
 //! # When not to reach for it
 //!
@@ -191,7 +196,10 @@
 //! multiplication, no division, and no ordering between two accumulators
 //! except by subtracting one from the other and reading the difference's
 //! sign (subtract from a [`clone`](Clone::clone) when the receiver's
-//! value must survive the comparison).
+//! value must survive the comparison) — or, when the scales differ
+//! wildly, a domination certificate
+//! ([`sign_dominates_at`](Accumulator::sign_dominates_at) with
+//! `floor = other.digit_count() − 1`) that decides without folding.
 //!
 //! # Metering
 //!
@@ -206,12 +214,20 @@
 //!
 //! # Interop
 //!
-//! [`UBig`] is `dashu_int::UBig`, re-exported so callers can name exactly
-//! the type this crate compiled against. The crate requires `std`.
+//! [`UBig`] is `dashu_int::UBig` (compiled against `dashu-int` 0.5;
+//! bumping that dependency is a breaking change to this crate's API),
+//! re-exported so callers can name exactly the type this crate compiled
+//! against. The crate requires `std`; no `no_std` build is offered.
 //! [`Accumulator`] is `Clone`, `Default`, `Debug`, and `Send + Sync` —
-//! and deliberately not `PartialEq`: two spellings of one value would
-//! compare unequal, so compare by subtracting and reading the
-//! difference's sign. `touch-meter` is the crate's only feature.
+//! though `Sync` buys less than usual: every amortized-O(1) sign query
+//! takes `&mut self`, so behind a shared reference only
+//! [`is_zero`](Accumulator::is_zero),
+//! [`digit_count`](Accumulator::digit_count), and the O(held digits)
+//! [`sign_magnitude`](Accumulator::sign_magnitude) are callable — wrap in
+//! a lock for shared sign reads. It is deliberately not `PartialEq`: two
+//! spellings of one value would compare unequal, so compare by
+//! subtracting and reading the difference's sign. `touch-meter` is the
+//! crate's only feature.
 //!
 //! # Testing
 //!
@@ -256,9 +272,11 @@ use dashu_int::Word;
 
 /// Process-global counter of accumulator digit touches.
 ///
-/// Counts one per digit read-modify-write in [`Accumulator`]'s own code
-/// (plus one per operand limb read by a wide operation): the unit every
-/// cost on the crate page is denominated in. Because the counter is
+/// Present only with the `touch-meter` cargo feature. Counts one per
+/// digit read-modify-write in [`Accumulator`]'s own code (a sign-fold
+/// step counts one touch whether or not it rewrites the digit, and a
+/// wide operation adds one per operand limb read): the unit every cost
+/// on the crate page is denominated in. Because the counter is
 /// process-global with relaxed ordering, readings are meaningful only
 /// when metered scenarios run serially — [`reset`](touch_meter::reset)
 /// between them, read after the metered call returns; a default-parallel
@@ -414,6 +432,7 @@ impl Accumulator {
 
     /// Add a signed machine-word delta: amortized O(1).
     ///
+    /// The signed (`i64`) twin of [`add_u64`](Accumulator::add_u64).
     /// Exact over the full `i64` range: the delta widens before any carry
     /// arithmetic, so even `i64::MIN` lands intact.
     pub fn add_small(&mut self, delta: i64) {
@@ -452,8 +471,9 @@ impl Accumulator {
         }
     }
 
-    /// Add a wide delta: amortized O(operand limbs — its 64-bit words),
-    /// scaling with the operand's width, never the held value's.
+    /// Add a wide delta: amortized O(operand limbs), a limb being one
+    /// 64-bit word of the operand — the cost scales with the operand's
+    /// width, never the held value's.
     pub fn add_wide(&mut self, delta: &UBig) {
         self.apply_limbs(limbs(delta), false, 0);
     }
@@ -499,10 +519,11 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// Panics if a shifted digit position overflows `usize` — a `shift`
-    /// near `u64::MAX` on any target, or past `2^37` on a 32-bit one. An
-    /// in-range but enormous shift fails at allocation instead, like any
-    /// collection asked to grow to `shift / 32` entries.
+    /// Panics if the shifted digit position `shift / 32` overflows
+    /// `usize` — possible only on targets narrower than 64 bits (past
+    /// `shift = 2^37` on a 32-bit one). On 64-bit targets every `u64`
+    /// shift fits, and an enormous one fails at allocation instead, like
+    /// any collection asked to grow to `shift / 32` entries.
     pub fn add_wide_shl(&mut self, delta: &UBig, shift: u64) {
         self.apply_limbs(limbs(delta), false, shift);
     }
@@ -612,9 +633,9 @@ impl Accumulator {
     ///
     /// The subtractive twin of
     /// [`add_accum_shl`](Accumulator::add_accum_shl): each operand digit
-    /// lands negated at its shifted position (the zone is symmetric about
-    /// zero, so a negated digit is still in it — subtraction needs no
-    /// borrow machinery of its own).
+    /// lands negated at the shifted position(s) it spans (the zone is
+    /// symmetric about zero, so a negated digit is still in it —
+    /// subtraction needs no borrow machinery of its own).
     ///
     /// # Panics
     ///
@@ -743,13 +764,18 @@ impl Accumulator {
     /// like [`sign`](Accumulator::sign).
     ///
     /// Returns `(sign, decided)`. The sign is exact regardless of
-    /// `decided`; `decided = true` guarantees that for every adjustment
-    /// `a` with `|a| < 2^(32·(floor + 1))` — including another
-    /// accumulator held in digits `0..=floor`, whose redundant spelling
-    /// can reach `2.01 · 2^(32·(floor + 1))` — `sign(v + a) = sign(v)`
-    /// and `|v| > |a|`. To cover an adjustment below `2^b`, pass
-    /// `floor = b.div_ceil(32) − 1`; on `decided = false`, fold the
-    /// adjustment in and read [`sign`](Accumulator::sign).
+    /// `decided`; `decided = true` guarantees `sign(v + a) = sign(v)` and
+    /// `|v| > |a|` for every adjustment `a` with
+    /// `|a| < 2^(32·(floor + 1))`, and moreover for any accumulator held
+    /// in digits `0..=floor` (its redundant spelling can reach
+    /// `2.01 · 2^(32·(floor + 1))`; the margin covers that too). To cover
+    /// an adjustment below `2^b`, pass `floor = b.div_ceil(32) − 1`; to
+    /// compare against another accumulator, `floor = its digit_count − 1`.
+    /// `decided = false` means only that the fold could not certify
+    /// domination — it is no evidence that an adjustment can flip the
+    /// sign; fold the adjustment in (into a
+    /// [`clone`](Clone::clone) when the held value must survive the
+    /// probe) and read [`sign`](Accumulator::sign).
     ///
     /// `decided` is true exactly when the sign fold's partial reached
     /// `|s| ≥ 3` at digit index `floor + 2` or higher (so a value held in
@@ -804,6 +830,8 @@ impl Accumulator {
     ///
     /// let mut acc = Accumulator::new();
     /// acc.add_wide(&(UBig::from(1u8) << 32usize));
+    /// // The machine-word write lands whole in digit 0, so the two writes
+    /// // cancel across two digits instead of clearing one:
     /// acc.sub_small(1 << 32);
     /// assert!(!acc.is_zero());                 // zero, but spelled redundantly
     /// assert_eq!(acc.sign(), Ordering::Equal); // the exact test — and it collapses,
@@ -890,16 +918,17 @@ impl Accumulator {
     }
 
     /// Fold `other`'s held value into this one — `self` ends holding the
-    /// sum — reading only the operand with fewer held digits: amortized
+    /// sum — and return the spare buffer, **not** the sum: amortized
     /// O(the narrower operand's held digits) plus an O(1) buffer swap.
     ///
-    /// The sum always lands in whichever buffer held more digits
-    /// (buffers are swapped first when `other` is the wider), so the
-    /// digits a dying operand holds fund the fold that consumes it. The
-    /// other buffer is returned for the caller's pool: it is a valid
-    /// accumulator holding an unspecified value — every operation on it
-    /// remains memory-safe, but answers about that value are meaningless
-    /// until [`reset`](Accumulator::reset).
+    /// Only the operand with fewer held digits is read: the sum always
+    /// lands in whichever buffer held more (buffers are swapped first
+    /// when `other` is the wider; on a tie, `self`'s buffer keeps the
+    /// sum), so the digits a dying operand holds fund the fold that
+    /// consumes it. The returned buffer is for the caller's pool: a
+    /// valid accumulator holding an unspecified value — every operation
+    /// on it remains memory-safe, but answers about that value are
+    /// meaningless until [`reset`](Accumulator::reset).
     ///
     /// ```
     /// use suanpan::{Accumulator, UBig};
@@ -909,10 +938,10 @@ impl Accumulator {
     /// let mut wide = Accumulator::new();
     /// wide.add_wide_shl(&UBig::from(1u8), 640);
     /// let mut spare = sum.merge_into_wider(wide); // reads 1 digit, not 21
-    /// let (_, magnitude) = sum.sign_magnitude();
+    /// let (_, magnitude) = sum.sign_magnitude();  // the sum lives in `sum`,
     /// assert_eq!(magnitude, (UBig::from(1u8) << 640usize) + 7u8);
-    /// spare.reset();                              // re-arm the drained buffer
-    /// assert!(spare.is_zero());
+    /// spare.reset();                              // NOT in `spare`: reset it
+    /// assert!(spare.is_zero());                   // before any reuse
     /// ```
     pub fn merge_into_wider(&mut self, other: Accumulator) -> Accumulator {
         let mut other = other;

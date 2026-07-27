@@ -27,9 +27,11 @@ assert_eq!(sign, Ordering::Greater);
 assert_eq!(magnitude, UBig::from(1u8) << 512usize);
 ```
 
-Every cost this page quotes is a worst-case bound, and every one is
-*derived*: the two arguments that carry them (the lazy zone, the
-collapsing sign fold) are below, in full.
+Every cost this page quotes holds on adversarial input sequences —
+the amortized bounds are worst-case over the whole sequence, not
+average-case claims — and every one is *derived*: the two arguments
+that carry them (the lazy zone, the collapsing sign fold) are below,
+in full.
 
 ## The problem: carry cliffs
 
@@ -125,11 +127,11 @@ does.
 A comparison between totals of wildly different scales should not cost
 the wide one's width. `Accumulator::sign_dominates_at` returns the
 (always exact) sign plus a *certificate*: `decided = true` guarantees
-that for every adjustment `a` with `|a| < 2^(32·(floor + 1))` —
-including another accumulator held in digits `0..=floor`, whose
-redundant spelling can reach `2.01 · 2^(32·(floor + 1))`; the decision
-margin covers that too — `sign(v + a) = sign(v)` and `|v| > |a|`. So
-the caller compares against anything at or below the floor's scale
+`sign(v + a) = sign(v)` and `|v| > |a|` for every adjustment `a` with
+`|a| < 2^(32·(floor + 1))` — and moreover for any accumulator held in
+digits `0..=floor`: its redundant spelling can reach
+`2.01 · 2^(32·(floor + 1))`, and the decision margin covers that too.
+So the caller compares against anything at or below the floor's scale
 without ever folding it in:
 
 ```rust
@@ -173,10 +175,13 @@ Digit touches are shift-independent; memory is not. A shifted entry
 point grows the digit buffer to cover the shifted position, so memory
 is O(shift / 32) plus the operand's own digits.
 
-The `*_base` entry points are generic over `Magnitude`, the seam for
-a caller's own stored-magnitude type: the operand reports whether it
-fits a machine word, and the accumulator dispatches to the small or
-wide path accordingly.
+The `*_base` entry points (*base*: the operand in its stored, base
+form, whatever type holds it) are generic over `Magnitude`, the seam
+for a caller's own stored-magnitude type: the operand reports whether
+it fits a machine word, and the accumulator dispatches to the small or
+wide path accordingly. There is no from-value constructor: build with
+`new` (or `Default`) and a single `add_*` call,
+read out with `sign_magnitude`.
 
 ## When not to reach for it
 
@@ -195,7 +200,10 @@ out through `sign_magnitude` — no
 multiplication, no division, and no ordering between two accumulators
 except by subtracting one from the other and reading the difference's
 sign (subtract from a `clone` when the receiver's
-value must survive the comparison).
+value must survive the comparison) — or, when the scales differ
+wildly, a domination certificate
+(`sign_dominates_at` with
+`floor = other.digit_count() − 1`) that decides without folding.
 
 ## Metering
 
@@ -210,12 +218,20 @@ touch is one relaxed atomic increment.
 
 ## Interop
 
-`UBig` is `dashu_int::UBig`, re-exported so callers can name exactly
-the type this crate compiled against. The crate requires `std`.
+`UBig` is `dashu_int::UBig` (compiled against `dashu-int` 0.5;
+bumping that dependency is a breaking change to this crate's API),
+re-exported so callers can name exactly the type this crate compiled
+against. The crate requires `std`; no `no_std` build is offered.
 `Accumulator` is `Clone`, `Default`, `Debug`, and `Send + Sync` —
-and deliberately not `PartialEq`: two spellings of one value would
-compare unequal, so compare by subtracting and reading the
-difference's sign. `touch-meter` is the crate's only feature.
+though `Sync` buys less than usual: every amortized-O(1) sign query
+takes `&mut self`, so behind a shared reference only
+`is_zero`,
+`digit_count`, and the O(held digits)
+`sign_magnitude` are callable — wrap in
+a lock for shared sign reads. It is deliberately not `PartialEq`: two
+spellings of one value would compare unequal, so compare by
+subtracting and reading the difference's sign. `touch-meter` is the
+crate's only feature.
 
 ## Testing
 
