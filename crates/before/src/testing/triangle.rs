@@ -36,9 +36,9 @@
 //! - [`Leg::Trans`]: bound transitively — the operation reduces by
 //!   definition to a bound one, or the leg is the composition of the other
 //!   two bound legs; the named test anchors the reduction.
-//! - [`Leg::Excluded`]: not bound, with the reason. Exclusions whose
-//!   boundary rationale awaits the owner's sign-off carry the marker
-//!   "pending owner ratification (2026-07-26)".
+//! - [`Leg::Excluded`]: not bound, with the reason. The function-space
+//!   boundary's exclusion dispositions are the owner's, marked
+//!   "ratified by owner, 2026-07-26" at each reason.
 //!
 //! # Exclusion families
 //!
@@ -130,7 +130,7 @@ const fn codec_row(op: &'static str) -> SurfaceRow {
         ),
         prod_fs: Leg::Excluded(
             "a function has no byte representation; representation is exactly what the \
-             semantic domain quotients away — pending owner ratification (2026-07-26)",
+             semantic domain quotients away — ratified by owner, 2026-07-26",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
     }
@@ -164,12 +164,12 @@ const fn causally_row(op: &'static str) -> SurfaceRow {
     }
 }
 
-/// The n-ary hand-back exclusion: which values come back, in what order,
-/// against the fixed accumulator is not a function of the geometry; a
-/// verdict-only binding would read as coverage while the real contract
-/// stayed unbound.
+/// The n-ary hand-back exclusion, shared by the `join_all`/`forks`
+/// family of rows; the reason carries the half-binding rationale.
 const HANDBACK: &str = "hand-back value identity and order against the fixed accumulator \
-     are not functions of the geometry — pending owner ratification (2026-07-26)";
+     are not functions of the geometry, and a verdict-only binding would read as \
+     coverage while the hand-back contract stayed unbound — ratified by owner, \
+     2026-07-26";
 
 /// The roster over the mechanically-extracted inherent `pub fn` surface.
 /// `roster_is_total_over_the_public_fn_surface` holds this equal, name for
@@ -187,7 +187,7 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Bound("is_seed_matches_the_oracle"),
         prod_fs: Leg::Excluded(
             "API-convenience predicate; the function-space boundary excludes Rust API \
-             mechanics — pending owner ratification (2026-07-26)",
+             mechanics — ratified by owner, 2026-07-26",
         ),
         tree_fs: Leg::Excluded(
             "definitional: in normal form the full region is exactly the oracle seed \
@@ -252,7 +252,7 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
              counterpart — pinned on production by dangerously_alias_aliases_region",
         ),
         prod_fs: Leg::Excluded(
-            "linearity mechanics of the Rust API — pending owner ratification (2026-07-26)",
+            "linearity mechanics of the Rust API — ratified by owner, 2026-07-26",
         ),
         tree_fs: Leg::Excluded("linearity mechanics of the Rust API"),
     },
@@ -317,24 +317,24 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         op: "Version::join_all",
         prod_tree: Leg::Trans("join_all_equals_the_sequential_fold"),
         prod_fs: Leg::Excluded(
-            "n-ary pointwise-max realization proposed — pending owner ratification \
-             (2026-07-26)",
+            "n-ary pointwise-max realization not adopted; the operation stays bound \
+             on its prod↔tree leg — ratified by owner, 2026-07-26",
         ),
         tree_fs: Leg::Excluded(
-            "n-ary pointwise-max realization proposed — pending owner ratification \
-             (2026-07-26)",
+            "n-ary pointwise-max realization not adopted; the operation stays bound \
+             on its prod↔tree leg — ratified by owner, 2026-07-26",
         ),
     },
     SurfaceRow {
         op: "Version::meet_all",
         prod_tree: Leg::Bound("meet_all_matches_oracle"),
         prod_fs: Leg::Excluded(
-            "n-ary pointwise-min realization proposed — pending owner ratification \
-             (2026-07-26)",
+            "n-ary pointwise-min realization not adopted; the operation stays bound \
+             on its prod↔tree leg — ratified by owner, 2026-07-26",
         ),
         tree_fs: Leg::Excluded(
-            "n-ary pointwise-min realization proposed — pending owner ratification \
-             (2026-07-26)",
+            "n-ary pointwise-min realization not adopted; the operation stays bound \
+             on its prod↔tree leg — ratified by owner, 2026-07-26",
         ),
     },
     batch_row("Version::batch"),
@@ -442,7 +442,7 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
              which dangerously_alias_aliases_region pins",
         ),
         prod_fs: Leg::Excluded(
-            "linearity mechanics of the Rust API — pending owner ratification (2026-07-26)",
+            "linearity mechanics of the Rust API — ratified by owner, 2026-07-26",
         ),
         tree_fs: Leg::Excluded("linearity mechanics of the Rust API"),
     },
@@ -536,12 +536,12 @@ pub(crate) const FAMILY_SURFACE: &[SurfaceRow] = &[
         op: "Version Sum / FromIterator (owned and borrowed)",
         prod_tree: Leg::Trans("join_all_equals_the_sequential_fold"),
         prod_fs: Leg::Excluded(
-            "n-ary pointwise-max realization proposed — pending owner ratification \
-             (2026-07-26)",
+            "n-ary pointwise-max realization not adopted; the operation stays bound \
+             on its prod↔tree leg — ratified by owner, 2026-07-26",
         ),
         tree_fs: Leg::Excluded(
-            "n-ary pointwise-max realization proposed — pending owner ratification \
-             (2026-07-26)",
+            "n-ary pointwise-max realization not adopted; the operation stays bound \
+             on its prod↔tree leg — ratified by owner, 2026-07-26",
         ),
     },
     SurfaceRow {
