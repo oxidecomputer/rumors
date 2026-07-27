@@ -26,10 +26,11 @@ The measured picture, per packed input byte:
   nanosecond per byte and below): the resting form is the wire form
   (@canonical), so these operations do not process the value at all —
   they move or compare bytes.
-- *Validating decode, comparison, the id predicates* sit within a
-  single-digit factor of a bare bit-scanning loop: single-digit to
-  tens of nanoseconds per byte. This is the price of actually looking
-  at every code once, plus the canonicality checks.
+- *Validating decode, comparison, the party predicates* sit at a few
+  to a few tens of nanoseconds per byte — a small multiple (well
+  under ten) of a bare loop that visits every bit of the same buffer
+  and does nothing else. This is the price of actually decoding
+  every code once, plus the canonicality checks.
 - *The arithmetic sweeps* — join, meet, tick, projection, rank —
   sit roughly an order of magnitude above reading: tens to low
   hundreds of nanoseconds per byte, the cost of decoding every
@@ -46,9 +47,11 @@ previous sections land in the same bands as organic values of the
 same size. Flat constants are the resilience thesis made visible at
 the nanosecond scale; a shape-sensitive constant is a small
 amplifier waiting for a bigger denominator. End to end, against the
-direct transcription of @naive running the same workloads, the
-sweeps measure between $2 times$ and $20 times$ faster — while
-holding the worst-case guarantees the transcription lacks entirely.
+direct transcription running the bench corpus's _organic_ workloads
+— values of tens to hundreds of bytes, where the transcription's
+quadratics stay dormant — the sweeps measure between $2 times$ and
+$20 times$ faster; on @families' adversarial shapes the ratio is
+unbounded by construction, a class apart rather than a multiple.
 
 == What the cache sees <cache>
 
@@ -108,13 +111,17 @@ strongly biased and predicts well.
 == Depth without frames <depth-machine>
 
 Every walk is iterative. Suspended ancestors cost about two _bits_
-each on packed stacks (@validation), so a tree $10^5$ levels deep —
-a thirty-kilobyte message — costs the walk about twenty-five
-kilobytes of transient stack bits and no native stack at all: no
-overflow, no guard pages, no frame setup and teardown in the hot
-loop. The direct transcription's $approx 800 times$ frame
-amplification (@naive-recursion) is replaced by a constant near
-$2/3$ — the state is _smaller_ than the input's own topology bits.
+each on packed stacks in nearly every walk (@validation; the two
+exceptions are stated where they live — `min_ticks` holds a machine
+word per open ancestor, and the watermark stack holds bounded
+differences — each still linear, each priced). A tree $10^5$ levels
+deep — a forty-kilobyte message — costs the overlay walk about
+twenty-five kilobytes of packed stack state (two hundred kilobits)
+and no native stack at all: no overflow, no guard pages, no frame
+setup and teardown in the hot loop. The direct transcription's
+$approx 800 times$ frame amplification (@naive-recursion) is
+replaced by a constant near two-thirds — the state is _smaller_ than
+the input's own topology bits.
 
 The whole section compresses to one sentence: the skyline turns
 every clock operation into the one workload — a forward scan of

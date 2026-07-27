@@ -15,8 +15,10 @@ For each $n$, let $S(n)$ be the set of versions whose canonical
 stream fits in $n$ bits, and let $H(n) = log_2 |S(n)|$. _Any_
 injective assignment of bit strings to the members of $S(n)$ — ours,
 or the best conceivable replacement, prefix-free or not — must give
-some member at least about $H(n)$ bits, by pigeonhole. Our coding
-spends at most $n$ on every member, by definition of $S(n)$. So the
+some member at least $H(n)$ bits or so: fewer than $2^(H(n))$
+distinct strings are shorter than $H(n)$, and there are $2^(H(n))$
+members to name. Our coding spends at most $n$ on every member, by
+definition of $S(n)$. So the
 _worst-case multiplicative overhead_ of the coding, against a floor
 that any competitor also faces on the same set, is
 
@@ -39,9 +41,9 @@ canonical streams are there?_
 The stream grammar is small enough to count exactly. A stream is a
 full binary tree in preorder; each leaf carries a gamma-coded
 payload; a leaf that is the _right sibling of a leaf_ may not carry
-payload zero (the collapse rule); the tree must be complete with no
-trailing bits. Set nonnegativity aside for a moment — @nonneg prices
-it separately.
+payload zero (the sibling-merge rule, @canonical); the tree must be
+complete with no trailing bits. Set nonnegativity aside for a
+moment — @nonneg prices it separately.
 
 Count with generating functions in a formal variable $x$ marking
 bits. The payload code puts $2^k$ values at cost exactly $2k + 1$
@@ -57,26 +59,34 @@ with the exclusion binding exactly when both children are leaves:
 
 $ B = x (A A' + A B + B A + B B), quad V = A + B $
 
-($V$ generating all canonical streams). Solving the quadratic for
-$B$, the count of $n$-bit streams grows as the reciprocal of the
+($V$ generating all canonical streams). In standard form the
+equation for $B$ is the quadratic
+
+$ x B^2 + (2 x A - 1) B + x A A' = 0, $
+
+and the count of $n$-bit streams grows as the reciprocal of the
 dominant singularity: the branch point where the discriminant
 
 $ Delta(x) = (1 - 2 x A)^2 - 4 x^2 A A' $
 
 vanishes. Substituting $A$ and $A'$ and clearing denominators,
-$Delta = 0$ reduces to the quartic
+$Delta = 0$ reduces to $(1 - 2 x^2 - 2 x^3)^2 = 8 x^8$, whose two
+sign branches give two quartics; the minus branch
 
-$ 1 - 2 x^2 - 2 x^3 - 2 sqrt(2) x^4 = 0, $
+$ 1 - 2 x^2 - 2 x^3 - 2 sqrt(2) x^4 = 0 $
 
-whose smallest positive root is $x_c = 0.514500dots$ — safely inside
-$G$'s own radius of convergence $1 \/ sqrt(2)$, so the branch point
-governs. By the standard transfer for square-root singularities, the
-number of exactly-$n$-bit canonical streams is
-$Theta(2^(alpha n) n^(-3\/2))$ with
+carries the smaller positive root and hence the operative
+singularity, $x_c = 0.514500dots$ — safely inside $G$'s own radius of
+convergence $1 \/ sqrt(2)$, so the branch point governs. By the
+standard transfer for square-root singularities, the number of
+exactly-$n$-bit canonical streams is $Theta(2^(alpha n) n^(-3\/2))$
+with
 
 $ alpha = log_2 (1 / x_c) = 0.958757dots, $
 
-hence $H(n) = alpha n - 3/2 log_2 n + O(1)$ and
+hence — summing over lengths up to $n$ changes nothing, since the
+series is geometrically dominated by its last terms —
+$H(n) = alpha n - 3/2 log_2 n + O(1)$ and
 
 $ n / H(n) --> 1 / alpha = 1.043017dots $
 
@@ -115,16 +125,23 @@ this exact.
 
 The remaining canonical rule — no delta may drive the running height
 negative — prunes more strings, but only polynomially many. The
-zigzag map puts $+m$ and $-m$ in the same gamma bucket, so the
-height walk's step distribution is cost-symmetric; for symmetric
+zigzag map puts $+m$ and $-m$ in the same gamma bucket (they could
+land in different buckets only if a power of two fell strictly
+between $2m$ and $2m + 1$, and none can), so under the uniform
+counting measure on streams of a given length the height walk's
+steps behave as draws from a sign-symmetric distribution; for such
 walks, the probability that all $ell$ partial sums stay nonnegative
-is $Theta(ell^(-1\/2))$ (Sparre–Andersen universality). A polynomial
-factor does not move the exponential growth rate, so $alpha$ is
-untouched; the effect on $H$ is $Theta(log n)$ bits. (This is the
-one probabilistic step in the section; the finite-$n$ numbers below
-do not rest on it — they come from exact bracketing counts — and the
-census corroborates it directly: about three bits of $H$ at
-$n = 800$.)
+is $Theta(ell^(-1\/2))$ (Sparre–Andersen-type universality). A
+polynomial factor does not move the exponential growth rate, so
+$alpha$ is untouched; the effect on $H$ is $Theta(log n)$ bits. This
+is the section's one probabilistic step — the second of the
+introduction's three boundaries — and it is heuristic in one honest
+respect: the steps share a total bit budget, so they are only
+approximately independent draws. We lean on it solely for the
+asymptotic rate; the finite-$n$ numbers below come from exact
+bracketing counts that do not touch it, and the census corroborates
+the rate directly (about three bits of $H$ at $n = 800$, growing
+logarithmically).
 
 == Finite sizes <finite>
 
@@ -140,14 +157,17 @@ where the exact count is out of computational reach):
     stroke: 0.4pt + gray-line,
     inset: 6pt,
     table.header([*stream budget*], [*bits* $n$], [*overhead* $n \/ H(n)$]),
-    [50 bytes], [400], [$approx 1.086$],
-    [100 bytes], [800], [$1.067$],
+    [50 bytes], [400], [$1.0863 dash 1.0865$],
+    [100 bytes], [800], [$1.0669 dash 1.0673$],
     [200 bytes], [1600], [$approx 1.056$],
     [2 kilobytes], [16 384], [$approx 1.045$],
     [asymptotic], [—], [$1.043017$],
   ),
   caption: [Worst-case overhead against the counting floor, by stream
-    size. At 100 bytes — a realistic version under heavy history —
+    size. Rows quoted as ranges are rigorously bracketed by the over-
+    and under-counting families; the "$approx$" rows extrapolate by
+    the validated closed form, beyond the brackets' computational
+    reach. At 100 bytes — a realistic version under heavy history —
     the coding is within $6.7%$ of the floor: $4.3$ points of
     canonicality tax, about $1.9$ of universal finite-size effect
     (the $3/2 log_2 n$ term every maximal code pays), and about
@@ -168,16 +188,35 @@ one does.
 
 Why accept a code with that exposure? Because the alternative is
 worse where it matters. Integer codes exist whose counting overhead
-is exactly $1 times$ asymptotically (Elias delta and omega: Kraft-
-complete _and_ critical exactly at capacity, so the canonicality
-pruning costs them nothing) — but the versions they cover more
-cheaply are the few-plateau, giant-payload ones, and they pay for it
-pointwise on small values: gamma is better than or equal to both _on
-every value below 31_. Measured across organic gossip histories, 85
-to 93 percent of payload values are at most 15 — normalization
-exists precisely to keep neighboring plateaus close — so the mass
-sits squarely in gamma's winning range. The $4.3%$ counting tax and
-the factor-2 exposure on uniformly-wide families are the deliberate
-price of logarithmic cost on the deltas the system actually
-produces. A compactness claim is a bet about workloads; this section
-states the bet's terms and the measured reason to take it.
+is exactly $1 times$ asymptotically — Elias delta and omega. That
+sounds like it contradicts @tax (gamma is Kraft-complete too; the
+tax was "all canonicality"), so the reconciliation deserves a
+sentence. The sibling-merge pruning is the same rule under any
+payload code; what differs is _where each code's counting mass
+lives_. Gamma prices a value near $2^c$ at about $2c$ bits, so its
+capacity-achieving streams are leaf-rich with modest payloads — and
+a per-sibling-pair exclusion bites a constant fraction of the
+choices at a constant fraction of the nodes. Delta prices the same
+value at $c + O(log c)$, so its counting mass concentrates on
+few-leaf, giant-payload streams, where sibling pairs — the only
+thing pruned — are vanishingly rare. Formally: delta's and omega's
+generating functions are themselves critical exactly at $x = 1\/2$,
+and with them substituted the discriminant stays positive on the
+whole interval (at $x = 1\/2$ it evaluates to $1\/8$), so no branch
+point forms below the code's own singularity and $alpha = 1$: the
+pruning never becomes the binding constraint.
+
+The catch is where those codes win: the versions delta covers more
+cheaply are exactly the few-plateau, giant-payload ones, and it pays
+pointwise on small values — gamma is better than or equal to both
+_on every value below 31_. Measured across organic gossip
+histories, 85 to 93 percent of payload values are at most 15
+(normalization exists precisely to keep neighboring plateaus
+close), and re-coding those corpora under delta or omega costs six
+to nine percent _more_ total bytes — the workload number that
+settles the bet the counting metric alone cannot. The $4.3%$
+counting tax and the factor-2 exposure on uniformly-wide families
+are the deliberate price of logarithmic cost on the deltas the
+system actually produces. A compactness claim is a bet about
+workloads; this section states the bet's terms and the measured
+reason to take it.

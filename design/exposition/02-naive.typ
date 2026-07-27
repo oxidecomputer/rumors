@@ -16,21 +16,26 @@ built later.
 
 == Two lengths to fear <lengths>
 
-Fix an encoded input of $n$ bits. Two quantities inside it can each be
-$Theta(n)$ on their own:
+Fix an encoded input of $n$ bits. Two quantities inside it can each
+be $Theta(n)$ on their own:
 
 - *Depth* $d$: a chain of nodes costs a constant number of bits per
-  level, so a few kilobytes of input can encode a tree tens of
-  thousands of levels deep.
+  level — about three, in the paper's coding and in the coding of
+  @skyline alike (the paper spends a 3-bit node tag per spine level;
+  the skyline an internal flag plus the off-spine leaf's flag and a
+  1-bit payload) — so a few tens of kilobytes of input encode a tree
+  a hundred thousand levels deep.
 - *Magnitude width* $W$: a single stored integer can occupy nearly the
   whole input — a value near $2^n$ in one leaf.
 
 Every cost of the form "per node, work proportional to a magnitude" is
 therefore a latent quadratic: the input can buy $Theta(n)$ nodes and
 $Theta(n)$-bit values *in the same bytes* and make the implementation
-multiply them. The three constructions below — each an ordinary,
-canonical, normal-form value that decodes cleanly — are the ones to
-hold in mind. We will reuse them throughout.
+multiply them. @families collects the adversarial constructions this
+document builds — each an ordinary, canonical, normal-form value that
+decodes cleanly — with a forward pointer for the ones whose
+construction needs machinery we do not have yet. Each is named once,
+here, and the names are used consistently through @resilience.
 
 #figure(
   table(
@@ -48,13 +53,24 @@ hold in mind. We will reuse them throughout.
     [_deep spine_$(d)$],
     [an alternating chain, $d$ levels, small values],
     [recursion itself: frames, stack depth],
+    [_boundary comb_$(t, k)$],
+    [$t$ teeth of $plus.minus 1$ steps astride the value $2^k$
+      (built in @ladder)],
+    [any normalized running quantity — the carry cliff],
+    [_wide-tooth comb_$(t, k)$],
+    [teeth of width-$Theta(k)$ steps astride a far larger cliff
+      (built in @two-zone)],
+    [partially-normalized ("two-zone") running quantities],
   ),
-  caption: [Three adversarial families. Each is a legal value whose
-    encoded size is $Theta(d)$ or $Theta(W)$ bits; each is
-    constructible by an honest history, merely unlikely.],
+  caption: [The first five adversarial families; two more (the
+    _descending staircase_ and the _reveal comb_) arrive with the tick
+    walk in @tick. Each is a legal, canonical value the decoder must
+    accept; several are unreachable by any honest history at the
+    scales that hurt — which is exactly the point. Validity, not
+    provenance, is what bounds cost at a byte boundary.],
 ) <families>
 
-== Defect 1: path sums in comparison and join
+== Defect 1: path sums in comparison and join <path-sums>
 
 The paper's comparison lifts subtrees as it descends:
 
@@ -71,11 +87,14 @@ one of the $d$ frames on the way down owns a live $W$-bit sum.
 
 Time is $Theta(d dot W)$ bit-operations and transient memory is
 $Theta(d dot W)$ bits, on an input of $Theta(d + W)$ bits. Choosing
-$d approx W approx n\/2$ makes both quadratic in the input. This is
-not a corner case that needs contriving: measured on our direct
-transcription before any cure, a 29-kilobyte operand pair drove
-transient memory to roughly $6,700 times$ its input — approaching two
-hundred megabytes — inside a single comparison.
+$d approx W approx n\/2$ makes both quadratic: the amplification
+ratio scales as $d W \/ (d + W)$, growing without bound as the
+operand grows. This is not a corner case that needs contriving:
+measured on our direct transcription before any cure, a `bigroot`
+operand pair of 29 kilobytes drove transient memory to roughly
+$6,700 times$ its input — approaching two hundred megabytes — inside
+a single comparison, and the ratio kept growing with the operand,
+as the formula says it must.
 
 Join has the same skeleton (`join` lifts one side by the base
 difference, $r_2 arrow.t (n_2 - n_1)$, at every paired node) and adds
@@ -90,13 +109,16 @@ which only exist, at a node, as the sum of everything above it.
 The appendix's integer coding is a chain of grow-by-one-bit stages,
 and the natural decoder accumulates one bit at a time into a heap
 integer: shift, add, repeat. Appending a bit to a $t$-bit accumulator
-costs $Theta(t)$ bit-work in a normalized representation, so a single
-$W$-bit value decodes in
+rewrites all $Theta(t \/ 64)$ of its machine words in a normalized
+representation, so a single $W$-bit value decodes in
 
-$ sum_(t = 1)^(W) Theta(t) = Theta(W^2). $
+$ sum_(t = 1)^(W) Theta(t / 64) = Theta(W^2 \/ 64) "word operations." $
 
-On `hugeleaf` this is the whole input: measured before the cure, one
-four-megabit value took over fourteen seconds to decode; the cured
+On `hugeleaf` this is the whole input, and the arithmetic reconciles
+with the wall clock: at $W = 4 dot 10^6$ bits, each append rewrites a
+half-megabyte buffer, four million times — two terabytes of memory
+traffic, which at memory-bandwidth speed is right where the
+measurement landed: over fourteen seconds for one value. The cured
 decoder (accumulate machine words, splice them once) does the same
 work in milliseconds, linearly. The defect looks trivial once named —
 of course you buffer words — but it is worth its own entry for two
@@ -110,12 +132,13 @@ once, not $W$ payments of growing size.
 == Defect 3: recursion is a representation choice <naive-recursion>
 
 Every operation in the paper is a structural recursion, and a
-transcription runs it on the call stack: one native frame — return
-address, saved registers, spilled locals, the lifted temporaries of
-Defect 1 — per tree level. A frame is tens of bytes against the
-roughly *three bits* the level cost on the wire, a memory
-amplification measured near $800 times$ in our transcription, with a
-harder edge behind it: default thread stacks are a few megabytes, so
+transcription runs it on the call stack: one native frame per tree
+level. A bare frame — return address, saved registers — is tens of
+bytes against the roughly *three bits* the level cost on the wire,
+already a hundredfold amplification; with each frame's spilled
+locals and temporaries the stack cost measured near $300$ bytes per
+level in our transcription, $800 times$ the wire. And there is a
+harder edge behind the constant: default thread stacks are a few megabytes, so
 `deep spine`$(d)$ overflows the stack — crashes the process, or forces
 a guard-page fault handler — at $d$ around $10^5$, an input of some
 tens of kilobytes. A library that can be crashed by a short message it
@@ -138,7 +161,7 @@ linear. It would remain slow by constant factors that compound:
   memory access pattern is a linked-structure traversal: each step a
   dependent load, likely a cache miss, at hundreds of cycles apiece
   when the tree is cold. The information content of a node — around
-  three bits — travels in a cache line of 512.
+  three bits — travels in a 64-byte (512-bit) cache line.
 - *Allocation.* Every lift, every `norm`, every join builds nodes;
   every node is an allocator round trip. The paper's operations are
   algebraically pure, and purity transcribed naively is an allocation
@@ -173,9 +196,10 @@ needed.
 Consider now a value whose plateaus oscillate between $2^k - 1$ and
 $2^k$ — in binary, between $0underbrace(11 dots 1, k)$ and
 $1underbrace(00 dots 0, k)$. Call the boundary between them a _carry
-cliff_: stepping across it rewrites $k + 1$ bits, so each crossing
-costs $Theta(k)$ work in any normalized representation, no matter how
-small the step. A value with $t$ teeth astride one cliff extracts
+cliff_, and the value the *boundary comb* (@families): stepping
+across the cliff rewrites $k + 1$ bits, so each crossing costs
+$Theta(k)$ work in any normalized representation, no matter how small
+the step. A comb with $t$ teeth astride one cliff extracts
 $Theta(t dot k)$ bit-work from its walk.
 
 In the paper's own coding this shape happens to pay its way — each
