@@ -12,10 +12,11 @@ use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation,
     remote::{
         adapter::EncodeError,
-        codec::{RunBudget, Speaker, Stream},
+        codec::{Origin, RunBudget, Speaker, Stream},
         proxy::Error,
         streams::{
-            AcceptDriver, Claims, ErrorRoute, StreamError, StreamReceiver, claims, error_route,
+            AcceptDriver, Claims, ErrorRoute, SendError, StreamError, StreamReceiver, claims,
+            error_route,
         },
     },
     stats::Recorder,
@@ -101,6 +102,60 @@ fn pump_failure_preempts_parked_pumps() {
             Operation::Children { height: 1 },
         )))
     ));
+}
+
+/// A deposited supply-failure cause outranks a racing consequence surface,
+/// even when the consequence resolves selection before the accept driver
+/// is ever polled with its failure ready.
+///
+/// The selection invariant: an operator debugging a dead session gets the
+/// root cause, never the consequence. Here the stream supply is already
+/// dead when the session starts and a pump fails with a bare transport
+/// symptom in the very first poll wave — the biased select resolves on the
+/// protocol arm without reaching the accept arm, so only the terminal's
+/// final non-waiting poll of the accept driver can flush the supply
+/// failure into the deposit slot. The session must surface `SupplyClosed`
+/// carrying the supply's own I/O cause, not the pump's bare symptom.
+#[test]
+fn deposited_supply_failure_outranks_a_racing_consequence() {
+    let ParkedSession {
+        mut work,
+        claims: _claims,
+        route: _route,
+        peer,
+    } = parked_session();
+
+    // The peer link is gone before the session's first poll: the accept
+    // driver's very first accept resolves to the supply's own failure.
+    drop(peer);
+
+    // A consequence of the dead transport, ready in the first wave: a bare
+    // BrokenPipe surfacing through the Send family, exactly the symptom an
+    // endpoint sees when its own write hits the severed link.
+    work.spawn(async {
+        Err(Error::Send(SendError::Connect {
+            origin: Origin::stream(Speaker::Responder, Stream::new(0).expect("stream 0 exists")),
+            source: std::io::ErrorKind::BrokenPipe.into(),
+        }))
+    });
+
+    let error = run_to_quiescence(work.execute(future::pending::<Result<(), _>>()))
+        .expect("the racing consequence must resolve the session, not hang it")
+        .expect_err("the session must fail");
+
+    match error {
+        Error::Stream(StreamError::SupplyClosed {
+            origin,
+            source: Some(cause),
+        }) => {
+            // No stream provably needed the supply (every claim is still
+            // alive), so the cause is attributed at direction granularity.
+            assert_eq!(origin, Origin::direction(Speaker::Responder));
+            // The deposited cause is the acceptor's own transport error.
+            assert_eq!(cause.kind(), std::io::ErrorKind::UnexpectedEof);
+        }
+        other => panic!("the consequence outranked the deposited cause: {other:?}"),
+    }
 }
 
 /// A published stream error resolves a session whose every future is parked.
