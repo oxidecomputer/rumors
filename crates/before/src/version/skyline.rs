@@ -19,6 +19,10 @@
 //!   (`codec::encode_int`), so the code shape (`2k + 1` bits) and the
 //!   decoder's window fast path carry over unchanged.
 //!
+//! For *why* the payload code is gamma — the measured value distribution
+//! and the trade among the universal codes — see the
+//! [`implementation`](crate::implementation) essay.
+//!
 //! This coding is the stored and wire form of a [`Version`]:
 //! [`Version::encode`] and [`Version::decode`] carry these streams, and
 //! every operation runs on them directly. The [`sweep`] submodule decides
