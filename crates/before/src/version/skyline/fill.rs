@@ -23,7 +23,7 @@
 //! never built at all.
 //!
 //! The walk pairs the packed id (`IdReader`) against the skyline
-//! topology recursively and streams one `(depth, payload code)` plateau
+//! topology and streams one `(depth, payload code)` plateau
 //! per output leaf to the collapsing builder, which derives the union
 //! topology and performs the equal-sibling normalization. A shortcut
 //! raise needs no builder repair: the raised value is known before its
@@ -69,7 +69,10 @@
 //! most once more (the memo turns every interior left-full site into
 //! a lookup, and distinct fresh scans cover disjoint sibling ranges);
 //! the absent-sibling extremum scans read their range once ahead of
-//! the walk's own copy (a flat ×2, never nesting). The fused route
+//! the walk's own copy (a flat ×2, never nesting); the pre-scan
+//! replays each covered site's collapse range once at the site's
+//! close (distinct sites' collapse ranges are disjoint — one more
+//! flat pass, never nesting). The fused route
 //! fold adds no reads of its own — its id reads are the tags the
 //! walk's skips pay anyway — and each of the two branch epilogues is
 //! one more bounded pass: a divergence replays the matched prefix
@@ -125,15 +128,22 @@
 //! emission's own code, with a parked latent cancelling symbolically
 //! on the watermark-to-height switch and retiring on the other.
 //!
-//! Heap: O(paired depth) transient frames plus O(n + m) total live
-//! digits; the memo holds one queue entry per covered site — an
+//! Heap: O(paired depth) transient frame *bits* plus O(n + m) total
+//! live digits; the memo holds one queue entry per covered site — an
 //! accumulator only where the link is nonzero, so sites sharing one
 //! minimum store nothing — plus one suspended entry per open
 //! site-nesting level.
 //!
-//! Recursion is guarded by `crate::recurse` throughout; the
-//! recursion-depth segments residual at the record scale belongs to
-//! the explicit-stack conversion, pinned separately.
+//! Both walks are iterative: suspended ancestors live on explicit
+//! stacks — control bits plus pop-able word deltas ([`Frames`] and
+//! [`PreFrames`], the route fold's own [`PopStack`] discipline) — so
+//! paired depth costs a few heap bits per level, never a call-stack
+//! frame, and no input depth can grow stacker segments or overflow.
+//! The wide quantity a left-full site's raise decision needs after its
+//! sibling walk is re-derived by one bounded replay of the site's own
+//! collapse range ([`PreScan::replay_max`]) rather than parked per
+//! open site, so frames stay word-free and the transient stays flat
+//! on nested-site chains.
 //!
 //! # Testing
 //!
@@ -157,10 +167,9 @@ use core::cmp::Ordering;
 use crate::codec::accum::Accum;
 use crate::codec::{self, Base, Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
-use crate::recurse::descend;
 use crate::step;
 
-use self::fuse::{Out, RouteProbe, COST_FREE};
+use self::fuse::{Out, PopStack, RouteProbe, COST_FREE};
 use self::watermark::{fold, MinStack, Signed};
 use super::grow::{Cost, COST_MAX};
 use super::{gamma_code, unzigzag, zigzag_signed};
@@ -244,7 +253,7 @@ pub(super) fn fused_fill(ev_bits: &BitsSlice, id: &crate::Party) -> FillOutcome 
     };
     let mut id = IdReader::root(id_bits);
     walk.stack.open();
-    descend!(0, walk.rec(&mut id, 0));
+    walk.walk(&mut id);
     if walk.w_anchored {
         let follower = walk.stack.follower_take(OUT_FOLLOWER);
         walk.stack.retire(follower);
@@ -442,154 +451,211 @@ enum Corr {
 }
 
 impl FillWalk<'_> {
-    /// Fill the event subtree at the cursor under the id subtree at
-    /// `id`, emitting its plateaus and advancing both cursors past
-    /// their subtrees.
+    /// Fill the whole event stream under the id at the cursor, emitting
+    /// its plateaus and advancing both cursors past their trees.
     ///
-    /// Returns the subtree's inflation cost for the
-    /// route fold (meaningless once the walk has diverged — the probe
-    /// is dead and the route unread).
-    ///
-    /// The enclosing range's watermark frame (opened by the caller)
-    /// accumulates this subtree's emitted minimum; no per-subtree
-    /// quantity is returned or materialized beyond the word-pair cost.
-    fn rec(&mut self, id: &mut IdReader, depth: usize) -> Cost {
-        let (left, right) = match id.read() {
-            // fill(0, e) = e: the id owns nothing here, and grow can
-            // inflate nothing (`grow` skips absent regions).
-            IdNode::Empty => {
-                self.copy_subtree(depth);
-                return COST_MAX;
-            }
-            // fill(1, e) = max(e): a fully-owned region collapses. On a
-            // route-live walk the region is a single leaf — a node
-            // would collapse to fewer plateaus and trip the flag at the
-            // emission below — so the cost is the free increment
-            // `grow(1, n) = (n + 1, 0)`.
-            IdNode::Full => {
-                let above = self.scan_max_consuming();
-                self.emit_offset(depth, above);
-                return COST_FREE;
-            }
-            IdNode::Internal { left, right } => (left, right),
-        };
-        // The branch's route key: the 2-bit tag `read` just consumed
-        // (an `Internal` reader is always a real cursor).
-        let key = id.pos() - 2;
-        if !self.read_flag() {
-            // fill((il, ir), Leaf n) = Leaf n: an event leaf is already
-            // simple; the dominated id children are lazy-skipped, and
-            // the route's expansion fold rides the skips.
-            let (neg, mag) = self.consume_payload();
-            self.emit_step(depth, neg, mag);
-            return self.probe.expand(key, id, left, right);
-        }
+    /// Iterative: the loop alternates a *descend* phase (process the
+    /// subtree at the cursor until it either resolves to a cost or
+    /// suspends this branch node on [`Frames`] and enters a child) with
+    /// an *ascend* phase (fold the completed child's inflation cost
+    /// into the suspended node, resuming its remaining work — the
+    /// right-full peek, the right child's walk, the site close). Each
+    /// child runs inside its own watermark frame
+    /// ([`MinStack::open`]/[`close`](MinStack::close)), absent children
+    /// as the inlined `fill(0, e) = e` copy at infeasible cost, so the
+    /// arms, emissions, and route folds run in exactly the paired
+    /// preorder the fill equations prescribe. The root subtree's cost
+    /// is dropped: only interior folds read costs.
+    fn walk(&mut self, id: &mut IdReader) {
+        let mut frames = Frames::new();
+        let mut depth = 0usize;
+        'descend: loop {
+            debug_assert_eq!(depth, frames.len(), "one frame per open branch level");
+            // Descend: resolve the subtree at the cursor to a cost, or
+            // suspend its branch node and re-enter on a present child.
+            let mut cost: Cost = loop {
+                let (left, right) = match id.read() {
+                    // fill(0, e) = e: the id owns nothing here, and grow
+                    // can inflate nothing (`grow` skips absent regions).
+                    // A real cursor reads this only at an empty root.
+                    IdNode::Empty => {
+                        self.copy_subtree(depth);
+                        break COST_MAX;
+                    }
+                    // fill(1, e) = max(e): a fully-owned region collapses.
+                    // On a route-live walk the region is a single leaf — a
+                    // node would collapse to fewer plateaus and trip the
+                    // flag at the emission below — so the cost is the free
+                    // increment `grow(1, n) = (n + 1, 0)`.
+                    IdNode::Full => {
+                        let above = self.scan_max_consuming();
+                        self.emit_offset(depth, above);
+                        break COST_FREE;
+                    }
+                    IdNode::Internal { left, right } => (left, right),
+                };
+                // The branch's route key: the 2-bit tag `read` just
+                // consumed (an `Internal` reader is always a real cursor).
+                let key = id.pos() - 2;
+                if !self.read_flag() {
+                    // fill((il, ir), Leaf n) = Leaf n: an event leaf is
+                    // already simple; the dominated id children are
+                    // lazy-skipped, and the route's expansion fold rides
+                    // the skips.
+                    let (neg, mag) = self.consume_payload();
+                    self.emit_step(depth, neg, mag);
+                    break self.probe.expand(key, id, left, right);
+                }
 
-        // An id node over an event node: the shortcut arms collapse a
-        // fully-owned child, raised to its sibling's filled minimum.
-        // Either way the branch's cost folds both children — a full
-        // child is the free increment, an absent one is infeasible —
-        // and the chosen direction records at the branch's id key.
-        let (l_cost, r_cost);
-        if left && matches!(id.peek(), IdNode::Full) {
-            // `il` full: the left child collapses to
-            // `max(max(el), min(fill(ir, er)))`. The max comes from the
-            // consuming scan of `el`; the min — needed before the
-            // raised leaf is emitted, ahead of `er`'s walk — from the
-            // frame ledger when an enclosing pre-scan already evaluated
-            // this site, else from one fresh (and recording) pre-scan
-            // of the right sibling, anchored at `h` (which sits at
-            // `el`'s last leaf, exactly the pre-scan's entry).
-            id.skip();
-            let above = self.scan_max_consuming();
-            l_cost = COST_FREE;
-            if !right {
-                // An absent right child is fill(0, er): its minimum is
-                // min(er), priced by the scan that reads the range.
-                let raise = scan_min_from(self.ev, self.pos, self.first_read);
-                let value_off = signed_max(&above, &raise);
-                self.emit_offset(depth + 1, value_off);
-                r_cost = self.child(id, right, depth);
-            } else {
-                let outermost = self.pos >= self.memo.covered_until;
-                debug_assert_eq!(
-                    outermost,
-                    matches!(self.corr, Corr::None),
-                    "a fresh scan starts exactly where no ledger relation is live"
-                );
-                if outermost {
-                    // Uncovered: one fresh pre-scan records this site and
-                    // every left-full site inside its span.
-                    self.memo.begin_scan();
-                    let mut scan = PreScan {
-                        ev: self.ev,
-                        stack: MinStack::new(),
-                        entry_net: Some(Accum::new()),
-                        pending_rel: None,
-                        memo: &mut self.memo,
-                        keeper: Accum::new(),
-                        first_slot: usize::MAX,
-                        head_level: 0,
-                        suspend: Vec::new(),
-                    };
-                    let slot = scan.reserve(self.pos);
-                    scan.stack.open();
-                    let mut reader = IdReader::at(id.bits(), id.pos());
-                    let end = descend!(
-                        depth,
-                        scan.rec(self.pos, self.first_read, &mut reader, depth, 1)
+                // An id node over an event node: the shortcut arms
+                // collapse a fully-owned child, raised to its sibling's
+                // filled minimum. Either way the branch's cost folds both
+                // children — a full child is the free increment, an
+                // absent one is infeasible — and the chosen direction
+                // records at the branch's id key.
+                if left && matches!(id.peek(), IdNode::Full) {
+                    // `il` full: the left child collapses to
+                    // `max(max(el), min(fill(ir, er)))`. The max comes
+                    // from the consuming scan of `el`; the min — needed
+                    // before the raised leaf is emitted, ahead of `er`'s
+                    // walk — from the frame ledger when an enclosing
+                    // pre-scan already evaluated this site, else from one
+                    // fresh (and recording) pre-scan of the right
+                    // sibling, anchored at `h` (which sits at `el`'s last
+                    // leaf, exactly the pre-scan's entry).
+                    id.skip();
+                    let above = self.scan_max_consuming();
+                    if !right {
+                        // An absent right child is fill(0, er): its
+                        // minimum is min(er), priced by the scan that
+                        // reads the range; the copy runs in its own
+                        // frame, exactly as a child walk would.
+                        let raise = scan_min_from(self.ev, self.pos, self.first_read);
+                        let value_off = signed_max(&above, &raise);
+                        self.emit_offset(depth + 1, value_off);
+                        self.stack.open();
+                        self.copy_subtree(depth + 1);
+                        self.stack.close();
+                        break self.probe.join(key, COST_FREE, COST_MAX);
+                    }
+                    let outermost = self.pos >= self.memo.covered_until;
+                    debug_assert_eq!(
+                        outermost,
+                        matches!(self.corr, Corr::None),
+                        "a fresh scan starts exactly where no ledger relation is live"
                     );
-                    scan.record(slot, 0);
-                    let rel = scan.stack.follower_take(REL_FOLLOWER);
-                    scan.stack.retire(rel);
-                    scan.stack.close();
-                    debug_assert!(scan.suspend.is_empty(), "every suspended level resolves");
-                    self.memo.covered_until = end;
+                    if outermost {
+                        // Uncovered: one fresh pre-scan records this site
+                        // and every left-full site inside its span.
+                        self.memo.begin_scan();
+                        let mut scan = PreScan {
+                            ev: self.ev,
+                            stack: MinStack::new(),
+                            entry_net: Some(Accum::new()),
+                            pending_rel: None,
+                            memo: &mut self.memo,
+                            keeper: Accum::new(),
+                            first_slot: usize::MAX,
+                            head_level: 0,
+                            suspend: Vec::new(),
+                        };
+                        let slot = scan.reserve(self.pos);
+                        scan.stack.open();
+                        let mut reader = IdReader::at(id.bits(), id.pos());
+                        let end = scan.run(self.pos, self.first_read, &mut reader);
+                        scan.record(slot, 0);
+                        let rel = scan.stack.follower_take(REL_FOLLOWER);
+                        scan.stack.retire(rel);
+                        scan.stack.close();
+                        debug_assert!(scan.suspend.is_empty(), "every suspended level resolves");
+                        self.memo.covered_until = end;
+                    }
+                    self.consume_site(&above, depth);
+                    frames.push_site(key, outermost);
+                    self.stack.open();
+                    depth += 1;
+                    continue; // walk the right sibling range
                 }
-                self.consume_site(&above, depth);
-                r_cost = self.child(id, right, depth);
-                self.pop_site(outermost);
-            }
-        } else {
-            // Fill the left child first; the id cursor then sits exactly
-            // at the right child's tag, so the right-full arm is one
-            // `O(1)` peek — no lookahead over the left id subtree.
-            l_cost = self.child(id, left, depth);
-            if right && matches!(id.peek(), IdNode::Full) {
-                // `ir` full: the right child collapses to
-                // `max(max(er), min(fill(il, el)))`. The minimum is the
-                // enclosing frame's own watermark — its only emissions
-                // so far are the left child's — so the decision is one
-                // sign read against the priced scan maximum.
-                id.skip();
-                let above = self.scan_max_consuming();
-                if self.stack.compare_above(&above) == Ordering::Less {
-                    self.emit_at_min(depth + 1);
-                } else {
-                    self.emit_offset(depth + 1, above);
+                // An ordinary node: the left child first; the id cursor
+                // then sits exactly at the right child's tag, so the
+                // right-full arm is one `O(1)` peek on the way back up —
+                // no lookahead over the left id subtree.
+                frames.push_node(key, right);
+                self.stack.open();
+                depth += 1;
+                if left {
+                    continue; // descend into the left child
                 }
-                r_cost = COST_FREE;
-            } else {
-                r_cost = self.child(id, right, depth);
+                // Absent left child: fill(0, el), inlined in the frame
+                // just opened; its infeasible cost rises into the node
+                // exactly as a child walk's would.
+                self.copy_subtree(depth);
+                break COST_MAX;
+            };
+            // Ascend: fold the completed subtree's cost upward until a
+            // suspended node still has a child to walk (or the root
+            // completes).
+            loop {
+                let Some(top) = frames.top() else {
+                    debug_assert_eq!(depth, 0, "the root subtree completes at depth zero");
+                    let _ = cost; // the root's inflation cost has no parent fold
+                    return;
+                };
+                self.stack.close();
+                depth -= 1;
+                match top {
+                    // A consume-site's sibling walk finished: close the
+                    // site's range against the ledger relation, then fold
+                    // `grow((1, ir), ·)` — the collapsed left child is the
+                    // free increment.
+                    Frame::Site => {
+                        let (key, outermost) = frames.pop_site();
+                        self.pop_site(outermost);
+                        cost = self.probe.join(key, COST_FREE, cost);
+                    }
+                    // A node's left child finished: peek the right-full
+                    // arm, walk the right child, or fold an absent one.
+                    Frame::AwaitLeft => {
+                        let right = frames.aux_top();
+                        if right && matches!(id.peek(), IdNode::Full) {
+                            // `ir` full: the right child collapses to
+                            // `max(max(er), min(fill(il, el)))`. The
+                            // minimum is the enclosing frame's own
+                            // watermark — its only emissions so far are
+                            // the left child's — so the decision is one
+                            // sign read against the priced scan maximum.
+                            id.skip();
+                            let above = self.scan_max_consuming();
+                            if self.stack.compare_above(&above) == Ordering::Less {
+                                self.emit_at_min(depth + 1);
+                            } else {
+                                self.emit_offset(depth + 1, above);
+                            }
+                            let key = frames.pop_await_left();
+                            cost = self.probe.join(key, cost, COST_FREE);
+                        } else if right {
+                            frames.flip_to_await_right(cost);
+                            self.stack.open();
+                            depth += 1;
+                            continue 'descend; // walk the right child
+                        } else {
+                            // Absent right child: fill(0, er) in its own
+                            // frame, infeasible for the route.
+                            self.stack.open();
+                            self.copy_subtree(depth + 1);
+                            self.stack.close();
+                            let key = frames.pop_await_left();
+                            cost = self.probe.join(key, cost, COST_MAX);
+                        }
+                    }
+                    // A node's right child finished: fold both children.
+                    Frame::AwaitRight => {
+                        let (key, l_cost) = frames.pop_await_right();
+                        cost = self.probe.join(key, l_cost, cost);
+                    }
+                }
             }
         }
-        self.probe.join(key, l_cost, r_cost)
-    }
-
-    /// Fill one id child over its event child inside its own watermark
-    /// frame.
-    ///
-    /// Threads the real cursor where the child is present, a
-    /// synthetic [`IdReader::Empty`] (the `fill(0, e) = e` arm) where
-    /// it is absent; returns the child's inflation cost for the route
-    /// fold.
-    fn child(&mut self, id: &mut IdReader, present: bool, depth: usize) -> Cost {
-        self.stack.open();
-        let mut empty = IdReader::Empty;
-        let c = if present { &mut *id } else { &mut empty };
-        let cost = descend!(depth + 1, self.rec(c, depth + 1));
-        self.stack.close();
-        cost
     }
 
     /// Read one topology flag at the cursor, recording the scanned bit.
@@ -1028,6 +1094,161 @@ impl FillWalk<'_> {
     }
 }
 
+/// What the fill walk still owes a suspended branch node.
+enum Frame {
+    /// A consume-site: its sibling walk is in flight; `pop_site` and
+    /// the free-increment fold run at its close.
+    Site,
+    /// An ordinary node awaiting its left child's cost; the right-side
+    /// work (peek, walk, or absent fold) runs when it arrives.
+    AwaitLeft,
+    /// An ordinary node awaiting its right child's cost, its left cost
+    /// deferred on the value stack.
+    AwaitRight,
+}
+
+/// The fill walk's suspended ancestors, held as bits.
+///
+/// Three control bits per open branch level plus pop-able word deltas
+/// (route keys against a running register; deferred left costs), the
+/// route fold's own [`PopStack`] discipline — so a deep spine costs a
+/// few heap bits of transient per level, never a machine-word frame.
+struct Frames {
+    /// Per frame: a consume-site (true) or an ordinary node (false).
+    site: Bits,
+    /// Ordinary frames: awaiting the left (false) or the right (true)
+    /// child's cost. Site frames: false, unread.
+    phase: Bits,
+    /// Ordinary frames: whether the right child is present. Site
+    /// frames: whether the site launched the covering fresh pre-scan
+    /// ([`FillWalk::pop_site`]'s argument).
+    aux: Bits,
+    /// Key deltas (one per frame, against `reg`) and deferred left
+    /// costs (two components per left-to-right flip), LIFO with the
+    /// frames they serve.
+    vals: PopStack,
+    /// The top frame's route key (id positions only advance, so every
+    /// pushed delta is nonnegative and a pop restores by subtraction).
+    reg: usize,
+}
+
+/// The deferred-cost component encoding on the value stack:
+/// 0 = infeasible (a `u32::MAX` component), else the component + 1.
+fn encode_cost_component(v: u32) -> u64 {
+    if v == u32::MAX {
+        0
+    } else {
+        u64::from(v) + 1
+    }
+}
+
+/// Invert [`encode_cost_component`].
+fn decode_cost_component(v: u64) -> u32 {
+    if v == 0 {
+        u32::MAX
+    } else {
+        (v - 1) as u32
+    }
+}
+
+impl Frames {
+    fn new() -> Self {
+        Frames {
+            site: Bits::new(),
+            phase: Bits::new(),
+            aux: Bits::new(),
+            vals: PopStack::new(),
+            reg: 0,
+        }
+    }
+
+    /// Open branch levels (the walk's current depth).
+    fn len(&self) -> usize {
+        self.site.len()
+    }
+
+    /// The top frame's kind, if any frame is open.
+    fn top(&self) -> Option<Frame> {
+        let i = self.site.len().checked_sub(1)?;
+        Some(if self.site[i] {
+            Frame::Site
+        } else if self.phase[i] {
+            Frame::AwaitRight
+        } else {
+            Frame::AwaitLeft
+        })
+    }
+
+    /// The top frame's aux bit (right presence, or a site's outermost
+    /// flag).
+    fn aux_top(&self) -> bool {
+        *self.aux.last().expect("an open frame carries its aux bit")
+    }
+
+    /// Suspend an ordinary node: key delta on the value stack, control
+    /// bits armed for the left child.
+    fn push_node(&mut self, key: usize, right: bool) {
+        self.vals.push((key - self.reg) as u64);
+        self.reg = key;
+        self.site.push(false);
+        self.phase.push(false);
+        self.aux.push(right);
+    }
+
+    /// Suspend a consume-site around its sibling walk.
+    fn push_site(&mut self, key: usize, outermost: bool) {
+        self.vals.push((key - self.reg) as u64);
+        self.reg = key;
+        self.site.push(true);
+        self.phase.push(false);
+        self.aux.push(outermost);
+    }
+
+    /// Flip the top (ordinary, left-awaiting) frame to awaiting its
+    /// right child, deferring the left cost on the value stack.
+    fn flip_to_await_right(&mut self, l_cost: Cost) {
+        let top = self.phase.len() - 1;
+        debug_assert!(
+            !self.phase[top] && !self.site[top],
+            "a left-awaiting node flips"
+        );
+        self.phase.set(top, true);
+        self.vals.push(encode_cost_component(l_cost.0));
+        self.vals.push(encode_cost_component(l_cost.1));
+    }
+
+    /// Pop the control bits of the top frame and restore the key
+    /// register, returning the frame's key.
+    fn pop_key(&mut self) -> usize {
+        self.site.pop();
+        self.phase.pop();
+        self.aux.pop();
+        let key = self.reg;
+        self.reg = key - self.vals.pop() as usize;
+        key
+    }
+
+    /// Close a left-awaiting node whose right side resolved in place:
+    /// its route key.
+    fn pop_await_left(&mut self) -> usize {
+        self.pop_key()
+    }
+
+    /// Close a right-awaiting node: its route key and deferred left
+    /// cost.
+    fn pop_await_right(&mut self) -> (usize, Cost) {
+        let d = decode_cost_component(self.vals.pop());
+        let e = decode_cost_component(self.vals.pop());
+        (self.pop_key(), (e, d))
+    }
+
+    /// Close a site frame: its route key and outermost flag.
+    fn pop_site(&mut self) -> (usize, bool) {
+        let outermost = self.aux_top();
+        (self.pop_key(), outermost)
+    }
+}
+
 /// A local, non-consuming scan of the event subtree at `pos`: the
 /// minimum of its leaf heights relative to the height at entry, as a
 /// signed offset.
@@ -1101,8 +1322,8 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
 /// [`Memo`] doc), so the walk arrives with every raise argument
 /// resolved and no position is pre-scanned twice.
 ///
-/// The recursive image of the fill equations restricted to the
-/// minimum (each arm derived from the oracle's):
+/// The image of the fill equations restricted to the minimum (each
+/// arm derived from the oracle's):
 ///
 /// - `min(fill(0, e)) = min(e)` — nothing is raised.
 /// - `min(fill(1, e)) = max(e)` — the region is one max leaf.
@@ -1156,104 +1377,218 @@ impl PreScan<'_, '_> {
     /// The pre-scan image of the walk's arms over the subtree at
     /// `pos`: same reads, virtual emissions; returns the range end.
     ///
-    /// `level` is the site-nesting depth of this position — how many
-    /// left-full sites of this scan enclose it — so the sites found
-    /// directly here record at `level` and their own ranges recurse at
-    /// `level + 1`.
-    fn rec(
-        &mut self,
-        pos: usize,
-        first: bool,
-        id: &mut IdReader,
-        depth: usize,
-        level: u32,
-    ) -> usize {
-        let (left, right) = match id.read() {
-            IdNode::Empty => return self.copy_range(pos, first),
-            // Unreachable for canonical ids: every entry hands in a
-            // full child's *sibling* (never full — a `(1, 1)` node
-            // collapses) or a child the caller peeked as not-full.
-            // Kept so the recursion realizes `min(fill(1, e)) =
-            // max(e)` totally.
-            IdNode::Full => {
-                let (above, end) = self.max_range(pos, first);
-                self.emit_offset(&above);
-                return end;
-            }
-            IdNode::Internal { left, right } => (left, right),
-        };
-        step!();
-        codec::scan::record_bits(1);
-        let internal = self.ev[pos];
-        let pos = pos + 1;
-        if !internal {
-            // A leaf under an id node stays: one virtual emission.
-            let (step, end) = self.payload(pos, first);
-            let _ = step;
-            self.emit_here();
-            if left {
-                id.skip();
-            }
-            if right {
-                id.skip();
-            }
-            return end;
-        }
-        if left && matches!(id.peek(), IdNode::Full) {
-            // An interior left-full site: its minimum is the recorded
-            // quantity, and its own raise is a virtual emission.
-            id.skip();
-            let (above, l_end) = self.max_range(pos, first);
-            if !right {
-                // fill(0, er): the leaves stay as they are, and the
-                // walk re-derives this raise from its own local scan —
-                // nothing is recorded.
-                self.stack.open();
-                let end = self.copy_range(l_end, false);
-                self.stack.close();
-                if self.stack.compare_above(&above) != Ordering::Less {
-                    self.emit_offset(&above);
+    /// The iterative twin of [`FillWalk::walk`]: the descend phase
+    /// resolves the range at the cursor or suspends its node on
+    /// [`PreFrames`] and enters a child, and the ascend phase resumes
+    /// suspended nodes as their children's ranges complete. The stream
+    /// cursor threads linearly (every range starts where the previous
+    /// one ended), and `first` — whether the next payload is the
+    /// stream's absolute first — flips false permanently at the first
+    /// payload-consuming read, exactly the value the recursion threads
+    /// per call. The site-nesting level is one plus the count of open
+    /// site frames: a site's own range walks at `level + 1`, and its
+    /// close records at `level`.
+    fn run(&mut self, pos: usize, first: bool, id: &mut IdReader) -> usize {
+        let mut frames = PreFrames::new();
+        let mut level: u32 = 1;
+        let mut pos = pos;
+        let mut first = first;
+        'descend: loop {
+            // Descend: resolve the range at the cursor, or suspend and
+            // re-enter on a present child.
+            loop {
+                let (left, right) = match id.read() {
+                    // fill(0, e) = e: every leaf a virtual emission. A
+                    // real cursor reads this only at an empty root.
+                    IdNode::Empty => {
+                        pos = self.copy_range(pos, first);
+                        first = false;
+                        break;
+                    }
+                    // Unreachable for canonical ids: every entry hands in
+                    // a full child's *sibling* (never full — a `(1, 1)`
+                    // node collapses) or a child the caller peeked as
+                    // not-full. Kept so the walk realizes
+                    // `min(fill(1, e)) = max(e)` totally.
+                    IdNode::Full => {
+                        let (above, end) = self.max_range(pos, first);
+                        first = false;
+                        self.emit_offset(&above);
+                        pos = end;
+                        break;
+                    }
+                    IdNode::Internal { left, right } => (left, right),
+                };
+                step!();
+                codec::scan::record_bits(1);
+                let internal = self.ev[pos];
+                pos += 1;
+                if !internal {
+                    // A leaf under an id node stays: one virtual emission.
+                    let (step, end) = self.payload(pos, first);
+                    first = false;
+                    let _ = step;
+                    self.emit_here();
+                    if left {
+                        id.skip();
+                    }
+                    if right {
+                        id.skip();
+                    }
+                    pos = end;
+                    break;
                 }
-                return end;
+                if left && matches!(id.peek(), IdNode::Full) {
+                    // An interior left-full site: its minimum is the
+                    // recorded quantity, and its own raise is a virtual
+                    // emission.
+                    id.skip();
+                    let el_start = pos;
+                    let (above, l_end) = self.max_range(pos, first);
+                    first = false;
+                    if !right {
+                        // fill(0, er): the leaves stay as they are, and
+                        // the walk re-derives this raise from its own
+                        // local scan — nothing is recorded.
+                        self.stack.open();
+                        let end = self.copy_range(l_end, false);
+                        self.stack.close();
+                        if self.stack.compare_above(&above) != Ordering::Less {
+                            self.emit_offset(&above);
+                        }
+                        pos = end;
+                        break;
+                    }
+                    let slot = self.reserve(l_end);
+                    frames.push_site(slot, el_start);
+                    level += 1;
+                    self.stack.open();
+                    pos = l_end;
+                    continue; // walk the sibling range
+                }
+                // An ordinary node: the left child's range first.
+                frames.push_node(right);
+                self.stack.open();
+                if left {
+                    continue; // descend into the left child
+                }
+                // Absent left child: fill(0, el), inlined in the frame
+                // just opened.
+                pos = self.copy_range(pos, first);
+                first = false;
+                break;
             }
-            let slot = self.reserve(l_end);
-            let end = self.child(l_end, false, id, true, depth, level + 1);
-            self.record(slot, level);
-            if self.stack.compare_above(&above) != Ordering::Less {
-                self.emit_offset(&above);
+            // Ascend: resume suspended nodes as their children complete.
+            loop {
+                let Some(top) = frames.top() else {
+                    return pos;
+                };
+                self.stack.close();
+                match top {
+                    // A site's sibling range finished: record its ledger
+                    // link, then decide its raise against the collapse
+                    // maximum, re-derived by one bounded replay of the
+                    // site's own (disjoint) collapse range — the one wide
+                    // quantity the recursion parked per open site, kept
+                    // off the frames so nested-site chains stay word-free.
+                    PreFrame::Site => {
+                        let (slot, el_start) = frames.pop_site();
+                        level -= 1;
+                        self.record(slot, level);
+                        let above = self.replay_max(el_start);
+                        if self.stack.compare_above(&above) != Ordering::Less {
+                            self.emit_offset(&above);
+                        }
+                    }
+                    // A node's left range finished: peek the right-full
+                    // arm, walk the right child, or copy an absent one.
+                    PreFrame::AwaitLeft => {
+                        let right = frames.aux_top();
+                        if right && matches!(id.peek(), IdNode::Full) {
+                            // The right-full raise never undercuts the
+                            // minimum it is raised to, so only the max
+                            // side is a new virtual value.
+                            id.skip();
+                            let (above, end) = self.max_range(pos, false);
+                            if self.stack.compare_above(&above) != Ordering::Less {
+                                self.emit_offset(&above);
+                            }
+                            pos = end;
+                            frames.pop_node();
+                        } else if right {
+                            frames.flip_to_await_right();
+                            self.stack.open();
+                            continue 'descend; // walk the right child
+                        } else {
+                            // Absent right child: fill(0, er) in its own
+                            // frame.
+                            self.stack.open();
+                            pos = self.copy_range(pos, false);
+                            self.stack.close();
+                            frames.pop_node();
+                        }
+                    }
+                    // A node's right range finished: the node is done.
+                    PreFrame::AwaitRight => {
+                        frames.pop_node();
+                    }
+                }
             }
-            return end;
         }
-        let l_end = self.child(pos, first, id, left, depth, level);
-        if right && matches!(id.peek(), IdNode::Full) {
-            // The right-full raise never undercuts the minimum it is
-            // raised to, so only the max side is a new virtual value.
-            id.skip();
-            let (above, end) = self.max_range(l_end, false);
-            if self.stack.compare_above(&above) != Ordering::Less {
-                self.emit_offset(&above);
-            }
-            return end;
-        }
-        self.child(l_end, false, id, right, depth, level)
     }
 
-    /// One child range inside its own frame, mirroring the walk's.
-    fn child(
-        &mut self,
-        pos: usize,
-        first: bool,
-        id: &mut IdReader,
-        present: bool,
-        depth: usize,
-        level: u32,
-    ) -> usize {
-        self.stack.open();
-        let mut empty = IdReader::Empty;
-        let c = if present { &mut *id } else { &mut empty };
-        let end = descend!(depth + 1, self.rec(pos, first, c, depth + 1, level));
-        self.stack.close();
-        end
+    /// Re-derive a closed site's collapse maximum (`max(el) − h` at the
+    /// range's own exit) by one non-consuming replay of the range.
+    ///
+    /// Byte-for-byte the fold [`max_range`](Self::max_range) ran before
+    /// the sibling walk — the first leaf arms and is never folded, so
+    /// its absolute-vs-delta coding is irrelevant and stays undecoded —
+    /// on local state: heights and the entry net folded into the web
+    /// once, on the first pass, never again here. Distinct sites'
+    /// collapse ranges are disjoint, so the replays add one flat pass
+    /// over those positions, never a nesting one.
+    fn replay_max(&mut self, pos: usize) -> Signed {
+        let mut path = Bits::new();
+        let mut pos = pos;
+        let mut above = self.stack.lease();
+        let mut armed = false;
+        loop {
+            loop {
+                step!();
+                codec::scan::record_bits(1);
+                let internal = self.ev[pos];
+                pos += 1;
+                if !internal {
+                    break;
+                }
+                path.push(false);
+            }
+            let (code, next) = codec::decode_int(self.ev, pos).expect("canonical skyline bits");
+            pos = next;
+            if !armed {
+                armed = true;
+            } else {
+                let (neg, mag) = unzigzag(code);
+                fold(&mut above, !neg, &mag);
+                if above.sign() == Ordering::Less {
+                    above.reset();
+                }
+            }
+            loop {
+                match path.pop() {
+                    Some(true) => continue,
+                    Some(false) => {
+                        path.push(true);
+                        break;
+                    }
+                    None => {
+                        let result = self.stack.materialize(above);
+                        debug_assert!(!result.0, "the fold floors at zero");
+                        return result;
+                    }
+                }
+            }
+        }
     }
 
     /// Reserve the next consumption-order queue slot for the site
@@ -1509,6 +1844,120 @@ impl PreScan<'_, '_> {
                 }
             }
         }
+    }
+}
+
+/// What the pre-scan still owes a suspended node (the [`Frame`] kinds,
+/// minus costs — the pre-scan folds no route).
+enum PreFrame {
+    /// A left-full site: its sibling walk is in flight; the ledger
+    /// record and the raise decision run at its close.
+    Site,
+    /// An ordinary node whose left child's range is in flight.
+    AwaitLeft,
+    /// An ordinary node whose right child's range is in flight.
+    AwaitRight,
+}
+
+/// The pre-scan's suspended ancestors, held as bits: [`Frames`]' shape
+/// with site payloads (ledger slot, collapse-range start) as pop-able
+/// word deltas in place of route keys and costs.
+struct PreFrames {
+    /// Per frame: a left-full site (true) or an ordinary node (false).
+    site: Bits,
+    /// Ordinary frames: awaiting the left (false) or right (true)
+    /// child's range. Site frames: false, unread.
+    phase: Bits,
+    /// Ordinary frames: whether the right child is present. Site
+    /// frames: false, unread.
+    aux: Bits,
+    /// Per site frame: the ledger slot delta, then the collapse-range
+    /// start delta — both against monotone registers, LIFO with the
+    /// frames they serve.
+    vals: PopStack,
+    /// The top site frame's ledger slot (reserves run in stream order,
+    /// so the deltas are nonnegative).
+    reg_slot: usize,
+    /// The top site frame's collapse-range start (the stream cursor
+    /// only advances, so the deltas are nonnegative).
+    reg_pos: usize,
+}
+
+impl PreFrames {
+    fn new() -> Self {
+        PreFrames {
+            site: Bits::new(),
+            phase: Bits::new(),
+            aux: Bits::new(),
+            vals: PopStack::new(),
+            reg_slot: 0,
+            reg_pos: 0,
+        }
+    }
+
+    /// The top frame's kind, if any frame is open.
+    fn top(&self) -> Option<PreFrame> {
+        let i = self.site.len().checked_sub(1)?;
+        Some(if self.site[i] {
+            PreFrame::Site
+        } else if self.phase[i] {
+            PreFrame::AwaitRight
+        } else {
+            PreFrame::AwaitLeft
+        })
+    }
+
+    /// The top frame's aux bit (an ordinary node's right presence).
+    fn aux_top(&self) -> bool {
+        *self.aux.last().expect("an open frame carries its aux bit")
+    }
+
+    /// Suspend an ordinary node, armed for its left child.
+    fn push_node(&mut self, right: bool) {
+        self.site.push(false);
+        self.phase.push(false);
+        self.aux.push(right);
+    }
+
+    /// Suspend a left-full site around its sibling walk.
+    fn push_site(&mut self, slot: usize, el_start: usize) {
+        self.vals.push((slot - self.reg_slot) as u64);
+        self.reg_slot = slot;
+        self.vals.push((el_start - self.reg_pos) as u64);
+        self.reg_pos = el_start;
+        self.site.push(true);
+        self.phase.push(false);
+        self.aux.push(false);
+    }
+
+    /// Flip the top (ordinary, left-awaiting) frame to awaiting its
+    /// right child.
+    fn flip_to_await_right(&mut self) {
+        let top = self.phase.len() - 1;
+        debug_assert!(
+            !self.phase[top] && !self.site[top],
+            "a left-awaiting node flips"
+        );
+        self.phase.set(top, true);
+    }
+
+    /// Close an ordinary node's frame.
+    fn pop_node(&mut self) {
+        self.site.pop();
+        self.phase.pop();
+        self.aux.pop();
+    }
+
+    /// Close a site frame: its ledger slot and collapse-range start.
+    fn pop_site(&mut self) -> (usize, usize) {
+        self.site.pop();
+        self.phase.pop();
+        self.aux.pop();
+        let el_start = self.reg_pos;
+        self.reg_pos = el_start - self.vals.pop() as usize;
+        let slot = self.reg_slot;
+        self.reg_slot = slot - self.vals.pop() as usize;
+        (slot, el_start)
     }
 }
 

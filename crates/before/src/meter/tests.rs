@@ -204,38 +204,65 @@ fn alt_spine_decodes_canonically_at_predicted_length() {
     assert_eq!(v.to_string(), "(0, (0, 0, (0, 0, 1)), 0)");
 }
 
-/// The stack-segment meter observes deep recursion, resets to zero, and reads
-/// the same count for the same traversal repeated at the same call depth
-/// (determinism is what makes it envelope-able).
+/// The stack-segment meter observes deep guarded recursion, resets to zero,
+/// reads the same count for the same descent repeated at the same call depth
+/// (determinism is what makes it envelope-able) — and reads exactly zero over
+/// a deep fill walk, whose explicit stacks put depth on the heap instead.
+///
+/// Every library walk is iterative, so the meter's liveness needs its own
+/// witness: a test-local descent routed through `recurse::descend!` (the
+/// same guard the test-only oracle bridge walks use) deep enough to outrun
+/// the thread stack. Without that leg, the boards' all-zero segments column
+/// could be a dead counter instead of a measured fact.
 ///
 /// The counter is process-global, so the repeat-run comparison is meaningful
 /// under nextest's one-test-per-process isolation (this workspace's runner).
 #[test]
 fn stack_segment_meter_counts_deterministically_and_resets() {
-    // The fill splice recurses on the paired id x event descent
-    // (comparison and decode are iterative and must not show up in the
-    // meter), so a deep spine on BOTH sides forces deep recursion.
-    let v = dense(50_000).version();
-    let id = Party::decode(&id_spine(50_000, false).bytes[..]).expect("id spine decodes");
+    use crate::recurse::descend;
+    /// A guarded descent to `floor`, each frame holding a small
+    /// stack-resident payload so its size is honest.
+    fn dive(depth: usize, floor: usize) -> u64 {
+        if depth == floor {
+            return 1;
+        }
+        let pad = [depth as u64; 8];
+        let below = descend!(depth + 1, dive(depth + 1, floor));
+        below + core::hint::black_box(pad)[0]
+    }
+    const FLOOR: usize = 200_000;
     super::reset_stack_segments();
-    let first = {
-        let mut t = v.clone();
-        t.tick(&id);
-        super::stack_segments()
-    };
-    assert!(first > 0, "a depth-50000 fill must grow the stack");
+    core::hint::black_box(dive(0, FLOOR));
+    let first = super::stack_segments();
+    assert!(
+        first > 0,
+        "a depth-200000 guarded descent must grow the stack"
+    );
     super::reset_stack_segments();
     assert_eq!(
         super::stack_segments(),
         0,
         "reset returns the meter to zero: {ISOLATION_NOTE}"
     );
+    core::hint::black_box(dive(0, FLOOR));
+    assert_eq!(
+        super::stack_segments(),
+        first,
+        "identical descents at identical call depth grow identical segments: {ISOLATION_NOTE}"
+    );
+
+    // The conversion ratchet: the fill walk pairs a deep spine on BOTH
+    // sides — exactly the descent that once grew the stack — and must now
+    // read zero, its depth on explicit heap stacks the heap meter prices.
+    let v = dense(50_000).version();
+    let id = Party::decode(&id_spine(50_000, false).bytes[..]).expect("id spine decodes");
+    super::reset_stack_segments();
     let mut t = v.clone();
     t.tick(&id);
     assert_eq!(
         super::stack_segments(),
-        first,
-        "identical traversals at identical call depth grow identical segments: {ISOLATION_NOTE}"
+        0,
+        "the iterative fill walk grows no stack segments: {ISOLATION_NOTE}"
     );
 }
 
