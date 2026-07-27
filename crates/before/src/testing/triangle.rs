@@ -249,7 +249,7 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         op: "Party::dangerously_alias",
         prod_tree: Leg::Excluded(
             "aliasing violates production linearity by design; the Clone oracle has no \
-             counterpart — pinned on production by dangerously_alias_aliases_region",
+             counterpart — pinned on production by the alias_is_byte_identical_overlap law",
         ),
         prod_fs: Leg::Excluded(
             "linearity mechanics of the Rust API — ratified by owner, 2026-07-26",
@@ -439,7 +439,7 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         op: "Clock::dangerously_alias",
         prod_tree: Leg::Excluded(
             "linearity mechanics; an O(1) two-field composition over the party alias, \
-             which dangerously_alias_aliases_region pins",
+             which the alias_is_byte_identical_overlap law pins",
         ),
         prod_fs: Leg::Excluded(
             "linearity mechanics of the Rust API — ratified by owner, 2026-07-26",
@@ -449,7 +449,7 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
     // ───────────────────────────── Rank / Ranked ─────────────────────────────
     SurfaceRow {
         op: "Rank::checked_sub",
-        prod_tree: Leg::Law("rank_monoid_and_order_laws"),
+        prod_tree: Leg::Law("rank_checked_sub_iff_dominated"),
         prod_fs: Leg::Excluded(
             "Rank is not a paper object; the rank quantity itself is bound on all \
              three legs at Version::rank, and Rank's order/arithmetic to the in-test \
@@ -589,8 +589,9 @@ pub(crate) const FAMILY_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Excluded(
             "not a paper object: order and arithmetic are bound to the in-test \
              alignment oracle (rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs, \
-             rank_sum_equals_the_pairwise_fold, rank_monoid_and_order_laws); the rank \
-             quantity itself is bound on all three legs at Version::rank",
+             rank_sum_equals_the_pairwise_fold) and to the laws::RANK_TRIPLE \
+             monoid/order laws; the rank quantity itself is bound on all three \
+             legs at Version::rank",
         ),
         prod_fs: Leg::Excluded("not a paper object; see the prod↔tree reason"),
         tree_fs: Leg::Excluded("not a paper object; see the prod↔tree reason"),

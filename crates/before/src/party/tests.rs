@@ -341,9 +341,6 @@ proptest! {
     /// `covers` on arbitrary id pairs — typically *unrelated* and frequently
     /// *overlapping* — agrees with the oracle, including the partial-overlap
     /// case (neither covers the other) that the seed pipeline never produces.
-    ///
-    /// Covering is *antisymmetric*: two regions cover each other exactly when
-    /// they are equal.
     #[test]
     fn covers_arbitrary(
         oa in arb_oracle_party(),
@@ -352,86 +349,13 @@ proptest! {
         let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
         prop_assert_eq!(ia.covers(&ib), oa.covers(&ob));
         prop_assert_eq!(ib.covers(&ia), ob.covers(&oa));
-        prop_assert_eq!(ia.covers(&ib) && ib.covers(&ia), ia == ib);
     }
 }
 
-proptest! {
-    /// On seed-derived parties, covering tracks the fork/join lattice.
-    ///
-    /// The whole [`Party::seed`] covers every live party, a party covers itself
-    /// (and any alias), a fork's parent covers both resulting halves, and the
-    /// rejoin of two halves covers each part. Disjoint live halves cover neither
-    /// other — the partial-overlap-free shadow of [`Party::is_disjoint`].
-    #[test]
-    fn covers_tracks_fork_join(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let snapshot = cs[i % n].party().clone();
-
-        // The whole covers any live party; a party covers an alias of itself.
-        let live = from_oracle_party(&snapshot);
-        prop_assert!(Party::seed().covers(&live));
-        prop_assert!(live.covers(&live.dangerously_alias()));
-
-        // A fork's parent covers both halves; the halves cover neither other.
-        let mut keep = from_oracle_party(&snapshot);
-        let parent = from_oracle_party(&snapshot);
-        let give = keep.fork();
-        prop_assert!(parent.covers(&keep));
-        prop_assert!(parent.covers(&give));
-        prop_assert!(!keep.covers(&give));
-        prop_assert!(!give.covers(&keep));
-
-        // The rejoin of the two halves covers each part it absorbed.
-        let keep_half = keep.dangerously_alias();
-        let give_half = give.dangerously_alias();
-        keep.join(give).expect("disjoint halves rejoin");
-        prop_assert!(keep.covers(&keep_half));
-        prop_assert!(keep.covers(&give_half));
-    }
-}
-
-// ───────────────────────────── join overlap ─────────────────────────────
-
-proptest! {
-    /// Joining overlapping parties errors and hands the party back unchanged.
-    #[test]
-    fn d_join_overlap_hands_back(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let snapshot = cs[i % n].party().clone();
-
-        let mut sub = from_oracle_party(&snapshot);
-        let _ = sub.fork(); // sub is now a sub-region of the snapshot
-        let whole = from_oracle_party(&snapshot);
-        let whole_copy = from_oracle_party(&snapshot);
-
-        prop_assert!(!sub.is_disjoint(&whole));
-        match sub.join(whole) {
-            Err(handed_back) => prop_assert!(handed_back == whole_copy),
-            Ok(()) => prop_assert!(false, "expected an overlap error"),
-        }
-    }
-}
-
-// ───────────────────────── dangerously_alias ─────────────────────────
-
-proptest! {
-    /// `dangerously_alias` yields a byte-identical, `Eq` copy that aliases the
-    /// original's entire region: the two are therefore *not* disjoint — the
-    /// deliberate linearity violation the method documents.
-    ///
-    /// (The caller alone is responsible for keeping at most one of them live.)
-    #[test]
-    fn dangerously_alias_aliases_region(op in arb_oracle_party_nonempty()) {
-        let p = from_oracle_party(&op);
-        let dup = p.dangerously_alias();
-        prop_assert!(dup == p);
-        prop_assert_eq!(dup.as_bytes(), p.as_bytes());
-        prop_assert!(!p.is_disjoint(&dup), "a duplicate aliases the whole region");
-    }
-}
+// The covering/fork-lattice laws, the join-overlap hand-back, and the
+// aliasing geometry live in `crate::laws` and are driven by the
+// algebraic-laws suite over both arbitrary and op-trace parties; this file
+// keeps the oracle differentials.
 
 // ───────────────────────── paper-notation TryFrom ─────────────────────────
 
@@ -470,8 +394,6 @@ proptest! {
     ) {
         let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
         prop_assert_eq!(ia.is_disjoint(&ib), oa.is_disjoint(&ob));
-        // Disjointness is symmetric on the impl directly.
-        prop_assert_eq!(ia.is_disjoint(&ib), ib.is_disjoint(&ia));
     }
 }
 
@@ -602,39 +524,6 @@ proptest! {
                 prop_assert!(remainder.is_disjoint(&ib), "the remainder shares nothing with `other`");
             }
         }
-    }
-}
-
-proptest! {
-    /// `without` is the partial inverse of `join` on the fork/join lattice:
-    /// carving a forked-off share back out of the parent recovers the kept
-    /// half, and removing a *disjoint* share is a no-op.
-    ///
-    /// Removing a covering share (a party from itself) empties it to `None`.
-    #[test]
-    fn without_inverts_fork(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let snapshot = cs[i % n].party().clone();
-
-        // Fork splits `parent` into disjoint halves `keep ⊔ give`.
-        let mut keep = from_oracle_party(&snapshot);
-        let parent = from_oracle_party(&snapshot);
-        let give = keep.fork();
-        let kept = keep.dangerously_alias(); // a stable reference to the kept half
-
-        // Carving the give-half back out of the parent recovers the kept half:
-        // `parent \ give = keep`.
-        let carved = parent.without(&give).expect("parent is not covered by its give-half");
-        prop_assert!(carved == kept.dangerously_alias());
-
-        // Removing a disjoint share is a no-op: `keep \ give = keep`.
-        prop_assert!(keep.is_disjoint(&give));
-        let no_op = keep.without(&give).expect("disjoint removal keeps everything");
-        prop_assert!(no_op == kept.dangerously_alias());
-
-        // A party covers itself, so removing itself leaves nothing.
-        prop_assert!(no_op.without(&kept).is_none());
     }
 }
 
