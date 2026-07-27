@@ -44,12 +44,13 @@ normalization itself is the suspect.
 One repair suggests itself immediately: keep the bulk of the value
 normalized, plus a small unnormalized _window_ — a machine word of
 pending drift — and pay the big carry only when the window overflows.
-Small oscillations then live entirely in the window. The cliff comb is
-absorbed.
+Small oscillations then live entirely in the window. The boundary
+comb is absorbed.
 
-It fails to a one-parameter generalization. Give the teeth width just
-beyond the window: deltas of $plus.minus 2^192$, say, oscillating
-across a cliff at $2^k$ with $k$ much larger still. Each tooth's code
+It fails to a one-parameter generalization — the *wide-tooth comb* of
+@families. Give the teeth width just beyond the window: deltas of
+$plus.minus 2^192$, say, oscillating across a cliff at $2^k$ with $k$
+much larger still. Each tooth's code
 costs a couple hundred bits; each application punches through the
 word-sized window into the normalized prefix and ripples the full
 $k$-bit carry: work per tooth proportional to $k$, unbounded relative
@@ -72,9 +73,9 @@ anywhere*.
 == Balanced redundant digits <redundant>
 
 Hold the value as digits in base $2^32$, little-endian, each digit a
-_signed_ 64-bit integer kept in the _lazy zone_ $|d_i| < 2^33$:
+_signed_ 64-bit integer kept in the _lazy zone_ $|a_i| < 2^33$:
 
-$ "value" = sum_i d_i dot 2^(32 i), quad d_i in (-2^33, 2^33). $
+$ "value" = sum_i a_i dot 2^(32 i), quad a_i in (-2^33, 2^33). $
 
 Two deliberate redundancies. The digits are signed and may exceed the
 base, so a given value has many spellings — that freedom is the
@@ -88,9 +89,10 @@ its software ancestry the redundant number representations of the
 purely functional data-structure tradition and Kulisch's long
 accumulators for exact summation.)
 
-A word-sized delta adds into digit 0 (a scaled delta, into the digit
-its scale names). If the result stays in the zone, done: one digit
-touched. If it leaves the zone, carry
+A word-sized delta lands at the digit position its scale names —
+digit 0 unscaled; a 64-bit magnitude spans two 32-bit positions. If
+each touched digit stays in the zone, done: a touch or two. If a
+digit leaves the zone, with $t$ its would-be value, carry
 
 $ c = floor((t + 2^31) / 2^32) $
 
@@ -99,20 +101,30 @@ $t - c dot 2^32 in [-2^31, 2^31)$; repeat upward while a digit
 overflows. The bias in $c$ is the point: a digit that just carried is
 left within $2^31$ of zero, so it must absorb at least
 $2^33 - 2^31 = 3 dot 2^31$ of further _net_ drift before it can carry
-again. Every carry is funded, three-bits-per-one, by deltas that
-actually arrived; amortized, a word delta costs $O(1)$ digit touches,
-on every stream. And because _every_ write recenters what it touches,
-no digit anywhere is ever "settled": the two-zone counterexample has
-no boundary to aim at.
+again. Every carry is funded: a digit that carries cannot carry again
+until deltas totalling $3 dot 2^31$ in net movement have landed on
+it, so carries are strictly outnumbered by the deltas that provoke
+them, and a word delta costs amortized $O(1)$ digit touches on every
+stream. And because _every_ write recenters what it touches, no digit
+anywhere is ever "settled": the two-zone counterexample has no
+boundary to aim at.
+
+(One storage remark, so the accounting has no hidden pocket: the
+digits live in a dense little-endian vector, and a delta landing at a
+new highest lane zero-fills the gap below it — once, because the
+high-water mark only rises. The total zero-fill over a sweep is
+bounded by the final lane count, and the largest scale any sweep uses
+is bounded by the operand's depth, whose topology bits the sweep has
+already read; the fill is funded, once, by those bits.)
 
 #figure(
   {
     lanes((
-      ("+9", [$d_4$]),
-      ("−2 147 483 903", [$d_3$]),
-      ("+6", [$d_2$]),
-      ("0", [$d_1$]),
-      ("−1", [$d_0$]),
+      ("+9", [$a_4$]),
+      ("−2 147 483 903", [$a_3$]),
+      ("+6", [$a_2$]),
+      ("0", [$a_1$]),
+      ("−1", [$a_0$]),
     ))
     v(4pt)
     align(center, text(size: 8.5pt, fill: gray-line.darken(35%),
@@ -120,33 +132,39 @@ no boundary to aim at.
        every digit inside $(-2^33, 2^33)$]))
   },
   kind: image,
-  caption: [Digit lanes of the accumulator. Digits are signed and may
-    exceed the base $2^32$; each write recenters only the digits it
-    touches, so a small delta lands in $d_0$ and stops. Nothing here
-    is normalized, deliberately.],
+  caption: [Digit lanes of the accumulator, drawn most-significant
+    lane leftmost for readability (storage is little-endian). Digits
+    are signed and may exceed the base $2^32$; each write recenters
+    only the digits it touches, so a small delta lands in $a_0$ and
+    stops. Nothing here is normalized, deliberately.],
 ) <fig-lanes>
 
-A wide delta of $ell$ 64-bit words routes each word into its two
-32-bit digit positions independently — position $2i$ and $2i + 1$ for
-word $i$, offset by a scale's digit shift — each landing as an
-ordinary in-zone add. Cost: $O(ell)$ touches regardless of what the
-accumulator already holds and regardless of the scale, which is
-requirement 2 exactly. Negation flips digit signs in place (a balanced
-digit's negation is a balanced digit); subtraction is negated
-addition.
+A wide delta arrives as a sign and an $ell$-word magnitude, and
+routes each 64-bit word into its two 32-bit digit positions
+independently — positions $2i$ and $2i + 1$ for word $i$, offset by a
+scale's digit shift — each half added or subtracted at its position,
+carrying (rarely, and $O(1)$ each) where a digit leaves the zone.
+Cost: $O(ell)$ touches regardless of what the accumulator already
+holds and regardless of the scale, which is requirement 2 exactly.
+Negation flips digit signs in place (a balanced digit's negation is a
+balanced digit); subtraction is negated addition.
 
 == Reading the sign: domination and collapse <sign>
 
-The sign query looks troublesome: redundancy means high digits can
-disagree with the truth ($d_1 = +1$, $d_0 = -3$: positive prefix,
-value $2^32 - 3 > 0$ — but $d_1 = +1, d_0 = -2^33 + 1$ leaves the
-sign to a near cancellation). Fold digits from the top and keep the
-running partial
+The sign query looks troublesome: redundancy means the top digit's
+sign can simply be wrong ($a_1 = +1$, $a_0 = -2^33 + 1$ has a
+positive top digit and a decisively negative value), so no fixed
+number of high digits settles the sign in general. Fold digits from
+the top, maintaining a running partial $s$ by
 
-$ s = sum_(j = i)^("top") d_j dot 2^(32(j - i)), $
+$ s <- s dot 2^32 + a_i quad ("digit index" i "descending"), $
 
-the _exact_ value of the scanned suffix in units of $2^(32 i)$. The
-digits not yet scanned contribute, in those units, at most
+which after scanning down to index $i$ equals, in closed form,
+$sum_(j = i)^("top") a_j dot 2^(32(j - i))$: the _exact_ value of the
+scanned suffix in units of $2^(32 i)$. (The fold only continues while
+$|s| <= 2$, so after a step $|s| < 3 dot 2^32 + 2^33$ — the partial
+itself always fits comfortably in fixed-width arithmetic.) The digits
+not yet scanned contribute, in the same units, at most
 
 $ sum_(j < i) (2^33 - 1) dot 2^(32(j - i)) < (2^33 - 1) / (2^32 - 1) approx 2.0000000005, $
 
@@ -161,9 +179,8 @@ must not be repeatable for free: a stream of cheap sign queries
 against one expensive cancelling prefix would re-scan it each time.
 The fix makes the read pay forward: when the fold descends, it
 _collapses_ what it scanned — zeroes the scanned digits and deposits
-their exact partial $s$ at the scan's floor (the partial stays small:
-$|s| < 3$ held across each step keeps it within a few digits'
-range, so the deposit is an ordinary bounded write). The value is
+their exact partial $s$ at the scan's floor (a bounded write: the
+fold's invariant keeps $s$ within two digits' range). The value is
 unchanged; the spelling is now shallow; the next sign query re-reads
 none of it. Since only writes make digits nonzero, and a collapse
 zeroes every digit it scans, *each digit is scanned at most once per
@@ -177,7 +194,12 @@ visible — the data structure's version of a splay. Second, the
 decision bound generalizes: if the fold decided at digit index
 $i >= f + 2$, then no quantity living entirely in digits
 $0 dots f$ — anything of bounded scale — could overturn either the
-sign or a magnitude comparison. Sweeps use this _domination floor_
+sign or a magnitude comparison. The arithmetic behind the "$+2$":
+deciding at index $i$ means $|s| >= 3$ against under $2.01$ of
+unscanned tail, certifying $|"value"| > 0.99 dot 2^(32 i)$; a
+quantity confined to digits $0 dots f$ is below
+$2.01 dot 2^(32 (f + 1))$; with $i >= f + 2$ the first exceeds the
+second by a factor near $2^31$. Sweeps use this _domination floor_
 constantly: "is this wide watermark still above this word-scale
 adjustment?" is answered from the top one or two digits, in $O(1)$,
 without touching the watermark's width at all (@tick).
@@ -207,7 +229,9 @@ accumulators, and
 
 Equivalently, with potential $Phi = $ total digits held live across
 all accumulators: $Phi$ grows only when input codes are consumed, and
-by at most their width; every touch not covered by a consumed or
+by at most their width (one bookkeeping exception: a collapse
+deposits at most two digits while zeroing at least as many, so it
+never increases $Phi$); every touch not covered by a consumed or
 emitted code is covered by a drop in $Phi$. Summing over the sweep,
 total work is $O("input bits" + "output bits")$.
 

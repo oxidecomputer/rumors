@@ -14,21 +14,31 @@ precisely what it means.
   _For every operation and every input a caller can present — any
   value magnitude, any tree depth, any shape; well-formed or
   malformed; crafted or organic — time and transient memory are
-  amortized proportional to the bits the operation reads plus the
-  bits its answer mandatorily occupies. There is no input family, at
-  any scale, whose cost grows faster than that._
+  proportional to the bits the operation reads plus the bits its
+  answer mandatorily occupies._
 ])
+
+The word "amortized" in earlier sections needs its scope fixed here,
+because it strengthens the claim rather than weakening it: every
+accumulator is created and destroyed within a single operation, so
+the amortization is internal to one call — each individual API call
+is worst-case $O(n + m)$, not merely cheap on average across a
+sequence. And one derivational boundary carries over: rank's
+freeze-position funding has the uncertified input shape @measures
+states, where the linear behavior is enforced by a pinned measured
+ceiling rather than derived. Everything else in the property is
+derivation all the way down.
 
 Note what the statement does _not_ say. It does not say "fast on
 realistic inputs" — that is @machine's separate, additional claim.
 It does not bound inputs: no maximum depth, no maximum magnitude, no
 "values are expected to be small." It does not exempt failure:
 rejecting a malformed stream is an outcome with a cost, bounded like
-any other, even though a stream's defect may be discoverable only at
-its final bit (self-delimiting codes guarantee an honest validator
-that much work; the guarantee is that it is never more). And it does
-not average over inputs: the adversary picks the input after reading
-the algorithm.
+any other — a defect may sit at a stream's final bit, so no validator
+can reject sooner than reading to it; the guarantee is that
+rejection never costs more than that one reading. And it does not
+average over inputs: the adversary picks the input after reading the
+algorithm.
 
 Why hold a clock library to this bar? Because a causal clock is
 infrastructure that _meets bytes_: values arrive from other machines,
@@ -57,7 +67,7 @@ unity:
     stroke: 0.4pt + gray-line,
     inset: 6pt,
     table.header([*genre*], [*the unfunded quantity*], [*the cure*]),
-    [path sums (@naive)],
+    [path sums† (@path-sums)],
     [absolute heights carried down every walk],
     [sweeps over differences the stream itself supplies],
     [wide decode (@naive-decode)],
@@ -66,31 +76,32 @@ unity:
     [recursion (@naive-recursion)],
     [a native frame per level],
     [iterative walks; ~2 bits of explicit state per level],
-    [carry cliffs (@ladder)],
+    [carry cliffs† (@ladder)],
     [normalized digits crossed by cheap deltas],
     [the accumulator: no normalized region anywhere (@redundant)],
-    [cancelling prefixes (@sign)],
+    [cancelling prefixes† (@sign)],
     [re-scanned dead digits under repeated sign reads],
     [the collapsing fold: each digit scanned once per write],
-    [watermark webs (@tick)],
+    [watermark webs† (@tick-web)],
     [absolute range minima, one per open range],
     [difference-coded stack, zero runs compressed, undercuts funded],
-    [close/reopen cycles (@tick)],
+    [close/reopen cycles† (@tick-web)],
     [a boundary difference re-folded per cycle],
     [moves, not folds: wide content shuttles at $O(1)$],
     [output-dominated ops (@projection)],
     [output the input's size cannot bound],
     [denominate against mandatory output; sweep held I/O-linear],
-    [tick's emissions (@tick)],
+    [tick's emissions† (@tick-output)],
     [work priced by output with no output bound],
     [the output inequality: emitted $<= 2 dot$ input $+ O("id")$],
   ),
   caption: [The amplifier genres and their cures. Every cure is the
-    funding discipline of @funding instantiated at one seam.],
+    funding discipline of @funding instantiated at one seam; the six
+    rows marked † bottom out in the accumulator's contract.],
 ) <fig-genres>
 
 Two structural facts stand out. First, _the accumulator is the
-keystone_: six of the nine rows bottom out in its contract — amortized
+keystone_: the six marked rows bottom out in its contract — amortized
 $O(1)$ word deltas at any held width, $O("limbs")$ wide deltas at any
 scale, amortized $O(1)$ sign, funded materialization. It is why the
 introduction called it half of the answer rather than an
@@ -135,15 +146,18 @@ the document's own contents were produced by it:
 
 The skyline representation and its accumulator were presented as an
 efficiency story, and they are one: within $4.3%$ of the counting
-floor at rest, linear sweeps for every operation, constants a small
+floor at rest (against the family the coding reaches — the framing
+@ctf-caveat keeps honest), linear sweeps for every operation, constants a small
 multiple of reading cost, on the access pattern the machine likes
 best. But the deeper claim, and the one this document was written to
 make legible, is about _worst cases as a design material_. Every
 structure here — the delta coding, the balanced digits, the
 difference-coded watermarks, the output inequality — was shaped by
 asking what the most hostile input could extract, and the finished
-design's answer is: _nothing_. Nothing beyond the bits it brought
-and the bits it is owed back.
+design's answer is: nothing beyond the bits it brought and the bits
+it is owed back — with the one derivational gap @measures names held
+by a pinned measurement instead of a proof, and the bounded
+branch-prediction cost @words concedes to the machine.
 
 That is what it means for the implementation of a paper's elegant
 recursive equations to be not only correct, and not only fast, but
@@ -153,3 +167,25 @@ remains the permanent oracle its every operation is tested against —
 while the costs are rebuilt on a conservation law. Correctness by
 transcription, performance by funding; the skyline is where the two
 meet in one bit string.
+
+#v(1em)
+#line(length: 30%, stroke: 0.5pt + gray-line)
+
+*References.* The subject: P. S. Almeida, C. Baquero, V. Fonte,
+"Interval Tree Clocks: A Logical Clock for Dynamic Systems,"
+OPODIS 2008. Results this document leans on, with their homes:
+signed-digit redundant arithmetic — A. Avizienis, "Signed-Digit
+Number Representations for Fast Parallel Arithmetic," IRE Trans.
+EC-10, 1961 (the carry-save adder is the same idea in hardware
+dress); redundant representations amortizing structural work —
+C. Okasaki, _Purely Functional Data Structures_, 1998, ch. 9;
+exact long accumulation — U. Kulisch, _Advanced Arithmetic for the
+Digital Computer_, 2002; the integer codes — P. Elias, "Universal
+Codeword Sets and Representations of the Integers," IEEE Trans. IT-21,
+1975; singularity analysis and the square-root-branch transfer —
+P. Flajolet, R. Sedgewick, _Analytic Combinatorics_, 2009, ch. VI–VII;
+the nonnegative-walk exponent — E. Sparre Andersen, "On the
+Fluctuations of Sums of Random Variables," Math. Scand. 1, 1953. The
+composed contract of @accum — the lazy balanced form with a
+collapsing sign fold and domination floors, as one interface — is,
+to our knowledge, this design's own.

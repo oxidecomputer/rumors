@@ -26,8 +26,14 @@ denotes:
     of bases from the root down.],
 ) <fig-skyline>
 
-Call each maximal constant run a _plateau_. Two observations make the
-skyline the right thing to store:
+Call each of the skyline's pieces a _plateau_: a dyadic interval
+together with the constant height the function takes on it — a leaf
+of the tree, in tree language. A plateau is deliberately _not_ "a
+maximal constant run": two adjacent plateaus of equal height are a
+real shape (they arise exactly when a constant run's extent is not a
+dyadic interval, so no single leaf can span it), and the canonical
+form of @canonical will keep them. Two observations make the skyline
+the right thing to store:
 
 + *Every operation is a pointwise statement about the skyline.*
   Comparison is pointwise $<=$; join is pointwise max; meet is
@@ -39,7 +45,11 @@ skyline the right thing to store:
   _shape_ and the _absolute_ heights of its leaves, the function is
   fully determined. The paper's per-node bases are an artifact of
   spelling the same information top-down — the artifact that forced
-  every walk in @naive to maintain path sums.
+  every walk in @naive to maintain path sums. The distinction bites
+  as soon as a base is nonzero: the paper's tree $(1, 0, (0, 0, 1))$
+  has a leaf _written_ $0$ that _stands_ at absolute height $1$ (the
+  base above it), and denotes the plateau heights $1, 1, 2$ — which
+  is all the skyline stores.
 
 So we store the shape, and the leaf heights, and nothing else.
 
@@ -57,17 +67,24 @@ node's flag precedes everything in its subtree, and — the property
 every sweep leans on — *the leaves appear in left-to-right order*:
 read in stream order, the leaves are exactly the plateaus of the
 skyline, west to east. No bit says where a subtree ends; none is
-needed, because a full binary tree is self-delimiting (count: each
-`0` opens two obligations, each `1` closes one; the tree ends when
-obligations reach zero).
+needed, because a full binary tree is self-delimiting: start a count
+of outstanding obligations at one; an internal node consumes its
+obligation and creates two (net $+1$), a leaf consumes one (net
+$-1$); the tree ends exactly when the count reaches zero, and no
+proper prefix reaches zero early. Bits pack most-significant-first
+within each byte — a convention that matters only in @machine, where
+it lets whole codes settle under one count-leading-zeros instruction.
 
 #draftnote[
-  The `0`~=~internal, `1`~=~leaf polarity stated here is the
-  convention of a protocol revision that is in flight at this
-  writing; the shipped stream at the time of drafting spells the
-  same flags with the opposite polarity. Everything else on this
-  page — payloads, canonical form, uniqueness — is unaffected by
-  the polarity. This note is removed when the revision merges.
+  The `0`~=~internal, `1`~=~leaf polarity stated here (and drawn in
+  @fig-stream) is the convention of a protocol revision in flight at
+  this writing; the shipped stream at the time of drafting spells the
+  same flags with the opposite polarity. The payloads, canonical
+  form, and uniqueness on this page are unaffected; the one argument
+  in this document that leans on the polarity itself is the
+  word-parallel descent remark of @words, which assumes the
+  convention stated here. This note is removed when the revision
+  merges.
 ]
 
 *Payloads.* Each leaf's flag is followed immediately, in-stream, by
@@ -82,10 +99,10 @@ folded onto the naturals first by the _zigzag_ map
 $ +k arrow.r.bar 2k, quad -k arrow.r.bar 2k - 1 $
 
 (a bijection, with no spelling for "negative zero"), and the result
-$v$ is written as the _Elias gamma_ code of $v + 1$: for a value with
-$b = floor(log_2 (v+1))$ significant bits above the implicit leading
-one, write $b$ zeros followed by the $b + 1$ bits of $v + 1$ itself.
-The code costs
+$v$ is written as the _Elias gamma_ code of $v + 1$: with
+$b = floor(log_2 (v+1))$, write $b$ zeros, then the $b + 1$ bits of
+$v + 1$ in binary (whose leading bit is necessarily `1` — that is
+how the decoder knows the zeros have ended). The code costs
 
 $ 2 floor(log_2 (v + 1)) + 1 "bits:" $
 
@@ -122,16 +139,16 @@ zero: two bits.
 
 == Ids are boolean skylines <id-coding>
 
-A party's id has the same reading one step simpler: a $0$-or-$1$
-landscape over the same interval — $1$ where the party owns the id
-space, $0$ where it does not. No payloads are needed at all, but id
-trees are not full ($0$ and $1$ leaves differ, and an interior node
-can hold ownership on one side only), so the coding spends _two_ flag
-bits per stored node, answering "does a left child follow?" and "does
-a right child follow?". The crucial economy: an *unowned region is
-simply absent*. A `0` subtree of the paper's syntax stores nothing —
-its parent's tag already said no child follows — while the childless
-tag `00` is a terminal, a wholly owned region.
+A party — the id component — has the same reading one step simpler: a
+$0$-or-$1$ landscape over the same interval, $1$ where the party owns
+the id space, $0$ where it does not. No payloads are needed at all.
+The paper's id trees are full binary trees like its event trees, but
+here the coding _prunes_: an unowned subtree — a whole `0` of the
+paper's syntax — stores nothing, because its parent's tag already
+said no child follows. The pruned shape is 0-, 1-, or 2-ary, so the
+coding spends _two_ flag bits per stored node, answering "does a left
+child follow?" and "does a right child follow?", with the childless
+tag `00` as a terminal: a wholly owned region.
 
 The seed, owning everything, is one terminal: two bits. The id
 $(1, 0)$ — own the left half — is a left-only node followed by a
@@ -139,9 +156,18 @@ terminal, four bits in all:
 
 #align(center, bitrow((("10", "t", [node: left child only]), ("00", "t", [terminal: owned]))))
 
-Under sustained churn among a hundred participants, a party measures
-around three bytes; the id side of the system is, by design, nearly
-free.
+At a hundred participants with stable membership, a party measures
+about three bytes; sustained fork-and-retire churn fragments
+ownership and raises it to a few tens (measured: the paper's own
+space-consumption scenarios, reproduced on our implementation). The
+id side of the system is, by design, nearly free.
+
+One boundary case rounds out the coding. The paper's _anonymous_
+stamp $(0, e)$ — causal information with no identity, used for
+messages — owns nothing, and a root that owns nothing has no parent
+tag to absorb it. The implementation dissolves the case instead of
+spelling it: an anonymous stamp is modeled as a bare version, so a
+party, wherever one exists at all, is nonempty by construction.
 
 A clock — a party and its version — concatenates the two streams. Both
 codings are prefix-free (self-delimiting trees, self-delimiting
@@ -155,13 +181,14 @@ property we need the converse discipline: every _function_ must have
 exactly one accepted stream. Three rules, enforced strictly at every
 decode boundary:
 
-+ *Minimal topology.* No internal node whose two children are both
-  leaves of equal height — such a pair is one plateau spelled as two,
-  and collapses. In stream terms: a right-sibling leaf may never
-  carry a zero delta when its brother is a leaf. (A zero delta
-  between consecutive leaves that are _not_ siblings is a real,
-  canonical shape: two equal plateaus separated by a subtree
-  boundary.)
++ *Minimal topology* (the _sibling-merge rule_). No internal node
+  whose two children are both leaves of equal height — such a pair is
+  one plateau spelled as two, and merges. In stream terms: a
+  right-sibling leaf may never carry a zero delta when its brother is
+  a leaf. (A zero delta between consecutive leaves that are _not_
+  siblings is a real, canonical shape: two equal plateaus separated
+  by a subtree boundary — the non-dyadic constant run met under
+  @fig-skyline.)
 + *Nonnegative heights.* The payload stream is signed; nothing else
   stops a delta from driving the running height below zero, so the
   decoder must.
@@ -173,11 +200,20 @@ common minimum into the parent — has no analogue here, because there
 are no interior numbers to lift into. Storing absolute heights at the
 leaves quietly discharged one of the two normal-form obligations.
 
-The three rules make the spelling unique. Minimal topology makes the
-tree of a step function unique (split intervals exactly where the
-function steps across a dyadic boundary, and nowhere else could a
-minimal full tree put them); heights are function-determined; gamma
-has one spelling per natural and zigzag has none to spare. Uniqueness
+The three rules make the spelling unique, and the argument is short
+enough to give. For a dyadic step function $h$, define $T(h)$: a
+single leaf if $h$ is constant, else the node over
+$T(h|_"left")$ and $T(h|_"right")$. First, $T(h)$ satisfies the
+sibling-merge rule: its two children are equal-height leaves only if
+$h$ is constant on both halves — but then $h$ was constant and
+$T(h)$ was a leaf. Second, any rule-satisfying tree for $h$ equals
+$T(h)$, by induction from the root: a tree spelling a non-constant
+$h$ cannot be a leaf, so it is a node whose children spell the two
+restrictions (uniquely, by induction); and a tree spelling a
+_constant_ $h$ must be a leaf, since an internal node's children
+would spell two constant halves — by induction two equal leaves,
+which the rule forbids. Heights are function-determined; gamma has
+one spelling per natural and zigzag has none to spare. Uniqueness
 is not an aesthetic: it is a load-bearing feature bought deliberately,
 and @compactness prices exactly what it costs in coding room
 ($4.3%$, as it turns out). What it buys:
@@ -210,11 +246,11 @@ for in bits, honoring @naive-recursion's budget.
 
 Nonnegativity is the interesting one: it needs the running absolute
 height, updated by every delta, sign-checked at every leaf — exactly
-the "running value" that @ladder proved dangerous. On the carry-cliff
-comb — $plus.minus 1$ deltas, three-bit codes, astride $2^k$ — a
-normalized running height pays a $k$-bit carry per three-bit code:
-$Theta(W^2)$ work in a $W$-bit stream, _in the validator_, on
-arbitrary bytes. (Measured, on a deliberately plain big-integer
+the "running value" that @ladder proved dangerous, and the boundary
+comb aims straight at it: $plus.minus 1$ deltas, three-bit codes,
+astride $2^k$, so a normalized running height pays a $k$-bit carry
+per three-bit code — $Theta(W^2)$ work in a $W$-bit stream, _in the
+validator_, on arbitrary bytes. (Measured, on a deliberately plain big-integer
 sweep kept as a tripwire: the quadratic is real and reproducible.)
 The skyline's compactness has written a check the representation
 alone cannot cash. The accumulator of @accum cashes it: with the

@@ -34,9 +34,11 @@ piece of arithmetic:
   plateau heights, delta-coded, bit-packed, in one contiguous buffer —
   rather than the tree that spells it. The representation is canonical
   (one bit string per value, so byte equality _is_ semantic equality),
-  compact (provably within $4.3%$ of the information-theoretic floor;
-  @compactness), and sweepable: every operation the clock API asks for
-  is computable in one left-to-right pass.
+  compact (within $4.3%$ of the information-theoretic floor for the
+  family it covers; @compactness), and sweepable: every operation the
+  clock API asks for is computable in a bounded number of
+  left-to-right passes — one for most operations, two where a
+  lookahead or a measure's pre-pass is inherent.
 
 - *The accumulator* (@accum): every sweep maintains a running signed
   integer — a running height, a running difference of heights, a
@@ -48,16 +50,17 @@ piece of arithmetic:
   sequence_ — the load-bearing component that lets each sweep's cost
   argument close.
 
-On top of those two, @operations derives each operation — comparison,
-join and meet, fork, tick (the paper's `event`, with `fill` and
-`grow`), projection and difference, and the measures rank, distance,
-lag, and minimum tick count — as a sweep over the packed form, each
-with an informal argument for linearity and a statement of what
-"linear" is denominated in. @machine turns to constant factors: why a
-packed sequential scan is the access pattern the machine rewards, and
-where the measured costs of our implementation sit relative to the
-floor of simply reading the input. @resilience closes the arc by
-stating the property the whole design serves.
+On top of those two, @operations derives each operation — comparison;
+join and meet; fork, party join, and party difference; projection;
+the measures rank, distance, lag, and minimum tick count; and last,
+because it needs everything before it, tick (the paper's `event`,
+with `fill` and `grow`) — as a sweep over the packed form, each with
+an informal argument for linearity and a statement of what "linear"
+is denominated in. @machine turns to constant factors: why a packed
+sequential scan is the access pattern the machine rewards, and where
+the measured costs of our implementation sit relative to the floor of
+simply reading the input. @resilience closes the arc by stating the
+property the whole design serves.
 
 *The thesis.* The design is not merely asymptotically optimal, and
 not merely efficient in its constants and friendly to the machine.
@@ -74,10 +77,19 @@ that claim; the accumulator is the clause the others lean on.
 of two kinds, and says which: _derived_ — an argument carried out here,
 from the representation and the algorithm, which the reader can check;
 or _measured_ — an observation from our implementation's instrumented
-test and benchmark apparatus, quoted at the level of mechanism. Where
-an argument has a known boundary (one calibration in @operations, one
-framing choice in @compactness), the boundary is stated rather than
-smoothed over.
+test and benchmark apparatus, quoted at the level of mechanism. Three
+arguments have known boundaries, each stated where it lives rather
+than smoothed over: one uncertified input shape in rank's funding
+argument (@measures), one probabilistic step in the counting bound
+(@nonneg), and one framing choice in what the compactness floor is
+measured against (@ctf-caveat).
+
+*What this document does not cover.* The library around this design
+has concerns this exposition deliberately omits: the API and its
+safety rules (identity must be handled linearly — forked, never
+duplicated), wire-format versioning and evolution, concurrency, and
+the embedding protocol a clock library serves. Here there are only
+values, operations, and costs.
 
 == The paper's model, briefly <model>
 
@@ -113,7 +125,11 @@ The three operations:
 
 Comparison is pointwise: $e_1 <= e_2$ iff the function of $e_1$ is
 nowhere above the function of $e_2$. Two event trees with no
-containing order are _concurrent_.
+containing order are _concurrent_. The paper's operations lean on one
+piece of notation this document reuses: the _lift_ $e arrow.t m$,
+which adds $m$ to the root value of $e$ (so $n arrow.t m = n + m$ and
+$(n, e_1, e_2) arrow.t m = (n + m, e_1, e_2)$), and its inverse the
+sink $e arrow.b m$.
 
 Finally, the paper keeps trees in a *normal form* — $(0,0)$ and
 $(1,1)$ collapse in ids; in event trees, equal-leaf siblings collapse
@@ -122,6 +138,43 @@ has one preferred spelling and the operations can stay simple. Normal
 forms will matter enormously in what follows: the entire canonicality
 story of @skyline, and a measurable fraction of the coding's size
 (@compactness), descend from this choice.
+
+*Vocabulary.* From @skyline onward this document uses the working
+names of the implementation rather than the paper's, because the
+renaming carries a point of view: we write *version* for the paper's
+event component (it is a causal timestamp — a value in its own right,
+freely copied), *party* for the id component (the participant's
+share of the id space), *clock* for the stamp $(i, e)$ (a party
+paired with its current version), and *tick* for the paper's `event`
+operation. "Tree" is reserved for the paper's spelling of these
+values; the whole burden of @skyline is that the tree is not the
+value.
+
+*Symbols.* Recurring symbols, fixed here (a few letters do local
+double duty; each such use is flagged where it occurs):
+
+#figure(
+  table(
+    columns: (auto, 1fr),
+    align: (left, left),
+    stroke: 0.4pt + rgb("#999999"),
+    inset: 5.5pt,
+    [$n, m$], [packed bit lengths of an operation's operands (in
+      @compactness, $n$ is a stream-length budget in bits)],
+    [$d$, $d_i$], [tree depth; a leaf's depth],
+    [$W$], [the bit width of a stored magnitude],
+    [$h$, $h_i$], [an absolute plateau height; the running height],
+    [$delta$], [a height difference between consecutive plateaus],
+    [$D$], [a two-operand sweep's running difference $h_a - h_b$],
+    [$a_i$], [the accumulator's signed digits (@accum)],
+    [$ell$], [the word length of a wide operand],
+    [$k$], [a construction's scale parameter (a cliff's width, a
+      gamma bucket, an iteration count — local to each use)],
+    [$S$], [a stream's maximum leaf depth],
+  ),
+  kind: table,
+  caption: [Notation. Lengths are in bits unless bytes are named.],
+) <fig-notation>
 
 Everything in the paper is correct and complete as semantics. The rest
 of this document treats it as a specification and asks: what does it
