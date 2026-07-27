@@ -43,7 +43,7 @@
 //! No absolute height is materialized anywhere but the output stream's
 //! first leaf (whose code is that absolute, so the read is priced by
 //! the write). The walk carries the last consumed input height on one
-//! cliff-immune [`Accum`], and every range minimum the shortcut arms
+//! cliff-immune [`Accumulator`], and every range minimum the shortcut arms
 //! can ask for lives in one shared anchor web — the `watermark`
 //! module's stack: `h − A` for an anchor at or above the innermost
 //! open range's minimum (the excess parked in the stack's latent
@@ -164,7 +164,8 @@
 
 use core::cmp::Ordering;
 
-use crate::codec::accum::Accum;
+use suanpan::Accumulator;
+
 use crate::codec::{self, Base, BitCursor, Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
 use crate::step;
@@ -240,8 +241,8 @@ pub(super) fn fused_fill(ev_bits: &BitsSlice, id: &crate::Party) -> FillOutcome 
         ev: ev_bits,
         cursor: codec::DsiCursor::new(ev_bits),
         first_read: true,
-        h: Accum::new(),
-        gap: Accum::new(),
+        h: Accumulator::new(),
+        gap: Accumulator::new(),
         w_anchored: false,
         started: false,
         range_is_leaf: false,
@@ -295,11 +296,11 @@ struct FillWalk<'a> {
     /// not as a delta).
     first_read: bool,
     /// The last consumed input leaf's height.
-    h: Accum,
+    h: Accumulator,
     /// `h − prev_out` while the output delta is height-anchored: every
     /// consumed step folds in, and every emitted leaf re-derives it.
     /// Idle (zero) while `w_anchored`.
-    gap: Accum,
+    gap: Accumulator,
     /// Whether the output delta is watermark-anchored: the last
     /// emission took the tracked minimum, and `min − prev_out` rides
     /// the stack's [`OUT_FOLLOWER`] instead of `gap`.
@@ -369,7 +370,7 @@ struct Memo {
     /// sites' closes, deferred first-child links at their parents') —
     /// the queue's indices decouple write order from consumption
     /// order.
-    links: Vec<Accum>,
+    links: Vec<Accumulator>,
     /// The consumption cursor into `queue`.
     cursor: usize,
     /// The end position of the current fresh scan's span: sites before
@@ -420,13 +421,13 @@ impl Memo {
     }
 
     /// Store a nonzero link for `slot`, in write order.
-    fn set_link(&mut self, slot: usize, link: Accum) {
+    fn set_link(&mut self, slot: usize, link: Accumulator) {
         self.links.push(link);
         self.queue[slot] = u32::try_from(self.links.len()).expect("site count fits u32");
     }
 
     /// Take `slot`'s link out for its one consuming read, if nonzero.
-    fn take_link(&mut self, slot: usize) -> Option<Accum> {
+    fn take_link(&mut self, slot: usize) -> Option<Accumulator> {
         match self.queue[slot] {
             0 => None,
             idx => Some(core::mem::take(&mut self.links[idx as usize - 1])),
@@ -444,7 +445,7 @@ enum Corr {
     None,
     /// `h − m_r`, folding input deltas: the reference is
     /// height-carried (the last raise took the scan-maximum side).
-    H(Accum),
+    H(Accumulator),
     /// `min − m_r` rides the stack's [`REL_FOLLOWER`]: the reference
     /// is watermark-carried (the last raise took the minimum side, or
     /// a site's close re-anchored from the walk's own web).
@@ -554,10 +555,10 @@ impl FillWalk<'_> {
                             ev: self.ev,
                             cursor: codec::DsiCursor::new_at(self.ev, scan_start),
                             stack: MinStack::new(),
-                            entry_net: Some(Accum::new()),
+                            entry_net: Some(Accumulator::new()),
                             pending_rel: None,
                             memo: &mut self.memo,
-                            keeper: Accum::new(),
+                            keeper: Accumulator::new(),
                             first_slot: usize::MAX,
                             head_level: 0,
                             suspend: Vec::new(),
@@ -766,8 +767,8 @@ impl FillWalk<'_> {
     /// relation `acc = h − m_r`.
     fn consume_h_anchored(
         &mut self,
-        mut acc: Accum,
-        link: Option<Accum>,
+        mut acc: Accumulator,
+        link: Option<Accumulator>,
         above: &Signed,
         depth: usize,
     ) {
@@ -1277,8 +1278,8 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
     // The net movement `h − h_entry` and the minimum's offset from the
     // *current* height (`min − h`), reset whenever the height crosses
     // below it; the first leaf arms the offset at zero.
-    let mut net = Accum::new();
-    let mut off = Accum::new();
+    let mut net = Accumulator::new();
+    let mut off = Accumulator::new();
     let mut armed = false;
     loop {
         // One whole descent per unary read.
@@ -1300,7 +1301,7 @@ fn scan_min_from(ev: &BitsSlice, pos: usize, first: bool) -> Signed {
         } else {
             fold(&mut off, !neg, &mag);
             if off.sign() == Ordering::Greater {
-                off = Accum::new();
+                off = Accumulator::new();
             }
         }
         loop {
@@ -1357,9 +1358,9 @@ struct PreScan<'a, 'm> {
     stack: MinStack,
     /// `h′ − h(scan entry)`, alive until the first virtual arming
     /// seeds the recording head.
-    entry_net: Option<Accum>,
+    entry_net: Option<Accumulator>,
     /// The seeded head awaiting the arming that installs it.
-    pending_rel: Option<Accum>,
+    pending_rel: Option<Accumulator>,
     /// The ledger under construction.
     memo: &'m mut Memo,
     /// The sibling-chain keeper for the level the head serves.
@@ -1367,7 +1368,7 @@ struct PreScan<'a, 'm> {
     /// `m_latest − m_first` over the level's recorded sites, folded
     /// forward one link width per sibling record. It dies into the
     /// level's deferred first-child link at the forest parent's close.
-    keeper: Accum,
+    keeper: Accumulator,
     /// The queue slot of the head's level's first site.
     ///
     /// Its link (`m_first − m_parent`) is deferred to the parent's
@@ -1383,7 +1384,7 @@ struct PreScan<'a, 'm> {
     /// m_ref(outer)` — immutable once pushed, both minima fixed), the
     /// outer keeper, the outer first slot, and the outer level. LIFO
     /// by the site forest's nesting.
-    suspend: Vec<(Accum, Accum, usize, u32)>,
+    suspend: Vec<(Accumulator, Accumulator, usize, u32)>,
 }
 
 impl PreScan<'_, '_> {

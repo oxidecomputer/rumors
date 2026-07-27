@@ -9,7 +9,8 @@ use core::fmt;
 use core::iter::Sum;
 use core::ops::{Add, AddAssign};
 
-use crate::codec::accum::Accum;
+use suanpan::Accumulator;
+
 use crate::codec::Base;
 
 /// The causal rank of a [`Version`](crate::Version).
@@ -308,7 +309,7 @@ impl<'a> Sum<&'a Rank> for Rank {
 /// [`Rank`] the pairwise fold produces (one exact value, one shared
 /// normalization at the end).
 fn sum_ranks<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
-    let mut acc = Accum::new();
+    let mut acc = Accumulator::new();
     let mut exp = 0u32;
     for rank in iter {
         let rank = rank.borrow();

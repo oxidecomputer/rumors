@@ -6,9 +6,8 @@
 //! that stream to a byte boundary; `decode` parses and *strictly validates*
 //! normal form, then stores the (canonical) consumed prefix.
 
-// Unconditional: the rank fold sums through `Accum`, so the accumulator is
-// load-bearing in every build. `before::meter` additionally re-exports it so
-// the resource-envelope suite can pin its digit-touch cost.
+// A bare re-export of `suanpan`'s accumulator under this crate's local
+// name; `before::meter` re-exports it.
 pub mod accum;
 pub(crate) mod base;
 mod bits;

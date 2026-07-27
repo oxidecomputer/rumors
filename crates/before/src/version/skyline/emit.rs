@@ -6,7 +6,7 @@
 //! (the [`sweep`](super::sweep) module doc carries the boundary
 //! bookkeeping): two leaf cursors over the overlay partition, one
 //! running signed difference `D = height_a − height_b` on the
-//! cliff-immune [`Accum`]. What emission adds is an output leaf per
+//! cliff-immune [`Accumulator`]. What emission adds is an output leaf per
 //! elementary interval — depth `max` of the two cursor depths, since
 //! overlapping dyadic intervals nest — delivered to the collapsing
 //! output builder (the crate-private `build` sibling module), which
@@ -64,7 +64,8 @@
 
 use core::cmp::Ordering;
 
-use crate::codec::accum::Accum;
+use suanpan::Accumulator;
+
 use crate::codec::{Base, Bits, BitsSlice};
 
 use super::build::SkylineBuilder;
@@ -121,7 +122,7 @@ impl Op {
 
 /// Run the emission sweep.
 fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
-    let mut diff = Accum::new();
+    let mut diff = Accumulator::new();
     let (mut ca, a_first) = LeafCursor::open(a_bits);
     let (mut cb, b_first) = LeafCursor::open(b_bits);
     diff.add_base(&a_first);
@@ -174,7 +175,7 @@ fn step_delta(side: Side, da: &Option<Step>, db: &Option<Step>) -> (bool, Base) 
 
 /// The output delta across a side switch: `±D′` oriented toward the new
 /// side, plus the old side's step delta (the module doc's algebra).
-fn switch_delta(diff: &Accum, new_side: Side, old_delta: (bool, Base)) -> (bool, Base) {
+fn switch_delta(diff: &Accumulator, new_side: Side, old_delta: (bool, Base)) -> (bool, Base) {
     let (sign, magnitude) = diff.sign_magnitude();
     debug_assert_ne!(sign, Ordering::Equal, "a tie never switches the side");
     let negative = match new_side {

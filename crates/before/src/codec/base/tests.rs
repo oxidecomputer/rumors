@@ -11,9 +11,9 @@ use core::cmp::Ordering;
 
 use dashu_int::{IBig, Sign, UBig};
 use proptest::prelude::*;
+use suanpan::Accumulator;
 
-use super::Accum;
-use crate::codec::Base;
+use super::Base;
 
 /// The oracle's sign as the accumulator reports it.
 fn oracle_sign(oracle: &IBig) -> Ordering {
@@ -29,7 +29,7 @@ fn oracle_sign(oracle: &IBig) -> Ordering {
 
 /// Assert the accumulator's full value equals the oracle's, sign and
 /// magnitude both.
-fn assert_value(acc: &Accum, oracle: &IBig) {
+fn assert_value(acc: &Accumulator, oracle: &IBig) {
     let (sign, magnitude) = acc.sign_magnitude();
     assert_eq!(sign, oracle_sign(oracle), "sign_magnitude sign");
     // The sign was just asserted, so signing the magnitude with it makes
@@ -60,7 +60,7 @@ proptest! {
             1..200,
         ),
     ) {
-        let mut acc = Accum::new();
+        let mut acc = Accumulator::new();
         let mut oracle = IBig::from(0);
         for (negative, limbs) in &ops {
             let value = from_limbs(limbs);
@@ -91,7 +91,7 @@ proptest! {
             1..200,
         ),
     ) {
-        let mut acc = Accum::new();
+        let mut acc = Accumulator::new();
         let mut oracle = IBig::from(0);
         for (negative, limbs, shift) in &ops {
             let value = from_limbs(limbs);
