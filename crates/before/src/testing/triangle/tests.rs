@@ -11,9 +11,11 @@ use super::{
 };
 
 /// The roster is total over the public inherent-`pub fn` surface, both
-/// directions: every extracted operation has exactly one named row, and
-/// every method row names an operation that still exists — so a new
-/// public op forces a reviewed row, and a removed op orphans one.
+/// directions.
+///
+/// Every extracted operation has exactly one named row, and every method
+/// row names an operation that still exists — so a new public op forces
+/// a reviewed row, and a removed op orphans one.
 #[test]
 fn roster_is_total_over_the_public_fn_surface() {
     let extracted = extract_public_fns();
