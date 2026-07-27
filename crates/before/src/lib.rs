@@ -527,7 +527,8 @@ pub mod implementation {
     //! folded onto the naturals (*zigzag*: `+k → 2k`, `−k → 2k−1`) and then
     //! written as a variable-length integer code (*Elias gamma*, applied to
     //! the number plus one so that zero stays codable) that
-    //! spends bits in proportion to the number's size — so a run of
+    //! spends bits in proportion to the number's width, not its
+    //! magnitude — so a run of
     //! similar heights costs a few bits per leaf no matter how tall it
     //! stands. Our example `(0, 1, (0, 0, 2))` becomes five topology flags
     //! and the payload sequence `1, −1, +2` (the absolute `1`, then zigzags
@@ -638,6 +639,87 @@ pub mod implementation {
     //! over a few dozen to a few thousand contiguous bytes. What the trade
     //! rules out is cheap point queries ("the height at this id"), which
     //! the public API deliberately does not offer.
+    //!
+    //! **Small values over large.** Elias gamma is one member of a family
+    //! of integer codes, so the pick deserves its argument. The stream
+    //! demands two things of any candidate: exactly one prefix-free
+    //! spelling per natural, because unique spelling is what canonical
+    //! form rests on; and cost proportional to a value's *width* (its bit
+    //! count), never its magnitude, because arbitrarily tall plateaus are
+    //! legitimate values. The second demand excludes the Rice codes
+    //! outright — the classic pick for delta streams, but a unary quotient
+    //! makes their length linear in the value — and leaves the universal
+    //! codes: Elias gamma, delta, and omega, and the zeta family beside
+    //! them.
+    //!
+    //! What decides among the survivors is where the stored values
+    //! actually fall, and that is a measurement: re-running the
+    //! space-consumption experiment behind the crate docs'
+    //! [Efficiency](crate#efficiency) figures and histogramming every
+    //! value handed to the coder — the first absolute height and every
+    //! zigzagged delta — in both of the paper's workload regimes, data
+    //! causality under membership churn and process causality among a
+    //! fixed set. The distribution that emerges is small-valued but not
+    //! zero-heavy: zeros are only 27% of the churning regime's values
+    //! (10.5% of the fixed regime's), so the one-bit zero is not the whole
+    //! story — the code must be cheap across the small band, not just at
+    //! zero — and 85–93% of values are 15 or less. The pointwise
+    //! comparison is then arithmetic: gamma is better than or tied with
+    //! delta and omega on every value below 31 — deltas in `[−15, +15]` —
+    //! and loses above the band, to delta immediately, to omega only from
+    //! 127 up: out where the mass never goes. Where the mass sits, gamma
+    //! wins. Its price is two bits per doubling — `2·⌊log2(v + 1)⌋ + 1`
+    //! bits for value `v` — visible on single-plateau versions, whose
+    //! stream is one topology flag and one absolute height:
+    //!
+    //! ```
+    //! use before::Version;
+    //! let bits = |s: &str| s.parse::<Version>().unwrap().encoded_bits();
+    //! assert_eq!(bits("15"), bits("7") + 2); // one doubling: two bits
+    //! assert_eq!(bits("1000000"), bits("1000") + 20); // ten doublings: twenty
+    //! ```
+    //!
+    //! There is a tidy frame for how narrowly the shape picks gamma. The
+    //! *zeta* codes ζₖ make the small-versus-large trade a dial: raising
+    //! `k` cheapens wide values at the expense of the narrowest ones — ζ₂
+    //! spends two bits on a zero where gamma spends one, and about a bit
+    //! and a half per doubling where gamma spends two — and gamma *is* ζ₁,
+    //! the member that bets hardest on small. The two regimes bracket the
+    //! dial's low end — the churning regime's histogram fits ζ₁, the fixed
+    //! regime's ζ₂ — and the churning regime, where gamma wins outright,
+    //! produces about nine tenths of the experiment's bytes. Over the
+    //! combined corpus the rivalry is a hair's width: ζ₂ would eke back
+    //! 0.17% of bytes, far too small a saving to buy a wire-format change,
+    //! while delta and omega cost 6–9% more.
+    //!
+    //! The worst-case metric — distance above the information-theoretic
+    //! floor — reads against gamma, and bounds what any rival could buy.
+    //! Count the versions whose canonical stream fits in `n` bits: any
+    //! injective coding must spend at least `log2` of that count on some
+    //! member, and this stream's worst member spends `n`. Derived from the
+    //! coding grammar and cross-checked by exact census: 1.043
+    //! asymptotically, about 1.067 at 100-byte versions, where delta or
+    //! omega would reach exactly 1 in the limit. The gap is not slack in
+    //! the code itself — topology-plus-gamma spends the whole code space,
+    //! so every input decode rejects is a spelling canonical form
+    //! excludes, not a wasted pattern — and what that exclusion costs
+    //! depends on where a code puts its weight: gamma's canonical family
+    //! is dominated by many-leaf, small-delta streams, where the
+    //! sibling-merge rule bites at every node, while delta and omega would
+    //! shift the family onto few-leaf, giant-valued streams the rule
+    //! barely touches. Their
+    //! asymptotic tightness is bought with cheap giant values — exactly
+    //! what the measured workload does not produce; hence the 6–9% on real
+    //! traffic. (And the floor is relative to the set a coding covers:
+    //! against families of uniformly tall plateaus the ratio would instead
+    //! approach 2 — the price of betting the cheap spellings on the small
+    //! steps organic histories actually produce.)
+    //!
+    //! What would reopen the choice is the histogram moving, not a better
+    //! argument: a deployment dominated by fixed-membership histories
+    //! pushes the dial toward ζ₂ and turns that hair's width into a real
+    //! margin. The decision would be taken the way this one was — by
+    //! re-measuring.
     //!
     //! **Strictness over tolerance.** [`decode`](crate::Version::decode)
     //! rejects every non-canonical spelling rather than normalizing it.
