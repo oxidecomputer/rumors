@@ -208,12 +208,6 @@
   })
 }
 
-// A framed draft-note box (used for provisional paragraphs).
-#let draftnote(body) = block(
-  inset: 8pt, radius: 3pt, stroke: (paint: accent, thickness: 0.7pt, dash: "dashed"),
-  fill: accent-light.lighten(60%),
-  text(size: 8.5pt, [*Draft note.* #body]),
-)
 
 // Algorithm/pseudocode block.
 #let algo(title: none, body) = block(
