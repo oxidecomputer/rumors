@@ -118,12 +118,13 @@ open ancestor, the overlay walk's one path bit per level per cursor
 (same number, two derivations) — with one stated exception, the
 watermark stack's bounded differences (@tick-web), still linear,
 still priced. A tree $10^5$ levels deep — a forty-kilobyte message —
-costs the overlay walk about twenty-five kilobytes of packed stack
-state (two hundred kilobits) and no native stack at all: no
-overflow, no guard pages, no frame setup and teardown in the hot
+costs a cursor walking it one path bit per level: some twelve
+kilobytes of packed stack state against that operand's own
+thirty-seven kilobytes of topology bits, and no native stack at all —
+no overflow, no guard pages, no frame setup and teardown in the hot
 loop. The direct transcription's
 $approx 800 times$ frame amplification (@naive-recursion) is
-replaced by a constant near two-thirds — the state is _smaller_ than
+replaced by a constant near one-third — the state is _smaller_ than
 the input's own topology bits.
 
 The whole section compresses to one sentence: the skyline turns

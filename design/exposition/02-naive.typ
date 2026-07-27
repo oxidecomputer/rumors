@@ -25,8 +25,11 @@ be $Theta(n)$ on their own:
   the skyline an internal flag plus the off-spine leaf's flag and a
   1-bit payload) — so a few tens of kilobytes of input encode a tree
   a hundred thousand levels deep.
-- *Magnitude width* $W$: a single stored integer can occupy nearly the
-  whole input — a value near $2^n$ in one leaf.
+- *Magnitude width* $W$: a single stored integer can occupy a
+  constant fraction of the input — $W = Theta(n)$, a value near
+  $2^(n\/2)$ in one leaf, since a self-delimiting code spends about
+  two bits per magnitude bit. (Nothing downstream needs more: the
+  quadratics below already fire at $W = Theta(n)$.)
 
 Every cost of the form "per node, work proportional to a magnitude" is
 therefore a latent quadratic: the input can buy $Theta(n)$ nodes and
@@ -70,7 +73,7 @@ here, and the names are used consistently through @resilience.
       floor (built in @tick-web)],
     [any design that re-touches a wide boundary per region],
   ),
-  caption: [The adversarial families, all in one place; the last two
+  caption: [The adversarial families, all in one place; the last four
     are constructed where the machinery they attack is built. Each is
     a legal, canonical value the decoder must accept. `hugeleaf` and
     `bigroot` are unreachable by any honest history at the scales
@@ -108,8 +111,9 @@ for scale (the instance's exact $d$-versus-$W$ split sets the
 constant), and the ratio kept growing with the operand, as the
 formula says it must.
 
-Join has the same skeleton (`join` lifts one side by the base
-difference, $r_2 arrow.t (n_2 - n_1)$, at every paired node) and adds
+Join has the same skeleton (`join` lifts both of one side's
+children by the base difference, $l_2, r_2 arrow.t (n_2 - n_1)$, at
+every paired node) and adds
 the normalization pass: `norm` computes each node's subtree minimum
 and sinks it, more per-level arbitrary-precision work of exactly the
 path-sum shape. Every two-operand walk in the transcription shares the

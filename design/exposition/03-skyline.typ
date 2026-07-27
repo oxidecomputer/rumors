@@ -79,9 +79,13 @@ it lets whole codes settle under one count-leading-zeros instruction.
 its plateau's height. The first leaf stores its height _absolutely_;
 every later leaf stores the _difference_ from the previous leaf in
 stream order. Neighboring plateaus tend to sit close in height even
-when both stand very tall — that is precisely what the paper's
-normalization arranges — so differences are usually small where
-absolutes are usually not. A difference can be negative, so it is
+when both stand very tall — not because of any spelling rule (a
+normalization cannot change the function, so it cannot change these
+differences) but because of the operations' _dynamics_: `fill`
+flattens each owned region to one plateau and raises it to its
+sibling's minimum (@tick), and joins move whole regions at once, so
+real histories keep adjacent plateaus close. Differences are
+therefore usually small where absolutes are usually not. A difference can be negative, so it is
 folded onto the naturals first by the _zigzag_ map
 
 $ +k arrow.r.bar 2k quad (k >= 0), quad quad -k arrow.r.bar 2k - 1 quad (k >= 1) $
@@ -177,8 +181,9 @@ decode boundary:
   right-sibling leaf may never carry a zero delta when its brother is
   a leaf. (A zero delta between consecutive leaves that are _not_
   siblings is a real, canonical shape: two equal plateaus separated
-  by a subtree boundary — the non-dyadic constant run met under
-  @fig-skyline.)
+  by a subtree boundary — exactly the heights $1, 1, 2$ of the
+  $(1, 0, (0, 0, 1))$ example above, whose constant run spans no
+  dyadic interval.)
 + *Nonnegative heights.* The payload stream is signed; nothing else
   stops a delta from driving the running height below zero, so the
   decoder must.
