@@ -1128,19 +1128,6 @@ fn trace_ticks(ops: &[Op]) -> u64 {
         .sum()
 }
 
-/// An independent sum-of-bases over the reference oracle's recursive `Version`,
-/// saturating at `u64::MAX` — ground truth for [`Version::min_ticks`].
-fn oracle_min_ticks(v: &crate::oracle::Version) -> u64 {
-    use crate::oracle::Version::{Leaf, Node};
-    match v {
-        Leaf(b) => b.to_u64_saturating(),
-        Node(b, l, r) => b
-            .to_u64_saturating()
-            .saturating_add(oracle_min_ticks(l))
-            .saturating_add(oracle_min_ticks(r)),
-    }
-}
-
 /// `min_ticks` known values: the empty version, a single-party line (= the leaf
 /// value), and two concurrent peaks (forced above their tallest path of `1`).
 #[test]
@@ -1156,8 +1143,10 @@ proptest! {
     /// history of fork/tick/send/sync/join, its version's `min_ticks` never
     /// exceeds the ticks actually performed.
     ///
-    /// Cross-checks the fold itself against the independent oracle
-    /// sum-of-bases.
+    /// Cross-checks the fold itself against the recursive oracle's
+    /// sum-of-bases (`oracle::Version::min_ticks`); the function-space
+    /// leg (`min_ticks_realizes_base_sum`) supplies the independent
+    /// second computation.
     #[test]
     fn min_ticks_floors_every_history(ops in world_strategy()) {
         let total = trace_ticks(&ops);
@@ -1168,7 +1157,7 @@ proptest! {
         for c in &imp {
             let v = c.version();
             // The fold computes exactly the sum-of-bases.
-            prop_assert_eq!(v.min_ticks(), oracle_min_ticks(&to_oracle_version(v)));
+            prop_assert_eq!(v.min_ticks(), to_oracle_version(v).min_ticks());
             // And that minimum never exceeds the ticks the history performed.
             prop_assert!(
                 v.min_ticks() <= total,
@@ -1217,30 +1206,6 @@ fn no_maximum_tick_count() {
 
 // ─────────────────────────────── rank ───────────────────────────────
 
-/// The raw `(numerator, exponent)` area fold over the reference oracle's
-/// recursive `Version`.
-///
-/// A leaf is its base, a node is its base plus half the sum of its children —
-/// normalized through the one shared constructor. Ground truth for the impl's
-/// cursor-threaded fold in [`Version::rank`].
-fn oracle_rank(v: &crate::oracle::Version) -> super::Rank {
-    use crate::oracle::Version::{Leaf, Node};
-    fn raw(v: &crate::oracle::Version) -> (crate::codec::Base, u32) {
-        match v {
-            Leaf(n) => (n.clone(), 0),
-            Node(n, l, r) => {
-                let (l_num, l_exp) = raw(l);
-                let (r_num, r_exp) = raw(r);
-                let exp = l_exp.max(r_exp);
-                let sum = (l_num << (exp - l_exp)) + (r_num << (exp - r_exp));
-                ((n.clone() << (exp + 1)) + sum, exp + 1)
-            }
-        }
-    }
-    let (num, exp) = raw(v);
-    super::Rank::from_raw(num, exp)
-}
-
 /// `rank` known values.
 ///
 /// The empty version is zero; a leaf is its integer base; the pair `min_ticks`
@@ -1271,13 +1236,16 @@ fn rank_known_values() {
 
 proptest! {
     /// Differential. The impl's cursor-threaded `rank` fold matches the
-    /// recursive oracle fold on every version any causal history produces.
+    /// recursive oracle's area fold (`oracle::Version::rank`) on every
+    /// version any causal history produces; the function-space leg
+    /// (`rank_realizes_riemann_sum`) supplies the independent second
+    /// computation.
     #[test]
     fn rank_matches_oracle(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
-        prop_assert_eq!(from_oracle_version(&vs[i % n]).rank(), oracle_rank(&vs[i % n]));
+        prop_assert_eq!(from_oracle_version(&vs[i % n]).rank(), vs[i % n].rank());
     }
 
     /// The contract that makes `rank` a causal rank, on causally *related*
