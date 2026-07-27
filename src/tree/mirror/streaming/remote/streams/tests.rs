@@ -11,8 +11,8 @@ use crate::tree::mirror::streaming::remote::codec::{
 use crate::tree::mirror::streaming::stats::Recorder;
 
 use super::{
-    AcceptDriver, AcceptError, ReceiverFinish, ReplyFrame, StreamError, StreamReceiver,
-    StreamSender, claims, error_route, label,
+    AcceptDriver, AcceptError, FirstStreamError, ReceiverFinish, ReplyFrame, StreamError,
+    StreamReceiver, StreamSender, claims, error_route, label,
 };
 
 /// Session epoch shared by the violation tests; its value is arbitrary.
@@ -230,7 +230,8 @@ async fn raw_labeled(
 }
 
 /// Claim `stream`, drive the accept loop beside its receiver, and return
-/// the first error published to the session error route.
+/// the first error published to the session error route, along with the
+/// route's observing half (whose deposit slot a test may then consult).
 ///
 /// Consumes (and asserts) the `leading` frames first: the well-formed
 /// prefix a violation legitimately delivers before it is detected. Panics
@@ -241,7 +242,7 @@ async fn first_reported_error(
     acceptor: &mut crate::link::MemoryAcceptor,
     stream: Stream,
     leading: &[Frame<Unit>],
-) -> StreamError {
+) -> (StreamError, FirstStreamError) {
     let (slots, mut claims) = claims();
     let (route, mut errors) = error_route();
     let driver = AcceptDriver::new(acceptor, EPOCH, Speaker::Initiator, slots, route.clone());
@@ -264,13 +265,14 @@ async fn first_reported_error(
             error = errors.first() => error,
         }
     };
-    tokio::select! {
+    let error = tokio::select! {
         biased;
         error = observe => error,
         error = driver.run() => {
             panic!("the accept driver resolved instead of the error route: {error:?}")
         }
-    }
+    };
+    (error, errors)
 }
 
 /// A frame whose signal byte names a different logical stream than its
@@ -299,7 +301,7 @@ fn mislabeled_frame_is_reported_not_yielded() {
                 .expect("the miswired frame writes");
         };
         let receive = first_reported_error(&mut b.acceptor, labeled, &[]);
-        join(send, receive).await.1
+        join(send, receive).await.1.0
     })
     .expect("mislabel detection resolves");
     assert!(
@@ -345,7 +347,7 @@ fn truncated_stream_is_reported_not_ended() {
             stream,
             &[Frame::Reaction(Reaction::Match, Flow::End)],
         );
-        join(send, receive).await.1
+        join(send, receive).await.1.0
     })
     .expect("truncation detection resolves");
     // The origin is pinned in full: it is the field an operator debugging a
@@ -385,7 +387,7 @@ fn frames_after_the_end_control_are_reported() {
                 .expect("the frame beyond the end writes");
         };
         let receive = first_reported_error(&mut b.acceptor, stream, &[]);
-        join(send, receive).await.1
+        join(send, receive).await.1.0
     })
     .expect("after-end detection resolves");
     // Pinned in full, origin included, like the truncation test above.
@@ -475,34 +477,40 @@ fn accept_driver_rejects_unknown_stream_index() {
 }
 
 /// A supply failure reaches the one receiver still awaiting its claim as
-/// `SupplyClosed` carrying the deposited I/O cause.
+/// `SupplyClosed`, while the deposited I/O cause stays in the slot for the
+/// session terminal.
 ///
 /// This pins the deferred-supply semantics deterministically: the parked
-/// accept driver deposits the transport failure, and the first
-/// `SupplyClosed` reporter — the consumer that provably needed a stream —
-/// claims it as its `source`.
+/// accept driver deposits the transport failure, the consumer that
+/// provably needed a stream reports `SupplyClosed` without touching it,
+/// and the deposit remains claimable by the session terminal — the sole
+/// consumer that attaches it to whichever error selection surfaces, so a
+/// report that loses the terminal's race cannot strand the cause.
 #[test]
 fn supply_failure_reaches_the_awaiting_receiver() {
     let (a, mut b) = memory();
     let stream = Stream::new(6).expect("stream 6 exists");
-    let error = run_to_quiescence(async {
+    let (error, errors) = run_to_quiescence(async {
         // The peer link is gone before any stream arrives, so the very
         // first accept observes the supply failure.
         drop(a);
         first_reported_error(&mut b.acceptor, stream, &[]).await
     })
     .expect("deferred supply failure resolves");
-    match error {
-        StreamError::SupplyClosed {
-            source: Some(cause),
-            ..
-        } => {
-            // The deposited cause is the acceptor's own transport error,
-            // not a substitute minted at the reporting site.
-            assert_eq!(cause.kind(), std::io::ErrorKind::UnexpectedEof);
-        }
-        other => panic!("unexpected stream error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &error,
+            StreamError::SupplyClosed { origin, source: None }
+                if *origin == Origin::stream(Speaker::Initiator, stream)
+        ),
+        "unexpected stream error: {error:?}",
+    );
+    // The deposited cause is the acceptor's own transport error, still in
+    // the slot after the report: the terminal's claim, not the reporter's.
+    let cause = errors
+        .take_supply_failure()
+        .expect("the deposit survives the report for the terminal to claim");
+    assert_eq!(cause.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
 /// A supply failure after every needed stream was delivered leaves the
