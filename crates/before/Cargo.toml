@@ -23,6 +23,13 @@ dashu-int = { version = "0.5", default-features = false, features = ["std"] }
 # trees; grow the stack onto the heap before a deep one can overflow. The crate
 # stays `#![forbid(unsafe_code)]`; the platform stack manipulation lives here.
 stacker = "0.1"
+# The cliff-immune signed accumulator (redundant balanced signed digits):
+# the running sums and differences behind the rank fold and the skyline
+# sweeps. Load-bearing in every build; `Base` plugs into its
+# width-dispatched entry points through the `Magnitude` seam in
+# `codec::accum`, and the `limb-meter` feature below lights its digit-touch
+# counter alongside the limb shim's.
+suanpan = { path = "../suanpan" }
 # Inline-capacity stacks for the iterative tree parsers (`codec/tree.rs`):
 # real trees fit the inline frames, deeper ones spill to the heap. Default
 # features only — no `union`/unchecked APIs — so the no-unsafe policy holds.
@@ -92,12 +99,14 @@ meter = []
 # Counts big-integer limb-scale work (operand limbs per `Base` operation:
 # arithmetic, comparison, equality, and hashing; plus one value-width record
 # per decoded wide-gamma value) into a process-global counter read via
-# `before::meter`. Arithmetic-width blowups are invisible to node-count and
+# `before::meter`, and lights the accumulator's digit-touch counter
+# (`suanpan/touch-meter`, read via `meter::accum::touch_meter`) beside it.
+# Arithmetic-width blowups are invisible to node-count and
 # heap meters; this one sees them. Additive and off by default: it adds one
 # relaxed atomic bump per `Base` operation, so it stays out of the bench
 # builds (deliberately not in the self-dev-dependency above) and is lit by
 # `--all-features` runs and the metering envelopes that assert it.
-limb-meter = ["meter"]
+limb-meter = ["meter", "suanpan/touch-meter"]
 # Counts packed-stream bits scanned and written (id tag reads and skip
 # steps, id-builder bit writes and splice lengths, event topology cursor
 # advances and gamma code-skips, every validator/decoder bit cursor) into a
