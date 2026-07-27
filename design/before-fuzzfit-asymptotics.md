@@ -510,6 +510,16 @@ invocation:
   tolerance). Movement by mechanism, with owning commits, is annotated
   in `harness/src/bands.rs`; sample counts and denominator spans per
   band key are unchanged, so every movement is guest fuel.
+- **2026-07-27 (#54): re-pin absorbing the diff sweep's covered-block
+  early exits.** Only `party_without`'s two arms move (every other
+  band key replays the previous pin byte-for-byte); the movement
+  annotation in `harness/src/bands.rs` carries the numbers. The
+  emptiness arm's envelope joins the rejection-mixture genre (pooled
+  slope 1.41 while the arm's top-decade per-bit medians hold flat at
+  ~430 fuel/bit): a pooled rejection envelope tilts whenever an early
+  exit makes part of the rejection surface cheap, so the per-family
+  medians (`bin/diag`) and the within-case shape leg, never the pooled
+  slope, carry the linearity claim.
 - **2026-07-27 (owner): the instrument joins the commit gate.**
   `just gate` runs `fuzzfit-build` then `fuzzfit` (measured basis:
   8.6 s warm build + 59.9 s run). The staleness red above sat outside
