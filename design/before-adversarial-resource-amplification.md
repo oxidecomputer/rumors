@@ -124,8 +124,8 @@ enforced envelopes and board cells named.
   red pin: the right-full arm deferred to an O(1) peek at the
   cursor's arrival, the left-full pre-scan memoized (no position
   scanned twice). Scan e 1.00 both arms; the recursion-depth
-  segments residual rides P4.2's pin. A pricing obligation under
-  §6, not an exploit.
+  segments residual retired at P4.2 (explicit stacks, segments → 0).
+  A pricing obligation under §6, not an exploit.
 - **Fill/tick's limb-dimension re-touching** (#34, 2026-07-25/26):
   materialized per-subtree `(min, net)` magnitudes cost Θ(width)
   limb work per ancestor — quadratic on wide × deep crosses through
@@ -207,9 +207,9 @@ enforced envelopes and board cells named.
   flips and zero exponent-leg ceiling crossings on any work column
   at either scale; scan divergence confined to the owned seam's 13
   cells [measured — post-repair renders, byte-compared]. The
-  record-scale segments columns remain profile-dependent by codegen
-  (release frames are smaller, so onset shifts) — P4.2's genre, not
-  assertion work.
+  record-scale segments columns were profile-dependent by codegen
+  (release frames are smaller, so onset shifts) until P4.2 made the
+  walks iterative: both profiles now read zero.
 - **The join_all up-front re-scan** (found and cured 2026-07-26).
   `Party::join_all` and `Clock::join_all` test every input against
   the *fixed* accumulator up front — semantically load-bearing for
@@ -575,6 +575,39 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   e ≈ 4 from flat marginal work over the intercept premise.
   Rationale: the exponent leg must read the work's scaling axis,
   and the shape's packed bytes do not scale with it.
+- **DECIDED 2026-07-26 (P4.2): the residual depth recursion
+  converts to explicit stacks; the route-fold seam stays per-bit**
+  (`3431ec60` pin, `68eda2e3` parser, `330e058a` walks).
+  Attribution measured before converting: every tick segment came
+  from the fused fill walk (grow's splice contributed zero; the
+  pre-scan 4 of 15 dev-profile segments on mirror-narrow, zero on
+  the no-site shapes), the parser cells from the id text parser
+  alone. Landed shape: the id text parser parses on a SmallVec
+  frame stack (the `codec::tree` discipline, differential-pinned
+  against a recursive reference first); the fill walk and pre-scan
+  carry suspended ancestors as control bits plus pop-able word
+  deltas (`Frames`/`PreFrames` on the route fold's `PopStack`),
+  and the one wide per-site quantity — a left-full site's collapse
+  maximum, alive across its sibling walk — is re-derived by one
+  bounded replay of the site's disjoint collapse range rather than
+  parked per frame, keeping nested-site chains word-free (frames
+  of materialized magnitudes would have tripled mirror-narrow's
+  heap constant past its ceiling). With no library recursion left,
+  `recurse::descend!` compiles only for the test surface (the
+  oracle bridge); the segment meter's liveness witness is a
+  test-local guarded descent and the deep fill's zero reading is
+  the committed ratchet (`meter::tests`), with the envelope rows'
+  segments pinned to 0 (`tests/meter.rs`). Board movement, both
+  scales enumerated at `board-p42-{lo,hi}.txt` vs the unify24
+  renders: the 17 ×4 segments cells read 0 (15 flip green; the
+  ascend-cliff tick pair stays red on its owned heap constant,
+  65.3 → 66.3 B/B with the frame bits); frame bits price
+  ≤ 8.1 B/B on the text rows and ≤ 1.3 B/B on the tick rows; the
+  site-close replay adds ≤ 2.3 scan bits/B and ≤ 3.5 touches/B on
+  the memo-site crosses (comb-scatter limb +0.5 ops/B, the
+  replayed codes' decodes) — every reading inside its ceiling,
+  work columns byte-identical on all other converted rows, and no
+  movement on any unconverted cell at either scale.
 
 ## 13. The metering gate
 
@@ -938,7 +971,8 @@ commits):
   claim (§3's re-touching entry) — the finding that opened #34
   and the tick cost spec's design loop. Acceptance deviation of
   record (2026-07-25): the ×4 segments leg stayed red,
-  P4.2-owned — the linear acceptance was met on the work columns.
+  P4.2-owned — the linear acceptance was met on the work columns
+  (closed at P4.2: segments → 0).
 - **#34: the tick limb cure and the fusion** (2026-07-25..26,
   red pin `dc9a2c31`; the anchor-web walk `12b5e9a3` + the
   chained-memo pre-scan `39009918`; the frame ledger `4934db86` +
@@ -1104,28 +1138,21 @@ re-comparisons. *Acceptance*: the owned cells flip or the n·log n
 optimum is recorded as the problem's own (the asymptotic bar's
 fundamentally-superlinear clause) with the ceiling re-derived.
 
-**P4.2 — residual recursion and word-scale scanning.**
-Audit every remaining `recurse::descend!` site post-C2; convert
-survivors per the explicit-stack pattern or record why they stay;
-apply the word-at-a-time subtree skip (popcount pending-counter
-delta, mid-word zero-crossing exit) to `idbits` and the skyline
-topology stream where benches justify. Triage convention for the
-genre's segments currency: the counter reads the stacker's
-process-global segment cache, which is order-coupled to the
-preceding cells' stack usage in the shared board process, so a
-kernel change anywhere in the binary can re-roll the counts on
-untouched kernels' rows — segment-count movement on a row whose
-work columns are byte-identical is triaged as order coupling, not
-kernel movement; the counts of record are §17.3's. *Sequencing,
-resolved at #24 (2026-07-26)*: the id predicates stay on the
-lockstep walk (§17.5), which is exactly the shape the word-scale
-skip fits; `diff`'s sweep enumerates leaves and never skips, so
-the skip does not touch it. The skip also interacts with the
-fused tick's route fold, which reads each skipped id subtree per
-2-bit tag on leaf-under-internal-id arms — P4.2's sequencing
-decision must name the fused walk, and the spec's §9 round-8
-table carries the landed interaction baseline. *Kills*: none
-(constants). *Acceptance*: the audit list recorded; benches.
+**P4.2 — word-scale scanning (the conversion half landed;
+§12's 2026-07-26 P4.2 entry is the record).** The remaining open
+half: apply the word-at-a-time subtree skip (popcount
+pending-counter delta, mid-word zero-crossing exit) to `idbits`
+and the skyline topology stream where benches justify — a
+constants option no red owns. *Sequencing, resolved at #24
+(2026-07-26)*: the id predicates stay on the lockstep walk
+(§17.5), which is exactly the shape the word-scale skip fits;
+`diff`'s sweep enumerates leaves and never skips, so the skip
+does not touch it. The skip also interacts with the fused tick's
+route fold, which reads each skipped id subtree per 2-bit tag on
+leaf-under-internal-id arms — a correctness seam, kept per-bit at
+P4.2, and the spec's §9 round-8 table carries the landed
+interaction baseline. *Kills*: none (constants). *Acceptance*:
+benches.
 
 **P5.1 — envelope finalization**: every `tests/meter.rs` envelope
 and board ceiling tightened to final constants at record scale
@@ -1171,8 +1198,8 @@ if C3 chose that arm; the §14 acceptance entry recorded.
 
 ### 17.3 Owned-red accounting (current; over 989 cells)
 
-Sums [measured 2026-07-26, the `board-unify24-{lo,hi}.txt` renders]:
-**default 966 + 23 = 989; record 954 + 35 = 989.** Every red has
+Sums [measured 2026-07-26, the `board-p42-{lo,hi}.txt` renders]:
+**default 966 + 23 = 989; record 969 + 20 = 989.** Every red has
 exactly one owner and the sums close; the per-round movement
 lineage (each round's flips, bucketed by mechanism, with every
 untouched cell verified byte-identical) is in git history at the
@@ -1224,8 +1251,9 @@ The red roster, both scales enumerated from the renders:
   spec's §9 round 4). Owner: an accepted stated-band residual
   with the diff-coded memo as the candidate cure if one is ever
   warranted.
-- **The ascending-cliff tick pair's heap constants** (63.0/65.3
-  B/B, e 1.00 — the one committed family holding k
+- **The ascending-cliff tick pair's heap constants** (64.1/66.3
+  B/B, e 1.00, ~1 B/B of it the iterative walk's frame bits — the
+  one committed family holding k
   simultaneously-armed nonzero boundary differences, one pooled
   unit-width buffer each; linear in the input, honestly over the
   16 B/B ceiling): owner: the spec's §9 round-7 record — a
@@ -1238,23 +1266,6 @@ The red roster, both scales enumerated from the renders:
   mix while the exponent holds 1.00. A future re-pin of this cell
   must re-measure on the board's own axis; the exponent claim is
   axis-invariant, the constant is not.
-- **The ×4 segments legs** (17 cells: `version_tick`/`clock_tick`
-  × {nested-full, mirror-narrow, staircase, pure-comb,
-  ascend-cliff, ascend-plateau}, and the id-side parser cells
-  `party_from_str`/`clock_from_str`/`party_parse_trailing`/
-  `party_parse_noncanon`/`clock_parse_trailing` × id-pair — the
-  id set-algebra side is clear: `diff` runs as the #24
-  boolean-skyline sweep (§17.5), so the id-side residue is
-  parser-only): owner **P4.2**, the recursion-depth genre
-  (profile-dependent by codegen and order-coupled across the
-  shared board process — the triage convention at P4.2's entry;
-  the #24 landing re-rolled the untouched tick and parser counts
-  downward with work columns byte-identical, and `version_tick`/
-  `clock_tick` × nested-wide re-rolled to a flat 1 and read
-  green). Counts of record at this tip, per tick op: nested-full
-  7, mirror-narrow 7, staircase 14, pure-comb 2, ascend-cliff 2,
-  ascend-plateau 2; the parser cells 12/12/12/6/12.
-
 Bench riders (`BOARD_RED_BENCH_RIDERS`) are committed empty: the
 surviving reds are classified above, but a rider outside the
 judge's expected-red roster whose time leg reads red fails every
