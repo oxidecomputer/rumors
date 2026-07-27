@@ -16,8 +16,8 @@ canonical stream fits in $n$ bits, and let
 $H(n) = log_2 |cal(F)(n)|$. _Any_ injective assignment of bit
 strings to the members of $cal(F)(n)$ — ours, or the best
 conceivable replacement, prefix-free or not — must give some member
-at least $H(n)$ bits or so: fewer than $2^(H(n))$ distinct strings
-are shorter than $H(n)$, and there are $2^(H(n))$ members to name.
+at least $ceil(H(n))$ bits: fewer than $2^(H(n))$ distinct strings
+are shorter than that, and there are $2^(H(n))$ members to name.
 Our coding spends at most $n$ on every member, by definition of
 $cal(F)(n)$. So the
 _worst-case multiplicative overhead_ of the coding, against a floor
@@ -225,11 +225,15 @@ constraint.
 
 The catch is where those codes win: the versions delta covers more
 cheaply are exactly the few-plateau, giant-payload ones, and it pays
-pointwise on small values — gamma is better than or equal to delta
-on every value up to 30 and loses ground steadily from 31 on, while
+pointwise on small values — comparing coded payloads $v$ (each code
+spells $v + 1$), gamma is better than or equal to delta on every
+$v$ up to 30 and loses ground steadily from $v = 31$ on, while
 omega does not overtake gamma until values in the hundreds.
 Measured across organic gossip
-histories, 85 to 93 percent of payload values are at most 15
+histories (the paper's own two simulation regimes — data churn and
+static message passing — replayed at scale on our implementation,
+some 165,000 versions), 85 to 93 percent of payload values are at
+most 15
 (`fill`'s flattening, not the coding, is what keeps neighboring
 plateaus close — @coding), and re-coding those corpora under delta
 or omega costs six

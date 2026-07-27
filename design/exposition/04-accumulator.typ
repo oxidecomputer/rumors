@@ -60,7 +60,8 @@ It fails to a one-parameter generalization — the *wide-tooth comb* of
 @families. Give the teeth width just beyond the window: deltas of
 $plus.minus 2^192$, say, oscillating across a cliff at $2^k$ with $k$
 much larger still. Each tooth's code
-costs about 385 bits; each application punches through the
+costs about 387 bits (the zigzag fold adds one to the magnitude's
+exponent); each application punches through the
 word-sized window into the normalized prefix and ripples the full
 $k$-bit carry: work per tooth proportional to $k$, unbounded relative
 to the tooth's own code. Widen the window and the teeth widen past it
@@ -118,13 +119,19 @@ stream. And because _every_ write recenters what it touches, no digit
 anywhere is ever "settled": the two-zone counterexample has no
 boundary to aim at.
 
-(One storage remark, so the accounting has no hidden pocket: the
-digits live in a dense little-endian vector, and a delta landing at a
-new highest lane zero-fills the gap below it — once, because the
-high-water mark only rises. The total zero-fill over a sweep is
-bounded by the final lane count, and the largest scale any sweep uses
-is bounded by the operand's depth, whose topology bits the sweep has
-already read; the fill is funded, once, by those bits.)
+(One storage remark, so the accounting has no hidden pocket. Two
+quantities must not be confused: _allocated lanes_ — the dense
+little-endian vector, which only grows; and _held digits_ — the
+lanes up to a tracked index of the highest nonzero digit, which
+writes raise and collapses and cancellations lower. A delta landing
+at a new highest lane zero-fills the gap below it once, because the
+allocation high-water mark only rises; the total zero-fill over a
+sweep is bounded by the final lane count, and the largest scale any
+sweep uses is bounded by the operand's depth, whose topology bits
+the sweep already read — funded, once. Every fold and every
+materialization starts at the tracked top index and is denominated
+in _held_ digits, so lanes above the held value, zeroed or never
+touched, are never scanned again.)
 
 #figure(
   {
@@ -191,10 +198,11 @@ _collapses_ what it scanned — zeroes the scanned digits and deposits
 their exact partial $s$ at the scan's floor (a bounded write: the
 fold's invariant keeps $s$ within two digits' range). The value is
 unchanged; the spelling is now shallow; the next sign query re-reads
-none of it. Since only writes make digits nonzero, and a collapse
-zeroes every digit it scans, *each digit is scanned at most once per
-write that made it nonzero*: sign queries amortize against the writes
-that provoked them, and requirement 3 holds on every interleaving.
+none of it — the fold starts at the tracked top-of-held index, which
+the collapse just lowered. So *each digit is scanned at most once
+per write that raised the held top above it*: sign queries amortize
+against the writes that provoked them, and requirement 3 holds on
+every interleaving.
 
 Two consequences deserve a pause. First, _reads mutate_: the sign
 query rewrites the representation (value-preservingly). That is
@@ -242,9 +250,10 @@ Equivalently, with potential $Phi = $ the number of _nonzero_ digits
 across all live accumulators (storage lanes are never freed; a digit
 _dies_ when a write or a collapse sets it to zero): $Phi$ grows only
 when input codes are consumed, and by at most their width (one
-bookkeeping exception: a collapse zeroes every digit it scanned —
-at least two, or it would not have descended — and deposits at most
-two, so it never increases $Phi$); every touch not covered by a
+bookkeeping exception: a collapse zeroes at least as many nonzero
+digits as it deposits — a two-digit deposit needs $|s| >= 2^33$,
+which only two nonzero scanned digits can build — so it never
+increases $Phi$); every touch not covered by a
 consumed or emitted code is covered by a drop in $Phi$. Summing over
 the sweep, total work is $O("input bits" + "output bits")$.
 

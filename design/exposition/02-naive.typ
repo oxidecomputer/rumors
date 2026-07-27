@@ -66,11 +66,12 @@ here, and the names are used consistently through @resilience.
     [partially-normalized ("two-zone") running quantities],
     [_descending staircase_$(d)$],
     [unit-step plateaus descending monotonically down a $d$-level
-      spine (built in @tick-web)],
+      spine (attacks @tick-web's undercut cascade)],
     [the tick walk's watermark stack, at every level at once],
     [_reveal comb_$(t, k)$],
     [$t$ sibling regions sharing one $2^k$-scale minimum over a low
-      floor (built in @tick-web)],
+      floor, closed and reopened in sequence (attacks @tick-web's
+      close rule)],
     [any design that re-touches a wide boundary per region],
   ),
   caption: [The adversarial families, all in one place; the last four
@@ -128,8 +129,8 @@ integer: shift, add, repeat. Appending a bit to a $j$-bit accumulator
 rewrites all of its machine words in a normalized representation, so
 a single $W$-bit value decodes in
 
-$ sum_(j = 1)^(W) Theta(j) = Theta(W^2) "bit-work" — "exactly"
-  W^2 \/ 128 + O(W) "word rewrites." $
+$ sum_(j = 1)^(W) Theta(j) = Theta(W^2) "bit-work — on 64-bit words,"
+  W^2 \/ 128 + O(W) "rewrites." $
 
 On `hugeleaf` this is the whole input, and the arithmetic reconciles
 with the wall clock: at $W = 4 dot 10^6$ bits the buffer grows to
@@ -220,17 +221,17 @@ $Theta(k)$ work in any normalized representation, no matter how small
 the step. A comb with $t$ teeth astride one cliff extracts
 $Theta(t dot k)$ bit-work from its walk.
 
-In the paper's own coding this shape happens to pay its way — each
-tooth spells a fresh $k$-bit base, so the input is $Theta(t dot k)$
-bits and the work is linear in it. But we are about to compress
-consecutive plateaus by _delta coding_ (@skyline), after which the
-same teeth cost a few bits each: $Theta(t + k)$ bits of input carrying
-$Theta(t dot k)$ bits of implied absolute value. The compression is
-the entire point — and it turns the carry cliff into a genuine
-amplifier for any running-absolute design, with no repair available by
-tuning: pick any boundary a normalized representation owns, and an
-input exists that oscillates across exactly that boundary at unit cost
-per crossing.
+And the comb is _cheap to spell_, under either coding. The paper's
+normal form lifts the shared $2^k - 1$ into the root, leaving every
+tooth a small relative value; the delta coding we are about to adopt
+(@skyline) spells one absolute and then $plus.minus 1$ steps. Both
+codings store the comb in $Theta(t + k)$ bits carrying
+$Theta(t dot k)$ bits of implied absolute value — so a walk that
+maintains a normalized running absolute does $Theta(t dot k)$ work
+on a $Theta(t + k)$-bit input, a genuine amplifier over either
+spelling, with no repair available by tuning: pick any boundary a
+normalized representation owns, and an input exists that oscillates
+across exactly that boundary at unit cost per crossing.
 
 So the ladder's lesson is a constraint, not a fix: the efficient
 representation must be paired with arithmetic whose per-update cost is
