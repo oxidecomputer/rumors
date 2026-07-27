@@ -107,7 +107,7 @@ impl Version {
     /// ```
     pub fn new() -> Self {
         let mut bits = codec::Bits::new();
-        bits.push(false); // topology: the single leaf
+        bits.push(true); // topology: the single leaf
         codec::encode_int(&mut bits, &codec::Base::ZERO); // its absolute height, zero
         Version::from_bits(bits)
     }
@@ -126,8 +126,8 @@ impl Version {
     /// assert!(!v.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
-        // The canonical empty version is exactly the 2-bit stream `01`: a
-        // `0` leaf flag, then gamma(0), the single bit `1` (see
+        // The canonical empty version is exactly the 2-bit stream `11`: a
+        // `1` leaf flag, then gamma(0), the single bit `1` (see
         // `Version::new` and `codec::encode_int`). The stored skyline
         // stream is a unique representation, so this O(1) bit test is the
         // whole question — no allocation, no walk.

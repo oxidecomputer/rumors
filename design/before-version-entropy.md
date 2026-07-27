@@ -76,7 +76,9 @@ history produces it.
 A stored `Version` is one bit stream (`version/skyline.rs`):
 
 - **Topology**: one preorder flag bit per node of a full binary tree
-  (`1` internal, `0` leaf). Internal nodes carry no numbers.
+  (`0` internal, `1` leaf, so a descent is one unary run). Internal
+  nodes carry no numbers. The flag polarity is a bijection on
+  encodings, so every count in this analysis is invariant under it.
 - **Payloads**, in-stream at each leaf: the first leaf's absolute
   height as `code(h₁)`; each later leaf as `code(zigzag(hᵢ − hᵢ₋₁))`,
   `zigzag: k ≥ 0 → 2k, k < 0 → 2|k| − 1`.

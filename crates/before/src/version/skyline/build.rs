@@ -134,7 +134,7 @@ impl SkylineBuilder {
 
         // Flush the held leaf and place the incoming one.
         let flushed_len = held.len();
-        self.out.push_bit(false);
+        self.out.push_bit(true);
         self.out.splice(&held);
         // Close the ancestors the flushed leaf completed: pop the
         // trailing right-branch levels, retiring their left-sibling
@@ -209,14 +209,14 @@ impl SkylineBuilder {
             "the continuation holds at least the last leaf's flag and code"
         );
         let last_flag = rest.len() - last_code_len - 1;
-        debug_assert!(!rest[last_flag], "the continuation ends with a leaf");
+        debug_assert!(rest[last_flag], "the continuation ends with a leaf");
         let held = self
             .held
             .take()
             .expect("the subtree's first leaf is already held");
         // Flush the first leaf and copy everything up to the last leaf's
         // flag; the last code is withheld as the new held leaf.
-        self.out.push_bit(false);
+        self.out.push_bit(true);
         self.out.splice(&held);
         self.out.splice(&rest[..last_flag]);
         self.held = Some(rest[last_flag + 1..].to_bitvec());
@@ -249,7 +249,7 @@ impl SkylineBuilder {
             .held
             .take()
             .expect("a skyline stream has at least one leaf");
-        self.out.push_bit(false);
+        self.out.push_bit(true);
         self.out.splice(&held);
         debug_assert!(
             self.path.iter().all(|bit| *bit),
@@ -288,7 +288,7 @@ impl SkylineBuilder {
     /// one internal-node flag per level entered.
     fn descend_to(&mut self, depth: usize) {
         for _ in self.path.len()..depth {
-            self.out.push_bit(true);
+            self.out.push_bit(false);
             self.path.push(false);
             self.left_leaf.push(false);
         }

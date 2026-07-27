@@ -15,6 +15,7 @@ mod bits;
 mod build;
 mod cursor;
 mod display;
+mod dsi;
 mod gamma;
 mod literal;
 pub(crate) mod scan;
@@ -37,7 +38,8 @@ pub use bits::{Bits, BitsSlice};
 pub(crate) use build::PackedBuilder;
 pub(crate) use cursor::{BitCursor, SliceCursor};
 pub(crate) use display::write_id;
-pub(crate) use gamma::{decode_int, decode_int_from, encode_int, skip_int};
+pub(crate) use dsi::DsiCursor;
+pub(crate) use gamma::{decode_int, decode_int_from, encode_int};
 // The word fast path of the gamma decoder, exported for the wire-side
 // `ReaderCursor` (`borsh_impls`), the one consumer outside this module; the
 // cfg keeps the re-export from dangling when `borsh` is off.

@@ -856,6 +856,47 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   the 16 B/B ceiling; the exponent leg is the only red). Boards at both scales:
   byte-identical to the boards of record, 966/23 and 969/20 — no
   movement, no change landed.
+- **DECIDED 2026-07-27 (#67, owner-ruled): the skyline topology flag
+  inverts (0 internal, 1 leaf) and the version-stream reader
+  dissolves into `dsi-bitstream`.** The unshipped-window argument
+  carries the protocol change: main still holds the pre-skyline
+  format, so the inversion folds into the same revision that first
+  ships skyline and no second protocol version is burned. Mechanism:
+  a descent is now a unary run (zeros ended by the leaf's 1), read
+  word-parallel by `codec::DsiCursor` (BufBitReader, BE, u32 words,
+  safe zero-copy word source); payload values ride the in-house
+  wide-arm wrapper (9-bit table tier, machine arm `k < 64`, `UBig`
+  arm `k >= 64`), never dsi's `u64`-capped `read_gamma`, with
+  word-seam witnesses at `k = 63/64/65/~100`. The bijection is
+  pinned by transcode differentials (`topology_flag_bijection_*`:
+  an independent inverted-flag encoder, flipped flag-by-flag onto
+  the stored stream, both directions), and the rejection corpus
+  re-pins with the same error classes at the same cut points.
+  Dissolved: the sweeps' per-bit `LeafCursor` reads, the
+  validator's and every skyline walk's per-bit topology loops,
+  `codec::skip_int`. Kept hand-rolled, stated: the id-stream
+  readers (party coding unchanged), the borsh `ReaderCursor`
+  (incremental `io::Read`; dsi wants a materialized word source),
+  writers (dsi's writer wants word sinks), and `decode_int` over
+  mid-byte code sub-slices. Board identity: both scales
+  cell-for-cell byte-identical to the boards of record except the
+  two `*_decode_truncated hugeleaf` reject rows, whose heap drops
+  0.5 B/B (still green, exponents unchanged) — the new reader
+  proves a code's length before its wide arm allocates, so a
+  truncated wide code no longer sizes the value it will never
+  return; the truncation scan floors stayed enforced by recording
+  the examined tail at every reject. Fuel: version-walking arms
+  drop ×0.81–0.98 (`version_cmp` ×0.81, `version_rank` ×0.83,
+  `version_decode` ×0.84); `clock_tick`/`clock_send` rise ×1.035/
+  ×1.020 — the fill walk's id-interleaved single-flag reads pay the
+  buffered reader's constant with no run to batch; slopes and the
+  board's tick rows are unmoved. rumors rides the revision: content
+  addresses move, wire/trace snapshots re-accepted (topology bits
+  and hashes only; framing and sizes identical), searched fixture
+  constants re-searched, and the role-sensitive proxy tests now
+  arrange sides through the initiator election itself instead of a
+  version-byte proxy the coding change falsified. Flip
+  `40744605`; re-pin rides the same branch.
 
 ## 13. The metering gate
 

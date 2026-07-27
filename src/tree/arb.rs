@@ -372,11 +372,36 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
     /// the pair is built.
     const ESCAPE_MARGIN: usize = 64;
 
+    // The party pair: disjoint parties whose single-tick versions order
+    // the *sender's* above the receiver's in canonical bytes, so the
+    // poisoned sender wins the initiator election (live counts tie at one
+    // leaf each, and greater version bytes initiate). As the initiator,
+    // the sender ships the escaped leaf up front and still owes protocol
+    // when the receiver aborts on ingesting it, which lets the wire-level
+    // tripwires pin that the sender's session dies with its counterparty.
+    // Version bytes are a function of the wire coding, so the ordered
+    // pair is searched, never hardcoded.
+    let single_tick = |n: usize| {
+        let party = nth_party(n);
+        let mut version = Version::new();
+        version.tick(&party);
+        (party, version)
+    };
+    let (receiver_party, receiver_version, sender_party, declared) = (0..8)
+        .flat_map(|r| (0..8).map(move |s| (r, s)))
+        .filter(|(r, s)| r != s)
+        .map(|(r, s)| {
+            let (receiver_party, receiver_version) = single_tick(r);
+            let (sender_party, declared) = single_tick(s);
+            (receiver_party, receiver_version, sender_party, declared)
+        })
+        .find(|(_, receiver_version, _, declared)| {
+            declared.as_bytes() > receiver_version.as_bytes()
+        })
+        .expect("some ordered pair of single-tick versions must order by canonical bytes");
+
     // The receiving side's honest content: one leaf on its own party,
     // ceiling covering it, exactly as `Tree::act` would leave it.
-    let receiver_party = nth_party(0);
-    let mut receiver_version = Version::new();
-    receiver_version.tick(&receiver_party);
     let receiver_message = Message::new(());
     let receiver_path = Path::for_leaf(&receiver_version, receiver_message.bytes());
     let receiver = root_with_ceiling(
@@ -391,11 +416,6 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
         ),
         receiver_version.clone(),
     );
-
-    // The sender's declared version: one tick on its own disjoint party.
-    let sender_party = nth_party(1);
-    let mut declared = Version::new();
-    declared.tick(&sender_party);
 
     // The escaped version: strictly above everything either side declared,
     // by a margin the test's own honest ticks never close.

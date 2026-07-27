@@ -36,7 +36,10 @@ pub(crate) fn encode_bits(bits: &BitsSlice) -> Bits {
         pos += 1;
         let (base, next) = codec::decode_int(bits, pos).expect("canonical Version parses cleanly");
         pos = next;
-        out.push(internal);
+        // The construction language flags `1` internal; the skyline
+        // stream flags `0` internal (`1` leaf), so the flag inverts at
+        // this transcode boundary.
+        out.push(!internal);
         let value = &offset + &base;
         if internal {
             offsets.push(value.clone());

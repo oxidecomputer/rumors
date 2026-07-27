@@ -46,7 +46,7 @@
 //! is first trips on topology (the replaced range was not a single
 //! leaf) before any code comparison is reached.
 
-use crate::codec::{Bits, BitsSlice};
+use crate::codec::{BitCursor, Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
 use crate::step;
 
@@ -132,22 +132,20 @@ impl Out {
         };
         let matched_end = *matched_end;
         let mut builder = SkylineBuilder::with_capacity(ev.len());
-        let mut pos = 0usize;
+        let mut cursor = crate::codec::DsiCursor::new(ev);
         let mut path = Bits::new();
-        while pos < matched_end {
-            loop {
-                step!();
-                crate::codec::scan::record_bits(1);
-                let internal = ev[pos];
-                pos += 1;
-                if !internal {
-                    break;
-                }
+        while cursor.position() < matched_end {
+            // One whole descent per unary read; a descent never
+            // straddles `matched_end` (a matched prefix ends on a
+            // plateau boundary).
+            step!();
+            let k = cursor.read_unary().expect("canonical skyline bits");
+            for _ in 0..k {
                 path.push(false);
             }
-            let start = pos;
-            pos = crate::codec::skip_int(ev, pos).expect("canonical skyline bits");
-            builder.leaf(path.len(), ev[start..pos].to_bitvec());
+            let start = cursor.position();
+            cursor.skip_int().expect("canonical skyline bits");
+            builder.leaf(path.len(), ev[start..cursor.position()].to_bitvec());
             loop {
                 match path.pop() {
                     Some(true) => continue,
@@ -164,7 +162,8 @@ impl Out {
             }
         }
         debug_assert_eq!(
-            pos, matched_end,
+            cursor.position(),
+            matched_end,
             "a matched prefix ends on a plateau boundary"
         );
         *self = Out::Built(builder);

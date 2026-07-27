@@ -527,3 +527,19 @@ invocation:
   in the gate, a kernel change that moves fuel fails the commit that
   carries it, and the deliberate path is a `fuzzfit-calibrate` re-pin
   riding the same commit.
+- **2026-07-27 (#67): re-pin absorbing the topology-flag inversion and
+  the dsi-bitstream reader.** The staleness cross-check trips by
+  construction (a kernel change under every version walk). Fuel drops
+  across the version-walking arms — the pure readers most
+  (`version_cmp` ×0.81, `version_rank` ×0.83, `version_decode` ×0.84,
+  `clock_decode` ×0.87), the emitters and composites ×0.93–0.98 —
+  because a descent is now one word-parallel unary read and payload
+  codes ride buffered word loads. Two arms rise: `clock_tick` ×1.035
+  and `clock_send` ×1.020 (send embeds tick) — the fill walk reads
+  id-interleaved single flags with no run to batch, so it pays the
+  buffered reader's per-read constant without the unary win; the
+  walk's slope and the board's tick rows are unmoved, so the rise is
+  a reader constant, not a shape change. The movement annotation in
+  `harness/src/bands.rs` carries the per-arm numbers; sample counts
+  and denominator spans per band key are unchanged, so every movement
+  is guest fuel.

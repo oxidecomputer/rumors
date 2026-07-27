@@ -140,7 +140,8 @@ fn read_ev(
     pos: usize,
     prev: &mut Option<codec::Base>,
 ) -> (oracle::Version, usize) {
-    let internal = bits[pos];
+    // Skyline topology flag: `0` internal, `1` leaf.
+    let internal = !bits[pos];
     if internal {
         let (l, after_l) = descend!(0, read_ev(bits, pos + 1, prev));
         let (r, after_r) = descend!(0, read_ev(bits, after_l, prev));

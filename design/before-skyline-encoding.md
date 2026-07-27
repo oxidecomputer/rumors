@@ -134,8 +134,11 @@ min-lift stores growing residues while the skyline stores a constant
 
 A Version becomes two interleaved streams in one bit string:
 
-- **Topology**: preorder flag bits, exactly as today — one bit per
-  node, `1` internal, `0` leaf. Internal nodes carry *no numbers*.
+- **Topology**: preorder flag bits — one bit per node, `0` internal,
+  `1` leaf. Internal nodes carry *no numbers*. (Amendment 2026-07-27,
+  #67: the flag polarity inverted inside the same unshipped revision
+  so a descent reads as one word-parallel unary run; a bijection on
+  encodings, every size and cost figure in this document unchanged.)
 - **Leaf payloads, in-stream at each leaf position**: the first
   leaf's absolute height as `gamma(v₁)`; every later leaf as
   `zigzag-gamma(vᵢ − vᵢ₋₁)`, deltas taken over consecutive leaves in
@@ -309,11 +312,13 @@ root base 2, left child `(1, 0, 3)`, right leaf 0. Its skyline,
 left to right over [0,1): height `2+1+0 = 3` on [0, ¼), height
 `2+1+3 = 6` on [¼, ½), height `2+0 = 2` on [½, 1).
 
-- Today: topology `1 1 0 0 0` interleaved with five gamma codes for
-  the increments `2, 1, 0, 3, 0`.
-- Skyline: the same five topology bits, then three payloads at the
-  leaf positions: `gamma(3), zigzag(+3), zigzag(−4)` — *start at 3,
-  step up 3, step down 4*. The skyline itself, run-length encoded.
+- The min-lifted node coding: topology `1 1 0 0 0` (that coding's
+  own polarity) interleaved with five gamma codes for the increments
+  `2, 1, 0, 3, 0`.
+- Skyline: five topology bits `0 0 1 1 1` (`0` internal, `1` leaf),
+  then three payloads at the leaf positions:
+  `gamma(3), zigzag(+3), zigzag(−4)` — *start at 3, step up 3, step
+  down 4*. The skyline itself, run-length encoded.
 
 **A join sweep.** Join it with the version that is uniformly 4 (a
 single leaf, skyline `gamma(4)`).
