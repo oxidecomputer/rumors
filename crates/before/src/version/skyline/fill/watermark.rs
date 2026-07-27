@@ -68,7 +68,8 @@
 
 use core::cmp::Ordering;
 
-use crate::codec::accum::Accum;
+use suanpan::Accumulator;
+
 use crate::codec::Base;
 
 /// A signed relative quantity: sign and magnitude, the module's
@@ -76,11 +77,11 @@ use crate::codec::Base;
 pub(super) type Signed = (bool, Base);
 
 /// Fold a signed quantity into an accumulator.
-pub(super) fn fold(acc: &mut Accum, neg: bool, mag: &Base) {
+pub(super) fn fold(acc: &mut Accumulator, neg: bool, mag: &Base) {
     if neg {
-        acc.sub_base(mag);
+        acc.sub_magnitude(mag);
     } else {
-        acc.add_base(mag);
+        acc.add_magnitude(mag);
     }
 }
 
@@ -88,7 +89,7 @@ pub(super) fn fold(acc: &mut Accum, neg: bool, mag: &Base) {
 enum DiffEntry {
     /// A nonzero `min(inner) − min(outer)` between adjacent armed
     /// frames.
-    Diff(Accum),
+    Diff(Accumulator),
     /// `count` consecutive frames whose minima equal the next inner
     /// frame's.
     ZeroRun(usize),
@@ -99,7 +100,7 @@ pub(super) struct MinStack {
     /// `h − A` for the anchor `A` of the innermost armed frame
     /// (`A = m + Λ` for the latent `Λ`, so `A = m` exactly while no
     /// latent lives); zero-valued while `armed == 0`.
-    t: Accum,
+    t: Accumulator,
     /// The latent boundary `Λ = A − m`: the anchor's stale excess over
     /// the innermost armed frame's true minimum.
     ///
@@ -107,7 +108,7 @@ pub(super) struct MinStack {
     /// at the top of the difference stack; it holds no height content
     /// (heights fold into `t` only) and dies with the last armed
     /// frame.
-    latent: Option<Accum>,
+    latent: Option<Accumulator>,
     /// Per follower slot: whether the stored content is anchor-relative
     /// (`f_true = f_stored − Λ`). Set only while the latent lives; a
     /// set tag never outlives it.
@@ -122,15 +123,15 @@ pub(super) struct MinStack {
     armed: usize,
     /// Active followers (module doc), tracking `m − X` (anchor-relative
     /// while the slot's `sig` tag is set).
-    followers: [Option<Accum>; 2],
+    followers: [Option<Accumulator>; 2],
     /// Cleared accumulators awaiting reuse.
-    pool: Vec<Accum>,
+    pool: Vec<Accumulator>,
 }
 
 impl MinStack {
     pub(super) fn new() -> Self {
         MinStack {
-            t: Accum::new(),
+            t: Accumulator::new(),
             latent: None,
             sig: [false, false],
             diffs: Vec::new(),
@@ -422,7 +423,7 @@ impl MinStack {
     /// The accumulator moves into the web — it becomes the new `t` —
     /// so wide content is stored once and read only at the arming
     /// boundary it prices.
-    pub(super) fn emit_below_accum(&mut self, below: Accum) {
+    pub(super) fn emit_below_accum(&mut self, below: Accumulator) {
         debug_assert!(self.pending > 0, "a raise arms its own node's frame");
         self.arm(below);
     }
@@ -478,7 +479,7 @@ impl MinStack {
     /// and the latent never participates: the anchor-relative target
     /// cancels it exactly, so the read costs the operands' own widths
     /// no matter how wide the parked boundary is.
-    pub(super) fn compare_above_vs(&mut self, above: &Signed, d_arm: &Accum) -> Ordering {
+    pub(super) fn compare_above_vs(&mut self, above: &Signed, d_arm: &Accumulator) -> Ordering {
         debug_assert!(self.armed > 0, "a raise compares against an armed frame");
         self.t.sub_accum(d_arm);
         fold(&mut self.t, above.0, &above.1);
@@ -497,7 +498,7 @@ impl MinStack {
     /// `d_arm + Λ`, realized by folding the narrow dying offset
     /// min-into-max with the latent's buffer and pushing the merged
     /// buffer (or, negated, propagating it as the undercut's residue).
-    pub(super) fn arm_relative(&mut self, d_arm: Accum) {
+    pub(super) fn arm_relative(&mut self, d_arm: Accumulator) {
         debug_assert!(self.pending > 0, "a raise arms its own node's frame");
         debug_assert!(self.armed > 0, "a relative arming needs an armed anchor");
         let pending = core::mem::replace(&mut self.pending, 0);
@@ -516,7 +517,7 @@ impl MinStack {
     /// boundary `v − m_old`, and pushes it (a positive difference),
     /// counts it (an exact meet), or propagates it (an arming
     /// undercut's residue).
-    fn push_boundary(&mut self, d: Accum, pending: usize) {
+    fn push_boundary(&mut self, d: Accumulator, pending: usize) {
         for slot in 0..self.followers.len() {
             if let Some(follower) = &mut self.followers[slot] {
                 follower.add_accum(&d);
@@ -555,7 +556,7 @@ impl MinStack {
     /// runs where no latent can live (after an arm's recycle or a
     /// [`resolve_latent`](Self::resolve_latent)), so no fold is ever
     /// needed to install.
-    pub(super) fn follower_set(&mut self, slot: usize, acc: Accum) {
+    pub(super) fn follower_set(&mut self, slot: usize, acc: Accumulator) {
         debug_assert!(self.followers[slot].is_none(), "one follower per slot");
         debug_assert!(self.armed > 0, "a follower needs an armed anchor");
         self.sig[slot] = self.latent.is_some();
@@ -570,18 +571,18 @@ impl MinStack {
     /// symbolically), retire it unread, or run under a preceding
     /// [`resolve_latent`](Self::resolve_latent) that made it exact —
     /// never store it raw into state that outlives the latent.
-    pub(super) fn follower_take(&mut self, slot: usize) -> Accum {
+    pub(super) fn follower_take(&mut self, slot: usize) -> Accumulator {
         self.sig[slot] = false;
         self.followers[slot].take().expect("the follower is active")
     }
 
     /// A cleared accumulator, pooled when one is available.
-    pub(super) fn lease(&mut self) -> Accum {
+    pub(super) fn lease(&mut self) -> Accumulator {
         self.pool.pop().unwrap_or_default()
     }
 
     /// Retire a dying accumulator into the pool, clearing it.
-    pub(super) fn retire(&mut self, mut acc: Accum) {
+    pub(super) fn retire(&mut self, mut acc: Accumulator) {
         acc.reset();
         self.pool.push(acc);
     }
@@ -589,7 +590,7 @@ impl MinStack {
     /// Materialize a dying accumulator: collapse, then read the sign
     /// and magnitude (held digits exceed the value's width by at most
     /// the collapse slack), retiring the buffer.
-    pub(super) fn materialize(&mut self, mut acc: Accum) -> Signed {
+    pub(super) fn materialize(&mut self, mut acc: Accumulator) -> Signed {
         acc.sign();
         let (sign, magnitude) = acc.sign_magnitude();
         self.retire(acc);
@@ -604,7 +605,7 @@ impl MinStack {
     /// taken raw, so a live latent cancels symbolically —
     /// `(f_true) + (h − m) = (f_stored − Λ) + (t + Λ) = f_stored + t`
     /// — and no latent digit is ever touched by this switch.
-    pub(super) fn bridge_add_t(&mut self, acc: &mut Accum) {
+    pub(super) fn bridge_add_t(&mut self, acc: &mut Accumulator) {
         acc.add_accum(&self.t);
     }
 
@@ -615,7 +616,7 @@ impl MinStack {
     /// ([`resolve_latent`](Self::resolve_latent) — the switch's
     /// emission re-anchors to the true minimum, which retires the
     /// latent anyway), so `t` is exact here.
-    pub(super) fn bridge_sub_t(&mut self, acc: &mut Accum) {
+    pub(super) fn bridge_sub_t(&mut self, acc: &mut Accumulator) {
         debug_assert!(
             self.latent.is_none(),
             "the height-to-watermark switch resolves the latent first"
@@ -625,7 +626,7 @@ impl MinStack {
 
     /// Arm every pending frame at the emission `v = h − below`,
     /// moving `below` in as the new `t`.
-    fn arm(&mut self, below: Accum) {
+    fn arm(&mut self, below: Accumulator) {
         debug_assert!(self.pending > 0, "arming consumes pending frames");
         let pending = core::mem::replace(&mut self.pending, 0);
         if self.armed == 0 {
@@ -662,7 +663,7 @@ impl MinStack {
     /// across its width while it survives; only comparable scales fold
     /// undecided, the near-cancellation pricing either direction. The
     /// caller has already adjusted `t` and the followers.
-    fn propagate(&mut self, residue: Accum) {
+    fn propagate(&mut self, residue: Accumulator) {
         let mut residue = residue;
         let mut zeros = 0usize;
         loop {

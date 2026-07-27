@@ -27,10 +27,6 @@
 pub mod board;
 pub mod tier2;
 
-/// The cliff-immune signed accumulator, re-exported so the resource-envelope
-/// suite can drive its delta streams and pin its digit-touch cost.
-pub use crate::codec::accum;
-
 /// The skyline transcoding codec, re-exported so the resource-envelope
 /// suite can pin its validator's transient state and limb behavior.
 pub use crate::version::skyline;

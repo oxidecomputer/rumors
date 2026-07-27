@@ -590,7 +590,7 @@ fn join_cliff_envelope() {
 ///
 /// [`Envelope`]'s three columns plus accumulator digit touches — the
 /// rank folds' and the tick walk's own cost currency: wide content
-/// moves through `Accum`s that the heap and limb columns cannot see.
+/// moves through `Accumulator`s that the heap and limb columns cannot see.
 struct TouchEnvelope {
     /// Peak heap delta over the scenario body, in bytes.
     peak_heap: usize,
@@ -687,7 +687,7 @@ fn touch_metered<R>(
     #[cfg(feature = "limb-meter")]
     meter::reset_limb_ops();
     #[cfg(feature = "limb-meter")]
-    meter::accum::touch_meter::reset();
+    suanpan::touch_meter::reset();
     HEAP.reset_peak_usage();
     let baseline = HEAP.current_usage();
     let r = f();
@@ -696,7 +696,7 @@ fn touch_metered<R>(
     #[cfg(feature = "limb-meter")]
     let limb_ops = meter::limb_ops();
     #[cfg(feature = "limb-meter")]
-    let touches = meter::accum::touch_meter::touches();
+    let touches = suanpan::touch_meter::touches();
     #[cfg(feature = "limb-meter")]
     eprintln!(
         "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments} limb_ops={limb_ops} touches={touches}"
@@ -1800,7 +1800,8 @@ fn skyline_parse_cliff_envelope() {
 // witness rather than a tautology.
 #[cfg(feature = "limb-meter")]
 mod skyline_flatness {
-    use before::meter::{self, accum::touch_meter};
+    use before::meter;
+    use suanpan::touch_meter;
 
     /// Slack numerator over the small-scale cost (denominator
     /// [`SLACK_DEN`]): the ×1.25 flatness convention.
@@ -2923,8 +2924,8 @@ fn id_fork_envelope() {
 mod accum_streams {
     use std::cmp::Ordering;
 
-    use before::meter::accum::{touch_meter, Accum};
     use dashu_int::UBig;
+    use suanpan::{touch_meter, Accumulator};
 
     /// Slack numerator over the measured value, matching the ×1.25 envelope
     /// convention (denominator [`SLACK_DEN`]).
@@ -2978,7 +2979,7 @@ mod accum_streams {
     /// The boundary-comb delta stream: setup `2^k − 1`, then `2n` deltas of
     /// `±1` oscillating across the `2^k` cliff, sign read after each.
     fn comb_run(k: u32, n: usize) -> Run {
-        let mut acc = Accum::new();
+        let mut acc = Accumulator::new();
         acc.add_wide(&((UBig::from(1u8) << k as usize) - 1u8));
         touch_meter::reset();
         for _ in 0..n {
@@ -2997,7 +2998,7 @@ mod accum_streams {
     /// oscillating across the `2^k` cliff, sign read after each.
     fn wide_tooth_run(k: u32, w: u32, n: usize) -> Run {
         let tooth = UBig::from(1u8) << w as usize;
-        let mut acc = Accum::new();
+        let mut acc = Accumulator::new();
         acc.add_wide(&(UBig::from(1u8) << k as usize));
         touch_meter::reset();
         for _ in 0..n {
@@ -3020,7 +3021,7 @@ mod accum_streams {
     /// of `2k + 3` bits each — in bytes, not the delta count.
     fn cancelling_run(k: u32, n: usize) -> Run {
         let drop = (UBig::from(1u8) << k as usize) - 1u8;
-        let mut acc = Accum::new();
+        let mut acc = Accumulator::new();
         acc.add_wide(&(UBig::from(1u8) << k as usize));
         touch_meter::reset();
         for _ in 0..n {
@@ -3050,7 +3051,7 @@ mod accum_streams {
     /// staying flat.
     fn static_prefix_run(k: u32, n: usize) -> Run {
         let drop = (UBig::from(1u8) << k as usize) - 1u8;
-        let mut acc = Accum::new();
+        let mut acc = Accumulator::new();
         acc.add_wide(&(UBig::from(1u8) << k as usize));
         acc.sub_wide(&drop);
         touch_meter::reset();
@@ -3320,7 +3321,7 @@ fn query_metered<R>(
     #[cfg(feature = "limb-meter")]
     meter::reset_limb_ops();
     #[cfg(feature = "limb-meter")]
-    meter::accum::touch_meter::reset();
+    suanpan::touch_meter::reset();
     #[cfg(feature = "scan-meter")]
     meter::reset_scan_bits();
     HEAP.reset_peak_usage();
@@ -3331,7 +3332,7 @@ fn query_metered<R>(
     #[cfg(feature = "limb-meter")]
     let limb_ops = meter::limb_ops();
     #[cfg(feature = "limb-meter")]
-    let touches = meter::accum::touch_meter::touches();
+    let touches = suanpan::touch_meter::touches();
     #[cfg(feature = "scan-meter")]
     let scan_bits = meter::scan_bits();
     #[cfg(feature = "limb-meter")]
@@ -3781,8 +3782,9 @@ fn fold_party_scatter_envelope() {
 // against the walk's own live relation, one link fold each.
 #[cfg(feature = "limb-meter")]
 mod memo_resolution_cost {
-    use before::meter::{self, accum::touch_meter};
+    use before::meter;
     use before::Party;
+    use suanpan::touch_meter;
 
     /// One tick run over a memo family cross: the tick's packed
     /// input bytes and the accumulator digit touches of its body.
@@ -4046,9 +4048,10 @@ mod memo_resolution_cost {
 // stack's own arm-move + close-pop cycle in isolation.
 #[cfg(feature = "limb-meter")]
 mod width_circulation_cost {
-    use before::meter::{self, accum::touch_meter};
+    use before::meter;
     use before::{Party, Version};
     use dashu_int::UBig;
+    use suanpan::touch_meter;
 
     /// One tick run over a family cross: the tick's packed input bytes
     /// (the version's own stored stream plus the id), the accumulator

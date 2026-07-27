@@ -162,8 +162,8 @@
 //! | [`add_small`](Accumulator::add_small), [`sub_small`](Accumulator::sub_small), [`add_u64`](Accumulator::add_u64), [`sub_u64`](Accumulator::sub_u64) | amortized O(1) |
 //! | [`add_wide`](Accumulator::add_wide), [`sub_wide`](Accumulator::sub_wide) | amortized O(operand limbs), whatever the held width |
 //! | [`add_wide_shl`](Accumulator::add_wide_shl), [`sub_wide_shl`](Accumulator::sub_wide_shl) | amortized O(operand limbs), independent of the shift |
-//! | [`add_base`](Accumulator::add_base), [`sub_base`](Accumulator::sub_base) | word-scale: amortized O(1); wide: amortized O(operand limbs) |
-//! | [`add_base_shl`](Accumulator::add_base_shl), [`sub_base_shl`](Accumulator::sub_base_shl) | as [`add_base`](Accumulator::add_base)/[`sub_base`](Accumulator::sub_base), at any shift |
+//! | [`add_magnitude`](Accumulator::add_magnitude), [`sub_magnitude`](Accumulator::sub_magnitude) | word-scale: amortized O(1); wide: amortized O(operand limbs) |
+//! | [`add_magnitude_shl`](Accumulator::add_magnitude_shl), [`sub_magnitude_shl`](Accumulator::sub_magnitude_shl) | as [`add_magnitude`](Accumulator::add_magnitude)/[`sub_magnitude`](Accumulator::sub_magnitude), at any shift |
 //! | [`add_accum`](Accumulator::add_accum), [`sub_accum`](Accumulator::sub_accum) | amortized O(operand's held digits) |
 //! | [`add_accum_shl`](Accumulator::add_accum_shl), [`sub_accum_shl`](Accumulator::sub_accum_shl) | amortized O(operand's held digits), independent of the shift |
 //! | [`merge_into_wider`](Accumulator::merge_into_wider) | amortized O(narrower operand's held digits) |
@@ -175,8 +175,7 @@
 //! point grows the digit buffer to cover the shifted position, so memory
 //! is O(shift / 32) plus the operand's own digits.
 //!
-//! The `*_base` entry points (*base*: the operand in its stored, base
-//! form, whatever type holds it) are generic over [`Magnitude`], the seam
+//! The `*_magnitude` entry points are generic over [`Magnitude`], the seam
 //! for a caller's own stored-magnitude type: the operand reports whether
 //! it fits a machine word, and the accumulator dispatches to the small or
 //! wide path accordingly. There is no from-value constructor: build with
@@ -363,16 +362,43 @@ fn pack_limb(chunk: &[Word]) -> u64 {
 
 /// The 64-bit limbs of a magnitude, least significant first.
 ///
-/// Borrows the stored word slice, so iteration allocates nothing; the top
-/// limb zero-pads any missing high words. A zero value has no limbs.
-fn limbs(value: &UBig) -> impl Iterator<Item = u64> + '_ {
-    value.as_words().chunks(WORDS_PER_LIMB).map(pack_limb)
+/// The unit this crate's wide-operand costs are counted in: a wide write
+/// pays amortized O(1) digit touches per limb yielded here, whatever the
+/// backend's storage word width. Borrows the stored word slice, so
+/// iteration allocates nothing; the top limb zero-pads any missing high
+/// words. A zero value has no limbs. Double-ended, so
+/// most-significant-first consumers reverse it.
+pub struct Limbs<'a> {
+    chunks: core::slice::Chunks<'a, Word>,
+}
+
+impl<'a> Limbs<'a> {
+    /// The limbs of `value`, borrowing its stored words.
+    pub fn new(value: &'a UBig) -> Limbs<'a> {
+        Limbs {
+            chunks: value.as_words().chunks(WORDS_PER_LIMB),
+        }
+    }
+}
+
+impl Iterator for Limbs<'_> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<u64> {
+        self.chunks.next().map(pack_limb)
+    }
+}
+
+impl DoubleEndedIterator for Limbs<'_> {
+    fn next_back(&mut self) -> Option<u64> {
+        self.chunks.next_back().map(pack_limb)
+    }
 }
 
 /// An unsigned operand readable at the width it is stored at.
 ///
 /// The seam that lets a caller's own stored-magnitude type drive the
-/// accumulator's `*_base` entry points without conversion: the operand
+/// accumulator's `*_magnitude` entry points without conversion: the operand
 /// reports whether it fits a machine word — the dispatch onto the
 /// amortized-O(1) small path — and otherwise lends its full value to the
 /// wide path. Signedness stays with the caller: route the operand's sign
@@ -483,13 +509,13 @@ impl Accumulator {
     /// 64-bit word of the operand — the cost scales with the operand's
     /// width, never the held value's.
     pub fn add_wide(&mut self, delta: &UBig) {
-        self.apply_limbs(limbs(delta), false, 0);
+        self.apply_limbs(Limbs::new(delta), false, 0);
     }
 
     /// Subtract a wide delta: amortized O(operand limbs), scaling with
     /// the operand's width, never the held value's.
     pub fn sub_wide(&mut self, delta: &UBig) {
-        self.apply_limbs(limbs(delta), true, 0);
+        self.apply_limbs(Limbs::new(delta), true, 0);
     }
 
     /// Add a stored magnitude, at the width it is stored at.
@@ -497,7 +523,7 @@ impl Accumulator {
     /// A word-scale operand takes the amortized-O(1) small path, a wider
     /// one the amortized-O(operand limbs) wide path; [`Magnitude`] is the
     /// dispatch.
-    pub fn add_base<M: Magnitude>(&mut self, delta: &M) {
+    pub fn add_magnitude<M: Magnitude>(&mut self, delta: &M) {
         match delta.to_word() {
             Some(n) => self.add_u64(n),
             None => self.add_wide(delta.as_wide()),
@@ -506,8 +532,8 @@ impl Accumulator {
 
     /// Subtract a stored magnitude, at the width it is stored at.
     ///
-    /// The subtractive twin of [`add_base`](Accumulator::add_base).
-    pub fn sub_base<M: Magnitude>(&mut self, delta: &M) {
+    /// The subtractive twin of [`add_magnitude`](Accumulator::add_magnitude).
+    pub fn sub_magnitude<M: Magnitude>(&mut self, delta: &M) {
         match delta.to_word() {
             Some(n) => self.sub_u64(n),
             None => self.sub_wide(delta.as_wide()),
@@ -533,7 +559,7 @@ impl Accumulator {
     /// shift fits, and an enormous one fails at allocation instead, like
     /// any collection asked to grow to `shift / 32` entries.
     pub fn add_wide_shl(&mut self, delta: &UBig, shift: u64) {
-        self.apply_limbs(limbs(delta), false, shift);
+        self.apply_limbs(Limbs::new(delta), false, shift);
     }
 
     /// Subtract `delta · 2^shift`: amortized O(operand limbs) digit
@@ -548,13 +574,13 @@ impl Accumulator {
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
     pub fn sub_wide_shl(&mut self, delta: &UBig, shift: u64) {
-        self.apply_limbs(limbs(delta), true, shift);
+        self.apply_limbs(Limbs::new(delta), true, shift);
     }
 
     /// Add a stored magnitude times `2^shift`, at the width it is stored
     /// at.
     ///
-    /// The same width dispatch as [`add_base`](Accumulator::add_base),
+    /// The same width dispatch as [`add_magnitude`](Accumulator::add_magnitude),
     /// with digit touches independent of the shift and
     /// [`add_wide_shl`](Accumulator::add_wide_shl)'s memory note.
     ///
@@ -562,7 +588,7 @@ impl Accumulator {
     ///
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
-    pub fn add_base_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
+    pub fn add_magnitude_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
             Some(n) => self.add_shifted_word(n, false, shift),
@@ -574,18 +600,18 @@ impl Accumulator {
     /// stored at.
     ///
     /// The subtractive twin of
-    /// [`add_base_shl`](Accumulator::add_base_shl): the same width
+    /// [`add_magnitude_shl`](Accumulator::add_magnitude_shl): the same width
     /// dispatch, shift-independent digit touches, and memory note.
     ///
     /// # Panics
     ///
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
-    pub fn sub_base_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
+    pub fn sub_magnitude_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
             Some(n) => self.add_shifted_word(n, true, shift),
-            None => self.apply_limbs(limbs(delta.as_wide()), true, shift),
+            None => self.apply_limbs(Limbs::new(delta.as_wide()), true, shift),
         }
     }
 

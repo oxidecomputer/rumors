@@ -7,7 +7,7 @@
 //!   *left-complete* ("is my left child done") and *left-was-leaf* ("was
 //!   that child a leaf", the fact the sibling-collapse check needs) —
 //!   where machine-word parse frames would cost tens of bytes per level;
-//! - one cliff-immune [`Accum`] carrying the running leaf height for the
+//! - one cliff-immune [`Accumulator`] carrying the running leaf height for the
 //!   nonnegativity check (a plain big-integer here re-imports the
 //!   boundary comb's quadratic carry genre; the module doc carries the
 //!   argument);
@@ -18,7 +18,8 @@
 
 use core::cmp::Ordering;
 
-use crate::codec::accum::Accum;
+use suanpan::Accumulator;
+
 use crate::codec::{Base, BitCursor, Bits, BitsSlice, DsiCursor};
 use crate::error::Decode;
 
@@ -68,7 +69,7 @@ where
     // The running leaf height. Only its sign is ever read, and only after
     // a subtracting delta: an adding delta cannot take a valid height
     // negative, and the first leaf's absolute payload is a natural.
-    let mut height = Accum::new();
+    let mut height = Accumulator::new();
     let mut seen_leaf = false;
 
     loop {
@@ -90,15 +91,15 @@ where
             zero_delta = code == Base::ZERO;
             let (negative, magnitude) = unzigzag(code);
             if negative {
-                height.sub_base(&magnitude);
+                height.sub_magnitude(&magnitude);
             } else {
-                height.add_base(&magnitude);
+                height.add_magnitude(&magnitude);
             }
             if negative && height.sign() == Ordering::Less {
                 return Err(Decode::NotCanonical); // a leaf height fell below zero
             }
         } else {
-            height.add_base(&code);
+            height.add_magnitude(&code);
             seen_leaf = true;
         }
 
