@@ -1,7 +1,7 @@
-//! Cliff-immune signed accumulators: redundant balanced signed-digit
-//! arithmetic whose machine-word adds, subtracts, and sign reads cost
-//! amortized O(1), and whose wide adds cost O(operand limbs) — on every
-//! input sequence.
+//! Cliff-immune signed accumulators: redundant balanced signed digits
+//! with no carry cliffs anywhere — machine-word deltas and sign reads
+//! amortized O(1), wide deltas amortized O(operand limbs), on every input
+//! sequence.
 //!
 //! [`Accumulator`] holds a running signed integer — a running total, a
 //! running difference of two totals, a running weighted sum — under
@@ -47,34 +47,44 @@
 //! An accumulator stores little-endian signed digits `dᵢ: i64` denoting
 //! `value = Σ dᵢ · 2^(32·i)`, each digit kept in the *lazy zone*
 //! `|dᵢ| < 2^33` — twice the digit base, and symmetric about zero. The
-//! representation is *redundant*: a value has many spellings, and the type
-//! never normalizes. It is *balanced*: digits carry their own signs, so a
-//! subtraction is just a negated addition and no borrow machinery exists.
+//! representation is *redundant*: a value has many spellings, no
+//! operation requires the normal one, and nothing eagerly normalizes. It
+//! is *balanced*: digits carry their own signs, so a subtraction is just
+//! a negated addition and no borrow machinery exists.
 //!
 //! A write adds its delta into one digit, forming the sum `t` in wider
 //! (128-bit) intermediate arithmetic so nothing overflows. If `t` is in
 //! the zone, it becomes the digit and that is the whole write. If not,
 //! the digit *recenters*: it carries `c = (t + 2^31) >> 32` upward (an
 //! arithmetic shift) and keeps the remainder `t − c·2^32`, which lands in
-//! `[−2^31, 2^31)`. A freshly recentered digit therefore needs at least
-//! `2^33 − 2^31` of further net inflow before it can carry again, while
-//! every carry passed upward is small (under `2^32`) — so carries thin
-//! out geometrically with height, and the total carry work is dominated
-//! by the deltas that entered at the bottom \[derived\]. Machine-word
-//! deltas are amortized O(1) digit work. A wide delta enters limb by limb
-//! — throughout this page a *limb* is one 64-bit word of the operand —
-//! each limb landing as two 32-bit contributions at the digit positions
-//! it spans, for O(operand limbs) total: independent of how wide the
-//! *held* value is, and of any power-of-two shift applied on the way in.
+//! `[−2^31, 2^31)`. Two facts make this cheap \[derived\]: a freshly
+//! recentered digit must absorb at least `2^33 − 2^31` of further net
+//! inflow before it can carry again, and a carry chain attenuates fast —
+//! the first carry out of a word-scale write is at most about `2^32`, and
+//! the next is already a handful of units, tiny against the inflow the
+//! digit above needs before it carries on. So sustained carry traffic
+//! thins out geometrically with height, and the total carry work is
+//! dominated by the deltas that entered below. The write bounds are
+//! amortized per call as well as per delta: a single write can be caught
+//! repaying a run of digits that earlier writes parked near the zone's
+//! edge, but never more than those writes prepaid.
+//!
+//! Machine-word deltas are therefore amortized O(1) digit work. A wide
+//! delta enters limb by limb — throughout this page a *limb* is one
+//! 64-bit word of the operand's value, independent of the backend's
+//! internal word size — each limb landing as two contributions at the
+//! digit positions it spans, for amortized O(operand limbs) total:
+//! independent of how wide the *held* value is, and of any power-of-two
+//! shift applied on the way in.
 //!
 //! Because *every* write recenters, no region of the representation is
-//! ever in normal form — hence no boundary an adversarial delta stream
-//! can oscillate across at less than the cost the stream itself paid, at
-//! any delta width. The obvious halfway design fails exactly there: a
-//! two-zone form (a normalized prefix plus a fixed-width lazy window over
-//! the low digits) has a boundary at the window's top, and a stream of
-//! deltas one digit wider than the window forces the normalized prefix
-//! through a full carry per delta. Widening the window moves the
+//! ever kept in normal form — hence no boundary an adversarial delta
+//! stream can oscillate across at less than the cost the stream itself
+//! paid, at any delta width. The obvious halfway design fails exactly
+//! there: a two-zone form (a normalized prefix plus a fixed-width lazy
+//! window over the low digits) has a boundary at the window's top, and a
+//! stream of deltas one digit wider than the window forces the normalized
+//! prefix through a full carry per delta. Widening the window moves the
 //! boundary; only having no normalized region removes it.
 //!
 //! # Reading the sign
@@ -111,11 +121,12 @@
 //! A comparison between totals of wildly different scales should not cost
 //! the wide one's width. [`Accumulator::sign_dominates_at`] returns the
 //! (always exact) sign plus a *certificate*: `decided = true` guarantees
-//! that for every adjustment `a` with `|a| < 2^(32·(floor + 1))`,
-//! `sign(v + a) = sign(v)` and `|v| > |a|` — so the caller compares
-//! against anything at or below the floor's scale without ever folding it
-//! in. [`Accumulator::sign_dominates_word`] is the `u64`-sized special
-//! case:
+//! that for every adjustment `a` with `|a| < 2^(32·(floor + 1))` —
+//! including another accumulator held in digits `0..=floor`, whose
+//! redundant spelling can reach `2.01 · 2^(32·(floor + 1))`; the decision
+//! margin covers that too — `sign(v + a) = sign(v)` and `|v| > |a|`. So
+//! the caller compares against anything at or below the floor's scale
+//! without ever folding it in:
 //!
 //! ```
 //! use core::cmp::Ordering;
@@ -123,28 +134,33 @@
 //!
 //! let mut watermark = Accumulator::new();
 //! watermark.add_wide(&(UBig::from(1u8) << 300usize));
-//! // Could any adjustment below 2^64 flip the watermark's sign?
-//! // floor = 64.div_ceil(32) − 1 = 1: certainty without a wide fold.
-//! let (sign, decided) = watermark.sign_dominates_at(1);
+//! // Could any adjustment below 2^128 flip the watermark's sign?
+//! // floor = 128.div_ceil(32) − 1 = 3: certainty without a wide fold.
+//! let (sign, decided) = watermark.sign_dominates_at(3);
 //! assert_eq!((sign, decided), (Ordering::Greater, true));
 //! ```
 //!
+//! For `u64`-scale adjustments,
+//! [`sign_dominates_word`](Accumulator::sign_dominates_word) is the
+//! shorthand.
+//!
 //! # The operations
 //!
-//! All costs in digit touches, derived above. Rows marked *amortized* are
-//! worst-case over the whole operation sequence; the rest are worst-case
-//! per call.
+//! All costs in digit touches, derived above. *Amortized* bounds hold
+//! over the whole operation sequence — one write can be caught repaying
+//! carries that earlier writes parked near the zone's edge, never more
+//! than they prepaid; unmarked rows are worst-case per call.
 //!
 //! | Operation | Cost |
 //! |---|---|
 //! | [`add_small`](Accumulator::add_small), [`sub_small`](Accumulator::sub_small), [`add_u64`](Accumulator::add_u64), [`sub_u64`](Accumulator::sub_u64) | amortized O(1) |
-//! | [`add_wide`](Accumulator::add_wide), [`sub_wide`](Accumulator::sub_wide) | O(operand limbs), whatever the held width |
-//! | [`add_wide_shl`](Accumulator::add_wide_shl), [`sub_wide_shl`](Accumulator::sub_wide_shl) | O(operand limbs), independent of the shift |
-//! | [`add_base`](Accumulator::add_base), [`sub_base`](Accumulator::sub_base) | amortized O(1) word-scale, O(operand limbs) wide |
-//! | [`add_base_shl`](Accumulator::add_base_shl), [`sub_base_shl`](Accumulator::sub_base_shl) | the same dispatch, at any shift |
-//! | [`add_accum`](Accumulator::add_accum), [`sub_accum`](Accumulator::sub_accum) | O(operand's held digits) |
-//! | [`add_accum_shl`](Accumulator::add_accum_shl), [`sub_accum_shl`](Accumulator::sub_accum_shl) | O(operand's held digits), independent of the shift |
-//! | [`merge_into_wider`](Accumulator::merge_into_wider) | O(narrower operand's held digits) |
+//! | [`add_wide`](Accumulator::add_wide), [`sub_wide`](Accumulator::sub_wide) | amortized O(operand limbs), whatever the held width |
+//! | [`add_wide_shl`](Accumulator::add_wide_shl), [`sub_wide_shl`](Accumulator::sub_wide_shl) | amortized O(operand limbs), independent of the shift |
+//! | [`add_base`](Accumulator::add_base), [`sub_base`](Accumulator::sub_base) | word-scale: amortized O(1); wide: amortized O(operand limbs) |
+//! | [`add_base_shl`](Accumulator::add_base_shl), [`sub_base_shl`](Accumulator::sub_base_shl) | as [`add_base`](Accumulator::add_base)/[`sub_base`](Accumulator::sub_base), at any shift |
+//! | [`add_accum`](Accumulator::add_accum), [`sub_accum`](Accumulator::sub_accum) | amortized O(operand's held digits) |
+//! | [`add_accum_shl`](Accumulator::add_accum_shl), [`sub_accum_shl`](Accumulator::sub_accum_shl) | amortized O(operand's held digits), independent of the shift |
+//! | [`merge_into_wider`](Accumulator::merge_into_wider) | amortized O(narrower operand's held digits) |
 //! | [`sign`](Accumulator::sign), [`is_negative`](Accumulator::is_negative), [`sign_dominates_word`](Accumulator::sign_dominates_word), [`sign_dominates_at`](Accumulator::sign_dominates_at) | amortized O(1) |
 //! | [`is_zero`](Accumulator::is_zero), [`digit_count`](Accumulator::digit_count) | O(1) |
 //! | [`shl`](Accumulator::shl), [`negate`](Accumulator::negate), [`reset`](Accumulator::reset), [`sign_magnitude`](Accumulator::sign_magnitude) | O(held digits) |
@@ -164,16 +180,18 @@
 //! when nothing exploits the slack, simpler types win. If the total fits
 //! `i64`/`i128`, use `i64`/`i128`. If the deltas never change sign, a
 //! plain big integer is already amortized O(1) per delta (the binary
-//! counter argument) and needs no slack. The accumulator earns its keep
-//! when deltas mix signs — when the total can be driven onto a carry
-//! boundary and oscillated — or when sign reads interleave with
-//! cancelling updates. And this is an accumulator, not a number type: it
-//! adds, subtracts, scales by powers of two (left only — a right shift
-//! would need normalization), reads its sign, and converts out through
-//! [`sign_magnitude`](Accumulator::sign_magnitude) — no multiplication,
-//! no division, and no ordering between two accumulators except by
-//! subtracting one from the other (or from a
-//! [`clone`](Clone::clone)) and reading the difference's sign.
+//! counter argument: each carry clears a bit an earlier increment set, so
+//! carries never outnumber increments) and needs no slack. The
+//! accumulator earns its keep when deltas mix signs — when the total can
+//! be driven onto a carry boundary and oscillated — or when sign reads
+//! interleave with cancelling updates. And this is an accumulator, not a
+//! number type: it adds, subtracts, scales by powers of two (left only —
+//! a right shift would need normalization), reads its sign, and converts
+//! out through [`sign_magnitude`](Accumulator::sign_magnitude) — no
+//! multiplication, no division, and no ordering between two accumulators
+//! except by subtracting one from the other and reading the difference's
+//! sign (subtract from a [`clone`](Clone::clone) when the receiver's
+//! value must survive the comparison).
 //!
 //! # Metering
 //!
@@ -189,9 +207,11 @@
 //! # Interop
 //!
 //! [`UBig`] is `dashu_int::UBig`, re-exported so callers can name exactly
-//! the type this crate compiled against. [`Accumulator`] is `Clone`,
-//! `Default`, `Debug`, and `Send + Sync`; `touch-meter` is the crate's
-//! only feature.
+//! the type this crate compiled against. The crate requires `std`.
+//! [`Accumulator`] is `Clone`, `Default`, `Debug`, and `Send + Sync` —
+//! and deliberately not `PartialEq`: two spellings of one value would
+//! compare unequal, so compare by subtracting and reading the
+//! difference's sign. `touch-meter` is the crate's only feature.
 //!
 //! # Testing
 //!
@@ -240,8 +260,8 @@ use dashu_int::Word;
 /// (plus one per operand limb read by a wide operation): the unit every
 /// cost on the crate page is denominated in. Because the counter is
 /// process-global with relaxed ordering, readings are meaningful only
-/// when one metered scenario runs per process and the counter is read
-/// after the metered call returns — in particular, a default-parallel
+/// when metered scenarios run serially — [`reset`](touch_meter::reset)
+/// between them, read after the metered call returns; a default-parallel
 /// test runner interleaves scenarios into one count.
 #[cfg(feature = "touch-meter")]
 pub mod touch_meter {
@@ -333,11 +353,14 @@ fn limbs(value: &UBig) -> impl Iterator<Item = u64> + '_ {
 /// accumulator's `*_base` entry points without conversion: the operand
 /// reports whether it fits a machine word — the dispatch onto the
 /// amortized-O(1) small path — and otherwise lends its full value to the
-/// O(operand limbs) wide path. Signedness stays with the caller: route
-/// the operand's sign to the `add_*` or `sub_*` entry point.
-/// Implementations must agree with themselves: when
-/// [`to_word`](Magnitude::to_word) returns `Some(n)`,
-/// [`as_wide`](Magnitude::as_wide) must denote that same `n`.
+/// wide path. Signedness stays with the caller: route the operand's sign
+/// to the `add_*` or `sub_*` entry point. Implementors necessarily own a
+/// [`UBig`] to lend from [`as_wide`](Magnitude::as_wide); a type whose
+/// values always fit a machine word has nothing to lend and should call
+/// [`add_u64`](Accumulator::add_u64)/[`sub_u64`](Accumulator::sub_u64)
+/// directly instead of implementing the trait. Implementations must agree
+/// with themselves: when [`to_word`](Magnitude::to_word) returns
+/// `Some(n)`, [`as_wide`](Magnitude::as_wide) must denote that same `n`.
 pub trait Magnitude {
     /// The value as a single machine word, or `None` past the `u64` range.
     ///
@@ -391,8 +414,8 @@ impl Accumulator {
 
     /// Add a signed machine-word delta: amortized O(1).
     ///
-    /// Exact over the full `i64` range: the delta widens before any
-    /// negation or carry, so even `i64::MIN` lands intact.
+    /// Exact over the full `i64` range: the delta widens before any carry
+    /// arithmetic, so even `i64::MIN` lands intact.
     pub fn add_small(&mut self, delta: i64) {
         if delta != 0 {
             self.add_at(0, i128::from(delta));
@@ -429,20 +452,42 @@ impl Accumulator {
         }
     }
 
-    /// Add a wide delta: O(operand limbs), charged to the operand — the
-    /// cost scales with its width, never the held value's.
+    /// Add a wide delta: amortized O(operand limbs — its 64-bit words),
+    /// scaling with the operand's width, never the held value's.
     pub fn add_wide(&mut self, delta: &UBig) {
         self.apply_limbs(limbs(delta), false, 0);
     }
 
-    /// Subtract a wide delta: O(operand limbs), charged to the operand —
-    /// the cost scales with its width, never the held value's.
+    /// Subtract a wide delta: amortized O(operand limbs), scaling with
+    /// the operand's width, never the held value's.
     pub fn sub_wide(&mut self, delta: &UBig) {
         self.apply_limbs(limbs(delta), true, 0);
     }
 
-    /// Add `delta · 2^shift`: O(operand limbs) digit touches, independent
-    /// of the shift.
+    /// Add a stored magnitude, at the width it is stored at.
+    ///
+    /// A word-scale operand takes the amortized-O(1) small path, a wider
+    /// one the amortized-O(operand limbs) wide path; [`Magnitude`] is the
+    /// dispatch.
+    pub fn add_base<M: Magnitude>(&mut self, delta: &M) {
+        match delta.to_word() {
+            Some(n) => self.add_u64(n),
+            None => self.add_wide(delta.as_wide()),
+        }
+    }
+
+    /// Subtract a stored magnitude, at the width it is stored at.
+    ///
+    /// The subtractive twin of [`add_base`](Accumulator::add_base).
+    pub fn sub_base<M: Magnitude>(&mut self, delta: &M) {
+        match delta.to_word() {
+            Some(n) => self.sub_u64(n),
+            None => self.sub_wide(delta.as_wide()),
+        }
+    }
+
+    /// Add `delta · 2^shift`: amortized O(operand limbs) digit touches,
+    /// independent of the shift.
     ///
     /// The scaled entry point behind weighted folds — a summand carrying
     /// its own exponent, such as a value weighted by a dyadic interval
@@ -451,16 +496,28 @@ impl Accumulator {
     /// shifted copy of the operand ever exists. Memory is the exception
     /// to shift-independence: the digit buffer grows to cover the shifted
     /// position, O(shift / 32) plus the operand's digits.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a shifted digit position overflows `usize` — a `shift`
+    /// near `u64::MAX` on any target, or past `2^37` on a 32-bit one. An
+    /// in-range but enormous shift fails at allocation instead, like any
+    /// collection asked to grow to `shift / 32` entries.
     pub fn add_wide_shl(&mut self, delta: &UBig, shift: u64) {
         self.apply_limbs(limbs(delta), false, shift);
     }
 
-    /// Subtract `delta · 2^shift`: O(operand limbs) digit touches,
-    /// independent of the shift.
+    /// Subtract `delta · 2^shift`: amortized O(operand limbs) digit
+    /// touches, independent of the shift.
     ///
     /// The subtractive twin of
     /// [`add_wide_shl`](Accumulator::add_wide_shl), with the same memory
     /// note.
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
     pub fn sub_wide_shl(&mut self, delta: &UBig, shift: u64) {
         self.apply_limbs(limbs(delta), true, shift);
     }
@@ -468,11 +525,14 @@ impl Accumulator {
     /// Add a stored magnitude times `2^shift`, at the width it is stored
     /// at.
     ///
-    /// The same width dispatch as [`add_base`](Accumulator::add_base) —
-    /// a word-scale operand takes the amortized-O(1) small path, a wider
-    /// one the O(operand limbs) wide path — with digit touches
-    /// independent of the shift and
+    /// The same width dispatch as [`add_base`](Accumulator::add_base),
+    /// with digit touches independent of the shift and
     /// [`add_wide_shl`](Accumulator::add_wide_shl)'s memory note.
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
     pub fn add_base_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
@@ -487,6 +547,11 @@ impl Accumulator {
     /// The subtractive twin of
     /// [`add_base_shl`](Accumulator::add_base_shl): the same width
     /// dispatch, shift-independent digit touches, and memory note.
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
     pub fn sub_base_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
@@ -495,15 +560,40 @@ impl Accumulator {
         }
     }
 
+    /// Add another accumulator's held value into this one: amortized
+    /// O(the operand's held digits).
+    ///
+    /// The cost discipline to watch: folding a long-lived accumulator in
+    /// from a loop re-reads all of its digits every iteration — O(n) per
+    /// pass, quadratic over the loop. Fold an operand in once, when it is
+    /// about to be discarded or has served its purpose.
+    pub fn add_accum(&mut self, other: &Accumulator) {
+        self.add_accum_shl(other, 0);
+    }
+
+    /// Subtract another accumulator's held value from this one: amortized
+    /// O(the operand's held digits).
+    ///
+    /// The subtractive twin of [`add_accum`](Accumulator::add_accum),
+    /// with the same once-not-per-iteration cost discipline.
+    pub fn sub_accum(&mut self, other: &Accumulator) {
+        self.sub_accum_shl(other, 0);
+    }
+
     /// Add another accumulator's held value times `2^shift` into this one:
-    /// O(the operand's held digits) digit touches, independent of the
-    /// shift.
+    /// amortized O(the operand's held digits) digit touches, independent
+    /// of the shift.
     ///
     /// The merge move of a weighted fold: a finished partial sum lands in
     /// its parent's accumulator at the exponent gap between their scales,
     /// each digit routed to its target position directly. The digit
     /// buffer grows to cover the shifted positions (memory O(shift / 32)
     /// plus the operand's digits).
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
     pub fn add_accum_shl(&mut self, other: &Accumulator, shift: u64) {
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
@@ -517,14 +607,19 @@ impl Accumulator {
     }
 
     /// Subtract another accumulator's held value times `2^shift` from
-    /// this one: O(the operand's held digits) digit touches, independent
-    /// of the shift.
+    /// this one: amortized O(the operand's held digits) digit touches,
+    /// independent of the shift.
     ///
     /// The subtractive twin of
     /// [`add_accum_shl`](Accumulator::add_accum_shl): each operand digit
-    /// lands negated at its shifted position (a balanced digit's negation
-    /// is a balanced digit, so nothing carries beyond the ordinary
-    /// per-digit recentering).
+    /// lands negated at its shifted position (the zone is symmetric about
+    /// zero, so a negated digit is still in it — subtraction needs no
+    /// borrow machinery of its own).
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
     pub fn sub_accum_shl(&mut self, other: &Accumulator, shift: u64) {
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
@@ -546,32 +641,17 @@ impl Accumulator {
     /// shift up by the gap and the unit drops to match — one in-place
     /// shift per unit change, and every other summand enters through a
     /// shifted add at its own gap.
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
     pub fn shl(&mut self, shift: u64) {
         if shift == 0 || (self.top == 0 && self.digits[0] == 0) {
             return;
         }
         let held = core::mem::take(self);
         self.add_accum_shl(&held, shift);
-    }
-
-    /// Add another accumulator's held value into this one: O(the
-    /// operand's held digits).
-    ///
-    /// The cost discipline to watch: folding a long-lived accumulator in
-    /// from a loop re-reads all of its digits every iteration — O(n) per
-    /// pass, quadratic over the loop. Fold an operand in once, when it is
-    /// about to be discarded or has served its purpose.
-    pub fn add_accum(&mut self, other: &Accumulator) {
-        self.add_accum_shl(other, 0);
-    }
-
-    /// Subtract another accumulator's held value from this one: O(the
-    /// operand's held digits).
-    ///
-    /// The subtractive twin of [`add_accum`](Accumulator::add_accum),
-    /// with the same once-not-per-iteration cost discipline.
-    pub fn sub_accum(&mut self, other: &Accumulator) {
-        self.sub_accum_shl(other, 0);
     }
 
     /// Negate the held value in place: O(held digits).
@@ -598,16 +678,62 @@ impl Accumulator {
         self.top = 0;
     }
 
+    /// The sign of the held value — `value.cmp(&0)`, so `Less` means
+    /// negative: amortized O(1).
+    ///
+    /// Folds digits from the top and decides at running partial `|s| ≥ 3`
+    /// (the crate docs' domination bound). When the fold had to descend —
+    /// a cancelling prefix — the scanned digits are collapsed to their
+    /// partial at the scan's floor, so the scan is paid at most once per
+    /// write (the crate docs' amortization argument). The rewrite is
+    /// value-preserving.
+    pub fn sign(&mut self) -> Ordering {
+        let mut index = self.top;
+        let mut partial: i128 = 0;
+        loop {
+            touch(1);
+            partial = (partial << DIGIT_BITS) + i128::from(self.digits[index]);
+            if partial.abs() >= SIGN_DECIDED || index == 0 {
+                break;
+            }
+            index -= 1;
+        }
+        if index < self.top {
+            // Collapse: zero the scanned suffix and re-deposit its exact
+            // partial at the scan floor, so no future sign fold re-reads it.
+            for digit in &mut self.digits[index..=self.top] {
+                *digit = 0;
+                touch(1);
+            }
+            self.top = index;
+            while self.top > 0 && self.digits[self.top] == 0 {
+                self.top -= 1;
+            }
+            if partial != 0 {
+                self.add_at(index, partial);
+            }
+        }
+        partial.cmp(&0)
+    }
+
+    /// Whether the held value is strictly negative: amortized O(1).
+    ///
+    /// Takes `&mut self` for the same value-preserving collapse as
+    /// [`sign`](Accumulator::sign).
+    pub fn is_negative(&mut self) -> bool {
+        self.sign() == Ordering::Less
+    }
+
     /// The sign, plus whether the held magnitude certainly dominates any
     /// machine-word adjustment: amortized O(1), collapsing like
     /// [`sign`](Accumulator::sign).
     ///
-    /// Returns `(sign, decided)`:
-    /// [`sign_dominates_at`](Accumulator::sign_dominates_at) with
-    /// floor 1, since a `u64` spans at most two digit positions. A
-    /// comparison against a word-scale adjustment reads this instead of
-    /// folding, so a wide running total is never touched across its width
-    /// by a cheap comparison.
+    /// Returns `(sign, decided)`. Equivalent to
+    /// [`sign_dominates_at`](Accumulator::sign_dominates_at)`(1)`: a
+    /// `u64` spans at most two digit positions. A comparison against a
+    /// word-scale adjustment reads this instead of folding, so a wide
+    /// running total is never touched across its width by a cheap
+    /// comparison.
     pub fn sign_dominates_word(&mut self) -> (Ordering, bool) {
         self.sign_dominates_at(1)
     }
@@ -617,23 +743,25 @@ impl Accumulator {
     /// like [`sign`](Accumulator::sign).
     ///
     /// Returns `(sign, decided)`. The sign is exact regardless of
-    /// `decided`; `decided` is true exactly when the sign fold's partial
-    /// reached `|s| ≥ 3` at digit index `floor + 2` or higher (so a value
-    /// held in fewer than `floor + 3` digits always reads
-    /// `decided = false`). At decision index `i` the unscanned digits
-    /// below contribute under `2.01 · 2^(32·i)` (the crate docs'
-    /// domination bound), so `|value| ≥ 0.99 · 2^(32·i)`; an operand with
-    /// top digit index at most `floor` holds under
-    /// `2.01 · 2^(32·(floor + 1))` (the same geometric bound one level
-    /// up), and `0.99 · 2^(32·(floor + 2)) > 2.01 · 2^(32·(floor + 1))`
-    /// by a factor over `2^30` — so folding any such operand in could
-    /// flip neither the sign nor which magnitude is larger.
+    /// `decided`; `decided = true` guarantees that for every adjustment
+    /// `a` with `|a| < 2^(32·(floor + 1))` — including another
+    /// accumulator held in digits `0..=floor`, whose redundant spelling
+    /// can reach `2.01 · 2^(32·(floor + 1))` — `sign(v + a) = sign(v)`
+    /// and `|v| > |a|`. To cover an adjustment below `2^b`, pass
+    /// `floor = b.div_ceil(32) − 1`; on `decided = false`, fold the
+    /// adjustment in and read [`sign`](Accumulator::sign).
     ///
-    /// To cover an adjustment below `2^b`, pass
-    /// `floor = b.div_ceil(32) − 1` (the crate docs' domination
-    /// certificate carries the resulting guarantee and an example). On
-    /// `decided = false`, fold the adjustment in and read
-    /// [`sign`](Accumulator::sign).
+    /// `decided` is true exactly when the sign fold's partial reached
+    /// `|s| ≥ 3` at digit index `floor + 2` or higher (so a value held in
+    /// fewer than `floor + 3` digits always reads `decided = false`). At
+    /// decision index `i` the unscanned digits below contribute under
+    /// `2.01 · 2^(32·i)` (the crate docs' domination bound), so
+    /// `|value| ≥ 0.99 · 2^(32·i)`; an operand with top digit index at
+    /// most `floor` holds under `2.01 · 2^(32·(floor + 1))` (the same
+    /// geometric bound one level up), and
+    /// `0.99 · 2^(32·(floor + 2)) > 2.01 · 2^(32·(floor + 1))` by a
+    /// factor over `2^30` — so folding any such operand in could flip
+    /// neither the sign nor which magnitude is larger.
     pub fn sign_dominates_at(&mut self, floor: usize) -> (Ordering, bool) {
         let mut index = self.top;
         let mut partial: i128 = 0;
@@ -686,125 +814,16 @@ impl Accumulator {
     }
 
     /// The number of digits up to and including the highest nonzero one;
-    /// at least 1 (a zero accumulator counts its one zero digit).
+    /// at least 1 (a zero accumulator counts its one zero digit): O(1).
     ///
-    /// The size a merge or a scaled add of this accumulator will read: a
-    /// caller balancing fold costs compares counts and merges the smaller
-    /// operand into the larger, as
+    /// Exact, not a watermark: a write that zeroes the top digit pays the
+    /// scan down to the next nonzero one inside that write's own budget.
+    /// This is the size a merge or a scaled add of this accumulator will
+    /// read — a caller balancing fold costs compares counts and merges
+    /// the smaller operand into the larger, as
     /// [`merge_into_wider`](Accumulator::merge_into_wider) does.
     pub fn digit_count(&self) -> usize {
         self.top + 1
-    }
-
-    /// Fold `other`'s held value into this one — `self` ends holding the
-    /// sum — reading only the operand with fewer held digits: O(the
-    /// narrower operand's held digits) plus an O(1) buffer swap.
-    ///
-    /// The sum always lands in whichever buffer held more digits
-    /// (buffers are swapped first when `other` is the wider), so the
-    /// digits a dying operand holds fund the fold that consumes it. The
-    /// other buffer is returned for the caller's pool: its contents are
-    /// stale — call [`reset`](Accumulator::reset) before reuse.
-    ///
-    /// ```
-    /// use suanpan::{Accumulator, UBig};
-    ///
-    /// let mut sum = Accumulator::new();
-    /// sum.add_small(7);
-    /// let mut wide = Accumulator::new();
-    /// wide.add_wide_shl(&UBig::from(1u8), 640);
-    /// let mut spare = sum.merge_into_wider(wide); // reads 1 digit, not 21
-    /// let (_, magnitude) = sum.sign_magnitude();
-    /// assert_eq!(magnitude, (UBig::from(1u8) << 640usize) + 7u8);
-    /// spare.reset();                              // re-arm the drained buffer
-    /// assert!(spare.is_zero());
-    /// ```
-    pub fn merge_into_wider(&mut self, mut other: Accumulator) -> Accumulator {
-        if other.digit_count() > self.digit_count() {
-            core::mem::swap(self, &mut other);
-        }
-        self.add_accum(&other);
-        other
-    }
-
-    /// Add or subtract one machine word times `2^shift`: amortized O(1).
-    fn add_shifted_word(&mut self, word: u64, negative: bool, shift: u64) {
-        if word == 0 {
-            return;
-        }
-        let (digit_shift, bit_shift) =
-            (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
-        let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
-        // At most 96 bits after the sub-digit shift: well inside `i128`.
-        let value = i128::from(word) << bit_shift;
-        self.add_at(digit_shift, if negative { -value } else { value });
-    }
-
-    /// Add a stored magnitude, at the width it is stored at.
-    ///
-    /// A word-scale operand takes the amortized-O(1) small path, a wider
-    /// one the O(operand limbs) wide path; [`Magnitude`] is the dispatch.
-    pub fn add_base<M: Magnitude>(&mut self, delta: &M) {
-        match delta.to_word() {
-            Some(n) => self.add_u64(n),
-            None => self.add_wide(delta.as_wide()),
-        }
-    }
-
-    /// Subtract a stored magnitude, at the width it is stored at.
-    ///
-    /// The subtractive twin of [`add_base`](Accumulator::add_base).
-    pub fn sub_base<M: Magnitude>(&mut self, delta: &M) {
-        match delta.to_word() {
-            Some(n) => self.sub_u64(n),
-            None => self.sub_wide(delta.as_wide()),
-        }
-    }
-
-    /// The sign of the held value — `value.cmp(&0)`, so `Less` means
-    /// negative: amortized O(1).
-    ///
-    /// Folds digits from the top and decides at running partial `|s| ≥ 3`
-    /// (the crate docs' domination bound). When the fold had to descend —
-    /// a cancelling prefix — the scanned digits are collapsed to their
-    /// partial at the scan's floor, so the scan is paid at most once per
-    /// write (the crate docs' amortization argument). The rewrite is
-    /// value-preserving.
-    pub fn sign(&mut self) -> Ordering {
-        let mut index = self.top;
-        let mut partial: i128 = 0;
-        loop {
-            touch(1);
-            partial = (partial << DIGIT_BITS) + i128::from(self.digits[index]);
-            if partial.abs() >= SIGN_DECIDED || index == 0 {
-                break;
-            }
-            index -= 1;
-        }
-        if index < self.top {
-            // Collapse: zero the scanned suffix and re-deposit its exact
-            // partial at the scan floor, so no future sign fold re-reads it.
-            for digit in &mut self.digits[index..=self.top] {
-                *digit = 0;
-                touch(1);
-            }
-            self.top = index;
-            while self.top > 0 && self.digits[self.top] == 0 {
-                self.top -= 1;
-            }
-            if partial != 0 {
-                self.add_at(index, partial);
-            }
-        }
-        partial.cmp(&0)
-    }
-
-    /// Whether the held value is strictly negative: amortized O(1).
-    ///
-    /// Takes `&mut self` for the same value-preserving collapse as
-    /// [`sign`](Accumulator::sign).
-    pub fn is_negative(&mut self) -> bool {
-        self.sign() == Ordering::Less
     }
 
     /// The held value as a sign and a normalized magnitude: O(held
@@ -870,6 +889,53 @@ impl Accumulator {
         }
     }
 
+    /// Fold `other`'s held value into this one — `self` ends holding the
+    /// sum — reading only the operand with fewer held digits: amortized
+    /// O(the narrower operand's held digits) plus an O(1) buffer swap.
+    ///
+    /// The sum always lands in whichever buffer held more digits
+    /// (buffers are swapped first when `other` is the wider), so the
+    /// digits a dying operand holds fund the fold that consumes it. The
+    /// other buffer is returned for the caller's pool: it is a valid
+    /// accumulator holding an unspecified value — every operation on it
+    /// remains memory-safe, but answers about that value are meaningless
+    /// until [`reset`](Accumulator::reset).
+    ///
+    /// ```
+    /// use suanpan::{Accumulator, UBig};
+    ///
+    /// let mut sum = Accumulator::new();
+    /// sum.add_small(7);
+    /// let mut wide = Accumulator::new();
+    /// wide.add_wide_shl(&UBig::from(1u8), 640);
+    /// let mut spare = sum.merge_into_wider(wide); // reads 1 digit, not 21
+    /// let (_, magnitude) = sum.sign_magnitude();
+    /// assert_eq!(magnitude, (UBig::from(1u8) << 640usize) + 7u8);
+    /// spare.reset();                              // re-arm the drained buffer
+    /// assert!(spare.is_zero());
+    /// ```
+    pub fn merge_into_wider(&mut self, other: Accumulator) -> Accumulator {
+        let mut other = other;
+        if other.digit_count() > self.digit_count() {
+            core::mem::swap(self, &mut other);
+        }
+        self.add_accum(&other);
+        other
+    }
+
+    /// Add or subtract one machine word times `2^shift`: amortized O(1).
+    fn add_shifted_word(&mut self, word: u64, negative: bool, shift: u64) {
+        if word == 0 {
+            return;
+        }
+        let (digit_shift, bit_shift) =
+            (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
+        let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
+        // At most 96 bits after the sub-digit shift: well inside `i128`.
+        let value = i128::from(word) << bit_shift;
+        self.add_at(digit_shift, if negative { -value } else { value });
+    }
+
     /// Add `value` (any sign, any `i128` magnitude) into the digit at
     /// `pos`, carrying upward until every touched digit is in the zone.
     ///
@@ -907,11 +973,11 @@ impl Accumulator {
 
     /// Apply a little-endian 64-bit limb stream scaled by `2^shift`.
     ///
-    /// Digit-aligned: each limb lands as two independent 32-bit
-    /// contributions at its own shifted position, so a wide operand costs
-    /// O(its limbs) regardless of the held width or the shift. The wide
-    /// entry points feed this from a borrowed word slice, so streaming a
-    /// stored operand allocates nothing.
+    /// Digit-aligned: each limb lands as two independent contributions at
+    /// its own shifted positions, so a wide operand costs O(its limbs)
+    /// regardless of the held width or the shift. The wide entry points
+    /// feed this from a borrowed word slice, so streaming a stored
+    /// operand allocates nothing.
     fn apply_limbs<I: Iterator<Item = u64>>(&mut self, limbs: I, negative: bool, shift: u64) {
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
