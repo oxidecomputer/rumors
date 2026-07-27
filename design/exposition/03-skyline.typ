@@ -75,18 +75,6 @@ proper prefix reaches zero early. Bits pack most-significant-first
 within each byte — a convention that matters only in @machine, where
 it lets whole codes settle under one count-leading-zeros instruction.
 
-#draftnote[
-  The `0`~=~internal, `1`~=~leaf polarity stated here (and drawn in
-  @fig-stream) is the convention of a protocol revision in flight at
-  this writing; the shipped stream at the time of drafting spells the
-  same flags with the opposite polarity. The payloads, canonical
-  form, and uniqueness on this page are unaffected; the one argument
-  in this document that leans on the polarity itself is the
-  word-parallel descent remark of @words, which assumes the
-  convention stated here. This note is removed when the revision
-  merges.
-]
-
 *Payloads.* Each leaf's flag is followed immediately, in-stream, by
 its plateau's height. The first leaf stores its height _absolutely_;
 every later leaf stores the _difference_ from the previous leaf in
