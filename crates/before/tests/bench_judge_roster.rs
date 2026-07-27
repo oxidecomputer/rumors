@@ -42,17 +42,27 @@ fn class(roster: &Value, name: &str) -> Vec<String> {
     names
 }
 
-/// The roster's red set is exactly the permanent schoolbook tripwire.
+/// The roster's red set is exactly the permanent schoolbook tripwire and
+/// the hugeleaf display pair.
 ///
-/// Every honest cell — the designed diagonal and the board-red riders
-/// alike — must fit under its own ceiling; the one required red is the
-/// known-quadratic conversion class the tripwire times, where green means
-/// the tripwire went dark. Removing an owned red silences a standing
-/// judgment and adding one launders a new regression as expected, so both
-/// directions must show up as a diff of this pin.
+/// Every other cell — the designed diagonal and the board-red riders
+/// alike — must fit under its own ceiling. The tripwire's red is the
+/// known-quadratic conversion class it times, where green means the
+/// tripwire went dark; the display pair's red is the conversion-dominated
+/// hugeleaf-width render (measured e 1.39/1.42 at the general 1.3
+/// ceiling, 2026-07-27), owned by the text column with the class question
+/// open. Removing an owned red silences a standing judgment and adding
+/// one launders a new regression as expected, so both directions must
+/// show up as a diff of this pin.
 #[test]
 fn roster_red_membership_is_pinned() {
-    assert_eq!(class(&roster(), "red"), ["display_schoolbook/hugeleaf"]);
+    let mut expected = vec![
+        "clock_display/hugeleaf",
+        "display_schoolbook/hugeleaf",
+        "version_display/hugeleaf",
+    ];
+    expected.sort();
+    assert_eq!(class(&roster(), "red"), expected);
 }
 
 /// The roster's boundary set is empty at this tip.
