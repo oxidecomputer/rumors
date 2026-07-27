@@ -55,7 +55,7 @@ use core::fmt::Write as _;
 
 use crate::codec::accum::Accum;
 use crate::codec::text::{parse_base, Cur};
-use crate::codec::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
+use crate::codec::{Base, BitCursor, Bits, BitsSlice, DsiCursor};
 use crate::error::Parse;
 use crate::step;
 
@@ -126,9 +126,10 @@ enum Frame {
 ///
 /// Panics if the stream is not a canonical skyline encoding.
 pub fn render(bits: &BitsSlice) -> String {
-    let mut cursor = SliceCursor::new(bits, 0);
+    let mut cursor = DsiCursor::new(bits);
 
-    // Finalize: topology flags, and every node's printed base derived in
+    // Finalize: per-node internal flags (semantic, not the wire bits:
+    // `true` = internal), and every node's printed base derived in
     // relative coordinates (the module doc's merge).
     let mut topology = Bits::new();
     let mut bases: Vec<Base> = Vec::new();
@@ -136,15 +137,19 @@ pub fn render(bits: &BitsSlice) -> String {
     let mut first_height: Option<Base> = None;
     let root_summary = 'tree: loop {
         step!();
-        let index = topology.len();
-        let internal = cursor.read_bit().expect("canonical skyline bits");
-        topology.push(internal);
-        bases.push(Base::ZERO);
-        if internal {
+        // One whole descent per unary read: `k` internal nodes, then
+        // the leaf whose flag terminates the run.
+        let k = cursor.read_unary().expect("canonical skyline bits");
+        for _ in 0..k {
+            let index = topology.len();
+            topology.push(true);
+            bases.push(Base::ZERO);
             frames.push(Frame::NeedLeft { index });
-            continue;
         }
-        // The cursor's own `read_int`: word-wise payload decode.
+        let index = topology.len();
+        topology.push(false);
+        bases.push(Base::ZERO);
+        // The cursor's own `read_int`: word-parallel payload decode.
         let code = cursor.read_int().expect("canonical skyline bits");
         let incoming = if first_height.is_some() {
             unzigzag(code)

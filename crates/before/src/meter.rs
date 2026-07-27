@@ -14,10 +14,15 @@
 //! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
 //! and re-encodes byte-identically,
 //! and its exact bit length is a closed formula in the parameters (pinned by
-//! this module's tests). Bit layouts follow the crate codec: an event node is
-//! a flag bit plus the Elias-gamma code of its base (`gamma(n)` codes
-//! `m = n + 1`); an id node is a 2-bit child-presence tag, absent children
-//! occupying no bits.
+//! this module's tests). Event shapes are built in the generators'
+//! construction language — per node, a flag bit (`1` internal, `0` leaf,
+//! this language's own convention) plus the Elias-gamma code of its base
+//! (`gamma(n)` codes `m = n + 1`) — which the skyline transcoder
+//! (the [`skyline`](crate::meter::skyline) module's `encode_bits`)
+//! turns into the stored wire
+//! coding. Id
+//! shapes are the crate codec directly: a 2-bit child-presence tag per
+//! node, absent children occupying no bits.
 
 pub mod board;
 pub mod tier2;

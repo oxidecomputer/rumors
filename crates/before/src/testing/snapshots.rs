@@ -135,24 +135,24 @@ fn party_canonical_forms() {
 #[test]
 fn version_canonical_forms() {
     let zero = Version::new();
-    assert_snapshot!(version_block(&zero), @r"
+    assert_snapshot!(version_block(&zero), @"
     display: 0
-    bits:    01 (2 bits)
-    bytes:   40
+    bits:    11 (2 bits)
+    bytes:   c0
     ");
 
     let leaf = Version::try_from(5u64).unwrap();
-    assert_snapshot!(version_block(&leaf), @r"
+    assert_snapshot!(version_block(&leaf), @"
     display: 5
-    bits:    000110 (6 bits)
-    bytes:   18
+    bits:    100110 (6 bits)
+    bytes:   98
     ");
 
     let node: Version = "(1, 0, (0, 1, 0))".parse().unwrap();
     assert_snapshot!(version_block(&node), @"
     display: (1, 0, (0, 1, 0))
-    bits:    10010100110010 (14 bits)
-    bytes:   94 c8
+    bits:    01010010111010 (14 bits)
+    bytes:   52 e8
     ");
 }
 
@@ -177,8 +177,8 @@ fn clock_canonical_form() {
     assert_snapshot!(fields, @"
     display: (1, 1)
     debug:   Clock { party: 1, version: 1 }
-    bits:    000010 (6 bits)
-    bytes:   00 20
+    bits:    001010 (6 bits)
+    bytes:   00 a0
     ");
 }
 

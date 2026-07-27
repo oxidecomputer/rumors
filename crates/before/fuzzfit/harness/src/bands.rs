@@ -73,24 +73,34 @@
 //! ladder (fold width is budget-capped, so the factor is bounded and the
 //! band prices it).
 //!
-//! Movement against the previous pin (2026-07-27, the skyline-sweep
-//! pin), by mechanism. No generator, strategy, or toolchain change rode
-//! along: the deterministic corpus replayed with identical sample counts
-//! and denominator spans per band key, so every movement is guest fuel.
-//! Judged at 1000 denominated bits:
+//! Movement against the previous pin (2026-07-27, the covered-block
+//! id-sweep pin), by mechanism. No generator, strategy, or toolchain
+//! change rode along: the deterministic corpus replayed with identical
+//! sample counts and denominator spans per band key, so every movement
+//! is guest fuel. Judged at 1000 denominated bits:
 //!
-//! - **The id diff sweep settles covered subtrees as blocks**
-//!   (ac10e61b) — when one operand's plateau covers the other's whole
-//!   subtree, the sweep splices or block-skips the interval instead of
-//!   enumerating its plateaus, so both `party_without` arms re-shape
-//!   to early-exit mixtures: success slope +1.00→+0.71 with intercept
-//!   2.81→2.60 (−1.09 decades, back to the 2026-07-26 pin's constant —
-//!   the 10^3-bit bucket's median is 42 fuel/bit against that pin's
-//!   fitted 43); emptiness arm slope +0.94→+1.41 with intercept
-//!   2.83→1.25 (−0.17 decades, the envelope re-tilted by newly cheap
-//!   covered rejections in the small buckets while the full-scan
-//!   rejections holding the top decade stay at the sweep's ~430
-//!   fuel/bit, per-bit flat — `bin/diag` is the ground-truth view).
+//! - **The skyline topology flag inverted (0 internal, 1 leaf) and the
+//!   version-stream reader dissolved into `codec::DsiCursor`** (#67) —
+//!   descents and code skips become single word-parallel unary reads
+//!   and payload codes ride buffered word loads, so every kernel that
+//!   walks version streams drops: the pure readers most —
+//!   `version_cmp`/`concurrent` 165.5k→133.7k/133.6k (×0.81),
+//!   `version_rank` 327.9k→271.9k (×0.83), `version_decode`
+//!   192.8k→162.9k (×0.84, its truncated wide codes also now reject
+//!   before the wide arm allocates), `version_min_ticks`/`version_lag`
+//!   ×0.89, `version_distance` ×0.90, `clock_decode` 193.4k→168.9k
+//!   (×0.87) — with the emission and composite kernels riding the same
+//!   reads down ×0.93–0.98 (`version_join`/`meet`/`join_all`/
+//!   `meet_all`/`project`/`display`/`fromstr`, `clock_join`/`sync`/
+//!   `own_version`/`recv`). Two arms moved up: `clock_tick` 790.0k→
+//!   817.5k (×1.035) and `clock_send` 796.3k→811.8k (×1.020, send
+//!   embeds tick) — the fill walk's topology reads are id-interleaved
+//!   single flags with no run to batch, so tick pays the buffered
+//!   reader's per-read constant without the unary win, plus one cursor
+//!   re-open per off-path subtree in grow's splice; the walk's costs
+//!   stay linear (slope 1.049→1.040) and the board's tick rows are
+//!   unmoved, so the increase is the reader constant, not a shape
+//!   change.
 //!
 //! Every other band key replays the previous pin byte-for-byte.
 
@@ -236,10 +246,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_clock_decode",
         rejected: false,
-        slope: 1.085461,
-        intercept: 2.029970,
-        width_above: 0.149179,
-        width_below: 0.100813,
+        slope: 1.082149,
+        intercept: 1.981269,
+        width_above: 0.153192,
+        width_below: 0.090938,
         min_denom: 128,
         max_denom: 10760,
         samples: 561,
@@ -296,10 +306,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_clock_join",
         rejected: false,
-        slope: 0.999065,
-        intercept: 2.613992,
-        width_above: 0.299184,
-        width_below: 1.329960,
+        slope: 0.991583,
+        intercept: 2.608126,
+        width_above: 0.295530,
+        width_below: 1.305023,
         min_denom: 128,
         max_denom: 21318,
         samples: 9719,
@@ -320,10 +330,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_clock_own_version",
         rejected: false,
-        slope: 1.044253,
-        intercept: 2.463896,
-        width_above: 0.137487,
-        width_below: 0.145994,
+        slope: 1.041551,
+        intercept: 2.448163,
+        width_above: 0.137449,
+        width_below: 0.138203,
         min_denom: 128,
         max_denom: 13116,
         samples: 422,
@@ -332,10 +342,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_clock_recv",
         rejected: false,
-        slope: 1.013775,
-        intercept: 2.912869,
-        width_above: 0.261062,
-        width_below: 0.401665,
+        slope: 1.018909,
+        intercept: 2.882489,
+        width_above: 0.276615,
+        width_below: 0.394786,
         min_denom: 128,
         max_denom: 18460,
         samples: 2061,
@@ -356,10 +366,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_clock_send",
         rejected: false,
-        slope: 1.048971,
-        intercept: 2.754167,
-        width_above: 0.208221,
-        width_below: 0.285852,
+        slope: 1.061698,
+        intercept: 2.724375,
+        width_above: 0.191599,
+        width_below: 0.332756,
         min_denom: 128,
         max_denom: 10748,
         samples: 1196,
@@ -368,10 +378,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_clock_sync",
         rejected: false,
-        slope: 1.012973,
-        intercept: 2.588863,
-        width_above: 0.287385,
-        width_below: 1.077925,
+        slope: 1.005209,
+        intercept: 2.583128,
+        width_above: 0.285549,
+        width_below: 1.051024,
         min_denom: 128,
         max_denom: 21622,
         samples: 573,
@@ -392,10 +402,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_clock_tick",
         rejected: false,
-        slope: 1.048516,
-        intercept: 2.752067,
-        width_above: 0.274074,
-        width_below: 0.269558,
+        slope: 1.050326,
+        intercept: 2.761513,
+        width_above: 0.270073,
+        width_below: 0.344867,
         min_denom: 128,
         max_denom: 10862,
         samples: 119863,
@@ -632,10 +642,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_cmp",
         rejected: false,
-        slope: 1.148509,
-        intercept: 1.773180,
-        width_above: 0.345800,
-        width_below: 0.926353,
+        slope: 1.140426,
+        intercept: 1.704829,
+        width_above: 0.336597,
+        width_below: 0.866975,
         min_denom: 128,
         max_denom: 15574,
         samples: 1844,
@@ -644,10 +654,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_concurrent",
         rejected: false,
-        slope: 1.148596,
-        intercept: 1.772826,
-        width_above: 0.345957,
-        width_below: 0.927702,
+        slope: 1.140116,
+        intercept: 1.705389,
+        width_above: 0.336692,
+        width_below: 0.868332,
         min_denom: 128,
         max_denom: 15574,
         samples: 1844,
@@ -656,10 +666,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_decode",
         rejected: false,
-        slope: 1.168510,
-        intercept: 1.779636,
-        width_above: 0.350841,
-        width_below: 0.420268,
+        slope: 1.167398,
+        intercept: 1.709748,
+        width_above: 0.334059,
+        width_below: 0.349050,
         min_denom: 128,
         max_denom: 7792,
         samples: 1200,
@@ -668,10 +678,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_display",
         rejected: false,
-        slope: 0.971468,
-        intercept: 1.922731,
-        width_above: 0.131255,
-        width_below: 0.127284,
+        slope: 0.965829,
+        intercept: 1.917357,
+        width_above: 0.138554,
+        width_below: 0.114493,
         min_denom: 141,
         max_denom: 99746,
         samples: 2142,
@@ -680,10 +690,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_distance",
         rejected: false,
-        slope: 1.084692,
-        intercept: 2.833879,
-        width_above: 0.336571,
-        width_below: 0.461023,
+        slope: 1.079088,
+        intercept: 2.803431,
+        width_above: 0.341769,
+        width_below: 0.425211,
         min_denom: 128,
         max_denom: 15574,
         samples: 1790,
@@ -704,10 +714,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_fromstr",
         rejected: false,
-        slope: 0.965715,
-        intercept: 2.136188,
-        width_above: 0.104591,
-        width_below: 0.083263,
+        slope: 0.962226,
+        intercept: 2.134767,
+        width_above: 0.111730,
+        width_below: 0.072065,
         min_denom: 141,
         max_denom: 99746,
         samples: 2142,
@@ -716,10 +726,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_join",
         rejected: false,
-        slope: 1.012699,
-        intercept: 2.666379,
-        width_above: 0.239188,
-        width_below: 2.692081,
+        slope: 1.000759,
+        intercept: 2.673454,
+        width_above: 0.232027,
+        width_below: 2.667707,
         min_denom: 128,
         max_denom: 12998,
         samples: 2183,
@@ -728,10 +738,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_join_all",
         rejected: false,
-        slope: 1.142938,
-        intercept: 2.866494,
-        width_above: 0.347509,
-        width_below: 1.987451,
+        slope: 1.136981,
+        intercept: 2.860269,
+        width_above: 0.346438,
+        width_below: 1.966592,
         min_denom: 129,
         max_denom: 166296,
         samples: 1264,
@@ -740,10 +750,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_lag",
         rejected: false,
-        slope: 1.092694,
-        intercept: 2.623304,
-        width_above: 0.372445,
-        width_below: 0.475515,
+        slope: 1.084546,
+        intercept: 2.596972,
+        width_above: 0.363920,
+        width_below: 0.439234,
         min_denom: 128,
         max_denom: 15574,
         samples: 1790,
@@ -752,10 +762,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_meet",
         rejected: false,
-        slope: 1.035123,
-        intercept: 2.576779,
-        width_above: 0.304082,
-        width_below: 2.875261,
+        slope: 1.018862,
+        intercept: 2.595041,
+        width_above: 0.301250,
+        width_below: 2.847758,
         min_denom: 128,
         max_denom: 15222,
         samples: 1207,
@@ -764,10 +774,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_meet_all",
         rejected: false,
-        slope: 1.054585,
-        intercept: 1.954220,
-        width_above: 0.890477,
-        width_below: 1.058277,
+        slope: 1.051870,
+        intercept: 1.939629,
+        width_above: 0.883769,
+        width_below: 1.034348,
         min_denom: 128,
         max_denom: 114722,
         samples: 436,
@@ -776,10 +786,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_min_ticks",
         rejected: false,
-        slope: 1.139919,
-        intercept: 2.104192,
-        width_above: 0.326643,
-        width_below: 0.504734,
+        slope: 1.135232,
+        intercept: 2.067785,
+        width_above: 0.315441,
+        width_below: 0.468766,
         min_denom: 128,
         max_denom: 7322,
         samples: 1120,
@@ -788,10 +798,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_project",
         rejected: false,
-        slope: 0.864605,
-        intercept: 2.917866,
-        width_above: 0.578971,
-        width_below: 0.409872,
+        slope: 0.865975,
+        intercept: 2.890842,
+        width_above: 0.603255,
+        width_below: 0.386652,
         min_denom: 128,
         max_denom: 42083,
         samples: 1594,
@@ -800,10 +810,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_rank",
         rejected: false,
-        slope: 1.155180,
-        intercept: 2.050176,
-        width_above: 0.372306,
-        width_below: 0.436081,
+        slope: 1.146594,
+        intercept: 1.994560,
+        width_above: 0.339500,
+        width_below: 0.379738,
         min_denom: 128,
         max_denom: 7787,
         samples: 2266,
@@ -812,10 +822,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_tick",
         rejected: false,
-        slope: 1.048933,
-        intercept: 2.805589,
-        width_above: 0.190942,
-        width_below: 0.521935,
+        slope: 1.039876,
+        intercept: 2.825141,
+        width_above: 0.199917,
+        width_below: 0.542917,
         min_denom: 128,
         max_denom: 12185,
         samples: 964,

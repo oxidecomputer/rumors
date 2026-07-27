@@ -43,6 +43,23 @@ pub(crate) trait BitCursor {
     /// The position immediately after the last bit read.
     fn position(&self) -> usize;
 
+    /// Read the unary run at the cursor: the count of `false` bits
+    /// before — and consuming — the terminating `true` bit.
+    ///
+    /// The skyline walks' descent primitive: a topology run of internal
+    /// flags ends at the leaf flag, so one unary read is one whole
+    /// descent. The provided default is the per-bit loop; a cursor with
+    /// word-parallel access ([`DsiCursor`](super::DsiCursor)) overrides
+    /// it to take the run from a buffered window. Running out of bits
+    /// mid-run is the per-bit error, at the same position either way.
+    fn read_unary(&mut self) -> Result<usize, Self::Error> {
+        let mut k = 0usize;
+        while !self.read_bit()? {
+            k += 1;
+        }
+        Ok(k)
+    }
+
     /// Read one Elias-gamma-coded integer starting at the cursor.
     ///
     /// The provided default is the per-bit loop ([`decode_int_from`]); a

@@ -9,11 +9,12 @@
 //! - id tag reads and skip steps (`idbits::IdReader`), 2 bits per node;
 //! - id-builder bit writes and verbatim splice lengths
 //!   (`party::ops`' builder);
-//! - event topology cursor advances and gamma code-skips
-//!   (the skyline sweeps' cursors over packed bits, `codec::skip_int`);
-//! - every sequential decoder/validator bit read (`codec::SliceCursor`,
-//!   which carries `decode`, the gamma decoder, and the skyline
-//!   validator/decoder cursors).
+//! - event topology cursor advances and gamma code-skips (the skyline
+//!   walks' word-parallel `codec::DsiCursor` — unary runs and code
+//!   skips record their full bit widths, however the reads batch);
+//! - every sequential decoder/validator bit read (`codec::SliceCursor`
+//!   and `codec::DsiCursor`, which carry `decode`, the gamma decoder,
+//!   and the skyline validator/decoder cursors).
 //!
 //! The wire-side `ReaderCursor` (`borsh_impls`) is deliberately unmetered:
 //! no board row prices the borsh path today, so recording there would count

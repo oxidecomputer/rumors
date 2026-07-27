@@ -27,6 +27,14 @@ stacker = "0.1"
 # real trees fit the inline frames, deeper ones spill to the heap. Default
 # features only — no `union`/unchecked APIs — so the no-unsafe policy holds.
 smallvec = "1.15"
+# The word-parallel stream reader under `codec::dsi::DsiCursor`: buffered
+# big-endian bit reads (unary topology runs, tiered gamma codes) over the
+# byte-backed stores. Read side only — the writers stay in-house (dsi's
+# writer wants a word sink, and the stores are byte-backed). `alloc` alone,
+# no default features; MSRV 1.85 matches; Apache-2.0 OR MIT. The one
+# `ptr::read` in its `BufBitWriter::into_inner` is off the read path, and
+# this crate's `#![forbid(unsafe_code)]` is per-crate, unaffected.
+dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 thiserror = "2"
 serde = { version = "1", optional = true, default-features = false, features = ["derive", "alloc"] }
 borsh = { version = "1", optional = true }

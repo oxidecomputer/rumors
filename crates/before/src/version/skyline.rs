@@ -6,8 +6,11 @@
 //! This module codes exactly that, as two interleaved streams in one bit
 //! string:
 //!
-//! - **Topology**: one preorder flag bit per node (`1` internal, `0` leaf).
-//!   Internal nodes carry no numbers.
+//! - **Topology**: one preorder flag bit per node (`0` internal, `1` leaf).
+//!   Internal nodes carry no numbers, and a root-to-leaf descent is a
+//!   unary run — zero or more `0`s ended by the leaf's `1` — so a reader
+//!   takes a whole descent in one word-parallel unary read (the codec
+//!   cursors' shared vocabulary).
 //! - **Leaf payloads**, in-stream at each leaf position: the first leaf's
 //!   absolute height as `gamma(v1)`, every later leaf as
 //!   `zigzag-gamma(vi − vi−1)` over consecutive leaves in preorder. The
@@ -205,11 +208,11 @@ pub fn decode(bits: &BitsSlice) -> Result<Version, Decode> {
 
 /// Whether a skyline stream is the canonical empty version.
 ///
-/// The empty version is exactly the 2-bit stream `01` (leaf flag `0`, then
+/// The empty version is exactly the 2-bit stream `11` (leaf flag `1`, then
 /// gamma(0), the single bit `1`). Canonical uniqueness makes this O(1)
 /// test the whole question.
 pub(crate) fn is_empty_stream(bits: &BitsSlice) -> bool {
-    bits.len() == 2 && !bits[0] && bits[1]
+    bits.len() == 2 && bits[0] && bits[1]
 }
 
 /// Map the signed difference `cur − prev` to its zigzag magnitude:

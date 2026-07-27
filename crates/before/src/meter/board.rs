@@ -1650,7 +1650,7 @@ fn last_leaf_flag_pos(v: &Version) -> usize {
     while pending > 0 {
         pending -= 1;
         let flag = pos;
-        let internal = bits[pos];
+        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
         pos += 1;
         if internal {
             pending += 2;
@@ -1677,9 +1677,9 @@ fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
     let leaf = last_leaf_flag_pos(v);
     let mut out = codec::Bits::with_capacity(bits.len() + 4);
     out.extend_from_bitslice(&bits[..leaf]);
-    out.push(true); // the old leaf's position becomes an internal node
+    out.push(false); // the old leaf's position becomes an internal node
     out.extend_from_bitslice(&bits[leaf..]); // left child: the old leaf verbatim
-    out.push(false); // right child: a leaf equal to its sibling
+    out.push(true); // right child: a leaf equal to its sibling
     codec::encode_int(&mut out, &Base::from(0u32)); // zero delta
     codec::zero_dead_bits(&mut out);
     out.into_vec()
@@ -2056,7 +2056,7 @@ fn stored_deltas(v: &Version) -> u64 {
     let mut leaves = 0u64;
     while pending > 0 {
         pending -= 1;
-        let internal = bits[pos];
+        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
         pos += 1;
         if internal {
             pending += 2;
@@ -2219,7 +2219,7 @@ fn mandatory_limbs_stream(v: &Version) -> u64 {
     let mut limbs = 0u64;
     while pending > 0 {
         pending -= 1;
-        let internal = bits[pos];
+        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
         pos += 1;
         if internal {
             pending += 2;
@@ -2254,7 +2254,7 @@ fn value_content_bytes(v: &Version) -> usize {
     let mut content = 0u64;
     while pending > 0 {
         pending -= 1;
-        let internal = bits[pos];
+        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
         pos += 1;
         if internal {
             pending += 2;
@@ -2323,7 +2323,7 @@ fn stored_bases(v: &Version) -> Vec<Base> {
     let mut pending = 1usize;
     while pending > 0 {
         pending -= 1;
-        let internal = bits[pos];
+        let internal = !bits[pos]; // skyline flag: 0 internal, 1 leaf
         pos += 1;
         topology.push(internal);
         if internal {
