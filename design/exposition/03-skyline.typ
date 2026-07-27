@@ -84,10 +84,12 @@ normalization arranges — so differences are usually small where
 absolutes are usually not. A difference can be negative, so it is
 folded onto the naturals first by the _zigzag_ map
 
-$ +k arrow.r.bar 2k, quad -k arrow.r.bar 2k - 1 $
+$ +k arrow.r.bar 2k quad (k >= 0), quad quad -k arrow.r.bar 2k - 1 quad (k >= 1) $
 
 (a bijection, with no spelling for "negative zero"), and the result
-$v$ is written as the _Elias gamma_ code of $v + 1$: with
+$v$ is written as the _Elias gamma_ code of $v + 1$ — the first
+leaf's absolute height, already a natural, skips the zigzag and takes
+the same gamma code directly. The code: with
 $b = floor(log_2 (v+1))$, write $b$ zeros, then the $b + 1$ bits of
 $v + 1$ in binary (whose leading bit is necessarily `1` — that is
 how the decoder knows the zeros have ended). The code costs
@@ -183,6 +185,14 @@ decode boundary:
 + *Exactness.* One complete tree, no trailing bits, and (at the byte
   boundary) zero padding only.
 
+Parties get the same discipline, with rules matched to their coding:
+no stored node whose two children are both terminals (a wholly-owned
+pair is one terminal spelled as two — the id-side sibling merge), and
+the same exactness; unowned-as-absence needs no rule, since an owned
+`0` subtree has no spelling to forbid. Both codings' rules are
+enforced at every decode boundary, so clock bytes — the two streams
+concatenated — inherit the uniqueness below.
+
 Note what is _absent_: the paper's other normalization — lifting a
 common minimum into the parent — has no analogue here, because there
 are no interior numbers to lift into. Storing absolute heights at the
@@ -203,8 +213,9 @@ would spell two constant halves — by induction two equal leaves,
 which the rule forbids. Heights are function-determined; gamma has
 one spelling per natural and zigzag has none to spare. Uniqueness
 is not an aesthetic: it is a load-bearing feature bought deliberately,
-and @compactness prices exactly what it costs in coding room
-($4.3%$, as it turns out). What it buys:
+and @compactness prices what it costs in coding room: the
+sibling-merge rule alone carries an asymptotic $4.3%$ tax, and the
+other rules cost little or nothing. What uniqueness buys:
 
 - *Byte equality is semantic equality.* Equality and hashing are raw
   byte operations — no walk, no decode. Any system that deduplicates,
@@ -229,15 +240,17 @@ per-node beyond the node's own bits, nothing per-level beyond bits.
 Minimal topology and exactness need, per open ancestor, two bits of
 state — "is my left child complete?" and "was that child a leaf?" —
 kept on a packed bit stack: roughly two bits of transient memory per
-level against the level's roughly three bits of input. Depth is paid
-for in bits, honoring @naive-recursion's budget.
+level against the roughly three bits a level costs on the
+depth-maximizing spine shape (@lengths's derivation — the shape that
+matters, since it is the one an adversary sends). Depth is paid for
+in bits, honoring @naive-recursion's budget.
 
 Nonnegativity is the interesting one: it needs the running absolute
 height, updated by every delta, sign-checked at every leaf — exactly
 the "running value" that @ladder proved dangerous, and the boundary
 comb aims straight at it: $plus.minus 1$ deltas, three-bit codes,
 astride $2^k$, so a normalized running height pays a $k$-bit carry
-per three-bit code — $Theta(W^2)$ work in a $W$-bit stream, _in the
+per three-bit code — $Theta(n^2)$ work in an $n$-bit stream, _in the
 validator_, on arbitrary bytes. (Measured, on a deliberately plain big-integer
 sweep kept as a tripwire: the quadratic is real and reproducible.)
 The skyline's compactness has written a check the representation

@@ -45,8 +45,9 @@ piece of arithmetic:
   running area. Delta coding makes those integers enormous while the
   deltas stay cheap, and ordinary big-integer arithmetic then leaks a
   quadratic through carry propagation. A redundant signed-digit
-  accumulator with no normalized region anywhere makes every update
-  and every sign query amortized constant-time _on every input
+  accumulator with no normalized region anywhere makes every
+  word-sized update and every sign query amortized constant-time, and
+  every wide update linear in its own width, _on every input
   sequence_ — the load-bearing component that lets each sweep's cost
   argument close.
 
@@ -77,7 +78,14 @@ that claim; the accumulator is the clause the others lean on.
 of two kinds, and says which: _derived_ — an argument carried out here,
 from the representation and the algorithm, which the reader can check;
 or _measured_ — an observation from our implementation's instrumented
-test and benchmark apparatus, quoted at the level of mechanism. Three
+test and benchmark apparatus, quoted at the level of mechanism. The
+setup behind every measured figure: one commodity 64-bit
+workstation, release builds, deterministic committed input
+generators, medians over repeated samples for wall-clock numbers;
+the resource counters (bits scanned, accumulator digit touches, peak
+transient bytes) are deterministic and machine-independent, so
+nanosecond bands indicate a class while counter readings are exact.
+Three
 arguments have known boundaries, each stated where it lives rather
 than smoothed over: one uncertified input shape in rank's funding
 argument (@measures), one probabilistic step in the counting bound
@@ -127,9 +135,8 @@ Comparison is pointwise: $e_1 <= e_2$ iff the function of $e_1$ is
 nowhere above the function of $e_2$. Two event trees with no
 containing order are _concurrent_. The paper's operations lean on one
 piece of notation this document reuses: the _lift_ $e arrow.t m$,
-which adds $m$ to the root value of $e$ (so $n arrow.t m = n + m$ and
-$(n, e_1, e_2) arrow.t m = (n + m, e_1, e_2)$), and its inverse the
-sink $e arrow.b m$.
+which adds $m$ to the root value of $e$ — so $n arrow.t m = n + m$
+and $(n, e_1, e_2) arrow.t m = (n + m, e_1, e_2)$.
 
 Finally, the paper keeps trees in a *normal form* — $(0,0)$ and
 $(1,1)$ collapse in ids; in event trees, equal-leaf siblings collapse
@@ -170,6 +177,8 @@ double duty; each such use is flagged where it occurs):
     [$ell$], [the word length of a wide operand],
     [$k$], [a construction's scale parameter (a cliff's width, a
       gamma bucket, an iteration count — local to each use)],
+    [$t$], [double duty, flagged in place: a construction's tooth
+      count; the watermark gap $h - m$ in @tick],
     [$S$], [a stream's maximum leaf depth],
   ),
   kind: table,

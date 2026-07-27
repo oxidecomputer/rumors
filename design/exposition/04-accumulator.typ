@@ -21,14 +21,23 @@ From the sweeps' side, the accumulator must support:
 
 + *apply a signed machine-word delta*, in amortized $O(1)$ work;
 + *apply a wide delta* of $ell$ machine words — optionally scaled by
-  $2^s$ for arbitrary $s$ — in $O(ell)$ work, _independent of the
-  magnitude already held and of $s$_;
+  $2^s$ for arbitrary $s$ — in amortized $O(ell)$ work, _independent
+  of the magnitude already held and of $s$_ (the one cost the scale
+  can force, materializing storage lanes up to $s$, is paid once per
+  high-water mark and funded by the input bits that certified the
+  scale — the storage remark in @redundant);
 + *read the sign* of the held value, in amortized $O(1)$;
 + *materialize* the held value as an ordinary integer, in work
-  proportional to that value's own width;
+  proportional to that value's own width (the operation opens with
+  the same collapsing fold the sign query runs — @sign — which
+  brings the held spelling within two digits of the value's width);
 
 and the bounds must hold on _every_ interleaving of these operations —
-not in expectation, not for typical streams. Requirement 2's "scaled
+not in expectation, not for typical streams. One word on "amortized",
+binding for the whole document: every accumulator is created and
+destroyed inside a single API operation, so amortization is always
+internal to one call — each operation is worst-case linear on its
+own, not merely cheap on average across a sequence. Requirement 2's "scaled
 by $2^s$" earns its keep in the weighted folds of @measures, where a
 plateau's height is added at a position weight; the independence from
 $s$ is what makes those folds linear.
@@ -51,7 +60,7 @@ It fails to a one-parameter generalization — the *wide-tooth comb* of
 @families. Give the teeth width just beyond the window: deltas of
 $plus.minus 2^192$, say, oscillating across a cliff at $2^k$ with $k$
 much larger still. Each tooth's code
-costs a couple hundred bits; each application punches through the
+costs about 385 bits; each application punches through the
 word-sized window into the normalized prefix and ripples the full
 $k$-bit carry: work per tooth proportional to $k$, unbounded relative
 to the tooth's own code. Widen the window and the teeth widen past it
@@ -92,12 +101,12 @@ accumulators for exact summation.)
 A word-sized delta lands at the digit position its scale names —
 digit 0 unscaled; a 64-bit magnitude spans two 32-bit positions. If
 each touched digit stays in the zone, done: a touch or two. If a
-digit leaves the zone, with $t$ its would-be value, carry
+digit leaves the zone, with $q$ its would-be value, carry
 
-$ c = floor((t + 2^31) / 2^32) $
+$ c = floor((q + 2^31) / 2^32) $
 
 upward into the next digit and keep the _recentered_ remainder
-$t - c dot 2^32 in [-2^31, 2^31)$; repeat upward while a digit
+$q - c dot 2^32 in [-2^31, 2^31)$; repeat upward while a digit
 overflows. The bias in $c$ is the point: a digit that just carried is
 left within $2^31$ of zero, so it must absorb at least
 $2^33 - 2^31 = 3 dot 2^31$ of further _net_ drift before it can carry
@@ -200,9 +209,11 @@ unscanned tail, certifying $|"value"| > 0.99 dot 2^(32 i)$; a
 quantity confined to digits $0 dots f$ is below
 $2.01 dot 2^(32 (f + 1))$; with $i >= f + 2$ the first exceeds the
 second by a factor near $2^31$. Sweeps use this _domination floor_
-constantly: "is this wide watermark still above this word-scale
-adjustment?" is answered from the top one or two digits, in $O(1)$,
-without touching the watermark's width at all (@tick).
+constantly: a watermark whose fold decided at digit index 5 stands
+at least $0.99 dot 2^160$; no adjustment confined to digit 0 — any
+machine-word quantity — can bring it near zero, and the comparison
+ends after those one or two top digits, in $O(1)$, without touching
+the watermark's width at all (@tick).
 
 Materializing the held value for output — the one place normalization
 happens — is a single low-to-high pass with a signed carry, costing

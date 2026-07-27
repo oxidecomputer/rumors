@@ -57,17 +57,27 @@ here, and the names are used consistently through @resilience.
     [$t$ teeth of $plus.minus 1$ steps astride the value $2^k$
       (built in @ladder)],
     [any normalized running quantity — the carry cliff],
-    [_wide-tooth comb_$(t, k)$],
-    [teeth of width-$Theta(k)$ steps astride a far larger cliff
-      (built in @two-zone)],
+    [_wide-tooth comb_$(t, w, k)$],
+    [$t$ teeth of $plus.minus 2^w$ steps astride a cliff at $2^k$,
+      $k gt.double w$ (built in @two-zone)],
     [partially-normalized ("two-zone") running quantities],
+    [_descending staircase_$(d)$],
+    [unit-step plateaus descending monotonically down a $d$-level
+      spine (built in @tick-web)],
+    [the tick walk's watermark stack, at every level at once],
+    [_reveal comb_$(t, k)$],
+    [$t$ sibling regions sharing one $2^k$-scale minimum over a low
+      floor (built in @tick-web)],
+    [any design that re-touches a wide boundary per region],
   ),
-  caption: [The first five adversarial families; two more (the
-    _descending staircase_ and the _reveal comb_) arrive with the tick
-    walk in @tick. Each is a legal, canonical value the decoder must
-    accept; several are unreachable by any honest history at the
-    scales that hurt — which is exactly the point. Validity, not
-    provenance, is what bounds cost at a byte boundary.],
+  caption: [The adversarial families, all in one place; the last two
+    are constructed where the machinery they attack is built. Each is
+    a legal, canonical value the decoder must accept. `hugeleaf` and
+    `bigroot` are unreachable by any honest history at the scales
+    that hurt (a height near $2^W$ needs on the order of $2^W$
+    ticks); the others are merely unlikely. Either way the lesson is
+    the same: validity, not provenance, is what bounds cost at a byte
+    boundary.],
 ) <families>
 
 == Defect 1: path sums in comparison and join <path-sums>
@@ -90,11 +100,13 @@ $Theta(d dot W)$ bits, on an input of $Theta(d + W)$ bits. Choosing
 $d approx W approx n\/2$ makes both quadratic: the amplification
 ratio scales as $d W \/ (d + W)$, growing without bound as the
 operand grows. This is not a corner case that needs contriving:
-measured on our direct transcription before any cure, a `bigroot`
-operand pair of 29 kilobytes drove transient memory to roughly
-$6,700 times$ its input — approaching two hundred megabytes — inside
-a single comparison, and the ratio kept growing with the operand,
-as the formula says it must.
+measured on our direct transcription before any cure, the committed
+`bigroot` regression instance — a 29-kilobyte operand pair — drove
+transient memory to roughly $6,700 times$ its input, approaching two
+hundred megabytes, inside a single comparison; the number is quoted
+for scale (the instance's exact $d$-versus-$W$ split sets the
+constant), and the ratio kept growing with the operand, as the
+formula says it must.
 
 Join has the same skeleton (`join` lifts one side by the base
 difference, $r_2 arrow.t (n_2 - n_1)$, at every paired node) and adds
@@ -108,17 +120,19 @@ which only exist, at a node, as the sum of everything above it.
 
 The appendix's integer coding is a chain of grow-by-one-bit stages,
 and the natural decoder accumulates one bit at a time into a heap
-integer: shift, add, repeat. Appending a bit to a $t$-bit accumulator
-rewrites all $Theta(t \/ 64)$ of its machine words in a normalized
-representation, so a single $W$-bit value decodes in
+integer: shift, add, repeat. Appending a bit to a $j$-bit accumulator
+rewrites all of its machine words in a normalized representation, so
+a single $W$-bit value decodes in
 
-$ sum_(t = 1)^(W) Theta(t / 64) = Theta(W^2 \/ 64) "word operations." $
+$ sum_(j = 1)^(W) Theta(j) = Theta(W^2) "bit-work" — "exactly"
+  W^2 \/ 128 + O(W) "word rewrites." $
 
 On `hugeleaf` this is the whole input, and the arithmetic reconciles
-with the wall clock: at $W = 4 dot 10^6$ bits, each append rewrites a
-half-megabyte buffer, four million times — two terabytes of memory
-traffic, which at memory-bandwidth speed is right where the
-measurement landed: over fourteen seconds for one value. The cured
+with the wall clock: at $W = 4 dot 10^6$ bits the buffer grows to
+half a megabyte and each append rewrites it — a quarter-megabyte on
+average, four million times, about a terabyte of memory traffic —
+which at memory-bandwidth speed is the right order for what the
+measurement showed: over fourteen seconds for one value. The cured
 decoder (accumulate machine words, splice them once) does the same
 work in milliseconds, linearly. The defect looks trivial once named —
 of course you buffer words — but it is worth its own entry for two
@@ -138,12 +152,12 @@ bytes against the roughly *three bits* the level cost on the wire,
 already a hundredfold amplification; with each frame's spilled
 locals and temporaries the stack cost measured near $300$ bytes per
 level in our transcription, $800 times$ the wire. And there is a
-harder edge behind the constant: default thread stacks are a few megabytes, so
-`deep spine`$(d)$ overflows the stack — crashes the process, or forces
-a guard-page fault handler — at $d$ around $10^5$, an input of some
-tens of kilobytes. A library that can be crashed by a short message it
-correctly parses is not merely slow; it has delegated its availability
-to its callers' inputs.
+harder edge behind the constant: at 300 bytes per level, a default
+thread stack of a few megabytes overflows — crashing the process, or
+forcing a guard-page fault handler — at $d$ around $10^4$:
+`deep spine` at an input of a few _kilobytes_. A library that can be
+crashed by a short message it correctly parses is not merely slow; it
+has delegated its availability to its callers' inputs.
 
 The cure is as unglamorous as Defect 2's: walks must be iterative,
 with explicit state whose size the implementer chooses. What is worth
@@ -194,8 +208,8 @@ on the way down, subtract on the way up, compare absolutes where
 needed.
 
 Consider now a value whose plateaus oscillate between $2^k - 1$ and
-$2^k$ — in binary, between $0underbrace(11 dots 1, k)$ and
-$1underbrace(00 dots 0, k)$. Call the boundary between them a _carry
+$2^k$ — in binary, between $k$ ones and a one followed by $k$
+zeros. Call the boundary between them a _carry
 cliff_, and the value the *boundary comb* (@families): stepping
 across the cliff rewrites $k + 1$ bits, so each crossing costs
 $Theta(k)$ work in any normalized representation, no matter how small
