@@ -357,11 +357,13 @@
 //!   without a length prefix.
 //! - **`doc-images`** — embeds the space-consumption diagram above into the
 //!   rendered docs (`cargo doc --all-features`).
-//! - **`oracle`** and **`meter`** (plus the meter's counter switches
-//!   `limb-meter` and `scan-meter`) — expose the crate's own verification
-//!   instruments — the paper-faithful reference implementation, and the
-//!   input generators and resource meters behind the performance tests — to
-//!   its bench and metering suites. Never for production use.
+//! - **`oracle`**, **`meter`** (plus the meter's counter switches
+//!   `limb-meter` and `scan-meter`), and **`laws`** — expose the crate's own
+//!   verification instruments — the paper-faithful reference implementation,
+//!   the input generators and resource meters behind the performance tests,
+//!   and the named algebraic-law predicates the law proptests and fuzz
+//!   target share — to its bench, metering, and fuzz suites. Never for
+//!   production use.
 //!
 //! ## Testing
 //!
@@ -755,6 +757,12 @@ pub mod oracle;
 /// the `meter` feature so the metering test binaries can drive them.
 #[cfg(any(test, feature = "meter"))]
 pub mod meter;
+
+/// The algebraic and representational laws of the public API, as named
+/// predicates. Public under the `laws` feature so the fuzz workspace can
+/// drive the same collection the in-tree proptests assert.
+#[cfg(any(test, feature = "laws"))]
+pub mod laws;
 
 #[cfg(feature = "serde")]
 mod serde_impls;

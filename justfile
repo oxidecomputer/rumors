@@ -206,17 +206,19 @@ fuzz-build:
     {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
-# itself) is asserted inline in the targets, so any hit is a crash. Each run
-# names two corpus directories: libFuzzer reads seeds from both and writes new
-# discoveries to the first, so the committed `seeds/<target>/` corpus (derived
-# from the live API; `tests/fuzz_seeds.rs` gates it) actually seeds every run
-# while staying pristine.
+# itself) and the `before::laws` law collection are asserted inline in the
+# targets, so any hit is a crash. Each run names two corpus directories:
+# libFuzzer reads seeds from both and writes new discoveries to the first, so
+# the committed `seeds/<target>/` corpus (derived from the live API;
+# `tests/fuzz_seeds.rs` gates it) actually seeds every run while staying
+# pristine.
 
 # Short fuzz smoke: run each libFuzzer target for `secs` seconds.
 [working-directory("crates/before/fuzz")]
 fuzz secs=fuzz_smoke_secs:
     cargo +{{ nightly_toolchain }} fuzz run fuzz_decode corpus/fuzz_decode seeds/fuzz_decode -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops corpus/fuzz_decode_ops seeds/fuzz_decode_ops -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run fuzz_laws corpus/fuzz_laws seeds/fuzz_laws -- -max_total_time={{ secs }}
 
 # The fuzz-fit asymptotics harness lives in a detached workspace
 # (crates/before/fuzzfit, the fuzz-target idiom), so workspace-wide builds

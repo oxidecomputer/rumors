@@ -351,48 +351,12 @@ proptest! {
 
 // ───────────────────────────── protocol semantics ─────────────────────────────
 
+// The protocol-shape laws (fork preserves the version, peeks are stable, an
+// own-message receive is a bare tick, send/recv advance strictly) live in
+// `crate::laws` and are driven by the algebraic-laws suite; this file keeps
+// the oracle differentials.
+
 proptest! {
-    /// `fork` preserves the version on both halves.
-    #[test]
-    fn fork_preserves_version(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let mut c = from_oracle_clock(&cs[i % n]);
-        let before = c.version().clone();
-        let child = c.fork();
-        prop_assert!(c.version() == before);
-        prop_assert!(child.version() == before);
-    }
-
-    /// `version()` (peek) does not advance the clock; the returned `Version`
-    /// equals the clock's own and repeated peeks are stable.
-    #[test]
-    fn peek_does_not_advance(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let c = from_oracle_clock(&cs[i % n]);
-        let before = c.encode();
-        let v1 = c.version();
-        let v2 = c.version();
-        prop_assert!(v1 == v2);
-        prop_assert_eq!(c.encode(), before);
-    }
-
-    /// `receive(msg)` with `msg <= self` (here `msg == self.version()`) equals a
-    /// bare `tick`: an own-message receive is benign, and the party is unchanged.
-    #[test]
-    fn own_receive_is_tick(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let mut received = from_oracle_clock(&cs[i % n]);
-        let mut ticked = from_oracle_clock(&cs[i % n]);
-        let own = received.version().clone();
-        received.recv(&own);
-        ticked.tick();
-        prop_assert!(received.version() == ticked.version());
-        prop_assert!(received.party() == ticked.party());
-    }
-
     /// After `a.sync(&mut b)`: both end at the oracle's result, their versions are
     /// equal, their parties are disjoint, and re-joining the two parties recovers the
     /// pre-sync merged party.
