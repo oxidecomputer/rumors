@@ -10,12 +10,13 @@ use crate::codec::{self, Base, BitCursor, Bits, SliceCursor};
 use super::DsiCursor;
 
 /// The gamma reader decodes the same value from the same bits as the
-/// committed decoder at and across the machine-word seam: the largest
-/// machine-arm code (`k = 63`), the first wide-arm code (`k = 64`), the
-/// next (`k = 65`), and far-wide codes (`k ≈ 100`) — the witnesses that
-/// a reader passing on narrow values alone cannot fake, since our coding
-/// has no value cap while dsi-bitstream's own `read_gamma` stops at
-/// `u64`.
+/// committed decoder at and across the machine-word seam.
+///
+/// Witnessed at the largest machine-arm code (`k = 63`), the first
+/// wide-arm code (`k = 64`), the next (`k = 65`), and far-wide codes
+/// (`k ≈ 100`) — widths a reader passing on narrow values alone cannot
+/// fake, since our coding has no value cap while dsi-bitstream's own
+/// `read_gamma` stops at `u64`.
 #[test]
 fn gamma_reader_matches_decoder_across_the_word_seam() {
     use dashu_int::UBig;
@@ -93,10 +94,12 @@ fn truncated_codes_reject_at_every_cut_point() {
     }
 }
 
-/// `read_unary` agrees with the per-bit loop on runs across the buffered
-/// reader's refill seams (runs longer than one 32-bit word and one
-/// 64-bit buffer), consumes the terminating `1`, and rejects a run the
-/// live bits never terminate.
+/// `read_unary` agrees with the per-bit loop across the buffered
+/// reader's refill seams.
+///
+/// Runs longer than one 32-bit word and one 64-bit buffer are read
+/// whole, the terminating `1` is consumed, and a run the live bits
+/// never terminate rejects.
 #[test]
 fn unary_reads_match_the_per_bit_loop_across_word_seams() {
     for run in [0usize, 1, 7, 8, 31, 32, 33, 63, 64, 65, 200] {
@@ -168,9 +171,11 @@ fn mid_stream_opens_read_the_same_suffix() {
 }
 
 proptest! {
-    /// Differential: on an arbitrary interleaving of unary runs and
-    /// gamma codes, the word-parallel cursor and the per-bit slice
-    /// cursor consume identical bits and decode identical values, and
+    /// Differential: the word-parallel cursor matches the per-bit
+    /// slice cursor on arbitrary interleavings of unary runs and
+    /// gamma codes.
+    ///
+    /// Identical bits consumed, identical values decoded, and
     /// `skip_int` lands exactly where `read_int` does.
     #[test]
     fn arbitrary_streams_match_the_slice_cursor(
