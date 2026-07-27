@@ -54,43 +54,45 @@
 //! severalfold and the cheap families' mass sits in the small buckets,
 //! tilting a pooled envelope no single family follows; every lane's own
 //! medians are flat or falling, and `bin/diag` per family is the
-//! ground-truth view). The overlap-rejection envelopes (1.37–1.48:
-//! `clock_join`, `clock_sync`, `party_join`) are the same genre at
-//! smaller n: cheap immediate-overlap rejections dominate the small
-//! buckets, full-scan and deferred-overlap rejections the top.
-//! `party_without`'s emptiness arm reads linear (0.94): the skyline
-//! sweep prices rejection and success from the same one-pass read of
-//! both operands. `rank_checked_sub`'s underflow arm reads flat (−0.12): the
+//! ground-truth view). The rejection envelopes (1.37–1.48:
+//! `clock_join`, `clock_sync`, `party_join`, and `party_without`'s
+//! emptiness arm) are the same genre at smaller n: cheap early
+//! rejections dominate the small buckets — immediate overlap detection
+//! on the join/sync arms, covered operands settled in one block scan
+//! on the emptiness arm — while the full-scan rejections hold the top,
+//! where each arm's own per-bit medians read flat (the emptiness arm
+//! holds ~430 fuel/bit across its whole top decade).
+//! `party_without`'s success arm reads sublinear (0.71) as the mirror
+//! of the same mixture: the sweep's covered-block early exits win
+//! proportionally more at scale, and the arm's per-bit medians fall
+//! monotonically along the whole calibrated span.
+//! `rank_checked_sub`'s underflow arm reads flat (−0.12): the
 //! ordering pre-check settles the outcome before any alignment work, so
 //! its cost does not grow with the operands. `ff_version_join_all` 1.143
 //! carries the balanced fold's documented log factor along the width
 //! ladder (fold width is budget-capped, so the factor is bounded and the
 //! band prices it).
 //!
-//! Movement against the previous pin (2026-07-26, the merged-kernel
+//! Movement against the previous pin (2026-07-27, the skyline-sweep
 //! pin), by mechanism. No generator, strategy, or toolchain change rode
 //! along: the deterministic corpus replayed with identical sample counts
 //! and denominator spans per band key, so every movement is guest fuel.
-//! Judged at 1000 denominated bits; movement > 0.05 decades:
+//! Judged at 1000 denominated bits:
 //!
-//! - **Id diff is a boolean-skyline sweep** (2cd73716) — the recursive
-//!   both-internal walk dissolved into one boundary sweep that reads
-//!   every tag of either operand exactly once, so both `party_without`
-//!   arms re-shape to that one-pass linear law: success slope
-//!   +0.82→+1.00 with intercept 2.18→2.81 (+1.18 decades); emptiness
-//!   arm slope +1.32→+0.94 with intercept 1.11→2.83 (+0.57 decades,
-//!   and the arm's envelope is now the sweep's own line rather than an
-//!   early-exit mixture).
-//! - **The fused fill walk and its pre-scan run on explicit bit
-//!   stacks** (330e058a) — the tick/transfer family pays the frame
-//!   bookkeeping and the left-full-site replay: `clock_tick` +0.08
-//!   decades (slope 1.06→1.05, intercept 2.63→2.75), `clock_send`
-//!   +0.07, `version_tick` +0.07.
-//! - **The id text parser runs on an explicit stack** (68eda2e3) —
-//!   `party_fromstr` cheapens: −0.08 decades (intercept 1.38→1.27 with
-//!   slope +0.98→+0.99).
+//! - **The id diff sweep settles covered subtrees as blocks**
+//!   (ac10e61b) — when one operand's plateau covers the other's whole
+//!   subtree, the sweep splices or block-skips the interval instead of
+//!   enumerating its plateaus, so both `party_without` arms re-shape
+//!   to early-exit mixtures: success slope +1.00→+0.71 with intercept
+//!   2.81→2.60 (−1.09 decades, back to the 2026-07-26 pin's constant —
+//!   the 10^3-bit bucket's median is 42 fuel/bit against that pin's
+//!   fitted 43); emptiness arm slope +0.94→+1.41 with intercept
+//!   2.83→1.25 (−0.17 decades, the envelope re-tilted by newly cheap
+//!   covered rejections in the small buckets while the full-scan
+//!   rejections holding the top decade stay at the sweep's ~430
+//!   fuel/bit, per-bit flat — `bin/diag` is the ground-truth view).
 //!
-//! Every other band key moves under 0.05 decades.
+//! Every other band key replays the previous pin byte-for-byte.
 
 /// One pinned band (see the module doc for the membership predicate).
 #[derive(Debug, Clone, Copy)]
@@ -546,10 +548,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_party_without",
         rejected: false,
-        slope: 0.998100,
-        intercept: 2.813745,
-        width_above: 0.014650,
-        width_below: 0.040337,
+        slope: 0.705250,
+        intercept: 2.600184,
+        width_above: 0.061839,
+        width_below: 0.055225,
         min_denom: 146,
         max_denom: 4260,
         samples: 119,
@@ -558,10 +560,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_party_without",
         rejected: true,
-        slope: 0.936202,
-        intercept: 2.827685,
-        width_above: 0.086015,
-        width_below: 0.052917,
+        slope: 1.405451,
+        intercept: 1.250308,
+        width_above: 0.415750,
+        width_below: 0.333607,
         min_denom: 134,
         max_denom: 8896,
         samples: 124,

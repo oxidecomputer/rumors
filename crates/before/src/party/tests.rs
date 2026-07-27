@@ -318,7 +318,7 @@ proptest! {
 proptest! {
     /// Complexity. `diff` is `O(n + m)`: on the misaligned disjoint pair, a
     /// shallow unowned plateau on `a` overlays `b`'s whole deep subtree, so
-    /// the sweep consumes every `b` plateau against single `a` plateaus.
+    /// the sweep consumes `b`'s covered subtrees as blocks, one tag per node.
     ///
     /// The pair is disjoint, so the walk runs to completion (nothing empties
     /// early); steps stay linear from `scale` to `4 * scale`, proving each
