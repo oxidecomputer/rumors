@@ -950,6 +950,45 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   names, a possible `merge_into_wider` rename or spare-buffer
   newtype, an owner call on MSRV/`no_std` statements, and
   dissolving before's private `U64Limbs` twin into the crate seam.
+- **Landed 2026-07-27 (suanpan2-76, phase 2 of the owner-decided
+  extraction): the shim is dissolved — every call site names
+  `suanpan::Accumulator` directly.** The rename sweep moved the
+  skyline walks (fill/watermark/sweep/emit/text/validate/query),
+  the rank fold, the board runner, and the resource-envelope suite
+  onto the direct paths (the suite reads `suanpan::touch_meter`
+  itself; feature unification keeps it the same counter before's
+  code bumps); the `Magnitude` impl for `Base` and its
+  seam-differential tests live in `codec::base`. Ratchet order
+  held: the envelope ceilings and liveness floors, the rank touch
+  columns (bit-identical at 125,007 / 17,194 / 198,659 / 17,814),
+  and the tier-2 plain-sweep known-bad pin read green through the
+  direct paths at the sweep commit, and again after `codec::accum`
+  and the `meter::accum` re-export were deleted. `U64Limbs`
+  dissolved into the crate seam as `suanpan::Limbs` — a public,
+  named, double-ended borrow iterator over a magnitude's 64-bit
+  limbs, the unit the crate's wide-operand costs are denominated
+  in — now feeding the wide entry points, `Base::msb_cmp`'s
+  streamed windows, and the query fold's digit compaction, so the
+  cross-target words-per-limb packing lives in exactly one place.
+  API-shape candidates: `*_base → *_magnitude` TAKEN (the old
+  names carried one consumer's concrete type into the generic
+  crate's API, propped by a minted "*base*" gloss whose only job
+  was justifying them). `merge_into_wider` rename / spare-buffer
+  newtype DEFERRED: no decided target shape exists, the only
+  in-tree consumer is the watermark pool, and the drained-buffer
+  contract is documented with a doctest — a newtype would add
+  surface to encode a discipline the docs already state; revisit
+  if a second pooling consumer appears. MSRV/`no_std` statements
+  untouched (owner policy). Parity: boards byte-identical to the
+  c1eb3428 parent at both scales
+  (`board-suanpan2-{before,after}-{lo,hi}.txt`); fuzzfit all 18
+  suites green with no `#[inline]` additions and no re-pin.
+  Design-doc note, dated here: the tick-cost spec
+  (`before-tick-cost-spec.md`) and the formal-tick notes
+  denominate costs in "Accum digit touches"; that unit's type now
+  spells `suanpan::Accumulator`. The spec text itself is
+  untouched — it is a statement of record, and the rename amends
+  no claim; this entry is the dated cross-reference.
 
 ## 13. The metering gate
 
