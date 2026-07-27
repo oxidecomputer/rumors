@@ -663,6 +663,35 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   fails the commit that carries it, with `fuzzfit-calibrate` as
   the deliberate re-pin path. Companion entry in the instrument's
   own decision record (`design/before-fuzzfit-asymptotics.md` §9).
+- **Landed 2026-07-27 (#47): uniform `# Complexity` rustdoc,
+  board-bound.** Every public operation carries a `# Complexity`
+  section led by Big-O tokens over user-held denominators (packed
+  sizes, text bytes, result sizes; per-fn, or per the owner's
+  ruling one type/module-level note where a whole family shares a
+  bound), and `testing/complexity_claims` binds prose to
+  measurement: a 95-row claims roster (78 method ops from the
+  triangle extractor + 17 family rows, totality both directions)
+  pins each op's tokens at its scanned doc site and its witness
+  rows on the board's own op axis (`board::bench_cells`);
+  superlinear-time claims must equal the bench judge's committed
+  red set (`tools/benchjudge-expected.json`) in both directions;
+  and the two non-linear classes keep deterministic liveness pins
+  that read red when their cures land — the render merge
+  (`Display` limb growth ×2.93 across a doubling on the wide
+  left-full shape, floor 2.45, linear ~2.0) and the fold log
+  factor (`join_all` scan growth ×5.16 across a ×4 scatter
+  population, floor 4.6, linear ~4.0), both measured 2026-07-27.
+  Dispute-the-seed corrections to the charter's summary,
+  transcribed from the boards and this document rather than the
+  charter sentence: the `join_all` family is documented
+  `O(D log k)` (the balanced reduction's log factor, §17.2's
+  fold-marginals item — cure or ratify, either moves the pin and
+  the prose together), and both text directions carry the
+  radix-conversion caveat (superlinear-though-subquadratic per
+  wide value; the dashu decision entry above is the measurement
+  of record), with `Display` alone claimed superlinear outright
+  on the render-merge and conversion-dominated mechanisms the
+  judge's red set owns.
 
 ## 13. The metering gate
 
