@@ -134,7 +134,7 @@ impl Party {
         *self == Party::seed()
     }
 
-    /// Advance the [`Version`] from the perspective of [`Party`].
+    /// Advances `version` by one event for this party.
     ///
     /// # Complexity
     ///
@@ -151,7 +151,7 @@ impl Party {
         version.tick(self)
     }
 
-    /// Split off a new disjoint [`Party`] from this one.
+    /// Splits off a new disjoint [`Party`] from this one.
     ///
     /// # Warning
     ///
@@ -177,7 +177,7 @@ impl Party {
         Party::from_bits(give)
     }
 
-    /// Split `n` balanced shares off this [`Party`], as a lazy
+    /// Splits `n` balanced shares off this [`Party`], as a lazy
     /// [`ExactSizeIterator`].
     ///
     /// A single balanced split: the region is divided into `n + 1` subregions
@@ -216,7 +216,7 @@ impl Party {
         Forks::new(self, n)
     }
 
-    /// Reunite two disjoint [`Party`]s.
+    /// Reunites two disjoint [`Party`]s.
     ///
     /// # Errors
     ///
@@ -245,7 +245,7 @@ impl Party {
         }
     }
 
-    /// Reunite every disjoint [`Party`] in `iter` into `self`: the fold of the
+    /// Reunites every disjoint [`Party`] in `iter` into `self`: the fold of the
     /// partial commutative monoid that [`join`](Party::join) generates.
     ///
     /// Total where a free function could not be — `self` seeds the fold, so an
@@ -348,12 +348,12 @@ impl Party {
         }
     }
 
-    /// Test whether `self` and `other` are *disjoint*: their owned regions
+    /// Tests whether `self` and `other` are *disjoint*: their owned regions
     /// share nothing.
     ///
-    /// All live descendants of a single
-    /// [`seed`](Party::seed), evolved by linear [`fork`](Party::fork) and
-    /// [`join`](Party::join), are pairwise disjoint.
+    /// All live descendants of a single [`seed`](Party::seed), evolved by
+    /// linear [`fork`](Party::fork) and [`join`](Party::join), are pairwise
+    /// disjoint.
     ///
     /// Disjoint [`Party`]s may always be [`join`](Party::join)ed without
     /// error.
@@ -373,7 +373,7 @@ impl Party {
         self.view().is_disjoint(other.view())
     }
 
-    /// Test whether `self`'s owned region contains all of `other`'s
+    /// Tests whether `self`'s owned region contains all of `other`'s
     /// (`self ⊇ other`).
     ///
     /// This is the asymmetric companion of [`is_disjoint`](Party::is_disjoint).
@@ -416,7 +416,7 @@ impl Party {
         self.view().covers(other.view())
     }
 
-    /// Carve `other`'s region out of `self`: the region difference
+    /// Carves `other`'s region out of `self`: the region difference
     /// `self \ other`.
     ///
     /// Returns `None` when `other` [`covers`](Party::covers) `self` and
@@ -455,7 +455,8 @@ impl Party {
         }
     }
 
-    /// Duplicate this party, producing a second handle to the same identity, in
+    /// Duplicates this party, producing a second handle to the same identity,
+    /// in
     /// violation of linearity.
     ///
     /// # Warning
@@ -508,7 +509,7 @@ impl Party {
         self.as_bytes().to_vec()
     }
 
-    /// Encode a [`Party`] to an arbitrary writer.
+    /// Encodes this [`Party`] to an arbitrary writer.
     ///
     /// # Complexity
     ///
@@ -540,7 +541,7 @@ impl Party {
         self.as_bits().len()
     }
 
-    /// Decode a [`Party`] from a reader of canonical bytes, strictly rejecting
+    /// Decodes a [`Party`] from a reader of canonical bytes, strictly rejecting
     /// non-canonical representations.
     ///
     /// # Complexity
@@ -666,7 +667,7 @@ impl core::fmt::Debug for Party {
     }
 }
 
-/// Parse paper notation (`0 | 1 | (i1, i2)`), strictly rejecting non-normal-form input
+/// Parses paper notation (`0 | 1 | (i1, i2)`), strictly rejecting non-normal-form input
 /// and the anonymous identity `0` (a standalone `Party` must be a nonzero share).
 ///
 /// # Complexity

@@ -134,7 +134,7 @@ impl Version {
         skyline::is_empty_stream(&self.0)
     }
 
-    /// Advance the [`Version`] from the perspective of [`Party`].
+    /// Advances this version by one event for `party`.
     ///
     /// # Complexity
     ///
@@ -154,7 +154,7 @@ impl Version {
         self.batch().tick(party);
     }
 
-    /// Determine if two [`Version`]s are concurrent, i.e. incomparable.
+    /// Tests whether two [`Version`]s are concurrent (incomparable).
     ///
     /// # Complexity
     ///
@@ -379,7 +379,7 @@ impl Version {
         iter.into_iter().reduce(|acc, v| acc & v)
     }
 
-    /// Begin a batch of operations on this [`Version`].
+    /// Begins a batch of operations on this [`Version`].
     ///
     /// [`Batch`] chains sequential operations on one version behind a single
     /// mutable borrow.
@@ -425,7 +425,7 @@ impl Version {
         self.as_bytes().to_vec()
     }
 
-    /// Encode a [`Version`] to an arbitrary writer.
+    /// Encodes this [`Version`] to an arbitrary writer.
     ///
     /// # Complexity
     ///
@@ -442,7 +442,7 @@ impl Version {
         writer.write_all(self.as_bytes())
     }
 
-    /// Decode a [`Version`] from a reader of canonical bytes.
+    /// Decodes a [`Version`] from a reader of canonical bytes.
     ///
     /// # Complexity
     ///
@@ -490,10 +490,9 @@ impl Version {
     /// The canonical packed bytes of this [`Version`]: what
     /// [`encode`](Self::encode) produces, borrowed without copying.
     ///
-    /// The
-    /// final partial byte is zero-padded in the stored form, so these bytes
-    /// are a canonical identity: byte-equal if and only if the versions are
-    /// equal, and consistent with [`hash`](core::hash::Hash).
+    /// The final partial byte is zero-padded in the stored form, so these
+    /// bytes are a canonical identity: byte-equal if and only if the versions
+    /// are equal, and consistent with [`hash`](core::hash::Hash).
     ///
     /// Their lexicographic order is an arbitrary total order with no causal
     /// meaning; use it only as a deterministic tiebreak between distinct
@@ -643,7 +642,8 @@ impl core::fmt::Debug for Version {
     }
 }
 
-/// Parse paper notation (`n` or `(n, e1, e2)`), strictly rejecting non-normal-form input.
+/// Parses paper notation (`n` or `(n, e1, e2)`), strictly rejecting
+/// non-normal-form input.
 ///
 /// # Complexity
 ///

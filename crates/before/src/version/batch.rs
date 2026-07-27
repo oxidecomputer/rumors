@@ -174,7 +174,7 @@ impl Batch<'_> {
     }
 }
 
-/// Borrow a [`Version`] as a [`Batch`]; equivalent to [`Version::batch`].
+/// Borrows a [`Version`] as a [`Batch`]; equivalent to [`Version::batch`].
 ///
 /// ```
 /// use before::{batch, Version};

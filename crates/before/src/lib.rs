@@ -2,105 +2,98 @@
 //! Fonte, 2008)](https://gsd.di.uminho.pt/members/cbm/ps/itc2008.pdf) (ITCs)
 //! using an efficient and compact representation.
 //!
-//! Interval tree clocks use much less space than traditional representations of
-//! version vectors and vector clocks, often by more than an order of magnitude.
-//! In dynamic settings where participants arrive and leave, they can also
-//! *recycle identifiers* via a [`join`](Clock::join) without violating
-//! causality, so they avoid the unbounded growth that affects naïve sparse
-//! clocks and vectors.
+//! A causal clock answers the question wall-clock time cannot: given two
+//! updates made on different machines, did one *know about* the other, or did
+//! they happen concurrently? The classic answers — [*version
+//! vectors*](https://en.wikipedia.org/wiki/Version_vector) and [*vector
+//! clocks*](https://en.wikipedia.org/wiki/Vector_clock) — pay one counter per
+//! participant, forever: an entry can never be safely removed once its
+//! participant leaves, so under churn those clocks only grow.
 //!
-//! ## Efficiency
+//! Interval tree clocks give the same causal answers in much less space,
+//! often by more than an order of magnitude, and in dynamic settings they
+//! *recycle identity*: a departing participant [`join`](Clock::join)s its
+//! clock back in, returning its share of the id space — and its history — to
+//! the survivors, so the clocks avoid unbounded growth.
 //!
-//! At 100 parties and 1,000,000 events, the expected size of a [`Party`] is
-//! about 3 bytes and the expected size of a [`Version`] is about 100 bytes.
-//! These figures assume static membership; continually [`fork`](Clock::fork)ing
-//! and [`join`](Clock::join)ing causes these to grow, but with reasonable
-//! bounds. Under sustained membership churn, those same 100 parties will each
-//! stabilize at around 50 bytes (linear in `N`) and their corresponding
-//! versions at around 2,000 bytes (roughly `N²`).
+//! ## Quickstart
 //!
-//! ![Space consumption of `before`'s interval-tree versions][space-consumption]
+//! A first session. Two informal definitions up front: the *seed* is the
+//! first clock, owning the whole id space; a *fork* splits a clock in two,
+//! each half a valid clock that acts independently from then on.
 //!
-//! This crate implements cache-friendly, optimized versions of the operations
-//! in the original paper, in addition to a host of useful operations not
-//! described therein. Compared to a 1-to-1 transliteration of the paper into
-//! Rust, [`before`](crate) is between 2–20× faster.
+//! ```
+//! use before::Clock;
+//!
+//! // Every system of clocks descends from one seed (see the safety rules).
+//! let mut alice = Clock::seed();
+//!
+//! // New participants fork off a live clock, never mint themselves.
+//! let mut bob = alice.fork();
+//!
+//! // Each participant ticks its own clock to record a local event.
+//! alice.tick();
+//! bob.tick();
+//!
+//! // Neither history contains the other: the two events are concurrent.
+//! assert!(alice.version().concurrent(bob.version()));
+//!
+//! // Versions are the timestamps that travel. Joining a received version
+//! // (`|=`) merges history only; bob then knows strictly more than alice —
+//! // her whole history, plus his own tick that she has not seen.
+//! bob |= alice.version();
+//! assert!(bob.version() > alice.version());
+//!
+//! // Joining a whole *clock* merges identity too: it retires bob, recycling
+//! // his share of the id space into alice. It is fallible — the two parties
+//! // must be disjoint — hence the `unwrap`.
+//! alice.join(bob).unwrap();
+//!
+//! // Clocks and versions cross process boundaries as canonical bytes: one
+//! // byte spelling per value, so equal bytes mean equal values.
+//! let bytes = alice.encode();
+//! let restored = Clock::decode(&bytes[..]).unwrap();
+//! assert_eq!(restored, alice);
+//! // `restored` duplicates `alice`: treat encode-then-send as a move, and
+//! // let exactly one of the two handles stay live (see the safety rules).
+//! ```
 //!
 //! ## The types
 //!
 //! | Type                | Is                                              | Core operations                                                                                                                                                   |
 //! |---------------------|-------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 //! | [`Party`]           | a distinct entity which may emit events         | [`tick`](Party::tick), [`fork`](Party::fork)([`s`](Party::forks)), [`join`](Party::join), [`is_disjoint`](Party::is_disjoint)                                     |
-//! | [`Version`]         | a causal timestamp (history of known events)    | [`tick`](Version::tick), [`PartialOrd`] (`<`, `<=`, [`concurrent`](Version::concurrent)), join (`\|`), [`rank`](Version::rank)                                    |
+//! | [`Version`]         | a causal timestamp (history of known events)    | [`tick`](Version::tick), [`PartialOrd`] (`<`, `<=`, [`concurrent`](Version::concurrent)), join (`\|`), meet (`&`), [`rank`](Version::rank)                        |
 //! | [`Clock`]           | a [`Party`] paired with its current [`Version`] | [`tick`](Clock::tick), [`fork`](Clock::fork)([`s`](Clock::forks)), [`join`](Clock::join), [`send`](Clock::send), [`recv`](Clock::recv), join (`\|`) a [`Version`] |
-//! | [`Rank`]/[`Ranked`] | the total causal ordering for [`Version`]       | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub)                                                                               |
+//! | [`Rank`]/[`Ranked`] | a total order extending the causal order       | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub)                                                                               |
 //!
-//! [`Party`]s and [`Clock`]s are linear ([`!Clone`](Clone)); [`Version`]s are
-//! freely [`Clone`]able.
+//! [`Party`]s and [`Clock`]s are linear ([`!Clone`](Clone)): moved, never
+//! duplicated, because duplicating identity is exactly what breaks a causal
+//! clock. [`Version`]s are freely [`Clone`]able. A tick pairs the two
+//! halves — [`Party::tick`] and [`Version::tick`] record an event for a
+//! party in a version, and [`Clock::tick`] does the same for its own pair.
+//! The [`batch`] module chains several operations through one borrow; the
+//! [`iter`] module forks `n` peers in one balanced split.
 //!
-//! ## A conceptual sketch
+//! ## Version vector or vector clock?
 //!
-//! The insight of the original ITC paper is that a [`Party`] can be represented
-//! as a *tree* denoting a non-empty set of subintervals of `[0, 1)`, giving
-//! both compact representation and dynamic membership. The initial [`Party`],
-//! [`Party::seed`], is `{ [0, 1) }`; a [`fork`](Party::fork) splits an interval
-//! in half, so the first fork yields `{ [0, 1/2) }` and `{ [1/2, 1) }`.
-//! Disjoint interval sets are [`join`](Party::join)ed by set union, merging
-//! adjacent intervals: `{ [0, 1/2), [5/8, 3/4) }` ∪ `{ [3/4, 1) }` = `{ [0,
-//! 1/2), [5/8, 1) }`. Parties can therefore be minted and recycled freely while
-//! their representations stay small.
+//! [`before`](crate) implements both classic constructions; the difference is
+//! entirely in how you use it. [*Version
+//! vectors*](https://en.wikipedia.org/wiki/Version_vector) order **data** —
+//! they answer "has this replica seen that write?" — so participants record
+//! an event only when the data changes. [*Vector
+//! clocks*](https://en.wikipedia.org/wiki/Vector_clock) order **processes** —
+//! they answer "could this event have influenced that one?" — so
+//! participants record an event on every send and receive as well. Reach for
+//! a version vector when reconciling replicated state; reach for a vector
+//! clock when the messages themselves are the events. Pick one discipline
+//! per protocol and keep to it — mixing them is not unsafe, but the ordering
+//! then answers neither question exactly.
 //!
-//! A [`Version`] is then a function from `[0, 1)` to the natural numbers, also
-//! represented as a tree, with the initial [`Version`] the constantly-zero
-//! function. To register an event for a [`Party`], it suffices to increment the
-//! function over any non-empty region owned by that party. Any such choice
-//! yields a valid causal timestamp, and the freedom of choice lets the
-//! implementation simplify a [`Version`]'s tree on [`tick`](Version::tick). As
-//! parties and versions are forked and joined over the lifetime of a
-//! distributed system, their typical size therefore stays small: hundreds to
-//! low thousands of bytes, even for hundreds of communicating processes and
-//! millions of events.
+//! ### As a version vector
 //!
-//! That lattice is the [`Version`] API: the partial order `<=` tests whether
-//! one version's history is contained in another's, the join `|` combines two
-//! histories into their least upper bound, and [`tick`](Version::tick) moves
-//! strictly upward. Two histories with no containing order are
-//! *[`concurrent`](Version::concurrent)*.
-//!
-//! By packaging a [`Version`] and a [`Party`] together into a [`Clock`], we get
-//! a causal clock which may be [`tick`](Clock::tick)ed,
-//! [`fork`](Clock::fork)ed, and [`join`](Clock::join)ed, in addition to derived
-//! operations like [`send`](Clock::send), [`recv`](Clock::recv), and
-//! [`sync`](Clock::sync). This is sufficient to implement *both* [*version
-//! vectors*](https://en.wikipedia.org/wiki/Version_vector) and [*vector
-//! clocks*](https://en.wikipedia.org/wiki/Vector_clock), depending on how you
-//! use it.
-//!
-//! ## Additional utilities
-//!
-//! The [`causally`] module gives convenience constructors for causal orderings
-//! in terms of [`Version`]s: [`since`](causally::since),
-//! [`before`](causally::before), [`delta`](causally::delta), and friends build
-//! a [`causally::Range`] (a [`RangeBounds<Version>`](std::ops::RangeBounds)
-//! whose membership predicate is causal containment). Where a *total* order
-//! over versions is needed, [`Rank`] is the exact, strictly-monotone causal
-//! rank: ordering by `(Rank, tiebreak)` linearly extends causality, so
-//! concurrent versions can be sequenced deterministically. [`Ranked`] packages
-//! a version with its rank as a ready-made totally ordered key, tiebroken by
-//! canonical bytes.
-//!
-//! ## Example
-//!
-//! Depending on whether you want the semantics of [*version
-//! vectors*](https://en.wikipedia.org/wiki/Version_vector) or [*vector
-//! clocks*](https://en.wikipedia.org/wiki/Vector_clock), you use
-//! [`before`](crate) slightly differently.
-//!
-//! ### ... as a Version Vector
-//!
-//! [*Version vectors*](https://en.wikipedia.org/wiki/Version_vector) give a
-//! causal ordering to **data**. Participants **do not** record a local event
-//! when sending and receiving messages; only when modifying data.
+//! Participants **do not** record a local event when sending and receiving
+//! messages; only when modifying data.
 //!
 //! ```
 //! use before::Clock;
@@ -123,7 +116,10 @@
 //! // Bob incorporates Alice's version *without* recording another event locally
 //! bob |= msg;
 //!
-//! // Bob's clock now dominates or is equal to the message, and also Alice's version
+//! // Bob's clock now dominates or equals the message and Alice's version.
+//! // (`>=`, not `>`: incorporating a version records no event, so a Bob
+//! // with no history of his own would end exactly equal to the message —
+//! // contrast the vector-clock example below.)
 //! assert!(bob.version() >= msg);
 //! assert!(bob.version() >= alice.version());
 //!
@@ -139,11 +135,10 @@
 //! assert!(bob.version() == alice.version());
 //! ```
 //!
-//! ### ... as a Vector Clock
+//! ### As a vector clock
 //!
-//! [*Vector clocks*](https://en.wikipedia.org/wiki/Vector_clock) give a causal
-//! ordering to **processes**. Participants **do** record a local event when
-//! sending and receiving messages, *as well as* when modifying data.
+//! Participants **do** record a local event when sending and receiving
+//! messages, *as well as* when modifying data.
 //!
 //! ```
 //! use before::Clock;
@@ -166,7 +161,8 @@
 //! // Bob incorporates Alice's version, then marking a "recv" event locally
 //! bob.recv(&msg);
 //!
-//! // Bob's clock now dominates the message, and also Alice's version
+//! // Bob's clock now strictly dominates the message, and also Alice's
+//! // version: the receive itself was an event.
 //! assert!(bob.version() > msg);
 //! assert!(bob.version() > alice.version());
 //!
@@ -190,14 +186,23 @@
 //!
 //! Interval tree clocks are correct only under the Law of Disjointness: no
 //! [`Party`] may ever interact with another [`Party`] that is not
-//! [*disjoint*](Party::is_disjoint) from it. The caller must ensure both:
+//! [*disjoint*](Party::is_disjoint) from it — tick versions that will meet
+//! in a comparison or a join, or be [`join`](Clock::join)ed or
+//! [`sync`](Clock::sync)ed themselves. (A party is a set of id-space
+//! intervals — see [How it works](#how-it-works); disjoint parties share
+//! none.) Violations are not detected: nothing panics and nothing errors —
+//! comparisons simply begin reporting causal order that never happened. The
+//! caller must ensure both:
 //!
 //! 1. **Singularity.** A system of clocks has one [`Clock::seed`] (or
 //!    [`Party::seed`]), created once, from which every [`Clock`] and
 //!    [`Party`] in the system descends. One [`Party`] may be reused with
-//!    multiple [`Version`]s, and multiple "universes" may coexist, each
-//!    descended from its own [`seed`](Clock::seed), as long as clocks from
-//!    different seeds never interact.
+//!    multiple [`Version`]s ([`Party::tick`] borrows the party, so one
+//!    identity can stamp many histories), and multiple "universes" may
+//!    coexist, each descended from its own [`seed`](Clock::seed), as long
+//!    as clocks from different seeds never interact. Nothing in a value or
+//!    its encoding identifies its universe, so that boundary is the
+//!    caller's to police.
 //!
 //! 2. **Linearity.** Operations on [`Clock`]s and [`Party`]s are strictly
 //!    linear: once a [`Clock`] or [`Party`] has been
@@ -206,11 +211,143 @@
 //!    [`!Clone`](Clone), but at serialization boundaries and across
 //!    processes, linearity is the caller's responsibility.
 //!
+//! ## Replicating clocks between processes
+//!
+//! Everything crosses process boundaries as canonical bytes:
+//! [`encode`](Clock::encode)/[`encode_to`](Clock::encode_to) emit them, and
+//! [`decode`](Clock::decode) validates strictly — malformed or non-canonical
+//! input is rejected, never repaired — so an accepted value is always in
+//! normal form, and byte equality on encodings is exactly value equality.
+//! The `serde` and `borsh` features serialize through the same encodings
+//! (see [Crate features](#crate-features)).
+//!
+//! Most protocols move [`Version`]s — the freely [`Clone`]able timestamps —
+//! and keep each [`Clock`] pinned to its process. A whole [`Clock`] or
+//! [`Party`] crosses the wire only when the identity itself must move: a
+//! hand-off, or a retiring peer sending its clock to a survivor — any live
+//! peer can absorb it, since [`join`](Clock::join) needs only disjointness.
+//! At that boundary, linearity becomes your job (the second safety rule):
+//! the type system cannot see that a clock whose bytes left the process now
+//! exists twice, so treat encode-then-send as a *move* and stop using the
+//! local handle.
+//!
+//! ## Comparing and ordering versions
+//!
+//! Causality itself is the partial order on [`Version`]: `a <= b` tests
+//! containment of history, and two versions with no containing order are
+//! [`concurrent`](Version::concurrent). Two tools extend it:
+//!
+//! - **Filtering**: the [`causally`] module names causal ranges —
+//!   [`since(a)`](causally::since) is everything `a` does not already
+//!   contain, [`before(b)`](causally::before) everything strictly contained
+//!   in `b`, and [`delta(a, b)`](causally::delta) everything known at `b`
+//!   but not at `a`: the shape of "what my peer has not seen yet". Each is
+//!   a [`causally::Range`], a
+//!   [`RangeBounds<Version>`](std::ops::RangeBounds) whose membership
+//!   predicate is causal containment.
+//! - **Sorting**: where a *total* order over versions is needed, [`Rank`]
+//!   measures a version by a quantity that strictly grows with every tick
+//!   (the exact area under its event tree), so `v < w` implies
+//!   `v.rank() < w.rank()`: causes always sort before their effects. Only
+//!   concurrent versions can tie, and any deterministic tiebreak then
+//!   yields the same total order on every replica. [`Ranked`] packages a
+//!   version with its rank as a ready-made totally ordered key, tiebroken
+//!   by canonical bytes.
+//!
+//! ## How it works
+//!
+//! The insight of the original ITC paper is that a [`Party`] can be
+//! represented as a *tree* denoting a non-empty set of subintervals of
+//! `[0, 1)` — each node splits its interval in half, and a leaf marks its
+//! whole subinterval owned or not — giving both compact representation and
+//! dynamic membership. The initial [`Party`], [`Party::seed`], is
+//! `{ [0, 1) }`; a [`fork`](Party::fork) splits an interval in half, so the
+//! first fork yields `{ [0, 1/2) }` and `{ [1/2, 1) }`. Disjoint interval
+//! sets are [`join`](Party::join)ed by set union, merging adjacent
+//! intervals: `{ [0, 1/2), [5/8, 3/4) }` ∪ `{ [3/4, 1) }` = `{ [0, 1/2),
+//! [5/8, 1) }`. Parties can therefore be minted and recycled freely while
+//! their representations stay small.
+//!
+//! A [`Version`] is then a function from `[0, 1)` to the natural numbers,
+//! also represented as a tree, with the initial [`Version`] the
+//! constantly-zero function. To register an event for a [`Party`], it
+//! suffices to increment the function over any non-empty region owned by
+//! that party. Any such choice is valid because a successor timestamp only
+//! has to dominate its predecessor — everywhere at least as high, somewhere
+//! strictly higher — and disjointness guarantees no other party ever
+//! increments the same region. That freedom lets the implementation prefer
+//! the increment that *simplifies* the tree, flattening a party's region to
+//! one plateau rather than stacking detail; ticks flatten and joins merge
+//! fragments, which is why typical sizes stay small — hundreds to low
+//! thousands of bytes even for hundreds of communicating processes and
+//! millions of events (see [Efficiency](#efficiency)).
+//!
+//! These functions form a *lattice* — a partial order in which any two
+//! elements have a least combined upper bound — and that lattice is the
+//! [`Version`] API: the partial order `<=` tests whether one version's
+//! history is contained in another's, the join `|` combines two histories
+//! into their least upper bound, the meet `&` keeps exactly the history two
+//! versions share, and [`tick`](Version::tick) moves strictly upward. Two
+//! histories with no containing order are
+//! *[`concurrent`](Version::concurrent)*. Packaging a [`Version`] and a
+//! [`Party`] together into a [`Clock`] gives a causal clock which may be
+//! [`tick`](Clock::tick)ed, [`fork`](Clock::fork)ed, and
+//! [`join`](Clock::join)ed, in addition to derived operations like
+//! [`send`](Clock::send), [`recv`](Clock::recv), and [`sync`](Clock::sync)
+//! (a mutual exchange: both clocks end holding the joined history).
+//!
+//! How the crate makes all of this compact and fast — the packed
+//! representation, the coding, and the sweeps every operation runs as — is
+//! the [`implementation`] module's essay, with a worked example in hand.
+//!
+//! ## Efficiency
+//!
+//! At 100 parties and 1,000,000 events, the expected size of a [`Party`] is
+//! about 3 bytes and the expected size of a [`Version`] is about 100 bytes
+//! (measured: the space-consumption experiment that draws the figure below).
+//! These figures assume static membership; continually [`fork`](Clock::fork)ing
+//! and [`join`](Clock::join)ing causes these to grow, but with reasonable
+//! bounds. Under sustained membership churn, those same 100 parties will each
+//! stabilize at around 50 bytes (growing linearly in the number of parties
+//! `N`) and their corresponding versions at around 2,000 bytes (roughly
+//! `N²`).
+//!
+//! ![Space consumption of `before`'s interval-tree versions][space-consumption]
+//!
+//! This crate implements cache-friendly, optimized versions of the operations
+//! in the original paper, in addition to a host of useful operations not
+//! described therein. Compared to a 1-to-1 transliteration of the paper into
+//! Rust, [`before`](crate) is between 2–20× faster (measured: the workspace
+//! bench suite times every operation against that transliteration, kept
+//! in-tree as the differential-testing oracle).
+//!
+//! ## Crate features
+//!
+//! Every feature is off by default.
+//!
+//! - **`serde`** — `Serialize`/`Deserialize` for [`Party`], [`Version`], and
+//!   [`Clock`], each as its canonical byte encoding; deserializing runs the
+//!   same strict validation as [`decode`](Clock::decode).
+//! - **`borsh`** — `BorshSerialize`/`BorshDeserialize`, likewise as the
+//!   canonical encodings. The encodings are *prefix-free* — no value's
+//!   encoding is a prefix of another's, so a decoder knows where each value
+//!   ends — and values therefore compose inside larger borsh messages
+//!   without a length prefix.
+//! - **`doc-images`** — embeds the space-consumption diagram above into the
+//!   rendered docs (`cargo doc --all-features`).
+//! - **`oracle`** and **`meter`** (plus the meter's counter switches
+//!   `limb-meter` and `scan-meter`) — expose the crate's own verification
+//!   instruments — the paper-faithful reference implementation, and the
+//!   input generators and resource meters behind the performance tests — to
+//!   its bench and metering suites. Never for production use.
+//!
 //! ## Testing
 //!
 //! Every operation is verified differentially against the paper's naive
 //! recursive implementation as well as a nondeterministic function-space
-//! semantics, alongside exhaustive small-scope enumeration of clock shapes,
+//! semantics (versions modeled as literal mathematical functions, with
+//! tick's freedom of where to increment exercised nondeterministically),
+//! alongside exhaustive small-scope enumeration of clock shapes,
 //! algebraic-law property suites, and fuzzed codecs (`decode`'s strict
 //! canonicality is asserted inline in the fuzz targets).
 
@@ -281,6 +418,210 @@ pub mod iter {
     //! assert_eq!(shares.len(), 3);
     //! ```
     pub use crate::{clock::Forks as Clock, party::Forks as Party};
+}
+pub mod implementation {
+    //! How [`before`](crate) works inside: the skyline, the packed
+    //! representation, and the sweep kernels.
+    //!
+    //! End-user documentation lives in the [crate docs](crate) and on the
+    //! public items; here we discuss the design. Nothing on this page adds
+    //! to the public contract — it explains why the crate behaves, and
+    //! costs, the way the contracts say it does. Where the crate docs' [How
+    //! it works](crate#how-it-works) section sketches the paper's model,
+    //! this page walks the machinery, one small example in hand.
+    //!
+    //! ## The skyline
+    //!
+    //! Start with what a version *is*. The crate docs define a
+    //! [`Version`](crate::Version) as a function from the unit id interval
+    //! `[0, 1)` to the naturals — how many events each point of the id
+    //! space has seen. Plot that function and you get plateaus of differing
+    //! heights over subintervals: a city *skyline*. Here is the version
+    //! written `(0, 1, (0, 0, 2))` in the paper's tree notation, drawn as
+    //! the function it denotes:
+    //!
+    //! ```text
+    //! 2 │                  ┌────────
+    //! 1 │────────┐         │
+    //! 0 │        └─────────┘
+    //!   0       1/2       3/4      1
+    //! ```
+    //!
+    //! The skyline is the semantics; a tree is just one way to spell it (in
+    //! `(n, l, r)` notation, a node's number lifts its whole subtree and
+    //! each child covers half its parent's interval). Every operation is a
+    //! pointwise statement about the skyline: causal comparison is
+    //! pointwise `<=` — one history contains another exactly when its
+    //! skyline is nowhere lower — join `|` is pointwise max, meet `&` is
+    //! pointwise min, and [`rank`](crate::Version::rank) is the **area
+    //! under the skyline**: for the drawing above, `1·½ + 0·¼ + 2·¼ = 1`.
+    //! (An area over dyadic intervals is a dyadic rational, `num · 2⁻ᵉˣᵖ`,
+    //! which [`Rank`](crate::Rank) keeps exact at any magnitude — the
+    //! exactness behind its strict-monotonicity guarantee.)
+    //!
+    //! A [`Party`](crate::Party) has a skyline reading too, one step
+    //! simpler: a 0-or-1 landscape over the same interval — 1 where the
+    //! party owns the id space, 0 where it does not. Disjoint parties are
+    //! landscapes whose owned regions never overlap, and a tick raises the
+    //! version's skyline somewhere over the party's owned region: anywhere
+    //! there will do, since a successor timestamp only has to dominate its
+    //! predecessor and no other party ever writes that region.
+    //!
+    //! ## The packed representation
+    //!
+    //! At rest, a party, version, or clock is exactly its wire encoding:
+    //! one packed bit stream in one heap buffer. There is no node graph
+    //! behind the API — the tree exists only as the order of bits in the
+    //! stream — so [`encode`](crate::Version::encode) is a copy of the
+    //! stored bytes, [`decode`](crate::Version::decode) validates the input
+    //! and adopts the buffer as the new value's own storage (no re-encode,
+    //! no second copy), and a value's memory footprint is its wire
+    //! footprint.
+    //!
+    //! **Ids.** A party's tree is written in preorder, two bits per node,
+    //! answering "does a left child follow?" and "does a right child
+    //! follow?". A wholly unowned region is simply *absent* — its parent's
+    //! tag already said so, and no bits follow — while the childless tag is
+    //! a terminal, a wholly owned region. So the seed, owning everything,
+    //! is one terminal: two bits. The party `(1, 0)` that keeps the left
+    //! half after one fork is a left-only node and then its terminal: four
+    //! bits.
+    //!
+    //! ```
+    //! use before::Party;
+    //! assert_eq!(Party::seed().encoded_bits(), 2);
+    //! assert_eq!("(1, 0)".parse::<Party>().unwrap().encoded_bits(), 4);
+    //! ```
+    //!
+    //! **Versions.** A version's tree is one topology flag per preorder
+    //! node — internal or leaf — with each leaf's plateau height following
+    //! its flag in the stream. Unlike the paper's trees, interior nodes
+    //! carry no numbers: heights are absolute at the leaves, which read
+    //! left to right *are* the skyline. The first height is stored
+    //! outright; each later one as the difference from its predecessor,
+    //! because neighboring plateaus tend to sit close in height even when
+    //! both stand very tall. A difference can be negative, so it is first
+    //! folded onto the naturals (*zigzag*: `+k → 2k`, `−k → 2k−1`) and then
+    //! written as a variable-length integer code (*Elias gamma*) that
+    //! spends bits in proportion to the number's size — so a run of
+    //! similar heights costs a few bits per leaf no matter how tall it
+    //! stands. Our example `(0, 1, (0, 0, 2))` becomes five topology flags
+    //! and the payload sequence `1, −1, +2` (the absolute `1`, then zigzags
+    //! `1` and `4`): sixteen bits in all.
+    //!
+    //! ```
+    //! use before::Version;
+    //! let v: Version = "(0, 1, (0, 0, 2))".parse().unwrap();
+    //! assert_eq!(v.encoded_bits(), 16);
+    //! ```
+    //!
+    //! **Canonical form.** Each skyline has exactly one spelling. The
+    //! topology must be minimal — `(0, (0, 1, 1), 0)` draws the same
+    //! function as `(0, 1, 0)`, so equal sibling leaf plateaus always
+    //! merge — and no delta may drive a height below zero. (Heights being
+    //! absolute, the paper's other normalization, lifting a common minimum
+    //! into the parent, has no analogue here.) Unique spelling is what buys
+    //! the cheap guarantees: byte equality *is* value equality, so `==` and
+    //! hashing are byte operations, and decode can afford to reject rather
+    //! than repair — every valid value has exactly one acceptable input.
+    //!
+    //! ## The sweep kernels
+    //!
+    //! Every operation is one left-to-right sweep over its operands'
+    //! streams, and no sweep ever materializes a node tree.
+    //!
+    //! Take the join of `a = (0, 1, 0)` and `b = (0, 0, (0, 0, 2))`. Their
+    //! plateau boundaries differ — `a` steps at ½, `b` at ¾ — so the sweep
+    //! overlays the two partitions and walks the pieces on which both are
+    //! flat: `[0, ½)`, `[½, ¾)`, `[¾, 1)`. On each piece it takes the
+    //! pointwise max — `max(1, 0)`, `max(0, 0)`, `max(0, 2)` — and what it
+    //! carries between pieces is not two absolute heights but one running
+    //! *difference* between the sides, updated from the deltas the streams
+    //! themselves supply. Comparison is the same walk with no output: the
+    //! sign of that difference, watched across the whole sweep, settles
+    //! `<`, `>`, `==`, or concurrent. The measures fold over the same
+    //! alignment — [`rank`](crate::Version::rank) accumulates area;
+    //! [`distance`](crate::Version::distance) and
+    //! [`lag`](crate::Version::lag) accumulate the area the operands don't
+    //! share, both ways or one way; [`min_ticks`](crate::Version::min_ticks)
+    //! counts the fewest events that could have built the skyline — and so
+    //! does the projection `v / &p`, which keeps `v`'s skyline where party
+    //! `p` owns and zeroes it elsewhere.
+    //!
+    //! ```
+    //! use before::Version;
+    //! let a: Version = "(0, 1, 0)".parse().unwrap();
+    //! let b: Version = "(0, 0, (0, 0, 2))".parse().unwrap();
+    //! assert_eq!((&a | &b).to_string(), "(0, 1, (0, 0, 2))");
+    //! ```
+    //!
+    //! The join's result must itself be canonical, and the emitting sweep
+    //! makes it so *while streaming*: output plateaus feed a collapsing
+    //! builder that derives the result's topology from their depths and
+    //! merges equal sibling leaves the moment the second of a pair
+    //! completes. A merge can cascade upward, but only through the
+    //! ancestors still open on the right edge of the tree, so the builder
+    //! holds just that pending spine — state bounded by depth — and the
+    //! result is born in normal form, never normalized after the fact.
+    //!
+    //! A tick is the one asymmetric sweep: it pairs the party's id stream
+    //! against the version's and first plays the paper's `fill`, collapsing
+    //! every subtree the party wholly owns to a single plateau at that
+    //! subtree's maximum height (plus the paper's shortcut raises where
+    //! that lets a parent simplify). If filling changed the stream
+    //! anywhere, the flattening itself recorded the event. If it changed
+    //! nothing, the same walk has already scored every point where the
+    //! party could grow instead — cheapest by fewest added nodes, then by
+    //! shallowest depth — and one splice rebuilds exactly the winning
+    //! root-to-leaf path, copying everything off that path as verbatim bit
+    //! ranges.
+    //!
+    //! ```
+    //! use before::{Party, Version};
+    //! let p: Party = "(1, 0)".parse().unwrap();
+    //! let mut v: Version = "(0, 1, (0, 0, 2))".parse().unwrap();
+    //! v.tick(&p); // p's half is already flat: fill changes nothing, so grow
+    //! assert_eq!(v.to_string(), "(0, 2, (0, 0, 2))");
+    //! ```
+    //!
+    //! Even strict decoding is a sweep: validation replays the topology on
+    //! a couple of bits per open ancestor and one running height for the
+    //! nonnegativity check, never a parsed tree.
+    //!
+    //! Working this way, the kernels touch memory the way caches like —
+    //! forward, densely, once — and transient state stays proportional to
+    //! the answer rather than to the operand's shape. Heights are
+    //! arbitrary-precision (a tick can always raise a plateau past any
+    //! fixed width): in the stream a height is just its code, however wide,
+    //! and during a sweep a decoded value lives inline in machine words
+    //! until it outgrows two of them, only then spilling to a heap integer.
+    //! And no operand shape can overflow the call stack: traversals either
+    //! run iteratively or move the stack onto the heap before descending
+    //! (recursion resumes on a freshly allocated segment when the native
+    //! stack runs low).
+    //!
+    //! ## The trades
+    //!
+    //! **Compactness over random access.** A packed stream has no `O(1)`
+    //! subtree access: every question is answered from the front. That is
+    //! the right trade here because the API asks no random-access
+    //! questions — comparison, join, meet, tick, and the measures are
+    //! whole-value operations, and the packed form makes each a linear scan
+    //! over a few dozen to a few thousand contiguous bytes. What the trade
+    //! rules out is cheap point queries ("the height at this id"), which
+    //! the public API deliberately does not offer.
+    //!
+    //! **Strictness over tolerance.** [`decode`](crate::Version::decode)
+    //! rejects every non-canonical spelling rather than normalizing it.
+    //! Repair would be friendlier to bytes built by hand — a foreign
+    //! implementation, a debugging human — but it would break the identity
+    //! that equality, hashing, and cross-replica agreement rest on: byte
+    //! equality *is* value equality.
+    //!
+    //! How we convince ourselves all of this is correct is the [crate
+    //! docs](crate)' Testing section: every kernel is pinned differentially
+    //! against the paper's recursive trees, which stay in-tree as the
+    //! oracle.
 }
 
 // No outer doc comment: one here would merge with the module's inner docs
