@@ -156,6 +156,7 @@ features:
     cargo check -p before --no-default-features --features borsh
     cargo check -p before --no-default-features --features oracle
     cargo check -p before --no-default-features --features meter
+    cargo check -p before --no-default-features --features laws
     cargo check -p before --no-default-features --features limb-meter
     cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh

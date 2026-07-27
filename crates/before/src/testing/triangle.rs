@@ -249,7 +249,7 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         op: "Party::dangerously_alias",
         prod_tree: Leg::Excluded(
             "aliasing violates production linearity by design; the Clone oracle has no \
-             counterpart — pinned on production by dangerously_alias_aliases_region",
+             counterpart — pinned on production by the alias_is_byte_identical_overlap law",
         ),
         prod_fs: Leg::Excluded(
             "linearity mechanics of the Rust API — ratified by owner, 2026-07-26",
@@ -439,7 +439,7 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         op: "Clock::dangerously_alias",
         prod_tree: Leg::Excluded(
             "linearity mechanics; an O(1) two-field composition over the party alias, \
-             which dangerously_alias_aliases_region pins",
+             which the alias_is_byte_identical_overlap law pins",
         ),
         prod_fs: Leg::Excluded(
             "linearity mechanics of the Rust API — ratified by owner, 2026-07-26",

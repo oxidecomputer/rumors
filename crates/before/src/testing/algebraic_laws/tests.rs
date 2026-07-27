@@ -141,9 +141,10 @@ proptest! {
 proptest! {
     /// Every [`laws::RANK_TRIPLE`] law holds on ranks derived from
     /// arbitrary normal-form versions (their own ranks and a genuine
-    /// distance) — organically related magnitudes; the adversarial
-    /// spilled-magnitude regime is driven where the rank machinery lives,
-    /// in the version suite's rank driver.
+    /// distance) — organically related magnitudes.
+    ///
+    /// The adversarial spilled-magnitude regime is driven where the rank
+    /// machinery lives, in the version suite's rank driver.
     #[test]
     fn rank_triple_laws(a in arb_oracle_version(), b in arb_oracle_version()) {
         let (va, vb) = (ver(&a), ver(&b));
@@ -178,8 +179,9 @@ proptest! {
 // ───────────────────── organic op-trace populations ─────────────────────
 
 proptest! {
-    /// The whole law collection holds over organic op-trace populations:
-    /// the same slices the arbitrary-normal-form drivers iterate, landed on
+    /// The whole law collection holds over organic op-trace populations.
+    ///
+    /// The same slices the arbitrary-normal-form drivers iterate, landed on
     /// the value shapes real fork/tick/join/sync schedules produce (live
     /// sibling parties, causally related versions, reachable clocks).
     #[test]
