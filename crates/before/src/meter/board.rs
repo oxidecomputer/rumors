@@ -481,12 +481,13 @@
 //!   perform no computation over packed inputs; `meter`'s own surface —
 //!   the generators, the counters, this board — is the measurement
 //!   instrument itself, feature-gated out of production builds. The
-//!   `skyline`/`accum` kernels `meter` re-exports are the implementation
+//!   `skyline` kernel `meter` re-exports (and the `suanpan` accumulator
+//!   under it) is the implementation
 //!   under every public operation, public only so the envelope suite can
-//!   pin their internals: every cell of this board already times them at
-//!   the public boundary, their resources are pinned by the envelope
-//!   scenarios in `tests/meter.rs`, and their agreement with the
-//!   recursive oracle is pinned by their differential suites.
+//!   pin its internals: every cell of this board already times it at
+//!   the public boundary, its resources are pinned by the envelope
+//!   scenarios in `tests/meter.rs`, and its agreement with the
+//!   recursive oracle is pinned by its differential suites.
 //! - **The rejection surface's bounded-or-delegated remainder** (the
 //!   rejection rows above price the rest): `Clock::join_all`'s overlap
 //!   hand-back runs the identical up-front indexed test against self
