@@ -87,6 +87,7 @@ clippy:
 
 # Lint the default-feature library builds, warnings denied.
 clippy-default:
+    cargo clippy -p suanpan -- -D warnings
     cargo clippy -p before -- -D warnings
     cargo clippy -p rumors -- -D warnings
 
@@ -151,6 +152,8 @@ gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-int
 
 # Feature matrix: every cfg-gated surface on its own, so nothing rots behind `--all-features`.
 features:
+    cargo check -p suanpan --no-default-features
+    cargo check -p suanpan --no-default-features --features touch-meter
     cargo check -p before --no-default-features
     cargo check -p before --no-default-features --features serde
     cargo check -p before --no-default-features --features borsh
