@@ -76,7 +76,8 @@
 use std::cmp::Ordering;
 use std::ops::{Bound, RangeBounds};
 
-use crate::error::Crossed;
+pub use crate::error::Crossed;
+
 use crate::Version;
 
 /// A causal version range: a pair of [`Bound`]s.
