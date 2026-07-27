@@ -1,11 +1,12 @@
 //! Pins for the adversarial generators: each shape decodes, re-encodes
 //! byte-identically, and has exactly its closed-form bit length.
 
+use crate::codec;
 use crate::{Party, Version};
 
 use super::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    id_spine, jump_comb, scattered_id, wide_tooth_comb, Packed,
+    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense, harmonic,
+    hugeleaf, id_spine, jump_comb, jump_pair, scattered_id, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -403,4 +404,92 @@ fn scattered_id_decodes_canonically_at_predicted_length() {
         n,
         k
     );
+}
+
+/// The leaf count of a stored version's skyline stream, by one iterative
+/// topology walk (payload codes skipped unread).
+fn leaf_count(v: &Version) -> usize {
+    let all = codec::bytes_as_bits(v.as_bytes());
+    let bits = &all[..v.encoded_bits()];
+    let mut pos = 0usize;
+    let mut pending = 1usize;
+    let mut leaves = 0usize;
+    while pending > 0 {
+        pending -= 1;
+        if bits[pos] {
+            pos += 1;
+            pending += 2;
+            continue;
+        }
+        pos = codec::skip_int(bits, pos + 1).expect("a stored stream is canonical");
+        leaves += 1;
+    }
+    leaves
+}
+
+/// `JP(k, m, d)` is canonical normal form at its closed-form bit
+/// lengths, and its overlays realize the interleave the family exists
+/// for.
+///
+/// The lengths: exactly `132d + m(2k + 14) + 2` bits (teeth) and
+/// `132d + 14m + 2k + 2` bits (band). The overlays: the meet keeps both
+/// band leaves per tooth and both gap leaves per level (4 leaves per
+/// comb level — a cheap code one fold behind every wide switch jump),
+/// while the join collapses every comb level to its two plateaus (the
+/// band shades every gap, so the join stays cheap and the wedge is the
+/// meet's alone).
+#[test]
+fn jump_pair_decodes_canonically_at_predicted_lengths_and_interleaves() {
+    for (k, m, d) in [(3, 1, 1), (400, 8, 2)] {
+        let (a, b) = jump_pair(k, m, d);
+        check_version(&a, 132 * d + m * (2 * k + 14) + 2);
+        check_version(&b, 132 * d + 14 * m + 2 * k + 2);
+        let (a, b) = (a.version(), b.version());
+        let spine_leaves = super::JUMP_PAIR_DIGIT_STRIDE * d;
+        assert_eq!(
+            leaf_count(&(&a & &b)),
+            spine_leaves + 4 * m + 1,
+            "the meet must keep the band and gap interleave whole"
+        );
+        assert_eq!(
+            leaf_count(&(&a | &b)),
+            spine_leaves + 2 * m + 1,
+            "the join must collapse each comb level to its two plateaus"
+        );
+        // The valuation identity, on the public surface: the pair's
+        // distance is its two lags' sum (rank modularity).
+        let d1 = a.lag(&b);
+        let d2 = b.lag(&a);
+        assert_eq!(a.distance(&b), &d1 + &d2, "distance is the lags' sum");
+    }
+}
+
+/// `CP(n)` builds two genuinely concurrent organic versions that switch
+/// sides at every overlay boundary.
+///
+/// The join and the meet both keep one plateau per forked leaf — every
+/// one of the `n − 1` overlay boundaries a side switch — and the
+/// distance is the integer rank 2 at every `n` (each leaf's dominant
+/// and dominated heights differ by exactly 2, so the schedule's heights
+/// are realized end to end).
+#[test]
+fn concurrent_pair_alternates_dominance_at_every_boundary() {
+    for n in [4, 64] {
+        let (v, w) = concurrent_pair(n);
+        assert!(v.concurrent(&w), "the pair must be causally concurrent");
+        assert_eq!(
+            leaf_count(&(&v | &w)),
+            n,
+            "the join must keep one plateau per forked leaf"
+        );
+        assert_eq!(
+            leaf_count(&(&v & &w)),
+            n,
+            "the meet must keep one plateau per forked leaf"
+        );
+        let two = Version::try_from(2u64)
+            .expect("a small integer version is valid")
+            .rank();
+        assert_eq!(v.distance(&w), two, "the schedule's heights are realized");
+    }
 }
