@@ -30,10 +30,11 @@ fuzz_target!(|data: &[u8]| {
     before_fuzz::under_heap_cap(|| run(data));
 });
 
-/// Carve the next length-prefixed chunk off the front of the input. The
-/// length is capped at the remainder, so a hostile prefix cannot index out
-/// of bounds; an exhausted input yields empty chunks (which fail decode and
-/// fall back).
+/// Carve the next length-prefixed chunk off the front of the input.
+///
+/// The length is capped at the remainder, so a hostile prefix cannot index
+/// out of bounds; an exhausted input yields empty chunks (which fail decode
+/// and fall back).
 fn chunk<'d>(data: &mut &'d [u8]) -> &'d [u8] {
     let Some((&len, rest)) = data.split_first() else {
         *data = &[];

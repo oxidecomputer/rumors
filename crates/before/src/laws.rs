@@ -1090,9 +1090,10 @@ fn rank_cmp_antisymmetric(a: &Rank, b: &Rank, _c: &Rank) -> bool {
 }
 
 /// Value-equal ranks built along different operation paths — pairwise
-/// addition, `Sum`, and add-then-subtract — are one structural value, equal
-/// under `Eq` and under `Hash` (the normalization invariant `Ord`'s
-/// class-first fast path and every container key rest on).
+/// addition, `Sum`, and add-then-subtract — are one structural value.
+///
+/// Equal under `Eq` and under `Hash`: the normalization invariant `Ord`'s
+/// class-first fast path and every container key rest on.
 fn rank_cross_path_normalization(a: &Rank, b: &Rank, c: &Rank) -> bool {
     let via_add = a + b;
     let via_sum = [a.clone(), b.clone()].into_iter().sum::<Rank>();

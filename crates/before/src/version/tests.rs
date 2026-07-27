@@ -1397,9 +1397,11 @@ proptest! {
     }
 
     /// Every `laws::RANK_TRIPLE` law (the monoid, order, and cross-path
-    /// normalization laws) holds on adversarial seeded ranks — mixed
-    /// magnitude classes, spilled numerators, and perturbed exponents the
-    /// version-derived driver in the algebraic-laws suite cannot reach.
+    /// normalization laws) holds on adversarial seeded ranks.
+    ///
+    /// Mixed magnitude classes, spilled numerators, and perturbed exponents:
+    /// the regime the version-derived driver in the algebraic-laws suite
+    /// cannot reach.
     #[test]
     fn rank_triple_laws_on_seeded_ranks(seeds in proptest::collection::vec(any::<u64>(), 3)) {
         let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();

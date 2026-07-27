@@ -138,11 +138,12 @@ fn laws_chunk<'d>(data: &mut &'d [u8]) -> &'d [u8] {
 }
 
 /// Every `fuzz_laws` seed decodes positionally per the target's framing —
-/// three versions, two parties, a clock, nothing left over — so no chunk
-/// silently falls back to a default and stops representing the value it
-/// was written for. The wide-gamma seed really is wide: its first version
-/// is a magnitude past `u64::MAX` (a 21+-digit leaf), the decode tier
-/// random bytes essentially never reach.
+/// three versions, two parties, a clock, nothing left over.
+///
+/// So no chunk silently falls back to a default and stops representing the
+/// value it was written for. And the wide-gamma seed really is wide: its
+/// first version is a magnitude past `u64::MAX` (a 21+-digit leaf), the
+/// decode tier random bytes essentially never reach.
 #[test]
 fn laws_seeds_decode_per_framing_and_stay_wide() {
     let mut saw_wide = false;
