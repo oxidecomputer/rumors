@@ -186,9 +186,14 @@ redundant numerical representations, Kulisch accumulators, and
 unsaturated crypto limbs as production precedent — but no packaged
 general-purpose form of it exists, and the collapsing sign fold plus
 the domination-floor query layer appears novel as an integrated
-contract. Extraction as a crate is the dissolution dual, the owner's
-call; citing the tradition in the module docs is a candidate for the
-campaign's doc pass (task #42).
+contract. DECIDED 2026-07-27 (owner): the accumulator is marked for
+extraction into its own workspace crate post-campaign — the
+dissolution dual, taken — with the tradition cited as inspiration in
+its module docs during the legibility pass, where its crate name is
+also chosen; the touch-meter instrumentation and the envelope suite's
+ceilings and liveness floors move with it under the instrument
+ratchet (the moved meter demonstrates it still catches before the
+old wiring is deleted).
 
 ### 2.5 Branchless sweep arms
 
