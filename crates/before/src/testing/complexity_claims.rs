@@ -21,12 +21,14 @@
 //!   red set (`tools/benchjudge-expected.json`, itself membership-pinned
 //!   by `tests/bench_judge_roster.rs`) — both directions, so curing a red
 //!   or flipping a class reaches the rustdoc through a failing name here.
-//! - **Class liveness**: the two non-linear classes keep deterministic
-//!   growth pins proving the documented behavior still exists — the
-//!   render merge's superlinear limb growth on the wide left-full shape,
-//!   and the n-ary fold's log factor on the scatter population. A cure
-//!   landing flips the pin red, forcing roster and rustdoc to move in the
-//!   same change.
+//! - **Class liveness**: every non-linear class keeps a deterministic
+//!   growth pin proving the documented behavior still exists — the
+//!   render merge's superlinear limb growth on the wide left-full shape
+//!   and the n-ary fold's log factor on the scatter population live in
+//!   this suite; the distance fold's cross-stream growth floor lives
+//!   with the resource envelopes (`tests/meter.rs`, the two-operand
+//!   jump-comb band). A cure landing flips the pin red, forcing roster
+//!   and rustdoc to move in the same change.
 //!
 //! Totality rides the triangle surface: every name in
 //! [`triangle::extract_public_fns`] and [`triangle::FAMILY_SURFACE`] has
@@ -56,9 +58,12 @@ pub(crate) enum Class {
     /// on the fold rows' deterministic exponents and scale-growing
     /// constants.
     FoldLog,
-    /// The display pair: linear space, superlinear worst-case time (value
-    /// conversion plus the render merge), red on the bench judge's
-    /// committed roster.
+    /// Linear space, superlinear worst-case time, red on the bench
+    /// judge's committed roster.
+    ///
+    /// The members: the display pair (value conversion plus the render
+    /// merge) and the distance fold (the meet-side rank fold's height
+    /// evictions on adversarial concurrent pairs).
     SuperlinearTime,
 }
 
@@ -318,9 +323,9 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::distance",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            tokens: &["`O(|a| + |b|)`", "superlinear"],
         }],
-        cells: Cells::Board(&[("version_distance", Class::Linear)]),
+        cells: Cells::Board(&[("version_distance", Class::SuperlinearTime)]),
     },
     Claim {
         op: "Version::lag",

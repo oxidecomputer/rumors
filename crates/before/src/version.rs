@@ -249,7 +249,13 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` time and space.
+    /// `O(|a| + |b|)` space. Time is **superlinear** in the worst case:
+    /// on adversarial concurrent pairs whose overlay interleaves one
+    /// operand's wide plateaus with the other's cheap variation, the
+    /// meet-side rank fold's height-eviction corrections grow faster
+    /// than the operands, while comparable pairs and organic histories
+    /// measure linear. The excess is not contractual: a future release
+    /// may compute the distance in amortized `O(|a| + |b|)` time.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
