@@ -663,6 +663,51 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   fails the commit that carries it, with `fuzzfit-calibrate` as
   the deliberate re-pin path. Companion entry in the instrument's
   own decision record (`design/before-fuzzfit-asymptotics.md` §9).
+- **DECIDED 2026-07-27 (#53): `exhaustive_deep` attributed, cut
+  to the ratified leg split, rewired to the public ops; the
+  verdict pair product measured above proportion and reported.**
+  Attribution (stride-sampled leg toggles, release, 16 cores):
+  the id pair worker prices at ~91 ns/pair wall — is_disjoint
+  6.3, covers +5.8, sum +12.2, diff +66.2 — so the
+  allocate-convert-compare legs are ~87% of the worker, the
+  region-difference leg alone ~73%, confirming the filed
+  mechanism in ratio. The filed hours-scale runtime is *mostly
+  not those legs' sampled cost*: sampled extrapolation
+  (linearity checked 16.8M → 268M pairs, +4%) prices even the
+  full four-leg worker at ~7 min, but the full 65536² product
+  runs its *verdict-only* trim past a 45-minute cap twice (one
+  row-major, one cache-tiled, quiet machine, 2026-07-27) — the
+  expensive verdict pairs are structurally *similar* trees,
+  dense in the full product's near-diagonal blocks and
+  quadratically thinned by any strided sample; cache tiling
+  bought no measurable relief, so the cost is walk compute, not
+  misses. Cure landed as ratified: deep = codec + fork +
+  verdict legs + tick with the brute-force grow-minimality pin
+  (its irreplaceable value, ~1 min of the run); `join`/`without`
+  structural pair legs run exhaustively at the small bound, deep
+  structural reach riding on the sampled differentials; the
+  anonymous id leaves the corpus at lowering (never a standalone
+  `Party`; its per-pair emptiness test was two boxed-tree walks
+  × 4.3G pairs in a first, abandoned run). Annotations
+  re-denominated to the measured state (hour-scale bound, dated,
+  with the sampling caveat written down). Rewired to the public
+  surface: `IdReader::split → Party::fork`, `IdReader::sum →
+  Party::join` (Result contract, receiver-unmodified/hand-back
+  on overlap now asserted), `IdReader::diff → Party::without`
+  (Option contract); `id_join_is_commutative` replaces the
+  reader-level sum law; event checks verified already-public; no
+  internal entries kept. Oracle operating envelope written into
+  `oracle.rs` (small-scope only; harnesses bound inputs — the
+  oracle is never hardened; fidelity outranks robustness);
+  envelope audit: every oracle-facing suite bounded (arb
+  generators depth 4, op-traces ≤ 120 ops, family grids scale
+  ≤ 64, exhaustive depth ≤ 4; the 4096-spine and 100k-spine
+  suites are impl-only with closed-form witnesses). OPEN to the
+  owner (dissolution question): whether deterministic
+  verdict-pair totality over the 65536-id corpus is worth an
+  hour-scale detached run, against deep = tick pin + per-id
+  checks at minutes — the instrument stays as ratified until
+  ruled.
 
 ## 13. The metering gate
 
