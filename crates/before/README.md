@@ -78,8 +78,7 @@ clock. `Version`s are freely `Clone`able. A tick pairs the two
 halves — `party.tick(&mut version)` and `version.tick(&party)` are the
 same act from either receiver (`Party::tick`, `Version::tick`) — and
 `Clock::tick` performs it on its own pair.
-The `batch` module chains several operations through one borrow; the
-`iter` module forks `n` peers in one balanced split.
+The `iter` module forks `n` peers in one balanced split.
 
 ### Version vector or vector clock?
 

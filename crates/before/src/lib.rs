@@ -74,8 +74,7 @@
 //! halves — `party.tick(&mut version)` and `version.tick(&party)` are the
 //! same act from either receiver ([`Party::tick`], [`Version::tick`]) — and
 //! [`Clock::tick`] performs it on its own pair.
-//! The [`batch`] module chains several operations through one borrow; the
-//! [`iter`] module forks `n` peers in one balanced split.
+//! The [`iter`] module forks `n` peers in one balanced split.
 //!
 //! ## Version vector or vector clock?
 //!
@@ -409,19 +408,6 @@ pub mod causally;
 pub mod error;
 pub use party::Party;
 pub use version::{Rank, Ranked, Version};
-pub mod batch {
-    //! [`batch::Clock`](Clock) and [`batch::Version`](Version) apply a run
-    //! of operations through one mutable borrow, each committing as it
-    //! runs, with a chainable API.
-    //!
-    //! ```
-    //! use before::{batch, Clock};
-    //! let mut clock = Clock::seed();
-    //! clock.batch().tick().tick().tick().tick();  // four ticks, one borrow
-    //! assert_eq!(clock.version().to_string(), "4");
-    //! ```
-    pub use crate::{clock::Batch as Clock, version::Batch as Version};
-}
 pub mod iter {
     //! Lazy balanced-fork iterators: [`iter::Party`](Party) and
     //! [`iter::Clock`](Clock).

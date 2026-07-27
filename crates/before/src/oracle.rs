@@ -4,10 +4,9 @@
 //! is no second representation to keep in sync. Deliberately simple,
 //! suboptimal, and recursive: its only job is to be obviously correct, so it
 //! can serve as differential ground truth. It mirrors the target's **semantic**
-//! surface (construction, operations, ordering, operators) and omits the two
-//! purely *representational* concerns that carry no semantics: the byte codec
-//! (`encode`/`decode`) and the batch optimization (a batch only ever equals its
-//! value-level ops).
+//! surface (construction, operations, ordering, operators) and omits the one
+//! purely *representational* concern that carries no semantics: the byte codec
+//! (`encode`/`decode`).
 //!
 //! # Operating envelope
 //!

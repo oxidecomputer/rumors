@@ -78,11 +78,8 @@ fn party_of(label: impl AsRef<[u8]>) -> before::Party {
 fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
     let p = party_of(party);
     let mut v = Version::new();
-    {
-        let mut batch = v.batch();
-        for _ in 0..ticks {
-            batch.tick(&p);
-        }
+    for _ in 0..ticks {
+        v.tick(&p);
     }
     v
 }
@@ -737,7 +734,7 @@ proptest! {
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_a.latest().clone();
-            recorded.batch().tick(&party_of(&a_id));
+            recorded.tick(&party_of(&a_id));
             tree_a.act(&party_of("A"), [insert_action(value.clone())]);
             a_events.push(insert_at(recorded, &a_id, scalar, value.clone()));
         }
@@ -747,7 +744,7 @@ proptest! {
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_b.latest().clone();
-            recorded.batch().tick(&party_of(&b_id));
+            recorded.tick(&party_of(&b_id));
             tree_b.act(&party_of("B"), [insert_action(value.clone())]);
             b_events.push(insert_at(recorded, &b_id, scalar, value.clone()));
         }

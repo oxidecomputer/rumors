@@ -11,7 +11,7 @@ This file indexes the *time leg* only.
 
 ## Method, re-runnable
 
-1. Enumerate the board's product: 64 operation rows over 19 shapes, 989
+1. Enumerate the board's product: 63 operation rows over 19 shapes, 972
    applicable cells (the per-shape derivation and the enforced pin:
    `tests/amp_board_smoke.rs`, `EXPECTED_CELLS`).
 2. Enumerate the bench surface: `cargo bench -p before --bench board --
@@ -29,14 +29,14 @@ This file indexes the *time leg* only.
 
 ## The judged cell inventory
 
-The bench mirror carries the board's 989 cells (`BOARD_BENCH_MODE=full`,
+The bench mirror carries the board's 972 cells (`BOARD_BENCH_MODE=full`,
 the mode for final verdicts: `just bench-judge-full`) plus the two
-judge-only wide-display cells — 991 cells per scale. The judge recipes'
+judge-only wide-display cells — 974 cells per scale. The judge recipes'
 cadence (`just bench-judge`, both scales through the committed roster
-`tools/benchjudge-expected.json`) times the `pinned` subset, 303 cells
+`tools/benchjudge-expected.json`) times the `pinned` subset, 298 cells
 per scale:
 
-- **The designed diagonal (288)**: every operation on `dense`,
+- **The designed diagonal (283)**: every operation on `dense`,
   `benign`, `id-pair`, and `scatter` where applicable; the magnitude
   shapes (`bigroot`, `hugeleaf`, `cliff`) on every group but the rank
   rows; `harmonic` on the measure and rank rows; `comb-scatter` on the
@@ -71,16 +71,15 @@ product (the operand bundles decide applicability; family alone):
 |---|---|---|---|
 | `version_decode` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` (and the serde/borsh deserialize wrappers) |
 | `version_encode` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::encode` (and `encode_to`, `as_bytes` materialization, serialize wrappers) |
-| `version_cmp` | V17 | dense, bigroot, hugeleaf, cliff, benign | `PartialOrd` on `Version`/`batch::Version`, every borrow shape |
+| `version_cmp` | V17 | dense, bigroot, hugeleaf, cliff, benign | `PartialOrd` on `Version`, every borrow shape |
 | `version_eq` | V17 | dense, bigroot, hugeleaf, cliff, benign | `PartialEq` on `Version` (a wholesale byte compare of the canonical streams; the time leg backstops that it stays linear) |
-| `version_concurrent` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::concurrent`, `batch::Version::concurrent` |
-| `version_join` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitOr` on `Version`/`batch::Version` |
+| `version_concurrent` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::concurrent` |
+| `version_join` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitOr` on `Version` |
 | `version_join_assign` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitOrAssign` |
 | `version_meet` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitAnd` |
 | `version_meet_assign` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitAndAssign` |
-| `version_tick` | V17 | dense, bigroot, hugeleaf, cliff, the ten tick crosses, benign | `Version::tick`, `batch::Version::tick` (adversarial version × small party; the tick crosses carry their own (event, id) pair) |
+| `version_tick` | V17 | dense, bigroot, hugeleaf, cliff, the ten tick crosses, benign | `Version::tick` (adversarial version × small party; the tick crosses carry their own (event, id) pair) |
 | `version_tick_adv_party` | P13 | id-pair, benign | the same tick, adversarial party × small version; `Party::tick` is its mirror |
-| `version_batch_snapshot` | V17 | dense, bigroot, hugeleaf, cliff, benign | `batch::Version::snapshot` |
 | `version_rank` | V17 | dense, bigroot, hugeleaf, cliff, harmonic, benign | `Version::rank` (and `Ranked::from`) |
 | `rank_pair_ops` | V17 | dense, harmonic, benign | `Rank::cmp`, `Rank::checked_sub`, `Add` (value-content-denominated; `checked_sub → None` measured here, both directions attempted) |
 | `rank_sum` | V17 | dense, harmonic, benign | `Sum<Rank>`/`Sum<&Rank>` (the mixed high-first fold; `AddAssign` is `Add` in place) |
@@ -106,10 +105,10 @@ product (the operand bundles decide applicability; family alone):
 | `party_hash` | P13 | id-pair, benign | `Hash` on `Party` |
 | `clock_decode` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::decode` |
 | `clock_encode` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::encode` |
-| `clock_tick` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, the ten tick crosses, benign | `Clock::tick` (`send` by definition; `batch::Clock::tick`) |
-| `clock_fork` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::fork`, `batch::Clock::fork` |
-| `clock_join` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::join`, `batch::Clock::join` (accepting arm) |
-| `clock_sync` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::sync`, `batch::Clock::sync` (accepting arm) |
+| `clock_tick` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, the ten tick crosses, benign | `Clock::tick` (`send` by definition) |
+| `clock_fork` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::fork` |
+| `clock_join` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::join` (accepting arm) |
+| `clock_sync` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::sync` (accepting arm) |
 | `clock_recv` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::recv` (`clock \| version` folds through the same path) |
 | `clock_own_version` | X18 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `Clock::own_version` |
 | `clock_display` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign + riders: harmonic, nested-full, mirror-wide, mirror-narrow, staircase | `Display`/`Debug` on `Clock` |
@@ -146,7 +145,7 @@ judged cells) and deliberately do not mirror board IDs.
 
 The canonical list, with per-item mechanism-based reasons, is the board
 module doc's "Coverage: the not-applicable list" (`src/meter/board.rs`).
-Its categories: delegations and aliases (batch operator matrix, `send`,
+Its categories: delegations and aliases (the operator matrices, `send`,
 `Debug`, `Clock::join_all`/clock component validation); folds priced by
 their measured cells (`meet_all`'s bounded accumulator, `forks`);
 bounded or trivial inputs (constructors, seed predicates, `TryFrom`
@@ -227,3 +226,8 @@ cells in four genres.
   (`bench_cells` is the board's own table); every public operation is
   timed by a row above or carried by the board doc's NA list; no gap
   found.
+- 2026-07-27 (#72, batch removal): the owner-ruled removal of the batch
+  API drops the `version_batch_snapshot` row — 63 rows × 19 shapes, 972
+  applicable cells (`EXPECTED_CELLS` moved with the diff), 974 judged
+  cells per scale in full mode, pinned subset 298 (designed diagonal
+  283). All other counts unchanged.

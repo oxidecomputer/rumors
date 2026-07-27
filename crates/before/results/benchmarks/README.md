@@ -29,10 +29,10 @@ Two panels read a different axis:
 - **codec** (`encode`/`decode`) — impl-only. The oracle omits the byte codec by
   design, so these panels show the packed codec's two directions alone, with no
   oracle curve.
-- **`version` k-ticks** — the working-form headline. Tree size is fixed at 64
-  and the x-axis is `k`, the number of ticks applied: `before` batched (one
-  unpack/repack amortized over all `k`) vs. `before` per-tick (unpack/repack
-  each) vs. the oracle (re-normalizes each tick).
+- **`version` k-ticks** — repeated mutation. Tree size is fixed at 64
+  and the x-axis is `k`, the number of ticks applied: `before` per-tick
+  (each tick pays the whole splice) vs. the oracle (re-normalizes each
+  tick).
 
 ## How to read the speedups
 
@@ -47,8 +47,8 @@ representation pays off and where its unpack/repack overhead costs:
 - **Losses** show up in the small, traversal-light operations where the oracle's
   plain pointer-chasing beats the bit-twiddling: `is_disjoint`, the early-bailing
   `partial_cmp` *concurrent*/*ancestor* cases, and per-event `tick` (dominated by
-  unpack/repack of the whole stamp for a one-component change — which is exactly
-  what `batch()` exists to amortize; see the k-ticks panel).
+  re-coding the whole stamp for a one-component change, a cost every tick
+  pays; see the k-ticks panel).
 
 See [`speedup.md`](speedup.md) for the full table.
 
