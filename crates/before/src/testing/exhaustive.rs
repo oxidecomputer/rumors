@@ -35,8 +35,8 @@
 //!
 //! - [`exhaustive_deep`] is `#[ignore]`d and runs at [`ID_DEEP_DEPTH`] /
 //!   [`EV_DEEP_DEPTH`] (65536 ids, 691 events); the `O(corpus²)` id pair-product
-//!   dominates — ~4.5 minutes on a 16-core M4 Max. See its doc comment for how to
-//!   run it.
+//!   dominates — hours-scale, measured runtime open. See its doc comment for how
+//!   to run it.
 
 #[cfg(test)]
 mod tests;
@@ -60,9 +60,9 @@ pub(crate) const EV_SMALL_DEPTH: usize = 2;
 
 /// Inclusive id depth bound for the `#[ignore]`d deep enumeration: 65536 ids.
 ///
-/// The id cross-product is `O(corpus²)` (~4.3 billion pairs); with the
-/// per-tree precompute and `rayon` it runs in ~4.5 minutes on a 16-core M4
-/// Max. See [`tests::exhaustive_deep`].
+/// The id cross-product is `O(corpus²)` (~4.3 billion pairs); its measured
+/// runtime is hours-scale and open (a fully parallel release run had not
+/// completed after 8 h 55 m, 2026-07-27). See [`tests::exhaustive_deep`].
 pub(crate) const ID_DEEP_DEPTH: usize = 4;
 
 /// Inclusive event depth bound for the deep enumeration. Stays at 691 events:

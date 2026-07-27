@@ -626,6 +626,35 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   dispositions stemming from the proposed FS boundary are marked
   in-roster **pending owner ratification (2026-07-26)**; no FS
   differential was added or removed.
+- **DECIDED 2026-07-27 (P5 measurement closeout): envelopes
+  re-pinned, item 11 realized, record sampling retired from the
+  standing cadence.** (i) The envelope suite re-measured whole
+  (one dev run, all 96 scenarios green): three rows moved and were
+  tightened — `ID_WITHOUT` heap 518,219 → 416,888 (`e277ca97`, no
+  dev shadow re-parse of the diff emission; ceiling 647,774 →
+  521,110, the P5.1 final ratchet), `FOLD_VERSION_SCATTER` heap
+  390 → 294 (`8181247a`; ceiling 488 → 368),
+  `FOLD_PARTY_SCATTER` scan 292,432 → 257,654 (`5aabc765`, the
+  fold's per-call id index; ceiling 365,540 → 322,068 — the
+  292,432 record was a mid-round reading, the C2 flag-day commit
+  measures 276,044); every other row byte-identical to its
+  record, so §17.2's item 12 closes with no further movement.
+  (ii) Item 11 realized and judge-verified under both sampling
+  regimes (246 green / 3 red / 54 sub-floor over the 303-cell
+  pinned subset, roster satisfied; riders e 0.93–1.18; bigroot
+  sweeps e 0.92–1.04; the hugeleaf display pair STAYS red at
+  e ≈ 1.4 over general 1.3 — the κ hand-off did not cure it, the
+  class question stays open with the text column). (iii) Owner
+  decision: record-sampling judge runs are not a standing
+  closeout step — quick mode judges the wall leg (the two regimes
+  agreed cell for cell; record wall cost measured 33 min 27 s),
+  and record sampling belongs to the acceptance sweep alone.
+  (iv) `exhaustive_deep` (#24's follow-up) is measured
+  combinatorially blown: a fully parallel release run had not
+  completed after 8 h 55 m against its committed ~4.5-minute
+  annotation; the annotations are re-denominated to the measured
+  open state and the runtime attribution is a filed follow-up
+  (#53), owned outside this closeout.
 
 ## 13. The metering gate
 
@@ -898,19 +927,23 @@ fails. Membership and the text-class set are pinned by
 a reviewed diff. `bench-judge-record` (full sampling, the mode
 for numbers of record) judges through the same roster — the
 expectations are exponent classes, valid under either sampling
-regime. Population at this tip: the fifteen bigroot sweeps + the
-hugeleaf display pair (κ/C2-owned) + the permanent schoolbook
-tripwire; boundary empty. **The bigroot set and the display pair
-empty at C3's item 11; the schoolbook expectation is permanent.**
-Between C2 and that realization every judge run fails on the
-fifteen realized greens BY DESIGN — that failure is C3's
-realization evidence, banked verbatim at the flip (e 0.94–1.00
-fitted on all fifteen).
+regime. Population at this tip: **the permanent schoolbook
+tripwire plus the hugeleaf display pair; boundary empty** (item
+11's realization, 2026-07-27 — §12's P5 closeout record: the
+fifteen bigroot expectations left on the banked flip evidence and
+read e 0.92–1.04 live at the realization run; the display pair
+stays — its conversion-dominated hugeleaf-width render measured
+e 1.39/1.42 at the general 1.3 ceiling, so the κ hand-off did not
+cure the cells and the class question stays open with the text
+column). Every other cell — the designed diagonal and the
+populated `BOARD_RED_BENCH_RIDERS` alike — must fit under its own
+ceiling: a constant-factor counter red is not a time-exponent red
+(the thirteen riders measured e 0.93–1.18).
 
 **Numbers of record at this tip** [measured 2026-07-26; release
 profile, single runs per scale under the determinism tripwire —
-the `board-unify24-{lo,hi}.txt` renders]: board **966 green / 23 red at
-the default scale; 954 / 35 at ×4** over **989 cells**. The red
+the `board-p42-{lo,hi}.txt` renders]: board **966 green / 23 red at
+the default scale; 969 / 20 at ×4** over **989 cells**. The red
 roster, every red with exactly one owner, is §17.3; the
 cell-count and verdict lineage across the campaign's rounds
 (200 → 989) is in git history at the commits §14 names.
@@ -920,11 +953,15 @@ all-green means the release-profile board green on counters and
 floors at BOTH scales, one run each under the committed
 determinism tripwire (the runner's in-process double measurement
 plus the gate's cross-process byte-compare), AND the bench judge
-roster-satisfied at both scales in both modes** — at P5.5 with the
-bigroot set emptied and only the permanent text expectations
-remaining. A release record-scale run costs ~20 s wall [measured —
-the ratification baseline runs]; dev runs remain a debugging view
-and never satisfy acceptance.
+roster-satisfied at both scales in both modes** — at the realized
+roster membership (the schoolbook tripwire plus the hugeleaf
+display pair, §12's 2026-07-27 record; both regimes already read
+satisfied there, record wall 33 min 27 s, and record sampling
+belongs to this acceptance sweep alone — the standing cadence
+judges in quick mode). A release record-scale run of the counter
+board costs ~20 s wall [measured — the ratification baseline
+runs]; dev runs remain a debugging view and never satisfy
+acceptance.
 
 ## 14. Execution plan
 
@@ -1080,30 +1117,13 @@ tick (the tick cost spec's T-tick).
 ### 17.2 Open items, with acceptance contracts
 
 **C3's bench-harness remainder (the queue of record, items
-11–13).** Items 1–10 of the round's queue are done (§14's C3
-entry; the cell-exact movement is §17.3). Sequenced next, in
-order:
+11–13).** Items 1–12 of the round's queue are done (§14's C3
+entry; the cell-exact movement is §17.3; items 11 and 12 are
+§12's 2026-07-27 P5 closeout record — the closeout re-measure
+found the twelve event-side rows byte-identical to their pinned
+records, so the deferred one-downward-re-pin resolved to no
+movement). Remaining:
 
-11. **The judge-roster realization**: the fifteen bigroot
-    expectations leave on the banked evidence (fitted e 0.94–1.00
-    at the flip); the hugeleaf display pair resolves with the κ
-    re-derivation — its ceiling class stays **text 1.7**,
-    unchanged deliberately: radix conversion is fundamentally
-    superlinear (honest D&C measured wall e ≈ 1.47 over the
-    general 1.3), so the pair's class is the text ceiling on the
-    merits; the schoolbook tripwire stays permanently. Roster
-    membership pin updated in the same change, and the
-    `BOARD_RED_BENCH_RIDERS` population rides this diff (riders
-    and roster edits are one judge-verified change; the riders are
-    committed empty until then — an unrostered red whose time leg
-    reads red fails every judge run). `bench-judge` and
-    `bench-judge-record` must then exit 0 — roster-satisfied — at
-    both scales in both modes, with full-sampling record numbers
-    captured.
-12. **Envelope tightening** (the twelve event-side rows:
-    DECODE/CMP/JOIN × DENSE/BIGROOT/HUGELEAF/CLIFF as applicable,
-    TICK_DENSE): deferred to P5.1's envelope finalization, one
-    downward re-pin from post-C3 stable readings instead of two.
 13. **The before/after table of record** (judged under §14's two
     rulings). Protocol, mandatory: re-bench the pre-C2 tip under
     the FINAL harness — a temp worktree at the last pre-flip
@@ -1284,11 +1304,14 @@ The red roster, both scales enumerated from the renders:
   mix while the exponent holds 1.00. A future re-pin of this cell
   must re-measure on the board's own axis; the exponent claim is
   axis-invariant, the constant is not.
-Bench riders (`BOARD_RED_BENCH_RIDERS`) are committed empty: the
-surviving reds are classified above, but a rider outside the
-judge's expected-red roster whose time leg reads red fails every
-judge run, so the rider population and the roster edit are one
-reviewed diff — item 11's (§17.2).
+Bench riders (`BOARD_RED_BENCH_RIDERS`) are populated (item 11's
+realization, 2026-07-26 — §12's P5 closeout record): the 13
+standing reds above that the designed pairings do not already
+time — the display and `min_ticks` rows on the tick-cross and
+harmonic shapes — each keep a judged time leg in the pinned bench
+subset, and every rider must fit under its own ceiling (the reds
+above are counter constants, not time exponents). A rider and its
+roster expectation move as one reviewed diff, judge-verified.
 
 ### 17.5 Post-campaign docket (user directives)
 
