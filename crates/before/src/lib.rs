@@ -284,8 +284,8 @@ pub mod iter {
 }
 
 // No outer doc comment: one here would merge with the module's inner docs
-// and shift their link resolution to this scope, where `grow`/`descend!`/
-// `STRIDE` don't resolve. The module documents itself.
+// and shift their link resolution to this scope, where the module's
+// test-gated items don't resolve. The module documents itself.
 mod recurse;
 
 /// Reference oracle: the paper's recursive trees; ground truth for the

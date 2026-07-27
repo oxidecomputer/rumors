@@ -3,7 +3,7 @@
 //! A traversal that recurses on tree depth routes each recursive call
 //! through here. A shallow, near-balanced tree recurses on the program
 //! stack at native speed; before a deep, unbalanced tree can approach the
-//! stack limit, [`grow`] extends the stack onto the heap (via `stacker`),
+//! stack limit, `grow` extends the stack onto the heap (via `stacker`),
 //! so deep inputs cannot overflow.
 //!
 //! Every library traversal is iterative — depth lives on explicit heap
@@ -18,7 +18,7 @@
 //! measured fact the boards' segments column pins.
 //!
 //! The headroom probe is amortized: a traversal routes each recursive call
-//! through the [`descend!`] macro, which probes only once every [`STRIDE`]
+//! through the `descend!` macro, which probes only once every `STRIDE`
 //! levels and recurses directly in between. `descend!` guards the *descent*,
 //! not the body, so the common path is a plain recursive call that stays one
 //! inlined frame; wrapping the body in a closure to pass to `maybe_grow`
