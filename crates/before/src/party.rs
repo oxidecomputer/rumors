@@ -487,12 +487,11 @@ impl Party {
         Party::from_bits(self.0.clone())
     }
 
-    /// Encode a [`Party`] to bytes.
+    /// Encodes this [`Party`] to bytes.
     ///
-    /// The byte encoding of a [`Clock`](crate::Clock) is not the
-    /// concatenation of the encodings of its [`Party`] and
-    /// [`Version`]; see
-    /// [`Clock::encode`](crate::Clock::encode).
+    /// A [`Clock`](crate::Clock)'s encoding is the byte-level concatenation
+    /// of its [`Party`]'s and [`Version`]'s encodings; see
+    /// [`Clock::encode`](crate::Clock::encode) for the framing rule.
     ///
     /// # Complexity
     ///
