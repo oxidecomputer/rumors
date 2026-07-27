@@ -363,10 +363,37 @@ fn pack_limb(chunk: &[Word]) -> u64 {
 
 /// The 64-bit limbs of a magnitude, least significant first.
 ///
-/// Borrows the stored word slice, so iteration allocates nothing; the top
-/// limb zero-pads any missing high words. A zero value has no limbs.
-fn limbs(value: &UBig) -> impl Iterator<Item = u64> + '_ {
-    value.as_words().chunks(WORDS_PER_LIMB).map(pack_limb)
+/// The unit this crate's wide-operand costs are counted in: a wide write
+/// pays amortized O(1) digit touches per limb yielded here, whatever the
+/// backend's storage word width. Borrows the stored word slice, so
+/// iteration allocates nothing; the top limb zero-pads any missing high
+/// words. A zero value has no limbs. Double-ended, so
+/// most-significant-first consumers reverse it.
+pub struct Limbs<'a> {
+    chunks: core::slice::Chunks<'a, Word>,
+}
+
+impl<'a> Limbs<'a> {
+    /// The limbs of `value`, borrowing its stored words.
+    pub fn new(value: &'a UBig) -> Limbs<'a> {
+        Limbs {
+            chunks: value.as_words().chunks(WORDS_PER_LIMB),
+        }
+    }
+}
+
+impl Iterator for Limbs<'_> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<u64> {
+        self.chunks.next().map(pack_limb)
+    }
+}
+
+impl DoubleEndedIterator for Limbs<'_> {
+    fn next_back(&mut self) -> Option<u64> {
+        self.chunks.next_back().map(pack_limb)
+    }
 }
 
 /// An unsigned operand readable at the width it is stored at.
@@ -483,13 +510,13 @@ impl Accumulator {
     /// 64-bit word of the operand — the cost scales with the operand's
     /// width, never the held value's.
     pub fn add_wide(&mut self, delta: &UBig) {
-        self.apply_limbs(limbs(delta), false, 0);
+        self.apply_limbs(Limbs::new(delta), false, 0);
     }
 
     /// Subtract a wide delta: amortized O(operand limbs), scaling with
     /// the operand's width, never the held value's.
     pub fn sub_wide(&mut self, delta: &UBig) {
-        self.apply_limbs(limbs(delta), true, 0);
+        self.apply_limbs(Limbs::new(delta), true, 0);
     }
 
     /// Add a stored magnitude, at the width it is stored at.
@@ -533,7 +560,7 @@ impl Accumulator {
     /// shift fits, and an enormous one fails at allocation instead, like
     /// any collection asked to grow to `shift / 32` entries.
     pub fn add_wide_shl(&mut self, delta: &UBig, shift: u64) {
-        self.apply_limbs(limbs(delta), false, shift);
+        self.apply_limbs(Limbs::new(delta), false, shift);
     }
 
     /// Subtract `delta · 2^shift`: amortized O(operand limbs) digit
@@ -548,7 +575,7 @@ impl Accumulator {
     /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
     /// position past `usize` panics.
     pub fn sub_wide_shl(&mut self, delta: &UBig, shift: u64) {
-        self.apply_limbs(limbs(delta), true, shift);
+        self.apply_limbs(Limbs::new(delta), true, shift);
     }
 
     /// Add a stored magnitude times `2^shift`, at the width it is stored
@@ -585,7 +612,7 @@ impl Accumulator {
         match delta.to_word() {
             Some(0) => {}
             Some(n) => self.add_shifted_word(n, true, shift),
-            None => self.apply_limbs(limbs(delta.as_wide()), true, shift),
+            None => self.apply_limbs(Limbs::new(delta.as_wide()), true, shift),
         }
     }
 
