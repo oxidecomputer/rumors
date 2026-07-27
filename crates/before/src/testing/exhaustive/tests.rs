@@ -339,19 +339,21 @@ fn exhaustive_small() {
 /// The same total cross-product at the deep depth bound.
 ///
 /// The id corpus jumps to 65536 trees, so the `O(corpus²)` id pair-product
-/// (~4.3 billion pairs) dominates; with the per-tree precompute and `rayon`
-/// parallelism it completes in ~4.5 minutes on a 16-core M4 Max (measured:
-/// 270s). It is `#[ignore]`d to keep the normal gate fast. Run it explicitly
-/// with:
+/// (~4.3 billion pairs) dominates. Its runtime at this tip is measured
+/// hours-scale and unbounded above: a release run (2026-07-27,
+/// aarch64-apple-darwin, 16 cores, fully parallel throughout) had not
+/// completed after 8 h 55 m — budget accordingly, run it detached, and
+/// treat the runtime as open until a completed run re-measures it. It is
+/// `#[ignore]`d to keep the normal gate fast. Run it with:
 ///
 /// ```text
-/// cargo nextest run -p before --release --all-features \
-///     exhaustive_deep --run-ignored ignored-only
+/// cargo test -p before --release --all-features -- --ignored exhaustive_deep
 /// ```
 ///
-/// (or `cargo test -p before --release --all-features -- --ignored exhaustive_deep`).
+/// (`cargo test`, not nextest: the workspace's nextest profile terminates
+/// any test at 180 seconds, which no run of this enumeration meets).
 #[test]
-#[ignore = "exhaustive deep enumeration: O(corpus^2) over 65536 ids; ~4.5 min even parallelized"]
+#[ignore = "exhaustive deep enumeration: O(corpus^2) over 65536 ids; hours-scale, run detached"]
 fn exhaustive_deep() {
     run_all_at(ID_DEEP_DEPTH, EV_DEEP_DEPTH);
 }
