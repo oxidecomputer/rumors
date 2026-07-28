@@ -23,8 +23,10 @@ be $Theta(n)$ on their own:
   level — about three, in the paper's coding and in the coding of
   @skyline alike (the paper spends a 3-bit node tag per spine level;
   the skyline an internal flag plus the off-spine leaf's flag and a
-  1-bit payload) — so a few tens of kilobytes of input encode a tree
-  a hundred thousand levels deep.
+  1-bit payload, with the deepest sibling pair obliged to differ —
+  one wider code at the bottom keeps the shape canonical at
+  $3d + O(1)$ bits) — so a few tens of kilobytes of input encode a
+  tree a hundred thousand levels deep.
 - *Magnitude width* $W$: a single stored integer can occupy a
   constant fraction of the input — $W = Theta(n)$, a value near
   $2^(n\/2)$ in one leaf, since a self-delimiting code spends about
@@ -109,9 +111,10 @@ measured on our direct transcription before any cure, the committed
 $10,000$-level spine, a 29-kilobyte operand pair — drove transient
 memory to roughly $6,700 times$ the pair's bytes, approaching two
 hundred megabytes, inside a single comparison. The figure reconciles
-with the formula: $d dot W$ is $4 dot 10^8$ bits — fifty
-megabytes — of live path sums per operand, and the fresh integers
-each lift materializes supply the rest. The ratio kept growing with
+with the formula: each paired node materializes _four_ lifted
+children — both operands', both halves' — that live across the
+descent, and $4 dot d dot W = 1.6 dot 10^9$ bits is exactly the two
+hundred megabytes measured. The ratio kept growing with
 the operand, as the formula says it must.
 
 Join has the same skeleton (`join` lifts both of one side's

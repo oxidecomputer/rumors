@@ -33,7 +33,9 @@ From the sweeps' side, the accumulator must support:
 + *materialize* the held value as an ordinary integer, in work
   proportional to that value's own width (the operation opens with
   the same collapsing fold the sign query runs — @sign — which
-  brings the held spelling within two digits of the value's width);
+  brings the held spelling within two digits of the value's width;
+  this fold, not a sign query, is also how a scaled-write
+  accumulator is finally read);
 
 and the bounds must hold on _every_ interleaving of these operations —
 not in expectation, not for typical streams. One word on "amortized",
@@ -87,7 +89,11 @@ anywhere*.
 == Balanced redundant digits <redundant>
 
 Hold the value as digits in base $2^32$, little-endian, each digit a
-_signed_ 64-bit integer kept in the _lazy zone_ $|a_i| < 2^33$:
+_signed_ 64-bit integer kept in the _lazy zone_ $|a_i| < 2^33$ — the
+base is half the lane on purpose, since the spare bits are what the
+scheme spends: with digits under $2^33$ over a $2^32$ base, a word
+delta's two halves, a carry, and the recentering all fit native
+64-bit arithmetic with room left over.
 
 $ "value" = sum_i a_i dot 2^(32 i), quad a_i in (-2^33, 2^33). $
 

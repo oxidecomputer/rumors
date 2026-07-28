@@ -30,8 +30,8 @@ The measured picture, per packed input byte:
   a few and a few tens of nanoseconds per byte — comparison at the
   low end, a single-digit multiple of a bit-serial scan that visits
   every bit and does nothing else; validating decode toward the
-  high end, one to two orders of magnitude above the raw byte-copy
-  floor. This is the price of actually decoding every code once,
+  high end, a few hundred times the raw byte-copy floor. This is
+  the price of actually decoding every code once,
   plus the canonicality checks.
 - *The arithmetic sweeps* — join, meet, tick, projection, rank —
   sit roughly an order of magnitude above reading: tens to low
@@ -118,7 +118,8 @@ each on packed stacks — the validator's two topology-state bits per
 open ancestor, the overlay walk's one path bit per level per cursor
 (same number, two derivations) — with one stated exception, the
 watermark stack's bounded differences (@tick-web), still linear,
-still priced. A tree $10^5$ levels deep — a forty-kilobyte message —
+still priced. A tree $10^5$ levels deep — a thirty-seven-kilobyte
+message —
 costs a cursor walking it one path bit per level: some twelve
 kilobytes of packed stack state against that operand's own
 thirty-seven kilobytes, and no native stack at all —
