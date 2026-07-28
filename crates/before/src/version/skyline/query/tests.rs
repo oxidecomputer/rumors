@@ -23,8 +23,10 @@
 use proptest::prelude::*;
 
 use crate::meter::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense, harmonic,
-    hugeleaf, jump_comb, jump_pair, wide_tooth_comb, Packed,
+    alt_spine, arming_train, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair,
+    dense, dense_suffix, dense_suffix_mate, freeze_position, harmonic, hugeleaf, jump_comb,
+    jump_pair, plateau_puncture, promotion_rearm, promotion_rearm_mate, wide_arming,
+    wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
@@ -198,6 +200,64 @@ fn families_agree_with_the_packed_forms() {
     }
 }
 
+/// The promoting family pool: every shape whose sweep parks, promotes,
+/// or settles wide drift, at hand-checkable sizes.
+///
+/// The other pools stay under the freeze allowance almost everywhere:
+/// a unit-funded fold freezes only past 9 digits (288 bits) of live
+/// drift, and `arb_base` tops out near 2^128, under half of that — so
+/// the promotion ledger and its product-tree settle would run
+/// differentially unwitnessed without this pool: these shapes are the
+/// only ones that arm it, and the arming trains are the only ones that
+/// arm it more than once per sweep or with mixed signs.
+fn promoting_pool() -> Vec<Version> {
+    vec![
+        version_of(&promotion_rearm(1)),
+        version_of(&promotion_rearm(3)),
+        version_of(&promotion_rearm_mate(3)),
+        version_of(&dense_suffix(1, 2)),
+        version_of(&dense_suffix(3, 1)),
+        version_of(&dense_suffix_mate(3, 1)),
+        version_of(&wide_arming(10, 2)),
+        version_of(&wide_arming(13, 3)),
+        version_of(&freeze_position(3)),
+        version_of(&plateau_puncture(10, 3)),
+        version_of(&plateau_puncture(12, 1)),
+        // The multi-arming trains: same-sign and alternating, so the
+        // settle's parked sums are exercised both accumulating and
+        // cancelling across aggregate seams.
+        version_of(&arming_train(1, 19, 1, false)),
+        version_of(&arming_train(3, 19, 1, false)),
+        version_of(&arming_train(4, 19, 2, true)),
+        version_of(&arming_train(5, 20, 1, true)),
+    ]
+}
+
+/// Every promoting family shape agrees with the tree-fold oracle on
+/// rank and min_ticks, and every ordered pair agrees on distance and
+/// lag against both the oracle and the composed forms.
+///
+/// The settle's value witness at the shapes the flatness bands and red
+/// pins price: single and repeated armings, mixed-sign armings whose
+/// parked sums cancel digit-wise inside the product tree's aggregates,
+/// dense windows between armings, and the arming-free close-time
+/// settle (the plateau-puncture family). The pair sweep crosses wide
+/// operands with wide operands — both sides promoting, orientation
+/// flips inside wide plateaus — which the meter bands' unit-twin mates
+/// never reach.
+#[test]
+fn promoting_families_agree_with_the_oracle() {
+    let pool = promoting_pool();
+    for v in &pool {
+        assert_single(v);
+    }
+    for a in &pool {
+        for b in &pool {
+            assert_pair(a, b);
+        }
+    }
+}
+
 /// The two version-pair families agree with the oracle and the composed
 /// forms on distance and lag, at their own constructed pairings.
 ///
@@ -353,6 +413,30 @@ proptest! {
     fn arbitrary_concurrent_pairs_agree(log_n in 1u32..7) {
         let (v, w) = concurrent_pair(1 << log_n);
         assert_pair(&v, &w);
+    }
+
+    /// Arming trains at arbitrary dimensions agree with the oracle on
+    /// every query fold, singly and as a promoting × promoting pair.
+    ///
+    /// The dimensions cover arming counts across several product-tree
+    /// shapes (a lone entry, a full level, an odd drain), both sign
+    /// schedules, and window densities from trivial to multi-digit —
+    /// the ledger genres `arb_base`'s 128-bit ceiling keeps the
+    /// arbitrary-tree sweep from ever arming. The pair leg crosses the
+    /// train against its opposite-schedule twin, so the co-sweep
+    /// promotes on both operands with the difference's orientation
+    /// flipping inside wide plateaus.
+    #[test]
+    fn arbitrary_arming_trains_agree(
+        n in 1usize..6,
+        w in 19usize..23,
+        g in 1usize..4,
+        alternate: bool,
+    ) {
+        let a = version_of(&arming_train(n, w, g, alternate));
+        let b = version_of(&arming_train(n, w, g, !alternate));
+        assert_single(&a);
+        assert_pair(&a, &b);
     }
 
     /// The projection kernel agrees with the oracle's semantic mask over
