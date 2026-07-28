@@ -548,7 +548,7 @@ impl World {
 
     /// This live peer's tie-break key: its frontier's minimum event count, then
     /// its network identifier. `None` while dormant.
-    fn tuple(&self, who: usize) -> Option<(u64, Network)> {
+    fn tuple(&self, who: usize) -> Option<(rumors::Ticks, Network)> {
         let rumors = self.nodes[who].live()?;
         Some((rumors.snapshot().latest().min_ticks(), rumors.network()))
     }

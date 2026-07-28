@@ -105,9 +105,7 @@
 //!   cell from the operands wherever the contract admits an early exit:
 //!   the comparison rows floor at the root codes exactly when their pair
 //!   is concurrent (a comparable pair must certify dominance over every
-//!   region, so it keeps the full floor), and the tick-floor fold does so
-//!   exactly when its stream stores a payload code wider than a machine
-//!   word (the fold may saturate at that height and stop).
+//!   region, so it keeps the full floor).
 //!   Not-applicable is reserved for operations
 //!   whose contract is a wholesale byte move or compare (encode, hash,
 //!   same-form equality) or whose operands have no packed stream at all

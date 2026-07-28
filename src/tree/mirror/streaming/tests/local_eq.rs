@@ -285,9 +285,7 @@ fn leaf_requests_are_erased_from_the_view() {
     fn inflated(ceiling: Version, ticks: usize) -> Version {
         let party = nth_party(9);
         let mut extra = Version::new();
-        for _ in 0..ticks {
-            extra.tick(&party);
-        }
+        extra.ticks(&party, ticks);
         ceiling | &extra
     }
 
