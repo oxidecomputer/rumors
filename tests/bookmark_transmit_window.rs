@@ -293,8 +293,8 @@ fn record_dominates_the_transmitted_frontier() {
             .fold(Version::new(), |acc, clock| acc | clock.version());
         let transmitted = b.snapshot().latest().clone();
 
-        let own_transmitted = transmitted / &party;
-        let own_recorded = recorded / &party;
+        let own_transmitted = &transmitted / &party;
+        let own_recorded = &recorded / &party;
         assert!(
             own_transmitted <= own_recorded,
             "the session transmitted own-party events the persisted record does not \
@@ -380,8 +380,8 @@ fn cancelled_persist_never_suppresses_the_next_update() {
             .fold(Version::new(), |acc, clock| acc | clock.version());
         let transmitted = b.snapshot().latest().clone();
 
-        let own_transmitted = transmitted / &party;
-        let own_recorded = recorded / &party;
+        let own_transmitted = &transmitted / &party;
+        let own_recorded = &recorded / &party;
         assert!(
             own_transmitted <= own_recorded,
             "a session after a cancelled persist transmitted own-party events the durable \

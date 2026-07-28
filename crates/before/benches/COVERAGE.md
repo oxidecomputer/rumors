@@ -11,7 +11,7 @@ This file indexes the *time leg* only.
 
 ## Method, re-runnable
 
-1. Enumerate the board's product: 64 operation rows over 21 shapes, 1071
+1. Enumerate the board's product: 66 operation rows over 21 shapes, 1111
    applicable cells (the per-shape derivation and the enforced pin:
    `tests/amp_board_smoke.rs`, `EXPECTED_CELLS`).
 2. Enumerate the bench surface: `cargo bench -p before --bench board --
@@ -29,14 +29,14 @@ This file indexes the *time leg* only.
 
 ## The judged cell inventory
 
-The bench mirror carries the board's 1071 cells (`BOARD_BENCH_MODE=full`,
+The bench mirror carries the board's 1111 cells (`BOARD_BENCH_MODE=full`,
 the mode for final verdicts: `just bench-judge-full`) plus the two
-judge-only wide-display cells — 1073 cells per scale. The judge recipes'
+judge-only wide-display cells — 1113 cells per scale. The judge recipes'
 cadence (`just bench-judge`, both scales through the committed roster
-`tools/benchjudge-expected.json`) times the `pinned` subset, 321 cells
+`tools/benchjudge-expected.json`) times the `pinned` subset, 335 cells
 per scale:
 
-- **The designed diagonal (306)**: every operation on `dense`,
+- **The designed diagonal (320)**: every operation on `dense`,
   `benign`, `id-pair`, and `scatter` where applicable; the magnitude
   shapes (`bigroot`, `hugeleaf`, `cliff`) on every group but the rank
   rows; `harmonic` on the measure and rank rows; `comb-scatter` on the
@@ -89,7 +89,9 @@ product (the operand bundles decide applicability; family alone):
 | `version_lag` | V19 | dense, bigroot, hugeleaf, cliff, harmonic, jump-pair, concurrent-pair, benign | `Version::lag` |
 | `version_min_ticks` | V19 | dense, bigroot, hugeleaf, cliff, harmonic, jump-pair, concurrent-pair, benign + riders: mirror-wide, mirror-narrow | `Version::min_ticks` |
 | `version_join_all` | F2 | scatter, benign | `Version::join_all` (and `Sum`/`FromIterator`, the same fold) |
-| `version_project` | X20 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `Div`/`DivAssign` (`version / party`), both small×adversarial crosses plus the I/O-denominated adversarial×adversarial cross |
+| `own_version_to_version` | X20 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `OwnVersion::to_version` and `From<OwnVersion> for Version` (the explicit projection materialization behind `&v / &p`), both small×adversarial crosses plus the I/O-denominated adversarial×adversarial cross |
+| `own_version_cmp` | X20 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `OwnVersion` vs `Version` comparisons (`PartialEq`/`PartialOrd`, both directions, every borrow shape): the fused three-stream co-walk, input-denominated on every shape — the output-domination cross included |
+| `own_version_pair_cmp` | X20 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `OwnVersion` vs `OwnVersion` comparisons: the fused four-stream co-walk, input-denominated everywhere |
 | `version_display` | V19 | dense, bigroot, hugeleaf, cliff, benign + riders: harmonic, nested-full, nested-wide, mirror-wide, mirror-narrow, staircase | `Display` (and `Debug`) on `Version` |
 | `version_from_str` | V19 | dense, bigroot, hugeleaf, cliff, benign | `FromStr` on `Version` (accepting direction) |
 | `version_hash` | V19 | dense, bigroot, hugeleaf, cliff, benign | `Hash` on `Version` |
@@ -112,7 +114,7 @@ product (the operand bundles decide applicability; family alone):
 | `clock_join` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::join` (accepting arm) |
 | `clock_sync` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::sync` (accepting arm) |
 | `clock_recv` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::recv` (`clock \| version` folds through the same path) |
-| `clock_own_version` | X20 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `Clock::own_version` |
+| `clock_own_version_to_version` | X20 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `Clock::own_version().to_version()` — the materialization through the clock spelling; `Clock::own_version` itself is an O(1) view (the board doc's NA list) |
 | `clock_display` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign + riders: harmonic, nested-full, mirror-wide, mirror-narrow, staircase | `Display`/`Debug` on `Clock` |
 | `clock_from_str` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `FromStr` on `Clock` (accepting direction) |
 | `clock_hash` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Hash` on `Clock` |
@@ -216,6 +218,18 @@ cells in four genres.
 
 ## Decision record
 
+- 2026-07-27 (#77, the OwnVersion landing): projection goes lazy —
+  `version_project` becomes `own_version_to_version` and
+  `clock_own_version` becomes `clock_own_version_to_version` (the same
+  bodies under the honest new owner, the explicit materialization), and
+  the fused comparison rows `own_version_cmp` / `own_version_pair_cmp`
+  join the Projection group — 66 rows × 21 shapes, 1111 applicable cells
+  (`EXPECTED_CELLS` moved with the diff), 1113 judged cells per scale in
+  full mode, pinned subset 335 (designed diagonal 320: each new row's
+  seven X20-diagonal cells enter); both mode counts re-verified against
+  the criterion `--list`. The expected-verdict roster is unchanged — the
+  new cells are linear walks entering green-expected, and the renamed
+  cells keep their verdict classes under the new IDs.
 - 2026-07-27 (#72, batch removal): the owner-ruled removal of the batch
   API drops the `version_batch_snapshot` row — 64 rows × 21 shapes, 1071
   applicable cells (`EXPECTED_CELLS` moved with the diff), 1073 judged
