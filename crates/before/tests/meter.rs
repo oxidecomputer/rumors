@@ -2977,19 +2977,22 @@ mod skyline_flatness {
     /// promotion re-arm spine, measured 2026-07-28 ×1.25.
     ///
     /// The record: the balanced product-tree settle reads
-    /// 401,387 → 802,887 touches and 184,180 → 368,429 limb ops across
+    /// 401,387 → 802,887 touches and 187,925 → 375,924 limb ops across
     /// PR(1,000) → PR(2,000) on 246,501 B → 493,001 B (~1.6 touches
     /// per packed byte, flat across the doubling). Movement 2026-07-28
     /// (the product-tree settle, parent 343,864 → 687,739 touches and
     /// 182,871 → 365,745 limb ops): +17% touch, +0.7% limb — the
     /// tree's per-level window rewrites, bought for the dense-suffix
-    /// cure; the per-byte exponent stays ×1.00. The span-reading
+    /// cure; the per-byte exponent stays ×1.00. Movement 2026-07-28
+    /// (the window-digit combine tap, parent 184,180 → 368,429 limb
+    /// ops): +2.0% limb — the settle's window-digit traffic now
+    /// metered — touches unchanged. The span-reading
     /// promotion's committed tripwire reads 1,440,756 → 5,006,506
     /// touches here (×1.74/byte, local exponent ~1.9 and rising —
     /// every promotion re-read the position accumulator's whole
     /// written span).
     const RANK_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
-        [(501_733, 230_225), (1_003_608, 460_536)];
+        [(501_733, 234_906), (1_003_608, 469_905)];
 
     /// rank is linear on the promotion re-arm spine: per-byte touch and
     /// limb work stay flat (×1.25) across a block-count doubling, under
@@ -3087,17 +3090,20 @@ mod skyline_flatness {
     /// triple on the promotion re-arm analogue, measured 2026-07-28
     /// ×1.25.
     ///
-    /// The record: 1,090,072 → 2,180,072 touches and 822,401 →
-    /// 1,644,899 limb ops across `p = 1,000 → 2,000` on a 263 → 525
+    /// The record: 1,090,072 → 2,180,072 touches and 829,891 →
+    /// 1,659,889 limb ops across `p = 1,000 → 2,000` on a 263 → 525
     /// KiB packed pair — three sweeps' worth, ~4 touches per byte,
     /// flat across the doubling. Movement 2026-07-28 (the product-tree
     /// settle, parent 975,024 → 1,949,774 touches and 819,783 →
     /// 1,639,531 limb ops): +12% touch, +0.3% limb — the tree's
     /// per-level window rewrites; the per-byte exponent stays ×1.00
     /// (the span-reading promotion reads ×1.71 per byte here, the
-    /// committed pair tripwire's record).
+    /// committed pair tripwire's record). Movement 2026-07-28 (the
+    /// window-digit combine tap, parent 822,401 → 1,644,899 limb ops):
+    /// +0.9% limb — the settle's window-digit traffic now metered —
+    /// touches unchanged.
     const DISTANCE_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
-        [(1_362_590, 1_028_001), (2_725_090, 2_056_123)];
+        [(1_362_590, 1_037_363), (2_725_090, 2_074_861)];
 
     /// Distance and lag are linear on the promotion re-arm analogue:
     /// the two-operand arming genre reads flat (×1.25) per packed byte
@@ -3803,16 +3809,19 @@ mod skyline_flatness {
     /// Absolute two-scale (touch, limb) ceilings for rank on the
     /// dense-suffix family, measured 2026-07-28 ×1.25.
     ///
-    /// The cured record: the balanced product-tree settle reads
-    /// 219,764 → 437,912 touches and 116,853 → 232,256 limb ops across
+    /// The record: the balanced product-tree settle reads
+    /// 219,764 → 437,912 touches and 126,403 → 252,379 limb ops across
     /// DS(500, 500) → DS(1,000, 1,000) on 119,593 B → 239,030 B (~1.8
     /// touches per packed byte, flat across the doubling), tightened in
-    /// the cure's own commit from the per-arming suffix walk's red pin
+    /// the settle's own commit from the per-arming suffix walk's red pin
     /// of 3,417,450 → 13,357,237 touches and 2,837,934 → 11,175,881
     /// limb ops (×1.96 touch and ×1.97 limb per-byte growth, local
     /// exponent ~2.0 — every arming re-walked the suffix's Θ(d)
-    /// balanced digits).
-    const RANK_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] = [(274_705, 146_066), (547_390, 290_320)];
+    /// balanced digits). Movement 2026-07-28 (the window-digit combine
+    /// tap, parent 116,853 → 232,256 limb ops): +8.2%/+8.7% limb — the
+    /// settle's window-digit traffic now metered — touches unchanged,
+    /// the per-byte exponent ×1.00 in both currencies.
+    const RANK_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] = [(274_705, 158_003), (547_390, 315_473)];
 
     /// rank is flat per byte on the dense-suffix family under the
     /// declared log model: per-byte touch and limb work stay within
@@ -3910,15 +3919,19 @@ mod skyline_flatness {
     /// Absolute two-scale (touch, limb) ceilings for the distance/lag
     /// triple on the dense-suffix pair, measured 2026-07-28 ×1.25.
     ///
-    /// The cured record: 710,692 → 1,416,186 touches and 394,747 →
-    /// 786,525 limb ops across `p = 500 → 1,000` on a 127,034 B →
+    /// The record: 710,692 → 1,416,186 touches and 413,847 →
+    /// 826,771 limb ops across `p = 500 → 1,000` on a 127,034 B →
     /// 253,909 B packed pair (three sweeps' worth, flat across the
-    /// doubling), tightened in the cure's own commit from the
+    /// doubling), tightened in the settle's own commit from the
     /// per-arming suffix walk's red pin of 12,900,786 → 50,547,044
     /// touches and 5,836,909 → 22,673,775 limb ops (×1.96 touch and
-    /// ×1.94 limb per-byte growth).
+    /// ×1.94 limb per-byte growth). Movement 2026-07-28 (the
+    /// window-digit combine tap, parent 394,747 → 786,525 limb ops):
+    /// +4.8%/+5.1% limb — the settle's window-digit traffic now
+    /// metered — touches unchanged, the per-byte exponent ×1.00 in
+    /// both currencies.
     const DISTANCE_DENSE_SUFFIX_CEILINGS: [(u64, u64); 2] =
-        [(888_365, 493_433), (1_770_232, 983_156)];
+        [(888_365, 517_308), (1_770_232, 1_033_463)];
 
     /// Distance and lag are flat per byte on the dense-suffix pair
     /// under the declared log model, within ×1.25 across a doubling
@@ -4039,11 +4052,15 @@ mod ledger_wide_arming_pin {
     /// [measured 2026-07-28, dev profile, exact counters: touches
     /// 288,037 → 1,083,963 across WA(500, 500) → WA(1,000, 1,000) on
     /// 14,263 B → 28,451 B packed operands — per-byte growth ×1.89 —
-    /// and limb ops 292,103 → 1,092,159 (×1.87/byte): the residual
+    /// and limb ops 293,651 → 1,095,255 (×1.87/byte): the residual
     /// reads red in both width currencies. The next doubling,
     /// WA(1,000) → WA(2,000), reads 4,198,805 touches on 56,826 B
-    /// (×1.94/byte) and 4,215,269 limb ops (×1.93/byte) — the local
-    /// exponent is ~1.9: a class residual, not a constant.]
+    /// (×1.94/byte) and 4,221,458 limb ops (×1.93/byte) — the local
+    /// exponent is ~1.9: a class residual, not a constant. Movement
+    /// same date (the window-digit combine tap, parent limb
+    /// 292,103 → 1,092,159 → 4,215,269 across the three scales):
+    /// +0.5%/+0.3%/+0.1% limb, touches unchanged — the one arming's
+    /// window traffic is a vanishing share of the aggregate product.]
     #[test]
     fn rank_wide_arming_reads_superlinear() {
         let (small_bytes, small_touches, small_limbs) = run(WIDE_ARMING_SMALL);

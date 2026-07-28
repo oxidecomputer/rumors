@@ -601,6 +601,25 @@ struct WindowMass {
     digits: Vec<(u64, i64)>,
 }
 
+/// Record `n` window digits' worth of merge work into the limb meter.
+///
+/// The window masses move digits as plain `i64` vector traffic — no
+/// `Base` operation, no accumulator write — so without this tap a
+/// settle could re-walk window digits arbitrarily often while every
+/// committed counter read zero: the digit walk is width-scale work
+/// exactly as a `Base` operand walk is, and it meters at the same
+/// one-count-per-digit rate. Compiles to nothing without the
+/// `limb-meter` feature, so [`WindowMass::combine`] calls it
+/// unconditionally — wherever the meters are, the tap is on by
+/// construction.
+#[inline(always)]
+fn meter_window_digits(n: u64) {
+    #[cfg(feature = "limb-meter")]
+    crate::codec::limb_meter::record(n);
+    #[cfg(not(feature = "limb-meter"))]
+    let _ = n;
+}
+
 impl WindowMass {
     /// The empty mass.
     fn new() -> WindowMass {
@@ -640,7 +659,16 @@ impl WindowMass {
     }
 
     /// The shared re-balancing merge loop over an ascending sparse
-    /// digit stream (each incoming digit within the balanced range).
+    /// digit stream.
+    ///
+    /// Incoming digits may exceed the balanced range: [`merge`]
+    /// (Self::merge) feeds raw `u32` limb halves (up to `2^32 − 1`)
+    /// and [`absorb`](Self::absorb) feeds balanced digits, so a
+    /// position's sum of carry, live, and incoming digit stays under
+    /// `2^33` — far inside `i64` — and the recentering below restores
+    /// every output digit to the balanced range. Every merged position
+    /// records one limb-meter count ([`meter_window_digits`]), the
+    /// digit traffic's only meter.
     fn combine<I: Iterator<Item = (u64, i64)>>(&mut self, new: I) {
         let mut old = core::mem::take(&mut self.digits).into_iter().peekable();
         let mut new = new.peekable();
@@ -661,6 +689,7 @@ impl WindowMass {
             if index == u64::MAX {
                 break;
             }
+            meter_window_digits(1);
             let mut t: i64 = 0;
             if carry != 0 && carry_index == index {
                 t = carry;
