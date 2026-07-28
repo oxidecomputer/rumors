@@ -1,5 +1,4 @@
-//! The interval-tree-clock event tree, [`Version`], and its chaining
-//! mutation handle, [`Batch`].
+//! The interval-tree-clock event tree, [`Version`].
 
 use core::cmp::Ordering;
 use core::fmt::Display;
@@ -10,7 +9,6 @@ use crate::codec;
 use crate::error::{Decode, Parse};
 use crate::Party;
 
-mod batch;
 mod rank;
 mod ranked;
 mod ticks;
@@ -23,7 +21,6 @@ pub mod skyline;
 #[cfg(not(any(test, feature = "meter")))]
 pub(crate) mod skyline;
 
-pub use batch::Batch;
 pub use rank::Rank;
 pub use ranked::Ranked;
 pub use ticks::Ticks;
@@ -61,8 +58,8 @@ mod tests;
 /// comparison cell — `==`, `<`, `<=`,
 /// [`partial_cmp`](PartialOrd::partial_cmp),
 /// [`concurrent`](Version::concurrent) — and every join (`|`, `|=`) and
-/// meet (`&`, `&=`) cell, over any mix of [`Version`] and [`Batch`]
-/// operands, is `O(|a| + |b|)` time and space, and a join or meet result
+/// meet (`&`, `&=`) cell, over owned or borrowed operands,
+/// is `O(|a| + |b|)` time and space, and a join or meet result
 /// is `O(|a| + |b|)` bytes itself. Hashing is `O(|v|)`. The costs that
 /// differ live on their operations: the projection `/` (its result can
 /// outgrow its operands), the n-ary folds
@@ -154,7 +151,7 @@ impl Version {
     /// assert_eq!(v.to_string(), "1");
     /// ```
     pub fn tick(&mut self, party: &Party) {
-        self.batch().tick(party);
+        *self = Version::from_bits(skyline::fill::tick(&self.0, party));
     }
 
     /// Advances this version by `n` events for `party`: byte-identical to
@@ -418,29 +415,65 @@ impl Version {
         iter.into_iter().reduce(|acc, v| acc & v)
     }
 
-    /// Begins a batch of operations on this [`Version`].
-    ///
-    /// [`Batch`] chains sequential operations on one version behind a single
-    /// mutable borrow.
-    ///
-    /// # Complexity
-    ///
-    /// `O(1)` time and space.
-    ///
-    /// ```
-    /// use before::{Party, Version};
-    /// let party = Party::seed();
-    /// let mut v = Version::new();
-    /// v.batch().tick(&party).tick(&party);
-    /// assert_eq!(v.to_string(), "2");
-    /// ```
-    pub fn batch(&mut self) -> Batch<'_> {
-        Batch::new(self)
-    }
-
     /// A read-only view of this version's stored skyline stream.
     fn view(&self) -> &codec::Bits {
         &self.0
+    }
+
+    /// The view-taking join core: fold an arbitrary skyline stream into
+    /// this version in place.
+    ///
+    /// Every `|`/`|=` cell routes through here, so owned and borrowed
+    /// operands join without transcoding.
+    ///
+    /// Before the merge sweep, two `O(1)` short-circuits settle the cases
+    /// canonical form makes immediate: trivial equality (`a ∨ a = a`, a
+    /// no-op, decided by a byte compare of the two unique streams) and the
+    /// lattice identity `0 ∨ v = v` — an empty incoming leaves the current
+    /// tree untouched, and an empty current adopts the incoming stream
+    /// wholesale (a copy, byte-identical to what the merge would emit). The
+    /// identity path is the common seed pattern: folds seeded with
+    /// [`Version::new`] (`join_all`, `Sum`) hit it on their first join.
+    fn join_view(&mut self, incoming: &codec::Bits) {
+        if codec::canonical_eq(&self.0, incoming) {
+            return; // a ∨ a = a
+        }
+        if skyline::is_empty_stream(incoming) {
+            return; // v ∨ 0 = v: nothing to fold in
+        }
+        if skyline::is_empty_stream(&self.0) {
+            // 0 ∨ v = v: adopt the incoming stream wholesale. Both streams
+            // are canonical, so the copy equals the merge byte for byte.
+            *self = Version::from_bits(incoming.clone());
+            return;
+        }
+        *self = Version::from_bits(skyline::emit::join(&self.0, incoming));
+    }
+
+    /// The view-taking meet core, the dual of
+    /// [`join_view`](Self::join_view): meet an arbitrary skyline stream
+    /// into this version in place.
+    ///
+    /// The `&`/`&=` matrix routes through here just as the `|`/`|=` matrix
+    /// routes through `join_view`.
+    ///
+    /// The dual short-circuits apply: trivial equality (`a ∧ a = a`), and the
+    /// empty version as the *absorbing* element, `0 ∧ v = 0` — an empty
+    /// current is already the answer, and an empty incoming makes the result
+    /// the empty version outright, no merge sweep either way.
+    fn meet_view(&mut self, incoming: &codec::Bits) {
+        if codec::canonical_eq(&self.0, incoming) {
+            return; // a ∧ a == a
+        }
+        if skyline::is_empty_stream(&self.0) {
+            return; // 0 ∧ v = 0: already empty, nothing can shrink it
+        }
+        if skyline::is_empty_stream(incoming) {
+            // v ∧ 0 = 0: the result is the empty version, whatever `v` was.
+            *self = Version::new();
+            return;
+        }
+        *self = Version::from_bits(skyline::emit::meet(&self.0, incoming));
     }
 
     /// Encodes this [`Version`] to bytes.
@@ -745,30 +778,29 @@ where
     }
 }
 
-// The join (`|`, `|=`) and meet (`&`, `&=`) matrices across {Version, Batch}²,
-// duals of each other, mirroring the comparison matrix below. The
-// `binop_matrix!` macro generates every cell of both: 16 value-operator cells
-// (lhs × rhs over {Version, &Version, Batch, &Batch}) and 8 assign cells (lhs
-// over {Version, Batch}).
+// The join (`|`, `|=`) and meet (`&`, `&=`) matrices over owned and
+// borrowed `Version` operands, duals of each other, mirroring the
+// comparison matrix below. The `binop_matrix!` macro generates every cell
+// of both families: four value-operator cells (lhs × rhs over
+// {Version, &Version}) and two assign cells (rhs over {Version, &Version}).
 //
 // A value-operator cell turns its left operand into a fresh owned `Version`
-// (`own` moves an owned `Version`, `clone` copies a borrowed one, `snapshot`
-// reads a `Batch`), then folds the right operand's view into it; a `Batch`
-// read this way is not mutated. An assign cell folds the right operand's view
-// into the left operand in place, through a transient `batch()` for a
-// `Version` receiver (`batch`) or directly for a `Batch` (`direct`). The two
-// families differ only in the view-folding method each cell routes through:
-// `Batch::join_view` for join, `Batch::meet_view` for meet.
+// (`own` moves an owned `Version`, `clone` copies a borrowed one), then
+// folds the right operand's view into it. An assign cell folds the right
+// operand's view into the receiver in place. The two families differ only
+// in the view-folding method each cell routes through: `Version::join_view`
+// for join, `Version::meet_view` for meet.
 
-/// Generates one binary-operator family's full matrix across {Version, Batch}².
+/// Generates one binary-operator family's full matrix over owned and
+/// borrowed `Version` operands.
 ///
 /// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`), its
 /// assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`), and the
 /// view-folding method `$view` every cell routes through (`join_view` or
-/// `meet_view`). Each strategy — `own`/`clone`/`snapshot` for value cells,
-/// `batch`/`direct` for assign cells — has its own `@cell` arm so the receiver
-/// `self` is written in the same expansion as the method it belongs to (`self`
-/// cannot cross a macro-invocation boundary).
+/// `meet_view`). Each strategy — `own`/`clone` for value cells, `assign` for
+/// assign cells — has its own `@cell` arm so the receiver `self` is written
+/// in the same expansion as the method it belongs to (`self` cannot cross a
+/// macro-invocation boundary).
 macro_rules! binop_matrix {
     ($Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident;
      $($lhs:ty, $rhs:ty, $strat:tt);* $(;)?
@@ -780,7 +812,7 @@ macro_rules! binop_matrix {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
                 let mut out: Version = self;
-                out.batch().$view(r.view());
+                out.$view(r.view());
                 out
             }
         }
@@ -790,29 +822,12 @@ macro_rules! binop_matrix {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
                 let mut out: Version = self.clone();
-                out.batch().$view(r.view());
+                out.$view(r.view());
                 out
             }
         }
     };
-    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, snapshot) => {
-        impl $Op<$rhs> for $lhs {
-            type Output = Version;
-            fn $op(self, r: $rhs) -> Version {
-                let mut out: Version = self.snapshot();
-                out.batch().$view(r.view());
-                out
-            }
-        }
-    };
-    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, batch) => {
-        impl $Assign<$rhs> for $lhs {
-            fn $assign(&mut self, r: $rhs) {
-                self.batch().$view(r.view());
-            }
-        }
-    };
-    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, direct) => {
+    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, assign) => {
         impl $Assign<$rhs> for $lhs {
             fn $assign(&mut self, r: $rhs) {
                 self.$view(r.view());
@@ -821,68 +836,32 @@ macro_rules! binop_matrix {
     };
 }
 
-// The join (`|`, `|=`) family. Routes through `Batch::join_view`.
+// The join (`|`, `|=`) family. Routes through `Version::join_view`.
 binop_matrix! {
     BitOr::bitor, BitOrAssign::bitor_assign, join_view;
     // value operator: left operand becomes a fresh owned `Version`
-    Version,    Version,    own;
-    Version,    &Version,   own;
-    Version,    Batch<'_>,  own;
-    Version,    &Batch<'_>, own;
-    &Version,   Version,    clone;
-    &Version,   &Version,   clone;
-    &Version,   Batch<'_>,  clone;
-    &Version,   &Batch<'_>, clone;
-    Batch<'_>,  Version,    snapshot;
-    Batch<'_>,  &Version,   snapshot;
-    Batch<'_>,  Batch<'_>,  snapshot;
-    Batch<'_>,  &Batch<'_>, snapshot;
-    &Batch<'_>, Version,    snapshot;
-    &Batch<'_>, &Version,   snapshot;
-    &Batch<'_>, Batch<'_>,  snapshot;
-    &Batch<'_>, &Batch<'_>, snapshot;
+    Version,  Version,  own;
+    Version,  &Version, own;
+    &Version, Version,  clone;
+    &Version, &Version, clone;
     // assign: right operand folded into the left operand in place
-    Version,    Version,    batch;
-    Version,    &Version,   batch;
-    Version,    Batch<'_>,  batch;
-    Version,    &Batch<'_>, batch;
-    Batch<'_>,  Version,    direct;
-    Batch<'_>,  &Version,   direct;
-    Batch<'_>,  Batch<'_>,  direct;
-    Batch<'_>,  &Batch<'_>, direct;
+    Version,  Version,  assign;
+    Version,  &Version, assign;
 }
 
 // The meet (`&`, `&=`) family: the dual of the join matrix above, with the
-// same cells and strategies, routing through `Batch::meet_view` instead of
+// same cells and strategies, routing through `Version::meet_view` instead of
 // `join_view`.
 binop_matrix! {
     BitAnd::bitand, BitAndAssign::bitand_assign, meet_view;
     // value operator: left operand becomes a fresh owned `Version`
-    Version,    Version,    own;
-    Version,    &Version,   own;
-    Version,    Batch<'_>,  own;
-    Version,    &Batch<'_>, own;
-    &Version,   Version,    clone;
-    &Version,   &Version,   clone;
-    &Version,   Batch<'_>,  clone;
-    &Version,   &Batch<'_>, clone;
-    Batch<'_>,  Version,    snapshot;
-    Batch<'_>,  &Version,   snapshot;
-    Batch<'_>,  Batch<'_>,  snapshot;
-    Batch<'_>,  &Batch<'_>, snapshot;
-    &Batch<'_>, Version,    snapshot;
-    &Batch<'_>, &Version,   snapshot;
-    &Batch<'_>, Batch<'_>,  snapshot;
-    &Batch<'_>, &Batch<'_>, snapshot;
+    Version,  Version,  own;
+    Version,  &Version, own;
+    &Version, Version,  clone;
+    &Version, &Version, clone;
     // assign: right operand folded into the left operand in place
-    Version,    Version,    batch;
-    Version,    &Version,   batch;
-    Version,    Batch<'_>,  batch;
-    Version,    &Batch<'_>, batch;
-    Batch<'_>,  Version,    direct;
-    Batch<'_>,  &Version,   direct;
-    Batch<'_>,  Batch<'_>,  direct;
-    Batch<'_>,  &Batch<'_>, direct;
+    Version,  Version,  assign;
+    Version,  &Version, assign;
 }
 
 // ───────────────────── projection onto a party (`/`, `/=`) ───────────────────
@@ -948,8 +927,8 @@ impl DivAssign<&Party> for Version {
     }
 }
 
-// Causal comparison across {Version, Batch}², reading current state in place.
-// All four cells — `Version`/`Version` included — come from this macro, so the
+// Causal comparison over owned and borrowed `Version` operands, reading
+// current state in place. Every cell comes from this macro, so the
 // comparison matrix reads as a matrix. Each ordering cell delegates to the
 // skyline comparison sweep; each equality cell is a byte compare of the two
 // stored streams (`codec::canonical_eq`) — the skyline coding is a canonical
@@ -995,7 +974,4 @@ macro_rules! causal_cmp_impls {
 
 causal_cmp_impls! {
     Version, Version;
-    Version, Batch<'_>;
-    Batch<'_>, Version;
-    Batch<'_>, Batch<'_>;
 }
