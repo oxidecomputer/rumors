@@ -47,13 +47,15 @@
   document develops, from first principles, a representation under
   which every primitive clock operation is a bounded number of linear
   passes over its packed operands and its mandatory output — one pass
-  for most, two where a lookahead or a measure's pre-pass is
-  inherent, composites summing
-  their parts. The representation is the *skyline*, a delta-coded
+  for most, two where a lookahead or a pre-pass earns its keep,
+  composites summing their parts, and one derivational gap, stated
+  where it lives, held by a pinned measurement instead. The
+  representation is the *skyline*, a delta-coded
   spelling of the step function a clock's event component denotes,
   paired with a redundant
   signed-digit *accumulator* that makes every running quantity cheap
-  to maintain and cheap to ask about. We derive each operation as a
+  to maintain and — outside one write-only mode — cheap to ask
+  about. We derive each operation as a
   sweep, give the informal argument that each is asymptotically
   optimal, derive a worst-case counting bound — the coding's longest
   spelling against the longest any code must have — placing the
@@ -64,7 +66,8 @@
   word-parallel decoders want. A single thesis organizes the design:
   every bit is touched a bounded number of times, and every touch is
   paid for by an input code consumed, an output code emitted, or the
-  death of digits already paid for. That discipline is what makes the
+  retirement of accumulator state some earlier code already paid
+  for. That discipline is what makes the
   implementation not just fast on friendly inputs but *resilient to
   arbitrary adverse inputs*: no input, of any magnitude, depth, or
   shape, costs more than a fixed multiple of what it reads and

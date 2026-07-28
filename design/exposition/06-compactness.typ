@@ -13,8 +13,9 @@ number honest.
 
 For each $n$, let $cal(F)(n)$ be the family of versions whose
 canonical stream fits in $n$ bits (unpadded bits throughout, per
-@canonical — the final byte's up-to-seven padding bits vanish in
-every ratio below), and let
+@canonical; the tabulated budgets are byte multiples, so the
+worst-case member pads to nothing, though a typical value carries
+up to seven padding bits these ratios do not price), and let
 $H(n) = log_2 |cal(F)(n)|$. _Any_ injective assignment of bit
 strings to the members of $cal(F)(n)$ — ours, or the best
 conceivable replacement, prefix-free or not — must give some member
@@ -55,7 +56,8 @@ full binary tree in preorder; each leaf carries a gamma-coded
 payload; a leaf that is the _right sibling of a leaf_ may not carry
 payload zero (the sibling-merge rule, @canonical); the tree must be
 complete with no trailing bits. Set nonnegativity aside for a
-moment — @nonneg prices it separately.
+moment — the grammar counted here is a _superset_ of the canonical
+streams, and @nonneg prices the surplus separately.
 
 Count with generating functions in a formal variable $x$ marking
 bits. The payload code puts $2^k$ values at cost exactly $2k + 1$
@@ -175,8 +177,9 @@ atom at zero, so the $ell^(-1\/2)$ _rate_ is the universality
 statement rather than the exact fluctuation identity. We lean on it solely for the
 asymptotic rate; the finite-$n$ numbers below come from exact
 bracketing counts that do not touch it, and the census corroborates
-the rate directly (about three bits of $H$ at $n = 800$, growing
-logarithmically).
+the rate directly — about three bits of $H$ at $n = 800$, as the
+rate predicts: a capacity-achieving stream there carries
+$ell approx 100$ plateaus, and $1\/2 dot log_2 100 approx 3.3$.
 
 == Finite sizes <finite>
 
@@ -202,7 +205,8 @@ where the exact count is out of computational reach):
     size. Rows quoted as ranges are rigorously bracketed by the over-
     and under-counting families, whose computation reaches through
     $n = 800$; the "$approx$" rows beyond extrapolate by
-    the validated closed form. At 100 bytes — a realistic version under heavy history —
+    the validated closed form, the "$approx$" marking its unpinned
+    $O(1)$ term. At 100 bytes — a realistic version under heavy history —
     the coding is within $6.7%$ of the floor: $4.3$ points of
     sibling-merge tax, about $2.0$ of finite-size effect (the
     count's universal $n^(-3\/2)$ factor puts the floor
@@ -217,7 +221,8 @@ The floor above is relative to the family the coding itself reaches.
 Choose a different, natural-sounding family — versions with $ell$
 plateaus and heights drawn uniformly below $2^w$ — and the same
 coding fares differently: the family needs about $ell (w + 2)$ bits
-of entropy, while the coding's worst case spends about
+of entropy — $w$ per height, about two per plateau of shape — while
+the coding's worst case spends about
 $ell (2w + 3)$ — gamma's $2w + 1$ per payload plus each plateau's
 own topology — a ratio approaching $2$ as $w$ grows. Same coding, same
 definition of floor, different family, different verdict. Any
@@ -241,17 +246,32 @@ a per-sibling-pair exclusion bites a constant fraction of the
 choices at a constant fraction of the nodes. Delta prices the same
 value at $c + O(log c)$, so its counting mass concentrates on
 few-leaf, giant-payload streams, where sibling pairs — the only
-thing pruned — are vanishingly rare. Formally: delta's and omega's
-generating functions are themselves critical exactly at $x = 1\/2$,
-and on $(0, 1\/2]$ the discriminant stays positive (at $x = 1\/2$
+thing pruned — are vanishingly rare. Formally: delta, like gamma,
+satisfies Kraft's equality, and it spends $k + O(log k)$ bits on
+$2^k$ values, so its payload generating function converges below
+$x = 1\/2$ and diverges above — its radius is exactly $1\/2$.
+On $(0, 1\/2]$ the discriminant stays positive (at $x = 1\/2$
 it evaluates to $1\/8$ — as it does for gamma, whose $G$ however
 survives out to $1\/sqrt(2)$, giving its discriminant the room to
 reach zero at $0.5145$ that delta's and omega's, expiring at
-$1\/2$, never get), so no branch point forms below the code's own
-singularity and $alpha = 1$: the pruning never becomes the binding
+$1\/2$, never get). No branch point forms below the code's own
+singularity, so $alpha = 1$: the pruning never becomes the binding
 constraint.
 
-The catch is where those codes win: the versions delta covers more
+Two other families of alternatives dispose quickly, on
+canonicality grounds. Parameterized codes (Golomb--Rice) make a
+tuning parameter part of every value's spelling, so the canonical
+form must fix it by rule — one more thing to validate, one more
+dimension the counting must price, and a knob whose right setting
+drifts with the workload. Two-regime hybrids — gamma below a
+threshold, an escape into delta above, exactly the crossover
+computed below — buy the wide tail at the price of double
+spellings, unless the escape is forbidden below the threshold:
+one more canonical rule, with its own tax, defending values the
+measured corpora barely contain.
+
+The catch is where the surviving competitors win: the versions
+delta covers more
 cheaply are exactly the few-plateau, giant-payload ones, and it pays
 pointwise on small values — comparing coded payloads $v$ (each code
 spells $v + 1$), gamma is better than or equal to delta on every

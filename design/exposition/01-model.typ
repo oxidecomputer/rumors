@@ -20,7 +20,9 @@ efficient — and, more demandingly, an implementation whose efficiency
 cannot be revoked by its inputs. The gap is wider than it first
 appears. A faithful, node-for-node transcription of the paper's
 equations inherits four independent cost defects, two of them
-quadratic, and the quadratics are not exotic — inputs of tens of
+quadratic — plus a fifth amplifier that surfaces only once those
+are repaired (@ladder) — and the quadratics are not exotic: inputs
+of tens of
 kilobytes trigger them at observable scale, and a few kilobytes
 already crash the transcription's stack (@naive). A clock library
 sits at a boundary where bytes arrive from other machines. It must
@@ -34,7 +36,8 @@ piece of arithmetic:
   function over the unit interval. Store _that_ — the tree's shape
   as one flag bit per node, and the sequence of
   plateau heights, delta-coded, bit-packed, in one contiguous buffer —
-  rather than the tree's interior numbers. The representation is canonical
+  rather than the tree's interior numbers. (The id component gets a
+  pruned, payload-free variant of the same idea — @id-coding.) The representation is canonical
   (one bit string per value, so byte equality _is_ semantic equality),
   compact (worst case within $4.3%$ of the information-theoretic
   floor asymptotically and $6.7%$ at hundred-byte sizes, for the
@@ -83,8 +86,11 @@ and rejection obeys the same proportionality. Each section's cost argument is on
 that claim; the accumulator is the clause the others lean on.
 
 *Provenance of claims.* Every cost statement in this document is one
-of two kinds, and says which: _derived_ — an argument carried out here,
-from the representation and the algorithm, which the reader can check;
+of three kinds, and says which: _derived_ — an argument carried out
+here,
+from the representation and the algorithm, which the reader can
+check; _derived in our work_ — a bound whose full derivation outgrew
+this exposition, its shape given here;
 or _measured_ — an observation from our implementation's instrumented
 test and benchmark apparatus, quoted at the level of mechanism. The
 setup behind every measured figure: one commodity 64-bit
@@ -94,15 +100,16 @@ the resource counters (bits scanned, accumulator digit touches, peak
 transient bytes) are deterministic and machine-independent, so
 nanosecond bands indicate a class while counter readings are exact.
 Seven
-concessions, of four kinds, each stated where it lives rather
-than smoothed over. Three boundaries of arguments: one uncertified
+concessions, each stated where it lives rather
+than smoothed over. Two boundaries of arguments: one uncertified
 input shape in rank's funding
-argument (@measures), one probabilistic step in the counting bound
-(@nonneg), and one framing choice in what the compactness floor is
-measured against (@ctf-caveat). One machine effect the linear
-bound absorbs rather than eliminates (@words). One clause stated
-without proof (join's subadditivity in the minimum-tick floor,
-@measures). And two derivations whose full forms live in our work
+argument (@measures) and one probabilistic step in the counting
+bound (@nonneg). One framing every compactness claim must carry
+(@ctf-caveat). One machine effect the linear
+bound absorbs rather than eliminates (@words). One composition
+stated without proof — the minimum-tick floor's induction over
+forked histories, join subadditivity inside it (@measures). And two
+derivations whose full forms live in our work
 with their shapes given here (the join size constant, @join; tick's
 output bounds, @tick-output). @closing re-collects all seven.
 
@@ -140,7 +147,9 @@ The three operations:
   successor timestamp only has to dominate its predecessor, and
   disjointness guarantees nobody else writes that region. The paper
   exploits the freedom: `fill` raises owned regions to flatten the
-  tree where it can, and `grow` performs the cheapest strict increment
+  tree where it can — including lifting a wholly-owned region up to
+  a filled sibling's minimum — and `grow` performs the cheapest
+  strict increment
   where it cannot.
 - *join* merges two stamps: ids by pointwise sum (disjointness makes
   that a union), event trees by pointwise maximum.
@@ -151,7 +160,9 @@ which is $<=$ the other are _concurrent_. The paper's operations
 lean on notation this document reuses: the _lift_ $e arrow.t m$,
 which adds $m$ to the root value of $e$ — so $n arrow.t m = n + m$
 and $(n, e_1, e_2) arrow.t m = (n + m, e_1, e_2)$ — along with
-$min(e)$ and $max(e)$, the extrema of $e$'s function, and `norm`,
+$min(e)$ and $max(e)$, the extrema of $e$'s function over $e$'s own
+interval (range quantities, which is what @tick must carry), and
+`norm`,
 the paper's normalizing constructor.
 
 Finally, the paper keeps trees in a *normal form* — $(0,0)$ and
@@ -193,7 +204,8 @@ double duty; each such use is flagged where it occurs:
     [$W$], [the bit width of a stored magnitude],
     [$h$, $h_i$], [an absolute plateau height; the running height],
     [$delta$], [a height difference between consecutive plateaus],
-    [$D$], [a two-operand sweep's running difference $h_a - h_b$],
+    [$D$], [a two-operand sweep's running difference $h_a - h_b$
+      (@cmp)],
     [$a_i$], [the accumulator's signed digits (@accum)],
     [$ell$], [the word length of a wide operand],
     [$k$], [a construction's scale parameter (a cliff's width, a
@@ -203,6 +215,10 @@ double duty; each such use is flagged where it occurs:
       payload width (@ctf-caveat)],
     [$v$], [a coded payload value (@coding); also a version, as in
       $"rank"(v)$ — context separates them],
+    [$a$, $b$], [two operand versions (@operations; distinct from
+      the accumulator's digits $a_i$)],
+    [$p$, $q$ (again)], [two parties (@id-ops; $q$ is also a
+      digit's would-be value, local to @redundant)],
     [$s$], [a scaled write's power-of-two exponent
       (@accum-contract)],
     [$t$], [double duty, flagged in place: a construction's tooth
