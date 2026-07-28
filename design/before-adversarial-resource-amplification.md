@@ -2195,7 +2195,18 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   collapse can strand a certificate above the settled top
   (violating the letter of the `hi ≤ top` structural invariant)
   but every interior-zero claim stays true and both consumers
-  remain sound — a doc-tightening candidate, not a defect. The
+  remain sound — a doc-tightening candidate, not a defect.
+  \[AMENDED 2026-07-28 (verify #82): the stranding clause is
+  retracted by its author after completing the case split it had
+  left unfinished — a collapsing fold's break index is always the
+  first interior digit of the run it enters (a nonzero partial
+  shifts past the decision bound over a zero digit; a zero partial
+  consumes the run before stepping in; the empty-value terminal arm
+  clears the ledger), so the re-deposit's crop keeps only the lower
+  remnant and `hi ≤ top` holds through collapse as a standing
+  invariant. Mechanically confirmed at exhaustive small scope by
+  suanpan's `ledger_invariants_hold_exhaustively`; the soundness
+  and consumer-reliance clauses of the original sentence stand.\] The
   min-ticks anchor web is immune to F1's genre: no absolute
   position exists anywhere in it, reigns settle once at the dying
   record's own funded width, the comparable-top latent merge is
@@ -2380,6 +2391,89 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
     — the ledger settle's sparse-vec merge sits behind the same
     boundary, bounded by its metered charges on every family — and
     the judge's sub-resolution) stand unchanged.
+
+- **VERIFIED 2026-07-28 (round #82, the two open evidence questions;
+  branch `verify82` @ base 91c4a81c).** Charter: settle by
+  construction, adversarial on both — the dense-suffix residual vs
+  rank's unqualified claim, and the suanpan certificate stranding
+  plus its soundness follow-on. All numbers exact deterministic
+  counters, dev profile.
+
+  **Q1 verdict: CONSTRUCTED — the ledger settle's dense-suffix
+  charge is reachable through the public API and quadratic; rank's
+  unqualified `O(|v|)` was a wrong committed claim.** The family
+  `DS(p, d)` (built via `FromStr`, the #79 pin's route): a *gap
+  spine* of `33d` levels turning right every 33rd (each turn's
+  before-swept leaf punctures the trailing interval mass one
+  isolated gap, gaps a full base-2^32 digit apart so balanced
+  compaction can never merge them — the suffix every close-time
+  charge walks stays `Θ(d)` digits), then the re-arm blocks'
+  promotion schedule verbatim at the spine's bottom. Rank reads
+  [measured 2026-07-28, dev, exact] touches 3,417,450 → 13,357,237
+  and limb 2,837,934 → 11,175,881 across DS(500) → DS(1,000) on
+  119,593 B → 239,030 B (×1.96/×1.97 per byte); the next doubling
+  reads ×1.98/×1.98 — local exponent ~2.0, a class defect. The pair
+  form on (DS, DSM) reads ×1.96 touch / ×1.94 limb through the
+  distance/lag triple: one shared integrator, three claims fall
+  together, exactly as the residual paragraph had predicted
+  (`constructible and superlinear in the same genre F1 was` — the
+  round-2 prediction is confirmed, not disputed). Landed in one
+  commit, the #37→#78 precedent's shape: both-currency red pins
+  with min_ticks closed-form semantic legs and touch liveness
+  floors (`ledger_dense_suffix_pin`, `tests/meter.rs`, floors ×1.48
+  midway); rank/distance/lag `# Complexity` re-stated (linear
+  space, **superlinear** worst case with the family named, excess
+  non-contractual); roster tokens moved with TODO-cure records —
+  rows stay `Class::Linear` under the class-binding seal because
+  the family is tests-only (no board red backs a
+  `SuperlinearCounter` move), the documented #37 constraint. The
+  board, the judge roster, and every flatness band are untouched
+  and green: the module doc, the public claims, and the committed
+  instruments now agree exactly. Cure options stand as the module
+  doc states: a settle linear in arming count and suffix density at
+  once (lazy product trees), or the family lands on the board and
+  the class moves with it.
+
+  **Q2 verdict: NOT REPRODUCED — no schedule strands a certificate;
+  `hi ≤ top` is a standing invariant, collapse included, and the
+  soundness follow-on's precondition is unreachable.** The #79
+  reviewer retracted the stranding claim mid-round after completing
+  its case split (relayed by the coordinator; this round's
+  independent trace agrees clause for clause): the collapsing
+  fold's break index is always the first interior digit of the run
+  it enters, the re-deposit's written range therefore always
+  intersects the containing certificate, and the upper remnant is
+  unsatisfiable — only the lower remnant survives, contained. The
+  mechanical settlement is committed as the instrument the seam
+  lacked (suanpan `tests.rs`): a differential driver checking,
+  after every step of every schedule, exact `IBig` value agreement
+  plus every structural clause read from the private state (lazy
+  zone, exact top, write watermark, and per certificate nonempty
+  all-zero interior, `hi ≤ top`, pairwise disjointness).
+  Exhaustive prefix-tree sweep over an 11-op alphabet — word-scale
+  deltas, recentering `u64::MAX` deltas, one-limb jumps to digits 3
+  and 7 in both signs (above-top inserts, stacks, splits), raw
+  `±2^32` deposits at digit 6 (the cancelling under-digit that
+  walks a fold into a certified run with a small nonzero partial or
+  to an exact-zero partial at its edge), and collapsing sign
+  reads — all schedules of length ≤ 6: 1,948,716 states, every one
+  green (~4 s dev, committed); the length-≤ 7 sweep's 21,435,888
+  states also ran green once at pin time (48 s, not committed).
+  Complement: a run-forming proptest (shifts to 4,096 bits,
+  schedules to 150 ops, sign reads interleaved) with the same
+  per-step checker, no seeds appeared. The #79 REVIEW entry's
+  stranding sentence carries its dated amendment above; suanpan's
+  `zero_runs` field doc now states the stronger standing-containment
+  truth the code supports, consumers still bound to soundness alone.
+  The recommended per-op disjointness + containment debug_assert is
+  DECLINED under the assertion doctrine: a full-ledger walk per
+  `add_at` (the per-digit hot path) samples the same
+  schedule-shaped space the exhaustive driver now covers
+  systematically — the invariant's failure modes are per-transition
+  and scale-independent, so production-scale schedules add no new
+  transition the small scope lacks — at O(ledger) per write forever;
+  no constructible witness names an input the committed instruments
+  miss. Same instrument, worse price.
 
 ## 13. The metering gate
 
