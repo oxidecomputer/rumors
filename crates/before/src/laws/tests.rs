@@ -8,21 +8,7 @@ use std::collections::BTreeSet;
 /// exactly one law — the property the whole collection exists to provide.
 #[test]
 fn law_names_are_unique_across_groups() {
-    let names: Vec<&str> = std::iter::empty()
-        .chain(super::VERSION_SOLO.iter().map(|(name, _)| *name))
-        .chain(super::VERSION_PAIR.iter().map(|(name, _)| *name))
-        .chain(super::VERSION_TRIPLE.iter().map(|(name, _)| *name))
-        .chain(super::PARTY_SOLO.iter().map(|(name, _)| *name))
-        .chain(super::PARTY_PAIR.iter().map(|(name, _)| *name))
-        .chain(super::PARTY_TRIPLE.iter().map(|(name, _)| *name))
-        .chain(super::VERSION_PARTY.iter().map(|(name, _)| *name))
-        .chain(super::VERSION_PAIR_PARTY.iter().map(|(name, _)| *name))
-        .chain(super::VERSION_PARTY_PAIR.iter().map(|(name, _)| *name))
-        .chain(super::VERSION_PAIR_PARTY_PAIR.iter().map(|(name, _)| *name))
-        .chain(super::RANK_TRIPLE.iter().map(|(name, _)| *name))
-        .chain(super::CLOCK_SOLO.iter().map(|(name, _)| *name))
-        .chain(super::CLOCK_VERSION.iter().map(|(name, _)| *name))
-        .collect();
+    let names = super::registered_names();
     let mut seen = BTreeSet::new();
     let duplicates: Vec<&str> = names
         .iter()
