@@ -75,7 +75,7 @@ unity:
     [sweeps over differences the stream itself supplies, held on
       the accumulator],
     [wide decode (@naive-decode)],
-    [a growing accumulator re-touched per bit],
+    [a growing decode buffer re-touched per bit],
     [word-windowed reads; work charged to the code's own width],
     [recursion (@naive-recursion)],
     [a native frame per level],
@@ -159,7 +159,8 @@ efficiency story, and they are one: within $4.3%$ of the counting
 floor asymptotically, $6.7%$ at hundred-byte sizes (against
 the family the coding reaches — the framing @ctf-caveat keeps
 honest), linear sweeps for every operation, constants a small
-multiple of reading cost, on the access pattern the machine likes
+multiple of decoding cost — decoding itself a bounded factor above
+raw byte movement — on the access pattern the machine likes
 best. But the deeper claim, and the one this document was written to
 make legible, is about _worst cases as a design material_. Every
 structure here — the delta coding, the balanced digits, the
@@ -204,7 +205,10 @@ dress); *redundant representations amortizing structural work* —
 C. Okasaki, _Purely Functional Data Structures_, Cambridge
 University Press, 1998, ch. 9;
 *exact long accumulation* — U. Kulisch, _Advanced Arithmetic for the
-Digital Computer_, Springer, 2002; *the integer codes, and the
+Digital Computer_, Springer, 2002; *amortization and the potential
+method* — R. E. Tarjan, "Amortized Computational Complexity,"
+_SIAM J. Algebraic Discrete Methods_ 6(2), 1985, pp. 306–318;
+*the integer codes, and the
 competitive framing of universal coding* — P. Elias, "Universal
 Codeword Sets and Representations of the Integers," _IEEE Trans.
 Information Theory_ IT-21(2),
@@ -218,4 +222,7 @@ Fluctuations of Sums of Random Variables" I–II, _Math. Scand._ 1
 (1953), pp. 263–285, and 2 (1954), pp. 195–223. The
 composed contract of @accum — the lazy balanced form with a
 collapsing sign fold and domination floors, as one interface — is,
-to our knowledge, this design's own.
+to our knowledge, this design's own; so are the minimum-tick
+measure and its identity (@measures), the join size inequality
+(@join), and the counting analysis of the canonical grammar
+(@compactness).
