@@ -31,7 +31,8 @@
 //! over *projected* streams (event × id overlays) without materializing
 //! any projection; the [`emit`] submodule runs the same merge as join and meet,
 //! re-delta-coding pointwise max/min into a canonical stream through the
-//! collapsing output builder; the [`query`] submodule answers the linear
+//! collapsing output builder (the private `build` submodule, which the
+//! tick splice drives too); the [`query`] submodule answers the linear
 //! functionals (rank, distance, lag, min_ticks) and projection from the
 //! same leaf sweeps; the [`fill`](mod@fill) submodule registers an event
 //! (the fused tick: one fill walk deciding in-pass whether raising full
@@ -117,7 +118,8 @@
 //! - **Byte uniqueness**: op-path-independent equality — value-equal
 //!   versions built along different operation paths produce identical
 //!   skyline bytes; exhaustive small-scope injectivity over all normal
-//!   forms to a bounded depth.
+//!   forms to the depth bound the test-only `testing::exhaustive` module
+//!   states and argues.
 //! - **Strict rejection**: a deterministic corpus per reject genre (zero
 //!   right-sibling delta, negative running height, truncation at every cut
 //!   point, trailing bits), each with its exact error; plus a
