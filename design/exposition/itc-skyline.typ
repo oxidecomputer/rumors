@@ -75,6 +75,14 @@
   the close.
 ])
 
+#v(0.5em)
+
+#block(inset: (x: 2.2em), text(size: 9.5pt)[
+  *Implementation note.* The mechanisms and measurements described
+  here are realized in the `before` and `suanpan` Rust crates; the
+  document stands alone.
+])
+
 #v(1em)
 
 #outline(depth: 3, indent: 1.2em)
