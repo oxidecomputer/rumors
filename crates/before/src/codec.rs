@@ -1,10 +1,19 @@
-//! Bit I/O: the Elias-gamma integer code, the preorder id/event encodings, and
-//! the recursive `decode` with normal-form validation.
+//! The bit-level substrate both codings share, plus the id tree's codec.
 //!
-//! At rest, a `Party`/`Version` holds its canonical packed preorder bit stream
-//! (no trailing padding), so bit-equality is semantic equality. `encode` pads
-//! that stream to a byte boundary; `decode` parses and *strictly validates*
-//! normal form, then stores the (canonical) consumed prefix.
+//! What lives here: the packed bit storage and its canonicality helpers
+//! (`bits`), the sequential read cursors (`cursor`, `dsi`), the Elias-gamma
+//! integer code (`gamma`), the arbitrary-precision [`Base`] the payloads
+//! decode into (`base`), the append-truncate output builder (`build`), the
+//! packed-stream write meter (`scan`), the text-notation parsers (`text`),
+//! and the *id* tree's parse and strict validation (`tree`, with `literal`
+//! and `display`). The event coding — the skyline — and its validation are
+//! `version::skyline`'s, built on these primitives.
+//!
+//! At rest, a `Party`/`Version` holds its canonical packed preorder bit
+//! stream (no trailing padding), so bit-equality is semantic equality.
+//! `encode` pads that stream to a byte boundary; each `decode` parses and
+//! *strictly validates* normal form (iteratively — nothing here recurses),
+//! then stores the (canonical) consumed prefix.
 
 pub(crate) mod base;
 mod bits;

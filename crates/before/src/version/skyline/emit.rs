@@ -7,11 +7,13 @@
 //! bookkeeping): two leaf cursors over the overlay partition, one
 //! running signed difference `D = height_a − height_b` on the
 //! cliff-immune [`Accumulator`]. What emission adds is an output leaf per
-//! elementary interval — depth `max` of the two cursor depths, since
-//! overlapping dyadic intervals nest — delivered to the collapsing
-//! output builder (the crate-private `build` sibling module), which
-//! derives the union topology from the depth sequence and truncates
-//! equal sibling leaves back out. No height is
+//! elementary interval — depth `max` of the two cursor depths: overlapping
+//! dyadic intervals nest, so the elementary interval *is* the deeper
+//! side's leaf. The walk therefore emits a left-to-right dyadic tiling of
+//! the unit interval, which is exactly the preorder leaf sequence the
+//! collapsing output builder (the crate-private `build` sibling module)
+//! demands; the builder derives the common refinement's topology from
+//! the depth sequence and truncates equal sibling leaves back out. No height is
 //! ever materialized along the way; the output is delta-coded from
 //! quantities the boundary itself supplies.
 //!
@@ -42,20 +44,23 @@
 //! Derived, with the constants pinned by the `skyline_join_*` and
 //! `skyline_meet_*` rows of the resource-envelope suite
 //! (`tests/meter.rs`): the walk inherits the comparison sweep's linear
-//! scan, decode, and fold bounds; each emitted code is written once and
-//! truncated at most once (the builder's amortization, its module doc);
-//! and the switch reads are each priced by the boundary's own input
-//! codes. Transient state is the two cursor paths, the accumulator,
-//! the builder's per-level bit stacks, and the output itself — no
-//! working tree, no node array, no per-level value.
+//! scan, decode, and fold bounds; the builder's collapse stays amortized
+//! O(1) per output bit because every repair is subtractive — each
+//! cascade step copies only a code its own deletions have already
+//! priced (the builder's module doc carries the argument); and the
+//! switch reads are each priced by the boundary's own input codes.
+//! Transient state is the two cursor paths, the accumulator, the
+//! builder's per-level bit stacks, and the output itself — no working
+//! tree, no node array, no per-level machine word.
 //!
 //! # Testing
 //!
 //! The recursive oracle's join and meet are the behavioral witness: the
-//! emitted stream must reproduce the oracle's encoded result byte for
-//! byte (canonical uniqueness makes that the whole contract), over the
+//! emitted stream must reproduce the oracle's encoded result bit for
+//! bit (canonical uniqueness makes that the whole contract), over the
 //! adversarial families, arbitrary pairs, organic histories, and the
-//! exhaustive small scope. A three-cursor overlay walk additionally
+//! exhaustive small scope (every ordered pair to the depth bound the
+//! test-only `testing::exhaustive` module states and argues). A three-cursor overlay walk additionally
 //! re-derives every output plateau's absolute height against pointwise
 //! max/min of the inputs' — the direct witness that no side switch was
 //! misread — and the algebraic laws (commutativity, associativity,
@@ -76,13 +81,19 @@ use super::{gamma_code, zigzag_signed};
 /// as a canonical skyline stream.
 ///
 /// One merge over the two streams; the module doc carries the emission
-/// algebra and the cost bounds. The output is byte-identical to the
-/// recursive oracle's join (the differential suite pins it).
+/// algebra and the cost bounds. The output stream equals the recursive
+/// oracle's join bit for bit (the differential suite pins it); its dead
+/// pad bits are left as built — zeroing them is the storage gate's job
+/// (`Version::from_bits`).
 ///
 /// # Panics
 ///
-/// Panics if either operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes.
+/// Operands must be canonical skyline streams — run
+/// [`validate`](fn@super::validate) first on untrusted bytes. The
+/// violations the walk structurally notices (truncation, malformation)
+/// panic; the rest (a collapsible sibling pair, a delta driving the
+/// running height negative) sweep silently, and the output is then
+/// unspecified.
 pub fn join(a: &BitsSlice, b: &BitsSlice) -> Bits {
     emit(a, b, Op::Join)
 }
@@ -94,7 +105,8 @@ pub fn join(a: &BitsSlice, b: &BitsSlice) -> Bits {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand, exactly as [`join`] does.
+/// [`join`]'s contract exactly: canonical operands required, structural
+/// violations panic, the rest yield an unspecified output.
 pub fn meet(a: &BitsSlice, b: &BitsSlice) -> Bits {
     emit(a, b, Op::Meet)
 }
@@ -129,8 +141,13 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
     diff.sub_magnitude(&b_first);
 
     // The first interval: the winning side's absolute height opens the
-    // output. Subadditivity caps the output at the inputs' total, so
-    // their combined length is a one-allocation capacity.
+    // output. The inputs' combined length is the capacity *estimate*:
+    // the union topology and the carried-over step codes fit under it,
+    // but a switch code is bounded by the boundary's input codes only up
+    // to a constant, so a pathological switch-heavy pair could outgrow
+    // it — costing one reallocation, never correctness. The envelope
+    // rows (`tests/meter.rs`, `skyline_join_*`/`skyline_meet_*`) pin the
+    // measured peak heap, switch-heavy families included.
     let mut side = op.pick(diff.sign(), Side::A);
     let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
     let first = match side {

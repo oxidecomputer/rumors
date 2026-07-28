@@ -8,13 +8,27 @@
 //! each cost against its input size; the meters read the deterministic
 //! counters the envelopes are pinned against. Public under the `meter`
 //! feature so the metering test binaries (and benches) can reach it; never
-//! part of a production build.
+//! part of a production build. (The proptest strategies over *arbitrary*
+//! inputs are a different instrument and live in the test-only
+//! `testing::generators` module; the shapes here are hand-derived
+//! worst cases.)
+//!
+//! A shape lands in one of two enforcement homes, and most take only one:
+//! every shape gets its envelope rows in `tests/meter.rs` — the enforced
+//! per-operation record — and a shape additionally earns a column on the
+//! amplification board ([`board`](crate::meter::board)) only when it is a whole-surface
+//! adversary rather than a kernel-seam probe (the criterion, and the
+//! luck-proof touch list, sit on the board's `FAMILIES` roster).
 //!
 //! Every generator output is strict normal form: it round-trips through
 //! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
 //! and re-encodes byte-identically,
 //! and its exact bit length is a closed formula in the parameters (pinned by
-//! this module's tests). Event shapes are built in the generators'
+//! this module's tests). Normal form is also the one shaping constraint —
+//! equal sibling leaves collapse, so a plateau is never spelled as an
+//! equal leaf pair: the shapes spell one as unit-apart leaf values
+//! ([`reveal_comb`](crate::meter::reveal_comb)) or as bare leaves under internal nodes
+//! ([`pure_comb`](crate::meter::pure_comb)). Event shapes are built in the generators'
 //! construction language — per node, a flag bit (`1` internal, `0` leaf,
 //! this language's own convention) plus the Elias-gamma code of its base
 //! (`gamma(n)` codes `m = n + 1`) — which the skyline transcoder
@@ -23,6 +37,13 @@
 //! coding. Id
 //! shapes are the crate codec directly: a 2-bit child-presence tag per
 //! node, absent children occupying no bits.
+//!
+//! Designing a new shape, two decided axes are worth finding before any
+//! bits: whether the input pays the adversarial width once or per site —
+//! the funding argument, argued at [`memo_fanout`](crate::meter::memo_fanout) versus
+//! [`memo_oscillating`](crate::meter::memo_oscillating) — and, for pair shapes, whether the pair is two
+//! packed streams ([`jump_pair`](crate::meter::jump_pair)) or organically built [`Version`]s
+//! ([`concurrent_pair`](crate::meter::concurrent_pair), which argues the choice).
 
 pub mod board;
 pub mod tier2;

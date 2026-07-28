@@ -25,21 +25,27 @@
 //!
 //! This coding is the stored and wire form of a [`Version`]:
 //! [`Version::encode`] and [`Version::decode`] carry these streams, and
-//! every operation runs on them directly. The [`sweep`] submodule decides
-//! comparisons on skyline streams — the merge form the coding exists to
-//! enable — and the [`masked`] submodule decides the same comparisons
-//! over *projected* streams (event × id overlays) without materializing
-//! any projection; the [`emit`] submodule runs the same merge as join and meet,
-//! re-delta-coding pointwise max/min into a canonical stream through the
-//! collapsing output builder; the [`query`] submodule answers the linear
-//! functionals (rank, distance, lag, min_ticks) and projection from the
-//! same leaf sweeps; the [`fill`](mod@fill) submodule registers an event
-//! (the fused tick: one fill walk deciding in-pass whether raising full
-//! regions changed the stream, else the cheapest inflation along the
-//! route the walk recorded), with the [`grow`](mod@grow) submodule's
-//! splice emit rebuilding the one chosen root-to-leaf path; the
-//! [`text`] submodule renders and parses the paper's text notation
-//! directly on the streams. Every kernel is differentially pinned against
+//! every operation runs on them directly. The submodules:
+//!
+//! - [`sweep`] decides comparisons on skyline streams — the merge form
+//!   the coding exists to enable.
+//! - [`masked`] decides the same comparisons over *projected* streams
+//!   (event × id overlays) without materializing any projection.
+//! - [`emit`] runs the same merge as join and meet, re-delta-coding
+//!   pointwise max/min into a canonical stream through the collapsing
+//!   output builder (the private `build` submodule, which the tick
+//!   splice drives too).
+//! - [`query`] answers the linear functionals (rank, distance, lag,
+//!   min_ticks) and projection from the same leaf sweeps.
+//! - [`fill`](mod@fill) registers an event — the fused tick: one fill
+//!   walk deciding in-pass whether raising full regions changed the
+//!   stream, else the cheapest inflation along the route the walk
+//!   recorded — with the [`grow`](mod@grow) submodule's splice emit
+//!   rebuilding the one chosen root-to-leaf path.
+//! - [`text`] renders and parses the paper's text notation directly on
+//!   the streams.
+//!
+//! Every kernel is differentially pinned against
 //! the recursive oracle (`crate::oracle`), and the meter surface
 //! re-exports the module ([`crate::meter::skyline`]) so the
 //! resource-envelope suite can pin its internals.
@@ -117,7 +123,8 @@
 //! - **Byte uniqueness**: op-path-independent equality — value-equal
 //!   versions built along different operation paths produce identical
 //!   skyline bytes; exhaustive small-scope injectivity over all normal
-//!   forms to a bounded depth.
+//!   forms to the depth bound the test-only `testing::exhaustive` module
+//!   states and argues.
 //! - **Strict rejection**: a deterministic corpus per reject genre (zero
 //!   right-sibling delta, negative running height, truncation at every cut
 //!   point, trailing bits), each with its exact error; plus a

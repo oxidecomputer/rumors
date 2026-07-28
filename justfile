@@ -340,11 +340,11 @@ bench-quick target *filter:
 # rows, text 1.7 for the wide-display pair, the class declared per cell by
 # the bench sidecar, never by the roster — red/green table. Both judging
 # recipes judge through the committed roster (tools/benchjudge-expected.json:
-# expected reds — the 16 bigroot cells awaiting C2 plus the permanent
-# schoolbook tripwire, required RED at its text ceiling — and boundary
-# cells by name; the bigroot and boundary sets empty at C3), so they pass
-# on the honest tree while the owned reds await their cures and fail on
-# any unexpected red OR unexpected green.
+# expected reds by cell name — the permanent schoolbook tripwire, required
+# RED at its text ceiling, plus the hugeleaf display pair — and boundary
+# cells by name, that set empty at this tip; tests/bench_judge_roster.rs
+# pins the exact membership), so they pass on the honest tree while the
+# owned reds stand and fail on any unexpected red OR unexpected green.
 
 # Judge the board bench exponents across both scales through the roster (quick mode: iteration only).
 bench-judge:
@@ -356,7 +356,7 @@ bench-judge:
 # Judged through the same roster (its sampling pin covers both modes — the
 # expectations are exponent classes, which hold under either regime), so
 # the posture is identical in both modes: roster-satisfied on the honest
-# tree, the bigroot set emptied at C3, the text expectations permanent.
+# tree, red on any unexpected verdict in either direction.
 
 # `bench-judge` at full sampling: the mode required for numbers of record.
 bench-judge-record:
