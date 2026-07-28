@@ -15,20 +15,16 @@ discipline produced all four.
   value magnitude, any tree depth, any shape; well-formed or
   malformed; crafted or organic — time and transient memory are
   proportional to the bits the operation reads plus the bits its
-  answer mandatorily occupies — derived throughout, with one input
-  shape in rank held by a pinned measurement instead (@measures)._
+  answer mandatorily occupies._
 ])
 
-The word "amortized" in earlier sections needs its scope fixed here,
-because it strengthens the claim rather than weakening it: every
-accumulator is created and destroyed within a single operation, so
-the amortization is internal to one call — each individual API call
-is worst-case linear in its own input plus mandatory output, not
-merely cheap on average across a
-sequence. And one derivational boundary carries over: rank's
-freeze-position funding has the uncertified input shape @measures
-states, where the linear behavior is enforced by a pinned measured
-ceiling rather than derived. Everything else is derived — in this
+Derived throughout, with one input shape in rank held by a pinned
+measurement instead (@measures). The scope of "amortized", fixed in
+@accum-contract, strengthens the claim rather than weakening it:
+the amortization is internal to one call, so each individual API
+call is worst-case linear in its own input plus mandatory output,
+not merely cheap on average across a sequence. Everything else is
+derived — in this
 document, or, for two bounds whose full derivations outgrew it, in
 our work with the shapes given here (@join's exact constant,
 @tick-output's inequalities) — with one composition stated without
@@ -55,16 +51,15 @@ denial-of-service primitive for an adversary and an unexplained outage for
 an operator — the two audiences differ only in intent. The
 authenticated setting this library actually ships in makes hostile
 peers unlikely; the bar is held anyway, because "unlikely" is not an
-argument availability can rest on, and because — the campaign's
-repeated experience — every amplification an adversary could exploit
+argument availability can rest on, and because — as this work
+repeatedly found — every amplification an adversary could exploit
 is also a tax some honest workload eventually pays.
 
 == One discipline, every genre <genres>
 
-Each cost defect this document met was cured by the same move:
-_identify the quantity whose maintenance was unfunded, and re-coordinate
-it so that every touch has a payer._ The table is worth reading as a
-unity:
+The same move cured every cost defect this document met: _find the
+quantity nothing was paying to maintain, and re-coordinate
+it so that every touch has a payer._ One discipline, nine seams:
 
 #figure(
   table(
@@ -129,8 +124,8 @@ to make, because conservation laws add.
 A claim of this shape cannot be established by testing what occurs to
 the implementer — the quantifier is over _all_ inputs, and the
 dangerous ones are precisely the unimagined ones. Our implementation
-holds it by an adversarial method worth recording, briefly, because
-the document's own contents were produced by it:
+holds it by an adversarial method that produced this document's own
+contents:
 
 - *Constructions, not samples.* Every genre in @fig-genres is
   witnessed by a committed input-family generator — `bigroot`, the
@@ -160,11 +155,12 @@ the document's own contents were produced by it:
   an earlier design of the walk had already been built
   (@tick-web) — and each refuting
   family is a permanent regression test. What @accum and @tick
-  present as clean derivations were reached by iterated attack.
+  present as clean derivations was reached by iterated attack.
 
 == Closing <closing>
 
-The skyline representation and its accumulator were presented as an
+This document presented the skyline representation and its
+accumulator as an
 efficiency story, and they are one: within $4.3%$ of the counting
 floor asymptotically, $6.7%$ at hundred-byte sizes (against
 the family the coding reaches — the framing @ctf-caveat keeps
@@ -194,8 +190,10 @@ work rather than here, their shapes given (@join's exact constant,
 That is what it means for the implementation of a paper's elegant
 recursive equations to be not only correct, and not only fast, but
 resilient to arbitrary adverse inputs: the equations' meaning is
-preserved exactly — a boxed, recursive, paper-faithful transcription
-remains the permanent oracle its every operation is tested against —
+preserved exactly — a recursive, paper-faithful transcription, kept
+apart in-tree,
+remains the permanent oracle against which every operation is
+tested —
 while the costs are rebuilt on a conservation law. Correctness by
 transcription, performance by funding; the skyline is where the two
 meet in one bit string.

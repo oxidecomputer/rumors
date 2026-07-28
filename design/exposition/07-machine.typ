@@ -2,8 +2,8 @@
 
 = Constants, and the machine <machine>
 
-Asymptotics chose the representation; constants are where a
-representation earns its keep on real hardware. This section states
+Asymptotics chose the representation; constants are where it earns
+its keep on real hardware. This section states
 where the measured costs of our implementation sit and — more
 durably — _why_ the skyline is the shape the machine wants. Numbers
 here are measured (release builds, deterministic inputs, medians);
@@ -53,7 +53,8 @@ per bit: nothing pays for machinery it does not use. And the values
 are _flat across input shapes_: the adversarial families of the
 previous sections land in the same bands as organic values of the
 same size, with the two bounded exceptions already stated —
-@measures' pinned-counter shape and @words' prediction cost. (All
+the pinned-counter shape of @measures and the prediction cost of
+@words. (All
 per-byte figures are taken over the bench corpus's organic sizes,
 tens to hundreds of bytes, where per-call fixed costs share the
 denominator at the small end. At the scales where the adversarial
@@ -65,7 +66,7 @@ amplifier waiting for a bigger denominator. End to end, against the
 direct transcription running the bench corpus's _organic_ workloads
 — values of tens to hundreds of bytes, where the transcription's
 quadratics stay dormant — the sweeps measure between $2 times$ and
-$20 times$ faster; on @families' adversarial shapes the ratio is
+$20 times$ faster; on the adversarial shapes of @families the ratio is
 unbounded by construction, a class apart rather than a multiple.
 
 == What the cache sees <cache>
@@ -149,6 +150,7 @@ way the state is _smaller_ than
 the input's own bits.
 
 The whole section compresses to one sentence: the skyline turns
-every clock operation into the one workload — a forward scan of
-dense bytes with register-resident state — that fifty years of
-memory-hierarchy engineering has been optimizing for.
+every clock operation into the one workload fifty years of
+memory-hierarchy engineering has been built to reward — a forward
+scan of
+dense bytes with register-resident state.

@@ -125,7 +125,7 @@ agrees to hundredths of a bit at $n = 800$.)
 
 == The asymptotic tax is the sibling-merge rule, under this payload code <tax>
 
-Where do the $4.3%$ go? Run the same computation with the
+Where does the $4.3%$ go? Run the same computation with the
 sibling-merge rule deleted — every leaf free to carry zero. The payload code
 satisfies Kraft's equality:
 
@@ -142,7 +142,7 @@ $2^n$, zero asymptotic redundancy.
 
 So the entire asymptotic gap is the set of strings the sibling-merge
 rule _refuses_: spellings with a collapsible pair, excised so that
-each value would have one spelling. (The other canonical rules are
+each value has exactly one spelling. (The other canonical rules are
 priced separately: nonnegativity in @nonneg, at $Theta(log n)$ bits;
 exactness for free.) The $4.3%$ is not overhead lost to a clumsy
 code — the code is Kraft-tight — it is the price of "byte
@@ -159,16 +159,16 @@ exact.
 
 The remaining canonical rule — no delta may drive the running height
 negative — prunes more strings, but only polynomially many. The
-zigzag map puts $+m$ and $-m$ in the same gamma bucket (they could
+zigzag map puts $+m$ and $-m$ in the same gamma bucket: they could
 split only if the bucket boundary sat between them — that is, if
 $2m + 1$ were itself a power of two, which no odd number above one
-is), so under the uniform
-counting measure on streams of a given length the height walk's
-steps behave as draws from a sign-symmetric distribution (the first
+is. So under the uniform
+counting measure on streams of a given length, the height walk's
+steps behave as draws from a sign-symmetric distribution. (The first
 payload is a nonnegative absolute — a start point, not a step,
-which only helps the walk stay nonnegative); for such
+which only helps the walk stay nonnegative.) For such
 walks, the probability that all $ell$ partial sums stay nonnegative
-is $Theta(ell^(-1\/2))$ (Sparre–Andersen-type universality). A
+is $Theta(ell^(-1\/2))$, by Sparre–Andersen-type universality. A
 polynomial factor does not move the exponential growth rate, so
 $alpha$ is untouched; the effect on $H$ is $Theta(log n)$ bits. This
 is the section's one probabilistic step — the second of the
@@ -264,7 +264,7 @@ $1\/2$, never get). No branch point forms below the code's own
 singularity, so $alpha = 1$: the pruning never becomes the binding
 constraint.
 
-Two other families of alternatives dispose quickly, on
+Two other families of alternatives fall quickly, on
 canonicality grounds. Parameterized codes (Golomb--Rice) make a
 tuning parameter part of every value's spelling, so the canonical
 form must fix it by rule — one more thing to validate, one more

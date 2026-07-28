@@ -135,11 +135,10 @@ $4 dot d dot W = 1.6 dot 10^9$ bits accounts for the two
 hundred megabytes measured. The ratio kept growing with
 the operand, as the formula says it must.
 
-Join has the same skeleton (`join` lifts both of one side's
-children by the base difference — $l_2 arrow.t (n_2 - n_1)$ and
-$r_2 arrow.t (n_2 - n_1)$, the operands ordered so the difference
-is nonnegative — at
-every paired node) and adds
+Join has the same skeleton: at every paired node it lifts both of
+one side's children by the base difference, $l_2 arrow.t (n_2 - n_1)$
+and $r_2 arrow.t (n_2 - n_1)$, with the operands ordered so the
+difference is nonnegative. Join then adds
 the normalization pass: `norm` computes the minimum over each node's
 children and lifts it into the parent, subtracting it from both
 children — more per-level arbitrary-precision work of exactly the
@@ -155,11 +154,10 @@ against.
 == Defect 2: decoding a wide value <naive-decode>
 
 The appendix's integer coding is a chain of grow-by-one-bit stages,
-and the natural decoder — the shape the stage recursion invites,
-though not the only transcription of it; the other defects need no
-such invitation — accumulates one bit at a
-time into a heap
-integer: shift, add, repeat. Appending a bit to a $j$-bit accumulator
+and the natural decoder accumulates one bit at a time into a heap
+integer: shift, add, repeat. (_Natural_ means the shape the stage
+recursion invites, not the only transcription of it; the other
+defects need no such invitation.) Appending a bit to a $j$-bit accumulator
 rewrites all of its machine words in a normalized representation, so
 a single $W$-bit value decodes in
 
@@ -167,15 +165,12 @@ $ sum_(j = 1)^(W) Theta(j) = Theta(W^2) "bit-work — on 64-bit words,"
   W^2 \/ 128 + O(W) "machine-word writes." $
 
 On `hugeleaf` this is the whole input, and the arithmetic reconciles
-with the wall clock: at $W = 4 dot 10^6$ bits the buffer grows to
-half a megabyte and each append rewrites it — a quarter-megabyte on
+with the wall clock. At $W = 4 dot 10^6$ bits the buffer grows to
+half a megabyte, and each append rewrites it: a quarter-megabyte on
 average, four million times, about a terabyte of write traffic
-(reads ride the cache) —
-which at the bandwidth a half-megabyte, cache-resident working set
-actually streams at (tens of gigabytes per second) is the right
-order for
-what the
-measurement showed: over fourteen seconds for one value. The cured
+(reads ride the cache). A half-megabyte, cache-resident working set
+streams at tens of gigabytes per second — the right order for what
+the measurement showed: over fourteen seconds for one value. The cured
 decoder (accumulate machine words, splice them once) does the same
 work in milliseconds (measured), linearly. The defect looks trivial once named —
 of course you buffer words — but it is worth its own entry for two
@@ -267,17 +262,18 @@ $Theta(t dot k)$ bit-work from its walk. (This amplifier is not a
 fifth defect of the transcription — there it hides inside Defect 1's
 path sums; it is the defect of every _repair_ of Defect 1 that keeps
 a normalized running value, which is why it closes the ladder
-instead of numbering with the four.)
+instead of joining the numbered four.)
 
 And the comb is _cheap to spell_, under either coding. The paper's
 normal form lifts the shared $2^k - 1$ into the root, leaving every
 tooth a small relative value; the delta coding we are about to adopt
 (@skyline) spells one absolute and then $plus.minus 1$ steps. Both
-codings store the comb in $Theta(t + k)$ bits — though writing every
-plateau's absolute height out would take $Theta(t dot k)$ — so a walk that
+codings store the comb in $Theta(t + k)$ bits, though writing every
+plateau's absolute height out would take $Theta(t dot k)$. So a
+walk that
 maintains a normalized running absolute does $Theta(t dot k)$ work
-on a $Theta(t + k)$-bit input, a genuine amplifier over either
-spelling — and not one the obvious next repair escapes: normalize
+on a $Theta(t + k)$-bit input: a genuine amplifier over either
+spelling, and not one the obvious next repair escapes. Normalize
 everything except a small pending window, and the cliff merely
 moves to the window's edge. @two-zone builds the input that defeats
 any fixed window, weighs the adaptive one, and removes the

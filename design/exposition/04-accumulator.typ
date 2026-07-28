@@ -13,7 +13,7 @@ occasionally enormous — and each is consulted mostly for its _sign_.
 The representation of these running integers is not an implementation
 detail. It is the component every cost argument in @operations
 bottoms out in, and the place where the resilience thesis is won or
-lost. This section builds it from its requirements.
+lost.
 
 == The contract <accum-contract>
 
@@ -22,16 +22,8 @@ From the sweeps' side, the accumulator must support:
 + *apply a signed machine-word delta*, in amortized $O(1)$ work;
 + *apply a wide delta* of $ell$ machine words in amortized $O(ell)$
   work, independent of the magnitude already held — and optionally
-  _scaled_ by $2^s$ for arbitrary $s$, the scale routing the words
-  to higher lanes at the same $O(ell)$, its one further cost a
-  one-time zero-fill of the lanes below $s\/32$, charged once per
-  rise of the allocation high-water mark — so the caller must hold
-  a code that pays for $s$, as @measures' folds do (the depth bits
-  that certified the scale). The scaled variant is a distinct
-  _mode_: it trades
-  away the sign read below (@sign derives why), and exactly one
-  family
-  of folds uses it (@measures);
+  _scaled_ by $2^s$ for arbitrary $s$ (the scaled variant is a
+  distinct _mode_, unpacked below the list);
 + *read the sign* of the held value, in amortized $O(1)$ — the
   amortization charged, where the read must descend, to the
   unscaled writes that raised the held top (@sign derives the
@@ -58,6 +50,15 @@ and, for the bookkeeping across a sweep's several live accumulators
   without materializing either?);
 8. *report the held top's index*, $O(1)$ — the width test behind the
   weighted folds' freeze trigger (@measures).
+
+Requirement 2's scaled mode, unpacked. The scale routes the words
+to higher lanes at the same $O(ell)$; its one further cost is a
+one-time zero-fill of the lanes below $s\/32$, charged once per
+rise of the allocation high-water mark. So the caller must hold a
+code that pays for $s$, as the folds of @measures do — the depth
+bits that certified the scale. And the mode trades away the sign
+read (@sign derives why); exactly one family of folds uses it
+(@measures).
 
 The bounds must hold on _every_ interleaving of these operations —
 not in expectation, not for typical streams — with the single
@@ -194,7 +195,7 @@ $2^32 - 1$, each comfortably inside the zone. Add $1$: it lands at
 digit 0, which becomes $2^32$ — still inside the zone, so nothing
 carries; one touch. Subtract $1$: one touch back. The boundary
 comb's $t$ teeth cost $t$ touches where every normalized
-representation paid $t dot k$ — the $k$-bit carry is not deferred,
+representation paid $t dot k$ — the $k$-bit carry is not deferred;
 it is dissolved, because $2^32$ at digit 0 is simply another
 spelling of the carried form, and this representation is allowed to
 hold it.
@@ -373,29 +374,27 @@ accumulators, and
   (each lane dies at most once per write that opened it)._
 ])
 
-Equivalently, with potential $Phi = $ the number of _held_ lanes
-across every live _unscaled_ accumulator (the scaled mode stands
-outside the potential from the start, under @sign's discipline, its
-span priced at materialization) — each accumulator counting the lanes
-up to its tracked top, so a lane _dies_ when a collapse or a
-cancelling write lowers the top past it, while allocated storage
-above the top (@redundant's storage remark) counts for nothing:
-$Phi$ grows only when input codes are consumed — each code folding
-into $O(1)$ live accumulators, a rule every sweep below obeys and
-the reason @tick-web codes its watermarks as shift-invariant
-differences — and by at most one
-lane per code plus one per 32 bits of its width in each: the span
-bound of
-@sign, whose $+1$ is the carry, itself already amortized by
-@redundant's ratchet. Summing over a sweep, $Phi$'s growth is
-$O("input bits")$, an unscaled
-code funding every lane
-up to the top it can set. A collapse zeroes its scanned span,
+Equivalently, put the potential $Phi$ at the number of _held_ lanes
+across every live _unscaled_ accumulator, each accumulator counting
+the lanes up to its tracked top. (The scaled mode stands outside
+the potential from the start, under @sign's discipline, its span
+priced at materialization.) A lane _dies_ when a collapse or a
+cancelling write lowers the top past it; allocated storage above
+the top (@redundant's storage remark) counts for nothing. $Phi$
+grows only when input codes are consumed, and then by at most one
+lane per code plus one per 32 bits of its width in each — the span
+bound of @sign, whose $+1$ is the carry, itself already amortized
+by @redundant's ratchet. Each code folds into $O(1)$ live
+accumulators: a rule every sweep below obeys, and the reason
+@tick-web codes its watermarks as shift-invariant differences. Over
+a sweep, $Phi$'s growth is $O("input bits")$ — an unscaled code
+funding every lane up to the top it can set. A collapse zeroes its
+scanned span,
 deposits at most two digits at the scan's floor, and lowers the top
 to the deposit, so its touches equal its $Phi$ drop plus a constant
 and it never increases $Phi$. Every touch not covered by a
-consumed or emitted code is covered by a drop in $Phi$. Summing over
-the sweep, total work is $O("input bits" + "output bits")$.
+consumed or emitted code is covered by a drop in $Phi$, so total
+work over the sweep is $O("input bits" + "output bits")$.
 
 The discipline has teeth as rules of craft: wide values are _moved_,
 never copied (a move is a buffer swap, $O(1)$, $Phi$-neutral); when
@@ -411,6 +410,6 @@ differences).
 resurrects digits, and a repeated resurrection is exactly a quadratic
 (we will meet the input family that punishes it in @tick).
 
-With the representation and its discipline in hand, the operations
-can now be derived — each as a sweep whose every touch names its
+With the representation and its discipline in hand, we can derive
+the operations — each a sweep whose every touch names its
 funding source.
