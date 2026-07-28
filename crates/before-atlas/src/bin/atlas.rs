@@ -13,7 +13,9 @@
 //! seeded from its coordinates, so two runs of the same plan on the same
 //! guest emit byte-identical measurements in any execution order. Wall
 //! times printed per operation are information for the operator, never an
-//! input to anything.
+//! input to anything. So are the count-table build's progress lines: each
+//! table's entry counts are deterministic, but the two tables build
+//! concurrently, so their lines interleave in scheduler order.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -51,7 +53,18 @@ fn main() {
     std::fs::create_dir_all(&out).expect("output directory must be creatable");
 
     let t0 = Instant::now();
-    let samplers = Samplers::build(&plan);
+    // One progress line per sixteenth of each table: legible over a
+    // multi-minute large-span build, bounded noise at the default span.
+    // Entry counts are deterministic; elapsed is operator information.
+    let step = (8 * plan.max_bytes + 1).div_ceil(16);
+    let samplers = Samplers::build_with_progress(&plan, |table, done, total| {
+        if done % step == 0 && done < total {
+            println!(
+                "  {table} table: {done}/{total} entries, {:.1?}",
+                t0.elapsed()
+            );
+        }
+    });
     println!(
         "count tables to {} bytes: {:.1?}",
         plan.max_bytes,
