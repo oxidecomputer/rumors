@@ -330,6 +330,8 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
             },
+            fold_arity: None,
+            heap_model: None,
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -428,6 +430,8 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             limb_denom: n as u64,
             text_row: false,
             floors: floors_of(n),
+            fold_arity: None,
+            heap_model: None,
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -643,6 +647,8 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
             },
+            fold_arity: None,
+            heap_model: None,
             readings: ByCurrency {
                 heap: Some(heap),
                 segments: Some(0),
@@ -704,5 +710,197 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
         over_allowance.red.contains(&"heap exponent"),
         "heap readings clearing the allowance must be judged and red: {:?}",
         over_allowance.red
+    );
+}
+
+/// The declared fold model admits the balanced reduction's log factor
+/// and nothing steeper.
+///
+/// Three probes through [`evaluate`], all at the benign control's
+/// committed arity pair (k 256 -> 512 over a x2.19 denominator): the
+/// pre-declaration honest readings (scan exponent ~1.17, constant
+/// ~114 bits/B — the readings that were red under the flat ceilings and
+/// are exactly the reduction's own log factor) read green under the
+/// model; a quadratic fold (a left fold re-walking its accumulator,
+/// exponent ~2 — the cheapest wrong artifact the model could bless)
+/// stays exponent-red; and a fold whose per-level scan constant
+/// regresses past the model's allowance reads constant-red even at an
+/// admissible exponent. The ceiling-tightness leg pins the formula
+/// itself: at every committed arity pair the declared exponent ceiling
+/// stays under 1.5, so a quadratic's ~2 can never fit however the
+/// populations scale.
+#[cfg(feature = "scan-meter")]
+#[test]
+fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
+    use super::{
+        evaluate, fold_exponent_ceiling, na, ByCurrency, Floors, Sample,
+        FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
+    };
+    const PROBE_NA: &str = "probe: the declared fold model alone is under test";
+    let sample = |denom: usize, arity: u64, scan: u64| -> Sample {
+        Sample {
+            denom_bytes: denom,
+            exp_denom_bytes: denom,
+            limb_denom: denom as u64,
+            text_row: false,
+            floors: Floors {
+                heap: na(PROBE_NA),
+                segments: na(PROBE_NA),
+                limb: na(PROBE_NA),
+                scan: na(PROBE_NA),
+                touch: na(PROBE_NA),
+            },
+            fold_arity: Some(arity),
+            heap_model: None,
+            readings: ByCurrency {
+                heap: Some(0),
+                segments: Some(0),
+                limb: None,
+                scan: Some(scan),
+                touch: None,
+            },
+        }
+    };
+    // The benign control's committed pair: k 256 -> 512, denominators
+    // 1322 -> 2897 bytes.
+    let (n1, n2, k1, k2) = (1_322usize, 2_897usize, 256u64, 512u64);
+    let honest = evaluate(
+        "fold_probe",
+        "log-factor",
+        sample(n1, k1, 132_200),
+        sample(n2, k2, 330_500), // e ~1.17, ~114 bits/B: the reduction's own signature
+    );
+    assert!(
+        !honest.red.iter().any(|r| r.starts_with("scan")),
+        "the reduction's log factor must read green under its declared model: {:?}",
+        honest.red
+    );
+    let quadratic = evaluate(
+        "fold_probe",
+        "quadratic",
+        sample(n1, k1, 132_200),
+        sample(n2, k2, 634_600), // e ~2.0: a left fold re-walking its accumulator
+    );
+    assert!(
+        quadratic.red.contains(&"scan exponent"),
+        "a quadratic fold must stay exponent-red under the declared model: {:?}",
+        quadratic.red
+    );
+    let fat_constant = evaluate(
+        "fold_probe",
+        "fat-constant",
+        sample(n1, k1, 150_900),
+        sample(n2, k2, 362_125), // e ~1.12, but 125 bits/B over the 12/level model
+    );
+    assert!(
+        fat_constant.red.contains(&"scan constant"),
+        "a per-level constant regression must read constant-red: {:?}",
+        fat_constant.red
+    );
+    // Ceiling tightness: at every committed arity pair (scatter and
+    // benign, both scales, doubling denominators and beyond) the
+    // declared exponent ceiling leaves no room for a quadratic.
+    for (k1, k2, n1, n2) in [
+        (256u64, 512u64, 1_322usize, 2_897usize),
+        (1_024, 2_048, 5_120, 10_240),
+        (1_024, 2_048, 3_825, 8_363),
+        (4_096, 8_192, 20_480, 40_960),
+    ] {
+        let ceiling = fold_exponent_ceiling(k1, k2, n1, n2);
+        assert!(
+            ceiling < 1.5,
+            "the declared fold exponent ceiling must stay far under a quadratic's ~2: \
+             read {ceiling:.3} at k {k1}->{k2}, n {n1}->{n2}"
+        );
+        assert!(
+            FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL * (2.0 * k2 as f64).log2()
+                < super::MAX_SCAN_BITS_PER_INPUT_BYTE * 2.0,
+            "the declared scan model must stay within the flat ceiling's own order at \
+             committed arities"
+        );
+    }
+}
+
+/// The declared capacity model bands the projection's peak on both sides
+/// and retires the unjudgeable exponent fit.
+///
+/// Probes through [`evaluate`] at the comb-scatter cross's committed
+/// geometry (the model reads 68 160 -> 176 256 B there): the ratified
+/// profile (measured/model 1.005–1.017 at every probed point) is green;
+/// a regressed builder — an unanchored doubling chain or an extra buffer
+/// copy, reading 2x the model — is red on the model ceiling; an improved
+/// builder reading half the model trips the stale-model floor, forcing a
+/// deliberate re-declaration; and the heap exponent stays unjudged (the
+/// chain's power-of-two quantization is why the fit lies), so no k-step
+/// straddle can re-manufacture the old exponent red.
+#[test]
+fn declared_capacity_model_bands_the_projection_peak() {
+    use super::{evaluate, na, ByCurrency, Floors, Sample};
+    const PROBE_NA: &str = "probe: the declared capacity model alone is under test";
+    let sample = |denom: usize, model: f64, heap: u64| -> Sample {
+        Sample {
+            denom_bytes: denom,
+            exp_denom_bytes: denom,
+            limb_denom: denom as u64,
+            text_row: false,
+            floors: Floors {
+                heap: na(PROBE_NA),
+                segments: na(PROBE_NA),
+                limb: na(PROBE_NA),
+                scan: na(PROBE_NA),
+                touch: na(PROBE_NA),
+            },
+            fold_arity: None,
+            heap_model: Some(model),
+            readings: ByCurrency {
+                heap: Some(heap),
+                segments: Some(0),
+                limb: None,
+                scan: None,
+                touch: None,
+            },
+        }
+    };
+    // The committed geometry: models 68 160 and 176 256 B at denominators
+    // 32 814 and 65 126.
+    let (n1, n2, m1, m2) = (32_814usize, 65_126usize, 68_160.0, 176_256.0);
+    let ratified = evaluate(
+        "capacity_probe",
+        "ratified",
+        sample(n1, m1, 68_952),  // measured/model 1.012: the ratified profile
+        sample(n2, m2, 177_824), // 1.009
+    );
+    assert!(
+        ratified.red.is_empty(),
+        "the ratified capacity profile must read green: {:?}",
+        ratified.red
+    );
+    assert!(
+        !ratified.scores.heap.exp_judged,
+        "a capacity-model cell's heap exponent fit must stay unjudged"
+    );
+    let regressed = evaluate(
+        "capacity_probe",
+        "regressed",
+        sample(n1, m1, (m1 * 2.0) as u64),
+        sample(n2, m2, (m2 * 2.0) as u64),
+    );
+    assert!(
+        regressed.red.contains(&"heap capacity-model ceiling"),
+        "a builder at twice the chain's peak must read red on the model ceiling: {:?}",
+        regressed.red
+    );
+    let improved = evaluate(
+        "capacity_probe",
+        "improved",
+        sample(n1, m1, (m1 * 0.5) as u64),
+        sample(n2, m2, (m2 * 0.5) as u64),
+    );
+    assert!(
+        improved
+            .red
+            .contains(&"heap capacity-model floor (stale model)"),
+        "a builder under half the model must trip the stale-model floor: {:?}",
+        improved.red
     );
 }
