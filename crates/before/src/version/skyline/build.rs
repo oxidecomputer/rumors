@@ -77,10 +77,12 @@ pub(super) struct SkylineBuilder {
     /// `true` inside a right.
     path: Bits,
     /// Parallel to `path`: at a right-branch level, whether the completed
-    /// left sibling is a single leaf (the collapse precondition). `false`
-    /// is both the placeholder at left-branch levels and the record at
-    /// right-branch levels [`continue_verbatim`](Self::continue_verbatim)
-    /// splices in, where canonicity already rules the merge out.
+    /// left sibling is a single leaf (the collapse precondition).
+    ///
+    /// `false` is both the placeholder at left-branch levels and the
+    /// record at right-branch levels
+    /// [`continue_verbatim`](Self::continue_verbatim) splices in, where
+    /// canonicity already rules the merge out.
     left_leaf: Bits,
     /// Code lengths of the left-sibling leaves, one entry per
     /// right-branch level whose `left_leaf` bit is set, deepest last.

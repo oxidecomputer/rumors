@@ -255,9 +255,12 @@
 //! at their own offsets into a fixed-radix array is the Kulisch long
 //! accumulator. And unsaturated-limb big-integer pipelines in
 //! cryptographic code leave headroom bits in every limb so carries can
-//! batch. This crate's contribution is the combination: balanced digits
-//! with *no normalized region anywhere*, plus a sign fold that pays for
-//! itself by collapsing what it reads.
+//! batch. The representation, in short, is known technique that no
+//! package ships as a reusable accumulator — that absence is why this
+//! crate exists. The query layer is the novel part: a sign read over a
+//! redundant value that pays for itself by collapsing the prefix it
+//! scanned, and domination certificates that answer cross-scale
+//! comparisons without folding either side.
 //!
 //! A *suanpan* is the Chinese abacus. Each rod carries two heaven beads
 //! (worth five) and five earth beads (worth one): a rod holds 0–15,
