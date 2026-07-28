@@ -22,15 +22,17 @@ The word "amortized" in earlier sections needs its scope fixed here,
 because it strengthens the claim rather than weakening it: every
 accumulator is created and destroyed within a single operation, so
 the amortization is internal to one call — each individual API call
-is worst-case $O(n + m)$, not merely cheap on average across a
+is worst-case linear in its own input plus mandatory output, not
+merely cheap on average across a
 sequence. And one derivational boundary carries over: rank's
 freeze-position funding has the uncertified input shape @measures
 states, where the linear behavior is enforced by a pinned measured
 ceiling rather than derived. Everything else is derived — in this
 document, or, for two bounds whose full derivations outgrew it, in
 our work with the shapes given here (@join's exact constant,
-@tick-output's inequalities) — with one clause stated without proof
-(join's subadditivity in the minimum-tick floor, @measures).
+@tick-output's inequalities) — with one composition stated without
+proof (the minimum-tick floor's induction over forked histories,
+@measures).
 
 Note what the statement does _not_ say. It does not say "fast on
 realistic inputs" — that is @machine's separate, additional claim.
@@ -79,7 +81,8 @@ unity:
     [word-windowed reads; work charged to the code's own width],
     [recursion (@naive-recursion)],
     [a native frame per level],
-    [iterative walks; ~2 bits of explicit state per level],
+    [iterative walks; ~2 bits of explicit state per level (two
+      priced exceptions: @tick-web, @tick-fusion)],
     [carry cliffs† (@ladder)],
     [normalized digits crossed by cheap deltas],
     [the accumulator: no normalized region anywhere (@redundant)],
@@ -130,7 +133,10 @@ the document's own contents were produced by it:
 - *Constructions, not samples.* Every genre in @fig-genres is
   witnessed by a committed input-family generator — `bigroot`, the
   boundary comb, the wide-tooth comb, the descending staircase, the
-  reveal comb, and their kin — each built _to break a candidate
+  reveal comb; `hugeleaf` for wide decode, `deep spine` for
+  recursion, the scattered-party comb for the output-dominated row,
+  the duplicated-wide-code instance for tick's emissions — each
+  built _to break a candidate
   design_, and kept forever once it has.
 - *Deterministic meters, floored as well as ceilinged.* Cost is
   measured in machine-independent counters — bits scanned, digit
@@ -158,8 +164,9 @@ The skyline representation and its accumulator were presented as an
 efficiency story, and they are one: within $4.3%$ of the counting
 floor asymptotically, $6.7%$ at hundred-byte sizes (against
 the family the coding reaches — the framing @ctf-caveat keeps
-honest), linear sweeps for every operation, constants a small
-multiple of decoding cost — decoding itself a bounded factor above
+honest), linear sweeps for every operation, constants within an
+order of magnitude of decoding cost — decoding itself a bounded
+factor above
 raw byte movement — on the access pattern the machine likes
 best. But the deeper claim, and the one this document was written to
 make legible, is about _worst cases as a design material_. Every
@@ -173,9 +180,10 @@ funding argument, held by a pinned measurement instead of a proof
 (@measures); the probabilistic step in the counting bound's
 asymptotic rate (@nonneg); the framing every compactness claim must
 carry (@ctf-caveat); the bounded branch-prediction cost the
-linear bound absorbs rather than eliminates (@words); the clause
-stated without proof in the minimum-tick floor (join subadditivity,
-@measures); and the two bounds whose full derivations live in our
+linear bound absorbs rather than eliminates (@words); the
+composition stated without proof in the minimum-tick floor — its
+induction over forked histories, join subadditivity inside it
+(@measures); and the two bounds whose full derivations live in our
 work rather than here, their shapes given (@join's exact constant,
 @tick-output's inequalities).
 
@@ -191,38 +199,52 @@ meet in one bit string.
 #v(1em)
 #line(length: 30%, stroke: 0.5pt + gray-line)
 
-*References.* The subject: P. S. Almeida, C. Baquero, V. Fonte,
-"Interval Tree Clocks: A Logical Clock for Dynamic Systems,"
-_Principles of Distributed Systems_ (OPODIS 2008), LNCS 5401,
-Springer, pp. 259–274; its evaluation section hosts the
-space-consumption scenarios reproduced in @id-coding and
-@ctf-caveat. Results this document leans on, with their homes:
-*signed-digit redundant arithmetic* — A. Avizienis, "Signed-Digit
-Number Representations for Fast Parallel Arithmetic," _IRE Trans.
-Electronic Computers_ EC-10(3), 1961, pp. 389–400 (the carry-save
-adder is the same idea in hardware
-dress); *redundant representations amortizing structural work* —
-C. Okasaki, _Purely Functional Data Structures_, Cambridge
-University Press, 1998, ch. 9;
-*exact long accumulation* — U. Kulisch, _Advanced Arithmetic for the
-Digital Computer_, Springer, 2002; *amortization and the potential
-method* — R. E. Tarjan, "Amortized Computational Complexity,"
-_SIAM J. Algebraic Discrete Methods_ 6(2), 1985, pp. 306–318;
-*the integer codes, and the
-competitive framing of universal coding* — P. Elias, "Universal
-Codeword Sets and Representations of the Integers," _IEEE Trans.
-Information Theory_ IT-21(2),
-1975, pp. 194–203; *Kraft completeness* — T. M. Cover, J. A.
-Thomas, _Elements of Information Theory_, 2nd ed., Wiley, 2006,
-§5.2; *singularity analysis and the square-root-branch transfer* —
-P. Flajolet, R. Sedgewick, _Analytic Combinatorics_, Cambridge
-University Press, 2009, ch. VI–VII;
-*the nonnegative-walk exponent* — E. Sparre Andersen, "On the
-Fluctuations of Sums of Random Variables" I–II, _Math. Scand._ 1
-(1953), pp. 263–285, and 2 (1954), pp. 195–223. The
-composed contract of @accum — the lazy balanced form with a
+*References.* The subject, and the baseline every cost in @naive is
+priced against (its appendix's coding included):
+
+- P. S. Almeida, C. Baquero, V. Fonte,
+  "Interval Tree Clocks: A Logical Clock for Dynamic Systems,"
+  _Principles of Distributed Systems_ (OPODIS 2008), LNCS 5401,
+  Springer, pp. 259–274; its evaluation section hosts the
+  space-consumption scenarios reproduced in @id-coding and
+  @ctf-caveat.
+
+Results this document leans on, with their homes:
+
+- *signed-digit redundant arithmetic* — A. Avizienis, "Signed-Digit
+  Number Representations for Fast Parallel Arithmetic," _IRE Trans.
+  Electronic Computers_ EC-10(3), 1961, pp. 389–400 (the carry-save
+  adder is the same idea in hardware dress);
+- *redundant representations amortizing structural work* —
+  C. Okasaki, _Purely Functional Data Structures_, Cambridge
+  University Press, 1998, ch. 9;
+- *exact long accumulation* — U. Kulisch, _Advanced Arithmetic for
+  the Digital Computer_, Springer, 2002;
+- *amortization and the potential method* — R. E. Tarjan,
+  "Amortized Computational Complexity,"
+  _SIAM J. Algebraic Discrete Methods_ 6(2), 1985, pp. 306–318;
+- *the read that rewrites, as amortization made visible* —
+  D. D. Sleator, R. E. Tarjan, "Self-Adjusting Binary Search
+  Trees," _J. ACM_ 32(3), 1985, pp. 652–686;
+- *the integer codes, and the competitive framing of universal
+  coding* — P. Elias, "Universal
+  Codeword Sets and Representations of the Integers," _IEEE Trans.
+  Information Theory_ IT-21(2), 1975, pp. 194–203 (the zigzag fold
+  of @coding is folklore, popularized by Protocol Buffers' signed
+  varints);
+- *Kraft completeness* — T. M. Cover, J. A. Thomas, _Elements of
+  Information Theory_, 2nd ed., Wiley, 2006, §5.2;
+- *singularity analysis and the square-root-branch transfer* —
+  P. Flajolet, R. Sedgewick, _Analytic Combinatorics_, Cambridge
+  University Press, 2009, ch. VI–VII;
+- *the nonnegative-walk exponent* — E. Sparre Andersen, "On the
+  Fluctuations of Sums of Random Variables" I–II, _Math. Scand._ 1
+  (1953), pp. 263–285, and 2 (1954), pp. 195–223.
+
+The composed contract of @accum — the lazy balanced form with a
 collapsing sign fold and domination floors, as one interface — is,
 to our knowledge, this design's own; so are the minimum-tick
 measure and its identity (@measures), the join size inequality
 (@join), and the counting analysis of the canonical grammar
-(@compactness).
+(@compactness). Ownership here means only that we know no prior
+statement of them, not that a search would find none.

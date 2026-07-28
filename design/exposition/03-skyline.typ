@@ -37,7 +37,9 @@ the right thing to store:
 
 + *Every operation is a local statement about the skyline.*
   Comparison is pointwise $<=$; join is pointwise max; meet is
-  pointwise min; rank (a measure we will meet in @measures) is the
+  pointwise min (no operation of the paper's — @measures shows what
+  the lattice buys); rank (a measure we will meet in @measures) is
+  the
   area under it; a tick asks range questions — maxima and minima —
   over the caller's own region (@tick).
   None of them cares how a tree spelled the function.
@@ -75,7 +77,9 @@ needed, because a full binary tree is self-delimiting: start a count
 of outstanding obligations at one; an internal node consumes its
 obligation and creates two (net $+1$), a leaf consumes one (net
 $-1$); the tree ends exactly when the count reaches zero, and no
-proper prefix reaches zero early. Bits pack most-significant-first
+proper prefix reaches zero early. (Payloads interleave with the
+flags, so _finding_ a subtree's end still costs a scan of that
+subtree's own bits — the price every splice in @operations pays.) Bits pack most-significant-first
 within each byte — a convention that matters only in @machine, where
 it lets whole codes settle under one count-leading-zeros instruction.
 
@@ -154,7 +158,10 @@ unowned — except that the childless tag `00` denotes a _terminal_,
 a wholly owned region. Ownership is carried by presence, so the
 paper's `0` has no spelling anywhere: an unowned half is an absent
 child, and an unowned root dissolves with the anonymous stamp
-below.
+below. Note the consequence the walks must repair later: unlike a
+version stream, a party stream does not spell every plateau, so a
+walk over it synthesizes each absent child's unowned plateau from
+its parent's tag (@id-ops).
 
 The seed, owning everything, is one terminal: two bits. The id
 $(1, 0)$ — own the left half — is a left-only node followed by a
@@ -240,7 +247,8 @@ single leaf if $h$ is constant, else the node over
 $T(h|_"left")$ and $T(h|_"right")$. First, $T(h)$ satisfies the
 sibling-merge rule: its two children are equal-height leaves only if
 $h$ is constant on both halves — but then $h$ was constant and
-$T(h)$ was a leaf. Second, any rule-satisfying tree for $h$ equals
+$T(h)$ was a leaf; and since the children are $T(h|_"left")$ and
+$T(h|_"right")$, the same holds at every node by induction. Second, any rule-satisfying tree for $h$ equals
 $T(h)$, by induction from the root: a tree spelling a non-constant
 $h$ cannot be a leaf, so it is a node whose children spell the two
 restrictions (uniquely, by induction); and a tree spelling a

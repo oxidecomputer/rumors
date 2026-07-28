@@ -116,15 +116,20 @@ measured on our direct transcription before any cure, the committed
 $10,000$-level spine, a 29-kilobyte operand pair — drove transient
 memory to roughly $6,700 times$ the pair's bytes, approaching two
 hundred megabytes, inside a single comparison. The figure reconciles
-with the formula: each paired node materializes _four_ lifted
-children — both operands', both halves', built before either
-conjunct's descent and live across it — and
+with the formula: our transcription binds each paired node's _four_
+lifted
+children — both operands', both halves' — before evaluating the
+conjunction, so all four live across the descent (a
+short-circuiting form would halve the constant without changing
+the order), and
 $4 dot d dot W = 1.6 dot 10^9$ bits accounts for the two
 hundred megabytes measured. The ratio kept growing with
 the operand, as the formula says it must.
 
 Join has the same skeleton (`join` lifts both of one side's
-children by the base difference, $l_2, r_2 arrow.t (n_2 - n_1)$, at
+children by the base difference — $l_2 arrow.t (n_2 - n_1)$ and
+$r_2 arrow.t (n_2 - n_1)$, the operands ordered so the difference
+is nonnegative — at
 every paired node) and adds
 the normalization pass: `norm` computes the minimum over each node's
 children and lifts it into the parent, subtracting it from both
@@ -137,7 +142,8 @@ which only exist, at a node, as the sum of everything above it.
 
 The appendix's integer coding is a chain of grow-by-one-bit stages,
 and the natural decoder — the shape the stage recursion invites,
-though not the only transcription of it — accumulates one bit at a
+though not the only transcription of it; the other defects need no
+such invitation — accumulates one bit at a
 time into a heap
 integer: shift, add, repeat. Appending a bit to a $j$-bit accumulator
 rewrites all of its machine words in a normalized representation, so
@@ -185,7 +191,9 @@ with explicit state whose size the implementer chooses. What is worth
 carrying forward is the _budget_: the explicit state can be a few
 *bits* per level (we will see walks that need exactly two), so depth —
 which the input buys at bits per level — must never be paid for in
-words per level.
+words per level, a budget the system holds everywhere but at two
+bounded, priced exceptions stated where they live (@tick-web,
+@tick-fusion).
 
 == Defect 4: the constant-factor anatomy <naive-constants>
 
@@ -251,9 +259,11 @@ codings store the comb in $Theta(t + k)$ bits — though writing every
 plateau's absolute height out would take $Theta(t dot k)$ — so a walk that
 maintains a normalized running absolute does $Theta(t dot k)$ work
 on a $Theta(t + k)$-bit input, a genuine amplifier over either
-spelling, with no repair available by tuning: pick any boundary a
+spelling, with no repair available by relocating the boundary: pick
+any fixed boundary a
 normalized representation owns, and an input exists that oscillates
-across exactly that boundary at unit cost per crossing.
+across exactly that boundary at unit cost per crossing (@two-zone
+takes up the adaptive boundary, and its limit).
 
 So the ladder's lesson is a constraint, not a fix: the efficient
 representation must be paired with arithmetic whose per-update cost is

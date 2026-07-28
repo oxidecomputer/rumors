@@ -43,11 +43,18 @@ movement, with each band quoted against the one below it:
   byte at worst.
 
 Two properties of this picture matter more than its values. The
-_ordering_ is exactly the ordering of how much each operation must do
-per bit — nothing pays for machinery it does not use. And the values
+_ordering_ — each operation's band sitting above the previous at
+matched operand sizes, the bands' edges overlapping only because
+each aggregates several operations — is exactly the ordering of how
+much each operation must do
+per bit: nothing pays for machinery it does not use. And the values
 are _flat across input shapes_: the adversarial families of the
 previous sections land in the same bands as organic values of the
-same size. Flat constants are the resilience thesis made visible at
+same size, with the two bounded exceptions already stated —
+@measures' pinned-counter shape and @words' prediction cost. (All
+per-byte figures are taken over the bench corpus's organic sizes,
+tens to hundreds of bytes, where per-call fixed costs share the
+denominator at the small end.) Flat constants are the resilience thesis made visible at
 the nanosecond scale; a shape-sensitive constant is a small
 amplifier waiting for a bigger denominator. End to end, against the
 direct transcription running the bench corpus's _organic_ workloads
