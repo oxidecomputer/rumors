@@ -222,10 +222,10 @@ where the exact count is out of computational reach):
 The floor above is relative to the family the coding itself reaches.
 Choose a different, natural-sounding family — versions with $ell$
 plateaus and heights drawn uniformly below $2^w$ — and the same
-coding fares differently: the family needs about $ell (w + 2)$ bits
-of entropy — $w$ per height, about two per plateau of shape — while
-the coding's worst case spends about
-$ell (2w + 3)$ — gamma's $2w + 1$ per payload plus each plateau's
+coding fares differently. The family needs about $ell (w + 2)$ bits
+of entropy: $w$ per height, about two per plateau of shape. The
+coding's worst case spends about
+$ell (2w + 3)$ — gamma's $2w + 1$ per payload, plus each plateau's
 own topology — a ratio approaching $2$ as $w$ grows. Same coding, same
 definition of floor, different family, different verdict. Any
 published form of the $4.3%$ claim must carry its family, and this
