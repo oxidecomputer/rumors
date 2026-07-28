@@ -405,7 +405,9 @@
 //! `concurrent-pair` (the switch-density population) — carry a version
 //! pair of their own construction, so
 //! their comparison rows run the pairing the shape was built around
-//! rather than the ticked counterpart; `benign` — a fixed-seed pseudo-random population of forked,
+//! rather than the ticked counterpart; the two fold populations —
+//! `scatter` and `weave` — carry fold operands alone, so exactly the two
+//! fold rows run on them; `benign` — a fixed-seed pseudo-random population of forked,
 //! ticked clocks, the control row that keeps the ceilings honest on
 //! organic inputs — carries everything. Where an operation needs a
 //! `Party` and a `Version`, the board crosses adversarial party × small
@@ -417,7 +419,7 @@
 //! kernel-seam probes live in the envelope suite alone. The criterion and
 //! the add-a-shape touch list sit on the `FAMILIES` roster below.
 //!
-//! Three shapes carry a genre note beyond their variant docs:
+//! Four shapes carry a genre note beyond their variant docs:
 //!
 //! - `comb-scatter`: the projection cross (boundary-comb version ×
 //!   scattered party) whose mandatory output dominates its input — the
@@ -450,8 +452,18 @@
 //!   it): exponents ~1.1 and constants that grow with scale, marginally
 //!   over the amortized-linear bounds at some scales \[measured — both
 //!   scales\]. The `benign` controls read the same
-//!   signature as `scatter`, so the marginal red is the reduction's own
-//!   n·log n cost, not the adversarial ordering's.
+//!   signature as `scatter`, so the readings priced by the declared fold
+//!   model are the reduction's own n·log n cost, not the adversarial
+//!   ordering's.
+//! - `weave`, the correlated fold population (the leaves of one balanced
+//!   fork expansion dealt round-robin among [`WEAVE_GROUPS`] parties,
+//!   one tick each), also fold-rows-only: every operand pair is
+//!   both-present at the whole shared upper skeleton while each operand
+//!   alone is an organic region set, so the per-node fold costs that
+//!   scale with the *other* operand — the overlap test against the
+//!   accumulator above all — dominate at fixed arity. Scatter's
+//!   single-leaf operands cannot reach the genre and benign reaches it
+//!   only diluted.
 //!
 //! # Coverage: the not-applicable list
 //!
@@ -1019,6 +1031,27 @@ const CONCURRENT_BASE_LEAVES: usize = 1_024;
 /// Benign clock population at scale 1.0.
 const BENIGN_BASE_CLOCKS: usize = 256;
 
+/// The weave fold population's leaf count at scale 1.0 (rounded up to a
+/// power of two by construction).
+///
+/// 4096 leaves woven into [`WEAVE_GROUPS`] parties give each operand
+/// ~256 scattered leaves under a fully shared upper skeleton — deep
+/// enough that the both-present-rich cost terms (the indexed overlap
+/// test's per-node table searches, the version joins' interleaved
+/// merges) dominate each cell, small enough that the default-scale
+/// board stays seconds-fast.
+const WEAVE_BASE_LEAVES: usize = 4_096;
+
+/// How many parties the weave population folds: fixed across scales, so
+/// the family's scaling axis is operand *size* (the both-present
+/// richness per merge), not arity — scatter and benign already own the
+/// arity axis.
+///
+/// 16 groups keep every internal node of the shared skeleton above the
+/// last four levels both-present in every operand while each operand
+/// stays an organic, individually well-formed region set.
+const WEAVE_GROUPS: usize = 16;
+
 /// Floor on every scaled size parameter, so extreme scale-down (the smoke
 /// test) still builds valid shapes and a nonempty benign population.
 ///
@@ -1091,6 +1124,20 @@ enum FamilyKind {
     /// operands whose join accumulator never coalesces; its bundle
     /// carries fold operands alone, so only the fold rows apply.
     Scatter,
+    /// The weave fold population: the leaves of one balanced fork tree
+    /// dealt round-robin among [`WEAVE_GROUPS`] parties, one tick each.
+    ///
+    /// Every operand is individually benign — an organic region set any
+    /// retire/reunite call site could hold — while every internal node
+    /// of the shared upper skeleton is both-present in every operand
+    /// pair, so the fold's per-node costs that scale with the *other*
+    /// operand (the overlap test against the accumulator, the join
+    /// merges over interleaved trees) dominate. Scatter cannot reach
+    /// this genre (its operands are single leaves) and benign reaches
+    /// it only diluted; the arity is fixed so the scaling axis is
+    /// both-present richness alone. Its bundle carries fold operands
+    /// alone, so only the fold rows apply.
+    Weave,
     /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`.
     ///
     /// Every level a right-full shortcut site, the deepest stacking of
@@ -1203,7 +1250,7 @@ enum FamilyKind {
 /// whole-surface adversary earns a board family, while a kernel-seam
 /// shape lives in the envelope suite alone, as `wide_tooth_comb`,
 /// `alt_spine`, and the `memo_*` shapes do.
-const FAMILIES: [FamilyKind; 21] = [
+const FAMILIES: [FamilyKind; 22] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -1212,6 +1259,7 @@ const FAMILIES: [FamilyKind; 21] = [
     FamilyKind::CombScatter,
     FamilyKind::Harmonic,
     FamilyKind::Scatter,
+    FamilyKind::Weave,
     FamilyKind::NestedFull,
     FamilyKind::NestedWide,
     FamilyKind::MirrorWide,
@@ -1387,6 +1435,7 @@ impl FamilyData {
                     .encode(),
             ),
             FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
+            FamilyKind::Weave => Self::weave(size(WEAVE_BASE_LEAVES)),
             FamilyKind::NestedFull => {
                 let d = size(NESTED_BASE_DEPTH);
                 Self::cross_family(
@@ -1594,6 +1643,56 @@ impl FamilyData {
         );
         let parties = scatter_order(parties.iter().map(Party::encode).collect());
         let mut data = Self::bare(FamilyKind::Scatter, "scatter");
+        data.fold = Some((versions, parties));
+        data
+    }
+
+    /// Build the weave fold population: the `leaves` (rounded up to a
+    /// power of two) leaf parties of one balanced fork expansion, dealt
+    /// round-robin into [`WEAVE_GROUPS`] group parties, each group
+    /// carrying its own single-tick version.
+    ///
+    /// Dealing leaf `i` to group `i % WEAVE_GROUPS` puts leaves of every
+    /// group under every skeleton node above the last `log2(WEAVE_GROUPS)`
+    /// levels, so each operand pair is both-present at the whole shared
+    /// skeleton — the correlated-population genre — while each group on
+    /// its own is an ordinary scattered region set.
+    fn weave(leaves: usize) -> FamilyData {
+        let leaves = leaves.next_power_of_two().max(WEAVE_GROUPS * 2);
+        let mut parties = vec![Party::seed()];
+        while parties.len() < leaves {
+            let mut next = Vec::with_capacity(parties.len() * 2);
+            for mut p in parties {
+                let q = p.fork();
+                next.push(p);
+                next.push(q);
+            }
+            parties = next;
+        }
+        // Deal the leaves round-robin: each group accumulates its party
+        // by joining every WEAVE_GROUPS-th leaf, and its version by one
+        // tick per dealt leaf — a single-leaf party forces the event onto
+        // that leaf, so the group's version is height one exactly over
+        // its scattered region, a deep tree sharing the whole upper
+        // skeleton with every other group's.
+        let mut group_parties: Vec<Option<Party>> = (0..WEAVE_GROUPS).map(|_| None).collect();
+        let mut group_versions: Vec<Version> = (0..WEAVE_GROUPS).map(|_| Version::new()).collect();
+        for (i, leaf) in parties.into_iter().enumerate() {
+            let r = i % WEAVE_GROUPS;
+            group_versions[r].tick(&leaf);
+            match &mut group_parties[r] {
+                slot @ None => *slot = Some(leaf),
+                Some(group) => group
+                    .join(leaf)
+                    .expect("leaves of one fork expansion are pairwise disjoint"),
+            }
+        }
+        let versions = group_versions.iter().map(Version::encode).collect();
+        let parties = group_parties
+            .into_iter()
+            .map(|g| g.expect("every group received leaves").encode())
+            .collect();
+        let mut data = Self::bare(FamilyKind::Weave, "weave");
         data.fold = Some((versions, parties));
         data
     }
@@ -2995,6 +3094,8 @@ fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         FamilyKind::Harmonic => matches!(group, OpGroup::Measure | OpGroup::Rank),
         // The output-domination cross.
         FamilyKind::CombScatter => group == OpGroup::Projection,
+        // The correlated fold population, built against the fold rows.
+        FamilyKind::Weave => group == OpGroup::Fold,
         // The tick-walk crosses.
         FamilyKind::NestedFull
         | FamilyKind::NestedWide
@@ -5260,6 +5361,131 @@ pub enum BenchMode {
     Full,
 }
 
+/// One standing board red's committed expectation: the cell and the
+/// judgment mechanisms that put it on the red list, unioned over the two
+/// acceptance scales.
+///
+/// `exponent` is a scaling-class finding (some counter's growth exceeds
+/// its ceiling — flat or declared); `constant` a proportionality finding
+/// at exponent ~1 (a per-byte constant, a segments count, or a
+/// declared-model band). The tags are the render's `mech[...]` column as
+/// committed data: the class-binding seal in
+/// `testing::complexity_claims` forbids any linear rustdoc claim from
+/// citing an operation with a standing exponent-mechanism red, and
+/// requires every counter-superlinear claim to keep one.
+pub struct ExpectedRed {
+    /// The board row's operation name.
+    pub op: &'static str,
+    /// The input family.
+    pub family: &'static str,
+    /// Whether the cell reads red on an exponent mechanism at either
+    /// acceptance scale.
+    pub exponent: bool,
+    /// Whether the cell reads red on a constant mechanism at either
+    /// acceptance scale.
+    pub constant: bool,
+}
+
+/// The board's standing red cells with their mechanism tags: the
+/// committed expectation the acceptance renders are compared against,
+/// and the class-binding seal's data.
+///
+/// Realized 2026-07-28 against the release boards of record at both
+/// scales (the render's `mech[...]` tags, unioned across scales). Every
+/// entry names exactly one live board cell; a cured cell leaves this
+/// roster in the same change that cures it, and a new red enters it (or
+/// is cured) before acceptance — the acceptance protocol diffs the
+/// rendered red set against this list.
+pub const BOARD_EXPECTED_REDS: &[ExpectedRed] = &[
+    // The ascending-cliff tick trio's heap constants (the spec's round-7
+    // stated-band residual).
+    ExpectedRed {
+        op: "version_tick",
+        family: "ascend-cliff",
+        exponent: false,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "version_ticks",
+        family: "ascend-cliff",
+        exponent: false,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "clock_tick",
+        family: "ascend-cliff",
+        exponent: false,
+        constant: true,
+    },
+    // The min_ticks pending-minima superlinearity (review #37 F1: the
+    // exponent-mechanism reds behind the SuperlinearCounter class) and
+    // the query walk's per-level heap constants (the accepted
+    // stated-band residual).
+    ExpectedRed {
+        op: "version_min_ticks",
+        family: "cliff",
+        exponent: true,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "version_min_ticks",
+        family: "comb-scatter",
+        exponent: false,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "version_min_ticks",
+        family: "mirror-wide",
+        exponent: false,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "version_min_ticks",
+        family: "mirror-narrow",
+        exponent: false,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "version_min_ticks",
+        family: "reveal-comb",
+        exponent: true,
+        constant: false,
+    },
+    ExpectedRed {
+        op: "version_min_ticks",
+        family: "pure-comb",
+        exponent: true,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "version_min_ticks",
+        family: "ascend-cliff",
+        exponent: true,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "version_min_ticks",
+        family: "ascend-plateau",
+        exponent: true,
+        constant: true,
+    },
+    // The render merge's wide-summary re-fold (the display pair's
+    // SuperlinearTime mechanism, held alive by
+    // render_merge_superlinearity_is_alive).
+    ExpectedRed {
+        op: "version_display",
+        family: "mirror-wide",
+        exponent: true,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "clock_display",
+        family: "mirror-wide",
+        exponent: true,
+        constant: true,
+    },
+];
+
 /// Board-red cells outside the designed pairings that the pinned bench
 /// subset must still time: the deterministic board's standing reds each
 /// keep a time leg.
@@ -5268,28 +5494,26 @@ pub enum BenchMode {
 /// the judge's roster as ever; a red cured on the board leaves this list
 /// in the same change that cures it.
 ///
-/// The current membership (realized 2026-07-26 against the boards of
-/// record, 23 default / 20 ×4 reds): the board's standing reds are the
-/// materializing-emitter display cells, the tick/min_ticks heap-constant
-/// cells, the join_all fold marginals, and the capacity-phase projection
-/// artifact cells — of those, the cells below are the ones the designed
-/// pairings do not already time (the display and min_ticks rows on the
-/// tick-cross and harmonic shapes, which those shapes were not designed
-/// to stress).
+/// The current membership (the census re-realized 2026-07-28 against
+/// [`BOARD_EXPECTED_REDS`], the owner-approved re-realization): every
+/// standing red whose cell the designed pairings do not already time.
+/// The ticks-landing reds joined — `version_min_ticks` on the five
+/// tick-cross shapes and the comb-scatter cross, rows those shapes were
+/// never designed to stress (the tick trio's ascend-cliff reds need no
+/// rider: the tick group is those crosses' designed diagonal) — and the
+/// finalize-arena cure removed the eleven cured display riders, leaving
+/// the mirror-wide display pair (the render merge's standing
+/// SuperlinearTime mechanism) as the display rows' only reds.
 pub const BOARD_RED_BENCH_RIDERS: &[(&str, &str)] = &[
+    ("version_min_ticks", "comb-scatter"),
     ("version_min_ticks", "mirror-wide"),
     ("version_min_ticks", "mirror-narrow"),
-    ("version_display", "harmonic"),
-    ("version_display", "nested-full"),
-    ("version_display", "nested-wide"),
+    ("version_min_ticks", "reveal-comb"),
+    ("version_min_ticks", "pure-comb"),
+    ("version_min_ticks", "ascend-cliff"),
+    ("version_min_ticks", "ascend-plateau"),
     ("version_display", "mirror-wide"),
-    ("version_display", "mirror-narrow"),
-    ("version_display", "staircase"),
-    ("clock_display", "harmonic"),
-    ("clock_display", "nested-full"),
     ("clock_display", "mirror-wide"),
-    ("clock_display", "mirror-narrow"),
-    ("clock_display", "staircase"),
 ];
 
 /// Every board cell of the chosen [`BenchMode`] at `scale`, in board row

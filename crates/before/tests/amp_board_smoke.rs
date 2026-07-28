@@ -7,6 +7,8 @@
 //! remain, and the enforced resource record is the process-isolated
 //! envelope suite in `tests/meter.rs`.
 
+use std::collections::BTreeMap;
+
 use before::meter::board::{self, HeapMeter};
 use peak_alloc::PeakAlloc;
 
@@ -17,43 +19,49 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The board's exact cell count: 66 operation rows over 21 shapes (1386
-/// combinations) minus the 275 where the shape's bundle supplies no
-/// operand for the row's signature.
+/// The board's cell count, pinned per family: how many operation rows
+/// each shape's operand bundle supplies.
 ///
-/// Derived per shape from the operand bundles. A version-only shape
-/// (dense, bigroot, hugeleaf, cliff, harmonic, and the two version-pair
-/// shapes jump-pair and concurrent-pair, whose bundles carry their own
-/// comparison counterpart in the same slots) runs the 13 version rows
-/// (8 of them consuming the pair slot),
-/// the 4 linear-functional rows, the 2 rank rows, its tick, ticks,
-/// and 3 projection cells (the materialization row and the two fused
-/// comparison rows), the 11 clock rows, and its 8 rejection rows (the
-/// 5 version rejections and the 3 clock rejections): 43 each. The id pair
-/// (parties only) runs the 10 party rows, the adversarial-party tick
-/// row, its 3 projection cells, the 11 clock rows, and its 13 rejection
-/// rows (5 party rejections, `party_without_none`, 3 clock rejections,
-/// and the 4 overlap rows its id source mints): 38. The eleven cross
-/// shapes (comb-scatter and the ten tick-walk crosses: nested-full,
-/// nested-wide, mirror-wide, mirror-narrow, staircase, reveal-comb,
-/// reveal-hifloor, pure-comb, ascend-cliff, ascend-plateau) carry a
-/// version, a mounted party pair, and a clock, so each runs the
-/// version-only 43 plus the adversarial-party tick row, the 10 party
-/// rows, and the 10 id-side rejection rows: 64 each. Scatter runs its 2
-/// fold rows (its bundle carries fold operands alone, so neither a
-/// projection nor a rejection row applies); benign runs every row (66,
-/// both fold controls included).
-/// 43 x 7 + 38 + 64 x 11 + 2 + 66 = 1111.
-/// The table is fixed and applicability depends on the
-/// family alone (`board::run` enforces this per cell), so the count is
-/// deterministic at every scale; a row added to or dropped from the table
-/// must move this pin.
-const EXPECTED_CELLS: usize = 1111;
+/// The board's coverage is the product of its two axes (the module doc's
+/// product section), so the pin lives on the family axis: a row added to
+/// or dropped from the operation table moves every count it touches, a
+/// shape whose bundle gains or loses a slot moves its own count, and the
+/// failure names the family that drifted. The version-only shapes (a
+/// version, its derived pairings, and its rejection rows) supply 43
+/// rows; the id pair (parties only) 38; the cross shapes (version,
+/// mounted party pair, clock, and the id-side rejections) 64; the two
+/// fold-only populations (scatter, weave) exactly the 2 fold rows; and
+/// the benign control supplies every row.
+const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
+    ("dense", 43),
+    ("bigroot", 43),
+    ("hugeleaf", 43),
+    ("cliff", 43),
+    ("id-pair", 38),
+    ("comb-scatter", 64),
+    ("harmonic", 43),
+    ("scatter", 2),
+    ("weave", 2),
+    ("nested-full", 64),
+    ("nested-wide", 64),
+    ("mirror-wide", 64),
+    ("mirror-narrow", 64),
+    ("staircase", 64),
+    ("reveal-comb", 64),
+    ("reveal-hifloor", 64),
+    ("pure-comb", 64),
+    ("ascend-cliff", 64),
+    ("ascend-plateau", 64),
+    ("jump-pair", 43),
+    ("concurrent-pair", 43),
+    ("benign", 66),
+];
 
-/// The board runs to completion at tiny sizes: every cell prepares,
-/// measures, and renders, and the matrix keeps covering the full operation
-/// sweep (colors are deliberately not asserted; the board is a dashboard,
-/// not a gate).
+/// The board runs to completion at tiny sizes — every cell prepares,
+/// measures, and renders — and the matrix keeps covering the full
+/// operation sweep, family by family: each shape's cell count matches
+/// its pinned bundle reach (colors are deliberately not asserted; the
+/// board is a dashboard, not a gate).
 #[test]
 fn board_runs_to_completion() {
     let heap = HeapMeter {
@@ -63,13 +71,38 @@ fn board_runs_to_completion() {
     };
     let mut rendered = Vec::new();
     let summary = board::run(SMOKE_SCALE, &heap, &mut rendered).expect("writing to a Vec succeeds");
-    let cells = summary.green + summary.red;
-    assert_eq!(
-        cells, EXPECTED_CELLS,
-        "the board swept {cells} cells, not the pinned {EXPECTED_CELLS}: \
-         rows were added or lost without moving the pin"
-    );
     let text = String::from_utf8(rendered).expect("the board renders UTF-8");
+    // Count rendered cells per family: every result row starts with its
+    // verdict, then the operation, then the family.
+    let mut per_family: BTreeMap<&str, usize> = BTreeMap::new();
+    for line in text.lines() {
+        let mut cols = line.split_whitespace();
+        let verdict = cols.next();
+        if !matches!(verdict, Some("GREEN" | "RED")) {
+            continue;
+        }
+        let family = cols
+            .nth(1)
+            .expect("a verdict row names its operation and family");
+        *per_family.entry(family).or_default() += 1;
+    }
+    let expected: BTreeMap<&str, usize> = EXPECTED_CELLS_PER_FAMILY.iter().copied().collect();
+    assert_eq!(
+        expected.len(),
+        EXPECTED_CELLS_PER_FAMILY.len(),
+        "duplicate family in the expectation table"
+    );
+    assert_eq!(
+        per_family, expected,
+        "the board's per-family cell counts drifted from the pinned bundle \
+         reach: rows were added or lost without moving the pin"
+    );
+    let cells = summary.green + summary.red;
+    let total: usize = EXPECTED_CELLS_PER_FAMILY.iter().map(|(_, n)| n).sum();
+    assert_eq!(
+        cells, total,
+        "the returned summary must agree with the rendered matrix"
+    );
     assert!(
         text.contains(&format!("({cells} cells)")),
         "the rendered summary line must agree with the returned summary"
