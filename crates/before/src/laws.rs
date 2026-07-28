@@ -64,6 +64,32 @@ use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 /// hold on every admissible input.
 pub type Law<F> = (&'static str, F);
 
+/// Every registered law name, across all groups.
+///
+/// The collection read from the tables themselves — the same entries the
+/// algebraic-laws drivers execute — so anything that consumes law names
+/// (the uniqueness pin, the triangle roster's citation check) resolves
+/// against what actually runs, never against a text scan that a stray
+/// same-named `fn` could satisfy.
+#[cfg(test)]
+pub(crate) fn registered_names() -> Vec<&'static str> {
+    std::iter::empty()
+        .chain(VERSION_SOLO.iter().map(|(name, _)| *name))
+        .chain(VERSION_PAIR.iter().map(|(name, _)| *name))
+        .chain(VERSION_TRIPLE.iter().map(|(name, _)| *name))
+        .chain(PARTY_SOLO.iter().map(|(name, _)| *name))
+        .chain(PARTY_PAIR.iter().map(|(name, _)| *name))
+        .chain(PARTY_TRIPLE.iter().map(|(name, _)| *name))
+        .chain(VERSION_PARTY.iter().map(|(name, _)| *name))
+        .chain(VERSION_PAIR_PARTY.iter().map(|(name, _)| *name))
+        .chain(VERSION_PARTY_PAIR.iter().map(|(name, _)| *name))
+        .chain(VERSION_PAIR_PARTY_PAIR.iter().map(|(name, _)| *name))
+        .chain(RANK_TRIPLE.iter().map(|(name, _)| *name))
+        .chain(CLOCK_SOLO.iter().map(|(name, _)| *name))
+        .chain(CLOCK_VERSION.iter().map(|(name, _)| *name))
+        .collect()
+}
+
 /// `a <= b` under the causal order (concurrency is not-`<=`).
 fn le(a: &Version, b: &Version) -> bool {
     a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)

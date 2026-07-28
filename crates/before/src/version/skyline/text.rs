@@ -88,6 +88,10 @@ const LEFT_PHASE: bool = true;
 /// the subtree's last leaf from its entry; `incoming` is the signed stream
 /// delta that carried the entry leaf itself. Each is a sum of leaf deltas,
 /// so its width is priced by the deltas' own codes.
+///
+/// This is the *flowing* form, carrying the subtree's preorder root index;
+/// a summary parked while its parent awaits the right child is stored as a
+/// [`StoredLeft`], whose root is derivable from the parent's.
 struct Summary {
     /// Preorder index of the subtree's root node, where the merge writes
     /// the finalized printed base.
@@ -104,24 +108,99 @@ struct Summary {
     incoming: (bool, Base),
 }
 
-/// While finalizing an open internal node, what the walk still owes it.
-enum Frame {
-    /// The node at `index` awaits its left child.
-    NeedLeft { index: usize },
-    /// The node at `index` awaits its right child; the left child's
-    /// summary is held for the merge.
-    NeedRight { index: usize, left: Summary },
+/// A completed left-child summary parked until its parent's right
+/// subtree closes: [`Summary`] without the root index.
+///
+/// The root is always the parent's preorder successor (a left child
+/// directly follows its parent in preorder), so the merge re-derives it
+/// instead of storing one word per parked level.
+struct StoredLeft {
+    /// Entry leaf height minus the subtree's floor: non-negative.
+    drop: Base,
+    /// The last leaf's height minus the entry leaf's, as (negative,
+    /// magnitude).
+    span: (bool, Base),
+    /// The stream delta that carried the entry leaf, as (negative,
+    /// magnitude).
+    incoming: (bool, Base),
+}
+
+/// How many parked summaries one [`ParkedStack`] chunk holds: small
+/// enough that a shallow render's single chunk sits inside the board's
+/// flat heap allowance, large enough that the chunk spine stays
+/// negligible.
+const PARKED_CHUNK: usize = 64;
+
+/// A LIFO of parked left summaries in fixed-size chunks.
+///
+/// One summary is parked per open node past its left phase, so on a
+/// right-descending spine this stack holds one entry per level — the
+/// render's dominant transient. Chunking bounds the live slack to one
+/// chunk and, unlike a doubling `Vec`, never holds an old and a new
+/// buffer at once during growth: that realloc coexistence spike is
+/// exactly what pushed the deep left-full shapes over the board's heap
+/// ceiling, and a chunk never moves once allocated.
+struct ParkedStack {
+    /// The stack's chunks, oldest first; every chunk but the last is
+    /// full, and no empty chunk is kept.
+    chunks: Vec<Vec<StoredLeft>>,
+    /// One drained chunk cached across a boundary, so a push/pop
+    /// oscillation at a chunk edge does not thrash the allocator.
+    spare: Option<Vec<StoredLeft>>,
+}
+
+impl ParkedStack {
+    fn new() -> ParkedStack {
+        ParkedStack {
+            chunks: Vec::new(),
+            spare: None,
+        }
+    }
+
+    fn push(&mut self, summary: StoredLeft) {
+        if self.chunks.last().is_none_or(|c| c.len() == PARKED_CHUNK) {
+            let chunk = self
+                .spare
+                .take()
+                .unwrap_or_else(|| Vec::with_capacity(PARKED_CHUNK));
+            self.chunks.push(chunk);
+        }
+        self.chunks
+            .last_mut()
+            .expect("a chunk with room is on top")
+            .push(summary);
+    }
+
+    fn pop(&mut self) -> Option<StoredLeft> {
+        let chunk = self.chunks.last_mut()?;
+        let summary = chunk.pop().expect("no empty chunk is kept");
+        if chunk.is_empty() {
+            self.spare = self.chunks.pop();
+        }
+        Some(summary)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.chunks.is_empty()
+    }
 }
 
 /// Render a skyline stream as the paper notation of the version the
 /// stream codes; the public `Display` entry routes here.
 ///
 /// Two passes. The finalize pass walks the stream once, merging the
-/// module doc's relative subtree summaries bottom-up to derive every
-/// node's printed base — rendered into one preorder-indexed digit arena —
-/// and sizes the output exactly from the arena and the topology. The emit
-/// pass writes the sized output straight through: one phase bit per open
-/// node, no recursion, and the exactness of the sizing is asserted.
+/// module doc's relative subtree summaries bottom-up; each merge renders
+/// the one printed base it finalizes straight into a digit arena keyed by
+/// preorder node index (zero bases — every on-floor child — occupy no
+/// arena bytes at all), and the output is sized exactly from the arena,
+/// the zero-base node count, and the topology. The emit pass sorts the
+/// arena keys once and writes the sized output straight through: one
+/// phase bit per open node, no recursion, and the exactness of the sizing
+/// is asserted. The transient is priced accordingly: per node one
+/// topology bit, per open node one phase bit and one index word (plus the
+/// parked left summary where the node awaits its right child), and digits
+/// only for the bases that actually print — never a per-node `Base`
+/// vector or offset table.
 ///
 /// # Panics
 ///
@@ -129,12 +208,23 @@ enum Frame {
 pub fn render(bits: &BitsSlice) -> String {
     let mut cursor = DsiCursor::new(bits);
 
-    // Finalize: per-node internal flags (semantic, not the wire bits:
-    // `true` = internal), and every node's printed base derived in
-    // relative coordinates (the module doc's merge).
+    // Finalize state. `topology`: per-node internal flags (semantic, not
+    // the wire bits: `true` = internal). The open-node stacks, innermost
+    // last: `phase` holds one bit per open node ([`LEFT_PHASE`] while it
+    // awaits its left child), `open` its preorder index, and `lefts` the
+    // parked left-child summary of each open node past its left phase —
+    // parallel stacks, where an enum-of-frames layout would pad every
+    // open level to its widest variant.
     let mut topology = Bits::new();
-    let mut bases: Vec<Base> = Vec::new();
-    let mut frames: Vec<Frame> = Vec::new();
+    let mut phase = Bits::new();
+    let mut open: Vec<usize> = Vec::new();
+    let mut lefts = ParkedStack::new();
+    // The digit arena: every printed nonzero base, rendered at the merge
+    // that finalizes it (so entries appear in merge order, not preorder),
+    // each terminated by [`ARENA_SEP`]; `entries` maps preorder node
+    // index to its arena start.
+    let mut arena = String::new();
+    let mut entries: Vec<(usize, usize)> = Vec::new();
     let mut first_height: Option<Base> = None;
     let root_summary = 'tree: loop {
         step!();
@@ -142,14 +232,12 @@ pub fn render(bits: &BitsSlice) -> String {
         // the leaf whose flag terminates the run.
         let k = cursor.read_unary().expect("canonical skyline bits");
         for _ in 0..k {
-            let index = topology.len();
+            phase.push(LEFT_PHASE);
+            open.push(topology.len());
             topology.push(true);
-            bases.push(Base::ZERO);
-            frames.push(Frame::NeedLeft { index });
         }
         let index = topology.len();
         topology.push(false);
-        bases.push(Base::ZERO);
         // The cursor's own `read_int`: word-parallel payload decode.
         let code = cursor.read_int().expect("canonical skyline bits");
         let incoming = if first_height.is_some() {
@@ -167,17 +255,32 @@ pub fn render(bits: &BitsSlice) -> String {
         // Close every subtree this leaf completes.
         loop {
             step!();
-            match frames.pop() {
+            match phase.pop() {
                 None => break 'tree summary,
-                Some(Frame::NeedLeft { index }) => {
-                    frames.push(Frame::NeedRight {
-                        index,
-                        left: summary,
+                Some(LEFT_PHASE) => {
+                    // The top open node's left child just completed: park
+                    // its summary and await the right child. Its root is
+                    // the parent's preorder successor, so the parked form
+                    // drops it.
+                    debug_assert_eq!(
+                        summary.root,
+                        open.last().expect("an open node owns this phase bit") + 1,
+                        "a left child directly follows its parent in preorder"
+                    );
+                    phase.push(!LEFT_PHASE);
+                    lefts.push(StoredLeft {
+                        drop: summary.drop,
+                        span: summary.span,
+                        incoming: summary.incoming,
                     });
                     break;
                 }
-                Some(Frame::NeedRight { index, left }) => {
-                    summary = merge(index, left, summary, &mut bases);
+                Some(_) => {
+                    let parent = open.pop().expect("an open node owns this phase bit");
+                    let left = lefts
+                        .pop()
+                        .expect("a node past its left phase parked a summary");
+                    summary = merge(parent, left, summary, &mut arena, &mut entries);
                 }
             }
         }
@@ -187,30 +290,53 @@ pub fn render(bits: &BitsSlice) -> String {
         bits.len(),
         "a canonical skyline stream is exactly one tree"
     );
+    debug_assert!(
+        open.is_empty() && lefts.is_empty(),
+        "a canonical stream closes every node it opens"
+    );
     // The root's printed base is the one absolute quantity: the stored
     // first height minus the root's drop (non-negative: the global floor
     // is a leaf height, and heights are naturals).
-    bases[root_summary.root] =
+    let root_base =
         first_height.expect("a skyline stream has at least one leaf") - &root_summary.drop;
+    push_base(&mut arena, &mut entries, root_summary.root, &root_base);
 
-    // Size exactly: every digit lands in one preorder arena, and each
+    // Size exactly: printed digits are the arena entries (less their
+    // terminators) plus one `0` per node without an entry, and each
     // internal node adds its fixed syntax bytes.
-    let mut arena = String::new();
-    let mut starts: Vec<usize> = Vec::with_capacity(bases.len() + 1);
-    for base in &bases {
-        starts.push(arena.len());
-        write!(arena, "{base}").expect("String formatting is infallible");
-    }
-    starts.push(arena.len());
-    let exact = arena.len() + topology.count_ones() * INTERNAL_SYNTAX_BYTES;
+    let exact = (arena.len() - entries.len())
+        + (topology.len() - entries.len())
+        + topology.count_ones() * INTERNAL_SYNTAX_BYTES;
+
+    // The finalize-only stacks are drained; release them before the
+    // output materializes rather than holding their capacity across the
+    // emit pass.
+    drop(phase);
+    drop(open);
+    drop(lefts);
+    // Merge order becomes preorder with one sort of the (node, start)
+    // keys — node indexes are distinct, so the order is total and the
+    // emit below consumes the entries with a single forward cursor.
+    entries.sort_unstable();
 
     // Emit: preorder over the finalized topology and arena, one phase bit
     // per open node.
     let mut out = String::with_capacity(exact);
     let mut pending = Bits::new();
+    let mut next_entry = 0usize;
     for (node, internal) in topology.iter().by_vals().enumerate() {
         step!();
-        let digits = &arena[starts[node]..starts[node + 1]];
+        let digits: &str = match entries.get(next_entry) {
+            Some(&(entry_node, start)) if entry_node == node => {
+                next_entry += 1;
+                let len = arena[start..]
+                    .find(ARENA_SEP)
+                    .expect("every arena entry is terminated");
+                &arena[start..start + len]
+            }
+            // No arena entry: the node's printed base is zero.
+            _ => "0",
+        };
         if internal {
             out.push('(');
             out.push_str(digits);
@@ -232,6 +358,7 @@ pub fn render(bits: &BitsSlice) -> String {
             }
         }
     }
+    debug_assert_eq!(next_entry, entries.len(), "every arena entry printed");
     assert_eq!(
         out.len(),
         exact,
@@ -240,8 +367,27 @@ pub fn render(bits: &BitsSlice) -> String {
     out
 }
 
-/// Merge a closed internal node's two child summaries, finalizing both
-/// children's printed bases into `bases`.
+/// The digit arena's entry terminator: printed bases are decimal digits,
+/// so any non-digit byte delimits an entry, and the emit pass scans to it
+/// for the entry's length.
+const ARENA_SEP: char = ';';
+
+/// Render one finalized printed base into the digit arena, keyed by
+/// its node's preorder index — unless it is zero.
+///
+/// Every on-floor child's base is zero: zero bases take no arena bytes,
+/// and the emit pass prints `0` for any node without an entry.
+fn push_base(arena: &mut String, entries: &mut Vec<(usize, usize)>, node: usize, base: &Base) {
+    if base.bits() == 0 {
+        return;
+    }
+    entries.push((node, arena.len()));
+    write!(arena, "{base}").expect("String formatting is infallible");
+    arena.push(ARENA_SEP);
+}
+
+/// Merge a closed internal node's two child summaries, rendering the one
+/// printed base the merge finalizes into the digit arena.
 ///
 /// With `t` the right child's floor relative to the left's entry leaf
 /// (`span(left) + incoming(right) − drop(right)`), the node's floor is
@@ -249,8 +395,16 @@ pub fn render(bits: &BitsSlice) -> String {
 /// `u = t + drop(left)` decides the min-lift: a non-negative `u` says the
 /// left child sits on the node's floor (its base is zero and `u` is the
 /// right child's), a negative `u` says the right child does (its magnitude
-/// is the left child's base and the node's drop deepens by it).
-fn merge(parent: usize, left: Summary, right: Summary, bases: &mut [Base]) -> Summary {
+/// is the left child's base and the node's drop deepens by it). The child
+/// the merge leaves off the arena prints as zero, so each merge stores at
+/// most one base.
+fn merge(
+    parent: usize,
+    left: StoredLeft,
+    right: Summary,
+    arena: &mut String,
+    entries: &mut Vec<(usize, usize)>,
+) -> Summary {
     let entry_step = signed_sum(
         left.span.0,
         left.span.1,
@@ -266,10 +420,11 @@ fn merge(parent: usize, left: Summary, right: Summary, bases: &mut [Base]) -> Su
     let t = signed_sum(entry_step.0, entry_step.1, true, &right.drop);
     let (u_negative, u) = signed_sum(t.0, t.1, false, &left.drop);
     let drop = if u_negative {
-        bases[left.root] = u.clone();
+        // The left child's root is the parent's preorder successor.
+        push_base(arena, entries, parent + 1, &u);
         left.drop + &u
     } else {
-        bases[right.root] = u;
+        push_base(arena, entries, right.root, &u);
         left.drop
     };
     Summary {

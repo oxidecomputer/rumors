@@ -12,9 +12,23 @@
 //! Built once per fold in `O(n)`, it tabulates every both-present node's
 //! right-child position, so an indexed walk addresses any child in
 //! `O(1)` and skips an unvisited subtree for free (it simply never
-//! touches it). Each per-input test then costs `O(input)` node visits
-//! (plus one `O(log n)` table search per both-present node visited),
-//! and the fold's total is linear in its operands.
+//! touches it). Each per-input test costs `O(input)` node visits plus
+//! one `O(log n)` table search per node both sides own — so the fold's
+//! up-front tests total `O(Σ inputs + B log n)`, `B` the inputs'
+//! both-present node count. The search term is not bounded by the
+//! operands: on populations whose regions interleave deeply (every
+//! skeleton node shared) it dominates the tests, which is a price this
+//! module pays knowingly — the cursor alternative re-walks the fixed
+//! side per input, quadratic on exactly the many-small-inputs
+//! populations the fold exists for (the overlap rows and the flatness
+//! pin in `meter::board`'s tests price that regression), while the
+//! searches tie or win wall time on every committed fold population
+//! \[measured 2026-07-28: the design doc's F4 decision entry\]. Every
+//! probe records one table word in the scan currency
+//! ([`metered_partition_point`]), the board's weave family prices the
+//! term under its declared search allowance, and the parity-halves
+//! liveness floor in `party/tests.rs` trips if the searches ever go
+//! unmetered.
 //!
 //! The index answers the same predicate as the cursor walk
 //! ([`IdReader::is_disjoint`]) with the identical verdict — the fold
@@ -210,7 +224,7 @@ impl<'a> IdIndex<'a> {
                                 let target = rights[entry];
                                 let after_left = entry
                                     + 1
-                                    + rights[entry + 1..].partition_point(|&v| v < target);
+                                    + metered_partition_point(&rights[entry + 1..], target);
                                 (Some(target as usize), after_left)
                             } else if ar {
                                 // Right-only: the child follows the tag.
@@ -249,6 +263,32 @@ impl<'a> IdIndex<'a> {
             }
         }
     }
+}
+
+/// The number of table entries strictly below `target` in the sorted
+/// slice — `partition_point`, with every probe metered.
+///
+/// Each probe reads one `u32` table word, recorded in the scan currency
+/// (32 bits per probe): the table is derived verbatim from the packed
+/// stream's positions, so probing it is stream examination by another
+/// route, and an unmetered search would leave the fold's per-node
+/// `O(log n)` term visible to no deterministic counter — the instrument
+/// hole the #37 review found on exactly this line. The board's fold
+/// cells and the envelope suite's both-present-rich scenario read the
+/// searches through this recording.
+fn metered_partition_point(rights: &[u32], target: u32) -> usize {
+    let (mut lo, mut hi) = (0usize, rights.len());
+    while lo < hi {
+        step!();
+        crate::codec::scan::record_bits(32);
+        let mid = lo + (hi - lo) / 2;
+        if rights[mid] < target {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
 }
 
 /// Skip the present children of an already-read id node, resyncing its

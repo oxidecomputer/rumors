@@ -1983,6 +1983,88 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   anchored-segment section carries rank as its single-stream
   instance, and the min_ticks cost paragraph cites the web's
   certificate instead of a non-contractual excess.
+- **DECIDED 2026-07-28 (cure round #78, Track 3 — instruments and
+  constant-reds; branch `cure78-instr`).** Six landings, each with its
+  tripwire, closing the #37 review's F4/F5 instrument holes and the
+  owned constant-reds:
+  (1) *The F5 citation seal*: the triangle roster's citation haystack is
+  `#[test]`-attributed items (proptest properties included) unioned with
+  the law names read from the `laws` tables themselves; the #37 witness
+  pin flipped into the seal's two-direction test, and the nine citations
+  that had resolved through same-named law-predicate `fn`s now resolve
+  through the law-table leg explicitly.
+  (2) *The render finalize cure* (the materializing-emitters heap
+  genre): digits render at the merge that finalizes them into a
+  node-keyed arena (zero bases take no bytes), the frame enum became
+  parallel open-node stacks with the parked left summaries in a
+  fixed-chunk stack (no realloc coexistence), and finalize state drops
+  before emit. All 14 display heap-constant reds flipped green at both
+  scales (dense 22.0 → 1.9 B/B, mirror-narrow 33.0 → ~13 B/B); no
+  limb/scan/touch reading moved anywhere (κ untouched); render
+  envelopes re-pinned tighter (dense heap 23.6 MB → 1.6 MB measured).
+  The mirror-wide limb-exponent pair stays red deliberately: it is the
+  render merge's judge-rostered SuperlinearTime mechanism, and
+  `render_merge_superlinearity_is_alive` pins it red-alive.
+  (3) *Declared per-cell models* (board mechanism): a ratified cost law
+  derived at the cell, disclosed on the row face (`decl[...]`), banded
+  both sides (an improved kernel trips the stale-model floor and forces
+  a re-declaration), each with a committed wrong-artifact tripwire. The
+  fold rows declare the reduction's `O(D log k)` (exponent ceilings at
+  the model's predicted exponent plus the linear slack; scan constant
+  12 bits/B per `log2(2k)` level, measured honest range 9.1–10.0); the
+  comb-scatter projection pair declares the ratified capacity chain
+  `3(n+m)2^(k−1)` (measured/model 1.005–1.017 at teeth 128–1024, band
+  ±10%, the heap exponent fit retired as unjudgeable across the chain's
+  quantization). The three fold-marginal reds and the Bucket D pair
+  flipped green as the models' own price.
+  (4) *The F4 decision — the index stays, priced*: the `IdIndex`
+  partition-point searches are metered (one table word per probe, 32
+  scan bits), the weave family landed (16 fixed groups over one fork
+  expansion's leaves dealt round-robin — per-operand benign,
+  both-present-rich at the whole shared skeleton; the #76 gap), and the
+  index-vs-cursor measurement ran on the honest family plus the
+  committed corpus. Deterministic scan (whole fold, index/cursor):
+  weave ×3.0→×3.9 across scales, parity-halves d=16 ×9.8, scatter
+  ×0.93, benign ×0.94. Wall (release, unmetered, medians of 5; load
+  disclosed ~100–150 from parallel-track builds): weave 0.98–1.00,
+  scatter 0.58–0.93, benign 0.95–0.98, parity-halves d=16 ×1.11 (the
+  #37 quiet-machine d=18 reading ×1.66 stands as the adversary bound).
+  The granted cursor revert is DECLINED with evidence: the committed
+  overlap instruments (`party_join_all_overlap` rows,
+  `join_all_overlap_upfront_test_reads_flat`) pin the index's
+  asymptotic win — a per-input cursor walk reads quadratic there and
+  trips the flatness pin, and the coverage ratchet forbids weakening
+  them — while on every committed fold population the index ties or
+  wins wall. The correlated-population search term is instead priced:
+  the party fold cells carry a declared search allowance
+  (`32·⌈log2(t+1)⌉` bits per input both-present node, computed from
+  the operands at prepare; weave reads ~7% under it — tight), a
+  regressed search trips the over-searched probe, the parity-halves
+  liveness floor (135_196 bits measured, floor ×0.75, cursor co-walk
+  6_140 on the same pair) trips if the searches go unmetered, and the
+  `join_all` prose is re-derived exactly (`O(D log k + B log |p|)`,
+  the module doc's self-contradiction excised).
+  (5) *The class-binding seal* (F1's categorical fix): board reds carry
+  mechanism tags (`mech[exponent/constant/floor]` on the render,
+  `BOARD_EXPECTED_REDS` as committed data), the claims roster gains
+  `Class::SuperlinearCounter` (min_ticks moves onto it), and no
+  linear-class claim may cite a standing exponent-mechanism red while
+  every SuperlinearCounter claim must keep one — verified by mutation
+  against the pre-cure state (min_ticks as `Linear` fails the seal
+  naming the contradiction). The rider census re-realized against the
+  post-cure board (the owner-approved re-realization): the eleven
+  cured display riders left, the ticks-landing min_ticks cells joined
+  (comb-scatter plus the five tick-cross shapes), the mirror-wide
+  display pair stays; judge verification of the new riders lands at
+  the next bench-judge run.
+  (6) *The smoke pin on the family axis*: per-family expected cell
+  counts as data (a drifted family fails by name), retiring the
+  hand-counted prose total; the board sweeps 1113 cells.
+  Boards at the track tip (release): default 1101 green / 12 red, ×4
+  1100 green / 13 red — every red is a `BOARD_EXPECTED_REDS` member
+  (the tick trio's and min_ticks' stated-band constants, the min_ticks
+  exponent cells, the mirror-wide display pair), and every red this
+  track owns is green.
 
 ## 13. The metering gate
 
@@ -2270,21 +2352,24 @@ cure the cells and the class question stays open with the text
 column). Every other cell — the designed diagonal and the
 populated `BOARD_RED_BENCH_RIDERS` alike — must fit under its own
 ceiling: a constant-factor counter red is not a time-exponent red
-(the thirteen riders measured e 0.93–1.18).
+(the pre-cure thirteen-rider census measured e 0.93–1.18; the
+cure-round merge leaves three riders, their time legs standing in
+the judge roster and re-verified at the acceptance run).
 
 **Numbers of record** [measured 2026-07-28; release profile,
 single runs per scale under the determinism tripwire, at the
-query-fold cure's tree (§12's cure round #78 entry — the
-anchor-web min_ticks fold, the anchored-segment rank, and the
-freeze-pos family)]: board **1130 green / 24 red at the default
-scale; 1134 / 20 at ×4** over **1154 cells** (the freeze-pos
-family's 43 cells in, all green; the prior record read
-1041 + 30 / 1044 + 27 over 1071 cells at the
-`board-merge72-{lo,hi}.txt` renders). The
-acceptance sweep's final renders re-baseline the full board. The
-red roster, every red with exactly one owner, is §17.3; the
+cure-round merge (§12's cure round #78 entries — all three
+tracks: the zero-run ledger, the anchor-web min_ticks fold with
+the anchored-segment rank and the freeze-pos family, and Track
+3's instruments with the weave family)]: board **1150 green /
+6 red at both scales** over **1156 cells**, the red set
+identical at both scales and equal to `BOARD_EXPECTED_REDS`
+(the prior record read 1041 + 30 / 1044 + 27 over 1071 cells at
+the `board-merge72-{lo,hi}.txt` renders). The acceptance
+sweep's final renders re-baseline the full board. The red
+roster, every red with exactly one owner, is §17.3; the
 cell-count and verdict lineage across the campaign's rounds
-(200 → 989 → 1071 → 1090 → 1071 → 1154)
+(200 → 989 → 1071 → 1090 → 1071 → 1156)
 is in git history at the commits §14 names.
 
 **Acceptance (the campaign's; protocol per §12's ratification):
@@ -2611,23 +2696,24 @@ legs and its resource pin — the representation-pin leg per the
 snapshot-pinned in-crate); the benign rank-pair operand scaling
 if C3 chose that arm; the §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over the 1154 cells)
+### 17.3 Owned-red accounting (current; over the 1156 cells)
 
-Sums [measured 2026-07-28, release renders at the query-fold cure
-(§12's cure round #78 entry) — the tree carrying the anchor-web
-min_ticks fold, the anchored-segment rank, and the freeze-pos
-family (cells 1071 → 1154); the prior boards of record read
-1041 + 30 / 1044 + 27 over 1071 cells at the
+Sums [measured 2026-07-28, release renders at the cure-round
+merge — the tree carrying all three #78 tracks (the zero-run
+ledger, the anchor-web min_ticks fold with the anchored-segment
+rank, and Track 3's instruments), with the freeze-pos and weave
+families landed (cells 1071 → 1156); the prior boards of record
+read 1041 + 30 / 1044 + 27 over 1071 cells at the
 `board-merge72-{lo,hi}.txt` renders]:
-**default 1130 + 24 = 1154; record 1134 + 20 = 1154.** The cure
-resolved every `version_min_ticks` red but ascend-cliff's heap
-constant (six cells at default, seven at ×4 — the exponent
-mechanisms and the mirror/comb heap constants alike); every
-other red is byte-identical across the cure at both scales.
-Every red has exactly one owner and the sums close; the
-per-round movement lineage (each round's flips, bucketed by
-mechanism, with every untouched cell verified byte-identical) is
-in git history at the commits §14 names.
+**default 1150 + 6 = 1156; record 1150 + 6 = 1156, the red set
+identical at both scales.** Every red is a
+`BOARD_EXPECTED_REDS` member with its mechanism tag (the roster
+in `meter/board.rs` is the committed form of this accounting;
+the render's `mech[...]` column is its live disclosure). Every
+red has exactly one owner and the sums close; the per-round
+movement lineage (each round's flips, bucketed by mechanism,
+with every untouched cell verified byte-identical) is in git
+history at the commits §14 names.
 
 The red roster, both scales enumerated from the renders:
 
@@ -2639,56 +2725,58 @@ the exact `min_ticks` fold of the ticks(n) landing, which scans
 the full stream; the merged renders read the cell green at both
 scales with the scan floor exactly satisfied.)
 
-- **The render materialization genre** (14 default / 14 ×4 heap
-  constants: `version_display` × {dense, bigroot, harmonic,
-  nested-full, nested-wide, mirror-wide, mirror-narrow,
-  staircase}, `clock_display` × {dense, bigroot, harmonic,
-  nested-full, mirror-narrow, staircase} — 17.4–33.2 B per `n_io`
-  byte at exponent ~1.00): the render's finalize pass
-  materializes a per-node `Base` vector, a digit arena, and an
-  offset table before the emit pass — linear, honestly over the
-  16 B/B ceiling. Owner: **the materializing emitters item
-  (§17.2)**.
+- **The render materialization genre**: CURED 2026-07-28 (cure
+  round #78 Track 3, the §12 entry): the finalize pass streams
+  each finalized base's digits into a node-keyed arena at its
+  merge and the open-node stacks replaced the frame enum, so all
+  14 heap-constant display cells read green at both scales
+  (dense 22.0 → 1.9 B/B, mirror-narrow 33.0 → ~13 B/B) with the
+  render envelopes re-pinned tighter.
 - **The render merge's wide-summary re-read**
   (`version_display`/`clock_display` × mirror-wide: limb
-  exponent 1.55–1.56 default / 1.81 ×4, the ×4 constants over κ;
-  `version_display`'s heap constant rides the genre above):
+  exponent 1.55–1.56 default / 1.81 ×4, the ×4 constants over κ):
   the finalize merge re-folds wide relative summaries per
   ancestor on the wide×deep right-spine shape — the #34
   re-touching genre alive in the render walk; parse on the same
   shape is linear (6.05 ops/node [measured]), so the text is not
   the obstruction. A genuine kernel superlinearity, red on an
-  honest denominator. Owner: **the materializing emitters item**.
-- **The capacity-phase heap exponent** (`version_project`/
-  `clock_own_version` × comb-scatter, default scale only): work
-  I/O-linear on every column; peak heap is the output builder's
-  doubling chain anchored at the operand-size reserve —
-  ≈ 3·(n+m)·2^(k−1) bytes, k = ⌈log2(output/(n+m))⌉, fitted
-  within 2% at every probed point — with the default probe pair
-  straddling a k step (e 1.38) and the ×4 pair inside one
-  (e 0.70). The instrument wobbles, not the kernel — the reading
-  is honest and stays red rather than softening the ceiling. The
-  projection's output is not size-derivable from its operands
-  (mandatory Θ(|v|·|p|) on Θ(|v|+|p|) input), so no reserve-once
-  bound exists. Owner: **an accepted stated-band residual**
-  (owner ruling 2026-07-27: the doubling-chain band is ratified
-  as-is — §12's capacity-phase finding carries the pricing). The
+  honest denominator, exponent-tagged in `BOARD_EXPECTED_REDS`
+  and held red-alive by `render_merge_superlinearity_is_alive`
+  as the display pair's SuperlinearTime mechanism. Owner: **the
+  materializing emitters item** (its one remaining leg; the
+  anchor-web discipline is the candidate cure, gated on the
+  SuperlinearTime class question).
+- **The capacity-phase heap exponent**: GREEN by declared model
+  2026-07-28 (owner ratification 2026-07-27 encoded at the cell,
+  cure round #78 Track 3): the comb-scatter projection pair is
+  judged against ≈ 3·(n+m)·2^(k−1), k = ⌈log2(output/(n+m))⌉
+  (measured/model 1.005–1.017 at every probed point, band ±10%,
+  both scales), the heap exponent fit retired as unjudgeable
+  across the chain's power-of-two quantization, and a regressed
+  builder or an improved one trips the band's respective edge
+  (`declared_capacity_model_bands_the_projection_peak`). The
   decided lazy projection view (`design/own-version-view.md`)
   additionally makes the materialization explicit-only, so the
   band will be reachable solely through `.to_version()`.
-- **The fold marginals** (default: `version_join_all` ×
-  {scatter, benign} limb/scan exponents, `party_join_all ×
-  benign` scan constant at 100.1 bits/B; ×4: `party_join_all ×
-  benign` only, 116.9 bits/B — the version-side pair reads green
-  there, the n·log n signature): owner **the n-cursor merge item
-  (§17.2)**.
+- **The fold marginals**: GREEN by declared model 2026-07-28
+  (cure round #78 Track 3): the fold cells are judged under the
+  reduction's own `O(D log k)` (exponent ceilings at the model's
+  predicted exponent plus the linear slack; scan constant
+  12 bits/B per `log2(2k)` level), with the party fold's indexed
+  overlap test additionally covered by its declared search
+  allowance (tight to ~7% on the weave family). A quadratic fold
+  or a regressed search reads red
+  (`declared_fold_model_admits_the_log_factor_and_rejects_quadratic`),
+  and `fold_log_factor_is_alive` keeps the log factor honest.
 - **`version_min_ticks × ascend-cliff`'s heap constant** (138.7
   B/B default / 141.3 ×4 at the cure-round merge renders — the
   anchor-web fold's ~119 B/frame reign state plus the zero-run
   ledger's certificates, which accumulate on monotone climbs;
   e 1.00 with every work column flat — the query-fold cure
   removed this cell's touch-exponent mechanism and its ×4 touch
-  constant in the same change, §12's cure round #78 entry): the family arms `k` simultaneously open
+  constant in the same change, §12's cure round #78 entry, and
+  cured every other `version_min_ticks` red in the same
+  change): the family arms `k` simultaneously open
   ranges with `k` distinct minima, so no zero run compresses and
   no reign batches across them — any one-pass exact fold holds
   Θ(k) live state here, and the anchor web's per-frame constant
@@ -2723,16 +2811,15 @@ scales with the scan floor exactly satisfied.)
   cure's certificates arriving in the same round). A future
   re-pin of this cell must re-measure on the board's own axis;
   the exponent claim is axis-invariant, the constant is not.
-Bench riders (`BOARD_RED_BENCH_RIDERS`) are populated (item 11's
-realization, 2026-07-26 — §12's P5 closeout record; re-realized
-2026-07-28 at the query-fold cure): the 12
-standing reds above that the designed pairings do not already
-time — the display rows on the tick-cross and harmonic shapes,
-and the `min_ticks` row on the ascend-cliff cross — each keep a
-judged time leg in the pinned bench
-subset, and every rider must fit under its own ceiling (the reds
-above are counter constants, not time exponents). A rider and its
-roster expectation move as one reviewed diff, judge-verified.
+Bench riders (`BOARD_RED_BENCH_RIDERS`) are populated (census
+re-realized 2026-07-28 against `BOARD_EXPECTED_REDS` at the
+cure-round merge — the roster hygiene test binds every rider to
+a rostered red): the three standing reds that the designed
+pairings do not already time — the `min_ticks` row on the
+ascend-cliff cross and the mirror-wide display pair — each keep
+a judged time leg in the pinned bench subset, and every rider
+must fit under its own ceiling. A rider and its roster
+expectation move as one reviewed diff, judge-verified.
 
 ### 17.5 Post-campaign docket (user directives)
 

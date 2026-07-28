@@ -323,6 +323,38 @@
 //! packed bits the fold read, so a ceiling per content byte is a ceiling
 //! per wire byte up to the fold's own constant.
 //!
+//! # Declared per-cell models
+//!
+//! Two cell classes are judged against a **declared model** — a ratified
+//! cost law derived at the cell — in place of one flat ceiling, because
+//! the flat form is unsatisfiable on work their contracts mandate (the
+//! same reasoning that re-denominates the I/O cells). Each is disclosed
+//! on its row face (`decl[...]`), derived at its constant's definition
+//! site (the declared-models section of the ceilings block), banded on
+//! both sides so an improved kernel forces a deliberate re-declaration,
+//! and tripwired in the test suite by a wrong artifact reading red:
+//!
+//! - **The fold rows** (`version_join_all`, `party_join_all`): the
+//!   balanced reduction's documented `O(D log k)` puts a `log2(2k)`
+//!   factor in the deterministic counters that no flat ceiling admits at
+//!   scale. The limb/scan/touch exponent ceilings become the model's own
+//!   predicted exponent plus the linear cells' slack, and the scan
+//!   constant [`FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL`] per reduction
+//!   level; a quadratic left fold still reads ~2 and stays red, and the
+//!   log factor's own liveness is the claims suite's
+//!   `fold_log_factor_is_alive` pin.
+//! - **The comb-scatter projection pair** (`own_version_to_version`,
+//!   `clock_own_version_to_version` on the output-domination cross): peak
+//!   heap is the output builder's doubling chain anchored at the
+//!   operand-size reserve — `capacity_chain_peak`'s
+//!   `3·(n+m)·2^(k−1)`, ratified within 2% at every probed point. The
+//!   heap reading is banded around the model at both scales
+//!   ([`CAPACITY_MODEL_FLOOR`], [`CAPACITY_MODEL_CEILING`]) and the heap
+//!   exponent fit is retired as unjudgeable there — the chain quantizes
+//!   peak by powers of two, so a probe pair straddling a `k` step
+//!   manufactures an exponent out of exactly the profile the model
+//!   prices.
+//!
 //! # The rejection surface
 //!
 //! Cost claims are total: rejecting an input is an outcome with a cost,
@@ -374,7 +406,9 @@
 //! `concurrent-pair` (the switch-density population) — carry a version
 //! pair of their own construction, so
 //! their comparison rows run the pairing the shape was built around
-//! rather than the ticked counterpart; `benign` — a fixed-seed pseudo-random population of forked,
+//! rather than the ticked counterpart; the two fold populations —
+//! `scatter` and `weave` — carry fold operands alone, so exactly the two
+//! fold rows run on them; `benign` — a fixed-seed pseudo-random population of forked,
 //! ticked clocks, the control row that keeps the ceilings honest on
 //! organic inputs — carries everything. Where an operation needs a
 //! `Party` and a `Version`, the board crosses adversarial party × small
@@ -386,7 +420,7 @@
 //! kernel-seam probes live in the envelope suite alone. The criterion and
 //! the add-a-shape touch list sit on the `FAMILIES` roster below.
 //!
-//! Four shapes carry a genre note beyond their variant docs:
+//! Five shapes carry a genre note beyond their variant docs:
 //!
 //! - `freeze-pos`, built against the linear-functional rows: `Θ(s)`
 //!   query-fold freezes at ever-deeper stream positions where every
@@ -427,8 +461,18 @@
 //!   it): exponents ~1.1 and constants that grow with scale, marginally
 //!   over the amortized-linear bounds at some scales \[measured — both
 //!   scales\]. The `benign` controls read the same
-//!   signature as `scatter`, so the marginal red is the reduction's own
-//!   n·log n cost, not the adversarial ordering's.
+//!   signature as `scatter`, so the readings priced by the declared fold
+//!   model are the reduction's own n·log n cost, not the adversarial
+//!   ordering's.
+//! - `weave`, the correlated fold population (the leaves of one balanced
+//!   fork expansion dealt round-robin among 16 group parties,
+//!   one tick each), also fold-rows-only: every operand pair is
+//!   both-present at the whole shared upper skeleton while each operand
+//!   alone is an organic region set, so the per-node fold costs that
+//!   scale with the *other* operand — the overlap test against the
+//!   accumulator above all — dominate at fixed arity. Scatter's
+//!   single-leaf operands cannot reach the genre and benign reaches it
+//!   only diluted.
 //!
 //! # Coverage: the not-applicable list
 //!
@@ -736,6 +780,136 @@ pub const TEXT_BYTES_PER_RADIX_UNIT: f64 = 8.0;
 /// directions\].
 pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 
+// ─── declared per-cell models ────────────────────────────────────────────────
+//
+// Two cell classes carry a *declared model* in place of one flat ceiling:
+// a ratified cost law, derived and priced at the cell, that the readings
+// must match — the flat ceiling would otherwise be unsatisfiable by
+// construction on work the operation's own contract mandates. A declared
+// model is disclosed on the row face (`decl[...]`), replaces only the
+// legs it names, and is banded on both sides: a reading over the model is
+// the regression the ceiling exists to catch, and a reading under its
+// floor means the model has gone stale against an improved kernel and
+// must be re-declared in a diff that shows the new derivation (the same
+// ratchet as a liveness floor).
+
+/// The fold rows' declared scan model: at most this many scan bits per
+/// input byte per balanced-reduction level, `log2(2k)` levels over `k`
+/// fold operands.
+///
+/// The fold rows run the balanced binary-counter reduction, whose
+/// documented class is `O(D log k)` (`FoldLog` in the claims roster):
+/// every input passes through `O(log k)` joins, and each join level
+/// re-scans the operands it merges, so scan work per input byte grows by
+/// a constant per level — never flat, at any implementation of the
+/// balanced reduction. Derivation of the constant: the fold cells read
+/// 9.1–10.0 scan bits per byte per level across both scales and both
+/// committed populations \[measured 2026-07-28, release: the benign
+/// control at k = 512 reads 100.1 bits/B over 10 levels, at k = 2048
+/// reads 116.9 over 12\]; 12 leaves the worst honest reading ~20%
+/// headroom while a fold whose per-level constant regresses by a third
+/// still reads red.
+pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
+
+/// The scan bits one metered `IdIndex` table probe records: one `u32`
+/// table word per probe.
+///
+/// The party fold's declared search allowance is `32·⌈log2(t+1)⌉`
+/// probes' worth per both-present node of each tested input, `t` the
+/// accumulator's table size.
+///
+/// Derivation: `Party::join_all` overlap-tests every input against the
+/// fixed accumulator through a per-call table of the accumulator's
+/// both-present nodes, and each both-present node the test visits runs
+/// one binary search over at most `t` entries — at most `⌈log2(t+1)⌉`
+/// probes of one table word each. The allowance is that bound summed
+/// over the inputs' both-present nodes, computed from the operands at
+/// prepare; it is tight-ish where the searches dominate \[measured
+/// 2026-07-28, release, the weave family: readings sit within ~10% of
+/// the fold model plus this allowance at both scales\], zero on
+/// populations with no both-present structure (scatter's single-leaf
+/// operands), and absent from the version fold, which runs no overlap
+/// test. The decision to keep the index and price its searches — over
+/// reverting to the per-input cursor walk the #37 review's F4 weighed —
+/// is the design doc's dated F4 entry: the committed overlap
+/// instruments pin the index's asymptotic win (a cursor discipline
+/// reads quadratic on the overlap rows and trips the flatness pin),
+/// and the index ties or wins wall time on every committed fold
+/// population.
+pub const INDEX_PROBE_SCAN_BITS: u64 = 32;
+
+/// A packed id operand's both-present node count: the size of the
+/// `IdIndex` table a fold builds over it, and the per-input factor of
+/// the declared search allowance. One 2-bit presence tag per node.
+fn both_present_nodes(p: &Party) -> u64 {
+    let bits = p.as_bits();
+    let mut count = 0u64;
+    let mut i = 0;
+    while i + 1 < bits.len() {
+        count += u64::from(bits[i] && bits[i + 1]);
+        i += 2;
+    }
+    count
+}
+
+/// The declared-model band: a modeled reading must sit within
+/// `[CAPACITY_MODEL_FLOOR, CAPACITY_MODEL_CEILING] × model`.
+///
+/// The capacity-chain model fits the committed probe points within 2%
+/// \[measured 2026-07-28, release: measured/model 1.005–1.017 across
+/// teeth 128–1024\], so ±10% absorbs the walk's small non-chain
+/// allocations while a regressed builder — an unanchored doubling chain,
+/// an extra buffer copy — overshoots the ceiling, and an improved
+/// builder undershoots the floor and forces a deliberate re-declaration.
+pub const CAPACITY_MODEL_CEILING: f64 = 1.10;
+/// The declared-model band's lower edge; see [`CAPACITY_MODEL_CEILING`].
+pub const CAPACITY_MODEL_FLOOR: f64 = 0.90;
+
+/// The ratified capacity-chain peak-heap model for the output-dominated
+/// projection's builder: `3·(n+m)·2^(k−1)` bytes.
+///
+/// `k = ⌈log2(output/(n+m))⌉`, clamped to at least 1 — the committed
+/// shapes sit at output ≥ 32× input, so the clamp never binds and
+/// exists only to keep the formula total.
+///
+/// Derivation: the projection's output is not size-derivable from its
+/// operands (mandatory `Θ(|v|·|p|)` output on `Θ(|v|+|p|)` input), so no
+/// reserve-once bound exists; the output builder anchors its buffer at
+/// the operand-size reserve `n+m` and doubles `k` times to reach the
+/// output, and peak heap is the last realloc's old+new coexistence:
+/// `(n+m)·2^(k−1) + (n+m)·2^k = 3·(n+m)·2^(k−1)`. The board's exponent
+/// fit is honestly unjudgeable across this chain — a probe pair
+/// straddling a `k` step manufactures an exponent out of the quantized
+/// capacity, one inside a step reads sublinear — which is exactly why
+/// these cells are judged against the model instead (owner ratification
+/// 2026-07-27: the doubling-chain band is the accepted stated-band
+/// residual — no pre-walk, no segmented output).
+fn capacity_chain_peak(input_bytes: usize, output_bytes: usize) -> f64 {
+    let anchor = input_bytes as f64;
+    let k = (output_bytes as f64 / anchor).log2().ceil().max(1.0);
+    3.0 * anchor * (k - 1.0).exp2()
+}
+
+/// The fold rows' declared exponent ceiling over the fold currencies
+/// (limb, scan, touch): the `FoldLog` model's own predicted exponent plus
+/// the global noise slack.
+///
+/// Work `c·D·log2(2k)` fitted across the cell's two probes
+/// (`D₁, k₁) → (D₂, k₂`) reads exponent
+/// `1 + log2(log2(2k₂)/log2(2k₁)) / log2(D₂/D₁)` — the log factor's
+/// marginal, ~1.14–1.17 at the committed populations — so the ceiling is
+/// that prediction plus the same slack [`MAX_SCALING_EXPONENT`] grants
+/// linear cells (0.15). A quadratic fold reads ~2 against any committed
+/// arity pair and stays red; the model's own liveness is the
+/// `fold_log_factor_is_alive` pin, which reads red the day the reduction
+/// stops paying its log factor.
+fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f64 {
+    let levels1 = (2.0 * k1 as f64).log2();
+    let levels2 = (2.0 * k2 as f64).log2();
+    let denom_growth = (n2 as f64 / n1 as f64).log2();
+    1.0 + (levels2 / levels1).log2() / denom_growth + (MAX_SCALING_EXPONENT - 1.0)
+}
+
 /// The acceptance scale of record: the size multiplier of the record-mode
 /// board run (`just amp-board-record`).
 ///
@@ -929,6 +1103,27 @@ const CONCURRENT_BASE_LEAVES: usize = 1_024;
 /// Benign clock population at scale 1.0.
 const BENIGN_BASE_CLOCKS: usize = 256;
 
+/// The weave fold population's leaf count at scale 1.0 (rounded up to a
+/// power of two by construction).
+///
+/// 4096 leaves woven into [`WEAVE_GROUPS`] parties give each operand
+/// ~256 scattered leaves under a fully shared upper skeleton — deep
+/// enough that the both-present-rich cost terms (the indexed overlap
+/// test's per-node table searches, the version joins' interleaved
+/// merges) dominate each cell, small enough that the default-scale
+/// board stays seconds-fast.
+const WEAVE_BASE_LEAVES: usize = 4_096;
+
+/// How many parties the weave population folds: fixed across scales, so
+/// the family's scaling axis is operand *size* (the both-present
+/// richness per merge), not arity — scatter and benign already own the
+/// arity axis.
+///
+/// 16 groups keep every internal node of the shared skeleton above the
+/// last four levels both-present in every operand while each operand
+/// stays an organic, individually well-formed region set.
+const WEAVE_GROUPS: usize = 16;
+
 /// Floor on every scaled size parameter, so extreme scale-down (the smoke
 /// test) still builds valid shapes and a nonempty benign population.
 ///
@@ -1001,6 +1196,20 @@ enum FamilyKind {
     /// operands whose join accumulator never coalesces; its bundle
     /// carries fold operands alone, so only the fold rows apply.
     Scatter,
+    /// The weave fold population: the leaves of one balanced fork tree
+    /// dealt round-robin among [`WEAVE_GROUPS`] parties, one tick each.
+    ///
+    /// Every operand is individually benign — an organic region set any
+    /// retire/reunite call site could hold — while every internal node
+    /// of the shared upper skeleton is both-present in every operand
+    /// pair, so the fold's per-node costs that scale with the *other*
+    /// operand (the overlap test against the accumulator, the join
+    /// merges over interleaved trees) dominate. Scatter cannot reach
+    /// this genre (its operands are single leaves) and benign reaches
+    /// it only diluted; the arity is fixed so the scaling axis is
+    /// both-present richness alone. Its bundle carries fold operands
+    /// alone, so only the fold rows apply.
+    Weave,
     /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`.
     ///
     /// Every level a right-full shortcut site, the deepest stacking of
@@ -1129,7 +1338,7 @@ enum FamilyKind {
 /// whole-surface adversary earns a board family, while a kernel-seam
 /// shape lives in the envelope suite alone, as `wide_tooth_comb`,
 /// `alt_spine`, and the `memo_*` shapes do.
-const FAMILIES: [FamilyKind; 22] = [
+const FAMILIES: [FamilyKind; 23] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -1138,6 +1347,7 @@ const FAMILIES: [FamilyKind; 22] = [
     FamilyKind::CombScatter,
     FamilyKind::Harmonic,
     FamilyKind::Scatter,
+    FamilyKind::Weave,
     FamilyKind::NestedFull,
     FamilyKind::NestedWide,
     FamilyKind::MirrorWide,
@@ -1314,6 +1524,7 @@ impl FamilyData {
                     .encode(),
             ),
             FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
+            FamilyKind::Weave => Self::weave(size(WEAVE_BASE_LEAVES)),
             FamilyKind::NestedFull => {
                 let d = size(NESTED_BASE_DEPTH);
                 Self::cross_family(
@@ -1528,6 +1739,58 @@ impl FamilyData {
         );
         let parties = scatter_order(parties.iter().map(Party::encode).collect());
         let mut data = Self::bare(FamilyKind::Scatter, "scatter");
+        data.fold = Some((versions, parties));
+        data
+    }
+
+    /// Build the weave fold population.
+    ///
+    /// The `leaves` (rounded up to a power of two) leaf parties of one
+    /// balanced fork expansion are dealt round-robin into
+    /// [`WEAVE_GROUPS`] group parties, each group carrying its own
+    /// single-tick version.
+    ///
+    /// Dealing leaf `i` to group `i % WEAVE_GROUPS` puts leaves of every
+    /// group under every skeleton node above the last `log2(WEAVE_GROUPS)`
+    /// levels, so each operand pair is both-present at the whole shared
+    /// skeleton — the correlated-population genre — while each group on
+    /// its own is an ordinary scattered region set.
+    fn weave(leaves: usize) -> FamilyData {
+        let leaves = leaves.next_power_of_two().max(WEAVE_GROUPS * 2);
+        let mut parties = vec![Party::seed()];
+        while parties.len() < leaves {
+            let mut next = Vec::with_capacity(parties.len() * 2);
+            for mut p in parties {
+                let q = p.fork();
+                next.push(p);
+                next.push(q);
+            }
+            parties = next;
+        }
+        // Deal the leaves round-robin: each group accumulates its party
+        // by joining every WEAVE_GROUPS-th leaf, and its version by one
+        // tick per dealt leaf — a single-leaf party forces the event onto
+        // that leaf, so the group's version is height one exactly over
+        // its scattered region, a deep tree sharing the whole upper
+        // skeleton with every other group's.
+        let mut group_parties: Vec<Option<Party>> = (0..WEAVE_GROUPS).map(|_| None).collect();
+        let mut group_versions: Vec<Version> = (0..WEAVE_GROUPS).map(|_| Version::new()).collect();
+        for (i, leaf) in parties.into_iter().enumerate() {
+            let r = i % WEAVE_GROUPS;
+            group_versions[r].tick(&leaf);
+            match &mut group_parties[r] {
+                slot @ None => *slot = Some(leaf),
+                Some(group) => group
+                    .join(leaf)
+                    .expect("leaves of one fork expansion are pairwise disjoint"),
+            }
+        }
+        let versions = group_versions.iter().map(Version::encode).collect();
+        let parties = group_parties
+            .into_iter()
+            .map(|g| g.expect("every group received leaves").encode())
+            .collect();
+        let mut data = Self::bare(FamilyKind::Weave, "weave");
         data.fold = Some((versions, parties));
         data
     }
@@ -2662,6 +2925,22 @@ struct Cell {
     denom: Denom,
     /// The cell's liveness declarations, one per floored column.
     floors: Floors,
+    /// The fold rows' operand count at this scale: `Some` on the two
+    /// n-ary fold rows only, where it drives the declared `FoldLog`
+    /// model (the declared-models section above).
+    fold_arity: Option<u64>,
+    /// The party fold's declared search allowance at this scale, in
+    /// scan bits ([`INDEX_PROBE_SCAN_BITS`]'s derivation).
+    ///
+    /// Added to the declared scan ceiling; zero on the version fold (no
+    /// overlap test) and wherever the operands carry no both-present
+    /// structure.
+    fold_search_bits: u64,
+    /// Whether the heap column is judged against the ratified
+    /// capacity-chain model ([`capacity_chain_peak`]) instead of the
+    /// flat ceiling: the output-dominated projection on the
+    /// comb-scatter cross only.
+    capacity_model: bool,
     /// The measured body; its result stays alive until the meters are read.
     #[allow(clippy::type_complexity)]
     body: Box<dyn FnOnce() -> Box<dyn Any>>,
@@ -2714,8 +2993,32 @@ impl Cell {
             input_bytes,
             denom: Denom::Input,
             floors,
+            fold_arity: None,
+            fold_search_bits: 0,
+            capacity_model: false,
             body: Box::new(move || Box::new(body())),
         }
+    }
+
+    /// Declare this cell's readings judged under the fold rows' `FoldLog`
+    /// model at operand count `arity` (the declared-models section).
+    fn with_fold_arity(mut self, arity: u64) -> Cell {
+        self.fold_arity = Some(arity);
+        self
+    }
+
+    /// Declare the party fold's search allowance in scan bits
+    /// ([`INDEX_PROBE_SCAN_BITS`]'s derivation).
+    fn with_fold_search(mut self, bits: u64) -> Cell {
+        self.fold_search_bits = bits;
+        self
+    }
+
+    /// Declare this cell's heap judged against the ratified
+    /// capacity-chain model (the declared-models section).
+    fn with_capacity_model(mut self) -> Cell {
+        self.capacity_model = true;
+        self
     }
 
     /// Package an I/O-denominated packed-output body: the output side of
@@ -2733,6 +3036,9 @@ impl Cell {
                 text: None,
             }),
             floors,
+            fold_arity: None,
+            fold_search_bits: 0,
+            capacity_model: false,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -2753,6 +3059,9 @@ impl Cell {
                 text: Some(spec),
             }),
             floors,
+            fold_arity: None,
+            fold_search_bits: 0,
+            capacity_model: false,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -2900,6 +3209,8 @@ fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         FamilyKind::Harmonic => matches!(group, OpGroup::Measure | OpGroup::Rank),
         // The output-domination cross.
         FamilyKind::CombScatter => group == OpGroup::Projection,
+        // The correlated fold population, built against the fold rows.
+        FamilyKind::Weave => group == OpGroup::Fold,
         // The tick-walk crosses.
         FamilyKind::NestedFull
         | FamilyKind::NestedWide
@@ -3263,10 +3574,14 @@ fn ops() -> Vec<Op> {
                 let (versions, _) = f.fold.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
                 let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
+                let arity = versions.len() as u64;
                 let touch = touch_delta_fold(versions.iter().map(stored_deltas).sum());
-                Some(Cell::new(n, walk_floors(n, touch), move || {
-                    Version::join_all(versions)
-                }))
+                Some(
+                    Cell::new(n, walk_floors(n, touch), move || {
+                        Version::join_all(versions)
+                    })
+                    .with_fold_arity(arity),
+                )
             },
         },
         Op {
@@ -3283,7 +3598,7 @@ fn ops() -> Vec<Op> {
                     let n = v_bytes.len() + p_bytes.len();
                     let v = decode_version(v_bytes);
                     let p = decode_party(p_bytes);
-                    return Some(Cell::io(
+                    let cell = Cell::io(
                         n,
                         walk_floors(n, na(NA_TOUCH_PROJECTION)),
                         |r| {
@@ -3293,7 +3608,15 @@ fn ops() -> Vec<Op> {
                             version_output_bytes(out)
                         },
                         move || ((&v / &p).to_version(), v, p),
-                    ));
+                    );
+                    // The comb-scatter cross's builder runs the ratified
+                    // capacity chain (the declared-models section); the
+                    // plateau-comb crosses stay flat-judged and green.
+                    return Some(if matches!(f.kind, FamilyKind::CombScatter) {
+                        cell.with_capacity_model()
+                    } else {
+                        cell
+                    });
                 }
                 // A cross shape without output domination materializes its
                 // event side through its id side, input-denominated (the
@@ -3598,9 +3921,18 @@ fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (_, parties) = f.fold.as_ref()?;
                 let n = parties.iter().map(Vec::len).sum();
+                let arity = parties.len() as u64;
                 let mut parties = parties.iter().map(|b| decode_party(b));
                 let acc = parties.next().expect("the scatter population is nonempty");
                 let rest: Vec<Party> = parties.collect();
+                // The declared search allowance: the accumulator's table
+                // size prices each tested input's both-present nodes
+                // (INDEX_PROBE_SCAN_BITS carries the derivation).
+                let table = both_present_nodes(&acc);
+                let probes_per_node = u64::from((table + 1).next_power_of_two().trailing_zeros());
+                let search_bits = INDEX_PROBE_SCAN_BITS
+                    * probes_per_node
+                    * rest.iter().map(both_present_nodes).sum::<u64>();
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
@@ -3608,12 +3940,16 @@ fn ops() -> Vec<Op> {
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_ID_TREE),
                 };
-                Some(Cell::new(n, floors, move || {
-                    let mut acc = acc;
-                    acc.join_all(rest)
-                        .expect("fold operands are forked parties, pairwise disjoint");
-                    acc
-                }))
+                Some(
+                    Cell::new(n, floors, move || {
+                        let mut acc = acc;
+                        acc.join_all(rest)
+                            .expect("fold operands are forked parties, pairwise disjoint");
+                        acc
+                    })
+                    .with_fold_arity(arity)
+                    .with_fold_search(search_bits),
+                )
             },
         },
         Op {
@@ -3901,7 +4237,7 @@ fn ops() -> Vec<Op> {
                     let (v_bytes, p_bytes) = f.cross.as_ref()?;
                     let n = v_bytes.len() + p_bytes.len();
                     let clock = Clock::from_parts(decode_party(p_bytes), decode_version(v_bytes));
-                    return Some(Cell::io(
+                    let cell = Cell::io(
                         n,
                         walk_floors(n, na(NA_TOUCH_PROJECTION)),
                         |r| {
@@ -3911,7 +4247,14 @@ fn ops() -> Vec<Op> {
                             version_output_bytes(out)
                         },
                         move || (clock.own_version().to_version(), clock),
-                    ));
+                    );
+                    // The same ratified capacity chain as the version
+                    // spelling of this materialization.
+                    return Some(if matches!(f.kind, FamilyKind::CombScatter) {
+                        cell.with_capacity_model()
+                    } else {
+                        cell
+                    });
                 }
                 let (clock, n) = f.clock()?;
                 Some(Cell::new(
@@ -4396,6 +4739,16 @@ struct Sample {
     /// The cell's liveness declarations; each sample carries its own since
     /// floors scale with the sample's operands.
     floors: Floors,
+    /// The fold rows' operand count at this sample's scale, for the
+    /// declared `FoldLog` model.
+    fold_arity: Option<u64>,
+    /// The party fold's declared search allowance at this sample's
+    /// scale, in scan bits.
+    fold_search_bits: u64,
+    /// The capacity-chain model's predicted peak heap for this sample
+    /// ([`capacity_chain_peak`] over the actual input and output bytes),
+    /// on the cells that declare it.
+    heap_model: Option<f64>,
     /// Every currency's counter reading over the body; `None` where the
     /// counter is not compiled in (the feature-gated limb, scan, and
     /// touch columns render `off` and are exempt from judgment).
@@ -4421,6 +4774,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell, content: Option<usize
     let limb = read_limb();
     let scan = read_scan();
     let touch = read_touch();
+    let mut heap_model = None;
     let (denom_bytes, exp_denom_bytes, limb_denom, text_row) = match cell.denom {
         // The flat-denominator shape's content denominator carries the
         // exponent legs of its input-denominated cells alone: an
@@ -4431,6 +4785,9 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell, content: Option<usize
         }
         Denom::Io(spec) => {
             let output_bytes = (spec.output_bytes)(result.as_ref());
+            if cell.capacity_model {
+                heap_model = Some(capacity_chain_peak(cell.input_bytes, output_bytes));
+            }
             let n_io = cell.input_bytes + output_bytes;
             match spec.text {
                 None => (n_io, n_io, n_io as u64, false),
@@ -4451,6 +4808,9 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell, content: Option<usize
         limb_denom,
         text_row,
         floors: cell.floors,
+        fold_arity: cell.fold_arity,
+        fold_search_bits: cell.fold_search_bits,
+        heap_model,
         readings: ByCurrency {
             heap: Some(peak_heap as u64),
             segments: Some(segments),
@@ -4635,6 +4995,19 @@ struct CellResult {
 fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> CellResult {
     let denom_scales =
         s2.exp_denom_bytes as f64 >= s1.exp_denom_bytes as f64 * MIN_EXPONENT_DENOM_GROWTH;
+    // The declared models, resolved for this cell (the declared-models
+    // section): the fold exponent ceiling needs both samples' arities,
+    // and the capacity-chain judgment both samples' predictions.
+    let fold_exp_ceiling = match (s1.fold_arity, s2.fold_arity) {
+        (Some(k1), Some(k2)) if denom_scales => Some(fold_exponent_ceiling(
+            k1,
+            k2,
+            s1.exp_denom_bytes,
+            s2.exp_denom_bytes,
+        )),
+        _ => None,
+    };
+    let capacity_model = s1.heap_model.is_some() && s2.heap_model.is_some();
     let score = |c: Currency| -> Score {
         let (Some(m1), Some(m2)) = (*s1.readings.get(c), *s2.readings.get(c)) else {
             return Score {
@@ -4644,8 +5017,14 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
             };
         };
         let exp = exponent(m1, m2, s1.exp_denom_bytes, s2.exp_denom_bytes);
-        let exp_judged =
-            denom_scales && (c != Currency::Heap || m1.max(m2) > HEAP_FLAT_ALLOWANCE_BYTES as u64);
+        // A capacity-model cell's heap exponent is honestly unjudgeable:
+        // the doubling chain quantizes the peak by powers of two, so a
+        // probe pair straddling a k step manufactures an exponent and one
+        // inside a step reads sublinear; the model judgment below is what
+        // binds instead.
+        let exp_judged = denom_scales
+            && (c != Currency::Heap
+                || (!capacity_model && m1.max(m2) > HEAP_FLAT_ALLOWANCE_BYTES as u64));
         let per_unit = match c {
             Currency::Heap => {
                 m2.saturating_sub(HEAP_FLAT_ALLOWANCE_BYTES as u64) as f64 / s2.denom_bytes as f64
@@ -4670,7 +5049,7 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
 
     let mut red = Vec::new();
     for (c, s) in scores.each() {
-        let (ceiling, exp_label, const_label) = match c {
+        let (mut ceiling, exp_label, const_label) = match c {
             Currency::Heap => (
                 MAX_HEAP_BYTES_PER_INPUT_BYTE,
                 "heap exponent",
@@ -4701,7 +5080,47 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
                 "touch constant",
             ),
         };
-        if s.exp_judged && s.exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
+        // The capacity-model heap leg: both samples' readings must sit
+        // inside the declared band around the model — over the ceiling is
+        // the regression the model prices, under the floor is a stale
+        // model that must be re-declared against the improved kernel.
+        if c == Currency::Heap && capacity_model {
+            let banded = |sample: &Sample, edge: f64| -> Option<bool> {
+                let reading = (*sample.readings.get(c))? as f64;
+                let model = sample.heap_model?;
+                Some(if edge > 1.0 {
+                    reading > model * edge
+                } else {
+                    reading < model * edge
+                })
+            };
+            if [&s1, &s2]
+                .iter()
+                .any(|s| banded(s, CAPACITY_MODEL_CEILING).is_some_and(|over| over))
+            {
+                red.push("heap capacity-model ceiling");
+            }
+            if [&s1, &s2]
+                .iter()
+                .any(|s| banded(s, CAPACITY_MODEL_FLOOR).is_some_and(|under| under))
+            {
+                red.push("heap capacity-model floor (stale model)");
+            }
+            continue;
+        }
+        // The fold rows' declared exponent ceiling (limb, scan, touch)
+        // and scan-constant model.
+        let exp_ceiling = match (c, fold_exp_ceiling) {
+            (Currency::Limb | Currency::Scan | Currency::Touch, Some(ceiling)) => ceiling,
+            _ => MAX_SCALING_EXPONENT,
+        };
+        if c == Currency::Scan {
+            if let Some(k2) = s2.fold_arity {
+                ceiling = FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL * (2.0 * k2 as f64).log2()
+                    + s2.fold_search_bits as f64 / s2.denom_bytes as f64;
+            }
+        }
+        if s.exp_judged && s.exp.is_some_and(|e| e > exp_ceiling) {
             red.push(exp_label);
         }
         if s.per_unit.is_some_and(|v| v > ceiling) {
@@ -4749,6 +5168,29 @@ fn floor_value(liveness: Liveness) -> String {
     }
 }
 
+/// A red cell's mechanism tag: the judgment kinds present on its red
+/// list, in a fixed order.
+///
+/// An `exponent` red is a scaling-class finding; a `constant` red (flat
+/// or declared-model ceilings, the segments count) is a proportionality
+/// finding at exponent ~1; a `floor` red is a liveness vacuity (a meter
+/// not watching the work) or a stale declared model.
+fn mechanism(red: &[&'static str]) -> String {
+    let mut kinds = Vec::new();
+    if red.iter().any(|label| label.contains("exponent")) {
+        kinds.push("exponent");
+    }
+    if red.iter().any(|label| {
+        label.contains("constant") || label.contains("count") || label.contains("ceiling")
+    }) {
+        kinds.push("constant");
+    }
+    if red.iter().any(|label| label.contains("floor")) {
+        kinds.push("floor");
+    }
+    kinds.join("+")
+}
+
 /// Render one result row.
 ///
 /// The byte range is the cell's denominator (packed input, or `n_io` on the
@@ -4783,10 +5225,13 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         (Some(_), Some(c)) => format!("touch[e{} {c:>10.1}/B]", exp_text(&r.scores.touch)),
         _ => "touch[      off      ]".to_string(),
     };
+    // A red cell's mechanism tag: which judgment kinds put it on the red
+    // list (the class-binding seal in `testing::complexity_claims` keys
+    // on the exponent kind).
     let reasons = if r.red.is_empty() {
         String::new()
     } else {
-        format!("  <- {}", r.red.join(", "))
+        format!("  mech[{}]  <- {}", mechanism(&r.red), r.red.join(", "))
     };
     // A cell whose exponents are fitted against a different denominator
     // than its constants discloses the pair on its own row.
@@ -4799,11 +5244,31 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
             e2 = r.s2.exp_denom_bytes,
         )
     };
+    // A declared per-cell model is disclosed on the row it judges; the
+    // legend above the matrix carries the derivations.
+    let decl = match (r.s1.heap_model, r.s2.heap_model, r.s2.fold_arity) {
+        (Some(m1), Some(m2), _) => {
+            format!("  decl[heap cap-chain {m1:.0}->{m2:.0} B]")
+        }
+        (_, _, Some(k2)) => {
+            let k1 = r.s1.fold_arity.expect("fold cells declare both scales");
+            if r.s2.fold_search_bits > 0 {
+                format!(
+                    "  decl[fold k {k1}->{k2} search {s1}->{s2} bits]",
+                    s1 = r.s1.fold_search_bits,
+                    s2 = r.s2.fold_search_bits,
+                )
+            } else {
+                format!("  decl[fold k {k1}->{k2}]")
+            }
+        }
+        _ => String::new(),
+    };
     writeln!(
         out,
         "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
          heap[e{he} {hc:>10.1}/B]  seg[e{se} {sc:>4}]  {limb}  {scan}  {touch}  \
-         flr[h {fh:>6} l {fl:>6} s {fs:>6} t {ft:>6}]{expd}{reasons}",
+         flr[h {fh:>6} l {fl:>6} s {fs:>6} t {ft:>6}]{expd}{decl}{reasons}",
         op = r.op,
         family = r.family,
         n1 = r.s1.denom_bytes,
@@ -4908,6 +5373,24 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
     }
     for line in &legend {
         writeln!(out, "{line}")?;
+    }
+    if results.iter().any(|r| r.s2.fold_arity.is_some()) {
+        writeln!(
+            out,
+            "  declared fold model (decl[fold ...] rows): the balanced reduction's O(D log k) \
+             class - exponent ceilings on limb/scan/touch at the model's predicted exponent \
+             plus the linear cells' slack, scan constant at \
+             {FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL} bits/B per log2(2k) reduction level"
+        )?;
+    }
+    if results.iter().any(|r| r.s2.heap_model.is_some()) {
+        writeln!(
+            out,
+            "  declared capacity model (decl[heap ...] rows): peak = 3(n+m)2^(k-1) B, \
+             k = ceil(log2(output/(n+m))) - the output builder's doubling chain anchored at \
+             the operand-size reserve; readings banded within x{CAPACITY_MODEL_FLOOR} to \
+             x{CAPACITY_MODEL_CEILING} of the model at both scales"
+        )?;
     }
     writeln!(out)?;
 
@@ -5019,6 +5502,89 @@ pub enum BenchMode {
     Full,
 }
 
+/// One standing board red's committed expectation: the cell and the
+/// judgment mechanisms that put it on the red list, unioned over the two
+/// acceptance scales.
+///
+/// `exponent` is a scaling-class finding (some counter's growth exceeds
+/// its ceiling — flat or declared); `constant` a proportionality finding
+/// at exponent ~1 (a per-byte constant, a segments count, or a
+/// declared-model band). The tags are the render's `mech[...]` column as
+/// committed data: the class-binding seal in
+/// `testing::complexity_claims` forbids any linear rustdoc claim from
+/// citing an operation with a standing exponent-mechanism red, and
+/// requires every counter-superlinear claim to keep one.
+pub struct ExpectedRed {
+    /// The board row's operation name.
+    pub op: &'static str,
+    /// The input family.
+    pub family: &'static str,
+    /// Whether the cell reads red on an exponent mechanism at either
+    /// acceptance scale.
+    pub exponent: bool,
+    /// Whether the cell reads red on a constant mechanism at either
+    /// acceptance scale.
+    pub constant: bool,
+}
+
+/// The board's standing red cells with their mechanism tags: the
+/// committed expectation the acceptance renders are compared against,
+/// and the class-binding seal's data.
+///
+/// Realized 2026-07-28 against the release boards of record at both
+/// scales (the render's `mech[...]` tags, unioned across scales). Every
+/// entry names exactly one live board cell; a cured cell leaves this
+/// roster in the same change that cures it, and a new red enters it (or
+/// is cured) before acceptance — the acceptance protocol diffs the
+/// rendered red set against this list.
+pub const BOARD_EXPECTED_REDS: &[ExpectedRed] = &[
+    // The ascending-cliff tick trio's heap constants (the spec's round-7
+    // stated-band residual).
+    ExpectedRed {
+        op: "version_tick",
+        family: "ascend-cliff",
+        exponent: false,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "version_ticks",
+        family: "ascend-cliff",
+        exponent: false,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "clock_tick",
+        family: "ascend-cliff",
+        exponent: false,
+        constant: true,
+    },
+    // The min_ticks anchor-web fold's reign state on the one family
+    // that defeats batching — k simultaneously-open minima force Θ(k)
+    // live records (the accepted stated-band residual; the anchor-web
+    // cure removed this cell's exponent mechanism in the same change).
+    ExpectedRed {
+        op: "version_min_ticks",
+        family: "ascend-cliff",
+        exponent: false,
+        constant: true,
+    },
+    // The render merge's wide-summary re-fold (the display pair's
+    // SuperlinearTime mechanism, held alive by
+    // render_merge_superlinearity_is_alive).
+    ExpectedRed {
+        op: "version_display",
+        family: "mirror-wide",
+        exponent: true,
+        constant: true,
+    },
+    ExpectedRed {
+        op: "clock_display",
+        family: "mirror-wide",
+        exponent: true,
+        constant: true,
+    },
+];
+
 /// Board-red cells outside the designed pairings that the pinned bench
 /// subset must still time: the deterministic board's standing reds each
 /// keep a time leg.
@@ -5027,29 +5593,21 @@ pub enum BenchMode {
 /// the judge's roster as ever; a red cured on the board leaves this list
 /// in the same change that cures it.
 ///
-/// The current membership (re-realized 2026-07-28 against the
-/// query-fold cure's renders, 24 default / 20 ×4 reds): the board's
-/// standing reds are the materializing-emitter display cells, the
-/// tick-family and `min_ticks` ascend-cliff heap constants, the
-/// join_all fold marginals, and the capacity-phase projection artifact
-/// cells — of those, the cells below are the ones the designed
-/// pairings do not already time (the display rows on the tick-cross
-/// and harmonic shapes, and the `min_ticks` row on the ascend-cliff
-/// cross, which those shapes were not designed to stress; the tick
-/// rows on ascend-cliff are the shape's own designed pairing).
+/// The current membership (the census re-realized 2026-07-28 against
+/// [`BOARD_EXPECTED_REDS`] at the cure-round merge, where the
+/// query-fold and finalize-arena cures land together): every standing
+/// red whose cell the designed pairings do not already time. The
+/// anchor-web cure left `version_min_ticks` red only on the
+/// ascend-cliff cross (a heap-constant stated band, a row that shape
+/// was never designed to stress — the tick trio's ascend-cliff reds
+/// need no rider: the tick group is those crosses' designed diagonal),
+/// and the finalize-arena cure removed the eleven cured display
+/// riders, leaving the mirror-wide display pair (the render merge's
+/// standing SuperlinearTime mechanism) as the display rows' only reds.
 pub const BOARD_RED_BENCH_RIDERS: &[(&str, &str)] = &[
     ("version_min_ticks", "ascend-cliff"),
-    ("version_display", "harmonic"),
-    ("version_display", "nested-full"),
-    ("version_display", "nested-wide"),
     ("version_display", "mirror-wide"),
-    ("version_display", "mirror-narrow"),
-    ("version_display", "staircase"),
-    ("clock_display", "harmonic"),
-    ("clock_display", "nested-full"),
     ("clock_display", "mirror-wide"),
-    ("clock_display", "mirror-narrow"),
-    ("clock_display", "staircase"),
 ];
 
 /// Every board cell of the chosen [`BenchMode`] at `scale`, in board row
