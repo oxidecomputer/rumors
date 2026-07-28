@@ -150,8 +150,11 @@ pub fn rank(bits: &BitsSlice) -> Rank {
     let one = Base::from(1u8);
     loop {
         // Per-leaf: the live component's contribution and the leaf's mass.
+        // The zero test is one-sided (true means zero, false means
+        // unknown), which is all this skip needs: a redundantly spelled
+        // zero takes the add and contributes nothing.
         let weight_shift = (max_depth - cursor.depth()) as u64;
-        if !live_height.is_zero() {
+        if !live_height.is_literally_zero() {
             total.add_accum_shl(&live_height, weight_shift);
         }
         position.add_magnitude_shl(&one, weight_shift);

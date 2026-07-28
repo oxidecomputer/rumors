@@ -416,9 +416,9 @@ fn u64_entry_points_cover_the_full_range() {
     assert_value(&acc, &oracle);
 }
 
-/// A redundantly spelled zero reads `is_zero() == false` until a sign
-/// read collapses it: the canonical-spelling contract `is_zero` documents,
-/// pinned so any change to it is deliberate.
+/// A redundantly spelled zero reads `is_literally_zero() == false` until
+/// a sign read collapses it: the one-sided contract the method's name and
+/// rustdoc carry, pinned so any change to it is deliberate.
 #[test]
 fn redundant_zero_reads_nonzero_until_collapsed() {
     let mut acc = Accumulator::new();
@@ -426,10 +426,13 @@ fn redundant_zero_reads_nonzero_until_collapsed() {
     acc.sub_small(1 << 32);
     let (sign, magnitude) = acc.sign_magnitude();
     assert_eq!((sign, magnitude), (Ordering::Equal, UBig::ZERO));
-    assert!(!acc.is_zero(), "cancelling digits spell zero redundantly");
+    assert!(
+        !acc.is_literally_zero(),
+        "cancelling digits spell zero redundantly"
+    );
     assert_eq!(acc.sign(), Ordering::Equal);
     assert!(
-        acc.is_zero(),
+        acc.is_literally_zero(),
         "the sign read collapses to the canonical zero"
     );
 }
@@ -488,25 +491,28 @@ proptest! {
         assert_value(&x, &IBig::from(0));
     }
 
-    /// `is_zero` is one-sided and a sign read canonicalizes.
+    /// `is_literally_zero` is one-sided and a sign read canonicalizes.
     ///
-    /// After any stream, `is_zero() == true` implies the value is zero,
-    /// and whenever the value is zero a `sign` read collapses the
-    /// spelling so `is_zero` reads true afterward.
+    /// After any stream, `is_literally_zero() == true` implies the value
+    /// is zero, and whenever the value is zero a `sign` read collapses
+    /// the spelling so `is_literally_zero` reads true afterward.
     #[test]
-    fn is_zero_is_sound_and_sign_canonicalizes(
+    fn is_literally_zero_is_sound_and_sign_canonicalizes(
         ops in proptest::collection::vec(arb_op(), 1..120),
     ) {
         let mut acc = Accumulator::new();
         let mut oracle = IBig::from(0);
         for op in &ops {
             apply(&mut acc, &mut oracle, op);
-            if acc.is_zero() {
+            if acc.is_literally_zero() {
                 prop_assert_eq!(&oracle, &IBig::ZERO);
             }
             if acc.sign() == Ordering::Equal {
                 prop_assert_eq!(&oracle, &IBig::ZERO);
-                prop_assert!(acc.is_zero(), "a sign read canonicalizes zero");
+                prop_assert!(
+                    acc.is_literally_zero(),
+                    "a sign read canonicalizes zero"
+                );
             }
         }
     }
