@@ -20,6 +20,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use plotters::prelude::*;
+use plotters::style::text_anchor::{HPos, Pos, VPos};
 
 use crate::plan::OpAtlas;
 
@@ -210,7 +211,8 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
         let steps: Vec<f64> = (0..=100)
             .map(|i| x0 + (x_hi - 0.15 - x0) * i as f64 / 100.0)
             .collect();
-        #[allow(clippy::type_complexity)] // an inline label/curve trio; a named alias would carry no meaning
+        #[allow(clippy::type_complexity)]
+        // an inline label/curve trio; a named alias would carry no meaning
         let curves: [(&str, Box<dyn Fn(f64) -> f64>); 3] = [
             ("∝ n", Box::new(move |x| y0 + (x - x0))),
             ("∝ n²", Box::new(move |x| y0 + 2.0 * (x - x0))),
@@ -219,21 +221,41 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
                 Box::new(move |x| y0 + (x - x0) + (x / x0.max(1.0)).log2().max(0.0)),
             ),
         ];
+        // Each curve stops where it leaves the plot (a steeper guide often
+        // exits through the top) and carries its label at the exit point,
+        // hanging below-left so the labels of steep and shallow guides
+        // cannot pile up in one corner.
+        let y_cap = y_hi - 0.1;
         for (label, f) in &curves {
+            let points: Vec<(f64, f64)> = steps
+                .iter()
+                .map(|&x| (x, f(x)))
+                .take_while(|&(_, y)| y <= y_cap)
+                .collect();
+            let Some(&(lx, ly)) = points.last() else {
+                continue;
+            };
             chart
                 .draw_series(DashedLineSeries::new(
-                    steps.iter().map(|&x| (x, f(x))),
+                    points.iter().copied(),
                     4,
                     3,
                     GUIDE.stroke_width(1),
                 ))
                 .map_err(draw_err)?;
-            let x_end = *steps.last().unwrap();
+            let exited_top = lx < x_hi - 0.3;
             chart
                 .draw_series(std::iter::once(Text::new(
                     (*label).to_string(),
-                    (x_end + 0.03, f(x_end)),
-                    ("sans-serif", 12).into_font().color(&INK_SOFT),
+                    if exited_top {
+                        (lx - 0.06, ly - 0.25)
+                    } else {
+                        (lx - 0.06, ly + 0.35)
+                    },
+                    ("sans-serif", 12)
+                        .into_font()
+                        .color(&INK_SOFT)
+                        .pos(Pos::new(HPos::Right, VPos::Center)),
                 )))
                 .map_err(draw_err)?;
         }
@@ -268,12 +290,23 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
             anchors[i].2 = anchors[i - 1].2 + min_gap;
         }
     }
+    // Labels sit on the outward side of their point (left of right-half
+    // points, right of left-half points), so no label runs off the canvas.
+    let x_mid = (x_lo + x_hi) / 2.0;
     chart
         .draw_series(anchors.iter().map(|(name, x, y)| {
+            let (at, hpos) = if *x > x_mid {
+                ((x - 0.09, *y), HPos::Right)
+            } else {
+                ((x + 0.09, *y), HPos::Left)
+            };
             Text::new(
                 (*name).to_string(),
-                (x + 0.07, *y),
-                ("sans-serif", 12).into_font().color(&ACCENT),
+                at,
+                ("sans-serif", 12)
+                    .into_font()
+                    .color(&ACCENT)
+                    .pos(Pos::new(hpos, VPos::Center)),
             )
         }))
         .map_err(draw_err)?;
