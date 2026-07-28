@@ -2921,7 +2921,7 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **1285 cells**,
+public operation surface × §2's families — **1334 cells**,
 membership pinned by the smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
 the **release profile**, the measurement of record (§12's

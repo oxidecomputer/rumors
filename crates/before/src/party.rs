@@ -311,57 +311,35 @@ impl Party {
     /// assert!(p.is_seed());
     /// ```
     pub fn join_all<I: IntoIterator<Item = Party>>(&mut self, iter: I) -> Result<(), Vec<Party>> {
-        // Balanced reduction on a binary-counter stack, one join into
-        // `self` per surviving group at the end: a left fold into `self`
-        // re-walks the whole growing union per input — quadratic scan work
-        // on scattered populations — while the counter gives every input
-        // O(log n) joins against similarly-sized partners. Inputs
+        // The shared balanced binary counter (`crate::fold`), one join
+        // into `self` per surviving group at the end — a left fold into
+        // `self` would re-walk the whole growing union per input,
+        // quadratic scan work on scattered populations. Inputs
         // overlapping `self` can never merge (the union only grows), so
-        // the up-front test against the *fixed* `self` hands them back
-        // exactly as the growing-union fold would; regions disjoint from
-        // `self` stay disjoint from it however they coalesce, so the
-        // final joins cannot fail on well-formed input. The up-front test
-        // runs against a per-call [`ops::IdIndex`] of `self` — O(input)
-        // node visits plus the table searches per input, instead of a
-        // cursor re-walk of the fixed `self` per input, which would make
-        // the fold quadratic on populations of many small inputs against
-        // a large accumulator (the index module doc carries the trade).
+        // the up-front `accept` test against the *fixed* `self` hands
+        // them back exactly as the growing-union fold would; regions
+        // disjoint from `self` stay disjoint from it however they
+        // coalesce, so the final joins cannot fail on well-formed input.
+        // The up-front test runs against a per-call [`ops::IdIndex`] of
+        // `self` — O(input) node visits plus the table searches per
+        // input, instead of a cursor re-walk of the fixed `self` per
+        // input, which would make the fold quadratic on populations of
+        // many small inputs against a large accumulator (the index
+        // module doc carries the trade). A failed combine is aliased
+        // input; the counter's hand-back policy (`crate::fold`) drops
+        // nothing.
         let mut overlapping = Vec::new();
-        let mut stack: Vec<(Party, u32)> = Vec::new();
         let index = ops::IdIndex::build(self.as_bits());
-        for other in iter {
-            if !index.is_disjoint(other.view()) {
-                overlapping.push(other);
-                continue;
-            }
-            let mut merged = Some(other);
-            let mut weight = 0u32;
-            while stack.last().is_some_and(|(_, w)| *w == weight) {
-                let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
-                match top.join(merged.take().expect("the operand is held while merging up")) {
-                    Ok(()) => {
-                        merged = Some(top);
-                        weight += 1;
-                    }
-                    Err(back) => {
-                        // Aliased inputs: the operands overlap. A lone
-                        // input is handed back; a group that already
-                        // coalesced stays on the stack unmerged.
-                        stack.push((top, weight));
-                        if weight == 0 {
-                            overlapping.push(back);
-                        } else {
-                            stack.push((back, weight));
-                        }
-                        break;
-                    }
-                }
-            }
-            if let Some(merged) = merged {
-                stack.push((merged, weight));
-            }
-        }
-        for (group, _) in stack {
+        let groups = crate::fold::balanced_try_fold(
+            iter,
+            |other| index.is_disjoint(other.view()),
+            |mut top, incoming| match top.join(incoming) {
+                Ok(()) => Ok(top),
+                Err(back) => Err((top, back)),
+            },
+            &mut overlapping,
+        );
+        for group in groups {
             if let Err(back) = self.join(group) {
                 overlapping.push(back);
             }

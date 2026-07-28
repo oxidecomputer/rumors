@@ -415,7 +415,7 @@ impl Version {
     /// assert_eq!(Version::join_all(Vec::<Version>::new()), Version::new());
     /// ```
     pub fn join_all<I: IntoIterator<Item = Version>>(iter: I) -> Version {
-        balanced_reduce(iter, |a, b| a | b).unwrap_or_default()
+        crate::fold::balanced_reduce(iter, |a, b| a | b).unwrap_or_default()
     }
 
     /// The meet (greatest lower bound) of every version in `iter`, or [`None`]
@@ -449,7 +449,7 @@ impl Version {
     /// assert!(Version::meet_all(Vec::<Version>::new()).is_none()); // no top to return
     /// ```
     pub fn meet_all<I: IntoIterator<Item = Version>>(iter: I) -> Option<Version> {
-        balanced_reduce(iter, |a, b| a & b)
+        crate::fold::balanced_reduce(iter, |a, b| a & b)
     }
 
     /// A read-only view of this version's stored skyline stream.
@@ -646,47 +646,6 @@ impl Version {
         codec::zero_dead_bits(&mut bits);
         Version(bits)
     }
-}
-
-/// The balanced n-ary reduction the lattice folds ([`Version::join_all`],
-/// [`Version::meet_all`]) run on: a binary counter of partial results,
-/// so every input passes through `O(log k)` combines against similarly
-/// sized partners, or [`None`] for an empty iterator (`join_all`
-/// restores its identity, the empty version; the meet has none).
-///
-/// An incoming operand merges upward while the top stack entry holds as
-/// many inputs as it does, so no combine's operand is more than a
-/// bounded factor larger than its partner. A sequential left fold
-/// instead combines every input into the whole accumulated result —
-/// quadratic sweep work whenever the accumulator's packed size tracks
-/// the population's, which both lattice directions reach: a join's
-/// union can grow without coalescing (interleaved single-tick
-/// versions), and a meet's result can shrink in value but not in packed
-/// size (one deep version among operands that dominate it). Both
-/// operations are associative and commutative, so any grouping is
-/// value-identical, and sharing the one reduction keeps the two folds'
-/// cost model uniform by construction. `Party::join_all` runs its own
-/// binary counter inline: its combiner is fallible (aliased inputs hand
-/// back), and the hand-back policy is entangled with the counter's
-/// stack discipline.
-fn balanced_reduce<T>(
-    iter: impl IntoIterator<Item = T>,
-    mut combine: impl FnMut(T, T) -> T,
-) -> Option<T> {
-    let mut stack: Vec<(T, u32)> = Vec::new();
-    for v in iter {
-        let mut merged = v;
-        let mut weight = 0u32;
-        while stack.last().is_some_and(|(_, w)| *w == weight) {
-            let (top, _) = stack.pop().expect("the loop condition saw a top entry");
-            merged = combine(top, merged);
-            weight += 1;
-        }
-        stack.push((merged, weight));
-    }
-    // The closing drain: bottom-up, so the heaviest group seeds the fold
-    // and every remaining combine pairs it with the next-lighter one.
-    stack.into_iter().map(|(v, _)| v).reduce(combine)
 }
 
 /// The empty [`Version`] (same as [`Version::new`]).
