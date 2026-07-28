@@ -626,10 +626,12 @@ pub const SCAN_FLOOR_BITS_PER_INPUT_BYTE: f64 = 1.0;
 /// immediate divergence answer reads the operands' root codes.
 pub const SCAN_TOUCH_FLOOR_BITS: u64 = 2;
 
-/// Scan liveness floor for the tick-cross rows: the paired fill walk
-/// examines every topology bit and payload code of both operands at
-/// least once — all 8 bits of every input byte (`WHY_SCAN_TICK_WALK`
-/// carries the row-face wording).
+/// Scan liveness floor for the tick-cross rows: all 8 bits of every
+/// input byte.
+///
+/// The paired fill walk examines every topology bit and payload code of
+/// both operands at least once; `WHY_SCAN_TICK_WALK` carries the
+/// row-face wording.
 const TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE: u64 = 8;
 
 /// Magnitudes at most this wide may legitimately be handled in machine

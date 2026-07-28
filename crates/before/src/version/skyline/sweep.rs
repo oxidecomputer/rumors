@@ -1,8 +1,8 @@
 //! The overlay walk over two skyline streams, and the comparison sweeps —
 //! order, equality, domination, concurrency — built on it.
 //!
-//! The walk machinery here ([`LeafCursor`], [`advance`], [`Step`],
-//! [`fold`], [`Side`]) is shared by two clients: this module's own
+//! The walk machinery here (the crate-private `LeafCursor`, `advance`,
+//! `Step`, `fold`, and `Side`) is shared by two clients: this module's own
 //! comparison entry points, which fold heights and discard the steps, and
 //! the join/meet emission ([`emit`](super::emit)), which re-codes them
 //! into an output stream. The boundary bookkeeping below is the shared
@@ -261,10 +261,12 @@ pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude
 /// One cursor advance: the flip level and the leaf-to-leaf delta folded.
 pub(super) struct Step {
     /// The flip level's depth — the path's length *after* the flip, so
-    /// the flipped ancestor itself is counted. The boundary just crossed
-    /// is a multiple of `2^-flip`, which is what the tie test reads: the
-    /// deeper side's plateau end reaches the shallower side's exactly
-    /// when `flip <= other.depth()` (the module doc's bookkeeping).
+    /// the flipped ancestor itself is counted.
+    ///
+    /// The boundary just crossed is a multiple of `2^-flip`, which is
+    /// what the tie test reads: the deeper side's plateau end reaches
+    /// the shallower side's exactly when `flip <= other.depth()` (the
+    /// module doc's bookkeeping).
     pub(super) flip: usize,
     /// Whether the delta lowers this stream's height.
     pub(super) negative: bool,
