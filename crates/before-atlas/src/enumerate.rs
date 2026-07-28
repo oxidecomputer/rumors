@@ -60,10 +60,12 @@ fn gamma_bits(bits: &mut Vec<bool>, v: u64) {
     }
 }
 
-/// Every version-grammar subtree of exactly `n` bits: the preorder
-/// flag-plus-gamma coding under the sibling rule (an internal node's two
-/// bare-leaf children may not carry a zero right code), heights
-/// unconstrained (filter with [`VersionMember::heights_nonnegative`]).
+/// Every version-grammar subtree of exactly `n` bits.
+///
+/// The preorder flag-plus-gamma coding under the sibling rule (an
+/// internal node's two bare-leaf children may not carry a zero right
+/// code), heights unconstrained — filter with
+/// [`VersionMember::heights_nonnegative`].
 pub fn version_subtrees(n: usize) -> Vec<VersionMember> {
     let mut out = Vec::new();
     // A bare leaf: flag 1 plus one gamma bucket, n = 2k + 2.

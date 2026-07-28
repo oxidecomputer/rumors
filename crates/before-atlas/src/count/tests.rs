@@ -9,11 +9,13 @@ use super::{bit_window, PartyCounts, VersionCounts, MIN_PARTY_BITS, MIN_VERSION_
 /// thousands of members here, seconds under the dev profile.
 const EXHAUSTIVE_BITS: usize = 24;
 
+/// The version table equals brute-force enumeration at every bit length.
+///
 /// The counting table is the sampler's measure; if it miscounts any size,
 /// every probability downstream is wrong. For every exact bit length up
-/// to the enumeration bound, the version table (sibling-rule family) must
-/// equal the count of members listed by brute force from the grammar
-/// rules — a derivation sharing no code with the table's convolution.
+/// to the enumeration bound, the sibling-rule family's table must equal
+/// the count of members listed by brute force from the grammar rules — a
+/// derivation sharing no code with the table's convolution.
 #[test]
 fn version_counts_match_exhaustive_enumeration() {
     let counts = VersionCounts::build(EXHAUSTIVE_BITS);
@@ -26,6 +28,8 @@ fn version_counts_match_exhaustive_enumeration() {
     }
 }
 
+/// The canonical per-bit-length counts match the independent census.
+///
 /// The number of canonical version streams at each exact bit length,
 /// derived here by enumerating the coding grammar (topology bits + gamma
 /// payloads) and filtering on the nonnegative-height rule, must equal the

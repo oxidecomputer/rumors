@@ -13,8 +13,8 @@
 
 use before::meter::{
     concurrent_pair, dense, dense_suffix, freeze_parade, harmonic, hugeleaf, id_spine, jump_pair,
-    memo_chain_id, nested_left_full_id, scattered_id, staircase, tooth_tail, weight_comb,
-    wide_arming, Packed,
+    memo_chain_id, nested_left_full_id, plateau_puncture, scattered_id, staircase, tooth_tail,
+    weight_comb, wide_arming, Packed,
 };
 use before::Party;
 
@@ -100,6 +100,9 @@ pub fn overlay_inputs(operands: &[Operand], max_bytes: usize) -> Vec<FamilyInput
             }));
             out.extend(ramp("freeze_parade", max_bytes, |t| {
                 Some(vec![version_bytes(&freeze_parade(t))])
+            }));
+            out.extend(ramp("plateau_puncture", max_bytes, |t| {
+                Some(vec![version_bytes(&plateau_puncture(10, t))])
             }));
         }
         [Operand::Version, Operand::Version] => {

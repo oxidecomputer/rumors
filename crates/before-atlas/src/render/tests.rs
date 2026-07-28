@@ -3,13 +3,14 @@ use crate::plan::{run_op, Plan, Samplers};
 
 use super::{render_gallery, render_op, RenderMeta};
 
-/// The whole pipeline must run end to end at tiny scale: sample uniform
-/// inputs, measure real fuel in the fuzz-fit guest, render an SVG per
-/// operation with the provenance stamp drawn in, and emit the gallery.
-/// This is the gate's liveness check for the instrument — seconds, not a
-/// real survey (full renders go through the `just atlas` recipe) — and it
-/// needs the guest wasm, which the recipe builds first (`just
-/// fuzzfit-build`).
+/// The whole pipeline runs end to end at tiny scale.
+///
+/// Sample uniform inputs, measure real fuel in the fuzz-fit guest,
+/// render an SVG per operation with the provenance stamp drawn in, and
+/// emit the gallery. This is the gate's liveness check for the
+/// instrument — seconds, not a real survey (full renders go through the
+/// `just atlas` recipe) — and it needs the guest wasm, which the recipe
+/// builds first (`just fuzzfit-build`).
 #[test]
 fn pipeline_smoke_samples_measures_and_renders() {
     let plan = Plan {

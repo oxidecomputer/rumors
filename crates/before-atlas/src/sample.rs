@@ -323,10 +323,11 @@ impl HeightWalk {
         }
     }
 
-    /// Account one leaf whose gamma code sits in bucket `k` with the given
-    /// mantissa: value `v = 2^k - 1 + mantissa`. The first leaf is the
-    /// absolute height; every later leaf is a zigzag delta (`2m -> +m`,
-    /// `2m - 1 -> -m`). Returns `false` when the height would go negative.
+    /// Account one leaf: bucket `k`, mantissa, value `v = 2^k - 1 + mantissa`.
+    ///
+    /// The first leaf is the absolute height; every later leaf is a
+    /// zigzag delta (`2m -> +m`, `2m - 1 -> -m`). Returns `false` when
+    /// the height would go negative.
     fn leaf(&mut self, k: usize, mantissa: &BigUint) -> bool {
         let v = (BigUint::from(1u32) << k) - 1u32 + mantissa;
         if !self.seen_leaf {

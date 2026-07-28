@@ -140,10 +140,12 @@ readme-check:
 # guest's per-operation fuel readings judged against the pinned bands, so
 # a kernel change that moves fuel fails the commit that carries it — the
 # deliberate path is a `just fuzzfit-calibrate` re-pin riding the same
-# commit), then the board's cross-process determinism tripwire.
+# commit), then the atlas's sampler pins and pipeline smoke (which reuse
+# the guest fuzzfit just built), then the board's cross-process
+# determinism tripwire.
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit amp-board-determinism
+gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit atlas-test amp-board-determinism
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -265,6 +267,39 @@ fuzzfit: fuzzfit-build
 [working-directory("crates/before/fuzzfit")]
 fuzzfit-calibrate: fuzzfit-build
     cargo run --release -p fuzzfit-harness --bin calibrate
+
+# The population atlas lives in its own detached workspace
+# (crates/before-atlas, the fuzz-fit idiom: workspace-wide builds never
+# compile it, and its wasmtime/plotters tooling stays out of the
+# production crates' graph); the gate reaches it only through these
+# recipes by name. Its committed tests are the sampler adequacy pins —
+# counting tables against exhaustive grammar enumeration and the real
+# decoders' accept sets, chi-square uniformity, codec round-trips — plus
+# a tiny end-to-end pipeline smoke (sample, measure fuel in the fuzz-fit
+# guest, render), which is why the guest builds first. Audit-only by
+# design: nothing here enforces a fuel number — the envelope suite and
+# the fuzz-fit bands own enforcement.
+
+# Lint and test the atlas: sampler adequacy pins plus the pipeline smoke.
+[working-directory("crates/before-atlas")]
+atlas-test: fuzzfit-build
+    cargo fmt --check
+    cargo clippy --all-targets -- -D warnings
+    FUZZFIT_GUEST_WASM={{ justfile_directory() }}/target/fuzzfit/wasm32-unknown-unknown/release/fuzzfit_guest.wasm {{ justfile_directory() }}/tools/memwatch cargo nextest run
+
+# Renders one log-log heatmap per public operation into target/atlas
+# (SVG per op plus a gallery index.html): p(fuel | size) from uniform
+# draws over each exact-byte-size canonical input space, the committed
+# adversarial families overlaid as marked points, wasmtime instruction
+# fuel as the work currency. Deterministic per (seed, plan): re-running
+# the same plan on the same guest reproduces every reading. Defaults:
+# 300 samples/column to 256 bytes; override e.g.
+# `just atlas --samples 500 --max-bytes 512`.
+
+# Render the full population atlas into target/atlas (audit view; not enforcement).
+[working-directory("crates/before-atlas")]
+atlas *args: fuzzfit-build
+    ATLAS_TIP=$(git rev-parse HEAD) FUZZFIT_GUEST_WASM={{ justfile_directory() }}/target/fuzzfit/wasm32-unknown-unknown/release/fuzzfit_guest.wasm cargo run --release --bin atlas -- --out {{ justfile_directory() }}/target/atlas {{ args }}
 
 # ── the formal tier (formal/lean; needs elan) ────────────────────────────────
 # The proofs are kernel-checked by `lake build` (pins, negative controls,

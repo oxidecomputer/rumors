@@ -8,12 +8,12 @@ use crate::enumerate::{pack, party_subtrees, version_subtrees};
 
 use super::{cell_rng, PartySampler, VersionSampler};
 
-/// The largest byte length whose whole byte-string space the decoder
-/// cross-checks enumerate (`256^n` decodes per length). Chosen by
-/// measured runtime to keep the pins at seconds under the dev profile;
-/// together with the grammar-level census pin (which reaches 24 bits
-/// member-by-member) the accept set is covered into the low twenties of
-/// bits.
+/// The largest byte length the decoder cross-checks sweep exhaustively.
+///
+/// `256^n` decodes per length; chosen by measured runtime to keep the
+/// pins at seconds under the dev profile. Together with the grammar-level
+/// census pin (which reaches 24 bits member-by-member) the accept set is
+/// covered into the low twenties of bits.
 const EXHAUSTIVE_BYTES: usize = 2;
 
 /// Every canonical version of at most [`EXHAUSTIVE_BYTES`] packed bytes,
@@ -60,11 +60,12 @@ fn accepted_byte_strings(len: usize, accept: impl Fn(&[u8]) -> bool) -> BTreeSet
     }
 }
 
-/// The sampler's domain must be exactly the decoder's accept set — not a
-/// subset, not a superset. For every byte length up to the exhaustive
-/// bound, the packed members the grammar enumeration produces must equal,
-/// as a set, the byte strings `Version::decode` accepts out of all
-/// `256^n` candidates.
+/// The version grammar's members are exactly the decoder's accept set.
+///
+/// Not a subset, not a superset: for every byte length up to the
+/// exhaustive bound, the packed members the grammar enumeration produces
+/// must equal, as a set, the byte strings `Version::decode` accepts out
+/// of all `256^n` candidates.
 #[test]
 fn version_grammar_is_exactly_the_decoder_accept_set() {
     for len in 1..=EXHAUSTIVE_BYTES {
@@ -92,18 +93,22 @@ fn party_grammar_is_exactly_the_decoder_accept_set() {
     }
 }
 
-/// One-sided chi-square acceptance against the uniform null: the statistic
-/// over `k` categories has mean `k - 1` and variance `2(k - 1)`, so six
-/// standard deviations above the mean rejects honest uniformity with
-/// probability under 1e-9 — a fixed seed makes the run deterministic
-/// anyway; the margin documents how far from uniform a failure is.
+/// One-sided chi-square acceptance bound against the uniform null.
+///
+/// The statistic over `k` categories has mean `k - 1` and variance
+/// `2(k - 1)`, so six standard deviations above the mean rejects honest
+/// uniformity with probability under 1e-9 — a fixed seed makes the run
+/// deterministic anyway; the margin documents how far from uniform a
+/// failure is.
 fn chi_square_threshold(categories: usize) -> f64 {
     let dof = (categories - 1) as f64;
     dof + 6.0 * (2.0 * dof).sqrt()
 }
 
-/// The version sampler at a fixed byte size must (a) emit only members of
-/// the enumerated canonical space — any alien draw fails by name — and
+/// The version sampler is uniform over an exact-size space, end to end.
+///
+/// At a fixed byte size the sampler must (a) emit only members of the
+/// enumerated canonical space — any alien draw fails by name — and
 /// (b) hit them at frequencies a chi-square test cannot tell from
 /// uniform: counting-guided generation plus whole-sample rejection is
 /// exactly uniform, so a skew here means a weight, a window, or the
@@ -147,9 +152,11 @@ fn version_sampler_draws_uniformly_over_the_exact_size_space() {
     );
 }
 
-/// The party sampler at a fixed byte size must emit only enumerated
-/// members, at frequencies a chi-square test cannot tell from uniform —
-/// with no rejection anywhere, this pins the counting-guided walk alone.
+/// The party sampler is uniform over an exact-size space, end to end.
+///
+/// At a fixed byte size the sampler must emit only enumerated members, at
+/// frequencies a chi-square test cannot tell from uniform — with no
+/// rejection anywhere, this pins the counting-guided walk alone.
 #[test]
 fn party_sampler_draws_uniformly_over_the_exact_size_space() {
     let size = 2;
@@ -189,10 +196,12 @@ fn party_sampler_draws_uniformly_over_the_exact_size_space() {
     );
 }
 
+/// Cell seeding replays exactly and decorrelates across sample indices.
+///
 /// The same cell coordinates must replay the identical draw (the whole
 /// plan's reproducibility rests on it), and a different sample index must
-/// decorrelate — a cheap liveness check that the seed expansion actually
-/// feeds the coordinates through.
+/// draw differently — a cheap liveness check that the seed expansion
+/// actually feeds the coordinates through.
 #[test]
 fn cell_seeding_is_deterministic_and_index_sensitive() {
     let sampler = VersionSampler::new(8);
@@ -214,7 +223,8 @@ fn cell_seeding_is_deterministic_and_index_sensitive() {
 }
 
 proptest! {
-    /// Every sampled version must round-trip through the real codec:
+    /// Every sampled version round-trips through the real codec.
+    ///
     /// `Version::decode` accepts the bytes, re-encoding reproduces them
     /// byte-identically, the live bit length matches the draw's, and the
     /// packed length is exactly the requested size. Stated over random
