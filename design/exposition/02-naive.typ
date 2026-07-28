@@ -105,12 +105,14 @@ $d approx W approx n\/2$ makes both quadratic: the amplification
 ratio scales as $d W \/ (d + W)$, growing without bound as the
 operand grows. This is not a corner case that needs contriving:
 measured on our direct transcription before any cure, the committed
-`bigroot` regression instance — a 29-kilobyte operand pair — drove
-transient memory to roughly $6,700 times$ its input, approaching two
-hundred megabytes, inside a single comparison; the number is quoted
-for scale (the instance's exact $d$-versus-$W$ split sets the
-constant), and the ratio kept growing with the operand, as the
-formula says it must.
+`bigroot` regression instance — a $40,000$-bit root value under a
+$10,000$-level spine, a 29-kilobyte operand pair — drove transient
+memory to roughly $6,700 times$ the pair's bytes, approaching two
+hundred megabytes, inside a single comparison. The figure reconciles
+with the formula: $d dot W$ is $4 dot 10^8$ bits — fifty
+megabytes — of live path sums per operand, and the fresh integers
+each lift materializes supply the rest. The ratio kept growing with
+the operand, as the formula says it must.
 
 Join has the same skeleton (`join` lifts both of one side's
 children by the base difference, $l_2, r_2 arrow.t (n_2 - n_1)$, at
@@ -130,7 +132,7 @@ rewrites all of its machine words in a normalized representation, so
 a single $W$-bit value decodes in
 
 $ sum_(j = 1)^(W) Theta(j) = Theta(W^2) "bit-work — on 64-bit words,"
-  W^2 \/ 128 + O(W) "rewrites." $
+  W^2 \/ 128 + O(W) "machine-word writes." $
 
 On `hugeleaf` this is the whole input, and the arithmetic reconciles
 with the wall clock: at $W = 4 dot 10^6$ bits the buffer grows to

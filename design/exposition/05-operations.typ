@@ -112,7 +112,9 @@ end).
 
 Cost: the walk is linear; each word-scale delta folds in amortized
 $O(1)$ digit touches, each wide delta in $O$(its own limbs); each
-per-interval sign read is amortized $O(1)$ by collapse (@sign). The
+per-interval sign read is amortized $O(1)$ by collapse — every delta
+the walk folds is unscaled, so @sign's charge lands on the codes
+just consumed. The
 boundary comb — the family that broke every normalized design —
 funds each of its three-bit teeth with $O(1)$ touches. Comparison is
 linear on every input, and its transient state is two path-bit stacks
@@ -334,8 +336,10 @@ since the last _freeze_; $F$, the rest, touched only when a freeze
 evicts $L$ into it. Per leaf the fold adds only $L$'s digits —
 bounded by the codes folded since the freeze, hence funded — using
 the scaled add of @accum-contract (requirement 2) to land them at
-the leaf's weight in one funded pass. $F$'s contribution enters by
-summation by parts:
+the leaf's weight in one funded pass, into a running total that is
+write-only until the sweep's single closing materialization, as the
+scaled add's discipline requires (@sign). $F$'s contribution enters
+by summation by parts:
 
 $ sum_i F_i dot "mass"_i = F_"final" dot 2^S - sum_("freezes" j) Delta F_j dot ("prefix mass before" j), $
 

@@ -50,10 +50,11 @@
   signed-digit *accumulator* that makes every running quantity cheap
   to maintain and cheap to ask about. We derive each operation as a
   sweep, give the informal argument that each is asymptotically
-  optimal, derive a worst-case counting bound placing the encoding
-  within $4.3%$ of the information-theoretic floor asymptotically —
-  $6.7%$ at realistic hundred-byte sizes — for the family of values
-  it covers, and examine the constant factors — why the
+  optimal, derive a worst-case counting bound — the coding's longest
+  spelling against the longest any code must have — placing the
+  encoding within $4.3%$ of the information-theoretic floor
+  asymptotically, $6.7%$ at realistic hundred-byte sizes, over the
+  family of values it covers, and examine the constant factors — why the
   representation is the shape caches, branch predictors, and
   word-parallel decoders want. A single thesis organizes the design:
   every bit is touched a bounded number of times, and every touch is

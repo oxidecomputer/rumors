@@ -82,8 +82,9 @@ stream order. Neighboring plateaus tend to sit close in height even
 when both stand very tall — not because of any spelling rule (a
 normalization cannot change the function, so it cannot change these
 differences) but because of the operations' _dynamics_: `fill`
-flattens each owned region to one plateau and raises it to its
-sibling's minimum (@tick), and joins move whole regions at once, so
+flattens each owned region to one plateau and — where a filled
+sibling's minimum stands higher — raises it to that minimum (@tick),
+and joins move whole regions at once, so
 real histories keep adjacent plateaus close. Differences are
 therefore usually small where absolutes are usually not. A difference can be negative, so it is
 folded onto the naturals first by the _zigzag_ map
@@ -151,10 +152,11 @@ terminal, four bits in all:
 #align(center, bitrow((("10", "t", [node: left child only]), ("00", "t", [terminal: owned]))))
 
 At a hundred participants with stable membership, a party measures
-about three bytes (derived: a depth-seven share is sixteen bits;
-the small measured excess is fragmentation); sustained
+about three bytes (derived: a depth-seven share is sixteen bits —
+two bytes; measured, the mean sits nearer three, the excess being
+ownership fragmentation); sustained
 fork-and-retire churn fragments ownership further, raising it to a
-few tens of bytes (measured: the paper's own space-consumption
+few tens of bytes (both figures: the paper's own space-consumption
 scenarios, reproduced on our implementation). The
 id side of the system is, by design, nearly free.
 
@@ -181,7 +183,9 @@ decode boundary:
   whose two children are both leaves of equal height — such a pair is
   one plateau spelled as two, and merges. In stream terms: a
   right-sibling leaf may never carry a zero delta when its brother is
-  a leaf. (A zero delta between consecutive leaves that are _not_
+  a leaf — a _local_ test, because whenever the brother is a leaf it
+  is exactly the previous leaf in stream order, so one pass checks
+  the rule as it reads. (A zero delta between consecutive leaves that are _not_
   siblings is a real, canonical shape: two equal plateaus separated
   by a subtree boundary. The paper's tree $(1, 0, (0, 0, 1))$ —
   heights $1, 1, 2$ — is the smallest instance: its constant run at
@@ -221,7 +225,8 @@ which the rule forbids. Heights are function-determined; gamma has
 one spelling per natural and zigzag has none to spare. Uniqueness
 is not an aesthetic: it is a load-bearing feature bought deliberately,
 and @compactness prices what it costs in coding room: the
-sibling-merge rule alone carries an asymptotic $4.3%$ tax, and the
+sibling-merge rule alone carries an asymptotic $4.3%$ worst-case
+tax, and the
 other rules cost little or nothing. What uniqueness buys:
 
 - *Byte equality is semantic equality.* Equality and hashing are raw
