@@ -241,11 +241,13 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time and `O(D)` space, where `D` is the total packed
-    /// size of `self` and the inputs and `k` the number of inputs — the
+    /// `O(D log k + B log |c|)` time and `O(D)` space, where `D` is the
+    /// total packed size of `self` and the inputs, `k` the number of
+    /// inputs, and `B` the input parties' both-present node count — the
     /// same balanced reduction as [`Party::join_all`], run over both
-    /// halves of each clock, with the same `O(input)` up-front overlap
-    /// test per input.
+    /// halves of each clock, with the same up-front overlap test per
+    /// input (`O(input)` node visits plus one `O(log |c|)` table search
+    /// per node both sides own).
     ///
     /// ```
     /// use before::Clock;
@@ -264,8 +266,9 @@ impl Clock {
         // party union and the version join) pay per-input scans of the
         // whole accumulated value under a left fold. Inputs overlapping
         // `self` are handed back against the *fixed* `self` up front,
-        // through a per-call index of `self`'s party (O(input) per input,
-        // as in [`Party::join_all`]); parties disjoint from `self` stay
+        // through a per-call index of `self`'s party (O(input) node
+        // visits plus the table searches per input, as in
+        // [`Party::join_all`]); parties disjoint from `self` stay
         // disjoint from it however they coalesce, so the final joins
         // cannot fail on well-formed input.
         let mut overlapping = Vec::new();

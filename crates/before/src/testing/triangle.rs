@@ -27,9 +27,13 @@
 //! (`|`, `&`, `/`, comparison matrices, `Display`/`FromStr`, serde/borsh)
 //! are not reachable by that scan; they are rostered by family in
 //! [`FAMILY_SURFACE`], whose totality is by review of this file alone.
-//! Every test name a row cites must exist in the tree
-//! ([`cited_test_names`] against a source scan), so a renamed or deleted
-//! binding test fails the roster by name.
+//! Every test name a row cites must resolve to an executable binding:
+//! a `#[test]`-attributed item under `src/` ([`cited_test_names`] against
+//! [`declared_test_names`], a source scan that admits only attributed
+//! tests — proptest properties included, helpers and kernels never) or a
+//! law name registered in [`crate::laws`]'s tables (read from the tables
+//! the drivers run, never from a text scan). A renamed or deleted binding
+//! test fails the roster by name even when a same-named helper survives.
 //!
 //! # Leg vocabulary
 //!
@@ -871,9 +875,17 @@ pub(crate) fn cited_test_names() -> BTreeSet<&'static str> {
         .collect()
 }
 
-/// Every `fn` name declared anywhere under `src/` — the haystack the
-/// cited-name check searches.
-pub(crate) fn declared_fn_names() -> BTreeSet<String> {
+/// Every `#[test]`-attributed `fn` name declared anywhere under `src/` —
+/// the haystack the cited-name check searches.
+///
+/// The scan resolves a name only when a `#[test]` attribute (including
+/// the ones inside `proptest!` blocks, which attach `#[test]` to each
+/// property) sits directly above the `fn`, with only further attributes,
+/// doc comments, and plain comments between. Helper functions, production
+/// kernels, and test-support plumbing never enter the haystack, so a
+/// citation is satisfiable only by an item the test runner actually
+/// executes.
+pub(crate) fn declared_test_names() -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let mut stack = vec![crate_root().join("src")];
     while let Some(dir) = stack.pop() {
@@ -884,18 +896,35 @@ pub(crate) fn declared_fn_names() -> BTreeSet<String> {
             } else if path.extension().is_some_and(|e| e == "rs") {
                 let text = fs::read_to_string(&path)
                     .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+                // Whether a `#[test]` attribute is pending for the next
+                // `fn` declaration.
+                let mut test_pending = false;
                 for line in text.lines() {
-                    if let Some(pos) = line.find("fn ") {
-                        // Require a word boundary before `fn` (start, space,
-                        // or `(` for closures in macros).
-                        let ok =
-                            pos == 0 || line[..pos].ends_with(' ') || line[..pos].ends_with('(');
-                        if ok {
-                            let name = fn_name(&line[pos + 3..]);
-                            if !name.is_empty() {
-                                names.insert(name.to_owned());
+                    let trimmed = line.trim_start();
+                    if trimmed.starts_with("#[test]") {
+                        test_pending = true;
+                        continue;
+                    }
+                    // Other attributes, doc comments, and comments sit
+                    // between `#[test]` and its `fn` without detaching it.
+                    if trimmed.starts_with("#[")
+                        || trimmed.starts_with("///")
+                        || trimmed.starts_with("//")
+                        || trimmed.is_empty()
+                    {
+                        continue;
+                    }
+                    if test_pending {
+                        if let Some(pos) = trimmed.find("fn ") {
+                            let boundary = pos == 0 || trimmed[..pos].ends_with(' ');
+                            if boundary {
+                                let name = fn_name(&trimmed[pos + 3..]);
+                                if !name.is_empty() {
+                                    names.insert(name.to_owned());
+                                }
                             }
                         }
+                        test_pending = false;
                     }
                 }
             }

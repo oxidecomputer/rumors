@@ -343,3 +343,117 @@ fn claim_rows_are_printable() {
     let row: &Claim = &CLAIMS[0];
     assert!(!format!("{:?}", row.checks[0].site).is_empty());
 }
+
+/// The class-binding seal (review #37, F1's categorical fix): no linear
+/// claim cites a board cell standing red on an exponent mechanism, and
+/// every counter-superlinear claim keeps at least one.
+///
+/// The bench judge's red set binds only wall time, and the
+/// `version_min_ticks` time legs sit under the judge's resolution at
+/// bench scales — so before this seal, a counter-superlinear kernel
+/// could keep a `Linear` rustdoc claim with every gate green: at
+/// `395f0e72` the min_ticks claim read `Class::Linear` while its
+/// pure-comb, reveal-comb, and ascend-cliff board cells read touch/limb
+/// exponents 1.58–1.98 on the release boards of record. Run against that
+/// state (the mutation demonstration: flip the min_ticks claim back to
+/// `Class::Linear`, or mark any Linear-cited cell `exponent: true` in
+/// [`board::BOARD_EXPECTED_REDS`]) this test fails naming the
+/// contradiction — verified by mutation before this seal landed.
+///
+/// The reverse leg keeps the class honest: a `SuperlinearCounter` claim
+/// whose operation no longer has a standing exponent red is decoration,
+/// so the cure that flips the board pins must move the class back to
+/// linear in the same change.
+#[test]
+fn linear_claims_cite_no_exponent_red_board_cell() {
+    let exponent_red_ops: BTreeSet<&str> = board::BOARD_EXPECTED_REDS
+        .iter()
+        .filter(|red| red.exponent)
+        .map(|red| red.op)
+        .collect();
+    let mut contradictions = Vec::new();
+    for claim in CLAIMS {
+        let Cells::Board(cells) = &claim.cells else {
+            continue;
+        };
+        for (op, class) in *cells {
+            match class {
+                // Every class that claims the cell scales as its model
+                // says (linear, linear-I/O, or the declared fold log)
+                // is contradicted by a standing exponent-mechanism red.
+                Class::Linear | Class::LinearIo | Class::FoldLog => {
+                    if exponent_red_ops.contains(*op) {
+                        contradictions.push(format!(
+                            "{}: cites {op} as {class:?}, but the board holds it red on an \
+                             exponent mechanism (BOARD_EXPECTED_REDS)",
+                            claim.op
+                        ));
+                    }
+                }
+                // The counter-superlinear class must keep its witness.
+                Class::SuperlinearCounter => {
+                    if !exponent_red_ops.contains(*op) {
+                        contradictions.push(format!(
+                            "{}: claims {op} SuperlinearCounter with no standing \
+                             exponent-mechanism board red: the class is decoration, move it \
+                             back to a linear class with the cure",
+                            claim.op
+                        ));
+                    }
+                }
+                // Judge-rostered superlinear time: bound by the set
+                // equality above; a deterministic exponent red on the
+                // same operation is consistent with the class.
+                Class::SuperlinearTime => {}
+            }
+        }
+    }
+    assert!(
+        contradictions.is_empty(),
+        "the claims roster contradicts the board's mechanism-tagged red set:\n  {}",
+        contradictions.join("\n  ")
+    );
+}
+
+/// The expected-red roster's own hygiene: every entry names a live
+/// board cell exactly once and carries at least one mechanism.
+///
+/// Every bench rider must also be a rostered red — a rider exists to
+/// keep a standing red's time leg judged, so an unrostered rider is a
+/// stale census.
+#[test]
+fn expected_red_roster_names_live_cells() {
+    let cells: BTreeSet<(String, String)> = board::bench_cells(0.02, BenchMode::Full)
+        .into_iter()
+        .map(|cell| (cell.op.to_owned(), cell.family.to_owned()))
+        .collect();
+    let mut seen = BTreeSet::new();
+    for red in board::BOARD_EXPECTED_REDS {
+        assert!(
+            cells.contains(&(red.op.to_owned(), red.family.to_owned())),
+            "{}/{} in BOARD_EXPECTED_REDS names no live board cell",
+            red.op,
+            red.family
+        );
+        assert!(
+            red.exponent || red.constant,
+            "{}/{} carries no mechanism tag",
+            red.op,
+            red.family
+        );
+        assert!(
+            seen.insert((red.op, red.family)),
+            "{}/{} appears twice in BOARD_EXPECTED_REDS",
+            red.op,
+            red.family
+        );
+    }
+    for (op, family) in board::BOARD_RED_BENCH_RIDERS {
+        assert!(
+            board::BOARD_EXPECTED_REDS
+                .iter()
+                .any(|red| red.op == *op && red.family == *family),
+            "rider {op}/{family} is not a rostered standing red: re-realize the census"
+        );
+    }
+}

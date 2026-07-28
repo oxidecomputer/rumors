@@ -293,11 +293,15 @@ impl Party {
     ///
     /// # Complexity
     ///
-    /// `O(D log k)` time and `O(D)` space, where `D` is the total packed
-    /// size of `self` and the inputs and `k` the number of inputs: each
-    /// input is overlap-tested against `self` in `O(input)` (through an
-    /// index of `self`, built once), then passes through `O(log k)` joins
-    /// of similarly sized operands in a balanced reduction.
+    /// `O(D log k + B log |p|)` time and `O(D)` space, where `D` is the
+    /// total packed size of `self` and the inputs, `k` the number of
+    /// inputs, and `B` the inputs' both-present node count (`B ≤ D`):
+    /// each input is overlap-tested against `self` in `O(input)` node
+    /// visits through a table of `self` built once per call, plus one
+    /// `O(log |p|)` table search per node both sides own, then passes
+    /// through `O(log k)` joins of similarly sized operands in a
+    /// balanced reduction. On populations whose regions interleave
+    /// deeply the search term dominates the tests.
     ///
     /// ```
     /// use before::Party;
@@ -318,9 +322,10 @@ impl Party {
         // `self` stay disjoint from it however they coalesce, so the
         // final joins cannot fail on well-formed input. The up-front test
         // runs against a per-call [`ops::IdIndex`] of `self` — O(input)
-        // per input instead of a cursor re-walk of the fixed `self` per
-        // input, which would make the fold quadratic on populations of
-        // many small inputs against a large accumulator.
+        // node visits plus the table searches per input, instead of a
+        // cursor re-walk of the fixed `self` per input, which would make
+        // the fold quadratic on populations of many small inputs against
+        // a large accumulator (the index module doc carries the trade).
         let mut overlapping = Vec::new();
         let mut stack: Vec<(Party, u32)> = Vec::new();
         let index = ops::IdIndex::build(self.as_bits());

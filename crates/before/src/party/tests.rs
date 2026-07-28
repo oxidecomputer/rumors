@@ -666,3 +666,66 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
     }
     assert!(root.is_seed(), "the fully unwound fan is the seed again");
 }
+
+/// The two parity halves of one balanced fork expansion at `2^d` leaves:
+/// every internal node of the shared skeleton is both-present in both
+/// halves — the population whose overlap test is search-dominated.
+#[cfg(feature = "scan-meter")]
+fn parity_halves(d: usize) -> (Party, Party) {
+    let mut parties = vec![Party::seed()];
+    while parties.len() < (1 << d) {
+        let mut next = Vec::with_capacity(parties.len() * 2);
+        for mut p in parties {
+            let q = p.fork();
+            next.push(p);
+            next.push(q);
+        }
+        parties = next;
+    }
+    let mut halves: Vec<Option<Party>> = vec![None, None];
+    for (i, leaf) in parties.into_iter().enumerate() {
+        match &mut halves[i % 2] {
+            slot @ None => *slot = Some(leaf),
+            Some(half) => half.join(leaf).expect("fork leaves are disjoint"),
+        }
+    }
+    let odds = halves.pop().flatten().expect("dealt");
+    let evens = halves.pop().flatten().expect("dealt");
+    (evens, odds)
+}
+
+/// The indexed disjointness test's table searches stay metered.
+///
+/// On the parity halves — every skeleton node both-present, so the test
+/// runs one table search per node — the scan counter reads at least the
+/// committed floor, which sits far above what the walk's tag reads
+/// alone could reach.
+///
+/// The liveness leg of the fold index's search metering (review #37,
+/// F4): the searches are the dominant cost on correlated populations,
+/// and a change that routes them around the scan recorder would leave
+/// that cost visible to no deterministic counter. Floor = the measured
+/// reading ×0.75 (the envelope suite's liveness-floor convention);
+/// re-derive it in any diff that legitimately does fewer probes.
+/// \[Measured 135_196 bits at d = 10, dev profile, 2026-07-28; the
+/// cursor co-walk reads 6_140 bits on the same pair, so a de-metered
+/// search would read more than an order under the floor.\]
+#[cfg(feature = "scan-meter")]
+#[test]
+fn indexed_disjointness_search_bits_stay_metered() {
+    const SEARCH_SCAN_FLOOR_BITS: u64 = 101_397;
+    let (evens, odds) = parity_halves(10);
+    let index = IdIndex::build(evens.as_bits());
+    crate::meter::reset_scan_bits();
+    assert!(
+        index.is_disjoint(odds.view()),
+        "the parity halves partition the seed region: disjoint"
+    );
+    let read = crate::meter::scan_bits();
+    assert!(
+        read >= SEARCH_SCAN_FLOOR_BITS,
+        "the indexed test read {read} scan bits on the parity halves, under the \
+         committed search floor {SEARCH_SCAN_FLOOR_BITS}: the table searches are \
+         no longer metered (or legitimately probe less - re-derive the floor)"
+    );
+}

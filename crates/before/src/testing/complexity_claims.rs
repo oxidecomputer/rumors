@@ -21,6 +21,14 @@
 //!   red set (`tools/benchjudge-expected.json`, itself membership-pinned
 //!   by `tests/bench_judge_roster.rs`) — both directions, so curing a red
 //!   or flipping a class reaches the rustdoc through a failing name here.
+//! - **Roster ↔ mechanism-tagged reds** (the class-binding seal): no
+//!   linear-class claim (`Linear`, `LinearIo`, `FoldLog`) may cite an
+//!   operation with a standing exponent-mechanism red in
+//!   [`board::BOARD_EXPECTED_REDS`], and every [`Class::SuperlinearCounter`]
+//!   claim must keep one — the judge's red set binds wall time only, and
+//!   this leg binds the deterministic counters' verdicts, so a
+//!   counter-superlinear kernel whose wall constant hides under the
+//!   judge's resolution can no longer keep a linear claim.
 //! - **Class liveness**: every non-linear class keeps a deterministic
 //!   growth pin proving the documented behavior still exists — the
 //!   render merge's superlinear limb growth on the wide left-full shape
@@ -52,9 +60,13 @@ pub(crate) enum Class {
     /// projection).
     LinearIo,
     /// Linear in the total packed input times the logarithm of the
-    /// operand count: the balanced n-ary reduction's log factor, visible
-    /// on the fold rows' deterministic exponents and scale-growing
-    /// constants.
+    /// operand count: the balanced n-ary reduction's log factor.
+    ///
+    /// Visible on the fold rows' deterministic exponents and
+    /// scale-growing constants and judged there under the board's
+    /// declared fold model — which, on the party fold, also carries the
+    /// indexed overlap test's per-node search allowance, the
+    /// `B log |p|` term the fold rustdoc states.
     FoldLog,
     /// Linear space, superlinear worst-case time, red on the bench
     /// judge's committed roster.
@@ -62,6 +74,22 @@ pub(crate) enum Class {
     /// The members: the display pair (value conversion plus the render
     /// merge).
     SuperlinearTime,
+    /// Superlinear in the deterministic work counters on committed
+    /// board families, while absent from the bench judge's red roster.
+    ///
+    /// A standing exponent-mechanism red in
+    /// [`board::BOARD_EXPECTED_REDS`] with the rustdoc stating the
+    /// superlinear worst case; the operation's wall constant sits under
+    /// the judge's resolution at bench scales, so the counter leg is
+    /// the one that sees the class.
+    ///
+    /// The class-binding tests hold it live in both directions: a claim
+    /// in this class must cite at least one exponent-red board cell
+    /// (else the class is decoration and the claim flips to a linear
+    /// one), and no linear claim may cite any. The member: `min_ticks`
+    /// (the pending-minima merge's allowance-uncapped width circulation,
+    /// review #37 F1), until its cure flips the board pins.
+    SuperlinearCounter,
 }
 
 /// Where an operation's `# Complexity` section lives.
@@ -213,7 +241,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::join_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D log k)`", "`O(D)`"],
+            tokens: &["`O(D log k + B log |p|)`", "`O(D)`"],
         }],
         cells: Cells::Board(&[
             ("party_join_all", Class::FoldLog),
@@ -458,7 +486,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::join_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D log k)`", "`O(D)`"],
+            tokens: &["`O(D log k + B log |c|)`", "`O(D)`"],
         }],
         cells: Cells::Board(&[
             ("version_join_all", Class::FoldLog),
