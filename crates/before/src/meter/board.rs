@@ -802,6 +802,45 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// still reads red.
 pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 
+/// The scan bits one metered `IdIndex` table probe records (one `u32`
+/// table word per probe): the party fold's declared search allowance is
+/// `32·⌈log2(t+1)⌉` probes' worth per both-present node of each tested
+/// input, `t` the accumulator's table size.
+///
+/// Derivation: `Party::join_all` overlap-tests every input against the
+/// fixed accumulator through a per-call table of the accumulator's
+/// both-present nodes, and each both-present node the test visits runs
+/// one binary search over at most `t` entries — at most `⌈log2(t+1)⌉`
+/// probes of one table word each. The allowance is that bound summed
+/// over the inputs' both-present nodes, computed from the operands at
+/// prepare; it is tight-ish where the searches dominate \[measured
+/// 2026-07-28, release, the weave family: readings sit within ~10% of
+/// the fold model plus this allowance at both scales\], zero on
+/// populations with no both-present structure (scatter's single-leaf
+/// operands), and absent from the version fold, which runs no overlap
+/// test. The decision to keep the index and price its searches — over
+/// reverting to the per-input cursor walk the #37 review's F4 weighed —
+/// is the design doc's dated F4 entry: the committed overlap
+/// instruments pin the index's asymptotic win (a cursor discipline
+/// reads quadratic on the overlap rows and trips the flatness pin),
+/// and the index ties or wins wall time on every committed fold
+/// population.
+pub const INDEX_PROBE_SCAN_BITS: u64 = 32;
+
+/// A packed id operand's both-present node count: the size of the
+/// `IdIndex` table a fold builds over it, and the per-input factor of
+/// the declared search allowance. One 2-bit presence tag per node.
+fn both_present_nodes(p: &Party) -> u64 {
+    let bits = p.as_bits();
+    let mut count = 0u64;
+    let mut i = 0;
+    while i + 1 < bits.len() {
+        count += u64::from(bits[i] && bits[i + 1]);
+        i += 2;
+    }
+    count
+}
+
 /// The declared-model band: a modeled reading must sit within
 /// `[CAPACITY_MODEL_FLOOR, CAPACITY_MODEL_CEILING] × model`.
 ///
@@ -2831,6 +2870,11 @@ struct Cell {
     /// n-ary fold rows only, where it drives the declared `FoldLog`
     /// model (the declared-models section above).
     fold_arity: Option<u64>,
+    /// The party fold's declared search allowance at this scale, in scan
+    /// bits ([`INDEX_PROBE_SCAN_BITS`]'s derivation): added to the
+    /// declared scan ceiling. Zero on the version fold (no overlap test)
+    /// and wherever the operands carry no both-present structure.
+    fold_search_bits: u64,
     /// Whether the heap column is judged against the ratified
     /// capacity-chain model ([`capacity_chain_peak`]) instead of the
     /// flat ceiling: the output-dominated projection on the
@@ -2889,6 +2933,7 @@ impl Cell {
             denom: Denom::Input,
             floors,
             fold_arity: None,
+            fold_search_bits: 0,
             capacity_model: false,
             body: Box::new(move || Box::new(body())),
         }
@@ -2898,6 +2943,13 @@ impl Cell {
     /// model at operand count `arity` (the declared-models section).
     fn with_fold_arity(mut self, arity: u64) -> Cell {
         self.fold_arity = Some(arity);
+        self
+    }
+
+    /// Declare the party fold's search allowance in scan bits
+    /// ([`INDEX_PROBE_SCAN_BITS`]'s derivation).
+    fn with_fold_search(mut self, bits: u64) -> Cell {
+        self.fold_search_bits = bits;
         self
     }
 
@@ -2924,6 +2976,7 @@ impl Cell {
             }),
             floors,
             fold_arity: None,
+            fold_search_bits: 0,
             capacity_model: false,
             body: Box::new(move || Box::new(body())),
         }
@@ -2946,6 +2999,7 @@ impl Cell {
             }),
             floors,
             fold_arity: None,
+            fold_search_bits: 0,
             capacity_model: false,
             body: Box::new(move || Box::new(body())),
         }
@@ -3807,6 +3861,14 @@ fn ops() -> Vec<Op> {
                 let mut parties = parties.iter().map(|b| decode_party(b));
                 let acc = parties.next().expect("the scatter population is nonempty");
                 let rest: Vec<Party> = parties.collect();
+                // The declared search allowance: the accumulator's table
+                // size prices each tested input's both-present nodes
+                // (INDEX_PROBE_SCAN_BITS carries the derivation).
+                let table = both_present_nodes(&acc);
+                let probes_per_node = u64::from((table + 1).next_power_of_two().trailing_zeros());
+                let search_bits = INDEX_PROBE_SCAN_BITS
+                    * probes_per_node
+                    * rest.iter().map(both_present_nodes).sum::<u64>();
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
@@ -3821,7 +3883,8 @@ fn ops() -> Vec<Op> {
                             .expect("fold operands are forked parties, pairwise disjoint");
                         acc
                     })
-                    .with_fold_arity(arity),
+                    .with_fold_arity(arity)
+                    .with_fold_search(search_bits),
                 )
             },
         },
@@ -4615,6 +4678,9 @@ struct Sample {
     /// The fold rows' operand count at this sample's scale, for the
     /// declared `FoldLog` model.
     fold_arity: Option<u64>,
+    /// The party fold's declared search allowance at this sample's
+    /// scale, in scan bits.
+    fold_search_bits: u64,
     /// The capacity-chain model's predicted peak heap for this sample
     /// ([`capacity_chain_peak`] over the actual input and output bytes),
     /// on the cells that declare it.
@@ -4679,6 +4745,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell, content: Option<usize
         text_row,
         floors: cell.floors,
         fold_arity: cell.fold_arity,
+        fold_search_bits: cell.fold_search_bits,
         heap_model,
         readings: ByCurrency {
             heap: Some(peak_heap as u64),
@@ -4985,7 +5052,8 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
         };
         if c == Currency::Scan {
             if let Some(k2) = s2.fold_arity {
-                ceiling = FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL * (2.0 * k2 as f64).log2();
+                ceiling = FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL * (2.0 * k2 as f64).log2()
+                    + s2.fold_search_bits as f64 / s2.denom_bytes as f64;
             }
         }
         if s.exp_judged && s.exp.is_some_and(|e| e > exp_ceiling) {
@@ -5119,7 +5187,15 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         }
         (_, _, Some(k2)) => {
             let k1 = r.s1.fold_arity.expect("fold cells declare both scales");
-            format!("  decl[fold k {k1}->{k2}]")
+            if r.s2.fold_search_bits > 0 {
+                format!(
+                    "  decl[fold k {k1}->{k2} search {s1}->{s2} bits]",
+                    s1 = r.s1.fold_search_bits,
+                    s2 = r.s2.fold_search_bits,
+                )
+            } else {
+                format!("  decl[fold k {k1}->{k2}]")
+            }
         }
         _ => String::new(),
     };

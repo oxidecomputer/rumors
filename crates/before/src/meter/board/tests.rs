@@ -331,6 +331,7 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
                 touch: na(PROBE_NA),
             },
             fold_arity: None,
+            fold_search_bits: 0,
             heap_model: None,
             readings: ByCurrency {
                 heap: Some(0),
@@ -431,6 +432,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             text_row: false,
             floors: floors_of(n),
             fold_arity: None,
+            fold_search_bits: 0,
             heap_model: None,
             readings: ByCurrency {
                 heap: Some(0),
@@ -648,6 +650,7 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
                 touch: na(PROBE_NA),
             },
             fold_arity: None,
+            fold_search_bits: 0,
             heap_model: None,
             readings: ByCurrency {
                 heap: Some(heap),
@@ -751,6 +754,7 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
                 touch: na(PROBE_NA),
             },
             fold_arity: Some(arity),
+            fold_search_bits: 0,
             heap_model: None,
             readings: ByCurrency {
                 heap: Some(0),
@@ -796,6 +800,38 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
         fat_constant.red.contains(&"scan constant"),
         "a per-level constant regression must read constant-red: {:?}",
         fat_constant.red
+    );
+    // The party fold's search allowance admits the binary search's own
+    // probe bound and nothing looser: readings at the weave family's
+    // committed proportions (fold model + allowance, ~7% under) are
+    // green, and a search discipline paying twice the bound — linear
+    // re-probing where the partition search is logarithmic — reads red.
+    let search = |denom: usize, arity: u64, search_bits: u64, scan: u64| -> Sample {
+        let mut s = sample(denom, arity, scan);
+        s.fold_search_bits = search_bits;
+        s
+    };
+    let searched = evaluate(
+        "fold_probe",
+        "searched",
+        search(6_144, 16, 979_200, 1_370_000),
+        search(12_288, 16, 2_207_520, 2_740_000), // ~223 bits/B: the weave reading
+    );
+    assert!(
+        !searched.red.iter().any(|r| r.starts_with("scan")),
+        "the indexed fold's searches must read green under their declared allowance: {:?}",
+        searched.red
+    );
+    let over_searched = evaluate(
+        "fold_probe",
+        "over-searched",
+        search(6_144, 16, 979_200, 2_400_000),
+        search(12_288, 16, 2_207_520, 5_150_000), // ~2x the allowance: a regressed search
+    );
+    assert!(
+        over_searched.red.contains(&"scan constant"),
+        "a search paying past its declared allowance must read red: {:?}",
+        over_searched.red
     );
     // Ceiling tightness: at every committed arity pair (scatter and
     // benign, both scales, doubling denominators and beyond) the
@@ -851,6 +887,7 @@ fn declared_capacity_model_bands_the_projection_peak() {
                 touch: na(PROBE_NA),
             },
             fold_arity: None,
+            fold_search_bits: 0,
             heap_model: Some(model),
             readings: ByCurrency {
                 heap: Some(heap),
