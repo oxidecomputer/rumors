@@ -6,7 +6,8 @@ use crate::{Party, Version};
 
 use super::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense, harmonic,
-    hugeleaf, id_spine, jump_comb, jump_pair, scattered_id, wide_tooth_comb, Packed,
+    hugeleaf, id_spine, jump_comb, jump_pair, mask_drift_quadruple, mask_drift_triple,
+    scattered_id, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -403,6 +404,71 @@ fn scattered_id_decodes_canonically_at_predicted_length() {
         projected.encoded_bits(),
         n,
         k
+    );
+}
+
+/// `MT(k, n)` is three canonical operands at their closed-form lengths,
+/// and the correlation realizes the full-walk verdict: the projected comb
+/// sits strictly under the plateau, fused and materialized alike.
+///
+/// The `Less` verdict is what keeps every measurement of this family a
+/// whole-overlay walk (no early exit), so a generator drift that broke
+/// the alignment would read here as a changed verdict.
+#[test]
+fn mask_drift_triple_decodes_canonically_and_realizes_less() {
+    let (k, n) = (64, 16);
+    let (comb, mask, plateau) = mask_drift_triple(k, n);
+    check_version(&comb, n * (2 * k + 10) + 2);
+    check_version(&plateau, 2 * k + 2);
+    let party = check_party(&mask, 6 * (n / 2) + 2);
+    let (v, w) = (comb.version(), plateau.version());
+    let fused = (&v / &party).partial_cmp(&w);
+    assert_eq!(
+        fused,
+        Some(std::cmp::Ordering::Less),
+        "the projected comb sits strictly under the plateau"
+    );
+    assert_eq!(
+        fused,
+        (&v / &party).to_version().partial_cmp(&w),
+        "the fused verdict is the materialized verdict"
+    );
+}
+
+/// `MQ(k, n)` is two canonical comb/mask pairs at their closed-form
+/// lengths, the parities interleave as designed (the sparse comb's view
+/// is semantically empty — its mask owns exactly its zero levels), and
+/// the fused four-stream verdict is the full-walk `Less`, matching the
+/// materialized comparison.
+#[test]
+fn mask_drift_quadruple_decodes_canonically_and_realizes_less() {
+    let (k, n) = (64, 16);
+    let ((sparse, even_mask), (comb, odd_mask)) = mask_drift_quadruple(k, n);
+    check_version(&sparse, (n / 2) * (2 * k + 14) + 2);
+    check_version(&comb, n * (2 * k + 10) + 2);
+    let p1 = check_party(&even_mask, 6 * (n / 2) + 2);
+    let p2 = check_party(&odd_mask, 6 * (n / 2) + 4);
+    let (v1, v2) = (sparse.version(), comb.version());
+    assert!(
+        (&v1 / &p1).to_version().is_empty(),
+        "the even mask owns exactly the sparse comb's zero levels"
+    );
+    assert!(
+        !(&v2 / &p2).to_version().is_empty(),
+        "the odd mask keeps the full comb's teeth"
+    );
+    let fused = (&v1 / &p1).partial_cmp(&(&v2 / &p2));
+    assert_eq!(
+        fused,
+        Some(std::cmp::Ordering::Less),
+        "the empty view sits strictly under the tooth-keeping view"
+    );
+    assert_eq!(
+        fused,
+        (&v1 / &p1)
+            .to_version()
+            .partial_cmp(&(&v2 / &p2).to_version()),
+        "the fused verdict is the materialized verdict"
     );
 }
 

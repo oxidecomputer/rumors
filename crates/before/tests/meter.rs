@@ -120,6 +120,15 @@ const JUMP_PAIR_DIGITS: usize = 64;
 /// and the meet alike.
 const CONCURRENT_PAIR_LEAVES: usize = 4_096;
 
+/// Tooth magnitude (bits) of the mask-drift families: wide enough that a
+/// per-boundary materialization of the walk's integrator reads would be
+/// unmistakably superlinear, word-scale enough to keep the scenario in
+/// seconds.
+const MASK_DRIFT_MAGNITUDE_BITS: usize = 512;
+
+/// Tooth count of the mask-drift families' envelope scenarios.
+const MASK_DRIFT_TEETH: usize = 1_024;
+
 /// Depth of the harmonic spine `H(d)` rank scenario: deep enough that the
 /// fold's per-level numerator re-shifts dominate every constant.
 const RANK_HARMONIC_DEPTH: usize = 65_536;
@@ -2723,6 +2732,133 @@ mod skyline_flatness {
             (band_large.limb_ops, band_large.bytes),
         );
     }
+
+    /// One fused three-stream comparison run over the mask-drift triple
+    /// at `scale` teeth: per-delta touches and per-byte limb work, with
+    /// the one-touch-per-delta liveness floor enforced before returning.
+    fn masked_cmp_run(scale: usize) -> Run {
+        let (comb, mask, plateau) = meter::mask_drift_triple(512, scale);
+        let v = comb.version();
+        let p = before::Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
+        let w = plateau.version();
+        let bytes = (v.encode().len() + mask.bytes.len() + w.encode().len()) as u64;
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let verdict = (&v / &p).partial_cmp(&w);
+        assert_eq!(
+            verdict,
+            Some(std::cmp::Ordering::Less),
+            "the projected comb sits strictly under the plateau (no early exit)"
+        );
+        let run = Run {
+            // The comb's 2n + 1 leaves put 2n delta codes behind the
+            // first; the plateau adds none.
+            deltas: 2 * scale as u64,
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert!(
+            run.touches >= run.deltas,
+            "masked_cmp scale {scale}: {} digit touches under the {}-delta floor: \
+             the walk's integrators are not running on the metered accumulator",
+            run.touches,
+            run.deltas,
+        );
+        run
+    }
+
+    /// The fused three-stream comparison's per-delta touches and per-byte
+    /// limb work stay flat across a tooth-count doubling of the
+    /// mask-drift triple: every mask boundary's sign read — the
+    /// difference mid-cancel inside owned teeth, the zero-check on
+    /// unowned intervals — stays amortized O(1) however many boundaries
+    /// the mask plants.
+    ///
+    /// Each run carries the one-touch-per-delta liveness floor (in
+    /// [`masked_cmp_run`]), so flatness is asserted over a meter proven
+    /// live. This is the correlated family's wedge test: an integrator
+    /// that materialized a read per boundary would grow the per-delta
+    /// cost with the magnitude and fail the band.
+    #[test]
+    fn masked_cmp_drift_cost_is_flat_per_unit() {
+        let small = masked_cmp_run(1_024);
+        let large = masked_cmp_run(2_048);
+        assert_flat(
+            "masked_cmp_touches",
+            "delta",
+            (small.touches, small.deltas),
+            (large.touches, large.deltas),
+        );
+        assert_flat(
+            "masked_cmp_limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
+
+    /// One fused four-stream comparison run over the mask-drift
+    /// quadruple at `scale` teeth, as [`masked_cmp_run`].
+    fn masked_pair_cmp_run(scale: usize) -> Run {
+        let ((sparse, even_mask), (comb, odd_mask)) = meter::mask_drift_quadruple(512, scale);
+        let v1 = sparse.version();
+        let p1 =
+            before::Party::decode(&even_mask.bytes[..]).expect("the mask is strict normal form");
+        let v2 = comb.version();
+        let p2 =
+            before::Party::decode(&odd_mask.bytes[..]).expect("the mask is strict normal form");
+        let bytes =
+            (v1.encode().len() + even_mask.bytes.len() + v2.encode().len() + odd_mask.bytes.len())
+                as u64;
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let verdict = (&v1 / &p1).partial_cmp(&(&v2 / &p2));
+        assert_eq!(
+            verdict,
+            Some(std::cmp::Ordering::Less),
+            "the semantically-empty view sits strictly under the tooth-keeping view"
+        );
+        let run = Run {
+            // The sparse comb's n + 1 leaves put n delta codes behind its
+            // first; the full comb adds 2n.
+            deltas: 3 * scale as u64,
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert!(
+            run.touches >= run.deltas,
+            "masked_pair_cmp scale {scale}: {} digit touches under the {}-delta floor: \
+             the walk's integrators are not running on the metered accumulator",
+            run.touches,
+            run.deltas,
+        );
+        run
+    }
+
+    /// The fused four-stream comparison's per-delta touches and per-byte
+    /// limb work stay flat across a tooth-count doubling of the
+    /// mask-drift quadruple — the zero-check on cancelling wide spellings
+    /// (even teeth) and the mid-oscillation reads (odd teeth) both
+    /// amortized O(1) per boundary.
+    #[test]
+    fn masked_pair_cmp_drift_cost_is_flat_per_unit() {
+        let small = masked_pair_cmp_run(1_024);
+        let large = masked_pair_cmp_run(2_048);
+        assert_flat(
+            "masked_pair_cmp_touches",
+            "delta",
+            (small.touches, small.deltas),
+            (large.touches, large.deltas),
+        );
+        assert_flat(
+            "masked_pair_cmp_limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
 }
 
 // ─── id spine pair scenarios ────────────────────────────────────────────────
@@ -3453,6 +3589,14 @@ mod query_env {
     pub const LAG_JUMP_PAIR: QueryEnvelope                = query_envelope(     6_260,        0,    63_549, 4_022_900,   204_387, 38_129, 122_631); // 5_008, 0, 50_839, 3_218_320, 163_509 (2026-07-27, the fused co-sweep; from 138_641, 0, 127_449, 4_315_090, 87_148 at the composed form)
     pub const DISTANCE_CONCURRENT: QueryEnvelope          = query_envelope(       105,        0,    29_009,   157_859,    45_229, 17_405, 27_137); // 84, 0, 23_207, 126_287, 36_183 (2026-07-27, the fused co-sweep; from 5_964, 0, 166_549, 263_500, 61_442 at the composed form)
     pub const LAG_CONCURRENT: QueryEnvelope               = query_envelope(       105,        0,    29_009,   157_859,    46_078, 17_405, 27_646); // 84, 0, 23_207, 126_287, 36_862 (2026-07-27, the fused co-sweep; from 5_964, 0, 95_571, 197_300, 43_696 at the composed form)
+    // The masked-comparison rows (2026-07-27, the OwnVersion landing):
+    // the fused projected comparisons on the correlated mask-drift
+    // families, priced input-only on shapes whose *materialization* is
+    // product-growth — the laziness the view exists for. Ceilings x1.25
+    // and floors x0.75 over the measurements of record in the trailing
+    // comments.
+    pub const MASKED_CMP_DRIFT_TRIPLE: QueryEnvelope      = query_envelope(     1_290,        0,     7_733,    20_487,     5_240, 4_640, 3_144); // 1_032, 0, 6_187, 16_390, 4_192 (2026-07-27, the landing measurement: one pass over the overlay, ~2 touches per stored delta)
+    pub const MASKED_CMP_DRIFT_QUAD: QueryEnvelope        = query_envelope(     2_720,        0,    39_722, 1_342_092,    83_946, 23_833, 50_367); // 2_176, 0, 31_778, 1_073_674, 67_157 (2026-07-27, the landing measurement: the sparse comb's wide climb/drop codes dominate the input; scan ~8 bits per input byte)
 }
 
 /// Run one query scenario body under all five meters and assert its
@@ -3831,6 +3975,95 @@ fn version_lag_concurrent_envelope() {
             let r = v.lag(&w);
             (r, v, w)
         },
+    );
+}
+
+// ─── masked-comparison scenarios ────────────────────────────────────────────
+//
+// The fused projected comparisons (`OwnVersion`'s three- and four-stream
+// co-walks) on the correlated mask-drift families: ownership toggles at
+// every tooth boundary while the other operand's height drift sits on the
+// `2^k` carry boundary, so every boundary's sign read lands mid-cancel or
+// mid-oscillation. Both scenarios' verdicts are `Less` (pinned by the
+// generator tests), so no early exit shortens the measured walk, and both
+// anchor the fused verdict against the materialized comparison in the
+// same run.
+
+/// The fused three-stream comparison `(comb / mask) ⋚ plateau` stays
+/// within its envelope on the correlated triple.
+///
+/// The mask gates the comb to every other tooth against a flat wide
+/// plateau: owned intervals read the near-zero difference spelled by
+/// cancelling wide digits, unowned intervals read the zero-check on the
+/// plateau's height, and every read is amortized O(1) on the balanced
+/// signed-digit accumulator (the flatness band below holds it across a
+/// doubling).
+#[test]
+fn own_version_cmp_mask_drift_envelope() {
+    let (comb, mask, plateau) =
+        meter::mask_drift_triple(MASK_DRIFT_MAGNITUDE_BITS, MASK_DRIFT_TEETH);
+    let v = comb.version();
+    let p = Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
+    let w = plateau.version();
+    let input_bytes = v.encode().len() + mask.bytes.len() + w.encode().len();
+    let (ord, v, p, w) = query_metered(
+        "own_version_cmp_mask_drift",
+        input_bytes,
+        &query_env::MASKED_CMP_DRIFT_TRIPLE,
+        move || {
+            let ord = (&v / &p).partial_cmp(&w);
+            (ord, v, p, w)
+        },
+    );
+    assert_eq!(
+        ord,
+        Some(Ordering::Less),
+        "the projected comb sits strictly under the plateau (the full-walk verdict)"
+    );
+    assert_eq!(
+        ord,
+        (&v / &p).to_version().partial_cmp(&w),
+        "the fused verdict is the materialized verdict"
+    );
+}
+
+/// The fused four-stream comparison `(v₁/p₁) ⋚ (v₂/p₂)` stays within its
+/// envelope on the correlated quadruple.
+///
+/// The two masks' parities interleave tooth for tooth: even-level teeth
+/// read the trichotomy's zero-check on a semantically-zero height spelled
+/// by cancelling `2^k`-wide digits, odd-level teeth read the other side's
+/// height mid-oscillation across the carry boundary.
+#[test]
+fn own_version_pair_cmp_mask_drift_envelope() {
+    let ((sparse, even_mask), (comb, odd_mask)) =
+        meter::mask_drift_quadruple(MASK_DRIFT_MAGNITUDE_BITS, MASK_DRIFT_TEETH);
+    let v1 = sparse.version();
+    let p1 = Party::decode(&even_mask.bytes[..]).expect("the mask is strict normal form");
+    let v2 = comb.version();
+    let p2 = Party::decode(&odd_mask.bytes[..]).expect("the mask is strict normal form");
+    let input_bytes =
+        v1.encode().len() + even_mask.bytes.len() + v2.encode().len() + odd_mask.bytes.len();
+    let (ord, v1, p1, v2, p2) = query_metered(
+        "own_version_pair_cmp_mask_drift",
+        input_bytes,
+        &query_env::MASKED_CMP_DRIFT_QUAD,
+        move || {
+            let ord = (&v1 / &p1).partial_cmp(&(&v2 / &p2));
+            (ord, v1, p1, v2, p2)
+        },
+    );
+    assert_eq!(
+        ord,
+        Some(Ordering::Less),
+        "the semantically-empty view sits strictly under the tooth-keeping view"
+    );
+    assert_eq!(
+        ord,
+        (&v1 / &p1)
+            .to_version()
+            .partial_cmp(&(&v2 / &p2).to_version()),
+        "the fused verdict is the materialized verdict"
     );
 }
 
