@@ -542,19 +542,25 @@ pub struct Accumulator {
     /// certificates to skip runs whole
     /// ([`consume_run_at`](Accumulator::consume_run_at)). Structural
     /// invariants beyond soundness: runs are pairwise disjoint, and
-    /// each is recorded at or below the `top` its creating write
-    /// observed — the geometry behind
-    /// [`crop_runs`](Accumulator::crop_runs)' descending early stop
-    /// and the half-the-held-positions ledger cap. A collapsing sign
-    /// read can settle `top` beneath a surviving run's span, so
-    /// `hi ≤ top` is a creation-time fact, not a standing one, and no
-    /// consumer reads it. What every consumer relies on is soundness
-    /// alone, and that is unconditional: certificates are split around
-    /// every digit write (each goes through
-    /// [`add_at`](Accumulator::add_at), which crops), and the only
-    /// other digit rewrites set digits to zero, which can falsify no
-    /// interior-zero claim. The crate docs' zero-run ledger section
-    /// carries the amortization argument this structure pays for.
+    /// every run lies at or below the settled `top` — the geometry
+    /// behind [`crop_runs`](Accumulator::crop_runs)' descending early
+    /// stop and the half-the-held-positions ledger cap. Containment
+    /// is standing, collapse included: a sign fold carrying a nonzero
+    /// partial into a certified run decides at the run's first
+    /// interior digit (the partial shifts past the decision bound
+    /// over a zero digit), so the collapse re-deposit starts there
+    /// and its crop can keep only the run's lower remnant; a zero
+    /// partial consumes the run before stepping in; and a fold that
+    /// empties the value clears the ledger. Consumers nonetheless
+    /// rely on soundness alone, and that is unconditional:
+    /// certificates are split around every digit write (each goes
+    /// through [`add_at`](Accumulator::add_at), which crops), and the
+    /// only other digit rewrites set digits to zero, which can
+    /// falsify no interior-zero claim. Every clause here is checked
+    /// after every step of every schedule the exhaustive ledger
+    /// driver explores (`ledger_invariants_hold_exhaustively`); the
+    /// crate docs' zero-run ledger section carries the amortization
+    /// argument the structure pays for.
     zero_runs: BTreeMap<usize, usize>,
 }
 
