@@ -4073,6 +4073,285 @@ mod ledger_wide_arming_pin {
     }
 }
 
+// ─── the answer-embedded product pin ─────────────────────────────────────────
+//
+// RED PIN: the plateau-puncture family `PP(w, d)` (`meter::plateau_puncture`)
+// holds `Version::rank` superlinear with the excess embedded in the exact
+// answer, not in any ledger accounting: every turn leaf sits on the plateau
+// `H = 2^(32w)` and the turn masses `M` are d incompressible digits, so the
+// rank numerator is exactly `H · M + 1` — a Θ(w)-digit × Θ(d)-digit integer
+// product bought with Θ(w + d) input bits. No promotion ever fires (the one
+// wide plunge parks once and no later freeze arrives), so the cost sits in
+// the close-time settle `P · segment`, outside the promotion ledger and its
+// product tree entirely: computing the answer *is* one wide × dense
+// multiplication, schoolbook in the shipped fold. A cure can reduce this
+// family only as far as fast integer multiplication reaches — flat per byte
+// is off the table while the answer is the product — so unlike the
+// wide-arming pin this one bounds every future settle from below.
+#[cfg(feature = "limb-meter")]
+mod answer_embedded_product {
+    use before::meter;
+    use suanpan::touch_meter;
+
+    /// One public `Version::rank` run over `PP(s, s)`: packed bytes and
+    /// both counters over the rank body alone.
+    ///
+    /// Carries the `min_ticks` closed form (`s · 2^(32s) + 1`) as the
+    /// generator's semantic leg and the one-touch-per-operand-byte
+    /// liveness floor.
+    fn run(s: usize) -> (u64, u64, u64) {
+        use dashu_int::UBig;
+        let v = meter::plateau_puncture(s, s).version();
+        let bytes = v.encode().len() as u64;
+        let expected = UBig::from(s as u64) * (UBig::ONE << (32 * s)) + 1u8;
+        assert_eq!(
+            v.min_ticks(),
+            expected
+                .to_string()
+                .parse::<before::Ticks>()
+                .expect("the closed form parses"),
+            "the family's stored-code sum disagrees with min_ticks: the \
+             generator does not build the tree this pin reasons about"
+        );
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let rank = v.rank();
+        std::hint::black_box(&rank);
+        let touches = touch_meter::touches();
+        let limb_ops = meter::limb_ops();
+        // The answer itself is the product: the pin is honest only while
+        // the measured body computes H · M + 1 exactly.
+        let h = UBig::ONE << (32 * s);
+        let m: UBig = (1..=s).map(|i| UBig::ONE << (33 * i - 1)).sum();
+        assert_eq!(
+            rank.to_string(),
+            format!("{}/2^{}", &h * &m + 1u8, 33 * s),
+            "the exact rank is the plateau times the punctured turn mass"
+        );
+        assert!(
+            touches >= bytes,
+            "rank at {bytes} operand bytes: {touches} digit touches under \
+             the one-per-byte floor: the fold's accumulator work is not \
+             metered",
+        );
+        (bytes, touches, limb_ops)
+    }
+
+    /// Plateau digits (and turn count) of the pin's small run (the large
+    /// run doubles both).
+    const PLATEAU_PUNCTURE_SMALL: usize = 500;
+
+    /// RED: `Version::rank`'s per-byte cost grows across a `PP(s, s)`
+    /// doubling in both currencies, with the excess embedded in the
+    /// exact answer.
+    ///
+    /// The floor sits midway between linear (×1.00) and the measured
+    /// growth, so only a class change crosses it — and the only class
+    /// changes available are faster integer multiplication inside the
+    /// settle (subquadratic, never flat: the answer is the product) or
+    /// a wrong answer, which the closed-form rank leg in the run
+    /// forecloses. A flip of this pin therefore re-derives the
+    /// `# Complexity` claims against the multiplication bound, not
+    /// against linearity.
+    #[test]
+    fn rank_plateau_puncture_reads_superlinear() {
+        let (small_bytes, small_touches, small_limbs) = run(PLATEAU_PUNCTURE_SMALL);
+        let (large_bytes, large_touches, large_limbs) = run(2 * PLATEAU_PUNCTURE_SMALL);
+        eprintln!(
+            "MEASURED rank_plateau_puncture: small={small_touches}/{small_bytes}B \
+             (limb {small_limbs}) large={large_touches}/{large_bytes}B \
+             (limb {large_limbs})"
+        );
+        for (name, small, large) in [
+            ("touches", small_touches, large_touches),
+            ("limb ops", small_limbs, large_limbs),
+        ] {
+            assert!(
+                u128::from(large) * u128::from(small_bytes) * 100
+                    >= u128::from(small) * u128::from(large_bytes) * 144,
+                "rank reads flat ({name}) on the plateau-puncture family \
+                 ({small}/{small_bytes}B -> {large}/{large_bytes}B): either \
+                 the settle multiplies subquadratically now (re-derive the \
+                 # Complexity claims against the multiplication bound) or \
+                 the answer is no longer the product (the closed-form leg \
+                 should have failed first)",
+            );
+        }
+    }
+}
+
+// ─── the quadratic ceiling probes ────────────────────────────────────────────
+//
+// The empirical leg of the fold's worst-case ceiling: every committed
+// superlinear family stays within O(bytes²) — per-byte² cost does not
+// grow across a doubling — in both width currencies. The derivation the
+// probes back: each settle product is (left parked sum) × (right window
+// sum); a node's product is charged to the widest arming in its left
+// half; one arming's charging nodes are ancestors whose right halves
+// partition the entries after it, and window-sum density is subadditive
+// over disjoint entry ranges (punctures survive compaction, boundaries
+// add O(1)), so the products total Σᵢ Wᵢ · (D + O(log n)) — at most the
+// input's total arming width times its total window density, O(|v|²/c)
+// — and every other charge (interval adds, per-freeze settles over
+// disjoint segments, window rewrites and parked merges at ⌈log₂ n⌉
+// levels) is O(|v| log |v|). No arrangement of armings, signs, or
+// window densities stacks the log₂ n re-read cap multiplicatively on
+// top of the width × density budget: the multi-arming probes below try
+// exactly that (same-sign trains put every level's full window density
+// under full-width parked sums — the shape where per-byte cost grows
+// with the arming count — and alternating trains cancel the width at
+// every seam above the first level) and stay inside the ceiling.
+#[cfg(feature = "limb-meter")]
+mod quadratic_ceiling {
+    use before::meter;
+    use suanpan::touch_meter;
+
+    /// One `Version::rank` run: operand bytes and both counters, under
+    /// the one-touch-per-byte liveness floor.
+    fn rank_run(v: &before::Version) -> (u64, u64, u64) {
+        let bytes = v.encode().len() as u64;
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let rank = v.rank();
+        std::hint::black_box(rank);
+        let touches = touch_meter::touches();
+        let limb_ops = meter::limb_ops();
+        assert!(
+            touches >= bytes,
+            "rank at {bytes} operand bytes: {touches} digit touches under \
+             the one-per-byte floor: the fold's accumulator work is not \
+             metered",
+        );
+        (bytes, touches, limb_ops)
+    }
+
+    /// Assert one family's doubling stays within the quadratic ceiling
+    /// (×1.25 slack) in both currencies, and report the readings.
+    fn assert_within_quadratic(name: &str, small: (u64, u64, u64), large: (u64, u64, u64)) {
+        let (sb, st, sl) = small;
+        let (lb, lt, ll) = large;
+        eprintln!(
+            "MEASURED quadratic_ceiling_{name}: small={st}/{sb}B (limb {sl}) \
+             large={lt}/{lb}B (limb {ll}) per_byte={} -> {} (milli-touches)",
+            st * 1000 / sb,
+            lt * 1000 / lb,
+        );
+        for (cur, s, l) in [("touches", st, lt), ("limb ops", sl, ll)] {
+            assert!(
+                u128::from(l) * u128::from(sb) * u128::from(sb) * 100
+                    <= u128::from(s) * u128::from(lb) * u128::from(lb) * 125,
+                "{name} ({cur}) exceeds the quadratic ceiling across the \
+                 doubling: {s}/{sb}B -> {l}/{lb}B; the ceiling derivation \
+                 in this module's doc no longer covers the settle",
+            );
+        }
+    }
+
+    /// The wide-arming and plateau-puncture families stay within the
+    /// quadratic ceiling across their doublings: the two single-arming
+    /// width × density genres (ledger aggregate product; close-time
+    /// settle) are quadratic, not worse.
+    #[test]
+    fn single_arming_families_stay_within_the_quadratic_ceiling() {
+        for (name, small, large) in [
+            (
+                "wide_arming",
+                rank_run(&meter::wide_arming(400, 400).version()),
+                rank_run(&meter::wide_arming(800, 800).version()),
+            ),
+            (
+                "plateau_puncture",
+                rank_run(&meter::plateau_puncture(400, 400).version()),
+                rank_run(&meter::plateau_puncture(800, 800).version()),
+            ),
+        ] {
+            assert_within_quadratic(name, small, large);
+        }
+    }
+
+    /// Arming width (digits) of the multi-arming probes.
+    const TRAIN_WIDTH: usize = 50;
+
+    /// Window gaps per block of the multi-arming probes.
+    ///
+    /// Dense enough that the settle's aggregate products dominate the
+    /// fold's linear work per stored byte: the windows are
+    /// topology-funded, so `g` buys density the operand barely pays
+    /// for.
+    const TRAIN_GAPS: usize = 100;
+
+    /// One arming-train rank run with the mirrored `min_ticks` leg.
+    fn train_run(n: usize, alternate: bool) -> (u64, u64, u64) {
+        use dashu_int::UBig;
+        let v = meter::arming_train(n, TRAIN_WIDTH, TRAIN_GAPS, alternate).version();
+        let band = 32 * TRAIN_WIDTH + (usize::BITS - n.leading_zeros()) as usize + 2;
+        let arm = UBig::ONE << (32 * TRAIN_WIDTH);
+        let kicker = UBig::ONE << 288usize;
+        let mut plateau = (UBig::ONE << band) + (&arm << 1);
+        let mut expected = UBig::ZERO;
+        for b in 0..n {
+            expected += &plateau * UBig::from(TRAIN_GAPS as u64);
+            if alternate && b % 2 == 1 {
+                plateau -= &arm;
+            } else {
+                plateau += &arm;
+            }
+            for kick in [UBig::ZERO, UBig::ONE, kicker.clone(), UBig::ONE] {
+                plateau += kick;
+                expected += &plateau;
+            }
+        }
+        assert_eq!(
+            v.min_ticks(),
+            expected
+                .to_string()
+                .parse::<before::Ticks>()
+                .expect("the mirrored sum parses"),
+            "the family's leaf-value sum disagrees with min_ticks: the \
+             generator does not build the tree these probes reason about"
+        );
+        rank_run(&v)
+    }
+
+    /// Multi-arming trains stay within the quadratic ceiling across an
+    /// arming-count doubling, and the sign schedule is load-bearing:
+    /// the alternating train reads strictly cheaper than the same-sign
+    /// train at every probed count.
+    ///
+    /// The same-sign train is the ceiling's hardest committed probe:
+    /// every product-tree level holds the full window density under
+    /// full-width parked sums, so its per-byte cost *grows* with the
+    /// arming count (the ⌈log₂ n⌉ re-read cap surfacing as measured
+    /// work) — the log factor rides multiplicatively on width × density
+    /// per level, but the level count is what it multiplies, and the
+    /// byte budget dilutes it back under the quadratic ceiling. The
+    /// alternating twin cancels parked width at every seam above the
+    /// first level, so the same doubling reads flat-to-falling per
+    /// byte: the strictly-cheaper leg is the committed proof that
+    /// opposite-sign armings reach the parked sums and cancel there.
+    #[test]
+    fn arming_trains_stay_within_the_quadratic_ceiling() {
+        let same = [
+            train_run(4, false),
+            train_run(8, false),
+            train_run(16, false),
+        ];
+        let alt = [train_run(4, true), train_run(8, true), train_run(16, true)];
+        for (name, runs) in [("train_same_sign", &same), ("train_alternating", &alt)] {
+            assert_within_quadratic(name, runs[0], runs[1]);
+            assert_within_quadratic(name, runs[1], runs[2]);
+        }
+        for ((_, st, sl), (_, at, al)) in same.iter().zip(alt.iter()) {
+            assert!(
+                at < st && al < sl,
+                "the alternating train must read strictly cheaper than the \
+                 same-sign train ({at}/{al} vs {st}/{sl}): opposite-sign \
+                 armings no longer cancel inside the settle's parked sums",
+            );
+        }
+    }
+}
+
 // ─── id spine pair scenarios ────────────────────────────────────────────────
 
 /// The combined operand bytes of an id-spine pair scenario.

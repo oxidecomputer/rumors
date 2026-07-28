@@ -1897,6 +1897,152 @@ pub fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
     (build(1), build(2))
 }
 
+/// The plateau-puncture family `PP(w, d)`: the 33-stride gap spine with
+/// every turn leaf on one plateau `2^(32w)`, all bases 0, over a bottom
+/// 1 leaf and the trailing 0-leaves.
+///
+/// The answer-embedded-product family: the exact rank *is* a wide ×
+/// dense integer product whose factors the input funds separately. All
+/// `d` turn leaves sit at `H = 2^(32w)` — one wide absolute code for
+/// the first, zero deltas for the rest — and their interval masses
+/// `M = Σᵢ₌₁ᵈ 2^(33i − 1)` stay a full base-2^32 digit apart (the
+/// stride constant's derivation), so `rank(PP(w, d))`'s numerator is
+/// exactly `H · M + 1` at scale `2^(33d)`: `Θ(w)` digits times `Θ(d)`
+/// incompressible digits, bought with one `64w + 1`-bit code plus
+/// `Θ(d)` topology bits. No settle can telescope it — the complement
+/// sits at height 0, reached by one funded plunge, so the product is
+/// the answer, not an accounting artifact. The stored skyline operand
+/// is `Θ(w + d)` bits (the packed construction below spells the
+/// plateau per turn, but the deltas the version stores collapse to
+/// one climb and one plunge). The fold's cost on this family is the
+/// close-time settle `P · segment` — parked `−(H − 1)` against the
+/// punctured trailing mass — with no promotion ever firing: the
+/// arming-free instance of the width × density residual.
+/// `min_ticks(PP(w, d)) = d · 2^(32w) + 1` is the closed-form
+/// semantic leg. Exactly `d(64w + 132) + 4` bits. Normal form: every
+/// node's base is 0 and every subtree reaches a trailing 0-leaf, and
+/// the only sibling leaf pair is the bottom `(1, 0)`.
+///
+/// # Panics
+///
+/// Panics if `w < 10` (the plunge must trip the freeze allowance past
+/// a unit code) or `d == 0`.
+pub fn plateau_puncture(w: usize, d: usize) -> Packed {
+    assert!(
+        w >= 10,
+        "the plateau must out-span the freeze allowance past a unit code"
+    );
+    assert!(
+        d >= 1,
+        "the plateau-puncture family needs at least one turn"
+    );
+    let plateau = pow2(32 * w);
+    let mut bits = Bits::with_capacity(d * (64 * w + 132) + 4);
+    let mut trailing = 0usize;
+    for level in 0..DENSE_SUFFIX_DIGIT_STRIDE * d {
+        bits.push(true); // spine node flag
+        codec::encode_int(&mut bits, &Base::ZERO);
+        if level % DENSE_SUFFIX_DIGIT_STRIDE == 0 {
+            ev_leaf_wide(&mut bits, &plateau); // the turn: on the plateau
+        } else {
+            trailing += 1; // the lean: its 0-leaf trails the subtree
+        }
+    }
+    ev_leaf(&mut bits, 1); // the bottom leaf: the plunge's near edge
+    for _ in 0..trailing {
+        ev_leaf(&mut bits, 0);
+    }
+    Packed::from_bits(bits)
+}
+
+/// The arming-train family `AT(n, w, g, alternate)`: `n` re-arm blocks
+/// with `2^(32w)` armings, each preceded by its own `33g`-level
+/// gap-spine window.
+///
+/// The armings alternate sign when `alternate` and all climb
+/// otherwise; the blocks ride one plateau band over the trailing
+/// 0-leaves.
+///
+/// The multi-arming ledger family the single-block shapes cannot
+/// reach: `n` promotions whose parked masses are `Θ(w)` digits wide,
+/// with a `Θ(g)`-digit incompressible interval mass banked *between*
+/// every consecutive pair of armings (each gap's turn leaves sit at
+/// the running plateau, zero deltas, so the windows are bought with
+/// topology alone). Every block spells `±2^(32w), +1, +2^288, +1` in
+/// leaf absolutes: the wide swing parks at its unit, the kicker's unit
+/// fires the freeze whose promotion arms the ledger — one entry per
+/// block, sign following the swing — and the sweep closes with one
+/// funded plunge whose parked width settles against the trailing run.
+/// With `alternate`, consecutive entries cancel digit-wise inside the
+/// product tree's parked sums; without it, every aggregate keeps the
+/// full arming width against every dense window to its right. All
+/// wide leaves live in one gamma band (`band = 32w + ⌈log₂ n⌉ + 2`
+/// headroom bits over the swings and kickers), so the packed size is
+/// the closed form `n(g(2·band + 132) + 8·band + 16) + 2` bits; the
+/// tests mirror the leaf recurrence for the `min_ticks` leg. Normal
+/// form: all bases 0 — every subtree reaches a 0-leaf (the gap leans'
+/// trailing siblings; the bottom 0 under the last block's wide leaf)
+/// and no sibling leaf pair is equal.
+///
+/// # Panics
+///
+/// Panics if `n == 0` or `g == 0`, or if `w < 19` (an arming must
+/// out-span the `2^288` kicker drift by more than the freeze
+/// allowance, or promotion never fires).
+pub fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
+    assert!(n >= 1, "the arming train needs at least one block");
+    assert!(g >= 1, "the arming train needs at least one gap per window");
+    assert!(
+        w >= 19,
+        "an arming must out-span the kicker drift plus the freeze allowance"
+    );
+    let band = 32 * w + bitlen(n) + 2;
+    let arm = suanpan::UBig::ONE << (32 * w);
+    let kicker = suanpan::UBig::ONE << PROMOTION_REARM_SETTLE_BITS;
+    // The plateau band's floor plus double-swing headroom: every wide
+    // leaf below stays inside [2^band, 2^(band+1)), one gamma width.
+    let mut plateau = (suanpan::UBig::ONE << band) + (&arm << 1);
+    let mut bits = Bits::with_capacity(n * (g * (2 * band + 132) + 8 * band + 16) + 2);
+    let mut trailing = 0usize;
+    for b in 0..n {
+        for level in 0..DENSE_SUFFIX_DIGIT_STRIDE * g {
+            bits.push(true); // window spine node flag
+            codec::encode_int(&mut bits, &Base::ZERO);
+            if level % DENSE_SUFFIX_DIGIT_STRIDE == 0 {
+                // The turn: on the plateau, so the window's dense mass
+                // is topology-funded (a zero delta in the store).
+                ev_leaf_wide(&mut bits, &Base::from(plateau.clone()));
+            } else {
+                trailing += 1;
+            }
+        }
+        if alternate && b % 2 == 1 {
+            plateau -= &arm; // the swing: this block's arming descends
+        } else {
+            plateau += &arm;
+        }
+        for kick in [
+            suanpan::UBig::ZERO, // the swing leaf itself
+            suanpan::UBig::ONE,  // parks the swing
+            kicker.clone(),      // the kicker
+            suanpan::UBig::ONE,  // fires the promoting freeze
+        ] {
+            plateau += kick;
+            bits.push(true); // block node: wide leaf left, chain right
+            codec::encode_int(&mut bits, &Base::ZERO);
+            ev_leaf_wide(&mut bits, &Base::from(plateau.clone()));
+        }
+    }
+    // The bottom 0: the last block node's right child, unequal to its
+    // wide left sibling, and the zero that keeps every block subtree's
+    // minimum at the all-bases-0 spelling.
+    ev_leaf(&mut bits, 0);
+    for _ in 0..trailing {
+        ev_leaf(&mut bits, 0);
+    }
+    Packed::from_bits(bits)
+}
+
 /// The ascending-cliff id over [`ascend_cliff`]: a right-descent
 /// `(0, ·)` chain bottoming in `(1, 0)` over the cliff, `2k + 4` bits.
 ///

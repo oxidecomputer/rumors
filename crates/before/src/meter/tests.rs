@@ -7,11 +7,11 @@ use crate::{Party, Version};
 use suanpan::UBig;
 
 use super::{
-    alt_spine, bigroot, bitlen, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense,
-    dense_suffix, dense_suffix_mate, freeze_parade, freeze_position, harmonic, hugeleaf, id_spine,
-    jump_comb, jump_pair, mask_drift_quadruple, mask_drift_triple, promotion_rearm,
-    promotion_rearm_mate, scattered_id, tooth_tail, weight_comb, wide_arming, wide_tooth_comb,
-    Packed,
+    alt_spine, arming_train, bigroot, bitlen, cancelling_chain, cliff_comb, cliff_fan,
+    concurrent_pair, dense, dense_suffix, dense_suffix_mate, freeze_parade, freeze_position,
+    harmonic, hugeleaf, id_spine, jump_comb, jump_pair, mask_drift_quadruple, mask_drift_triple,
+    plateau_puncture, promotion_rearm, promotion_rearm_mate, scattered_id, tooth_tail, weight_comb,
+    wide_arming, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -789,6 +789,97 @@ fn wide_arming_decodes_canonically_at_predicted_length() {
         spelled,
         "the bit-level construction is the one-block spelling at the wide climb"
     );
+}
+
+/// `plateau_puncture(w, d)` is canonical normal form at exactly
+/// `d(64w + 132) + 4` bits.
+///
+/// Its `min_ticks` is exactly the stored-base sum `d · 2^(32w) + 1`
+/// (the turn leaves all on the plateau plus the bottom 1), and its
+/// exact rank realizes the answer-embedded product the family exists
+/// for: `rank · 2^(33d) = 2^(32w) · Σᵢ₌₁ᵈ 2^(33i − 1) + 1`, checked
+/// here through the public fold at hand-checkable sizes (the
+/// `answer_embedded_product` pin in `tests/meter.rs` measures the cost
+/// at meter scale; the query fold's differential suite pins the value
+/// against the oracle).
+#[test]
+fn plateau_puncture_decodes_canonically_at_predicted_length() {
+    for (w, d) in [(10usize, 1usize), (12, 5), (40, 40)] {
+        check_version(&plateau_puncture(w, d), d * (64 * w + 132) + 4);
+        let expected = UBig::from(d as u64) * (UBig::ONE << (32 * w)) + 1u8;
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            plateau_puncture(w, d).version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count"
+        );
+        // The answer-embedded product, through the public fold: the
+        // rank is exactly (H · M + 1) / 2^(33d), and the numerator is
+        // odd, so the rendered rational is already in lowest terms.
+        let h = UBig::ONE << (32 * w);
+        let m: UBig = (1..=d).map(|i| UBig::ONE << (33 * i - 1)).sum();
+        let numerator = &h * &m + 1u8;
+        assert_eq!(
+            plateau_puncture(w, d).version().rank().to_string(),
+            format!("{numerator}/2^{}", 33 * d),
+            "the exact rank is the plateau times the punctured turn mass"
+        );
+    }
+}
+
+/// `arming_train(n, w, g, alternate)` is canonical normal form at
+/// exactly `n(g(2·band + 132) + 8·band + 16) + 2` bits,
+/// `band = 32w + ⌈log₂ n⌉ + 2`.
+///
+/// Its `min_ticks` is the mirrored leaf-value sum (the recurrence the
+/// generator doc states): the swing, park, kicker, and promoting-freeze
+/// leaves per block plus `g` plateau turns per window, over the bottom
+/// 0. The same-sign and alternating trains share topology and differ
+/// only in the swings' directions.
+#[test]
+fn arming_train_decodes_canonically_at_predicted_length() {
+    for (n, w, g, alt) in [
+        (1usize, 19usize, 1usize, false),
+        (2, 19, 1, true),
+        (3, 20, 2, true),
+        (4, 19, 3, false),
+    ] {
+        let band = 32 * w + (usize::BITS - n.leading_zeros()) as usize + 2;
+        check_version(
+            &arming_train(n, w, g, alt),
+            n * (g * (2 * band + 132) + 8 * band + 16) + 2,
+        );
+        // The mirror: replay the generator's plateau recurrence and sum
+        // every leaf value (the bottom and trailing leaves are all 0).
+        let arm = UBig::ONE << (32 * w);
+        let kicker = UBig::ONE << 288usize;
+        let mut plateau = (UBig::ONE << band) + (&arm << 1);
+        let mut expected = UBig::ZERO;
+        for b in 0..n {
+            expected += &plateau * UBig::from(g as u64); // the window turns
+            if alt && b % 2 == 1 {
+                plateau -= &arm;
+            } else {
+                plateau += &arm;
+            }
+            for kick in [UBig::ZERO, UBig::ONE, kicker.clone(), UBig::ONE] {
+                plateau += kick;
+                expected += &plateau;
+            }
+        }
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the mirrored sum renders as a count");
+        assert_eq!(
+            arming_train(n, w, g, alt).version().min_ticks(),
+            ticks,
+            "the mirrored leaf-value sum is the family's minimum tick count"
+        );
+    }
 }
 
 /// The dense-suffix families' readable text spelling: the 33-stride
