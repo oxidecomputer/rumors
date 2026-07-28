@@ -139,8 +139,8 @@ leading codes supply.
 
 Per elementary interval the output equals one operand — the _side_:
 $a$ where $D > 0$, $b$ where $D < 0$, for max; the mirror for min.
-At $D = 0$ the walk keeps whatever side it already held (_sticky_,
-as the worked table says) — an arbitrary choice that costs nothing,
+At $D = 0$ the walk keeps whatever side it already held (_sticky_;
+the worked table's middle row shows the case) — an arbitrary choice that costs nothing,
 since at $D = 0$ the operands agree and either side's step yields
 the same output. Two cases at each boundary:
 
@@ -200,7 +200,10 @@ leaves the moment the second of a pair completes. A merge can cascade
 upward, but only along the ancestors still open on the output's right
 edge, so the builder's state is a couple of bit stacks bounded by
 depth, and every merge removes bits that were already paid for by
-their emission. The result is born in normal form — there is no
+their emission. (The output buffer itself obeys the ledger: it grows
+geometrically, so appends are amortized $O(1)$ per emitted bit and
+the transient peak is the output's own size.) The result is born in
+normal form — there is no
 normalization pass anywhere in the system. To see a cascade, run the
 _meet_ of the same operands: pointwise min gives height $0$ on all
 three intervals, so the builder receives equal leaves at depths
@@ -232,11 +235,10 @@ switch consumed, at least three bits each, that never fund another
 emission — so its code costs at most theirs plus a few bits' slack
 (the zigzag re-fold contributes a constant of its own). What we
 offer here is that shape, not a per-boundary ledger closing to the
-exact constant. The exact inequality has a full derivation in our
-work (longer than this section wants), and it is additionally
-property-tested across roughly 1.5 million generated operand pairs,
-where the $-2$ is attained — _derived and measured_, in the
-introduction's taxonomy; here, sketched. Joins never blow up — the inequality is what lets a
+exact constant. The inequality's status, plainly: _derived_ in full
+in our work (the derivation is longer than this section wants), and
+its $-2$ additionally _attained_ in property tests across roughly
+1.5 million generated operand pairs — here, sketched. Joins never blow up — the inequality is what lets a
 system fold thousands of versions together with a predictable memory
 ceiling.
 
@@ -246,6 +248,18 @@ The party side runs the same machinery with one-bit heights and no
 accumulator at all; it is worth a moment, both because forks and
 retirements are the dynamic half of the ITC story and because the
 operations degenerate pleasantly.
+
+One restatement first, because the pruned coding stores no leaf
+where a party owns nothing, and @sweep was derived for streams that
+spell every plateau. A party cursor _synthesizes_ the absent child
+its parent's tag declares: an unowned plateau spanning exactly that
+child's half, costing no bits and funded by the tag that declared
+it. The cursor thus presents a total $0$-or-$1$ function on
+$[0, 1)$, plateau by dyadic plateau, and @sweep's three facts apply
+unchanged; only exhaustion is restated — a party stream ends when
+its obligation count dies, not on an all-right path. Every walk
+below, and every version-against-party overlay later (@projection,
+@tick), pairs cursors on this footing.
 
 *Fork* is the paper's `split`. In the pruned id coding, a node with
 one present child names it directly, so the split walks the _spine_ —
@@ -289,8 +303,9 @@ splitting responsibility when shares move.) The sweep is the overlay walk of $v$
 emitting through the collapsing builder; heights stay relative except
 at ownership transitions, where the output re-enters the skyline at a
 plateau's absolute height — and the emitted code at that transition
-_is_ that absolute, so the work of materializing it is priced by the
-output written.
+_is_ that absolute: the sweep's running height materializes once per
+transition (requirement 4 of @accum-contract), a wide read priced
+bit-for-bit by the wide code being written.
 
 Projection is the section's honest exception on denomination, and the
 reason the preamble defined one. Take a comb version whose $t$ teeth
@@ -386,8 +401,8 @@ the composites: two emissions and two rank folds for distance, one
 emission and two folds for lag, every piece linear.
 
 *Minimum ticks.* The fewest tick operations that could have produced
-$v$, over all fork/tick/join histories, equals the sum of the
-normalized event tree's node values. The sum has a pleasant skyline
+$v$, over all fork/tick/join histories from the seed, equals the sum
+of the normalized event tree's node values. The sum has a pleasant skyline
 form: writing $mu(x)$ for the _absolute_ minimum of the skyline over
 node $x$'s interval — so $mu("leaf") = h$ — the normalized base at
 $x$ is $mu(x) - mu("parent"(x))$, and the sum telescopes:
@@ -413,16 +428,36 @@ cancel. No tick raises $M$ by more than one, so any history reaching
 $v$ spends at least $M(v)$ ticks. _Achieved_, by mirroring the
 telescoping rather than the leaves: at each node from the root down,
 tick the whole currently-owned region $mu(x) - mu("parent"(x))$
-times, then fork into the two children — the counts spent are
+times, then fork into the two children, joining the halves back at
+the end (joins spend no ticks) — the counts spent are
 exactly the normalized bases, summing to $M(v)$.
 
 The count is an unbounded natural — heights are unbounded, so the
-sum is too — and the sweep computes it exactly at any magnitude with
-nothing this document has not already built: pending subtree minima
-nest, so they ride the same difference coordinates as every fold
-before them, and the sum accumulates on the accumulator, each folded
-code funding its own touches. One funded linear pass, exact, on
-every input.
+sum is too — and at first sight it is the one measure the funding
+discipline cannot reach: the formula adds an _absolute_ height at
+every leaf, exactly the naive fold the rank paragraph just rejected.
+One more telescope dissolves the absolutes. Write
+$M'(x) = M(x) - mu(x)$ for a subtree's ticks in excess of its own
+minimum; then $M'("leaf") = 0$, and at a node — since
+$M = M_"left" + M_"right" - mu$ and $mu = min(mu_"left", mu_"right")$
+—
+
+$ M'("node") = M'_"left" + M'_"right" + |mu_"left" - mu_"right"|, $
+
+which unwinds from the root to
+
+$ M(v) = mu("root") + sum_("internal") |mu_"left" - mu_"right"| : $
+
+one absolute — the root's minimum, funded like any leading code —
+plus a sum of _differences of sibling minima_, precisely the
+vocabulary the machinery already speaks. Pending range minima ride a
+difference-coded stack (@tick-web builds the same structure for
+tick), each sibling difference settles as its node closes, and each
+settled difference dies into the running sum at its own width,
+funded by the codes that separated the two minima. No absolute
+height is ever summed, rank's frozen/live split is not needed and
+its uncertified boundary is not inherited, and the sweep is one
+funded linear pass, exact, on every input.
 
 == Tick: `fill`, `grow`, and the watermark web <tick>
 
@@ -442,17 +477,17 @@ funding ledger — and it is the payoff of the whole apparatus.
 The paper's `fill` is worth having at hand verbatim; it is short, and
 @tick-walk maps each arm to a stream action:
 
-$ "fill"(0, e) &= e \
-  "fill"(1, e) &= max(e) \
-  "fill"(i, n) &= n \
-  "fill"((1, i_r), (n, e_l, e_r)) &= "norm"((n, max(max(e_l), min(e'_r)), e'_r)), quad e'_r = "fill"(i_r, e_r) \
-  "fill"((i_l, 1), (n, e_l, e_r)) &= "norm"((n, e'_l, max(max(e_r), min(e'_l)))), quad e'_l = "fill"(i_l, e_l) \
-  "fill"((i_l, i_r), (n, e_l, e_r)) &= "norm"((n, "fill"(i_l, e_l), "fill"(i_r, e_r))) $
+$ "fill"(0, e) &= e &&quad (1) \
+  "fill"(1, e) &= max(e) &&quad (2) \
+  "fill"(i, n) &= n &&quad (3) \
+  "fill"((1, i_r), (n, e_l, e_r)) &= "norm"((n, max(max(e_l), min(e'_r)), e'_r)), quad e'_r = "fill"(i_r, e_r) &&quad (4) \
+  "fill"((i_l, 1), (n, e_l, e_r)) &= "norm"((n, e'_l, max(max(e_r), min(e'_l)))), quad e'_l = "fill"(i_l, e_l) &&quad (5) \
+  "fill"((i_l, i_r), (n, e_l, e_r)) &= "norm"((n, "fill"(i_l, e_l), "fill"(i_r, e_r))) &&quad (6) $
 
 In skyline terms: `fill` flattens what the caller owns — every event
 subtree the id wholly owns collapses to one plateau at that subtree's
-maximum (the second arm) — and the two _shortcut arms_ (fourth and
-fifth) additionally let a wholly-owned, freshly collapsed child rise
+maximum (arm 2) — and the two _shortcut arms_ (4 and
+5) additionally let a wholly-owned, freshly collapsed child rise
 to the minimum of its _filled_ sibling, if that is higher. The rise
 is the profitable move: it merges plateaus across the sibling
 boundary and lets ancestors collapse in turn. The cap at the
@@ -510,14 +545,16 @@ way the stream order makes vivid:
   $min("fill"(i_r, e_r))$, the minimum of what `fill` _will emit_
   over the range, so the _pre-scan_ simulates the fill there rather
   than merely reading heights. That sounds circular — the simulated
-  fill has left-full arms of its own, each wanting a further
-  lookahead — but one lemma flattens it: a filled owned child takes
-  $max(max(e_l), min(e'_r))$, which is never _below_ $min(e'_r)$,
-  so the minimum over a whole arm equals the right range's minimum
-  whether or not the raise fires. Every site's needed quantity is
-  therefore a pure suffix quantity of its own range, and one
-  left-to-right pass can keep pending minima and settle each as its
-  range closes — no nested scans. What naive repetition would still
+  fill has shortcut arms of its own, each wanting a further
+  lookahead — but one lemma flattens it: on either shortcut arm the
+  raised child takes the maximum of its own max and its sibling's
+  filled minimum, so it never undercuts that sibling — every arm's
+  output minimum is the minimum of its children's filled minima,
+  with a wholly-owned child contributing its collapsed max. Each
+  quantity the pre-scan needs is therefore a range quantity that
+  settles when its range closes, and one left-to-right pass keeping
+  a pending minimum per open range computes them all — no nested
+  scans. What naive repetition would still
   do is re-scan shared suffixes once per enclosing arm,
   quadratically; the pre-scan is therefore _memoized_ — one fresh
   scan per uncovered range, with
@@ -641,11 +678,12 @@ costs through @funding's three funding sources:
   floor, deciding from top digits without touching $r$'s width.
   The distinction between move and fold is not pedantry:
   fold-on-close re-folds a wide boundary difference on every
-  close/reopen cycle, and a comb of $t$ sibling sites sharing one
-  $2^k$-scale minimum — the *reveal comb*$(t, k)$, the last of
-  @families' constructions — then circulates that width $t$ times
-  with no input or output code funding any crossing: a genuine
-  $Theta(t dot k)$ amplifier on $Theta(t + k)$ input, found by
+  close/reopen cycle, and a comb of sibling sites sharing one
+  $2^k$-scale minimum — the *reveal comb* of @families, the last of
+  its constructions — then circulates that width once per site
+  with no input or output code funding any crossing: work
+  proportional to sites times scale on input proportional to sites
+  plus scale, a genuine amplifier, found by
   adversarial construction against an earlier design of this very
   walk, and cured by making the close a move. Moves are free;
   deaths pay; nothing is read twice at width.
@@ -658,7 +696,8 @@ instance of the web, not a second mechanism.
 
 `tick` needs to know whether `fill` changed anything, and the walk
 decides it in-pass: the flag trips at the first emitted plateau that
-differs from the input plateau it replaces. Until then the output
+differs — in extent or in height — from the input plateau it
+replaces. Until then the output
 would be a bit-identical prefix of the input (nothing earlier has
 changed, so no copy needs its boundary payload re-coded) — and
 nothing is built; the first divergence copies the matched prefix
@@ -753,7 +792,8 @@ code, duplicated — refuted it, leaving the multiplicative form as
 the honest survivor. The id term covers `grow`'s expansion chain, which
 descends along the id adding a constant number of flag and
 $0 slash plus.minus 1$ payload bits per id level; the additive 32
-absorbs the first leaf's absolute code and byte-boundary slack.
+absorbs the _widening_ of the first leaf's absolute code and
+byte-boundary slack.
 
 Second, the growth does not compound. In closed form, for $k$
 iterated ticks against the same party:

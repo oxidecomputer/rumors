@@ -69,7 +69,8 @@ unity:
     table.header([*genre*], [*the unfunded quantity*], [*the cure*]),
     [path sums† (@path-sums)],
     [absolute heights carried down every walk],
-    [sweeps over differences the stream itself supplies],
+    [sweeps over differences the stream itself supplies, held on
+      the accumulator],
     [wide decode (@naive-decode)],
     [a growing accumulator re-touched per bit],
     [word-windowed reads; work charged to the code's own width],
@@ -81,7 +82,8 @@ unity:
     [the accumulator: no normalized region anywhere (@redundant)],
     [cancelling prefixes† (@sign)],
     [re-scanned dead digits under repeated sign reads],
-    [the collapsing fold: each digit scanned once per write],
+    [the collapsing fold: each lane scanned once per write that
+      raised the top],
     [watermark webs† (@tick-web)],
     [absolute range minima, one per open range],
     [difference-coded stack, zero runs compressed, undercuts funded],
@@ -148,7 +150,7 @@ the document's own contents were produced by it:
 
 The skyline representation and its accumulator were presented as an
 efficiency story, and they are one: within $4.3%$ of the counting
-floor at rest asymptotically, $6.7%$ at hundred-byte sizes (against
+floor asymptotically, $6.7%$ at hundred-byte sizes (against
 the family the coding reaches — the framing @ctf-caveat keeps
 honest), linear sweeps for every operation, constants a small
 multiple of reading cost, on the access pattern the machine likes

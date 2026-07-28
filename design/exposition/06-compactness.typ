@@ -16,8 +16,9 @@ canonical stream fits in $n$ bits, and let
 $H(n) = log_2 |cal(F)(n)|$. _Any_ injective assignment of bit
 strings to the members of $cal(F)(n)$ — ours, or the best
 conceivable replacement, prefix-free or not — must give some member
-at least $ceil(H(n))$ bits: fewer than $2^(H(n))$ distinct strings
-are shorter than that, and there are $2^(H(n))$ members to name.
+at least $floor(H(n))$ bits: only $2^floor(H(n)) - 1 < 2^(H(n))$
+distinct strings are shorter, and there are $2^(H(n))$ members to
+name.
 Our coding spends at most $n$ on every member, by definition of
 $cal(F)(n)$. So the
 _worst-case multiplicative overhead_ of the coding, against a floor
@@ -115,8 +116,10 @@ satisfies Kraft's equality:
 $ sum_(k >= 0) 2^k dot 2^(-(2k + 1)) = sum_(k >= 0) 2^(-(k+1)) = 1, $
 
 and the topology flag is a complete 1-bit code, so the unconstrained
-composite is _prefix-complete_: every infinite bit string begins with
-exactly one well-formed stream — no coding room is wasted at all.
+composite is _prefix-complete_: almost every infinite bit string
+begins with exactly one well-formed stream (the exceptions — endless
+descents that never complete a tree, the all-zeros string first
+among them — carry measure zero) — no coding room is wasted at all.
 Concretely, the unconstrained characteristic equation
 $1 - 2 x^2 - 4 x^3 = 0$ has its root at exactly $x = 1\/2$: growth
 $2^n$, zero asymptotic redundancy.
@@ -183,8 +186,10 @@ where the exact count is out of computational reach):
     the validated closed form, beyond the brackets' computational
     reach. At 100 bytes — a realistic version under heavy history —
     the coding is within $6.7%$ of the floor: $4.3$ points of
-    sibling-merge tax, about $2.0$ of universal finite-size effect
-    (the $(3\/2) log_2 n$ term every maximal code pays), and about
+    sibling-merge tax, about $2.0$ of finite-size effect (the
+    count's universal $n^(-3\/2)$ factor puts the floor
+    $(3\/2) log_2 n$ below $alpha n$ — a thinning a coding that
+    spends its whole length budget cannot follow down), and about
     $0.4$ of nonnegativity tax.],
 ) <fig-overhead>
 
@@ -194,8 +199,9 @@ The floor above is relative to the family the coding itself reaches.
 Choose a different, natural-sounding family — versions with $ell$
 plateaus and heights drawn uniformly below $2^w$ — and the same
 coding fares differently: the family needs about $ell (w + 2)$ bits
-of entropy, while gamma's worst case spends $2w + 1$ bits per
-payload, a ratio approaching $2$ as $w$ grows. Same coding, same
+of entropy, while the coding's worst case spends about
+$ell (2w + 3)$ — gamma's $2w + 1$ per payload plus each plateau's
+own topology — a ratio approaching $2$ as $w$ grows. Same coding, same
 definition of floor, different family, different verdict. Any
 published form of the $4.3%$ claim must carry its family, and this
 one does.

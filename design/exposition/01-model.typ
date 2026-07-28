@@ -49,7 +49,9 @@ piece of arithmetic:
   accumulator with no normalized region anywhere makes every
   word-sized update and every sign query amortized constant-time, and
   every wide update linear in its own width, _on every input
-  sequence_ — the load-bearing component that lets each sweep's cost
+  sequence_ (one discipline rides the contract: an accumulator fed
+  by scale-shifted writes is write-only until materialized —
+  @accum) — the load-bearing component that lets each sweep's cost
   argument close.
 
 On top of those two, @operations derives each operation — comparison;
@@ -190,6 +192,13 @@ double duty; each such use is flagged where it occurs):
       (@measures)],
     [$Phi$], [the funding potential: held lanes across live
       accumulators (@funding)],
+    [$mu(x)$, $M(v)$], [a subtree's skyline minimum; the minimum-tick
+      measure (@measures)],
+    [$f$], [a domination floor's digit index (@sign)],
+    [$r$], [the watermark stack's parked boundary difference
+      (@tick-web)],
+    [$alpha$], [the canonical grammar's growth exponent
+      (@compactness)],
     [$n$ (again)], [in @model and @naive only, the paper's own
       grammar uses $n, n_1, n_2$ for event-node values],
     [$m$ (again)], [in @model, a lift amount; in @tick, a range

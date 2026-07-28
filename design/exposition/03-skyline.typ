@@ -51,7 +51,10 @@ the right thing to store:
   above it), and denotes the plateau heights $1, 3$ — which is all
   the skyline stores.
 
-So we store the shape, and the leaf heights, and nothing else.
+So we store the shape, and the leaf heights, and nothing else. This
+is the sense in which the title says _compiled_: the paper's tree is
+the source spelling, and the skyline is the object form the
+operations execute directly.
 
 == The coding <coding>
 
@@ -151,13 +154,12 @@ terminal, four bits in all:
 
 #align(center, bitrow((("10", "t", [node: left child only]), ("00", "t", [terminal: owned]))))
 
-At a hundred participants with stable membership, a party measures
-about three bytes (derived: a depth-seven share is sixteen bits —
-two bytes; measured, the mean sits nearer three, the excess being
-ownership fragmentation); sustained
-fork-and-retire churn fragments ownership further, raising it to a
-few tens of bytes (both figures: the paper's own space-consumption
-scenarios, reproduced on our implementation). The
+At a hundred participants with stable membership, a depth-seven
+share is sixteen bits — two bytes, derived. Measured, the mean sits
+nearer three bytes, ownership fragmentation claiming the excess, and
+sustained fork-and-retire churn raises it to a few tens (both
+figures from the paper's own space-consumption scenarios, reproduced
+on our implementation). The
 id side of the system is, by design, nearly free.
 
 One boundary case rounds out the coding. The paper's _anonymous_
@@ -193,14 +195,21 @@ decode boundary:
 + *Nonnegative heights.* The payload stream is signed; nothing else
   stops a delta from driving the running height below zero, so the
   decoder must.
-+ *Exactness.* One complete tree, no trailing bits, and (at the byte
-  boundary) zero padding only.
++ *Exactness.* One complete tree and nothing after it. Padding
+  exists only at the outermost byte boundary: there the encoder
+  zero-fills the final partial byte and the decoder requires exactly
+  that, while embedded streams — a clock's two components — are
+  bit-adjacent. Every size in this document is a bit count before
+  that padding.
 
 Parties get the same discipline, with rules matched to their coding:
 no stored node whose two children are both terminals (a wholly-owned
 pair is one terminal spelled as two — the id-side sibling merge), and
 the same exactness; unowned-as-absence needs no third rule, since
-an unowned subtree has no spelling to forbid. Both codings' rules are
+an unowned subtree has no spelling to forbid. The two components are
+validated independently — a party and a version are independent
+functions on the interval, and no cross-component rule exists to
+check. Both codings' rules are
 enforced at every decode boundary, so clock bytes — the two streams
 concatenated — inherit the uniqueness below.
 
