@@ -3481,13 +3481,14 @@ mod ledger_dense_suffix_pin {
     use before::meter;
     use suanpan::touch_meter;
 
-    /// Spine levels per suffix digit: each right-descent turn removes
-    /// one isolated interval from the trailing run, and a 33-level
-    /// stride keeps successive gaps more than a full base-2^32 digit
-    /// apart, so the balanced signed-digit compaction (which cancels
-    /// only ones-runs) can never merge two of them into one term: the
-    /// suffix every arming is charged against carries `d`
-    /// incompressible digits.
+    /// Spine levels per suffix digit.
+    ///
+    /// Each right-descent turn removes one isolated interval from the
+    /// trailing run, and a 33-level stride keeps successive gaps more
+    /// than a full base-2^32 digit apart, so the balanced signed-digit
+    /// compaction (which cancels only ones-runs) can never merge two
+    /// of them into one term: the suffix every arming is charged
+    /// against carries `d` incompressible digits.
     const DIGIT_STRIDE: usize = 33;
 
     /// The arming climb's bit width: `2^608` spans 20 base-2^32 digits,
