@@ -301,7 +301,8 @@ impl Version {
     /// assert_eq!(va.distance(&va), Rank::ZERO);   // identity of indiscernibles
     /// assert_eq!(va.distance(&vb), vb.distance(&va)); // symmetric
     /// // One event on each disjoint half: the join knows both, the meet
-    /// // neither, so the two versions stand a distance of two ticks apart.
+    /// // neither. Each event raised half the id interval by one, so the
+    /// // area between the versions — their distance — is 2 · ½ = 1.
     /// assert_eq!(va.distance(&vb).to_string(), "1");
     /// ```
     pub fn distance(&self, other: &Version) -> Rank {

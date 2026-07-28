@@ -6,6 +6,11 @@
 //! would be `O(n²)` on a deep spine). A deterministic stand-in for wall-clock
 //! timing, which would be flaky.
 //!
+//! The counter sees node-header reads alone: it is deliberately blind to
+//! arithmetic width, so a step-linear operation can still do superlinear
+//! limb work. That axis has its own instruments — the resource-envelope
+//! suite (`tests/meter.rs`) and the meter board's limb/scan/touch columns.
+//!
 //! This module is `cfg(test)` only; the [`step!`](crate::step) macro that feeds
 //! it lives at the crate root (it needs a no-op `cfg(not(test))` twin and the
 //! `crate::step` path), so production traversals pay zero cost.

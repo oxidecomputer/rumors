@@ -28,7 +28,11 @@
 //! Each corpus is lowered to its impl form once and the pair loops *borrow* it
 //! (not re-lowering both operands per pair), and the cross-products run on a
 //! `rayon` pool. Every check exercises the public ops (see the test module
-//! doc). Two variants:
+//! doc). An operation absent from this module's own check set is not
+//! necessarily outside the small scope: the kernel test suites import the
+//! corpus and run their own operation-specific sweeps over it (the skyline
+//! query, sweep, emit, fill, grow, and text suites all do — e.g. the pair
+//! queries' `exhaustive_small_scope_pairs_agree`). Two variants:
 //!
 //! - [`exhaustive_small`] runs every check in the normal gate at
 //!   [`ID_SMALL_DEPTH`] / [`EV_SMALL_DEPTH`] (256 ids, 691 events); the full op
