@@ -35,11 +35,12 @@ dyadic interval, so no single leaf can span it), and the canonical
 form of @canonical will keep them. Two observations make the skyline
 the right thing to store:
 
-+ *Every operation is a pointwise statement about the skyline.*
++ *Every operation is a local statement about the skyline.*
   Comparison is pointwise $<=$; join is pointwise max; meet is
-  pointwise min; a tick raises the skyline somewhere over the caller's
-  id; rank (a measure we will meet in @measures) is the area under it.
-  None of them care how a tree spelled the function.
+  pointwise min; rank (a measure we will meet in @measures) is the
+  area under it; a tick asks range questions — maxima and minima —
+  over the caller's own region (@tick).
+  None of them cares how a tree spelled the function.
 
 + *The tree's interior numbers are redundant.* Given the tree's
   _shape_ and the _absolute_ heights of its leaves, the function is
@@ -82,9 +83,10 @@ it lets whole codes settle under one count-leading-zeros instruction.
 its plateau's height. The first leaf stores its height _absolutely_;
 every later leaf stores the _difference_ from the previous leaf in
 stream order. Neighboring plateaus tend to sit close in height even
-when both stand very tall — not because of any spelling rule (a
-normalization cannot change the function, so it cannot change these
-differences) but because of the operations' _dynamics_: `fill`
+when both stand very tall — not because of any spelling rule (by
+observation 2 above the leaf heights are function-determined, so no
+normalization can alter their differences) but because of the
+operations' _dynamics_: `fill`
 flattens each owned region to one plateau and — where a filled
 sibling's minimum stands higher — raises it to that minimum (@tick),
 and joins move whole regions at once, so
@@ -169,10 +171,12 @@ tag to absorb it. The implementation dissolves the case instead of
 spelling it: an anonymous stamp is modeled as a bare version, so a
 party, wherever one exists at all, is nonempty by construction.
 
-A clock — a party and its version — concatenates the two streams. Both
+A clock — a party and its version — concatenates the two encoded
+streams, party first, each padded to its own byte boundary
+(@canonical's exactness rule). Both
 codings are prefix-free (self-delimiting trees, self-delimiting
 integer codes), so the pair needs no length prefix, and clock values
-compose into larger messages without framing.
+compose byte-aligned into larger messages without framing.
 
 == Canonical form: one string per value <canonical>
 
@@ -189,18 +193,17 @@ decode boundary:
   is exactly the previous leaf in stream order, so one pass checks
   the rule as it reads. (A zero delta between consecutive leaves that are _not_
   siblings is a real, canonical shape: two equal plateaus separated
-  by a subtree boundary. The paper's tree $(1, 0, (0, 0, 1))$ —
-  heights $1, 1, 2$ — is the smallest instance: its constant run at
+  by a subtree boundary. The minimal shape is three plateaus — the
+  paper's tree $(1, 0, (0, 0, 1))$, heights $1, 1, 2$, is one: its
+  constant run at
   height $1$ spans $[0, 3\/4)$, which no dyadic interval covers.)
 + *Nonnegative heights.* The payload stream is signed; nothing else
   stops a delta from driving the running height below zero, so the
   decoder must.
-+ *Exactness.* One complete tree and nothing after it. Padding
-  exists only at the outermost byte boundary: there the encoder
-  zero-fills the final partial byte and the decoder requires exactly
-  that, while embedded streams — a clock's two components — are
-  bit-adjacent. Every size in this document is a bit count before
-  that padding.
++ *Exactness.* One complete tree and nothing after it. Every
+  encoded stream ends on a byte boundary with the final partial
+  byte zero-filled, and the decoder requires exactly that padding.
+  Every size in this document is a bit count before the padding.
 
 Parties get the same discipline, with rules matched to their coding:
 no stored node whose two children are both terminals (a wholly-owned
@@ -218,7 +221,11 @@ common minimum into the parent — has no analogue here, because there
 are no interior numbers to lift into. Storing absolute heights at the
 leaves quietly discharged one of the two normal-form obligations.
 
-The three rules make the spelling unique, and the argument is short
+The rules do two jobs, worth splitting: minimal topology and
+exactness remove redundant _spellings_, while nonnegativity removes
+streams that denote no function at all — injectivity and domain,
+respectively. Together they leave one accepted spelling per value,
+and the argument is short
 enough to give. For a dyadic step function $h$, define $T(h)$: a
 single leaf if $h$ is constant, else the node over
 $T(h|_"left")$ and $T(h|_"right")$. First, $T(h)$ satisfies the
@@ -262,8 +269,12 @@ Minimal topology and exactness need, per open ancestor, two bits of
 state — "is my left child complete?" and "was that child a leaf?" —
 kept on a packed bit stack: roughly two bits of transient memory per
 level against the roughly three bits a level costs on the
-depth-maximizing spine shape (@lengths's derivation — the shape that
-matters, since it is the one an adversary sends). Depth is paid for
+depth-maximizing spine shape — per level, an internal flag plus the
+off-spine leaf's flag and a 1-bit zero-delta payload, with the
+deepest sibling pair obliged to differ (one wider code at the
+bottom keeps the shape canonical), $3d + O(1)$ in all. @lengths
+named the shape; it is the one that matters, since it is the one an
+adversary sends. Depth is paid for
 in bits, honoring @naive-recursion's budget.
 
 Nonnegativity is the interesting one: it needs the running absolute

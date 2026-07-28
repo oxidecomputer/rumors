@@ -22,10 +22,9 @@ be $Theta(n)$ on their own:
 - *Depth* $d$: a chain of nodes costs a constant number of bits per
   level — about three, in the paper's coding and in the coding of
   @skyline alike (the paper spends a 3-bit node tag per spine level;
-  the skyline an internal flag plus the off-spine leaf's flag and a
-  1-bit payload, with the deepest sibling pair obliged to differ —
-  one wider code at the bottom keeps the shape canonical at
-  $3d + O(1)$ bits) — so a few tens of kilobytes of input encode a
+  the skyline prices the same shape at $3d + O(1)$, with the anatomy
+  made exact in @validation) — so a few tens of kilobytes of input
+  encode a
   tree a hundred thousand levels deep.
 - *Magnitude width* $W$: a single stored integer can occupy a
   constant fraction of the input — $W = Theta(n)$, a value near
@@ -78,7 +77,10 @@ here, and the names are used consistently through @resilience.
   ),
   caption: [The adversarial families, all in one place; the last four
     are constructed where the machinery they attack is built. Each is
-    a legal, canonical value the decoder must accept. `hugeleaf` and
+    a legal, canonical value the decoder must accept; each is named
+    here in the paper's tree vocabulary, and @coding spells it as a
+    stream (`bigroot`'s $W$-bit root becomes a $W$-bit leading
+    absolute over small deltas). `hugeleaf` and
     `bigroot` are unreachable by any honest history at the scales
     that hurt (a height near $2^W$ needs on the order of $2^W$
     ticks); the others are merely unlikely. Either way the lesson is
@@ -112,16 +114,18 @@ $10,000$-level spine, a 29-kilobyte operand pair — drove transient
 memory to roughly $6,700 times$ the pair's bytes, approaching two
 hundred megabytes, inside a single comparison. The figure reconciles
 with the formula: each paired node materializes _four_ lifted
-children — both operands', both halves' — that live across the
-descent, and $4 dot d dot W = 1.6 dot 10^9$ bits is exactly the two
+children — both operands', both halves', built before either
+conjunct's descent and live across it — and
+$4 dot d dot W = 1.6 dot 10^9$ bits accounts for the two
 hundred megabytes measured. The ratio kept growing with
 the operand, as the formula says it must.
 
 Join has the same skeleton (`join` lifts both of one side's
 children by the base difference, $l_2, r_2 arrow.t (n_2 - n_1)$, at
 every paired node) and adds
-the normalization pass: `norm` computes each node's subtree minimum
-and sinks it, more per-level arbitrary-precision work of exactly the
+the normalization pass: `norm` computes the minimum over each node's
+children and lifts it into the parent, subtracting it from both
+children — more per-level arbitrary-precision work of exactly the
 path-sum shape. Every two-operand walk in the transcription shares the
 defect, because the paper's equations all reason in _absolute_ values
 which only exist, at a node, as the sum of everything above it.
@@ -129,7 +133,9 @@ which only exist, at a node, as the sum of everything above it.
 == Defect 2: decoding a wide value <naive-decode>
 
 The appendix's integer coding is a chain of grow-by-one-bit stages,
-and the natural decoder accumulates one bit at a time into a heap
+and the natural decoder — the shape the stage recursion invites,
+though not the only transcription of it — accumulates one bit at a
+time into a heap
 integer: shift, add, repeat. Appending a bit to a $j$-bit accumulator
 rewrites all of its machine words in a normalized representation, so
 a single $W$-bit value decodes in
@@ -141,7 +147,9 @@ On `hugeleaf` this is the whole input, and the arithmetic reconciles
 with the wall clock: at $W = 4 dot 10^6$ bits the buffer grows to
 half a megabyte and each append rewrites it — a quarter-megabyte on
 average, four million times, about a terabyte of memory traffic —
-which at memory-bandwidth speed is the right order for what the
+which at the bandwidth a half-megabyte, cache-resident working set
+actually sees (tens of gigabytes per second) is the right order for
+what the
 measurement showed: over fourteen seconds for one value. The cured
 decoder (accumulate machine words, splice them once) does the same
 work in milliseconds, linearly. The defect looks trivial once named —
@@ -224,14 +232,18 @@ cliff_, and the value the *boundary comb* (@families): stepping
 across the cliff rewrites $k + 1$ bits, so each crossing costs
 $Theta(k)$ work in any normalized representation, no matter how small
 the step. A comb with $t$ teeth astride one cliff extracts
-$Theta(t dot k)$ bit-work from its walk.
+$Theta(t dot k)$ bit-work from its walk. (This amplifier is not a
+fifth defect of the transcription — there it hides inside Defect 1's
+path sums; it is the defect of every _repair_ of Defect 1 that keeps
+a normalized running value, which is why it closes the ladder
+instead of numbering with the four.)
 
 And the comb is _cheap to spell_, under either coding. The paper's
 normal form lifts the shared $2^k - 1$ into the root, leaving every
 tooth a small relative value; the delta coding we are about to adopt
 (@skyline) spells one absolute and then $plus.minus 1$ steps. Both
-codings store the comb in $Theta(t + k)$ bits carrying
-$Theta(t dot k)$ bits of implied absolute value — so a walk that
+codings store the comb in $Theta(t + k)$ bits — though writing every
+plateau's absolute height out would take $Theta(t dot k)$ — so a walk that
 maintains a normalized running absolute does $Theta(t dot k)$ work
 on a $Theta(t + k)$-bit input, a genuine amplifier over either
 spelling, with no repair available by tuning: pick any boundary a

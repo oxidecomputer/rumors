@@ -18,11 +18,6 @@ plateau by plateau, and every operation the API asks is some fold over
 that shared walk. The walk is @sweep; everything after it is a payload
 bolted onto it.
 
-One omission from the introduction's list is repaired here: besides
-the operations named there, @id-ops also derives the party
-predicates `covers` and `disjoint` — the latter the safety condition
-every join checks.
-
 And one sentence fixes what "asymptotically optimal" means
 throughout. Every operation here answers a whole-value question whose
 verdict can still change at its operands' final codes (the coding is
@@ -77,7 +72,8 @@ numbers entirely:
   deepest "left child" level to right. The deeper interval's end
   coincides with the shallower's exactly when the flipped level's
   depth is at most the shallower cursor's depth — a stack operation,
-  not a comparison of positions.
+  not a comparison of positions — and when it fires, the shallower
+  cursor advances too: its plateau ends at the same point.
 + *The all-right path is the exhausted stream.* A leaf whose path is
   all right turns is the last plateau, ending at 1. Complete
   operands therefore exhaust exactly together (completeness, not
@@ -213,7 +209,8 @@ single leaf $0$, two bits, born canonical.
 
 Cost: the walk is linear; folds are funded by input codes; switch
 reads are funded by the boundary's own codes; each output code is
-written once and truncated at most once. Join and meet are
+written once and rolled back at most once (a merge removes only the
+right-edge bits it supersedes). Join and meet are
 $O(n + m)$, and the output is, too: a canonicality dividend worth
 recording is that for canonical operands,
 
@@ -221,7 +218,9 @@ $ "size"(a or b) <= "size"(a) + "size"(b) - 2 "bits" $
 
 (similarly for meet). The topology half of the reason is immediate —
 the output's plateau boundaries are a subset of the operands'
-together, and merging only shrinks the tree. The payload half rests
+together, and merging only shrinks the tree; the guaranteed deficit
+also rides this half, since the overlay spells the two operands'
+leading plateaus as one. The payload half rests
 on the boundary algebra above plus one code-length fact: gamma is
 nearly subadditive,
 
@@ -256,8 +255,9 @@ its parent's tag declares: an unowned plateau spanning exactly that
 child's half, costing no bits and funded by the tag that declared
 it. The cursor thus presents a total $0$-or-$1$ function on
 $[0, 1)$, plateau by dyadic plateau, and @sweep's three facts apply
-unchanged; only exhaustion is restated — a party stream ends when
-its obligation count dies, not on an all-right path. Every walk
+unchanged; even exhaustion agrees — a party stream ends when
+its obligation count dies, the same point the synthesized plateaus'
+all-right path reaches. Every walk
 below, and every version-against-party overlay later (@projection,
 @tick), pairs cursors on this footing.
 
@@ -266,8 +266,8 @@ one present child names it directly, so the split walks the _spine_ —
 the chain of one-child nodes — to the first node with both children
 (or to a terminal), then builds both halves by splicing: each half is
 the spine prefix, verbatim; a retag of the branch node keeping one
-side; and that side's subtree, verbatim. A terminal splits as
-$1 -> ((1,0), (0,1))$. One linear pass, at most one fresh node per
+side; and that side's subtree, verbatim. A terminal splits into the
+pair $((1,0), (0,1))$. One linear pass, at most one fresh node per
 half, no descent into the kept subtrees at all — forking is cheap at
 _any_ id shape, which a system that forks per request depends on.
 
@@ -281,16 +281,24 @@ coding's $(1,1) -> 1$). Linear, output subadditive.
 $p$ and $q$, the regions of $p$ not owned by $q$ — how a share is
 carved when something less than a full retirement moves) is the same
 boolean-skyline sweep, emitting $1$ where $p$ owns and $q$ does not.
+When $q$ covers $p$ the result is empty, and the API reports it as
+_no party_ rather than spelling it — a party is nonempty by
+construction (@id-coding) — so `covers` is the caller's test before
+carving.
 The predicates — _covers_ ($q$'s owned region $subset.eq$ $p$'s) and
 _disjoint_ (no owned region shared, the safety condition every join
 checks) — are lockstep verdict walks: no emission, and $O(1)$ state
-in total. The id grammar has its own obligation counter (@coding's
+in total. The constant deserves its two sentences, since every
+other two-operand walk pays a path bit per level. The walk descends
+only where _both_ streams have structure, so the two preorder
+positions advance in step and no per-level path is needed to keep
+them paired; where one side is terminal or absent, the whole paired
+subtree is settled at once, the skipped side delimited by the id
+grammar's obligation counter (@coding's
 device transposed: each stored node contributes its child count
-minus one, and the subtree ends when the count dies), so a subtree
-one side skips is delimited by one counter rather than by anything
-stacked per level; and the two cursors stay structurally aligned
-because they diverge only where one side ends a region, re-joining
-at that same position. Early exit at the first refuting position.
+minus one, and the subtree ends when the count dies) rather than by
+anything stacked per level. Early exit at the first refuting
+position.
 
 == Projection, and pricing by mandatory output <projection>
 
@@ -307,8 +315,8 @@ _is_ that absolute: the sweep's running height materializes once per
 transition (requirement 4 of @accum-contract), a wide read priced
 bit-for-bit by the wide code being written.
 
-Projection is the section's honest exception on denomination, and the
-reason the preamble defined one. Take a comb version whose $t$ teeth
+Projection is the one operation whose output term is not slack — the
+reason the preamble denominated against output at all. Take a comb version whose $t$ teeth
 ride a $k$-bit base — cheap deltas, $Theta(t + k)$ bits — and a
 scattered party owning every other tooth. Masking breaks every chain
 of cheap deltas with an interleaved zero, so each kept tooth must
@@ -397,8 +405,9 @@ distinct versions denote distinct functions (@canonical's uniqueness
 argument), which then differ over some plateau of positive width. Lag is the one-sided
 "how much of $b$ have I not seen", the natural backpressure signal
 for anti-entropy protocols. Note the pass count these identities buy
-the composites: two emissions and two rank folds for distance, one
-emission and two folds for lag, every piece linear.
+the composites: two emissions and two rank computations (each two
+passes, the pre-pass included) for distance, one
+emission and two for lag, every piece linear.
 
 *Minimum ticks.* The fewest tick operations that could have produced
 $v$, over all fork/tick/join histories from the seed, equals the sum
@@ -412,7 +421,8 @@ $ sum_x "base"(x) = sum_("leaves") h - sum_("internal") mu =: M(v). $
 Both directions of the identity deserve their sketch, since an API's
 meaning rests on it. _Floor_: $M$ is a functional on versions that
 forks preserve (both halves keep the event component), that joins
-are subadditive in — the one clause we state here without proof —
+are subadditive in — the one clause we state without proof,
+catalogued with the document's other boundaries (@closing) —
 and that a single tick raises by at most one.
 The last is where to look closely. `grow`'s increment raises one
 leaf term by one, and enclosing minima can only rise, which
@@ -547,10 +557,12 @@ way the stream order makes vivid:
   than merely reading heights. That sounds circular — the simulated
   fill has shortcut arms of its own, each wanting a further
   lookahead — but one lemma flattens it: on either shortcut arm the
-  raised child takes the maximum of its own max and its sibling's
-  filled minimum, so it never undercuts that sibling — every arm's
-  output minimum is the minimum of its children's filled minima,
-  with a wholly-owned child contributing its collapsed max. Each
+  raised child takes the maximum of its own collapsed max and its
+  sibling's filled minimum, so it never undercuts that sibling — a
+  shortcut arm's output minimum is exactly the non-owned sibling's
+  filled minimum, raise or no raise (and a fully-mixed arm's is the
+  minimum of its two filled halves, a wholly-owned range's its
+  collapsed max). Each
   quantity the pre-scan needs is therefore a range quantity that
   settles when its range closes, and one left-to-right pass keeping
   a pending minimum per open range computes them all — no nested
@@ -560,7 +572,8 @@ way the stream order makes vivid:
   scan per uncovered range, with
   every interior left-full site's minimum recorded on the way, so no
   stream position is ever pre-scanned twice. The walk's total read
-  budget is at most two passes per position, flat — tick is the other
+  budget is at most two passes over each position of either stream,
+  id and version alike, flat — tick is the other
   two-pass operation the introduction owned up to. The memo's
   _memory_ obeys the same ledger as its reads: at most one recorded
   entry per left-full site (so no more entries than id bits), each
@@ -654,7 +667,9 @@ costs through @funding's three funding sources:
   walks outward: each nonzero difference it fully penetrates _dies_
   (folded once into the running residue — the $Phi$ drop pays);
   each zero _run_ passes in $O(1)$, wholesale, because every frame
-  in the run shares the inner minimum and is updated implicitly;
+  in the run shares the inner minimum and is updated implicitly —
+  and an undercut can never halt inside a run, since frames sharing
+  one minimum are penetrated all or none;
   and at the first difference it cannot penetrate, one surviving
   fold, priced by the undercut's own delta — whose code the input
   just paid. Without run compression this cascade is
@@ -670,7 +685,7 @@ costs through @funding's three funding sources:
   slot: with $r$ the parked difference, the revealed range's true
   gap is $t + r$, resolved lazily — the next opener recycles $r$
   into its own boundary difference (a move, then a narrow
-  anchor-relative adjustment); a second close before an open folds
+  adjustment against a reference the walk already holds); a second close before an open folds
   the narrower of the two parked differences into the wider (a
   death, funded, which is why one slot suffices); an undercut deep
   enough to reach $r$ annihilates it (a death again); and
@@ -709,7 +724,12 @@ expansions, then shallowest depth, which is the paper's `grow` cost
 function read lexicographically (its "large constant $N$" per
 expansion is exactly a lexicographic order, as the paper itself
 notes), with ties to the right child as in the paper's final
-equation — one direction bit per id branch. `grow` then _splices_:
+equation — one direction bit per id branch. The fold's working set
+is honest about its width: one pending cost pair — two small
+counts, machine words at worst — per open id branch, the one
+suspended state in the system wider than bits per level besides the
+watermark stack, and priced the same way (bounded by the id's own
+depth, alive only while the flag is clear). `grow` then _splices_:
 copy everything up to the inflation point verbatim; re-code the
 grown leaf's payload ($+1$); repair the one successor delta that the
 change can reach; emit an expansion chain's fresh leaves as
@@ -747,9 +767,9 @@ asks whether raising it to the right sibling's filled minimum would
 merge anything, and the pre-scan answers: the right range's minimum
 is 0, the owned max 1 already dominates it, no raise. Nothing else
 is owned; every emitted plateau equals its input; the flag never
-trips, so nothing was built. The route fold recorded one direction
-bit (the cheapest inflation lives down the id's left branch:
-$"grow"(1, 1) = 2$, a bare increment, no expansion). The splice then
+trips, so nothing was built. The route fold had nothing to choose —
+the id's single branch forces the way, and the cheapest inflation
+is the owned leaf's bare increment, $1$ to $2$, no expansion. The splice then
 copies the topology verbatim and re-codes exactly two payloads: the
 grown leaf's absolute, $1 -> 2$ (`010` $->$ `011`), and its
 successor's delta, $-1 -> -2$ (`010` $->$ `00100`); the final code
@@ -782,7 +802,19 @@ implementation. First, the one-step bound:
 $ "size"("tick"(i, e)) <= 2 dot "size"(e) + 4 dot "size"(i) + 32 "bits." $
 
 Each term has a mechanism. The factor 2 on the event side is real
-and tight in kind: a raise can re-code one delta against a wide
+and tight in kind, and it survives a shape that should worry a
+reader fresh from @projection: every unowned copy re-codes its first
+payload, and projection just showed per-region re-codings turning
+$Theta(t + k)$ into $Theta(t dot k)$. The cases differ in what the
+re-coding must spell. Projection zeroes unowned regions, so each
+re-entry re-spells a _global_ absolute — codes from the whole
+history, reused per transition. `fill` copies unowned regions
+verbatim above an output that only _collapsed_, so each boundary
+re-coding is a signed sum of deltas consumed inside the one owned
+region that just collapsed — local codes, not re-emitted
+plateau-by-plateau, each funding at most its own boundary, once.
+What survives is the one unavoidable duplication: a raise can
+re-code one delta against a wide
 neighbor, duplicating one input code's width once — and because a
 single code can be nearly the entire stream, "one code duplicated"
 _is_ a doubling. That is exactly how an earlier, stronger conjecture
@@ -806,10 +838,14 @@ ratchet a peer could crank. The mechanism behind each term, since
 this is the bound that a tick-cranking peer tests: iterated ticks
 cannot add nodes beyond the id's own resolution — an expansion
 chain fires only where an event leaf still sits above id structure,
-and once split, the region stays split — so the node budget is
+and once split, the region stays split (a `fill` collapse cannot
+undo a `grow` expansion under the same party, because a
+wholly-owned event _node_ always changes under `fill`, so `grow`
+only ever sees leaves) — so the node budget is
 spent at most once, the lone $4 dot "size"(i)$; and $k$ ticks raise
-values by at most $k$, so the re-coded payloads widen by at most
-$ceil(log_2 (k + 1))$ gamma bits apiece, the logarithmic term.
+values by at most $k$, so the two re-coded payloads widen by at
+most $2 ceil(log_2 (k + 1))$ code bits apiece — gamma's two bits
+per magnitude bit — the logarithmic term.
 (Derived and pinned by enforced tests in our work.)
 
 Together: every code tick emits is priced by codes tick read, up to

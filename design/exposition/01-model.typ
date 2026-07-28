@@ -20,8 +20,9 @@ efficient — and, more demandingly, an implementation whose efficiency
 cannot be revoked by its inputs. The gap is wider than it first
 appears. A faithful, node-for-node transcription of the paper's
 equations inherits four independent cost defects, two of them
-quadratic, and the quadratics are not exotic: inputs of a few
-kilobytes trigger them at observable scale (@naive). A clock library
+quadratic, and the quadratics are not exotic — inputs of tens of
+kilobytes trigger them at observable scale, and a few kilobytes
+already crash the transcription's stack (@naive). A clock library
 sits at a boundary where bytes arrive from other machines. It must
 price its work against what actually arrives, not against what a
 well-behaved peer would send.
@@ -49,13 +50,15 @@ piece of arithmetic:
   accumulator with no normalized region anywhere makes every
   word-sized update and every sign query amortized constant-time, and
   every wide update linear in its own width, _on every input
-  sequence_ (one discipline rides the contract: an accumulator fed
-  by scale-shifted writes is write-only until materialized —
-  @accum) — the load-bearing component that lets each sweep's cost
+  sequence_ (with one restriction, stated and used in @accum: an
+  accumulator that receives writes at large power-of-two scales is
+  never asked for its sign — it is written, then read out once at
+  the end) — the load-bearing component that lets each sweep's cost
   argument close.
 
 On top of those two, @operations derives each operation — comparison;
-join and meet; fork, party join, and party difference; projection;
+join and meet; fork, party join, party difference, and the party
+predicates `covers` and `disjoint`; projection;
 the measures rank, distance, lag, and minimum tick count; and last,
 because it needs everything before it, tick (the paper's `event`,
 with `fill` and `grow`) — as a sweep over the packed form, each with
@@ -94,8 +97,11 @@ than smoothed over — one uncertified input shape in rank's funding
 argument (@measures), one probabilistic step in the counting bound
 (@nonneg), and one framing choice in what the compactness floor is
 measured against (@ctf-caveat) — plus one machine effect the linear
-bound absorbs rather than eliminates (@words); @closing collects all
-four.
+bound absorbs rather than eliminates (@words), one clause stated
+without proof (join's subadditivity in the minimum-tick floor,
+@measures), and two derivations whose full forms live in our work
+with their shapes given here (the join size constant, @join; tick's
+output bounds, @tick-output); @closing collects them all.
 
 *What this document does not cover.* The library around this design
 has concerns this exposition deliberately omits: the API and its
@@ -137,11 +143,13 @@ The three operations:
   that a union), event trees by pointwise maximum.
 
 Comparison is pointwise: $e_1 <= e_2$ iff the function of $e_1$ is
-nowhere above the function of $e_2$. Two event trees with no
-containing order are _concurrent_. The paper's operations lean on one
-piece of notation this document reuses: the _lift_ $e arrow.t m$,
+nowhere above the function of $e_2$. Two event trees neither of
+which is $<=$ the other are _concurrent_. The paper's operations
+lean on notation this document reuses: the _lift_ $e arrow.t m$,
 which adds $m$ to the root value of $e$ — so $n arrow.t m = n + m$
-and $(n, e_1, e_2) arrow.t m = (n + m, e_1, e_2)$.
+and $(n, e_1, e_2) arrow.t m = (n + m, e_1, e_2)$ — along with
+$min(e)$ and $max(e)$, the extrema of $e$'s function, and `norm`,
+the paper's normalizing constructor.
 
 Finally, the paper keeps trees in a *normal form* — $(0,0)$ and
 $(1,1)$ collapse in ids; in event trees, equal-leaf siblings collapse
@@ -182,6 +190,10 @@ double duty; each such use is flagged where it occurs):
     [$ell$], [the word length of a wide operand],
     [$k$], [a construction's scale parameter (a cliff's width, a
       gamma bucket, an iteration count — local to each use)],
+    [$w$], [a construction's tooth width (@two-zone); in
+      @ctf-caveat, a family's payload width],
+    [$s$], [a scaled write's power-of-two exponent
+      (@accum-contract)],
     [$t$], [double duty, flagged in place: a construction's tooth
       count; the watermark gap $h - m$ in @tick],
     [$ell$ (again)], [in @compactness only: a walk's step count and

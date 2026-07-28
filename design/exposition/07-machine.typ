@@ -28,9 +28,8 @@ The measured picture, per packed input byte:
   they move or compare bytes.
 - *Validating decode, comparison, the party predicates* sit between
   a few and a few tens of nanoseconds per byte — comparison at the
-  low end, a single-digit multiple of a bit-serial scan that visits
-  every bit and does nothing else; validating decode toward the
-  high end, a few hundred times the raw byte-copy floor. This is
+  low end, within a small multiple of simply visiting every bit;
+  validating decode toward the high end. This is
   the price of actually decoding every code once,
   plus the canonicality checks.
 - *The arithmetic sweeps* — join, meet, tick, projection, rank —
@@ -41,7 +40,7 @@ The measured picture, per packed input byte:
   exchange) pay their parts' passes, a few hundred nanoseconds per
   byte at worst.
 
-Two properties of this table matter more than its values. The
+Two properties of this picture matter more than its values. The
 _ordering_ is exactly the ordering of how much each operation must do
 per bit — nothing pays for machinery it does not use. And the values
 are _flat across input shapes_: the adversarial families of the
@@ -116,9 +115,10 @@ strongly biased and predicts well.
 Every walk is iterative. Suspended ancestors cost about two _bits_
 each on packed stacks — the validator's two topology-state bits per
 open ancestor, the overlay walk's one path bit per level per cursor
-(same number, two derivations) — with one stated exception, the
-watermark stack's bounded differences (@tick-web), still linear,
-still priced. A tree $10^5$ levels deep — a thirty-seven-kilobyte
+(same number, two derivations) — with two stated exceptions, the
+watermark stack's bounded differences (@tick-web) and the route
+fold's pending cost pairs (@tick-fusion), both still linear,
+both priced. A tree $10^5$ levels deep — a thirty-seven-kilobyte
 message —
 costs a cursor walking it one path bit per level: some twelve
 kilobytes of packed stack state against that operand's own
@@ -126,8 +126,10 @@ thirty-seven kilobytes, and no native stack at all —
 no overflow, no guard pages, no frame setup and teardown in the hot
 loop. The direct transcription's
 $approx 800 times$ frame amplification (@naive-recursion) is
-replaced by a constant near one-third — the state is _smaller_ than
-the input's own topology bits.
+replaced by a constant near one-third for a single-cursor walk (the
+validator's two state bits per level make it two-thirds) — either
+way the state is _smaller_ than
+the input's own bits.
 
 The whole section compresses to one sentence: the skyline turns
 every clock operation into the one workload — a forward scan of
