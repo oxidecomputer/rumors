@@ -397,8 +397,9 @@
 //! operand bundle supplies (the product section above): the event shapes —
 //! the dense spine, `bigroot`, `hugeleaf`, the boundary comb (`cliff`, at
 //! `k = n` so its value content grows quadratically in its packed input),
-//! `harmonic`, and `freeze-pos` (the many-freezes spine, one query-fold
-//! freeze per block) — carry a version; the diverted id-spine pair carries a
+//! `harmonic`, `freeze-pos` (the many-freezes spine, one query-fold
+//! freeze per block), and `promo-rearm` (the many-armings spine, one
+//! query-fold promotion per block) — carry a version; the diverted id-spine pair carries a
 //! disjoint party pair; the eleven cross shapes (`comb-scatter` and the
 //! ten tick-walk crosses) carry a version, a mounted party pair, and a
 //! clock; the two version-pair shapes — `jump-pair` (wide
@@ -420,7 +421,7 @@
 //! kernel-seam probes live in the envelope suite alone. The criterion and
 //! the add-a-shape touch list sit on the `FAMILIES` roster below.
 //!
-//! Five shapes carry a genre note beyond their variant docs:
+//! Six shapes carry a genre note beyond their variant docs:
 //!
 //! - `freeze-pos`, built against the linear-functional rows: `Θ(s)`
 //!   query-fold freezes at ever-deeper stream positions where every
@@ -429,6 +430,18 @@
 //!   adequacy tripwire) reads ×1.50 per byte across this family's
 //!   doubling, so a green `version_rank × freeze-pos` cell is a live
 //!   verdict, not decoration.
+//!
+//! - `promo-rearm`, built against the linear-functional rows: `Θ(s)`
+//!   query-fold promotions at O(1) stored codes each, over a consumed
+//!   mass whose written span the spine keeps growing — the coverage
+//!   hole freeze-pos left, its parked drift being monotone (no
+//!   committed family promoted at all). The committed known-bad kernel
+//!   (the query fold's span-promotion tripwire) reads ×1.74 per byte
+//!   across this family's doubling, so a green
+//!   `version_rank × promo-rearm` cell is a live verdict, not
+//!   decoration — and the class-binding seal that holds `Linear`
+//!   claims against exponent-mechanism reds is live for the promotion
+//!   mechanism exactly because this column exists.
 //!
 //! - `comb-scatter`: the projection cross (boundary-comb version ×
 //!   scattered party) whose mandatory output dominates its input — the
@@ -1094,6 +1107,21 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 /// the exponent leg compares like against like.
 const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 
+/// Promotion re-arm blocks at scale 1.0 (packed version ~128 KiB, the
+/// per-block wide arming codes dominating).
+///
+/// Half the `skyline_flatness` promotion re-arm band's small run: the
+/// committed span-reading promotion reads ×1.74 per-byte growth across
+/// that regime's doubling (the span-promotion tripwire's measurement
+/// of record), so the board's default pair straddles what the family
+/// exists to catch. The base is a multiple of 8 deliberately: the
+/// family's rank exponent is `36s`, and `rank_sum` lands its small
+/// summands at bit remainder `exp mod 32` (an honest amortized-O(1)
+/// constant that flips with the remainder — the freeze-position base's
+/// derivation carries the mechanism); `8 | s` keeps `36s ≡ 0 (mod 32)`,
+/// so every doubling compares like against like.
+const PROMO_REARM_BASE_BLOCKS: usize = 512;
+
 /// Concurrent-pair forked-party count at scale 1.0, rounded up to a
 /// power of two at every scale (the balanced fork and the alternating
 /// dominance schedule both need it; the level doubling then doubles it
@@ -1310,6 +1338,22 @@ enum FamilyKind {
     /// freeze-position band). Designed against the linear-functional
     /// query rows.
     FreezePos,
+    /// The promotion re-arm spine `promotion_rearm(s)`: the
+    /// many-armings sentinel.
+    ///
+    /// `32s` span-building levels grow the consumed mass's written
+    /// span, then `s` four-node blocks each park a wide drift and
+    /// promote it at a narrow one — `Θ(s)` query-fold promotions at
+    /// O(1) stored codes each, where every comb promotes never and the
+    /// freeze-position spine's parked drift is monotone. Any promotion
+    /// accounting that re-reads whole-history state per arming goes
+    /// quadratic here while the family's suffix masses compact to O(1)
+    /// balanced terms. The committed known-bad kernel reads ×1.74 per
+    /// byte across the doubling on this shape (the query fold's
+    /// span-promotion tripwire); the promotion ledger reads flat (the
+    /// `skyline_flatness` promotion re-arm bands). Designed against
+    /// the linear-functional query rows.
+    PromoRearm,
     /// The concurrent pair `concurrent_pair(n)`: the emit side-switch
     /// density population.
     ///
@@ -1338,7 +1382,7 @@ enum FamilyKind {
 /// whole-surface adversary earns a board family, while a kernel-seam
 /// shape lives in the envelope suite alone, as `wide_tooth_comb`,
 /// `alt_spine`, and the `memo_*` shapes do.
-const FAMILIES: [FamilyKind; 23] = [
+const FAMILIES: [FamilyKind; 24] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -1360,6 +1404,7 @@ const FAMILIES: [FamilyKind; 23] = [
     FamilyKind::AscendPlateau,
     FamilyKind::JumpPair,
     FamilyKind::FreezePos,
+    FamilyKind::PromoRearm,
     FamilyKind::ConcurrentPair,
     FamilyKind::Benign,
 ];
@@ -1645,6 +1690,13 @@ impl FamilyData {
                 kind,
                 "freeze-pos",
                 super::freeze_position(size(FREEZE_POS_BASE_BLOCKS))
+                    .version()
+                    .encode(),
+            ),
+            FamilyKind::PromoRearm => Self::event(
+                kind,
+                "promo-rearm",
+                super::promotion_rearm(size(PROMO_REARM_BASE_BLOCKS))
                     .version()
                     .encode(),
             ),
@@ -3224,11 +3276,12 @@ fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         | FamilyKind::AscendPlateau => group == OpGroup::Tick,
         // The query-fold adversaries, built against the
         // linear-functional rows: wide difference crests over a
-        // dense-position spine, the many-freezes spine, and the
-        // switch-density population.
-        FamilyKind::JumpPair | FamilyKind::FreezePos | FamilyKind::ConcurrentPair => {
-            group == OpGroup::Measure
-        }
+        // dense-position spine, the many-freezes spine, the
+        // many-armings spine, and the switch-density population.
+        FamilyKind::JumpPair
+        | FamilyKind::FreezePos
+        | FamilyKind::PromoRearm
+        | FamilyKind::ConcurrentPair => group == OpGroup::Measure,
     }
 }
 

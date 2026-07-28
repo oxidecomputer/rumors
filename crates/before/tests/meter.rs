@@ -2932,14 +2932,14 @@ mod skyline_flatness {
     /// body alone.
     ///
     /// Carries `min_ticks`' closed form as the cross-fold semantic leg
-    /// (proving the generator builds the ascending spine this band
+    /// (proving the generator builds the re-arm spine this band
     /// reasons about) and the one-touch-per-operand-byte liveness
     /// floor.
     fn rank_promotion_rearm_run(p: usize) -> QueryRun {
         use dashu_int::UBig;
         let v = meter::promotion_rearm(p).version();
         let bytes = v.encode().len() as u64;
-        let expected = UBig::from(32 * p as u64)
+        let expected = UBig::from(16 * p as u64)
             + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
             + 1u8;
         assert_eq!(
@@ -3083,13 +3083,13 @@ mod skyline_flatness {
     /// triple on the promotion re-arm analogue, measured 2026-07-28
     /// ×1.25.
     ///
-    /// The record: 1,090,188 → 2,180,188 touches and 615,783 →
-    /// 1,231,531 limb ops across `p = 1,000 → 2,000` on a 263 → 525
-    /// KiB packed pair — three sweeps' worth, ~4 touches per byte,
+    /// The record: 975,024 → 1,949,774 touches and 819,783 →
+    /// 1,639,531 limb ops across `p = 1,000 → 2,000` on a 263 → 525
+    /// KiB packed pair — three sweeps' worth, ~3.6 touches per byte,
     /// flat across the doubling (the span-reading promotion reads
-    /// ×1.66 per byte here, the committed pair tripwire's record).
+    /// ×1.71 per byte here, the committed pair tripwire's record).
     const DISTANCE_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
-        [(1_362_735, 769_728), (2_725_235, 1_539_413)];
+        [(1_218_780, 1_024_728), (2_437_217, 2_049_413)];
 
     /// Distance and lag are linear on the promotion re-arm analogue:
     /// the two-operand arming genre reads flat (×1.25) per packed byte

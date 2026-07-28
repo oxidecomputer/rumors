@@ -1437,33 +1437,40 @@ const PROMOTION_REARM_ARM_BITS: usize = 608;
 /// arming drift exceeds it by more than the allowance (20 > 10 + 8).
 const PROMOTION_REARM_SETTLE_BITS: usize = 288;
 
-/// Unit-climb spine levels per block in [`promotion_rearm`]: the
+/// Span-building spine levels per block in [`promotion_rearm`]: the
 /// phase-1 run of `32p` levels puts a `Θ(p)`-digit floor under the
-/// position span the blocks then re-arm across, at ~6 stored bits per
-/// level.
+/// consumed-mass span the blocks then re-arm across, at ~5 stored bits
+/// per level.
 const PROMOTION_REARM_LEVELS_PER_BLOCK: usize = 32;
 
-/// The promotion re-arm spine `PR(p)`: `32p` unit climbs down a right
-/// spine, then `p` four-node re-arm blocks, over a terminal 1 leaf.
+/// The promotion re-arm spine `PR(p)`: `32p` span-building levels down
+/// a right spine, then `p` four-node re-arm blocks, over a terminal 1
+/// leaf.
 ///
-/// Exactly `2004p + 4` bits. Layout: `32p` spine nodes `(1, 0, ·)`
-/// (base 1, 0-leaf left, spine right — 6 bits each), then per block the
-/// bases `2^608, 1, 2^288, 1` on the same node shape (1,220 + 6 + 580 +
-/// 6 bits), closing in the leaf `1` (4 bits). Heights ascend
-/// throughout, so every node's subtree minimum is its own left leaf and
-/// the packed tree stores exactly the height deltas: the operand is
-/// `Θ(p)` machine words while the climbed span grows by one digit per
-/// 32 levels. Each block's `2^608` climb re-arms parked drift over the
-/// query folds' freeze allowance (the following unit fires the freeze
-/// that parks it), and its `2^288` climb re-freezes at a drift the
-/// parked component exceeds by more than the allowance — one promotion
-/// per block, `Θ(p)` promotions at O(1) stored codes each, so any
+/// Exactly `1972p + 4` bits. Layout: `32p` spine nodes `(0, 1, ·)` /
+/// `(0, 0, ·)` alternating (base 0, leaf heights 1, 0, 1, 0, … — 10
+/// bits per pair), then per block the node bases `2^608, 1, 2^288, 1`
+/// on the 0-leaf shape (1,220 + 6 + 580 + 6 bits), closing in the
+/// leaf `1` (4 bits). The prefix's ±1 oscillation never freezes while
+/// its interval masses' depths grow the consumed span one digit per 32
+/// levels, and its running range minima are all zero, so the min-ticks
+/// web rides the whole prefix as one compressed zero run (an ascending
+/// prefix would instead arm `Θ(p)` distinct nested minima — the
+/// ascend-cliff heap genre, deliberately avoided: this family's
+/// adversarial payload is the promotion schedule, not the web). Each
+/// block's `2^608` climb re-arms parked drift over the query folds'
+/// freeze allowance (the following unit fires the freeze that parks
+/// it), and its `2^288` climb re-freezes at a drift the parked
+/// component exceeds by more than the allowance — one promotion per
+/// block, `Θ(p)` promotions at O(1) stored codes each, so any
 /// promotion accounting that re-reads whole-history state per arming
-/// goes quadratic here while the family's suffix masses compact to O(1)
-/// terms. Every stored code is a delta the fold must consume, and
-/// `min_ticks(PR(p)) = Σ bases = 32p + p(2^608 + 2^288 + 2) + 1` is the
-/// closed-form semantic leg. Normal form: every node's left child is
-/// the 0 leaf (its subtree minimum), and no leaf pair is equal.
+/// goes quadratic here while the family's suffix masses compact to
+/// O(1) balanced terms. Every stored code is a delta the fold must
+/// consume, and `min_ticks(PR(p)) = Σ bases = 16p + p(2^608 + 2^288 +
+/// 2) + 1` is the closed-form semantic leg. Normal form: every prefix
+/// node reaches its subtree minimum 0 through a later prefix 0 leaf,
+/// every block node's minimum is its own 0 leaf, and no sibling leaf
+/// pair is equal.
 ///
 /// # Panics
 ///
@@ -1475,56 +1482,58 @@ pub fn promotion_rearm(p: usize) -> Packed {
     );
     let arm = pow2(PROMOTION_REARM_ARM_BITS);
     let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
+    let zero = Base::ZERO;
     let one = Base::from(1u8);
-    let mut bits = Bits::with_capacity(2004 * p + 4);
-    let spine_node = |bits: &mut Bits, base: &Base| {
-        bits.push(true); // spine node: 0-leaf left, spine right
-        codec::encode_int(bits, base);
-        ev_leaf(bits, 0);
-    };
-    for _ in 0..PROMOTION_REARM_LEVELS_PER_BLOCK * p {
-        spine_node(&mut bits, &one);
+    let mut bits = Bits::with_capacity(1972 * p + 4);
+    for level in 0..PROMOTION_REARM_LEVELS_PER_BLOCK * p {
+        bits.push(true); // span-builder node: alternating leaf left
+        codec::encode_int(&mut bits, &zero);
+        ev_leaf(&mut bits, u64::from(level % 2 == 0)); // 1, 0, 1, 0, …
     }
     for _ in 0..p {
         for base in [&arm, &one, &settle, &one] {
-            spine_node(&mut bits, base);
+            bits.push(true); // block node: 0-leaf left, spine right
+            codec::encode_int(&mut bits, base);
+            ev_leaf(&mut bits, 0);
         }
     }
     ev_leaf(&mut bits, 1); // the terminal leaf: the last unit climb
     Packed::from_bits(bits)
 }
 
-/// The promotion re-arm mate `PRM(p)`: the unit-climb twin of
-/// [`promotion_rearm`] — the same `36p`-node right spine and 0-leaf
-/// topology with every base 1.
+/// The promotion re-arm mate `PRM(p)`: the small twin of
+/// [`promotion_rearm`] — the same `36p`-node right-spine topology with
+/// the 1, 0, 1, 0, … leaf alternation running the whole spine.
 ///
-/// Exactly `216p + 4` bits, and `min_ticks(PRM(p)) = 36p + 1`.
-/// Overlaid against `PR(p)` it is the two-operand re-arm genre:
-/// heights agree along the whole unit spine (the difference folds to
-/// zero, boundary by boundary) and every block boundary folds a unit
-/// from this operand against the other's wide climb — so the co-sweep's
-/// freezes and promotions fire at boundaries where this operand's cheap
-/// codes set the funded width, moving drift only the other operand's
-/// wide codes deposited. `PR(p)` dominates it pointwise (every `PR`
-/// base is at least 1), so the pair measures collapse to exact rank
-/// identities. Normal form: as [`promotion_rearm`]'s.
+/// Exactly `180p + 4` bits, and `min_ticks(PRM(p)) = 18p + 1`.
+/// Overlaid against `PR(p)` it is the two-operand re-arm genre: the
+/// heights agree leaf for leaf along the whole span-building prefix
+/// (the difference folds to zero, boundary by boundary), and every
+/// block boundary folds a unit from this operand against the other's
+/// wide climb — so the co-sweep's freezes and promotions fire at
+/// boundaries where this operand's cheap codes set the funded width,
+/// moving drift only the other operand's wide codes deposited. `PR(p)`
+/// dominates it pointwise (equal on the prefix, `≥ 2^608` against
+/// `≤ 1` in the blocks), so the pair measures collapse to exact rank
+/// identities. Normal form: as [`promotion_rearm`]'s prefix, closing
+/// in the unequal leaf pair `(0, 1)`.
 ///
 /// # Panics
 ///
 /// Panics if `p == 0`.
 pub fn promotion_rearm_mate(p: usize) -> Packed {
     assert!(p >= 1, "the re-arm mate needs at least one block's worth");
-    let one = Base::from(1u8);
-    // The spine matches PR(p) node for node: 32p unit levels plus the
-    // 4p block levels, every base 1.
+    let zero = Base::ZERO;
+    // The spine matches PR(p) node for node: 32p span-builder levels
+    // plus the 4p block levels, the alternation running through both.
     let levels = (PROMOTION_REARM_LEVELS_PER_BLOCK + 4) * p;
-    let mut bits = Bits::with_capacity(216 * p + 4);
-    for _ in 0..levels {
-        bits.push(true); // spine node: 0-leaf left, spine right
-        codec::encode_int(&mut bits, &one);
-        ev_leaf(&mut bits, 0);
+    let mut bits = Bits::with_capacity(180 * p + 4);
+    for level in 0..levels {
+        bits.push(true); // spine node: alternating leaf left
+        codec::encode_int(&mut bits, &zero);
+        ev_leaf(&mut bits, u64::from(level % 2 == 0)); // 1, 0, 1, 0, …
     }
-    ev_leaf(&mut bits, 1); // the terminal leaf: the last unit climb
+    ev_leaf(&mut bits, 1); // the terminal leaf: the unequal closer
     Packed::from_bits(bits)
 }
 
