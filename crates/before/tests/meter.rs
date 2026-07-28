@@ -4885,3 +4885,308 @@ mod width_circulation_cost {
         );
     }
 }
+
+// Red pins from the whole-state adversarial review (2026-07-28, task
+// #37): two query folds measured superlinear on their honest packed
+// denominators while their public `# Complexity` sections (and the
+// claims roster's `Class::Linear` rows binding them) state `O(|v|)`.
+// Each pin below carries a per-byte cost-growth band across a size
+// doubling on exact deterministic counters (a linear fold reads ~x1.00
+// there, a quadratic ~x2.00): the ceiling is the current bad reading
+// (x1.10), so further regression trips loudly, and the floor sits
+// midway between linear and measured, so ONLY a complexity-class
+// change crosses it — the
+// cure (or a deliberate re-class of the rustdoc + claims roster) must
+// move the pin, the `# Complexity` section, and the roster row in one
+// change. Semantics ride a closed-form leg per family, and every run
+// carries a touch liveness floor so the band never holds vacuously
+// over a dead counter.
+#[cfg(feature = "limb-meter")]
+mod query_superlinearity_pins {
+    use before::meter;
+    use before::{Ticks, Version};
+    use dashu_int::UBig;
+    use suanpan::touch_meter;
+
+    /// One metered run: the operand's packed bytes and the counters
+    /// over the measured body alone.
+    struct Run {
+        bytes: u64,
+        touches: u64,
+        limb_ops: u64,
+    }
+
+    /// Assert a counter's PER-BYTE cost growth across the doubling sits
+    /// inside the pinned band:
+    /// `floor_x100/100 <= (c2/n2)/(c1/n1) <= ceiling_x100/100`, by exact
+    /// u128 cross-multiplication. A linear fold reads ~1.00 here (its
+    /// per-byte cost is scale-free); a quadratic one reads ~2.00 across
+    /// a doubling.
+    fn assert_band(
+        name: &str,
+        small: (u64, u64),
+        large: (u64, u64),
+        floor_x100: u64,
+        ceiling_x100: u64,
+    ) {
+        let (c1, n1) = small;
+        let (c2, n2) = large;
+        eprintln!("MEASURED {name}: small={c1}/{n1}B large={c2}/{n2}B");
+        let lhs = u128::from(c2) * u128::from(n1) * 100;
+        let base = u128::from(c1) * u128::from(n2);
+        assert!(
+            lhs >= base * u128::from(floor_x100),
+            "{name}: per-byte cost grew only {c1}/{n1}B -> {c2}/{n2}B across the \
+             doubling, under the x{}.{:02} superlinearity floor (a linear fold \
+             reads ~x1.00): the documented-superlinear behavior this pin \
+             witnesses is gone, so re-class or re-derive the operation's \
+             `# Complexity` section, its claims-roster row, and this pin in one \
+             change",
+            floor_x100 / 100,
+            floor_x100 % 100,
+        );
+        assert!(
+            lhs <= base * u128::from(ceiling_x100),
+            "{name}: per-byte cost grew {c1}/{n1}B -> {c2}/{n2}B across the \
+             doubling, over the x{}.{:02} pinned ceiling (the measured bad \
+             reading x1.10): the superlinearity got worse",
+            ceiling_x100 / 100,
+            ceiling_x100 % 100,
+        );
+    }
+
+    /// `Version::min_ticks` over one packed family shape, with the
+    /// one-touch-per-operand-byte liveness floor and the closed-form
+    /// value leg (`expected` is the exact tick total, decimal).
+    fn min_ticks_run(packed: meter::Packed, expected: &str) -> Run {
+        let v = packed.version();
+        let bytes = v.encode().len() as u64;
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let ticks = v.min_ticks();
+        let run = Run {
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert_eq!(
+            ticks,
+            expected.parse::<Ticks>().expect("the closed form parses"),
+            "min_ticks disagrees with the family's closed form"
+        );
+        assert!(
+            run.touches >= run.bytes,
+            "min_ticks at {bytes} operand bytes: {} digit touches under the \
+             one-per-byte floor: the fold's accumulator work is not metered",
+            run.touches,
+        );
+        run
+    }
+
+    /// `Version::min_ticks` reads superlinear on the pure comb: the
+    /// closing-node minimum merge circulates the full plateau width per
+    /// comb level, so accumulator touches grow ~x3.8 across a joint
+    /// (k, b) doubling that doubles the packed operand.
+    ///
+    /// The public `# Complexity` section says `O(|v|)` time and space
+    /// and the claims roster binds `version_min_ticks` as
+    /// `Class::Linear`; the amplification board already reads the cell
+    /// red at both scales (limb/touch exponents 1.5-1.95 on this family
+    /// and its reveal-comb siblings), and this pin is the same reading
+    /// held in the gate: the claim and the kernel disagree, and
+    /// whichever moves — the anchor-web cure or a re-classed section —
+    /// must flip this floor in the same change.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 18,210 -> 68,413 across pure_comb(1,000, 1,000) ->
+    /// pure_comb(2,000, 2,000), packed 626B -> 1,251B: per-byte growth
+    /// x1.88 (still rising at the next doubling: x1.91); the floor
+    /// 1.44 sits midway between linear x1.00 and measured x1.88.]
+    #[test]
+    fn min_ticks_pure_comb_touches_read_superlinear() {
+        // min_ticks(pure_comb(k, b)) = k * 2^b: k plateau leaves over a
+        // zero floor, every comb node's minimum zero.
+        let expected_small = (UBig::ONE << 1_000usize) * UBig::from(1_000u64);
+        let expected_large = (UBig::ONE << 2_000usize) * UBig::from(2_000u64);
+        let small = min_ticks_run(meter::pure_comb(1_000, 1_000), &expected_small.to_string());
+        let large = min_ticks_run(meter::pure_comb(2_000, 2_000), &expected_large.to_string());
+        assert_band(
+            "min_ticks_pure_comb_touches",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+            144,
+            207,
+        );
+    }
+
+    /// `Version::min_ticks` reads superlinear on the reveal comb in
+    /// BOTH width currencies: the limb column (the site minima
+    /// re-materialized per closing node) grows alongside the touch
+    /// column, so the superlinearity is not an accumulator-local
+    /// artifact.
+    ///
+    /// Same claim contradiction as the pure-comb pin (`O(|v|)` prose,
+    /// `Class::Linear` roster row, red board cell); the same resolution
+    /// rule applies.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 24,273 -> 80,539 and limb ops 23,467 -> 78,915 across
+    /// reveal_comb(1,000, 1,000) -> reveal_comb(2,000, 2,000), packed
+    /// 1,501B -> 3,001B: per-byte growth x1.66 (touch) and x1.68
+    /// (limb), both still rising at the next doubling (x1.77/x1.79);
+    /// the floors 1.33/1.34 sit midway between linear x1.00 and
+    /// measured.]
+    #[test]
+    fn min_ticks_reveal_comb_reads_superlinear_in_both_width_currencies() {
+        // min_ticks(reveal_comb(k, b)) = k * 2^b: each site node stores
+        // 2^b - 1 with leaves 0 and 1 above it; covering root and floor
+        // store zero.
+        let expected_small = (UBig::ONE << 1_000usize) * UBig::from(1_000u64);
+        let expected_large = (UBig::ONE << 2_000usize) * UBig::from(2_000u64);
+        let small = min_ticks_run(
+            meter::reveal_comb(1_000, 1_000),
+            &expected_small.to_string(),
+        );
+        let large = min_ticks_run(
+            meter::reveal_comb(2_000, 2_000),
+            &expected_large.to_string(),
+        );
+        assert_band(
+            "min_ticks_reveal_comb_touches",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+            133,
+            183,
+        );
+        assert_band(
+            "min_ticks_reveal_comb_limb_ops",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+            134,
+            185,
+        );
+    }
+
+    /// The freeze-position family `FP(k)`: a right spine of `2k`
+    /// descending leaves whose consecutive deltas alternate one wide
+    /// drop (`2^288`, 10 digits — over the rank fold's 8-digit freeze
+    /// allowance) and one unit drop, over a terminal zero leaf.
+    ///
+    /// Every block re-arms wide live drift and the following unit code
+    /// fires a freeze, so the fold freezes Theta(k) times; each freeze
+    /// reads the position accumulator's full digit span (the
+    /// `sign_magnitude` read walks digit 0 through the top digit, set
+    /// by the first — shallowest — leaf's mass), so freeze `i` pays
+    /// Theta(k/16) touches against the O(1)-digit compacted ones-run
+    /// the correction product actually needs: Theta(k^2) total on a
+    /// Theta(k)-byte operand, none of it mandatory. Built through
+    /// `FromStr` alone: the family is reachable by any caller holding
+    /// the public API. Every node's base is zero (the terminal zero
+    /// leaf is the minimum of every suffix subtree), so the text below
+    /// is canonical by construction and the parser enforces it.
+    fn freeze_position_family(k: usize) -> (Version, UBig) {
+        let wide = UBig::ONE << 288usize;
+        let mut value = (&wide + UBig::ONE) * UBig::from((k + 1) as u64);
+        let mut tick_total = UBig::ZERO;
+        let mut text = String::new();
+        let mut depth = 0usize;
+        for _ in 0..k {
+            value -= &wide;
+            tick_total += &value;
+            text.push_str("(0, ");
+            text.push_str(&value.to_string());
+            text.push_str(", ");
+            depth += 1;
+            value -= UBig::ONE;
+            tick_total += &value;
+            text.push_str("(0, ");
+            text.push_str(&value.to_string());
+            text.push_str(", ");
+            depth += 1;
+        }
+        text.push('0');
+        for _ in 0..depth {
+            text.push(')');
+        }
+        let v: Version = text
+            .parse()
+            .expect("the freeze-position family is canonical");
+        (v, tick_total)
+    }
+
+    /// `Version::rank` over the freeze-position family, with the touch
+    /// liveness floor and `min_ticks`' exact closed form as the
+    /// cross-fold semantic leg (the leaf sum, independently derived
+    /// while building the text).
+    fn rank_run(k: usize) -> Run {
+        let (v, tick_total) = freeze_position_family(k);
+        let bytes = v.encode().len() as u64;
+        assert_eq!(
+            v.min_ticks(),
+            tick_total
+                .to_string()
+                .parse::<Ticks>()
+                .expect("the leaf sum parses"),
+            "the family's leaf sum disagrees with min_ticks: the generator \
+             does not build the tree this pin reasons about"
+        );
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let rank = v.rank();
+        std::hint::black_box(rank);
+        let run = Run {
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert!(
+            run.touches >= run.bytes,
+            "rank at {bytes} operand bytes: {} digit touches under the \
+             one-per-byte floor: the fold's accumulator work is not metered",
+            run.touches,
+        );
+        run
+    }
+
+    /// `Version::rank` reads superlinear on the freeze-position family:
+    /// per-freeze full-span position reads cost Theta(k^2) touches on a
+    /// Theta(k)-byte operand, against the `O(|v|)` public claim and the
+    /// roster's `Class::Linear` row — on a family whose freeze
+    /// positions are a compacted ones-run, so the work is NOT the
+    /// dense-position residual the query module's cost section reserves:
+    /// it is span-read overhead an O(|v|) accounting avoids entirely.
+    ///
+    /// The amplification board reads every committed rank family green
+    /// at both scales (this family is in none of them: every committed
+    /// family fires O(1) freezes); this pin is the coverage the roster
+    /// lacks, held superlinear until the cure or the re-class moves the
+    /// `# Complexity` section, the claims-roster row, and this floor in
+    /// one change.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 124,371 -> 372,862 and limb ops 72,351 -> 206,804 across
+    /// FP(1,000) -> FP(2,000), packed 73,325B -> 146,575B: per-byte
+    /// growth x1.50 (touch) and x1.43 (limb), the local exponent still
+    /// rising at FP(4,000) (e_touch 1.74), so the band is
+    /// scale-specific; the floors 1.25/1.21 sit midway between linear
+    /// x1.00 and measured.]
+    #[test]
+    fn rank_freeze_position_touches_read_superlinear() {
+        let small = rank_run(1_000);
+        let large = rank_run(2_000);
+        assert_band(
+            "rank_freeze_position_touches",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+            125,
+            165,
+        );
+        assert_band(
+            "rank_freeze_position_limb_ops",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+            121,
+            157,
+        );
+    }
+}
