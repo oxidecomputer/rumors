@@ -368,3 +368,128 @@ proptest! {
         assert_projection(&v, &p);
     }
 }
+
+/// The committed known-bad freeze accounting: the freeze-position
+/// family's adequacy tripwire.
+///
+/// The anchored-segment integral exists because a freeze must not
+/// settle evicted drift against its absolute position (the module doc's
+/// discipline). This module keeps the refuted accounting — the
+/// frozen/live split whose every freeze correction multiplies the drift
+/// by the whole position accumulator, read across its full written span
+/// — committed and *failing*: the tripwire proves `FP(k)` still catches
+/// the mechanism red, so the family's green flatness band
+/// (`skyline_rank_freeze_position_is_flat_per_unit`, `tests/meter.rs`)
+/// is never decoration. The kernel is value-exact against the shipped
+/// rank, so the demonstrator is a real implementation, not a strawman.
+#[cfg(feature = "limb-meter")]
+mod adequacy {
+    use core::cmp::Ordering;
+
+    use suanpan::{touch_meter, Accumulator};
+
+    use crate::codec::{Base, BitsSlice};
+    use crate::meter::freeze_position;
+    use crate::version::skyline::encode;
+    use crate::version::skyline::sweep::{LeafCursor, Side};
+    use crate::Rank;
+
+    use super::super::{base_digits, max_depth, mul_into, FREEZE_ALLOWANCE_DIGITS};
+
+    /// The absolute-position rank fold: heights on a frozen/live split
+    /// whose freeze correction is `drift × position` with the position
+    /// accumulator read whole per freeze.
+    ///
+    /// Value-exact — the summation-by-parts identity
+    /// `Σᵢ F(i)·massᵢ = F_final·2^S − Σ_freezes drift·position` is
+    /// sound — and superlinear exactly where the tripwire asserts it:
+    /// freeze `i`'s position read walks the accumulator's whole written
+    /// span, which `FP(k)`'s descending spine grows with every block.
+    fn absolute_position_rank(bits: &BitsSlice) -> Rank {
+        let max_depth = max_depth(bits);
+        let scale = u32::try_from(max_depth).expect("the tripwire streams stay shallow");
+        let (mut cursor, first) = LeafCursor::open(bits);
+        let mut total = Accumulator::new();
+        let mut live_height = Accumulator::new();
+        let mut frozen = Accumulator::new();
+        frozen.add_magnitude(&first);
+        let mut position = Accumulator::new();
+        let one = Base::from(1u8);
+        loop {
+            let weight_shift = (max_depth - cursor.depth()) as u64;
+            if !live_height.is_literally_zero() {
+                total.add_accum_shl(&live_height, weight_shift);
+            }
+            position.add_magnitude_shl(&one, weight_shift);
+            if cursor.done() {
+                break;
+            }
+            let step = cursor.step(&mut live_height, Side::A);
+            if live_height.digit_count() > base_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
+                let (drift_sign, drift) = live_height.sign_magnitude();
+                let (_, position_mag) = position.sign_magnitude();
+                let drift = Base::from(drift);
+                mul_into(
+                    &mut total,
+                    &drift,
+                    &Base::from(position_mag),
+                    0,
+                    drift_sign == Ordering::Greater,
+                );
+                match drift_sign {
+                    Ordering::Less => frozen.sub_magnitude(&drift),
+                    _ => frozen.add_magnitude(&drift),
+                }
+                live_height = Accumulator::new();
+            }
+        }
+        total.add_accum_shl(&frozen, max_depth as u64);
+        let (sign, num) = total.sign_magnitude();
+        debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
+        Rank::from_raw(Base::from(num), scale)
+    }
+
+    /// One tripwire run: packed bytes and the touch count over the
+    /// known-bad fold, value-pinned against the shipped kernel.
+    fn run(k: usize) -> (u64, u64) {
+        let v = freeze_position(k).version();
+        let enc = encode(&v);
+        let expected = v.rank();
+        touch_meter::reset();
+        let r = absolute_position_rank(&enc);
+        let touches = touch_meter::touches();
+        assert_eq!(
+            r, expected,
+            "the known-bad fold must stay value-exact: a wrong demonstrator \
+             proves nothing about the family's coverage"
+        );
+        (enc.len().div_ceil(8) as u64, touches)
+    }
+
+    /// `FP(k)` catches the absolute-position accounting red: its
+    /// per-byte touch cost grows across the doubling (a linear fold
+    /// reads ~x1.00; the floor 1.25 sits midway between linear and the
+    /// measured x1.50), while the shipped kernel's flatness band holds
+    /// the same family at x1.25.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 124,368 -> 372,859 across FP(1,000) -> FP(2,000), packed
+    /// 73,328B -> 146,579B: per-byte growth x1.50.]
+    #[test]
+    fn absolute_position_accounting_reads_superlinear_on_freeze_position() {
+        let (small_bytes, small_touches) = run(1_000);
+        let (large_bytes, large_touches) = run(2_000);
+        eprintln!(
+            "MEASURED adequacy_absolute_position: small={small_touches}/{small_bytes}B \
+             large={large_touches}/{large_bytes}B"
+        );
+        assert!(
+            u128::from(large_touches) * u128::from(small_bytes) * 100
+                >= u128::from(small_touches) * u128::from(large_bytes) * 125,
+            "the absolute-position accounting reads flat on the freeze-position \
+             family ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
+             the family no longer catches the mechanism it was built for, so the \
+             flatness band it backs is decoration until a new witness lands"
+        );
+    }
+}
