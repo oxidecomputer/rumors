@@ -169,6 +169,14 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ]),
     },
     Claim {
+        op: "Party::ticks",
+        checks: &[Check {
+            site: Site::Fn,
+            tokens: &["`O(|v| + |p| + log n)`"],
+        }],
+        cells: Cells::Board(&[("version_ticks", Class::Linear)]),
+    },
+    Claim {
         op: "Party::fork",
         checks: &[Check {
             site: Site::Fn,
@@ -296,6 +304,14 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ]),
     },
     Claim {
+        op: "Version::ticks",
+        checks: &[Check {
+            site: Site::Fn,
+            tokens: &["`O(|v| + |p| + log n)`"],
+        }],
+        cells: Cells::Board(&[("version_ticks", Class::Linear)]),
+    },
+    Claim {
         op: "Version::concurrent",
         checks: &[Check {
             site: Site::Fn,
@@ -396,6 +412,14 @@ pub(crate) const CLAIMS: &[Claim] = &[
             tokens: &["`O(|c|)`"],
         }],
         cells: Cells::Board(&[("clock_tick", Class::Linear)]),
+    },
+    Claim {
+        op: "Clock::ticks",
+        checks: &[Check {
+            site: Site::Fn,
+            tokens: &["`O(|c| + log n)`"],
+        }],
+        cells: Cells::Board(&[("version_ticks", Class::Linear)]),
     },
     Claim {
         op: "Clock::fork",
@@ -852,6 +876,25 @@ pub(crate) const CLAIMS: &[Claim] = &[
             ("rank_pair_ops", Class::Linear),
             ("rank_sum", Class::Linear),
         ]),
+    },
+    Claim {
+        op: "Ticks ZERO / From / FromStr / Display / Add / Sum / Ord / Eq / Hash",
+        checks: &[Check {
+            site: Site::TypeDoc("src/version/ticks.rs", "Ticks"),
+            tokens: &[
+                "`O(1)`",
+                "`O(‖n‖)`",
+                "`O(‖a‖ + ‖b‖)`",
+                "`O(N)`",
+                "superlinear",
+            ],
+        }],
+        cells: Cells::Uncelled(
+            "an opaque count carrier: construction and arithmetic are \
+             word-to-width-scale with no packed-input axis; the operations \
+             denominated in it are celled at their own rows (version_ticks, \
+             version_min_ticks)",
+        ),
     },
     Claim {
         op: "Ranked Ord / From<Version> (byte tiebreak)",

@@ -621,6 +621,16 @@ pub const SCAN_TOUCH_FLOOR_BITS: u64 = 2;
 /// only on them.
 pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 
+/// The fixed count the `version_ticks` cell registers per measurement.
+///
+/// Fixed so the cell's judged axis is the packed input alone: the
+/// count's whole contribution is the boundary codes' gamma width (the
+/// flatness rows of `tests/meter.rs` pin that axis point to point), and
+/// 512 sits far enough past the single tick that an implementation
+/// iterating even a fraction of the count would blow the scaling
+/// ceiling rather than hide in a constant.
+pub const TICKS_BOARD_COUNT: u64 = 512;
+
 /// Text rows only: green requires at most this many limb operations per
 /// radix-work unit
 /// `R = n_io + Σᵢ (digitsᵢ × limbsᵢ + TEXT_PIPELINE_LIMB_OPS_PER_VALUE)`
@@ -1916,8 +1926,6 @@ const NA_LIMB_NOT_FORCED: &str =
     "magnitudes may be moved or compared without arithmetic: no limb work is in the contract";
 /// Limb NA: id trees have no magnitudes at all.
 const NA_LIMB_ID_TREE: &str = "id trees store no magnitudes: there is no arithmetic to meter";
-/// Limb NA: the contract is a machine-word fold.
-const NA_LIMB_WORD_FOLD: &str = "a machine-word fold: no big-integer arithmetic in the contract";
 /// Limb NA: the work runs below the shim, in the dependency.
 const NA_LIMB_DEPENDENCY: &str = "the decimal conversion runs inside the bignum dependency, \
      below the limb shim: the bench judge's time leg, and its wide-display pair at \
@@ -1981,9 +1989,6 @@ const WHY_TOUCH_WIDE_STREAM: &str = "deterministic-liveness: the validator's run
 /// Touch NA: every stored code batches in the accumulator's lazy zone.
 const NA_TOUCH_LAZY_BATCH: &str = "every stored code fits the machine-word bound: word-scale \
      deltas batch in the accumulator's lazy zone and force no digit touches";
-/// Touch NA: the minimum fold rides word-scale bookkeeping.
-const NA_TOUCH_MIN_FOLD: &str = "the walk tracks its minimum through comparisons and \
-     word-scale bookkeeping: no accumulator fold is forced";
 /// Touch NA: a projection may splice owned regions verbatim.
 const NA_TOUCH_PROJECTION: &str = "the projection may keep owned regions verbatim and re-base \
      boundaries through plain arithmetic: no accumulator fold is forced";
@@ -2290,44 +2295,6 @@ fn comparison_floors(v: &Version, w: &Version, packed_bytes: usize) -> Floors {
             touch: na(NA_TOUCH_CONCURRENT_OPERANDS),
         }
     }
-}
-
-/// Scan floor (`version_min_ticks` on a stream holding a wide payload
-/// code): the fold may exit the moment a height leaves the `u64` range.
-const WHY_SCAN_MIN_TICKS_SATURATES: &str = "the stream stores a payload code wider than a \
-     machine word, so the tick-floor fold may saturate and exit at its first wide height: \
-     only the root codes are forced";
-
-/// The min_ticks row's scan floor, derived from the operand (outside
-/// any measurement).
-///
-/// A stream holding any payload code wider than a machine word may
-/// saturate the `u64` tick floor mid-walk and exit there — a
-/// full-examination floor would demand scan work no conforming fold
-/// does — while a word-scale stream must be walked whole.
-fn min_ticks_scan_floor(v: &Version, packed_bytes: usize) -> Liveness {
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
-    let mut pos = 0usize;
-    let mut pending = 1usize;
-    while pending > 0 {
-        pending -= 1;
-        let internal = bits[pos];
-        pos += 1;
-        if internal {
-            pending += 2;
-            continue;
-        }
-        let (code, next) = codec::decode_int(bits, pos).expect("a stored stream is canonical");
-        pos = next;
-        if code.bits() > 64 {
-            return Liveness::Floor {
-                min: SCAN_TOUCH_FLOOR_BITS,
-                why: WHY_SCAN_MIN_TICKS_SATURATES,
-            };
-        }
-    }
-    scan_examines(packed_bytes)
 }
 
 /// The tick-cross rows' floors: full-examination scan, per-stored-code
@@ -2959,6 +2926,35 @@ fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "version_ticks",
+            group: OpGroup::Tick,
+            prepare: |f| {
+                // The fused multi-tick at a fixed count: the same walk
+                // and splice as the tick rows, with the count's gamma
+                // width the only n-dependence — so the cell must scale
+                // exactly as the tick cell above it (the flatness rows
+                // of tests/meter.rs pin the n axis; this cell pins the
+                // input axis).
+                if let Some((mut v, party, n)) = f.cross() {
+                    let floors = tick_walk_floors(&v, n);
+                    return Some(Cell::new(n, floors, move || {
+                        v.ticks(&party, TICKS_BOARD_COUNT);
+                        (v, party)
+                    }));
+                }
+                let (mut v, n) = f.version()?;
+                let party = Party::seed();
+                Some(Cell::new(
+                    n + 1,
+                    walk_floors(n, na(NA_TOUCH_SEED_RAISE)),
+                    move || {
+                        v.ticks(&party, TICKS_BOARD_COUNT);
+                        v
+                    },
+                ))
+            },
+        },
+        Op {
             name: "version_tick_adv_party",
             group: OpGroup::Party,
             prepare: |f| {
@@ -3127,13 +3123,16 @@ fn ops() -> Vec<Op> {
             name: "version_min_ticks",
             group: OpGroup::Measure,
             prepare: |f| {
+                // The exact fold walks the whole stream, decodes every
+                // stored code, and folds heights and minima on
+                // accumulators: the rank fold's floor spec exactly.
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    limb: na(NA_LIMB_WORD_FOLD),
+                    limb: limb_stream(mandatory_limbs_stream(&v)),
                     segments: seg_ceiling_only(),
-                    scan: min_ticks_scan_floor(&v, n),
-                    touch: na(NA_TOUCH_MIN_FOLD),
+                    scan: scan_examines(n),
+                    touch: touch_delta_fold(stored_deltas(&v)),
                 };
                 Some(Cell::new(n, floors, move || (v.min_ticks(), v)))
             },

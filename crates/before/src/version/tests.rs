@@ -18,7 +18,7 @@ use crate::testing::generators::{
 };
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
-use crate::{Clock, Party};
+use crate::{Clock, Party, Ticks};
 
 /// `a <= b` under the impl causal order.
 fn le(a: &Version, b: &Version) -> bool {
@@ -210,6 +210,26 @@ proptest! {
 
         let mut iv = from_oracle_version(version);
         iv.tick(&from_oracle_party(party));
+
+        prop_assert!(iv == from_oracle_version(&oracle_after));
+    }
+
+    /// The impl's fused `ticks(n)` matches the oracle's literally iterated
+    /// `ticks(n)` for every clock's own `(party, version)`, at counts the
+    /// oracle's `O(n · tree)` loop affords (the oracle module doc's
+    /// operating envelope caps `n` here; the wide counts ride the
+    /// composition law and the closed-form witnesses).
+    #[test]
+    fn ticks_matches_oracle(ops in world_strategy(), i in 0usize..64, n in 0u64..24) {
+        let cs = run(&ops);
+        let len = cs.len();
+        let (party, version) = cs[i % len].trees();
+
+        let mut oracle_after = version.clone();
+        oracle_after.ticks(party, n);
+
+        let mut iv = from_oracle_version(version);
+        iv.ticks(&from_oracle_party(party), n);
 
         prop_assert!(iv == from_oracle_version(&oracle_after));
     }
@@ -1019,10 +1039,10 @@ fn trace_ticks(ops: &[Op]) -> u64 {
 /// value), and two concurrent peaks (forced above their tallest path of `1`).
 #[test]
 fn min_ticks_known_values() {
-    assert_eq!(Version::new().min_ticks(), 0);
-    assert_eq!(Version::try_from(5).unwrap().min_ticks(), 5);
+    assert_eq!(Version::new().min_ticks(), Ticks::ZERO);
+    assert_eq!(Version::try_from(5).unwrap().min_ticks(), Ticks::from(5u64));
     let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
-    assert_eq!(peaks.min_ticks(), 2);
+    assert_eq!(peaks.min_ticks(), Ticks::from(2u64));
 }
 
 proptest! {
@@ -1047,7 +1067,7 @@ proptest! {
             prop_assert_eq!(v.min_ticks(), to_oracle_version(v).min_ticks());
             // And that minimum never exceeds the ticks the history performed.
             prop_assert!(
-                v.min_ticks() <= total,
+                v.min_ticks() <= Ticks::from(total),
                 "min_ticks {} exceeded the {} ticks performed",
                 v.min_ticks(),
                 total,
@@ -1087,7 +1107,11 @@ fn no_maximum_tick_count() {
             &Version::try_from(1).unwrap(),
             "n={n}: rejoins to leaf 1"
         );
-        assert_eq!(v.min_ticks(), 1, "n={n}: {n} ticks collapse to the floor 1");
+        assert_eq!(
+            v.min_ticks(),
+            Ticks::from(1u64),
+            "n={n}: {n} ticks collapse to the floor 1"
+        );
     }
 }
 
@@ -1598,11 +1622,11 @@ fn div_can_fragment_and_raise_min_ticks() {
     let comb = q0.party();
 
     let v = Version::try_from(1).unwrap();
-    assert_eq!(v.min_ticks(), 1); // one tick covers the whole interval
+    assert_eq!(v.min_ticks(), Ticks::from(1u64)); // one tick covers the whole interval
 
     let frag = &v / comb;
     assert!(frag <= v); // still a sub-version
-    assert_eq!(frag.min_ticks(), 2); // but now two concurrent peaks
+    assert_eq!(frag.min_ticks(), Ticks::from(2u64)); // but now two concurrent peaks
 }
 
 /// The at-rest form is the wire bytes in a length-carrying container.

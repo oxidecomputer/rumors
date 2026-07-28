@@ -195,11 +195,11 @@ impl Version {
     }
 
     /// The minimum number of [`tick`](Self::tick)s that could have produced this
-    /// version: the sum of every base in the event tree, saturating at
-    /// [`u64::MAX`]. The reference for
+    /// version: the sum of every base in the event tree, exact at any
+    /// magnitude. The reference for
     /// [`Version::min_ticks`](crate::Version::min_ticks).
-    pub fn min_ticks(&self) -> u64 {
-        self.base_total().to_u64_saturating()
+    pub fn min_ticks(&self) -> crate::Ticks {
+        crate::Ticks(self.base_total())
     }
 
     /// The sum of every base in the event tree (node bases plus leaf values).
@@ -363,6 +363,22 @@ impl Version {
 
     pub fn tick(&mut self, party: &Party) {
         *self = self.event(party);
+    }
+
+    /// `n` sequential [`tick`](Self::tick)s, literally iterated: the paper
+    /// has no fused form, so the reference for
+    /// [`Version::ticks`](crate::Version::ticks) is the definitionally
+    /// honest loop — `O(n · tree)`, fit for small `n` only (the module
+    /// doc's operating envelope; each differential suite caps the counts
+    /// it hands this side, and wide-`n` coverage lives impl-side on
+    /// composition laws and closed forms).
+    pub fn ticks(&mut self, party: &Party, n: impl Into<crate::Ticks>) {
+        let mut left = n.into().0;
+        let one = Base::from(1u8);
+        while left != Base::ZERO {
+            self.tick(party);
+            left -= &one;
+        }
     }
 
     pub fn is_normal(&self) -> bool {
