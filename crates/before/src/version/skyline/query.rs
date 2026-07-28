@@ -196,8 +196,17 @@
 //! the exact total genuinely embeds when the terms do not cancel — the
 //! intrinsic price of an exact integral under per-digit arithmetic —
 //! and reaching it spends a fresh over-allowance arming in the input's
-//! own codes per charge; on every committed family the suffix compacts
-//! to O(1) terms and the whole ledger reads flat (the `skyline_flatness`
+//! own codes per charge, but the density itself is not spent: the
+//! committed dense-suffix red pins (`ledger_dense_suffix_pin`,
+//! `tests/meter.rs`) hold exactly this construction — a gap spine whose
+//! turns puncture the trailing mass a full digit apart, over `Θ(p)`
+//! re-arm blocks — measured quadratic in both width currencies through
+//! the public `rank`, `distance`, and `lag`, whose `# Complexity`
+//! sections state the superlinear worst case until a settle linear in
+//! arming count and suffix density at once lands (per-arming charging
+//! and window batching are duals; linear in both needs lazy product
+//! trees). On the flatness-band families the suffix compacts to O(1)
+//! terms and the whole ledger reads flat (the `skyline_flatness`
 //! promotion re-arm bands).
 //!
 //! # Cost
@@ -211,9 +220,11 @@
 //! by the code that set `L`'s width — plus the co-sweep section's
 //! certified freeze work (a settle per freeze at the parked width times
 //! within-segment depth variation; a ledger entry once per wide arming,
-//! charged once at the sweep's close; the `skyline_flatness` module's
-//! freeze-position and promotion re-arm bands hold the many-freezes and
-//! many-armings genres flat). Distance and lag (the `DISTANCE_*`/`LAG_*`
+//! charged once at the sweep's close at the suffix's balanced density —
+//! the funding section's honest residual, superlinear on the committed
+//! dense-suffix pins; the `skyline_flatness` module's freeze-position
+//! and promotion re-arm bands hold the many-freezes and many-armings
+//! genres flat). Distance and lag (the `DISTANCE_*`/`LAG_*`
 //! rows, plus the `skyline_flatness` module's jump-pair and pair
 //! re-arm bands) add, per
 //! boundary, work bounded by the boundary's own folded codes — the

@@ -357,24 +357,41 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::rank",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v|)`"],
+            tokens: &["`O(|v|)` space", "**superlinear**"],
         }],
+        // TODO-cure: superlinear on the dense-suffix family
+        // (`ledger_dense_suffix_pin` in tests/meter.rs: the ledger
+        // settle pays each arming's parked width times its suffix's
+        // balanced density, and a gap spine holds that density at
+        // Θ(d) for Θ(p) armings), which is not yet a board family —
+        // the board reads every committed rank row green, so the
+        // class-binding seal (SuperlinearCounter needs a standing
+        // exponent-mechanism red in BOARD_EXPECTED_REDS) keeps this
+        // row Linear-classed with the rustdoc stating the superlinear
+        // worst case. The cure either makes the settle linear in
+        // arming count and suffix density at once (the pins flip) or
+        // lands the family on the board and moves this class with it.
         cells: Cells::Board(&[("version_rank", Class::Linear)]),
     },
     Claim {
         op: "Version::distance",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            tokens: &["`O(|a| + |b|)` space", "**superlinear**"],
         }],
+        // TODO-cure: the pair form of rank's dense-suffix
+        // superlinearity (`distance_dense_suffix_reads_superlinear`
+        // in tests/meter.rs) — one shared integrator, so the same
+        // constraint and the same cure as Version::rank above.
         cells: Cells::Board(&[("version_distance", Class::Linear)]),
     },
     Claim {
         op: "Version::lag",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            tokens: &["`O(|a| + |b|)` space", "**superlinear**"],
         }],
+        // TODO-cure: as Version::distance above (one shared co-sweep).
         cells: Cells::Board(&[("version_lag", Class::Linear)]),
     },
     Claim {
