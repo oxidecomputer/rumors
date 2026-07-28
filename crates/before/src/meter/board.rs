@@ -980,10 +980,12 @@ fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f64 {
 }
 
 /// The tooth-tail parse rows' family-stated heap ceiling, in bytes per
-/// text byte: `version_parse_noncanon` on the tooth-tail column is
-/// judged at this flat constant in place of
-/// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`] (the declared-models section; the
-/// exponent leg stays at the global bound).
+/// text byte.
+///
+/// `version_parse_noncanon` on the tooth-tail column is judged at this
+/// flat constant in place of [`MAX_HEAP_BYTES_PER_INPUT_BYTE`] (the
+/// declared-models section; the exponent leg stays at the global
+/// bound).
 ///
 /// Derivation: the tooth-tail pair is the board's densest
 /// node-per-text-byte family — its text spells thousands of
@@ -1239,11 +1241,12 @@ const CONCURRENT_BASE_LEAVES: usize = 1_024;
 /// [`TOOTH_TAIL_SPIKE_DIVISOR`], the committed flatness band's ratio.
 const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 
-/// Boundaries per spike digit in the tooth-tail bundle: the committed
-/// flatness band's `g = m/64` ratio, so the board prices the same
-/// spike-to-tail proportion the envelope band holds flat (a spike a
-/// few wide digits under thousands of post-cancellation sign reads —
-/// the exact-top genre needs the tail to dominate the spike).
+/// Boundaries per spike digit in the tooth-tail bundle.
+///
+/// The committed flatness band's `g = m/64` ratio, so the board prices
+/// the same spike-to-tail proportion the envelope band holds flat (a
+/// spike a few wide digits under thousands of post-cancellation sign
+/// reads — the exact-top genre needs the tail to dominate the spike).
 const TOOTH_TAIL_SPIKE_DIVISOR: usize = 64;
 
 /// Staggered fold population operand count at scale 1.0, rounded up to
@@ -2083,8 +2086,9 @@ impl FamilyData {
     }
 
     /// Build the staggered fold population: `n` operands of `m` unit
-    /// teeth each, teeth landing in the gaps of every other operand's,
-    /// fed in bit-reversed order (`meter::stagger_population` carries
+    /// teeth each, teeth in the gaps of every other operand's.
+    ///
+    /// Fed in bit-reversed order (`meter::stagger_population` carries
     /// both the construction and the feed order's derivation).
     fn stagger(n: usize, m: usize) -> FamilyData {
         let (versions, ids) = super::stagger_population(n, m);
@@ -3339,12 +3343,14 @@ struct Cell {
     /// comb-scatter cross only.
     capacity_model: bool,
     /// A family-stated flat heap ceiling in bytes per denominator byte,
-    /// judged in place of [`MAX_HEAP_BYTES_PER_INPUT_BYTE`]'s: the
-    /// declared-models mechanism at a flat constant, for the one cell
-    /// class whose honest constant a ratified derivation puts over the
-    /// global allowance ([`TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`]
-    /// carries the derivation). The exponent leg is untouched: the
-    /// declaration buys a constant, never growth.
+    /// judged in place of [`MAX_HEAP_BYTES_PER_INPUT_BYTE`]'s.
+    ///
+    /// The declared-models mechanism at a flat constant, for the one
+    /// cell class whose honest constant a ratified derivation puts over
+    /// the global allowance
+    /// ([`TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`] carries the
+    /// derivation). The exponent leg is untouched: the declaration buys
+    /// a constant, never growth.
     declared_heap: Option<f64>,
     /// The measured body; its result stays alive until the meters are read.
     #[allow(clippy::type_complexity)]

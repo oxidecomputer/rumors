@@ -5737,9 +5737,10 @@ mod fold_stagger {
 
     /// One balanced `Party::join_all` run over the staggered id
     /// population: total input bytes, the model's level count, and the
-    /// scan counter over the fold body alone (the id walk allocates
-    /// nothing and does no arithmetic, so scanned bits are the only
-    /// deterministic meter that sees it).
+    /// scan counter over the fold body alone.
+    ///
+    /// The id walk allocates nothing and does no arithmetic, so
+    /// scanned bits are the only deterministic meter that sees it.
     ///
     /// Carries the seed-reunion semantic leg (the population's slots
     /// tile the whole seed region) and the full-examination liveness
@@ -5868,9 +5869,10 @@ mod fold_stagger {
     const PARTY_SIZE_CEILINGS: [u64; 3] = [1_781_690, 3_892_090, 8_437_970];
 
     /// The version fold's model-normalized cost stays flat across two
-    /// arity doublings at fixed operand size: `join_all` pays the
-    /// declared `O(D log 2k)` and nothing more when every reduction
-    /// merge swells to the sum of its inputs.
+    /// arity doublings at fixed operand size.
+    ///
+    /// `join_all` pays the declared `O(D log 2k)` and nothing more
+    /// when every reduction merge swells to the sum of its inputs.
     ///
     /// The raw per-byte cost on this axis legitimately grows one
     /// level's worth per doubling (the documented log factor); the
@@ -5899,9 +5901,10 @@ mod fold_stagger {
     }
 
     /// The version fold's model-normalized cost stays flat across two
-    /// operand-size doublings at fixed arity: at a fixed level count
-    /// the fold is linear in the population's packed bytes, however
-    /// large each swollen intermediate grows.
+    /// operand-size doublings at fixed arity.
+    ///
+    /// At a fixed level count the fold is linear in the population's
+    /// packed bytes, however large each swollen intermediate grows.
     #[test]
     fn fold_version_stagger_size_axis_is_flat_per_unit() {
         let n = STAGGER_SMALL;
