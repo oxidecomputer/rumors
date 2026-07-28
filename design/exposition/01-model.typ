@@ -4,13 +4,14 @@
 
 A causal clock answers the question wall-clock time cannot: given two
 updates made on different machines, did one _know about_ the other, or
-did they happen concurrently? Interval Tree Clocks (ITCs) answer it in
-a setting where participants come and go freely — any participant can
-_fork_ a new identity out of its own, and a departing participant can
-_join_ its identity and history back into a survivor — with no global
-coordination and no registry of who exists. The 2008 paper by Almeida,
-Baquero, and Fonte defines the mechanism as a pair of small recursive
-tree structures and a handful of recursive equations over them. We
+did they happen concurrently? Interval Tree Clocks (ITCs) answer it
+in a setting where participants come and go freely, with no global
+coordination and no registry of who exists: any participant can
+_fork_ a new identity out of its own, and a departing participant
+can _join_ its identity and history back into a survivor. The 2008
+paper by Almeida, Baquero, and Fonte defines the mechanism as a pair
+of small tree structures and a handful of recursive equations over
+them. We
 assume you have read that paper, or have it at hand; @model
 re-establishes only the notation this document leans on.
 
@@ -28,14 +29,14 @@ sits at a boundary where bytes arrive from other machines. It must
 price its work against what actually arrives, not against what a
 well-behaved peer would send.
 
-The construction we develop answers with one representation and one
+Our construction answers that demand with one representation and one
 piece of arithmetic:
 
 - *The skyline* (@skyline): a clock's event component denotes a step
-  function over the unit interval. Store _that_ — the tree's shape
-  as one flag bit per node, and the sequence of
-  plateau heights, delta-coded, bit-packed, in one contiguous buffer —
-  rather than the tree's interior numbers. (The id component gets a
+  function over the unit interval. Store _that_, rather than the
+  tree's interior numbers: the tree's shape as one flag bit per
+  node, and the sequence of plateau heights — delta-coded,
+  bit-packed, in one contiguous buffer. (The id component gets a
   related but distinct coding: the same step-function reading, one
   bit deep, with ownership carried by presence rather than by a
   stored value. See @id-coding.) The representation is canonical,
@@ -56,37 +57,37 @@ piece of arithmetic:
   running area. The values run enormous while delta coding keeps
   their codes cheap, and ordinary big-integer arithmetic then leaks a
   quadratic through carry propagation. A redundant signed-digit
-  accumulator with no normalized region anywhere makes every
+  accumulator, with no normalized region anywhere, makes every
   word-sized update and every sign query amortized constant-time, and
-  every wide update linear in its own width, _on every input
+  every wide update linear in its own width — _on every input
   sequence_. One restriction, stated and used in @accum: an
   accumulator that receives writes at power-of-two scales is
   never asked for its sign — it is written, then read out once at
-  the end. This is the load-bearing component that lets each
-  sweep's cost
-  argument close.
+  the end. The accumulator is load-bearing: every sweep's cost
+  argument closes on it.
 
-On top of those two, @operations derives each operation as a sweep
+On top of those two, @operations derives every operation as a sweep
 over the packed form, each with an informal argument for linearity
-and a statement of what "linear" is denominated in: comparison;
-join and meet; fork, party join, party difference, and the party
-predicates `covers` and `disjoint`; projection;
-the measures rank, distance, lag, and minimum tick count; and last,
-because it needs everything before it, tick (the paper's `event`,
-with `fill` and `grow`). @machine turns to constant factors: why a packed
-sequential scan is the access pattern the machine rewards, and where
-the measured costs of our implementation sit relative to the floor of
-simply reading the input. @resilience closes the arc by stating the
-property the whole design serves.
+and a statement of what "linear" is denominated in. The operations,
+in order: comparison; join and meet; fork, party join, party
+difference, and the party predicates `covers` and `disjoint`;
+projection; the measures rank, distance, lag, and minimum tick
+count; and last, because it needs everything before it, tick (the
+paper's `event`, with `fill` and `grow`). @machine turns to constant
+factors: why a packed sequential scan is the access pattern the
+machine rewards, and where the measured costs of our implementation
+sit relative to the floor of simply reading the input. @resilience
+states the property the whole design serves.
 
-*The thesis.* The design is not merely asymptotically optimal, and
-not merely efficient in its constants and friendly to the machine.
+*The thesis.* The design is not merely asymptotically optimal, nor
+merely efficient in its constants and friendly to the machine.
 It is _resilient to arbitrary adverse inputs_: for every operation and
 every well-formed input — any value magnitude, any tree depth, any
 shape, crafted by an adversary or produced by an unlucky workload —
 time and transient memory are proportional to the bits the operation
-reads plus the bits it must write, with every known boundary of the
-argument stated where it lives (the next paragraph collects them). Malformed inputs are rejected,
+reads plus the bits it must write. Every known boundary of the
+argument is stated where it lives; the *Concessions* paragraph below
+collects them. Malformed inputs are rejected,
 and rejection obeys the same proportionality. Each section's cost argument is one clause of
 that claim; the accumulator is the clause the others lean on.
 
@@ -105,17 +106,15 @@ the resource counters (bits scanned, accumulator digit touches, peak
 transient bytes) are deterministic and machine-independent, so
 nanosecond bands indicate a class while counter readings are exact.
 
-*Concessions.* Seven,
-each stated where it lives rather
-than smoothed over. Two boundaries of arguments: one uncertified
-input shape in rank's funding
-argument (@measures) and one probabilistic step in the counting
-bound (@nonneg). One framing every compactness claim must carry
-(@ctf-caveat). One machine effect the linear
-bound absorbs rather than eliminates (@words). One composition
-stated without proof — the minimum-tick floor's induction over
-forked histories, join subadditivity inside it (@measures). And two
-derivations whose full forms live in our work
+*Concessions.* Seven, each stated where it lives rather than
+smoothed over: two arguments with stated boundaries — one
+uncertified input shape in rank's funding argument (@measures), one
+probabilistic step in the counting bound (@nonneg); one framing
+every compactness claim must carry (@ctf-caveat); one machine
+effect the linear bound absorbs rather than eliminates (@words);
+one composition stated without proof — the minimum-tick floor's
+induction over forked histories, join subadditivity inside it
+(@measures); and two derivations whose full forms live in our work
 with their shapes given here (the join size constant, @join; tick's
 output bounds, @tick-output). @closing re-collects all seven.
 
@@ -153,10 +152,9 @@ The three operations:
   successor timestamp only has to dominate its predecessor, and
   disjointness guarantees nobody else writes that region. The paper
   exploits the freedom: `fill` raises owned regions to flatten the
-  tree where it can — including lifting a wholly-owned region up to
-  a filled sibling's minimum — and `grow` performs the cheapest
-  strict increment
-  where it cannot.
+  tree where it can, and `grow` performs the cheapest strict
+  increment where it cannot. Flattening includes lifting a
+  wholly-owned region up to a filled sibling's minimum.
 - *join* merges two stamps: ids by pointwise sum (disjointness makes
   that a union), event trees by pointwise maximum.
 
@@ -166,19 +164,19 @@ owning the whole id space, no events yet.
 Comparison is pointwise: $e_1 <= e_2$ iff the function of $e_1$ is
 nowhere above the function of $e_2$. Two event trees are
 _concurrent_ when neither is $<=$ the other. The paper's operations
-lean on notation this document reuses: the _lift_ $e arrow.t m$,
-which adds $m$ to the root value of $e$ — so $n arrow.t m = n + m$
-and $(n, e_1, e_2) arrow.t m = (n + m, e_1, e_2)$ — along with
-$min(e)$ and $max(e)$, the extrema of $e$'s function over $e$'s own
-interval (range quantities, which is what @tick must carry), and
-`norm`,
+lean on three pieces of notation this document reuses. The _lift_
+$e arrow.t m$ adds $m$ to the root value of $e$:
+$n arrow.t m = n + m$, and
+$(n, e_1, e_2) arrow.t m = (n + m, e_1, e_2)$. $min(e)$ and
+$max(e)$ are the extrema of $e$'s function over $e$'s own interval —
+range quantities, which is what @tick must carry. And `norm` is
 the paper's normalizing constructor.
 
-Finally, the paper keeps trees in a *normal form* — $(0,0)$ and
-$(1,1)$ collapse in ids; in event trees, equal-leaf siblings collapse
-and a common minimum is lifted into the parent — so that a function
-has one preferred spelling and the operations can stay simple. Normal
-forms will matter enormously in what follows: the entire canonicality
+Finally, the paper keeps trees in a *normal form*, so that a
+function has one preferred spelling and the operations can stay
+simple: $(0,0)$ and $(1,1)$ collapse in ids; in event trees,
+equal-leaf siblings collapse and a common minimum is lifted into the
+parent. Normal forms matter in what follows: the entire canonicality
 story of @skyline, and a measurable fraction of the coding's size
 (@compactness), descend from this choice.
 
@@ -187,9 +185,8 @@ names of the implementation rather than the paper's, because the
 renaming carries a point of view: we write *version* for the paper's
 event component (it is a causal timestamp — a value in its own right,
 freely copied), *party* for the id component (the participant's
-share of the id space), *clock* for the stamp $(i, e)$ (the value:
-a party
-paired with its current version), and
+share of the id space), *clock* for the stamp $(i, e)$ — the
+value: a party paired with its current version — and
 *tick* for the paper's `event`
 operation. "ITC" names the scheme. "Tree" is reserved for the paper's spelling of these
 values; the whole burden of @skyline is that the tree is not the
@@ -197,7 +194,7 @@ value.
 
 *Symbols.* Recurring symbols, fixed here. The table covers symbols
 whose scope crosses a subsection; strictly local ones (a carry $c$,
-gamma's bucket index $b$, a digit's would-be value $q$) are defined
+gamma's bucket index $b$) are defined
 at use. A few letters do
 double duty; each such use is flagged where it occurs:
 

@@ -12,35 +12,35 @@ number honest.
 == The framing <ctf>
 
 For each $n$, let $cal(F)(n)$ be the family of versions whose
-canonical stream fits in $n$ bits (unpadded bits throughout, per
-@canonical; the tabulated budgets are byte multiples, so the
+canonical stream fits in $n$ bits, and let
+$H(n) = log_2 |cal(F)(n)|$. Bits are unpadded throughout, per
+@canonical: the tabulated budgets are byte multiples, so the
 worst-case member pads to nothing, though a typical value carries
-up to seven padding bits these ratios do not price), and let
-$H(n) = log_2 |cal(F)(n)|$. _Any_ injective assignment of bit
+up to seven padding bits these ratios do not price.
+_Any_ injective assignment of bit
 strings to the members of $cal(F)(n)$ — ours, or the best
 conceivable replacement, prefix-free or not — must give some member
 at least $floor(H(n))$ bits: only $2^floor(H(n)) - 1 < 2^(H(n))$
 distinct strings are shorter, and there are $2^(H(n))$ members to
-name. (This worst-case-against-the-floor framing is the standard
-competitive one for universal codes — Elias's, in the references.)
+name.
 Our coding spends at most $n$ on every member, by definition of
 $cal(F)(n)$. So the
 _worst-case multiplicative overhead_ of the coding, against a floor
 that any competitor also faces on the same set, is at most
 
-$ n / H(n) $
+$ n / H(n). $
 
-(the denominator elides the floor's rounding, harmless at these
-magnitudes; and if no member reaches exactly $n$ bits the true
-overhead is only better),
-
-and it holds at every $n$ simultaneously — there is no
+The denominator elides the floor's rounding, harmless at these
+magnitudes, and if no member reaches exactly $n$ bits the true
+overhead is only better. The bound holds at every $n$
+simultaneously: there is no
 cherry-picked operating point. Note precisely what kind of claim
 this is: worst case against worst case — our longest spelling on
 $cal(F)(n)$ against the longest spelling any coding must have on
 $cal(F)(n)$ — not a bound on any particular version's cost, and not
 an average. This is the standard competitive framing for universal
-codes, and its self-referential flavor (the
+codes — Elias's, in the references — and its self-referential flavor
+(the
 coding's own reach defines the set) is both its strength — no
 external model of "likely versions" is smuggled in — and the source
 of the honest caveat in @ctf-caveat.
@@ -81,13 +81,14 @@ $ x B^2 + (2 x A - 1) B + x A A' = 0, $
 
 and the count of $n$-bit streams grows at rate $1\/x_c$ per bit —
 the reciprocal of the
-dominant singularity: the branch point where the discriminant
+dominant singularity, the branch point where the discriminant
+vanishes:
 
-$ Delta(x) = (1 - 2 x A)^2 - 4 x^2 A A' $
+$ Delta(x) = (1 - 2 x A)^2 - 4 x^2 A A' . $
 
-vanishes. Substituting $A$ and $A'$ and clearing denominators,
+Substitute $A$ and $A'$ and clear denominators:
 $Delta = 0$ reduces to $(1 - 2 x^2 - 2 x^3)^2 = 8 x^8$, whose two
-sign branches give two quartics; the one shown,
+sign branches give two quartics. The one shown,
 
 $ 1 - 2 x^2 - 2 x^3 - 2 sqrt(2) x^4 = 0, $
 
@@ -95,19 +96,19 @@ carries the smaller positive root and hence the operative
 singularity, $x_c = 0.514500dots$ (the other branch,
 $1 - 2 x^2 - 2 x^3 + 2 sqrt(2) x^4 = 0$, first vanishes near
 $0.707$) — safely inside $G$'s own radius of
-convergence $1 \/ sqrt(2)$, so the branch point governs. By the
-standard transfer for square-root singularities (applicable because
-the grammar is aperiodic: $V = A + B$ has streams of both parities —
-a lone leaf is even, a node odd — so $x_c$ is the unique dominant
-singularity), the number of
+convergence $1 \/ sqrt(2)$, so the branch point governs. The
+grammar is aperiodic — $V = A + B$ has streams of both parities,
+a lone leaf even and a node odd — so $x_c$ is the unique dominant
+singularity. By the standard transfer for square-root
+singularities, then, the number of
 exactly-$n$-bit canonical streams is $Theta(2^(alpha n) n^(-3\/2))$
 with
 
-$ alpha = log_2 (1 / x_c) = 0.958757dots, $
+$ alpha = log_2 (1 / x_c) = 0.958757dots . $
 
-hence — summing over lengths up to $n$ changes only the $O(1)$
-term, which the census pins numerically, since the
-series is geometrically dominated by its last terms — the
+Summing over lengths up to $n$ changes only the $O(1)$
+term — the census pins it numerically, the
+series being geometrically dominated by its last terms. Hence the
 sibling-merge-only grammar counts
 $H_0 (n) = alpha n - 3/2 log_2 n + O(1)$ bits of choice. The true
 $H(n)$ subtracts nonnegativity's further $Theta(log n)$-bit pruning
@@ -133,19 +134,21 @@ $ sum_(k >= 0) 2^k dot 2^(-(2k + 1)) = sum_(k >= 0) 2^(-(k+1)) = 1, $
 
 and the topology flag is a complete 1-bit code, so the unconstrained
 composite is _prefix-complete_: almost every infinite bit string
-begins with exactly one well-formed stream (the exceptions — endless
+begins with exactly one well-formed stream. (The exceptions are
+endless
 descents that never complete a tree, the all-zeros string first
-among them — carry measure zero) — no coding room is wasted at all.
+among them; they carry measure zero.) No coding room is wasted at
+all.
 Concretely, the unconstrained characteristic equation
 $1 - 2 x^2 - 4 x^3 = 0$ has its root at exactly $x = 1\/2$: growth
 $2^n$, zero asymptotic redundancy.
 
-So the entire asymptotic gap is the set of strings the sibling-merge
+So the entire asymptotic gap is the coding room the sibling-merge
 rule _refuses_: spellings with a collapsible pair, excised so that
 each value has exactly one spelling. (The other canonical rules are
 priced separately: nonnegativity in @nonneg, at $Theta(log n)$ bits;
 exactness for free.) The $4.3%$ is not overhead lost to a clumsy
-code — the code is Kraft-tight — it is the price of "byte
+code; the code is Kraft-tight. It is the price of "byte
 equality is value equality," bought once, on purpose, and enjoyed by
 every comparison, hash, and deduplication the system ever performs
 (@canonical). One attribution note, redeemed in @ctf-caveat: the
@@ -187,8 +190,8 @@ $ell approx 100$ plateaus, and $1\/2 dot log_2 100 approx 3.3$.
 
 Asymptotics flatter every code; a version is typically tens to a few
 hundred bytes. The exact census machinery gives the finite-$n$
-picture (bracketed by rigorous over- and under-counting families
-where the exact count is out of computational reach):
+picture — rigorous brackets from over- and under-counting families
+through $n = 800$, derived error bars beyond:
 
 #figure(
   table(
@@ -199,16 +202,23 @@ where the exact count is out of computational reach):
     table.header([*stream budget*], [*bits* $n$], [*overhead* $n \/ H(n)$]),
     [50 bytes], [400], [$1.0863 dash 1.0865$],
     [100 bytes], [800], [$1.0669 dash 1.0673$],
-    [200 bytes], [1600], [$approx 1.056$],
-    [2 kilobytes], [16 384], [$approx 1.045$],
+    [200 bytes], [1600], [$1.0538 dash 1.0566$],
+    [2 kilobytes], [16 384], [$1.0444 dash 1.0448$],
     [asymptotic], [—], [$1.043017$],
   ),
   caption: [Worst-case overhead against the counting floor, by stream
-    size. Rows quoted as ranges are rigorously bracketed by the over-
-    and under-counting families, whose computation reaches through
-    $n = 800$; the "$approx$" rows beyond extrapolate by
-    the validated closed form, the "$approx$" marking its unpinned
-    $O(1)$ term. At 100 bytes — a realistic version under heavy history —
+    size. The 50- and 100-byte ranges are rigorously bracketed by the
+    over- and under-counting families, whose computation reaches
+    through $n = 800$. The two rows beyond carry derived error bars
+    instead: each range runs from $n \/ H_0 (n)$ — the
+    sibling-merge-only count, exact at every tabulated $n$ by the
+    census's scaled series, and a floor on the overhead since
+    nonnegativity's pruning only lowers $H$ — up to
+    $n \/ (H_0 (n) - delta_max (n))$, where $delta_max$ caps that
+    pruning at its rigorous 800-bit ceiling of $3.29$ bits plus
+    $0.7$ bits per doubling of $n$, a slope above both the census's
+    fitted growth ($0.47$ bits per doubling) and the $1\/2$ the
+    universality rate predicts. At 100 bytes — a realistic version under heavy history —
     the coding is within $6.7%$ of the floor: $4.3$ points of
     sibling-merge tax, about $2.0$ of finite-size effect (the
     count's universal $n^(-3\/2)$ factor puts the floor
@@ -225,8 +235,8 @@ plateaus and heights drawn uniformly below $2^w$ — and the same
 coding fares differently. The family needs about $ell (w + 2)$ bits
 of entropy: $w$ per height, about two per plateau of shape. The
 coding's worst case spends about
-$ell (2w + 3)$ — gamma's $2w + 1$ per payload, plus each plateau's
-own topology — a ratio approaching $2$ as $w$ grows. Same coding, same
+$ell (2w + 3)$: gamma's $2w + 1$ per payload, plus each plateau's
+own topology. The ratio approaches $2$ as $w$ grows. Same coding, same
 definition of floor, different family, different verdict. Any
 published form of the $4.3%$ claim must carry its family, and this
 one does.
@@ -239,8 +249,8 @@ code's overhead is measured against its _own_ reachable family, so
 the two ratios do not decide between the codes; the family-fixed
 decision is the measured re-coding below. That
 sounds like it contradicts @tax (gamma is Kraft-complete too; the
-tax was "all canonicality"), so the reconciliation deserves a
-sentence. The sibling-merge pruning is the same rule under any
+tax was "all canonicality"), so it is worth
+reconciling. The sibling-merge pruning is the same rule under any
 payload code; what differs is _where each code's counting mass
 lives_. Gamma prices a value near $2^c$ at about $2c$ bits, so its
 capacity-achieving streams are leaf-rich with modest payloads — and
@@ -255,12 +265,12 @@ $x = 1\/2$ and diverges above — its radius is exactly $1\/2$.
 On $(0, 1\/2]$ the discriminant stays positive on the whole
 interval, not just at a checked point: $A' < A$ gives
 $Delta > (1 - 2 x A)^2 - 4 x^2 A^2 = 1 - 4 x A$, and
-$4 x A <= 1$ there since Kraft puts $A(1\/2) = 1\/2$ (at
-$x = 1\/2$, $Delta$ evaluates to $1\/8$ — as it does for gamma,
-whose $G$ however
-survives out to $1\/sqrt(2)$, giving its discriminant the room to
-reach zero at $0.5145$ that delta's and omega's, expiring at
-$1\/2$, never get). No branch point forms below the code's own
+$4 x A <= 1$ there since Kraft puts $A(1\/2) = 1\/2$. At
+$x = 1\/2$, $Delta$ evaluates to $1\/8$ — as it does for gamma. But
+gamma's $G$
+survives out to $1\/sqrt(2)$, and that extra room is what lets its
+discriminant reach zero at $0.5145$; delta's and omega's expire at
+$1\/2$ and never get it. No branch point forms below the code's own
 singularity, so $alpha = 1$: the pruning never becomes the binding
 constraint.
 
@@ -278,18 +288,18 @@ measured corpora barely contain.
 
 The catch is where the surviving competitors win: the versions
 delta covers more
-cheaply are exactly the few-plateau, giant-payload ones, and it pays
-pointwise on small values — comparing coded payloads $v$ (each code
+cheaply are exactly the few-plateau, giant-payload ones, and delta
+pays for that on small values, pointwise — comparing coded payloads
+$v$ (each code
 spells $v + 1$), gamma is better than or equal to delta on every
 $v$ up to 30 and loses ground steadily from $v = 31$ on, while
 omega does not overtake gamma until values in the hundreds.
 Measured across organic gossip
-histories (the paper's own two simulation regimes — data churn and
-static message passing — replayed at scale on our implementation,
-some 165,000 versions), 85 to 93 percent of payload values are at
-most 15
-(`fill`'s flattening, not the coding, is what keeps neighboring
-plateaus close — @coding). A count share alone cannot decide a bet
+histories, 85 to 93 percent of payload values are at most 15 —
+and `fill`'s flattening, not the coding, is what keeps neighboring
+plateaus close (@coding). The corpora are the paper's own two
+simulation regimes, data churn and static message passing, replayed
+at scale on our implementation: some 165,000 versions. A count share alone cannot decide a bet
 about bytes — a thin tail of wide values could still lose it — so
 the deciding number is this one: re-coding those corpora under delta
 or omega costs six
