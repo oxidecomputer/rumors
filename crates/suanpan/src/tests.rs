@@ -528,6 +528,81 @@ fn scaled_read_costs_the_written_span() {
     );
 }
 
+/// Red pin (adversarial review 2026-07-28, task #37): an alternating
+/// `sub_wide_shl`/`add_wide_shl` pair of a one-limb operand at digit
+/// position `g` costs `g + 4` digit touches, not O(operand limbs) — the
+/// crate page's `*_shl` cost rows ("independent of the shift") are
+/// refuted at exactly this schedule, and `digit_count`'s "a write that
+/// zeroes the top digit pays the scan down to the next nonzero one
+/// inside that write's own budget" names a budget the write does not
+/// have.
+///
+/// Mechanism: the subtraction zeroes the held value's only nonzero
+/// digit, and `add_at`'s exact-`top` maintenance then walks the zero
+/// gap from the old top down to digit 0 — `g` touches funded by no
+/// operand limb and no earlier deposit (the matching `add` re-raises
+/// `top` in O(1), so the pair repeats forever at the same price). The
+/// gap walk scales with the shift and the pin's two shifts demonstrate
+/// exactly that: doubling the shift doubles the pair cost. The exposed
+/// surface is every shifted subtractive entry whose operand is narrower
+/// than the gap under it (`sub_wide_shl`, `sub_magnitude_shl`,
+/// `sub_accum_shl`, and the `add_*` twins with a negative-signed held
+/// value).
+///
+/// The counts are exact (deterministic counter): per pair,
+/// `shift/32` gap-walk touches + 2 deposits + 2 operand-limb reads
+/// (the magnitude word path skips the limb reads: + 2 deposits only).
+/// A cure (a lazy `top` watermark, or gap-aware maintenance) collapses
+/// these totals and MUST re-pin this test and re-derive the crate
+/// page's `*_shl` cost rows and the `digit_count` scan claim in the
+/// same change; until then the cost table overstates the guarantee.
+#[cfg(feature = "touch-meter")]
+#[test]
+fn alternating_shifted_writes_pay_the_zero_gap_per_pair() {
+    use crate::touch_meter;
+
+    let one = UBig::from(1u8);
+    // Pair cost = shift/32 (gap walk) + 2 deposits + 2 limb reads.
+    for (shift, expected_total) in [(32_000u64, 1_004_000u64), (64_000, 2_004_000)] {
+        let mut acc = Accumulator::new();
+        acc.add_wide_shl(&one, shift);
+        touch_meter::reset();
+        for _ in 0..1_000 {
+            acc.sub_wide_shl(&one, shift);
+            acc.add_wide_shl(&one, shift);
+        }
+        assert_eq!(
+            touch_meter::touches(),
+            expected_total,
+            "1,000 alternating one-limb pairs at shift {shift}: the pinned cost \
+             is (shift/32 + 4) touches per pair; a change here must re-derive \
+             the crate page's *_shl cost rows in the same commit"
+        );
+        // The oscillation is value-neutral: the held value is still 2^shift.
+        let (sign, magnitude) = acc.sign_magnitude();
+        assert_eq!(sign, Ordering::Greater);
+        assert_eq!(
+            magnitude,
+            UBig::from(1u8) << usize::try_from(shift).unwrap()
+        );
+    }
+    // The magnitude word path pays the same gap without the limb reads.
+    let five = UBig::from(5u8);
+    let mut acc = Accumulator::new();
+    acc.add_magnitude_shl(&five, 32_000);
+    touch_meter::reset();
+    for _ in 0..1_000 {
+        acc.sub_magnitude_shl(&five, 32_000);
+        acc.add_magnitude_shl(&five, 32_000);
+    }
+    assert_eq!(
+        touch_meter::touches(),
+        1_002_000,
+        "1,000 alternating word-scale magnitude pairs at shift 32,000: the \
+         pinned cost is (shift/32 + 2) touches per pair"
+    );
+}
+
 /// A fresh accumulator (and its `Default`) holds exactly zero.
 #[test]
 fn new_and_default_hold_zero() {
