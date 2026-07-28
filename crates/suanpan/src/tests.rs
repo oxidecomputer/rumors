@@ -1142,11 +1142,13 @@ fn assert_ledger_invariants(acc: &Accumulator, schedule: &[u8]) {
 
 /// Precomputed operands of the exhaustive ledger driver's alphabet.
 struct LedgerCtx {
-    /// `2^32` as a word-scale magnitude: `*_magnitude_shl` deposits it
-    /// raw at a digit position (no per-digit canonicalization), the
-    /// one public route to an adjacent-digit spelling like
-    /// `(+1, −2^32)` — the shape that drives the sign fold's running
-    /// partial to exact zero above a certified run.
+    /// `2^32` as a word-scale magnitude.
+    ///
+    /// `*_magnitude_shl` deposits it raw at a digit position (no
+    /// per-digit canonicalization), the one public route to an
+    /// adjacent-digit spelling like `(+1, −2^32)` — the shape that
+    /// drives the sign fold's running partial to exact zero above a
+    /// certified run.
     word32: UBig,
     /// Oracle values of the shifted ops: `2^96`, `2^224`, `u64::MAX`.
     p96: IBig,
@@ -1218,10 +1220,11 @@ fn ledger_op(ctx: &LedgerCtx, acc: &mut Accumulator, oracle: &mut IBig, op: u8) 
     }
 }
 
-/// Depth of the exhaustive ledger sweep: every schedule of at most
-/// this many alphabet ops runs, with every invariant checked at every
-/// step of every schedule (the search is a prefix tree, so each state
-/// is reached and checked exactly once).
+/// Depth of the exhaustive ledger sweep.
+///
+/// Every schedule of at most this many alphabet ops runs, with every
+/// invariant checked at every step of every schedule (the search is a
+/// prefix tree, so each state is reached and checked exactly once).
 const LEDGER_DEPTH: usize = 6;
 
 /// Walk the schedule prefix tree: apply each op to a clone of the
@@ -1248,11 +1251,12 @@ fn ledger_dfs(
     }
 }
 
-/// The zero-run ledger's letter invariant — disjoint certificates
-/// with all-zero interiors, every one contained at or below the
-/// settled top — holds after every operation of every schedule at
-/// exhaustive small scope, alongside exact value agreement with the
-/// `IBig` oracle.
+/// The zero-run ledger's letter invariant holds after every operation
+/// of every schedule at exhaustive small scope.
+///
+/// The letter: disjoint certificates with all-zero interiors, every
+/// one contained at or below the settled top — checked alongside
+/// exact value agreement with the `IBig` oracle.
 ///
 /// Exhaustive over all 11-op schedules of length ≤ 6 (1,948,716
 /// states, each checked once; ~4 s dev — the length-≤ 7 sweep's
@@ -1285,9 +1289,11 @@ fn ledger_invariants_hold_exhaustively() {
 
 proptest! {
     /// The ledger's structural invariants hold after every step of
-    /// randomized run-forming streams — the exhaustive sweep's
-    /// long-schedule, deep-shift complement (shifts to 4,096 bits,
-    /// schedules to 150 ops, sign reads interleaved throughout).
+    /// randomized run-forming streams.
+    ///
+    /// The exhaustive sweep's long-schedule, deep-shift complement:
+    /// shifts to 4,096 bits, schedules to 150 ops, sign reads
+    /// interleaved throughout.
     #[test]
     fn ledger_invariants_hold_on_run_forming_streams(
         ops in proptest::collection::vec(
