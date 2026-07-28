@@ -448,10 +448,12 @@ impl BitAndAssign<Version> for Version {
 }
 
 // `/`/`/=` project a `Version` onto a `Party`'s region (the quotient),
-// mirroring the impl's `Div<&Party> for Version`. Unlike the impl, the oracle
-// `Party` is `Clone`, so the borrow is incidental — but the surface is kept
-// identical (a borrowed party) so the operator reads the same in differential
-// tests.
+// materialized eagerly: the oracle is the *other side* of the impl's
+// projection differentials — the reference the impl's lazy view
+// (`OwnVersion`) and its `to_version()` materialization are both pinned
+// against — so it stays a plain projected `Version`, never a view. The
+// oracle `Party` is `Clone`, so the borrowed party is incidental; the
+// by-value and assign forms survive here for the oracle's own ergonomics.
 impl Div<&Party> for &Version {
     type Output = Version;
     fn div(self, party: &Party) -> Version {

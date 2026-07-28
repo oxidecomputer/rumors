@@ -40,8 +40,9 @@ impl Clock {
     }
 
     /// `version() / party()`: this clock's own contribution to its version
-    /// (the history within the region it owns). The reference for
-    /// [`Clock::own_version`](crate::Clock::own_version).
+    /// (the history within the region it owns), materialized eagerly. The
+    /// reference for [`Clock::own_version`](crate::Clock::own_version)'s
+    /// view, through its materialization.
     pub fn own_version(&self) -> Version {
         self.version() / self.party()
     }
