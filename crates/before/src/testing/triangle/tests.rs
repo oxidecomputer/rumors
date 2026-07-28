@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use super::{
-    cited_test_names, crate_root, declared_fn_names, extract_public_fns, FAMILY_SURFACE,
+    cited_test_names, crate_root, declared_test_names, extract_public_fns, FAMILY_SURFACE,
     METHOD_SURFACE, TRIPWIRES,
 };
 
@@ -36,47 +36,75 @@ fn roster_is_total_over_the_public_fn_surface() {
     );
 }
 
-/// Every test name the roster or a tripwire cites is declared somewhere
-/// under `src/` — a renamed or deleted binding test fails here by name,
-/// so a disposition can never silently point at nothing.
+/// Every test name the roster or a tripwire cites resolves to an
+/// executable binding: a `#[test]`-attributed item under `src/`, or a law
+/// name registered in [`crate::laws`]'s tables (the entries the
+/// algebraic-laws drivers run). A renamed or deleted binding test fails
+/// here by name, so a disposition can never silently point at nothing,
+/// and a same-named helper or kernel can never stand in for the test a
+/// row claims.
 #[test]
 fn every_cited_binding_test_exists() {
-    let declared = declared_fn_names();
+    let mut declared = declared_test_names();
+    declared.extend(
+        crate::laws::registered_names()
+            .into_iter()
+            .map(str::to_owned),
+    );
     let dead: Vec<&str> = cited_test_names()
         .into_iter()
         .filter(|name| !declared.contains(*name))
         .collect();
     assert!(
         dead.is_empty(),
-        "roster/tripwire citations name no declared fn: {dead:?}"
+        "roster/tripwire citations resolve to no `#[test]` item or \
+         registered law: {dead:?}"
     );
 }
 
-/// Tamper-hole witness (adversarial review 2026-07-28, task #37): the
-/// citation scan cannot tell binding tests from helper functions.
+/// The citation haystack admits only executable tests (the seal for the
+/// #37 review's F5 tamper hole): a helper `fn` must never satisfy a
+/// binding-test citation.
 ///
-/// [`every_cited_binding_test_exists`] is satisfied by ANY same-named
-/// `fn` anywhere under `src/` — a roster row whose cited differential
-/// test was deleted stays green as long as any helper, production
-/// kernel, or unrelated module's test shares the name.
-///
-/// The witness: [`declared_fn_names`] (the scan's haystack) contains
-/// these non-test helpers, so a citation naming either would pass
-/// today. The categorical seal is a scanner that resolves each citation
-/// to a `#[test]`-attributed (or proptest-macro) item, ideally in the
-/// module the row's disposition names; when that seal lands, this
-/// witness flips red and leaves with the hole it documents.
+/// Two directions. Negative: named non-test helpers — declared `fn`s the
+/// old bare-name scan accepted — are absent from
+/// [`declared_test_names`], so a roster row whose cited differential test
+/// is deleted goes red even while a same-named helper survives. Positive
+/// (the scan's own liveness): a known `#[test]` item and a known
+/// proptest-block property both resolve, so the seal cannot green by
+/// scanning nothing.
 #[test]
-fn citation_scan_accepts_helper_fns_as_binding_tests() {
-    let declared = declared_fn_names();
-    for helper in ["declared_fn_names", "parse_impl_self_type"] {
+fn citation_haystack_admits_only_attributed_tests() {
+    let declared = declared_test_names();
+    for helper in ["declared_test_names", "parse_impl_self_type", "fn_name"] {
         assert!(
-            declared.contains(helper),
-            "{helper} left the citation haystack: if the scan now separates \
-             tests from helpers, the tamper hole this witness documents is \
-             sealed - delete this test in the same change"
+            !declared.contains(helper),
+            "{helper} is a helper fn, not a test, and must not be able to \
+             satisfy a binding-test citation"
         );
     }
+    for test in [
+        // This suite's own plain `#[test]`.
+        "every_cited_binding_test_exists",
+        // A `proptest!`-block property the roster cites.
+        "join_all_matches_the_recursive_oracle",
+    ] {
+        assert!(
+            declared.contains(test),
+            "{test} is an attributed test and must resolve in the haystack"
+        );
+    }
+    // The law leg: registered names come from the tables the drivers run,
+    // and the tables' local helper fns are not registered.
+    let laws = crate::laws::registered_names();
+    assert!(
+        laws.contains(&"forks_matches_from_array"),
+        "a roster-cited law must be registered in its table"
+    );
+    assert!(
+        !laws.contains(&"le") && !laws.contains(&"hash_of"),
+        "laws.rs helper fns must not be able to satisfy a citation"
+    );
 }
 
 /// The family roster's rows are unique by op description (totality over
