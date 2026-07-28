@@ -1291,9 +1291,40 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   not structural: a 4096-program corpus triples the arm's
   evidence (146 → 409 samples) and prices the genre in-band
   (width_above 0.335 → 0.550) with no slope movement
-  (1.370 → 1.374). Sequencing: this branch merges after the
-  protocol pass's recalibration, whose re-pin must cover the
-  committed seed.
+  (1.370 → 1.374). Sequencing (resolved 2026-07-27, at the merge
+  round): the recalibration landed with the merge itself — the
+  landing entry below carries the numbers, and the committed seed
+  prices in-band under the re-pin.
+- **LANDED 2026-07-27 (#72, the merge round): the batch
+  elimination is on the tree, with the owner-approved fuzz-fit
+  recalibration.** The merge integrated the removal across the
+  epochs that landed since its base (the prose/protocol/suanpan
+  passes, the meter families, `before::laws`, ticks(n)): the
+  smoke pin moved 1090 → 1071 (its per-shape derivation
+  re-stated and test-verified), the bench mirror 1092 → 1073
+  full / 326 → 321 pinned (both `--list`-verified; the pinned
+  split is 306 diagonal + 13 riders + the wide-display pair,
+  and the mirror verification also caught the wide-display and
+  amplify benches still decoding generator construction-language
+  bytes as wire bytes — stale since the skyline transcode, fixed
+  by routing through `Packed::version`). Recalibration: the
+  corpus of record widened 1536 → 4096 programs (~985k → ~2.64M
+  steps; bands byte-identical across two sweeps), the
+  `ff_clock_join` rejection band learned the full-scan genre
+  (samples 146 → 409, width_above 0.335 → 0.550, slope
+  1.370 → 1.374), and the committed sentry seed prices in-band
+  (residual +0.675 against the 0.550 width + 0.2 margin) — the
+  acceptance criterion met with no seed tuning and no exclusion.
+  Constants re-derived from the sweep's evidence:
+  `ENFORCE_MARGIN_BELOW` 1.0 → 0.8 (at 1.0 the widened
+  `ff_rank_cmp` floor dipped 0.087 decades under nop, voiding
+  the liveness claim on that key; at 0.8 the narrowest gap is
+  +0.113 decades with the honest 0.29-decade cheap tail still
+  absorbed); `ENFORCE_MARGIN`, `REFIT_TOLERANCE`, and
+  `SLOPE_ALLOWANCE` re-evidenced unchanged (worst replay ceiling
+  excess +0.023, prefix divergence 0.489 over 48 of 49 keys
+  covered, max healthy within-case excess +0.081).
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
@@ -1438,7 +1469,7 @@ rejection must consume as much input as possible:
   outputs are semantically void by design (a well-formed pair no
   legal fork/join history produces); the cost claim is what the
   rows price. Clock overlap rejection does no version work (the
-  party join is the gate; `clock/batch.rs`).
+  party join is the gate; `clock.rs`).
 - **Overlap hand-back in the folds** (`Party::join_all` —
   `Err(Vec)` returning every overlapping input): the
   `party_join_all_overlap` row — one large mounted accumulator
@@ -1779,11 +1810,6 @@ outcomes):**
   and `Version::distance`'s complexity re-class — with the
   accumulator's zero probe renamed to carry its one-sided
   contract.
-- **The batch-API elimination and its merge round**:
-  `before::Batch` removed and `rumors` on the plain API; at the
-  merge, the fuzz-fit corpus recalibrates at 4096 programs
-  (owner-approved) with the committed sentry seed pricing in-band
-  as the acceptance.
 - **The lazy projection view** (decided 2026-07-27; charter of
   record `design/own-version-view.md`): `/` and
   `Clock::own_version` return a ref-owning `OwnVersion<'a>`;
