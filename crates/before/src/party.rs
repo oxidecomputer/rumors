@@ -16,7 +16,7 @@ use bitvec::prelude::*;
 use crate::codec::{self, BitsSlice};
 use crate::error::{Decode, Parse};
 use crate::idbits::IdReader;
-use crate::Version;
+use crate::{Ticks, Version};
 
 mod forks;
 pub(crate) mod ops;
@@ -149,6 +149,25 @@ impl Party {
     /// ```
     pub fn tick(&self, version: &mut Version) {
         version.tick(self)
+    }
+
+    /// Advances `version` by `n` events for this [`Party`]: byte-identical
+    /// to `n` sequential [`tick`](Self::tick)s, computed in a bounded
+    /// number of passes rather than `n` (the party-first spelling of
+    /// [`Version::ticks`]).
+    ///
+    /// # Complexity
+    ///
+    /// `O(|v| + |p| + log n)` time and space, as [`Version::ticks`].
+    ///
+    /// ```
+    /// use before::{Party, Version};
+    /// let mut v = Version::new();
+    /// Party::seed().ticks(&mut v, 3u64);
+    /// assert_eq!(v.to_string(), "3");
+    /// ```
+    pub fn ticks(&self, version: &mut Version, n: impl Into<Ticks>) {
+        version.ticks(self, n)
     }
 
     /// Splits off a new disjoint [`Party`] from this one.

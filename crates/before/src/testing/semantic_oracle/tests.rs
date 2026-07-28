@@ -285,7 +285,7 @@ proptest! {
     fn min_ticks_realizes_base_sum(v in arb_oracle_version()) {
         let g = grid_for(&[ev_depth(&v)]);
         let want = v.min_ticks();
-        let got = min_ticks(&lift_ev(v), g).to_u64_saturating();
+        let got = crate::Ticks(min_ticks(&lift_ev(v), g));
         prop_assert_eq!(got, want);
     }
 }

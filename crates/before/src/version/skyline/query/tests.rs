@@ -44,7 +44,7 @@ fn assert_single(v: &Version) {
         "rank kernel disagrees with the tree-fold oracle: {v}"
     );
     assert_eq!(
-        min_ticks(&enc),
+        crate::Ticks(min_ticks(&enc)),
         tree.min_ticks(),
         "min_ticks kernel disagrees with the tree-fold oracle: {v}"
     );
@@ -208,7 +208,7 @@ proptest! {
             "the Riemann sum disagrees with the rank kernel: {}", a
         );
         prop_assert_eq!(
-            semantic_oracle::min_ticks(&ev, g).to_u64_saturating(),
+            semantic_oracle::min_ticks(&ev, g),
             min_ticks(&encode(&a)),
             "the semantic tick floor disagrees with the min_ticks kernel: {}", a
         );

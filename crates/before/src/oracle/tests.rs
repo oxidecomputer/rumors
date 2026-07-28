@@ -803,12 +803,12 @@ proptest! {
         let n = vs.len();
         let v = &vs[i % n];
 
-        prop_assert_eq!(v.min_ticks() == 0, *v == Version::new()); // zero iff the zero version
-        prop_assert!(v.min_ticks() >= 1 || *v == Version::new());
+        prop_assert_eq!(v.min_ticks() == crate::Ticks::ZERO, *v == Version::new()); // zero iff the zero version
+        prop_assert!(v.min_ticks() >= crate::Ticks::from(1u64) || *v == Version::new());
         // The seed ticked once in a line costs exactly one.
         let mut one = Version::new();
         one.tick(&Party::seed());
-        prop_assert_eq!(one.min_ticks(), 1);
+        prop_assert_eq!(one.min_ticks(), crate::Ticks::from(1u64));
     }
 }
 

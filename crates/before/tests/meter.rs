@@ -3173,7 +3173,7 @@ mod accum_streams {
 // ─── skyline query-fold scenarios ───────────────────────────────────────────
 //
 // The query kernels over skyline streams: rank on the frozen/live height
-// split, min_ticks on the word stack with its early saturation exit, and
+// split, min_ticks on the epoch-tagged offset stack, and
 // projection against a packed id. Streams are transcoded outside
 // measurement. These rows carry all five columns — heap, segments, limbs,
 // scanned bits, and accumulator touches — because the kernels' arithmetic
@@ -3270,8 +3270,8 @@ mod query_env {
     pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324, 99_840, 148_994); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097 -> 133_121 (2026-07-24, metered trailing_zeros), 458_763, 198_659
     pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008, 4_707, 4_804); // 2_460 -> 2_540 (2026-07-24, dashu-int backend), 0, 6_244 -> 6_277 (2026-07-24, metered trailing_zeros), 38_917, 6_406
     pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580, 17_755, 20_148); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641 -> 23_674 (2026-07-24, metered trailing_zeros), 2_397_055, 26_864
-    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   312_503,   468_758,   156_255, 187_501, 93_753); // 24_576, 0, 250_002, 375_006, 125_004
-    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(       660,        0,        22,     2_565,        62, 12, 36); // 528 -> 560 (2026-07-24, dashu-int backend), 0, 17, 2_052, 49
+    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   625_003,   468_758,   156_256, 375_001, 93_753); // 24_576, 0, 500_002 (2026-07-27, exact wide fold: one signed offset compare per closing node), 375_006, 125_005
+    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(    62_190,        0,    10_323,    17_923,    88_703, 6_193, 53_221); // 49_752, 0, 8_258, 14_338, 70_962 (2026-07-27, exact wide fold: the comb no longer takes the early exit a saturating answer allowed - the sweep reads every leaf, and the pending stack holds F-relative offsets)
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (2026-07-25, single-record id tags), 35_939
     pub const FOLD_VERSION_SCATTER: QueryEnvelope        = query_envelope(       368,        0,   317_380,   330_913,    63_347, 190_428, 38_007); // 73_216 -> 390 -> 294 (2026-07-26, the at-rest form is codec::Bits, the wire bytes in a length-carrying container), 0, 690_310 -> 253_904 (sequential 14_281_732), 163_866 -> 264_730, 0 -> 50_677 (2026-07-25, C2: operations route to the skyline kernels)
     pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       420,        0,         0,   322_068,         0, 0, 0); // 336, 0, 0, 292_432 -> 257_654 (2026-07-26, join_all answers its up-front tests through a per-call id index; the 292_432 was a mid-round reading, the C2 flag-day commit itself reads 276_044) (sequential 3_284_952), 0
@@ -3491,8 +3491,8 @@ fn skyline_rank_wide_tooth_envelope() {
 }
 
 /// The min_ticks kernel on the dense spine stays within its envelope:
-/// one `u64` min-merge per node, heights on the accumulator, zero grown
-/// segments at 125k levels.
+/// one narrow offset min-merge per node, heights on the accumulator,
+/// zero grown segments at 125k levels.
 #[test]
 fn skyline_min_ticks_dense_envelope() {
     let p = meter::dense(DENSE_DEPTH);
@@ -3504,13 +3504,17 @@ fn skyline_min_ticks_dense_envelope() {
         &query_env::SKYLINE_MIN_TICKS_DENSE,
         || meter::skyline::query::min_ticks(&enc),
     );
-    assert_eq!(r, v.min_ticks(), "the kernel must match the packed fold");
+    assert_eq!(
+        r.to_string(),
+        v.min_ticks().to_string(),
+        "the kernel must match the packed fold"
+    );
 }
 
 /// The min_ticks kernel on the boundary comb stays within its envelope:
-/// the first `2^k`-scale height saturates the answer immediately, so the
-/// early exit reads one leaf and no wide arithmetic ever reaches the
-/// sums.
+/// the `2^k`-scale first height rides the frozen component and enters
+/// the exact total once, through the counting term — never per leaf —
+/// so the comb's teeth cost narrow offsets only.
 #[test]
 fn skyline_min_ticks_cliff_envelope() {
     let p = meter::cliff_comb(CLIFF_SCALE, CLIFF_SCALE);
@@ -3522,8 +3526,15 @@ fn skyline_min_ticks_cliff_envelope() {
         &query_env::SKYLINE_MIN_TICKS_CLIFF,
         || meter::skyline::query::min_ticks(&enc),
     );
-    assert_eq!(r, u64::MAX, "a comb height saturates the tick floor");
-    assert_eq!(r, v.min_ticks(), "the kernel must match the packed fold");
+    assert!(
+        r.to_string().len() > 20,
+        "the comb's floor exceeds any machine word: the wide arm is live"
+    );
+    assert_eq!(
+        r.to_string(),
+        v.min_ticks().to_string(),
+        "the kernel must match the packed fold"
+    );
 }
 
 /// The projection kernel on the comb × scattered-party cross stays
