@@ -11,7 +11,7 @@ This file indexes the *time leg* only.
 
 ## Method, re-runnable
 
-1. Enumerate the board's product: 65 operation rows over 21 shapes, 1090
+1. Enumerate the board's product: 64 operation rows over 21 shapes, 1071
    applicable cells (the per-shape derivation and the enforced pin:
    `tests/amp_board_smoke.rs`, `EXPECTED_CELLS`).
 2. Enumerate the bench surface: `cargo bench -p before --bench board --
@@ -29,14 +29,14 @@ This file indexes the *time leg* only.
 
 ## The judged cell inventory
 
-The bench mirror carries the board's 1090 cells (`BOARD_BENCH_MODE=full`,
+The bench mirror carries the board's 1071 cells (`BOARD_BENCH_MODE=full`,
 the mode for final verdicts: `just bench-judge-full`) plus the two
-judge-only wide-display cells — 1092 cells per scale. The judge recipes'
+judge-only wide-display cells — 1073 cells per scale. The judge recipes'
 cadence (`just bench-judge`, both scales through the committed roster
-`tools/benchjudge-expected.json`) times the `pinned` subset, 324 cells
+`tools/benchjudge-expected.json`) times the `pinned` subset, 321 cells
 per scale:
 
-- **The designed diagonal (311)**: every operation on `dense`,
+- **The designed diagonal (306)**: every operation on `dense`,
   `benign`, `id-pair`, and `scatter` where applicable; the magnitude
   shapes (`bigroot`, `hugeleaf`, `cliff`) on every group but the rank
   rows; `harmonic` on the measure and rank rows; `comb-scatter` on the
@@ -49,8 +49,9 @@ per scale:
   `display_schoolbook/hugeleaf`, the text-ceiling conversion-class
   cells (pinned by `benches/common/sidecar.rs`, `TEXT_CEILING_CELLS`).
 
-Families (19): `dense`, `bigroot`, `hugeleaf`, `cliff` (the four event
-shapes), `harmonic`, `id-pair`, `scatter`, `comb-scatter`, the ten
+Families (21): `dense`, `bigroot`, `hugeleaf`, `cliff` (the four event
+shapes), `harmonic`, the two version-pair shapes (`jump-pair`,
+`concurrent-pair`), `id-pair`, `scatter`, `comb-scatter`, the ten
 tick-walk crosses (`nested-full`, `nested-wide`, `mirror-wide`,
 `mirror-narrow`, `staircase`, `reveal-comb`, `reveal-hifloor`,
 `pure-comb`, `ascend-cliff`, `ascend-plateau`), and `benign` (the
@@ -59,41 +60,40 @@ organic control).
 Family-carrier classes, naming which shapes a row runs on in the full
 product (the operand bundles decide applicability; family alone):
 
-- **V17**: the 17 version-carrying shapes — all but `id-pair` and
+- **V19**: the 19 version-carrying shapes — all but `id-pair` and
   `scatter`.
 - **P13**: the 13 party-pair-carrying shapes — `id-pair`,
   `comb-scatter`, the ten tick crosses, and `benign`.
-- **C18**: V17 plus `id-pair` (every clock-carrying shape).
-- **X18**: V17 plus `id-pair` (the projection rows' cross set).
+- **C20**: V19 plus `id-pair` (every clock-carrying shape).
+- **X20**: V19 plus `id-pair` (the projection rows' cross set).
 - **F2**: the fold populations — `scatter` and `benign`.
 
 | Row (bench group) | Full product | Pinned (judge cadence) | Public operations timed |
 |---|---|---|---|
-| `version_decode` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` (and the serde/borsh deserialize wrappers) |
-| `version_encode` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::encode` (and `encode_to`, `as_bytes` materialization, serialize wrappers) |
-| `version_cmp` | V17 | dense, bigroot, hugeleaf, cliff, benign | `PartialOrd` on `Version`/`batch::Version`, every borrow shape |
-| `version_eq` | V17 | dense, bigroot, hugeleaf, cliff, benign | `PartialEq` on `Version` (a wholesale byte compare of the canonical streams; the time leg backstops that it stays linear) |
-| `version_concurrent` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::concurrent`, `batch::Version::concurrent` |
-| `version_join` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitOr` on `Version`/`batch::Version` |
-| `version_join_assign` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitOrAssign` |
-| `version_meet` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitAnd` |
-| `version_meet_assign` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitAndAssign` |
-| `version_tick` | V17 | dense, bigroot, hugeleaf, cliff, the ten tick crosses, benign | `Version::tick`, `batch::Version::tick` (adversarial version × small party; the tick crosses carry their own (event, id) pair) |
-| `version_ticks` | V17 | dense, bigroot, hugeleaf, cliff, the ten tick crosses, benign | `Version::ticks` at the fixed count (`meter::board::TICKS_BOARD_COUNT`); `Party::ticks` and `Clock::ticks` are the same kernel through their own spellings, and the count axis is pinned point-to-point by `tests/meter.rs`'s flatness rows |
+| `version_decode` | V19 | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` (and the serde/borsh deserialize wrappers) |
+| `version_encode` | V19 | dense, bigroot, hugeleaf, cliff, benign | `Version::encode` (and `encode_to`, `as_bytes` materialization, serialize wrappers) |
+| `version_cmp` | V19 | dense, bigroot, hugeleaf, cliff, benign | `PartialOrd` on `Version`, every borrow shape |
+| `version_eq` | V19 | dense, bigroot, hugeleaf, cliff, benign | `PartialEq` on `Version` (a wholesale byte compare of the canonical streams; the time leg backstops that it stays linear) |
+| `version_concurrent` | V19 | dense, bigroot, hugeleaf, cliff, benign | `Version::concurrent` |
+| `version_join` | V19 | dense, bigroot, hugeleaf, cliff, benign | `BitOr` on `Version` |
+| `version_join_assign` | V19 | dense, bigroot, hugeleaf, cliff, benign | `BitOrAssign` |
+| `version_meet` | V19 | dense, bigroot, hugeleaf, cliff, benign | `BitAnd` |
+| `version_meet_assign` | V19 | dense, bigroot, hugeleaf, cliff, benign | `BitAndAssign` |
+| `version_tick` | V19 | dense, bigroot, hugeleaf, cliff, the ten tick crosses, benign | `Version::tick` (adversarial version × small party; the tick crosses carry their own (event, id) pair) |
+| `version_ticks` | V19 | dense, bigroot, hugeleaf, cliff, the ten tick crosses, benign | `Version::ticks` at the fixed count (`meter::board::TICKS_BOARD_COUNT`); `Party::ticks` and `Clock::ticks` are the same kernel through their own spellings, and the count axis is pinned point-to-point by `tests/meter.rs`'s flatness rows |
 | `version_tick_adv_party` | P13 | id-pair, benign | the same tick, adversarial party × small version; `Party::tick` is its mirror |
-| `version_batch_snapshot` | V17 | dense, bigroot, hugeleaf, cliff, benign | `batch::Version::snapshot` |
-| `version_rank` | V17 | dense, bigroot, hugeleaf, cliff, harmonic, benign | `Version::rank` (and `Ranked::from`) |
-| `rank_pair_ops` | V17 | dense, harmonic, benign | `Rank::cmp`, `Rank::checked_sub`, `Add` (value-content-denominated; `checked_sub → None` measured here, both directions attempted) |
-| `rank_sum` | V17 | dense, harmonic, benign | `Sum<Rank>`/`Sum<&Rank>` (the mixed high-first fold; `AddAssign` is `Add` in place) |
-| `version_distance` | V17 | dense, bigroot, hugeleaf, cliff, harmonic, benign | `Version::distance` |
-| `version_lag` | V17 | dense, bigroot, hugeleaf, cliff, harmonic, benign | `Version::lag` |
-| `version_min_ticks` | V17 | dense, bigroot, hugeleaf, cliff, harmonic, benign + riders: mirror-wide, mirror-narrow | `Version::min_ticks` |
+| `version_rank` | V19 | dense, bigroot, hugeleaf, cliff, harmonic, jump-pair, concurrent-pair, benign | `Version::rank` (and `Ranked::from`) |
+| `rank_pair_ops` | V19 | dense, harmonic, benign | `Rank::cmp`, `Rank::checked_sub`, `Add` (value-content-denominated; `checked_sub → None` measured here, both directions attempted) |
+| `rank_sum` | V19 | dense, harmonic, benign | `Sum<Rank>`/`Sum<&Rank>` (the mixed high-first fold; `AddAssign` is `Add` in place) |
+| `version_distance` | V19 | dense, bigroot, hugeleaf, cliff, harmonic, jump-pair, concurrent-pair, benign | `Version::distance` |
+| `version_lag` | V19 | dense, bigroot, hugeleaf, cliff, harmonic, jump-pair, concurrent-pair, benign | `Version::lag` |
+| `version_min_ticks` | V19 | dense, bigroot, hugeleaf, cliff, harmonic, jump-pair, concurrent-pair, benign + riders: mirror-wide, mirror-narrow | `Version::min_ticks` |
 | `version_join_all` | F2 | scatter, benign | `Version::join_all` (and `Sum`/`FromIterator`, the same fold) |
-| `version_project` | X18 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `Div`/`DivAssign` (`version / party`), both small×adversarial crosses plus the I/O-denominated adversarial×adversarial cross |
-| `version_display` | V17 | dense, bigroot, hugeleaf, cliff, benign + riders: harmonic, nested-full, nested-wide, mirror-wide, mirror-narrow, staircase | `Display` (and `Debug`) on `Version` |
-| `version_from_str` | V17 | dense, bigroot, hugeleaf, cliff, benign | `FromStr` on `Version` (accepting direction) |
-| `version_hash` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Hash` on `Version` |
-| `causally_contains` | V17 | dense, bigroot, hugeleaf, cliff, benign | `causally::Range::contains` (every `causally` constructor and refinement performs the same comparisons) |
+| `version_project` | X20 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `Div`/`DivAssign` (`version / party`), both small×adversarial crosses plus the I/O-denominated adversarial×adversarial cross |
+| `version_display` | V19 | dense, bigroot, hugeleaf, cliff, benign + riders: harmonic, nested-full, nested-wide, mirror-wide, mirror-narrow, staircase | `Display` (and `Debug`) on `Version` |
+| `version_from_str` | V19 | dense, bigroot, hugeleaf, cliff, benign | `FromStr` on `Version` (accepting direction) |
+| `version_hash` | V19 | dense, bigroot, hugeleaf, cliff, benign | `Hash` on `Version` |
+| `causally_contains` | V19 | dense, bigroot, hugeleaf, cliff, benign | `causally::Range::contains` (every `causally` constructor and refinement performs the same comparisons) |
 | `party_decode` | P13 | id-pair, benign | `Party::decode` |
 | `party_encode` | P13 | id-pair, benign | `Party::encode` |
 | `party_fork` | P13 | id-pair, benign | `Party::fork` (`forks`/the consuming array splits iterate it) |
@@ -105,30 +105,30 @@ product (the operand bundles decide applicability; family alone):
 | `party_display` | P13 | id-pair, benign | `Display`/`Debug` on `Party` |
 | `party_from_str` | P13 | id-pair, benign | `FromStr` on `Party` (accepting direction) |
 | `party_hash` | P13 | id-pair, benign | `Hash` on `Party` |
-| `clock_decode` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::decode` |
-| `clock_encode` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::encode` |
-| `clock_tick` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, the ten tick crosses, benign | `Clock::tick` (`send` by definition; `batch::Clock::tick`) |
-| `clock_fork` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::fork`, `batch::Clock::fork` |
-| `clock_join` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::join`, `batch::Clock::join` (accepting arm) |
-| `clock_sync` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::sync`, `batch::Clock::sync` (accepting arm) |
-| `clock_recv` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::recv` (`clock \| version` folds through the same path) |
-| `clock_own_version` | X18 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `Clock::own_version` |
-| `clock_display` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign + riders: harmonic, nested-full, mirror-wide, mirror-narrow, staircase | `Display`/`Debug` on `Clock` |
-| `clock_from_str` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `FromStr` on `Clock` (accepting direction) |
-| `clock_hash` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Hash` on `Clock` |
-| `version_decode_truncated` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` rejection: last byte dropped (EOF discoverable only at the stream's end) |
-| `version_decode_trailing` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` rejection: junk after the complete valid stream |
-| `version_decode_noncanon` | V17 | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` rejection: minimality violation at the preorder-last pair |
-| `version_parse_trailing` | V17 | dense, bigroot, hugeleaf, cliff, benign | `FromStr` on `Version`, rejection: junk after the complete valid text |
-| `version_parse_noncanon` | V17 | dense, bigroot, hugeleaf, cliff, benign | `FromStr` on `Version`, rejection: equal-sibling respelling at the text's end |
+| `clock_decode` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::decode` |
+| `clock_encode` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::encode` |
+| `clock_tick` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, the ten tick crosses, benign | `Clock::tick` (`send` by definition) |
+| `clock_fork` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::fork` |
+| `clock_join` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::join` (accepting arm) |
+| `clock_sync` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::sync` (accepting arm) |
+| `clock_recv` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::recv` (`clock \| version` folds through the same path) |
+| `clock_own_version` | X20 | dense, bigroot, hugeleaf, cliff, id-pair, comb-scatter, benign | `Clock::own_version` |
+| `clock_display` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign + riders: harmonic, nested-full, mirror-wide, mirror-narrow, staircase | `Display`/`Debug` on `Clock` |
+| `clock_from_str` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `FromStr` on `Clock` (accepting direction) |
+| `clock_hash` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Hash` on `Clock` |
+| `version_decode_truncated` | V19 | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` rejection: last byte dropped (EOF discoverable only at the stream's end) |
+| `version_decode_trailing` | V19 | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` rejection: junk after the complete valid stream |
+| `version_decode_noncanon` | V19 | dense, bigroot, hugeleaf, cliff, benign | `Version::decode` rejection: minimality violation at the preorder-last pair |
+| `version_parse_trailing` | V19 | dense, bigroot, hugeleaf, cliff, benign | `FromStr` on `Version`, rejection: junk after the complete valid text |
+| `version_parse_noncanon` | V19 | dense, bigroot, hugeleaf, cliff, benign | `FromStr` on `Version`, rejection: equal-sibling respelling at the text's end |
 | `party_decode_truncated` | P13 | id-pair, benign | `Party::decode` rejection: truncation |
 | `party_decode_trailing` | P13 | id-pair, benign | `Party::decode` rejection: trailing junk |
 | `party_decode_noncanon` | P13 | id-pair, benign | `Party::decode` rejection: collapsible terminal pair at the preorder end |
 | `party_parse_trailing` | P13 | id-pair, benign | `FromStr` on `Party`, rejection: trailing junk |
 | `party_parse_noncanon` | P13 | id-pair, benign | `FromStr` on `Party`, rejection: collapsible respelling at the text's end |
-| `clock_decode_truncated` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::decode` rejection: truncation (component non-canonicality is the component validators — delegation) |
-| `clock_decode_trailing` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::decode` rejection: trailing junk |
-| `clock_parse_trailing` | C18 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `FromStr` on `Clock`, rejection: junk inside the outer parens, past the full component parse |
+| `clock_decode_truncated` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::decode` rejection: truncation (component non-canonicality is the component validators — delegation) |
+| `clock_decode_trailing` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `Clock::decode` rejection: trailing junk |
+| `clock_parse_trailing` | C20 | dense, bigroot, hugeleaf, cliff, id-pair, benign | `FromStr` on `Clock`, rejection: junk inside the outer parens, past the full component parse |
 | `party_join_overlap` | P13 | id-pair, benign | `Party::join` rejection (Law of Disjointness), the overlap at the preorder-last position |
 | `clock_join_overlap` | P13 | id-pair, benign | `Clock::join` rejection (the party join is the gate; no version work) |
 | `clock_sync_overlap` | P13 | id-pair, benign | `Clock::sync` rejection, same gate |
@@ -147,7 +147,7 @@ judged cells) and deliberately do not mirror board IDs.
 
 The canonical list, with per-item mechanism-based reasons, is the board
 module doc's "Coverage: the not-applicable list" (`src/meter/board.rs`).
-Its categories: delegations and aliases (batch operator matrix, `send`,
+Its categories: delegations and aliases (the operator matrices, `send`,
 `Debug`, `Clock::join_all`/clock component validation); folds priced by
 their measured cells (`meet_all`'s bounded accumulator, `forks`);
 bounded or trivial inputs (constructors, seed predicates, `TryFrom`
@@ -216,6 +216,13 @@ cells in four genres.
 
 ## Decision record
 
+- 2026-07-27 (#72, batch removal): the owner-ruled removal of the batch
+  API drops the `version_batch_snapshot` row — 64 rows × 21 shapes, 1071
+  applicable cells (`EXPECTED_CELLS` moved with the diff), 1073 judged
+  cells per scale in full mode, pinned subset 321 (designed diagonal
+  306: the row's five diagonal cells leave with it); both mode counts
+  re-verified against the criterion `--list`. All other counts
+  unchanged.
 - 2026-07-27 (the ticks(n) landing): the `version_ticks` row joins the
   board and its bench mirror (+19 full cells, +15 pinned: the tick
   diagonal's shapes). Re-counting for this entry also trued the
@@ -223,9 +230,9 @@ cells in four genres.
   this file described had already grown from the closeout census's
   989/303 to 1071 full / 309 pinned before this landing — cells landed
   by later tracks without a re-sweep here — so the numbers above are
-  re-derived whole at 1090 full / 324 pinned (311 designed-diagonal
-  cells + the 13 riders), and the method's step 1 now names the
-  21-shape board the smoke pin enforces.
+  re-derived whole at 1090 full / 326 pinned (311 designed-diagonal
+  cells + the 13 riders + the wide-display pair), and the method's
+  step 1 now names the 21-shape board the smoke pin enforces.
 - 2026-07-27 (P5.5, the closeout census): re-derived whole against the
   989-cell board (64 rows × 19 shapes: the 18 rejection rows and the
   `reveal-comb`/`reveal-hifloor`/`pure-comb`/`ascend-cliff`/

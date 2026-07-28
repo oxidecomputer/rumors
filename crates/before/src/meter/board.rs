@@ -310,7 +310,7 @@
 //! codec directions (the coding is canonical 1:1, so input bytes are the
 //! honest bound); every scalar, comparison, and query row (word-sized or
 //! borrowed results); and the packed-output mutator rows (`join`, `meet`,
-//! `tick`, `batch_snapshot`, `fork`, `recv`, `sync`, `without`, and every
+//! `tick`, `fork`, `recv`, `sync`, `without`, and every
 //! projection cell outside the output-domination cross) — their input denomination rests on output
 //! coding ≤ inputs + O(1) per overlay boundary, which is pinned for
 //! join/meet as the 1-Lipschitz proptest in
@@ -422,18 +422,15 @@
 //! Every public operation either has a board row or is listed here with the
 //! reason it has no meaningful adversarial operand of its own:
 //!
-//! - **Delegations and aliases**: `Version::concurrent`/`Batch::concurrent`
-//!   are one `partial_cmp` (the `cmp` row measures the walk; `concurrent`
+//! - **Delegations and aliases**: `Version::concurrent`
+//!   is one `partial_cmp` (the `cmp` row measures the walk; `concurrent`
 //!   still gets its own row since it is the documented entry point);
-//!   `Version::tick` is `Batch::tick` (the tick rows drive the batch);
-//!   `Batch`'s operator matrix (`|`, `&`, and their assign forms, over
+//!   the operator matrix (`|`, `&`, and their assign forms, over
 //!   every borrow shape) routes through the same `join_view`/`meet_view`
-//!   emitters and cmp walk the `join`/`meet`/`cmp` rows measure — the
-//!   batch is a decode-once wrapper, not a second implementation;
+//!   emitters and cmp walk the `join`/`meet`/`cmp` rows measure;
 //!   `Clock::send` is `Clock::tick` by definition; `clock | version` and
-//!   `clock |= version` fold through the same `join_version` the `recv` row
-//!   measures; `Clock::batch` operations are what the clock rows already
-//!   route through; `Party::tick` is the mirror of `Version::tick` (the
+//!   `clock |= version` fold through the same join-assign the `recv` row
+//!   measures; `Party::tick` is the mirror of `Version::tick` (the
 //!   `tick_adv_party` row); `Debug` for all three types delegates to
 //!   `Display`.
 //! - **Folds over measured operations**: `Version::join_all` has its own
@@ -458,7 +455,7 @@
 //! - **Moves, borrows, and byte copies**: `is_empty`, `as_bytes`,
 //!   `encoded_bits`, `encode_to` (the `encode` row's path into a writer),
 //!   `dangerously_alias` (a byte copy), `Clock::from_parts`/`into_parts`,
-//!   `Clock::party`/`version`, `Version::batch`,
+//!   `Clock::party`/`version`,
 //!   `Ranked::rank`/`version`/`into_parts` (borrows and moves); `Clone`
 //!   (`Version`, `Rank`, `Ranked`) copies the stored bits or value content
 //!   wholesale, with no walk or arithmetic in the contract; `Party`'s and
@@ -2965,26 +2962,6 @@ fn ops() -> Vec<Op> {
                     move || {
                         v.tick(&a);
                         (v, a)
-                    },
-                ))
-            },
-        },
-        Op {
-            name: "version_batch_snapshot",
-            group: OpGroup::Version,
-            prepare: |f| {
-                let (mut v, n) = f.version()?;
-                let party = Party::seed();
-                Some(Cell::new(
-                    n + 1,
-                    walk_floors(n, na(NA_TOUCH_SEED_RAISE)),
-                    move || {
-                        let snap = {
-                            let mut batch = v.batch();
-                            batch.tick(&party);
-                            batch.snapshot()
-                        };
-                        (snap, v)
                     },
                 ))
             },

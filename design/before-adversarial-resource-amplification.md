@@ -1227,11 +1227,78 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   under fused fixture construction, the byte-identity guarantee
   read back through the protocol pins).
 
+- **DECIDED 2026-07-27 (owner, #72): the batch API is removed from
+  `before`** — `Version::batch`/`Clock::batch`, the two `Batch`
+  handles, and the `batch` re-export module — as "a footgun waiting
+  to be accidentally discharged": the surface looked like it
+  amortizes work and amortized nothing. The accretion story is the
+  dissolution doctrine's textbook case: the original `Batch` held a
+  deferred `work` state and its docs claimed multi-op efficiency;
+  C2 (§12's flag-day entry) moved the operation kernels onto the
+  packed stream, every op commits as it runs, and the working form
+  ceased to exist — the handle survived its justification as pure
+  chaining sugar priced as an economy. The honest replacement for
+  repeated ticks is the ticks(n) surface (landed, #71; probed in
+  `design/probe-ticks-68.md`). Landed shape: the `|`/`&`/comparison
+  matrices collapse to owned/borrowed `Version` cells (the
+  `join_view`/`meet_view` cores now live on `Version`; `Clock`'s
+  join/sync/recv inline their part-wise bodies); the roster
+  totality tests were the removal's mechanical proof — the
+  `pub fn` extraction and both rosters fail on either side's
+  leftovers — with 2 method rows, 9 batch-module rows, and the two
+  batch `SURFACE_SOURCES` dropped from the triangle suite, 10
+  claim rows from the complexity roster, and the
+  `version_batch_snapshot` board row retired (the board pin moved
+  1090 → 1071 cells with the diff; bench mirror 1073 judged cells,
+  pinned subset 321). Tests whose entire subject was the handle
+  were deleted, not rewritten into vacuity
+  (`representation_parity`, `batch_equals_value_level`,
+  `no_arith_batch_preserves_version`, `commit_on_drop`); the
+  operator-matrix differentials were re-scoped to the surviving
+  cells. rumors refactor (its own public `Batch` — a real
+  amortizer at the rumors layer, batching sends/redactions into
+  one commit — is untouched): the C2-era census of ~8 production
+  call sites had already collapsed to one — `tree.rs::act`'s
+  per-action version chain, now a plain `tick`-and-`clone` loop —
+  plus three test-side ticks (`tree/tests.rs`); every other
+  `.batch()` in the workspace is rumors' own surviving API. No
+  wire snapshot moved.
+- **FINDING 2026-07-27 (#72, at the removal's gate): the
+  `ff_clock_join` rejection band under-prices the full-scan
+  overlap genre at small denominators; pre-existing, not the
+  removal's movement.** The enforcement sentry drew a program
+  whose `Clock::join` overlap rejection at 139 denominated bits
+  consumed 6805 fuel against a pinned ceiling of
+  ~10^(3.156+0.335) plus the 0.2 enforcement margin (~4.9k
+  fuel): +0.68 decades of residual against a +0.335 width.
+  Attribution measured both sides: the identical committed seed
+  reads 6820 fuel at the parent (21f99a7c) and 6805 at the
+  removal tip (−0.2%; the guest kernels drive public ops only
+  and never held a batch handle), so the removal is fuel-neutral
+  and the escape is the band's. Mechanism: the rejection band is
+  one line over a bimodal arm — cheap early overlap detections
+  dominate its small buckets (146 corpus samples, intercept
+  0.22) while full-scan rejections hold the top (the bands
+  module doc's own mixture note) — and a legitimate full-scan
+  rejection at small n (~49 fuel/bit, consistent with the band's
+  own top decade at ~66 fuel/bit) sits above the small-n line.
+  The shrunk program is committed as the finding of record
+  (`enforce.proptest-regressions`, `cc f858383f958c…`), which
+  makes the enforcement leg deterministically red on this branch
+  until the band learns the genre; band re-pins are the protocol
+  pass's seam, so no calibration landed here — a probe run
+  (discarded, not committed) confirmed the fix is evidential,
+  not structural: a 4096-program corpus triples the arm's
+  evidence (146 → 409 samples) and prices the genre in-band
+  (width_above 0.335 → 0.550) with no slope movement
+  (1.370 → 1.374). Sequencing: this branch merges after the
+  protocol pass's recalibration, whose re-pin must cover the
+  committed seed.
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **1090 cells**,
+public operation surface × §2's families — **1071 cells**,
 membership pinned by the smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
 the **release profile**, the measurement of record (§12's
@@ -1459,7 +1526,7 @@ time leg times them like every row.
 **The bench judge** (`tools/benchjudge`, stdlib Python;
 `benches/board.rs` driven by the board's own cell table so bench
 IDs mirror board cells by construction — the pinned mode times
-290 cells: the 288 designed-pairing board cells derived by rule
+321 cells: the 319 designed-pairing board cells derived by rule
 from the axes (`board::BenchMode::Pinned`: each shape's
 designed-stress groups, the organic control, and the board-red
 riders; count verified against the criterion `--list`) plus the
@@ -1517,14 +1584,18 @@ ceiling: a constant-factor counter red is not a time-exponent red
 
 **Numbers of record** [measured 2026-07-27; release profile,
 single runs per scale under the determinism tripwire — the
-`board-dlfam66-{lo,hi}.txt` renders, at the 1071-cell board]:
-board **1047 green / 24 red at the default scale; 1050 / 21 at
-×4**. The ticks(n) landing then grew the board to 1090 cells;
-its §12 entry carries the deltas (one cured dead-meter red, four
-new owned counter reds), and the acceptance sweep's final
-renders re-baseline the full board. The red roster, every red
-with exactly one owner, is §17.3; the cell-count and verdict
-lineage across the campaign's rounds (200 → 989 → 1071 → 1090)
+`board-dlfam66-{lo,hi}.txt` renders, at the 1071-cell
+instruments-phase board]: board **1047 green / 24 red at the
+default scale; 1050 / 21 at ×4**. The ticks(n) landing then grew
+the board to 1090 cells and the batch removal (#72) returned it
+to 1071 — the `version_ticks` row's 19 cells in, the
+`version_batch_snapshot` row's 19 out (green at both scales in
+the renders of record; the red roster names no batch cell) — so
+the §12 entries carry the deltas (one cured dead-meter red, four
+new owned counter reds), and the acceptance sweep's final renders
+re-baseline the full board. The red roster, every red with
+exactly one owner, is §17.3; the cell-count and verdict lineage
+across the campaign's rounds (200 → 989 → 1071 → 1090 → 1071)
 is in git history at the commits §14 names.
 
 **Acceptance (the campaign's; protocol per §12's ratification):
@@ -1856,12 +1927,17 @@ legs and its resource pin — the representation-pin leg per the
 snapshot-pinned in-crate); the benign rank-pair operand scaling
 if C3 chose that arm; the §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over 1071 cells)
+### 17.3 Owned-red accounting (current; over 1052 of the 1071 cells)
 
 Sums [measured 2026-07-27, the `board-dlfam66-{lo,hi}.txt`
 renders — the instruments-phase boards; the prior boards of
-record read 966 + 23 / 969 + 20 over 989 cells]:
-**default 1047 + 24 = 1071; record 1050 + 21 = 1071.** Every red
+record read 966 + 23 / 969 + 20 over 989 cells; re-denominated
+2026-07-27, #72: the 19 `version_batch_snapshot` cells, green at
+both scales, leave the product with the batch removal, and the
+`version_ticks` row's 19 cells await the acceptance sweep's
+re-baselining renders (their landing movement is the ticks §12
+entry)]:
+**default 1028 + 24 = 1052; record 1031 + 21 = 1052.** Every red
 has exactly one owner and the sums close; the per-round movement
 lineage (each round's flips, bucketed by mechanism, with every
 untouched cell verified byte-identical) is in git history at the

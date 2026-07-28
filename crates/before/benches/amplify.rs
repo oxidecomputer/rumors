@@ -27,8 +27,10 @@ const ID_SPINE_DEPTH: &[usize] = &[8_192, 32_768];
 fn bench_decode_hugeleaf(c: &mut Criterion) {
     let mut g = c.benchmark_group("amplify/version_decode_hugeleaf");
     for &b in HUGELEAF_BITS {
-        let p = meter::hugeleaf(b);
-        g.bench_with_input(BenchmarkId::new("before", b), &p.bytes, |bench, bytes| {
+        // The generator's construction language is transcoded to the stored
+        // coding by `Packed::version`; decode times its packed bytes.
+        let bytes = meter::hugeleaf(b).version().encode();
+        g.bench_with_input(BenchmarkId::new("before", b), &bytes, |bench, bytes| {
             bench.iter(|| black_box(Version::decode(&bytes[..]).unwrap()));
         });
     }
@@ -40,11 +42,11 @@ fn bench_decode_hugeleaf(c: &mut Criterion) {
 fn bench_join_bigroot(c: &mut Criterion) {
     let mut g = c.benchmark_group("amplify/version_join_bigroot");
     for &(b, d) in BIGROOT_SIZES {
-        let p = meter::bigroot(b, d);
+        let bytes = meter::bigroot(b, d).version().encode();
         let one = Version::try_from(1u64).expect("a one-tick version is valid");
         g.bench_with_input(
             BenchmarkId::new("before", format!("{b}x{d}")),
-            &p.bytes,
+            &bytes,
             |bench, bytes| {
                 bench.iter_batched(
                     || {
