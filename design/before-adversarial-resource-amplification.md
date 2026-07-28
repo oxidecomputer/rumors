@@ -2066,6 +2066,163 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   exponent cells, the mirror-wide display pair), and every red this
   track owns is green.
 
+- **REVIEW 2026-07-28 (task #79, the round-2 adversarial review of
+  the cure round; branch `advrev-79` @ base 826e8e50).** Charter:
+  construct a wrong artifact the post-cure criteria bless — the new
+  fold code, the declared models, the merge seams, the fuzzfit
+  sentry, and round 1's residuals as seeds, evaluated not confirmed.
+  All measurements exact deterministic counters (dev profile;
+  release reads the same code paths); no wall-clock judgment run.
+  Findings by severity, then the attacked-and-sound map and residual
+  risks.
+
+  **F1 (wrong committed claim + committed-blind path, the highest
+  severity): `Version::rank`'s promotion re-reads the absolute
+  position accumulator over its full written span once per re-arm —
+  the fold is counter-superlinear through the public API while its
+  `# Complexity` section claims unqualified `O(|v|)` and the roster
+  binds `Class::Linear`.** Mechanism (`Integrator::promote`,
+  `src/version/skyline/query.rs`): the `position` accumulator is
+  never reset, `promote()` reads it whole
+  (`sign_magnitude_shl` → `read_magnitude` walks every digit from
+  the write watermark to the top, one metered touch each), and a
+  promotion re-arms at O(1) stored codes — any freeze whose parked
+  drift is more than the allowance wider than a later freeze's own
+  drift (a `2^608` climb, a unit, a `2^288` climb, a unit: four
+  leaves). No committed family fires a single promotion — FP's
+  parked drift is monotone, which the co-sweep flatness band's own
+  doc records — so the board, both freeze-position flatness bands,
+  and the value suites are structurally blind to the path; the
+  worst artifact blessed today is exactly the shipped one. Pin
+  landed: `rank_promotion_rearm_touches_read_superlinear`
+  (`tests/meter.rs`, `query_promotion_pin`): the ascending
+  promotion re-arm spine `PR(p)` (32p unit climbs stacking a
+  Θ(p)-digit position span, then p four-leaf re-arm blocks; heights
+  ascend so the packed tree stores exactly the deltas, and
+  `min_ticks = 32p + p(2^608 + 2^288 + 2) + 1` is the semantic leg)
+  reads [measured 2026-07-28, dev, exact]: touches
+  1,485,588 → 5,098,162 on 246,501 B → 493,001 B (×1.72/byte), limb
+  ops 705,623 → 2,473,747 (×1.75/byte), next doubling ×1.83/×1.86 —
+  local exponent ~1.9 and rising, a class defect. Both-currency
+  red band (floor ×1.36, midway; ceilings measured ×1.10) over the
+  closed-form leg and the touch liveness floor. Three claims fall
+  together: the rustdoc `O(|v|)`; the module doc's funding clause
+  ("promotion pays … at the position's *compacted density*" — the
+  implementation reads the *written span*, so the code does not
+  achieve even the claimed denomination); and the mandatory-class
+  residual ("the measure's exact value embeds the product of a
+  genuinely wide plateau and its genuinely dense mass") — on PR the
+  position is an all-ones run compacting to O(1) digits and an
+  O(|v|) accounting exists (batch armings per anchor: the
+  epoch-ledger discipline the `web` submodule itself implements —
+  "no event is ever re-based across a freeze" is violated by
+  exactly one charge in the tree, this one), the same non-sequitur
+  genre as #37 seed 3. `distance`/`lag` inherit the path verbatim
+  (`pair_integral` drives the same `Integrator`; one shared
+  `freeze()` → `promote()`), so the cure flips one function and
+  three claims; the pin carries rank until then.
+
+  **F2 (dispute, review residual 3 as seeded): the co-sweep
+  freeze-position green covers the family, not the discipline.**
+  `skyline_distance_freeze_position_is_flat_per_unit` was committed
+  as the two-operand analogue's coverage, but its mate was chosen
+  unit-descending, keeping the parked drift monotone — the test's
+  own doc sentence "the parked component's monotone descent never
+  triggers promotion" concedes the promotion path is unreached. The
+  flat mate is exactly the non-adversarial one; the adversarial mate
+  drives re-arms over a growing span (F1's family, two-operand). The
+  band is sound for what it measures; its implied "no charge reads
+  an absolute position" holds only family-wise. F1's pin is the
+  wedge; a pair-form family lands with the cure.
+
+  **F3 (instrument characterization, seed 4 CONFIRMED with the
+  closing criterion): the fuzzfit sentry point-judges only sampled
+  draws; the deterministic corpus it already executes is judged by
+  line fit alone.** Coverage as committed: 48 random programs per
+  gate plus two fixed escalation replays are the only runs through
+  `judge()` (point leg + shape leg); the 256-program deterministic
+  prefix runs every gate but feeds only the refit comparison
+  (`REFIT_TOLERANCE` over fitted lines — a localized out-of-band
+  region shifts a whole-line fit negligibly, so it cannot catch
+  what the merge gates missed). Escape probability: a region of
+  per-case draw measure q survives a gate at (1−q)^48 — at q ≈ 2%
+  (a kernel × size-decade region like the tiny-operand `min_ticks`
+  band), ~38% per gate, ~14% for two consecutive greens: the
+  observed two-gate escape was the expected behavior, not bad luck.
+  Criterion proposed (not implemented): run the sentry's own
+  `judge()` over the deterministic prefix every gate — the programs
+  already execute, so the cost is the verdict, not the runtime —
+  making every known kernel × decade region total while the 48
+  random draws keep probing novel shapes. Fit-time in-band-ness of
+  the pin corpus makes the check green at pin time by construction.
+
+  **F4 (merge-seam hygiene, minor): eight review-number provenance
+  references landed in code prose.** `#37`/`review #37` citations
+  in `src/party/ops/index.rs`, `src/party/tests.rs`,
+  `src/testing/complexity_claims.rs` (+ its tests),
+  `src/testing/triangle/tests.rs`, `src/meter/board.rs` (×2):
+  provenance belongs to git history and this ledger, never code
+  comments; each site already states its constraint inline, so the
+  citation halves delete cleanly. Cosmetic sibling: `fold_signed`
+  is defined twice (`query.rs`, `query/web.rs`), verbatim.
+
+  **Seed dispositions**: surface 1 (new code worst cases) — one
+  class defect found (F1); the suanpan ledger and the min-ticks web
+  survived construction attempts (below). Surface 2 (declared
+  models) — no blessing hole constructed; one flake risk noted:
+  `capacity_chain_peak`'s `k = ceil(log2(output/anchor))` can flip
+  a step on float error at exact power-of-two ratios, landing on
+  the floor side (a false red, not a false green). The fold scan
+  constant's 20% headroom and the search allowance's ~7% weave
+  margin are disclosed slack, not holes. Surface 3 (seams) — grep
+  for every retired pin and cured-red name is clean; the red
+  roster, riders, and smoke pins agree with §17.3 at 1150 + 6;
+  F4 is the one seam finding. Surface 4 — F3. Surface 5(c) — F2.
+  Surface 6 (stated bands) — the ascend-cliff ~119 B/frame is
+  consistent with the web's `Frame` layout (a `Boundary::Wide`
+  accumulator plus a `Reign` record, ~112–120 B); the certificate
+  memory bound re-derives from disjoint interiors (each run owns
+  ≥ 2 positions exclusively, so ≤ half); the tick trio's
+  constant-vs-axis documentation is exact to the renders.
+
+  **Attacked and sound** (the negative space): the suanpan zero-run
+  ledger's potential argument held against every schedule
+  constructed — certificate churn (alternating create/split at O(1)
+  writes) stays funded by each write's own carry run; raising the
+  top past a spent-credit position requires either a jump write
+  (whose fresh certificate re-covers the run) or per-digit writes
+  (fresh credits), so no unfunded plain scan step exists; a
+  collapse can strand a certificate above the settled top
+  (violating the letter of the `hi ≤ top` structural invariant)
+  but every interior-zero claim stays true and both consumers
+  remain sound — a doc-tightening candidate, not a defect. The
+  min-ticks anchor web is immune to F1's genre: no absolute
+  position exists anywhere in it, reigns settle once at the dying
+  record's own funded width, the comparable-top latent merge is
+  funded by the wide fold that widened the gap, and the epoch
+  ledger settles one product per freeze exactly as certified. The
+  F5 citation seal resolves through `#[test]` items and law tables
+  both ways; the class-binding seal correctly rejects a Linear
+  min_ticks by mutation. The declared search allowance is computed
+  two-way (the checker re-derives both-present counts from the
+  operands). Not attacked: the render finalize arena's keying
+  (read, no collision candidate constructed), `before-viz`, the
+  wasm surface, the bench judge's fit internals.
+
+  **Residual risks (open, no demonstrator)**: (1) the class-binding
+  seal binds `Class::Linear` only against board reds, so rank keeps
+  its Linear roster row while F1's pin stands red in `tests/meter.rs`
+  — landing PR as a board family at cure time (the FP precedent)
+  closes it; (2) the pair-form promotion family (F2) is uncommitted;
+  (3) `mul_into`'s digit iteration is unmetered (only the products
+  and the `read_magnitude` walk record), so a kernel whose sole
+  superlinear term is that walk over a compacted-sparse operand
+  would be invisible to every counter — F1 was visible only because
+  the span read is metered; (4) #37's residuals (3) judge
+  sub-resolution and (4) index-shaped generality stand unchanged —
+  `metered_partition_point` is `IdIndex`-local, an instrument for
+  the one search, not a metered primitive.
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner

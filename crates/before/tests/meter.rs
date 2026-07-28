@@ -3254,6 +3254,191 @@ mod skyline_flatness {
     }
 }
 
+// ─── the promotion re-arm red pin ────────────────────────────────────────────
+//
+// RED PIN: a committed demonstration of a standing superlinearity in
+// `Version::rank`, not a regression gate. The anchored-segment
+// integrator's promotion debits `P × position` by reading the absolute
+// position accumulator over its full written span — the accumulator is
+// never reset, so every promotion re-walks every digit any earlier
+// segment banked — and a promotion re-arms whenever a freeze parks drift
+// more than the allowance wider than a later freeze's own drift: O(1)
+// stored codes per re-arm. No committed family fires a single promotion
+// (the freeze-position spine's parked drift is monotone, which the
+// distance flatness band's own doc records), so the board, both
+// freeze-position flatness bands, and the differential value suites are
+// all structurally blind to the term; `Version::rank`'s `# Complexity`
+// section claims unqualified `O(|v|)` time today. The family below fires
+// one promotion per four-leaf block over a position span its own spine
+// keeps growing, and the pin holds the measured superlinear per-byte
+// touch growth red. The cure — an accounting that never re-reads
+// whole-history state per arming (the epoch-ledger discipline the
+// min_ticks `web` submodule already implements is the in-tree precedent)
+// — must flip this pin into a flatness band and re-derive the
+// `# Complexity` claim in the same change.
+#[cfg(feature = "limb-meter")]
+mod query_promotion_pin {
+    use before::meter;
+    use suanpan::touch_meter;
+
+    /// Unit-climb spine levels per block: the phase-1 run of
+    /// `LEVELS_PER_BLOCK · p` levels puts a Θ(p)-digit floor under the
+    /// position span every promotion reads, while costing ~6 stored
+    /// bits per level.
+    const LEVELS_PER_BLOCK: usize = 32;
+
+    /// The arming climb's bit width: `2^608` spans 20 base-2^32 digits,
+    /// more than the freeze allowance (8 digits) above the settling
+    /// drift's 10, so every block's second freeze finds the parked
+    /// component over-wide and promotes.
+    const ARM_BITS: usize = 608;
+
+    /// The settling climb's bit width: `2^288` spans 10 digits.
+    ///
+    /// Wide enough that the following unit code trips the freeze
+    /// trigger (10 > 1 + 8), narrow enough that the parked arming
+    /// drift exceeds it by more than the allowance (20 > 10 + 8).
+    const SETTLE_BITS: usize = 288;
+
+    /// The promotion re-arm spine `PR(p)`: `32p` unit climbs down a
+    /// right spine, then `p` four-leaf re-arm blocks.
+    ///
+    /// Each block is a `2^608` climb, a unit (the freeze that parks
+    /// the wide drift), a `2^288` climb, and a unit (the freeze whose
+    /// promotion reads the absolute position accumulator across its
+    /// whole written span).
+    ///
+    /// Heights ascend throughout, so every node's subtree minimum is
+    /// its own left leaf and the packed tree stores exactly the height
+    /// deltas as bases over zero leaves: the operand is Θ(p) machine
+    /// words while the position span grows by one digit per 32 levels.
+    /// Every stored code is a delta the fold must consume, and
+    /// `min_ticks = Σ stored codes = 32p + p·(2^608 + 2^288 + 2) + 1`
+    /// is the closed-form semantic leg.
+    fn promotion_rearm(p: usize) -> before::Version {
+        use dashu_int::UBig;
+        let arm = (UBig::ONE << ARM_BITS).to_string();
+        let settle = (UBig::ONE << SETTLE_BITS).to_string();
+        let mut text = String::new();
+        let mut nodes = 0usize;
+        for _ in 0..LEVELS_PER_BLOCK * p {
+            text.push_str("(1, 0, ");
+            nodes += 1;
+        }
+        for _ in 0..p {
+            text.push('(');
+            text.push_str(&arm);
+            text.push_str(", 0, (1, 0, (");
+            text.push_str(&settle);
+            text.push_str(", 0, (1, 0, ");
+            nodes += 4;
+        }
+        text.push('1');
+        for _ in 0..nodes {
+            text.push(')');
+        }
+        text.parse()
+            .expect("the promotion re-arm spine is canonical")
+    }
+
+    /// One public `Version::rank` run over `PR(p)`: packed bytes and
+    /// both counters over the rank body alone.
+    ///
+    /// Carries `min_ticks`' closed form as the cross-fold semantic leg
+    /// (proving the generator builds the ascending spine this pin
+    /// reasons about) and the one-touch-per-operand-byte liveness
+    /// floor.
+    fn run(p: usize) -> (u64, u64, u64) {
+        use dashu_int::UBig;
+        let v = promotion_rearm(p);
+        let bytes = v.encode().len() as u64;
+        let expected = UBig::from(32 * p as u64)
+            + UBig::from(p as u64) * ((UBig::ONE << ARM_BITS) + (UBig::ONE << SETTLE_BITS) + 2u8)
+            + 1u8;
+        assert_eq!(
+            v.min_ticks(),
+            expected
+                .to_string()
+                .parse::<before::Ticks>()
+                .expect("the closed form parses"),
+            "the family's stored-code sum disagrees with min_ticks: the \
+             generator does not build the tree this pin reasons about"
+        );
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let rank = v.rank();
+        std::hint::black_box(rank);
+        let touches = touch_meter::touches();
+        let limb_ops = meter::limb_ops();
+        assert!(
+            touches >= bytes,
+            "rank at {bytes} operand bytes: {touches} digit touches under \
+             the one-per-byte floor: the fold's accumulator work is not \
+             metered",
+        );
+        (bytes, touches, limb_ops)
+    }
+
+    /// Blocks of the pin's small run (the large run doubles the count).
+    const PROMOTION_REARM_SMALL: usize = 1_000;
+
+    /// RED: `Version::rank`'s per-byte touch cost grows across a
+    /// `PR(p)` doubling.
+    ///
+    /// The promotion path re-reads the absolute position accumulator's
+    /// whole written span once per block, so the public fold is
+    /// superlinear where every committed family reads flat and the
+    /// `# Complexity` section claims `O(|v|)`.
+    ///
+    /// The floor sits midway between linear (×1.00) and the measured
+    /// growth, so only a class change crosses it — the cure flips this
+    /// pin, and must retighten the ceilings (measured ×1.10) and the
+    /// rustdoc claim in the same change.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 1,485,588 → 5,098,162 across PR(1,000) → PR(2,000) on
+    /// 246,501 B → 493,001 B packed operands — per-byte growth ×1.72 —
+    /// and limb ops 705,623 → 2,473,747 (×1.75/byte): the defect reads
+    /// red in both width currencies. The next doubling,
+    /// PR(2,000) → PR(4,000), reads ×1.83 touch and ×1.86 limb per
+    /// byte — the local exponent is ~1.9 and still rising: a class
+    /// defect, not a constant.]
+    #[test]
+    fn rank_promotion_rearm_touches_read_superlinear() {
+        let (small_bytes, small_touches, small_limbs) = run(PROMOTION_REARM_SMALL);
+        let (large_bytes, large_touches, large_limbs) = run(2 * PROMOTION_REARM_SMALL);
+        eprintln!(
+            "MEASURED rank_promotion_rearm: small={small_touches}/{small_bytes}B \
+             (limb {small_limbs}) large={large_touches}/{large_bytes}B \
+             (limb {large_limbs})"
+        );
+        // The red band's floor: per-byte growth at least ×1.36 across
+        // the doubling (midway between linear and the measured ×1.72)
+        // in both currencies — only a class change crosses it.
+        for (name, small, large) in [
+            ("touches", small_touches, large_touches),
+            ("limb ops", small_limbs, large_limbs),
+        ] {
+            assert!(
+                u128::from(large) * u128::from(small_bytes) * 100
+                    >= u128::from(small) * u128::from(large_bytes) * 136,
+                "rank reads flat ({name}) on the promotion re-arm family \
+                 ({small}/{small_bytes}B -> {large}/{large_bytes}B): the \
+                 promotion path no longer re-reads whole-history state — cure \
+                 this pin into a flatness band and re-derive the \
+                 `# Complexity` claim in the same change"
+            );
+        }
+        // The ceilings: measured ×1.10, so the defect cannot quietly
+        // worsen while the pin stands.
+        assert!(
+            small_touches <= 1_634_146 && large_touches <= 5_607_978,
+            "the promotion re-arm cost regressed past its pinned ceiling: \
+             {small_touches} / {large_touches} touches"
+        );
+    }
+}
+
 // ─── id spine pair scenarios ────────────────────────────────────────────────
 
 /// The combined operand bytes of an id-spine pair scenario.
