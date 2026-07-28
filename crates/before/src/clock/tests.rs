@@ -2,7 +2,6 @@
 
 use proptest::prelude::*;
 
-use super::Batch;
 use crate::oracle;
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
@@ -441,13 +440,11 @@ proptest! {
         prop_assert_eq!(to_oracle_clock(&got_vc), (vcp.clone(), vcv.clone()));
     }
 
-    /// Assigning forms. The `Clock` assigning / batch join surfaces merge the
+    /// Assigning forms. The `Clock` assigning join surfaces merge the
     /// version and leave the party untouched, matching the oracle —
     /// complementing the by-value `Clock | Version` above.
     ///
-    /// Covers `Clock |= Version`, the `From<&mut Clock>` batch conversion, the
-    /// `clock::Batch |= &Version` operator (committed on drop), and the
-    /// `clock::Batch::party` accessor.
+    /// Covers `Clock |= Version` and `Clock |= &Version`.
     #[test]
     fn clock_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -464,91 +461,11 @@ proptest! {
         assign |= from_oracle_version(&msg_oracle);
         prop_assert_eq!(to_oracle_clock(&assign), (ep.clone(), ev.clone()));
 
-        // `clock::Batch |= &Version`, over a batch built via `From<&mut Clock>`,
-        // committed on drop. The `party` accessor reflects the unchanged party
-        // mid-session.
+        // `Clock |= &Version`.
         let msg = from_oracle_version(&msg_oracle);
-        let mut batched = from_oracle_clock(&cs[i]);
-        {
-            let mut batch: Batch = (&mut batched).into();
-            batch |= &msg;
-            prop_assert_eq!(to_oracle_party(batch.party()), ep.clone());
-        }
-        prop_assert_eq!(to_oracle_clock(&batched), (ep.clone(), ev.clone()));
-    }
-}
-
-// ───────────────────────── batch equivalence / laziness ─────────────────────────
-
-proptest! {
-    /// A batch of ops equals the same ops applied as value-level calls.
-    #[test]
-    fn batch_equals_value_level(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let (i, j) = (i % n, j % n);
-        let msg = from_oracle_version(&cs[j].version());
-
-        let mut batched = from_oracle_clock(&cs[i]);
-        {
-            let mut b = batched.batch();
-            b.tick();
-            b.join_version(&msg);
-            b.tick();
-        }
-
-        let mut value_level = from_oracle_clock(&cs[i]);
-        value_level.tick();
-        value_level |= msg.clone();
-        value_level.tick();
-
-        prop_assert!(batched.version() == value_level.version());
-        prop_assert!(batched.party() == value_level.party());
-    }
-
-    /// A batch with no event arithmetic (created-and-dropped, or fork-only)
-    /// leaves the version unchanged in place.
-    #[test]
-    fn no_arith_batch_preserves_version(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let mut c = from_oracle_clock(&cs[i % n]);
-
-        let before = c.version().clone();
-        {
-            let _b = c.batch();
-        }
-        prop_assert!(c.version() == before);
-
-        let before_fork = c.version().clone();
-        {
-            let mut b = c.batch();
-            let _child = b.fork();
-        }
-        prop_assert!(c.version().clone() == before_fork);
-    }
-
-    /// The commit happens on drop, and mid-batch comparison already reflects
-    /// the uncommitted tick: `batch.version()` equals the post-tick value
-    /// before drop, and the underlying clock equals it after drop.
-    #[test]
-    fn commit_on_drop(ops in world_strategy(), i in 0usize..64) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let mut c = from_oracle_clock(&cs[i % n]);
-
-        let expected = {
-            let mut e = from_oracle_clock(&cs[i % n]);
-            e.tick();
-            e.version().clone()
-        };
-
-        {
-            let mut b = c.batch();
-            b.tick();
-            prop_assert!(b.version() == expected);
-        }
-        prop_assert!(c.version() == expected);
+        let mut assign_ref = from_oracle_clock(&cs[i]);
+        assign_ref |= &msg;
+        prop_assert_eq!(to_oracle_clock(&assign_ref), (ep.clone(), ev.clone()));
     }
 }
 

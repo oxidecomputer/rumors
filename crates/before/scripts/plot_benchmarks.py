@@ -46,7 +46,6 @@ os.makedirs(OUT, exist_ok=True)
 BEFORE = "#1f77b4"   # optimized impl: blue, solid, circle
 ORACLE = "#d62728"   # reference oracle: red, dashed, square
 ACCENT = "#17becf"   # secondary impl series (e.g. decode): cyan
-GREEN = "#2ca038"    # tertiary (e.g. unbatched): green
 
 # ── read criterion JSON ────────────────────────────────────────────────────────
 # data[group_id][function_id] = {value:int -> (median_ns, lo_ns, hi_ns)}
@@ -151,11 +150,11 @@ FAMILIES = {
                 "cmp": None,
             },
             {
-                "group": "version/k_ticks", "title": "k ticks  (working form, tree = 64)",
+                "group": "version/k_ticks", "title": "k ticks  (tree = 64)",
                 "xlabel": "k  (ticks applied)",
                 "curves": [
-                    ("before/batched", "before: batch()", BEFORE, "o", "-"),
-                    ("before/unbatched", "before: per-tick", GREEN, "s", "--"),
+                    ("before", "before: per-tick", BEFORE, "o", "-"),
+                    ("before/fused", "before: fused ticks(k)", ACCENT, "s", "--"),
                     ("oracle", "oracle", ORACLE, "^", ":"),
                 ],
                 "cmp": None,

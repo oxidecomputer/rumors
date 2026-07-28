@@ -387,20 +387,17 @@ impl<T> Tree<T> {
         // deletion-honoring inference, which cannot distinguish "forgot it"
         // from "never had it" when versions are equal. An empty batch is a
         // complete no-op.
-        let mut new_version = self.latest().clone();
-
-        // Hold one version `Batch` open across the whole run: the single
-        // mutable borrow under which each `tick` advances the version in
-        // place and `snapshot` reads the per-action committed version that
-        // keys the leaf. The reactions flow into `react` lazily; the whole
+        // The running version, advanced in place per action; each action
+        // clones the post-tick value as the committed version that keys
+        // its leaf. The reactions flow into `react` lazily; the whole
         // chain materializes only once, at the traversal's radix sort.
-        let mut batch = new_version.batch();
+        let mut new_version = self.latest().clone();
         self.react(actions.into_iter().map(|action| {
             // Advance the version. It must be unique for every action
             // applied to the tree; otherwise the mirror protocol
             // wrongly early-aborts when versions compare equal.
-            batch.tick(party);
-            let version = batch.snapshot();
+            new_version.tick(party);
+            let version = new_version.clone();
 
             // Convert unversioned, unlocalized actions into reactions
             // independent of our party and current version. The key is
