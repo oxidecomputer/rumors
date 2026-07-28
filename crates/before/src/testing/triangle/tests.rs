@@ -37,7 +37,9 @@ fn roster_is_total_over_the_public_fn_surface() {
 }
 
 /// Every test name the roster or a tripwire cites resolves to an
-/// executable binding: a `#[test]`-attributed item under `src/`, or a law
+/// executable binding.
+///
+/// The bindings: a `#[test]`-attributed item under `src/`, or a law
 /// name registered in [`crate::laws`]'s tables (the entries the
 /// algebraic-laws drivers run). A renamed or deleted binding test fails
 /// here by name, so a disposition can never silently point at nothing,

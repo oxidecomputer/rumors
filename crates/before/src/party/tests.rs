@@ -694,11 +694,12 @@ fn parity_halves(d: usize) -> (Party, Party) {
     (evens, odds)
 }
 
-/// The indexed disjointness test's table searches stay metered: on the
-/// parity halves — every skeleton node both-present, so the test runs
-/// one table search per node — the scan counter reads at least the
-/// committed floor, which sits far above what the walk's tag reads alone
-/// could reach.
+/// The indexed disjointness test's table searches stay metered.
+///
+/// On the parity halves — every skeleton node both-present, so the test
+/// runs one table search per node — the scan counter reads at least the
+/// committed floor, which sits far above what the walk's tag reads
+/// alone could reach.
 ///
 /// The liveness leg of the fold index's search metering (review #37,
 /// F4): the searches are the dominant cost on correlated populations,

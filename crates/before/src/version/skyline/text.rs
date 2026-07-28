@@ -108,11 +108,12 @@ struct Summary {
     incoming: (bool, Base),
 }
 
-/// A completed left-child summary parked until its parent's right subtree
-/// closes: [`Summary`] without the root index, which is always the
-/// parent's preorder successor (a left child directly follows its parent
-/// in preorder), so the merge re-derives it instead of storing one word
-/// per parked level.
+/// A completed left-child summary parked until its parent's right
+/// subtree closes: [`Summary`] without the root index.
+///
+/// The root is always the parent's preorder successor (a left child
+/// directly follows its parent in preorder), so the merge re-derives it
+/// instead of storing one word per parked level.
 struct StoredLeft {
     /// Entry leaf height minus the subtree's floor: non-negative.
     drop: Base,
@@ -371,10 +372,11 @@ pub fn render(bits: &BitsSlice) -> String {
 /// for the entry's length.
 const ARENA_SEP: char = ';';
 
-/// Render one finalized printed base into the digit arena, keyed by its
-/// node's preorder index — unless it is zero, which every on-floor child
-/// is: zero bases take no arena bytes, and the emit pass prints `0` for
-/// any node without an entry.
+/// Render one finalized printed base into the digit arena, keyed by
+/// its node's preorder index — unless it is zero.
+///
+/// Every on-floor child's base is zero: zero bases take no arena bytes,
+/// and the emit pass prints `0` for any node without an entry.
 fn push_base(arena: &mut String, entries: &mut Vec<(usize, usize)>, node: usize, base: &Base) {
     if base.bits() == 0 {
         return;
