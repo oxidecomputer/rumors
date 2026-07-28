@@ -2,6 +2,13 @@
 
 = The skyline <skyline>
 
+This section builds the representation: the reading of a version as
+a step function, the packed coding of that reading, the pruned
+one-bit twin that stores a party, and the canonical form under which
+the bytes _are_ the value. It ends with a bill: one canonical rule
+whose enforcement the representation alone cannot afford, which
+@accum pays.
+
 == A version is a step function
 
 Start from the semantics, not the syntax. The paper interprets an
@@ -35,13 +42,13 @@ dyadic interval, so no single leaf can span it), and the canonical
 form of @canonical will keep them. Two observations make the skyline
 the right thing to store:
 
-+ *Every operation is a local statement about the skyline.*
++ *Every operation asks about the skyline alone.*
   Comparison is pointwise $<=$; join is pointwise max; meet is
-  pointwise min (no operation of the paper's — @measures shows what
-  the lattice buys); rank (a measure we will meet in @measures) is
-  the
-  area under it; a tick asks range questions — maxima and minima —
-  over the caller's own region (@tick).
+  pointwise min. Rank is the area under it, and a tick asks range
+  questions — maxima and minima — over the caller's own region
+  (@tick). Meet is no operation of the paper's, and rank is a
+  measure we will meet in @measures, which also shows what the
+  lattice buys.
   None of them cares how a tree spelled the function.
 
 + *The tree's interior numbers are redundant.* Given the tree's
@@ -69,14 +76,14 @@ in @operations runs on it directly.
 *Topology.* Event trees are full binary trees — a node has two
 children or none — so the shape is one flag bit per node, written in
 preorder: `0` for an internal node, `1` for a leaf. Preorder means a
-node's flag precedes everything in its subtree, and — the property
-every sweep leans on — *the leaves appear in left-to-right order*:
-read in stream order, the leaves are exactly the plateaus of the
-skyline, west to east. No bit says where a subtree ends; none is
-needed, because a full binary tree is self-delimiting: start a count
-of outstanding obligations at one; an internal node consumes its
-obligation and creates two (net $+1$), a leaf consumes one (net
-$-1$); the tree ends exactly when the count reaches zero, and no
+node's flag precedes everything in its subtree, and that *the leaves
+appear in left-to-right order* — the property every sweep leans on.
+Read in stream order, the leaves are exactly the plateaus of the
+skyline, west to east. No bit says where a subtree ends, and none is
+needed: a full binary tree is self-delimiting. Start a count of
+outstanding obligations at one. An internal node consumes its
+obligation and creates two (net $+1$); a leaf consumes one (net
+$-1$). The tree ends exactly when the count reaches zero, and no
 proper prefix reaches zero early. (Payloads interleave with the
 flags, so _finding_ a subtree's end still costs a scan of that
 subtree's own bits — the price every splice in @operations pays.) Bits pack most-significant-first
@@ -95,19 +102,19 @@ flattens each owned region to one plateau and, where a filled
 sibling's minimum stands higher, raises it to that minimum (@tick);
 joins move whole regions at once. Real histories therefore keep
 adjacent plateaus close (measured across
-organic corpora — @ctf-caveat). Differences are
-therefore usually small where absolutes are usually not. A difference can be negative, so it is
+organic corpora — @ctf-caveat): differences are
+usually small where absolutes are usually not. A difference can be negative, so it is
 folded onto the naturals first by the _zigzag_ map
 
 $ +k arrow.r.bar 2k quad (k >= 0), quad quad -k arrow.r.bar 2k - 1 quad (k >= 1) $
 
 (a bijection, with no spelling for "negative zero"), and the result
-$v$ is written as the _Elias gamma_ code of $v + 1$ — the first
+$v$ is written as the _Elias gamma_ code of $v + 1$. (The first
 leaf's absolute height, already a natural, skips the zigzag and takes
-the same gamma code directly. The code: with
+the same gamma code directly.) The code: with
 $b = floor(log_2 (v+1))$, write $b$ zeros, then the $b + 1$ bits of
 $v + 1$ in binary (whose leading bit is necessarily `1` — that is
-how the decoder knows the zeros have ended). The code costs
+how the decoder knows the zeros have ended). It costs
 
 $ 2 floor(log_2 (v + 1)) + 1 "bits:" $
 
@@ -144,9 +151,9 @@ zero: two bits.
 
 == Ids are boolean skylines <id-coding>
 
-A party — the id component — has the same reading one step simpler: a
-$0$-or-$1$ landscape over the same interval, $1$ where the party owns
-the id space, $0$ where it does not. No payloads are needed at all.
+A party — the id component — gets the same reading, one step simpler:
+a $0$-or-$1$ landscape over the same interval, $1$ where the party
+owns the id space, $0$ where it does not. No payloads are needed at all.
 The paper's id trees are full binary trees like its event trees, but
 here the coding _prunes_: an unowned subtree — a whole `0` of the
 paper's syntax — stores nothing, because its parent's tag already
@@ -154,12 +161,13 @@ said no child follows. The pruned shape is 0-, 1-, or 2-ary, so the
 coding spends _two_ flag bits per stored node, answering "does a left
 child follow?" and "does a right child follow?". The reading rule:
 an absent child's half is unowned. That leaves the childless tag
-`00` with only one possible reading — a wholly-unowned subtree is
-never stored at all, since its parent's tag already said no child
-follows, and an unowned root dissolves below — so `00` is spent on
+`00` with only one possible reading, since a wholly-unowned subtree
+is never stored at all and an unowned root dissolves below. So `00`
+is spent on
 the one childless case that does need spelling: a _terminal_, a
 wholly owned region. Ownership is carried by presence, and the
-paper's `0` has no spelling anywhere. Note the consequence the walks must repair later: unlike a
+paper's `0` has no spelling anywhere. One consequence the walks must
+repair later: unlike a
 version stream, a party stream does not spell every plateau, so a
 walk over it synthesizes each absent child's unowned plateau from
 its parent's tag (@id-ops).
@@ -172,11 +180,11 @@ terminal, four bits in all:
 
 At a hundred participants with stable membership, a depth-seven
 share is sixteen bits — two bytes, derived. Measured, the mean sits
-nearer three bytes, ownership fragmentation claiming the excess, and
-sustained fork-and-retire churn raises it to a few tens (both
-figures from the paper's two space scenarios — static membership
-and data churn respectively — reproduced
-on our implementation). The
+nearer three bytes, ownership fragmentation claiming the excess;
+sustained fork-and-retire churn raises it to a few tens. Both
+figures come from the paper's two space scenarios — static
+membership and data churn respectively — reproduced on our
+implementation. The
 id side of the system is, by design, nearly free.
 
 One boundary case rounds out the coding. The paper's _anonymous_
@@ -203,8 +211,8 @@ decode boundary:
 + *Minimal topology* (the _sibling-merge rule_). No internal node
   whose two children are both leaves of equal height — such a pair is
   one plateau spelled as two, and merges. In stream terms: a
-  right-sibling leaf may never carry a zero delta when its brother is
-  a leaf — a _local_ test, because whenever the brother is a leaf it
+  right-sibling leaf may never carry a zero delta when its sibling is
+  a leaf — a _local_ test, because whenever the sibling is a leaf it
   is exactly the previous leaf in stream order, so one pass checks
   the rule as it reads. (A zero delta between consecutive leaves that are _not_
   siblings is a real, canonical shape: two equal plateaus separated
@@ -227,13 +235,13 @@ no stored node whose two children are both terminals (a wholly-owned
 pair is one terminal spelled as two — the id-side sibling merge), and
 the same exactness; unowned-as-absence needs no third rule, since
 an unowned subtree has no spelling to forbid. The two components are
-validated independently — a party and a version are independent
+validated separately: a party and a version are independent
 functions on the interval, and no cross-component rule exists to
 check. Both codings' rules are
-enforced at every decode boundary, so clock bytes — the two streams
+enforced at the same boundary, so clock bytes — the two streams
 concatenated — inherit the uniqueness below.
 
-Note what is _absent_: the paper's other normalization — lifting a
+One rule is _absent_: the paper's other normalization — lifting a
 common minimum into the parent — has no analogue here, because there
 are no interior numbers to lift into. Storing absolute heights at the
 leaves quietly discharged one of the two normal-form obligations.
@@ -248,18 +256,24 @@ enough to give. For a dyadic step function $h$ — constant on each
 piece of some partition of $[0, 1)$ into $2^r$ equal dyadic
 intervals; the inductions below run on $r$ — define $T(h)$: a
 single leaf if $h$ is constant, else the node over
-$T(h|_"left")$ and $T(h|_"right")$. First, $T(h)$ satisfies the
+$T(h|_"left")$ and $T(h|_"right")$.
+
+First, $T(h)$ satisfies the
 sibling-merge rule: its two children are equal-height leaves only if
 $h$ is constant on both halves — but then $h$ was constant and
 $T(h)$ was a leaf; and since the children are $T(h|_"left")$ and
-$T(h|_"right")$, the same holds at every node by induction. Second, any rule-satisfying tree for $h$ equals
+$T(h|_"right")$, the same holds at every node by induction.
+
+Second, any rule-satisfying tree for $h$ equals
 $T(h)$, by induction from the root: a tree spelling a non-constant
 $h$ cannot be a leaf, so it is a node whose children spell the two
-restrictions (uniquely, by induction); and a tree spelling a
+restrictions (uniquely); and a tree spelling a
 _constant_ $h$ must be a leaf, since an internal node's children
-would spell two constant halves — by induction two equal leaves,
+would spell two constant halves — two equal leaves,
 which the rule forbids. Heights are function-determined; gamma has
-one spelling per natural and zigzag has none to spare. Uniqueness
+one spelling per natural and zigzag has none to spare.
+
+Uniqueness
 is not an aesthetic: it is a load-bearing feature bought
 deliberately. @compactness prices what it costs in coding room —
 the
@@ -279,10 +293,10 @@ other rules cost little or nothing. What uniqueness buys:
   about the bytes of a value they agree about.
 - *Encode is a copy.* The resting form is the wire form; encoding
   clones a buffer, decoding is one validating pass that then adopts
-  the bytes as the value's own storage. A value's memory footprint is
-  its wire footprint — recall @naive-constants's closing list.
+  the bytes as the value's own storage. Recall @naive-constants's
+  closing list: a value's memory footprint is its wire footprint.
 
-== Validation, and a bill coming due <validation>
+== Validation: a bill coming due <validation>
 
 Strict decode must check the three rules in one pass over untrusted
 bits, and @naive taught us what that pass may cost: nothing
@@ -311,8 +325,8 @@ per three-bit code. That is $Theta(n^2)$ work in an $n$-bit
 stream — _in the
 validator_, on arbitrary bytes. (Measured, on a deliberately plain big-integer
 sweep kept as a tripwire: the quadratic is real and reproducible.)
-The skyline's compactness has written a check the representation
-alone cannot cash. The accumulator of @accum cashes it: with the
+The skyline's compactness has run up a bill the representation
+alone cannot pay. The accumulator of @accum pays it: with the
 running height held as balanced signed digits, validation is linear
 per wire bit on every input, and the whole decode boundary — the
 most exposed surface in the library — costs one sequential funded
@@ -322,11 +336,11 @@ pass.
 
 The packed stream surrenders random access: there is no $O(1)$ "height
 at position $x$", no jumping into the middle. Every question is
-answered from the front. This is the right trade _for this API_ —
+answered from the front. This is the right trade _for this API_:
 comparison, join, meet, tick, and the measures are whole-value
 questions, and a linear scan of a few dozen to a few thousand
 contiguous bytes is the cheapest thing a modern memory system does
-(@machine quantifies this) — but it is a trade, and a different API
-(point queries against enormous single values) would want a different
-structure. The operations of @operations are the demonstration that
+(@machine quantifies this). But it is a trade. A different API —
+point queries against enormous single values — would want a
+different structure. The operations of @operations demonstrate that
 nothing the clock actually asks for ever misses the random access.
