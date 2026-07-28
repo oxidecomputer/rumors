@@ -288,8 +288,8 @@
 //!   pins both directions: the packed fit reads a manufactured exponent
 //!   on measured flat per-tooth work, and a genuinely quadratic-in-teeth
 //!   probe still reads red against the content denominator.
-//! - **Output-dominated projection** (`version_project` and
-//!   `clock_own_version` on the comb × scattered-party cross and the
+//! - **Output-dominated projection** (`own_version_to_version` and
+//!   `clock_own_version_to_version` on the comb × scattered-party cross and the
 //!   plateau-comb crosses — reveal-comb, reveal-hifloor, pure-comb):
 //!   `n_io` is packed input + packed output. These crosses exist because
 //!   the id keeps a wide magnitude per owned site — the scattered party a
@@ -456,7 +456,10 @@
 //! - **Moves, borrows, and byte copies**: `is_empty`, `as_bytes`,
 //!   `encoded_bits`, `encode_to` (the `encode` row's path into a writer),
 //!   `dangerously_alias` (a byte copy), `Clock::from_parts`/`into_parts`,
-//!   `Clock::party`/`version`,
+//!   `Clock::party`/`version`, the projection view constructors (`&v / &p`
+//!   and `Clock::own_version` build a two-borrow `OwnVersion` in O(1); the
+//!   view's materialization and fused comparisons have their own rows, and
+//!   `From<OwnVersion> for Version` is `to_version` by definition),
 //!   `Ranked::rank`/`version`/`into_parts` (borrows and moves); `Clone`
 //!   (`Version`, `Rank`, `Ranked`) copies the stored bits or value content
 //!   wholesale, with no walk or arithmetic in the contract; `Party`'s and
@@ -2297,6 +2300,36 @@ fn comparison_floors(v: &Version, w: &Version, packed_bytes: usize) -> Floors {
     }
 }
 
+/// The fused projected-comparison rows' floors, from the verdict the cell
+/// will produce (computed at prepare, outside measurement).
+///
+/// A comparable projected pair must certify dominance over every region,
+/// so the walk consumes both event streams whole: full-examination scan
+/// and one accumulator touch per stored event delta (the id streams store
+/// no deltas). A concurrent pair may exit at its witnessing divergences,
+/// so only the root-code scan floor binds.
+fn masked_cmp_floors(
+    verdict: &Option<Ordering>,
+    v: &Version,
+    w: &Version,
+    packed_bytes: usize,
+) -> Floors {
+    if verdict.is_some() {
+        walk_floors(
+            packed_bytes,
+            touch_delta_fold(stored_deltas(v) + stored_deltas(w)),
+        )
+    } else {
+        Floors {
+            heap: na(NA_HEAP_IN_PLACE),
+            limb: na(NA_LIMB_NOT_FORCED),
+            segments: seg_ceiling_only(),
+            scan: scan_touch(),
+            touch: na(NA_TOUCH_CONCURRENT_OPERANDS),
+        }
+    }
+}
+
 /// The tick-cross rows' floors: full-examination scan, per-stored-code
 /// limb, in-place heap.
 ///
@@ -2732,7 +2765,11 @@ enum OpGroup {
     Rank,
     /// The tick rows, driven through a cross shape's designated pairing.
     Tick,
-    /// The projection rows: `version_project`, `clock_own_version`.
+    /// The projection rows: the explicit materializations
+    /// (`own_version_to_version`, `clock_own_version_to_version`) and the
+    /// fused lazy comparisons (`own_version_cmp`, `own_version_pair_cmp`),
+    /// which stay input-denominated on every shape — a comparison never
+    /// materializes the projection.
     Projection,
     /// The fold rows: `version_join_all`, `party_join_all`.
     Fold,
@@ -3131,11 +3168,13 @@ fn ops() -> Vec<Op> {
             },
         },
         Op {
-            name: "version_project",
+            name: "own_version_to_version",
             group: OpGroup::Projection,
             prepare: |f| {
-                // Adversarial × adversarial with mandatory dominating
-                // output: the declared output-domination cross,
+                // The explicit materialization `(&v / &p).to_version()`:
+                // the one projection spelling that pays the product-growth
+                // output. Adversarial × adversarial with mandatory
+                // dominating output: the declared output-domination cross,
                 // I/O-denominated.
                 if f.output_dominated {
                     let (v_bytes, p_bytes) = f.cross.as_ref()?;
@@ -3151,17 +3190,17 @@ fn ops() -> Vec<Op> {
                                 .expect("the cross projection body yields (out, v, p)");
                             version_output_bytes(out)
                         },
-                        move || (&v / &p, v, p),
+                        move || ((&v / &p).to_version(), v, p),
                     ));
                 }
-                // A cross shape without output domination projects its
+                // A cross shape without output domination materializes its
                 // event side through its id side, input-denominated (the
                 // module doc's do-not-re-denominate list).
                 if let Some((v, p, n)) = f.cross() {
                     return Some(Cell::new(
                         n,
                         walk_floors(n, na(NA_TOUCH_PROJECTION)),
-                        move || (&v / &p, v, p),
+                        move || ((&v / &p).to_version(), v, p),
                     ));
                 }
                 // Small (half-interval) party × adversarial version.
@@ -3171,7 +3210,7 @@ fn ops() -> Vec<Op> {
                     return Some(Cell::new(
                         n + 1,
                         walk_floors(n, na(NA_TOUCH_PROJECTION)),
-                        move || (&v / &half, v, half),
+                        move || ((&v / &half).to_version(), v, half),
                     ));
                 }
                 // Adversarial party × small version.
@@ -3183,8 +3222,81 @@ fn ops() -> Vec<Op> {
                 Some(Cell::new(
                     input,
                     walk_floors(input, na(NA_TOUCH_PROJECTION)),
-                    move || (&v / &a, v, a),
+                    move || ((&v / &a).to_version(), v, a),
                 ))
+            },
+        },
+        Op {
+            name: "own_version_cmp",
+            group: OpGroup::Projection,
+            prepare: |f| {
+                // The fused three-stream comparison `(v / p) ⋚ w`: lazy at
+                // every spelling, so the cell stays input-denominated on
+                // every shape — the output-domination crosses included,
+                // which is the point: comparing a projection never pays
+                // its materialization.
+                let (v, p, w, n) = if let Some((v, p, np)) = f.cross() {
+                    let (_, w, _) = f.version_pair()?;
+                    let nw = f.version2.as_ref()?.len();
+                    (v, p, w, np + nw)
+                } else if f.version.is_some() {
+                    // Half-interval party × the shape's version pair.
+                    let (v, w, n) = f.version_pair()?;
+                    (v, Party::seed().fork(), w, n + 1)
+                } else {
+                    // Adversarial party × small versions ticked on it.
+                    let (a, _, _) = f.party_pair()?;
+                    let np = f.parties.as_ref().map(|(a, _)| a.len())?;
+                    let mut v = Version::new();
+                    v.tick(&a);
+                    let mut w = v.clone();
+                    w.tick(&Party::seed());
+                    let n = np + v.encode().len() + w.encode().len();
+                    (v, a, w, n)
+                };
+                let floors = masked_cmp_floors(&(&v / &p).partial_cmp(&w), &v, &w, n);
+                Some(Cell::new(n, floors, move || {
+                    let ord = (&v / &p).partial_cmp(&w);
+                    (ord, v, p, w)
+                }))
+            },
+        },
+        Op {
+            name: "own_version_pair_cmp",
+            group: OpGroup::Projection,
+            prepare: |f| {
+                // The fused four-stream comparison `(v/a) ⋚ (w/b)`:
+                // input-denominated everywhere, as the three-stream row.
+                let (v, a, w, b, n) = match (f.parties.is_some(), f.version.is_some()) {
+                    (true, true) => {
+                        let (a, b, np) = f.party_pair()?;
+                        let (v, w, nv) = f.version_pair()?;
+                        (v, a, w, b, np + nv)
+                    }
+                    (false, true) => {
+                        // Seed fork halves around the shape's version pair.
+                        let (v, w, nv) = f.version_pair()?;
+                        let mut a = Party::seed();
+                        let b = a.fork();
+                        (v, a, w, b, nv + 2)
+                    }
+                    (true, false) => {
+                        // The party pair's own single-tick histories.
+                        let (a, b, np) = f.party_pair()?;
+                        let mut v = Version::new();
+                        v.tick(&a);
+                        let mut w = Version::new();
+                        w.tick(&b);
+                        let n = np + v.encode().len() + w.encode().len();
+                        (v, a, w, b, n)
+                    }
+                    (false, false) => return None,
+                };
+                let floors = masked_cmp_floors(&(&v / &a).partial_cmp(&(&w / &b)), &v, &w, n);
+                Some(Cell::new(n, floors, move || {
+                    let ord = (&v / &a).partial_cmp(&(&w / &b));
+                    (ord, v, a, w, b)
+                }))
             },
         },
         Op {
@@ -3673,13 +3785,16 @@ fn ops() -> Vec<Op> {
             },
         },
         Op {
-            name: "clock_own_version",
+            name: "clock_own_version_to_version",
             group: OpGroup::Projection,
             prepare: |f| {
-                // Adversarial × adversarial with mandatory dominating
-                // output: a clock holding the cross's event side whose
-                // party is its id side, I/O-denominated (the module doc's
-                // output-domination cross).
+                // The clock spelling of the explicit materialization:
+                // `clock.own_version()` is an O(1) view (no cell of its
+                // own — nothing scales), and this row prices its
+                // `.to_version()`. Adversarial × adversarial with
+                // mandatory dominating output: a clock holding the cross's
+                // event side whose party is its id side, I/O-denominated
+                // (the module doc's output-domination cross).
                 if f.output_dominated {
                     let (v_bytes, p_bytes) = f.cross.as_ref()?;
                     let n = v_bytes.len() + p_bytes.len();
@@ -3693,14 +3808,14 @@ fn ops() -> Vec<Op> {
                                 .expect("the own_version body yields (out, clock)");
                             version_output_bytes(out)
                         },
-                        move || (clock.own_version(), clock),
+                        move || (clock.own_version().to_version(), clock),
                     ));
                 }
                 let (clock, n) = f.clock()?;
                 Some(Cell::new(
                     n,
                     walk_floors(n, na(NA_TOUCH_PROJECTION)),
-                    move || (clock.own_version(), clock),
+                    move || (clock.own_version().to_version(), clock),
                 ))
             },
         },

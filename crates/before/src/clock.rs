@@ -6,7 +6,7 @@ use core::ops::{BitOr, BitOrAssign};
 use crate::{
     codec,
     error::{Decode, Overlap, Parse},
-    Party, Ticks, Version,
+    OwnVersion, Party, Ticks, Version,
 };
 
 mod forks;
@@ -455,15 +455,19 @@ impl Clock {
         &self.version
     }
 
-    /// The *slice* of this clock's [`Version`] owned by its own [`Party`].
+    /// The *slice* of this clock's [`Version`] owned by its own [`Party`],
+    /// as the lazy [`OwnVersion`] view.
     ///
-    /// This is short for `self.version() / self.party()`.
+    /// This is short for `self.version() / self.party()`. The view
+    /// compares directly (against a [`Version`] or another view); the
+    /// projected [`Version`] itself exists only through the explicit
+    /// [`OwnVersion::to_version`], whose result can outgrow the clock.
     ///
     /// # Complexity
     ///
-    /// `O(|c| + |r|)` time and space, where `|r|` is the result's packed
-    /// size — the projection's bound: the result is not bounded by a
-    /// constant factor of the clock (see the `/` operator on [`Version`]).
+    /// `O(1)` time and space: the view borrows the clock's parts. Every
+    /// cost lives on the view's operations ([`OwnVersion`]'s doc carries
+    /// them).
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -475,10 +479,12 @@ impl Clock {
     /// // The meet (greatest lower bound) of the two versions is more than
     /// // the initial version:
     /// assert!(a.version() & b.version() > Version::new());
-    /// // But the meet of the two projected versions is not:
-    /// assert!(a.own_version() & b.own_version() == Version::new());
+    /// // But the meet of the two projected versions (materialized: the
+    /// // meet needs the objects) is not:
+    /// let (own_a, own_b) = (a.own_version().to_version(), b.own_version().to_version());
+    /// assert!(own_a & own_b == Version::new());
     /// ```
-    pub fn own_version(&self) -> Version {
+    pub fn own_version(&self) -> OwnVersion<'_> {
         self.version() / self.party()
     }
 

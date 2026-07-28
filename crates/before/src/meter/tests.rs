@@ -395,7 +395,7 @@ fn scattered_id_decodes_canonically_at_predicted_length() {
     let comb = cliff_comb(k, n).version();
     let party =
         Party::decode(&scattered_id(n / 2).bytes[..]).expect("scattered id is strict normal form");
-    let projected = &comb / &party;
+    let projected = (&comb / &party).to_version();
     assert!(
         projected.encoded_bits() >= (n / 2) * k,
         "projection through the scattered id must keep a wide magnitude per kept tooth \

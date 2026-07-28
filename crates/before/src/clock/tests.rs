@@ -201,7 +201,7 @@ proptest! {
         let n = cs.len();
         let oc = &cs[i % n];
         let ic = from_oracle_clock(oc);
-        prop_assert_eq!(to_oracle_version(&ic.own_version()), oc.own_version());
+        prop_assert_eq!(to_oracle_version(&ic.own_version().to_version()), oc.own_version());
     }
 }
 

@@ -69,6 +69,13 @@ fn le(a: &Version, b: &Version) -> bool {
     a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
 }
 
+/// `a <= b` for any pair the view comparison matrix admits (view vs
+/// version, view vs view), under the same not-`<=` reading of
+/// concurrency.
+fn le_by<L: PartialOrd<R>, R>(a: &L, b: &R) -> bool {
+    a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
+}
+
 /// One value's `Hash` output under the std hasher, for the `Eq`/`Hash`
 /// coherence laws.
 fn hash_of<T: Hash>(value: &T) -> u64 {
@@ -892,7 +899,6 @@ pub static VERSION_PARTY: &[Law<fn(&Version, &Party) -> bool>] = &[
     ),
     ("projection_is_sub_version", projection_is_sub_version),
     ("projection_idempotent", projection_idempotent),
-    ("div_assign_matches_div", div_assign_matches_div),
     (
         "projection_additive_over_fork",
         projection_additive_over_fork,
@@ -923,8 +929,7 @@ fn tick_only_inflates_the_region(a: &Version, p: &Party) -> bool {
 fn tick_advances_within_the_region(a: &Version, p: &Party) -> bool {
     let mut ticked = a.clone();
     ticked.tick(p);
-    let (before, after) = (a / p, &ticked / p);
-    le(&before, &after) && before != after
+    (a / p).partial_cmp(&(&ticked / p)) == Some(Ordering::Less)
 }
 
 /// The two `tick` entry points agree: `version.tick(&party)` and
@@ -993,29 +998,30 @@ fn ticks_line_realizes_min_ticks(a: &Version, p: &Party) -> bool {
 
 /// Projection keeps at most the history it is given: `a / p <= a`.
 fn projection_is_sub_version(a: &Version, p: &Party) -> bool {
-    le(&(a / p), a)
+    le_by(&(a / p), a)
 }
 
 /// Projection is idempotent: `(a / p) / p == a / p`.
+///
+/// The inner projection is materialized — idempotence quantifies over the
+/// projected *object* — and the outer one stays a view: the equality is
+/// the fused view-vs-version comparison.
 fn projection_idempotent(a: &Version, p: &Party) -> bool {
-    let projected = a / p;
+    let projected = (a / p).to_version();
     (&projected / p) == projected
-}
-
-/// `/=` agrees with `/`.
-fn div_assign_matches_div(a: &Version, p: &Party) -> bool {
-    let mut assigned = a.clone();
-    assigned /= p;
-    assigned == (a / p)
 }
 
 /// Projection is additive across a fork: a party's contribution equals the
 /// join of its two halves' contributions — the homomorphism the join/meet
 /// distribution rests on.
+///
+/// The halves' contributions are materialized — the join needs its
+/// operands as objects — and the whole-party side stays a view: the
+/// equality is the fused version-vs-view comparison.
 fn projection_additive_over_fork(a: &Version, p: &Party) -> bool {
     let mut keeper = p.dangerously_alias();
     let child = keeper.fork();
-    ((a / &keeper) | (a / &child)) == (a / p)
+    ((a / &keeper).to_version() | (a / &child).to_version()) == (a / p)
 }
 
 // ───────────────────────────── Version × Version × Party ─────────────────────────────
@@ -1031,17 +1037,30 @@ pub static VERSION_PAIR_PARTY: &[Law<fn(&Version, &Version, &Party) -> bool>] = 
         projection_monotone_in_version,
     ),
     ("ticks_composes", ticks_composes),
+    (
+        "own_version_cmp_matches_materialized",
+        own_version_cmp_matches_materialized,
+    ),
+    (
+        "own_version_seed_mask_coherence",
+        own_version_seed_mask_coherence,
+    ),
 ];
 
 /// Projection is a homomorphism of the join: `(a | b) / p == (a/p) | (b/p)`
 /// (the pointwise gate commutes with pointwise max).
+///
+/// The right-hand side's join needs its operands as objects, so the
+/// per-operand projections materialize; the left-hand side stays a view.
 fn projection_join_homomorphism(a: &Version, b: &Version, p: &Party) -> bool {
-    ((a | b) / p) == (&(a / p) | &(b / p))
+    let joined = a | b;
+    (&joined / p) == ((a / p).to_version() | (b / p).to_version())
 }
 
 /// Projection is a homomorphism of the meet: `(a & b) / p == (a/p) & (b/p)`.
 fn projection_meet_homomorphism(a: &Version, b: &Version, p: &Party) -> bool {
-    ((a & b) / p) == (&(a / p) & &(b / p))
+    let met = a & b;
+    (&met / p) == ((a / p).to_version() & (b / p).to_version())
 }
 
 /// `ticks` is a monoid action of the naturals: `ticks(n)` then
@@ -1064,9 +1083,36 @@ fn ticks_composes(a: &Version, b: &Version, p: &Party) -> bool {
 /// pair `a <= a | b`, the projections compare the same way — and whenever
 /// the inputs happen to compare directly, so do their projections.
 fn projection_monotone_in_version(a: &Version, b: &Version, p: &Party) -> bool {
-    let constructed = le(&(a / p), &((a | b) / p));
-    let incidental = !le(a, b) || le(&(a / p), &(b / p));
+    let ab = a | b;
+    let constructed = le_by(&(a / p), &(&ab / p));
+    let incidental = !le(a, b) || le_by(&(a / p), &(b / p));
     constructed && incidental
+}
+
+/// The view's heterogeneous comparisons are the materialized projection's,
+/// exactly: `(a/p) ⋚ b ≡ (a/p).to_version() ⋚ b`, in both operand orders
+/// and under `==` — the three-stream differential law the fused co-walk
+/// is pinned by.
+fn own_version_cmp_matches_materialized(a: &Version, b: &Version, p: &Party) -> bool {
+    let view = a / p;
+    let materialized = view.to_version();
+    let cmp_agrees = view.partial_cmp(b) == materialized.partial_cmp(b);
+    let cmp_reversed_agrees = b.partial_cmp(&view) == b.partial_cmp(&materialized);
+    let eq_agrees = (view == *b) == (materialized == *b);
+    let eq_reversed_agrees = (*b == view) == (*b == materialized);
+    cmp_agrees && cmp_reversed_agrees && eq_agrees && eq_reversed_agrees
+}
+
+/// A heterogeneous comparison is the homogeneous comparison against the
+/// seed-masked view: `(a/p) ⋚ b ≡ (a/p) ⋚ (b/seed)` — sound because
+/// projection by the seed party is the identity
+/// ([`seed_projection_is_identity`]), and the coherence that makes the
+/// three-stream walk a special case of the four-stream one.
+fn own_version_seed_mask_coherence(a: &Version, b: &Version, p: &Party) -> bool {
+    let view = a / p;
+    let seed = Party::seed();
+    let seeded = b / &seed;
+    view.partial_cmp(&seeded) == view.partial_cmp(b) && (view == seeded) == (view == *b)
 }
 
 // ───────────────────────────── Version × Party × Party ─────────────────────────────
@@ -1087,8 +1133,13 @@ pub static VERSION_PARTY_PAIR: &[Law<fn(&Version, &Party, &Party) -> bool>] = &[
 
 /// Successive projections commute: `(v / p) / q == (v / q) / p` (both keep
 /// exactly the history on the regions' intersection).
+///
+/// The inner projections materialize (the outer projection needs a
+/// version to gate); the outer comparison is the fused view-vs-view walk.
 fn projection_commutes(v: &Version, p: &Party, q: &Party) -> bool {
-    ((v / p) / q) == ((v / q) / p)
+    let vp = (v / p).to_version();
+    let vq = (v / q).to_version();
+    (&vp / q) == (&vq / p)
 }
 
 /// Projection is monotone in the region: a constructed subregion (a fork
@@ -1097,15 +1148,39 @@ fn projection_commutes(v: &Version, p: &Party, q: &Party) -> bool {
 fn projection_monotone_in_region(v: &Version, p: &Party, q: &Party) -> bool {
     let mut keeper = p.dangerously_alias();
     let child = keeper.fork();
-    let constructed = le(&(v / &child), &(v / p));
-    let incidental = !p.covers(q) || le(&(v / q), &(v / p));
+    let constructed = le_by(&(v / &child), &(v / p));
+    let incidental = !p.covers(q) || le_by(&(v / q), &(v / p));
     constructed && incidental
 }
 
 /// Disjoint regions carve disjoint histories: `p · q = 0 ⟹ (v/p) & (v/q)`
 /// is empty (the projections' supports cannot overlap).
 fn disjoint_projections_share_nothing(v: &Version, p: &Party, q: &Party) -> bool {
-    !p.is_disjoint(q) || ((v / p) & (v / q)).is_empty()
+    !p.is_disjoint(q) || ((v / p).to_version() & (v / q).to_version()).is_empty()
+}
+
+// ──────────────────── Version × Version × Party × Party ────────────────────
+
+/// Laws over two versions and two live parties: the homogeneous view
+/// comparison against its materialized oracle.
+pub static VERSION_PAIR_PARTY_PAIR: &[Law<fn(&Version, &Version, &Party, &Party) -> bool>] = &[(
+    "own_version_pair_cmp_matches_materialized",
+    own_version_pair_cmp_matches_materialized,
+)];
+
+/// The view's homogeneous comparisons are the materialized projections',
+/// exactly: `(a/p) ⋚ (b/q) ≡ (a/p).to_version() ⋚ (b/q).to_version()`,
+/// under `==` too — the four-stream differential law the fused co-walk is
+/// pinned by.
+fn own_version_pair_cmp_matches_materialized(
+    a: &Version,
+    b: &Version,
+    p: &Party,
+    q: &Party,
+) -> bool {
+    let (va, vb) = (a / p, b / q);
+    let (ma, mb) = (va.to_version(), vb.to_version());
+    va.partial_cmp(&vb) == ma.partial_cmp(&mb) && (va == vb) == (ma == mb)
 }
 
 // ───────────────────────────── Rank: triples ─────────────────────────────

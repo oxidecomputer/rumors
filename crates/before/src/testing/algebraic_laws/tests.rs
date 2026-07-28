@@ -139,6 +139,20 @@ proptest! {
 }
 
 proptest! {
+    /// Every [`laws::VERSION_PAIR_PARTY_PAIR`] law holds on arbitrary
+    /// version-pair/id-pair combinations.
+    #[test]
+    fn version_pair_party_pair_laws(
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        p in arb_oracle_party_nonempty(),
+        q in arb_oracle_party_nonempty(),
+    ) {
+        assert_laws!(laws::VERSION_PAIR_PARTY_PAIR, &ver(&a), &ver(&b), &party(&p), &party(&q));
+    }
+}
+
+proptest! {
     /// Every [`laws::RANK_TRIPLE`] law holds on ranks derived from
     /// arbitrary normal-form versions (their own ranks and a genuine
     /// distance) — organically related magnitudes.
@@ -209,6 +223,7 @@ proptest! {
         assert_laws!(laws::VERSION_PARTY, &ia, &qb);
         assert_laws!(laws::VERSION_PAIR_PARTY, &ia, &ib, &qc);
         assert_laws!(laws::VERSION_PARTY_PAIR, &ia, &qb, &qc);
+        assert_laws!(laws::VERSION_PAIR_PARTY_PAIR, &ia, &ib, &qb, &qc);
         let (ra, rb, rc) = (ia.rank(), ib.rank(), ia.distance(&ib));
         assert_laws!(laws::RANK_TRIPLE, &ra, &rb, &rc);
 

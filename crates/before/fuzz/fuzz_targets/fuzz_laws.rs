@@ -74,6 +74,7 @@ fn run(mut data: &[u8]) {
     drive!(laws::VERSION_PARTY, &a, &p);
     drive!(laws::VERSION_PAIR_PARTY, &a, &b, &p);
     drive!(laws::VERSION_PARTY_PAIR, &a, &p, &q);
+    drive!(laws::VERSION_PAIR_PARTY_PAIR, &a, &b, &p, &q);
     let (ra, rb, rc) = (a.rank(), b.rank(), a.distance(&b));
     drive!(laws::RANK_TRIPLE, &ra, &rb, &rc);
     drive!(laws::CLOCK_SOLO, &k);
