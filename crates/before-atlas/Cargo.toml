@@ -1,0 +1,44 @@
+# The population atlas: a detached dev-tool workspace, the same idiom as
+# crates/before/fuzzfit — the empty `[workspace]` table keeps this crate out
+# of the parent workspace, so ordinary workspace builds never compile it and
+# wasmtime (pulled in through the fuzzfit harness, whose wasm driver this
+# crate reuses) stays out of the production crates' dependency graph. The
+# gate reaches it only through the `just atlas-*` recipes by name.
+[workspace]
+
+[package]
+name = "before-atlas"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+# The subject under audit: the samplers target its packed codecs, and the
+# `meter` feature exposes the committed adversarial family generators the
+# renders overlay as marked points.
+before = { path = "../before", features = ["meter"] }
+# The fuel apparatus of record: the fuzzfit harness's wasmtime driver runs
+# one public operation per guest call under deterministic instruction-count
+# fuel. Reused whole rather than duplicated, so the atlas and the band
+# enforcement read the same currency from the same guest.
+fuzzfit-harness = { path = "../before/fuzzfit/harness" }
+# Exact-integer counting tables and proportional choice: uniform sampling
+# is arithmetic over exact counts, never floats.
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+# Deterministic per-cell seed streams; the same documented-portable
+# generator the fuzzfit harness and the parent crate's sweeps use.
+rand = "0.8"
+rand_chacha = "0.3"
+# Host-side fan-out across sampling cells; every cell's RNG is seeded from
+# (op, size, sample index), so parallel order cannot change any draw.
+rayon = "1"
+# SVG rendering only: the bitmap backend would pull font rasterization and
+# image codecs this tool has no use for.
+plotters = { version = "0.3", default-features = false, features = [
+    "svg_backend",
+    "line_series",
+] }
+
+[dev-dependencies]
+proptest = "1"
