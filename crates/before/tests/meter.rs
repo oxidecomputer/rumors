@@ -3452,6 +3452,326 @@ mod skyline_flatness {
     }
 }
 
+// ─── the ledger dense-suffix red pin ─────────────────────────────────────────
+//
+// RED PIN: a committed demonstration of a standing superlinearity in
+// `Version::rank` (and, through the shared integrator, `distance` and
+// `lag`), not a regression gate. The promotion ledger settles once at
+// the sweep's close, each arming paying its parked width times its own
+// suffix's balanced density — and a suffix's density is deposited once,
+// by the topology whose depth variation spelled its masses, not once
+// per arming. A stream pairing many wide re-arms against a suffix that
+// *stays* dense therefore pays that density per arming: the family
+// below builds the dense suffix with a gap spine (a descent turning
+// right every 33rd level, each turn's before-swept leaf punching one
+// isolated gap into the trailing interval mass, gaps a full base-2^32
+// digit apart so the balanced compaction can never merge them), then
+// fires one promotion per four-leaf re-arm block at the spine's bottom.
+// Every committed flatness family's suffix compacts to O(1) balanced
+// terms, so the promotion re-arm bands, the board, and the value suites
+// are all structurally blind to the term; `Version::rank`'s
+// `# Complexity` section claimed unqualified `O(|v|)` time when this
+// pin landed. The cure — a settle whose total charge is linear in both
+// the arming count and the suffix density at once (per-arming charging
+// and window batching are duals; a scheme linear in both needs lazy
+// product trees) — must flip this pin into a flatness band and
+// re-derive the `# Complexity` claims in the same change.
+#[cfg(feature = "limb-meter")]
+mod ledger_dense_suffix_pin {
+    use before::meter;
+    use suanpan::touch_meter;
+
+    /// Spine levels per suffix digit: each right-descent turn removes
+    /// one isolated interval from the trailing run, and a 33-level
+    /// stride keeps successive gaps more than a full base-2^32 digit
+    /// apart, so the balanced signed-digit compaction (which cancels
+    /// only ones-runs) can never merge two of them into one term: the
+    /// suffix every arming is charged against carries `d`
+    /// incompressible digits.
+    const DIGIT_STRIDE: usize = 33;
+
+    /// The arming climb's bit width: `2^608` spans 20 base-2^32 digits,
+    /// more than the freeze allowance (8 digits) above the settling
+    /// drift's 10, so every block's second freeze finds the parked
+    /// component over-wide and promotes.
+    const ARM_BITS: usize = 608;
+
+    /// The settling climb's bit width: `2^288` spans 10 digits.
+    ///
+    /// Wide enough that the following unit code trips the freeze
+    /// trigger (10 > 1 + 8), narrow enough that the parked arming
+    /// drift exceeds it by more than the allowance (20 > 10 + 8).
+    const SETTLE_BITS: usize = 288;
+
+    /// The dense-suffix re-arm family `DS(p, d)`: a gap spine of `33d`
+    /// levels, then `p` four-leaf re-arm blocks at its bottom.
+    ///
+    /// The spine turns right every 33rd level — the turn's left leaf
+    /// (height 1) is swept *before* the blocks, so its interval is
+    /// absent from the trailing mass — and left elsewhere, those
+    /// right-sibling 0-leaves swept *after* the blocks. The trailing
+    /// mass is an all-ones run punctured by `d` isolated gaps a full
+    /// digit apart: the suffix mass every arming's close-time charge
+    /// walks, `Θ(d)` balanced digits however it is assembled. Each
+    /// block is a `2^608` climb, a unit (the freeze that parks the
+    /// wide drift), a `2^288` climb, and a unit (the freeze whose
+    /// promotion arms the ledger) — one promotion per block, O(1)
+    /// stored codes each, exactly the re-arm schedule the flatness
+    /// band's family fires, against a suffix that stays dense instead
+    /// of compacting. `min_ticks = d + p·(2^608 + 2^288 + 2) + 1` is
+    /// the closed-form semantic leg (the `d` term is the turn leaves,
+    /// so a spine-less generator fails it).
+    fn dense_suffix_rearm(p: usize, d: usize) -> before::Version {
+        use dashu_int::UBig;
+        let arm = (UBig::ONE << ARM_BITS).to_string();
+        let settle = (UBig::ONE << SETTLE_BITS).to_string();
+        let mut text = String::new();
+        // Turns sit at `t ≡ 1 (mod 33)`, so the spine's bottom level is
+        // a lean whose trailing 0-leaf supplies the zero subtree
+        // minimum normal form demands above the blocks (the block
+        // chain's own minimum is the arming climb, not zero).
+        for t in 1..=DIGIT_STRIDE * d {
+            if t % DIGIT_STRIDE == 1 {
+                text.push_str("(0, 1, "); // the turn: its leaf swept before
+            } else {
+                text.push_str("(0, "); // the lean: its 0-leaf trails
+            }
+        }
+        for _ in 0..p {
+            text.push('(');
+            text.push_str(&arm);
+            text.push_str(", 0, (1, 0, (");
+            text.push_str(&settle);
+            text.push_str(", 0, (1, 0, ");
+        }
+        text.push('1');
+        for _ in 0..4 * p {
+            text.push(')');
+        }
+        for t in (1..=DIGIT_STRIDE * d).rev() {
+            if t % DIGIT_STRIDE == 1 {
+                text.push(')');
+            } else {
+                text.push_str(", 0)");
+            }
+        }
+        text.parse()
+            .expect("the dense-suffix re-arm family is canonical")
+    }
+
+    /// The dense-suffix mate `DSM(p, d)`: `DS(p, d)`'s small twin —
+    /// the same topology with every block node's base 1.
+    ///
+    /// Heights agree leaf for leaf along the spine and the trailing
+    /// run (the difference folds to zero), and every block boundary
+    /// folds this operand's unit codes against the other's wide
+    /// climbs, so the co-sweep's freezes and promotions fire on drift
+    /// only the wide operand deposited — and the ledger settle then
+    /// charges every arming against the same dense suffix. `DS(p, d)`
+    /// dominates it pointwise (equal outside the blocks, `≥ 2^608`
+    /// against `≤ 4p` inside), so the pair measures collapse to exact
+    /// rank identities. `min_ticks = d + 4p + 1`.
+    fn dense_suffix_mate(p: usize, d: usize) -> before::Version {
+        let mut text = String::new();
+        for t in 1..=DIGIT_STRIDE * d {
+            if t % DIGIT_STRIDE == 1 {
+                text.push_str("(0, 1, ");
+            } else {
+                text.push_str("(0, ");
+            }
+        }
+        for _ in 0..4 * p {
+            text.push_str("(1, 0, ");
+        }
+        text.push('1');
+        for _ in 0..4 * p {
+            text.push(')');
+        }
+        for t in (1..=DIGIT_STRIDE * d).rev() {
+            if t % DIGIT_STRIDE == 1 {
+                text.push(')');
+            } else {
+                text.push_str(", 0)");
+            }
+        }
+        text.parse().expect("the dense-suffix mate is canonical")
+    }
+
+    /// One public `Version::rank` run over `DS(p, p)`: packed bytes
+    /// and both counters over the rank body alone.
+    ///
+    /// Carries `min_ticks`' closed form as the cross-fold semantic leg
+    /// (proving the generator builds the gap spine and the block
+    /// schedule this pin reasons about) and the
+    /// one-touch-per-operand-byte liveness floor.
+    fn run(p: usize) -> (u64, u64, u64) {
+        use dashu_int::UBig;
+        let v = dense_suffix_rearm(p, p);
+        let bytes = v.encode().len() as u64;
+        let expected = UBig::from(p as u64)
+            + UBig::from(p as u64) * ((UBig::ONE << ARM_BITS) + (UBig::ONE << SETTLE_BITS) + 2u8)
+            + 1u8;
+        assert_eq!(
+            v.min_ticks(),
+            expected
+                .to_string()
+                .parse::<before::Ticks>()
+                .expect("the closed form parses"),
+            "the family's stored-code sum disagrees with min_ticks: the \
+             generator does not build the tree this pin reasons about"
+        );
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let rank = v.rank();
+        std::hint::black_box(rank);
+        let touches = touch_meter::touches();
+        let limb_ops = meter::limb_ops();
+        assert!(
+            touches >= bytes,
+            "rank at {bytes} operand bytes: {touches} digit touches under \
+             the one-per-byte floor: the fold's accumulator work is not \
+             metered",
+        );
+        (bytes, touches, limb_ops)
+    }
+
+    /// Blocks (and suffix digits) of the pin's small run (the large
+    /// run doubles both).
+    const DENSE_SUFFIX_SMALL: usize = 500;
+
+    /// RED: `Version::rank`'s per-byte cost grows across a `DS(p, p)`
+    /// doubling in both currencies.
+    ///
+    /// The ledger settle charges each arming at its parked width times
+    /// its suffix's balanced density, and the gap spine holds that
+    /// density at `Θ(d)` for every one of the `Θ(p)` armings, so the
+    /// public fold is superlinear where every committed flatness
+    /// family reads flat.
+    ///
+    /// The floor sits midway between linear (×1.00) and the measured
+    /// growth, so only a class change crosses it — the cure flips this
+    /// pin, and must retighten the `# Complexity` claims in the same
+    /// change.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 3,417,450 → 13,357,237 across DS(500, 500) → DS(1,000, 1,000)
+    /// on 119,593 B → 239,030 B packed operands — per-byte growth
+    /// ×1.96 — and limb ops 2,837,934 → 11,175,881 (×1.97/byte): the
+    /// defect reads red in both width currencies. The next doubling,
+    /// DS(1,000) → DS(2,000), reads 52,807,233 touches on 477,906 B
+    /// (×1.98/byte) and 44,351,707 limb ops (×1.98/byte) — the local
+    /// exponent is ~2.0: a class defect, not a constant.]
+    #[test]
+    fn rank_dense_suffix_reads_superlinear() {
+        let (small_bytes, small_touches, small_limbs) = run(DENSE_SUFFIX_SMALL);
+        let (large_bytes, large_touches, large_limbs) = run(2 * DENSE_SUFFIX_SMALL);
+        eprintln!(
+            "MEASURED rank_dense_suffix: small={small_touches}/{small_bytes}B \
+             (limb {small_limbs}) large={large_touches}/{large_bytes}B \
+             (limb {large_limbs})"
+        );
+        // The red band's floor: per-byte growth at least ×1.48 across
+        // the doubling in both currencies — only a class change
+        // crosses it.
+        for (name, small, large) in [
+            ("touches", small_touches, large_touches),
+            ("limb ops", small_limbs, large_limbs),
+        ] {
+            assert!(
+                u128::from(large) * u128::from(small_bytes) * 100
+                    >= u128::from(small) * u128::from(large_bytes) * 148,
+                "rank reads flat ({name}) on the dense-suffix family \
+                 ({small}/{small_bytes}B -> {large}/{large_bytes}B): the \
+                 ledger settle no longer pays the suffix density per arming, \
+                 so flip this pin into a flatness band and re-derive the \
+                 # Complexity claims in the same change",
+            );
+        }
+    }
+
+    /// One public distance-and-lag run over `(DS(p, p), DSM(p, p))`:
+    /// the pair's packed bytes and both counters over the three query
+    /// bodies together.
+    ///
+    /// Value legs anchor all three measures before the counters
+    /// return: `DS` dominates its mate pointwise, so
+    /// `distance = rank(a) − rank(b)`, `lag(a, b) = 0`, and
+    /// `lag(b, a) = distance`.
+    fn pair_run(p: usize) -> (u64, u64, u64) {
+        let a = dense_suffix_rearm(p, p);
+        let b = dense_suffix_mate(p, p);
+        let bytes = (a.encode().len() + b.encode().len()) as u64;
+        let gap = a
+            .rank()
+            .checked_sub(&b.rank())
+            .expect("the re-arm operand dominates its unit mate");
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let d = a.distance(&b);
+        let forward = a.lag(&b);
+        let backward = b.lag(&a);
+        let touches = touch_meter::touches();
+        let limb_ops = meter::limb_ops();
+        assert_eq!(d, gap, "distance must be the dominating rank gap");
+        assert_eq!(
+            forward,
+            before::Rank::ZERO,
+            "the dominating side lags by nothing"
+        );
+        assert_eq!(backward, d, "the dominated side lags by the whole gap");
+        assert!(
+            touches >= bytes,
+            "pair queries at {bytes} operand bytes: {touches} digit touches \
+             under the one-per-byte floor: the co-sweep's difference state \
+             is not running on the metered accumulator",
+        );
+        (bytes, touches, limb_ops)
+    }
+
+    /// RED: the distance/lag co-sweep's per-byte cost grows across a
+    /// `(DS(p, p), DSM(p, p))` doubling in both currencies.
+    ///
+    /// `pair_integral` drives the same integrator as `rank` (one
+    /// shared ledger settle), so the two-operand form pays the same
+    /// per-arming suffix-density charge — here on promotions the
+    /// mate's cheap codes fire against drift only the wide operand
+    /// deposited. The cure that flips the rank pin flips this one in
+    /// the same change.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 12,900,786 → 50,547,044 across p = 500 → 1,000 on a
+    /// 127,034 B → 253,909 B packed pair (three sweeps' worth) —
+    /// per-byte growth ×1.96 — and limb ops 5,836,909 → 22,673,775
+    /// (×1.94/byte): red in both width currencies.]
+    #[test]
+    fn distance_dense_suffix_reads_superlinear() {
+        let (small_bytes, small_touches, small_limbs) = pair_run(DENSE_SUFFIX_SMALL);
+        let (large_bytes, large_touches, large_limbs) = pair_run(2 * DENSE_SUFFIX_SMALL);
+        eprintln!(
+            "MEASURED distance_dense_suffix: small={small_touches}/{small_bytes}B \
+             (limb {small_limbs}) large={large_touches}/{large_bytes}B \
+             (limb {large_limbs})"
+        );
+        // The red band's floor: per-byte growth at least ×1.48 across
+        // the doubling in both currencies — only a class change
+        // crosses it.
+        for (name, small, large) in [
+            ("touches", small_touches, large_touches),
+            ("limb ops", small_limbs, large_limbs),
+        ] {
+            assert!(
+                u128::from(large) * u128::from(small_bytes) * 100
+                    >= u128::from(small) * u128::from(large_bytes) * 148,
+                "the pair co-sweep reads flat ({name}) on the dense-suffix \
+                 family ({small}/{small_bytes}B -> {large}/{large_bytes}B): \
+                 the ledger settle no longer pays the suffix density per \
+                 arming, so flip this pin into a flatness band and re-derive \
+                 the # Complexity claims in the same change",
+            );
+        }
+    }
+}
+
 // ─── id spine pair scenarios ────────────────────────────────────────────────
 
 /// The combined operand bytes of an id-spine pair scenario.

@@ -255,8 +255,16 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|v|)` time and space; the returned rank's numeric size (see
-    /// [`Rank`]) is itself `O(|v|)`.
+    /// `O(|v|)` space; the returned rank's numeric size (see
+    /// [`Rank`]) is itself `O(|v|)`. Time is **superlinear** in the
+    /// worst case: a stream firing many wide re-armings of the fold's
+    /// parked drift ahead of a trailing region whose interval masses
+    /// stay dense (the committed dense-suffix family: a gap spine over
+    /// re-arm blocks) pays that density once per re-arming, quadratic
+    /// in the stream length, while every committed board family — and
+    /// any stream whose trailing masses compact to `O(1)` balanced
+    /// terms — measures linear. The excess is not contractual: a
+    /// future release may compute the rank in amortized `O(|v|)` time.
     ///
     /// ```
     /// use before::Clock;
@@ -287,9 +295,15 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` time and space: one fused sweep over the two
-    /// packed streams integrates the height difference directly, each
-    /// step paid for by the codes it consumes.
+    /// `O(|a| + |b|)` space: one fused sweep over the two packed
+    /// streams integrates the height difference directly, each step
+    /// paid for by the codes it consumes. Time is **superlinear** in
+    /// the worst case, exactly [`rank`](Self::rank)'s (the sweeps
+    /// share one integral): a pair whose wide re-armings ride ahead of
+    /// a dense trailing region pays that density once per re-arming,
+    /// while every committed board family measures linear. The excess
+    /// is not contractual: a future release may compute the distance
+    /// in amortized `O(|a| + |b|)` time.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
@@ -320,7 +334,10 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` time and space.
+    /// `O(|a| + |b|)` space. Time is **superlinear** in the worst
+    /// case, exactly [`distance`](Self::distance)'s (one shared
+    /// co-sweep integrates both measures' functionals); the same
+    /// excess is likewise not contractual.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
