@@ -2610,6 +2610,129 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   patched build, green on the real tree and riding along in the
   differential suite).
 
+- **CURED 2026-07-28 (cure round #83, the balanced product-tree
+  settle; branch `cure83` @ base 6bb2305e).** Charter: make the
+  ledger settle achieve worst-case `O(|v| log |v|)` against every
+  arming/suffix adversary via the balanced product tree, flip the #82
+  dense-suffix red pins, restate the claims, and close out. All
+  numbers exact deterministic counters (dev for pins, release for
+  boards), every movement attributed at the parent 6bb2305e.
+
+  **The settle landed.** `settle_armings` is now a balanced
+  product-tree reduction (a binary counter, `join_all`'s fold shape,
+  iterative per the recursion rule) over the ledger's entry sequence —
+  entry `i` pairing `P_i` with the window behind it, closed by a
+  virtual entry carrying the final window. Each merge contributes
+  exactly one aggregate product, the left half's parked sum (an
+  `Accumulator`, so opposing armings cancel digit-wise before any
+  product reads a width) times the right half's window sum (sparse
+  balanced signed digits, the #81 suffix representation generalized to
+  a two-operand `absorb`), so every arming-window cross term of the
+  exact debt `Σ_{i<j} P_i · w_j` rides exactly one product and nothing
+  in the ledger is re-read more than `⌈log₂ n⌉` times: the
+  accounting-direction game is over — a shared dense suffix cannot be
+  walked once per arming, a promoted prefix cannot be re-read once per
+  window. Value-exactness held everything: the differential and
+  exhaustive suites (small-scope pairs, arbitrary trees, organic
+  histories, the composed forms) passed untouched, and the
+  freeze-position bands read byte-identical to the parent (a
+  non-promoting sweep runs the exact op sequence it ran before).
+
+  **The #82 pins flipped** (the headline): rank on
+  DS(500, 500) → DS(1,000, 1,000) reads touches
+  3,417,450 → 219,764 at the small scale (15.6× lighter) with
+  per-byte growth ×1.96 → ×1.00, limb ops 2,837,934 → 116,853 (24×)
+  at ×1.97 → ×1.00; the pair triple reads 12,900,786 → 710,692 (18×)
+  at ×1.96 → ×1.00 both currencies. The pins are now
+  `skyline_flatness` bands under the declared log model (the band doc
+  derives the model's worst admissible doubling growth at the
+  family's shape, ×log₂(2p)/log₂(p) ≈ ×1.11 even if the settle
+  dominated, inside the ×1.25 slack; measured ×1.00 — the settle's
+  log term is a small share of the fold's linear work), ceilings
+  ×1.25 over measured, liveness floors and `min_ticks` closed-form
+  legs carried over. DS/DSM moved into `src/meter` as bit-exact
+  generators (`dense_suffix`, `134d + 1812p + 4` bits pinned, spelled
+  text-form equality in the generator tests) so the src-side
+  tripwire below shares them. Adequacy per the ratchet: the retired
+  per-arming suffix walk is committed and failing beside the kernel
+  (`suffix_walk_settle_reads_superlinear_on_dense_suffix{,_pair}`,
+  query `tests.rs`: ×1.96/byte on DS and the pair, floors 1.48,
+  value-exact against the shipped folds), and the #81 span-reading
+  tripwires stay red on PR unchanged. The promotion re-arm bands
+  re-pinned at the tree's readings with the movement annotated:
+  +17% touch (rank) and +12% (pair) at ×1.00 exponent, +0.7%/+0.3%
+  limb — the tree's per-level window rewrites, bought for the
+  dense-suffix cure.
+
+  **The discrepancy (charter goal vs mechanism, resolved toward
+  honest claims and reported).** The ratified unqualified
+  `O(|v| log |v|)` worst case is **not achieved** by the product
+  tree, and this round's construction shows no fixed-association
+  settle achieves it: the aggregate product itself costs the parked
+  sum's width times the window sum's balanced density, and
+  cancellation is exploited only *within* a parked sum, never across
+  a seam. The committed witness `WA(w, d)` (`meter::wide_arming`, a
+  gap spine over one `2^(32w)` re-arm block: one arming as wide as
+  the input ahead of a trailing mass as dense as the input, the
+  plateau's cancelling descent landing after the sweep — outside
+  every aggregate) reads [measured 2026-07-28, dev, exact] touches
+  288,037 → 1,083,963 across WA(500) → WA(1,000) on
+  14,263 B → 28,451 B (×1.89/byte), limb ×1.87, next doubling
+  ×1.94/×1.93 — local exponent ~1.9 through the shipped tree. Two
+  structural findings behind it: (1) misaligned cancelling armings
+  (`+H, ε, −H` around a split seam, dense mass right of it) force the
+  same width×density price at any fixed tree association — only a
+  cancellation-adaptive settle (the prefix re-anchored with its own
+  freeze discipline, recursively) could exploit them, a
+  research-shaped cure; (2) **no intrinsic amplifier exists**: for
+  the exact answer itself to embed a `w`-wide × `d`-dense
+  convolution, the input must fund `w · d` (a plateau's mass against
+  same-scale punctures telescopes to compact terms; keeping the mass
+  dense at the plateau's own scale costs per-puncture wide codes) —
+  so every superlinear reading is accounting overhead on cancelling
+  arrangements, none of it mandatory. The claims therefore state, no
+  stronger and no weaker: worst-case **superlinear** time (mechanism:
+  the aggregate product, family named), `O(|v| log |v|)` whenever
+  parked masses stay `O(1)` digits wide (every committed family, the
+  dense-suffix adversaries included), `O(|v|)` space, excess
+  non-contractual. `ledger_wide_arming_pin` (`tests/meter.rs`) is the
+  claims' committed red witness, floor ×1.44 midway.
+
+  **Class decision (charter item, smallest honest vocabulary):**
+  rank/distance/lag stay `Class::Linear` with the superlinear rustdoc
+  rider and the tests-only red pin — the #82 structure with the
+  witness re-denominated from DS to WA. `FoldLog` was evaluated and
+  declined at the roster rows: the settle's log factor is real but
+  never dominates a committed reading (the DS bands measure ×1.00),
+  and "linear × log" would be a false upper bound while the
+  wide-arming pin stands; `SuperlinearCounter` stays unavailable by
+  the documented seal constraint (no standing board exponent red —
+  the board reads every rank row green, DS not landed as a board
+  family: the seal's witness story is served by the committed
+  tests-only pins plus the flatness bands, and a 25th family would
+  buy no verdict the bands do not already hold).
+
+  **Board and instruments:** fresh release renders at both scales
+  read **default 1193 + 6, record 1193 + 6**, the red set exactly
+  the parent's six ratified reds; the round's whole board delta,
+  diffed cell for cell against parent renders on this machine, is
+  the three promo-rearm linear-functional cells' touch constants
+  (rank 1.4 → 1.6/B, distance/lag 2.1 → 2.4/B, exponents 1.00
+  unchanged) — every other cell byte-identical. Fuzzfit re-pinned at
+  fourth-decimal movement (rank slope 1.1291 → 1.1289; the organic
+  corpus rarely promotes), annotation in the bands pin of record;
+  the enforcement leg green through the cure.
+
+  **For the owner:** (1) the unqualified `O(|v| log |v|)` ratification
+  cannot be honored by any fixed-association settle — accept the
+  wide-arming residual as the stated bound (the pin stands red,
+  claims qualified as above), or commission the cancellation-adaptive
+  settle as its own campaign item; (2) the no-intrinsic-amplifier
+  argument (finding 2 above) is prose-proved in the module doc's
+  funding section but not mechanically pinned — a probe family
+  attempting the intrinsic construction and reading flat would make
+  it a committed fact rather than an argument, if wanted.
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
@@ -3242,21 +3365,21 @@ if C3 chose that arm; the §14 acceptance entry recorded.
 
 ### 17.3 Owned-red accounting (current; over the 1199 cells)
 
-Sums [measured 2026-07-28, release renders at the round-2 cure
-tip (cure81: the promotion ledger, the promo-rearm family, the
-pair analogue, and the sentry totalization), with the promo-rearm
-family landed (cells 1156 → 1199); the prior boards of record
-read 1150 + 6 over 1156 at the cure-round merge renders — the
-three commits between that merge and this round's base touch no
-board-measured code, so those sums are also this round's parent
-baseline — and 1041 + 30 / 1044 + 27 over 1071 at the
+Sums [measured 2026-07-28, release renders at the round #83 cure
+tip (cure83: the balanced product-tree settle), diffed cell for
+cell against parent renders at 6bb2305e on the same machine; the
+prior boards of record read 1193 + 6 at the cure81 tip (the
+promotion ledger and the promo-rearm family landing, cells
+1156 → 1199), 1150 + 6 over 1156 at the cure-round merge renders
+before that, and 1041 + 30 / 1044 + 27 over 1071 at the
 `board-merge72-{lo,hi}.txt` renders before that]:
 **default 1193 + 6 = 1199; record 1193 + 6 = 1199, the red set
 identical at both scales and identical to the parent's six — the
-round's whole board delta is the 43 promo-rearm cells, all
-green (the cure's dev-profile envelope diff read every
-pre-existing query-fold row byte-identical, and no other row's
-code moved).** Every red is a
+round's whole board delta is the three promo-rearm
+linear-functional cells' touch constants (rank 1.4 → 1.6/B,
+distance/lag 2.1 → 2.4/B, exponents 1.00 unchanged: the tree
+settle's per-level window rewrites), every other cell
+byte-identical at both scales.** Every red is a
 `BOARD_EXPECTED_REDS` member with its mechanism tag (the roster
 in `meter/board.rs` is the committed form of this accounting;
 the render's `mech[...]` column is its live disclosure). Every
