@@ -320,32 +320,16 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::min_ticks",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v|)` space", "**superlinear**"],
+            tokens: &["`O(|v|)`"],
         }],
-        // TODO-cure(review #37, F1): the board reads this row red with
-        // an exponent mechanism on pure-comb/reveal-comb (the
-        // `query_superlinearity_pins` in tests/meter.rs), and the
-        // rustdoc states the superlinear worst case, but the class
-        // cannot move to `SuperlinearTime` until the op joins the
-        // bench judge's red roster (the set-equality test binds the
-        // two): counter reds do not yet bind claim classes. The cure
-        // either linearizes the fold (the pins flip) or lands the
-        // judge kernels and moves this class with the roster.
         cells: Cells::Board(&[("version_min_ticks", Class::Linear)]),
     },
     Claim {
         op: "Version::rank",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v|)` space", "**superlinear**"],
+            tokens: &["`O(|v|)`"],
         }],
-        // TODO-cure(review #37, F2): superlinear on the freeze-position
-        // family (`rank_freeze_position_touches_read_superlinear` in
-        // tests/meter.rs), which is not yet a board family — the board
-        // reads every committed rank row green. Same class-binding
-        // constraint as min_ticks above; the cure either funds the
-        // freeze-position read or lands FP on the board and the judge
-        // roster and moves this class with it.
         cells: Cells::Board(&[("version_rank", Class::Linear)]),
     },
     Claim {

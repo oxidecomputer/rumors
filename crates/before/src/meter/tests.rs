@@ -4,10 +4,12 @@
 use crate::codec;
 use crate::{Party, Version};
 
+use suanpan::UBig;
+
 use super::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense, harmonic,
-    hugeleaf, id_spine, jump_comb, jump_pair, mask_drift_quadruple, mask_drift_triple,
-    scattered_id, wide_tooth_comb, Packed,
+    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense,
+    freeze_position, harmonic, hugeleaf, id_spine, jump_comb, jump_pair, mask_drift_quadruple,
+    mask_drift_triple, scattered_id, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -157,6 +159,36 @@ fn cancelling_chain_decodes_canonically_at_predicted_length() {
     let p = cancelling_chain(3, 2);
     let v = p.version();
     assert_eq!(v.to_string(), "(0, (1, 7, 0), (0, (1, 7, 0), 0))");
+}
+
+/// `freeze_position(k)` is canonical normal form at exactly
+/// `4k(L + 2) + 2` bits for `L = 289 + bitlen(k)`, and its `min_ticks`
+/// is exactly the leaf-sum closed form
+/// `2k·2^L + k(k−1)(2^288 + 1) + k`.
+///
+/// The closed form is the family's independent semantic leg: the
+/// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter
+/// scale, so this pin holds it at hand-checkable sizes where the tree
+/// can also be spot-read (one block, descending 290-bit leaves over the
+/// terminal zero).
+#[test]
+fn freeze_position_decodes_canonically_at_predicted_length() {
+    for (k, bitlen) in [(1usize, 1usize), (5, 3), (200, 8)] {
+        let band = 289 + bitlen;
+        check_version(&freeze_position(k), 4 * k * (band + 2) + 2);
+        let expected = (UBig::from(2 * k as u64) << band)
+            + UBig::from((k * (k - 1)) as u64) * ((UBig::ONE << 288usize) + UBig::ONE)
+            + UBig::from(k as u64);
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            freeze_position(k).version().min_ticks(),
+            ticks,
+            "the leaf-sum closed form is the family's minimum tick count"
+        );
+    }
 }
 
 /// The harmonic spine `H(d)` is canonical normal form at exactly `6d + 2`
