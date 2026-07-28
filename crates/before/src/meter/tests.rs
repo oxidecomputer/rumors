@@ -192,8 +192,10 @@ fn freeze_position_decodes_canonically_at_predicted_length() {
     }
 }
 
-/// `promotion_rearm(p)` is canonical normal form at exactly `1972p + 4`
-/// bits, its `min_ticks` is exactly the stored-base sum
+/// `promotion_rearm(p)` is canonical normal form at exactly
+/// `1972p + 4` bits.
+///
+/// Its `min_ticks` is exactly the stored-base sum
 /// `16p + p(2^608 + 2^288 + 2) + 1`, and the built tree is exactly the
 /// nested text form the family reasons about.
 ///
@@ -250,9 +252,11 @@ fn promotion_rearm_decodes_canonically_at_predicted_length() {
 }
 
 /// `promotion_rearm_mate(p)` is canonical normal form at exactly
-/// `180p + 4` bits, its `min_ticks` is exactly `18p + 1`, and
-/// `promotion_rearm(p)` dominates it pointwise (the pair band's exact
-/// value legs rest on the dominance).
+/// `180p + 4` bits.
+///
+/// Its `min_ticks` is exactly `18p + 1`, and `promotion_rearm(p)`
+/// dominates it pointwise (the pair band's exact value legs rest on
+/// the dominance).
 #[test]
 fn promotion_rearm_mate_decodes_canonically_at_predicted_length() {
     for p in [1usize, 5, 200] {

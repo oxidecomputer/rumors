@@ -512,8 +512,9 @@ mod adequacy {
     use crate::meter::{promotion_rearm, promotion_rearm_mate};
     use crate::version::skyline::sweep::{advance, fold};
 
-    /// The anchored-segment integral with the span-reading promotion:
-    /// segments settle at the write watermark (linear on the
+    /// The anchored-segment integral with the span-reading promotion.
+    ///
+    /// Segments settle at the write watermark (linear on the
     /// freeze-position family), but a promotion multiplies the parked
     /// component by the absolute position accumulator, read across its
     /// full written span, and re-anchors it into the base.
@@ -807,9 +808,10 @@ mod adequacy {
     }
 
     /// `(PR(p), PRM(p))` catches the span-reading promotion red on the
-    /// pair integral: its per-byte touch cost grows across the
-    /// doubling — the committed proof that the pair family drives
-    /// promotions through the co-sweep, not just freezes.
+    /// pair integral: its per-byte touch cost grows across the doubling.
+    ///
+    /// The committed proof that the pair family drives promotions
+    /// through the co-sweep, not just freezes.
     ///
     /// [measured 2026-07-28, dev profile, exact counters: touches
     /// 1,504,885 -> 5,134,635 across p = 1,000 -> 2,000, packed pair

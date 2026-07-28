@@ -814,11 +814,13 @@ impl Integrator {
         );
     }
 
-    /// Promote the parked component out of the per-freeze settle: record
-    /// it in the ledger with the position window it closes, owing
-    /// `P · (2^S − position)` — settled once, at the sweep's close, as
-    /// `P` times its suffix mass ([`settle_armings`](Self::settle_armings))
-    /// — and re-open both.
+    /// Promote the parked component out of the per-freeze settle:
+    /// record it in the ledger with the position window it closes, and
+    /// re-open both.
+    ///
+    /// The entry owes `P · (2^S − position)`, settled once at the
+    /// sweep's close as `P` times its suffix mass
+    /// ([`settle_armings`](Self::settle_armings)).
     ///
     /// Sound only immediately after
     /// [`settle_segment`](Self::settle_segment): the segment credit
