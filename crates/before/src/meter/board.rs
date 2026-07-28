@@ -365,7 +365,8 @@
 //! operand bundle supplies (the product section above): the event shapes —
 //! the dense spine, `bigroot`, `hugeleaf`, the boundary comb (`cliff`, at
 //! `k = n` so its value content grows quadratically in its packed input),
-//! and `harmonic` — carry a version; the diverted id-spine pair carries a
+//! `harmonic`, and `freeze-pos` (the many-freezes spine, one query-fold
+//! freeze per block) — carry a version; the diverted id-spine pair carries a
 //! disjoint party pair; the eleven cross shapes (`comb-scatter` and the
 //! ten tick-walk crosses) carry a version, a mounted party pair, and a
 //! clock; the two version-pair shapes — `jump-pair` (wide
@@ -385,7 +386,15 @@
 //! kernel-seam probes live in the envelope suite alone. The criterion and
 //! the add-a-shape touch list sit on the `FAMILIES` roster below.
 //!
-//! Three shapes carry a genre note beyond their variant docs:
+//! Four shapes carry a genre note beyond their variant docs:
+//!
+//! - `freeze-pos`, built against the linear-functional rows: `Θ(s)`
+//!   query-fold freezes at ever-deeper stream positions where every
+//!   comb fires O(1) — the coverage the #37 review's freeze-position
+//!   finding named. The committed known-bad kernel (the query fold's
+//!   adequacy tripwire) reads ×1.50 per byte across this family's
+//!   doubling, so a green `version_rank × freeze-pos` cell is a live
+//!   verdict, not decoration.
 //!
 //! - `comb-scatter`: the projection cross (boundary-comb version ×
 //!   scattered party) whose mandatory output dominates its input — the
@@ -890,6 +899,27 @@ const JUMP_PAIR_MAGNITUDE_BITS: usize = 512;
 /// fraction of the packed pair.
 const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 
+/// Freeze-position blocks at scale 1.0 (packed version ~74 KiB, the
+/// per-block wide drop codes dominating).
+///
+/// The scale of the `skyline_flatness` freeze-position band's small
+/// run: the committed known-bad accounting reads ×1.50 per-byte growth
+/// across this regime's doubling (the adequacy tripwire's measurement
+/// of record), so the board's default pair straddles exactly what the
+/// family exists to catch. The base is a multiple of 16 deliberately:
+/// the family's rank exponent is `2s − 1` (one trailing zero strips —
+/// exactly one leaf term, the odd `2^L + 1` at weight `2^1`, has
+/// 2-adic valuation one), and `rank_sum` lands each small summand at
+/// bit remainder `exp mod 32`, where a remainder near the digit top
+/// makes most landings span two digits instead of one — an honest
+/// amortized-O(1) constant, but one that flips with the remainder, and
+/// an exponent fitted across two scales with different remainders
+/// reads the flip as growth (measured: e 1.65 from a 1.0 → 1.57
+/// per-summand constant at remainders 15 → 31). `16 | s` keeps
+/// `2s ≡ 0 (mod 32)`, so every doubling preserves the remainder and
+/// the exponent leg compares like against like.
+const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
+
 /// Concurrent-pair forked-party count at scale 1.0, rounded up to a
 /// power of two at every scale (the balanced fork and the alternating
 /// dominance schedule both need it; the level doubling then doubles it
@@ -1055,6 +1085,22 @@ enum FamilyKind {
     /// accounting (superlinear), with each operand certified-linear
     /// alone (the generator doc carries the mechanism).
     JumpPair,
+    /// The freeze-position spine `freeze_position(s)`: the
+    /// many-freezes sentinel.
+    ///
+    /// `2s` descending wide leaves alternate a ten-digit drop and a
+    /// unit drop down a right spine, so a query fold freezes `Θ(s)`
+    /// times at ever-deeper stream positions — every comb fires O(1)
+    /// freezes, which was exactly the coverage hole — and any freeze
+    /// accounting that reads an absolute position (or any
+    /// whole-history state) per freeze goes quadratic here while the
+    /// family's positions compact to O(1) digits. The committed
+    /// known-bad kernel reads ×1.50 per byte across the doubling on
+    /// this shape (the query fold's adequacy tripwire); the
+    /// anchored-segment discipline reads flat (the `skyline_flatness`
+    /// freeze-position band). Designed against the linear-functional
+    /// query rows.
+    FreezePos,
     /// The concurrent pair `concurrent_pair(n)`: the emit side-switch
     /// density population.
     ///
@@ -1083,7 +1129,7 @@ enum FamilyKind {
 /// whole-surface adversary earns a board family, while a kernel-seam
 /// shape lives in the envelope suite alone, as `wide_tooth_comb`,
 /// `alt_spine`, and the `memo_*` shapes do.
-const FAMILIES: [FamilyKind; 21] = [
+const FAMILIES: [FamilyKind; 22] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -1103,6 +1149,7 @@ const FAMILIES: [FamilyKind; 21] = [
     FamilyKind::AscendCliff,
     FamilyKind::AscendPlateau,
     FamilyKind::JumpPair,
+    FamilyKind::FreezePos,
     FamilyKind::ConcurrentPair,
     FamilyKind::Benign,
 ];
@@ -1383,6 +1430,13 @@ impl FamilyData {
                 data.version2 = Some(b.version().encode());
                 data
             }
+            FamilyKind::FreezePos => Self::event(
+                kind,
+                "freeze-pos",
+                super::freeze_position(size(FREEZE_POS_BASE_BLOCKS))
+                    .version()
+                    .encode(),
+            ),
             FamilyKind::ConcurrentPair => {
                 let n = size(CONCURRENT_BASE_LEAVES).next_power_of_two();
                 let (v, w) = super::concurrent_pair(n);
@@ -2857,10 +2911,13 @@ fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         | FamilyKind::PureComb
         | FamilyKind::AscendCliff
         | FamilyKind::AscendPlateau => group == OpGroup::Tick,
-        // The version-pair shapes, built against the linear-functional
-        // query rows: wide difference crests over a dense-position spine
-        // and the switch-density population.
-        FamilyKind::JumpPair | FamilyKind::ConcurrentPair => group == OpGroup::Measure,
+        // The query-fold adversaries, built against the
+        // linear-functional rows: wide difference crests over a
+        // dense-position spine, the many-freezes spine, and the
+        // switch-density population.
+        FamilyKind::JumpPair | FamilyKind::FreezePos | FamilyKind::ConcurrentPair => {
+            group == OpGroup::Measure
+        }
     }
 }
 
@@ -4970,17 +5027,18 @@ pub enum BenchMode {
 /// the judge's roster as ever; a red cured on the board leaves this list
 /// in the same change that cures it.
 ///
-/// The current membership (realized 2026-07-26 against the boards of
-/// record, 23 default / 20 ×4 reds): the board's standing reds are the
-/// materializing-emitter display cells, the tick/min_ticks heap-constant
-/// cells, the join_all fold marginals, and the capacity-phase projection
-/// artifact cells — of those, the cells below are the ones the designed
-/// pairings do not already time (the display and min_ticks rows on the
-/// tick-cross and harmonic shapes, which those shapes were not designed
-/// to stress).
+/// The current membership (re-realized 2026-07-28 against the
+/// query-fold cure's renders, 24 default / 20 ×4 reds): the board's
+/// standing reds are the materializing-emitter display cells, the
+/// tick-family and `min_ticks` ascend-cliff heap constants, the
+/// join_all fold marginals, and the capacity-phase projection artifact
+/// cells — of those, the cells below are the ones the designed
+/// pairings do not already time (the display rows on the tick-cross
+/// and harmonic shapes, and the `min_ticks` row on the ascend-cliff
+/// cross, which those shapes were not designed to stress; the tick
+/// rows on ascend-cliff are the shape's own designed pairing).
 pub const BOARD_RED_BENCH_RIDERS: &[(&str, &str)] = &[
-    ("version_min_ticks", "mirror-wide"),
-    ("version_min_ticks", "mirror-narrow"),
+    ("version_min_ticks", "ascend-cliff"),
     ("version_display", "harmonic"),
     ("version_display", "nested-full"),
     ("version_display", "nested-wide"),
