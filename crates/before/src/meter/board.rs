@@ -398,8 +398,11 @@
 //! the dense spine, `bigroot`, `hugeleaf`, the boundary comb (`cliff`, at
 //! `k = n` so its value content grows quadratically in its packed input),
 //! `harmonic`, `freeze-pos` (the many-freezes spine, one query-fold
-//! freeze per block), and `promo-rearm` (the many-armings spine, one
-//! query-fold promotion per block) — carry a version; the diverted id-spine pair carries a
+//! freeze per block), `promo-rearm` (the many-armings spine, one
+//! query-fold promotion per block), `weight-comb` (the many-jumps
+//! spine, one accumulator-top jump and settle per block pair), and
+//! `freeze-parade` (the deep-segment freeze spine, one scaled segment
+//! read per block) — carry a version; the diverted id-spine pair carries a
 //! disjoint party pair; the eleven cross shapes (`comb-scatter` and the
 //! ten tick-walk crosses) carry a version, a mounted party pair, and a
 //! clock; the two version-pair shapes — `jump-pair` (wide
@@ -421,7 +424,7 @@
 //! kernel-seam probes live in the envelope suite alone. The criterion and
 //! the add-a-shape touch list sit on the `FAMILIES` roster below.
 //!
-//! Six shapes carry a genre note beyond their variant docs:
+//! Eight shapes carry a genre note beyond their variant docs:
 //!
 //! - `freeze-pos`, built against the linear-functional rows: `Θ(s)`
 //!   query-fold freezes at ever-deeper stream positions where every
@@ -441,6 +444,20 @@
 //!   decoration — and the class-binding seal that holds `Linear`
 //!   claims against exponent-mechanism reds is live for the promotion
 //!   mechanism exactly because this column exists.
+//!
+//! - `weight-comb` and `freeze-parade`, the accumulator skip-mechanism
+//!   families (the zero-run certificate ledger's and the write
+//!   watermark's, respectively): each is a public-API stream that
+//!   stays flat only through its mechanism, and each mechanism's
+//!   absence reads ~×2 per byte across the family's doubling (the
+//!   probe-build measurements of record in the `skyline_flatness` band
+//!   ceilings, `tests/meter.rs` — the enforcement stays there; the
+//!   columns exist so the dashboard is never structurally blind to the
+//!   genre, every cell a live verdict over the mechanism that holds it
+//!   flat). The third skip mechanism, exact-`top` maintenance, is
+//!   priced by the `skyline_flatness` tooth-tail band alone; the
+//!   board↔band parity pin (`tests/amp_board_smoke.rs`) records that
+//!   one-sidedness by name.
 //!
 //! - `comb-scatter`: the projection cross (boundary-comb version ×
 //!   scattered party) whose mandatory output dominates its input — the
@@ -1119,6 +1136,35 @@ const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 /// so every doubling compares like against like.
 const PROMO_REARM_BASE_BLOCKS: usize = 512;
 
+/// Weight-comb block pairs at scale 1.0 (packed version ~7 KiB, the
+/// spine's unit codes dominating), rounded up to a power of two at
+/// every scale.
+///
+/// The rounding is the complete-subtree relation's call-site repair,
+/// and the level doubling then doubles the rounded count exactly.
+/// The base is the scale of the `skyline_flatness` weight-comb band's small run:
+/// with certificate consumption disabled, rank reads ×1.93 per-byte
+/// growth across this regime's doubling (the band ceiling doc's
+/// probe-build measurement of record), so the board's default pair
+/// straddles exactly what the family exists to catch. Power-of-two `n`
+/// keeps the spine depth `32n ≡ 0 (mod 32)`, so `rank_sum` lands its
+/// small summands at the same bit remainder at both scales and the
+/// exponent leg compares like against like (the freeze-position base's
+/// derivation carries the mechanism).
+const WEIGHT_COMB_BASE_BLOCKS: usize = 512;
+
+/// Freeze-parade blocks at scale 1.0 (packed version ~49 KiB, the
+/// blocks' wide drop codes dominating), rounded up to a power of two
+/// at every scale (the parade block is one complete subtree).
+///
+/// The scale of the `skyline_flatness` freeze-parade band's small run:
+/// with the write watermark disabled, rank reads ×1.91 per-byte growth
+/// in the touch and limb currencies together across this regime's
+/// doubling (the band ceiling doc's probe-build measurement of
+/// record). Power-of-two `k` keeps the spine depth `64k ≡ 0 (mod 32)`,
+/// the same `rank_sum` remainder alignment as the weight comb's.
+const FREEZE_PARADE_BASE_BLOCKS: usize = 512;
+
 /// Concurrent-pair forked-party count at scale 1.0, rounded up to a
 /// power of two at every scale (the balanced fork and the alternating
 /// dominance schedule both need it; the level doubling then doubles it
@@ -1351,6 +1397,40 @@ enum FamilyKind {
     /// `skyline_flatness` promotion re-arm bands). Designed against
     /// the linear-functional query rows.
     PromoRearm,
+    /// The weight-comb spine `weight_comb(n)`: the many-jumps
+    /// sentinel.
+    ///
+    /// A depth-`32n` parked-unit spine, then `2n` shallow leaves
+    /// oscillating heights 0 and 2: the rank integral deposits the
+    /// oscillation at one digit position `Θ(n)` digits above the
+    /// parked unit for O(1) stored bits per event — the position
+    /// weight is topology, so no code funds the gap — and every
+    /// cancellation makes the accumulator's top settle back across the
+    /// never-written run. A settlement scan that steps the gap digit
+    /// by digit goes quadratic here (×1.93 per byte across the
+    /// doubling, measured under a probe build with certificate
+    /// consumption disabled); consuming one zero-run certificate per
+    /// jumped run reads flat (the `skyline_flatness` weight-comb
+    /// band). Designed against the linear-functional query rows.
+    WeightComb,
+    /// The freeze-parade spine `freeze_parade(k)`: the deep-segment
+    /// freeze sentinel.
+    ///
+    /// The parked-unit spine at depth `64k`, then `k` shallow freeze
+    /// blocks whose wide in-pair drops each fire one query-fold freeze
+    /// at the block's position weight, `Θ(k)` digits above digit 0, so
+    /// every freeze's scaled segment read starts `Θ(k)` digits up. The
+    /// accumulator's write watermark prices each read at the segment's
+    /// written span; a scaled read that starts at digit 0 walks the
+    /// never-written prefix per freeze and goes quadratic in the touch
+    /// and limb currencies together (×1.91 per byte across the
+    /// doubling, measured under a probe build whose scaled reads start
+    /// at digit 0); the watermark reads flat (the `skyline_flatness`
+    /// freeze-parade band). The freeze-position spine prices the query
+    /// layer's per-freeze accounting; this family prices the
+    /// accumulator's read side under the same schedule. Designed
+    /// against the linear-functional query rows.
+    FreezeParade,
     /// The concurrent pair `concurrent_pair(n)`: the emit side-switch
     /// density population.
     ///
@@ -1379,7 +1459,7 @@ enum FamilyKind {
 /// whole-surface adversary earns a board family, while a kernel-seam
 /// shape lives in the envelope suite alone, as `wide_tooth_comb`,
 /// `alt_spine`, and the `memo_*` shapes do.
-const FAMILIES: [FamilyKind; 24] = [
+const FAMILIES: [FamilyKind; 26] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -1402,6 +1482,8 @@ const FAMILIES: [FamilyKind; 24] = [
     FamilyKind::JumpPair,
     FamilyKind::FreezePos,
     FamilyKind::PromoRearm,
+    FamilyKind::WeightComb,
+    FamilyKind::FreezeParade,
     FamilyKind::ConcurrentPair,
     FamilyKind::Benign,
 ];
@@ -1694,6 +1776,20 @@ impl FamilyData {
                 kind,
                 "promo-rearm",
                 super::promotion_rearm(size(PROMO_REARM_BASE_BLOCKS))
+                    .version()
+                    .encode(),
+            ),
+            FamilyKind::WeightComb => Self::event(
+                kind,
+                "weight-comb",
+                super::weight_comb(size(WEIGHT_COMB_BASE_BLOCKS).next_power_of_two())
+                    .version()
+                    .encode(),
+            ),
+            FamilyKind::FreezeParade => Self::event(
+                kind,
+                "freeze-parade",
+                super::freeze_parade(size(FREEZE_PARADE_BASE_BLOCKS).next_power_of_two())
                     .version()
                     .encode(),
             ),
@@ -3274,10 +3370,14 @@ fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         // The query-fold adversaries, built against the
         // linear-functional rows: wide difference crests over a
         // dense-position spine, the many-freezes spine, the
-        // many-armings spine, and the switch-density population.
+        // many-armings spine, the accumulator skip families (the
+        // many-jumps and deep-segment-freeze spines), and the
+        // switch-density population.
         FamilyKind::JumpPair
         | FamilyKind::FreezePos
         | FamilyKind::PromoRearm
+        | FamilyKind::WeightComb
+        | FamilyKind::FreezeParade
         | FamilyKind::ConcurrentPair => group == OpGroup::Measure,
     }
 }

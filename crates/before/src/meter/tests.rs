@@ -7,10 +7,11 @@ use crate::{Party, Version};
 use suanpan::UBig;
 
 use super::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense,
-    dense_suffix, dense_suffix_mate, freeze_position, harmonic, hugeleaf, id_spine, jump_comb,
-    jump_pair, mask_drift_quadruple, mask_drift_triple, promotion_rearm, promotion_rearm_mate,
-    scattered_id, wide_arming, wide_tooth_comb, Packed,
+    alt_spine, bigroot, bitlen, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense,
+    dense_suffix, dense_suffix_mate, freeze_parade, freeze_position, harmonic, hugeleaf, id_spine,
+    jump_comb, jump_pair, mask_drift_quadruple, mask_drift_triple, promotion_rearm,
+    promotion_rearm_mate, scattered_id, tooth_tail, weight_comb, wide_arming, wide_tooth_comb,
+    Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -822,4 +823,213 @@ fn dense_suffix_text(p: usize, d: usize, arm_bits: usize) -> String {
         }
     }
     text
+}
+
+/// The weight-comb and freeze-parade families' readable text spelling:
+/// the parked-unit spine at depth `s` over one block as the root's
+/// right child.
+fn parked_spine_text(s: usize, block: &str) -> String {
+    let mut text = String::new();
+    text.push_str("(0, ");
+    for _ in 1..s - 1 {
+        text.push_str("(0, ");
+    }
+    text.push_str("(0, 1, 0)");
+    for _ in 1..s - 1 {
+        text.push_str(", 1)");
+    }
+    text.push_str(", ");
+    text.push_str(block);
+    text.push(')');
+    text
+}
+
+/// `weight_comb(n)` is canonical normal form at exactly `202n − 4`
+/// bits.
+///
+/// Its `min_ticks` is exactly the stored-base sum `34n − 1` (the
+/// spine's `32n − 1` unit leaves plus the block's `n` twos), and the
+/// built tree is exactly the nested text form the family reasons
+/// about (the parked-unit spine at depth `32n`, then the complete
+/// alternating 0/2 block).
+///
+/// The closed form is the family's independent semantic leg: the
+/// `skyline_flatness` weight-comb band in `tests/meter.rs` re-derives
+/// it at meter scale, so this pin holds it at hand-checkable sizes,
+/// and the text comparison pins the bit-level construction against
+/// the readable spelling.
+#[test]
+fn weight_comb_decodes_canonically_at_predicted_length() {
+    for n in [1usize, 4, 32] {
+        check_version(&weight_comb(n), 202 * n - 4);
+        let ticks: crate::Ticks = (34 * n as u64 - 1).to_string().parse().expect("a count");
+        assert_eq!(
+            weight_comb(n).version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count"
+        );
+    }
+    let n = 2usize;
+    let mut block = String::from("(0, 0, 2)");
+    let mut width = 2;
+    while width < 2 * n {
+        block = format!("(0, {block}, {block})");
+        width *= 2;
+    }
+    let spelled: Version = parked_spine_text(32 * n, &block)
+        .parse()
+        .expect("canonical");
+    assert_eq!(
+        weight_comb(n).version(),
+        spelled,
+        "the bit-level construction is the spelled weight comb"
+    );
+}
+
+/// The freeze-parade block's descending values: `k` pairs from
+/// `2^band`, dropping `2^288` inside each pair and one across pairs.
+fn freeze_parade_values(k: usize) -> Vec<UBig> {
+    let wide = UBig::ONE << 288usize;
+    let mut values = Vec::with_capacity(2 * k);
+    let mut v = UBig::ONE << (290 + bitlen(k));
+    for _ in 0..k {
+        values.push(v.clone());
+        v -= &wide;
+        values.push(v.clone());
+        v -= UBig::ONE;
+    }
+    values
+}
+
+/// A min-lifted complete subtree's readable text spelling over a
+/// strictly descending run: every node's minimum is its last leaf, so
+/// right children print base 0 and left children the difference of
+/// the halves' minima.
+fn min_lift_text(vals: &[UBig], parent_min: &UBig) -> String {
+    if let [leaf] = vals {
+        return (leaf - parent_min).to_string();
+    }
+    let my_min = vals.last().expect("nonempty");
+    let (l, r) = vals.split_at(vals.len() / 2);
+    format!(
+        "({}, {}, {})",
+        my_min - parent_min,
+        min_lift_text(l, my_min),
+        min_lift_text(r, my_min)
+    )
+}
+
+/// `freeze_parade(k)` is canonical normal form at exactly `1546k − 2`
+/// bits.
+///
+/// Its `min_ticks` is exactly the printed-base sum in closed form —
+/// `(64k − 1) + 2^band + k·2^288 + (k/2)·log2(k)·(2^288 + 1)
+/// − (k − 1)(2^288 + 1) − 2^288` for `band = 290 + bitlen(k)`: the
+/// spine's unit leaves, then the block's `k` left-leaf wide drops,
+/// its internal left children's half-minima differences (`k/2` per
+/// level, each level's difference doubling from the pair stride), and
+/// its root's absolute minimum — and the built tree is exactly the
+/// min-lifted text form the family reasons about.
+///
+/// The closed form is the family's independent semantic leg: the
+/// `skyline_flatness` freeze-parade band in `tests/meter.rs`
+/// re-derives it at meter scale, so this pin holds it at
+/// hand-checkable sizes, and the text comparison pins the bit-level
+/// construction against the readable spelling.
+#[test]
+fn freeze_parade_decodes_canonically_at_predicted_length() {
+    for k in [1usize, 2, 8] {
+        check_version(&freeze_parade(k), 1546 * k - 2);
+        let j = bitlen(k) - 1;
+        let w = UBig::ONE << 288usize;
+        let stride = &w + UBig::ONE;
+        let expected = UBig::from((64 * k - 1) as u64)
+            + (UBig::ONE << (290 + bitlen(k)))
+            + UBig::from(k as u64) * &w
+            + UBig::from((k / 2 * j) as u64) * &stride
+            - UBig::from((k - 1) as u64) * &stride
+            - &w;
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            freeze_parade(k).version().min_ticks(),
+            ticks,
+            "the printed-base sum is the family's minimum tick count"
+        );
+    }
+    let k = 2usize;
+    let block = min_lift_text(&freeze_parade_values(k), &UBig::ZERO);
+    let spelled: Version = parked_spine_text(64 * k, &block)
+        .parse()
+        .expect("canonical");
+    assert_eq!(
+        freeze_parade(k).version(),
+        spelled,
+        "the bit-level construction is the spelled freeze parade"
+    );
+}
+
+/// `tooth_tail(g, m)` is canonical normal form at exactly `6m + 64g`
+/// bits per operand.
+///
+/// Each operand's `min_ticks` is exactly the stored-base sum
+/// `m·h + 2^(32g)` (`h` its unit height, 1 for `a` and 2 for `b`),
+/// `a` precedes `b` in the causal order (the pair band's verdict leg
+/// rests on it), and the built trees are exactly the nested text form
+/// the family reasons about (the flat-unit chain whose second leaf
+/// carries the spike, over the shared terminal 0).
+#[test]
+fn tooth_tail_decodes_canonically_at_predicted_length() {
+    for (g, m) in [(1usize, 2usize), (2, 5), (9, 64)] {
+        let (a, b) = tooth_tail(g, m);
+        check_version(&a, 6 * m + 64 * g);
+        check_version(&b, 6 * m + 64 * g);
+        for (p, h) in [(&a, 1u64), (&b, 2u64)] {
+            let expected = UBig::from(m as u64 * h) + (UBig::ONE << (32 * g));
+            let ticks: crate::Ticks = expected.to_string().parse().expect("a count");
+            assert_eq!(
+                p.version().min_ticks(),
+                ticks,
+                "the stored-base sum is the operand's minimum tick count"
+            );
+        }
+        assert_eq!(
+            a.version().partial_cmp(&b.version()),
+            Some(core::cmp::Ordering::Less),
+            "b runs one tick above a everywhere except the shared terminal"
+        );
+    }
+    let (g, m) = (1usize, 3usize);
+    let spell = |h: u64| -> String {
+        let mut t = String::new();
+        for i in 0..m {
+            t.push_str("(0, ");
+            if i == 1 {
+                t.push_str(&((UBig::ONE << (32 * g)) + UBig::from(h)).to_string());
+            } else {
+                t.push_str(&h.to_string());
+            }
+            t.push_str(", ");
+        }
+        t.push('0');
+        for _ in 0..m {
+            t.push(')');
+        }
+        t
+    };
+    let (a, b) = tooth_tail(g, m);
+    let spelled_a: Version = spell(1).parse().expect("canonical");
+    let spelled_b: Version = spell(2).parse().expect("canonical");
+    assert_eq!(
+        a.version(),
+        spelled_a,
+        "the bit-level construction is the spelled tooth tail"
+    );
+    assert_eq!(
+        b.version(),
+        spelled_b,
+        "the bit-level construction is the spelled tooth tail's mate"
+    );
 }
