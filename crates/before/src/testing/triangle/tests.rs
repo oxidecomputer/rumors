@@ -64,9 +64,8 @@ fn every_cited_binding_test_exists() {
     );
 }
 
-/// The citation haystack admits only executable tests (the seal for the
-/// #37 review's F5 tamper hole): a helper `fn` must never satisfy a
-/// binding-test citation.
+/// The citation haystack admits only executable tests: a helper `fn`
+/// must never satisfy a binding-test citation.
 ///
 /// Two directions. Negative: named non-test helpers — declared `fn`s the
 /// old bare-name scan accepted — are absent from

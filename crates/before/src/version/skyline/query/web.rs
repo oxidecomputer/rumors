@@ -91,16 +91,7 @@ use suanpan::{Accumulator, UBig};
 
 use crate::codec::Base;
 
-use super::mul_into;
-
-/// Fold a signed magnitude into an accumulator.
-fn fold_signed(acc: &mut Accumulator, negative: bool, magnitude: &Base) {
-    if negative {
-        acc.sub_magnitude(magnitude);
-    } else {
-        acc.add_magnitude(magnitude);
-    }
-}
+use super::{fold_signed, mul_into};
 
 /// The value the innermost minimum currently holds, as the sweep folds
 /// it: a frozen-relative offset, its epoch, and the closes counted at it
