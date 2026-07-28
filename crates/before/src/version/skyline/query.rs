@@ -11,10 +11,13 @@
 //! - [`rank`](fn@rank) integrates the step function: `Σ heightᵢ · 2^(−depthᵢ)`
 //!   over the leaves, telescoped through height *deltas* so no absolute
 //!   height is ever rebuilt per leaf (the frozen/live split below).
-//! - [`distance`](fn@distance) and [`lag`](fn@lag) are rank differences over the
-//!   emission sweep's join and meet streams, subtracted through the
-//!   class-first [`Rank::checked_sub`] — each factor linear, the
-//!   composition linear.
+//! - [`distance`](fn@distance) and [`lag`](fn@lag) integrate a directed functional of
+//!   the two operands' height difference in one fused co-sweep —
+//!   distance = `∫ |h_a − h_b|`, lag = `∫ (h_b − h_a)⁺` — on the
+//!   comparison sweep's merge walk, with no join or meet stream
+//!   materialized and no per-operand rank recomputed (the pair-co-sweep
+//!   section below carries the algebra, the anchored-segment freeze
+//!   discipline, and the funding certification).
 //! - [`min_ticks`](fn@min_ticks) folds the identity
 //!   `Σ bases = Σ leaf heights − Σ internal-node subtree minima` (each
 //!   normal-form base is its node's subtree minimum less its parent's) on
@@ -62,6 +65,121 @@
 //! own codes' width and never freezes: every wide-tooth fold is paid by
 //! the tooth's own code, on either side of any fixed width.
 //!
+//! # The pair co-sweep: distance and lag
+//!
+//! Both pair measures are integrals of a *directed functional* of the
+//! running height difference `D = h_a − h_b` over the overlay's
+//! elementary intervals, by the valuation identities:
+//!
+//! - distance: `rank(a ∨ b) − rank(a ∧ b) = ∫ (max − min) = ∫ |D|`;
+//! - lag: `rank(a ∨ b) − rank(a) = ∫ (max − h_a) = ∫ (−D)⁺`.
+//!
+//! The co-sweep maintains `D` exactly as the comparison sweep does and
+//! integrates `h* = σ·D`, where `σ ∈ {−1, 0, +1}` is the measure's
+//! *orientation* at `sign(D)` (distance: the sign itself; lag: `−1`
+//! where `D < 0`, else `0`), so `h*` is the nonnegative integrand of
+//! the measure by construction. Per boundary, with `σ → σ′` and net
+//! folded difference `dD`, the integrand moves by
+//!
+//! `dh* = (σ′ − σ) · D′ + σ · dD`
+//!
+//! — the `σ·dD` term re-folds the boundary's own codes (each consumed
+//! delta enters `D` once and `h*` at most once, orientation being a
+//! side swap), and the `(σ′ − σ)·D′` term materializes the difference
+//! only at orientation changes, which in both measures require `D` to
+//! have crossed, left, or entered zero at this boundary — so
+//! `|D′| ≤ |dD|`, and the read (after the sign fold's collapse) is
+//! priced by the codes just folded, the same argument the emission
+//! sweep's side switch rests on.
+//!
+//! ## The anchored-segment freeze discipline
+//!
+//! The rank fold's split cannot be reused as-is. Its freeze correction
+//! multiplies each evicted drift by the *absolute* freeze position, and
+//! the overlay lets one operand's cheap boundaries fire freezes of
+//! drift the other operand's wide codes deposited, at positions whose
+//! compacted density neither operand's codes funded: on the two-operand
+//! jump comb — a shared descent spine planting isolated position bits,
+//! then an `m`-level comb where one operand's wide teeth cross the
+//! other's near-flat band — every crest of `|D|` would pay a
+//! drift-width × position-density product, superlinear in the packed
+//! pair while each operand's own rank stays flat. The co-sweep
+//! therefore re-derives the split with *anchored segments*: no
+//! correction in the steady state multiplies by an absolute position.
+//! The integrand splits `h* = B + P + L`:
+//!
+//! - `L` (*live*): the drift since the last freeze, exactly the rank
+//!   fold's live component. Each elementary interval adds
+//!   `L · 2^(S − depth)` directly — O(`L`'s digits), bounded by the
+//!   previous boundary's widest folded code plus the freeze allowance,
+//!   and the trigger below empties `L` before a second unfunded
+//!   interval could ride a stale width.
+//! - `P` (*parked*): drift a freeze moved out of `L`, anchored at that
+//!   freeze. A segment-mass accumulator sums the interval masses since
+//!   `P`'s anchor; the next freeze (or the stream end) settles
+//!   `P · segment` in one compacted product and re-anchors. The
+//!   segment mass's nonzero span is the *depth variation inside the
+//!   segment* — the dyadic positions' shared prefix never appears in
+//!   it — so a crest settled one comb level later costs `P`'s width
+//!   times O(1) digits however dense the absolute position is, and
+//!   oscillating drift cancels digit-wise inside `P` instead of
+//!   re-paying its width. The segment mass is read through the
+//!   accumulator's write-watermark read (`sign_magnitude_shl`) and
+//!   cleared by buffer replacement, so a segment parked deep in the
+//!   stream costs its written span, never its scale.
+//! - `B` (*base*): content anchored at position zero — the opening
+//!   `h*` plateau, plus any `P` *promoted* down when incoming drift
+//!   runs more than the allowance narrower than `P`. Promotion pays
+//!   `P × position` once — the sweep's only absolute-position product,
+//!   funded by the wide code that armed `P`, one promotion per arming
+//!   — after which `B` closes in a single shifted add `B · 2^S`.
+//!   Without promotion a wide `P` would re-settle its full width at
+//!   every later narrow-drift freeze; with it, every settle's `P` is
+//!   within the allowance of the drift the settling freeze itself
+//!   parks.
+//!
+//! A freeze fires by the rank fold's own relative trigger, denominated
+//! in the *boundary's* widest folded code: bounded oscillation at any
+//! width never freezes, and wide drift riding under cheaper codes is
+//! parked at the first such code.
+//!
+//! ## Funding: the potential function and its arity
+//!
+//! The certificate is a **two-ledger potential, one ledger per
+//! operand**: `Φ = Φ_a + Φ_b`, where folding a code of `w` digits from
+//! operand `s` deposits `Θ(w)` into `Φ_s` (and each topology bit
+//! deposits O(1)). The arity is the point: distance and lag are
+//! two-stream operations, and a per-stream potential argument is sound
+//! only if no charge draws on the ledger of an operand that did not
+//! deposit — the hole the composed form fell into, where the meet's
+//! emission re-coded one operand's width into switch jumps that the
+//! rank fold then evicted at the other operand's cheap codes, priced by
+//! a position density neither had funded. Every co-sweep charge names
+//! its deposit:
+//!
+//! - folds into `D` and `L`, and the orientation-change read of `D′`:
+//!   this boundary's own deposits (`|D′| ≤ |dD|` caps the read);
+//! - the interval add of `L`: the deposit that last set `L`'s width —
+//!   at most one interval rides between trigger checks;
+//! - a settle `P · segment`: `P`'s width is within the allowance of
+//!   the drift the settling freeze parks (else promotion fires first),
+//!   so the product draws from the deposits that built that drift,
+//!   times a segment span the segment's own topology deposits cover;
+//! - a promotion `P × position`: once per arming, from the wide
+//!   deposit that armed `P` past the allowance, at the position's
+//!   compacted density.
+//!
+//! A cheap code from one operand can *fire* a freeze, but the work the
+//! freeze performs is bounded by deposits from the codes that built the
+//! state being moved — never by an absolute position the firing operand
+//! chose. The honest residual is the rank fold's, one factor narrower:
+//! promotion pays position density once per wide re-arm, and a settle
+//! pays within-segment depth variation; in both, the measure's exact
+//! value embeds the product of a genuinely wide plateau and its
+//! genuinely dense mass, so the work is mandatory-class for any exact
+//! evaluation, and reaching it spends the width and the variation in
+//! the input's own codes.
+//!
 //! # Cost
 //!
 //! Derived, with the constants pinned by the `skyline_rank_*`,
@@ -78,6 +196,13 @@
 //! under cheap codes *at a dense position* — deep alternating topology
 //! around every freeze — still pays its corrections at position density,
 //! the one shape whose funding the freeze discipline does not certify.
+//! Distance and lag (the `DISTANCE_*`/`LAG_*` rows, plus the
+//! `skyline_flatness` module's jump-pair band) add, per boundary, work
+//! bounded by the boundary's own folded codes — the difference and
+//! integrand folds and the orientation-change read — plus the co-sweep
+//! section's certified freeze work, and two topology-only pre-scans for
+//! the overlay scale; transiently they hold the two cursor paths and
+//! the integrator's accumulators, never an emitted stream.
 //! min_ticks adds one
 //! machine-word min-merge per node on a `u64` pending stack (the one
 //! per-level word this module keeps — 8 bytes against the level's ≥ 3
@@ -93,22 +218,27 @@
 //! equality, exact `u64` equality, byte-identical projection streams;
 //! distance and lag re-derived from the oracle's join, meet, and rank
 //! through the valuation identities) over the adversarial generator
-//! families, arbitrary normal-form trees, organic op-trace histories,
-//! and the exhaustive small scope; rank additionally against the
-//! semantic Riemann-sum oracle, which shares no structure with the
-//! sweep. The resource envelopes are the meter rows named above.
+//! families — the two version-pair families included — arbitrary
+//! normal-form trees, organic op-trace histories, and the exhaustive
+//! small scope. Distance and lag are additionally pinned digit-exact
+//! against the composed forms (the emission sweep's join and meet
+//! re-ranked, subtracted through `Rank::checked_sub`) — the same
+//! identities on a code path the co-sweep shares nothing with past the
+//! cursors; rank additionally against the semantic Riemann-sum oracle,
+//! which shares no structure with the sweep. The resource envelopes are
+//! the meter rows named above.
 
 use core::cmp::Ordering;
 
-use suanpan::{Accumulator, Limbs};
+use suanpan::{Accumulator, Limbs, UBig};
 
 use crate::codec::{self, Base, BitCursor, Bits, BitsSlice, SliceCursor};
 use crate::step;
 use crate::Rank;
 
 use super::build::SkylineBuilder;
-use super::emit::{self, signed_sum};
-use super::sweep::{LeafCursor, Side, Step};
+use super::emit::signed_sum;
+use super::sweep::{advance, fold, LeafCursor, Side, Step};
 use super::{gamma_code, zigzag_signed};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32
@@ -205,6 +335,7 @@ fn freeze(
         total,
         &drift,
         &Base::from(position),
+        0,
         drift_sign == Ordering::Greater,
     );
     match drift_sign {
@@ -214,15 +345,17 @@ fn freeze(
     *live_height = Accumulator::new();
 }
 
-/// Add (or, with `subtract`, remove) `factor · digits` in the total: one
-/// `factor`-wide product per nonzero signed digit of the compacted
-/// `digits` operand.
+/// Add (or, with `subtract`, remove) `factor · digits · 2^shift` in the
+/// total: one `factor`-wide product per nonzero signed digit of the
+/// compacted `digits` operand.
 ///
 /// The `digits` operand's base-2^32 digits are compacted greedily into
 /// balanced signed digits, so an all-ones run — the usual shape of a
-/// freeze position's dyadic mass — costs one subtract at its floor and
-/// one carry past its top instead of a product per digit.
-fn mul_into(total: &mut Accumulator, factor: &Base, digits: &Base, subtract: bool) {
+/// dyadic mass — costs one subtract at its floor and one carry past its
+/// top instead of a product per digit. The `shift` carries a `digits`
+/// operand read out at a scale (a segment mass parked deep in the
+/// stream) without ever materializing the scaled value.
+fn mul_into(total: &mut Accumulator, factor: &Base, digits: &Base, shift: u64, subtract: bool) {
     if *factor == Base::ZERO || *digits == Base::ZERO {
         return;
     }
@@ -239,7 +372,7 @@ fn mul_into(total: &mut Accumulator, factor: &Base, digits: &Base, subtract: boo
             total.sub_magnitude_shl(&product, shift);
         }
     };
-    let mut shift = 0u64;
+    let mut shift = shift;
     for digit in u32_digits(digits) {
         let t = u64::from(digit) + carry;
         if t > 1 << 31 {
@@ -276,36 +409,316 @@ fn u32_digits(value: &Base) -> Vec<u32> {
 /// The causal distance between the versions two skyline streams denote:
 /// the rank of their symmetric difference.
 ///
-/// `rank(join) − rank(meet)` with both factors on this module's linear
-/// sweeps and the subtraction on the class-first
-/// [`Rank::checked_sub`]. Equal to
-/// [`Version::distance`](crate::Version::distance) exactly.
+/// One fused co-sweep integrating `|h_a − h_b|` over the overlay (the
+/// module doc's pair-co-sweep section carries the algebra, the
+/// anchored-segment freeze discipline, and the funding certification):
+/// no join or meet stream is materialized and no per-operand rank is
+/// recomputed. Equal to [`Version::distance`](crate::Version::distance)
+/// exactly, and digit-exact against the composed
+/// `rank(join) − rank(meet)`, which the differential suite pins.
 ///
 /// # Panics
 ///
 /// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
 /// levels, exactly as [`rank`](fn@rank) does.
 pub fn distance(a: &BitsSlice, b: &BitsSlice) -> Rank {
-    let join = rank(&emit::join(a, b));
-    let meet = rank(&emit::meet(a, b));
-    join.checked_sub(&meet)
-        .expect("the join dominates the meet, so its rank is at least the meet's")
+    pair_integral(a, b, Measure::Distance)
 }
 
 /// How far the first stream's version lags behind the second's: the rank
 /// of the history the second records that the first does not.
 ///
-/// `rank(join) − rank(a)`, the directed half of [`distance`](fn@distance).
-/// Equal to [`Version::lag`](crate::Version::lag) exactly.
+/// The same co-sweep as [`distance`](fn@distance) integrating the directed
+/// functional `(h_b − h_a)⁺` instead of the symmetric `|h_a − h_b|`.
+/// Equal to [`Version::lag`](crate::Version::lag) exactly, and
+/// digit-exact against the composed `rank(join) − rank(a)`, which the
+/// differential suite pins.
 ///
 /// # Panics
 ///
 /// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
 /// levels, exactly as [`rank`](fn@rank) does.
 pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
-    let join = rank(&emit::join(a, b));
-    join.checked_sub(&rank(a))
-        .expect("the join dominates self, so its rank is at least self's")
+    pair_integral(a, b, Measure::Lag)
+}
+
+/// The directed functional of the running height difference
+/// `D = h_a − h_b` that a pair co-sweep integrates.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Measure {
+    /// `∫ |D|`: the symmetric difference's rank.
+    Distance,
+    /// `∫ (−D)⁺ = ∫ (h_b − h_a)⁺`: the history the second operand
+    /// records that the first does not.
+    Lag,
+}
+
+impl Measure {
+    /// The integrand's orientation over an interval where `D` has this
+    /// sign: the coefficient `σ ∈ {−1, 0, +1}` with integrand `σ·D`
+    /// there.
+    fn orientation(self, sign: Ordering) -> i8 {
+        match (self, sign) {
+            (Measure::Distance, Ordering::Greater) => 1,
+            (_, Ordering::Less) => -1,
+            _ => 0,
+        }
+    }
+}
+
+/// Run the pair co-sweep: one merge walk over both streams, integrating
+/// the measure's functional of the running difference on the
+/// anchored-segment split (the module doc's pair-co-sweep section).
+///
+/// # Panics
+///
+/// Panics on a non-canonical operand or a stream deeper than `u32::MAX`
+/// levels, exactly as [`rank`](fn@rank) does.
+fn pair_integral(a_bits: &BitsSlice, b_bits: &BitsSlice, measure: Measure) -> Rank {
+    // The overlay's scale: elementary intervals nest inside both
+    // operands' leaves, so the deepest one sits at the deeper operand's
+    // maximum depth.
+    let overlay_depth = max_depth(a_bits).max(max_depth(b_bits));
+    let scale =
+        u32::try_from(overlay_depth).expect("rank exponent overflows u32: stream deeper than 2^32");
+    let (mut ca, a_first) = LeafCursor::open(a_bits);
+    let (mut cb, b_first) = LeafCursor::open(b_bits);
+    let mut diff = Accumulator::new();
+    diff.add_magnitude(&a_first);
+    diff.sub_magnitude(&b_first);
+    let mut orient = measure.orientation(diff.sign());
+    let mut integral = Integrator::new();
+    if orient != 0 {
+        // The opening plateau: `h* = σ·D = |D|` whenever `σ ≠ 0`,
+        // anchored at position zero and priced by the two absolute
+        // first codes (the sign read above has collapsed the spelling).
+        let (_, opening) = diff.sign_magnitude();
+        integral.open(&Base::from(opening));
+    }
+    loop {
+        let weight_shift = (overlay_depth - ca.depth().max(cb.depth())) as u64;
+        integral.interval(weight_shift);
+        if ca.done() && cb.done() {
+            break;
+        }
+        let (da, db) = advance(&mut ca, &mut cb, &mut diff);
+        let new_orient = measure.orientation(diff.sign());
+        if orient != 0 {
+            // The `σ·dD` term: each side's consumed delta re-folds into
+            // the integrand, oriented by `σ` — a side swap is exactly
+            // the negation.
+            for (side, step) in [(Side::A, &da), (Side::B, &db)] {
+                if let Some(step) = step {
+                    let toward = if orient > 0 { side } else { side.other() };
+                    fold(&mut integral.live, toward, step.negative, &step.magnitude);
+                }
+            }
+        }
+        if new_orient != orient {
+            integral.jump(new_orient - orient, &diff);
+            orient = new_orient;
+        }
+        // The freeze trigger, relative to this boundary's own codes:
+        // the widest magnitude folded here is what funds the next
+        // interval's live add.
+        let funded = da
+            .iter()
+            .chain(db.iter())
+            .map(|step| base_digits(&step.magnitude))
+            .max()
+            .unwrap_or(1);
+        integral.boundary(funded);
+    }
+    let (sign, total) = integral.finish(overlay_depth as u64);
+    debug_assert_ne!(sign, Ordering::Less, "both pair measures are nonnegative");
+    Rank::from_raw(Base::from(total), scale)
+}
+
+/// The anchored-segment integral of the co-sweep's nonnegative integrand
+/// `h* = B + P + L` (the module doc's pair-co-sweep section derives the
+/// split and certifies its funding).
+struct Integrator {
+    /// The running integral's raw numerator, at the overlay scale.
+    total: Accumulator,
+    /// `L`: the integrand's drift since the last freeze. Written by the
+    /// sweep's folds directly; every other component is this
+    /// integrator's own bookkeeping.
+    live: Accumulator,
+    /// `P`: drift parked by freezes, anchored at the last freeze.
+    parked: Accumulator,
+    /// The interval mass accumulated since `parked`'s anchor.
+    seg: Accumulator,
+    /// `B`: content anchored at position zero — the opening plateau and
+    /// every promotion — closing as `B · 2^S`.
+    base: Accumulator,
+    /// The absolute interval mass consumed so far, read only at
+    /// promotions.
+    position: Accumulator,
+    /// The unit mass every interval deposits at its own scale.
+    one: Base,
+}
+
+impl Integrator {
+    fn new() -> Integrator {
+        Integrator {
+            total: Accumulator::new(),
+            live: Accumulator::new(),
+            parked: Accumulator::new(),
+            seg: Accumulator::new(),
+            base: Accumulator::new(),
+            position: Accumulator::new(),
+            one: Base::from(1u8),
+        }
+    }
+
+    /// Anchor the opening plateau at position zero.
+    fn open(&mut self, opening: &Base) {
+        self.base.add_magnitude(opening);
+    }
+
+    /// Credit one elementary interval: the live component's contribution
+    /// at the interval's mass, and the mass itself into the segment and
+    /// position sums.
+    fn interval(&mut self, weight_shift: u64) {
+        // The zero test is one-sided (true means zero, false means
+        // unknown), which is all this skip needs: a redundantly spelled
+        // zero takes the add and contributes nothing.
+        if !self.live.is_literally_zero() {
+            self.total.add_accum_shl(&self.live, weight_shift);
+        }
+        self.seg.add_magnitude_shl(&self.one, weight_shift);
+        self.position.add_magnitude_shl(&self.one, weight_shift);
+    }
+
+    /// Fold the orientation-change term `(σ′ − σ) · D′` into the live
+    /// component.
+    ///
+    /// Called only when the orientation moved at this boundary, which
+    /// bounds `|D′|` by the deltas the boundary folded; the sign read
+    /// that decided the new orientation has already collapsed the
+    /// difference's spelling, so the read is priced by those same
+    /// codes.
+    fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
+        let (sign, magnitude) = diff.sign_magnitude();
+        if magnitude == UBig::ZERO {
+            return;
+        }
+        let magnitude = Base::from(magnitude);
+        let negative = (coefficient < 0) != (sign == Ordering::Less);
+        let shift = if coefficient.abs() == 2 { 1 } else { 0 };
+        if negative {
+            self.live.sub_magnitude_shl(&magnitude, shift);
+        } else {
+            self.live.add_magnitude_shl(&magnitude, shift);
+        }
+    }
+
+    /// The end-of-boundary trigger: park the live drift when this
+    /// boundary's folds left it more than the allowance wider than the
+    /// widest code folded here.
+    fn boundary(&mut self, funded_digits: usize) {
+        if self.live.digit_count() > funded_digits + FREEZE_ALLOWANCE_DIGITS {
+            self.freeze();
+        }
+    }
+
+    /// Park the live drift: settle the parked component's segment,
+    /// promote it first if the incoming drift runs far narrower, then
+    /// move the drift in and re-anchor.
+    fn freeze(&mut self) {
+        let (drift_sign, drift) = self.live.sign_magnitude();
+        if drift == UBig::ZERO {
+            // A redundantly spelled zero tripped the width trigger:
+            // there is no drift to park — empty the spelling and keep
+            // the current segment open.
+            self.live.reset();
+            return;
+        }
+        let drift = Base::from(drift);
+        self.settle();
+        if self.parked.digit_count() > base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS {
+            self.promote();
+        }
+        match drift_sign {
+            Ordering::Less => self.parked.sub_magnitude(&drift),
+            _ => self.parked.add_magnitude(&drift),
+        }
+        self.live.reset();
+        // A fresh buffer, not `reset()`: the segment's digits sit at the
+        // sweep position's scale, and a clearing scan would pay the
+        // untouched zero prefix below them; replacing the buffer opens
+        // the next segment in O(1).
+        self.seg = Accumulator::new();
+    }
+
+    /// Credit the parked component over the segment since its anchor:
+    /// `total += P · segment`.
+    ///
+    /// One compacted product priced by `P`'s width times the segment's
+    /// depth variation; the scaled read skips the never-written scale
+    /// prefix under the segment.
+    fn settle(&mut self) {
+        if self.parked.is_literally_zero() {
+            return;
+        }
+        let (p_sign, p_mag) = self.parked.sign_magnitude();
+        if p_mag == UBig::ZERO {
+            return;
+        }
+        let (seg_sign, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+        debug_assert_ne!(seg_sign, Ordering::Less, "interval masses only accumulate");
+        mul_into(
+            &mut self.total,
+            &Base::from(p_mag),
+            &Base::from(seg_mag),
+            seg_shift,
+            p_sign == Ordering::Less,
+        );
+    }
+
+    /// Re-anchor the parked component at position zero: the base picks
+    /// it up (closing as `B · 2^S`) and the total is debited
+    /// `P × position` — the sweep's one absolute-position product, paid
+    /// once per wide arming.
+    ///
+    /// Sound only immediately after [`settle`](Self::settle): the
+    /// segment credit covered `P` up to the current position, so its
+    /// remaining tail is `P · (2^S − position) = P · 2^S − P · position`.
+    fn promote(&mut self) {
+        let (p_sign, p_mag) = self.parked.sign_magnitude();
+        if p_mag != UBig::ZERO {
+            let (pos_sign, pos_mag, pos_shift) = self.position.sign_magnitude_shl();
+            debug_assert_eq!(
+                pos_sign,
+                Ordering::Greater,
+                "a freeze always follows at least one interval"
+            );
+            mul_into(
+                &mut self.total,
+                &Base::from(p_mag),
+                &Base::from(pos_mag),
+                pos_shift,
+                p_sign == Ordering::Greater,
+            );
+            self.base.add_accum(&self.parked);
+        }
+        self.parked.reset();
+    }
+
+    /// Close the sweep: the final segment settlement, then the base's
+    /// whole-interval term `B · 2^S`.
+    ///
+    /// The parked component's final segment mass is exactly the tail
+    /// from its anchor, because the interval masses tile the unit
+    /// interval. The live component owes nothing here: every interval
+    /// already credited it directly.
+    fn finish(mut self, closing_shift: u64) -> (Ordering, UBig) {
+        self.settle();
+        if !self.base.is_literally_zero() {
+            self.total.add_accum_shl(&self.base, closing_shift);
+        }
+        self.total.sign_magnitude()
+    }
 }
 
 /// The minimum number of ticks that could have produced the version a
