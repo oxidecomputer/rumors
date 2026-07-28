@@ -69,7 +69,7 @@ fn run(data: &[u8]) {
 fn drive_clock(clock: &mut Clock, script: &[u8]) {
     let mut stash: Vec<Clock> = Vec::new();
     for &op in script {
-        match op % 7 {
+        match op % 8 {
             0 => {
                 clock.tick();
             }
@@ -99,9 +99,14 @@ fn drive_clock(clock: &mut Clock, script: &[u8]) {
                     let _ = clock.version().concurrent(child.version());
                 }
             }
-            _ => {
+            6 => {
                 let msg = clock.send().clone();
                 let _ = *clock.version() >= msg;
+            }
+            _ => {
+                // The fused multi-tick at a count no iteration could
+                // reach: wide-count arithmetic under the heap cap.
+                clock.ticks(1u128 << 100);
             }
         }
     }

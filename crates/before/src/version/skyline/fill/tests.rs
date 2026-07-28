@@ -238,6 +238,29 @@ fn exhaustive_small_scope_ticks_and_flags_identically() {
     });
 }
 
+/// Exhaustive small scope for the fused multi-tick: `ticks(n)` for
+/// every `n` in 0..=4 equals the iterated public tick on every
+/// normal-form event tree × every owning normal-form id — a total check
+/// on both branches (the fill-changed collapses and the grow splices,
+/// expansion chains included) at the scope where totality is affordable.
+#[test]
+fn exhaustive_small_scope_ticks_n_matches_iterated() {
+    let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
+        .iter()
+        .map(from_oracle_version)
+        .collect();
+    let parties: Vec<Party> = all_normal_ids(ID_SMALL_DEPTH)
+        .iter()
+        .map(from_oracle_party)
+        .filter(|p| !p.as_bits().is_empty())
+        .collect();
+    events.par_iter().for_each(|v| {
+        for p in &parties {
+            check_ticks_equivalence(v, p, &[0, 1, 2, 3, 4]);
+        }
+    });
+}
+
 /// The worked fill examples, pinned end to end through the fused
 /// tick.
 ///

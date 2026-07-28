@@ -72,6 +72,16 @@ fn replay(
                 or[i].tick();
                 se[i].tick(rng);
             }
+            Op::Ticks(i, k) => {
+                let i = i % n;
+                im[i].ticks(u64::from(k));
+                // Both references iterate: the semantic clock has no
+                // fused form, and the oracle's is the literal loop.
+                for _ in 0..k {
+                    or[i].tick();
+                    se[i].tick(rng);
+                }
+            }
             Op::Fork(i) => {
                 let i = i % n;
                 let c = im[i].fork();
