@@ -242,6 +242,46 @@ fn exhaustive_small_scope_agrees() {
     }
 }
 
+/// Every *ordered pair* of normal-form event trees to the small depth
+/// agrees between the pair co-sweep and the composed forms: distance
+/// equals `rank(join) − rank(meet)` and lag equals `rank(join) −
+/// rank(a)`, digit-exact.
+///
+/// The total check over the pair space: every boundary genre the
+/// comparison sweep's exhaustive suite reaches (aligned ties,
+/// flush-right ties at unequal depths, plateau consumption, zero deltas
+/// across subtree boundaries) crossed with every orientation schedule
+/// reachable at this scope, by brute force rather than sampling. The
+/// oracle leg over the same identities rides the family and proptest
+/// sweeps; here the composed kernels are the witness so the quadratic
+/// pair product stays fast.
+#[test]
+fn exhaustive_small_scope_pairs_agree() {
+    let events: Vec<crate::codec::Bits> = all_normal_events(EV_SMALL_DEPTH)
+        .iter()
+        .map(|t| encode(&from_oracle_version(t)))
+        .collect();
+    for ea in &events {
+        let rank_a = rank(ea);
+        for eb in &events {
+            let join = rank(&emit::join(ea, eb));
+            let meet = rank(&emit::meet(ea, eb));
+            let composed_dist = join
+                .checked_sub(&meet)
+                .expect("rank is monotone: the meet's rank never exceeds the join's");
+            assert_eq!(
+                distance(ea, eb),
+                composed_dist,
+                "distance at a small-scope pair"
+            );
+            let composed_lag = join
+                .checked_sub(&rank_a)
+                .expect("rank is monotone: an operand's rank never exceeds the join's");
+            assert_eq!(lag(ea, eb), composed_lag, "lag at a small-scope pair");
+        }
+    }
+}
+
 proptest! {
     /// Arbitrary normal-form trees agree with the recursive oracle on
     /// every query fold.
