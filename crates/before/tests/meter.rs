@@ -3836,8 +3836,9 @@ mod accum_streams {
 
 // ─── skyline query-fold scenarios ───────────────────────────────────────────
 //
-// The query kernels over skyline streams: rank on the frozen/live height
-// split, min_ticks on the epoch-tagged offset stack, and
+// The query kernels over skyline streams: rank on the anchored-segment
+// height split, min_ticks on the range-minimum anchor web and its epoch
+// ledger, and
 // projection against a packed id. Streams are transcoded outside
 // measurement. These rows carry all five columns — heap, segments, limbs,
 // scanned bits, and accumulator touches — because the kernels' arithmetic
