@@ -1748,7 +1748,7 @@ fn tick_expand_cross_envelope() {
 // movement into skyline payloads through the per-leaf delta accumulator
 // and the collapsing output builder. The columns carry the kernels'
 // contract — zero grown segments (nothing recurses at any depth), heap
-// in the frame vectors, the digit arena, and the output itself, limb
+// in the open-node stacks, the digit arena, and the output itself, limb
 // work linear per I/O byte (radix conversion runs inside the backend;
 // the recorded ops are the delta algebra), and scan linear in the
 // skyline stream. The bigroot rows are the width separator: the 40k-bit
@@ -1757,8 +1757,9 @@ fn tick_expand_cross_envelope() {
 
 // The text envelope table: pinned ceiling = measured ×1.25, rounded up,
 // and only ever tightened. The trailing comment on each line is the
-// measurement of record (2026-07-24, aarch64-apple-darwin, dev profile,
-// three identical runs) the ceiling derives from. Re-pin by rerunning
+// measurement of record (parse rows 2026-07-24; render rows 2026-07-28,
+// at the streaming finalize arena; aarch64-apple-darwin, dev profile,
+// identical repeated runs) the ceiling derives from. Re-pin by rerunning
 // under `--no-capture` with `--all-features` and reading the MEASURED
 // lines.
 // The limb floor column is the measured value ×0.75, rounded down (the
@@ -1767,10 +1768,10 @@ fn tick_expand_cross_envelope() {
 mod text_env {
     use super::{sweep_envelope, SweepEnvelope};
     //                                                                 peak heap, segments, limb ops,  scan bits, limb floor            measured: peak heap, segments, limb ops, scan bits
-    pub const SKYLINE_RENDER_DENSE: SweepEnvelope    = sweep_envelope(29_511_680,        0, 1_562_513,   468_758, 937_507); // 23_609_344, 0, 1_250_010, 375_006
-    pub const SKYLINE_RENDER_BIGROOT: SweepEnvelope  = sweep_envelope( 3_688_960,        0,   127_368,   137_512, 76_420); //  2_951_168, 0,   101_894, 110_009
-    pub const SKYLINE_RENDER_HUGELEAF: SweepEnvelope = sweep_envelope(   171_370,        0,     7_330,   312_503, 4_398); //    137_096, 0,     5_864, 250_002
-    pub const SKYLINE_RENDER_CLIFF: SweepEnvelope    = sweep_envelope( 1_850_502,        0,   243_385,    17_923, 146_031); //  1_480_401, 0,   194_708, 14_338
+    pub const SKYLINE_RENDER_DENSE: SweepEnvelope    = sweep_envelope( 1_996_800,        0, 1_562_513,   468_758, 937_507); //  1_597_440, 0, 1_250_010, 375_006
+    pub const SKYLINE_RENDER_BIGROOT: SweepEnvelope  = sweep_envelope(   249_600,        0,   127_368,   137_512, 76_420); //    199_680, 0,   101_894, 110_009
+    pub const SKYLINE_RENDER_HUGELEAF: SweepEnvelope = sweep_envelope(   171_310,        0,     7_330,   312_503, 4_398); //    137_048, 0,     5_864, 250_002
+    pub const SKYLINE_RENDER_CLIFF: SweepEnvelope    = sweep_envelope( 1_113_202,        0,   243_385,    17_923, 146_031); //    890_561, 0,   194_708, 14_338
     pub const SKYLINE_PARSE_DENSE: SweepEnvelope     = sweep_envelope(13_918_822,        0, 1_875_017,   937_515, 1_125_009); // 11_135_057, 0, 1_500_013, 750_012
     pub const SKYLINE_PARSE_BIGROOT: SweepEnvelope   = sweep_envelope( 1_762_244,        0,   152_374,   275_023, 91_424); //  1_409_795, 0,   121_899, 220_018
     pub const SKYLINE_PARSE_HUGELEAF: SweepEnvelope  = sweep_envelope(   196_280,        0,     7_329,   625_005, 4_397); //    157_024, 0,     5_863, 500_004
@@ -1779,7 +1780,7 @@ mod text_env {
 
 /// Rendering the dense spine's skyline stays within its envelope.
 ///
-/// 125k levels of frames and ~250k single-digit printed bases finalize
+/// 125k open-node levels and ~250k single-digit printed bases finalize
 /// through word-sized summaries, the output is sized exactly before one
 /// byte is written, and nothing recurses.
 #[test]
