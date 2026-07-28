@@ -1292,4 +1292,198 @@ mod adequacy {
              a new witness lands"
         );
     }
+
+    // ── the per-digit window absorb ─────────────────────────────────────
+    //
+    // The settle's window masses move digits as plain `i64` vector
+    // traffic, invisible to the touch meter and to every `Base` shim;
+    // the per-digit tap in `WindowMass::combine` is their only meter.
+    // This kernel keeps the refuted merge — a product-tree absorb that
+    // folds the right half's window digits into the left one digit at a
+    // time, each single-digit combine re-walking the whole live vector,
+    // `O(density²)` per merge where the shipped absorb is one pass over
+    // both operands — committed and failing on the dense-suffix family
+    // *in the limb currency*: the committed-and-failing form is
+    // available here exactly because the tap exists (without it this
+    // kernel reads byte-identical to the shipped settle on every
+    // committed counter — the hole the tap closes), so this tripwire is
+    // simultaneously the tap's liveness proof and the dense-suffix
+    // flatness bands' adequacy witness for the digit-traffic genre.
+    // Value-exact: the balanced recentering is canonical per position,
+    // so digit-at-a-time recombination converges to the same digit
+    // stream and every charge and the final rank agree with the shipped
+    // fold exactly.
+
+    use crate::meter::{limb_ops, reset_limb_ops};
+    use crate::version::skyline::query::{Aggregate, Integrator};
+    use suanpan::UBig;
+
+    /// Fold `other` into `dst` one digit at a time: each single-digit
+    /// combine re-walks `dst`'s whole live vector — the `O(density²)`
+    /// absorb.
+    fn per_digit_absorb(dst: &mut WindowMass, other: WindowMass) {
+        for entry in other.digits {
+            dst.combine(core::iter::once(entry));
+        }
+    }
+
+    /// One product-tree node under the per-digit absorb: charge and
+    /// parked sum exactly as [`Aggregate::merge`], the window merge
+    /// swapped for [`per_digit_absorb`].
+    fn merge_per_digit(left: &mut Aggregate, right: Aggregate, total: &mut Accumulator) {
+        let (p_sign, p_mag) = left.parked.sign_magnitude();
+        if p_mag != UBig::ZERO {
+            right
+                .windows
+                .charge(total, p_sign == Ordering::Less, &Base::from(p_mag));
+        }
+        left.parked.add_accum(&right.parked);
+        per_digit_absorb(&mut left.windows, right.windows);
+        left.entries += right.entries;
+    }
+
+    /// The shipped ledger settle with the per-digit absorb: the
+    /// balanced product-tree reduction verbatim, every window merge
+    /// routed through [`merge_per_digit`].
+    fn per_digit_settle_armings(integ: &mut Integrator) {
+        if integ.promotions.is_empty() {
+            return;
+        }
+        let armings = core::mem::take(&mut integ.promotions);
+        let mut stack: Vec<Aggregate> = Vec::new();
+        let (_, t_mag, t_shift) = integ.pos_local.sign_magnitude_shl();
+        let closing = core::iter::once(None);
+        for entry in armings.into_iter().map(Some).chain(closing) {
+            let mut parked = Accumulator::new();
+            let mut windows = WindowMass::new();
+            match &entry {
+                Some(arming) => {
+                    if arming.neg {
+                        parked.sub_magnitude(&arming.parked);
+                    } else {
+                        parked.add_magnitude(&arming.parked);
+                    }
+                    windows.merge(&arming.window, arming.shift);
+                }
+                None => {
+                    if t_mag != UBig::ZERO {
+                        windows.merge(&t_mag, t_shift);
+                    }
+                }
+            }
+            let mut agg = Aggregate {
+                entries: 1,
+                parked,
+                windows,
+            };
+            while stack.last().is_some_and(|top| top.entries == agg.entries) {
+                let mut left = stack.pop().expect("peeked");
+                merge_per_digit(&mut left, agg, &mut integ.total);
+                agg = left;
+            }
+            stack.push(agg);
+        }
+        while let Some(right) = stack.pop() {
+            match stack.last_mut() {
+                Some(left) => merge_per_digit(left, right, &mut integ.total),
+                None => break,
+            }
+        }
+    }
+
+    /// The rank fold's close under the per-digit settle: the shipped
+    /// `Integrator::finish` verbatim, the settle swapped.
+    fn per_digit_finish(mut integ: Integrator, closing_shift: u64) -> Rank {
+        integ.settle();
+        if !integ.promotions.is_empty() {
+            let (_, seg_mag, seg_shift) = integ.seg.sign_magnitude_shl();
+            if seg_mag != UBig::ZERO {
+                integ
+                    .pos_local
+                    .add_magnitude_shl(&Base::from(seg_mag), seg_shift);
+            }
+            per_digit_settle_armings(&mut integ);
+        }
+        if !integ.base.is_literally_zero() {
+            integ.total.add_accum_shl(&integ.base, closing_shift);
+        }
+        let (sign, num) = integ.total.sign_magnitude();
+        debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
+        let scale = u32::try_from(closing_shift).expect("the tripwire streams stay shallow");
+        Rank::from_raw(Base::from(num), scale)
+    }
+
+    /// The rank fold on the shipped integrator with the per-digit
+    /// close: the shipped [`rank`](super::super::rank) loop verbatim,
+    /// only the close swapped.
+    fn per_digit_rank(bits: &BitsSlice) -> Rank {
+        let max_depth = max_depth(bits);
+        let (mut cursor, first) = LeafCursor::open(bits);
+        let mut integral = Integrator::new();
+        integral.open(&first);
+        loop {
+            let weight_shift = (max_depth - cursor.depth()) as u64;
+            integral.interval(weight_shift);
+            if cursor.done() {
+                break;
+            }
+            let step = cursor.step(&mut integral.live, Side::A);
+            integral.boundary(super::super::base_digits(&step.magnitude));
+        }
+        per_digit_finish(integral, max_depth as u64)
+    }
+
+    /// One tripwire run over `DS(p, p)`: packed bytes and the limb
+    /// count over the known-bad fold, value-pinned against the shipped
+    /// kernel.
+    ///
+    /// The limb currency is the point: the bad absorb's excess is pure
+    /// window-digit traffic, which only the combine tap meters.
+    fn per_digit_run(p: usize) -> (u64, u64) {
+        let v = dense_suffix(p, p).version();
+        let enc = encode(&v);
+        let expected = v.rank();
+        reset_limb_ops();
+        let r = per_digit_rank(&enc);
+        let limbs = limb_ops();
+        assert_eq!(
+            r, expected,
+            "the known-bad fold must stay value-exact: a wrong demonstrator \
+             proves nothing about the family's coverage"
+        );
+        (enc.len().div_ceil(8) as u64, limbs)
+    }
+
+    /// `DS(p, p)` catches the per-digit window absorb red through the
+    /// combine tap: its per-byte limb cost grows across the doubling.
+    ///
+    /// A linear settle reads ~x1.00 here; the floor 1.42 sits midway
+    /// between linear and the measured x1.85, while the shipped
+    /// kernel's dense-suffix flatness band holds the same family at
+    /// x1.25 in the same currency.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: limb ops
+    /// 888,412 -> 3,283,831 across DS(500, 500) -> DS(1,000, 1,000),
+    /// packed 119,593B -> 239,030B: per-byte growth x1.85 — against
+    /// the shipped settle's 126,403 -> 252,379 (x1.00/byte) on the
+    /// same operands.]
+    #[test]
+    fn per_digit_window_absorb_reads_superlinear_on_dense_suffix() {
+        let (small_bytes, small_limbs) = per_digit_run(500);
+        let (large_bytes, large_limbs) = per_digit_run(1_000);
+        eprintln!(
+            "MEASURED adequacy_per_digit_absorb: small={small_limbs}/{small_bytes}B \
+             large={large_limbs}/{large_bytes}B"
+        );
+        assert!(
+            u128::from(large_limbs) * u128::from(small_bytes) * 100
+                >= u128::from(small_limbs) * u128::from(large_bytes) * 142,
+            "the per-digit window absorb reads flat on the dense-suffix family \
+             ({small_limbs}/{small_bytes}B -> {large_limbs}/{large_bytes}B limb \
+             ops): either the combine tap went dark (the digit traffic is \
+             unmetered again) or the family no longer drives dense windows \
+             through the settle — in both cases the dense-suffix flatness \
+             bands are decoration for this genre until a new witness lands"
+        );
+    }
 }
