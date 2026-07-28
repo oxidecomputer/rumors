@@ -2805,6 +2805,124 @@ mod skyline_flatness {
         );
     }
 
+    /// The freeze-position family's near-flat co-operand: the same
+    /// `2k`-node right spine with unit-descending small leaves
+    /// (`2k + 1 − j` at depth `j`) over the terminal zero.
+    ///
+    /// Overlaying it against `FP(k)` gives the co-sweep the many-freezes
+    /// genre in its two-operand form: the difference's deltas alternate
+    /// a wide drop and zero, so this operand's cheap codes fire `Θ(k)`
+    /// freezes of drift only the freeze-position operand's wide codes
+    /// deposited — at ever-deeper stream positions.
+    fn freeze_position_flat_mate(k: usize) -> before::Version {
+        let mut text = String::new();
+        for j in 0..2 * k {
+            text.push_str("(0, ");
+            text.push_str(&(2 * k - j).to_string());
+            text.push_str(", ");
+        }
+        text.push('0');
+        for _ in 0..2 * k {
+            text.push(')');
+        }
+        text.parse()
+            .expect("the descending unit spine is canonical")
+    }
+
+    /// One public distance-and-lag run over the two-operand
+    /// freeze-position analogue `(FP(k), unit spine)`: both counters
+    /// over the two query bodies together, with the pair's packed bytes
+    /// as the per-byte denominator.
+    ///
+    /// Value legs anchor both measures before the counters return: the
+    /// freeze-position operand dominates its mate pointwise, so
+    /// `distance = rank(a) − rank(b)`, `lag(a, b) = 0`, and
+    /// `lag(b, a) = distance` — three exact identities on `Rank`
+    /// arithmetic the sweeps share nothing with.
+    fn distance_freeze_position_run(k: usize) -> QueryRun {
+        let a = meter::freeze_position(k).version();
+        let b = freeze_position_flat_mate(k);
+        let bytes = (a.encode().len() + b.encode().len()) as u64;
+        let gap = a
+            .rank()
+            .checked_sub(&b.rank())
+            .expect("the freeze-position operand dominates its mate");
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let d = a.distance(&b);
+        let forward = a.lag(&b);
+        let backward = b.lag(&a);
+        let run = QueryRun {
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert_eq!(d, gap, "distance must be the dominating rank gap");
+        assert_eq!(
+            forward,
+            before::Rank::ZERO,
+            "the dominating side lags by nothing"
+        );
+        assert_eq!(backward, d, "the dominated side lags by the whole gap");
+        assert!(
+            run.touches >= run.bytes,
+            "pair queries at {bytes} operand bytes: {} digit touches under \
+             the one-per-byte floor: the co-sweep's difference state is not \
+             running on the metered accumulator",
+            run.touches,
+        );
+        run
+    }
+
+    /// Absolute two-scale (touch, limb) ceilings for the distance/lag
+    /// triple on the freeze-position analogue, measured 2026-07-28
+    /// ×1.25.
+    ///
+    /// The record: 258,676 / 517,516 touches and 115,878 / 231,750 limb
+    /// ops across `k = 1,000 → 2,000` on a 73 → 146 KiB packed pair —
+    /// three sweeps' worth, ~3.5 touches per byte, flat across the
+    /// doubling.
+    const DISTANCE_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] =
+        [(323_345, 144_847), (646_895, 289_687)];
+
+    /// Distance and lag are linear on the freeze-position analogue: the
+    /// two-operand many-freezes genre reads flat (×1.25) per packed
+    /// byte across a block-count doubling, under absolute two-scale
+    /// ceilings.
+    ///
+    /// The review's residual risk: `Θ(k)` freezes where one operand's
+    /// cheap codes fire evictions of drift only the other operand's
+    /// wide codes deposited, at ever-deeper stream positions — the
+    /// jump-pair wedge covered crest freezes, not span growth. The
+    /// anchored-segment discipline settles each parked drift against
+    /// its own segment's written span, and the parked component's
+    /// monotone descent never triggers promotion, so no charge reads an
+    /// absolute position and the flatness bound holds in both
+    /// currencies.
+    #[test]
+    fn skyline_distance_freeze_position_is_flat_per_unit() {
+        let small = distance_freeze_position_run(RANK_FREEZE_POSITION_SMALL);
+        let large = distance_freeze_position_run(2 * RANK_FREEZE_POSITION_SMALL);
+        assert_ceilings(
+            "skyline_distance_freeze_position",
+            &small,
+            &large,
+            DISTANCE_FREEZE_POSITION_CEILINGS,
+        );
+        assert_flat(
+            "distance_freeze_position_touches",
+            "byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+        assert_flat(
+            "distance_freeze_position_limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
+
     /// One public-distance run over the two-operand jump comb
     /// `JP(k, m, d)`: both counters over the distance body alone, with
     /// the operands' packed bytes and stored delta codes as the per-unit
