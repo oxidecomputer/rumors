@@ -8,9 +8,9 @@ use suanpan::UBig;
 
 use super::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense,
-    freeze_position, harmonic, hugeleaf, id_spine, jump_comb, jump_pair, mask_drift_quadruple,
-    mask_drift_triple, promotion_rearm, promotion_rearm_mate, scattered_id, wide_tooth_comb,
-    Packed,
+    dense_suffix, dense_suffix_mate, freeze_position, harmonic, hugeleaf, id_spine, jump_comb,
+    jump_pair, mask_drift_quadruple, mask_drift_triple, promotion_rearm, promotion_rearm_mate,
+    scattered_id, wide_arming, wide_tooth_comb, Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -682,4 +682,144 @@ fn concurrent_pair_alternates_dominance_at_every_boundary() {
             .rank();
         assert_eq!(v.distance(&w), two, "the schedule's heights are realized");
     }
+}
+
+/// `dense_suffix(p, d)` is canonical normal form at exactly
+/// `134d + 1812p + 4` bits.
+///
+/// Its `min_ticks` is exactly the stored-base sum
+/// `d + p(2^608 + 2^288 + 2) + 1` (the `d` term is the spine's turn
+/// leaves, so a spine-less generator fails it), and the built tree is
+/// exactly the nested text form the family reasons about.
+///
+/// The closed form is the family's independent semantic leg: the
+/// `skyline_flatness` dense-suffix bands in `tests/meter.rs` re-derive
+/// it at meter scale, so this pin holds it at hand-checkable sizes,
+/// and the text comparison pins the bit-level construction against the
+/// readable spelling (the 33-stride gap spine with 1-leaf turns, then
+/// `2^608, 1, 2^288, 1` blocks over the terminal 1, then the trailing
+/// 0-leaves).
+#[test]
+fn dense_suffix_decodes_canonically_at_predicted_length() {
+    for (p, d) in [(1usize, 1usize), (5, 4), (40, 40)] {
+        check_version(&dense_suffix(p, d), 134 * d + 1812 * p + 4);
+        let expected = UBig::from(d as u64)
+            + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
+            + 1u8;
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            dense_suffix(p, d).version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count"
+        );
+    }
+    let (p, d) = (2, 2);
+    let spelled: Version = dense_suffix_text(p, d, 608).parse().expect("canonical");
+    assert_eq!(
+        dense_suffix(p, d).version(),
+        spelled,
+        "the bit-level construction is the spelled gap spine over re-arm blocks"
+    );
+}
+
+/// `dense_suffix_mate(p, d)` is canonical normal form at exactly
+/// `134d + 24p + 4` bits.
+///
+/// Its `min_ticks` is exactly `d + 4p + 1`, and `dense_suffix(p, d)`
+/// dominates it pointwise (the pair band's exact value legs rest on
+/// the dominance).
+#[test]
+fn dense_suffix_mate_decodes_canonically_at_predicted_length() {
+    for (p, d) in [(1usize, 1usize), (5, 4), (40, 40)] {
+        check_version(&dense_suffix_mate(p, d), 134 * d + 24 * p + 4);
+        let ticks: crate::Ticks = (d as u64 + 4 * p as u64 + 1)
+            .to_string()
+            .parse()
+            .expect("a count");
+        assert_eq!(
+            dense_suffix_mate(p, d).version().min_ticks(),
+            ticks,
+            "the unit-block spine's stored-base sum is its minimum tick count"
+        );
+    }
+    let a = dense_suffix(3, 3).version();
+    let b = dense_suffix_mate(3, 3).version();
+    assert!(
+        a.rank().checked_sub(&b.rank()).is_some(),
+        "the dense-suffix operand dominates its mate"
+    );
+    assert_eq!(
+        a.lag(&b),
+        crate::Rank::ZERO,
+        "the dominating side lags by nothing"
+    );
+}
+
+/// `wide_arming(w, d)` is canonical normal form at exactly
+/// `134d + 64w + 600` bits.
+///
+/// Its `min_ticks` is exactly the stored-base sum
+/// `d + 2^(32w) + 2^288 + 2 + 1`, and the built tree is exactly
+/// `dense_suffix`'s spelling at one block with the arming climb
+/// widened to `2^(32w)`.
+#[test]
+fn wide_arming_decodes_canonically_at_predicted_length() {
+    for (w, d) in [(10usize, 1usize), (12, 5), (40, 40)] {
+        check_version(&wide_arming(w, d), 134 * d + 64 * w + 600);
+        let expected =
+            UBig::from(d as u64) + (UBig::ONE << (32 * w)) + (UBig::ONE << 288usize) + 3u8;
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            wide_arming(w, d).version().min_ticks(),
+            ticks,
+            "the stored-base sum is the family's minimum tick count"
+        );
+    }
+    let (w, d) = (11, 2);
+    let spelled: Version = dense_suffix_text(1, d, 32 * w).parse().expect("canonical");
+    assert_eq!(
+        wide_arming(w, d).version(),
+        spelled,
+        "the bit-level construction is the one-block spelling at the wide climb"
+    );
+}
+
+/// The dense-suffix families' readable text spelling: the 33-stride
+/// gap spine over `p` re-arm blocks with the arming climb `2^arm_bits`.
+fn dense_suffix_text(p: usize, d: usize, arm_bits: usize) -> String {
+    let arm = (UBig::ONE << arm_bits).to_string();
+    let settle = (UBig::ONE << 288usize).to_string();
+    let mut text = String::new();
+    for t in 1..=33 * d {
+        if t % 33 == 1 {
+            text.push_str("(0, 1, ");
+        } else {
+            text.push_str("(0, ");
+        }
+    }
+    for _ in 0..p {
+        text.push('(');
+        text.push_str(&arm);
+        text.push_str(", 0, (1, 0, (");
+        text.push_str(&settle);
+        text.push_str(", 0, (1, 0, ");
+    }
+    text.push('1');
+    for _ in 0..4 * p {
+        text.push(')');
+    }
+    for t in (1..=33 * d).rev() {
+        if t % 33 == 1 {
+            text.push(')');
+        } else {
+            text.push_str(", 0)");
+        }
+    }
+    text
 }
