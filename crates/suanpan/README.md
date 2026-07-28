@@ -29,9 +29,9 @@ assert_eq!(magnitude, UBig::from(1u8) << 512usize);
 
 Every cost this page quotes holds on adversarial input sequences —
 the amortized bounds are worst-case over the whole sequence, not
-average-case claims — and every one is *derived*: the two arguments
-that carry them (the lazy zone, the collapsing sign fold) are below,
-in full.
+average-case claims — and every one is *derived*: the three arguments
+that carry them (the lazy zone, the collapsing sign fold, the
+zero-run ledger) are below, in full.
 
 ## The problem: carry cliffs
 
@@ -125,6 +125,52 @@ reads and writes interleave. This is why the sign queries take
 value-preserving — the digits change, the integer they denote never
 does.
 
+## The zero-run ledger
+
+Keeping the top digit index exact has a scan to pay: when a write
+zeroes the highest nonzero digit, the new top is the next nonzero
+digit below, and something must find it. Between a shifted write's
+landing site and the digits below it lies a run of never-written
+zeros; a scan that walked it would do work no operand limb funded,
+and an alternating pair of shifted writes would make it walk again,
+forever, at a price that grows with the shift. The shifted rows of
+the cost table are true only because that walk never happens.
+
+The accumulator instead keeps a *zero-run ledger*: certificates
+`(lo, hi)`, each stating that every digit strictly between `lo` and
+`hi` is zero. A write that lands above the current top leaves
+exactly one such run behind and records it — one O(1) entry,
+whatever the run's width. A scan that reaches a certified run
+consumes the certificate and skips to `lo` whole, one touch instead
+of one per digit; the sign fold does the same when its running
+partial is zero (a nonzero partial decides within one step, so a
+fold never walks into a certified run while carrying value). A
+write whose carries land inside a certified run splits the
+certificate around the digits actually written, keeping both
+remnants.
+
+The amortization is a potential argument over the ledger
+\[derived\]: at every moment, every digit position at or below the
+top is either inside some certificate's run or funded by one scan
+credit deposited by the metered write that most recently touched
+it. A plain scan step spends the credit at its position; a skip
+consumes a certificate; each certificate is created once, by the
+write that jumped the run, and consumed at most once. For a scan to
+reach a position twice, the top must rise back above it in between,
+and each way it can — a carry run writing through the position, or
+a write jumping over it and recording a fresh certificate — re-arms
+the accounting. So top maintenance never exceeds the metered work
+that funded it: amortized O(1) per write beyond the write's own
+deposits, at any shift, on any schedule.
+
+The ledger itself is bookkeeping, not digit work: certificates live
+in an ordered map costing O(log ledger size) machine-word
+operations per write, never counted as digit touches and never
+reading or writing a digit. Disjoint runs cap the ledger at half
+the held digit positions, so its memory is O(held digits) — the
+digit buffer's own order, at a few machine words per certificate
+where a digit costs one.
+
 ## Domination certificates
 
 A comparison between totals of wildly different scales should not cost
@@ -178,7 +224,9 @@ than they prepaid; unmarked rows are worst-case per call.
 
 Digit touches are shift-independent; memory is not. A shifted entry
 point grows the digit buffer to cover the shifted position, so memory
-is O(shift / 32) plus the operand's own digits.
+is O(shift / 32) plus the operand's own digits (the zero-run ledger
+adds at most one entry per write that lands above the held top,
+bounded by half the held digit positions).
 
 The `*_magnitude` entry points are generic over `Magnitude`, the seam
 for a caller's own stored-magnitude type: the operand reports whether
@@ -212,13 +260,18 @@ wildly, a domination certificate
 ## Metering
 
 The `touch-meter` feature counts every digit read-modify-write (plus
-one per operand limb read by a wide operation) into the
-`touch_meter` module's process-global counter. Digit-touch cost is
-invisible to heap meters and step counters — the work is wider, not
-more frequent — so this counter is what a consumer's resource
-envelopes should pin. Off by default, and without the feature the
-module is absent and the counting compiles to nothing; with it, each
-touch is one relaxed atomic increment.
+one per operand limb read by a wide operation, and one per zero digit
+a top-settlement scan steps or skips past — a certificate skip is one
+touch however wide the certified run, because the run's digits are
+neither read nor written) into the `touch_meter` module's
+process-global counter. Digit-touch cost is invisible to heap meters
+and step counters — the work is wider, not more frequent — so this
+counter is what a consumer's resource envelopes should pin; the
+zero-run ledger's own upkeep is machine-word bookkeeping outside the
+digit denomination (its bound is stated in the ledger section). Off
+by default, and without the feature the module is absent and the
+counting compiles to nothing; with it, each touch is one relaxed
+atomic increment.
 
 ## Interop
 
@@ -245,9 +298,12 @@ against an exact signed big-integer oracle, comparing the sign after
 every operation and the full value at periodic snapshots; deterministic
 adversarial streams pin the shapes the representation exists to
 survive — the boundary comb (a ±1 oscillation parked on a `2^k` carry
-boundary), wide teeth (±2^w strides across a higher boundary), and
+boundary), wide teeth (±2^w strides across a higher boundary),
 cancelling-prefix chains (repeated falls from `2^k` to 1 and back,
-each forcing the sign fold below the top digit).
+each forcing the sign fold below the top digit), and alternating
+shifted pairs (a one-limb value blinking on and off far above every
+other written digit, the schedule whose top maintenance the zero-run
+ledger prices).
 
 ## Traditions, and the name
 

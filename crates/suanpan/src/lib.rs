@@ -25,9 +25,9 @@
 //!
 //! Every cost this page quotes holds on adversarial input sequences —
 //! the amortized bounds are worst-case over the whole sequence, not
-//! average-case claims — and every one is *derived*: the two arguments
-//! that carry them (the lazy zone, the collapsing sign fold) are below,
-//! in full.
+//! average-case claims — and every one is *derived*: the three arguments
+//! that carry them (the lazy zone, the collapsing sign fold, the
+//! zero-run ledger) are below, in full.
 //!
 //! # The problem: carry cliffs
 //!
@@ -121,6 +121,52 @@
 //! value-preserving — the digits change, the integer they denote never
 //! does.
 //!
+//! # The zero-run ledger
+//!
+//! Keeping the top digit index exact has a scan to pay: when a write
+//! zeroes the highest nonzero digit, the new top is the next nonzero
+//! digit below, and something must find it. Between a shifted write's
+//! landing site and the digits below it lies a run of never-written
+//! zeros; a scan that walked it would do work no operand limb funded,
+//! and an alternating pair of shifted writes would make it walk again,
+//! forever, at a price that grows with the shift. The shifted rows of
+//! the cost table are true only because that walk never happens.
+//!
+//! The accumulator instead keeps a *zero-run ledger*: certificates
+//! `(lo, hi)`, each stating that every digit strictly between `lo` and
+//! `hi` is zero. A write that lands above the current top leaves
+//! exactly one such run behind and records it — one O(1) entry,
+//! whatever the run's width. A scan that reaches a certified run
+//! consumes the certificate and skips to `lo` whole, one touch instead
+//! of one per digit; the sign fold does the same when its running
+//! partial is zero (a nonzero partial decides within one step, so a
+//! fold never walks into a certified run while carrying value). A
+//! write whose carries land inside a certified run splits the
+//! certificate around the digits actually written, keeping both
+//! remnants.
+//!
+//! The amortization is a potential argument over the ledger
+//! \[derived\]: at every moment, every digit position at or below the
+//! top is either inside some certificate's run or funded by one scan
+//! credit deposited by the metered write that most recently touched
+//! it. A plain scan step spends the credit at its position; a skip
+//! consumes a certificate; each certificate is created once, by the
+//! write that jumped the run, and consumed at most once. For a scan to
+//! reach a position twice, the top must rise back above it in between,
+//! and each way it can — a carry run writing through the position, or
+//! a write jumping over it and recording a fresh certificate — re-arms
+//! the accounting. So top maintenance never exceeds the metered work
+//! that funded it: amortized O(1) per write beyond the write's own
+//! deposits, at any shift, on any schedule.
+//!
+//! The ledger itself is bookkeeping, not digit work: certificates live
+//! in an ordered map costing O(log ledger size) machine-word
+//! operations per write, never counted as digit touches and never
+//! reading or writing a digit. Disjoint runs cap the ledger at half
+//! the held digit positions, so its memory is O(held digits) — the
+//! digit buffer's own order, at a few machine words per certificate
+//! where a digit costs one.
+//!
 //! # Domination certificates
 //!
 //! A comparison between totals of wildly different scales should not cost
@@ -174,7 +220,9 @@
 //!
 //! Digit touches are shift-independent; memory is not. A shifted entry
 //! point grows the digit buffer to cover the shifted position, so memory
-//! is O(shift / 32) plus the operand's own digits.
+//! is O(shift / 32) plus the operand's own digits (the zero-run ledger
+//! adds at most one entry per write that lands above the held top,
+//! bounded by half the held digit positions).
 //!
 //! The `*_magnitude` entry points are generic over [`Magnitude`], the seam
 //! for a caller's own stored-magnitude type: the operand reports whether
@@ -208,13 +256,18 @@
 //! # Metering
 //!
 //! The `touch-meter` feature counts every digit read-modify-write (plus
-//! one per operand limb read by a wide operation) into the
-//! [`touch_meter`] module's process-global counter. Digit-touch cost is
-//! invisible to heap meters and step counters — the work is wider, not
-//! more frequent — so this counter is what a consumer's resource
-//! envelopes should pin. Off by default, and without the feature the
-//! module is absent and the counting compiles to nothing; with it, each
-//! touch is one relaxed atomic increment.
+//! one per operand limb read by a wide operation, and one per zero digit
+//! a top-settlement scan steps or skips past — a certificate skip is one
+//! touch however wide the certified run, because the run's digits are
+//! neither read nor written) into the [`touch_meter`] module's
+//! process-global counter. Digit-touch cost is invisible to heap meters
+//! and step counters — the work is wider, not more frequent — so this
+//! counter is what a consumer's resource envelopes should pin; the
+//! zero-run ledger's own upkeep is machine-word bookkeeping outside the
+//! digit denomination (its bound is stated in the ledger section). Off
+//! by default, and without the feature the module is absent and the
+//! counting compiles to nothing; with it, each touch is one relaxed
+//! atomic increment.
 //!
 //! # Interop
 //!
@@ -241,9 +294,12 @@
 //! every operation and the full value at periodic snapshots; deterministic
 //! adversarial streams pin the shapes the representation exists to
 //! survive — the boundary comb (a ±1 oscillation parked on a `2^k` carry
-//! boundary), wide teeth (±2^w strides across a higher boundary), and
+//! boundary), wide teeth (±2^w strides across a higher boundary),
 //! cancelling-prefix chains (repeated falls from `2^k` to 1 and back,
-//! each forcing the sign fold below the top digit).
+//! each forcing the sign fold below the top digit), and alternating
+//! shifted pairs (a one-limb value blinking on and off far above every
+//! other written digit, the schedule whose top maintenance the zero-run
+//! ledger prices).
 //!
 //! # Traditions, and the name
 //!
@@ -274,6 +330,7 @@
 #![forbid(unsafe_code)]
 
 use core::cmp::Ordering;
+use std::collections::BTreeMap;
 
 pub use dashu_int::UBig;
 use dashu_int::Word;
@@ -282,7 +339,9 @@ use dashu_int::Word;
 ///
 /// Present only with the `touch-meter` cargo feature. Counts one per
 /// digit read-modify-write in [`Accumulator`]'s own code (a sign-fold
-/// step counts one touch whether or not it rewrites the digit, and a
+/// step counts one touch per digit read plus one per digit its collapse
+/// zeroes; a top-settlement scan counts one per zero digit it steps
+/// past, and one — total — per certified zero run it skips whole; a
 /// wide operation adds one per operand limb read): the unit every cost
 /// on the crate page is denominated in. Because the counter is
 /// process-global with relaxed ordering, readings are meaningful only
@@ -472,6 +531,23 @@ pub struct Accumulator {
     /// the lowest nonzero digit by one level — so sign queries also
     /// lower this watermark.
     bottom: usize,
+    /// The zero-run ledger: certificates `lo → hi`, each stating that
+    /// every digit strictly between `lo` and `hi` is zero.
+    ///
+    /// Three maintainers: a write landing above `top + 1` records the
+    /// never-written run it jumps ([`add_at`](Accumulator::add_at)); a
+    /// write whose carries land inside a certified run splits the
+    /// certificate around the digits written
+    /// ([`crop_runs`](Accumulator::crop_runs)); scans consume
+    /// certificates to skip runs whole
+    /// ([`consume_run_at`](Accumulator::consume_run_at)). Structural
+    /// invariants beyond soundness: runs are pairwise disjoint and lie
+    /// at or below `top` (each `hi ≤ top`), which is what lets
+    /// [`crop_runs`](Accumulator::crop_runs)' descending walk stop at
+    /// the first run below the write and caps the ledger at half the
+    /// held digit positions. The crate docs' zero-run ledger section
+    /// carries the amortization argument this structure pays for.
+    zero_runs: BTreeMap<usize, usize>,
 }
 
 impl Accumulator {
@@ -481,6 +557,7 @@ impl Accumulator {
             digits: vec![0],
             top: 0,
             bottom: usize::MAX,
+            zero_runs: BTreeMap::new(),
         }
     }
 
@@ -757,6 +834,7 @@ impl Accumulator {
         }
         self.top = 0;
         self.bottom = usize::MAX;
+        self.zero_runs.clear();
     }
 
     /// The sign of the held value — `value.cmp(&0)`, so `Less` means
@@ -769,31 +847,7 @@ impl Accumulator {
     /// write (the crate docs' amortization argument). The rewrite is
     /// value-preserving.
     pub fn sign(&mut self) -> Ordering {
-        let mut index = self.top;
-        let mut partial: i128 = 0;
-        loop {
-            touch(1);
-            partial = (partial << DIGIT_BITS) + i128::from(self.digits[index]);
-            if partial.abs() >= SIGN_DECIDED || index == 0 {
-                break;
-            }
-            index -= 1;
-        }
-        if index < self.top {
-            // Collapse: zero the scanned suffix and re-deposit its exact
-            // partial at the scan floor, so no future sign fold re-reads it.
-            for digit in &mut self.digits[index..=self.top] {
-                *digit = 0;
-                touch(1);
-            }
-            self.top = index;
-            while self.top > 0 && self.digits[self.top] == 0 {
-                self.top -= 1;
-            }
-            if partial != 0 {
-                self.add_at(index, partial);
-            }
-        }
+        let (_, partial) = self.fold_and_collapse();
         partial.cmp(&0)
     }
 
@@ -850,7 +904,28 @@ impl Accumulator {
     /// factor over `2^30` — so folding any such operand in could flip
     /// neither the sign nor which magnitude is larger.
     pub fn sign_dominates_at(&mut self, floor: usize) -> (Ordering, bool) {
-        let mut index = self.top;
+        let (index, partial) = self.fold_and_collapse();
+        let decided = partial.abs() >= SIGN_DECIDED && index >= floor + 2;
+        (partial.cmp(&0), decided)
+    }
+
+    /// Fold digits from the top until the running partial decides the
+    /// sign or the scan reaches digit 0, collapsing whatever was
+    /// scanned: returns the scan's floor index and the exact partial
+    /// there.
+    ///
+    /// The shared kernel behind [`sign`](Accumulator::sign) and
+    /// [`sign_dominates_at`](Accumulator::sign_dominates_at). Digits
+    /// are zeroed as the fold descends past them and the partial is
+    /// re-deposited whole at the floor, so no future fold re-reads
+    /// them (the crate docs' collapse amortization). A zero partial
+    /// skips certified zero runs whole — a nonzero partial decides
+    /// within one step, so the fold never walks into a certified run
+    /// while carrying value. The rewrite is value-preserving: the
+    /// digits change, the integer they denote never does.
+    fn fold_and_collapse(&mut self) -> (usize, i128) {
+        let start_top = self.top;
+        let mut index = start_top;
         let mut partial: i128 = 0;
         loop {
             touch(1);
@@ -858,23 +933,37 @@ impl Accumulator {
             if partial.abs() >= SIGN_DECIDED || index == 0 {
                 break;
             }
+            // Descending: this digit's value lives in `partial` now;
+            // zero it so the floor re-deposit preserves the value.
+            self.digits[index] = 0;
+            touch(1);
+            if partial == 0 {
+                if let Some(lo) = self.consume_run_at(index) {
+                    // A zero partial shifts to zero, so the skip needs
+                    // no positional bookkeeping.
+                    index = lo;
+                    continue;
+                }
+            }
             index -= 1;
         }
-        let decided = partial.abs() >= SIGN_DECIDED && index >= floor + 2;
-        if index < self.top {
-            for digit in &mut self.digits[index..=self.top] {
-                *digit = 0;
-                touch(1);
-            }
+        if index < start_top {
+            // Collapse: the descent zeroed everything above; zero the
+            // floor digit too and re-deposit the exact partial there.
+            self.digits[index] = 0;
+            touch(1);
             self.top = index;
-            while self.top > 0 && self.digits[self.top] == 0 {
-                self.top -= 1;
-            }
             if partial != 0 {
                 self.add_at(index, partial);
+            } else {
+                // The fold reached digit 0 with nothing left: the value
+                // is zero, so every outstanding certificate is moot —
+                // and clearing keeps the every-run-at-or-below-top
+                // structural invariant.
+                self.zero_runs.clear();
             }
         }
-        (partial.cmp(&0), decided)
+        (index, partial)
     }
 
     /// Whether the held value is *literally* zero — every stored digit
@@ -908,8 +997,11 @@ impl Accumulator {
     /// The number of digits up to and including the highest nonzero one;
     /// at least 1 (a zero accumulator counts its one zero digit): O(1).
     ///
-    /// Exact, not a watermark: a write that zeroes the top digit pays the
-    /// scan down to the next nonzero one inside that write's own budget.
+    /// Exact, not a watermark: when a write zeroes the top digit, the
+    /// top settles onto the next nonzero digit below, stepping only
+    /// through digits some write paid for and skipping certified zero
+    /// runs whole — amortized O(1), the crate docs' zero-run ledger
+    /// argument.
     /// This is the size a scaled add of this accumulator will read (and a
     /// merge, when this is the narrower operand) — a caller balancing
     /// fold costs compares counts and merges the smaller operand into the
@@ -1077,10 +1169,22 @@ impl Accumulator {
     /// Add `value` (any sign, any `i128` magnitude) into the digit at
     /// `pos`, carrying upward until every touched digit is in the zone.
     ///
-    /// O(value bits / 32) digit touches, amortized O(1) for word-scale
-    /// values.
+    /// O(value bits / 32) digit touches for the carry run, amortized
+    /// O(1) for word-scale values, plus amortized O(1) top settlement
+    /// (the crate docs' zero-run ledger argument). A landing site above
+    /// the current top certifies the never-written run it jumps; a
+    /// carry run landing inside a certified run splits the certificate
+    /// around the digits it wrote.
     fn add_at(&mut self, mut pos: usize, mut value: i128) {
         self.bottom = self.bottom.min(pos);
+        if pos > self.top + 1 {
+            // Every digit strictly between the old top and the landing
+            // site is zero (all sit above the old top), and no run at
+            // or below the old top can overlap the new one, so the
+            // ledger stays disjoint.
+            self.zero_runs.insert(self.top, pos);
+        }
+        let run_start = pos;
         while value != 0 {
             if pos >= self.digits.len() {
                 self.digits.resize(pos + 1, 0);
@@ -1104,9 +1208,69 @@ impl Accumulator {
                 pos += 1;
             }
         }
+        self.crop_runs(run_start, pos);
+        self.settle_top();
+    }
+
+    /// Re-certify the ledger after the digits `[from, to]` were
+    /// written: every certificate whose run the write landed in is
+    /// split around it, keeping the sub-runs the write left untouched.
+    ///
+    /// O(runs intruded on) ledger operations — the write's own carry
+    /// run bounds how many — plus one O(log ledger size) map descent.
+    fn crop_runs(&mut self, from: usize, to: usize) {
+        if self.zero_runs.is_empty() {
+            return;
+        }
+        // A certificate `(lo, hi)` covers digits strictly between its
+        // ends, so the write intrudes exactly when `lo < to` and
+        // `hi > from`; runs are disjoint and sorted, so removing down
+        // from the highest `lo` below `to` visits every intruded run
+        // before reaching one entirely below the write. A kept lower
+        // remnant `(lo, from)` ends the walk on the next probe: its end
+        // is not past `from`, and no run below it intrudes either.
+        while let Some((&lo, &hi)) = self.zero_runs.range(..to).next_back() {
+            if hi <= from {
+                break;
+            }
+            self.zero_runs.remove(&lo);
+            if from > lo + 1 {
+                self.zero_runs.insert(lo, from);
+            }
+            if hi > to + 1 {
+                self.zero_runs.insert(to, hi);
+            }
+        }
+    }
+
+    /// Consume the certificate covering the digits just below `t`, if
+    /// one exists: returns `lo` with every digit in `(lo, t)` zero,
+    /// removing the certificate from the ledger.
+    fn consume_run_at(&mut self, t: usize) -> Option<usize> {
+        let (&lo, &hi) = self.zero_runs.range(..t).next_back()?;
+        if hi >= t {
+            self.zero_runs.remove(&lo);
+            Some(lo)
+        } else {
+            None
+        }
+    }
+
+    /// Settle `top` onto the highest nonzero digit: one touch per zero
+    /// digit stepped past, one per certified run skipped whole.
+    ///
+    /// The exact-`top` invariant's maintenance scan, amortized O(1)
+    /// per write (the crate docs' zero-run ledger argument): every
+    /// plain step spends the credit deposited by the metered write
+    /// that last touched that digit, and every skip consumes a
+    /// certificate recorded in O(1) by the write that jumped the run.
+    fn settle_top(&mut self) {
         while self.top > 0 && self.digits[self.top] == 0 {
-            self.top -= 1;
             touch(1);
+            self.top = match self.consume_run_at(self.top) {
+                Some(lo) => lo,
+                None => self.top - 1,
+            };
         }
     }
 
