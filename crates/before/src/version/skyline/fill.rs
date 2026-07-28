@@ -210,7 +210,65 @@ const REL_FOLLOWER: usize = 1;
 pub fn tick(ev: &BitsSlice, id: &crate::Party) -> Bits {
     match fused_fill(ev, id) {
         FillOutcome::Changed(bits) => bits,
-        FillOutcome::Unchanged(route) => super::grow::emit(ev, id.as_bits(), &route),
+        FillOutcome::Unchanged(route) => {
+            super::grow::emit(ev, id.as_bits(), &route, &Base::from(1u8))
+        }
+    }
+}
+
+/// Register `n` events on the version a skyline stream denotes, from
+/// the perspective of a packed id — byte-identical to `n` sequential
+/// [`tick`]s, in at most two fused walks plus one `+n` splice.
+///
+/// The branch structure compounds the paper's `event = fill if it
+/// changed, else grow`:
+///
+/// - `fill(i, e) = e` (the steady state): the one walk records the
+///   route, and one `+n` splice (the [`grow`](super::grow) module's
+///   emit) registers all `n` events — a grow never re-opens the fill branch,
+///   so ticks 2..n are all grows at the same site (the grow module doc
+///   carries the compounding argument).
+/// - `fill(i, e) ≠ e`: the first tick is the fill output; the remaining
+///   `n − 1` events are grows on that output, whose route needs a
+///   second walk — the first walk's route probe dies at the divergence,
+///   and the route over the changed tree is a different fold. Fill is
+///   idempotent (the committed `fill_is_idempotent` differential pins
+///   it), so the second walk always reports the tree unchanged.
+///
+/// `n = 0` is the identity (the empty run); `n = 1` performs exactly
+/// [`tick`]'s work. The `ticks` differentials in this module's test
+/// suite hold every branch to the iterated public tick byte for byte.
+///
+/// # Panics
+///
+/// Panics if the event operand is not a canonical skyline stream — run
+/// [`validate`](fn@super::validate) first on untrusted bytes. For
+/// `n >= 1` the id must own at least one region, exactly as [`tick`]
+/// (debug builds assert it; the result on an empty id is unspecified in
+/// release builds).
+pub fn ticks(ev: &BitsSlice, id: &crate::Party, n: &Base) -> Bits {
+    // Width tests, not value compares: n = 0 has no bits, n = 1 is the
+    // one-bit magnitude, and neither test touches the limb meter.
+    if n.bits() == 0 {
+        return ev.to_bitvec();
+    }
+    match fused_fill(ev, id) {
+        FillOutcome::Changed(bits) => {
+            if n.bits() == 1 {
+                // n = 1: the fill output is the whole event.
+                return bits;
+            }
+            let rest = n.clone() - &Base::from(1u8);
+            match fused_fill(&bits, id) {
+                FillOutcome::Unchanged(route) => {
+                    super::grow::emit(&bits, id.as_bits(), &route, &rest)
+                }
+                FillOutcome::Changed(_) => {
+                    unreachable!("fill is idempotent: a filled tree cannot fill again")
+                }
+            }
+        }
+        FillOutcome::Unchanged(route) => super::grow::emit(ev, id.as_bits(), &route, n),
     }
 }
 

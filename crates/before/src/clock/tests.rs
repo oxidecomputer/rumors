@@ -231,6 +231,15 @@ proptest! {
                     ora[i].tick();
                     imp[i].tick();
                 }
+                Op::Ticks(i, k) => {
+                    let i = i % n;
+                    // The oracle iterates; the impl's one fused call must
+                    // land on the same structure.
+                    for _ in 0..k {
+                        ora[i].tick();
+                    }
+                    imp[i].ticks(u64::from(k));
+                }
                 Op::Fork(i) => {
                     let i = i % n;
                     let oc = ora[i].fork();

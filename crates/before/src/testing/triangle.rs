@@ -201,6 +201,12 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Trans("replay_matches_across_references"),
     },
     SurfaceRow {
+        op: "Party::ticks",
+        prod_tree: Leg::Trans("party_ticks_matches_version_ticks"),
+        prod_fs: Leg::Trans("party_ticks_matches_version_ticks"),
+        tree_fs: Leg::Trans("party_ticks_matches_version_ticks"),
+    },
+    SurfaceRow {
         op: "Party::fork",
         prod_tree: Leg::Bound("d_fork_join_roundtrip"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
@@ -284,6 +290,12 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },
     SurfaceRow {
+        op: "Version::ticks",
+        prod_tree: Leg::Bound("ticks_matches_oracle"),
+        prod_fs: Leg::Trans("ticks_agrees_with_iterated_ticks"),
+        tree_fs: Leg::Trans("ticks_matches_oracle"),
+    },
+    SurfaceRow {
         op: "Version::concurrent",
         prod_tree: Leg::Bound("clock_observers_match_oracle"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
@@ -355,6 +367,12 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Bound("master_differential"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
+    },
+    SurfaceRow {
+        op: "Clock::ticks",
+        prod_tree: Leg::Trans("clock_ticks_matches_version_ticks"),
+        prod_fs: Leg::Trans("clock_ticks_matches_version_ticks"),
+        tree_fs: Leg::Trans("clock_ticks_matches_version_ticks"),
     },
     SurfaceRow {
         op: "Clock::fork",
@@ -597,6 +615,19 @@ pub(crate) const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("not a paper object; see the prod↔tree reason"),
     },
     SurfaceRow {
+        op: "Ticks ZERO / From / FromStr / Display / Add / Sum / Ord / Eq / Hash",
+        prod_tree: Leg::Excluded(
+            "not a paper object: the opaque count carrier for the ticks/min_ticks \
+             surfaces, whose semantics are bound at the Version::ticks and \
+             Version::min_ticks rows; the carrier's own arithmetic, order, and \
+             text are law-pinned on production (ticks::tests, and the \
+             laws::VERSION_PARTY / VERSION_PAIR_PARTY ticks laws quantify its \
+             wide range through min_ticks-supplied counts)",
+        ),
+        prod_fs: Leg::Excluded("not a paper object; see the prod↔tree reason"),
+        tree_fs: Leg::Excluded("not a paper object; see the prod↔tree reason"),
+    },
+    SurfaceRow {
         op: "Ranked Ord / From<Version> (byte tiebreak)",
         prod_tree: Leg::Law("ranked_linearly_extends_causality"),
         prod_fs: Leg::Excluded(
@@ -695,6 +726,11 @@ pub(crate) const SURFACE_SOURCES: &[SourceSpec] = &[
     },
     SourceSpec {
         path: "src/version/ranked.rs",
+        module_prefix: None,
+        type_override: None,
+    },
+    SourceSpec {
+        path: "src/version/ticks.rs",
         module_prefix: None,
         type_override: None,
     },

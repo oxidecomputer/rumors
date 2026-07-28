@@ -17,10 +17,12 @@
 //!   composition linear.
 //! - [`min_ticks`](fn@min_ticks) folds the identity
 //!   `Σ bases = Σ leaf heights − Σ internal-node subtree minima` (each
-//!   normal-form base is its node's subtree minimum less its parent's) on
-//!   saturating machine words, with an early exit the moment any height
-//!   leaves the `u64` range — such a height alone forces the saturated
-//!   answer, because the tick floor dominates every leaf height.
+//!   normal-form base is its node's subtree minimum less its parent's)
+//!   exactly, at any magnitude, on the same frozen/live split as the
+//!   rank fold: heights and minima enter the total as narrow offsets
+//!   above the frozen component, whose own (wide) contribution arrives
+//!   through counting — a net coefficient of one — rather than through
+//!   per-leaf reads.
 //! - [`project`](fn@project) overlays the skyline against a packed *id* stream
 //!   and re-emits the masked skyline through the collapsing output
 //!   builder: owned regions keep their plateaus, unowned regions emit
@@ -79,18 +81,35 @@
 //! around every freeze — still pays its corrections at position density,
 //! the one shape whose funding the freeze discipline does not certify.
 //! min_ticks adds one
-//! machine-word min-merge per node on a `u64` pending stack (the one
-//! per-level word this module keeps — 8 bytes against the level's ≥ 3
-//! stream bits); projection adds one height materialization per
-//! ownership transition, priced by the code it emits. Transient state is
-//! the cursor paths, the accumulators, min_ticks' word stack, and — for
-//! projection — the output builder's per-level bit stacks.
+//! narrow-offset min-merge per node on an epoch-tagged pending stack
+//! (per level: one `F`-relative offset whose width the freeze allowance
+//! plus its own run's codes bound, against the level's ≥ 3 stream
+//! bits), and its freeze corrections multiply the evicted drift by the
+//! open depth — bounded by the drift's own width times the coefficient's
+//! compacted digits. Each pending entry re-bases at most once (its one
+//! pop, against the cumulative drift its epoch tag indexes). What the
+//! discipline does not certify is circulation *inside* the freeze
+//! allowance: a wide-but-under-allowance offset minted per flip from
+//! 3-bit codes — the close-reveal and undercut-cascade genres — pays
+//! its width per site with no input code funding it, exactly the
+//! circulation the rank fold's reveal rows also read [measured on the
+//! board, 2026-07-27: min_ticks limb/touch exponents 1.5–1.95 on the
+//! reveal combs and the ascending cliffs; the primary families —
+//! dense, the magnitude shapes, harmonic, benign, organic histories —
+//! all read exponent 1.0]. The excess is not contractual: the walk's
+//! watermark anchor-web discipline is the known cure, and a future
+//! release may move this fold onto it. Projection adds
+//! one height materialization
+//! per ownership transition, priced by the code it emits. Transient
+//! state is the cursor paths, the accumulators, min_ticks' offset
+//! stack, and — for projection — the output builder's per-level bit
+//! stacks.
 //!
 //! # Testing
 //!
 //! The recursive tree oracle is the behavioral witness: every fold is
 //! differentially pinned against it through the bridge (exact `Rank`
-//! equality, exact `u64` equality, byte-identical projection streams;
+//! equality, exact count equality, byte-identical projection streams;
 //! distance and lag re-derived from the oracle's join, meet, and rank
 //! through the valuation identities) over the adversarial generator
 //! families, arbitrary normal-form trees, organic op-trace histories,
@@ -306,16 +325,21 @@ pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
 }
 
 /// The minimum number of ticks that could have produced the version a
-/// skyline stream denotes, saturating at [`u64::MAX`].
+/// skyline stream denotes, exact at any magnitude.
 ///
 /// Folds `Σ leaf heights − Σ internal-node subtree minima` (each
 /// normal-form base is its node's minimum less its parent's, so the sum
-/// telescopes to exactly the stored-base total) over one leaf sweep: the
-/// heights ride the delta accumulator, the pending minima ride a `u64`
-/// stack merged as ancestors close. The moment any height leaves the
-/// `u64` range the answer is already saturated — the tick floor
-/// dominates every leaf height — so the sweep exits early and no wide
-/// arithmetic ever reaches the sums. Equal to
+/// telescopes to exactly the stored-base total) over one leaf sweep, on
+/// the same frozen/live height split as [`rank`](fn@rank): heights and
+/// minima enter the running total as narrow offsets above the frozen
+/// component `F`, and `F` itself reaches the total through counting —
+/// one closing `F`-wide add (each leaf adds `F` once and each closing
+/// node removes it once, so the net coefficient is exactly 1) plus one
+/// correction per freeze, a `drift × open-depth` product priced by the
+/// drift being evicted. The pending left-subtree minima ride a stack of
+/// narrow `F`-relative offsets, each tagged with the freeze epoch it was
+/// pushed under and re-based lazily at its one pop, so a freeze never
+/// walks the stack. Equal to
 /// [`Version::min_ticks`](crate::Version::min_ticks) on the decoded
 /// version, which the differential suite pins exactly.
 ///
@@ -323,75 +347,164 @@ pub fn lag(a: &BitsSlice, b: &BitsSlice) -> Rank {
 ///
 /// Panics if the operand is not a canonical skyline stream — run
 /// [`validate`](fn@super::validate) first on untrusted bytes.
-pub fn min_ticks(bits: &BitsSlice) -> u64 {
+pub fn min_ticks(bits: &BitsSlice) -> Base {
     let (mut cursor, first) = LeafCursor::open(bits);
-    let mut height = Accumulator::new();
-    height.add_magnitude(&first);
-    // Sums fit u128 by construction: at most 2^64-scale values times a
-    // leaf count bounded by the stream's bit length.
-    let mut leaf_sum: u128 = 0;
-    let mut min_sum: u128 = 0;
-    let mut pending: Vec<u64> = Vec::new();
-    let mut current_min: u64;
-    match height_word(&mut height) {
-        Some(v) => {
-            leaf_sum += u128::from(v);
-            current_min = v;
-        }
-        None => return u64::MAX,
-    }
+    // The height split: `h = F + L`, with `L` folding every delta and
+    // `F` touched only by freezes (the module doc's discipline, shared
+    // with the rank fold). The first leaf's absolute is all `F`.
+    let mut frozen = Accumulator::new();
+    frozen.add_magnitude(&first);
+    let mut live = Accumulator::new();
+    // The narrow part of the total: `Σ leaf offsets − Σ minima offsets`,
+    // every term `F`-relative at its own accounting instant.
+    let mut total = Accumulator::new();
+    // The cumulative signed freeze drift per epoch: entry `e` re-bases a
+    // pending offset pushed under epoch `e` to the current `F`.
+    let mut shifts: Vec<(bool, Base)> = vec![(false, Base::ZERO)];
+    // Pending left-subtree minima as `(negative, |m − F|, epoch)`.
+    let mut pending: Vec<(bool, Base, u32)> = Vec::new();
+    // Leaves accounted minus nodes closed: the freeze correction's
+    // coefficient (each event carries one `F` reference), never above
+    // the open depth plus one.
+    let mut net_f_refs: u64 = 1;
+    // The running merged minimum, `F`-relative: the previous leaf until
+    // a close merges a pending left minimum into it.
+    let mut min_off: (bool, Base) = (false, Base::ZERO);
     while !cursor.done() {
         let depth_before = cursor.depth();
-        let step = cursor.step(&mut height, Side::A);
+        let step = cursor.step(&mut live, Side::A);
         // Every popped right-branch level closed one internal node: merge
-        // its pending left minimum with the completed right subtree's.
+        // its pending left minimum with the completed right subtree's,
+        // and subtract the closed node's minimum from the total.
         for _ in 0..depth_before - step.flip {
-            let left = pending
+            let (p_neg, p_mag, epoch) = pending
                 .pop()
                 .expect("every closing node has a pending left minimum");
-            current_min = current_min.min(left);
-            min_sum += u128::from(current_min);
+            let left = rebase(p_neg, p_mag, epoch, &shifts);
+            if signed_lt(&left, &min_off) {
+                min_off = left;
+            }
+            fold_signed(&mut total, !min_off.0, &min_off.1);
+            net_f_refs = net_f_refs
+                .checked_sub(1)
+                .expect("every closing node follows its own leaves");
         }
         // The flip level's left sibling is complete: its minimum waits
         // for the right subtree that starts here.
-        pending.push(current_min);
-        match height_word(&mut height) {
-            Some(v) => {
-                leaf_sum += u128::from(v);
-                current_min = v;
-            }
-            None => return u64::MAX,
+        let epoch = u32::try_from(shifts.len() - 1).expect("freeze count fits u32");
+        pending.push((min_off.0, min_off.1, epoch));
+        // The new leaf: account its offset and start the fresh run's
+        // minimum at it. A stale-wide live component is evicted first,
+        // so the offset entering the total is paid by the codes that
+        // built it (the freeze discipline's funding argument).
+        if live.digit_count() > base_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
+            freeze_min_ticks(&mut total, &mut frozen, &mut live, &mut shifts, net_f_refs);
         }
+        let (l_sign, l_mag) = live.sign_magnitude();
+        let leaf_off = (l_sign == Ordering::Less, Base::from(l_mag));
+        fold_signed(&mut total, leaf_off.0, &leaf_off.1);
+        net_f_refs += 1;
+        min_off = leaf_off;
     }
     // The final leaf closes every remaining ancestor from the right.
-    while let Some(left) = pending.pop() {
-        current_min = current_min.min(left);
-        min_sum += u128::from(current_min);
+    while let Some((p_neg, p_mag, epoch)) = pending.pop() {
+        let left = rebase(p_neg, p_mag, epoch, &shifts);
+        if signed_lt(&left, &min_off) {
+            min_off = left;
+        }
+        fold_signed(&mut total, !min_off.0, &min_off.1);
+        net_f_refs -= 1;
     }
-    debug_assert!(
-        leaf_sum >= min_sum,
+    debug_assert_eq!(net_f_refs, 1, "leaves exceed closed nodes by exactly one");
+    // The closing term: every event referenced `F` with net coefficient
+    // one (the freeze corrections re-based the references that predate
+    // each drift).
+    total.add_accum(&frozen);
+    let (sign, magnitude) = total.sign_magnitude();
+    debug_assert_ne!(
+        sign,
+        Ordering::Less,
         "a subtree minimum never exceeds its leaves"
     );
-    u64::try_from(leaf_sum - min_sum).unwrap_or(u64::MAX)
+    Base::from(magnitude)
 }
 
-/// The height accumulator's value as a machine word, or [`None`] past
-/// the `u64` range.
+/// Freeze the min-ticks height split: evict the live drift into the
+/// frozen component, correct the total for the events already accounted
+/// against the smaller `F`, and open a new re-basing epoch.
 ///
-/// The sign fold's collapse compacts the representation first, so a
-/// small value always reads O(1) digits; a value needing more than three
-/// digits after the collapse is necessarily past `2^64`.
-fn height_word(height: &mut Accumulator) -> Option<u64> {
-    match height.sign() {
-        Ordering::Equal => return Some(0),
-        Ordering::Less => unreachable!("a canonical stream keeps heights nonnegative"),
-        Ordering::Greater => {}
+/// Every event accounted so far carried one `F` reference (a leaf adds
+/// `F + L`, a closing node removes `F + min_off`), and the closing term
+/// credits the final `F` once per *net* reference — so moving `drift`
+/// from `L` to `F` debits `drift × net_refs` here, a product priced by
+/// the drift's own width times the open depth's compacted digits (the
+/// coefficient is never above the open depth plus one). The pending
+/// stack is untouched: each entry re-bases lazily at its pop, against
+/// the cumulative drift its epoch tag indexes.
+fn freeze_min_ticks(
+    total: &mut Accumulator,
+    frozen: &mut Accumulator,
+    live: &mut Accumulator,
+    shifts: &mut Vec<(bool, Base)>,
+    net_f_refs: u64,
+) {
+    let (drift_sign, drift) = live.sign_magnitude();
+    debug_assert_ne!(
+        drift_sign,
+        Ordering::Equal,
+        "a freeze evicts a nonzero drift: the trigger requires a wide live component"
+    );
+    let drift = Base::from(drift);
+    let negative = drift_sign == Ordering::Less;
+    mul_into(total, &drift, &Base::from(net_f_refs), !negative);
+    if negative {
+        frozen.sub_magnitude(&drift);
+    } else {
+        frozen.add_magnitude(&drift);
     }
-    if height.digit_count() > 3 {
-        return None;
+    let (cum_neg, cum) = shifts.last().expect("the base epoch is always present");
+    let next = signed_sum(*cum_neg, cum.clone(), negative, &drift);
+    shifts.push(next);
+    *live = Accumulator::new();
+}
+
+/// Re-base a pending minimum offset from the `F` of its push epoch to
+/// the current `F`: subtract the cumulative drift between the two.
+///
+/// The common case — no freeze since the push — is a tag comparison and
+/// no arithmetic at all; an entry alive across freezes pays one signed
+/// combination, at most once (its one pop), against at most the open
+/// depth's worth of such entries per freeze.
+fn rebase(neg: bool, mag: Base, epoch: u32, shifts: &[(bool, Base)]) -> (bool, Base) {
+    let current = shifts.len() - 1;
+    if epoch as usize == current {
+        return (neg, mag);
     }
-    let (_, magnitude) = height.sign_magnitude();
-    u64::try_from(magnitude).ok()
+    // m − F_now = (m − F_epoch) − (cum_now − cum_epoch).
+    let (now_neg, now_mag) = &shifts[current];
+    let (then_neg, then_mag) = &shifts[epoch as usize];
+    let delta = signed_sum(*now_neg, now_mag.clone(), !*then_neg, then_mag);
+    signed_sum(neg, mag, !delta.0, &delta.1)
+}
+
+/// Fold a signed magnitude into an accumulator.
+fn fold_signed(acc: &mut Accumulator, negative: bool, magnitude: &Base) {
+    if negative {
+        acc.sub_magnitude(magnitude);
+    } else {
+        acc.add_magnitude(magnitude);
+    }
+}
+
+/// Strictly-less on signed `(negative, magnitude)` pairs (negative zero
+/// never occurs: the folds produce the positive zero).
+fn signed_lt(a: &(bool, Base), b: &(bool, Base)) -> bool {
+    match (a.0, b.0) {
+        (true, false) => true,
+        (false, true) => false,
+        (false, false) => a.1 < b.1,
+        (true, true) => a.1 > b.1,
+    }
 }
 
 /// Project the version a skyline stream denotes onto a packed id's owned

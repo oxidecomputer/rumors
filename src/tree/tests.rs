@@ -73,17 +73,12 @@ fn party_of(label: impl AsRef<[u8]>) -> before::Party {
     crate::tree::arb::nth_party(idx(label))
 }
 
-/// Build the [`Version`] a party reaches after `ticks` events: tick its
-/// disjoint party `ticks` times from the empty version.
+/// Build the [`Version`] a party reaches after `ticks` events: advance
+/// its disjoint party by the whole count from the empty version.
 fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
     let p = party_of(party);
     let mut v = Version::new();
-    {
-        let mut batch = v.batch();
-        for _ in 0..ticks {
-            batch.tick(&p);
-        }
-    }
+    v.ticks(&p, ticks);
     v
 }
 

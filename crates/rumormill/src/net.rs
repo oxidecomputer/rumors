@@ -44,7 +44,7 @@ use iroh::endpoint::{Connection, QuicTransportConfig, RecvStream, SendStream, pr
 use iroh::{Endpoint, EndpointId};
 use iroh_mdns_address_lookup::MdnsAddressLookup;
 use rumors::link::{Acceptor, Connector, Link};
-use rumors::{Error, Network, Peer, Retire, Rumors};
+use rumors::{Error, Network, Peer, Retire, Rumors, Ticks};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::{Instant, timeout};
@@ -190,7 +190,7 @@ pub enum Verdict {
 /// each then serves a merge the other never requests. The caller guarantees
 /// the networks differ (equal networks gossip normally and never raise the
 /// mismatch).
-pub fn decide(ours: (u64, Network), theirs: (u64, Network)) -> Verdict {
+pub fn decide(ours: &(Ticks, Network), theirs: &(Ticks, Network)) -> Verdict {
     debug_assert_ne!(ours.1, theirs.1, "same-universe peers never reach decide");
     if theirs > ours {
         Verdict::Lose
@@ -320,7 +320,7 @@ async fn drive_connection(
             // the owner's reset guard refuses a double adoption, so the
             // worst case is one wasted bootstrap.)
             let ours = (local_min_events, handle.network());
-            let verdict = decide(ours, (remote_min_events, remote_network));
+            let verdict = decide(&ours, &(remote_min_events, remote_network));
             trace(|| {
                 format!(
                     "merge {}: ours {ours:?}, verdict {verdict:?}",

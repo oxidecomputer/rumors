@@ -25,7 +25,10 @@
 //! recursion caps, enumeration depth constants, op-trace length caps, family
 //! scale caps), and depth-stress coverage — the 100k-deep spines — runs
 //! against the impl alone, asserted with closed-form witnesses in place of
-//! oracle output.
+//! oracle output. Counts bound the same way: `ticks(n)` here iterates `n`
+//! literal ticks (`O(n · tree)`), so oracle-facing differentials cap `n`
+//! small, and wide-count coverage is impl-side (the composition law and
+//! closed-form witnesses).
 //!
 //! All three types derive `Clone`: a reference oracle needs cheap snapshots of
 //! "before" states for the property checks, and linearity (`!Clone` on

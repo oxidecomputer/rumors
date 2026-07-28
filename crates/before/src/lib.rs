@@ -410,7 +410,7 @@ pub use clock::Clock;
 pub mod causally;
 pub mod error;
 pub use party::Party;
-pub use version::{Rank, Ranked, Version};
+pub use version::{Rank, Ranked, Ticks, Version};
 pub mod batch {
     //! [`batch::Clock`](Clock) and [`batch::Version`](Version) apply a run
     //! of operations through one mutable borrow, each committing as it

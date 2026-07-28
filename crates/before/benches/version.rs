@@ -65,11 +65,14 @@ fn bench_tick(c: &mut Criterion) {
     g.finish();
 }
 
-/// Repeated mutation: applying `k` ticks, batched and unbatched.
+/// Repeated mutation: applying `k` ticks — fused, batched, and unbatched.
 ///
-/// The impl applies each tick through the fill splice either way (a batch
-/// is a chaining convenience, not a different engine); the oracle
-/// re-normalizes each tick. Tree size is fixed; `k` is the axis.
+/// The fused series is one `ticks(k)` call (two walks at most, whatever
+/// `k`); the batched and unbatched series apply each tick through the
+/// fill splice (a batch is a chaining convenience, not a different
+/// engine); the oracle re-normalizes each tick. Tree size is fixed; `k`
+/// is the axis, so the fused series must read flat where the iterated
+/// series scale with `k`.
 fn bench_batch(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/k_ticks");
     let mut r = rng(2);
@@ -86,6 +89,16 @@ fn bench_batch(c: &mut Criterion) {
                             batch.tick(&iparty);
                         }
                     }
+                    black_box(v)
+                },
+                BatchSize::SmallInput,
+            );
+        });
+        g.bench_with_input(BenchmarkId::new("before/fused", k), &bytes, |b, bytes| {
+            b.iter_batched(
+                || Version::decode(&bytes[..]).unwrap(),
+                |mut v| {
+                    v.ticks(&iparty, k as u64);
                     black_box(v)
                 },
                 BatchSize::SmallInput,

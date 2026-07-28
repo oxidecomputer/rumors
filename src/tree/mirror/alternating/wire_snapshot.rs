@@ -19,13 +19,12 @@ fn party_index(label: &str) -> usize {
 }
 
 /// The [`Version`] reached by ticking `label`'s disjoint party `ticks`
-/// times.
+/// times (one fused advance: byte-identical to the iterated ticks, which
+/// is what lets it stand under a wire snapshot).
 fn ticked(label: &str, ticks: u64) -> Version {
     let p = nth_party(party_index(label));
     let mut v = Version::new();
-    for _ in 0..ticks {
-        v.tick(&p);
-    }
+    v.ticks(&p, ticks);
     v
 }
 

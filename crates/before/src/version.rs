@@ -13,6 +13,7 @@ use crate::Party;
 mod batch;
 mod rank;
 mod ranked;
+mod ticks;
 // The skyline coding and its operation kernels: the stored representation
 // and every algorithm over it. `pub` where the meter feature re-exports it
 // so the resource-envelope suite can pin its internals; crate-private
@@ -25,6 +26,7 @@ pub(crate) mod skyline;
 pub use batch::Batch;
 pub use rank::Rank;
 pub use ranked::Ranked;
+pub use ticks::Ticks;
 
 #[cfg(test)]
 mod tests;
@@ -43,6 +45,7 @@ mod tests;
 /// | `a \| b`, `a \|= b`                       | the *join* (least upper bound): the combined history of both   |
 /// | `a & b`, `a &= b`                         | the *meet* (greatest lower bound): the history common to both  |
 /// | [`a.tick(&p)`](Version::tick)             | record one new event for [`Party`] `p`                        |
+/// | [`a.ticks(&p, n)`](Version::ticks)        | record `n` new events for [`Party`] `p`, in one pass          |
 ///
 /// Comparison is **partial** ([`PartialOrd`], not [`Ord`]): two distinct
 /// versions can be [`concurrent`](Version::concurrent), and then `a < b`,
@@ -154,6 +157,40 @@ impl Version {
         self.batch().tick(party);
     }
 
+    /// Advances this version by `n` events for `party`: byte-identical to
+    /// `n` sequential [`tick`](Self::tick)s, computed in a bounded number
+    /// of passes rather than `n`.
+    ///
+    /// `n` is any count — an unsigned integer literal converts in place,
+    /// and a [`Ticks`] carries counts wider than any machine integer —
+    /// and `n = 0` is the identity (the empty run), so replay drivers and
+    /// folds can pass whatever count they hold.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|v| + |p| + log n)` time and space [measured: the ticks rows of
+    /// the resource-envelope suite pin the constants, and the flatness
+    /// pin holds the whole `n`-dependence to the boundary codes' gamma
+    /// width — at most two fused walks and one splice at any count, so
+    /// skipping by `n` costs what one tick costs plus the width of `n`,
+    /// never `n` walks].
+    ///
+    /// ```
+    /// use before::{Party, Ticks, Version};
+    /// let party = Party::seed();
+    /// let mut v = Version::new();
+    /// v.ticks(&party, 5u64);
+    /// assert_eq!(v.to_string(), "5");
+    /// // One call skips forward by a count no iteration could reach.
+    /// let wide: Ticks = "100000000000000000000000000".parse().unwrap();
+    /// v.ticks(&party, wide);
+    /// assert_eq!(v.to_string(), "100000000000000000000000005");
+    /// ```
+    pub fn ticks(&mut self, party: &Party, n: impl Into<Ticks>) {
+        let n = n.into();
+        *self = Version::from_bits(skyline::fill::ticks(&self.0, party, &n.0));
+    }
+
     /// Tests whether two [`Version`]s are concurrent (incomparable).
     ///
     /// # Complexity
@@ -173,8 +210,8 @@ impl Version {
     }
 
     /// The minimum number of [`tick`](Self::tick)s that could have produced
-    /// this [`Version`]: the sum of every base in its event tree, saturating
-    /// at [`u64::MAX`].
+    /// this [`Version`]: the sum of every base in its event tree, as an
+    /// exact [`Ticks`] count at any magnitude.
     ///
     /// This is a floor over all causal histories: every sequence of
     /// [`fork`](crate::Clock::fork), `tick`, and
@@ -195,15 +232,15 @@ impl Version {
     /// `O(|v|)` time and space.
     ///
     /// ```
-    /// use before::Version;
-    /// assert_eq!(Version::new().min_ticks(), 0);
-    /// assert_eq!(Version::try_from(5).unwrap().min_ticks(), 5);
+    /// use before::{Ticks, Version};
+    /// assert_eq!(Version::new().min_ticks(), Ticks::ZERO);
+    /// assert_eq!(Version::try_from(5).unwrap().min_ticks(), Ticks::from(5u64));
     /// // Concurrency forces more ticks than the tallest path (1) suggests:
     /// let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
-    /// assert_eq!(peaks.min_ticks(), 2);
+    /// assert_eq!(peaks.min_ticks(), Ticks::from(2u64));
     /// ```
-    pub fn min_ticks(&self) -> u64 {
-        skyline::query::min_ticks(&self.0)
+    pub fn min_ticks(&self) -> Ticks {
+        Ticks(skyline::query::min_ticks(&self.0))
     }
 
     /// This [`Version`]'s exact causal [`Rank`], strictly monotone: `v < w`

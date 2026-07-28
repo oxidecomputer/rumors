@@ -1,7 +1,7 @@
 //! The grow splice on skyline streams: rebuild exactly one root-to-leaf
-//! path along a recorded route.
+//! path along a recorded route, registering `k >= 1` events at once.
 //!
-//! `grow` registers a new event when `fill` cannot simplify the tree, by
+//! `grow` registers new events when `fill` cannot simplify the tree, by
 //! inflating the cheapest available leaf — cheapest by the lexicographic
 //! cost `(expansions, depth)`, ties favoring the right child. The cost
 //! fold that picks the path is not a pass of its own: the fused tick
@@ -10,17 +10,31 @@
 //! which child the cheapest inflation descends into at every id branch
 //! node, into the position-keyed `Route`. When the walk's changed
 //! flag stays clear (`fill(i, e) = e`), `emit` replays that route in
-//! one `O(n + m)` pass:
+//! one `O(n + m)` pass, compounding the whole `+k` increment at the
+//! chosen leaf:
 //!
 //! - every off-path subtree is copied as a verbatim bit range;
 //! - the inflation point is re-coded: the grown leaf's own delta and
 //!   its preorder successor's are the only payload codes the height
-//!   change can reach, and an expansion chain's fresh sibling leaves
-//!   are `0`/`±1` deltas by construction;
+//!   change can reach (`+k` and `−k`), and an expansion chain's fresh
+//!   sibling leaves are `0`/`±k` deltas by construction;
 //! - the output runs through the collapsing builder (the `build`
 //!   sibling module), which performs any normalization the splice
 //!   leaves reachable; off-path ranges pass through it untouched
 //!   because the input was canonical.
+//!
+//! One `+k` splice equals `k` sequential single-event grows, byte for
+//! byte: grow's cost is a function of the `(id, event)` topology alone —
+//! the fold never reads a leaf value — and a free increment changes no
+//! topology (a collapse would need the grown leaf to rise into equality
+//! with a sibling leaf it was strictly below, which fill-fixedness
+//! forbids), so `k` sequential grows re-derive the identical route and
+//! compound `+k` at one leaf. After an expansion, the chain's terminal
+//! is the unique zero-expansion site — the chain was chosen cheapest, so
+//! no zero-expansion site existed before it — and the remaining `k − 1`
+//! events free-increment it: the terminal fresh leaf simply carries `k`.
+//! The `ticks` differentials ([`fill`](super::fill)'s test suite) hold
+//! this to the iterated public tick byte for byte.
 //!
 //! # The route's shape
 //!
@@ -40,11 +54,11 @@
 //! off-path subtrees as verbatim bit ranges and repairs exactly one
 //! boundary delta per splice edge that can change:
 //!
-//! - the grown leaf's own code moves by `+1` (decoded, stepped,
+//! - the grown leaf's own code moves by `+k` (decoded, stepped,
 //!   re-coded — the one payload the walk's cost fold never read);
-//! - the first leaf *after* the inflation point moves by `−1` exactly
+//! - the first leaf *after* the inflation point moves by `−k` exactly
 //!   when the grown leaf is its preorder predecessor;
-//! - an expansion chain's fresh sibling leaves are `0`/`±1` deltas by
+//! - an expansion chain's fresh sibling leaves are `0`/`±k` deltas by
 //!   construction, coded directly.
 //!
 //! The pre-chosen prefix — path node flags and whole left off-path
@@ -237,13 +251,13 @@ fn id_skip(bits: &BitsSlice, pos: usize) -> usize {
 }
 
 /// The boundary repair a spliced subtree's first payload code needs.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Repair {
+#[derive(Clone, Copy)]
+enum Repair<'k> {
     /// The predecessor leaf is unchanged: copy the code verbatim.
     None,
-    /// The predecessor is the grown leaf, one higher than it was: the
-    /// delta drops by one.
-    MinusOne,
+    /// The predecessor is the grown leaf, `k` higher than it was: the
+    /// delta drops by `k`.
+    Minus(&'k Base),
 }
 
 /// One complete off-path subtree, located by a forward topology scan.
@@ -325,14 +339,14 @@ fn scan_subtree(bits: &BitsSlice, start: usize) -> Subtree {
 /// The first leaf goes through the builder's collapse checks (with the
 /// successor repair when the grown leaf precedes it); the remainder is
 /// one verbatim splice.
-fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, repair: Repair) {
+fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, repair: Repair<'_>) {
     let info = scan_subtree(ev.bits, ev.pos());
     let orig = &ev.bits[info.first_code.clone()];
     let first_code = match repair {
         Repair::None => orig.to_bitvec(),
         // The successor is never the stream's first leaf (the grown
         // leaf precedes it), so its code is always a zigzag delta.
-        Repair::MinusOne => recode(orig, false, false),
+        Repair::Minus(k) => recode(orig, false, false, k),
     };
     out.leaf(depth + info.first_rel_depth, first_code);
     if info.first_rel_depth > 0 {
@@ -346,54 +360,78 @@ fn feed_subtree(out: &mut SkylineBuilder, ev: &mut EvScan<'_>, depth: usize, rep
     ev.seek(info.end);
 }
 
-/// Re-code one leaf payload with its height stepped by one:
+/// Re-code one leaf payload with its height stepped by `k`:
 /// `increment` up for the grown leaf, down for its successor.
 ///
 /// `absolute` distinguishes the stream's first leaf (a plain gamma
 /// height) from every later one (a zigzag delta). One decode, one
-/// signed step, one re-encode — `O(the code's own width)`, the only
-/// payload arithmetic in the whole emit.
-fn recode(code: &BitsSlice, increment: bool, absolute: bool) -> Bits {
+/// signed step, one re-encode — `O(the code's own width + the width of
+/// k)`, the only payload arithmetic in the whole emit.
+fn recode(code: &BitsSlice, increment: bool, absolute: bool, k: &Base) -> Bits {
     let (value, end) = codec::decode_int(code, 0).expect("canonical skyline bits");
     debug_assert_eq!(end, code.len(), "a payload range is exactly one code");
-    let one = Base::from(1u8);
     if absolute {
         debug_assert!(increment, "only the grown leaf re-codes an absolute height");
-        return gamma_code(&(value + 1u32));
+        return gamma_code(&(value + k));
     }
     let (negative, magnitude) = unzigzag(value);
     let stepped = match (increment, negative) {
         // Stepping a nonnegative delta up, or a negative one further
         // down, grows the magnitude.
-        (true, false) | (false, true) => zigzag_signed(negative, magnitude + 1u32),
-        // Stepping across zero: `0 − 1` is the one sign flip (a
-        // negative delta's magnitude is at least 1, so `−m + 1` never
-        // crosses).
-        (false, false) if magnitude == Base::ZERO => zigzag_signed(true, one),
-        // Otherwise the magnitude shrinks toward zero; a magnitude of
-        // exactly 1 lands on the positive zero.
+        (true, false) | (false, true) => zigzag_signed(negative, magnitude + k),
+        // Stepping a nonnegative delta down past zero: the sign flips
+        // and the magnitude is the overshoot — `k` itself from a zero
+        // magnitude, read off the unmetered width so the zero case
+        // costs exactly its comparison.
+        (false, false) if magnitude < *k => {
+            let over = if magnitude.bits() == 0 {
+                k.clone()
+            } else {
+                k.clone() - &magnitude
+            };
+            zigzag_signed(true, over)
+        }
+        // Otherwise the magnitude shrinks by `k`; a shrink to exactly
+        // zero lands on the positive zero. The increment-on-negative
+        // arm can cross zero only at `k > magnitude >= 1`, which the
+        // width tests decide for free at `k = 1` (one bit wide) and
+        // route through one comparison only when the widths tie.
         (true, true) | (false, false) => {
-            let shrunk = magnitude - &one;
-            zigzag_signed(negative && shrunk != Base::ZERO, shrunk)
+            let crosses = negative
+                && (magnitude.bits() < k.bits()
+                    || (magnitude.bits() == k.bits() && k.bits() > 1 && magnitude < *k));
+            if crosses {
+                zigzag_signed(false, k.clone() - &magnitude)
+            } else {
+                let shrunk = magnitude - k;
+                zigzag_signed(negative && shrunk != Base::ZERO, shrunk)
+            }
         }
     };
     gamma_code(&stepped)
 }
 
-/// Emit the grown stream: replay `route` along the chosen path, splice
-/// everything off it, repair the boundary deltas, and let the builder
-/// collapse anything the splice leaves collapsible.
+/// Emit the grown stream: replay `route` along the chosen path and
+/// register `k` events at the inflation site in one `+k` compound.
+///
+/// Everything off the path is spliced verbatim, the boundary deltas
+/// repair by `±k`, and the output runs through the builder, which
+/// collapses anything the splice leaves collapsible; the module doc
+/// carries why one compound equals `k` sequential grows.
 ///
 /// `route` is the fused tick walk's record over exactly this `(ev, id)`
 /// pair, and the pair is one the walk left unchanged — the caller
-/// (`fill::tick`) established both. The id must own at least one
-/// region; the result on an empty id is unspecified in release builds
-/// (debug builds panic).
-pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route) -> Bits {
+/// (`fill::tick`/`fill::ticks`) established both. The id must own at
+/// least one region and `k` must be at least 1; the result otherwise is
+/// unspecified in release builds (debug builds panic).
+pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route, k: &Base) -> Bits {
     debug_assert!(
         !id_bits.is_empty(),
         "grow requires an id owning at least one region"
     );
+    // The width test keeps the guard off the limb meter: a dev-profile
+    // meter reading must match the release reading on this path.
+    debug_assert!(k.bits() != 0, "the splice registers at least one event");
     let mut ev = EvScan::new(ev_bits);
     let mut id_pos = 0usize;
     // Subadditivity of the coding bounds the output by the input plus
@@ -474,21 +512,22 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route) -> B
         }
     };
 
-    // Phase 2: the inflation point. The original leaf spanned depth
-    // `d0`; a chain of `k` expansions roots a fresh subtree there whose
-    // leaves are the original height `h` everywhere except the grown
-    // leaf's `h + 1` at the bottom — so every fresh code is a `0`/`±1`
-    // delta, except the chain's first leaf, which keeps the original
-    // code (same height, same predecessor) or re-codes it `+1` when the
-    // grown leaf itself comes first.
+    // Phase 2: the inflation point, with the grown height `h + k`. The
+    // original leaf spanned depth `d0`; a chain of expansions roots a
+    // fresh subtree there whose leaves are the original height `h`
+    // everywhere except the grown leaf's `h + k` at the bottom — so
+    // every fresh code is a `0`/`±k` delta, except the chain's first
+    // leaf, which keeps the original code (same height, same
+    // predecessor) or re-codes it `+k` when the grown leaf itself comes
+    // first.
     let d0 = depth;
-    let k = chain_dirs.len();
+    let chain = chain_dirs.len();
     let orig = &ev_bits[orig_code];
     debug_assert_eq!(d0, pending.len(), "one pending record per path level");
     let mut emitted_in_chain = false;
     // Fresh sibling leaves that precede the grown leaf: one per level
     // whose branch descended right (the sibling is the left child).
-    for j in 0..k {
+    for j in 0..chain {
         if !chain_dirs[j] {
             let code = if emitted_in_chain {
                 gamma_code(&Base::ZERO)
@@ -500,17 +539,17 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route) -> B
         }
     }
     let grown_code = if emitted_in_chain {
-        gamma_code(&zigzag_signed(false, Base::from(1u8)))
+        gamma_code(&zigzag_signed(false, k.clone()))
     } else {
-        recode(orig, true, !fed_any)
+        recode(orig, true, !fed_any, k)
     };
-    out.leaf(d0 + k, grown_code);
+    out.leaf(d0 + chain, grown_code);
     // Fresh sibling leaves that follow the grown leaf, deepest first.
     let mut first_after_grown = true;
-    for j in (0..k).rev() {
+    for j in (0..chain).rev() {
         if chain_dirs[j] {
             let code = if first_after_grown {
-                gamma_code(&zigzag_signed(true, Base::from(1u8)))
+                gamma_code(&zigzag_signed(true, k.clone()))
             } else {
                 gamma_code(&Base::ZERO)
             };
@@ -521,11 +560,11 @@ pub(super) fn emit(ev_bits: &BitsSlice, id_bits: &BitsSlice, route: &Route) -> B
 
     // Phase 3: unwind. The pending right subtrees follow the inflation
     // point contiguously in the input, deepest first; only the first
-    // one's first leaf can need the `−1` repair, and only when the
+    // one's first leaf can need the `−k` repair, and only when the
     // grown leaf (not a trailing fresh sibling) is the last leaf the
     // inflation emitted.
     let mut repair = if first_after_grown {
-        Repair::MinusOne
+        Repair::Minus(k)
     } else {
         Repair::None
     };
