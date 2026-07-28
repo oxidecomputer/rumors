@@ -24,10 +24,13 @@ From the sweeps' side, the accumulator must support:
   work, independent of the magnitude already held — and optionally
   _scaled_ by $2^s$ for arbitrary $s$, the scale routing the words
   to higher lanes at the same $O(ell)$, its one further cost a
-  once-per-high-water-mark zero-fill of the lanes below, bounded by
-  the depth bits that certified the scale (the storage remark in
-  @redundant). The scaled variant is a distinct _mode_: it trades
-  away requirement 3 (@sign derives why), and exactly one family
+  one-time zero-fill of the lanes below $s\/32$, charged once per
+  rise of the allocation high-water mark — so the caller must hold
+  a code that pays for $s$, as @measures' folds do (the depth bits
+  that certified the scale). The scaled variant is a distinct
+  _mode_: it trades
+  away the sign read below (@sign derives why), and exactly one
+  family
   of folds uses it (@measures);
 + *read the sign* of the held value, in amortized $O(1)$ — the
   amortization charged, where the read must descend, to the
@@ -44,12 +47,15 @@ and, for the bookkeeping across a sweep's several live accumulators
 (@tick) and the one width introspection the weighted folds need
 (@measures):
 
-5. *move* a held value between slots, $O(1)$ — a buffer swap;
+5. *move* a held value between slots, $O(1)$ — a buffer swap (a
+  walk parking a boundary quantity aside rather than folding it);
 6. *fold* one accumulator into another, at the cost of the _dying_
-  operand's held lanes, never the survivor's;
+  operand's held lanes, never the survivor's (two running minima
+  meeting when a range closes);
 7. *compare* two held values through their domination floors
   (@sign): $O(1)$ where a floor decides, the fold's price where
-  none does;
+  none does (is the running gap still above the parked quantity,
+  without materializing either?);
 8. *report the held top's index*, $O(1)$ — the width test behind the
   weighted folds' freeze trigger (@measures).
 
@@ -62,8 +68,9 @@ destroyed inside a single API operation, so amortization is always
 internal to one call — each operation is worst-case linear on its
 own, not merely cheap on average across a sequence. (And one word
 on how deltas arrive: a payload lives inline in machine words until
-it outgrows two of them — @words — so requirement 1 is the hot path
-and the heap-limb route the rarity.) Requirement 2's "scaled
+it outgrows two of them — @words — so the inline paths, requirement
+1 and requirement 2 at $ell <= 2$, are the hot ones and the
+heap-limb route the rarity.) Requirement 2's "scaled
 by $2^s$" earns its keep in the weighted folds of @measures, where a
 plateau's height is added at a position weight; the independence from
 $s$ is what makes those folds linear.
@@ -110,7 +117,9 @@ the widest delta yet seen is the natural candidate, and we know no
 funded form of it. The design therefore takes the one escape that
 needs no such proof — remove the boundary. No digit is ever
 "settled": *no normalized region
-anywhere*.
+anywhere*. (The principle is a motivation, not a load-bearing step:
+no claim below rests on it, which is why it does not join
+@closing's concessions.)
 
 == Balanced redundant digits <redundant>
 
@@ -121,7 +130,7 @@ mechanism.)
 
 Hold the value as digits in base $2^32$, little-endian, each digit a
 _signed_ 64-bit integer kept in the _lazy zone_ $|a_i| < 2^33$ — the
-base is half the lane's width on purpose, since the spare bits are
+base's width is half the lane's on purpose, since the spare bits are
 what the
 scheme spends: with digits under $2^33$ over a $2^32$ base, an
 unscaled word
@@ -160,13 +169,21 @@ again. And the upward repeat is a trickle, not a cascade: past the
 digits a landing itself spans, a zone-bounded digit plus an incoming
 carry stays within $2^34$, so the carry passed onward obeys
 $|c| <= 4$ — four units of drift against the $3 dot 2^31$ the next
-digit must absorb before carrying in turn. Every carry is funded: a
+digit must absorb before carrying in turn. (The zone's width is
+itself a dial between this section's two mechanisms, worth turning
+once: writing it $2^z$, the ratchet demands $2^z - 2^31$ of drift
+per carry — wider is stronger — while @sign's unscanned-tail bound
+grows as $(2^z - 1)\/(2^32 - 1)$ — wider is weaker, inflating the
+stop threshold and the domination gap with it. $z = 33$ keeps the
+tail a hair over 2, so the stop test is one comparison against 3,
+while the ratchet already stands at $3 dot 2^31$.) Every carry is
+funded: a
 digit that carries cannot carry again
 until deltas — or carries, which are just more drift on the same
 ratchet — totalling $3 dot 2^31$ in net movement have landed on
-it, so at each digit, carries out are strictly outnumbered by the
-drift arrivals that provoke
-them, and a word delta costs amortized $O(1)$ digit touches on every
+it, so carries out of a digit number at most its arriving drift
+divided by $3 dot 2^31$, and a word delta costs amortized $O(1)$
+digit touches on every
 stream. And because _every_ write recenters what it touches, no digit
 anywhere is ever "settled": the two-zone counterexample has no
 boundary to aim at.
@@ -269,7 +286,16 @@ their exact partial $sigma$ at the scan's floor (a bounded write: the
 fold's invariant keeps $sigma$ within two digits' range). The value is
 unchanged; the spelling is now shallow; the next sign query re-reads
 none of it — the fold starts at the tracked top-of-held index, which
-the collapse just lowered. So *each held lane is scanned at most
+the collapse just lowered. Concretely, at $k = 96$: after $+2^96$
+the lanes $(a_3, a_2, a_1, a_0)$ read $(1, 0, 0, 0)$; after
+$-(2^96 - 1)$, whose magnitude lands lane by lane, they read
+$(1, -(2^32 - 1), -(2^32 - 1), -(2^32 - 1))$ — every digit in the
+zone, the value a whisper. The sign fold descends: $sigma = 1$,
+then $1 dot 2^32 - (2^32 - 1) = 1$ at each further lane, reaching
+digit 0 with $sigma = 1$ — the value, exactly. The collapse zeroes
+the four scanned lanes, deposits $1$ at lane 0, and lowers the
+held top to 0: the vector now reads $(0, 0, 0, 1)$, and the next
+sign query costs one touch. So *each held lane is scanned at most
 once per write that raised the held top above it* — zero lanes
 standing between surviving digits included, since the write that
 raised the top past a lane is the write that put it in the fold's
@@ -354,10 +380,14 @@ span priced at materialization) — each accumulator counting the lanes
 up to its tracked top, so a lane _dies_ when a collapse or a
 cancelling write lowers the top past it, while allocated storage
 above the top (@redundant's storage remark) counts for nothing:
-$Phi$ grows only when input codes are consumed, and by at most one
-lane per code plus one per 32 bits of its width — the span bound of
+$Phi$ grows only when input codes are consumed — each code folding
+into $O(1)$ live accumulators, a rule every sweep below obeys and
+the reason @tick-web codes its watermarks as shift-invariant
+differences — and by at most one
+lane per code plus one per 32 bits of its width in each: the span
+bound of
 @sign, whose $+1$ is the carry, itself already amortized by
-@redundant's ratchet; summing over a sweep, $Phi$'s growth is
+@redundant's ratchet. Summing over a sweep, $Phi$'s growth is
 $O("input bits")$, an unscaled
 code funding every lane
 up to the top it can set. A collapse zeroes its scanned span,

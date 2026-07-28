@@ -152,13 +152,14 @@ here the coding _prunes_: an unowned subtree — a whole `0` of the
 paper's syntax — stores nothing, because its parent's tag already
 said no child follows. The pruned shape is 0-, 1-, or 2-ary, so the
 coding spends _two_ flag bits per stored node, answering "does a left
-child follow?" and "does a right child follow?". The reading rule,
-with its one deliberate exception: an absent child's half is
-unowned — except that the childless tag `00` denotes a _terminal_,
-a wholly owned region. Ownership is carried by presence, so the
-paper's `0` has no spelling anywhere: an unowned half is an absent
-child, and an unowned root dissolves with the anonymous stamp
-below. Note the consequence the walks must repair later: unlike a
+child follow?" and "does a right child follow?". The reading rule:
+an absent child's half is unowned. That leaves the childless tag
+`00` with only one possible reading — a wholly-unowned subtree is
+never stored at all, since its parent's tag already said no child
+follows, and an unowned root dissolves below — so `00` is spent on
+the one childless case that does need spelling: a _terminal_, a
+wholly owned region. Ownership is carried by presence, and the
+paper's `0` has no spelling anywhere. Note the consequence the walks must repair later: unlike a
 version stream, a party stream does not spell every plateau, so a
 walk over it synthesizes each absent child's unowned plateau from
 its parent's tag (@id-ops).
@@ -173,7 +174,8 @@ At a hundred participants with stable membership, a depth-seven
 share is sixteen bits — two bytes, derived. Measured, the mean sits
 nearer three bytes, ownership fragmentation claiming the excess, and
 sustained fork-and-retire churn raises it to a few tens (both
-figures from the paper's own space-consumption scenarios, reproduced
+figures from the paper's two space scenarios — static membership
+and data churn respectively — reproduced
 on our implementation). The
 id side of the system is, by design, nearly free.
 
@@ -242,7 +244,9 @@ streams whose function dips below $NN$ and so denotes no version —
 injectivity and domain,
 respectively. Together they leave one accepted spelling per value,
 and the argument is short
-enough to give. For a dyadic step function $h$, define $T(h)$: a
+enough to give. For a dyadic step function $h$ — constant on each
+piece of some partition of $[0, 1)$ into $2^r$ equal dyadic
+intervals; the inductions below run on $r$ — define $T(h)$: a
 single leaf if $h$ is constant, else the node over
 $T(h|_"left")$ and $T(h|_"right")$. First, $T(h)$ satisfies the
 sibling-merge rule: its two children are equal-height leaves only if
@@ -297,7 +301,7 @@ in bits, honoring @naive-recursion's budget.
 
 Nonnegativity is the interesting one: it needs the running absolute
 height, updated by every delta, sign-checked at every leaf — exactly
-the "running value" that @ladder proved dangerous, and the boundary
+the "running value" @ladder showed to be dangerous, and the boundary
 comb aims straight at it: $plus.minus 1$ deltas, three-bit codes,
 astride $2^k$, so a normalized running height pays a $k$-bit carry
 per three-bit code — $Theta(n^2)$ work in an $n$-bit stream, _in the

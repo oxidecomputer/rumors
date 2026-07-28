@@ -21,7 +21,8 @@ strings to the members of $cal(F)(n)$ — ours, or the best
 conceivable replacement, prefix-free or not — must give some member
 at least $floor(H(n))$ bits: only $2^floor(H(n)) - 1 < 2^(H(n))$
 distinct strings are shorter, and there are $2^(H(n))$ members to
-name.
+name. (This worst-case-against-the-floor framing is the standard
+competitive one for universal codes — Elias's, in the references.)
 Our coding spends at most $n$ on every member, by definition of
 $cal(F)(n)$. So the
 _worst-case multiplicative overhead_ of the coding, against a floor
@@ -78,7 +79,8 @@ equation for $B$ is the quadratic
 
 $ x B^2 + (2 x A - 1) B + x A A' = 0, $
 
-and the count of $n$-bit streams grows as the reciprocal of the
+and the count of $n$-bit streams grows at rate $1\/x_c$ per bit —
+the reciprocal of the
 dominant singularity: the branch point where the discriminant
 
 $ Delta(x) = (1 - 2 x A)^2 - 4 x^2 A A' $
@@ -170,7 +172,7 @@ is $Theta(ell^(-1\/2))$ (Sparre–Andersen-type universality). A
 polynomial factor does not move the exponential growth rate, so
 $alpha$ is untouched; the effect on $H$ is $Theta(log n)$ bits. This
 is the section's one probabilistic step — the second of the
-introduction's three boundaries — and it is heuristic in two honest
+introduction's two argument boundaries — and it is heuristic in two honest
 respects: the steps share a total bit budget, so they are only
 approximately independent draws; and they are lattice-valued with an
 atom at zero, so the $ell^(-1\/2)$ _rate_ is the universality
@@ -250,8 +252,12 @@ thing pruned — are vanishingly rare. Formally: delta, like gamma,
 satisfies Kraft's equality, and it spends $k + O(log k)$ bits on
 $2^k$ values, so its payload generating function converges below
 $x = 1\/2$ and diverges above — its radius is exactly $1\/2$.
-On $(0, 1\/2]$ the discriminant stays positive (at $x = 1\/2$
-it evaluates to $1\/8$ — as it does for gamma, whose $G$ however
+On $(0, 1\/2]$ the discriminant stays positive on the whole
+interval, not just at a checked point: $A' < A$ gives
+$Delta > (1 - 2 x A)^2 - 4 x^2 A^2 = 1 - 4 x A$, and
+$4 x A <= 1$ there since Kraft puts $A(1\/2) = 1\/2$ (at
+$x = 1\/2$, $Delta$ evaluates to $1\/8$ — as it does for gamma,
+whose $G$ however
 survives out to $1\/sqrt(2)$, giving its discriminant the room to
 reach zero at $0.5145$ that delta's and omega's, expiring at
 $1\/2$, never get). No branch point forms below the code's own
@@ -264,8 +270,8 @@ tuning parameter part of every value's spelling, so the canonical
 form must fix it by rule — one more thing to validate, one more
 dimension the counting must price, and a knob whose right setting
 drifts with the workload. Two-regime hybrids — gamma below a
-threshold, an escape into delta above, exactly the crossover
-computed below — buy the wide tail at the price of double
+threshold, an escape into delta above it ($v = 31$ is the
+crossover, computed below) — buy the wide tail at the price of double
 spellings, unless the escape is forbidden below the threshold:
 one more canonical rule, with its own tax, defending values the
 measured corpora barely contain.

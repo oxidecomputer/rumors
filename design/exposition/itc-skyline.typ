@@ -71,8 +71,9 @@
   implementation not just fast on friendly inputs but *resilient to
   arbitrary adverse inputs*: no input, of any magnitude, depth, or
   shape, costs more than a fixed multiple of what it reads and
-  writes. Every known boundary of the argument is stated where it
-  lives and collected at the close.
+  writes. Every known boundary of the argument — seven stated
+  concessions in all — lives where it binds and is collected at the
+  close.
 ])
 
 #v(1em)

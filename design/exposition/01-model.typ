@@ -37,7 +37,9 @@ piece of arithmetic:
   as one flag bit per node, and the sequence of
   plateau heights, delta-coded, bit-packed, in one contiguous buffer —
   rather than the tree's interior numbers. (The id component gets a
-  pruned, payload-free variant of the same idea — @id-coding.) The representation is canonical
+  related but distinct coding — the same step-function reading, one
+  bit deep, with ownership carried by presence rather than by a
+  stored value — @id-coding.) The representation is canonical
   (one bit string per value, so byte equality _is_ semantic equality),
   compact (worst case within $4.3%$ of the information-theoretic
   floor asymptotically and $6.7%$ at hundred-byte sizes, for the
@@ -45,7 +47,9 @@ piece of arithmetic:
   exposure), and sweepable: every operation the
   clock API asks for is computable in a bounded number of
   left-to-right passes — one for most operations, two where a
-  lookahead or a measure's pre-pass is inherent.
+  lookahead is information-forced (tick) or where the one funded
+  form we know needs a pre-pass (rank), and the sum of their parts
+  for the composite measures.
 
 - *The accumulator* (@accum): every sweep maintains a running signed
   integer — a running height, a running difference of heights, a
@@ -154,6 +158,9 @@ The three operations:
 - *join* merges two stamps: ids by pointwise sum (disjointness makes
   that a union), event trees by pointwise maximum.
 
+A system starts from the _seed_ stamp $(1, 0)$: one participant
+owning the whole id space, no events yet.
+
 Comparison is pointwise: $e_1 <= e_2$ iff the function of $e_1$ is
 nowhere above the function of $e_2$. Two event trees neither of
 which is $<=$ the other are _concurrent_. The paper's operations
@@ -199,7 +206,8 @@ double duty; each such use is flagged where it occurs:
     stroke: 0.4pt + rgb("#999999"),
     inset: 5.5pt,
     [$n, m$], [packed bit lengths of an operation's operands (in
-      @compactness, $n$ is a stream-length budget in bits)],
+      @lengths, the bit length of one encoded input; in
+      @compactness, a stream-length budget in bits)],
     [$d$, $d_i$], [tree depth; a leaf's depth],
     [$W$], [the bit width of a stored magnitude],
     [$h$, $h_i$], [an absolute plateau height; the running height],
