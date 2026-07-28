@@ -2917,6 +2917,97 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   board's red set is exactly the six pre-existing ratified entries
   at both scales.
 
+- **CURED + TAPPED 2026-07-28 (fix round #94, the meet fold and the
+  window-digit tap; branch `fix94` @ base a74be5d6).** Charter: cure
+  the `meet_all` quadratic, close the WindowMass metering hole, land
+  review #90's claims/prose corrections and the distance/lag pair
+  probe. All numbers exact deterministic counters, dev profile for
+  pins and bands, release for boards; every movement measured at the
+  parent a74be5d6.
+
+  **The meet cure (round #76's mandated flip).** `Version::meet_all`
+  now runs the join folds' balanced binary-counter reduction — one
+  shared helper, genericized over the combiner, so the two lattice
+  folds' cost model is uniform by construction. On the shade diagonal
+  MS(2,048, 2,048) the fold reads 22,572 touches / 135,278 limb ops
+  against the sequential reduce's 4,200,444 / 25,174,006 (186× both
+  currencies); model-normalized per byte·level 0.660 → 0.664 → 0.668
+  touches across two doublings. The #76 red pin flipped into the
+  `meet_fold` flatness band (measured ×1.25 ceilings, liveness floor,
+  carrier semantic leg), with the sequential reduce committed and
+  failing beside it (floor ×1.49 midway; the shade family still
+  catches the per-operand re-walk at ×2.00/byte). Claims re-derived:
+  `O(D log k)` time / `O(D)` space, roster `Class::FoldLog`; the
+  board row `version_meet_all` landed over the fold populations (all
+  8 cells green at both scales, the stagger meet cell included —
+  first-level touch floors, declared fold model), and `meet_shade`
+  doubles as a differential shape (carrier-exact in every feed order
+  against the sequential fold and the recursive oracle).
+
+  **The counter's one home (owner-approved scope addition, the DRY
+  survey).** `Party::join_all` and `Clock::join_all` were
+  near-verbatim copies of the same binary counter; `crate::fold` now
+  holds the shared core (`balanced_try_fold`: fallible combiner
+  `Result<T, (T, T)>`, accept predicate for the up-front overlap
+  test, feed-order rejection channel) and both route through it, as
+  do the version folds via the infallible wrapper. Pure refactor:
+  release boards byte-identical at both scales against the
+  pre-refactor tip (whole-file cmp). `Integrator::settle_armings`
+  evaluated and kept hand-rolled with a cross-binding comment: its
+  combiner charges the total as a side effect and its drain is
+  right-associated — the association the committed settle readings
+  are pinned against.
+
+  **The window-digit tap (review #90 F3).** `WindowMass`'s
+  merge/absorb/combine moved digits as plain `i64` traffic invisible
+  to every counter — #90's known-bad `O(density²)` absorb passed all
+  bands byte-identical. `combine` now records one limb count per
+  merged position, unconditionally compiled against the meter
+  feature (the `Base`-shim convention). Adequacy in the
+  committed-and-failing form — available exactly because the tap
+  exists: the per-digit absorb kernel (the shipped product tree,
+  each window merge folded one digit at a time) reads ×1.85/byte
+  limb growth on DS(500) → DS(1,000) against the shipped ×1.00,
+  value-exact, floor 1.42 midway. Re-pins at tap-measured values,
+  touches unchanged and exponents ×1.00 everywhere: DS rank limb
+  +8.2%/+8.7%, DS pair +4.8%/+5.1%, PR rank +2.0%, PR pair +0.9%,
+  wide-arming pin +0.5%/+0.3%/+0.1%; freeze-position and
+  plateau-puncture byte-identical (no promotion, no window mass —
+  the tap's scope witness). `combine`'s false doc precondition
+  ("each incoming digit within the balanced range") restated: merge
+  feeds raw `u32` limb halves; per-position sums stay under `2^33`,
+  far inside the `i64` headroom the recentering restores from.
+
+  **Claims and prose to the committed witnesses (review #90
+  F1/F2/F4/F7).** rank/distance/lag time claims upgraded to the
+  three-part form — `Θ(|v|²)` worst case (schoolbook settle
+  products, witnessed tight by the wide-arming and plateau-puncture
+  pins, bounded above by the committed `quadratic_ceiling`
+  derivation), `Ω(M(|v|))` mandatory on adversarial inputs (the
+  answer-embedded product), `O(|v| log |v|)` on `O(1)`-wide-parked
+  streams — roster tokens and seal consistent, classes unchanged
+  (`Linear` rows per the #83 seal reasoning). The query module doc's
+  refuted no-intrinsic-amplifier sentence excised for the embedding
+  construction (this entry's #83 amendment carries the retraction);
+  mechanism prose re-attributed to both residual sites (ledger
+  aggregate products AND the arming-free close-time settle); the
+  "amortized `O(|v|)`" riders weakened to `O(M(|v|))`. New probe:
+  the plateau-puncture × arming-train PAIR row for distance/lag
+  (touches 2,120,117 → 8,053,927 on 25,851 B → 50,897 B, within the
+  quadratic ceiling; halves-sum value leg) — the shared-integrator
+  argument now measured on the pair co-sweep.
+
+  **Board accounting:** fresh release renders at both scales read
+  **1328 + 6 (1334 cells)**, the red set exactly the six
+  pre-existing ratified entries; the whole diff against parent
+  renders on this machine is the 8 new green `version_meet_all`
+  cells and the three promo-rearm linear-functional cells' limb
+  constant 0.7 → 0.8/B (the tap; exponents 1.00 unchanged) — every
+  other cell byte-identical, 0 verdict flips. §13's cell count
+  re-derived 1285 → 1334: +4 this round (the meet row), the
+  remainder pre-existing drift from the #76/tooth-tail promotions
+  that never moved the prose.
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
