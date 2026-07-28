@@ -2765,10 +2765,13 @@ enum OpGroup {
     Rank,
     /// The tick rows, driven through a cross shape's designated pairing.
     Tick,
-    /// The projection rows: the explicit materializations
-    /// (`own_version_to_version`, `clock_own_version_to_version`) and the
-    /// fused lazy comparisons (`own_version_cmp`, `own_version_pair_cmp`),
-    /// which stay input-denominated on every shape — a comparison never
+    /// The projection rows: the explicit materializations and the fused
+    /// lazy comparisons.
+    ///
+    /// `own_version_to_version` and `clock_own_version_to_version` price
+    /// the explicit materialization; `own_version_cmp` and
+    /// `own_version_pair_cmp` price the fused comparisons, which stay
+    /// input-denominated on every shape — a comparison never
     /// materializes the projection.
     Projection,
     /// The fold rows: `version_join_all`, `party_join_all`.

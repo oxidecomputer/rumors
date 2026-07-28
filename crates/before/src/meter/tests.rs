@@ -435,10 +435,12 @@ fn mask_drift_triple_decodes_canonically_and_realizes_less() {
     );
 }
 
-/// `MQ(k, n)` is two canonical comb/mask pairs at their closed-form
-/// lengths, the parities interleave as designed (the sparse comb's view
-/// is semantically empty — its mask owns exactly its zero levels), and
-/// the fused four-stream verdict is the full-walk `Less`, matching the
+/// `MQ(k, n)` is two canonical comb/mask pairs whose interleaved
+/// parities realize the full-walk `Less` verdict.
+///
+/// Both operand pairs decode canonically at their closed-form lengths,
+/// the sparse comb's view is semantically empty (its mask owns exactly
+/// its zero levels), and the fused four-stream verdict matches the
 /// materialized comparison.
 #[test]
 fn mask_drift_quadruple_decodes_canonically_and_realizes_less() {

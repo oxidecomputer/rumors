@@ -12,7 +12,7 @@
 //!
 //! # The walk
 //!
-//! One [`LeafCursor`] per event stream and one [`IdLeafCursor`] per mask
+//! One `LeafCursor` per event stream and one `IdLeafCursor` per mask
 //! (an unmasked side simply has no id cursor — its ownership is
 //! everywhere). All current leaves and regions contain the sweep point,
 //! so they nest by depth, and the comparison sweep's boundary bookkeeping

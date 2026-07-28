@@ -1089,10 +1089,11 @@ fn projection_monotone_in_version(a: &Version, b: &Version, p: &Party) -> bool {
     constructed && incidental
 }
 
-/// The view's heterogeneous comparisons are the materialized projection's,
-/// exactly: `(a/p) ⋚ b ≡ (a/p).to_version() ⋚ b`, in both operand orders
-/// and under `==` — the three-stream differential law the fused co-walk
-/// is pinned by.
+/// The view's heterogeneous comparisons are the materialized
+/// projection's, exactly: `(a/p) ⋚ b ≡ (a/p).to_version() ⋚ b`.
+///
+/// Checked in both operand orders and under `==` — the three-stream
+/// differential law the fused co-walk is pinned by.
 fn own_version_cmp_matches_materialized(a: &Version, b: &Version, p: &Party) -> bool {
     let view = a / p;
     let materialized = view.to_version();
@@ -1104,8 +1105,9 @@ fn own_version_cmp_matches_materialized(a: &Version, b: &Version, p: &Party) -> 
 }
 
 /// A heterogeneous comparison is the homogeneous comparison against the
-/// seed-masked view: `(a/p) ⋚ b ≡ (a/p) ⋚ (b/seed)` — sound because
-/// projection by the seed party is the identity
+/// seed-masked view: `(a/p) ⋚ b ≡ (a/p) ⋚ (b/seed)`.
+///
+/// Sound because projection by the seed party is the identity
 /// ([`seed_projection_is_identity`]), and the coherence that makes the
 /// three-stream walk a special case of the four-stream one.
 fn own_version_seed_mask_coherence(a: &Version, b: &Version, p: &Party) -> bool {
