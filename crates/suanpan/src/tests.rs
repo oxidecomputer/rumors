@@ -23,6 +23,12 @@ enum Op {
     Small(i64),
     /// A wide delta with an explicit sign.
     Wide { negative: bool, value: UBig },
+    /// A wide delta scaled by `2^shift`, entering above digit zero.
+    WideShl {
+        negative: bool,
+        value: UBig,
+        shift: u64,
+    },
 }
 
 /// Apply one operation to the accumulator and the oracle in lockstep.
@@ -41,6 +47,20 @@ fn apply(acc: &mut Accumulator, oracle: &mut IBig, op: &Op) {
                 *oracle += IBig::from(value.clone());
             }
         }
+        Op::WideShl {
+            negative,
+            value,
+            shift,
+        } => {
+            let scaled = IBig::from(value.clone()) << usize::try_from(*shift).unwrap();
+            if *negative {
+                acc.sub_wide_shl(value, *shift);
+                *oracle -= scaled;
+            } else {
+                acc.add_wide_shl(value, *shift);
+                *oracle += scaled;
+            }
+        }
     }
 }
 
@@ -57,7 +77,7 @@ fn oracle_sign(oracle: &IBig) -> Ordering {
 }
 
 /// Assert the accumulator's full value equals the oracle's, sign and
-/// magnitude both.
+/// magnitude both — through the plain read and the scaled one.
 fn assert_value(acc: &Accumulator, oracle: &IBig) {
     let (sign, magnitude) = acc.sign_magnitude();
     assert_eq!(sign, oracle_sign(oracle), "sign_magnitude sign");
@@ -68,6 +88,15 @@ fn assert_value(acc: &Accumulator, oracle: &IBig) {
         _ => IBig::from(magnitude),
     };
     assert_eq!(&rebuilt, oracle, "sign_magnitude magnitude");
+    // The scaled read denotes the same value: ±magnitude · 2^shift.
+    let (shl_sign, shl_magnitude, shift) = acc.sign_magnitude_shl();
+    assert_eq!(shl_sign, sign, "sign_magnitude_shl sign");
+    let scaled = IBig::from(shl_magnitude) << usize::try_from(shift).unwrap();
+    let rebuilt = match shl_sign {
+        Ordering::Less => -scaled,
+        _ => scaled,
+    };
+    assert_eq!(&rebuilt, oracle, "sign_magnitude_shl magnitude at scale");
 }
 
 /// A wide magnitude from little-endian 64-bit limbs.
@@ -101,6 +130,16 @@ fn arb_op() -> impl Strategy<Value = Op> {
                 }
             }
         ),
+        1 => (
+            proptest::collection::vec(any::<u64>(), 1..=4),
+            any::<bool>(),
+            0u64..512,
+        )
+            .prop_map(|(limbs, negative, shift)| Op::WideShl {
+                negative,
+                value: from_limbs(&limbs),
+                shift,
+            }),
     ]
 }
 
@@ -434,6 +473,58 @@ fn redundant_zero_reads_nonzero_until_collapsed() {
     assert!(
         acc.is_literally_zero(),
         "the sign read collapses to the canonical zero"
+    );
+}
+
+/// The scaled read costs the written span, not the scale: a narrow
+/// value parked at digit ~1000 reads out through `sign_magnitude_shl`
+/// in O(1)-ish touches, where the plain `sign_magnitude` pays the full
+/// held width.
+///
+/// This is the liveness pin on the write-watermark skip: without it the
+/// scaled read's O(written span) claim would be decoration a full-scan
+/// implementation also satisfies (values agree either way — only the
+/// touch counts separate them). A reset re-arms the watermark, so the
+/// cleared accumulator reads zero at scale zero.
+#[cfg(feature = "touch-meter")]
+#[test]
+fn scaled_read_costs_the_written_span() {
+    use crate::touch_meter;
+
+    let mut acc = Accumulator::new();
+    // Park a two-limb value at digit 1000 (bit shift 32_000).
+    acc.add_wide_shl(&from_limbs(&[7, 9]), 32_000);
+    touch_meter::reset();
+    let (sign, magnitude, shift) = acc.sign_magnitude_shl();
+    let scaled_read = touch_meter::touches();
+    assert_eq!(sign, Ordering::Greater);
+    assert_eq!(
+        IBig::from(magnitude) << usize::try_from(shift).unwrap(),
+        IBig::from(from_limbs(&[7, 9])) << 32_000usize,
+    );
+    assert!(
+        scaled_read <= 16,
+        "the scaled read scanned {scaled_read} digits: the write watermark \
+         is not skipping the never-written prefix"
+    );
+    touch_meter::reset();
+    let (_, full) = acc.sign_magnitude();
+    assert!(
+        touch_meter::touches() > 1000,
+        "the full-width control read the whole span; if this dropped, the \
+         separation this pin demonstrates needs re-deriving"
+    );
+    assert_eq!(
+        IBig::from(full),
+        IBig::from(from_limbs(&[7, 9])) << 32_000usize
+    );
+    acc.reset();
+    assert!(acc.is_literally_zero());
+    let (sign, magnitude, shift) = acc.sign_magnitude_shl();
+    assert_eq!(
+        (sign, magnitude, shift),
+        (Ordering::Equal, UBig::ZERO, 0),
+        "a reset accumulator reads zero at scale zero"
     );
 }
 

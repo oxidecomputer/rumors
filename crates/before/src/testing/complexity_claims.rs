@@ -25,10 +25,8 @@
 //!   growth pin proving the documented behavior still exists — the
 //!   render merge's superlinear limb growth on the wide left-full shape
 //!   and the n-ary fold's log factor on the scatter population live in
-//!   this suite; the distance fold's cross-stream growth floor lives
-//!   with the resource envelopes (`tests/meter.rs`, the two-operand
-//!   jump-comb band). A cure landing flips the pin red, forcing roster
-//!   and rustdoc to move in the same change.
+//!   this suite. A cure landing flips the pin red, forcing roster and
+//!   rustdoc to move in the same change.
 //!
 //! Totality rides the triangle surface: every name in
 //! [`triangle::extract_public_fns`] and [`triangle::FAMILY_SURFACE`] has
@@ -62,8 +60,7 @@ pub(crate) enum Class {
     /// judge's committed roster.
     ///
     /// The members: the display pair (value conversion plus the render
-    /// merge) and the distance fold (the meet-side rank fold's height
-    /// evictions on adversarial concurrent pairs).
+    /// merge).
     SuperlinearTime,
 }
 
@@ -323,9 +320,9 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::distance",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`", "superlinear"],
+            tokens: &["`O(|a| + |b|)`"],
         }],
-        cells: Cells::Board(&[("version_distance", Class::SuperlinearTime)]),
+        cells: Cells::Board(&[("version_distance", Class::Linear)]),
     },
     Claim {
         op: "Version::lag",

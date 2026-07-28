@@ -372,9 +372,10 @@
 //! and `harmonic` — carry a version; the diverted id-spine pair carries a
 //! disjoint party pair; the eleven cross shapes (`comb-scatter` and the
 //! ten tick-walk crosses) carry a version, a mounted party pair, and a
-//! clock; the two version-pair shapes — `jump-pair` (the cross-stream
-//! freeze wedge) and `concurrent-pair` (the emit side-switch density
-//! population) — carry a version pair of their own construction, so
+//! clock; the two version-pair shapes — `jump-pair` (wide
+//! height-difference crests over a dense-position spine) and
+//! `concurrent-pair` (the switch-density population) — carry a version
+//! pair of their own construction, so
 //! their comparison rows run the pairing the shape was built around
 //! rather than the ticked counterpart; `benign` — a fixed-seed pseudo-random population of forked,
 //! ticked clocks, the control row that keeps the ceilings honest on
@@ -839,26 +840,27 @@ const OVERLAP_FOLD_INPUT_DIVISOR: usize = 64;
 /// teeth operand's per-level wide codes dominating).
 ///
 /// One knob drives the tooth count and, through
-/// [`JUMP_PAIR_DIGIT_DIVISOR`], the freeze-position digit count, at the
-/// fixed tooth magnitude [`JUMP_PAIR_MAGNITUDE_BITS`]: the cross-stream
-/// freeze re-arm work is teeth × digits × magnitude, so the doubling
-/// scales the freeze count and the position density together while the
-/// packed pair grows linearly — the separating choice that makes the
-/// wedge read on the exponent leg rather than hide in a constant.
+/// [`JUMP_PAIR_DIGIT_DIVISOR`], the isolated-position digit count, at
+/// the fixed tooth magnitude [`JUMP_PAIR_MAGNITUDE_BITS`]: an
+/// absolute-position freeze accounting pays teeth × digits × magnitude
+/// here, so the doubling scales the crest count and the position
+/// density together while the packed pair grows linearly — the
+/// separating choice that makes any such accounting read on the
+/// exponent leg rather than hide in a constant.
 const JUMP_PAIR_BASE_TEETH: usize = 256;
 
 /// Tooth magnitude (bits) of the two-operand jump comb, fixed across
 /// scales: comfortably over the freeze allowance's 256-bit digit bound,
-/// so every cheap fold behind a wide switch jump fires the eviction.
+/// so every cheap fold behind a wide difference crest parks the drift.
 const JUMP_PAIR_MAGNITUDE_BITS: usize = 512;
 
-/// Freeze-position digits per tooth (as a divisor) on the two-operand
+/// Isolated-position digits per tooth (as a divisor) on the two-operand
 /// jump comb.
 ///
 /// The digit count scales with the teeth at an eighth: deep enough that
-/// per-freeze position work reads its exponent across the doubling,
-/// shallow enough that the shared spine stays a small fraction of the
-/// packed pair.
+/// any per-freeze absolute-position work reads its exponent across the
+/// doubling, shallow enough that the shared spine stays a small
+/// fraction of the packed pair.
 const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 
 /// Concurrent-pair forked-party count at scale 1.0, rounded up to a
@@ -1006,13 +1008,16 @@ enum FamilyKind {
     /// the residue passes whole in O(1): the hop-schedule control.
     /// The designated cross of the two tick rows.
     AscendPlateau,
-    /// The two-operand jump comb `jump_pair(k, m, d)`: the cross-stream
-    /// freeze re-arm wedge.
+    /// The two-operand jump comb `jump_pair(k, m, d)`: wide
+    /// height-difference crests over a dense-position spine.
     ///
-    /// The pair's meet interleaves one operand's wide switch jumps with
-    /// the other's cheap codes, so the distance row's rank fold freezes
-    /// `2m` times at a `d`-digit position — each operand
-    /// certified-linear alone (the generator doc carries the mechanism).
+    /// The overlay interleaves one operand's wide teeth with the
+    /// other's cheap codes, so the pair rows park wide drift at the
+    /// other operand's boundaries `2m` times while every absolute
+    /// position stays `d` digits dense — the shape that separates
+    /// segment-anchored freeze accounting (flat) from absolute-position
+    /// accounting (superlinear), with each operand certified-linear
+    /// alone (the generator doc carries the mechanism).
     JumpPair,
     /// The concurrent pair `concurrent_pair(n)`: the emit side-switch
     /// density population.
@@ -2809,8 +2814,8 @@ fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         | FamilyKind::AscendCliff
         | FamilyKind::AscendPlateau => group == OpGroup::Tick,
         // The version-pair shapes, built against the linear-functional
-        // query rows: the cross-stream freeze wedge (distance's meet-leg
-        // rank fold) and the emit side-switch density population.
+        // query rows: wide difference crests over a dense-position spine
+        // and the switch-density population.
         FamilyKind::JumpPair | FamilyKind::ConcurrentPair => group == OpGroup::Measure,
     }
 }
