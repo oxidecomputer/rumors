@@ -106,10 +106,12 @@ impl Rank {
     ///
     /// Ranks are nonnegative dyadic rationals — a totally ordered commutative
     /// monoid under [`+`](Add), not a group — so subtraction is partial. The
-    /// difference exists exactly when `rhs <= self`; the
-    /// [`distance`](crate::Version::distance) and [`lag`](crate::Version::lag)
-    /// measures call this where the lattice guarantees the minuend dominates,
-    /// so the [`None`] arm is unreachable for them.
+    /// difference exists exactly when `rhs <= self`: a caller subtracting
+    /// along the lattice order — a dominated version's rank from a
+    /// dominating one's, as when re-deriving
+    /// [`distance`](crate::Version::distance) or
+    /// [`lag`](crate::Version::lag) from per-version ranks — never sees
+    /// the [`None`] arm.
     ///
     /// # Complexity
     ///

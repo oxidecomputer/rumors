@@ -188,6 +188,22 @@ switch at every overlay boundary — so the co-sweep cure has five
 committed readings to move (the amplification doc's §12 instruments
 entry itemizes them).
 
+**Cure landed (2026-07-27, #66 phase 2):** the fused co-sweep shipped
+with the anchored-segment freeze re-derivation (per-operand potential,
+every charge naming its deposit; the derivation lives in
+`version/skyline/query.rs`'s pair-co-sweep section) and all five
+readings moved in one commit — board cell green at both scales,
+`DISTANCE_JUMP_PAIR` limb 973,702 → 53,905 at the enforced scale, the
+growth floor flipped to a flatness bound, the judge roster entry
+retired, the complexity class re-classed linear. The landing
+overshoots this item's expectation: distance reads 0.40 limb-ops/B on
+the wedge family (rank's own dense constant is ~5.4/B — the wedge
+family is wide-code-dominated, so the honest comparison is the board's
+per-family cells, all green), and the dissolution deleted the
+emit-two-streams-then-re-rank architecture from the distance/lag path
+entirely. §12's CURED entry in the amplification doc carries the full
+before → after record.
+
 **Accumulator prior-art verdict (2026-07-27, surveyed): keep.** No
 maintained external tool provides the accumulator's contract: every
 general-purpose bignum crate normalizes on every add, which is

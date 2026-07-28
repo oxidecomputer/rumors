@@ -1368,18 +1368,23 @@ pub fn ascend_cliff_id(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// Shared-spine levels per freeze-position digit in [`jump_pair`].
+/// Shared-spine levels per isolated position digit in [`jump_pair`].
 ///
-/// Each right-descent turn sets one isolated bit of the rank fold's
-/// freeze position, and a 33-level stride keeps successive bits more
+/// Each right-descent turn sets one isolated bit of every absolute
+/// position below it, and a 33-level stride keeps successive bits more
 /// than a full base-2^32 digit apart, so the balanced signed-digit
 /// compaction (which cancels only ones-runs) can never merge two of
-/// them into one term.
+/// them into one term: every absolute position inside the comb carries
+/// `d` incompressible digits.
 const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 
 /// The two-operand jump comb `JP(k, m, d)`: a version pair whose
-/// distance runs the rank fold's freeze machinery `2m` times at a
-/// `d`-digit freeze position — each operand certified-linear alone.
+/// height difference crests `k` bits wide at every one of `m` comb
+/// levels, deep under a spine that makes every absolute position
+/// `d` digits dense.
+///
+/// Each operand is certified-linear alone; the shape exists only in
+/// the two-operand composition.
 ///
 /// Both operands share a descent spine of `33d` zero-base levels that
 /// turns right every 33rd level (one 0-leaf consumed *before* the comb
@@ -1398,23 +1403,24 @@ const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 ///   with the width hoisted once into the comb root's stored base — one
 ///   wide code in `B`'s whole stream, unit deltas after.
 ///
-/// Their **meet** interleaves them: `min` follows `B`'s band inside every
-/// tooth and `A`'s `(1, 0)` floor across every gap, so the emitted stream
-/// runs `+**W**, −1, −**W**, −1` per level — a wide switch jump funded by
-/// `A`'s tooth code, then a cheap code from the *other* operand one fold
-/// behind it. Each cheap fold catches the live component `~2^k` wide
-/// under a 1-digit code and fires a freeze (`k ≥ 320` bits clears the
-/// 8-digit allowance): `2m` freezes per distance, re-armed across the
-/// overlay by the operand that did not pay for the drift. Each freeze's
-/// correction multiplies the `k`-bit drift by every nonzero compacted
-/// digit of the freeze position — the `d` stride bits — so the pair
-/// prices freeze work at `Θ(m · d · k)` limb work against a
-/// `Θ(m·k + d)`-bit input, while the **join** (the band shades every
-/// gap) collapses to unit steps around one climb and stays linear, and
-/// either operand's own rank is flat. The uncertified funding shape of
-/// the freeze discipline (`version/skyline/query.rs`'s cost section),
-/// reached through the public two-operand surface with both inputs
-/// individually innocuous.
+/// Their overlay interleaves them: `|h_a − h_b|` sits at 1–2 inside
+/// every tooth and `~2^k` across every gap, so per level a wide crest
+/// funded by `A`'s tooth code rides over cheap codes from the *other*
+/// operand (`k ≥ 320` bits clears the freeze allowance, so the drift is
+/// parked at `B`'s first cheap boundary — `2m` freezes per distance,
+/// each fired by the operand that did not pay for the drift). The spine
+/// makes every absolute position `d` incompressible digits while the
+/// per-crest *segment* masses compact to O(1) digits: an accounting
+/// that multiplies parked drift by absolute positions pays
+/// `Θ(m · d · k)` limb work against a `Θ(m·k + d)`-bit input, and the
+/// anchored-segment co-sweep (`version/skyline/query.rs`'s
+/// pair-co-sweep section) settles each crest against its own segment
+/// and stays linear — the separation the `skyline_flatness` band test
+/// and the board cell hold. The **join** (the band shades every gap)
+/// collapses to
+/// unit steps around one climb, and either operand's own rank is flat:
+/// both inputs are individually innocuous, and the shape exists only in
+/// the two-operand composition.
 ///
 /// Layout, shared spine (level `ℓ = 0..33d`): `1 · γ(0)`, with the
 /// 0-leaf `0 · γ(0)` emitted before the descent at right turns

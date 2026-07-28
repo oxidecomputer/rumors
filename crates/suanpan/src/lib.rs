@@ -168,8 +168,9 @@
 //! | [`add_accum_shl`](Accumulator::add_accum_shl), [`sub_accum_shl`](Accumulator::sub_accum_shl) | amortized O(operand's held digits), independent of the shift |
 //! | [`merge_into_wider`](Accumulator::merge_into_wider) | amortized O(narrower operand's held digits) |
 //! | [`sign`](Accumulator::sign), [`is_negative`](Accumulator::is_negative), [`sign_dominates_word`](Accumulator::sign_dominates_word), [`sign_dominates_at`](Accumulator::sign_dominates_at) | amortized O(1) |
-//! | [`is_zero`](Accumulator::is_zero), [`digit_count`](Accumulator::digit_count) | O(1) |
+//! | [`is_literally_zero`](Accumulator::is_literally_zero) (one-sided: `true` means zero, `false` means unknown), [`digit_count`](Accumulator::digit_count) | O(1) |
 //! | [`shl`](Accumulator::shl), [`negate`](Accumulator::negate), [`reset`](Accumulator::reset), [`sign_magnitude`](Accumulator::sign_magnitude) | O(held digits) |
+//! | [`sign_magnitude_shl`](Accumulator::sign_magnitude_shl) | O(digits written since the last reset) |
 //!
 //! Digit touches are shift-independent; memory is not. A shifted entry
 //! point grows the digit buffer to cover the shifted position, so memory
@@ -224,9 +225,10 @@
 //! [`Accumulator`] is `Clone`, `Default`, `Debug`, and `Send + Sync` —
 //! though `Sync` buys less than usual: every amortized-O(1) sign query
 //! takes `&mut self`, so the value reads available behind a shared
-//! reference are [`is_zero`](Accumulator::is_zero),
+//! reference are [`is_literally_zero`](Accumulator::is_literally_zero),
 //! [`digit_count`](Accumulator::digit_count), the O(held digits)
-//! [`sign_magnitude`](Accumulator::sign_magnitude), and a
+//! [`sign_magnitude`](Accumulator::sign_magnitude) (and its scaled twin
+//! [`sign_magnitude_shl`](Accumulator::sign_magnitude_shl)), and a
 //! [`clone`](Clone::clone) — wrap in a lock for shared sign reads. It is deliberately not `PartialEq`: two
 //! spellings of one value would compare unequal, so compare by
 //! subtracting and reading the difference's sign. `touch-meter` is the
@@ -453,6 +455,16 @@ pub struct Accumulator {
     /// Index of the highest nonzero digit; 0 when the value is zero. Digits
     /// above it are all zero.
     top: usize,
+    /// The lowest digit index any write has deposited at since the last
+    /// [`reset`](Accumulator::reset) (or construction); [`usize::MAX`]
+    /// when none has.
+    ///
+    /// Every digit below it is zero — the invariant that lets
+    /// [`sign_magnitude_shl`](Accumulator::sign_magnitude_shl) skip the
+    /// never-written prefix instead of scanning it. Conservative: a
+    /// cancelling write may zero digits at or above it without raising
+    /// it back.
+    bottom: usize,
 }
 
 impl Accumulator {
@@ -461,6 +473,7 @@ impl Accumulator {
         Accumulator {
             digits: vec![0],
             top: 0,
+            bottom: usize::MAX,
         }
     }
 
@@ -736,6 +749,7 @@ impl Accumulator {
             *digit = 0;
         }
         self.top = 0;
+        self.bottom = usize::MAX;
     }
 
     /// The sign of the held value — `value.cmp(&0)`, so `Less` means
@@ -856,13 +870,16 @@ impl Accumulator {
         (partial.cmp(&0), decided)
     }
 
-    /// Whether the held value is *canonically* zero, without any scan or
-    /// rewrite: O(1).
+    /// Whether the held value is *literally* zero — every stored digit
+    /// zero — without any scan or rewrite: O(1).
     ///
-    /// One-sided: `true` guarantees the value is zero, but a zero built
-    /// out of cancelling nonzero digits reads `false` until a sign read
-    /// collapses it — [`sign`](Accumulator::sign)`() == Equal` is the
-    /// exact zero test, and after it this reads `true`:
+    /// **One-sided**: `true` means the value is zero; `false` means
+    /// unknown. A zero built out of cancelling nonzero digits reads
+    /// `false` until a sign read collapses it —
+    /// [`sign`](Accumulator::sign)`() == Equal` is the exact zero test,
+    /// and after it this reads `true`. Use this only where a false
+    /// negative costs nothing (skipping work a literal zero makes
+    /// unnecessary); never gate correctness on the `false` arm:
     ///
     /// ```
     /// use core::cmp::Ordering;
@@ -873,11 +890,11 @@ impl Accumulator {
     /// // The machine-word write lands whole in digit 0, so the two writes
     /// // cancel across two digits instead of clearing one:
     /// acc.sub_small(1 << 32);
-    /// assert!(!acc.is_zero());                 // zero, but spelled redundantly
+    /// assert!(!acc.is_literally_zero());       // zero, but spelled redundantly
     /// assert_eq!(acc.sign(), Ordering::Equal); // the exact test — and it collapses,
-    /// assert!(acc.is_zero());                  // so the spelling is now canonical
+    /// assert!(acc.is_literally_zero());        // so the spelling is now canonical
     /// ```
-    pub fn is_zero(&self) -> bool {
+    pub fn is_literally_zero(&self) -> bool {
         self.top == 0 && self.digits[0] == 0
     }
 
@@ -903,12 +920,51 @@ impl Accumulator {
     /// itself is unchanged — this is a read-out, not a drain, and
     /// accumulation can continue after it.
     pub fn sign_magnitude(&self) -> (Ordering, UBig) {
+        let (sign, magnitude) = self.read_magnitude(0);
+        (sign, magnitude)
+    }
+
+    /// The held value as a sign, a magnitude, and a power-of-two scale —
+    /// `value = ±magnitude · 2^shift`: O(digits written since the last
+    /// [`reset`](Accumulator::reset)).
+    ///
+    /// [`sign_magnitude`](Accumulator::sign_magnitude)'s scaled twin,
+    /// for totals accumulated far above digit zero (a weighted fold's
+    /// per-segment mass, deposited at the exponent of each summand): the
+    /// all-zero prefix below the lowest position any write has touched
+    /// since the last reset is returned as the `shift` (always a
+    /// multiple of 32) instead of being scanned into low zero bytes, so
+    /// reading a narrow value parked at a large scale costs its written
+    /// span, not its scale. The magnitude may still carry trailing zeros
+    /// when written digits cancelled downward — the skip is exact only
+    /// over the never-written region — and the `(magnitude, shift)` pair
+    /// is therefore one honest spelling of the value, not a normal form.
+    pub fn sign_magnitude_shl(&self) -> (Ordering, UBig, u64) {
+        let start = self.bottom.min(self.top);
+        let (sign, magnitude) = self.read_magnitude(start);
+        (sign, magnitude, 32 * start as u64)
+    }
+
+    /// Read out `Σ_{i ≥ start} digits[i] · 2^(32·(i − start))` as a sign
+    /// and a normalized magnitude.
+    ///
+    /// Sound only when every digit below `start` is zero (the callers
+    /// pass 0 or the write watermark [`Accumulator::bottom`]), so the
+    /// suffix read is the whole value at scale `2^(32·start)`.
+    fn read_magnitude(&self, start: usize) -> (Ordering, UBig) {
+        debug_assert!(
+            self.digits[..start.min(self.top + 1)]
+                .iter()
+                .all(|&d| d == 0),
+            "read_magnitude below the write watermark: skipped digits must be zero"
+        );
         // Low-to-high signed carry: after the pass, the collected unsigned
         // digits hold `M` with `value = carry · 2^(32·len) + M`,
         // `0 ≤ M < 2^(32·len)`.
-        let mut collected: Vec<u32> = Vec::with_capacity(self.top + 2);
+        let start = start.min(self.top);
+        let mut collected: Vec<u32> = Vec::with_capacity(self.top - start + 2);
         let mut carry: i128 = 0;
-        for &digit in &self.digits[..=self.top] {
+        for &digit in &self.digits[start..=self.top] {
             touch(1);
             let total = i128::from(digit) + carry;
             let low = total.rem_euclid(1 << DIGIT_BITS);
@@ -982,7 +1038,7 @@ impl Accumulator {
     /// let (_, magnitude) = sum.sign_magnitude();  // the sum lives in `sum`,
     /// assert_eq!(magnitude, (UBig::from(1u8) << 640usize) + 7u8);
     /// spare.reset();                              // NOT in `spare`: reset it
-    /// assert!(spare.is_zero());                   // before any reuse
+    /// assert!(spare.is_literally_zero());         // before any reuse
     /// ```
     pub fn merge_into_wider(&mut self, other: Accumulator) -> Accumulator {
         let mut other = other;
@@ -1012,6 +1068,7 @@ impl Accumulator {
     /// O(value bits / 32) digit touches, amortized O(1) for word-scale
     /// values.
     fn add_at(&mut self, mut pos: usize, mut value: i128) {
+        self.bottom = self.bottom.min(pos);
         while value != 0 {
             if pos >= self.digits.len() {
                 self.digits.resize(pos + 1, 0);
