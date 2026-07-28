@@ -528,43 +528,35 @@ fn scaled_read_costs_the_written_span() {
     );
 }
 
-/// Red pin (adversarial review 2026-07-28, task #37): an alternating
-/// shifted pair costs the zero gap under it, not O(operand limbs).
+/// Green pin (cure of adversarial review 2026-07-28, task #37 F3): an
+/// alternating shifted pair costs its operand, not the zero run under
+/// it — exact totals, identical across a shift doubling.
 ///
-/// A `sub_wide_shl`/`add_wide_shl` pair of a one-limb operand at digit
-/// position `g` costs `g + 4` digit touches: the crate page's `*_shl`
-/// cost rows ("independent of the shift") are refuted at exactly this
-/// schedule, and `digit_count`'s "a write that zeroes the top digit
-/// pays the scan down to the next nonzero one inside that write's own
-/// budget" names a budget the write does not have.
+/// A `sub_wide_shl`/`add_wide_shl` pair of a one-limb operand parked
+/// at digit `shift/32` costs exactly 5 touches: the sub pays one
+/// operand limb read, one deposit, and one settlement step whose
+/// zero-run certificate skip crosses the whole never-written run under
+/// the landing site in a single touch; the add pays one limb read and
+/// one deposit (re-certifying the run it jumps is ledger bookkeeping —
+/// no digit is read or written). Both shifts pin the same total, which
+/// is the crate page's `*_shl` rows ("independent of the shift") made
+/// exact at this schedule; the exactness doubles as the skip's
+/// metering liveness floor — an uncounted skip would read 4 per pair,
+/// a per-digit run walk would read shift/32 + 4.
 ///
-/// Mechanism: the subtraction zeroes the held value's only nonzero
-/// digit, and `add_at`'s exact-`top` maintenance then walks the zero
-/// gap from the old top down to digit 0 — `g` touches funded by no
-/// operand limb and no earlier deposit (the matching `add` re-raises
-/// `top` in O(1), so the pair repeats forever at the same price). The
-/// gap walk scales with the shift and the pin's two shifts demonstrate
-/// exactly that: doubling the shift doubles the pair cost. The exposed
-/// surface is every shifted subtractive entry whose operand is narrower
-/// than the gap under it (`sub_wide_shl`, `sub_magnitude_shl`,
-/// `sub_accum_shl`, and the `add_*` twins with a negative-signed held
-/// value).
-///
-/// The counts are exact (deterministic counter): per pair,
-/// `shift/32` gap-walk touches + 2 deposits + 2 operand-limb reads
-/// (the magnitude word path skips the limb reads: + 2 deposits only).
-/// A cure (a lazy `top` watermark, or gap-aware maintenance) collapses
-/// these totals and MUST re-pin this test and re-derive the crate
-/// page's `*_shl` cost rows and the `digit_count` scan claim in the
-/// same change; until then the cost table overstates the guarantee.
+/// The second scenario parks a second value on digit 0 first: the
+/// schedule a single global write watermark cannot price (a watermark
+/// pinned to digit 0 says nothing about the run under digit
+/// `shift/32`), pinning that the ledger certifies runs individually.
+/// The word-scale magnitude path pays the same shape minus the limb
+/// reads: exactly 3 per pair.
 #[cfg(feature = "touch-meter")]
 #[test]
-fn alternating_shifted_writes_pay_the_zero_gap_per_pair() {
+fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
     use crate::touch_meter;
 
     let one = UBig::from(1u8);
-    // Pair cost = shift/32 (gap walk) + 2 deposits + 2 limb reads.
-    for (shift, expected_total) in [(32_000u64, 1_004_000u64), (64_000, 2_004_000)] {
+    for shift in [32_000u64, 64_000] {
         let mut acc = Accumulator::new();
         acc.add_wide_shl(&one, shift);
         touch_meter::reset();
@@ -574,10 +566,10 @@ fn alternating_shifted_writes_pay_the_zero_gap_per_pair() {
         }
         assert_eq!(
             touch_meter::touches(),
-            expected_total,
-            "1,000 alternating one-limb pairs at shift {shift}: the pinned cost \
-             is (shift/32 + 4) touches per pair; a change here must re-derive \
-             the crate page's *_shl cost rows in the same commit"
+            5_000,
+            "1,000 alternating one-limb pairs at shift {shift}: 5 touches per \
+             pair (2 limb reads + 2 deposits + 1 certificate skip), whatever \
+             the shift"
         );
         // The oscillation is value-neutral: the held value is still 2^shift.
         let (sign, magnitude) = acc.sign_magnitude();
@@ -587,7 +579,31 @@ fn alternating_shifted_writes_pay_the_zero_gap_per_pair() {
             UBig::from(1u8) << usize::try_from(shift).unwrap()
         );
     }
-    // The magnitude word path pays the same gap without the limb reads.
+    // A value parked on digit 0 does not re-price the oscillation above
+    // it: the run's certificate, not a global watermark, funds the skip.
+    for shift in [32_000u64, 64_000] {
+        let mut acc = Accumulator::new();
+        acc.add_small(5);
+        acc.add_wide_shl(&one, shift);
+        touch_meter::reset();
+        for _ in 0..1_000 {
+            acc.sub_wide_shl(&one, shift);
+            acc.add_wide_shl(&one, shift);
+        }
+        assert_eq!(
+            touch_meter::touches(),
+            5_000,
+            "the occupied digit 0 changes nothing: 5 touches per pair at \
+             shift {shift}"
+        );
+        let (sign, magnitude) = acc.sign_magnitude();
+        assert_eq!(sign, Ordering::Greater);
+        assert_eq!(
+            magnitude,
+            (UBig::from(1u8) << usize::try_from(shift).unwrap()) + 5u8
+        );
+    }
+    // The magnitude word path pays the same shape without the limb reads.
     let five = UBig::from(5u8);
     let mut acc = Accumulator::new();
     acc.add_magnitude_shl(&five, 32_000);
@@ -598,10 +614,209 @@ fn alternating_shifted_writes_pay_the_zero_gap_per_pair() {
     }
     assert_eq!(
         touch_meter::touches(),
-        1_002_000,
-        "1,000 alternating word-scale magnitude pairs at shift 32,000: the \
-         pinned cost is (shift/32 + 2) touches per pair"
+        3_000,
+        "1,000 alternating word-scale magnitude pairs at shift 32,000: \
+         3 touches per pair (2 deposits + 1 certificate skip)"
     );
+    let (sign, magnitude) = acc.sign_magnitude();
+    assert_eq!(sign, Ordering::Greater);
+    assert_eq!(magnitude, UBig::from(5u8) << 32_000usize);
+}
+
+/// Meter liveness for the top-settlement scan: the steps that lower
+/// `top` past written-then-zeroed digits are counted, one touch each.
+///
+/// A value with digits 5..=10 nonzero is built over a never-written
+/// run below, then a subtraction zeroes digits 6..=10: the sub costs
+/// exactly 16 touches — 6 operand limb reads + 5 deposits + 5
+/// settlement steps walking the top from digit 10 down onto digit 5.
+/// If the settlement scan stopped counting, the total would read 11:
+/// the exact pin is the scan's liveness floor (a ceiling over a
+/// counter that can silently stop counting is decoration).
+#[cfg(feature = "touch-meter")]
+#[test]
+fn top_settlement_steps_are_metered() {
+    use crate::touch_meter;
+
+    // Digits 5..=10 hold 1 each; digits 0..=4 are never written.
+    let six_high = from_limbs(&[0, 0, 1 << 32, (1 << 32) | 1, (1 << 32) | 1, 1]);
+    // Digits 6..=10 hold 1 each.
+    let five_high = from_limbs(&[0, 0, 0, (1 << 32) | 1, (1 << 32) | 1, 1]);
+    let mut acc = Accumulator::new();
+    acc.add_wide(&six_high);
+    touch_meter::reset();
+    acc.sub_wide(&five_high);
+    assert_eq!(
+        touch_meter::touches(),
+        16,
+        "6 limb reads + 5 deposits + 5 settlement steps: the settlement \
+         scan must count one touch per digit it steps past"
+    );
+    let (sign, magnitude) = acc.sign_magnitude();
+    assert_eq!(sign, Ordering::Greater);
+    assert_eq!(magnitude, UBig::from(1u8) << 160usize);
+}
+
+/// The sign fold skips certified zero runs whole when its partial is
+/// zero.
+///
+/// A cancellation spelled across the two digits above a 1,000-digit
+/// never-written run reads `Equal` in exactly 6 touches (3 fold
+/// reads plus 3 collapse zeroes) instead of walking the run, and the
+/// collapse still canonicalizes the spelling to the literal zero.
+#[cfg(feature = "touch-meter")]
+#[test]
+fn sign_fold_skips_certified_runs() {
+    use crate::touch_meter;
+
+    let mut acc = Accumulator::new();
+    acc.add_wide_shl(&UBig::from(1u8), 32 * 1_001);
+    // Deposit −2^32 in digit 1,000: the value is now zero, spelled
+    // across digits 1,000 and 1,001 above the never-written run.
+    acc.sub_magnitude_shl(&UBig::from(1u64 << 32), 32 * 1_000);
+    touch_meter::reset();
+    assert_eq!(acc.sign(), Ordering::Equal);
+    assert_eq!(
+        touch_meter::touches(),
+        6,
+        "3 fold reads + 3 collapse zeroes: a zero partial crosses the \
+         certified run in one skip, touching none of its digits"
+    );
+    assert!(acc.is_literally_zero(), "the collapse canonicalized zero");
+}
+
+/// The accumulator-operand rows cost the operand's held digits, not
+/// the receiver's width or the shift.
+///
+/// Exact totals for `add_accum`, `sub_accum`, `add_accum_shl`, and
+/// `merge_into_wider` on a two-digit operand — 4 touches each (one
+/// read plus one deposit per operand digit) — unchanged when the
+/// receiver's held width doubles and when the merge shift doubles.
+///
+/// These are the cost table's "amortized O(operand's held digits),
+/// whatever the held width / independent of the shift" rows, pinned
+/// exact at their canonical shape.
+#[cfg(feature = "touch-meter")]
+#[test]
+fn accumulator_operand_rows_cost_the_operand() {
+    use crate::touch_meter;
+
+    // A two-digit operand: digits 0 and 1 hold 1 each.
+    let narrow = || {
+        let mut acc = Accumulator::new();
+        acc.add_wide(&from_limbs(&[(1 << 32) | 1]));
+        acc
+    };
+    // Receivers of 64 and 128 held digits: 2^k − 1 fills every digit.
+    for k in [2_048u32, 4_096] {
+        let wide_value = (UBig::from(1u8) << k as usize) - 1u8;
+        let op = narrow();
+
+        let mut receiver = Accumulator::new();
+        receiver.add_wide(&wide_value);
+        touch_meter::reset();
+        receiver.add_accum(&op);
+        assert_eq!(
+            touch_meter::touches(),
+            4,
+            "add_accum of 2 digits into {} held digits: 2 reads + 2 deposits",
+            k / 32,
+        );
+
+        let mut receiver = Accumulator::new();
+        receiver.add_wide(&wide_value);
+        touch_meter::reset();
+        receiver.sub_accum(&op);
+        assert_eq!(touch_meter::touches(), 4, "sub_accum twin at {k} bits");
+
+        let mut receiver = Accumulator::new();
+        receiver.add_wide(&wide_value);
+        let mut spare = op;
+        touch_meter::reset();
+        spare = receiver.merge_into_wider(spare);
+        assert_eq!(
+            touch_meter::touches(),
+            4,
+            "merge_into_wider reads the narrower operand only"
+        );
+        spare.reset();
+        let (sign, magnitude) = receiver.sign_magnitude();
+        assert_eq!(sign, Ordering::Greater);
+        assert_eq!(
+            magnitude,
+            (UBig::from(1u8) << k as usize) - 1u8 + UBig::from((1u64 << 32) | 1)
+        );
+    }
+    // The scaled merge is shift-independent at the same exact total.
+    for shift in [32_000u64, 64_000] {
+        let op = narrow();
+        let mut receiver = Accumulator::new();
+        receiver.add_wide(&((UBig::from(1u8) << 2_048usize) - 1u8));
+        touch_meter::reset();
+        receiver.add_accum_shl(&op, shift);
+        assert_eq!(
+            touch_meter::touches(),
+            4,
+            "add_accum_shl of 2 digits at shift {shift}: 2 reads + 2 deposits"
+        );
+        let (sign, magnitude) = receiver.sign_magnitude();
+        assert_eq!(sign, Ordering::Greater);
+        assert_eq!(
+            magnitude,
+            (UBig::from(1u8) << 2_048usize) - 1u8
+                + (UBig::from((1u64 << 32) | 1) << usize::try_from(shift).unwrap())
+        );
+    }
+}
+
+/// The per-call O(held digits) rows read exact totals at 64 held
+/// digits.
+///
+/// `negate` and `reset` touch each held digit once (64), `shl` reads
+/// each digit and re-deposits it (128), and `sign_magnitude` carries
+/// once through the span (64).
+#[cfg(feature = "touch-meter")]
+#[test]
+fn held_width_rows_cost_the_held_digits() {
+    use crate::touch_meter;
+
+    let wide_value = (UBig::from(1u8) << 2_048usize) - 1u8;
+    let mut acc = Accumulator::new();
+    acc.add_wide(&wide_value);
+
+    touch_meter::reset();
+    acc.negate();
+    assert_eq!(touch_meter::touches(), 64, "negate: one touch per digit");
+    acc.negate();
+
+    touch_meter::reset();
+    let (sign, magnitude) = acc.sign_magnitude();
+    assert_eq!(
+        touch_meter::touches(),
+        64,
+        "sign_magnitude: one carry pass over the held digits"
+    );
+    assert_eq!((sign, magnitude), (Ordering::Greater, wide_value.clone()));
+
+    touch_meter::reset();
+    acc.shl(32);
+    assert_eq!(
+        touch_meter::touches(),
+        128,
+        "shl: one read and one re-deposit per held digit"
+    );
+    let (sign, magnitude) = acc.sign_magnitude();
+    assert_eq!(sign, Ordering::Greater);
+    assert_eq!(magnitude, wide_value.clone() << 32usize);
+
+    touch_meter::reset();
+    acc.reset();
+    assert_eq!(
+        touch_meter::touches(),
+        65,
+        "reset: one touch per held digit (the shift grew the span by one)"
+    );
+    assert!(acc.is_literally_zero());
 }
 
 /// A fresh accumulator (and its `Default`) holds exactly zero.
@@ -682,6 +897,53 @@ proptest! {
                 );
             }
         }
+    }
+
+    /// Run-forming shift streams match the exact oracle at every step.
+    ///
+    /// Wide-shifted writes at scales that jump far above the held top —
+    /// creating, splitting, and consuming zero-run certificates on
+    /// every schedule the strategy can draw — mixed with word-scale
+    /// deltas and a sign read per step: the ledger never changes the
+    /// value the digits denote, and the full value matches at periodic
+    /// snapshots and the end.
+    #[test]
+    fn run_forming_shift_streams_match_the_bigint_oracle(
+        ops in proptest::collection::vec(
+            (0u8..4, proptest::collection::vec(any::<u64>(), 1..=2), 0u64..4_096),
+            1..150,
+        ),
+    ) {
+        let mut acc = Accumulator::new();
+        let mut oracle = IBig::from(0);
+        for (step, (arm, limbs, shift)) in ops.iter().enumerate() {
+            let value = from_limbs(limbs);
+            let scaled = IBig::from(value.clone()) << usize::try_from(*shift).unwrap();
+            match arm {
+                0 => {
+                    acc.add_wide_shl(&value, *shift);
+                    oracle += scaled;
+                }
+                1 => {
+                    acc.sub_wide_shl(&value, *shift);
+                    oracle -= scaled;
+                }
+                2 => {
+                    acc.sub_magnitude_shl(&value, *shift);
+                    oracle -= scaled;
+                }
+                _ => {
+                    let delta = limbs[0] as i64;
+                    acc.add_small(delta);
+                    oracle += delta;
+                }
+            }
+            prop_assert_eq!(acc.sign(), oracle_sign(&oracle), "sign at step {}", step);
+            if step % 32 == 0 {
+                assert_value(&acc, &oracle);
+            }
+        }
+        assert_value(&acc, &oracle);
     }
 
     /// `shl` scales in place exactly: after any stream, shifting the held
