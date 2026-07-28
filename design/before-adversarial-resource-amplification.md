@@ -1687,6 +1687,157 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   structure inherits the blind spot until search probes are a
   metered primitive.
 
+- **CURED 2026-07-28 (cure round #78, track 1: the query folds;
+  branch `cure78-folds`).** Charter: cure everything superlinear
+  in `Version::min_ticks` and `Version::rank` (#37's F1/F2), land
+  FP as a board family, and return both `# Complexity` claims to
+  unqualified `O(|v|)` honestly. All numbers exact deterministic
+  counters, dev profile for pins, release for board renders;
+  every movement attributed by measuring at the parent
+  (395f0e72) on the same machine.
+
+  **F2 cured — rank on the anchored-segment integral.** The rank
+  fold is now the single-stream instance of the pair co-sweep's
+  `Integrator` (orientation constantly +1): no freeze reads an
+  absolute position — a settle pays the parked width times
+  within-segment depth variation, and the absolute position is
+  banked one compacted segment mass per freeze (read only at
+  promotions), so a sweep that never freezes never touches it.
+  Pin flipped: `rank_freeze_position_touches_read_superlinear`
+  (red band, per-byte touch growth ×1.50 / limb ×1.43 across
+  FP(1,000) → FP(2,000)) →
+  `skyline_flatness::skyline_rank_freeze_position_is_flat_per_unit`
+  (green band ×1.25 with absolute ceilings; measured 87,489 →
+  175,206 touches and 35,436 → 70,872 limb ops on 73,328 →
+  146,579 B, per-byte ×1.002/×1.000 — and 30% *fewer* touches
+  than the old fold's small scale). Every pre-existing rank
+  envelope row read back byte-identical or better at the cure
+  tip (jump 5,138/10,268 touches, over-threshold 6,182/12,390,
+  freeze-band and jump-eviction ceilings untouched): the
+  attribution is clean — the rewrite moved only what it claimed.
+  The pair rows dropped one touch per interval (the position add
+  left the per-interval path): distance jump-pair 184,494 →
+  181,531 touches, limb byte-identical at 53,905.
+
+  **F1 cured — min_ticks on a range-minimum anchor web plus an
+  epoch ledger** (`skyline/query/web.rs`; its module doc carries
+  the potential function and its one-ledger arity, per charter).
+  Subtree spans nest LIFO, so each closing node's minimum is the
+  innermost open range's — the fill watermark's problem,
+  re-derived for the fold: differences stacked with zero runs
+  compressed and a latent register (wide content shuttles by
+  moves), machine-word boundaries held inline, and the folded
+  minima batched as *reigns* — one value record per distinct
+  minimum, closes counted against it, one `offset × count`
+  settle at the record's death, so an interrupted reign never
+  re-reads its width. The frozen component is per-epoch drifts
+  settled once at the end by summation by parts
+  (`Σ_e refs_e·F_e = Σ_f drift_f · suffix-refs_f`) — no event is
+  ever re-based across a freeze. Pins flipped:
+  `min_ticks_pure_comb_touches_read_superlinear` (×1.88/byte,
+  rising) →
+  `skyline_flatness::skyline_min_ticks_pure_comb_is_flat_per_unit`
+  (×1.00; 18,210 → 2,228 touches at the small scale, 8.2×
+  lighter);
+  `min_ticks_reveal_comb_reads_superlinear_in_both_width_currencies`
+  (×1.66 touch / ×1.68 limb) →
+  `skyline_min_ticks_reveal_comb_is_flat_per_unit` (×1.00 both;
+  24,273 → 13,397 touches, 23,467 → 12,101 limb). Envelope
+  re-pins with derivations at the rows: cliff 49,752 → 2,592 B
+  heap (19×), 70,962 → 10,619 touches (6.7×), 8,258 → 6,284
+  limb; dense trades a 2× touch constant (125,005 → 250,008:
+  every delta now folds into the live height *and* the web's
+  gap) for the class cure, with limb halved (500,002 → 250,006)
+  and heap and scan byte-identical.
+
+  **FP landed as a board family** (`freeze-pos`, FAMILIES 21 →
+  22, cells 1111 → 1154, version-only bundle, designed against
+  the Measure group). All 43 cells GREEN at both scales;
+  `version_rank`/`version_min_ticks` × freeze-pos read e 1.00 in
+  every currency. Adequacy per the ratchet: the known-bad
+  absolute-position kernel stays committed
+  (`query::tests::adequacy::absolute_position_accounting_reads_superlinear_on_freeze_position`),
+  value-exact against the shipped rank and asserted RED on the
+  family (124,368 → 372,859 touches, ×1.50/byte, floor 1.25),
+  so the green flatness band is never decoration. One
+  measurement-shape finding en route: the family's rank exponent
+  is `2s − 1` exactly, and `rank_sum` lands its small summands at
+  bit remainder `exp mod 32` — a remainder near the digit top
+  makes most landings span two digits (an honest amortized-O(1)
+  constant, 1.0 → 1.57 per summand at remainders 15 → 31), and an
+  exponent fitted across two scales with different remainders
+  reads the flip as growth (e 1.65). The base is 1,024 blocks so
+  `2s ≡ 0 (mod 32)` and every doubling compares like against
+  like; the derivation lives on `FREEZE_POS_BASE_BLOCKS`.
+
+  **Board delta (parent → tip, same-machine release renders):
+  default 30 → 24 red, ×4 27 → 20 red** (cells 1071 → 1154, the
+  43 freeze-pos cells all green). Cured at default:
+  `version_min_ticks` × {cliff, pure-comb, reveal-comb,
+  ascend-plateau (exponent mechanism), mirror-narrow, mirror-wide
+  (heap constants)}; at ×4 additionally × comb-scatter (heap
+  constant) — parent ×4 read touch exponents 1.82–1.98 and heap
+  constants up to 173.4 B/B (mirror-narrow) on this row, all now
+  e 1.00 under the ceilings (mirror-narrow heap 173.4 → 0.0/B:
+  the zero-run compression annihilated the per-level pending
+  entries). No cell outside `version_min_ticks` moved at either
+  scale.
+
+  **The residual and the disputes** (charter item 3, the
+  heap-constant reds):
+  - `version_min_ticks × ascend-cliff` stays red on the heap
+    constant alone: the parent read it red on TWO mechanisms
+    (heap 40.5 B/B + touch e 1.81 at default; + touch constant
+    116.6/B at ×4); the cure removed the exponent mechanism and
+    the constant moved 40.5 → 105.9 B/B (e 1.00, honest and
+    linear). Mechanism named: the family arms `k` simultaneously
+    open ranges with `k` *distinct* minima — no zero run
+    compresses and no reign batches across them — so any
+    one-pass exact fold holds Θ(k) live state (the parent's
+    pending stack did too); the per-frame constant is the reign
+    record (offset + epoch + count) and the inline word boundary,
+    ~119 B/frame with `Vec` doubling slack, the state that buys
+    the exponent cure. Proposed disposition (owner accepts
+    evidence-backed disputes): an accepted stated-band residual
+    in §17.3, same genre and owner as the ascending-cliff tick
+    pair's round-7 record, with the small-buffer/packed-frame
+    representation the candidate cure if one is ever warranted.
+  - **The tick-family ascend-cliff constants are not this
+    track's code region — disputed with evidence.** The charter
+    assigned `version_tick`/`version_ticks`/`clock_tick` ×
+    ascend-cliff (`~64–66 B/B`) here as "same code region";
+    measured, they are the fill walk's watermark stack
+    (`skyline/fill/watermark.rs`), not the query folds, and they
+    read **byte-identical across this track's entire change**
+    (78.9 B/B, e 1.00, at parent and tip, both scales' default
+    render) — the fold rewrite provably does not reach them.
+    The `~64–66 B/B` figure is also stale: the parent of this
+    track already reads 78.9 B/B at the default scale, so that
+    drift (66.3 → 78.9) belongs to commits between the merge72
+    renders and this track's base, not to this cure. Their §17.3
+    stated-band record (91.3 B per armed nonzero difference plus
+    a 2,905 B floor, exponent axis-invariant) stands unamended.
+
+  **Co-sweep recheck (review residual 2): no wedge — landed as
+  coverage.** The two-operand FP analogue — `distance`/`lag` on
+  `(FP(k), unit-descending mate)`, one operand's cheap codes
+  firing Θ(k) freezes of drift only the other's wide codes
+  deposited, at ever-deeper positions — reads ×1.00 per byte in
+  both currencies (258,676 → 517,516 touches on 73 → 146 KiB
+  pairs), promotion never fires, and the three rank-identity
+  value legs are exact. Committed as
+  `skyline_flatness::skyline_distance_freeze_position_is_flat_per_unit`.
+
+  **Claims closed in the same change**: both `# Complexity`
+  sections back to unqualified `O(|v|)` time and space, the
+  claims-roster tokens re-pinned to `` `O(|v|)` ``, both
+  TODO-cure comments resolved (`Class::Linear` is true against
+  the tree), and the query module doc re-derived — the
+  frozen/live section is now the shared trigger discipline, the
+  anchored-segment section carries rank as its single-stream
+  instance, and the min_ticks cost paragraph cites the web's
+  certificate instead of a non-contractual excess.
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
@@ -1975,18 +2126,19 @@ populated `BOARD_RED_BENCH_RIDERS` alike — must fit under its own
 ceiling: a constant-factor counter red is not a time-exponent red
 (the thirteen riders measured e 0.93–1.18).
 
-**Numbers of record** [measured 2026-07-27; release profile,
-single runs per scale under the determinism tripwire — the
-`board-merge72-{lo,hi}.txt` renders, at the tree carrying the
-ticks(n) landing, the co-sweep cure, and the batch removal]:
-board **1041 green / 30 red at the default scale; 1044 / 27 at
-×4** over **1071 cells** (the `version_ticks` row's 19 cells in,
-the `version_batch_snapshot` row's 19 out — green at both scales
-when they left; the red roster names no batch cell). The
+**Numbers of record** [measured 2026-07-28; release profile,
+single runs per scale under the determinism tripwire, at the
+query-fold cure's tree (§12's cure round #78 entry — the
+anchor-web min_ticks fold, the anchored-segment rank, and the
+freeze-pos family)]: board **1130 green / 24 red at the default
+scale; 1134 / 20 at ×4** over **1154 cells** (the freeze-pos
+family's 43 cells in, all green; the prior record read
+1041 + 30 / 1044 + 27 over 1071 cells at the
+`board-merge72-{lo,hi}.txt` renders). The
 acceptance sweep's final renders re-baseline the full board. The
 red roster, every red with exactly one owner, is §17.3; the
 cell-count and verdict lineage across the campaign's rounds
-(200 → 989 → 1071 → 1090 → 1071)
+(200 → 989 → 1071 → 1090 → 1071 → 1154)
 is in git history at the commits §14 names.
 
 **Acceptance (the campaign's; protocol per §12's ratification):
@@ -2313,23 +2465,23 @@ legs and its resource pin — the representation-pin leg per the
 snapshot-pinned in-crate); the benign rank-pair operand scaling
 if C3 chose that arm; the §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over the 1071 cells)
+### 17.3 Owned-red accounting (current; over the 1154 cells)
 
-Sums [measured 2026-07-27, the `board-merge72-{lo,hi}.txt`
-renders — the tree carrying the ticks(n) landing, the co-sweep
-cure, and the batch removal; the prior boards of record read
-966 + 23 / 969 + 20 over 989 cells]:
-**default 1041 + 30 = 1071; record 1044 + 27 = 1071.** The
-seven reds beyond this roster's named entries are the ticks
-landing's (`version_min_ticks` × {ascend-cliff, ascend-plateau,
-cliff, mirror-wide, pure-comb, reveal-comb} and the new
-`version_ticks` row's ascend-cliff — the counter genres its §12
-entry enumerates), absorbed into this roster at the acceptance
-sweep's re-baseline. Every red
-has exactly one owner and the sums close; the per-round movement
-lineage (each round's flips, bucketed by mechanism, with every
-untouched cell verified byte-identical) is in git history at the
-commits §14 names.
+Sums [measured 2026-07-28, release renders at the query-fold cure
+(§12's cure round #78 entry) — the tree carrying the anchor-web
+min_ticks fold, the anchored-segment rank, and the freeze-pos
+family (cells 1071 → 1154); the prior boards of record read
+1041 + 30 / 1044 + 27 over 1071 cells at the
+`board-merge72-{lo,hi}.txt` renders]:
+**default 1130 + 24 = 1154; record 1134 + 20 = 1154.** The cure
+resolved every `version_min_ticks` red but ascend-cliff's heap
+constant (six cells at default, seven at ×4 — the exponent
+mechanisms and the mirror/comb heap constants alike); every
+other red is byte-identical across the cure at both scales.
+Every red has exactly one owner and the sums close; the
+per-round movement lineage (each round's flips, bucketed by
+mechanism, with every untouched cell verified byte-identical) is
+in git history at the commits §14 names.
 
 The red roster, both scales enumerated from the renders:
 
@@ -2384,17 +2536,25 @@ scales with the scan floor exactly satisfied.)
   benign` only, 116.9 bits/B — the version-side pair reads green
   there, the n·log n signature): owner **the n-cursor merge item
   (§17.2)**.
-- **`version_min_ticks` heap constants** (mirror-narrow at both
-  scales, mirror-wide joining at ×4): the query walk's per-level
-  owned heap entries on the deep left-full memo shapes — linear
-  in site count, a constant the ceiling honestly rejects; the
-  same constant genre as the tick memo's diff-coded record (the
-  spec's §9 round 4). Owner: an accepted stated-band residual
-  with the diff-coded memo as the candidate cure if one is ever
+- **`version_min_ticks × ascend-cliff`'s heap constant** (105.9
+  B/B default / 108.6 ×4, e 1.00 with every work column flat —
+  the query-fold cure removed this cell's touch-exponent
+  mechanism and its ×4 touch constant in the same change, §12's
+  cure round #78 entry): the family arms `k` simultaneously open
+  ranges with `k` distinct minima, so no zero run compresses and
+  no reign batches across them — any one-pass exact fold holds
+  Θ(k) live state here, and the anchor web's per-frame constant
+  is the reign record (offset, epoch, count) plus the inline word
+  boundary, ~119 B/frame with `Vec` doubling slack, the state
+  that buys the exponent cure. Linear in the input, honestly over
+  the 16 B/B ceiling. Owner: an accepted stated-band residual,
+  the same genre as the tick pair's entry below, with a
+  packed-frame representation the candidate cure if one is ever
   warranted.
-- **The ascending-cliff tick pair's heap constants** (64.1/66.3
-  B/B, e 1.00, ~1 B/B of it the iterative walk's frame bits — the
-  one committed family holding k
+- **The ascending-cliff tick family's heap constants**
+  (`version_tick`/`version_ticks`/`clock_tick`, 78.9 B/B at the
+  2026-07-28 default render, e 1.00, ~1 B/B of it the iterative
+  walk's frame bits — the one committed family holding k
   simultaneously-armed nonzero boundary differences, one pooled
   unit-width buffer each; linear in the input, honestly over the
   16 B/B ceiling): owner: the spec's §9 round-7 record — a
@@ -2404,14 +2564,19 @@ scales with the scan floor exactly satisfied.)
   per-difference width b grow together: at fixed b the peak heap
   is exactly affine in k (91.3 B per armed nonzero difference
   plus a 2,905 B floor) and the B/B reading drifts with the k:b
-  mix while the exponent holds 1.00. A future re-pin of this cell
+  mix while the exponent holds 1.00 (the merge72 renders read
+  64.1/66.3 B/B; the drift to 78.9 landed between those renders
+  and the cure round's base — the cure round's parent and tip
+  read the cells byte-identical). A future re-pin of this cell
   must re-measure on the board's own axis; the exponent claim is
   axis-invariant, the constant is not.
 Bench riders (`BOARD_RED_BENCH_RIDERS`) are populated (item 11's
-realization, 2026-07-26 — §12's P5 closeout record): the 13
+realization, 2026-07-26 — §12's P5 closeout record; re-realized
+2026-07-28 at the query-fold cure): the 12
 standing reds above that the designed pairings do not already
-time — the display and `min_ticks` rows on the tick-cross and
-harmonic shapes — each keep a judged time leg in the pinned bench
+time — the display rows on the tick-cross and harmonic shapes,
+and the `min_ticks` row on the ascend-cliff cross — each keep a
+judged time leg in the pinned bench
 subset, and every rider must fit under its own ceiling (the reds
 above are counter constants, not time exponents). A rider and its
 roster expectation move as one reviewed diff, judge-verified.
