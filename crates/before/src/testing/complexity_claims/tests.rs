@@ -344,9 +344,9 @@ fn claim_rows_are_printable() {
     assert!(!format!("{:?}", row.checks[0].site).is_empty());
 }
 
-/// The class-binding seal (review #37, F1's categorical fix): no linear
-/// claim cites a board cell standing red on an exponent mechanism, and
-/// every counter-superlinear claim keeps at least one.
+/// The class-binding seal: no linear claim cites a board cell standing
+/// red on an exponent mechanism, and every counter-superlinear claim
+/// keeps at least one.
 ///
 /// The bench judge's red set binds only wall time, and the
 /// `version_min_ticks` time legs sit under the judge's resolution at

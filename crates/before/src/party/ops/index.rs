@@ -272,8 +272,7 @@ impl<'a> IdIndex<'a> {
 /// (32 bits per probe): the table is derived verbatim from the packed
 /// stream's positions, so probing it is stream examination by another
 /// route, and an unmetered search would leave the fold's per-node
-/// `O(log n)` term visible to no deterministic counter — the instrument
-/// hole the #37 review found on exactly this line. The board's fold
+/// `O(log n)` term visible to no deterministic counter. The board's fold
 /// cells and the envelope suite's both-present-rich scenario read the
 /// searches through this recording.
 fn metered_partition_point(rights: &[u32], target: u32) -> usize {

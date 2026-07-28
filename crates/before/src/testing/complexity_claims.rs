@@ -86,9 +86,10 @@ pub(crate) enum Class {
     /// The class-binding tests hold it live in both directions: a claim
     /// in this class must cite at least one exponent-red board cell
     /// (else the class is decoration and the claim flips to a linear
-    /// one), and no linear claim may cite any. The member: `min_ticks`
-    /// (the pending-minima merge's allowance-uncapped width circulation,
-    /// review #37 F1), until its cure flips the board pins.
+    /// one), and no linear claim may cite any. Currently unpopulated:
+    /// the class and its seal stand ready for the next
+    /// counter-superlinear finding, and the mutation tests keep both
+    /// directions honest meanwhile.
     SuperlinearCounter,
 }
 

@@ -701,8 +701,8 @@ fn parity_halves(d: usize) -> (Party, Party) {
 /// committed floor, which sits far above what the walk's tag reads
 /// alone could reach.
 ///
-/// The liveness leg of the fold index's search metering (review #37,
-/// F4): the searches are the dominant cost on correlated populations,
+/// The liveness leg of the fold index's search metering: the searches
+/// are the dominant cost on correlated populations,
 /// and a change that routes them around the scan recorder would leave
 /// that cost visible to no deterministic counter. Floor = the measured
 /// reading ×0.75 (the envelope suite's liveness-floor convention);

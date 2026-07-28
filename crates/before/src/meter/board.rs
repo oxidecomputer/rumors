@@ -425,8 +425,7 @@
 //!
 //! - `freeze-pos`, built against the linear-functional rows: `Θ(s)`
 //!   query-fold freezes at ever-deeper stream positions where every
-//!   comb fires O(1) — the coverage the #37 review's freeze-position
-//!   finding named. The committed known-bad kernel (the query fold's
+//!   comb fires O(1). The committed known-bad kernel (the query fold's
 //!   adequacy tripwire) reads ×1.50 per byte across this family's
 //!   doubling, so a green `version_rank × freeze-pos` cell is a live
 //!   verdict, not decoration.
@@ -842,13 +841,11 @@ pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 /// the fold model plus this allowance at both scales\], zero on
 /// populations with no both-present structure (scatter's single-leaf
 /// operands), and absent from the version fold, which runs no overlap
-/// test. The decision to keep the index and price its searches — over
-/// reverting to the per-input cursor walk the #37 review's F4 weighed —
-/// is the design doc's dated F4 entry: the committed overlap
-/// instruments pin the index's asymptotic win (a cursor discipline
-/// reads quadratic on the overlap rows and trips the flatness pin),
-/// and the index ties or wins wall time on every committed fold
-/// population.
+/// test. The index stays, its searches priced, over a per-input cursor
+/// walk: the committed overlap instruments pin the index's asymptotic
+/// win (a cursor discipline reads quadratic on the overlap rows and
+/// trips the flatness pin), and the index ties or wins wall time on
+/// every committed fold population.
 pub const INDEX_PROBE_SCAN_BITS: u64 = 32;
 
 /// A packed id operand's both-present node count: the size of the
