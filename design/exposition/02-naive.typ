@@ -7,12 +7,12 @@ algebraic data type with one heap node per tree node, an
 arbitrary-precision integer at each event node, the operations as the
 recursive functions printed in the paper, and the appendix's
 variable-length coding for the wire. Call this the _direct
-transcription_. It is the correct starting point — our own
-implementation keeps exactly such a transcription in-tree forever as
-the semantic oracle its optimized kernels are differentially tested
-against — and it is worth costing honestly, because its defects, and
-the failure of the obvious repairs, dictate the shape of everything
-built later.
+transcription_. It is the correct starting point: our own
+implementation keeps exactly such a transcription in-tree forever,
+as the semantic oracle against which its optimized kernels are
+differentially tested. And it is worth costing honestly, because its
+defects — and the failure of the obvious repairs — dictate the shape
+of everything built later.
 
 == Two lengths to fear <lengths>
 
@@ -95,9 +95,7 @@ here, and used consistently through @resilience.
     $plus.minus$-steps). `hugeleaf` and
     `bigroot` are unreachable by any honest history at the scales
     that hurt (a height near $2^W$ needs on the order of $2^W$
-    ticks); the others are merely unlikely. Either way the lesson
-    is the same: validity, not provenance, bounds cost at a byte
-    boundary.],
+    ticks); the others are merely unlikely.],
 ) <families>
 
 == Defect 1: path sums in comparison and join <path-sums>
@@ -108,8 +106,8 @@ $ "leq"((n_1, l_1, r_1), (n_2, l_2, r_2)) = n_1 <= n_2 and
   "leq"(l_1 arrow.t n_1, l_2 arrow.t n_2) and
   "leq"(r_1 arrow.t n_1, r_2 arrow.t n_2) $
 
-where $e arrow.t m$ adds $m$ to the root of $e$. Transcribed
-literally, each recursive call materializes lifted children: an
+with $e arrow.t m$ the lift of @model. Transcribed literally, the
+equation makes each recursive call materialize lifted children: an
 arbitrary-precision addition _and a fresh integer_ per node per level.
 After descending a path, the lifted value at the cursor is the sum of
 bases along the path — a _path sum_ — and on `bigroot`$(d, W)$ every
@@ -139,18 +137,19 @@ the operand, as the formula says it must.
 Join has the same skeleton: at every paired node it lifts both of
 one side's children by the base difference, $l_2 arrow.t (n_2 - n_1)$
 and $r_2 arrow.t (n_2 - n_1)$, with the operands ordered so the
-difference is nonnegative. Join then adds
+difference is nonnegative. It then adds
 the normalization pass: `norm` computes the minimum over each node's
 children and lifts it into the parent, subtracting it from both
 children — more per-level arbitrary-precision work of exactly the
-path-sum shape. Every two-operand walk in the transcription shares the
-defect, because the paper's equations all reason in _absolute_ values
-which only exist, at a node, as the sum of everything above it. And
+path-sum shape. Every two-operand walk in the transcription shares
+the defect, because the paper's equations all reason in _absolute_
+values, and an absolute value exists at a node only as the sum of
+everything above it. And
 `fill` and `grow` inherit it too: the shortcut arms recompute
 subtree maxima and minima at every level — absolute, $W$-bit
 quantities on `bigroot` — so the transcription's tick is another
-$Theta(d dot W)$ walk, the baseline @tick-output's cure is measured
-against.
+$Theta(d dot W)$ walk, the baseline against which @tick-output's
+cure is measured.
 
 == Defect 2: decoding a wide value <naive-decode>
 
@@ -172,8 +171,8 @@ average, four million times, about a terabyte of write traffic
 (reads ride the cache). A half-megabyte, cache-resident working set
 streams at tens of gigabytes per second — the right order for what
 the measurement showed: over fourteen seconds for one value. The cured
-decoder (accumulate machine words, splice them once) does the same
-work in milliseconds (measured), linearly. The defect looks trivial once named —
+decoder — accumulate machine words, splice them once — does the same
+work linearly, in milliseconds (measured). The defect looks trivial once named —
 of course you buffer words — but it is worth its own entry for two
 reasons. First, it is a _decode-time_ quadratic: it runs on arbitrary
 bytes before any validity judgment, which is the worst possible place
@@ -187,14 +186,14 @@ once, not $W$ payments of growing size.
 Every operation in the paper is a structural recursion, and a
 transcription runs it on the call stack: one native frame per tree
 level. A bare frame — return address, saved registers — is tens of
-bytes against the roughly *three bits* the level cost on the wire,
-already a hundredfold amplification; with each frame's spilled
-locals and temporaries the stack cost measured near $300$ bytes per
-level in our transcription, $800 times$ the wire. And there is a
+bytes against the roughly *three bits* the level cost on the wire:
+already a hundredfold amplification. With each frame's spilled
+locals and temporaries, our transcription's stack cost measures near
+$300$ bytes per level, $800 times$ the wire. And there is a
 harder edge behind the constant: at 300 bytes per level, a default
-thread stack of a few megabytes overflows — crashing the process, or
-forcing a guard-page fault handler — at $d$ around $10^4$:
-`deep spine` at an input of a few _kilobytes_. A library that can be
+thread stack of a few megabytes overflows at $d$ around $10^4$ —
+`deep spine` at an input of a few _kilobytes_ — crashing the
+process, or forcing a guard-page fault handler. A library that can be
 crashed by a short message it correctly parses is not merely slow; it
 has delegated its availability to its callers' inputs.
 
@@ -213,18 +212,18 @@ bounded, priced exceptions, stated where they live (@tick-web,
 Suppose the quadratics were fixed and the transcription made merely
 linear. It would remain slow by constant factors that compound:
 
-- *Pointer chasing.* One heap node per tree node means the walk's
-  memory access pattern is a linked-structure traversal: each step a
+- *Pointer chasing.* One heap node per tree node makes the walk a
+  linked-structure traversal: each step a
   dependent load, likely a cache miss, at hundreds of cycles apiece
   when the tree is cold. The information content of a node — around
   three bits — travels in a 64-byte (512-bit) cache line.
 - *Allocation.* Every lift, every `norm`, every join builds nodes;
   every node is an allocator round trip. The paper's operations are
-  algebraically pure, and purity transcribed naively is an allocation
-  per equation application.
-- *Dispatch.* Leaf-or-node branching at every step, on data the
-  predictor has never seen, between loads it must wait for.
-- *The wire is elsewhere.* At rest the value is a pointer graph; to
+  algebraically pure, and purity transcribed naively allocates once
+  per equation applied.
+- *Dispatch.* Leaf-or-node branching happens at every step, on data
+  the predictor has never seen, between loads it must wait for.
+- *Serialization.* At rest the value is a pointer graph; to
   store or send it, a full encode pass; to receive, a full decode and
   rebuild. Every process boundary pays a serialization tax
   proportional to the whole value even when the consumer needed only
@@ -232,8 +231,8 @@ linear. It would remain slow by constant factors that compound:
   (Strictly this is an architectural cost rather than a constant
   factor; the representation dissolves it rather than shrinks it.)
 
-Hold the shape of this list. The representation of @skyline is
-designed so that each item becomes structurally impossible rather
+Hold the shape of this list. The representation of @skyline makes
+each item structurally impossible rather
 than carefully avoided: no nodes, no pointers, no per-node
 allocation, and no distinction between the resting form and the wire
 form.
@@ -247,11 +246,11 @@ Replace per-frame lifted clones with a single running offset
 (cures Defect 1's memory, and its time on `bigroot` — one wide add
 at the root instead of $d$ of them); decode words at a time (cures
 Defect 2);
-make walks iterative (cures Defect 3). The natural next design — and
-the one to be talked out of — maintains, during any walk, a _running
-absolute height_ in one normalized big integer: add each node's base
-on the way down, subtract on the way up, compare absolutes where
-needed.
+make walks iterative (cures Defect 3). During any walk, the natural
+next design — the one this section talks you out of — maintains a
+_running absolute height_ in one normalized big integer: add each
+node's base on the way down, subtract on the way up, compare
+absolutes where needed.
 
 Consider now a value whose plateaus oscillate between $2^k - 1$ and
 $2^k$ — in binary, between $k$ ones and a one followed by $k$
@@ -281,8 +280,8 @@ moves to the window's edge. @two-zone builds the input that defeats
 any fixed window, weighs the adaptive one, and removes the
 settled/pending split entirely.
 
-So the ladder's lesson is a constraint, not a fix: the efficient
-representation must be paired with arithmetic whose per-update cost is
+The ladder's lesson, then, is a constraint, not a fix: the efficient
+representation needs arithmetic whose per-update cost is
 bounded by the update's _own_ coded size — never by where the running
 value happens to sit. Holding that constraint, we can now build the
 representation; the arithmetic that honors it is @accum.

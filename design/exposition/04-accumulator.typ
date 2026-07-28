@@ -11,13 +11,15 @@ The tick walk carries a whole small web of running range minima
 occasionally enormous — and each is consulted mostly for its _sign_.
 
 The representation of these running integers is not an implementation
-detail. It is the component every cost argument in @operations
-bottoms out in, and the place where the resilience thesis is won or
-lost.
+detail. Every cost argument in @operations bottoms out in it, and
+the resilience thesis is won or lost there.
 
 == The contract <accum-contract>
 
-From the sweeps' side, the accumulator must support:
+From the sweeps' side, the accumulator must support four value
+operations and — for the bookkeeping across a sweep's several live
+accumulators (@tick) and the one width introspection the weighted
+folds need (@measures) — four housekeeping ones:
 
 + *apply a signed machine-word delta*, in amortized $O(1)$ work;
 + *apply a wide delta* of $ell$ machine words in amortized $O(ell)$
@@ -34,31 +36,28 @@ From the sweeps' side, the accumulator must support:
   brings the held spelling within two digits of the value's width;
   this fold, not a sign query, is also how a scaled-mode
   accumulator is finally read;
-
-and, for the bookkeeping across a sweep's several live accumulators
-(@tick) and the one width introspection the weighted folds need
-(@measures):
-
-5. *move* a held value between slots, $O(1)$ — a buffer swap (a
++ *move* a held value between slots, $O(1)$ — a buffer swap (a
   walk parking a boundary quantity aside rather than folding it);
-6. *fold* one accumulator into another, at the cost of the _dying_
++ *fold* one accumulator into another, at the cost of the _dying_
   operand's held lanes, never the survivor's (two running minima
   meeting when a range closes);
-7. *compare* two held values through their domination floors
++ *compare* two held values through their domination floors
   (@sign): $O(1)$ where a floor decides, the fold's price where
-  none does (is the running gap still above the parked quantity,
-  without materializing either?);
-8. *report the held top's index*, $O(1)$ — the width test behind the
+  none does (a running gap tested against a parked quantity,
+  neither materialized);
++ *report the held top's index*, $O(1)$ — the width test behind the
   weighted folds' freeze trigger (@measures).
 
 Requirement 2's scaled mode, unpacked. The scale routes the words
 to higher lanes at the same $O(ell)$; its one further cost is a
 one-time zero-fill of the lanes below $s\/32$, charged once per
-rise of the allocation high-water mark. So the caller must hold a
-code that pays for $s$, as the folds of @measures do — the depth
-bits that certified the scale. And the mode trades away the sign
-read (@sign derives why); exactly one family of folds uses it
-(@measures).
+rise of the allocation high-water mark. The caller must therefore
+hold a code that pays for $s$, as the folds of @measures do — the
+depth bits that certified the scale. And the mode trades away the
+sign read (@sign derives why). Exactly one family of folds uses it:
+the weighted folds of @measures, where a plateau's height is added
+at a position weight, and where the independence from $s$ is what
+makes the folds linear.
 
 The bounds must hold on _every_ interleaving of these operations —
 not in expectation, not for typical streams — with the single
@@ -67,14 +66,11 @@ on "amortized",
 binding for the whole document: every accumulator is created and
 destroyed inside a single API operation, so amortization is always
 internal to one call — each operation is worst-case linear on its
-own, not merely cheap on average across a sequence. (And one word
-on how deltas arrive: a payload lives inline in machine words until
+own, not merely cheap on average across a sequence. (Deltas arrive
+by two routes: a payload lives inline in machine words until
 it outgrows two of them — @words — so the inline paths, requirement
 1 and requirement 2 at $ell <= 2$, are the hot ones and the
-heap-limb route the rarity.) Requirement 2's "scaled
-by $2^s$" earns its keep in the weighted folds of @measures, where a
-plateau's height is added at a position weight; the independence from
-$s$ is what makes those folds linear.
+heap-limb route the rarity.)
 
 The first two requirements express @ladder's constraint: a delta that
 cost $c$ bits of code may fund only $O(c)$ work, wherever the running
@@ -90,8 +86,8 @@ pending drift — and pay the big carry only when the window overflows.
 Small oscillations then live entirely in the window. The boundary
 comb is absorbed.
 
-It fails to the boundary comb with one parameter added — a tooth
-width: the *wide-tooth comb* of
+Now add one parameter to the comb — a tooth width — and the repair
+fails: the *wide-tooth comb* of
 @families. Give the teeth any width past the window: deltas of
 $plus.minus 2^192$, say, oscillating across a cliff at $2^k$ with $k$
 much larger still. Each tooth's code
@@ -125,11 +121,6 @@ anywhere*.
 
 == Balanced redundant digits <redundant>
 
-(_Balanced_ here means only that the digit set is symmetric about
-zero; the classical minimally-redundant balanced sets stop near the
-base, ours runs to twice it, and that extra slack is the
-mechanism.)
-
 Hold the value as digits in base $2^32$, little-endian, each digit a
 _signed_ 64-bit integer kept in the _lazy zone_ $|a_i| < 2^33$. The
 base's width is half the lane's on purpose: the spare bits are what
@@ -142,17 +133,21 @@ back into the lane.
 
 $ "value" = sum_i a_i dot 2^(32 i), quad a_i in (-2^33, 2^33). $
 
+_Balanced_ here means only that the digit set is symmetric about
+zero. The classical minimally-redundant balanced sets stop near the
+base; ours runs to twice it, and that extra slack is the mechanism.
+
 Two deliberate redundancies. The digits are signed and may exceed the
 base, so a given value has many spellings — that freedom is the
 storage the design absorbs oscillation into. And the zone is _twice_
 the base, so a digit can wander a long way before anything must be
 done. (If an image helps: an abacus rod allowed to hold a surplus of
-beads, and owing-beads too, so a carry need not propagate the moment a
-column fills — the machine-arithmetic ancestry of the idea is
-Avizienis's signed-digit number systems and the carry-save adder, and
-its software ancestry the redundant number representations of the
-purely functional data-structure tradition and Kulisch's long
-accumulators for exact summation.)
+beads, and owing-beads too, so a carry need not propagate the moment
+a column fills.) The idea's machine-arithmetic ancestry is
+Avizienis's signed-digit number systems and the carry-save adder;
+its software ancestry is the redundant number representations of the
+purely functional data-structure tradition, and Kulisch's long
+accumulators for exact summation.
 
 A word-sized delta lands at the digit position its scale names —
 digit 0 unscaled; a 64-bit magnitude spans two 32-bit positions. If
@@ -170,14 +165,7 @@ again. And the upward repeat is a trickle, not a cascade: past the
 digits a landing itself spans, a zone-bounded digit plus an incoming
 carry stays within $2^34$, so the carry passed onward obeys
 $|c| <= 4$ — four units of drift against the $3 dot 2^31$ the next
-digit must absorb before carrying in turn. (The zone's width is
-itself a dial between this section's two mechanisms, worth turning
-once: writing it $2^z$, the ratchet demands $2^z - 2^31$ of drift
-per carry — wider is stronger — while @sign's unscanned-tail bound
-grows as $(2^z - 1)\/(2^32 - 1)$ — wider is weaker, inflating the
-stop threshold and the domination gap with it. $z = 33$ keeps the
-tail a hair over 2, so the stop test is one comparison against 3,
-while the ratchet already stands at $3 dot 2^31$.) Every carry is
+digit must absorb before carrying in turn. Every carry is
 funded: a
 digit that carries cannot carry again
 until deltas — or carries, which are just more drift on the same
@@ -188,6 +176,15 @@ digit touches on every
 stream. And because _every_ write recenters what it touches, no digit
 anywhere is ever "settled": the two-zone counterexample has no
 boundary to aim at.
+
+The zone's width is itself a dial between this section's two
+mechanisms, worth turning once. Write it $2^z$. The ratchet demands
+$2^z - 2^31$ of drift per carry: wider is stronger. @sign's
+unscanned-tail bound grows as $(2^z - 1)\/(2^32 - 1)$: wider is
+weaker, inflating the stop threshold and the domination gap with it.
+$z = 33$ keeps the tail a hair over 2, so the stop test is one
+comparison against 3, while the ratchet already stands at
+$3 dot 2^31$.
 
 The carry cliff itself, walked through the digits, since the whole
 section exists to defeat it. Hold $2^k - 1$: every 32-bit digit at
@@ -200,11 +197,12 @@ it is dissolved, because $2^32$ at digit 0 is simply another
 spelling of the carried form, and this representation is allowed to
 hold it.
 
-(One storage remark, so the accounting has no hidden pocket. Two
+One storage remark, so the accounting has no hidden pocket. Two
 quantities must not be confused: _allocated lanes_ — the dense
 little-endian vector, which only grows; and _held lanes_ — the
 lanes up to a tracked index of the highest nonzero digit, which
-writes raise and collapses and cancellations lower. A delta landing
+writes raise, and which collapses and cancellations lower. A delta
+landing
 at a new highest lane zero-fills the gap below it once, because the
 allocation high-water mark only rises; the total zero-fill over a
 sweep is bounded by the final lane count, and the largest scale any
@@ -212,7 +210,7 @@ sweep uses is bounded by the operand's depth, whose topology bits
 the sweep already read — funded, once. Every fold and every
 materialization starts at the tracked top index and is denominated
 in _held_ lanes, so lanes above the held value, zeroed or never
-touched, are never scanned again.)
+touched, are never scanned again.
 
 #figure(
   {
@@ -308,7 +306,7 @@ beyond that span only through carries, which @redundant's ratchet
 already amortizes against the writes that provoke them. The
 top-raising a sweep can buy is therefore $O$(its input bits), sign
 queries amortize against
-the writes that provoked them, and requirement 3 holds on every
+the same writes, and requirement 3 holds on every
 interleaving of reads with unscaled writes.
 
 The _scaled_ write of requirement 2 is the stated exception, and it
@@ -341,7 +339,7 @@ quantity confined to digits $0 dots f$ is below
 $2.01 dot 2^(32 (f + 1))$; with $i >= f + 2$ the first exceeds the
 second by a factor near $2^31$ — a certified _floor_ under the
 decided value against a certified _ceiling_ over the confined one,
-which is what settles a magnitude comparison between them and not
+which settles a magnitude comparison between them, not
 merely a sign. Sweeps use this _domination floor_
 constantly: a watermark whose fold decided at digit index 5 stands
 at least $0.99 dot 2^160$; no adjustment confined to digits 0 and 1 —
@@ -369,9 +367,10 @@ accumulators, and
   input code being consumed — together with the carries its landing
   provokes, which @redundant's ratchet charges back to earlier
   arrivals on the same digit; an output code being
-  emitted (which licenses reads
-  up to its own width); or the death of held lanes already paid for
-  (each lane dies at most once per write that opened it)._
+  emitted, which licenses reads
+  up to its own width; or held lanes dying that some earlier code
+  already paid for — each lane dies at most once per write that
+  opened it._
 ])
 
 Equivalently, put the potential $Phi$ at the number of _held_ lanes
