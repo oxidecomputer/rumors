@@ -857,7 +857,12 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   constant leg reads 2.6 B/B at default and 1.6 B/B at ×4 against
   the 16 B/B ceiling; the exponent leg is the only red). Boards at both scales:
   byte-identical to the boards of record, 966/23 and 969/20 — no
-  movement, no change landed.
+  movement, no change landed. (Resolved 2026-07-27, owner ruling:
+  RATIFIED as the stated-band residual — neither cure lands; the
+  band is the documented honest profile of a non-derivable output.
+  §17.3's capacity-phase entry carries the standing owner, and the
+  decided lazy projection view, `design/own-version-view.md`, will
+  make the materialization explicit-only.)
 - **DECIDED 2026-07-27 (#67, owner-ruled): the skyline topology flag
   inverts (0 internal, 1 leaf) and the version-stream reader
   dissolves into `dsi-bitstream`.** The unshipped-window argument
@@ -952,6 +957,7 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   names, a possible `merge_into_wider` rename or spare-buffer
   newtype, an owner call on MSRV/`no_std` statements, and
   dissolving before's private `U64Limbs` twin into the crate seam.
+  (Landed: this ledger's 2026-07-27 suanpan2-76 entry.)
 - **INSTRUMENTS LANDED 2026-07-27 (the distance/lag co-sweep's
   gating families; instruments before cures).** Two committed
   pair families close the coverage gaps the materialization probe
@@ -1154,7 +1160,7 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **989 cells**,
+public operation surface × §2's families — **1071 cells**,
 membership pinned by the smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
 the **release profile**, the measurement of record (§12's
@@ -1387,7 +1393,7 @@ from the axes (`board::BenchMode::Pinned`: each shape's
 designed-stress groups, the organic control, and the board-red
 riders; count verified against the criterion `--list`) plus the
 wide-display pair; `BOARD_BENCH_MODE=full`,
-`just bench-judge-full`, times the whole 989-cell product plus
+`just bench-judge-full`, times the whole 1071-cell product plus
 the pair for final verdicts): fits each cell's
 wall exponent `ln(median_hi/median_lo) / ln(denom_hi/denom_lo)`
 across two saved criterion baselines (scales 1 and record),
@@ -1422,7 +1428,11 @@ a reviewed diff. `bench-judge-record` (full sampling, the mode
 for numbers of record) judges through the same roster — the
 expectations are exponent classes, valid under either sampling
 regime. Population at this tip: **the permanent schoolbook
-tripwire plus the hugeleaf display pair; boundary empty** (item
+tripwire, the hugeleaf display pair, and the cross-stream freeze
+wedge (`version_distance/jump-pair`, red until the fused
+co-sweep cure lands — §12's 2026-07-27 instruments entry, with
+its dark-time-leg caution: a green time leg before the cure
+means the leg went dark); boundary empty** (item
 11's realization, 2026-07-27 — §12's P5 closeout record: the
 fifteen bigroot expectations left on the banked flip evidence and
 read e 0.92–1.04 live at the realization run; the display pair
@@ -1434,25 +1444,28 @@ populated `BOARD_RED_BENCH_RIDERS` alike — must fit under its own
 ceiling: a constant-factor counter red is not a time-exponent red
 (the thirteen riders measured e 0.93–1.18).
 
-**Numbers of record at this tip** [measured 2026-07-26; release
+**Numbers of record at this tip** [measured 2026-07-27; release
 profile, single runs per scale under the determinism tripwire —
-the `board-p42-{lo,hi}.txt` renders]: board **966 green / 23 red at
-the default scale; 969 / 20 at ×4** over **989 cells**. The red
-roster, every red with exactly one owner, is §17.3; the
-cell-count and verdict lineage across the campaign's rounds
-(200 → 989) is in git history at the commits §14 names.
+the `board-dlfam66-{lo,hi}.txt` renders]: board **1047 green /
+24 red at the default scale; 1050 / 21 at ×4** over **1071
+cells**. The red roster, every red with exactly one owner, is
+§17.3; the cell-count and verdict lineage across the campaign's
+rounds (200 → 989 → 1071) is in git history at the commits §14
+names.
 
 **Acceptance (the campaign's; protocol per §12's ratification):
 all-green means the release-profile board green on counters and
 floors at BOTH scales, one run each under the committed
 determinism tripwire (the runner's in-process double measurement
 plus the gate's cross-process byte-compare), AND the bench judge
-roster-satisfied at both scales in both modes** — at the realized
-roster membership (the schoolbook tripwire plus the hugeleaf
-display pair, §12's 2026-07-27 record; both regimes already read
-satisfied there, record wall 33 min 27 s, and record sampling
-belongs to this acceptance sweep alone — the standing cadence
-judges in quick mode). A release record-scale run of the counter
+roster-satisfied at both scales in both modes** — at the roster
+membership current at the sweep (the permanent schoolbook
+tripwire and the hugeleaf display pair — where both regimes read
+satisfied at the item-11 realization, record wall 33 min 27 s —
+plus the cross-stream wedge entry, which must read green through
+a live time leg once the fused co-sweep cure lands; record
+sampling belongs to this acceptance sweep alone — the standing
+cadence judges in quick mode). A release record-scale run of the counter
 board costs ~20 s wall [measured — the ratification baseline
 runs]; dev runs remain a debugging view and never satisfy
 acceptance.
@@ -1610,6 +1623,44 @@ tick (the tick cost spec's T-tick).
 
 ### 17.2 Open items, with acceptance contracts
 
+**The 2026-07-27 wave (in flight or decided; each lands its own
+§12 entry at merge, so this list carries obligations, not
+outcomes):**
+- **The ticks(n) landing**: an opaque `Ticks` newtype across
+  `before` and `rumors` (the rumors protocol denominated in
+  `Ticks` end-to-end, no unreachable error handling), the skyline
+  `emit(k)` generalization with tick = emit(1) byte-pinned,
+  `min_ticks` returning `Ticks`, and the ticks/min_ticks laws
+  joining `before::laws` (the laws entry's recorded future
+  addition). Acceptance: the probe's obligations
+  (`design/probe-ticks-68.md`, which lands with the change) plus
+  the gate; tick's own board cells and envelopes byte-identical.
+- **The fused distance/lag co-sweep cure** (owner of §17.3's
+  cross-stream freeze wedge): five committed readings move in one
+  commit — the board cell at both scales, the
+  `DISTANCE_JUMP_PAIR` envelope, the growth floor flipped to a
+  flatness bound, the judge roster entry through a live time leg,
+  and `Version::distance`'s complexity re-class — with the
+  accumulator's zero probe renamed to carry its one-sided
+  contract.
+- **The batch-API elimination and its merge round**:
+  `before::Batch` removed and `rumors` on the plain API; at the
+  merge, the fuzz-fit corpus recalibrates at 4096 programs
+  (owner-approved) with the committed sentry seed pricing in-band
+  as the acceptance.
+- **The lazy projection view** (decided 2026-07-27; charter of
+  record `design/own-version-view.md`): `/` and
+  `Clock::own_version` return a ref-owning `OwnVersion<'a>`;
+  comparison fuses projection into linear co-walks;
+  materialization explicit via `.to_version()`/`From`. Sequenced
+  after the three items above; before the legibility and
+  adversarial-review passes.
+- **The fuzz soak** (owner re-scope 2026-07-27): the before-side
+  targets including `fuzz_laws`, run at the acceptance sweep.
+  Frame-level fuzzing of `rumors` is deferred to a future
+  campaign; its spec (`design/rumors-frame-fuzz.md`) is the
+  record that campaign resumes from.
+
 **C3's bench-harness remainder (the queue of record, items
 11–13).** Items 1–12 of the round's queue are done (§14's C3
 entry; the cell-exact movement is §17.3; items 11 and 12 are
@@ -1658,15 +1709,16 @@ materialize before they write — and its cure round owns them
   the peak is the mid-walk realloc's old+new coexistence, already
   set when finish runs — and not a reserve target either, since
   the projection's output is not size-derivable from its
-  operands. The cure is a priced choice between a size pre-walk
-  and a segmented output, or a stated-band ratification (§12's
-  2026-07-27 capacity-phase finding, disposition open).
-*Acceptance*: the cells above flip green at both scales with
-byte-identity across the differential suite; movement annotated
-against the parent boards; any κ movement re-derived at the
-constant. The projection pair alternatively closes by the
-owner's stated-band ratification (§12's 2026-07-27
-capacity-phase finding).
+  operands. CLOSED (owner ruling 2026-07-27): the doubling-chain
+  band is RATIFIED as the stated-band residual — no pre-walk, no
+  segmented output (§12's capacity-phase finding carries the
+  pricing and the dated resolution).
+*Acceptance*: the two render cells above flip green at both
+scales with byte-identity across the differential suite;
+movement annotated against the parent boards; any κ movement
+re-derived at the constant. The projection pair is closed by
+the owner's ratification and stays on §17.3's roster as an
+accepted stated-band residual.
 
 **The fold marginals — the n-cursor merge (C2-adjacent).** The
 V7 reduction's n·log n reads marginally red against flat ceilings
@@ -1692,23 +1744,25 @@ P4.2, and the spec's §9 round-8 table carries the landed
 interaction baseline. *Kills*: none (constants). *Acceptance*:
 benches.
 
-**P5.1 — envelope finalization**: every `tests/meter.rs` envelope
-and board ceiling tightened to final constants at record scale
-(the board's constants at release, single runs under the
-determinism tripwire; the envelope suite's in its own dev-run
-process-isolated harness, where its pins live);
-`ID_WITHOUT`'s final ratchet (the one row
-no earlier item re-pins).
+**P5.1 — envelope finalization**: the envelope leg is done
+(§12's 2026-07-27 P5 closeout entry — the suite re-measured
+whole, three rows tightened including `ID_WITHOUT`'s final
+ratchet). Remaining: the board-ceiling leg — board ceilings
+tightened to final constants at record scale (release, single
+runs under the determinism tripwire) — which belongs to the
+acceptance sweep, after the in-flight wave's cells settle.
 
 **P5.2 — proportional fuzz cap**: counting-allocator harness with
 a hard ceiling proportional to input size across all fuzz
 targets; the seed-writer + canonicity check join `just all`.
 
-**P5.3 — stacker-removal audit**: if P4.2 shows zero remaining
-library-path depth recursion, drop `recurse::descend!` and
-`stacker`; re-denominate `clock::tests::deep_tree_stack_safety`
-and update the crate's AGENTS.md hard rule in the same change;
-else record which sites stay and why.
+**P5.3 — stacker-removal audit**: P4.2 established zero
+remaining library-path depth recursion (`descend!` is test-only;
+§12's P4.2 entry is the record), so the audit's condition is
+met. Remaining: drop `recurse::descend!` and `stacker`,
+re-denominate `clock::tests::deep_tree_stack_safety`, and update
+the crate's AGENTS.md hard rule in the same change — or record
+which test-only sites stay and why.
 
 **P5.4 — documentation closeout (user sign-off, item by item)**:
 the §6 invariant statement lands in the crate docs now that it is
@@ -1718,8 +1772,11 @@ contract, every cost claim carrying its epistemic status; the
 `Key` stability promise in `rumors`' `src/tree/key.rs` gains its
 same-code-version qualifier; the bookmark version-mismatch
 semantics; `before`'s crate-doc Efficiency section re-measured
-under skyline with `just readme` re-derivation; the prose
-improvement pass (the frozen-docs slot).
+under skyline with `just readme` re-derivation. The prose
+improvement pass landed 2026-07-27 (`86e85420`, the
+four-quadrant docs); the owner's sentence-level copy-edits
+remain open and are explicitly non-blocking (owner note,
+2026-07-27).
 
 **P5.5 — acceptance sweep of record**: `just all` clean; the §13
 acceptance criterion met in full (board all-green both scales
@@ -1791,10 +1848,12 @@ The red roster, both scales enumerated from the renders:
   is honest and stays red rather than softening the ceiling. The
   projection's output is not size-derivable from its operands
   (mandatory Θ(|v|·|p|) on Θ(|v|+|p|) input), so no reserve-once
-  bound exists. Owner: **§12's 2026-07-27 capacity-phase
-  finding** — a priced choice between a size pre-walk and a
-  segmented output, or a stated-band ratification; disposition
-  open.
+  bound exists. Owner: **an accepted stated-band residual**
+  (owner ruling 2026-07-27: the doubling-chain band is ratified
+  as-is — §12's capacity-phase finding carries the pricing). The
+  decided lazy projection view (`design/own-version-view.md`)
+  additionally makes the materialization explicit-only, so the
+  band will be reachable solely through `.to_version()`.
 - **The fold marginals** (default: `version_join_all` ×
   {scatter, benign} limb/scan exponents, `party_join_all ×
   benign` scan constant at 100.1 bits/B; ×4: `party_join_all ×
@@ -1869,9 +1928,10 @@ roster expectation move as one reviewed diff, judge-verified.
   byte-identical (518 219 B peak, 0 segments). The 26 green→green
   re-metered cells are the enumerated verdict-neutral class
   (ratified by owner, 2026-07-26).
-- **Extract the accumulator as a workspace crate** (unpublished
-  until a second consumer stabilizes the API; its amortization
-  contract is subtle — reads mutate).
+- **The accumulator is the workspace crate `suanpan`** (§12's
+  two 2026-07-27 extraction entries are the record). Standing
+  policy: unpublished until a second consumer stabilizes the
+  API; its amortization contract is subtle — reads mutate.
 - **Stack-container decision: `SmallVec<[T; N]>` vs
   `Vec::with_capacity(N)` vs `Vec::new()`, measured, per site**
   (user directive 2026-07-25). It is not a priori clear that
