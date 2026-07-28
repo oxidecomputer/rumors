@@ -419,10 +419,12 @@ pub extern "C" fn ff_version_meet(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Version` projection (`/`): `dst = &v / &p`, the output-dominated row.
+/// `Version` projection, materialized: `dst = (&v / &p).to_version()`,
+/// the output-dominated row (the view construction itself is O(1) and
+/// prices nothing; this kernel prices the explicit materialization).
 #[no_mangle]
 pub extern "C" fn ff_version_project(dst: u32, v: u32, p: u32) -> i32 {
-    let projected = with_v(v, |ver| with_p(p, |party| ver / party));
+    let projected = with_v(v, |ver| with_p(p, |party| (ver / party).to_version()));
     match projected {
         Some(Some(out)) => {
             put(dst, Val::V(out));
@@ -751,11 +753,13 @@ pub extern "C" fn ff_clock_sync(a: u32, b: u32) -> i32 {
     })
 }
 
-/// `Clock::own_version` into a `Version` register (output-dominated row).
+/// `Clock::own_version`, materialized into a `Version` register (the
+/// output-dominated row; the view is O(1), the materialization is what
+/// this kernel prices).
 #[no_mangle]
 pub extern "C" fn ff_clock_own_version(dst: u32, src: u32) -> i32 {
     let own = REGS.with_borrow(|regs| match regs.get(src as usize) {
-        Some(Some(Val::C(c))) => Some(c.own_version()),
+        Some(Some(Val::C(c))) => Some(c.own_version().to_version()),
         _ => None,
     });
     match own {

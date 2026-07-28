@@ -492,7 +492,9 @@ impl Mirror {
             Op::ClockOwnVersion { dst, src } => {
                 let clock = self.clock(src).ok_or_else(malformed)?;
                 let input = clock.encoded_bits() as u64;
-                let own = clock.own_version();
+                // The explicit materialization: the view itself is O(1)
+                // and prices nothing.
+                let own = clock.own_version().to_version();
                 // Output-dominated row: input + packed output, output read
                 // from the actual result.
                 let denom = input + own.encoded_bits() as u64;
@@ -588,7 +590,9 @@ impl Mirror {
                 let version = self.version(v).ok_or_else(malformed)?;
                 let party = self.party(p).ok_or_else(malformed)?;
                 let input = (version.encoded_bits() + party.encoded_bits()) as u64;
-                let projected = version / party;
+                // The explicit materialization: the view itself is O(1)
+                // and prices nothing.
+                let projected = (version / party).to_version();
                 // Output-dominated row: input + packed output.
                 let denom = input + projected.encoded_bits() as u64;
                 self.put(dst, NVal::V(projected));
