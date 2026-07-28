@@ -8,6 +8,11 @@ use rand::rngs::StdRng;
 
 use super::*;
 
+/// A [`Ticks`] event floor from a test's `u64` draw.
+fn t(n: u64) -> Ticks {
+    Ticks::from(n)
+}
+
 /// Mint a real (opaque) `Network` from a deterministic seed.
 fn network(seed: u64) -> Network {
     Peer::<Entry>::seed_rng(&mut StdRng::seed_from_u64(seed)).network()
@@ -25,9 +30,9 @@ proptest! {
         seed_b in any::<u64>(),
     ) {
         prop_assume!(seed_a != seed_b);
-        let a = (events_a, network(seed_a));
-        let b = (events_b, network(seed_b));
-        prop_assert_ne!(decide(a, b), decide(b, a));
+        let a = (t(events_a), network(seed_a));
+        let b = (t(events_b), network(seed_b));
+        prop_assert_ne!(decide(&a, &b), decide(&b, &a));
     }
 
     /// The event floor dominates: an older (busier) universe always wins,
@@ -40,10 +45,10 @@ proptest! {
     ) {
         prop_assume!(seed_a != seed_b);
         prop_assume!(events < u64::MAX);
-        let younger = (events, network(seed_a));
-        let older = (events + 1, network(seed_b));
-        prop_assert_eq!(decide(older, younger), Verdict::Win);
-        prop_assert_eq!(decide(younger, older), Verdict::Lose);
+        let younger = (t(events), network(seed_a));
+        let older = (t(events) + t(1), network(seed_b));
+        prop_assert_eq!(decide(&older, &younger), Verdict::Win);
+        prop_assert_eq!(decide(&younger, &older), Verdict::Lose);
     }
 }
 
@@ -70,13 +75,14 @@ proptest! {
     ) {
         prop_assume!(seed_a != seed_b);
         let (net_a, net_b) = (network(seed_a), network(seed_b));
-        let fresh_a = declared_a.saturating_add(drift_a);
-        let fresh_b = declared_b.saturating_add(drift_b);
+        // Ticks is unbounded, so mid-session drift needs no saturation.
+        let fresh_a = t(declared_a) + t(drift_a);
+        let fresh_b = t(declared_b) + t(drift_b);
 
         // The deployed rule: both sides decide from the declared floors —
         // the values that actually crossed the wire in the handshake.
-        let verdict_a = decide((declared_a, net_a), (declared_b, net_b));
-        let verdict_b = decide((declared_b, net_b), (declared_a, net_a));
+        let verdict_a = decide(&(t(declared_a), net_a), &(t(declared_b), net_b));
+        let verdict_b = decide(&(t(declared_b), net_b), &(t(declared_a), net_a));
         prop_assert_ne!(verdict_a, verdict_b);
 
         // A declared winner still wins from its fresh floor: a fresh-floor
@@ -84,10 +90,10 @@ proptest! {
         // is two servers waiting on absent losers, never two losers
         // bootstrapping into each other.
         if verdict_a == Verdict::Win {
-            prop_assert_eq!(decide((fresh_a, net_a), (declared_b, net_b)), Verdict::Win);
+            prop_assert_eq!(decide(&(fresh_a, net_a), &(t(declared_b), net_b)), Verdict::Win);
         }
         if verdict_b == Verdict::Win {
-            prop_assert_eq!(decide((fresh_b, net_b), (declared_a, net_a)), Verdict::Win);
+            prop_assert_eq!(decide(&(fresh_b, net_b), &(t(declared_a), net_a)), Verdict::Win);
         }
     }
 }
@@ -101,19 +107,22 @@ proptest! {
 #[test]
 fn fresh_floors_can_make_both_sides_win() {
     let (net_a, net_b) = (network(1), network(2));
-    let declared = 7;
-    let fresh = declared + 1; // one local commit landed mid-session
+    let declared_a = (t(7), net_a);
+    let declared_b = (t(7), net_b);
+    // One local commit landed mid-session on each side.
+    let fresh_a = (t(8), net_a);
+    let fresh_b = (t(8), net_b);
 
     // The forbidden construction: each side pairs its own fresh floor with
     // the peer's declared one.
-    assert_eq!(decide((fresh, net_a), (declared, net_b)), Verdict::Win);
-    assert_eq!(decide((fresh, net_b), (declared, net_a)), Verdict::Win);
+    assert_eq!(decide(&fresh_a, &declared_b), Verdict::Win);
+    assert_eq!(decide(&fresh_b, &declared_a), Verdict::Win);
 
     // The deployed construction: declared against declared, exactly one
     // winner.
     assert_ne!(
-        decide((declared, net_a), (declared, net_b)),
-        decide((declared, net_b), (declared, net_a))
+        decide(&declared_a, &declared_b),
+        decide(&declared_b, &declared_a)
     );
 }
 
@@ -123,8 +132,8 @@ fn fresh_floors_can_make_both_sides_win() {
 fn ties_break_on_network_id() {
     let (a, b) = (network(1), network(2));
     let (lo, hi) = if a < b { (a, b) } else { (b, a) };
-    assert_eq!(decide((7, hi), (7, lo)), Verdict::Win);
-    assert_eq!(decide((7, lo), (7, hi)), Verdict::Lose);
+    assert_eq!(decide(&(t(7), hi), &(t(7), lo)), Verdict::Win);
+    assert_eq!(decide(&(t(7), lo), &(t(7), hi)), Verdict::Lose);
 }
 
 /// One PeerView roster entry around `peer`, everything else defaulted.

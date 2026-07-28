@@ -215,10 +215,12 @@ proptest! {
     }
 
     /// The impl's fused `ticks(n)` matches the oracle's literally iterated
-    /// `ticks(n)` for every clock's own `(party, version)`, at counts the
-    /// oracle's `O(n · tree)` loop affords (the oracle module doc's
-    /// operating envelope caps `n` here; the wide counts ride the
-    /// composition law and the closed-form witnesses).
+    /// `ticks(n)` for every clock's own `(party, version)`.
+    ///
+    /// The counts stay within what the oracle's `O(n · tree)` loop
+    /// affords (the oracle module doc's operating envelope caps `n`
+    /// here; the wide counts ride the composition law and the
+    /// closed-form witnesses).
     #[test]
     fn ticks_matches_oracle(ops in world_strategy(), i in 0usize..64, n in 0u64..24) {
         let cs = run(&ops);

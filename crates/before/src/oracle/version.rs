@@ -365,8 +365,9 @@ impl Version {
         *self = self.event(party);
     }
 
-    /// `n` sequential [`tick`](Self::tick)s, literally iterated: the paper
-    /// has no fused form, so the reference for
+    /// `n` sequential [`tick`](Self::tick)s, literally iterated.
+    ///
+    /// The paper has no fused form, so the reference for
     /// [`Version::ticks`](crate::Version::ticks) is the definitionally
     /// honest loop — `O(n · tree)`, fit for small `n` only (the module
     /// doc's operating envelope; each differential suite caps the counts

@@ -1180,7 +1180,25 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   250_002 → 500_002 (one signed offset compare per closing node),
   cliff heap 560 → 49_752 / scan 2_052 → 14_338 (the early
   saturation exit is retired, so the comb reads every leaf — its
-  scan-floor carve-out in the board dissolved with it). New
+  scan-floor carve-out in the board dissolved with it). Board
+  movement (default scale, 25 → 31 reds): the exact fold CURES the
+  `version_min_ticks/jump-pair` dead-meter red (the saturating exit
+  left the scan counter below its floor) and joins the counter-red
+  genres the honest work now meters — heap constants on
+  mirror-wide/ascend-cliff/ascend-plateau (the tick rows' standing
+  genre) and the close-reveal/undercut circulation on
+  cliff/pure-comb/reveal-comb (limb/touch e 1.5–1.95; the rank
+  fold reads the same reveal rows red at sub-default scales — the
+  watermark anchor-web is the known cure for both, out of this
+  landing's scope and named in the query module's cost section).
+  `version_ticks/ascend-cliff` reads exactly `version_tick`'s
+  standing heap-constant red (identical readings). OPEN for the
+  owner: whether the four untimed new reds (`version_min_ticks` ×
+  reveal-comb/pure-comb/ascend-cliff/ascend-plateau) join
+  `BOARD_RED_BENCH_RIDERS` — their bench time legs are unmeasured,
+  and the rider census (2026-07-26) already lagged the base board
+  (base read 25 default reds against the census's 23), so the next
+  realization should be one owner-reviewed sweep. New
   instruments: `version_ticks` board cells (fixed count 512; smoke
   pin 1071 → 1090), ticks envelope rows on the tick-designated
   families, and the flatness pin — `ticks(512) → ticks(4096)` moves

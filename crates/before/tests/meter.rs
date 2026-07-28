@@ -493,7 +493,9 @@ fn ticks_mirror_wide_envelope() {
 }
 
 /// The flatness pin: `O(|v| + |p| + log n)` as a committed two-point
-/// check, not prose. On each tick-designated family the whole cost
+/// check, not prose.
+///
+/// On each tick-designated family the whole cost
 /// movement from `ticks(512)` to `ticks(4096)` — three doublings — must
 /// sit inside the boundary codes' gamma-width delta band: the two codes
 /// that carry the count widen by 2 bits per doubling each, and no other
@@ -565,10 +567,11 @@ const TICKS_POINT_LO: u64 = 512;
 /// See [`TICKS_POINT_LO`].
 const TICKS_POINT_HI: u64 = 4_096;
 /// The scan movement band: up to two count-carrying codes x 2 bits per
-/// doubling x 3 doublings [measured 2026-07-27: exactly 6 on all three
-/// families - one code carries the count there; the second code's
-/// budget covers operand shapes where the successor repair carries it
-/// too].
+/// doubling x 3 doublings.
+///
+/// [Measured 2026-07-27: exactly 6 on all three families - one code
+/// carries the count there; the second code's budget covers operand
+/// shapes where the successor repair carries it too.]
 const TICKS_FLATNESS_SCAN_BAND: u64 = 12;
 /// The limb movement band: the count's arithmetic stays inside one
 /// digit across the band [measured 2026-07-27: exactly 0 on all three
@@ -3655,8 +3658,9 @@ fn skyline_min_ticks_dense_envelope() {
     );
 }
 
-/// The min_ticks kernel on the boundary comb stays within its envelope:
-/// the `2^k`-scale first height rides the frozen component and enters
+/// The min_ticks kernel on the boundary comb stays within its envelope.
+///
+/// The `2^k`-scale first height rides the frozen component and enters
 /// the exact total once, through the counting term — never per leaf —
 /// so the comb's teeth cost narrow offsets only.
 #[test]
