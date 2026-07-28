@@ -222,6 +222,18 @@ pub(super) enum Side {
     B,
 }
 
+impl Side {
+    /// The opposite side: folding a delta on it negates the delta's
+    /// effect on the difference, which is how the pair co-sweep applies
+    /// an orientation coefficient of −1 without touching the magnitude.
+    pub(super) fn other(self) -> Side {
+        match self {
+            Side::A => Side::B,
+            Side::B => Side::A,
+        }
+    }
+}
+
 /// Fold one decoded leaf delta into the running difference, oriented by
 /// the side its stream feeds: `a`'s height rising raises `D`, `b`'s
 /// lowers it.

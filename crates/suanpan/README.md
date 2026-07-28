@@ -172,8 +172,9 @@ than they prepaid; unmarked rows are worst-case per call.
 | `add_accum_shl`, `sub_accum_shl` | amortized O(operand's held digits), independent of the shift |
 | `merge_into_wider` | amortized O(narrower operand's held digits) |
 | `sign`, `is_negative`, `sign_dominates_word`, `sign_dominates_at` | amortized O(1) |
-| `is_zero`, `digit_count` | O(1) |
+| `is_literally_zero` (one-sided: `true` means zero, `false` means unknown), `digit_count` | O(1) |
 | `shl`, `negate`, `reset`, `sign_magnitude` | O(held digits) |
+| `sign_magnitude_shl` | O(digits written since the last reset) |
 
 Digit touches are shift-independent; memory is not. A shifted entry
 point grows the digit buffer to cover the shifted position, so memory
@@ -228,9 +229,10 @@ against. The crate requires `std`; no `no_std` build is offered.
 `Accumulator` is `Clone`, `Default`, `Debug`, and `Send + Sync` —
 though `Sync` buys less than usual: every amortized-O(1) sign query
 takes `&mut self`, so the value reads available behind a shared
-reference are `is_zero`,
+reference are `is_literally_zero`,
 `digit_count`, the O(held digits)
-`sign_magnitude`, and a
+`sign_magnitude` (and its scaled twin
+`sign_magnitude_shl`), and a
 `clone` — wrap in a lock for shared sign reads. It is deliberately not `PartialEq`: two
 spellings of one value would compare unequal, so compare by
 subtracting and reading the difference's sign. `touch-meter` is the

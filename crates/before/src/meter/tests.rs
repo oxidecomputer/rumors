@@ -434,10 +434,10 @@ fn leaf_count(v: &Version) -> usize {
 /// The lengths: exactly `132d + m(2k + 14) + 2` bits (teeth) and
 /// `132d + 14m + 2k + 2` bits (band). The overlays: the meet keeps both
 /// band leaves per tooth and both gap leaves per level (4 leaves per
-/// comb level — a cheap code one fold behind every wide switch jump),
-/// while the join collapses every comb level to its two plateaus (the
-/// band shades every gap, so the join stays cheap and the wedge is the
-/// meet's alone).
+/// comb level — a cheap code one fold behind every wide difference
+/// crest), while the join collapses every comb level to its two
+/// plateaus (the band shades every gap): the wide crests live in the
+/// meet-side overlay alone.
 #[test]
 fn jump_pair_decodes_canonically_at_predicted_lengths_and_interleaves() {
     for (k, m, d) in [(3, 1, 1), (400, 8, 2)] {

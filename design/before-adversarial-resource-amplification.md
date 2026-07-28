@@ -80,7 +80,7 @@ share:
 | reveal comb / hifloor | `k` sibling left-full sites sharing one `2^b` minimum over a zero floor, the left-leaning spine closing each site's frame back into the floor frame between consumes; the control's floor raised to `2^b − 2` | the tick walk's width-circulation genre (the spec's §9 rounds 5–6), pinned flat ×2.00 across the joint doubling; the narrow-gap control is flat — the wide gap is the driver, not the shape |
 | pure comb | the same left-leaning comb with bare `2^b` leaves and no left-full site anywhere | the base watermark stack's own arm-move + close-pop cycle in isolation, pinned flat per byte — the layer the frame ledger amplified ~10× before the round-6 cure |
 | ascending cliff / plateau | `k` ascending wide left leaves `2^b + i` down a right spine over a terminal 0-cliff, id descending to the cliff; the control's leaves leveled at `2^b + 1` | the undercut cascade's fold direction (the spec's §9 round 7), pinned flat ×2.00 across the joint doubling; the leveled control is flat — the nonzero hop schedule is the axis, not the undercut or the spine |
-| two-operand jump comb | a version pair on one shared spine turning right every 33rd level (`d` isolated freeze-position digits), then `m` comb levels: bare `2^k + 3` teeth over `(1, 0)` gaps on one operand, a hoisted `2^k + 1` plateau with unit bumps on the other | the cross-stream freeze re-arm wedge: the meet's rank fold freezes `2m` times at a `d`-digit position, each eviction triggered by the operand that did not pay for the drift — distance superlinear (the standing red) while either operand's own rank is flat |
+| two-operand jump comb | a version pair on one shared spine turning right every 33rd level (`d` isolated position digits), then `m` comb levels: bare `2^k + 3` teeth over `(1, 0)` gaps on one operand, a hoisted `2^k + 1` plateau with unit bumps on the other | wide height-difference crests over a dense-position spine: `2m` freezes per distance, each fired by the operand that did not pay for the drift, every absolute position `d` incompressible digits while every per-crest segment mass compacts to O(1) — the family that separates absolute-position freeze accounting (superlinear here) from the co-sweep's anchored-segment accounting (pinned flat), either operand's own rank flat |
 | concurrent pair | a balanced fork of `n` single-leaf parties, both operands ticked on every leaf, dominance alternating by parity, adjacent plateaus never equal | the emit side switch at every one of the `n − 1` overlay boundaries, join and meet alike (the ticked-counterpart pairing reaches at most one switch corpus-wide) |
 
 ## 3. Findings ledger
@@ -1041,6 +1041,89 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   `DISTANCE_JUMP_PAIR` envelope, the growth-floor band (to
   flat), the board cell (to green), the judge roster entry, and
   the distance complexity class.
+- **CURED 2026-07-27 (#66 phase 2): the fused distance/lag
+  co-sweep — the cross-stream funding hole is closed and the five
+  committed readings moved in one commit.**
+  `Version::distance`/`Version::lag` integrate their measures
+  directly over the overlay (`∫|h_a − h_b|`, `∫(h_b − h_a)⁺`) in
+  one merge walk on the accumulator: no join/meet stream
+  materialized, no per-operand rank recomputed, the boundary
+  algebra `dh* = (σ′ − σ)·D′ + σ·dD` with `|D′| ≤ |dD|` at every
+  orientation change. The freeze discipline is re-derived for the
+  overlay's access pattern as an anchored-segment split
+  (`h* = B + P + L`): parked drift settles against per-segment
+  masses (compacted span = within-segment depth variation; the
+  spine's shared prefix cancels), promotions to the zero-anchored
+  base pay the sweep's only absolute-position product once per
+  wide arming, and the funding certificate is a **two-ledger
+  potential, one per operand, every charge naming its deposit**
+  (the potential-arity census: the composed form's per-stream
+  argument failed exactly at the emission seam). Derivation and
+  certificate live in `version/skyline/query.rs`'s pair-co-sweep
+  section; `suanpan` gained the write-watermark scaled read
+  (`sign_magnitude_shl`, O(written span)) the segment masses
+  need, and `Accumulator::is_zero` was renamed
+  `is_literally_zero` with the one-sided contract in name and
+  rustdoc (owner ruling 2026-07-27) — the co-sweep never relies
+  on exact zero detection. The five readings, before → after,
+  parent-measured for attribution: (1) board
+  `version_distance × jump-pair` red → green at both scales
+  (default limb/touch e 1.67/1.76 → 1.00/1.00, 7.0/7.6 → 0.4/1.4
+  per byte; record e 1.89/1.93 → 1.00/1.00, 22.5/26.4 →
+  0.4/1.4); boards default 1046/25 → 1047/24, record 1049/22 →
+  1050/21, the red-set delta exactly this cell at both scales,
+  every other verdict identical (note: the §17.3 sums of record
+  had drifted — `version_min_ticks × jump-pair` reads a
+  scan-floor red at the parent already, both scales,
+  un-enumerated; carried into §17.3 with an open disposition).
+  (2) `DISTANCE_JUMP_PAIR` re-pinned tight: heap 138,809 → 5,008,
+  limb 973,702 → 53,905, scan 6,464,538 → 3,218,320, touch
+  1,029,327 → 184,494; the lag/concurrent rows re-pinned with it
+  (lag-jump-pair touch 87,148 → 163,509 is the one rise — lag
+  walks the full overlay now — bought with heap −96%, limb −60%,
+  scan −25%). (3) the `skyline_flatness` growth floor tripped
+  deliberately (per-byte limb 7.23 → 12.42 across the doubling
+  before; 0.40 → 0.40 after) and flipped to a flatness bound
+  with ceilings tightened ~18× limb / ~5.6× touch. (4) the judge
+  roster: `version_distance/jump-pair` out of the red set, the
+  time leg's liveness witnessed by the schoolbook tripwire's
+  required red in the same run. Judge-run disclosure (quick
+  mode, 2026-07-27 evening): the first run surfaced and fixed a
+  flag-day breakage before any timing (the board bench built its
+  wide-display operand by decoding a construction-language
+  stream as wire bytes — Truncated since the topology-flag
+  inversion; it now lifts through `Packed::version()`), then ran
+  under a concurrent agent build storm (15-min load ~50) and
+  flagged 22 unrostered noise reds; the re-run on a
+  checked-quiet machine (no other cargo/rustc; ambient
+  Backblaze/mediaanalysisd churn disclosed) flagged 4, disjoint
+  from the first set but for `version_parse_noncanon/hugeleaf`
+  (e 1.31/1.42). In BOTH runs the wedge cell read green under
+  its ceiling and the tripwire read its required red; every
+  flagged cell's deterministic work columns are exponent-flat on
+  the board and the flagged sets do not reproduce across runs —
+  the load-noise signature, left for a record-mode pass on a
+  quiet machine rather than a third quick-mode fish. (5) `Version::distance`'s
+  `# Complexity` re-classed superlinear → linear
+  `O(|a| + |b|)`, the claims roster moved in the same change.
+  Differential coverage landed ahead of the cure: distance/lag
+  digit-exact vs the paper oracle AND the composed rank-of-meet
+  arithmetic on the crate's own kernels, deterministic and
+  proptest legs over the pair families, plus (with the cure) the
+  exhaustive small scope's every *ordered pair* of normal-form
+  trees against the composed forms — the total check over the
+  boundary genres crossed with the orientation schedules; the
+  concurrent-pair semantic witness (distance = the integer rank
+  2 at every `n`) held throughout. Honest residual, documented at the code:
+  promotion at position density once per wide arming, settles at
+  within-segment depth variation — both mandatory-class (the
+  measure's exact value embeds the product). Fuzzfit: bands held
+  as pinned, staleness cross-check green — per the phase-2
+  contract, no recalibration and no concurrent-pair operand arm
+  was added (the condition demanding them did not arise). Side
+  effect, priced: the accumulator's +8 B watermark field moves
+  five tick-cell board heap constants by ~0.1 B/B (verdicts
+  unchanged, work columns byte-identical).
 - **DECIDED 2026-07-27 (#73, owner-ruled): the mirror proxy's error
   selection prefers a deposited root cause over a racing consequence,
   and the transport-fault attribution pin is universal again.** The
@@ -1858,9 +1941,11 @@ if C3 chose that arm; the §14 acceptance entry recorded.
 
 ### 17.3 Owned-red accounting (current; over 1071 cells)
 
-Sums [measured 2026-07-27, the `board-dlfam66-{lo,hi}.txt`
-renders — the instruments-phase boards; the prior boards of
-record read 966 + 23 / 969 + 20 over 989 cells]:
+Sums [measured 2026-07-27 at the co-sweep cure's tip and its
+parent (#66 phase 2); the instruments-phase `board-dlfam66`
+renders read the same totals with the wedge red and the
+min_ticks scan-floor red below not yet present — the prior
+boards of record read 966 + 23 / 969 + 20 over 989 cells]:
 **default 1047 + 24 = 1071; record 1050 + 21 = 1071.** Every red
 has exactly one owner and the sums close; the per-round movement
 lineage (each round's flips, bucketed by mechanism, with every
@@ -1869,19 +1954,18 @@ commits §14 names.
 
 The red roster, both scales enumerated from the renders:
 
-- **The cross-stream freeze wedge** (`version_distance ×
-  jump-pair`: limb/touch exponents 1.67/1.76 default, 1.89/1.93
-  ×4 — the one exponent-class red on an input-denominated query
-  row): the meet-leg rank fold's freeze corrections, re-armed
-  across the overlay by the operand that did not pay for the
-  drift, at a freeze position the balanced compaction cannot
-  collapse. A genuine kernel superlinearity on an honest
-  denominator, landed deliberately as the instruments-phase
-  standing red (§12's 2026-07-27 instruments entry carries the
-  mechanism and the five committed readings the cure must move).
-  Owner: **the fused distance/lag co-sweep** (the constants
-  frontier's §2.4 dissolution path).
-
+- **The `version_min_ticks × jump-pair` scan floor** (both
+  scales: every counter honest and near-flat, the scan column
+  below its declared floor of the full stream bits): the fold
+  saturates on the teeth operand's first `2^512`-scale height
+  and exits early — legitimate — while the row's floor
+  derivation declares a full-stream scan for this family instead
+  of the root codes its wide-payload arm is supposed to select.
+  An instrument-declaration defect, not a kernel one; already red
+  at the co-sweep cure's parent, un-enumerated by the previous
+  accounting — first surfaced by the cure's parent-attribution
+  runs. Disposition open; owner: the board's min_ticks floor
+  derivation.
 - **The render materialization genre** (14 default / 14 ×4 heap
   constants: `version_display` × {dense, bigroot, harmonic,
   nested-full, nested-wide, mirror-wide, mirror-narrow,
