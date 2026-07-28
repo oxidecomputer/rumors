@@ -101,8 +101,9 @@
 //! near-flat band — every crest of `|D|` would pay a
 //! drift-width × position-density product, superlinear in the packed
 //! pair while each operand alone stays flat). The integral therefore
-//! works in *anchored segments*: no correction in the steady state
-//! multiplies by an absolute position. The integrand splits
+//! works in *anchored segments*: no correction, at any point of the
+//! sweep or its close, multiplies by an absolute position. The
+//! integrand splits
 //! `h* = B + P + L` (for rank, `h* = h` itself):
 //!
 //! - `L` (*live*): the drift since the last freeze. Each elementary
@@ -124,16 +125,25 @@
 //!   accumulator's write-watermark read (`sign_magnitude_shl`) and
 //!   cleared by buffer replacement, so a segment parked deep in the
 //!   stream costs its written span, never its scale.
-//! - `B` (*base*): content anchored at position zero — the opening
-//!   `h*` plateau, plus any `P` *promoted* down when incoming drift
-//!   runs more than the allowance narrower than `P`. Promotion pays
-//!   `P × position` once — the sweep's only absolute-position product,
-//!   funded by the wide code that armed `P`, one promotion per arming
-//!   — after which `B` closes in a single shifted add `B · 2^S`.
-//!   Without promotion a wide `P` would re-settle its full width at
-//!   every later narrow-drift freeze; with it, every settle's `P` is
-//!   within the allowance of the drift the settling freeze itself
-//!   parks.
+//! - `B` (*base*): the opening `h*` plateau, anchored at position zero
+//!   and closing in a single shifted add `B · 2^S`.
+//! - The *promotion ledger*: `P` is *promoted* out of the per-freeze
+//!   settle when incoming drift runs more than the allowance narrower
+//!   than `P` — without promotion a wide `P` would re-settle its full
+//!   width at every later narrow-drift freeze; with it, every settle's
+//!   `P` is within the allowance of the drift the settling freeze
+//!   itself parks. A promotion performs two funded-width reads and no
+//!   product: the parked component (at the width its arming deposited)
+//!   and the *position window* — the interval mass banked since the
+//!   previous promotion, one compacted segment mass per freeze, read
+//!   at its watermark span — recorded together as one ledger entry.
+//!   Nothing is ever re-based against an absolute position: the entry
+//!   owes `P · (2^S − position)`, and the ledger settles once, at the
+//!   sweep's close. Suffix masses are assembled newest-first as sparse
+//!   balanced signed digits (each window's digits merged exactly once;
+//!   an all-ones prefix — a long climb's consumed mass — compacts to
+//!   O(1) terms), and each arming pays one charge: its parked width
+//!   times its own suffix's balanced density.
 //!
 //! A freeze fires by the section-one relative trigger, with one
 //! pair-specific difference of denomination: the check runs once per
@@ -166,19 +176,29 @@
 //!   the drift the settling freeze parks (else promotion fires first),
 //!   so the product draws from the deposits that built that drift,
 //!   times a segment span the segment's own topology deposits cover;
-//! - a promotion `P × position`: once per arming, from the wide
-//!   deposit that armed `P` past the allowance, at the position's
-//!   compacted density.
+//! - a promotion's ledger entry: the parked read from the wide deposit
+//!   that armed `P` past the allowance, the window read from the
+//!   watermark span the banked segments' topology deposits cover —
+//!   both once per arming, no product;
+//! - the ledger settle: one charge per arming, the parked width times
+//!   the suffix mass's balanced density, plus each window's digits
+//!   merged into the running suffix exactly once (paid by the window's
+//!   own read).
 //!
 //! A cheap code from one operand can *fire* a freeze, but the work the
 //! freeze performs is bounded by deposits from the codes that built the
 //! state being moved — never by an absolute position the firing operand
-//! chose. The honest residual: promotion pays position density once per
-//! wide re-arm, and a settle pays within-segment depth variation; in
-//! both, the measure's exact value embeds the product of a genuinely
-//! wide plateau and its genuinely dense mass, so the work is
-//! mandatory-class for any exact evaluation, and reaching it spends the
-//! width and the variation in the input's own codes.
+//! chose. The honest residual is the ledger settle's charge: a suffix's
+//! balanced density is deposited once, by the topology whose depth
+//! variation spelled its masses — not once per arming — so a stream
+//! pairing many wide re-arms against a suffix that *stays* dense pays
+//! that density per arming. Each such charge is the cross-term product
+//! the exact total genuinely embeds when the terms do not cancel — the
+//! intrinsic price of an exact integral under per-digit arithmetic —
+//! and reaching it spends a fresh over-allowance arming in the input's
+//! own codes per charge; on every committed family the suffix compacts
+//! to O(1) terms and the whole ledger reads flat (the `skyline_flatness`
+//! promotion re-arm bands).
 //!
 //! # Cost
 //!
@@ -190,15 +210,19 @@
 //! delta folded at the previous boundary, so each per-leaf add is paid
 //! by the code that set `L`'s width — plus the co-sweep section's
 //! certified freeze work (a settle per freeze at the parked width times
-//! within-segment depth variation, a promotion once per wide arming;
-//! the `skyline_flatness` module's freeze-position band holds the
-//! many-freezes genre flat). Distance and lag (the `DISTANCE_*`/`LAG_*`
-//! rows, plus the `skyline_flatness` module's jump-pair band) add, per
+//! within-segment depth variation; a ledger entry once per wide arming,
+//! charged once at the sweep's close; the `skyline_flatness` module's
+//! freeze-position and promotion re-arm bands hold the many-freezes and
+//! many-armings genres flat). Distance and lag (the `DISTANCE_*`/`LAG_*`
+//! rows, plus the `skyline_flatness` module's jump-pair and pair
+//! re-arm bands) add, per
 //! boundary, work bounded by the boundary's own folded codes — the
 //! difference and integrand folds and the orientation-change read —
 //! plus the same certified freeze work, and two topology-only pre-scans
-//! for the overlay scale; transiently they hold the two cursor paths
-//! and the integrator's accumulators, never an emitted stream.
+//! for the overlay scale; transiently they hold the two cursor paths,
+//! the integrator's accumulators, and the promotion ledger (one parked
+//! value and one window per arming, dropped at the close), never an
+//! emitted stream.
 //! min_ticks adds one fold into the range-minimum web's gap per delta,
 //! O(1) web bookkeeping per node (a count bump at each close, a
 //! boundary move at each pop), one settle per reign record at the
@@ -500,18 +524,141 @@ struct Integrator {
     parked: Accumulator,
     /// The interval mass accumulated since `parked`'s anchor.
     seg: Accumulator,
-    /// `B`: content anchored at position zero — the opening plateau and
-    /// every promotion — closing as `B · 2^S`.
+    /// `B`: the opening plateau, anchored at position zero and closing
+    /// as `B · 2^S`.
     base: Accumulator,
-    /// The absolute interval mass consumed through the last settled
-    /// segment, read only at promotions.
+    /// The interval mass banked since the last promotion (or the
+    /// sweep's start): the window the next promotion records.
     ///
     /// Fed one compacted segment mass per freeze — the same watermark
-    /// read the settle already pays — never per interval, so a sweep
-    /// that never freezes never touches it.
-    position: Accumulator,
+    /// read the settle already pays — never per interval, and read once
+    /// per promotion, so a sweep that never freezes never touches it
+    /// and a sweep that never promotes never reads it.
+    pos_local: Accumulator,
+    /// The promotion ledger: one [`Arming`] per promotion, settled once
+    /// at the sweep's close ([`settle_armings`](Self::settle_armings)).
+    promotions: Vec<Arming>,
     /// The unit mass every interval deposits at its own scale.
     one: Base,
+}
+
+/// One promotion, recorded at its freeze and settled once at the
+/// sweep's close: the promoted parked component and the window of
+/// interval mass that separates it from the previous promotion.
+struct Arming {
+    /// Whether the promoted parked component is negative.
+    neg: bool,
+    /// The promoted parked component, read once at its promotion.
+    parked: Base,
+    /// The interval mass banked between the previous promotion (or the
+    /// sweep's start) and this one: `window · 2^shift`, the watermark
+    /// read of the position window, `shift` a multiple of 32.
+    window: UBig,
+    /// The window's power-of-two scale (its never-written low prefix).
+    shift: u64,
+}
+
+/// A suffix of the sweep's interval mass as sparse balanced signed
+/// digits, assembled newest-first by the ledger settle.
+///
+/// Each entry is `(digit index, digit)` with `0 < |digit| ≤ 2^31`,
+/// ascending; the denoted mass is `Σ digit · 2^(32·index)`. The
+/// balanced form is the point: an all-ones prefix — the shape a long
+/// climb's consumed masses sum to — compacts to O(1) entries, so a
+/// charge against the suffix costs the parked width times the suffix's
+/// *density*, never its span, and a merge rewrites only live entries.
+struct SuffixMass {
+    digits: Vec<(u64, i64)>,
+}
+
+impl SuffixMass {
+    /// The empty suffix.
+    fn new() -> SuffixMass {
+        SuffixMass { digits: Vec::new() }
+    }
+
+    /// Add `mass · 2^shift` into the suffix, re-balancing the digits it
+    /// lands on: one pass over the live entries plus the operand's
+    /// digits.
+    ///
+    /// Each window is merged exactly once, so the operand walk is paid
+    /// by the watermark read that produced it; the live-entry rewrite
+    /// is bounded by the suffix's balanced density, the same quantity
+    /// the charges below are priced in.
+    fn merge(&mut self, mass: &UBig, shift: u64) {
+        debug_assert_eq!(shift % 32, 0, "interval masses are digit-aligned");
+        let index_base = shift / 32;
+        let mut old = core::mem::take(&mut self.digits).into_iter().peekable();
+        let mut new = Limbs::new(mass)
+            .enumerate()
+            .flat_map(|(i, limb)| {
+                [
+                    (index_base + 2 * i as u64, (limb & 0xFFFF_FFFF) as i64),
+                    (index_base + 2 * i as u64 + 1, (limb >> 32) as i64),
+                ]
+            })
+            .filter(|&(_, d)| d != 0)
+            .peekable();
+        let mut out: Vec<(u64, i64)> = Vec::new();
+        let mut carry: i64 = 0;
+        let mut carry_index: u64 = 0;
+        loop {
+            let mut index = u64::MAX;
+            if carry != 0 {
+                index = carry_index;
+            }
+            if let Some(&(i, _)) = old.peek() {
+                index = index.min(i);
+            }
+            if let Some(&(i, _)) = new.peek() {
+                index = index.min(i);
+            }
+            if index == u64::MAX {
+                break;
+            }
+            let mut t: i64 = 0;
+            if carry != 0 && carry_index == index {
+                t = carry;
+                carry = 0;
+            }
+            if old.peek().is_some_and(|&(i, _)| i == index) {
+                t += old.next().expect("peeked").1;
+            }
+            if new.peek().is_some_and(|&(i, _)| i == index) {
+                t += new.next().expect("peeked").1;
+            }
+            // Recenter into the balanced range [−2^31, 2^31): an
+            // all-ones run becomes one subtract at its floor and one
+            // carry past its top, exactly the compaction the charge
+            // relies on.
+            let c = (t + (1 << 31)) >> 32;
+            let rem = t - (c << 32);
+            if rem != 0 {
+                out.push((index, rem));
+            }
+            if c != 0 {
+                debug_assert_eq!(carry, 0, "positions advance, so the carry was consumed");
+                carry = c;
+                carry_index = index + 1;
+            }
+        }
+        self.digits = out;
+    }
+
+    /// Debit (or, for a negative `parked`, credit) `parked × suffix`
+    /// into the total: one `parked`-wide product per live digit, so the
+    /// charge is the parked width times the suffix's balanced density.
+    fn charge(&self, total: &mut Accumulator, neg: bool, parked: &Base) {
+        for &(index, digit) in &self.digits {
+            let mut product = parked.clone();
+            product *= u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
+            if neg == (digit < 0) {
+                total.add_magnitude_shl(&product, 32 * index);
+            } else {
+                total.sub_magnitude_shl(&product, 32 * index);
+            }
+        }
+    }
 }
 
 impl Integrator {
@@ -522,7 +669,8 @@ impl Integrator {
             parked: Accumulator::new(),
             seg: Accumulator::new(),
             base: Accumulator::new(),
-            position: Accumulator::new(),
+            pos_local: Accumulator::new(),
+            promotions: Vec::new(),
             one: Base::from(1u8),
         }
     }
@@ -579,7 +727,7 @@ impl Integrator {
     /// Park the live drift, closing the current segment.
     ///
     /// Settles the parked component over the segment (banking the
-    /// segment's mass into the absolute position), promotes the parked
+    /// segment's mass into the position window), promotes the parked
     /// component first if the incoming drift runs far narrower, then
     /// moves the drift in and re-anchors.
     fn freeze(&mut self) {
@@ -612,9 +760,9 @@ impl Integrator {
     /// component over it and bank the segment's mass.
     ///
     /// The credit is `total += P · segment`, as [`settle`](Self::settle);
-    /// the banked mass joins the absolute position, read only at
-    /// promotions — one watermark read serving both consumers, priced
-    /// by the segment's depth variation.
+    /// the banked mass joins the position window the next promotion
+    /// records ([`pos_local`](Self::pos_local)) — one watermark read
+    /// serving both consumers, priced by the segment's depth variation.
     fn settle_segment(&mut self) {
         let (seg_sign, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
         debug_assert_ne!(seg_sign, Ordering::Less, "interval masses only accumulate");
@@ -622,7 +770,7 @@ impl Integrator {
             return;
         }
         let seg = Base::from(seg_mag);
-        self.position.add_magnitude_shl(&seg, seg_shift);
+        self.pos_local.add_magnitude_shl(&seg, seg_shift);
         if self.parked.is_literally_zero() {
             return;
         }
@@ -644,8 +792,9 @@ impl Integrator {
     ///
     /// One compacted product priced by `P`'s width times the segment's
     /// depth variation; the scaled read skips the never-written scale
-    /// prefix under the segment. No position banking: the sweep is over,
-    /// so no promotion can follow.
+    /// prefix under the segment. No banking here: only a promoting
+    /// sweep needs the final window, and [`finish`](Self::finish) banks
+    /// it exactly there.
     fn settle(&mut self) {
         if self.parked.is_literally_zero() {
             return;
@@ -665,46 +814,97 @@ impl Integrator {
         );
     }
 
-    /// Re-anchor the parked component at position zero: the base picks
-    /// it up (closing as `B · 2^S`) and the total is debited
-    /// `P × position` — the sweep's one absolute-position product, paid
-    /// once per wide arming.
+    /// Promote the parked component out of the per-freeze settle: record
+    /// it in the ledger with the position window it closes, owing
+    /// `P · (2^S − position)` — settled once, at the sweep's close, as
+    /// `P` times its suffix mass ([`settle_armings`](Self::settle_armings))
+    /// — and re-open both.
     ///
     /// Sound only immediately after
     /// [`settle_segment`](Self::settle_segment): the segment credit
     /// covered `P` up to the current position — which the banking has
-    /// just brought current — so its remaining tail is
-    /// `P · (2^S − position) = P · 2^S − P · position`.
+    /// just brought current — so its remaining tail is exactly the
+    /// interval mass still ahead of this freeze. Both reads here are at
+    /// funded widths: the parked read at the width its arming deposited,
+    /// the window read at the watermark span the banked segments paid
+    /// for; nothing is re-based against an absolute position.
     fn promote(&mut self) {
         let (p_sign, p_mag) = self.parked.sign_magnitude();
         if p_mag != UBig::ZERO {
-            let (pos_sign, pos_mag, pos_shift) = self.position.sign_magnitude_shl();
+            let (w_sign, w_mag, w_shift) = self.pos_local.sign_magnitude_shl();
             debug_assert_eq!(
-                pos_sign,
+                w_sign,
                 Ordering::Greater,
                 "a freeze always follows at least one interval"
             );
-            mul_into(
-                &mut self.total,
-                &Base::from(p_mag),
-                &Base::from(pos_mag),
-                pos_shift,
-                p_sign == Ordering::Greater,
-            );
-            self.base.add_accum(&self.parked);
+            self.promotions.push(Arming {
+                neg: p_sign == Ordering::Less,
+                parked: Base::from(p_mag),
+                window: w_mag,
+                shift: w_shift,
+            });
+            // A fresh buffer, not `reset()`: the window's digits sit at
+            // the sweep position's scale, and a clearing scan would pay
+            // the untouched zero prefix below them.
+            self.pos_local = Accumulator::new();
         }
         self.parked.reset();
     }
 
-    /// Close the sweep: the final segment settlement, then the base's
-    /// whole-interval term `B · 2^S`.
+    /// Settle the promotion ledger at the sweep's close: each arming
+    /// pays `P · (its suffix mass)`, assembled newest-first so every
+    /// window is merged into the suffix exactly once.
+    ///
+    /// The final window — the mass banked since the last promotion,
+    /// which [`finish`](Self::finish) completed with the final
+    /// segment — opens the suffix; each arming charges against the
+    /// suffix *before* its own window joins, because an arming's tail
+    /// begins at its own freeze. One charge per arming at the parked
+    /// width times the suffix's balanced density: the ledger's whole
+    /// cost, deferred out of the sweep so no promotion ever re-reads
+    /// history the previous armings already paid for.
+    fn settle_armings(&mut self) {
+        if self.promotions.is_empty() {
+            return;
+        }
+        let (t_sign, t_mag, t_shift) = self.pos_local.sign_magnitude_shl();
+        debug_assert_ne!(t_sign, Ordering::Less, "interval masses only accumulate");
+        let mut suffix = SuffixMass::new();
+        if t_mag != UBig::ZERO {
+            suffix.merge(&t_mag, t_shift);
+        }
+        let armings = core::mem::take(&mut self.promotions);
+        for (i, arming) in armings.iter().enumerate().rev() {
+            suffix.charge(&mut self.total, arming.neg, &arming.parked);
+            if i > 0 {
+                suffix.merge(&arming.window, arming.shift);
+            }
+        }
+    }
+
+    /// Close the sweep: the final segment settlement, the promotion
+    /// ledger's one settle, then the base's whole-interval term
+    /// `B · 2^S`.
     ///
     /// The parked component's final segment mass is exactly the tail
     /// from its anchor, because the interval masses tile the unit
-    /// interval. The live component owes nothing here: every interval
+    /// interval; when the ledger holds armings, the same tiling makes
+    /// the final window plus the banked segments exactly the newest
+    /// arming's suffix, so the final segment is banked (one more
+    /// watermark read, on promoting sweeps only) before the ledger
+    /// settles. The live component owes nothing here: every interval
     /// already credited it directly.
     fn finish(mut self, closing_shift: u64) -> (Ordering, UBig) {
         self.settle();
+        if !self.promotions.is_empty() {
+            let (seg_sign, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+            debug_assert_ne!(seg_sign, Ordering::Less, "interval masses only accumulate");
+            if seg_mag != UBig::ZERO {
+                self.pos_local
+                    .add_magnitude_shl(&Base::from(seg_mag), seg_shift);
+            }
+            self.settle_armings();
+        }
         if !self.base.is_literally_zero() {
             self.total.add_accum_shl(&self.base, closing_shift);
         }

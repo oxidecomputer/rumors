@@ -493,4 +493,346 @@ mod adequacy {
              flatness band it backs is decoration until a new witness lands"
         );
     }
+
+    // ── the span-reading promotion accounting ──────────────────────────
+    //
+    // The promotion ledger exists because a promotion must not re-read
+    // whole-history position state (the module doc's promotion-ledger
+    // bullet). This kernel keeps the refuted accounting — the full
+    // anchored-segment integrator whose promotion debits `P × position`
+    // by reading an absolute position accumulator across its written
+    // span, re-anchoring the parked component into the base — committed
+    // and failing on the promotion re-arm family, through both the
+    // single-stream and the pair integrals, so the green re-arm
+    // flatness bands (`skyline_flatness`, `tests/meter.rs`) are never
+    // decoration. Value-exact against the shipped folds: the identity
+    // `P · (2^S − position) = P · 2^S − P · position` is sound; only
+    // its cost class is not.
+
+    use crate::meter::{promotion_rearm, promotion_rearm_mate};
+    use crate::version::skyline::sweep::{advance, fold};
+
+    /// The anchored-segment integral with the span-reading promotion:
+    /// segments settle at the write watermark (linear on the
+    /// freeze-position family), but a promotion multiplies the parked
+    /// component by the absolute position accumulator, read across its
+    /// full written span, and re-anchors it into the base.
+    struct SpanIntegrator {
+        total: Accumulator,
+        live: Accumulator,
+        parked: Accumulator,
+        seg: Accumulator,
+        base: Accumulator,
+        /// The absolute interval mass consumed through the last settled
+        /// segment: the whole-history state the promotion re-reads.
+        position: Accumulator,
+        one: Base,
+    }
+
+    impl SpanIntegrator {
+        fn new() -> SpanIntegrator {
+            SpanIntegrator {
+                total: Accumulator::new(),
+                live: Accumulator::new(),
+                parked: Accumulator::new(),
+                seg: Accumulator::new(),
+                base: Accumulator::new(),
+                position: Accumulator::new(),
+                one: Base::from(1u8),
+            }
+        }
+
+        fn open(&mut self, opening: &Base) {
+            self.base.add_magnitude(opening);
+        }
+
+        fn interval(&mut self, weight_shift: u64) {
+            if !self.live.is_literally_zero() {
+                self.total.add_accum_shl(&self.live, weight_shift);
+            }
+            self.seg.add_magnitude_shl(&self.one, weight_shift);
+        }
+
+        fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
+            let (sign, magnitude) = diff.sign_magnitude();
+            if magnitude == suanpan::UBig::ZERO {
+                return;
+            }
+            let magnitude = Base::from(magnitude);
+            let negative = (coefficient < 0) != (sign == Ordering::Less);
+            let shift = if coefficient.abs() == 2 { 1 } else { 0 };
+            if negative {
+                self.live.sub_magnitude_shl(&magnitude, shift);
+            } else {
+                self.live.add_magnitude_shl(&magnitude, shift);
+            }
+        }
+
+        fn boundary(&mut self, funded_digits: usize) {
+            if self.live.digit_count() > funded_digits + FREEZE_ALLOWANCE_DIGITS {
+                self.freeze();
+            }
+        }
+
+        fn freeze(&mut self) {
+            let (drift_sign, drift) = self.live.sign_magnitude();
+            if drift == suanpan::UBig::ZERO {
+                self.live.reset();
+                return;
+            }
+            let drift = Base::from(drift);
+            self.settle_segment();
+            if self.parked.digit_count()
+                > super::super::base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS
+            {
+                self.promote();
+            }
+            match drift_sign {
+                Ordering::Less => self.parked.sub_magnitude(&drift),
+                _ => self.parked.add_magnitude(&drift),
+            }
+            self.live.reset();
+            self.seg = Accumulator::new();
+        }
+
+        fn settle_segment(&mut self) {
+            let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+            if seg_mag == suanpan::UBig::ZERO {
+                return;
+            }
+            let seg = Base::from(seg_mag);
+            self.position.add_magnitude_shl(&seg, seg_shift);
+            if self.parked.is_literally_zero() {
+                return;
+            }
+            let (p_sign, p_mag) = self.parked.sign_magnitude();
+            if p_mag == suanpan::UBig::ZERO {
+                return;
+            }
+            mul_into(
+                &mut self.total,
+                &Base::from(p_mag),
+                &seg,
+                seg_shift,
+                p_sign == Ordering::Less,
+            );
+        }
+
+        fn settle(&mut self) {
+            if self.parked.is_literally_zero() {
+                return;
+            }
+            let (p_sign, p_mag) = self.parked.sign_magnitude();
+            if p_mag == suanpan::UBig::ZERO {
+                return;
+            }
+            let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+            mul_into(
+                &mut self.total,
+                &Base::from(p_mag),
+                &Base::from(seg_mag),
+                seg_shift,
+                p_sign == Ordering::Less,
+            );
+        }
+
+        /// The refuted move: `P × position` with the position read
+        /// whole, then `P` re-anchored into the base.
+        fn promote(&mut self) {
+            let (p_sign, p_mag) = self.parked.sign_magnitude();
+            if p_mag != suanpan::UBig::ZERO {
+                let (_, pos_mag, pos_shift) = self.position.sign_magnitude_shl();
+                mul_into(
+                    &mut self.total,
+                    &Base::from(p_mag),
+                    &Base::from(pos_mag),
+                    pos_shift,
+                    p_sign == Ordering::Greater,
+                );
+                self.base.add_accum(&self.parked);
+            }
+            self.parked.reset();
+        }
+
+        fn finish(mut self, closing_shift: u64) -> Rank {
+            self.settle();
+            if !self.base.is_literally_zero() {
+                self.total.add_accum_shl(&self.base, closing_shift);
+            }
+            let (sign, num) = self.total.sign_magnitude();
+            debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
+            let scale = u32::try_from(closing_shift).expect("the tripwire streams stay shallow");
+            Rank::from_raw(Base::from(num), scale)
+        }
+    }
+
+    /// The rank fold on the span-reading integrator: the shipped
+    /// [`rank`](super::super::rank) loop verbatim, integrator swapped.
+    fn span_promotion_rank(bits: &BitsSlice) -> Rank {
+        let max_depth = max_depth(bits);
+        let (mut cursor, first) = LeafCursor::open(bits);
+        let mut integral = SpanIntegrator::new();
+        integral.open(&first);
+        loop {
+            let weight_shift = (max_depth - cursor.depth()) as u64;
+            integral.interval(weight_shift);
+            if cursor.done() {
+                break;
+            }
+            let step = cursor.step(&mut integral.live, Side::A);
+            integral.boundary(super::super::base_digits(&step.magnitude));
+        }
+        integral.finish(max_depth as u64)
+    }
+
+    /// The distance co-sweep on the span-reading integrator: the
+    /// shipped pair loop verbatim (distance orientation), integrator
+    /// swapped.
+    fn span_promotion_distance(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Rank {
+        let orientation = |sign: Ordering| -> i8 {
+            match sign {
+                Ordering::Greater => 1,
+                Ordering::Less => -1,
+                Ordering::Equal => 0,
+            }
+        };
+        let overlay_depth = max_depth(a_bits).max(max_depth(b_bits));
+        let (mut ca, a_first) = LeafCursor::open(a_bits);
+        let (mut cb, b_first) = LeafCursor::open(b_bits);
+        let mut diff = Accumulator::new();
+        diff.add_magnitude(&a_first);
+        diff.sub_magnitude(&b_first);
+        let mut orient = orientation(diff.sign());
+        let mut integral = SpanIntegrator::new();
+        if orient != 0 {
+            let (_, opening) = diff.sign_magnitude();
+            integral.open(&Base::from(opening));
+        }
+        loop {
+            let weight_shift = (overlay_depth - ca.depth().max(cb.depth())) as u64;
+            integral.interval(weight_shift);
+            if ca.done() && cb.done() {
+                break;
+            }
+            let (da, db) = advance(&mut ca, &mut cb, &mut diff);
+            let new_orient = orientation(diff.sign());
+            if orient != 0 {
+                for (side, step) in [(Side::A, &da), (Side::B, &db)] {
+                    if let Some(step) = step {
+                        let toward = if orient > 0 { side } else { side.other() };
+                        fold(&mut integral.live, toward, step.negative, &step.magnitude);
+                    }
+                }
+            }
+            if new_orient != orient {
+                integral.jump(new_orient - orient, &diff);
+                orient = new_orient;
+            }
+            let funded = da
+                .iter()
+                .chain(db.iter())
+                .map(|step| super::super::base_digits(&step.magnitude))
+                .max()
+                .unwrap_or(1);
+            integral.boundary(funded);
+        }
+        integral.finish(overlay_depth as u64)
+    }
+
+    /// One rank tripwire run over `PR(p)`: packed bytes and the touch
+    /// count over the known-bad fold, value-pinned against the shipped
+    /// kernel.
+    fn span_rank_run(p: usize) -> (u64, u64) {
+        let v = promotion_rearm(p).version();
+        let enc = encode(&v);
+        let expected = v.rank();
+        touch_meter::reset();
+        let r = span_promotion_rank(&enc);
+        let touches = touch_meter::touches();
+        assert_eq!(
+            r, expected,
+            "the known-bad fold must stay value-exact: a wrong demonstrator \
+             proves nothing about the family's coverage"
+        );
+        (enc.len().div_ceil(8) as u64, touches)
+    }
+
+    /// One pair tripwire run over `(PR(p), PRM(p))`: the pair's packed
+    /// bytes and the touch count over the known-bad co-sweep,
+    /// value-pinned against the shipped kernel.
+    fn span_pair_run(p: usize) -> (u64, u64) {
+        let a = promotion_rearm(p).version();
+        let b = promotion_rearm_mate(p).version();
+        let ea = encode(&a);
+        let eb = encode(&b);
+        let expected = a.distance(&b);
+        touch_meter::reset();
+        let d = span_promotion_distance(&ea, &eb);
+        let touches = touch_meter::touches();
+        assert_eq!(
+            d, expected,
+            "the known-bad co-sweep must stay value-exact: a wrong \
+             demonstrator proves nothing about the family's coverage"
+        );
+        ((ea.len() + eb.len()).div_ceil(8) as u64, touches)
+    }
+
+    /// `PR(p)` catches the span-reading promotion red on the
+    /// single-stream integral: its per-byte touch cost grows across
+    /// the doubling.
+    ///
+    /// A linear fold reads ~x1.00 here; the floor 1.36 sits midway
+    /// between linear and the measured x1.72, while the shipped
+    /// kernel's re-arm flatness band holds the same family at x1.25.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 1,485,588 -> 5,098,162 across PR(1,000) -> PR(2,000), packed
+    /// 246,501B -> 493,001B: per-byte growth x1.72 — the retired
+    /// mechanism's exact readings, so the copy is faithful.]
+    #[test]
+    fn span_promotion_accounting_reads_superlinear_on_rearm_spine() {
+        let (small_bytes, small_touches) = span_rank_run(1_000);
+        let (large_bytes, large_touches) = span_rank_run(2_000);
+        eprintln!(
+            "MEASURED adequacy_span_promotion_rank: small={small_touches}/{small_bytes}B \
+             large={large_touches}/{large_bytes}B"
+        );
+        assert!(
+            u128::from(large_touches) * u128::from(small_bytes) * 100
+                >= u128::from(small_touches) * u128::from(large_bytes) * 136,
+            "the span-reading promotion reads flat on the re-arm spine \
+             ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
+             the family no longer catches the mechanism it was built for, so the \
+             flatness band it backs is decoration until a new witness lands"
+        );
+    }
+
+    /// `(PR(p), PRM(p))` catches the span-reading promotion red on the
+    /// pair integral: its per-byte touch cost grows across the
+    /// doubling — the committed proof that the pair family drives
+    /// promotions through the co-sweep, not just freezes.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 1,600,533 -> 5,325,909 across p = 1,000 -> 2,000, packed pair
+    /// 269,001B -> 538,001B: per-byte growth x1.66; the floor 1.36
+    /// sits midway between linear and the measured growth, as the rank
+    /// tripwire's.]
+    #[test]
+    fn span_promotion_accounting_reads_superlinear_on_rearm_pair() {
+        let (small_bytes, small_touches) = span_pair_run(1_000);
+        let (large_bytes, large_touches) = span_pair_run(2_000);
+        eprintln!(
+            "MEASURED adequacy_span_promotion_pair: small={small_touches}/{small_bytes}B \
+             large={large_touches}/{large_bytes}B"
+        );
+        assert!(
+            u128::from(large_touches) * u128::from(small_bytes) * 100
+                >= u128::from(small_touches) * u128::from(large_bytes) * 136,
+            "the span-reading promotion reads flat on the re-arm pair \
+             ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
+             the pair family no longer drives promotions through the co-sweep, \
+             so the pair flatness band it backs is decoration until a new \
+             witness lands"
+        );
+    }
 }
