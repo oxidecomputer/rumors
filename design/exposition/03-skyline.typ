@@ -87,14 +87,14 @@ it lets whole codes settle under one count-leading-zeros instruction.
 its plateau's height. The first leaf stores its height _absolutely_;
 every later leaf stores the _difference_ from the previous leaf in
 stream order. Neighboring plateaus tend to sit close in height even
-when both stand very tall — not because of any spelling rule (by
+when both stand very tall. No spelling rule makes it so — by
 observation 2 above the leaf heights are function-determined, so no
-normalization can alter their differences) but because of the
-operations' _dynamics_: `fill`
-flattens each owned region to one plateau and — where a filled
-sibling's minimum stands higher — raises it to that minimum (@tick),
-and joins move whole regions at once, so
-real histories keep adjacent plateaus close (measured across
+normalization can alter their differences. The operations'
+_dynamics_ do: `fill`
+flattens each owned region to one plateau and, where a filled
+sibling's minimum stands higher, raises it to that minimum (@tick);
+joins move whole regions at once. Real histories therefore keep
+adjacent plateaus close (measured across
 organic corpora — @ctf-caveat). Differences are
 therefore usually small where absolutes are usually not. A difference can be negative, so it is
 folded onto the naturals first by the _zigzag_ map
@@ -287,14 +287,16 @@ Strict decode must check the three rules in one pass over untrusted
 bits, and @naive taught us what that pass may cost: nothing
 per-node beyond the node's own bits, nothing per-level beyond bits.
 
-Minimal topology and exactness need, per open ancestor, two bits of
-state — "is my left child complete?" and "was that child a leaf?" —
-kept on a packed bit stack: roughly two bits of transient memory per
-level against the roughly three bits a level costs on the
-depth-maximizing spine shape — per level, an internal flag plus the
+Minimal topology and exactness need two bits of state per open
+ancestor — "is my left child complete?" and "was that child a
+leaf?" — kept on a packed bit stack. That is roughly two bits of
+transient memory per
+level, against the roughly three bits a level costs on the
+depth-maximizing spine shape. The anatomy of those three: per
+level, an internal flag plus the
 off-spine leaf's flag and a 1-bit zero-delta payload, with the
 deepest sibling pair obliged to differ (one wider code at the
-bottom keeps the shape canonical), $3d + O(1)$ in all. @lengths
+bottom keeps the shape canonical) — $3d + O(1)$ in all. @lengths
 named the shape; it is the one that matters, since it is the one an
 adversary sends. Depth is paid for
 in bits, honoring @naive-recursion's budget.

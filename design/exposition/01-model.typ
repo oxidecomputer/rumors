@@ -59,20 +59,21 @@ piece of arithmetic:
   accumulator with no normalized region anywhere makes every
   word-sized update and every sign query amortized constant-time, and
   every wide update linear in its own width, _on every input
-  sequence_ (with one restriction, stated and used in @accum: an
+  sequence_. One restriction, stated and used in @accum: an
   accumulator that receives writes at power-of-two scales is
   never asked for its sign — it is written, then read out once at
-  the end) — the load-bearing component that lets each sweep's cost
+  the end. This is the load-bearing component that lets each
+  sweep's cost
   argument close.
 
-On top of those two, @operations derives each operation — comparison;
+On top of those two, @operations derives each operation as a sweep
+over the packed form, each with an informal argument for linearity
+and a statement of what "linear" is denominated in: comparison;
 join and meet; fork, party join, party difference, and the party
 predicates `covers` and `disjoint`; projection;
 the measures rank, distance, lag, and minimum tick count; and last,
 because it needs everything before it, tick (the paper's `event`,
-with `fill` and `grow`) — as a sweep over the packed form, each with
-an informal argument for linearity and a statement of what "linear"
-is denominated in. @machine turns to constant factors: why a packed
+with `fill` and `grow`). @machine turns to constant factors: why a packed
 sequential scan is the access pattern the machine rewards, and where
 the measured costs of our implementation sit relative to the floor of
 simply reading the input. @resilience closes the arc by stating the
@@ -162,8 +163,8 @@ A system starts from the _seed_ stamp $(1, 0)$: one participant
 owning the whole id space, no events yet.
 
 Comparison is pointwise: $e_1 <= e_2$ iff the function of $e_1$ is
-nowhere above the function of $e_2$. Two event trees neither of
-which is $<=$ the other are _concurrent_. The paper's operations
+nowhere above the function of $e_2$. Two event trees are
+_concurrent_ when neither is $<=$ the other. The paper's operations
 lean on notation this document reuses: the _lift_ $e arrow.t m$,
 which adds $m$ to the root value of $e$ — so $n arrow.t m = n + m$
 and $(n, e_1, e_2) arrow.t m = (n + m, e_1, e_2)$ — along with
@@ -185,11 +186,11 @@ names of the implementation rather than the paper's, because the
 renaming carries a point of view: we write *version* for the paper's
 event component (it is a causal timestamp — a value in its own right,
 freely copied), *party* for the id component (the participant's
-share of the id space), *clock* for the stamp $(i, e)$ — the value,
+share of the id space), *clock* for the stamp $(i, e)$ (the value:
 a party
-paired with its current version; "ITC" names the scheme — and
+paired with its current version), and
 *tick* for the paper's `event`
-operation. "Tree" is reserved for the paper's spelling of these
+operation. "ITC" names the scheme. "Tree" is reserved for the paper's spelling of these
 values; the whole burden of @skyline is that the tree is not the
 value.
 

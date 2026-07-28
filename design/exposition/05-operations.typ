@@ -117,15 +117,14 @@ for its sign. No absolute height is ever materialized: the two
 leading absolutes fold straight into $D$, and nothing above word
 width is ever reassembled. A sign
 $D > 0$ somewhere refutes $a <= b$; $D < 0$ somewhere refutes
-$b <= a$; the four verdicts are the four subsets of refutations
-accumulated by the end, and each entry point stops early the moment
-its own question is settled (the _equal_ verdict inside a full
-compare dies at the first nonzero
-sign — a standalone equality test never runs this walk, since
-@canonical made it a byte comparison; an order dies at the first
-sign against it; full
+$b <= a$. The four verdicts are the four subsets of refutations
+accumulated by the end. Each entry point stops early the moment
+its own question is settled: an order dies at the first sign
+against it, the _equal_ verdict inside a full compare dies at the
+first nonzero sign, and full
 `compare` runs until both directions have spoken or the streams
-end).
+end. (A standalone equality test never runs this walk at all —
+@canonical made it a byte comparison.)
 
 Cost: the walk is linear; each word-scale delta folds in amortized
 $O(1)$ digit touches, each wide delta in $O$(its own limbs); each
@@ -146,12 +145,12 @@ the walk maintains_.
 
 == Join and meet <join>
 
-Join is pointwise max, meet pointwise min; both ride the identical
+Join is pointwise max, meet pointwise min; both ride the same
 walk and differ in one branch. What emission adds to comparison is an
 output: one plateau per elementary interval, at the depth of the
 deeper cursor (nesting makes that the interval's exact width), with a
 payload delta the walk must produce _without knowing any absolute
-height_ — after the leading plateau, which is the one seeding step:
+height_. The leading plateau is the one seeding step:
 both leading codes are read, the side the operation selects is
 emitted (max's larger, min's smaller), $D$ starts from
 their difference, and no absolute survives past it.
@@ -317,9 +316,10 @@ $p$ and $q$, the regions of $p$ not owned by $q$ — how a share is
 carved when something less than a full retirement moves) is the same
 boolean-skyline sweep, emitting $1$ where $p$ owns and $q$ does not.
 When $"covers"(q, p)$ holds — $q$ owning all of $p$ — the result is
-empty, and the API reports it as
-_no party_ rather than spelling it — a party is nonempty by
-construction (@id-coding) — so `covers` is the caller's test before
+empty. The API reports that as
+_no party_ rather than spelling it, since a party is nonempty by
+construction (@id-coding); `covers` is therefore the caller's test
+before
 carving.
 The predicates — _covers_, where $"covers"(p, q)$ asks whether
 $q$'s owned region $subset.eq$ $p$'s, and
@@ -363,16 +363,17 @@ $Theta(t dot k)$ bits from a $Theta(t + k)$-bit input — mandatory
 given that the result must itself be a canonical stream (a lazy
 "masked view" would dodge it, at the price of every downstream
 consumer carrying the mask forever). No algorithm can beat its own
-output; the honest claim, and the one our implementation is held to,
+output. The honest claim, and the one our implementation is held
+to,
 is that the sweep is linear in _input plus output_ — and that
-nothing else in this section has an _unbounded_ output ratio:
-fork's halves each stay within their operand's size plus two bits —
-the fresh node; the seed's two bits forking to two four-bit halves
-is where the additive term binds — and the pair within twice it
-plus four, party difference within its
-operands' sum, tick's
+nothing else in this section has an _unbounded_ output ratio.
+Fork's halves each stay within their operand's size plus two bits,
+the fresh node, and the pair within twice that plus four (the
+seed's two bits forking to two four-bit halves is where the
+additive term binds). Party difference stays within its operands'
+sum; tick's
 output can exceed its input by at most a constant factor
-(@tick-output), join's not at all.
+(@tick-output); join's cannot exceed it at all.
 
 == The measures <measures>
 
@@ -391,14 +392,15 @@ you like — say, by canonical bytes, which uniqueness makes a
 legitimate tiebreak).
 
 Computing it is a one-cursor sweep with a weighted fold: add
-$h_i dot 2^(S - d_i)$ per leaf (numerator units, $S$ the maximum
-depth, found by one pre-pass that reads flags and hops over payloads
-by their coded lengths — rank is one of the two-pass operations the
-introduction owned up to, and the pre-pass earns its keep: the
+$h_i dot 2^(S - d_i)$ per leaf, in numerator units, with $S$ the
+maximum depth. One pre-pass finds $S$, reading flags and hopping
+over payloads by their coded lengths — rank is one of the two-pass
+operations the introduction owned up to. The pre-pass earns its
+keep: the
 alternative anchors the total at the running maximum depth and
 rescales the held digits whenever it rises, a held-width rewrite
-per rise that a steadily deepening stream turns quadratic; knowing
-$S$ up front makes every landing final). The naive fold
+per rise that a steadily deepening stream turns quadratic. Knowing
+$S$ up front makes every landing final. The naive fold
 materializes $h_i$ per leaf — the boundary comb makes that
 $Theta(n dot k)$ again. The cure splits the running height into
 _frozen + live_, $h = F + L$: $L$, an accumulator holding the drift
@@ -457,7 +459,7 @@ distinct versions denote distinct functions (@canonical's uniqueness
 argument), which then differ over some plateau of positive width. Lag is the one-sided
 "how much of $b$ have I not seen", the natural backpressure signal
 for anti-entropy protocols. The composite route — emit, then rank —
-is the implementation's, not merely the correctness argument: it
+is the implementation's, not merely the correctness argument's: it
 reuses two sweeps the system already maintains, at a pass count the
 identities make explicit (two emissions and two rank computations,
 each two passes, for distance; one emission and two for lag; every
@@ -545,11 +547,12 @@ changed anything, else apply `grow`'s cheapest strict increment.
 It is the one operation whose walk is genuinely intricate, because
 `fill`'s equations ask _range_ questions — maxima and minima over
 subtrees on both sides of the cursor — while everything before this
-point asked only pointwise ones. This subsection derives the walk in
+point asked only pointwise ones. This subsection is the payoff of the whole apparatus. It derives
+the walk in
 five stages — the semantics, the walk and its lookahead, the
 watermark web that carries its range minima, the fused decision
 between `fill` and `grow`, and the output bound that closes the
-funding ledger — and it is the payoff of the whole apparatus.
+funding ledger — with a pair of worked traces between the last two.
 
 === The semantics, restated on the skyline <tick-semantics>
 
@@ -773,18 +776,20 @@ costs through @funding's three funding sources:
   aside into a one-slot register, rather than folding it into the
   revealed watermark. The walk's invariant weakens by exactly that
   slot: with $r$ the parked difference, the revealed range's true
-  gap is $t + r$, resolved lazily — the next opener recycles $r$
-  into its own boundary difference (a move, then a narrow
-  adjustment against a reference the walk already holds); a second close before an open folds
-  the narrower of the two parked differences into the wider (a
-  death, funded, which is why one slot suffices); an undercut deep
-  enough to reach $r$ annihilates it (a death again); and
+  gap is $t + r$, resolved lazily. Four cases resolve it. The next
+  opener recycles $r$
+  into its own boundary difference — a move, then a narrow
+  adjustment against a reference the walk already holds. A second
+  close before an open folds
+  the narrower of the two parked differences into the wider: a
+  death, funded, which is why one slot suffices. An undercut deep
+  enough to reach $r$ annihilates it — a death again. And
   comparisons against the composite gap go through the domination
-  floor, deciding from top digits without touching $r$'s width —
-  and where the floors fail to decide, comparable scales, the
+  floor, deciding from top digits without touching $r$'s width;
+  where the floors fail to decide, comparable scales, the
   narrower of the two folds into the wider and dies, a $Phi$ drop
-  funded once by the codes that deposited it (closes cannot re-arm
-  it: they move $r$, never re-spell it).
+  funded once by the codes that deposited it. Closes cannot re-arm
+  it: they move $r$, never re-spell it.
   The distinction between move and fold is not pedantry:
   fold-on-close re-folds a wide boundary difference on every
   close/reopen cycle, and a comb of sibling sites sharing one
@@ -836,7 +841,8 @@ with its sibling, demanding a merge the splice does not perform?
 Belt and braces: the spliced output still flows through the
 collapsing builder, so any merge the increment makes reachable _is_
 performed; and on this branch the case is vacuous anyway — a
-wholly-owned leaf sitting one below an equal-able sibling is exactly
+wholly-owned leaf sitting one below a sibling it could equal is
+exactly
 what `fill`'s shortcut arm would have raised, so the flag would have
 tripped and `grow` would never have run — and on arm 3's unchanged
 emission the increment does not fire either: there `grow` expands
@@ -934,19 +940,20 @@ $ "size"("tick"^k (i, e)) <= "size"("tick"(i, e)) + 4 dot "size"(i) + 4 ceil(log
 
 — after the first tick's possible doubling, everything further is
 logarithmic in $k$: the doubling is a one-step transient, not a
-ratchet a peer could crank. The mechanism behind each term, since
-this is the bound that a tick-cranking peer tests: iterated ticks
-cannot add nodes beyond the id's own resolution — an expansion
+ratchet a peer could crank. Each term has a mechanism, and
+this is the bound a tick-cranking peer tests. Iterated ticks
+cannot add nodes beyond the id's own resolution: an expansion
 chain fires only where an event leaf still sits above id structure,
-and once split, the region stays split (a `fill` collapse cannot
-undo a `grow` expansion under the same party: a
+and once split, the region stays split. (A `fill` collapse cannot
+undo a `grow` expansion under the same party. A
 wholly-owned event _node_ always changes under `fill`, so `grow`
-only ever sees leaves — and the shapes an expansion leaves behind,
-sibling values a bare increment apart under split ownership, are
+only ever sees leaves, and the shapes an expansion leaves behind —
+sibling values a bare increment apart under split ownership — are
 the ones the next same-party `fill` leaves in place; the full case
-analysis lives with the derivation in our work) — so the node budget is
+analysis lives with the derivation in our work.) So the node
+budget is
 spent at most once, the explicit $4 dot "size"(i)$ being slack that
-covers whichever tick spends it; and $k$ ticks raise
+covers whichever tick spends it. And $k$ ticks raise
 values by at most $k$, so the two re-coded payloads widen by at
 most $2 ceil(log_2 (k + 1))$ code bits apiece — gamma's two bits
 per magnitude bit — the logarithmic term.
