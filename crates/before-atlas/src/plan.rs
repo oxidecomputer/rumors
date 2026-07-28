@@ -24,6 +24,9 @@ use crate::families::overlay_inputs;
 use crate::ops::{OpSpec, Operand};
 use crate::sample::{cell_rng, PartySampler, VersionSampler};
 
+#[cfg(test)]
+mod tests;
+
 /// One atlas run's configuration.
 pub struct Plan {
     /// The base seed every cell RNG derives from (stamped on renders).
@@ -165,14 +168,23 @@ fn draw_inputs(
     (inputs, rejected)
 }
 
-/// Run one operation's whole atlas: every column in parallel across
-/// samples (each sample instantiates a fresh guest, so no state leaks
-/// between measurements), then the overlay points.
+/// Run one operation's whole atlas: every cell in parallel (each sample
+/// instantiates a fresh guest, so no state leaks between measurements),
+/// then the overlay points.
+///
+/// The cell list is flattened before the parallel iteration so rayon
+/// splits across every (column, sample) pair, not merely across columns:
+/// the geometric grid makes the largest column cost about as much as all
+/// the others combined, so column-granular scheduling would idle every
+/// worker but one for half of each operation's run.
 pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas {
-    let samples: Vec<CellSample> = plan
+    let cells: Vec<(usize, usize)> = plan
         .columns(op.operands.len())
+        .into_iter()
+        .flat_map(|size| (0..plan.samples_per_column).map(move |index| (size, index)))
+        .collect();
+    let samples: Vec<CellSample> = cells
         .into_par_iter()
-        .flat_map_iter(|size| (0..plan.samples_per_column).map(move |index| (size, index)))
         .map(|(size, index)| {
             let mut rng = cell_rng(plan.base_seed, op.name, size, index);
             let (inputs, rejected) = draw_inputs(op, samplers, size, &mut rng);

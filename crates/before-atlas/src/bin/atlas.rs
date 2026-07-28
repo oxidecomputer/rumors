@@ -23,6 +23,7 @@ use std::time::Instant;
 use before_atlas::ops::ROSTER;
 use before_atlas::plan::{run_op, Plan, Samplers};
 use before_atlas::render::{render_gallery, render_op, RenderMeta};
+use fuzzfit_harness::wasm::Guest;
 
 fn main() {
     let mut plan = Plan {
@@ -70,6 +71,14 @@ fn main() {
         plan.max_bytes,
         t0.elapsed()
     );
+
+    // Compile the guest module now (a process-wide, one-time cost inside
+    // the first guest construction) rather than lazily under the first
+    // operation's parallel workers, so every printed per-op wall is a
+    // sampling number.
+    let t0 = Instant::now();
+    drop(Guest::new());
+    println!("guest module compiled: {:.1?}", t0.elapsed());
 
     let mut rendered = Vec::new();
     for op in ROSTER {
