@@ -1480,6 +1480,213 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   excess +0.023, prefix divergence 0.489 over 48 of 49 keys
   covered, max healthy within-case excess +0.081).
 
+- **REVIEW 2026-07-28 (task #37, the whole-state adversarial
+  review; branch `advrev-37` @ f08cae75).** Charter: falsify the
+  amelioration claim — wrong committed claims, new amplification
+  families, test blind spots, Goodhart constructions — with
+  committed demonstrators; instruments only, no cures. All
+  measurements below are exact deterministic counters (dev and
+  release read identically on every quoted number unless noted);
+  the one wall-clock claim is disclosed as single runs on a
+  checked-quiet machine. Findings by severity, then seed
+  dispositions, the attacked-and-sound map, and residual risks.
+
+  **F1 (wrong committed claim + roster-binding hole, the highest
+  severity): `Version::min_ticks` is documented `O(|v|)` time and
+  space, roster-bound `Class::Linear`, and measured superlinear on
+  three committed board families through the public API.**
+  [measured, release and dev identical: touch per-byte cost growth
+  ×1.88 across the pure-comb doubling and ×1.66 (touch) / ×1.68
+  (limb) across the reveal-comb doubling, local exponents 1.82–1.93
+  at s = 4000 and still rising; ascend-cliff touch e 1.87.] The
+  excess is unbounded — the pending-minima merge circulates the
+  full plateau width per closing node, which the freeze allowance
+  does not cap (unlike rank's per-leaf adds, which the allowance
+  bounds at 8 digits) — so this is a class defect, not a constant.
+  The query module's own cost section says "the excess is not
+  contractual": by statement-faithfulness the public claim is
+  wrong TODAY, and every committed binding leg is structurally
+  blind to it — `linear_claims_cite_no_judge_red_row` consults
+  only the bench judge's red set (wall exponents), the
+  version_min_ticks bench time legs are unmeasured (this entry's
+  ticks(n) OPEN item), and no test reads the board's counter
+  verdicts against the roster classes. The worst artifact that
+  passes: any counter-superlinear kernel whose wall constant is
+  small enough to stay under the judge's fit at bench scales keeps
+  a Linear rustdoc claim with every gate green. Pins landed:
+  `min_ticks_pure_comb_touches_read_superlinear` and
+  `min_ticks_reveal_comb_reads_superlinear_in_both_width_currencies`
+  (`tests/meter.rs`, `query_superlinearity_pins`): per-byte
+  growth bands (floor midway between linear and measured — only a
+  class change crosses it; ceiling = measured ×1.10) over
+  closed-form semantic legs (`min_ticks = k·2^b` on both combs)
+  and touch liveness floors. The cure (anchor-web) or the re-class
+  must move the pins, the `# Complexity` section, and the roster
+  row in one change. **Categorical seal proposed**: board reds
+  carry a mechanism tag (constant vs exponent), and the claims
+  roster gains a third binding leg — a `Class::Linear` claim may
+  cite no exponent-mechanism red cell; the §17.3 constant reds
+  remain citable.
+
+  **F2 (new adversarial family; `Version::rank`'s `O(|v|)` claim
+  falsified where the board reads green): the freeze-position
+  family FP(k)** — a right spine of 2k descending leaves whose
+  deltas alternate a 10-digit-wide drop (over the 8-digit freeze
+  allowance) and a unit drop, so the fold freezes Θ(k) times;
+  every committed family fires O(1) freezes, which is exactly the
+  hole. Each freeze reads the position accumulator's full digit
+  span (`sign_magnitude` walks digit 0 through the top digit —
+  including the never-written zero prefix below the shallowest
+  leaf's mass, and the span read survives even a
+  `sign_magnitude_shl`-style bottom skip since the written span
+  itself grows) against the O(1)-digit compacted ones-run the
+  correction product actually consumes: Θ(k²) touches on a
+  Θ(k)-byte operand, built through `FromStr` alone. [measured:
+  touch per-byte growth ×1.50 and limb ×1.43 across
+  FP(1,000) → FP(2,000) at 73–147 KB operands, local exponent
+  1.74 at FP(4,000) and rising; every committed rank family reads
+  e 1.00–1.01 at the same scales.] Pin landed:
+  `rank_freeze_position_touches_read_superlinear` (same module,
+  bands on touch and limb, `min_ticks` closed form as the
+  cross-fold semantic leg). **This also disputes the query module
+  doc's residual defense (seed 3 below): on FP(k) the measure's
+  value embeds no wide×dense product — the family's positions
+  compact to O(1) digits and an O(|v|) accounting exists (fold the
+  ones-run product without materializing the position) — so the
+  work is span-read overhead, not mandatory-class.** Categorical
+  seal: FP joins the board family roster (the structural product
+  then prices every operation against the many-freezes genre);
+  the pin carries rank until then.
+
+  **F3 (dependency cost-table refutation, seed 1 CONFIRMED):
+  suanpan's `*_shl` rows claim "amortized O(operand limbs),
+  independent of the shift", and `digit_count`'s doc claims the
+  top-zeroing scan is paid "inside that write's own budget"; both
+  are false at the alternating shifted pair.** [measured, exact:
+  1,000 `sub_wide_shl(&1, s)`/`add_wide_shl(&1, s)` pairs cost
+  1,004,000 touches at s = 32,000; 2,004,000 at 64,000; 4,004,000
+  at 128,000; 8,004,000 at 256,000 — exactly (s/32 + 4) per pair,
+  sustained, and (s/32 + 2) on the `*_magnitude_shl` word path.]
+  Mechanism: the subtraction zeroes the only nonzero digit and
+  `add_at`'s exact-`top` maintenance walks the zero gap to digit
+  0, funded by no operand limb and no earlier deposit; the
+  matching add re-raises `top` in O(1), so the pair repeats
+  forever at the same price. Exposed surface: every shifted
+  subtractive entry whose operand is narrower than the gap under
+  it (`sub_wide_shl`, `sub_magnitude_shl`, `sub_accum_shl`, and
+  the add twins against a negative held value). Pin landed:
+  `alternating_shifted_writes_pay_the_zero_gap_per_pair`
+  (`suanpan/src/tests.rs`, exact totals at two shifts + value
+  legs). Can `before` be driven onto it through the public API?
+  Not demonstrated: the query folds' shifted subtractions target
+  accumulators whose top is maintained by ongoing deposits, and
+  the board's touch column would price a hit on any committed
+  family; constructing a stream that oscillates a fold total's
+  top digit across a wide gap remains a residual risk (below).
+  The cure (a lazy top watermark or gap-aware maintenance) must
+  re-pin the test and re-derive the crate page's `*_shl` rows and
+  the `digit_count` scan claim in one change.
+
+  **F4 (wrong prose + unmetered work, the fold index):
+  `Party::join_all`'s `# Complexity` says each input is
+  overlap-tested "in `O(input)`", and the `IdIndex` module doc
+  says "the fold's total is linear in its operands" one clause
+  after granting "one `O(log n)` table search per both-present
+  node visited" — self-contradictory as written; on
+  both-present-rich populations the up-front tests cost
+  Θ(Σ inputs × log |self|), which `O(D log k)` does not bound
+  (k = 2 already exceeds it). The searches are `step!`-free and
+  scan-unmetered — the #39 F2 genre — so no committed counter can
+  see the term. [measured, wall, single runs, quiet machine,
+  release: on the parity-halves pair (every internal node
+  both-present in both operands) at d = 16 → 18, the cursor
+  predicate `is_disjoint` reads 416 µs → 1.69 ms (×4.05 on ×4
+  input) while join_all's index-build + indexed test reads
+  495 µs → 2.81 ms (×5.67), i.e. ×1.66 the cursor walk at d = 18
+  and growing — the indexed test is also a per-test regression
+  against the walk it replaced on exactly this population.]
+  Correlated deep both-present populations are in no fold family
+  (the #76 gap, hereby confirmed and concretized). No red pin
+  landed: without a meter on the search there is no deterministic
+  reading to pin — the instrument gap IS the finding. Categorical
+  seal: meter the partition-point search (one scan record per
+  probed entry), add a both-present-rich fold family, then the
+  board's exponent leg carries it; the `O(input)` clause and the
+  module doc's linearity sentence must be re-derived against the
+  metered reading.
+
+  **F5 (tamper hole, seed 4 CONFIRMED): the triangle roster's
+  citation check accepts any same-named `fn` anywhere under
+  `src/`** — `declared_fn_names` harvests every declaration
+  (helpers, kernels, unrelated tests) and
+  `every_cited_binding_test_exists` demands bare membership, so a
+  deleted binding test whose name collides with any helper leaves
+  the roster green. Witness pin landed:
+  `citation_scan_accepts_helper_fns_as_binding_tests`
+  (`triangle/tests.rs`) — the haystack contains named non-test
+  helpers today; the seal (resolve citations to `#[test]`/proptest
+  items, ideally module-qualified) flips the witness, which
+  leaves with the hole.
+
+  **Seed dispositions** (owner's rule: evaluate, don't confirm):
+  seed 1 (suanpan table) CONFIRMED and extended — the refutation
+  is exact and shift-linear, the exposed surface is the six
+  shifted entries, and the word path differs only by the two limb
+  reads (F3). Seed 2 (min_ticks `O(|v|)` vs kernel 1.5–1.95)
+  CONFIRMED as a wrong claim, not a contractual excess — the
+  circulation is allowance-uncapped, so no constant re-derivation
+  can save the class (F1). Seed 3 (query.rs mandatory-class
+  residual) CONFIRMED as a non-sequitur where it is load-bearing —
+  the defense argues the *value* embeds a wide×dense product, but
+  the value's bit-length is width + log(mass), not their product,
+  and FP(k) realizes superlinear fold work on a family whose exact
+  value is computable in O(|v|) (F2); the defense's true content
+  is one sentence — "no committed family fires ω(1) freezes" —
+  which is a coverage gap, not a lower bound. Seed 4 (triangle
+  bare-name scan) CONFIRMED (F5).
+
+  **Attacked and sound** (the negative space of the findings):
+  rank on every committed family is genuinely linear at and above
+  the board scales — the sub-default reveal-comb readings are the
+  freeze allowance's bounded constant regime (per-leaf adds capped
+  at 8 digits), collapsing at b > 256 bits, measured non-monotone
+  then flat e 1.00 to s = 4000, so the board's green there is
+  honest; min_ticks on FP(k) is flat (e 1.00 both counters — the
+  two folds' defects are disjoint, and each family catches exactly
+  one); `meet_all`'s uncelled shrink argument holds (the
+  accumulator never exceeds the smallest operand seen, so every
+  step is bounded by its own input); the fold subadditivity
+  escape is closed (join outputs ≤ sum − 2, so no
+  composition-driven operand blowup exists); op-schedule attacks
+  reduce to the family axis — the only inter-call state is the
+  value, the #38 orbit pins bound value trajectories, and any
+  reachable value shape is a single-call family instance;
+  `OwnVersion`'s claims denominate the materialization by `|r|`
+  explicitly (read, not probed); the suanpan sign-fold collapse
+  amortization and the domination certificates verified sound by
+  code reading against their stated invariants; the text κ
+  two-leg criterion and the board's determinism tripwires were
+  read and not re-attacked (each already carries a
+  constructed-adversary refutation history). Not attacked:
+  `before-viz`, the wasm demo surface, `rumormill`, and rumors'
+  session layer beyond the bookmark seam (out of the charter's
+  claim basis).
+
+  **Residual risks (open, no demonstrator):** (1) a public-API
+  stream driving a query fold's own accumulator onto F3's top-gap
+  oscillation (the shifted subtractions exist on the rank/distance
+  paths; not constructed); (2) the distance/lag co-sweep's settle
+  and promotion charges under a many-freezes family — FP(k)'s
+  two-operand analogue against the anchored-segment accounting —
+  untested (the jump-pair wedge covered crest freezes, not
+  span-read growth); (3) the bench judge's 10 µs floor plus
+  fit-noise band could hide a superlinear term whose constant is
+  below resolution at both bench scales on cells with no counter
+  leg (`version_eq`'s byte-equality NA row is time-leg-only);
+  (4) F4's unmetered searches generalize: any future index-shaped
+  structure inherits the blind spot until search probes are a
+  metered primitive.
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
