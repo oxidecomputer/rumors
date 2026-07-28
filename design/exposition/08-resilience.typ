@@ -4,9 +4,9 @@
 
 The introduction claimed resilience as the property the other three
 virtues — asymptotic optimality, small constants, machine affinity —
-do not imply and cannot substitute for. The pieces are now all on the
-table; this section states the property precisely, and shows that one
-discipline produced all four.
+do not imply and cannot substitute for. With every piece now
+derived, the property can be stated precisely — and one discipline
+turns out to have produced all four.
 
 == The property <property>
 
@@ -23,13 +23,12 @@ measurement instead (@measures). The scope of "amortized", fixed in
 @accum-contract, strengthens the claim rather than weakening it:
 the amortization is internal to one call, so each individual API
 call is worst-case linear in its own input plus mandatory output,
-not merely cheap on average across a sequence. Everything else is
-derived — in this
-document, or, for two bounds whose full derivations outgrew it, in
-our work with the shapes given here (@join's exact constant,
-@tick-output's inequalities) — with one composition stated without
-proof (the minimum-tick floor's induction over forked histories,
-@measures).
+not merely cheap on average across a sequence. Two bounds whose
+full derivations outgrew this document live in our work, their
+shapes given here (@join's exact constant, @tick-output's
+inequalities); one composition is stated without proof (the
+minimum-tick floor's induction over forked histories, @measures).
+Everything else is argued here.
 
 Note what the statement does _not_ say. It does not say "fast on
 realistic inputs" — that is @machine's separate, additional claim.
@@ -44,8 +43,8 @@ algorithm.
 
 Why hold a clock library to this bar? Because a causal clock is
 infrastructure that _meets bytes_: values arrive from other machines,
-cross trust boundaries at decode, and are computed with in servers
-whose availability is the product. In that position, every
+cross trust boundaries at decode, and are computed with, inside
+servers whose availability is the product. In that position, every
 disproportion between input size and computational cost is a
 denial-of-service primitive for an adversary and an unexplained outage for
 an operator — the two audiences differ only in intent. The
@@ -134,16 +133,15 @@ contents:
   recursion, the scattered-party comb for the output-dominated row,
   the duplicated-wide-code instance for tick's emissions — each
   built _to break a candidate
-  design_, and kept because each still reads red against a
-  re-introduction of the design it refuted, which the pinned
-  counters demonstrate.
+  design_, and kept because each still reads red — on the pinned
+  counters — against a re-introduction of the design it refuted.
 - *Deterministic meters, floored as well as ceilinged.* Cost is
   measured in machine-independent counters — bits scanned, digit
   touches, peak transient bytes — with enforced ceilings per input
   byte _and enforced floors_: a meter reading zero where work is
   mandatory means the meter came unhooked, and a ceiling over a dead
-  meter proves nothing. Instrumentation is treated as a thing that
-  can itself fail silently.
+  meter proves nothing. Instrumentation is treated as one more
+  component that can fail silently.
 - *Instruments before cures.* A defect is first pinned _red_ — the
   quadratic measured and committed as a failing threshold — and the
   cure's commit turns exactly that pin green and tightens it. Every
@@ -154,22 +152,22 @@ contents:
   constructed family — for the tick walk's close rule, only after
   an earlier design of the walk had already been built
   (@tick-web) — and each refuting
-  family is a permanent regression test. What @accum and @tick
-  present as clean derivations was reached by iterated attack.
+  family is a permanent regression test. The clean derivations of
+  @accum and @tick were reached by iterated attack.
 
 == Closing <closing>
 
 This document presented the skyline representation and its
 accumulator as an
-efficiency story, and they are one: within $4.3%$ of the counting
-floor asymptotically, $6.7%$ at hundred-byte sizes (against
-the family the coding reaches — the framing @ctf-caveat keeps
-honest), linear sweeps for every operation, constants within an
-order of magnitude of decoding cost — decoding itself a bounded
+efficiency story, and they are one. Within $4.3%$ of the counting
+floor asymptotically and $6.7%$ at hundred-byte sizes, against
+the family the coding reaches (the framing @ctf-caveat keeps
+honest). Linear sweeps for every operation. Constants within an
+order of magnitude of decoding cost, decoding itself a bounded
 factor above
-raw byte movement — on the access pattern the machine likes
-best. But the deeper claim, and the one this document was written to
-make legible, is about _worst cases as a design material_. Every
+raw byte movement. All on the access pattern the machine likes
+best. But the deeper claim is about _worst cases as a design
+material_. Every
 structure here — the delta coding, the balanced digits, the
 difference-coded watermarks, the output inequality — was shaped by
 asking what the most hostile input could extract, and the finished
@@ -211,7 +209,7 @@ priced against (its appendix's coding included):
   space-consumption scenarios reproduced in @id-coding and
   @ctf-caveat.
 
-Results this document leans on, with their homes:
+Results this document leans on:
 
 - *signed-digit redundant arithmetic* — A. Avizienis, "Signed-Digit
   Number Representations for Fast Parallel Arithmetic," _IRE Trans.
@@ -229,32 +227,33 @@ Results this document leans on, with their homes:
 - *the read that rewrites, as amortization made visible* —
   D. D. Sleator, R. E. Tarjan, "Self-Adjusting Binary Search
   Trees," _J. ACM_ 32(3), 1985, pp. 652–686;
-- *the integer codes, and the competitive framing of universal
+- *integer codes, and the competitive framing of universal
   coding* — P. Elias, "Universal
   Codeword Sets and Representations of the Integers," _IEEE Trans.
-  Information Theory_ IT-21(2), 1975, pp. 194–203 (the zigzag fold
-  of @coding is folklore, popularized by Protocol Buffers' signed
-  varints);
+  Information Theory_ IT-21(2), 1975, pp. 194–203;
+- *the zigzag fold of @coding* — folklore, popularized by Protocol
+  Buffers' signed varints;
 - *Kraft completeness* — T. M. Cover, J. A. Thomas, _Elements of
   Information Theory_, 2nd ed., Wiley, 2006, §5.2;
-- *the parameterized run-length codes weighed in @ctf-caveat* —
+- *parameterized run-length codes* —
   S. W. Golomb, "Run-Length Encodings," _IEEE Trans. Information
   Theory_ IT-12(3), 1966, pp. 399–401; R. F. Rice, "Some Practical
   Universal Noiseless Coding Techniques," JPL Publication 79-22,
-  1979;
-- *succinct tree encodings* (the preorder-flag spelling of @coding
-  belongs to this literature) — G. Jacobson, "Space-Efficient
-  Static Trees and Graphs," FOCS 1989, pp. 549–554; J. I. Munro,
+  1979 (weighed in @ctf-caveat);
+- *succinct tree encodings* — G. Jacobson, "Space-Efficient
+  Static Trees and Graphs," _Foundations of Computer Science_
+  (FOCS 1989), pp. 549–554; J. I. Munro,
   V. Raman, "Succinct Representation of Balanced Parentheses and
-  Static Trees," _SIAM J. Computing_ 31(3), 2001, pp. 762–776;
+  Static Trees," _SIAM J. Computing_ 31(3), 2001, pp. 762–776 (the
+  preorder-flag spelling of @coding belongs to this literature);
 - *singularity analysis and the square-root-branch transfer* —
   P. Flajolet, R. Sedgewick, _Analytic Combinatorics_, Cambridge
   University Press, 2009, ch. VI (the standard function scale and
   its transfer, Thms VI.1 and VI.3) and §VII.6 (irreducible
   context-free structures);
-- *the nonnegative-walk exponent* — E. Sparre Andersen, "On the
-  Fluctuations of Sums of Random Variables" I–II, _Math. Scand._ 1
-  (1953), pp. 263–285, and 2 (1954), pp. 195–223.
+- *nonnegative-walk exponent* — E. Sparre Andersen, "On the
+  Fluctuations of Sums of Random Variables" I–II, _Math. Scand._ 1,
+  1953, pp. 263–285, and 2, 1954, pp. 195–223.
 
 The composed contract of @accum — the lazy balanced form with a
 collapsing sign fold and domination floors, as one interface — is,
