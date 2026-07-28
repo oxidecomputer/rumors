@@ -34,9 +34,11 @@
 #block(inset: (x: 2.2em), text(size: 9.5pt)[
   *Abstract.* The Interval Tree Clock paper gives elegant recursive
   equations over trees. Transcribing those equations directly into a
-  program yields an implementation that is correct — and quadratic, in
-  time and in transient memory, on inputs it must be expected to meet:
-  measured before the cures, a thirty-kilobyte operand pair cost
+  program yields an implementation that is correct — and quadratic,
+  in time and in transient memory, on inputs any peer can legally
+  present: ordinary canonical values, cheap to spell whether or not
+  an honest history would ever produce them. Measured before the
+  cures, a thirty-kilobyte operand pair cost
   nearly two hundred megabytes of transient memory inside one
   comparison, and
   a value half a megabyte wide (a one-megabyte code) took over
@@ -46,7 +48,8 @@
   passes over its packed operands and its mandatory output — one pass
   for most, two where a lookahead is inherent, composites summing
   their parts. The representation is the *skyline*, a delta-coded
-  spelling of the clock's step function, paired with a redundant
+  spelling of the step function a clock's event component denotes,
+  paired with a redundant
   signed-digit *accumulator* that makes every running quantity cheap
   to maintain and cheap to ask about. We derive each operation as a
   sweep, give the informal argument that each is asymptotically
@@ -62,12 +65,14 @@
   death of digits already paid for. That discipline is what makes the
   implementation not just fast on friendly inputs but *resilient to
   arbitrary adverse inputs*: no input, of any magnitude, depth, or
-  shape, costs more than a fixed multiple of what it reads and writes.
+  shape, costs more than a fixed multiple of what it reads and
+  writes. Every known boundary of the argument is stated where it
+  lives and collected at the close.
 ])
 
 #v(1em)
 
-#outline(depth: 2, indent: 1.2em)
+#outline(depth: 3, indent: 1.2em)
 #pagebreak()
 
 #include "01-model.typ"

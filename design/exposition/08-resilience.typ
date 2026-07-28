@@ -26,8 +26,11 @@ is worst-case $O(n + m)$, not merely cheap on average across a
 sequence. And one derivational boundary carries over: rank's
 freeze-position funding has the uncertified input shape @measures
 states, where the linear behavior is enforced by a pinned measured
-ceiling rather than derived. Everything else in the property is
-derivation all the way down.
+ceiling rather than derived. Everything else is derived — in this
+document, or, for two bounds whose full derivations outgrew it, in
+our work with the shapes given here (@join's exact constant,
+@tick-output's inequalities) — with one clause stated without proof
+(join's subadditivity in the minimum-tick floor, @measures).
 
 Note what the statement does _not_ say. It does not say "fast on
 realistic inputs" — that is @machine's separate, additional claim.
@@ -99,9 +102,10 @@ unity:
   ),
   caption: [The amplifier genres and their cures. Every cure is the
     funding discipline of @funding instantiated at one seam; the five
-    rows marked † bottom out in the accumulator's contract, and the
+    rows marked † bottom out in the accumulator's contract, the
     emissions row is what lets that contract's output-funded clause
-    telescope back to input.],
+    telescope back to input, and the output-dominated row is the one
+    place the funding source is the output rather than the input.],
 ) <fig-genres>
 
 Two structural facts stand out. First, _the accumulator is the
@@ -142,7 +146,9 @@ the document's own contents were produced by it:
 - *The designs in this document are survivors.* The two-zone
   accumulator, the uncompressed watermark stack, fold-on-close, the
   additive output bound: each was a plausible design refuted by a
-  constructed family before (or after) shipping, and each refuting
+  constructed family — for the tick walk's close rule, only after
+  an earlier design of the walk had already been built
+  (@tick-web) — and each refuting
   family is a permanent regression test. What @accum and @tick
   present as clean derivations were reached by iterated attack.
 
@@ -165,8 +171,12 @@ above cannot be quoted without them: the derivational gap in rank's
 funding argument, held by a pinned measurement instead of a proof
 (@measures); the probabilistic step in the counting bound's
 asymptotic rate (@nonneg); the framing every compactness claim must
-carry (@ctf-caveat); and the bounded branch-prediction cost the
-linear bound absorbs rather than eliminates (@words).
+carry (@ctf-caveat); the bounded branch-prediction cost the
+linear bound absorbs rather than eliminates (@words); the clause
+stated without proof in the minimum-tick floor (join subadditivity,
+@measures); and the two bounds whose full derivations live in our
+work rather than here, their shapes given (@join's exact constant,
+@tick-output's inequalities).
 
 That is what it means for the implementation of a paper's elegant
 recursive equations to be not only correct, and not only fast, but
@@ -182,19 +192,30 @@ meet in one bit string.
 
 *References.* The subject: P. S. Almeida, C. Baquero, V. Fonte,
 "Interval Tree Clocks: A Logical Clock for Dynamic Systems,"
-OPODIS 2008. Results this document leans on, with their homes:
-signed-digit redundant arithmetic — A. Avizienis, "Signed-Digit
-Number Representations for Fast Parallel Arithmetic," IRE Trans.
-EC-10, 1961 (the carry-save adder is the same idea in hardware
-dress); redundant representations amortizing structural work —
-C. Okasaki, _Purely Functional Data Structures_, 1998, ch. 9;
-exact long accumulation — U. Kulisch, _Advanced Arithmetic for the
-Digital Computer_, 2002; the integer codes — P. Elias, "Universal
-Codeword Sets and Representations of the Integers," IEEE Trans. IT-21,
-1975; singularity analysis and the square-root-branch transfer —
-P. Flajolet, R. Sedgewick, _Analytic Combinatorics_, 2009, ch. VI–VII;
-the nonnegative-walk exponent — E. Sparre Andersen, "On the
-Fluctuations of Sums of Random Variables," Math. Scand. 1, 1953. The
+_Principles of Distributed Systems_ (OPODIS 2008), LNCS 5401,
+Springer, pp. 259–274; its evaluation section hosts the
+space-consumption scenarios reproduced in @id-coding and
+@ctf-caveat. Results this document leans on, with their homes:
+*signed-digit redundant arithmetic* — A. Avizienis, "Signed-Digit
+Number Representations for Fast Parallel Arithmetic," _IRE Trans.
+Electronic Computers_ EC-10(3), 1961, pp. 389–400 (the carry-save
+adder is the same idea in hardware
+dress); *redundant representations amortizing structural work* —
+C. Okasaki, _Purely Functional Data Structures_, Cambridge
+University Press, 1998, ch. 9;
+*exact long accumulation* — U. Kulisch, _Advanced Arithmetic for the
+Digital Computer_, Springer, 2002; *the integer codes, and the
+competitive framing of universal coding* — P. Elias, "Universal
+Codeword Sets and Representations of the Integers," _IEEE Trans.
+Information Theory_ IT-21(2),
+1975, pp. 194–203; *Kraft completeness* — T. M. Cover, J. A.
+Thomas, _Elements of Information Theory_, 2nd ed., Wiley, 2006,
+§5.2; *singularity analysis and the square-root-branch transfer* —
+P. Flajolet, R. Sedgewick, _Analytic Combinatorics_, Cambridge
+University Press, 2009, ch. VI–VII;
+*the nonnegative-walk exponent* — E. Sparre Andersen, "On the
+Fluctuations of Sums of Random Variables" I–II, _Math. Scand._ 1
+(1953), pp. 263–285, and 2 (1954), pp. 195–223. The
 composed contract of @accum — the lazy balanced form with a
 collapsing sign fold and domination floors, as one interface — is,
 to our knowledge, this design's own.

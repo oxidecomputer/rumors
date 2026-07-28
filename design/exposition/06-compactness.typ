@@ -22,11 +22,15 @@ name.
 Our coding spends at most $n$ on every member, by definition of
 $cal(F)(n)$. So the
 _worst-case multiplicative overhead_ of the coding, against a floor
-that any competitor also faces on the same set, is
+that any competitor also faces on the same set, is at most
 
-$ n / H(n), $
+$ n / H(n) $
 
-and the statement holds at every $n$ simultaneously — there is no
+(the denominator elides the floor's rounding, harmless at these
+magnitudes; and if no member reaches exactly $n$ bits the true
+overhead is only better),
+
+and it holds at every $n$ simultaneously — there is no
 cherry-picked operating point. Note precisely what kind of claim
 this is: worst case against worst case — our longest spelling on
 $cal(F)(n)$ against the longest spelling any coding must have on
@@ -82,7 +86,9 @@ sign branches give two quartics; the one shown,
 $ 1 - 2 x^2 - 2 x^3 - 2 sqrt(2) x^4 = 0, $
 
 carries the smaller positive root and hence the operative
-singularity, $x_c = 0.514500dots$ — safely inside $G$'s own radius of
+singularity, $x_c = 0.514500dots$ (the other branch,
+$1 - 2 x^2 - 2 x^3 + 2 sqrt(2) x^4 = 0$, first vanishes near
+$0.707$) — safely inside $G$'s own radius of
 convergence $1 \/ sqrt(2)$, so the branch point governs. By the
 standard transfer for square-root singularities, the number of
 exactly-$n$-bit canonical streams is $Theta(2^(alpha n) n^(-3\/2))$
@@ -90,7 +96,8 @@ with
 
 $ alpha = log_2 (1 / x_c) = 0.958757dots, $
 
-hence — summing over lengths up to $n$ changes nothing, since the
+hence — summing over lengths up to $n$ changes only the $O(1)$
+term, which the census pins numerically, since the
 series is geometrically dominated by its last terms — the
 sibling-merge-only grammar counts
 $H_0 (n) = alpha n - 3/2 log_2 n + O(1)$ bits of choice. The true
@@ -107,7 +114,7 @@ a dynamic program over stream lengths, itself cross-pinned against
 brute-force enumeration of every bit string at small lengths — and
 agrees to hundredths of a bit at $n = 800$.)
 
-== The asymptotic tax is the sibling-merge rule, all of it <tax>
+== The asymptotic tax is the sibling-merge rule, under this payload code <tax>
 
 Where do the $4.3%$ go? Run the same computation with the
 sibling-merge rule deleted — every leaf free to carry zero. The payload code
@@ -129,10 +136,14 @@ rule _refuses_: spellings with a collapsible pair, excised so that
 each value would have one spelling. (The other canonical rules are
 priced separately: nonnegativity in @nonneg, at $Theta(log n)$ bits;
 exactness for free.) The $4.3%$ is not overhead lost to a clumsy
-code — the code is Kraft-tight — it is the measured price of "byte
+code — the code is Kraft-tight — it is the price of "byte
 equality is value equality," bought once, on purpose, and enjoyed by
 every comparison, hash, and deduplication the system ever performs
-(@canonical). Design decisions rarely come with a price tag this
+(@canonical). One attribution note, redeemed in @ctf-caveat: the
+same rule costs nothing under Elias delta's mass distribution, so
+the $4.3%$ prices uniqueness _given_ the payload code — the code
+the workload argument there selects. Design decisions rarely come
+with a price tag this
 exact.
 
 == Nonnegativity is asymptotically free <nonneg>
@@ -144,7 +155,9 @@ split only if the bucket boundary sat between them — that is, if
 $2m + 1$ were itself a power of two, which no odd number above one
 is), so under the uniform
 counting measure on streams of a given length the height walk's
-steps behave as draws from a sign-symmetric distribution; for such
+steps behave as draws from a sign-symmetric distribution (the first
+payload is a nonnegative absolute — a start point, not a step,
+which only helps the walk stay nonnegative); for such
 walks, the probability that all $ell$ partial sums stay nonnegative
 is $Theta(ell^(-1\/2))$ (Sparre–Andersen-type universality). A
 polynomial factor does not move the exponential growth rate, so
@@ -182,9 +195,9 @@ where the exact count is out of computational reach):
   ),
   caption: [Worst-case overhead against the counting floor, by stream
     size. Rows quoted as ranges are rigorously bracketed by the over-
-    and under-counting families; the "$approx$" rows extrapolate by
-    the validated closed form, beyond the brackets' computational
-    reach. At 100 bytes — a realistic version under heavy history —
+    and under-counting families, whose computation reaches through
+    $n = 800$; the "$approx$" rows beyond extrapolate by
+    the validated closed form. At 100 bytes — a realistic version under heavy history —
     the coding is within $6.7%$ of the floor: $4.3$ points of
     sibling-merge tax, about $2.0$ of finite-size effect (the
     count's universal $n^(-3\/2)$ factor puts the floor
@@ -241,10 +254,11 @@ static message passing — replayed at scale on our implementation,
 some 165,000 versions), 85 to 93 percent of payload values are at
 most 15
 (`fill`'s flattening, not the coding, is what keeps neighboring
-plateaus close — @coding), and re-coding those corpora under delta
+plateaus close — @coding). A count share alone cannot decide a bet
+about bytes — a thin tail of wide values could still lose it — so
+the deciding number is this one: re-coding those corpora under delta
 or omega costs six
-to nine percent _more_ total bytes — the workload number that
-settles the bet the counting metric alone cannot. The $4.3%$
+to nine percent _more_ total bytes. The $4.3%$
 counting tax and the factor-2 exposure on uniformly-wide families
 are the deliberate price of logarithmic cost on the deltas the
 system actually produces. A compactness claim is a bet about
