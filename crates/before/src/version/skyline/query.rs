@@ -674,9 +674,10 @@ impl WindowMass {
     /// The shared re-balancing merge loop over an ascending sparse
     /// digit stream.
     ///
-    /// Incoming digits may exceed the balanced range: [`merge`]
-    /// (Self::merge) feeds raw `u32` limb halves (up to `2^32 − 1`)
-    /// and [`absorb`](Self::absorb) feeds balanced digits, so a
+    /// Incoming digits may exceed the balanced range:
+    /// [`merge`](Self::merge) feeds raw `u32` limb halves (up to
+    /// `2^32 − 1`) and [`absorb`](Self::absorb) feeds balanced
+    /// digits, so a
     /// position's sum of carry, live, and incoming digit stays under
     /// `2^33` — far inside `i64` — and the recentering below restores
     /// every output digit to the balanced range. Every merged position
