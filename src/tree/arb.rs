@@ -45,9 +45,7 @@ pub fn arb_version() -> BoxedStrategy<Version> {
         .prop_map(|(party, ticks)| {
             let p = nth_party(party);
             let mut v = Version::new();
-            for _ in 0..ticks {
-                v.tick(&p);
-            }
+            v.ticks(&p, ticks);
             v
         })
         .boxed()
@@ -111,9 +109,7 @@ pub fn arb_tree_root(
             // empty tree exercises a non-default root version.
             let p = nth_party(party);
             let mut extra = Version::new();
-            for _ in 0..extra_ticks {
-                extra.tick(&p);
-            }
+            extra.ticks(&p, extra_ticks);
             crate::tree::Root {
                 ceiling: extra | inner,
                 root: node,
@@ -290,9 +286,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
     };
     let burnt = |party: &Party, ticks: usize| {
         let mut version = Version::new();
-        for _ in 0..ticks {
-            version.tick(party);
-        }
+        version.ticks(party, ticks);
         version
     };
 
