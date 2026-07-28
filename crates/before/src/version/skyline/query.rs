@@ -991,8 +991,8 @@ impl Integrator {
     /// since the last promotion, which [`finish`](Self::finish)
     /// completed with the final segment). Entry `i`'s ledger debt
     /// `P_i · (2^S − position_i)` is then exactly `Σ_{j>i} P_i · w_j`,
-    /// and the reduction — a binary counter, [`Version::join_all`]'s
-    /// fold shape, iterative per the crate's recursion rule — computes
+    /// and the reduction — a binary counter, iterative per the crate's
+    /// recursion rule — computes
     /// the double sum as one aggregate product per merge
     /// ([`Aggregate::merge`]): `(Σ parked of the left half) ×
     /// (Σ windows of the right half)`, each cross pair covered by the
@@ -1003,7 +1003,16 @@ impl Integrator {
     /// half's widest — the module doc's cost section carries the
     /// resulting bound.
     ///
-    /// [`Version::join_all`]: crate::Version::join_all
+    /// This is the balanced binary-counter discipline whose canonical
+    /// home is `crate::fold` (every n-ary fold's shared reduction); it
+    /// stays hand-rolled here because its combiner charges the running
+    /// total as a side effect of every merge, and its closing drain
+    /// merges the newest pair first (right-associated, left operand
+    /// still older) — the association the committed settle readings
+    /// (the dense-suffix and promotion re-arm bands, the wide-arming
+    /// pin) are pinned against — where the shared drain is
+    /// left-associated. Any hardening of the counter shape lands in
+    /// `crate::fold` and is mirrored here.
     fn settle_armings(&mut self) {
         if self.promotions.is_empty() {
             return;

@@ -260,53 +260,31 @@ impl Clock {
         &mut self,
         iter: I,
     ) -> Result<&Version, Vec<Clock>> {
-        // Balanced reduction on a binary-counter stack, one join into
-        // `self` per surviving group at the end — the same discipline as
-        // [`Party::join_all`], because both of this fold's halves (the
-        // party union and the version join) pay per-input scans of the
-        // whole accumulated value under a left fold. Inputs overlapping
-        // `self` are handed back against the *fixed* `self` up front,
-        // through a per-call index of `self`'s party (O(input) node
-        // visits plus the table searches per input, as in
-        // [`Party::join_all`]); parties disjoint from `self` stay
-        // disjoint from it however they coalesce, so the final joins
-        // cannot fail on well-formed input.
+        // The shared balanced binary counter (`crate::fold`), one join
+        // into `self` per surviving group at the end — the same
+        // discipline as [`Party::join_all`], because both of this
+        // fold's halves (the party union and the version join) pay
+        // per-input scans of the whole accumulated value under a left
+        // fold. Inputs overlapping `self` are handed back by the
+        // `accept` test against the *fixed* `self` up front, through a
+        // per-call index of `self`'s party (O(input) node visits plus
+        // the table searches per input, as in [`Party::join_all`]);
+        // parties disjoint from `self` stay disjoint from it however
+        // they coalesce, so the final joins cannot fail on well-formed
+        // input. A failed combine is aliased input; the counter's
+        // hand-back policy (`crate::fold`) drops nothing.
         let mut overlapping = Vec::new();
-        let mut stack: Vec<(Clock, u32)> = Vec::new();
         let index = crate::party::ops::IdIndex::build(self.party.as_bits());
-        for other in iter {
-            if !index.is_disjoint(other.party().view()) {
-                overlapping.push(other);
-                continue;
-            }
-            let mut merged = Some(other);
-            let mut weight = 0u32;
-            while stack.last().is_some_and(|(_, w)| *w == weight) {
-                let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
-                match top.join(merged.take().expect("the operand is held while merging up")) {
-                    Ok(_) => {
-                        merged = Some(top);
-                        weight += 1;
-                    }
-                    Err(back) => {
-                        // Aliased inputs: the operands overlap. A lone
-                        // input is handed back; a group that already
-                        // coalesced stays on the stack unmerged.
-                        stack.push((top, weight));
-                        if weight == 0 {
-                            overlapping.push(back);
-                        } else {
-                            stack.push((back, weight));
-                        }
-                        break;
-                    }
-                }
-            }
-            if let Some(merged) = merged {
-                stack.push((merged, weight));
-            }
-        }
-        for (group, _) in stack {
+        let groups = crate::fold::balanced_try_fold(
+            iter,
+            |other| index.is_disjoint(other.party().view()),
+            |mut top, incoming| match top.join(incoming) {
+                Ok(_) => Ok(top),
+                Err(back) => Err((top, back)),
+            },
+            &mut overlapping,
+        );
+        for group in groups {
             if let Err(back) = self.join(group) {
                 overlapping.push(back);
             }

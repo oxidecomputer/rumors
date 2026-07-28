@@ -740,6 +740,9 @@ pub mod implementation {
 // test-gated items don't resolve. The module documents itself.
 mod recurse;
 
+/// The balanced binary-counter reduction shared by the n-ary folds.
+mod fold;
+
 /// Reference oracle: the paper's recursive trees; ground truth for the
 /// differential tests. Public under the `oracle` feature so the benchmark suite
 /// can time it against the optimized implementation.
