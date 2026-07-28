@@ -872,7 +872,7 @@ fn freeze_min_ticks(
     );
     let drift = Base::from(drift);
     let negative = drift_sign == Ordering::Less;
-    mul_into(total, &drift, &Base::from(net_f_refs), !negative);
+    mul_into(total, &drift, &Base::from(net_f_refs), 0, !negative);
     if negative {
         frozen.sub_magnitude(&drift);
     } else {

@@ -1075,7 +1075,9 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   every other verdict identical (note: the §17.3 sums of record
   had drifted — `version_min_ticks × jump-pair` reads a
   scan-floor red at the parent already, both scales,
-  un-enumerated; carried into §17.3 with an open disposition).
+  un-enumerated; carried into §17.3 with an open disposition.
+  Resolved 2026-07-27 at this branch's merge: the ticks(n)
+  landing's exact fold cures it — see §17.3's dated resolution).
   (2) `DISTANCE_JUMP_PAIR` re-pinned tight: heap 138,809 → 5,008,
   limb 973,702 → 53,905, scan 6,464,538 → 3,218,320, touch
   1,029,327 → 184,494; the lag/concurrent rows re-pinned with it
@@ -1600,13 +1602,11 @@ ceiling: a constant-factor counter red is not a time-exponent red
 
 **Numbers of record** [measured 2026-07-27; release profile,
 single runs per scale under the determinism tripwire — the
-`board-dlfam66-{lo,hi}.txt` renders, at the 1071-cell board]:
-board **1047 green / 24 red at the default scale; 1050 / 21 at
-×4**. The ticks(n) landing then grew the board to 1090 cells;
-its §12 entry carries the deltas (one cured dead-meter red, four
-new owned counter reds), and the acceptance sweep's final
-renders re-baseline the full board. The red roster, every red
-with exactly one owner, is §17.3; the cell-count and verdict
+`board-merge66-{lo,hi}.txt` renders, at the ticks(n) + co-sweep
+merged tree]: board **1060 green / 30 red at the default scale;
+1063 / 27 at ×4** over **1090 cells**. The acceptance sweep's
+final renders re-baseline the full board. The red roster, every
+red with exactly one owner, is §17.3; the cell-count and verdict
 lineage across the campaign's rounds (200 → 989 → 1071 → 1090)
 is in git history at the commits §14 names.
 
@@ -1954,18 +1954,14 @@ commits §14 names.
 
 The red roster, both scales enumerated from the renders:
 
-- **The `version_min_ticks × jump-pair` scan floor** (both
-  scales: every counter honest and near-flat, the scan column
-  below its declared floor of the full stream bits): the fold
-  saturates on the teeth operand's first `2^512`-scale height
-  and exits early — legitimate — while the row's floor
-  derivation declares a full-stream scan for this family instead
-  of the root codes its wide-payload arm is supposed to select.
-  An instrument-declaration defect, not a kernel one; already red
-  at the co-sweep cure's parent, un-enumerated by the previous
-  accounting — first surfaced by the cure's parent-attribution
-  runs. Disposition open; owner: the board's min_ticks floor
-  derivation.
+(Resolved 2026-07-27, at the co-sweep cure's merge: the
+`version_min_ticks × jump-pair` scan-floor red the cure's
+parent-attribution runs surfaced — the saturating fold exiting
+early while the floor declared a full-stream scan — was cured by
+the exact `min_ticks` fold of the ticks(n) landing, which scans
+the full stream; the merged renders read the cell green at both
+scales with the scan floor exactly satisfied.)
+
 - **The render materialization genre** (14 default / 14 ×4 heap
   constants: `version_display` × {dense, bigroot, harmonic,
   nested-full, nested-wide, mirror-wide, mirror-narrow,
