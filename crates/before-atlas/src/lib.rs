@@ -37,4 +37,8 @@
 
 pub mod count;
 pub mod enumerate;
+pub mod families;
+pub mod ops;
+pub mod plan;
+pub mod render;
 pub mod sample;
