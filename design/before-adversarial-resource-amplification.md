@@ -2475,6 +2475,141 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   no constructible witness names an input the committed instruments
   miss. Same instrument, worse price.
 
+- **PROBED 2026-07-28 (round #85, the skip-mechanism dissolution
+  question; branch `probe85` @ base 6bb2305e). Verdict:
+  LOAD-BEARING, all three.** Charter: the owner's suspicion that
+  suanpan's zero-run ledger — extended mid-round to all three of
+  the accumulator's skip/extent mechanisms (the ledger, the
+  `bottom` write watermark, exact-`top` maintenance) — defends a
+  documented generality (`shift-independent amortized cost`) that
+  no `before` usage pattern exercises; adversarial stance,
+  witness-construction win condition, dissolution authorized on an
+  earned refutation. The suspicion is refuted by construction:
+  each mechanism has a public-API family that is superlinear
+  without it and flat with it, committed as three green flatness
+  bands (`tests/meter.rs`, `skyline_flatness`) whose ceiling docs
+  carry both readings.
+
+  **Method.** Per-mechanism kill switches in a local, uncommitted
+  probe build: certificate consumption returns none (scans step
+  digit by digit); scaled reads start at digit 0; loop bounds and
+  fold starts read the buffer's high water, with the settlement
+  scan and the collapse's top-lowering disabled. Value-identical
+  verified before any cost reading was trusted: all 467 `before`
+  value tests and every suanpan differential suite green under all
+  8 on/off combinations; the failures under each combination are
+  exactly that mechanism's own cost pins and structural drivers
+  (`alternating_shifted_writes_cost_the_operand_not_the_gap` +
+  `sign_fold_skips_certified_runs` under ledger-off,
+  `scaled_read_costs_the_written_span` under bottom-off,
+  `held_width_rows_cost_the_held_digits` under top-off — each row
+  witness reads red under exactly its mechanism's absence, a
+  liveness check of the probe itself). One contract casualty,
+  top-off only: `redundant_zero_reads_nonzero_until_collapsed` —
+  "a sign read canonicalizes zero into an O(1)
+  `is_literally_zero`" is genuinely forfeited by a dissolved top.
+  A contract narrowing, not a value error, and itself evidence:
+  the O(1) literal-zero read is priced by exact-top maintenance.
+
+  **The witnesses** [all measured 2026-07-28, dev, exact counters,
+  two doublings; per-byte figures in milli-touches/byte]:
+  - *Zero-run ledger* — the weight comb `WC(n)` (a depth-`32n`
+    unit spine parking one digit-0 unit, then `2n` shallow leaves
+    oscillating heights 0/2): public `Version::rank` reads 21,512
+    → 43,016 touches (3,055 → 3,054/B, flat) with the ledger;
+    282,632 → 1,089,544 (40,140 → 77,376/B, ×1.93, `n² + O(n)`
+    exact) without. The public-API lift of #37's F3: the position
+    weight is topology, so the stream buys a `Θ(n)`-digit gap once
+    and re-crosses it at O(1) stored bits per event; the parked
+    unit forecloses value-emptiness and watermark shortcuts (the
+    cure78 charter-dispute geometry, now a committed family). #37
+    residual risk (1) is hereby settled in the affirmative: the
+    fold-total oscillation IS constructible through public rank —
+    the ledger is why it never mattered.
+  - *`bottom` watermark* — the freeze parade `FZ(k)` (the spine at
+    depth `64k`, then `k` shallow wide-drop blocks each firing one
+    freeze): rank reads 81,080 → 162,140 touches (1,625/B, flat)
+    with the watermark; 864,953 → 3,302,749 touches and 345,605 →
+    1,215,493 limb ops (×1.91 per byte, both currencies) without —
+    every settle's segment read walks the `Θ(k)`-digit
+    never-written prefix and the zero-padded magnitudes drag the
+    limb column with it.
+  - *Exact `top`* — the tooth-tail pair `TT(g, m)` (same-shape
+    unit spines whose second leaves spike `2^(32g)` in both
+    operands, `b` one tick above `a`): public comparison reads
+    4,239 → 8,463 touches (827/B, flat) with the settled top;
+    536,590 → 2,121,742 (×1.98 per byte, `2(g+1)` per boundary
+    exact) with a high-water bound — the cancelled spike's dead
+    digits re-walked by every subsequent `sign(D)` read, `Θ(m·g)`
+    on `Θ(m + g)` input.
+
+  **The census (the negative space).** Classified by mechanism,
+  robust to the concurrent rank-settle redesign. Cheap gap
+  creators — writes landing above `top + 1` whose position is not
+  paid by the operand's own coded width — exist in exactly one
+  place `before` reaches: the query integrator's weight-shifted
+  deposits (`total`, `seg`, `pos_local`; position = `2^(S−depth)`,
+  topology-priced), plus `Rank` exponent alignment
+  (`version/rank.rs`), which creates a funded gap once and scans
+  it at most once per public call (no loop exists; linear). Every
+  other accumulator write in `before` enters at digit 0 or at the
+  width its own delta code paid for, so a settle walk after a
+  code-funded cancellation costs at most the code's own bits —
+  constant-factor, which is exactly why the ledger's landing
+  moved no board verdict and bought only 8–19% on wide-tooth
+  cells. Repeat-scanners over a persistent gap: `total`'s
+  settlement after live-sign oscillation (WC, witnessed);
+  `seg`/`pos_local` are monotone-positive (the top never cancels,
+  no settlement scan ever descends) — their exposure is the read
+  side, which is the watermark's row (FZ, witnessed). The
+  co-sweep's `diff` and the folds' `live` see cancellations only
+  at code-funded widths (no lift, argued above); distance/lag
+  reach `total` through the same integrator, so WC's mechanism
+  covers the pair queries without a separate family. min_ticks'
+  web and the fill/emit/masked/watermark accumulators use no
+  shifted entry point (grep-verified) — their gap creation is
+  bit-funded, their exposure is `digit_count`/domination floors,
+  which is the top row (TT genre). Settle-implementation
+  dependence, stated: WC and TT are settle-design-independent
+  (interval deposits and the sweep predate any settle); FZ's
+  freeze *schedule* tracks the current per-boundary funded-width
+  trigger, but its mechanism claim — parked mass read at scale
+  must be span-priced — binds any settle that reads segment mass,
+  product-tree or not.
+
+  **Coupling, priced both directions.** WC under top-off reads
+  *below* real (2,982 vs 3,055 milli/B): with no settlement scan
+  there is nothing for certificates to skip — the ledger's
+  dominant consumer is exact-top maintenance, so the two stand or
+  dissolve together, and dissolving both still loses to TT (×127
+  absolute at the small scale). The three mechanisms are one
+  system: reads price the settled width (top), settlement prices
+  the gap by certificate (ledger), scaled reads price the written
+  span (bottom). Maintenance direction: O(1) amortized settle
+  touches per write, O(log ledger) unmetered map words, two usize
+  updates; memory one certificate per jump write, capped at half
+  the held positions. Absence direction: the three red readings
+  above. The asymmetry is the verdict. The one redesign that could
+  re-open the ledger question — a lazy top settled only at fold
+  collapses — was steelmanned and declined without a build: it
+  forfeits `digit_count` exactness (a public O(1) contract
+  consumed by the freeze/promotion triggers and the min_ticks
+  web's and fill watermark's domination floors) and hands stale
+  width to read paths that never heal (`sub_accum`,
+  `read_magnitude` are `&self`), a `Θ(nodes · w)` genre one wide
+  code arms; anyone reviving it owes that witness campaign.
+
+  **Consequences.** Nothing dissolves; no envelope reverts; no pin
+  re-realizes. The cost-table sentence stands as written, now with
+  before-level adequacy witnesses rather than crate-local ones
+  alone. New instruments: the three bands with ×1.25 ceilings and
+  liveness floors (small-scale wall cost ~1 s total), plus one
+  appeared suanpan seed (`proptest-regressions/tests.txt`,
+  committed per policy: the structural driver's shrunk
+  shifted-subtraction cancellation schedule, found under the
+  patched build, green on the real tree and riding along in the
+  differential suite).
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner

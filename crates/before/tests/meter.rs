@@ -3450,6 +3450,425 @@ mod skyline_flatness {
             (large.limb_ops, large.bytes),
         );
     }
+
+    // ── the accumulator skip mechanisms' before-level adequacy bands ──
+    //
+    // Three families, one per skip/extent mechanism inside the
+    // accumulator (`suanpan`), each constructed so that the mechanism's
+    // *absence* — scans stepping digit by digit instead of consuming a
+    // zero-run certificate; scaled reads starting at digit 0 instead of
+    // the write watermark; loop bounds and fold starts reading the
+    // buffer's high water instead of the settled top — turns one public
+    // `before` operation superlinear while the family's input stays
+    // linear (each band's ceiling doc carries both readings, measured
+    // 2026-07-28 by disabling exactly one mechanism in a local probe
+    // build, value-identical by the full differential suite). On the
+    // shipped accumulator all three read flat; each band is the
+    // before-level witness that its mechanism is load-bearing, priced
+    // through the public API rather than through `suanpan`'s own entry
+    // points (whose row witnesses,
+    // `alternating_shifted_writes_cost_the_operand_not_the_gap`,
+    // `scaled_read_costs_the_written_span`, and
+    // `held_width_rows_cost_the_held_digits`, pin the same three
+    // mechanisms crate-locally).
+
+    /// The weight-comb spine `WC(n)`: a depth-`32n` spine of unit
+    /// leaves, then `2n` leaves alternating heights 0 and 2 in one
+    /// complete subtree near the root.
+    ///
+    /// The spine's second leaf drops to 0, parking one digit-0 unit
+    /// under everything that follows. The rank integral deposits the live component at each leaf's
+    /// position weight `2^(S − depth)`, so the shallow block's ±1
+    /// oscillation lands alternating signs at one digit position
+    /// `Θ(n)` digits above the parked unit — for O(1) stored bits per
+    /// leaf, the position weight being topology, not code. Every
+    /// even-numbered block leaf cancels the digit and the accumulator's
+    /// top must settle back across the never-written gap; every
+    /// odd-numbered leaf re-raises it in one write. The parked digit-0
+    /// unit keeps the gap interior (a value-emptiness or watermark
+    /// shortcut cannot stand in for the skip). Returns the version and
+    /// the family's exact tick total (the sum of every printed base).
+    fn weight_comb(n: usize) -> (before::Version, dashu_int::UBig) {
+        use dashu_int::UBig;
+        assert!(n.is_power_of_two(), "the block is one complete subtree");
+        let s = 32 * n;
+        let mut t = String::new();
+        t.push_str("(0, ");
+        for _ in 1..s - 1 {
+            t.push_str("(0, ");
+        }
+        t.push_str("(0, 1, 0)");
+        for _ in 1..s - 1 {
+            t.push_str(", 1)");
+        }
+        t.push_str(", ");
+        // The block: a complete subtree over 2n leaves alternating
+        // 0 and 2, built bottom-up ((0, 0, 2) pairs, then (0, x, x)).
+        let mut block = String::from("(0, 0, 2)");
+        let mut width = 2;
+        while width < 2 * n {
+            block = format!("(0, {block}, {block})");
+            width *= 2;
+        }
+        t.push_str(&block);
+        t.push(')');
+        // Σ printed bases: the spine's unit leaves (one at depth 32n,
+        // one per unwind level) plus the block's n twos.
+        let expected = UBig::from((s - 1 + 2 * n) as u64);
+        (t.parse().expect("the weight comb is canonical"), expected)
+    }
+
+    /// One `Version::rank` run over `WC(n)`, both counters over the
+    /// rank body alone, with the tick total as the semantic leg and a
+    /// one-touch-per-topology-byte liveness floor.
+    fn rank_weight_comb_run(n: usize) -> QueryRun {
+        let (v, expected) = weight_comb(n);
+        let bytes = v.encode().len() as u64;
+        assert_eq!(
+            v.min_ticks(),
+            expected
+                .to_string()
+                .parse::<before::Ticks>()
+                .expect("the closed form parses"),
+            "the family's base sum disagrees with min_ticks: the generator \
+             does not build the tree this band reasons about"
+        );
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let rank = v.rank();
+        std::hint::black_box(rank);
+        let run = QueryRun {
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert!(
+            run.touches >= run.bytes,
+            "rank at {bytes} operand bytes: {} digit touches under the \
+             one-per-byte floor: the fold's accumulator work is not \
+             metered",
+            run.touches,
+        );
+        run
+    }
+
+    /// Absolute two-scale (touch, limb) ceilings for rank on the
+    /// weight comb, measured 2026-07-28 ×1.25.
+    ///
+    /// The record: 21,512 / 43,016 touches and 36,353 / 72,705 limb
+    /// ops across `n = 512 → 1,024` (~3.1 touches per packed byte,
+    /// flat across the doubling). With certificate consumption
+    /// disabled (measured 2026-07-28 under a local probe build whose
+    /// scans step digit by digit), the same runs read 282,632 →
+    /// 1,089,544 touches — `n² + O(n)` exactly, ×1.93 per byte across
+    /// the doubling — so this band is the before-level adequacy
+    /// witness for the zero-run ledger.
+    const RANK_WEIGHT_COMB_CEILINGS: [(u64, u64); 2] = [(26_890, 45_441), (53_770, 90_881)];
+
+    /// Block pairs of the weight-comb band's small run.
+    const RANK_WEIGHT_COMB_SMALL: usize = 512;
+
+    /// rank is linear on the weight comb: per-byte touch work stays
+    /// flat (×1.25) across a block doubling, under absolute two-scale
+    /// ceilings.
+    ///
+    /// `WC(n)` re-raises and cancels one digit `Θ(n)` digits above a
+    /// parked unit, `Θ(n)` times, for O(1) stored bits per event — the
+    /// position weight is topology, so no code funds the gap between.
+    /// Each cancellation forces the accumulator's top to settle back
+    /// across the never-written gap: a settlement that walks the gap
+    /// pays `Θ(n)` unfunded touches per event (`Θ(n²)` on linear
+    /// input), and the parked digit-0 unit forecloses value-emptiness
+    /// and write-watermark shortcuts — one certificate per jumped run,
+    /// consumed whole, is what holds this band flat. This is the
+    /// public-API lift of the accumulator's own row witness
+    /// (`alternating_shifted_writes_cost_the_operand_not_the_gap`):
+    /// there the shift is a free parameter; here the stream buys the
+    /// position with `Θ(n)` one-time topology bits and then oscillates
+    /// at O(1) bits per event.
+    #[test]
+    fn skyline_rank_weight_comb_is_flat_per_unit() {
+        let small = rank_weight_comb_run(RANK_WEIGHT_COMB_SMALL);
+        let large = rank_weight_comb_run(2 * RANK_WEIGHT_COMB_SMALL);
+        assert_ceilings(
+            "skyline_rank_weight_comb",
+            &small,
+            &large,
+            RANK_WEIGHT_COMB_CEILINGS,
+        );
+        assert_flat(
+            "rank_weight_comb_touches",
+            "byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+    }
+
+    /// The freeze parade `FZ(k)`: the `WC` spine at depth `64k`, then
+    /// `k` freeze blocks in one complete subtree near the root.
+    ///
+    /// Each block is a wide leaf pair dropping `2^288` inside the pair
+    /// and 1 across pairs, so each block's cheap cross code fires one
+    /// freeze of the wide drift. Every freeze settles the current segment through the
+    /// accumulator's scaled read (`sign_magnitude_shl`): the segment's
+    /// interval masses sit at the block's position weight, `Θ(k)`
+    /// digits above digit 0, and the write watermark is what lets the
+    /// read start at the written span instead of walking the
+    /// never-written prefix — `Θ(k)` freezes, each `Θ(k)` digits above
+    /// the floor. Returns the version and its exact tick total.
+    fn freeze_parade(k: usize) -> (before::Version, dashu_int::UBig) {
+        use dashu_int::UBig;
+        assert!(k.is_power_of_two(), "the parade is one complete subtree");
+        let s = 64 * k;
+        let wide = UBig::ONE << 288usize;
+        let band = 289 + (usize::BITS - k.leading_zeros()) as usize + 1;
+        // The 2k block heights: descending, alternating a wide drop
+        // inside each pair and a unit drop across pairs.
+        let mut values = Vec::with_capacity(2 * k);
+        let mut v = UBig::ONE << band;
+        for _ in 0..k {
+            values.push(v.clone());
+            v -= &wide;
+            values.push(v.clone());
+            v -= UBig::ONE;
+        }
+        // Min-lifted text for the complete subtree over a strictly
+        // descending run: every node's minimum is its last leaf, so
+        // right children print base 0 and left children print the
+        // difference of the halves' minima. `expected` accumulates
+        // every printed number (min_ticks is exactly that sum).
+        fn sub(vals: &[UBig], parent_min: &UBig, expected: &mut UBig) -> String {
+            if vals.len() == 1 {
+                let rel = &vals[0] - parent_min;
+                *expected += &rel;
+                return rel.to_string();
+            }
+            let my_min = vals.last().expect("nonempty");
+            let rel = my_min - parent_min;
+            *expected += &rel;
+            let (l, r) = vals.split_at(vals.len() / 2);
+            format!(
+                "({}, {}, {})",
+                rel,
+                sub(l, my_min, expected),
+                sub(r, my_min, expected)
+            )
+        }
+        let mut expected = UBig::from((s - 1) as u64);
+        let block = sub(&values, &UBig::ZERO, &mut expected);
+        let mut t = String::new();
+        t.push_str("(0, ");
+        for _ in 1..s - 1 {
+            t.push_str("(0, ");
+        }
+        t.push_str("(0, 1, 0)");
+        for _ in 1..s - 1 {
+            t.push_str(", 1)");
+        }
+        t.push_str(", ");
+        t.push_str(&block);
+        t.push(')');
+        (t.parse().expect("the freeze parade is canonical"), expected)
+    }
+
+    /// One `Version::rank` run over `FZ(k)`: the same harness as the
+    /// weight comb's.
+    fn rank_freeze_parade_run(k: usize) -> QueryRun {
+        let (v, expected) = freeze_parade(k);
+        let bytes = v.encode().len() as u64;
+        assert_eq!(
+            v.min_ticks(),
+            expected
+                .to_string()
+                .parse::<before::Ticks>()
+                .expect("the closed form parses"),
+            "the family's base sum disagrees with min_ticks: the generator \
+             does not build the tree this band reasons about"
+        );
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let rank = v.rank();
+        std::hint::black_box(rank);
+        let run = QueryRun {
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert!(
+            run.touches >= run.bytes,
+            "rank at {bytes} operand bytes: {} digit touches under the \
+             one-per-byte floor: the fold's accumulator work is not \
+             metered",
+            run.touches,
+        );
+        run
+    }
+
+    /// Absolute two-scale (touch, limb) ceilings for rank on the
+    /// freeze parade, measured 2026-07-28 ×1.25.
+    ///
+    /// The record: 81,080 / 162,140 touches and 84,484 / 168,964 limb
+    /// ops across `k = 512 → 1,024` (~1.6 touches per packed byte,
+    /// flat across the doubling). With the write watermark disabled
+    /// (measured 2026-07-28 under a local probe build whose scaled
+    /// reads start at digit 0), the same runs read 864,953 → 3,302,749
+    /// touches and 345,605 → 1,215,493 limb ops — ×1.91 per byte
+    /// across the doubling in both currencies — so this band is the
+    /// before-level adequacy witness for the watermark read.
+    const RANK_FREEZE_PARADE_CEILINGS: [(u64, u64); 2] = [(101_350, 105_605), (202_675, 211_205)];
+
+    /// Freeze blocks of the parade band's small run.
+    const RANK_FREEZE_PARADE_SMALL: usize = 512;
+
+    /// rank is linear on the freeze parade: per-byte touch work stays
+    /// flat (×1.25) across a block doubling, under absolute two-scale
+    /// ceilings.
+    ///
+    /// `FZ(k)` fires `Θ(k)` freezes whose segments all sit `Θ(k)`
+    /// digits above digit 0 (the blocks are shallow; the deep spine
+    /// only sets the scale), so every settle's segment read crosses a
+    /// `Θ(k)`-digit never-written prefix. The watermark read prices
+    /// each at the segment's written span; a read that starts at digit
+    /// 0 pays the prefix per freeze — `Θ(k²)` touches on linear input,
+    /// and the zero-padded magnitudes it returns drag the limb column
+    /// superlinear with it. The freeze-position family pins the
+    /// query-layer half of this genre (no absolute position is read
+    /// per freeze); this band pins the accumulator half — the
+    /// public-API lift of `scaled_read_costs_the_written_span`.
+    #[test]
+    fn skyline_rank_freeze_parade_is_flat_per_unit() {
+        let small = rank_freeze_parade_run(RANK_FREEZE_PARADE_SMALL);
+        let large = rank_freeze_parade_run(2 * RANK_FREEZE_PARADE_SMALL);
+        assert_ceilings(
+            "skyline_rank_freeze_parade",
+            &small,
+            &large,
+            RANK_FREEZE_PARADE_CEILINGS,
+        );
+        assert_flat(
+            "rank_freeze_parade_touches",
+            "byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+    }
+
+    /// The tooth-tail pair `TT(g, m)`: two same-shape right spines of
+    /// `m` flat unit leaves over a terminal 0, whose second leaf
+    /// spikes by `2^(32g)` in both operands.
+    ///
+    /// `b` runs one tick above `a` everywhere except the shared
+    /// terminal. The comparison sweep folds both operands' spikes into one
+    /// difference in the same boundary — the spike cancels exactly,
+    /// leaving the difference at −1 spelled in one digit under a
+    /// buffer `g` digits tall — and then reads `sign(D)` once per
+    /// boundary for `m` more boundaries. The settled top is what
+    /// prices each read at the value's own width; a high-water bound
+    /// re-walks the spike's `g` digits per boundary, `Θ(m·g)` for
+    /// `Θ(m + g)` input. Returns the operand pair.
+    fn tooth_tail(g: usize, m: usize) -> (before::Version, before::Version) {
+        use dashu_int::UBig;
+        let spike = UBig::ONE << (32 * g);
+        let build = |base_h: u64| -> before::Version {
+            let mut t = String::new();
+            for i in 0..m {
+                t.push_str("(0, ");
+                if i == 1 {
+                    t.push_str(&(&spike + base_h).to_string());
+                } else {
+                    t.push_str(&base_h.to_string());
+                }
+                t.push_str(", ");
+            }
+            t.push('0');
+            for _ in 0..m {
+                t.push(')');
+            }
+            t.parse().expect("the tooth tail is canonical")
+        };
+        (build(1), build(2))
+    }
+
+    /// One comparison-sweep run over `TT(g, m)`: touches over the
+    /// `causal_cmp` body alone, with the verdict as the semantic leg
+    /// and a one-touch-per-boundary liveness floor.
+    fn cmp_tooth_tail_run(g: usize, m: usize) -> QueryRun {
+        let (a, b) = tooth_tail(g, m);
+        let ea = meter::skyline::encode(&a);
+        let eb = meter::skyline::encode(&b);
+        let bytes = (ea.as_raw_slice().len() + eb.as_raw_slice().len()) as u64;
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let verdict = meter::skyline::sweep::causal_cmp(&ea, &eb);
+        let run = QueryRun {
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert_eq!(
+            verdict,
+            Some(std::cmp::Ordering::Less),
+            "b runs one tick above a everywhere except the shared terminal"
+        );
+        assert!(
+            run.touches >= m as u64,
+            "cmp at {m} boundaries: {} digit touches under the \
+             one-per-boundary floor: the sweep's difference state is not \
+             running on the metered accumulator",
+            run.touches,
+        );
+        run
+    }
+
+    /// Absolute two-scale (touch, limb) ceilings for the comparison
+    /// sweep on the tooth-tail pair, measured 2026-07-28 ×1.25.
+    ///
+    /// The record: 4,239 / 8,463 touches and 16,716 / 33,420 limb ops
+    /// across `(g, m) = (64, 4,096) → (128, 8,192)` (~0.8 touches per
+    /// packed byte, flat across the doubling). With the settled top
+    /// replaced by the buffer's high water (measured 2026-07-28 under
+    /// a local probe build), the same runs read 536,590 → 2,121,742
+    /// touches — 2(g + 1) per boundary, ×1.98 per byte across the
+    /// doubling — so this band is the before-level adequacy witness
+    /// for exact-top maintenance.
+    const CMP_TOOTH_TAIL_CEILINGS: [(u64, u64); 2] = [(5_298, 20_895), (10_578, 41_775)];
+
+    /// Boundaries of the tooth-tail band's small run.
+    const CMP_TOOTH_TAIL_SMALL: usize = 4_096;
+
+    /// The comparison sweep is linear on the tooth-tail pair: per-byte
+    /// touch work stays flat (×1.25) across a joint `(g, m)` doubling,
+    /// under absolute two-scale ceilings.
+    ///
+    /// `TT(g, m)`'s cancelled spike leaves the difference accumulator
+    /// holding −1 in one digit under a buffer `g` digits tall, and the
+    /// sweep then reads `sign(D)` once per boundary, `m` times, with
+    /// no intervening write. The settled top prices each read at the
+    /// value's width; any high-water bound re-walks the spike's `g`
+    /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input, the cost
+    /// the spike's own code paid once and would otherwise be re-paid
+    /// per boundary forever. The public-API lift of
+    /// `held_width_rows_cost_the_held_digits`: reads price the settled
+    /// width, and the settlement (with its certificate skip) is what
+    /// keeps the settled width honest after a cancellation.
+    #[test]
+    fn skyline_cmp_tooth_tail_is_flat_per_unit() {
+        let m = CMP_TOOTH_TAIL_SMALL;
+        let small = cmp_tooth_tail_run(m / 64, m);
+        let large = cmp_tooth_tail_run(m / 32, 2 * m);
+        assert_ceilings(
+            "skyline_cmp_tooth_tail",
+            &small,
+            &large,
+            CMP_TOOTH_TAIL_CEILINGS,
+        );
+        assert_flat(
+            "cmp_tooth_tail_touches",
+            "byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+    }
 }
 
 // ─── the ledger dense-suffix red pin ─────────────────────────────────────────
