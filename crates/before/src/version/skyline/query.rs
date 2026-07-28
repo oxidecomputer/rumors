@@ -139,16 +139,18 @@
 //!   at its watermark span — recorded together as one ledger entry.
 //!   Nothing is ever re-based against an absolute position: the entry
 //!   owes `P · (2^S − position)`, and the ledger settles once, at the
-//!   sweep's close, as one balanced product tree over the entry
+//!   sweep's close, as one mass-balanced product tree over the entry
 //!   sequence. Each tree node contributes exactly one aggregate
 //!   product — the left half's summed parked masses times the right
 //!   half's summed position windows, parked sums folded digit-wise
 //!   (opposing armings cancel inside the sum before any product reads
 //!   a width) and window sums held as sparse balanced signed digits
 //!   (an all-ones run — a long climb's consumed mass — compacts to
-//!   O(1) terms) — so every arming-window cross term of the debt
-//!   rides exactly one product, and nothing in the ledger is re-read
-//!   more than `⌈log₂ n⌉` times, `n` the arming count.
+//!   O(1) terms) — delegated cluster-wise to the backend's
+//!   sub-quadratic integer multiplication — so every arming-window
+//!   cross term of the debt rides exactly one product, and no entry is
+//!   re-read more times than its tree depth, which the mass balance
+//!   keeps logarithmic in the ledger's arming count `n`.
 //!
 //! A freeze fires by the section-one relative trigger, with one
 //! pair-specific difference of denomination: the check runs once per
@@ -186,12 +188,15 @@
 //!   watermark span the banked segments' topology deposits cover —
 //!   both once per arming, no product;
 //! - the ledger settle: one aggregate product per tree node — the left
-//!   half's parked sum, read once at a width within `⌈log₂ n⌉` bits of
-//!   its widest constituent, times the right half's window sum's
-//!   balanced density — with every window's digits rewritten at most
-//!   `⌈log₂ n⌉` times across all merges (each rewrite paid by the
-//!   window's own read, repeated a factor no input can grow past the
-//!   logarithm of its own arming count).
+//!   half's parked sum times the right half's window sum, delegated
+//!   cluster-wise to the backend's multiplication at its bound over
+//!   (parked width, cluster span), the width funded by the deposits
+//!   that armed it and every span funded by the position space (each
+//!   digit position of a window is a depth the stream's topology paid
+//!   at least one bit for) — with every window's digits rewritten at
+//!   most once per tree level (each rewrite paid by the window's own
+//!   read, repeated a factor the mass balance keeps logarithmic in
+//!   the arming count).
 //!
 //! A cheap code from one operand can *fire* a freeze, but the work the
 //! freeze performs is bounded by deposits from the codes that built the
@@ -202,41 +207,45 @@
 //! exists for an input to load — a shared dense suffix cannot be
 //! re-walked once per arming (the reverse dual's defect), a promoted
 //! prefix cannot be re-read once per window (the forward dual's), and
-//! the repetition of any single width or density is capped at
-//! `⌈log₂ n⌉`. Streams whose parked masses stay `O(1)` digits wide —
+//! no width or density is re-read more times than its node's depth.
+//! Streams whose parked masses stay `O(1)` digits wide —
 //! every committed board family, and the dense-suffix adversaries of
 //! the `skyline_flatness` dense-suffix bands (a gap spine whose turns
 //! puncture the trailing mass a full digit apart, over `Θ(p)` re-arm
 //! blocks) — therefore settle in `O((n + D) log n)` digit work, `D`
-//! the total window density, and measure flat per byte. The honest
-//! residual is the wide × dense settle product itself, at two sites.
-//! In the ledger, an aggregate product costs the parked sum's width
-//! times the window sum's density, and cancellation is exploited only
-//! *within* a parked sum, never across a seam — a wide arming whose
-//! cancelling descent lands in a different aggregate (or in the
-//! still-parked component) pays its width times every dense window
-//! between them, once per covering node; the committed wide-arming red
-//! pin (`ledger_wide_arming_pin`, `tests/meter.rs`) holds exactly this
-//! construction — one arming as wide as the input ahead of a suffix as
-//! dense as the input, cancelled only after the sweep — measured
-//! quadratic in both width currencies through the public `rank`. And
-//! the close-time settle `P · segment` pays the same product with the
-//! ledger never armed: the committed plateau-puncture red pin
-//! (`answer_embedded_product`, `tests/meter.rs`) parks one wide
-//! plateau drift whose final segment the punctures keep dense, fires
-//! zero promotions, and the exact rank numerator is the plateau times
-//! the punctured turn mass — the answer itself embeds a funded
-//! wide × dense product, so `Ω(M(|v|))` digit work (`M` the
-//! integer-multiplication bound) is mandatory there for any fold that
-//! answers exactly. The public `# Complexity` sections (`rank`,
-//! `distance`, `lag` — one shared integrator) state the resulting
-//! three-part claim, and the `quadratic_ceiling` probes
-//! (`tests/meter.rs`) hold every committed superlinear family within
-//! the quadratic ceiling their module doc derives. A settle that
-//! exploits cancellation across seams (or multiplies
-//! subquadratically) is the open cure for the accounting excess; no
-//! cure goes below the multiplication bound while the answer embeds
-//! the product.
+//! the total window density, and measure flat per byte. The wide ×
+//! dense settle products themselves — one arming as wide as the input
+//! ahead of a trailing mass as dense (the wide-arming family), and
+//! the close-time `P · segment` settle the same shape reaches with
+//! the ledger never armed (the plateau-puncture family, whose exact
+//! rank numerator *is* the plateau times the punctured turn mass) —
+//! ride one backend multiplication per cluster, so each costs the
+//! multiplication bound `M` over its funded factors instead of their
+//! schoolbook product. Two facts make the whole settle
+//! `O(M(|v|))` under every power-law tier of the backend's
+//! multiplication: cluster splitting keeps every densified span
+//! funded (gaps wider than the factor split, so separated products
+//! total `O(span)` traffic; bridged gaps cost less than the product a
+//! split would add), and the mass balance makes node products shrink
+//! geometrically down the tree, telescoping their costs into the
+//! root's. The shipped backend dispatches power-law tiers up to
+//! 4,000-word operand sides (quarter-megabyte parked sums); past
+//! that its quasilinear tier's per-level costs stop telescoping and
+//! the settle pays at most one extra tree-depth factor,
+//! `O(M(|v|) · log n)`. The floor is matched: the plateau-puncture
+//! answer *embeds* a funded wide × dense product, so `Ω(M(|v|))`
+//! digit work is mandatory there for any fold that answers exactly —
+//! no settle goes below the multiplication bound. The public
+//! `# Complexity` sections (`rank`, `distance`, `lag` — one shared
+//! integrator) state the resulting three-part claim; the
+//! `ledger_wide_arming` and `answer_embedded_product` bands
+//! (`tests/meter.rs`) hold both wide × dense families flat per byte
+//! in the deterministic counters (which price the fold's own traffic;
+//! the multiplication runs inside the backend, below the limb shim),
+//! and the committed schoolbook kernel beside this module's tests
+//! (`schoolbook_settle_reads_superlinear_on_wide_arming` and its
+//! plateau-puncture twin) keeps the per-digit charge failing on both
+//! families, so the bands are never decoration.
 //!
 //! # Cost
 //!
@@ -247,16 +256,19 @@
 //! per leaf — bounded by the freeze allowance plus the width of the
 //! delta folded at the previous boundary, so each per-leaf add is paid
 //! by the code that set `L`'s width — plus the co-sweep section's
-//! certified freeze work (a settle per freeze at the parked width times
-//! within-segment depth variation; a ledger entry once per wide arming,
-//! settled at the sweep's close through the balanced product tree at
-//! `O(log n)` re-reads of any width or density — the funding section's
-//! settle bound, whose aggregate products and close-time `P · segment`
-//! settle carry the honest residual, superlinear on the committed
-//! wide-arming and plateau-puncture pins; the
-//! `skyline_flatness` module's freeze-position, promotion re-arm, and
-//! dense-suffix bands hold the many-freezes and many-armings genres
-//! flat). Distance and lag (the `DISTANCE_*`/`LAG_*`
+//! certified freeze work (a settle per freeze at the multiplication
+//! bound over the parked width and the segment's within-segment depth
+//! variation; a ledger entry once per wide arming, settled at the
+//! sweep's close through the mass-balanced product tree — the funding
+//! section's settle bound, `O(M(|v|))` under every power-law tier of
+//! the backend's multiplication and at most one extra tree-depth
+//! factor past its quasilinear threshold, with the plateau-puncture
+//! family's answer-embedded product holding `Ω(M(|v|))` mandatory;
+//! the `skyline_flatness` module's freeze-position, promotion re-arm,
+//! and dense-suffix bands hold the many-freezes and many-armings
+//! genres flat, and the `ledger_wide_arming` and
+//! `answer_embedded_product` bands hold the wide × dense genres flat
+//! per byte in the fold's own traffic). Distance and lag (the `DISTANCE_*`/`LAG_*`
 //! rows, plus the `skyline_flatness` module's jump-pair and pair
 //! re-arm bands) add, per
 //! boundary, work bounded by the boundary's own folded codes — the
@@ -374,6 +386,14 @@ pub fn rank(bits: &BitsSlice) -> Rank {
 /// top instead of a product per digit. The `shift` carries a `digits`
 /// operand read out at a scale (a segment mass parked deep in the
 /// stream) without ever materializing the scaled value.
+///
+/// The cost is the factor's width times the operand's compacted
+/// density, so this is the settle move for products whose `digits`
+/// side stays word-scale — the min_ticks ledgers' reference counts
+/// (the `web` submodule), where the density is O(1) by construction.
+/// A product whose both sides the input can widen goes through
+/// [`charge_digits`] instead, which delegates each dense cluster to
+/// the backend's sub-quadratic multiplication.
 fn mul_into(total: &mut Accumulator, factor: &Base, digits: &Base, shift: u64, subtract: bool) {
     if *factor == Base::ZERO || *digits == Base::ZERO {
         return;
@@ -423,6 +443,141 @@ fn u32_digits(value: &Base) -> Vec<u32> {
     Limbs::new(&value.0)
         .flat_map(|limb| [(limb & 0xFFFF_FFFF) as u32, (limb >> 32) as u32])
         .collect()
+}
+
+/// Split an ascending balanced-digit run into clusters whose interior
+/// zero gaps never exceed `gap_limit` digit positions.
+///
+/// The cluster seam of the settle products: within a cluster the digits
+/// densify into one integer for the backend's multiplication, across a
+/// split the products stay separate. The threshold is a parameter so a
+/// caller can gate the split point — the settle passes the factor's own
+/// width ([`charge_digits`] derives why) — and the iterator borrows the
+/// run, so clustering allocates nothing.
+fn clusters(digits: &[(u64, i64)], gap_limit: u64) -> impl Iterator<Item = &[(u64, i64)]> + '_ {
+    let mut rest = digits;
+    core::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let mut end = 1;
+        while end < rest.len() && rest[end].0 - rest[end - 1].0 - 1 <= gap_limit {
+            end += 1;
+        }
+        let (head, tail) = rest.split_at(end);
+        rest = tail;
+        Some(head)
+    })
+}
+
+/// Record a settle product's limb-scale traffic: both operands and the
+/// materialized product.
+///
+/// The multiplication itself is delegated whole to the backend, below
+/// the limb shim — the `parse_decimal` convention — so the counters
+/// price the traffic the fold moves (operand reads, the product's
+/// width) and stay linear when the mechanism is honest: a settle that
+/// multiplied too often, or densified across an unfunded gap, would
+/// push this very tap superlinear. The backend's internal cost per
+/// product is its multiplication bound, which the public `# Complexity`
+/// claims carry. Compiles to nothing without the `limb-meter` feature.
+#[inline(always)]
+fn meter_product(factor: &UBig, part: &UBig, product: &UBig) {
+    #[cfg(feature = "limb-meter")]
+    {
+        crate::codec::limb_meter::record_wide(factor);
+        crate::codec::limb_meter::record_wide(part);
+        crate::codec::limb_meter::record_wide(product);
+    }
+    #[cfg(not(feature = "limb-meter"))]
+    let _ = (factor, part, product);
+}
+
+/// Debit (or, with `neg`, credit) `factor × segment · 2^shift` into
+/// the total: the segment settle move of [`charge_digits`].
+///
+/// The segment mass compacts into balanced signed digits first (the
+/// [`WindowMass`] spelling, one metered pass over the read-out span),
+/// so an all-ones run — a long climb's consumed mass — collapses to
+/// two far-apart digits and splits into two word-scale products
+/// instead of densifying its whole span, and the punctured dense runs
+/// that remain ride the backend's multiplication cluster-wise.
+fn charge_segment(total: &mut Accumulator, neg: bool, factor: &Base, segment: &UBig, shift: u64) {
+    let mut mass = WindowMass::new();
+    mass.merge(segment, shift);
+    mass.charge(total, neg, factor);
+}
+
+/// Debit (or, with `neg`, credit) `factor × Σ digits · 2^(32·index)`
+/// into the total, cluster-wise through the backend's sub-quadratic
+/// multiplication.
+///
+/// `digits` is an ascending balanced signed-digit run (a
+/// [`WindowMass`]'s spelling). Each cluster of digits whose interior
+/// gaps stay within the factor's own width densifies into at most two
+/// magnitudes (the positive and negative digits separately, so no
+/// signed subtraction precedes the product) and rides one backend
+/// multiplication each; a single-digit cluster takes the one-word
+/// product directly. The gap threshold is the factor's width because
+/// that is where bridging stops paying: a zero run narrower than the
+/// factor costs less to carry through the multiplication than the
+/// extra full-width product a split would add, while a wider run would
+/// do work no code funded — and splitting there caps the cluster count
+/// at the position span over the factor width, so the separated
+/// products total O(span) digit traffic. Cost, in digit work: one
+/// multiplication per cluster at the backend's bound over
+/// (factor width, cluster span), with every span funded by the
+/// position space the stream's own topology paid for — the module
+/// doc's settle bound builds on exactly this shape.
+fn charge_digits(total: &mut Accumulator, neg: bool, factor: &Base, digits: &[(u64, i64)]) {
+    if digits.is_empty() || *factor == Base::ZERO {
+        return;
+    }
+    let gap_limit = base_digits(factor) as u64;
+    for cluster in clusters(digits, gap_limit) {
+        if let [(index, digit)] = *cluster {
+            // The single-digit cluster: one word-scale product, no
+            // densified image.
+            let mut product = factor.clone();
+            product *= u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
+            if neg == (digit < 0) {
+                total.add_magnitude_shl(&product, 32 * index);
+            } else {
+                total.sub_magnitude_shl(&product, 32 * index);
+            }
+            continue;
+        }
+        let base = cluster[0].0;
+        let span = usize::try_from(cluster[cluster.len() - 1].0 - base + 1)
+            .expect("cluster spans are bounded by the stream's depth");
+        // Densify the cluster into little-endian byte images, positive
+        // and negative digits separately: balanced digits carry signs,
+        // and two nonnegative products need no borrow machinery.
+        let mut parts = [(vec![0u8; span * 4], false), (vec![0u8; span * 4], false)];
+        for &(index, digit) in cluster {
+            debug_assert!(
+                digit != 0 && digit.unsigned_abs() <= 1 << 31,
+                "window digits are nonzero and balanced"
+            );
+            let offset = usize::try_from(index - base).expect("inside the cluster span") * 4;
+            let (image, live) = &mut parts[usize::from(digit < 0)];
+            image[offset..offset + 4].copy_from_slice(&(digit.unsigned_abs() as u32).to_le_bytes());
+            *live = true;
+        }
+        for (side, (image, live)) in parts.iter().enumerate() {
+            if !live {
+                continue;
+            }
+            let part = UBig::from_le_bytes(image);
+            let product = &factor.0 * &part;
+            meter_product(&factor.0, &part, &product);
+            if neg == (side == 1) {
+                total.add_wide_shl(&product, 32 * base);
+            } else {
+                total.sub_wide_shl(&product, 32 * base);
+            }
+        }
+    }
 }
 
 /// The causal distance between the versions two skyline streams denote:
@@ -734,33 +889,25 @@ impl WindowMass {
     }
 
     /// Debit (or, for a negative `parked`, credit) `parked × mass`
-    /// into the total: one `parked`-wide product per live digit, so the
-    /// charge is the parked width times the mass's balanced density.
+    /// into the total, cluster-wise ([`charge_digits`]).
+    ///
+    /// One backend multiplication per dense cluster of the mass's live
+    /// digits, so the charge runs at the multiplication bound instead
+    /// of the parked width times the mass's balanced density.
     fn charge(&self, total: &mut Accumulator, neg: bool, parked: &Base) {
-        for &(index, digit) in &self.digits {
-            let mut product = parked.clone();
-            product *= u32::try_from(digit.unsigned_abs()).expect("balanced digits fit 32 bits");
-            if neg == (digit < 0) {
-                total.add_magnitude_shl(&product, 32 * index);
-            } else {
-                total.sub_magnitude_shl(&product, 32 * index);
-            }
-        }
+        charge_digits(total, neg, parked, &self.digits);
     }
 }
 
-/// One node's worth of the balanced product-tree settle: a contiguous
-/// run of ledger entries, reduced to the signed sum of its parked
-/// components and the balanced sum of its position windows.
+/// One node's worth of the mass-balanced product-tree settle: a
+/// contiguous run of ledger entries, reduced to the signed sum of its
+/// parked components and the balanced sum of its position windows.
 ///
 /// The parked side lives on an [`Accumulator`] so opposing armings
 /// cancel digit-wise inside the sum before any product reads a width;
 /// the window side is a [`WindowMass`] so adjacent windows — contiguous
 /// interval runs — compact as they combine.
 struct Aggregate {
-    /// The ledger entries this aggregate covers: the binary counter's
-    /// rank, a power of two everywhere except the closing drain.
-    entries: usize,
     /// The signed sum of the run's parked components.
     parked: Accumulator,
     /// The balanced sum of the run's position windows.
@@ -785,7 +932,6 @@ impl Aggregate {
         }
         self.parked.add_accum(&right.parked);
         self.windows.absorb(right.windows);
-        self.entries += right.entries;
     }
 }
 
@@ -906,23 +1052,24 @@ impl Integrator {
         if p_mag == UBig::ZERO {
             return;
         }
-        mul_into(
+        charge_segment(
             &mut self.total,
-            &Base::from(p_mag),
-            &seg,
-            seg_shift,
             p_sign == Ordering::Less,
+            &Base::from(p_mag),
+            &seg.0,
+            seg_shift,
         );
     }
 
     /// Credit the parked component over the final segment at the sweep's
     /// close: `total += P · segment`.
     ///
-    /// One compacted product priced by `P`'s width times the segment's
-    /// depth variation; the scaled read skips the never-written scale
-    /// prefix under the segment. No banking here: only a promoting
-    /// sweep needs the final window, and [`finish`](Self::finish) banks
-    /// it exactly there.
+    /// One clustered product ([`charge_segment`]) priced at the
+    /// multiplication bound over `P`'s width and the segment's depth
+    /// variation; the scaled read skips the never-written scale prefix
+    /// under the segment. No banking here: only a promoting sweep needs
+    /// the final window, and [`finish`](Self::finish) banks it exactly
+    /// there.
     fn settle(&mut self) {
         if self.parked.is_literally_zero() {
             return;
@@ -933,12 +1080,12 @@ impl Integrator {
         }
         let (seg_sign, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
         debug_assert_ne!(seg_sign, Ordering::Less, "interval masses only accumulate");
-        mul_into(
+        charge_segment(
             &mut self.total,
-            &Base::from(p_mag),
-            &Base::from(seg_mag),
-            seg_shift,
             p_sign == Ordering::Less,
+            &Base::from(p_mag),
+            &seg_mag,
+            seg_shift,
         );
     }
 
@@ -981,9 +1128,10 @@ impl Integrator {
         self.parked.reset();
     }
 
-    /// Settle the promotion ledger at the sweep's close: one balanced
-    /// product-tree reduction over the entry sequence, every cross
-    /// term `P_i · w_j` (`i < j`) riding exactly one aggregate product.
+    /// Settle the promotion ledger at the sweep's close: one
+    /// mass-balanced product-tree reduction over the entry sequence,
+    /// every cross term `P_i · w_j` (`i < j`) riding exactly one
+    /// aggregate product.
     ///
     /// The entry sequence is the armings in sweep order — entry `i`
     /// pairs `P_i` with the window *behind* it, the mass banked between
@@ -992,80 +1140,105 @@ impl Integrator {
     /// since the last promotion, which [`finish`](Self::finish)
     /// completed with the final segment). Entry `i`'s ledger debt
     /// `P_i · (2^S − position_i)` is then exactly `Σ_{j>i} P_i · w_j`,
-    /// and the reduction — a binary counter, iterative per the crate's
-    /// recursion rule — computes
-    /// the double sum as one aggregate product per merge
-    /// ([`Aggregate::merge`]): `(Σ parked of the left half) ×
-    /// (Σ windows of the right half)`, each cross pair covered by the
-    /// one node whose seam splits it. No per-arming walk of the suffix
-    /// and no per-window read of a promoted prefix exists for an input
-    /// to load: a window's digits are rewritten once per tree level,
-    /// and a parked width is read once per node where it is the left
-    /// half's widest — the module doc's cost section carries the
-    /// resulting bound.
+    /// and the reduction computes the double sum as one aggregate
+    /// product per merge ([`Aggregate::merge`]): `(Σ parked of the
+    /// left half) × (Σ windows of the right half)`, each cross pair
+    /// covered by the one node whose seam splits it. No per-arming walk
+    /// of the suffix and no per-window read of a promoted prefix exists
+    /// for an input to load: a window's digits are rewritten once per
+    /// tree level, and a parked width is read once per node where it is
+    /// the left half's widest.
     ///
-    /// This is the balanced binary-counter discipline whose canonical
-    /// home is `crate::fold` (every n-ary fold's shared reduction); it
-    /// stays hand-rolled here because its combiner charges the running
-    /// total as a side effect of every merge, and its closing drain
-    /// merges the newest pair first (right-associated, left operand
-    /// still older) — the association the committed settle readings
-    /// (the dense-suffix and promotion re-arm bands, the wide-arming
-    /// pin) are pinned against — where the shared drain is
-    /// left-associated. Any hardening of the counter shape lands in
-    /// `crate::fold` and is mirrored here.
+    /// The tree balances by **mass** (parked digits plus window
+    /// density), not by entry count: the whole ledger is in hand at the
+    /// close, so each node splits its run at the mass midpoint, node
+    /// masses shrink geometrically down the tree, and the per-node
+    /// backend products telescope into the top node's under any
+    /// power-law multiplication tier — where an entry-count split would
+    /// let one wide arming meet an equal share of window mass at every
+    /// level and stack a polylog on top of the multiplication bound
+    /// (the module doc's settle bound carries the resulting cost). The
+    /// reduction is iterative on explicit stacks per the crate's
+    /// recursion rule, and it stays hand-rolled rather than routed
+    /// through `crate::fold`'s binary counter: the counter is an online
+    /// entry-count balancer, this is an offline mass balancer whose
+    /// combiner charges the running total as a side effect of every
+    /// merge.
     fn settle_armings(&mut self) {
         if self.promotions.is_empty() {
             return;
         }
         let armings = core::mem::take(&mut self.promotions);
-        let mut stack: Vec<Aggregate> = Vec::new();
         let (t_sign, t_mag, t_shift) = self.pos_local.sign_magnitude_shl();
         debug_assert_ne!(t_sign, Ordering::Less, "interval masses only accumulate");
-        let closing = core::iter::once(None);
-        for entry in armings.into_iter().map(Some).chain(closing) {
+        // The leaf aggregates, in sweep order; the virtual closing
+        // entry carries the final window and no parked mass, so it is
+        // charged by every arming and charges nothing itself.
+        let mut leaves: Vec<Option<Aggregate>> = Vec::with_capacity(armings.len() + 1);
+        for arming in armings {
             let mut parked = Accumulator::new();
+            if arming.neg {
+                parked.sub_magnitude(&arming.parked);
+            } else {
+                parked.add_magnitude(&arming.parked);
+            }
             let mut windows = WindowMass::new();
-            match &entry {
-                Some(arming) => {
-                    if arming.neg {
-                        parked.sub_magnitude(&arming.parked);
-                    } else {
-                        parked.add_magnitude(&arming.parked);
-                    }
-                    windows.merge(&arming.window, arming.shift);
-                }
-                None => {
-                    // The virtual closing entry: the final window with
-                    // no parked mass, so it is charged by every arming
-                    // and charges nothing itself.
-                    if t_mag != UBig::ZERO {
-                        windows.merge(&t_mag, t_shift);
-                    }
-                }
-            }
-            let mut agg = Aggregate {
-                entries: 1,
-                parked,
-                windows,
-            };
-            // The binary counter: merge equal-rank neighbors so the
-            // reduction stays balanced without knowing the entry count
-            // in advance.
-            while stack.last().is_some_and(|top| top.entries == agg.entries) {
-                let mut left = stack.pop().expect("peeked");
-                left.merge(agg, &mut self.total);
-                agg = left;
-            }
-            stack.push(agg);
+            windows.merge(&arming.window, arming.shift);
+            leaves.push(Some(Aggregate { parked, windows }));
         }
-        // The closing drain: the stack holds strictly descending ranks,
-        // newest on top, so folding top-down keeps every merge's left
-        // operand older than its right.
-        while let Some(right) = stack.pop() {
-            match stack.last_mut() {
-                Some(left) => left.merge(right, &mut self.total),
-                None => break,
+        let mut windows = WindowMass::new();
+        if t_mag != UBig::ZERO {
+            windows.merge(&t_mag, t_shift);
+        }
+        leaves.push(Some(Aggregate {
+            parked: Accumulator::new(),
+            windows,
+        }));
+        // Prefix sums of the leaf masses: the split currency. A leaf's
+        // mass is what its merges read — parked digits plus window
+        // density — floored at one so empty leaves still take a slot.
+        let mut prefix: Vec<u64> = Vec::with_capacity(leaves.len() + 1);
+        prefix.push(0);
+        for leaf in &leaves {
+            let leaf = leaf.as_ref().expect("leaves are consumed only below");
+            let mass = (leaf.parked.digit_count() + leaf.windows.digits.len()).max(1) as u64;
+            prefix.push(prefix.last().expect("seeded nonempty") + mass);
+        }
+        // The reduction: expand ranges at their mass midpoint, merge on
+        // the way back up. `Open`s and `Merge`s interleave exactly as
+        // the recursion would, left (older) half always reduced first,
+        // so every merge's left operand precedes its right in sweep
+        // order.
+        enum Step {
+            Open(usize, usize),
+            Merge,
+        }
+        let mut control = vec![Step::Open(0, leaves.len())];
+        let mut reduced: Vec<Aggregate> = Vec::new();
+        while let Some(step) = control.pop() {
+            match step {
+                Step::Open(lo, hi) => {
+                    if hi - lo == 1 {
+                        reduced.push(leaves[lo].take().expect("each leaf reduces once"));
+                    } else {
+                        // The first boundary at or past the mass
+                        // midpoint, clamped so both halves are
+                        // nonempty: each half's mass stays within half
+                        // the node's plus one leaf's.
+                        let target = (prefix[lo] + prefix[hi]).div_ceil(2);
+                        let mid = (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target))
+                            .min(hi - 1);
+                        control.push(Step::Merge);
+                        control.push(Step::Open(mid, hi));
+                        control.push(Step::Open(lo, mid));
+                    }
+                }
+                Step::Merge => {
+                    let right = reduced.pop().expect("the right half reduced");
+                    let mut left = reduced.pop().expect("the left half reduced");
+                    left.merge(right, &mut self.total);
+                    reduced.push(left);
+                }
             }
         }
     }

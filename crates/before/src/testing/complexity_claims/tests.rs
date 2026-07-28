@@ -2,13 +2,15 @@
 //!
 //! They hold the roster total over the public surface, the prose tokens
 //! present, the cited board rows alive, the superlinear claims equal to
-//! the bench judge's red set, and the two non-linear classes' liveness
-//! pins red-on-cure. The roster and the scanner live in the parent
+//! the bench judge's red set, and the non-linear classes' liveness pins
+//! red-on-cure (the render merge's growth, the fold's log factor, and
+//! the `MulBound` claims' answer-embedded product with its named
+//! witness tests). The roster and the scanner live in the parent
 //! module.
 
 use std::collections::BTreeSet;
 
-use super::{doc_index, Cells, Claim, Class, CLAIMS, NON_OPERATIONS};
+use super::{doc_index, Cells, Claim, Class, RedStance, CLAIMS, NON_OPERATIONS};
 use crate::meter::board::{self, BenchMode};
 use crate::testing::triangle;
 
@@ -129,26 +131,29 @@ fn cited_board_rows_exist() {
     );
 }
 
-/// The board rows the rustdoc claims superlinear-in-time are exactly the
-/// board rows on the bench judge's committed red set: curing a display
-/// red (or rostering a new one) must reach the documentation through this
-/// name.
+/// Every class satisfies its declared contract ([`super::ClassContract`]):
+/// one uniform enforcement over the whole vocabulary, so no class's
+/// mechanical binding is bespoke machinery.
+///
+/// - **exponent reds**: a `Forbidden` class cites no operation with a
+///   standing exponent-mechanism red, a `Required` class cites nothing
+///   without one (the class-binding seal; the decoration fixture below
+///   proves the `Required` leg fires), and `Allowed` classes are
+///   indifferent.
+/// - **judge reds**: the rows cited under judge-red classes equal the
+///   bench judge's committed red set exactly, and no other class cites
+///   a rostered row — curing a display red (or rostering a new one)
+///   must reach the documentation through this name.
+/// - **tokens**: a claim citing a class pins the class's defining
+///   token, and an exclusive token appears only on claims citing its
+///   class, so the prose and the class cannot drift apart.
+/// - **witnesses**: every class's named committed witnesses exist in
+///   the tree, so deleting or renaming a measurement pin or adequacy
+///   kernel fails a reviewed name here, never silently.
 #[test]
-fn superlinear_time_claims_match_the_bench_judge_red_set() {
+fn classes_satisfy_their_contracts() {
     let ops = board_ops();
-    let claimed: BTreeSet<String> = CLAIMS
-        .iter()
-        .filter_map(|claim| match &claim.cells {
-            Cells::Board(cells) => Some(*cells),
-            Cells::Uncelled(_) => None,
-        })
-        .flat_map(|cells| {
-            cells
-                .iter()
-                .filter(|(_, class)| *class == Class::SuperlinearTime)
-                .map(|(op, _)| (*op).to_owned())
-        })
-        .collect();
+    let exponent_red_ops = exponent_red_ops();
     let rostered: BTreeSet<String> = judge_roster()["red"]
         .as_array()
         .expect("the judge roster's red class is a list")
@@ -165,49 +170,88 @@ fn superlinear_time_claims_match_the_bench_judge_red_set() {
         // schoolbook probe); only board rows bind rustdoc claims.
         .filter(|op| ops.contains(op))
         .collect();
-    assert_eq!(
-        claimed, rostered,
-        "the rustdoc's superlinear-time claims and the bench judge's red set \
-         disagree: update the claims roster and the `# Complexity` sections \
-         together"
-    );
-}
-
-/// The linear claims never cite a row the bench judge holds red: a board
-/// row cannot be documented linear while its time leg is a rostered
-/// superlinearity.
-#[test]
-fn linear_claims_cite_no_judge_red_row() {
-    let rostered: BTreeSet<String> = judge_roster()["red"]
-        .as_array()
-        .expect("the judge roster's red class is a list")
-        .iter()
-        .map(|cell| {
-            cell.as_str()
-                .expect("cell IDs are strings")
-                .split('/')
-                .next()
-                .expect("cell IDs are op/family")
-                .to_owned()
-        })
-        .collect();
-    let mut contradictions = Vec::new();
+    let mut judge_claimed: BTreeSet<String> = BTreeSet::new();
+    let mut problems: Vec<String> = Vec::new();
     for claim in CLAIMS {
-        if let Cells::Board(cells) = &claim.cells {
-            for (op, class) in *cells {
-                if *class != Class::SuperlinearTime && rostered.contains(*op) {
-                    contradictions.push(format!(
-                        "{}: cites {op} as {class:?}, but the bench judge holds it red",
+        let pinned: Vec<&str> = claim
+            .checks
+            .iter()
+            .flat_map(|check| check.tokens.iter().copied())
+            .collect();
+        let cited: Vec<Class> = match &claim.cells {
+            Cells::Board(cells) => cells.iter().map(|(_, class)| *class).collect(),
+            Cells::Uncelled(_) => Vec::new(),
+        };
+        for class in Class::ALL.iter().copied() {
+            let contract = class.contract();
+            let Some(token) = contract.token else {
+                continue;
+            };
+            if cited.contains(&class) {
+                if !pinned.iter().any(|t| t.contains(token)) {
+                    problems.push(format!(
+                        "{}: cites a {class:?} cell but pins no token containing `{token}`",
                         claim.op
                     ));
                 }
+            } else if contract.token_exclusive && pinned.iter().any(|t| t.contains(token)) {
+                problems.push(format!(
+                    "{}: pins a token containing `{token}` without citing a {class:?} cell: \
+                     the token is that class's alone",
+                    claim.op
+                ));
+            }
+        }
+        let Cells::Board(cells) = &claim.cells else {
+            continue;
+        };
+        for (op, class) in *cells {
+            problems.extend(stance_contradiction(
+                claim.op,
+                op,
+                *class,
+                &exponent_red_ops,
+            ));
+            if class.contract().judge_red {
+                judge_claimed.insert((*op).to_owned());
+            } else if rostered.contains(*op) {
+                problems.push(format!(
+                    "{}: cites {op} as {class:?}, but the bench judge holds it red",
+                    claim.op
+                ));
+            }
+        }
+    }
+    assert_eq!(
+        judge_claimed, rostered,
+        "the rustdoc's judge-red class claims and the bench judge's red set \
+         disagree: update the claims roster and the `# Complexity` sections \
+         together"
+    );
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for class in Class::ALL.iter().copied() {
+        for (file, witness) in class.contract().witnesses {
+            let path = root.join(file);
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("reading {}: {err}", path.display()));
+            let fns = test_fns(&text);
+            assert!(
+                !fns.is_empty(),
+                "the witness scanner found no #[test] fns in {file}: the scan is broken, \
+                 not the witnesses"
+            );
+            if !fns.contains(*witness) {
+                problems.push(format!(
+                    "{file} no longer holds the #[test] fn `{witness}`: {class:?} lost a \
+                     named witness — re-derive the class with the change that moved it"
+                ));
             }
         }
     }
     assert!(
-        contradictions.is_empty(),
-        "linear claims contradict the judge's red set:\n  {}",
-        contradictions.join("\n  ")
+        problems.is_empty(),
+        "the claims roster violates its class contracts:\n  {}",
+        problems.join("\n  ")
     );
 }
 
@@ -317,6 +361,42 @@ fn fold_log_factor_is_alive() {
     );
 }
 
+/// The `MulBound` claims' answer-embedded product is alive.
+///
+/// The plateau-puncture rank equals the closed form `H · M + 1` at
+/// scale `2^(33d)`, with both factors' widths scaling linearly in the
+/// family parameters — the value structure behind the `Ω(M(|v|))`
+/// floor the class carries: the exact answer is a wide × dense integer
+/// product whose factors the input funds separately, so no fold that
+/// answers exactly goes below one multiplication. A representation
+/// change that stops the answer embedding the product reads red here,
+/// and the rustdoc, the roster class, and this pin move in one change;
+/// the cost legs (flat traffic, schoolbook red) live in the witness
+/// tests the name-binding test above pins.
+#[cfg(feature = "meter")]
+#[test]
+fn mul_bound_embedding_is_alive() {
+    use dashu_int::ops::BitTest;
+    use dashu_int::UBig;
+    let (w, d) = (64usize, 48usize);
+    let v = crate::meter::plateau_puncture(w, d).version();
+    let h = UBig::ONE << (32 * w);
+    let m: UBig = (1..=d).map(|i| UBig::ONE << (33 * i - 1)).sum();
+    assert_eq!(
+        (h.bit_len(), m.bit_len()),
+        (32 * w + 1, 33 * d),
+        "both factors must scale with the family parameters: a degenerate \
+         factor would make the embedded product one-sided"
+    );
+    assert_eq!(
+        v.rank().to_string(),
+        format!("{}/2^{}", &h * &m + 1u8, 33 * d),
+        "the plateau-puncture rank must be the plateau times the punctured \
+         turn mass: the answer no longer embeds the product, so the MulBound \
+         class and the Ω(M(·)) floor lost their witness"
+    );
+}
+
 /// The tripwire the roster's own vocabulary rests on: a doc block whose
 /// `# Complexity` section is missing, or whose section lost a pinned
 /// token, is detected — the scanner is not vacuously green.
@@ -344,45 +424,6 @@ fn claim_rows_are_printable() {
     assert!(!format!("{:?}", row.checks[0].site).is_empty());
 }
 
-/// The class-binding seal: no linear claim cites a board cell standing
-/// red on an exponent mechanism, and every counter-superlinear claim
-/// keeps at least one.
-///
-/// The bench judge's red set binds only wall time, and the
-/// `version_min_ticks` time legs sit under the judge's resolution at
-/// bench scales — so before this seal, a counter-superlinear kernel
-/// could keep a `Linear` rustdoc claim with every gate green: at
-/// `395f0e72` the min_ticks claim read `Class::Linear` while its
-/// pure-comb, reveal-comb, and ascend-cliff board cells read touch/limb
-/// exponents 1.58–1.98 on the release boards of record. Run against that
-/// state (the mutation demonstration: flip the min_ticks claim back to
-/// `Class::Linear`, or mark any Linear-cited cell `exponent: true` in
-/// [`board::BOARD_EXPECTED_REDS`]) this test fails naming the
-/// contradiction — verified by mutation before this seal landed.
-///
-/// The reverse leg keeps the class honest: a `SuperlinearCounter` claim
-/// whose operation no longer has a standing exponent red is decoration,
-/// so the cure that flips the board pins must move the class back to
-/// linear in the same change.
-#[test]
-fn linear_claims_cite_no_exponent_red_board_cell() {
-    let exponent_red_ops = exponent_red_ops();
-    let mut contradictions = Vec::new();
-    for claim in CLAIMS {
-        let Cells::Board(cells) = &claim.cells else {
-            continue;
-        };
-        for (op, class) in *cells {
-            contradictions.extend(class_contradiction(claim.op, op, *class, &exponent_red_ops));
-        }
-    }
-    assert!(
-        contradictions.is_empty(),
-        "the claims roster contradicts the board's mechanism-tagged red set:\n  {}",
-        contradictions.join("\n  ")
-    );
-}
-
 /// The operations [`board::BOARD_EXPECTED_REDS`] holds red on an
 /// exponent mechanism at either acceptance scale.
 fn exponent_red_ops() -> BTreeSet<&'static str> {
@@ -393,38 +434,74 @@ fn exponent_red_ops() -> BTreeSet<&'static str> {
         .collect()
 }
 
-/// The class-binding seal's per-cell verdict: the contradiction message,
-/// if the cited class and the board's mechanism-tagged red set disagree.
-fn class_contradiction(
+/// Every `#[test]`-attributed function name in a source file.
+///
+/// The witness scanner behind the class contracts: attribute-gated
+/// exactly as the board↔band parity pin's, so a prose mention of a
+/// deleted test never counts as its existence, and cfg attributes
+/// between `#[test]` and the fn keep the arming.
+fn test_fns(source: &str) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let mut armed = false;
+    for line in source.lines() {
+        let t = line.trim();
+        if t == "#[test]" {
+            armed = true;
+            continue;
+        }
+        if t.starts_with("#[") || t.is_empty() {
+            continue;
+        }
+        if armed {
+            if let Some(rest) = t.strip_prefix("fn ") {
+                if let Some(name) = rest.split('(').next() {
+                    names.insert(name.to_string());
+                }
+            }
+            armed = false;
+        }
+    }
+    names
+}
+
+/// One cell's exponent-red stance verdict, from the class's contract:
+/// the contradiction message, if the cited class and the board's
+/// mechanism-tagged red set disagree.
+///
+/// The class-binding seal's kernel, enforced uniformly inside
+/// `classes_satisfy_their_contracts`. The bench judge's red set binds
+/// only wall time, and the `version_min_ticks` time legs sit under the
+/// judge's resolution at bench scales — so before this seal, a
+/// counter-superlinear kernel could keep a `Linear` rustdoc claim with
+/// every gate green: at `395f0e72` the min_ticks claim read
+/// `Class::Linear` while its pure-comb, reveal-comb, and ascend-cliff
+/// board cells read touch/limb exponents 1.58–1.98 on the release
+/// boards of record — verified by mutation before the seal landed. The
+/// `Required` stance is the reverse leg: a class whose whole evidence
+/// is a standing exponent red is decoration without one, so the cure
+/// that flips the board pins must move the class in the same change
+/// (the fixture below keeps that leg firing).
+fn stance_contradiction(
     claim_op: &str,
     op: &str,
     class: Class,
     exponent_red_ops: &BTreeSet<&str>,
 ) -> Option<String> {
-    match class {
-        // Every class that claims the cell scales as its model says
-        // (linear, linear-I/O, or the declared fold log) is contradicted
-        // by a standing exponent-mechanism red.
-        Class::Linear | Class::LinearIo | Class::FoldLog => {
-            exponent_red_ops.contains(op).then(|| {
-                format!(
-                    "{claim_op}: cites {op} as {class:?}, but the board holds it red on an \
-                     exponent mechanism (BOARD_EXPECTED_REDS)"
-                )
-            })
-        }
-        // The counter-superlinear class must keep its witness.
-        Class::SuperlinearCounter => (!exponent_red_ops.contains(op)).then(|| {
+    match class.contract().exponent_reds {
+        RedStance::Forbidden => exponent_red_ops.contains(op).then(|| {
             format!(
-                "{claim_op}: claims {op} SuperlinearCounter with no standing \
-                 exponent-mechanism board red: the class is decoration, move it \
-                 back to a linear class with the cure"
+                "{claim_op}: cites {op} as {class:?}, but the board holds it red on an \
+                 exponent mechanism (BOARD_EXPECTED_REDS)"
             )
         }),
-        // Judge-rostered superlinear time: bound by the set equality
-        // above; a deterministic exponent red on the same operation is
-        // consistent with the class.
-        Class::SuperlinearTime => None,
+        RedStance::Required => (!exponent_red_ops.contains(op)).then(|| {
+            format!(
+                "{claim_op}: claims {op} {class:?} with no standing \
+                 exponent-mechanism board red: the class is decoration, move it \
+                 to the class its evidence supports"
+            )
+        }),
+        RedStance::Allowed => None,
     }
 }
 
@@ -451,7 +528,7 @@ fn a_witnessless_superlinear_counter_claim_is_flagged_as_decoration() {
         unreachable!("the fixture cites a board cell");
     };
     let (op, class) = cells[0];
-    let verdict = class_contradiction(fixture.op, op, class, &exponent_red_ops);
+    let verdict = stance_contradiction(fixture.op, op, class, &exponent_red_ops);
     assert!(
         verdict.is_some_and(|msg| msg.contains("decoration")),
         "the seal's reverse leg did not flag a SuperlinearCounter claim on an \

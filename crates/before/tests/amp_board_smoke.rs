@@ -222,6 +222,22 @@ const BAND_ONLY: &[(&str, &str)] = &[
         "meet_all_shade_is_flat_per_unit",
         "the meet-shade population is an envelope-suite fold wedge by the FAMILIES roster criterion; the version_meet_all row prices the fold on the rostered fold populations",
     ),
+    (
+        "rank_wide_arming_is_flat_per_unit",
+        "the wide-arming family prices the ledger settle's wide × dense aggregate-product seam; the board reads every rank row green and the family's board promotion is a pending owner decision, as the dense-suffix bands'",
+    ),
+    (
+        "rank_plateau_puncture_is_flat_per_unit",
+        "the plateau-puncture family prices the arming-free close-time settle and carries the answer-embedded Ω(M) witness leg; board promotion pending the same owner decision as the wide-arming band's",
+    ),
+    (
+        "pair_plateau_train_is_flat_per_unit",
+        "the plateau-puncture × arming-train pair is a settle-seam probe of the shared integrator through the public pair measures, not a shape of its own",
+    ),
+    (
+        "arming_trains_is_flat_per_unit",
+        "the arming trains are settle-seam probes of the mass-balanced product tree by the FAMILIES roster criterion",
+    ),
 ];
 
 /// Board families deliberately without a flatness/adequacy band, each
