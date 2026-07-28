@@ -576,10 +576,12 @@ impl Integrator {
         }
     }
 
-    /// Park the live drift: settle the parked component's segment (and
-    /// bank the segment's mass into the absolute position), promote the
-    /// parked component first if the incoming drift runs far narrower,
-    /// then move the drift in and re-anchor.
+    /// Park the live drift, closing the current segment.
+    ///
+    /// Settles the parked component over the segment (banking the
+    /// segment's mass into the absolute position), promotes the parked
+    /// component first if the incoming drift runs far narrower, then
+    /// moves the drift in and re-anchors.
     fn freeze(&mut self) {
         let (drift_sign, drift) = self.live.sign_magnitude();
         if drift == UBig::ZERO {
@@ -607,10 +609,12 @@ impl Integrator {
     }
 
     /// Close the current segment at a freeze: credit the parked
-    /// component over it (`total += P · segment`, as [`settle`](Self::settle))
-    /// and bank the segment's mass into the absolute position — one
-    /// watermark read serving both consumers, priced by the segment's
-    /// depth variation.
+    /// component over it and bank the segment's mass.
+    ///
+    /// The credit is `total += P · segment`, as [`settle`](Self::settle);
+    /// the banked mass joins the absolute position, read only at
+    /// promotions — one watermark read serving both consumers, priced
+    /// by the segment's depth variation.
     fn settle_segment(&mut self) {
         let (seg_sign, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
         debug_assert_ne!(seg_sign, Ordering::Less, "interval masses only accumulate");
