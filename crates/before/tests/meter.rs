@@ -5656,6 +5656,432 @@ fn fold_party_scatter_envelope() {
     assert!(acc.is_seed(), "the scattered forks reunite the seed region");
 }
 
+// ─── the n-ary fold's correlated-population bands (the stagger pins) ─────────
+//
+// The staggered fold population loads the balanced binary-counter
+// reduction itself: `n` operands of `m` unit teeth each, every operand's
+// teeth landing in the gaps of every other's, fed in bit-reversed order
+// so every internal merge — at every level — joins region sets that
+// interleave maximally and swell to near the sum of their sizes
+// (`meter::stagger_population` carries the construction and the feed
+// order's derivation). The scatter population scales arity at
+// single-leaf operands and weave scales operand size at fixed arity;
+// this family drives both axes jointly against the reduction, so the
+// bands below hold the fold's declared `O(D log 2k)` model in EACH
+// direction independently — arity doubling at fixed operand size, and
+// operand size doubling at fixed arity — under absolute pinned ceilings:
+// a single diagonal scaling could hide which factor drives growth.
+// Every counter is normalized by the model's own level count
+// `log2(2n)` before the ×1.25 flatness bound, so the bands enforce the
+// model's *constant*, not a flat reading the documented log factor
+// would forbid (on the arity axis the raw per-byte cost legitimately
+// grows exactly one level's worth per doubling).
+//
+// The known-bad readings these bands separate from [measured
+// 2026-07-28, dev profile, exact counters, n = 256, m = 64]: the
+// sequential left version fold (`fold(Version::new(), |acc, v| acc |
+// v)`) re-walks its never-coalescing accumulator per input — 25,725,854
+// scanned bits and 4,990,711 touches against the balanced reduction's
+// 4,906,266 and 1,048,313 on the same 63,488 B population (×5.2 and
+// ×4.8, the gap widening with arity) — and the sequential party fold
+// (one `join` per input) reads 18,246,408 scanned bits against the
+// balanced 7,260,488 on 40,960 B (×2.5): the growing-accumulator genre
+// the balanced reduction exists to foreclose;
+// `fold_log_factor_is_alive` (the claims suite) keeps the model's log
+// factor itself honest.
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
+mod fold_stagger {
+    use before::{meter, Version};
+    use suanpan::touch_meter;
+
+    /// One balanced `Version::join_all` run over the staggered
+    /// population: total input bytes, the model's level count, and the
+    /// three fold counters over the fold body alone.
+    ///
+    /// Carries two semantic legs — the balanced fold equals the
+    /// sequential left fold, and both equal the constant-1 skyline
+    /// (every slot owned exactly once) — and the teeth liveness floor:
+    /// every operand's teeth are folded at least once in its
+    /// first-level merge, so a touch reading under `n·m` means the
+    /// fold's accumulator work left the metered representation.
+    fn version_fold_run(n: usize, m: usize) -> Run {
+        let (versions, _) = meter::stagger_population(n, m);
+        let versions: Vec<Version> = versions.iter().map(meter::Packed::version).collect();
+        let bytes: u64 = versions.iter().map(|v| v.encode().len() as u64).sum();
+        let sequential = versions.iter().fold(Version::new(), |acc, v| acc | v);
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        meter::reset_scan_bits();
+        let out = Version::join_all(versions);
+        let run = Run {
+            bytes,
+            levels: (2.0 * n as f64).log2(),
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+            scan_bits: meter::scan_bits(),
+        };
+        assert_eq!(out, sequential, "the balanced fold equals the left fold");
+        assert_eq!(
+            out,
+            "1".parse::<Version>().expect("canonical"),
+            "the population's teeth tile the whole domain at height 1"
+        );
+        assert!(
+            run.touches >= (n * m) as u64,
+            "join_all over {n}x{m} teeth: {} digit touches under the \
+             one-per-tooth floor: the fold's accumulator work is not metered",
+            run.touches,
+        );
+        run
+    }
+
+    /// One balanced `Party::join_all` run over the staggered id
+    /// population: total input bytes, the model's level count, and the
+    /// scan counter over the fold body alone (the id walk allocates
+    /// nothing and does no arithmetic, so scanned bits are the only
+    /// deterministic meter that sees it).
+    ///
+    /// Carries the seed-reunion semantic leg (the population's slots
+    /// tile the whole seed region) and the full-examination liveness
+    /// floor: a scan reading under 8 bits per operand byte means the
+    /// walk left the metered primitives.
+    fn party_fold_run(n: usize, m: usize) -> Run {
+        let (_, ids) = meter::stagger_population(n, m);
+        let mut parties: Vec<before::Party> = ids
+            .iter()
+            .map(|p| before::Party::decode(&p.bytes[..]).expect("canonical"))
+            .collect();
+        let bytes: u64 = parties.iter().map(|p| p.encode().len() as u64).sum();
+        let rest = parties.split_off(1);
+        let mut acc = parties.remove(0);
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        meter::reset_scan_bits();
+        acc.join_all(rest)
+            .expect("the staggered slots are pairwise disjoint");
+        let run = Run {
+            bytes,
+            levels: (2.0 * n as f64).log2(),
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+            scan_bits: meter::scan_bits(),
+        };
+        assert!(acc.is_seed(), "the staggered slots reunite the seed region");
+        assert!(
+            run.scan_bits >= 8 * run.bytes,
+            "party join_all over {n}x{m} slots: {} scanned bits under the \
+             full-examination floor: the walk is not metered",
+            run.scan_bits,
+        );
+        run
+    }
+
+    /// One fold run's counters and its model denominators.
+    struct Run {
+        bytes: u64,
+        levels: f64,
+        touches: u64,
+        limb_ops: u64,
+        scan_bits: u64,
+    }
+
+    /// Assert one counter's model-normalized per-byte cost stays flat
+    /// (×1.25) across a doubling: `counter / (bytes · log2(2n))` — the
+    /// declared fold model's constant.
+    fn assert_model_flat(name: &str, small: &Run, large: &Run, counter: fn(&Run) -> u64) {
+        let (m1, m2) = (counter(small) as f64, counter(large) as f64);
+        let (d1, d2) = (
+            small.bytes as f64 * small.levels,
+            large.bytes as f64 * large.levels,
+        );
+        eprintln!(
+            "MEASURED fold_stagger_{name}: small={m1}/{:.0} large={m2}/{:.0} \
+             per_byte_level={:.3} -> {:.3}",
+            d1,
+            d2,
+            m1 / d1,
+            m2 / d2,
+        );
+        assert!(
+            m2 * d1 <= m1 * d2 * 1.25,
+            "fold_stagger_{name}: the model-normalized per-byte cost grew more \
+             than x1.25 across the doubling: {m1}/{d1} -> {m2}/{d2}"
+        );
+    }
+
+    /// Assert one run's counters against its absolute pinned ceilings
+    /// `(touches, limb ops, scanned bits)`, printing the measured line
+    /// re-pins read from.
+    fn assert_ceilings(name: &str, run: &Run, ceilings: (u64, u64, u64)) {
+        eprintln!(
+            "MEASURED fold_stagger_{name}: bytes={} touches={} limb_ops={} scan_bits={}",
+            run.bytes, run.touches, run.limb_ops, run.scan_bits,
+        );
+        let (touch, limb, scan) = ceilings;
+        assert!(
+            run.touches <= touch,
+            "fold_stagger_{name}: {} touches exceed the pinned ceiling {touch}",
+            run.touches,
+        );
+        assert!(
+            run.limb_ops <= limb,
+            "fold_stagger_{name}: {} limb ops exceed the pinned ceiling {limb}",
+            run.limb_ops,
+        );
+        assert!(
+            run.scan_bits <= scan,
+            "fold_stagger_{name}: {} scanned bits exceed the pinned ceiling {scan}",
+            run.scan_bits,
+        );
+    }
+
+    /// The bands' base population: 64 operands of 64 teeth (the board's
+    /// stagger family at scale 1.0); each axis doubles its own knob
+    /// twice from here.
+    const STAGGER_SMALL: usize = 64;
+
+    /// Absolute (touch, limb, scan) ceilings for the version fold's
+    /// arity axis, measured 2026-07-28 ×1.25 at
+    /// `(n, m) = (64, 64), (128, 64), (256, 64)`.
+    const VERSION_ARITY_CEILINGS: [(u64, u64, u64); 3] = [
+        (214_954, 982_360, 959_793),
+        (537_433, 2_517_710, 2_462_273),
+        (1_310_392, 6_264_260, 6_132_833),
+    ];
+
+    /// Absolute ceilings for the version fold's size axis, measured
+    /// 2026-07-28 ×1.25 at `(n, m) = (64, 64), (64, 128), (64, 256)`.
+    const VERSION_SIZE_CEILINGS: [(u64, u64, u64); 3] = [
+        (214_954, 982_360, 959_793),
+        (429_994, 1_965_400, 1_919_798),
+        (860_074, 3_931_480, 3_839_803),
+    ];
+
+    /// Absolute ceilings for the party fold's arity axis, measured
+    /// 2026-07-28 ×1.25 (scan is the fold's only live counter; the
+    /// touch and limb legs assert the id walk stays arithmetic-free at
+    /// zero).
+    const PARTY_ARITY_CEILINGS: [u64; 3] = [1_781_690, 4_034_330, 9_075_610];
+
+    /// Absolute ceilings for the party fold's size axis, measured
+    /// 2026-07-28 ×1.25.
+    const PARTY_SIZE_CEILINGS: [u64; 3] = [1_781_690, 3_892_090, 8_437_970];
+
+    /// The version fold's model-normalized cost stays flat across two
+    /// arity doublings at fixed operand size: `join_all` pays the
+    /// declared `O(D log 2k)` and nothing more when every reduction
+    /// merge swells to the sum of its inputs.
+    ///
+    /// The raw per-byte cost on this axis legitimately grows one
+    /// level's worth per doubling (the documented log factor); the
+    /// band divides it out and holds the model's constant, so a
+    /// reduction whose merges re-walk more than the swollen overlay —
+    /// a growing-accumulator regression, a per-level re-scan — reads
+    /// over the bound while the model's own growth passes exactly.
+    #[test]
+    fn fold_version_stagger_arity_axis_is_flat_per_unit() {
+        let m = STAGGER_SMALL;
+        let runs = [
+            version_fold_run(m, m),
+            version_fold_run(2 * m, m),
+            version_fold_run(4 * m, m),
+        ];
+        for (run, ceilings) in runs.iter().zip(VERSION_ARITY_CEILINGS) {
+            assert_ceilings("version_arity", run, ceilings);
+        }
+        for pair in runs.windows(2) {
+            assert_model_flat("version_arity_touches", &pair[0], &pair[1], |r| r.touches);
+            assert_model_flat("version_arity_limb_ops", &pair[0], &pair[1], |r| r.limb_ops);
+            assert_model_flat("version_arity_scan_bits", &pair[0], &pair[1], |r| {
+                r.scan_bits
+            });
+        }
+    }
+
+    /// The version fold's model-normalized cost stays flat across two
+    /// operand-size doublings at fixed arity: at a fixed level count
+    /// the fold is linear in the population's packed bytes, however
+    /// large each swollen intermediate grows.
+    #[test]
+    fn fold_version_stagger_size_axis_is_flat_per_unit() {
+        let n = STAGGER_SMALL;
+        let runs = [
+            version_fold_run(n, n),
+            version_fold_run(n, 2 * n),
+            version_fold_run(n, 4 * n),
+        ];
+        for (run, ceilings) in runs.iter().zip(VERSION_SIZE_CEILINGS) {
+            assert_ceilings("version_size", run, ceilings);
+        }
+        for pair in runs.windows(2) {
+            assert_model_flat("version_size_touches", &pair[0], &pair[1], |r| r.touches);
+            assert_model_flat("version_size_limb_ops", &pair[0], &pair[1], |r| r.limb_ops);
+            assert_model_flat("version_size_scan_bits", &pair[0], &pair[1], |r| {
+                r.scan_bits
+            });
+        }
+    }
+
+    /// The party fold's model-normalized scan cost stays flat across
+    /// two arity doublings at fixed operand size, and the id walk
+    /// forces no arithmetic at any scale (touch and limb pinned at
+    /// zero).
+    ///
+    /// The population's operands are both-present at the whole shared
+    /// top per pair, so the fold's up-front overlap tests run the
+    /// indexed searches the board's declared allowance prices, and the
+    /// reduction's merges splice maximally interleaved region sets —
+    /// the party-side intermediate swell.
+    #[test]
+    fn fold_party_stagger_arity_axis_is_flat_per_unit() {
+        let m = STAGGER_SMALL;
+        let runs = [
+            party_fold_run(m, m),
+            party_fold_run(2 * m, m),
+            party_fold_run(4 * m, m),
+        ];
+        for (run, ceiling) in runs.iter().zip(PARTY_ARITY_CEILINGS) {
+            assert_ceilings("party_arity", run, (0, 0, ceiling));
+        }
+        for pair in runs.windows(2) {
+            assert_model_flat("party_arity_scan_bits", &pair[0], &pair[1], |r| r.scan_bits);
+        }
+    }
+
+    /// The party fold's model-normalized scan cost stays flat across
+    /// two operand-size doublings at fixed arity, and the id walk
+    /// forces no arithmetic at any scale (touch and limb pinned at
+    /// zero).
+    #[test]
+    fn fold_party_stagger_size_axis_is_flat_per_unit() {
+        let n = STAGGER_SMALL;
+        let runs = [
+            party_fold_run(n, n),
+            party_fold_run(n, 2 * n),
+            party_fold_run(n, 4 * n),
+        ];
+        for (run, ceiling) in runs.iter().zip(PARTY_SIZE_CEILINGS) {
+            assert_ceilings("party_size", run, (0, 0, ceiling));
+        }
+        for pair in runs.windows(2) {
+            assert_model_flat("party_size_scan_bits", &pair[0], &pair[1], |r| r.scan_bits);
+        }
+    }
+}
+
+// ─── the meet-fold red pin ───────────────────────────────────────────────────
+//
+// RED PIN: a committed demonstration of the standing superlinearity in
+// `Version::meet_all`, not a regression gate. The fold is a sequential
+// left reduce, and a meet's emission sweep walks BOTH operands' streams
+// whole — there is no domination short-circuit — so a population whose
+// running meet never shrinks re-walks its whole accumulator per
+// operand. The shade population is the constructive witness: one deep
+// carrier (`dense(d)`, heights 0/1), then `k − 1` single-leaf plateau
+// shades strictly above it (`hugeleaf(2)`, the constant-3 skyline).
+// Every step's meet is the carrier, byte-identical — `Θ(k · d)` sweep
+// work on a `Θ(d + k)`-byte population, quadratic on the diagonal —
+// while each operand alone is a committed linear family and the join
+// folds read flat on every committed population (the balanced
+// reduction; the stagger bands above). The `# Complexity` section of
+// `meet_all` and its claims-roster entry state this worst case; the
+// cure that flips this pin (a balanced reduction is the natural
+// candidate — meet is associative and commutative, and equal shades
+// then answer by canonical identity) must restate both in the same
+// change.
+#[cfg(feature = "limb-meter")]
+mod meet_fold_pin {
+    use before::{meter, Version};
+    use suanpan::touch_meter;
+
+    /// One public `Version::meet_all` run over the shade population
+    /// `MS(d, k)`: total input bytes and both width counters over the
+    /// fold body alone.
+    ///
+    /// Carries the population's semantic leg (the fold returns the
+    /// carrier, byte for byte) and the one-touch-per-operand-byte
+    /// liveness floor.
+    fn run(d: usize, k: usize) -> (u64, u64, u64) {
+        let population = meter::meet_shade(d, k);
+        let bytes: u64 = population.iter().map(|v| v.encode().len() as u64).sum();
+        let carrier = population[0].clone();
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let met = Version::meet_all(population);
+        let touches = touch_meter::touches();
+        let limb_ops = meter::limb_ops();
+        assert_eq!(
+            met.expect("the population is nonempty"),
+            carrier,
+            "the shades dominate the carrier everywhere: the meet is the carrier"
+        );
+        assert!(
+            touches >= bytes,
+            "meet_all at {bytes} operand bytes: {touches} digit touches under \
+             the one-per-byte floor: the fold's accumulator work is not metered",
+        );
+        (bytes, touches, limb_ops)
+    }
+
+    /// Carrier depth and shade count of the pin's small run (the large
+    /// run doubles both).
+    const MEET_SHADE_SMALL: usize = 1_024;
+
+    /// RED: `Version::meet_all`'s per-byte cost grows across an
+    /// `MS(d, k)` diagonal doubling in both width currencies.
+    ///
+    /// The reduce's accumulator never shrinks and every step's sweep
+    /// re-walks it whole, so cost is `Θ(k · d)` — the population
+    /// scales both factors, and the fold reads per-byte growth ~×2.0
+    /// per doubling: a class residual, not a constant.
+    ///
+    /// The floor sits midway between linear (×1.00) and the measured
+    /// growth, so only a class change crosses it — a fold that stops
+    /// re-walking the non-shrinking accumulator per operand (a
+    /// balanced reduction, a domination short-circuit) flips this pin
+    /// into a flatness band and must re-derive the `# Complexity`
+    /// claim in the same change.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 1,051,644 → 4,200,444 across MS(1,024, 1,024) → MS(2,048,
+    /// 2,048) on 1,408 B → 2,816 B populations — per-byte growth
+    /// ×2.00 — and limb ops 6,295,542 → 25,174,006 (×2.00/byte); the
+    /// preceding doubling MS(512, 512) → MS(1,024, 1,024) reads ×1.99
+    /// in both currencies. Direction fits, same date: k alone
+    /// (d = 256 fixed, k = 256 → 512 → 1,024) grows cost ×2.004 and
+    /// ×2.002 per doubling; d alone (k = 256 fixed, d = 256 → 512 →
+    /// 1,024) grows cost ×1.985 and ×1.992 — the exact product law
+    /// `Θ(k · d)`, each factor independently linear.]
+    #[test]
+    fn meet_all_shade_reads_superlinear() {
+        let (small_bytes, small_touches, small_limbs) = run(MEET_SHADE_SMALL, MEET_SHADE_SMALL);
+        let (large_bytes, large_touches, large_limbs) =
+            run(2 * MEET_SHADE_SMALL, 2 * MEET_SHADE_SMALL);
+        eprintln!(
+            "MEASURED meet_all_shade: small={small_touches}/{small_bytes}B \
+             (limb {small_limbs}) large={large_touches}/{large_bytes}B \
+             (limb {large_limbs})"
+        );
+        // The red band's floor: per-byte growth at least ×1.49 across
+        // the doubling in both currencies — only a class change
+        // crosses it.
+        for (name, small, large) in [
+            ("touches", small_touches, large_touches),
+            ("limb ops", small_limbs, large_limbs),
+        ] {
+            assert!(
+                u128::from(large) * u128::from(small_bytes) * 100
+                    >= u128::from(small) * u128::from(large_bytes) * 149,
+                "meet_all reads flat ({name}) on the shade population \
+                 ({small}/{small_bytes}B -> {large}/{large_bytes}B): the fold \
+                 no longer re-walks its non-shrinking accumulator per operand, \
+                 so flip this pin into a flatness band and re-derive the \
+                 # Complexity claim in the same change",
+            );
+        }
+    }
+}
+
 // ─── the memo resolution's touch cost (the frame ledger's pins) ─────────────
 //
 // The committed witnesses that the memoized pre-scan's site resolution is

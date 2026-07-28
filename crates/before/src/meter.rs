@@ -2282,6 +2282,208 @@ pub fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
     )
 }
 
+/// The staggered-comb fold operand `SG(n, m, i)`: operand `i` of an
+/// `n`-operand fold population whose `m` unit teeth land in the gaps of
+/// every other operand's, `m(4L + 6) − 2` bits for `L = log2 n`.
+///
+/// The population's shared domain is `n·m` dyadic slots: a complete
+/// depth-`log2 m` top tree over `m` blocks of `n` slots each. Operand
+/// `i` owns slot `i` of every block — a height-1 tooth at the end of a
+/// depth-`L` path whose direction at level `t` is bit `L − 1 − t` of
+/// `i` (most significant first), every path sibling a 0-leaf. Distinct
+/// operands' teeth never share a slot and, because every slot's
+/// neighbors inside a partial union are zero gaps or teeth of *other*
+/// heights' paths, no merge of a proper operand subset ever collapses
+/// a boundary: each internal merge of the balanced reduction emits a
+/// result near the sum of its inputs' sizes — the intermediate-swell
+/// loading the fold's `O(D log k)` model prices, held until the last
+/// level (the full union is the constant-1 skyline, so only the final
+/// merges collapse). [`stagger_population`] carries the feed order
+/// that realizes the swell at every reduction level.
+///
+/// Layout: `m − 1` top nodes `1 · γ(0)` in preorder, then per block
+/// `L` path nodes `1 · γ(0)` (the 0-leaf sibling `0 · γ(0)` emitted
+/// before the deeper child when the path turns right, after it when
+/// left), the tooth `0 · γ(1)` at the bottom. `2(m − 1) + m(4L + 4)`
+/// bits. Normal form holds everywhere: every internal node's subtree
+/// minimum is 0 (each path node has a 0-leaf child; top nodes reach 0
+/// through them), and the only sibling leaf pair is the deepest
+/// node's `(1, 0)`.
+///
+/// # Panics
+///
+/// Panics if `n` is not a power of two at least 2, `m` is not a power
+/// of two, or `i ≥ n`.
+pub fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
+    assert!(
+        n >= 2 && n.is_power_of_two(),
+        "the staggered comb needs a power-of-two operand count"
+    );
+    assert!(
+        m >= 1 && m.is_power_of_two(),
+        "the staggered comb needs a power-of-two block count"
+    );
+    assert!(i < n, "the operand index addresses one of the n slots");
+    let levels = n.trailing_zeros();
+    // The per-block path: L internal nodes toward slot i, a 0-leaf
+    // sibling per level, the unit tooth at the bottom. Depth L + log2(m)
+    // is word-scale for any buildable population, so plain recursion is
+    // safe here (the generators are test-only construction code).
+    fn path(bits: &mut Bits, levels: u32, i: usize, t: u32) {
+        bits.push(true); // path node flag
+        codec::encode_int(bits, &Base::ZERO);
+        let deeper = |bits: &mut Bits| {
+            if t + 1 == levels {
+                ev_leaf(bits, 1); // the tooth: operand i's unit height
+            } else {
+                path(bits, levels, i, t + 1);
+            }
+        };
+        if (i >> (levels - 1 - t)) & 1 == 0 {
+            deeper(bits); // the slot sits left ...
+            ev_leaf(bits, 0); // ... its right sibling is the gap
+        } else {
+            ev_leaf(bits, 0); // the gap sits left ...
+            deeper(bits); // ... the slot right
+        }
+    }
+    fn top(bits: &mut Bits, levels: u32, i: usize, m: usize) {
+        if m == 1 {
+            path(bits, levels, i, 0);
+            return;
+        }
+        bits.push(true); // top node flag
+        codec::encode_int(bits, &Base::ZERO);
+        top(bits, levels, i, m / 2);
+        top(bits, levels, i, m / 2);
+    }
+    let mut bits = Bits::with_capacity(m * (4 * levels as usize + 6) - 2);
+    top(&mut bits, levels, i, m);
+    Packed::from_bits(bits)
+}
+
+/// The staggered id `SI(n, m, i)`: [`stagger_comb`]'s party twin —
+/// operand `i` owns slot `i` of every block, `m(2L + 4) − 2` bits.
+///
+/// The same slot domain as the comb: a complete depth-`log2 m` top of
+/// both-present tags over per-block paths of `L` single-child tags to
+/// the owned slot, the path siblings absent. The `n` operands are
+/// pairwise disjoint by construction (distinct slots), their union is
+/// the whole seed region, and every operand pair is both-present at
+/// the entire shared top — the correlated-population loading of the
+/// party fold's up-front overlap test (each input pays its
+/// both-present nodes times a search of the accumulator's table) and
+/// of the reduction's merges (interleaved region sets that coalesce
+/// only at the last level).
+///
+/// Layout: `m − 1` top tags `11` in preorder, then per block `L` path
+/// tags (`10` toward a left slot, `01` toward a right one) and the
+/// owned tip `00`. Normal form: no node has two fully-owned children
+/// (every `00` sits under a single-child tag) and none has two absent
+/// children.
+///
+/// # Panics
+///
+/// Panics if `n` is not a power of two at least 2, `m` is not a power
+/// of two, or `i ≥ n`.
+pub fn stagger_id(n: usize, m: usize, i: usize) -> Packed {
+    assert!(
+        n >= 2 && n.is_power_of_two(),
+        "the staggered id needs a power-of-two operand count"
+    );
+    assert!(
+        m >= 1 && m.is_power_of_two(),
+        "the staggered id needs a power-of-two block count"
+    );
+    assert!(i < n, "the operand index addresses one of the n slots");
+    let levels = n.trailing_zeros();
+    fn path(bits: &mut Bits, levels: u32, i: usize, t: u32) {
+        if t == levels {
+            bits.push(false); // the owned slot: terminal tag "00"
+            bits.push(false);
+            return;
+        }
+        let right = (i >> (levels - 1 - t)) & 1 == 1;
+        bits.push(!right); // left child present iff the slot sits left
+        bits.push(right); // right child present iff it sits right
+        path(bits, levels, i, t + 1);
+    }
+    fn top(bits: &mut Bits, levels: u32, i: usize, m: usize) {
+        if m == 1 {
+            path(bits, levels, i, 0);
+            return;
+        }
+        bits.push(true); // top tag: both halves hold owned slots
+        bits.push(true);
+        top(bits, levels, i, m / 2);
+        top(bits, levels, i, m / 2);
+    }
+    let mut bits = Bits::with_capacity(m * (2 * levels as usize + 4) - 2);
+    top(&mut bits, levels, i, m);
+    Packed::from_bits(bits)
+}
+
+/// The staggered fold population `(versions, ids)`: all `n`
+/// [`stagger_comb`]/[`stagger_id`] operands in bit-reversed feed order.
+///
+/// The feed order is the population's second load-bearing axis: the
+/// balanced binary-counter reduction merges arrival-adjacent inputs
+/// first, and bit-reversing the operand indices makes every merged
+/// pair's slot indices diverge at their *most* significant bit — so
+/// every internal merge, at every level, joins region sets that
+/// interleave maximally and swell to near the sum of their sizes.
+/// Index order instead hands the counter pairs that diverge at the
+/// last bit (near-adjacent slots, maximal path sharing), the
+/// coalescing luck the wedge exists to foreclose.
+///
+/// # Panics
+///
+/// [`stagger_comb`]'s parameter contract.
+pub fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
+    let bits = n.trailing_zeros();
+    let order = (0..n).map(|i| i.reverse_bits() >> (usize::BITS - bits));
+    order
+        .map(|i| (stagger_comb(n, m, i), stagger_id(n, m, i)))
+        .unzip()
+}
+
+/// The meet-shade population `MS(d, k)`: one deep carrier, then
+/// `k − 1` identical plateau shades that dominate it — the meet
+/// fold's non-shrinking-accumulator adversary.
+///
+/// The dual of the join wedges, derived from the meet's actual walk:
+/// a join fold's hazard is an accumulator that *grows* without
+/// coalescing, a meet fold's is one that never *shrinks*. The carrier
+/// is [`dense`]`(d)` (heights 0 and 1, the node-density maximizer);
+/// each shade is [`hugeleaf`]`(2)` — the constant-3 skyline, one leaf,
+/// 6 packed bits — sitting strictly above the carrier everywhere. The
+/// running meet is therefore the carrier, byte-identical, at every
+/// step: `acc ∧ shade` re-walks the whole carrier per shade (the
+/// emission sweep visits every boundary of the overlay and the
+/// carrier supplies `Θ(d)` of them), so a sequential reduce pays
+/// `Θ(k · d)` on a `Θ(d + k)`-byte population. Neither operand shape
+/// is adversarial alone — both are committed linear families — and no
+/// short-circuit applies: the shade is never byte-equal to the
+/// accumulator, never empty, and the accumulator never empties. The
+/// committed red pin (`meet_all_shade_reads_superlinear` in
+/// `tests/meter.rs`) carries the measured growth; the population's
+/// semantic leg is exactness — the fold returns the carrier.
+///
+/// # Panics
+///
+/// Panics if `d == 0` or `k < 2` (the fold needs the carrier and at
+/// least one shade).
+pub fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
+    assert!(d >= 1, "the meet shade needs a nonzero carrier depth");
+    assert!(k >= 2, "the meet shade needs at least one shade");
+    let carrier = dense(d).version();
+    let shade = hugeleaf(2).version();
+    let mut population = Vec::with_capacity(k);
+    population.push(carrier);
+    population.resize(k, shade);
+    population
+}
+
 /// The masked-comparison correlated triple `MT(k, n)`: a boundary comb, a
 /// mask owning every other tooth, and a wide plateau — the three-stream
 /// fused comparison's adversary, each operand benign alone.
