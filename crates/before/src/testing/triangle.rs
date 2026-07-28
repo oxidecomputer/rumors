@@ -43,10 +43,10 @@
 //! # Exclusion families
 //!
 //! Codecs and text (no wire format exists in the references; correctness is
-//! production-side canonicality/round-trip/strict-rejection pins), batch
-//! laziness (a batch equals its value-level ops), linearity and aliasing
-//! mechanics (`Clone` references cannot express them; compile-fail tests
-//! own them), `causally` (a definitional combinator over the bound causal
+//! production-side canonicality/round-trip/strict-rejection pins), linearity
+//! and aliasing mechanics (`Clone` references cannot express them;
+//! compile-fail tests own them), `causally` (a definitional combinator over
+//! the bound causal
 //! order), rank arithmetic (not a paper object; bound to the in-test
 //! alignment oracle), n-ary hand-back mechanics (value identity and order
 //! are not functions of the geometry), depth beyond the function-space grid
@@ -133,20 +133,6 @@ const fn codec_row(op: &'static str) -> SurfaceRow {
              semantic domain quotients away — ratified by owner, 2026-07-26",
         ),
         tree_fs: Leg::Excluded("neither reference has a wire format"),
-    }
-}
-
-/// Shorthand for a batch-surface row: a batch equals its value-level ops
-/// by construction, pinned by the operator matrices.
-const fn batch_row(op: &'static str) -> SurfaceRow {
-    const REASON: &str = "a batch equals its value-level ops (the oracle documents the \
-         omission); pinned by representation_parity, batch_equals_value_level, \
-         no_arith_batch_preserves_version, commit_on_drop";
-    SurfaceRow {
-        op,
-        prod_tree: Leg::Excluded(REASON),
-        prod_fs: Leg::Excluded(REASON),
-        tree_fs: Leg::Excluded(REASON),
     }
 }
 
@@ -349,7 +335,6 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
              on its prod↔tree leg — ratified by owner, 2026-07-26",
         ),
     },
-    batch_row("Version::batch"),
     codec_row("Version::encode"),
     codec_row("Version::encode_to"),
     codec_row("Version::decode"),
@@ -418,7 +403,6 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },
-    batch_row("Clock::batch"),
     SurfaceRow {
         op: "Clock::from_parts",
         prod_tree: Leg::Trans("master_differential"),
@@ -496,16 +480,6 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_fs: Leg::Excluded("accessor over the byte-tiebroken total order; law-pinned"),
         tree_fs: Leg::Excluded("accessor over the byte-tiebroken total order; law-pinned"),
     },
-    // ───────────────────────────── batch modules ─────────────────────────────
-    batch_row("batch::Version::tick"),
-    batch_row("batch::Version::concurrent"),
-    batch_row("batch::Version::snapshot"),
-    batch_row("batch::Clock::tick"),
-    batch_row("batch::Clock::fork"),
-    batch_row("batch::Clock::join"),
-    batch_row("batch::Clock::sync"),
-    batch_row("batch::Clock::version"),
-    batch_row("batch::Clock::party"),
     // ───────────────────────────── causally ─────────────────────────────
     causally_row("causally::all"),
     causally_row("causally::since"),
@@ -527,13 +501,13 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
 /// a deliberate API event that must add a family row.
 pub(crate) const FAMILY_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
-        op: "Version | Version (BitOr/BitOrAssign, the Batch operand matrix)",
+        op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
         prod_tree: Leg::Bound("merge_arbitrary"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
     },
     SurfaceRow {
-        op: "Version & Version (BitAnd/BitAndAssign, the Batch operand matrix)",
+        op: "Version & Version (BitAnd/BitAndAssign, owned and borrowed)",
         prod_tree: Leg::Bound("meet_arbitrary"),
         prod_fs: Leg::Trans("meet_realizes_pointwise_min"),
         tree_fs: Leg::Bound("meet_realizes_pointwise_min"),
@@ -545,7 +519,7 @@ pub(crate) const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Bound("quotient_realizes_region_mask"),
     },
     SurfaceRow {
-        op: "Version PartialOrd (the comparison matrix, all Version/Batch cells)",
+        op: "Version PartialOrd (the comparison matrix, owned and borrowed)",
         prod_tree: Leg::Bound("compare_matrix_matches_oracle"),
         prod_fs: Leg::Bound("replay_matches_across_references"),
         tree_fs: Leg::Bound("replay_matches_across_references"),
@@ -695,8 +669,8 @@ pub(crate) struct SourceSpec {
     /// none).
     pub(crate) module_prefix: Option<&'static str>,
     /// Override for the inherent-impl type name — for files whose local
-    /// type name is not its public path (the two `Batch`es) or whose type
-    /// lives under a public module.
+    /// type name is not its public path (the two `Forks` iterators) or
+    /// whose type lives under a public module.
     pub(crate) type_override: Option<&'static str>,
 }
 
@@ -733,16 +707,6 @@ pub(crate) const SURFACE_SOURCES: &[SourceSpec] = &[
         path: "src/version/ticks.rs",
         module_prefix: None,
         type_override: None,
-    },
-    SourceSpec {
-        path: "src/version/batch.rs",
-        module_prefix: None,
-        type_override: Some("batch::Version"),
-    },
-    SourceSpec {
-        path: "src/clock/batch.rs",
-        module_prefix: None,
-        type_override: Some("batch::Clock"),
     },
     SourceSpec {
         path: "src/party/forks.rs",

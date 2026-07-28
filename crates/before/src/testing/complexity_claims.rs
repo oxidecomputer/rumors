@@ -368,7 +368,6 @@ pub(crate) const CLAIMS: &[Claim] = &[
              (the board module doc's coverage list)",
         ),
     },
-    constant("Version::batch"),
     Claim {
         op: "Version::encode",
         checks: &[Check {
@@ -493,7 +492,6 @@ pub(crate) const CLAIMS: &[Claim] = &[
         }],
         cells: Cells::Board(&[("clock_recv", Class::Linear)]),
     },
-    constant("Clock::batch"),
     constant("Clock::from_parts"),
     constant("Clock::into_parts"),
     constant("Clock::party"),
@@ -555,65 +553,6 @@ pub(crate) const CLAIMS: &[Claim] = &[
     constant("Ranked::version"),
     constant("Ranked::rank"),
     constant("Ranked::into_parts"),
-    // ───────────────────────────── batch handles ─────────────────────────────
-    Claim {
-        op: "batch::Version::tick",
-        checks: &[Check {
-            site: Site::Fn,
-            tokens: &["`O(|v| + |p|)`"],
-        }],
-        cells: Cells::Board(&[("version_tick", Class::Linear)]),
-    },
-    Claim {
-        op: "batch::Version::concurrent",
-        checks: &[Check {
-            site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
-        }],
-        cells: Cells::Board(&[("version_concurrent", Class::Linear)]),
-    },
-    Claim {
-        op: "batch::Version::snapshot",
-        checks: &[Check {
-            site: Site::Fn,
-            tokens: &["`O(|v|)`"],
-        }],
-        cells: Cells::Board(&[("version_batch_snapshot", Class::Linear)]),
-    },
-    Claim {
-        op: "batch::Clock::tick",
-        checks: &[Check {
-            site: Site::Fn,
-            tokens: &["`O(|c|)`"],
-        }],
-        cells: Cells::Board(&[("clock_tick", Class::Linear)]),
-    },
-    Claim {
-        op: "batch::Clock::fork",
-        checks: &[Check {
-            site: Site::Fn,
-            tokens: &["`O(|c|)`"],
-        }],
-        cells: Cells::Board(&[("clock_fork", Class::Linear)]),
-    },
-    Claim {
-        op: "batch::Clock::join",
-        checks: &[Check {
-            site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
-        }],
-        cells: Cells::Board(&[("clock_join", Class::Linear)]),
-    },
-    Claim {
-        op: "batch::Clock::sync",
-        checks: &[Check {
-            site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
-        }],
-        cells: Cells::Board(&[("clock_sync", Class::Linear)]),
-    },
-    constant("batch::Clock::version"),
-    constant("batch::Clock::party"),
     // ───────────────────────────── causally ─────────────────────────────
     causally("causally::all", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
     causally("causally::since", Cells::Uncelled(CAUSALLY_CONSTRUCTOR)),
@@ -654,7 +593,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
     ),
     // ─────────────────────── operator/trait families ───────────────────────
     Claim {
-        op: "Version | Version (BitOr/BitOrAssign, the Batch operand matrix)",
+        op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
         checks: &[Check {
             site: Site::TypeDoc("src/version.rs", "Version"),
             tokens: &["`O(|a| + |b|)`"],
@@ -665,7 +604,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ]),
     },
     Claim {
-        op: "Version & Version (BitAnd/BitAndAssign, the Batch operand matrix)",
+        op: "Version & Version (BitAnd/BitAndAssign, owned and borrowed)",
         checks: &[Check {
             site: Site::TypeDoc("src/version.rs", "Version"),
             tokens: &["`O(|a| + |b|)`"],
@@ -684,7 +623,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         cells: Cells::Board(&[("version_project", Class::LinearIo)]),
     },
     Claim {
-        op: "Version PartialOrd (the comparison matrix, all Version/Batch cells)",
+        op: "Version PartialOrd (the comparison matrix, owned and borrowed)",
         checks: &[Check {
             site: Site::TypeDoc("src/version.rs", "Version"),
             tokens: &["`O(|a| + |b|)`"],
