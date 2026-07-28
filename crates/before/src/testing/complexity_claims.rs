@@ -62,7 +62,10 @@ pub(crate) enum Class {
     /// Linear in the total packed input times the logarithm of the
     /// operand count: the balanced n-ary reduction's log factor, visible
     /// on the fold rows' deterministic exponents and scale-growing
-    /// constants.
+    /// constants and judged there under the board's declared fold model
+    /// (which, on the party fold, also carries the indexed overlap
+    /// test's per-node search allowance — the `B log |p|` term the fold
+    /// rustdoc states).
     FoldLog,
     /// Linear space, superlinear worst-case time, red on the bench
     /// judge's committed roster.
@@ -236,7 +239,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::join_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D log k)`", "`O(D)`"],
+            tokens: &["`O(D log k + B log |p|)`", "`O(D)`"],
         }],
         cells: Cells::Board(&[
             ("party_join_all", Class::FoldLog),
@@ -495,7 +498,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::join_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D log k)`", "`O(D)`"],
+            tokens: &["`O(D log k + B log |c|)`", "`O(D)`"],
         }],
         cells: Cells::Board(&[
             ("version_join_all", Class::FoldLog),
