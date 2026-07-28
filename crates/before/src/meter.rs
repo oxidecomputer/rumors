@@ -1557,7 +1557,7 @@ const DENSE_SUFFIX_DIGIT_STRIDE: usize = 33;
 /// interval is absent from the trailing mass — and left elsewhere,
 /// those right-sibling 0-leaves swept *after* the blocks. The trailing
 /// mass is an all-ones run punctured by `d` isolated gaps a full digit
-/// apart ([`DENSE_SUFFIX_DIGIT_STRIDE`]): the interval mass behind
+/// apart (the 33-level stride constant's derivation): the interval mass behind
 /// every block, `Θ(d)` balanced digits however it is assembled. Each
 /// block is [`promotion_rearm`]'s verbatim — a `2^608` climb, a unit
 /// (the freeze that parks the wide drift), a `2^288` climb, and a unit
@@ -1635,12 +1635,13 @@ pub fn dense_suffix_mate(p: usize, d: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The wide-arming family `WA(w, d)`: the gap spine of [`dense_suffix`]
-/// over a *single* re-arm block whose arming climb is `2^(32w)` — one
-/// promotion whose parked mass is as wide as the input, owing its debt
-/// across a trailing mass as dense as the input.
+/// The wide-arming family `WA(w, d)`: the gap spine of
+/// [`dense_suffix`] over a *single* re-arm block whose arming climb
+/// is `2^(32w)`.
 ///
-/// Exactly `134d + 64w + 600` bits. The one block climbs `2^(32w)`
+/// One promotion whose parked mass is as wide as the input, owing its
+/// debt across a trailing mass as dense as the input. Exactly
+/// `134d + 64w + 600` bits. The one block climbs `2^(32w)`
 /// (parked at its unit), climbs `2^288` (whose unit's freeze finds the
 /// parked component over-wide and promotes it — the one ledger
 /// arming), and the sweep then consumes the `Θ(d)`-dense trailing mass
@@ -1683,9 +1684,11 @@ pub fn wide_arming(w: usize, d: usize) -> Packed {
 }
 
 /// Append the dense-suffix gap spine: `33d` zero-base levels turning
-/// right every 33rd (the turn's 1-leaf emitted before the descent) and
-/// left elsewhere, returning the count of trailing 0-leaf siblings the
-/// caller must emit innermost-first after the spine's terminal content.
+/// right every 33rd and left elsewhere.
+///
+/// A turn's 1-leaf is emitted before the descent; the return value is
+/// the count of trailing 0-leaf siblings the caller must emit
+/// innermost-first after the spine's terminal content.
 fn gap_spine(bits: &mut Bits, d: usize) -> usize {
     let mut trailing = 0usize;
     for level in 0..DENSE_SUFFIX_DIGIT_STRIDE * d {

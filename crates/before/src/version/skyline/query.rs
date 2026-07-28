@@ -939,9 +939,8 @@ impl Integrator {
     }
 
     /// Settle the promotion ledger at the sweep's close: one balanced
-    /// product-tree reduction over the ledger's entry sequence, so
-    /// every arming-window cross term `P_i · w_j` (`i < j`) rides
-    /// exactly one aggregate product at one tree node.
+    /// product-tree reduction over the entry sequence, every cross
+    /// term `P_i · w_j` (`i < j`) riding exactly one aggregate product.
     ///
     /// The entry sequence is the armings in sweep order — entry `i`
     /// pairs `P_i` with the window *behind* it, the mass banked between
