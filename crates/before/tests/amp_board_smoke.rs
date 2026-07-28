@@ -35,9 +35,9 @@ const SMOKE_SCALE: f64 = 0.02;
 /// failure names the family that drifted. The version-only shapes (a
 /// version, its derived pairings, and its rejection rows) supply 43
 /// rows; the id pair (parties only) 38; the cross shapes (version,
-/// mounted party pair, clock, and the id-side rejections) 64; the two
-/// fold-only populations (scatter, weave) exactly the 2 fold rows; and
-/// the benign control supplies every row.
+/// mounted party pair, clock, and the id-side rejections) 64; the three
+/// fold-only populations (scatter, weave, stagger) exactly the 2 fold
+/// rows; and the benign control supplies every row.
 const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
     ("dense", 43),
     ("bigroot", 43),
@@ -48,6 +48,7 @@ const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
     ("harmonic", 43),
     ("scatter", 2),
     ("weave", 2),
+    ("stagger", 2),
     ("nested-full", 64),
     ("nested-wide", 64),
     ("mirror-wide", 64),
@@ -64,6 +65,7 @@ const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
     ("weight-comb", 43),
     ("freeze-parade", 43),
     ("concurrent-pair", 43),
+    ("tooth-tail", 43),
     ("benign", 66),
 ];
 
@@ -169,6 +171,14 @@ const BAND_TO_FAMILY: &[(&str, &str)] = &[
         "ascend_cliff_plateau_control_is_flat_per_unit",
         "ascend-plateau",
     ),
+    ("skyline_cmp_tooth_tail_is_flat_per_unit", "tooth-tail"),
+    (
+        "fold_version_stagger_arity_axis_is_flat_per_unit",
+        "stagger",
+    ),
+    ("fold_version_stagger_size_axis_is_flat_per_unit", "stagger"),
+    ("fold_party_stagger_arity_axis_is_flat_per_unit", "stagger"),
+    ("fold_party_stagger_size_axis_is_flat_per_unit", "stagger"),
 ];
 
 /// Bands deliberately without a board family, each with its reason: a
@@ -207,10 +217,6 @@ const BAND_ONLY: &[(&str, &str)] = &[
     (
         "skyline_distance_dense_suffix_is_flat_per_unit",
         "as the dense-suffix rank band's",
-    ),
-    (
-        "skyline_cmp_tooth_tail_is_flat_per_unit",
-        "board promotion is blocked pending an owner ruling: the pair's same-shape aligned operands undercut the comparison rows' stored-delta touch floor (the fused sweep folds equal deltas to net zero, ~one touch per boundary against two stored deltas), and its parse row exceeds the flat heap ceiling",
     ),
 ];
 

@@ -2743,6 +2743,155 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   attempting the intrinsic construction and reading flat would make
   it a committed fact rather than an argument, if wanted.
 
+- **BUILT + RED 2026-07-28 (wedge round #76, the correlated n-ary
+  fold populations; branch `wedge76` @ base c2f9c513, rebased onto
+  31b28bfb). Verdict: the join folds are HONEST under joint
+  correlation (green under the declared model, bands committed);
+  `Version::meet_all` is NOT (a constructed quadratic, red pin
+  committed).** Charter: the fold rows had never seen a family that
+  correlates ALL n operands jointly against the reduction structure —
+  every committed population was random, organic, or a promoted pair
+  (§12's F4 entry called out and weave only partly closed the gap:
+  fixed arity). All numbers exact deterministic counters, dev profile
+  for pins, release for boards; every figure denominated in TOTAL
+  packed input bytes across the population (per byte·level where the
+  declared `O(D log 2k)` model is the claim, stated at each use).
+
+  **The join wedge (`stagger_comb`/`stagger_id`/
+  `stagger_population`, single-sourced in `meter.rs` with closed-form
+  pins).** `n` operands of `m` unit teeth over one `n·m`-slot dyadic
+  domain, operand `i` owning slot `i` of every block —
+  `m(4·log2 n + 6) − 2` bits per version operand,
+  `m(2·log2 n + 4) − 2` per id, `min_ticks = m` exact, full-population
+  join = the constant-1 skyline / seed reunion (the tiling witness) —
+  fed in **bit-reversed order** so every binary-counter merge at every
+  level joins region sets diverging at the top address bit:
+  intermediate swell ≈ the sum of the inputs' sizes at every internal
+  merge, no coalescing before the last level (index order would hand
+  the counter adjacent slots, maximal path sharing — the foreclosed
+  luck). Measured (dev, exact):
+  - *Arity axis, m = 64 fixed, n = 64 → 128 → 256* (12,800 →
+    28,672 → 63,488 B): version fold touches 171,963 → 429,946 →
+    1,048,313, limb 785,888 → 2,014,168 → 5,011,408, scan 767,834 →
+    1,969,818 → 4,906,266 — model-normalized (per byte·level) 8.57 →
+    8.59 → 8.59 scan bits, 1.92 → 1.87 → 1.84 touches: the raw
+    per-byte cost grows exactly the documented one-level-per-doubling
+    and the model's constant is flat. Party fold scan 1,425,352 →
+    3,227,464 → 7,260,488 (24.9 → 21.9 → 19.7 bits per byte·level).
+  - *Size axis, n = 64 fixed, m = 64 → 128 → 256* (12,800 → 25,600 →
+    51,200 B): version fold per-byte cost flat to three digits
+    (touches 13.43/B at all three points); party fold scan per
+    byte·level 24.9 → 27.1 → 29.4 (×1.09 per doubling — the up-front
+    overlap test's `log2(table)` probe factor, priced by the board's
+    declared search allowance; within the ×1.25 band).
+  - *Sequential controls, n = 256, m = 64*: the left version fold
+    reads 25,725,854 scan / 4,990,711 touches vs the balanced
+    4,906,266 / 1,048,313 (×5.2 / ×4.8); the per-input party join
+    chain reads 18,246,408 scan vs 7,260,488 (×2.5).
+  - *Board*: family `stagger` (fold rows only, FAMILIES 26 → 27 at
+    this entry's first leg), both cells GREEN at both scales under
+    the declared fold model — version fold limb/scan/touch exponents
+    1.09/1.09/1.07 (ceiling 1.24), party fold scan e 1.06 at
+    189.5/B default and 215.6/B record against model+allowance
+    (~2–4% headroom: the search allowance is nearly consumed, the
+    tightest calibration point the allowance has; a regressed search
+    reads red here first).
+  - *Enforcement*: four bands in `tests/meter.rs` (`fold_stagger`),
+    each holding the model-normalized constant flat (×1.25) across
+    two doublings per axis with absolute pinned ceilings (measured
+    ×1.25) and liveness floors (one touch per tooth on the version
+    fold, 8 scan bits per byte on the party fold), registered in the
+    board↔band parity pin.
+
+  **The meet wedge (`meter::meet_shade`, the join wedges' dual,
+  derived from the meet's walk).** A meet fold's hazard is not a
+  growing accumulator but a non-shrinking one: `meet_all` is a
+  sequential reduce, each step's emission sweep walks BOTH operands
+  whole (no domination short-circuit exists in `emit::meet`), and a
+  meet shrinks the accumulator's *value*, never necessarily its
+  packed size. Population: one `dense(d)` carrier (heights 0/1), then
+  `k − 1` `hugeleaf(2)` plateau shades (constant-3 skyline, 6 packed
+  bits) strictly above it — the running meet is the carrier,
+  byte-identical, at every step; both component shapes are committed
+  linear families; the composition alone is the adversary. Measured
+  (dev, exact, both width currencies):
+  - *Diagonal `d = k`, 512 → 1,024 → 2,048* (704 → 1,408 → 2,816 B):
+    touches 263,676 → 1,051,644 → 4,200,444 and limb 1,574,902 →
+    6,295,542 → 25,174,006 — per-byte growth ×1.99 and ×2.00 per
+    doubling, a class residual.
+  - *Direction fits (each factor alone)*: k = 256 → 512 → 1,024 at
+    d = 256 fixed grows touches ×2.004, ×2.002 per doubling
+    (limb ×2.004, ×2.002); d = 256 → 512 → 1,024 at k = 256 fixed
+    grows touches ×1.985, ×1.992 (limb ×1.994, ×1.997) — the exact
+    product law `Θ(k · d)`, each factor independently linear.
+  - *Committed*: the `meet_all_shade_reads_superlinear` RED PIN
+    (`tests/meter.rs`, `ledger_wide_arming_pin`'s structure): floor
+    ×1.49 per-byte growth across the committed doubling — midway
+    between linear and the measured ×2.00, so only a class change
+    crosses it — over a one-touch-per-operand-byte liveness floor
+    and the fold-returns-the-carrier semantic leg. Per the owner's
+    standing ruling this is an in-campaign mandatory cure;
+    the natural candidate is the join folds' balanced binary-counter
+    reduction (meet is associative and commutative; equal shades then
+    answer by canonical equality), which flips the pin into a
+    flatness band and restates the claims in the same change.
+  - *Prose re-derived to the proven worst case* (the NA rationale was
+    falsified by construction): `Version::meet_all`'s `# Complexity`
+    (`O(D)` space, **superlinear** worst-case time, the mechanism
+    stated), its claims-roster tokens and uncelled reason, and the
+    board coverage list's meet entry (no row until the cure; the red
+    pin is the record, never a board ceiling blessing the reading).
+
+  **The aligned-pair floor re-derivation (owner ruling 2026-07-28,
+  executed in this round: tooth-tail is a genuine family, the floor
+  premise was wrong).** Old premise: pair kernels fold *every stored
+  delta of both operands* — `floor = deltas(v) + deltas(w)`. The
+  tooth-tail pair refutes it honestly: the fused sweep folds per
+  *overlay boundary*, and a boundary both operands step lands both
+  step codes in one fold of the single running difference, so a
+  boundary-aligned pair does ~one touch per boundary against two
+  stored deltas (measured 8,195 touches over 8,192 boundaries at the
+  default board scale). New premise, derived from the sweep and true
+  for ALL pairs with no per-family carve-outs (`touch_pair_fold`,
+  board.rs): **one touch per stepping overlay boundary, and the
+  overlay steps at least as often as the LARGER operand stores
+  deltas** — `floor = max(deltas(v), deltas(w))`, strictly positive
+  wherever either operand stores a delta (the dead-meter adequacy
+  stated in the declaration doc); operands equal byte-for-byte
+  declare NA (canonical identity answers them before any sweep).
+  Applied uniformly: the ten pair rows (`version_cmp`, `concurrent`,
+  `causally_contains`, `join`/`meet` + assigns, `distance`, `lag`,
+  `clock_join`, `clock_sync`), the masked comparisons (the projected
+  sweep must still fold every stored delta across unowned gaps to
+  re-enter owned regions at the right height, so max is sound there
+  too), and the n-ary fold row under the same premise per first-level
+  merge (`touch_fold_first_merges`: the binary counter pairs
+  arrival-adjacent inputs; equal adjacent pairs force nothing; later
+  levels merge derived groups and are deliberately un-floored). The
+  envelope suite's comparison floors needed no change: its pair runs
+  compare against empty/one-tick operands (boundary count = delta
+  count there) and the tooth-tail band already floors per boundary.
+  Verified: every pre-existing pair cell green at both scales with
+  the re-derived floors met, no verdict flips anywhere, the render
+  diffs on pre-existing cells confined to the touch-floor field.
+
+  **Tooth-tail promotion (same ruling).** Board family `tooth-tail`
+  at its full 43-cell version-pair reach (FAMILIES 27 → 28 with this
+  entry's two legs), base `m = 4,096` boundaries with the band's
+  committed `g = m/64` spike ratio riding one knob. The ten formerly
+  floor-tripped cells read GREEN under the re-derived floor at both
+  scales. `version_parse_noncanon × tooth-tail` reads heap 20.7 →
+  20.8 B per text byte at exponent 1.00 (re-measured this round,
+  release, both scales) — the ratified small-flat-constant profile —
+  and lands GREEN under a **family-stated heap ceiling** (26 B/B =
+  measured ×1.25, `TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`, the
+  declared-models mechanism extended to per-cell flat heap ceilings:
+  constant leg replaced, exponent leg untouched, disclosed on the
+  row face and the legend, derivation at the constant). The parity
+  pin's tooth-tail exemption moves to the mapped list. Net: the
+  board's red set is exactly the six pre-existing ratified entries
+  at both scales.
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
@@ -2778,6 +2927,26 @@ load-independent, judged against pinned per-operation fuel bands);
 its design record, `design/before-fuzzfit-asymptotics.md`, is the
 instrument of record for that claim.
 
+> **Amendment 2026-07-28 (round #76, the fold populations and the
+> tooth-tail ratification).** `stagger` (the correlated n-ary fold
+> population, fold rows only, 2 cells) and `tooth-tail` (the
+> boundary-aligned pair at its 43-cell version-pair reach) land as
+> board families: FAMILIES 26 → 28, cells 1285 → **1330**. The
+> comparison touch floor is re-derived to the pair-walk boundary
+> premise (`touch_pair_fold`: `max` of the operands' stored-delta
+> counts, equal pairs NA; the fold row floors its first-level
+> merges), so the rendered `flr[t]` fields of the pair and fold
+> rows move — verdicts do not; the §12 round #76 entry carries the
+> derivation and the ruling. `version_parse_noncanon × tooth-tail`
+> is GREEN under the ratified family-stated heap ceiling
+> (owner ratification 2026-07-28, conditional on the re-measured
+> flat 20.7–20.8 B/B profile, which held; 26 B/B = ×1.25): the
+> board's red set stays exactly the six ratified
+> `BOARD_EXPECTED_REDS` entries at both scales. `Version::meet_all`
+> remains rowless with its rationale re-derived: the round's
+> meet-shade red pin (`tests/meter.rs`) is the committed record of
+> its worst case, and the row lands with the cure.
+>
 > **Amendment 2026-07-28 (task #86, the skip-mechanism family
 > promotion).** `weight-comb` and `freeze-parade` land as board
 > families (FAMILIES 24 → 26, cells 1199 → 1285, version-only

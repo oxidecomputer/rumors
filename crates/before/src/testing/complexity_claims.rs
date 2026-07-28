@@ -413,12 +413,14 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::meet_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D)`"],
+            tokens: &["`O(D)` space", "**superlinear**"],
         }],
         cells: Cells::Uncelled(
-            "a meet only shrinks, so the fold is bounded by its smaller operand \
-             at every step and cannot exhibit the growing-accumulator genre \
-             (the board module doc's coverage list)",
+            "no board row: the sequential reduce's worst case — a non-shrinking \
+             accumulator re-walked whole per dominating operand — is committed \
+             as the envelope suite's red pin (`meet_all_shade_reads_superlinear` \
+             on the meet-shade population, `tests/meter.rs`), and the board row \
+             lands with the cure (the board module doc's coverage list)",
         ),
     },
     Claim {

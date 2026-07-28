@@ -1124,3 +1124,103 @@ fn tooth_tail_decodes_canonically_at_predicted_length() {
         "the bit-level construction is the spelled tooth tail's mate"
     );
 }
+
+/// `stagger_comb(n, m, i)` is canonical normal form at exactly
+/// `m(4·log2(n) + 6) − 2` bits for every operand index.
+///
+/// Each operand's `min_ticks` is exactly `m` (its stored-base sum: `m`
+/// unit teeth over zero-based structure), the built tree is exactly
+/// the nested text form the family reasons about (a complete top over
+/// per-block paths to a unit tooth), and the whole population's join
+/// is the constant-1 skyline — every slot owned exactly once, the
+/// population-level witness that the teeth interleave without overlap
+/// or gap.
+#[test]
+fn stagger_comb_decodes_canonically_at_predicted_length() {
+    for (n, m) in [(2usize, 1usize), (4, 4), (16, 8)] {
+        let levels = n.trailing_zeros() as usize;
+        for i in 0..n {
+            let p = super::stagger_comb(n, m, i);
+            check_version(&p, m * (4 * levels + 6) - 2);
+            let ticks: crate::Ticks = m.to_string().parse().expect("a count");
+            assert_eq!(
+                p.version().min_ticks(),
+                ticks,
+                "the stored-base sum is the operand's minimum tick count"
+            );
+        }
+        let (versions, _) = super::stagger_population(n, m);
+        let all = Version::join_all(versions.iter().map(Packed::version));
+        assert_eq!(
+            all,
+            "1".parse::<Version>().expect("canonical"),
+            "the population's teeth tile the whole domain at height 1"
+        );
+    }
+    // The spelled form at a hand-checkable size: n = 4, m = 2, operand
+    // i = 2 (path bits 1, 0: right then left).
+    let spelled: Version = "(0, (0, 0, (0, 1, 0)), (0, 0, (0, 1, 0)))"
+        .parse()
+        .expect("canonical");
+    assert_eq!(
+        super::stagger_comb(4, 2, 2).version(),
+        spelled,
+        "the bit-level construction is the spelled staggered comb"
+    );
+}
+
+/// `stagger_id(n, m, i)` is canonical normal form at exactly
+/// `m(2·log2(n) + 4) − 2` bits for every operand index.
+///
+/// The `n` operands are pairwise disjoint, and folding the whole
+/// population back together reunites the seed — every slot owned
+/// exactly once, the id-side witness of the same tiling the comb pin
+/// holds for the event side.
+#[test]
+fn stagger_id_decodes_canonically_at_predicted_length() {
+    for (n, m) in [(2usize, 1usize), (4, 4), (16, 8)] {
+        let levels = n.trailing_zeros() as usize;
+        let parties: Vec<Party> = (0..n)
+            .map(|i| check_party(&super::stagger_id(n, m, i), m * (2 * levels + 4) - 2))
+            .collect();
+        for (i, a) in parties.iter().enumerate() {
+            for b in &parties[i + 1..] {
+                assert!(a.is_disjoint(b), "distinct operands own distinct slots");
+            }
+        }
+        let (_, ids) = super::stagger_population(n, m);
+        let mut ids = ids
+            .iter()
+            .map(|p| Party::decode(&p.bytes[..]).expect("the population operands are canonical"));
+        let mut acc = ids.next().expect("n >= 2");
+        acc.join_all(ids)
+            .expect("the population operands are pairwise disjoint");
+        assert!(acc.is_seed(), "the population's slots tile the seed region");
+    }
+}
+
+/// `meet_shade(d, k)` is the dominated-carrier population: the carrier
+/// first, `k − 1` byte-identical plateau shades after, and the meet of
+/// the whole population is the carrier itself, byte for byte.
+///
+/// The composition reuses two pinned shapes (`dense(d)`, `hugeleaf(2)`),
+/// so no new closed form is owed; the pin here is the domination
+/// schedule the red pin's cost argument rests on — the running meet
+/// never shrinks, so every step re-walks the whole carrier.
+#[test]
+fn meet_shade_is_the_dominated_carrier() {
+    for (d, k) in [(1usize, 2usize), (5, 4), (64, 16)] {
+        let population = super::meet_shade(d, k);
+        assert_eq!(population.len(), k, "one carrier plus k - 1 shades");
+        assert_eq!(population[0], dense(d).version(), "the carrier leads");
+        for shade in &population[1..] {
+            assert_eq!(shade, &hugeleaf(2).version(), "every shade is the plateau");
+        }
+        let met = Version::meet_all(population).expect("the population is nonempty");
+        assert_eq!(
+            met,
+            dense(d).version(),
+            "the shades dominate the carrier everywhere: the meet is the carrier"
+        );
+    }
+}
