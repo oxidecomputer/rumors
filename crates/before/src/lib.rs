@@ -337,10 +337,9 @@
 //!
 //! This crate implements cache-friendly, optimized versions of the operations
 //! in the original paper, in addition to a host of useful operations not
-//! described therein. Compared to a 1-to-1 transliteration of the paper into
-//! Rust, [`before`](crate) is between 2–20× faster (measured: the workspace
-//! bench suite times every operation against that transliteration, kept
-//! in-tree as the differential-testing oracle).
+//! described therein. The paper's recursive representation survives in-tree
+//! as the differential-testing oracle, and the workspace bench suite times
+//! every operation against it.
 //!
 //! ## Crate features
 //!
