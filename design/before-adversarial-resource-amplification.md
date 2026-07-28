@@ -2723,6 +2723,16 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   corpus rarely promotes), annotation in the bands pin of record;
   the enforcement leg green through the cure.
 
+  **Reconciled with round #85 (rebased onto 482fbbb5):** the three
+  skip-mechanism adequacy bands (weight-comb, freeze-parade,
+  tooth-tail) read **byte-identical to their committed records**
+  under the product-tree settle at the merged tree — the settle's
+  window masses are sparse balanced digits, its window reads are the
+  same watermark reads the per-freeze settle pays, and its parked
+  sums ride the certificate-bearing accumulator, so certificate
+  consumption and gap-skipping are preserved exactly as the relay's
+  constraint required; no re-measure or movement note was needed.
+
   **For the owner:** (1) the unqualified `O(|v| log |v|)` ratification
   cannot be honored by any fixed-association settle — accept the
   wide-arming residual as the stated bound (the pin stands red,
