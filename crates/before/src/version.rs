@@ -258,33 +258,38 @@ impl Version {
     /// `O(|v|)` space; the returned rank's numeric size (see
     /// [`Rank`]) is itself `O(|v|)`. Time, in three parts:
     ///
-    /// - `Θ(|v|²)` in the worst case — a schoolbook wide × dense
-    ///   product at either of the fold's two settle sites, each
-    ///   witnessed tight by a committed family: the ledger settle's
-    ///   aggregate product (one re-arming of the fold's parked drift
-    ///   as wide as the stream, ahead of a trailing region whose
-    ///   interval masses stay as dense — the wide-arming family), and
-    ///   the close-time settle of parked drift over its final segment,
-    ///   which needs no re-arming at all (the plateau-puncture family,
-    ///   whose punctured plateau makes the exact rank a wide × dense
-    ///   integer product). Quadratic is also the ceiling: every
-    ///   committed superlinear family stays within `O(|v|²)` across
-    ///   its doublings.
-    /// - `Ω(M(|v|))` on adversarial inputs, `M` the
-    ///   integer-multiplication bound: the plateau-puncture answer
-    ///   *embeds* the product, so no fold computes it below the cost
-    ///   of one multiplication — the worst case cannot reach
-    ///   `O(|v|)` while integer multiplication is superlinear.
+    /// - `O(M(|v|) · log |v|)` in the worst case, `M` the
+    ///   integer-multiplication bound of the arithmetic backend: the
+    ///   fold's only superlinear work is its settle products — parked
+    ///   drift times a dense interval mass, the wide × dense shape at
+    ///   either of the fold's two settle sites — and each is delegated
+    ///   whole to the backend's multiplication, re-associated through
+    ///   a mass-balanced product tree. The log factor is the tree's
+    ///   depth, and it is absorbed geometrically whenever the products
+    ///   run in a power-law tier of the backend's multiplication —
+    ///   every tier below its quasilinear threshold (4,000-word
+    ///   operand sides; no product's smaller side clears it before
+    ///   the packed input is ~64 KiB) — so such inputs run in
+    ///   `O(M(|v|))`, as does an input of any size that re-arms the
+    ///   fold's parked drift `O(1)` times (both committed wide × dense
+    ///   witness families are single re-armings).
+    /// - `Ω(M(|v|))` on adversarial inputs: the plateau-puncture
+    ///   family's exact rank *embeds* a wide × dense integer product
+    ///   whose factors the input funds separately, so no fold that
+    ///   answers exactly goes below the cost of one multiplication —
+    ///   the worst case cannot reach `O(|v|)` while integer
+    ///   multiplication is superlinear.
     /// - `O(|v| log |v|)` for streams whose parked drifts stay a
     ///   bounded number of digits wide — every committed board family,
     ///   dense trailing regions and many re-armings included: the fold
-    ///   settles its re-armings once, through a balanced product tree
-    ///   that re-reads no width or density more than `⌈log₂ n⌉` times,
-    ///   `n` the re-arming count.
+    ///   settles its re-armings once, through the product tree,
+    ///   re-reading no width or density more times than the tree's
+    ///   logarithmic depth.
     ///
-    /// The gap between `Θ(|v|²)` and `Ω(M(|v|))` is not contractual: a
-    /// future release may compute the rank in `O(M(|v|))` time, and
-    /// none may do better on the embedded-product inputs.
+    /// The gap between `O(M(|v|) · log |v|)` and `Ω(M(|v|))` is not
+    /// contractual: a future release may close the tree-depth factor,
+    /// and none may do better than one multiplication on the
+    /// embedded-product inputs.
     ///
     /// ```
     /// use before::Clock;
@@ -319,18 +324,20 @@ impl Version {
     /// streams integrates the height difference directly, each step
     /// paid for by the codes it consumes. Time is exactly
     /// [`rank`](Self::rank)'s, in its three parts (the sweeps share
-    /// one integral): `Θ((|a| + |b|)²)` in the worst case — a
-    /// schoolbook wide × dense settle product, from a pair arming the
-    /// fold's parked drift as wide as the operands ahead of a trailing
-    /// region as dense, or from a punctured plateau whose exact answer
-    /// embeds the product with no arming at all; `Ω(M(|a| + |b|))` on
-    /// adversarial inputs, `M` the integer-multiplication bound (the
-    /// answer-embedded product floors every fold); and
-    /// `O((|a| + |b|) log (|a| + |b|))` for every committed board
-    /// family and any pair whose parked drifts stay a bounded number
-    /// of digits wide. The gap above `Ω(M(|a| + |b|))` is not
-    /// contractual: a future release may compute the distance in
-    /// `O(M(|a| + |b|))` time.
+    /// one integral): `O(M(|a| + |b|) · log (|a| + |b|))` in the worst
+    /// case, `M` the integer-multiplication bound of the arithmetic
+    /// backend — the settle products (wide parked drift times a dense
+    /// interval mass, with or without any re-arming) ride the
+    /// backend's multiplication through the mass-balanced product
+    /// tree, and the tree-depth log is absorbed below the backend's
+    /// quasilinear threshold and on `O(1)`-re-arming pairs of any
+    /// size, where the bound is `O(M(|a| + |b|))`; `Ω(M(|a| + |b|))`
+    /// on adversarial inputs (the answer-embedded product floors
+    /// every fold); and `O((|a| + |b|) log (|a| + |b|))` for every
+    /// committed board family and any pair whose parked drifts stay a
+    /// bounded number of digits wide. The gap above `Ω(M(|a| + |b|))`
+    /// is not contractual: a future release may close the tree-depth
+    /// factor.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
@@ -364,11 +371,14 @@ impl Version {
     /// `O(|a| + |b|)` space. Time is exactly
     /// [`distance`](Self::distance)'s, in its three parts (one shared
     /// co-sweep integrates both measures' functionals):
-    /// `Θ((|a| + |b|)²)` in the worst case, `Ω(M(|a| + |b|))` on
-    /// adversarial inputs (`M` the integer-multiplication bound), and
-    /// `O((|a| + |b|) log (|a| + |b|))` when parked drifts stay a
-    /// bounded number of digits wide; the same gap above the
-    /// multiplication bound is likewise not contractual.
+    /// `O(M(|a| + |b|) · log (|a| + |b|))` in the worst case (`M` the
+    /// integer-multiplication bound of the arithmetic backend, the
+    /// tree-depth log absorbed below the backend's quasilinear
+    /// threshold and on `O(1)`-re-arming pairs), `Ω(M(|a| + |b|))` on
+    /// adversarial inputs, and `O((|a| + |b|) log (|a| + |b|))` when
+    /// parked drifts stay a bounded number of digits wide; the same
+    /// gap above the multiplication bound is likewise not
+    /// contractual.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};

@@ -1648,11 +1648,15 @@ pub fn dense_suffix_mate(p: usize, d: usize) -> Packed {
 /// and descends, cancelling the plateau only after the ledger entry is
 /// sealed. The exact debt embeds one `Θ(w)`-digit × `Θ(d)`-digit
 /// product whose factors the input funds separately (`w` digits of
-/// arming code, `d` spine turns), so the settle's aggregate product
-/// pays `Θ(w · d)` digit work against a `Θ(w + d)`-bit operand — the
-/// aggregate-product residual the query module doc's funding section
-/// states, quadratic at `w = d` however the armings are associated,
-/// because the cancelling descent lands outside the ledger.
+/// arming code, `d` spine turns), and the cancelling descent lands
+/// outside the ledger, so no seam cancellation can dodge it: the
+/// settle's one aggregate product is the ledger's wide × dense
+/// multiplication genre at its purest, priced at the multiplication
+/// bound by the query module doc's settle bound — where a per-digit
+/// schoolbook charge pays `Θ(w · d)` digit work against a
+/// `Θ(w + d)`-bit operand, quadratic at `w = d`, the reading the
+/// committed schoolbook kernel keeps failing beside the
+/// `ledger_wide_arming` flatness band.
 /// `min_ticks(WA(w, d)) = d + 2^(32w) + 2^288 + 2 + 1` is the
 /// closed-form semantic leg. Normal form: as [`dense_suffix`]'s.
 ///
