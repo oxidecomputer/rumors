@@ -1372,11 +1372,12 @@ proptest! {
 }
 
 proptest! {
-    /// The n-ary `meet_all` is the sequential fold on versions.
+    /// The balanced `meet_all` is the sequential fold on versions.
     ///
     /// Over organic version populations in both orders, `meet_all` returns
-    /// exactly the left fold of `&` — and `None` for the empty iterator,
-    /// which has no meet (the lattice has no top element).
+    /// exactly the left fold of `&` — the reduction changes the grouping,
+    /// never the value — and `None` for the empty iterator, which has no
+    /// meet (the lattice has no top element).
     #[test]
     fn meet_all_equals_the_sequential_fold(ops in world_strategy()) {
         let pool = world_versions(&ops);
@@ -1404,6 +1405,51 @@ proptest! {
         let prod = Version::meet_all(pool.iter().map(from_oracle_version));
         let reference = crate::oracle::Version::meet_all(pool.iter().cloned());
         prop_assert_eq!(prod.map(|v| to_oracle_version(&v)), reference);
+    }
+}
+
+/// `meet_all` on the meet-shade population returns exactly the carrier,
+/// in every feed order, agreeing with the sequential fold and the
+/// recursive oracle.
+///
+/// The meter family doubles as a differential shape (`meter::meet_shade`:
+/// one dense carrier among dominating single-leaf shades, the population
+/// whose running meet never shrinks — the shape the fold's flatness band
+/// prices). Organic populations rarely hold one operand strictly below
+/// all others, so this pins the value exactly where the reduction's
+/// grouping differs most from the left fold's: every combine against the
+/// carrier returns the carrier byte-for-byte, and shade ∧ shade answers
+/// by canonical equality.
+#[test]
+fn meet_all_returns_the_carrier_on_the_shade_population() {
+    for (d, k) in [(1, 2), (3, 5), (8, 16), (16, 9), (33, 64)] {
+        let population = crate::meter::meet_shade(d, k);
+        let carrier = population[0].clone();
+        let sequential = population
+            .iter()
+            .cloned()
+            .reduce(|acc, v| acc & v)
+            .expect("the population is nonempty");
+        assert_eq!(sequential, carrier, "the shades dominate the carrier");
+        assert_eq!(
+            Version::meet_all(population.clone()),
+            Some(carrier.clone()),
+            "meet_all must return the carrier on MS({d}, {k})"
+        );
+        let mut reversed = population.clone();
+        reversed.reverse();
+        assert_eq!(
+            Version::meet_all(reversed),
+            Some(carrier.clone()),
+            "feed order must not change the meet on MS({d}, {k})"
+        );
+        let oracle = crate::oracle::Version::meet_all(population.iter().map(to_oracle_version))
+            .expect("the population is nonempty");
+        assert_eq!(
+            to_oracle_version(&carrier),
+            oracle,
+            "the oracle's meet must be the carrier on MS({d}, {k})"
+        );
     }
 }
 

@@ -5972,78 +5972,171 @@ mod fold_stagger {
     }
 }
 
-// ─── the meet-fold red pin ───────────────────────────────────────────────────
+// ─── the meet-fold shade band ────────────────────────────────────────────────
 //
-// RED PIN: a committed demonstration of the standing superlinearity in
-// `Version::meet_all`, not a regression gate. The fold is a sequential
-// left reduce, and a meet's emission sweep walks BOTH operands' streams
-// whole — there is no domination short-circuit — so a population whose
-// running meet never shrinks re-walks its whole accumulator per
-// operand. The shade population is the constructive witness: one deep
+// The n-ary meet fold's non-shrinking-accumulator band. The shade
+// population MS(d, k) is the meet dual of the join wedges: one deep
 // carrier (`dense(d)`, heights 0/1), then `k − 1` single-leaf plateau
-// shades strictly above it (`hugeleaf(2)`, the constant-3 skyline).
-// Every step's meet is the carrier, byte-identical — `Θ(k · d)` sweep
-// work on a `Θ(d + k)`-byte population, quadratic on the diagonal —
-// while each operand alone is a committed linear family and the join
-// folds read flat on every committed population (the balanced
-// reduction; the stagger bands above). The `# Complexity` section of
-// `meet_all` and its claims-roster entry state this worst case; the
-// cure that flips this pin (a balanced reduction is the natural
-// candidate — meet is associative and commutative, and equal shades
-// then answer by canonical identity) must restate both in the same
-// change.
+// shades strictly above it (`hugeleaf(2)`, the constant-3 skyline), so
+// the running meet is the carrier, byte-identical at every combine, and
+// a meet's emission sweep walks BOTH operands' streams whole — no
+// domination short-circuit exists in `emit::meet`. `Version::meet_all`
+// runs the join folds' balanced binary-counter reduction, so the
+// carrier is re-walked once per counter level — `O(d log k + k)`, the
+// declared `O(D log 2k)` fold model — and equal shades answer by
+// canonical identity before any sweep. The band below holds the
+// model-normalized per-byte cost flat across two diagonal doublings in
+// both width currencies under absolute pinned ceilings; the committed
+// sequential-reduce tripwire keeps the refuted fold — the left reduce
+// that re-walks its whole accumulator per operand, `Θ(k · d)` on a
+// `Θ(d + k)`-byte population — failing on the same population, so the
+// band is never decoration.
 #[cfg(feature = "limb-meter")]
-mod meet_fold_pin {
+mod meet_fold {
     use before::{meter, Version};
     use suanpan::touch_meter;
 
-    /// One public `Version::meet_all` run over the shade population
-    /// `MS(d, k)`: total input bytes and both width counters over the
-    /// fold body alone.
+    /// One n-ary meet run over the shade population `MS(d, k)` through
+    /// `fold`: total input bytes, the fold model's level count, and
+    /// both width counters over the fold body alone.
     ///
     /// Carries the population's semantic leg (the fold returns the
     /// carrier, byte for byte) and the one-touch-per-operand-byte
     /// liveness floor.
-    fn run(d: usize, k: usize) -> (u64, u64, u64) {
+    fn run(d: usize, k: usize, fold: fn(Vec<Version>) -> Option<Version>) -> Run {
         let population = meter::meet_shade(d, k);
         let bytes: u64 = population.iter().map(|v| v.encode().len() as u64).sum();
         let carrier = population[0].clone();
         touch_meter::reset();
         meter::reset_limb_ops();
-        let met = Version::meet_all(population);
-        let touches = touch_meter::touches();
-        let limb_ops = meter::limb_ops();
+        let met = fold(population);
+        let run = Run {
+            bytes,
+            levels: (2.0 * k as f64).log2(),
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
         assert_eq!(
             met.expect("the population is nonempty"),
             carrier,
             "the shades dominate the carrier everywhere: the meet is the carrier"
         );
         assert!(
-            touches >= bytes,
-            "meet_all at {bytes} operand bytes: {touches} digit touches under \
+            run.touches >= run.bytes,
+            "meet fold at {bytes} operand bytes: {} digit touches under \
              the one-per-byte floor: the fold's accumulator work is not metered",
+            run.touches,
         );
-        (bytes, touches, limb_ops)
+        run
     }
 
-    /// Carrier depth and shade count of the pin's small run (the large
-    /// run doubles both).
-    const MEET_SHADE_SMALL: usize = 1_024;
+    /// One meet-fold run's counters and its model denominators.
+    struct Run {
+        bytes: u64,
+        levels: f64,
+        touches: u64,
+        limb_ops: u64,
+    }
 
-    /// RED: `Version::meet_all`'s per-byte cost grows across an
-    /// `MS(d, k)` diagonal doubling in both width currencies.
+    /// Assert one counter's model-normalized per-byte cost stays flat
+    /// (×1.25) across a doubling: `counter / (bytes · log2(2k))` — the
+    /// declared fold model's constant, as the stagger bands hold it.
+    fn assert_model_flat(name: &str, small: &Run, large: &Run, counter: fn(&Run) -> u64) {
+        let (m1, m2) = (counter(small) as f64, counter(large) as f64);
+        let (d1, d2) = (
+            small.bytes as f64 * small.levels,
+            large.bytes as f64 * large.levels,
+        );
+        eprintln!(
+            "MEASURED meet_fold_{name}: small={m1}/{:.0} large={m2}/{:.0} \
+             per_byte_level={:.3} -> {:.3}",
+            d1,
+            d2,
+            m1 / d1,
+            m2 / d2,
+        );
+        assert!(
+            m2 * d1 <= m1 * d2 * 1.25,
+            "meet_fold_{name}: the model-normalized per-byte cost grew more \
+             than x1.25 across the doubling: {m1}/{d1} -> {m2}/{d2}"
+        );
+    }
+
+    /// Carrier depth and shade count of the band's small run (the other
+    /// runs double both, twice).
+    const MEET_SHADE_SMALL: usize = 512;
+
+    /// Absolute (touch, limb) ceilings for `meet_all` on the shade
+    /// diagonal, measured 2026-07-28 ×1.25 at
+    /// `MS(512, 512), MS(1,024, 1,024), MS(2,048, 2,048)`.
+    ///
+    /// The cured record: the balanced reduction reads 4,644 / 10,280 /
+    /// 22,572 touches and 27,738 / 61,540 / 135,278 limb ops at the
+    /// three scales (704 / 1,408 / 2,816 B populations; per byte·level
+    /// 0.660 → 0.664 → 0.668 touches and 3.94 → 3.97 → 4.00 limb, the
+    /// model's constant flat while the raw per-byte cost grows exactly
+    /// the documented one-level-per-doubling), tightened in the cure's
+    /// own commit from the sequential reduce's red-pin record of
+    /// 1,051,644 → 4,200,444 touches and 6,295,542 → 25,174,006 limb
+    /// ops across the same last doubling (×2.00/byte in both
+    /// currencies — 186× the balanced reduction's reading at
+    /// MS(2,048, 2,048)) — the tripwire below keeps that mechanism
+    /// red.
+    const MEET_SHADE_CEILINGS: [(u64, u64); 3] =
+        [(5_805, 34_672), (12_850, 76_925), (28_215, 169_097)];
+
+    /// `Version::meet_all` is model-flat on the shade population: the
+    /// model-normalized per-byte cost stays flat (×1.25) across two
+    /// diagonal doublings in both width currencies, under absolute
+    /// pinned ceilings.
+    ///
+    /// The population keeps the running meet full-size at every
+    /// combine, so a fold that re-walks its accumulator per operand
+    /// (rather than per counter level) reads ~×2.0 per byte per
+    /// doubling here — the committed sequential-reduce tripwire
+    /// (`sequential_meet_reduce_reads_superlinear_on_shade`) proves
+    /// the population still catches that mechanism red, so this band
+    /// is never decoration.
+    #[test]
+    fn meet_all_shade_is_flat_per_unit() {
+        let n = MEET_SHADE_SMALL;
+        let runs = [
+            run(n, n, Version::meet_all),
+            run(2 * n, 2 * n, Version::meet_all),
+            run(4 * n, 4 * n, Version::meet_all),
+        ];
+        for (r, (touch, limb)) in runs.iter().zip(MEET_SHADE_CEILINGS) {
+            eprintln!(
+                "MEASURED meet_all_shade: bytes={} touches={} limb_ops={}",
+                r.bytes, r.touches, r.limb_ops,
+            );
+            assert!(
+                r.touches <= touch,
+                "meet_all_shade: {} touches exceed the pinned ceiling {touch}",
+                r.touches,
+            );
+            assert!(
+                r.limb_ops <= limb,
+                "meet_all_shade: {} limb ops exceed the pinned ceiling {limb}",
+                r.limb_ops,
+            );
+        }
+        for pair in runs.windows(2) {
+            assert_model_flat("touches", &pair[0], &pair[1], |r| r.touches);
+            assert_model_flat("limb_ops", &pair[0], &pair[1], |r| r.limb_ops);
+        }
+    }
+
+    /// The committed known-bad meet fold: the sequential left reduce
+    /// reads superlinear per byte on the shade population, in both
+    /// width currencies.
     ///
     /// The reduce's accumulator never shrinks and every step's sweep
-    /// re-walks it whole, so cost is `Θ(k · d)` — the population
-    /// scales both factors, and the fold reads per-byte growth ~×2.0
-    /// per doubling: a class residual, not a constant.
-    ///
-    /// The floor sits midway between linear (×1.00) and the measured
-    /// growth, so only a class change crosses it — a fold that stops
-    /// re-walking the non-shrinking accumulator per operand (a
-    /// balanced reduction, a domination short-circuit) flips this pin
-    /// into a flatness band and must re-derive the `# Complexity`
-    /// claim in the same change.
+    /// re-walks it whole — `Θ(k · d)`, quadratic on the diagonal — so
+    /// the shade family still catches the mechanism the balanced
+    /// reduction forecloses, and the flatness band above is never
+    /// decoration. The floor ×1.49 sits midway between linear (×1.00)
+    /// and the measured ×2.00, so only a class change crosses it.
     ///
     /// [measured 2026-07-28, dev profile, exact counters: touches
     /// 1,051,644 → 4,200,444 across MS(1,024, 1,024) → MS(2,048,
@@ -6056,30 +6149,30 @@ mod meet_fold_pin {
     /// 1,024) grows cost ×1.985 and ×1.992 — the exact product law
     /// `Θ(k · d)`, each factor independently linear.]
     #[test]
-    fn meet_all_shade_reads_superlinear() {
-        let (small_bytes, small_touches, small_limbs) = run(MEET_SHADE_SMALL, MEET_SHADE_SMALL);
-        let (large_bytes, large_touches, large_limbs) =
-            run(2 * MEET_SHADE_SMALL, 2 * MEET_SHADE_SMALL);
+    fn sequential_meet_reduce_reads_superlinear_on_shade() {
+        let sequential: fn(Vec<Version>) -> Option<Version> =
+            |population| population.into_iter().reduce(|acc, v| acc & v);
+        let n = 2 * MEET_SHADE_SMALL;
+        let small = run(n, n, sequential);
+        let large = run(2 * n, 2 * n, sequential);
         eprintln!(
-            "MEASURED meet_all_shade: small={small_touches}/{small_bytes}B \
-             (limb {small_limbs}) large={large_touches}/{large_bytes}B \
-             (limb {large_limbs})"
+            "MEASURED sequential_meet_shade: small={}/{}B (limb {}) \
+             large={}/{}B (limb {})",
+            small.touches, small.bytes, small.limb_ops, large.touches, large.bytes, large.limb_ops,
         );
-        // The red band's floor: per-byte growth at least ×1.49 across
-        // the doubling in both currencies — only a class change
-        // crosses it.
-        for (name, small, large) in [
-            ("touches", small_touches, large_touches),
-            ("limb ops", small_limbs, large_limbs),
+        for (name, s, l) in [
+            ("touches", small.touches, large.touches),
+            ("limb ops", small.limb_ops, large.limb_ops),
         ] {
             assert!(
-                u128::from(large) * u128::from(small_bytes) * 100
-                    >= u128::from(small) * u128::from(large_bytes) * 149,
-                "meet_all reads flat ({name}) on the shade population \
-                 ({small}/{small_bytes}B -> {large}/{large_bytes}B): the fold \
-                 no longer re-walks its non-shrinking accumulator per operand, \
-                 so flip this pin into a flatness band and re-derive the \
-                 # Complexity claim in the same change",
+                u128::from(l) * u128::from(small.bytes) * 100
+                    >= u128::from(s) * u128::from(large.bytes) * 149,
+                "the sequential meet reduce reads flat ({name}) on the shade \
+                 population ({s}/{}B -> {l}/{}B): the family no longer catches \
+                 the per-operand accumulator re-walk it was built for, so the \
+                 flatness band above is decoration until a new witness lands",
+                small.bytes,
+                large.bytes,
             );
         }
     }
