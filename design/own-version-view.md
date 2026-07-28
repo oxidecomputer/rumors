@@ -1,9 +1,11 @@
 # OwnVersion: the lazy projection view
 
-Status: DECIDED (owner rulings 2026-07-27, recorded below), not yet
-implemented. This document is the charter of record for the landing;
-it was designed in conversation with the owner and every DECIDED
-entry is an owner ruling.
+Status: LANDED 2026-07-27 (branch ownview-77; the core landed at
+305b7313 with the instruments, the correlated families, and the rumors
+seam following on the same branch — the amplification ledger's §12
+landing entry carries the measured numbers). This document is the
+charter of record for the landing; it was designed in conversation
+with the owner and every DECIDED entry is an owner ruling.
 
 ## Motivation
 
