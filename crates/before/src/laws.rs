@@ -58,7 +58,7 @@
 use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
 
-use crate::{Clock, Party, Rank, Ranked, Version};
+use crate::{Clock, Party, Rank, Ranked, Ticks, Version};
 
 /// A named law: the name a failure reports, and the predicate that must
 /// hold on every admissible input.
@@ -83,8 +83,8 @@ fn hash_of<T: Hash>(value: &T) -> u64 {
 ///
 /// The lattice point laws at a single value (idempotence, the bottom
 /// element), observer coherence (`is_empty`, `concurrent`, `distance`,
-/// `rank`, [`Ranked`]), and the representational round-trips (codec, text,
-/// byte views).
+/// `rank`, `min_ticks`, [`Ranked`]), and the representational round-trips
+/// (codec, text, byte views).
 pub static VERSION_SOLO: &[Law<fn(&Version) -> bool>] = &[
     ("merge_idempotent", merge_idempotent),
     ("meet_idempotent", meet_idempotent),
@@ -96,6 +96,7 @@ pub static VERSION_SOLO: &[Law<fn(&Version) -> bool>] = &[
     ("never_concurrent_with_self", never_concurrent_with_self),
     ("distance_to_self_is_zero", distance_to_self_is_zero),
     ("rank_zero_iff_empty", rank_zero_iff_empty),
+    ("min_ticks_zero_iff_empty", min_ticks_zero_iff_empty),
     ("seed_projection_is_identity", seed_projection_is_identity),
     ("ranked_carries_own_rank", ranked_carries_own_rank),
     ("version_codec_roundtrip", version_codec_roundtrip),
@@ -161,6 +162,13 @@ fn distance_to_self_is_zero(a: &Version) -> bool {
 /// zero area).
 fn rank_zero_iff_empty(a: &Version) -> bool {
     (a.rank() == Rank::ZERO) == a.is_empty()
+}
+
+/// `min_ticks` separates the bottom: a zero tick floor exactly for the
+/// empty version (the floor is a sum of nonnegative bases, zero only
+/// when every base is).
+fn min_ticks_zero_iff_empty(a: &Version) -> bool {
+    (a.min_ticks() == Ticks::ZERO) == a.is_empty()
 }
 
 /// The whole-interval party is the projection identity: `a / seed == a`.
@@ -849,8 +857,11 @@ fn join_all_defined_iff_pairwise_disjoint(a: &Party, b: &Party, c: &Party) -> bo
 /// Laws over a version and a live party.
 ///
 /// The event laws (`tick` strictly advances, and only within the party's
-/// region — §4's `e' = e + f·i`), the two `tick` entry points' agreement,
-/// and the projection (`/`) point laws.
+/// region — §4's `e' = e + f·i`), the entry points' agreement (`tick` and
+/// `ticks`, each across its two spellings), the fused multi-tick's point
+/// laws (`ticks(0)` the identity, `ticks(1)` the tick, small counts
+/// against the iterated ground truth, a fresh line realizing the tick
+/// floor at any width), and the projection (`/`) point laws.
 pub static VERSION_PARTY: &[Law<fn(&Version, &Party) -> bool>] = &[
     ("tick_strictly_advances", tick_strictly_advances),
     (
@@ -864,6 +875,20 @@ pub static VERSION_PARTY: &[Law<fn(&Version, &Party) -> bool>] = &[
     (
         "party_tick_matches_version_tick",
         party_tick_matches_version_tick,
+    ),
+    ("ticks_zero_is_identity", ticks_zero_is_identity),
+    ("ticks_one_is_tick", ticks_one_is_tick),
+    (
+        "ticks_agrees_with_iterated_ticks",
+        ticks_agrees_with_iterated_ticks,
+    ),
+    (
+        "party_ticks_matches_version_ticks",
+        party_ticks_matches_version_ticks,
+    ),
+    (
+        "ticks_line_realizes_min_ticks",
+        ticks_line_realizes_min_ticks,
     ),
     ("projection_is_sub_version", projection_is_sub_version),
     ("projection_idempotent", projection_idempotent),
@@ -912,6 +937,60 @@ fn party_tick_matches_version_tick(a: &Version, p: &Party) -> bool {
     via_version == via_party
 }
 
+/// `ticks(0)` is the identity: the empty run records nothing.
+fn ticks_zero_is_identity(a: &Version, p: &Party) -> bool {
+    let mut run = a.clone();
+    run.ticks(p, 0u64);
+    run == *a
+}
+
+/// `ticks(1)` is exactly `tick`: the fused multi-tick degenerates to the
+/// single event.
+fn ticks_one_is_tick(a: &Version, p: &Party) -> bool {
+    let mut fused = a.clone();
+    fused.ticks(p, 1u64);
+    let mut ticked = a.clone();
+    ticked.tick(p);
+    fused == ticked
+}
+
+/// `ticks(n)` equals `n` sequential `tick`s, checked at every count a
+/// short iterated run reaches (0..=3) — the ground-truth seam the wide
+/// counts compose over ([`ticks_composes`] in the pair-party group).
+fn ticks_agrees_with_iterated_ticks(a: &Version, p: &Party) -> bool {
+    let mut iterated = a.clone();
+    (0u64..=3).all(|n| {
+        let mut fused = a.clone();
+        fused.ticks(p, n);
+        let agrees = fused == iterated;
+        iterated.tick(p);
+        agrees
+    })
+}
+
+/// The two `ticks` entry points agree: `version.ticks(&party, n)` and
+/// `party.ticks(&mut version, n)` produce the same advance.
+fn party_ticks_matches_version_ticks(a: &Version, p: &Party) -> bool {
+    let n = a.min_ticks();
+    let mut via_version = a.clone();
+    via_version.ticks(p, n.clone());
+    let mut via_party = a.clone();
+    p.ticks(&mut via_party, n);
+    via_version == via_party
+}
+
+/// A fresh line realizes the tick floor exactly: `n` ticks on the empty
+/// version at any one party cost floor `n`.
+///
+/// Quantified over the wide counts the version operand's own floor
+/// supplies, all fused (no iteration at any width).
+fn ticks_line_realizes_min_ticks(a: &Version, p: &Party) -> bool {
+    let n = a.min_ticks();
+    let mut line = Version::new();
+    line.ticks(p, n.clone());
+    line.min_ticks() == n
+}
+
 /// Projection keeps at most the history it is given: `a / p <= a`.
 fn projection_is_sub_version(a: &Version, p: &Party) -> bool {
     le(&(a / p), a)
@@ -942,7 +1021,8 @@ fn projection_additive_over_fork(a: &Version, p: &Party) -> bool {
 // ───────────────────────────── Version × Version × Party ─────────────────────────────
 
 /// Laws over two versions and a live party: projection as a lattice
-/// homomorphism, and its monotonicity in the version.
+/// homomorphism, its monotonicity in the version, and `ticks` as a
+/// monoid action at the wide counts the operands' tick floors supply.
 pub static VERSION_PAIR_PARTY: &[Law<fn(&Version, &Version, &Party) -> bool>] = &[
     ("projection_join_homomorphism", projection_join_homomorphism),
     ("projection_meet_homomorphism", projection_meet_homomorphism),
@@ -950,6 +1030,7 @@ pub static VERSION_PAIR_PARTY: &[Law<fn(&Version, &Version, &Party) -> bool>] = 
         "projection_monotone_in_version",
         projection_monotone_in_version,
     ),
+    ("ticks_composes", ticks_composes),
 ];
 
 /// Projection is a homomorphism of the join: `(a | b) / p == (a/p) | (b/p)`
@@ -961,6 +1042,22 @@ fn projection_join_homomorphism(a: &Version, b: &Version, p: &Party) -> bool {
 /// Projection is a homomorphism of the meet: `(a & b) / p == (a/p) & (b/p)`.
 fn projection_meet_homomorphism(a: &Version, b: &Version, p: &Party) -> bool {
     ((a & b) / p) == (&(a / p) & &(b / p))
+}
+
+/// `ticks` is a monoid action of the naturals: `ticks(n)` then
+/// `ticks(m)` equals `ticks(n + m)`.
+///
+/// Quantified over the wide counts the two version operands' tick
+/// floors supply, all fused, so the law exercises counts no iterated
+/// reference could reach.
+fn ticks_composes(a: &Version, b: &Version, p: &Party) -> bool {
+    let (n, m) = (a.min_ticks(), b.min_ticks());
+    let mut stepwise = a.clone();
+    stepwise.ticks(p, n.clone());
+    stepwise.ticks(p, m.clone());
+    let mut joint = a.clone();
+    joint.ticks(p, n + m);
+    stepwise == joint
 }
 
 /// Projection is monotone in the version: on the constructed comparable
@@ -1107,9 +1204,10 @@ fn rank_cross_path_normalization(a: &Rank, b: &Rank, c: &Rank) -> bool {
 ///
 /// The fork-event-join model's composite operations on a whole stamp:
 /// `fork` preserves the event component and splits the id, `tick`/`send`
-/// advance strictly and fix the party, peeks are stable, an own-message
-/// receive is a bare tick, `sync` reconciles a fork, `own_version` is the
-/// projection, and the parts/codec/text round-trips.
+/// advance strictly and fix the party, `ticks` agrees with the version
+/// entry point, peeks are stable, an own-message receive is a bare tick,
+/// `sync` reconciles a fork, `own_version` is the projection, and the
+/// parts/codec/text round-trips.
 pub static CLOCK_SOLO: &[Law<fn(&Clock) -> bool>] = &[
     ("fork_preserves_version", fork_preserves_version),
     ("fork_splits_the_party", fork_splits_the_party),
@@ -1120,6 +1218,10 @@ pub static CLOCK_SOLO: &[Law<fn(&Clock) -> bool>] = &[
         clock_tick_advances_and_fixes_party,
     ),
     ("own_receive_is_tick", own_receive_is_tick),
+    (
+        "clock_ticks_matches_version_ticks",
+        clock_ticks_matches_version_ticks,
+    ),
     (
         "send_advances_and_returns_the_version",
         send_advances_and_returns_the_version,
@@ -1183,6 +1285,17 @@ fn clock_tick_advances_and_fixes_party(c: &Clock) -> bool {
     le(c.version(), ticked.version())
         && c.version() != ticked.version()
         && ticked.party() == c.party()
+}
+
+/// The clock's `ticks` agrees with the version-level `ticks` on its own
+/// parts, and returns the freshly advanced version.
+fn clock_ticks_matches_version_ticks(c: &Clock) -> bool {
+    let n = Ticks::from(3u64);
+    let mut via_clock = c.dangerously_alias();
+    let returned = via_clock.ticks(n.clone()).clone();
+    let mut expected = c.version().clone();
+    expected.ticks(c.party(), n);
+    returned == expected && *via_clock.version() == expected
 }
 
 /// `receive` of a dominated message (here the clock's own version) equals a

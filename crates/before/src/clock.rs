@@ -9,7 +9,7 @@ use core::ops::{BitOr, BitOrAssign};
 use crate::{
     codec,
     error::{Decode, Overlap, Parse},
-    Party, Version,
+    Party, Ticks, Version,
 };
 
 mod batch;
@@ -35,7 +35,7 @@ mod tests;
 /// | `a.version()` (`<`, `<=`, `==`) `b.version()`                                                                                       | compare causal histories (the order lives on [`Version`])|
 /// | [`a.version().concurrent(b.version())`](Version::concurrent)                                                                        | the two clocks' histories are incomparable               |
 /// | `clock \| v`, `clock \|= v`                                                                                                         | join a received [`Version`] `v` into this clock          |
-/// | [`tick`](Clock::tick)/[`fork`](Clock::fork)/[`join`](Clock::join)/[`sync`](Clock::sync)/[`send`](Clock::send)/[`recv`](Clock::recv) | advance, split, and reunite clocks                       |
+/// | [`tick`](Clock::tick)/[`ticks`](Clock::ticks)/[`fork`](Clock::fork)/[`join`](Clock::join)/[`sync`](Clock::sync)/[`send`](Clock::send)/[`recv`](Clock::recv) | advance, split, and reunite clocks             |
 ///
 /// There is deliberately no `Clock | Clock`: merging two whole clocks is the
 /// fallible [`join`](Clock::join), which must verify the parties are disjoint.
@@ -100,6 +100,30 @@ impl Clock {
     pub fn tick(&mut self) -> &Version {
         self.batch().tick();
         self.version()
+    }
+
+    /// Advances this [`Clock`] by `n` events for its own [`Party`],
+    /// returning the new [`Version`]: byte-identical to `n` sequential
+    /// [`tick`](Self::tick)s, computed in a bounded number of passes
+    /// rather than `n`.
+    ///
+    /// `n` is any count — an unsigned integer literal converts in place,
+    /// and a [`Ticks`] carries counts wider than any machine integer —
+    /// and `n = 0` is the identity (the returned reference is the
+    /// unchanged version).
+    ///
+    /// # Complexity
+    ///
+    /// `O(|c| + log n)` time and space, as [`Version::ticks`] on the
+    /// clock's parts.
+    ///
+    /// ```
+    /// let mut clock = before::Clock::seed();
+    /// assert_eq!(clock.ticks(1_000_000u64).to_string(), "1000000");
+    /// ```
+    pub fn ticks(&mut self, n: impl Into<Ticks>) -> &Version {
+        self.version.ticks(&self.party, n);
+        &self.version
     }
 
     /// Splits off a child clock by [`fork`](Party::fork)ing the underlying

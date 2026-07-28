@@ -24,7 +24,7 @@
 use std::convert::Infallible;
 
 use crate::{
-    Network, Protocol,
+    Network, Protocol, Ticks,
     bookmark::{BookmarkError, BookmarkIo, NoBookmark},
     tree::mirror::{self, handshake},
 };
@@ -74,15 +74,17 @@ pub enum Error<B: BookmarkError = NoBookmark> {
         /// The network identifier advertised by the remote peer.
         remote_network: Network,
         /// A lower bound on events recorded in the remote universe.
-        remote_min_events: u64,
+        remote_min_events: Ticks,
         /// A lower bound on events recorded in the local universe, as this
         /// side declared it in the session's handshake.
         ///
         /// Together with `remote_min_events` this lets both sides of a
         /// mismatch apply one deterministic dominance rule from the error
         /// alone (see [`Peer`](crate::Peer)'s "Bootstrapping without
-        /// consensus").
-        local_min_events: u64,
+        /// consensus"): [`Ticks`] is totally ordered at any magnitude, so
+        /// the comparison never saturates or ties spuriously, however deep
+        /// the two universes' histories run.
+        local_min_events: Ticks,
     },
 
     /// A retiring peer offered an identity overlapping one already held here.
@@ -176,7 +178,7 @@ pub enum Error<B: BookmarkError = NoBookmark> {
         /// A lower bound on events recorded in the claimant's declared
         /// version, as [`NetworkMismatch`](Self::NetworkMismatch) counts
         /// them.
-        claimed_min_events: u64,
+        claimed_min_events: Ticks,
     },
 
     /// The application's bookmark failed to load, persist, or decode.

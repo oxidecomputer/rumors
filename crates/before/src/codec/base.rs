@@ -135,14 +135,6 @@ impl Base {
         u64::try_from(&self.0).ok()
     }
 
-    /// This magnitude as a `u64`, saturating at [`u64::MAX`] for values
-    /// past the `u64` range. Consumed by the reference oracle's
-    /// saturating folds (and the suites comparing against them).
-    #[cfg(any(test, feature = "oracle"))]
-    pub(crate) fn to_u64_saturating(&self) -> u64 {
-        self.to_u64().unwrap_or(u64::MAX)
-    }
-
     pub(crate) fn bit(&self, i: u64) -> bool {
         // A bit index past `usize` can only address zeros: the value's own
         // bit length always fits a `usize`.

@@ -26,6 +26,7 @@
 use proptest::prelude::*;
 use rayon::prelude::*;
 
+use crate::codec::Base;
 use crate::meter::{
     alt_spine, ascend_cliff, ascend_cliff_id, ascend_cliff_plateau, bigroot, cancelling_chain,
     cliff_comb, cliff_fan, dense, descending_raises, descending_raises_id, harmonic, hugeleaf,
@@ -44,7 +45,7 @@ use crate::testing::{generators, optrace};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Party, Version};
 
-use super::{fused_fill, tick, FillOutcome};
+use super::{fused_fill, tick, ticks, FillOutcome};
 
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -233,6 +234,31 @@ fn exhaustive_small_scope_ticks_and_flags_identically() {
     events.par_iter().for_each(|v| {
         for p in &parties {
             assert_tick(v, p);
+        }
+    });
+}
+
+/// Exhaustive small scope for the fused multi-tick: `ticks(n)` for
+/// every `n` in 0..=4 equals the iterated public tick on every
+/// normal-form event tree × every owning normal-form id.
+///
+/// A total check on both branches (the fill-changed collapses and the
+/// grow splices, expansion chains included) at the scope where totality
+/// is affordable.
+#[test]
+fn exhaustive_small_scope_ticks_n_matches_iterated() {
+    let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
+        .iter()
+        .map(from_oracle_version)
+        .collect();
+    let parties: Vec<Party> = all_normal_ids(ID_SMALL_DEPTH)
+        .iter()
+        .map(from_oracle_party)
+        .filter(|p| !p.as_bits().is_empty())
+        .collect();
+    events.par_iter().for_each(|v| {
+        for p in &parties {
+            check_ticks_equivalence(v, p, &[0, 1, 2, 3, 4]);
         }
     });
 }
@@ -781,5 +807,228 @@ fn tick_deep_orbits_stay_banded() {
             "alternating orbit: {} bits at tick {k} (two-tick size {b2})",
             e.len(),
         );
+    }
+}
+
+// ───────────────────────────── ticks(n) ─────────────────────────────
+//
+// The fused multi-tick's differentials: `ticks(n)` must equal `n`
+// sequential public ticks byte for byte on every branch — the crux the
+// grow module doc's compounding argument and the two-walk fill branch
+// both reduce to — with the structural facts the argument rests on
+// (fill idempotence, the grow branch absorbing) pinned directly, wide-n
+// self-consistency pinned by the monoid-action law seamed to a single
+// ground-truth tick, and the k = 1 splice pinned as exactly the tick.
+
+/// [`ticks`] lifted to the stored-value level, through the same
+/// `from_bits` gate the public entry commits through.
+fn ticks_version(v: &Version, id: &Party, n: &Base) -> Version {
+    Version::from_bits(ticks(&encode(v), id, n))
+}
+
+/// Check `ticks(n)` against the iterated public tick for every `n` in
+/// an ascending list, reusing the iterated prefix.
+fn check_ticks_equivalence(v: &Version, p: &Party, ns: &[u32]) {
+    let mut iterated = v.clone();
+    let mut done = 0u32;
+    for &n in ns {
+        debug_assert!(n >= done, "ascending n list");
+        while done < n {
+            iterated.tick(p);
+            done += 1;
+        }
+        let fused = ticks_version(v, p, &Base::from(n));
+        assert_eq!(
+            fused, iterated,
+            "ticks({n}) diverged from {n} iterated ticks: {v} with {p}"
+        );
+    }
+}
+
+proptest! {
+    /// The crux differential: `ticks(n)` is byte-identical to `n`
+    /// sequential public ticks for `n` in {0, 1, 2, 3, 7, 64}, on
+    /// arbitrary normal-form (version, party) pairs — including wide
+    /// (beyond-u64) leaf magnitudes.
+    #[test]
+    fn ticks_matches_iterated_ticks_arbitrary(
+        ov in generators::arb_oracle_version(),
+        op in generators::arb_oracle_party_nonempty(),
+    ) {
+        let v = from_oracle_version(&ov);
+        let p = from_oracle_party(&op);
+        check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64]);
+    }
+
+    /// The single-tick byte pin: the `k = 1` splice is exactly the tick.
+    ///
+    /// `ticks(1)`, the public `tick`, and the recursive oracle's
+    /// `event` (the semantic definition of record, untouched by the
+    /// `+k` splice generalization) produce one identical stream on a
+    /// substantial generated corpus — the committed guard that
+    /// generalizing the splice's increment did not move the protocol.
+    #[test]
+    fn tick_is_ticks_one(
+        ov in generators::arb_oracle_version(),
+        op in generators::arb_oracle_party_nonempty(),
+    ) {
+        let v = from_oracle_version(&ov);
+        let p = from_oracle_party(&op);
+        let one = ticks_version(&v, &p, &Base::from(1u8));
+        let mut ticked = v.clone();
+        ticked.tick(&p);
+        prop_assert_eq!(&one, &ticked, "ticks(1) diverged from tick: {} with {}", v, p);
+        let mut oracle = to_oracle_version(&v);
+        oracle.tick(&to_oracle_party(&p));
+        prop_assert_eq!(
+            &one,
+            &from_oracle_version(&oracle),
+            "ticks(1) diverged from the oracle event: {} with {}",
+            v,
+            p
+        );
+    }
+
+    /// Structural fact: fill is idempotent.
+    ///
+    /// Whenever the fused walk reports a change, a second walk over its
+    /// output reports the tree unchanged — so at most the first tick of
+    /// a run takes the fill branch, and `ticks` needs at most two walks.
+    #[test]
+    fn fill_is_idempotent(
+        ov in generators::arb_oracle_version(),
+        op in generators::arb_oracle_party_nonempty(),
+    ) {
+        let v = from_oracle_version(&ov);
+        let p = from_oracle_party(&op);
+        if let FillOutcome::Changed(bits) = fused_fill(&encode(&v), &p) {
+            prop_assert!(
+                matches!(fused_fill(&bits, &p), FillOutcome::Unchanged(_)),
+                "fill moved a tree it had already filled: {} with {}", v, p
+            );
+        }
+    }
+
+    /// Structural fact: the grow branch is absorbing.
+    ///
+    /// Once a pair sits on the unchanged branch, ticking never flips the
+    /// next tick back to the fill branch — so one `+k` splice stands in
+    /// for ticks 2..n. (The crux differential covers this too; this pins
+    /// the mechanism at every intermediate step of a short run.)
+    #[test]
+    fn grow_branch_is_absorbing(
+        ov in generators::arb_oracle_version(),
+        op in generators::arb_oracle_party_nonempty(),
+    ) {
+        let v = from_oracle_version(&ov);
+        let p = from_oracle_party(&op);
+        // Land on the fill-fixed state (one tick at most gets there).
+        let mut cur = v.clone();
+        cur.tick(&p);
+        for _ in 0..4 {
+            prop_assert!(
+                matches!(fused_fill(&encode(&cur), &p), FillOutcome::Unchanged(_)),
+                "a grow re-opened the fill branch: {} with {}", v, p
+            );
+            cur.tick(&p);
+        }
+    }
+}
+
+/// The shape corpus at depth: the crux differential over the
+/// adversarial deep shapes crossed with the shape parties, `n` to 1000.
+///
+/// The parties span single deep owned regions and bushy multi-region
+/// ids, and the count runs large enough that the iterated side pays a
+/// thousand walks while the fused side pays at most two.
+#[test]
+fn ticks_matches_iterated_ticks_shapes() {
+    use generators::{bushy_expand_party, shape_party, shape_version, Shape};
+    let shapes = [
+        Shape::LeftSpine,
+        Shape::RightSpine,
+        Shape::Zigzag,
+        Shape::Bushy,
+    ];
+    for ev_shape in shapes {
+        for ev_scale in [1usize, 3, 17] {
+            let v = shape_version(ev_shape, ev_scale);
+            for id_shape in shapes {
+                for id_scale in [1usize, 3, 17] {
+                    let p = shape_party(id_shape, id_scale);
+                    check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64, 1000]);
+                }
+            }
+            // The expansion-heavy id: a bushy multi-region id beside an
+            // owned terminal (the route weighs two feasible children at
+            // every branch).
+            let p = bushy_expand_party(ev_scale);
+            check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64, 1000]);
+        }
+    }
+}
+
+/// The fill-changed branch, witnessed deterministically: a full owner
+/// over a bushy tree collapses under fill, and `ticks` then routes the
+/// remaining `n − 1` events through the second walk.
+///
+/// The shape corpus's parties never own the whole tree, so this pins
+/// the branch the proptests reach only by generator luck.
+#[test]
+fn ticks_covers_fill_changed_branch() {
+    let v = generators::shape_version(generators::Shape::Bushy, 5);
+    let p = Party::seed(); // the full owner of everything
+    assert!(
+        matches!(fused_fill(&encode(&v), &p), FillOutcome::Changed(_)),
+        "witness must take the fill branch"
+    );
+    check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64, 1000]);
+}
+
+/// Closed-form witness from the identity: `ticks(n)` on the empty
+/// version under the seed party renders as `n` — the whole-line
+/// counter, readable without any reference implementation.
+#[test]
+fn ticks_from_empty_is_the_counter() {
+    let v = Version::new();
+    let seed = Party::seed();
+    let n = Base::from(123_456_789_012_345u64);
+    let ticked = ticks_version(&v, &seed, &n);
+    assert_eq!(ticked.to_string(), "123456789012345");
+    // And the seam back to ground truth at small n.
+    check_ticks_equivalence(&v, &seed, &[0, 1, 2, 3, 7, 64, 1000]);
+}
+
+/// Wide-`n` self-consistency, beyond any iterative reference: `ticks`
+/// is a monoid action — `ticks(a + b) = ticks(b) ∘ ticks(a)` — at `n`
+/// around `2^100`.
+///
+/// A small-tail cross-check `ticks(big + 1) = tick ∘ ticks(big)` seams
+/// the wide arm to the ground-truth single tick.
+#[test]
+fn ticks_composes_at_wide_n() {
+    use generators::{shape_party, shape_version, Shape};
+    let big = Base::from(1u8) << 100u32;
+    let shapes = [
+        Shape::LeftSpine,
+        Shape::RightSpine,
+        Shape::Zigzag,
+        Shape::Bushy,
+    ];
+    for ev_shape in shapes {
+        let v = shape_version(ev_shape, 5);
+        for id_shape in shapes {
+            let p = shape_party(id_shape, 5);
+            // ticks(2^101) == ticks(2^100) twice.
+            let both = ticks_version(&v, &p, &(big.clone() + &big));
+            let half = ticks_version(&v, &p, &big);
+            let again = ticks_version(&half, &p, &big);
+            assert_eq!(both, again, "wide composition diverged");
+            // ticks(2^100 + 1) == tick() after ticks(2^100).
+            let plus_one = ticks_version(&v, &p, &(big.clone() + 1u64));
+            let mut stepped = half.clone();
+            stepped.tick(&p);
+            assert_eq!(plus_one, stepped, "wide-plus-one seam diverged");
+        }
     }
 }

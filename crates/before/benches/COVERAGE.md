@@ -11,7 +11,7 @@ This file indexes the *time leg* only.
 
 ## Method, re-runnable
 
-1. Enumerate the board's product: 64 operation rows over 19 shapes, 989
+1. Enumerate the board's product: 65 operation rows over 21 shapes, 1090
    applicable cells (the per-shape derivation and the enforced pin:
    `tests/amp_board_smoke.rs`, `EXPECTED_CELLS`).
 2. Enumerate the bench surface: `cargo bench -p before --bench board --
@@ -29,14 +29,14 @@ This file indexes the *time leg* only.
 
 ## The judged cell inventory
 
-The bench mirror carries the board's 989 cells (`BOARD_BENCH_MODE=full`,
+The bench mirror carries the board's 1090 cells (`BOARD_BENCH_MODE=full`,
 the mode for final verdicts: `just bench-judge-full`) plus the two
-judge-only wide-display cells — 991 cells per scale. The judge recipes'
+judge-only wide-display cells — 1092 cells per scale. The judge recipes'
 cadence (`just bench-judge`, both scales through the committed roster
-`tools/benchjudge-expected.json`) times the `pinned` subset, 303 cells
+`tools/benchjudge-expected.json`) times the `pinned` subset, 324 cells
 per scale:
 
-- **The designed diagonal (288)**: every operation on `dense`,
+- **The designed diagonal (311)**: every operation on `dense`,
   `benign`, `id-pair`, and `scatter` where applicable; the magnitude
   shapes (`bigroot`, `hugeleaf`, `cliff`) on every group but the rank
   rows; `harmonic` on the measure and rank rows; `comb-scatter` on the
@@ -79,6 +79,7 @@ product (the operand bundles decide applicability; family alone):
 | `version_meet` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitAnd` |
 | `version_meet_assign` | V17 | dense, bigroot, hugeleaf, cliff, benign | `BitAndAssign` |
 | `version_tick` | V17 | dense, bigroot, hugeleaf, cliff, the ten tick crosses, benign | `Version::tick`, `batch::Version::tick` (adversarial version × small party; the tick crosses carry their own (event, id) pair) |
+| `version_ticks` | V17 | dense, bigroot, hugeleaf, cliff, the ten tick crosses, benign | `Version::ticks` at the fixed count (`meter::board::TICKS_BOARD_COUNT`); `Party::ticks` and `Clock::ticks` are the same kernel through their own spellings, and the count axis is pinned point-to-point by `tests/meter.rs`'s flatness rows |
 | `version_tick_adv_party` | P13 | id-pair, benign | the same tick, adversarial party × small version; `Party::tick` is its mirror |
 | `version_batch_snapshot` | V17 | dense, bigroot, hugeleaf, cliff, benign | `batch::Version::snapshot` |
 | `version_rank` | V17 | dense, bigroot, hugeleaf, cliff, harmonic, benign | `Version::rank` (and `Ranked::from`) |
@@ -215,6 +216,16 @@ cells in four genres.
 
 ## Decision record
 
+- 2026-07-27 (the ticks(n) landing): the `version_ticks` row joins the
+  board and its bench mirror (+19 full cells, +15 pinned: the tick
+  diagonal's shapes). Re-counting for this entry also trued the
+  inventory against the code (`bench_cells` at both modes): the board
+  this file described had already grown from the closeout census's
+  989/303 to 1071 full / 309 pinned before this landing — cells landed
+  by later tracks without a re-sweep here — so the numbers above are
+  re-derived whole at 1090 full / 324 pinned (311 designed-diagonal
+  cells + the 13 riders), and the method's step 1 now names the
+  21-shape board the smoke pin enforces.
 - 2026-07-27 (P5.5, the closeout census): re-derived whole against the
   989-cell board (64 rows × 19 shapes: the 18 rejection rows and the
   `reveal-comb`/`reveal-hifloor`/`pure-comb`/`ascend-cliff`/
