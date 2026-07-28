@@ -4916,12 +4916,13 @@ mod query_superlinearity_pins {
         limb_ops: u64,
     }
 
-    /// Assert a counter's PER-BYTE cost growth across the doubling sits
-    /// inside the pinned band:
-    /// `floor_x100/100 <= (c2/n2)/(c1/n1) <= ceiling_x100/100`, by exact
-    /// u128 cross-multiplication. A linear fold reads ~1.00 here (its
-    /// per-byte cost is scale-free); a quadratic one reads ~2.00 across
-    /// a doubling.
+    /// Assert a counter's per-byte cost growth across the doubling sits
+    /// inside the pinned band.
+    ///
+    /// The band is `floor_x100/100 <= (c2/n2)/(c1/n1) <=
+    /// ceiling_x100/100`, checked by exact u128 cross-multiplication. A
+    /// linear fold reads ~1.00 here (its per-byte cost is scale-free);
+    /// a quadratic one reads ~2.00 across a doubling.
     fn assert_band(
         name: &str,
         small: (u64, u64),
@@ -4983,9 +4984,10 @@ mod query_superlinearity_pins {
         run
     }
 
-    /// `Version::min_ticks` reads superlinear on the pure comb: the
-    /// closing-node minimum merge circulates the full plateau width per
-    /// comb level, so accumulator touches grow ~x3.8 across a joint
+    /// `Version::min_ticks` reads superlinear on the pure comb.
+    ///
+    /// The closing-node minimum merge circulates the full plateau width
+    /// per comb level, so accumulator touches grow ~x3.8 across a joint
     /// (k, b) doubling that doubles the packed operand.
     ///
     /// The public `# Complexity` section says `O(|v|)` time and space
@@ -5020,10 +5022,11 @@ mod query_superlinearity_pins {
     }
 
     /// `Version::min_ticks` reads superlinear on the reveal comb in
-    /// BOTH width currencies: the limb column (the site minima
-    /// re-materialized per closing node) grows alongside the touch
-    /// column, so the superlinearity is not an accumulator-local
-    /// artifact.
+    /// BOTH width currencies.
+    ///
+    /// The limb column (the site minima re-materialized per closing
+    /// node) grows alongside the touch column, so the superlinearity is
+    /// not an accumulator-local artifact.
     ///
     /// Same claim contradiction as the pure-comb pin (`O(|v|)` prose,
     /// `Class::Linear` roster row, red board cell); the same resolution
@@ -5067,10 +5070,12 @@ mod query_superlinearity_pins {
         );
     }
 
-    /// The freeze-position family `FP(k)`: a right spine of `2k`
-    /// descending leaves whose consecutive deltas alternate one wide
-    /// drop (`2^288`, 10 digits — over the rank fold's 8-digit freeze
-    /// allowance) and one unit drop, over a terminal zero leaf.
+    /// The freeze-position family `FP(k)`.
+    ///
+    /// A right spine of `2k` descending leaves whose consecutive deltas
+    /// alternate one wide drop (`2^288`, 10 digits — over the rank
+    /// fold's 8-digit freeze allowance) and one unit drop, over a
+    /// terminal zero leaf.
     ///
     /// Every block re-arms wide live drift and the following unit code
     /// fires a freeze, so the fold freezes Theta(k) times; each freeze
@@ -5148,8 +5153,9 @@ mod query_superlinearity_pins {
         run
     }
 
-    /// `Version::rank` reads superlinear on the freeze-position family:
-    /// per-freeze full-span position reads cost Theta(k^2) touches on a
+    /// `Version::rank` reads superlinear on the freeze-position family.
+    ///
+    /// Per-freeze full-span position reads cost Theta(k^2) touches on a
     /// Theta(k)-byte operand, against the `O(|v|)` public claim and the
     /// roster's `Class::Linear` row — on a family whose freeze
     /// positions are a compacted ones-run, so the work is NOT the
