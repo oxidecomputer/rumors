@@ -555,7 +555,7 @@ way the stream order makes vivid:
   settles when its range closes, and one left-to-right pass keeping
   a pending minimum per open range computes them all — no nested
   scans. What naive repetition would still
-  do is re-scan shared suffixes once per enclosing arm,
+  do is re-scan shared subranges once per enclosing arm,
   quadratically; the pre-scan is therefore _memoized_ — one fresh
   scan per uncovered range, with
   every interior left-full site's minimum recorded on the way, so no
