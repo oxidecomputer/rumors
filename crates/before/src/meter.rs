@@ -2440,6 +2440,10 @@ pub fn stagger_id(n: usize, m: usize, i: usize) -> Packed {
 ///
 /// [`stagger_comb`]'s parameter contract.
 pub fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
+    assert!(
+        n >= 2 && n.is_power_of_two(),
+        "the staggered population needs a power-of-two operand count"
+    );
     let bits = n.trailing_zeros();
     let order = (0..n).map(|i| i.reverse_bits() >> (usize::BITS - bits));
     order
