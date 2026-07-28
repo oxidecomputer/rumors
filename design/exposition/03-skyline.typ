@@ -90,7 +90,8 @@ operations' _dynamics_: `fill`
 flattens each owned region to one plateau and — where a filled
 sibling's minimum stands higher — raises it to that minimum (@tick),
 and joins move whole regions at once, so
-real histories keep adjacent plateaus close. Differences are
+real histories keep adjacent plateaus close (measured across
+organic corpora — @ctf-caveat). Differences are
 therefore usually small where absolutes are usually not. A difference can be negative, so it is
 folded onto the naturals first by the _zigzag_ map
 
@@ -147,8 +148,13 @@ here the coding _prunes_: an unowned subtree — a whole `0` of the
 paper's syntax — stores nothing, because its parent's tag already
 said no child follows. The pruned shape is 0-, 1-, or 2-ary, so the
 coding spends _two_ flag bits per stored node, answering "does a left
-child follow?" and "does a right child follow?", with the childless
-tag `00` as a terminal: a wholly owned region.
+child follow?" and "does a right child follow?". The reading rule,
+with its one deliberate exception: an absent child's half is
+unowned — except that the childless tag `00` denotes a _terminal_,
+a wholly owned region. Ownership is carried by presence, so the
+paper's `0` has no spelling anywhere: an unowned half is an absent
+child, and an unowned root dissolves with the anonymous stamp
+below.
 
 The seed, owning everything, is one terminal: two bits. The id
 $(1, 0)$ — own the left half — is a left-only node followed by a
@@ -200,7 +206,9 @@ decode boundary:
 + *Nonnegative heights.* The payload stream is signed; nothing else
   stops a delta from driving the running height below zero, so the
   decoder must.
-+ *Exactness.* One complete tree and nothing after it. Every
++ *Exactness.* One complete tree and nothing after it (in a clock,
+  the component that follows starts at the next byte boundary).
+  Every
   encoded stream ends on a byte boundary with the final partial
   byte zero-filled, and the decoder requires exactly that padding.
   Every size in this document is a bit count before the padding.
@@ -223,7 +231,8 @@ leaves quietly discharged one of the two normal-form obligations.
 
 The rules do two jobs, worth splitting: minimal topology and
 exactness remove redundant _spellings_, while nonnegativity removes
-streams that denote no function at all — injectivity and domain,
+streams whose function dips below $NN$ and so denotes no version —
+injectivity and domain,
 respectively. Together they leave one accepted spelling per value,
 and the argument is short
 enough to give. For a dyadic step function $h$, define $T(h)$: a
@@ -242,7 +251,8 @@ one spelling per natural and zigzag has none to spare. Uniqueness
 is not an aesthetic: it is a load-bearing feature bought deliberately,
 and @compactness prices what it costs in coding room: the
 sibling-merge rule alone carries an asymptotic $4.3%$ worst-case
-tax, and the
+tax under this payload code (@tax shows the tax is code-dependent),
+and the
 other rules cost little or nothing. What uniqueness buys:
 
 - *Byte equality is semantic equality.* Equality and hashing are raw

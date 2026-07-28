@@ -67,7 +67,8 @@ here, and the names are used consistently through @resilience.
     [partially-normalized ("two-zone") running quantities],
     [_descending staircase_$(d)$],
     [unit-step plateaus descending monotonically down a $d$-level
-      spine (attacks @tick-web's undercut cascade)],
+      spine, driving every enclosing range minimum to the running
+      height (attacks @tick-web's undercut cascade)],
     [the tick walk's watermark stack, at every level at once],
     [_reveal comb_$(t, k)$],
     [$t$ sibling regions sharing one $2^k$-scale minimum over a low
@@ -78,9 +79,11 @@ here, and the names are used consistently through @resilience.
   caption: [The adversarial families, all in one place; the last four
     are constructed where the machinery they attack is built. Each is
     a legal, canonical value the decoder must accept; each is named
-    here in the paper's tree vocabulary, and @coding spells it as a
-    stream (`bigroot`'s $W$-bit root becomes a $W$-bit leading
-    absolute over small deltas). `hugeleaf` and
+    here in the paper's tree vocabulary, and @coding's rules
+    determine each one's stream form mechanically (`bigroot`'s
+    $W$-bit root becomes a $W$-bit leading
+    absolute over small deltas; the combs, one absolute followed by
+    $plus.minus$-steps). `hugeleaf` and
     `bigroot` are unreachable by any honest history at the scales
     that hurt (a height near $2^W$ needs on the order of $2^W$
     ticks); the others are merely unlikely. Either way the lesson is
@@ -152,7 +155,7 @@ actually sees (tens of gigabytes per second) is the right order for
 what the
 measurement showed: over fourteen seconds for one value. The cured
 decoder (accumulate machine words, splice them once) does the same
-work in milliseconds, linearly. The defect looks trivial once named —
+work in milliseconds (measured), linearly. The defect looks trivial once named —
 of course you buffer words — but it is worth its own entry for two
 reasons. First, it is a _decode-time_ quadratic: it runs on arbitrary
 bytes before any validity judgment, which is the worst possible place
@@ -218,7 +221,9 @@ The defects above invite a ladder of local repairs, and the ladder's
 top rung fails in an instructive way.
 
 Replace per-frame lifted clones with a single running offset
-(cures Defect 1's memory); decode words at a time (cures Defect 2);
+(cures Defect 1's memory, and its time on `bigroot` — one wide add
+at the root instead of $d$ of them); decode words at a time (cures
+Defect 2);
 make walks iterative (cures Defect 3). The natural next design — and
 the one to be talked out of — maintains, during any walk, a _running
 absolute height_ in one normalized big integer: add each node's base

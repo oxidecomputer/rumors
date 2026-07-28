@@ -41,12 +41,14 @@
   cures, a thirty-kilobyte operand pair cost
   nearly two hundred megabytes of transient memory inside one
   comparison, and
-  a value half a megabyte wide (a one-megabyte code) took over
+  a value half a megabyte wide — its self-delimiting code twice
+  that — took over
   fourteen seconds to decode. This
   document develops, from first principles, a representation under
   which every primitive clock operation is a bounded number of linear
   passes over its packed operands and its mandatory output — one pass
-  for most, two where a lookahead is inherent, composites summing
+  for most, two where a lookahead or a measure's pre-pass is
+  inherent, composites summing
   their parts. The representation is the *skyline*, a delta-coded
   spelling of the step function a clock's event component denotes,
   paired with a redundant

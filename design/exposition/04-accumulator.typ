@@ -27,8 +27,8 @@ From the sweeps' side, the accumulator must support:
   once-per-high-water-mark zero-fill of the lanes below, bounded by
   the depth bits that certified the scale (the storage remark in
   @redundant). The scaled variant is a distinct _mode_: it trades
-  away requirement 3 (@sign derives why), and exactly one family of
-  folds uses it (@measures);
+  away requirement 3 (@sign derives why), and exactly one family
+  of folds uses it (@measures);
 + *read the sign* of the held value, in amortized $O(1)$ — the
   amortization charged, where the read must descend, to the
   unscaled writes that raised the held top (@sign derives the
@@ -42,13 +42,13 @@ From the sweeps' side, the accumulator must support:
 
 and, because a sweep holds several accumulators at once (@tick):
 
-+ *move* a held value between slots, $O(1)$ — a buffer swap;
-+ *fold* one accumulator into another, at the cost of the _dying_
+5. *move* a held value between slots, $O(1)$ — a buffer swap;
+6. *fold* one accumulator into another, at the cost of the _dying_
   operand's held lanes, never the survivor's;
-+ *compare* two held values through their domination floors
+7. *compare* two held values through their domination floors
   (@sign): $O(1)$ where a floor decides, the fold's price where
   none does;
-+ *report the held top's index*, $O(1)$ — the width test behind the
+8. *report the held top's index*, $O(1)$ — the width test behind the
   weighted folds' freeze trigger (@measures).
 
 The bounds must hold on _every_ interleaving of these operations —
@@ -99,17 +99,26 @@ The lesson generalizes and is worth stating as a principle:
   representation._
 ])
 
-The only escape is for no digit to be "settled": *no normalized region
+The principle is a design heuristic, not a theorem: we do not prove
+that no cleverer boundary exists — a window whose width adapts to
+the widest delta yet seen is the natural candidate, and we know no
+funded form of it. The design therefore takes the one escape that
+needs no such proof — remove the boundary. No digit is ever
+"settled": *no normalized region
 anywhere*.
 
 == Balanced redundant digits <redundant>
 
 Hold the value as digits in base $2^32$, little-endian, each digit a
 _signed_ 64-bit integer kept in the _lazy zone_ $|a_i| < 2^33$ — the
-base is half the lane on purpose, since the spare bits are what the
-scheme spends: with digits under $2^33$ over a $2^32$ base, a word
-delta's two halves, a carry, and the recentering all fit native
-64-bit arithmetic with room left over.
+base is half the lane's width on purpose, since the spare bits are
+what the
+scheme spends: with digits under $2^33$ over a $2^32$ base, an
+unscaled word
+delta's two halves, a carry, and the recentering all fit the lane's
+own 64-bit arithmetic; a scale-shifted landing (below) runs in the
+machine's double-width arithmetic before its remainder recenters
+back into the lane.
 
 $ "value" = sum_i a_i dot 2^(32 i), quad a_i in (-2^33, 2^33). $
 
@@ -191,11 +200,14 @@ touched, are never scanned again.)
 A wide delta arrives as a sign and an $ell$-word magnitude, and
 routes each 64-bit word into its two 32-bit digit positions
 independently — positions $2i$ and $2i + 1$ for word $i$. A scale
-splits as $32 q + r$: each half is shifted by the residual $r$ as
-it lands (still comfortably inside the working integer's headroom)
-and routed at digit offset $q$, so no separate pre-shift pass
-exists. Each half is added or subtracted at its position,
-carrying (rarely, and $O(1)$ each) where a digit leaves the zone.
+splits into whole lanes and a residual shift under 32: each half is
+shifted by the residual as it lands and routed at the whole-lane
+offset, so no separate pre-shift pass
+exists. A shifted half spans up to 63 bits — which is why landings
+run double-width: the half lands whole at its position, and the
+recentering carry (the rule here, not the exception, and $O(1)$
+either way) moves the overflow into the next lane, a bounded few
+carries per half.
 Cost: $O(ell)$ touches regardless of what the accumulator already
 holds and regardless of the scale, which is requirement 2 exactly.
 Negation flips digit signs in place (a balanced digit's negation is a
@@ -207,20 +219,20 @@ The sign query looks troublesome: redundancy means the top digit's
 sign can simply be wrong ($a_1 = +1$, $a_0 = -2^33 + 1$ has a
 positive top digit and a decisively negative value), so no fixed
 number of high digits settles the sign in general. Fold digits from
-the top, maintaining a running partial $s$ by
+the top, maintaining a running partial $sigma$ by
 
-$ s <- s dot 2^32 + a_i quad ("digit index" i "descending"), $
+$ sigma <- sigma dot 2^32 + a_i quad ("digit index" i "descending"), $
 
 which after scanning down to index $i$ equals, in closed form,
 $sum_(j = i)^("top") a_j dot 2^(32(j - i))$: the _exact_ value of the
 scanned suffix in units of $2^(32 i)$. (The fold only continues while
-$|s| <= 2$, so after a step $|s| < 2 dot 2^32 + 2^33 = 2^34$ — the
+$|sigma| <= 2$, so after a step $|sigma| < 2 dot 2^32 + 2^33 = 2^34$ — the
 partial itself always fits comfortably in fixed-width arithmetic.) The digits
 not yet scanned contribute, in the same units, at most
 
 $ sum_(j < i) (2^33 - 1) dot 2^(32(j - i)) < (2^33 - 1) / (2^32 - 1) approx 2.0000000005, $
 
-a hair over $2$. So the moment $|s| >= 3$, the suffix _dominates_
+a hair over $2$. So the moment $|sigma| >= 3$, the suffix _dominates_
 everything below: the sign is decided, stop — at the top digit
 itself for most reads (measured, across the instrumented corpora).
 
@@ -231,8 +243,8 @@ must not be repeatable for free: a stream of cheap sign queries
 against one expensive cancelling prefix would re-scan it each time.
 The fix makes the read pay forward: when the fold descends, it
 _collapses_ what it scanned — zeroes the scanned digits and deposits
-their exact partial $s$ at the scan's floor (a bounded write: the
-fold's invariant keeps $s$ within two digits' range). The value is
+their exact partial $sigma$ at the scan's floor (a bounded write: the
+fold's invariant keeps $sigma$ within two digits' range). The value is
 unchanged; the spelling is now shallow; the next sign query re-reads
 none of it — the fold starts at the tracked top-of-held index, which
 the collapse just lowered. So *each held lane is scanned at most
@@ -251,7 +263,10 @@ carries a discipline. A delta scaled by $2^s$ lands its $ell$ words
 at lane $s\/32$ without spelling the lanes beneath: an $O(ell)$ code
 opens a span no code paid to scan, and a stream alternating cheap
 scaled writes with sign reads would march the fold across that span
-once per round — a quadratic with no payer. The discipline, part of
+once per round — a quadratic with no payer. (The depth bits that
+certified the scale fund the once-per-high-water zero-fill of
+@accum-contract — one traversal, not one per read; the per-read
+traversal is exactly what a scaled write cannot pay for.) The discipline, part of
 the contract: *an accumulator that receives scaled writes is never
 sign-read*. It is write-only until materialized, and each
 materialization must be separately funded — the weighted folds of
@@ -267,7 +282,7 @@ decision bound generalizes: if the fold decided at digit index
 $i >= f + 2$, then no quantity living entirely in digits
 $0 dots f$ — anything of bounded scale — could overturn either the
 sign or a magnitude comparison. The arithmetic behind the "$+2$":
-deciding at index $i$ means $|s| >= 3$ against under $2.01$ of
+deciding at index $i$ means $|sigma| >= 3$ against under $2.01$ of
 unscanned tail, certifying $|"value"| > 0.99 dot 2^(32 i)$; a
 quantity confined to digits $0 dots f$ is below
 $2.01 dot 2^(32 (f + 1))$; with $i >= f + 2$ the first exceeds the
@@ -299,7 +314,7 @@ accumulators, and
 #block(inset: (x: 1.5em), [
   _every digit touch is paid for by one of exactly three sources: an
   input code being consumed (which may also raise the held top, by
-  at most one lane per 32 bits of its width); an output code being
+  at most its width in lanes plus one); an output code being
   emitted (which licenses reads
   up to its own width); or the death of held lanes already paid for
   (each lane dies at most once per write that opened it)._
@@ -311,7 +326,10 @@ up to its tracked top, so a lane _dies_ when a collapse or a
 cancelling write lowers the top past it, while allocated storage
 above the top (@redundant's storage remark) counts for nothing:
 $Phi$ grows only when input codes are consumed, and by at most one
-lane per 32 bits of code — the span bound of @sign, an unscaled
+lane per code plus one per 32 bits of its width — the span bound of
+@sign, whose $+1$ is the carry, itself already amortized by
+@redundant's ratchet; summing over a sweep, $Phi$'s growth is
+$O("input bits")$, an unscaled
 code funding every lane
 up to the top it can set. A collapse zeroes its scanned span,
 deposits at most two digits at the scan's floor, and lowers the top

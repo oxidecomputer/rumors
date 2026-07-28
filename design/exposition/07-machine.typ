@@ -20,7 +20,8 @@ sequential parse of its operands _by construction_. That sets a floor
 the value — and makes the honest question about constants: _how close
 does each operation sit to its own reading cost?_
 
-The measured picture, per packed input byte:
+The measured picture, per packed input byte — one floor, raw byte
+movement, with each band quoted against the one below it:
 
 - *Encode, hash, equality* sit at memory-copy speed (a tenth of a
   nanosecond per byte and below): the resting form is the wire form
@@ -33,7 +34,8 @@ The measured picture, per packed input byte:
   the price of actually decoding every code once,
   plus the canonicality checks.
 - *The arithmetic sweeps* — join, meet, tick, projection, rank —
-  sit roughly an order of magnitude above reading: tens to low
+  sit roughly an order of magnitude above _validating decode_: tens
+  to low
   hundreds of nanoseconds per byte, the cost of decoding every
   payload, folding accumulators, and re-coding an output stream.
 - *Composites* (receive $=$ decode $+$ join $+$ tick; the mutual
@@ -85,7 +87,8 @@ the input.
 The per-bit description of @coding is the specification, not the
 inner loop. Gamma codes are read a word at a time: load one 64-bit
 window, count leading zeros — one instruction on every modern
-ISA — and the count names the whole code's length and position, so a
+ISA, plus the byte-reversing load a little-endian machine pairs
+with it — and the count names the whole code's length and position, so a
 payload decodes in a handful of instructions with no per-bit loop.
 (Codes wider than a window take a genuinely wide path, priced by
 their own width, per @funding.) The topology polarity of @coding
@@ -117,7 +120,9 @@ each on packed stacks — the validator's two topology-state bits per
 open ancestor, the overlay walk's one path bit per level per cursor
 (same number, two derivations) — with two stated exceptions, the
 watermark stack's bounded differences (@tick-web) and the route
-fold's pending cost pairs (@tick-fusion), both still linear,
+fold's pending cost pairs (@tick-fusion: two machine words per open
+id _branch_ against the id's own two bits per level, a bounded
+transient multiplier on the id operand alone), both still linear,
 both priced. A tree $10^5$ levels deep — a thirty-seven-kilobyte
 message —
 costs a cursor walking it one path bit per level: some twelve

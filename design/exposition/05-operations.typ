@@ -24,7 +24,11 @@ verdict can still change at its operands' final codes (the coding is
 self-delimiting, so nothing short of parsing reveals even where the
 value ends), so no algorithm can beat one full pass in the worst
 case; a bounded number of linear passes is therefore optimal up to
-constants, and the early-exit walks — comparison, the predicates —
+constants. Where a second pass is claimed _inherent_ — rank's
+pre-pass, tick's pre-scan — the argument is made at the site; the
+one output-denominated operation is argued at its own
+(@projection); and the early-exit walks — comparison, the
+predicates —
 beat the floor on favorable inputs without owing anything on
 unfavorable ones.
 
@@ -73,7 +77,11 @@ numbers entirely:
   coincides with the shallower's exactly when the flipped level's
   depth is at most the shallower cursor's depth — a stack operation,
   not a comparison of positions — and when it fires, the shallower
-  cursor advances too: its plateau ends at the same point.
+  cursor advances too: its plateau ends at the same point. (The
+  flip can sit well _above_ the shallower cursor — two plateaus
+  sharing an end at a coarse boundary — which is why the test is
+  $<=$ and not equality; and fact 1's equal-depth advance is the
+  same rule's degenerate case.)
 + *The all-right path is the exhausted stream.* A leaf whose path is
   all right turns is the last plateau, ending at 1. Complete
   operands therefore exhaust exactly together (completeness, not
@@ -101,8 +109,11 @@ for its sign. No absolute height is ever reconstructed. A sign
 $D > 0$ somewhere refutes $a <= b$; $D < 0$ somewhere refutes
 $b <= a$; the four verdicts are the four subsets of refutations
 accumulated by the end, and each entry point stops early the moment
-its own question is settled (equality dies at the first nonzero
-sign; an order dies at the first sign against it; full
+its own question is settled (the _equal_ verdict inside a full
+compare dies at the first nonzero
+sign — a standalone equality test never runs this walk, since
+@canonical made it a byte comparison; an order dies at the first
+sign against it; full
 `compare` runs until both directions have spoken or the streams
 end).
 
@@ -130,8 +141,9 @@ walk and differ in one branch. What emission adds to comparison is an
 output: one plateau per elementary interval, at the depth of the
 deeper cursor (nesting makes that the interval's exact width), with a
 payload delta the walk must produce _without knowing any absolute
-height_ — after the leading plateau, whose absolute the operands' own
-leading codes supply.
+height_ — after the leading plateau, which is the one seeding step:
+both leading codes are read, the larger is emitted, $D$ starts from
+their difference, and no absolute survives past it.
 
 Per elementary interval the output equals one operand — the _side_:
 $a$ where $D > 0$, $b$ where $D < 0$, for max; the mirror for min.
@@ -219,8 +231,9 @@ $ "size"(a or b) <= "size"(a) + "size"(b) - 2 "bits" $
 (similarly for meet). The topology half of the reason is immediate —
 the output's plateau boundaries are a subset of the operands'
 together, and merging only shrinks the tree; the guaranteed deficit
-also rides this half, since the overlay spells the two operands'
-leading plateaus as one. The payload half rests
+also rides this half, visible at the seam where the overlay spells
+the two operands' leading plateaus as one — a leaf flag saved, and
+the shorter leading absolute's code absorbed by the longer's. The payload half rests
 on the boundary algebra above plus one code-length fact: gamma is
 nearly subadditive,
 
@@ -230,7 +243,8 @@ because $(v_1 + 1)(v_2 + 1) >= v_1 + v_2 + 1$ makes the sum's
 logarithm at most the summands' logarithms together. A same-side
 output delta _is_ an input delta at its own length; a switch's jump
 is a signed sum of the deltas folded at its own boundary — codes the
-switch consumed, at least three bits each, that never fund another
+switch consumed, at least one of them nonzero and hence at least
+three bits, that never fund another
 emission — so its code costs at most theirs plus a few bits' slack
 (the zigzag re-fold contributes a constant of its own). What we
 offer here is that shape, not a per-boundary ledger closing to the
@@ -268,7 +282,9 @@ the chain of one-child nodes — to the first node with both children
 the spine prefix, verbatim; a retag of the branch node keeping one
 side; and that side's subtree, verbatim. A terminal splits into the
 pair $((1,0), (0,1))$. One linear pass, at most one fresh node per
-half, no descent into the kept subtrees at all — forking is cheap at
+half, no _re-coding_ of the kept subtrees — each is delimited by
+the obligation counter (below) and copied at the cost of its bits —
+forking is cheap at
 _any_ id shape, which a system that forks per request depends on.
 
 *Party join* merges two disjoint id landscapes by union: a lockstep
@@ -285,7 +301,8 @@ When $q$ covers $p$ the result is empty, and the API reports it as
 _no party_ rather than spelling it — a party is nonempty by
 construction (@id-coding) — so `covers` is the caller's test before
 carving.
-The predicates — _covers_ ($q$'s owned region $subset.eq$ $p$'s) and
+The predicates — _covers_, where $"covers"(p, q)$ asks whether
+$q$'s owned region $subset.eq$ $p$'s, and
 _disjoint_ (no owned region shared, the safety condition every join
 checks) — are lockstep verdict walks: no emission, and $O(1)$ state
 in total. The constant deserves its two sentences, since every
@@ -327,7 +344,9 @@ given that the result must itself be a canonical stream (a lazy
 consumer carrying the mask forever). No algorithm can beat its own
 output; the honest claim, and the one our implementation is held to,
 is that the sweep is linear in _input plus output_ — and that
-nothing else in this section has an _unbounded_ output ratio: tick's
+nothing else in this section has an _unbounded_ output ratio:
+fork's two halves and party difference stay within their operands'
+sizes, tick's
 output can exceed its input by at most a constant factor
 (@tick-output), join's not at all.
 
@@ -351,7 +370,11 @@ Computing it is a one-cursor sweep with a weighted fold: add
 $h_i dot 2^(S - d_i)$ per leaf (numerator units, $S$ the maximum
 depth, found by one pre-pass that reads flags and hops over payloads
 by their coded lengths — rank is one of the two-pass operations the
-introduction owned up to). The naive fold
+introduction owned up to, and the pre-pass earns its keep: the
+alternative anchors the total at the running maximum depth and
+rescales the held digits whenever it rises, a held-width rewrite
+per rise that a steadily deepening stream turns quadratic; knowing
+$S$ up front makes every landing final). The naive fold
 materializes $h_i$ per leaf — the boundary comb makes that
 $Theta(n dot k)$ again. The cure splits the running height into
 _frozen + live_, $h = F + L$: $L$, an accumulator holding the drift
@@ -364,9 +387,10 @@ write-only until the sweep's single closing materialization, as the
 scaled add's discipline requires (@sign). $F$'s contribution enters
 by summation by parts:
 
-$ sum_i F_i dot "mass"_i = F_"final" dot 2^S - sum_("freezes" j) Delta F_j dot ("prefix mass before" j), $
+$ sum_i F_i dot "mass"_i = F_"final" dot 2^S - sum_("freezes" j) Delta F_j dot ("prefix mass before" j) $
 
-one wide shifted add at the end, plus one correction per freeze
+(the total mass is $2^S sum_i 2^(-d_i) = 2^S$, the leaf widths
+summing to one): one wide shifted add at the end, plus one correction per freeze
 priced by the drift $Delta F_j$ being evicted — which is exactly what
 the codes since the previous freeze paid for. The trigger is
 concrete: a freeze fires when a folded delta finds $L$ more than a
@@ -385,7 +409,9 @@ signed-digit form compacts to $O(1)$ digits — which it does on every
 adversarial family we construct or have seen (comb positions are
 ones-runs, two signed digits). A stream engineered to re-arm wide
 drift under cheap codes at maximally dense positions sits outside the
-certified argument. Measured behavior there is still held by an
+certified argument, and what it would run there deserves its plain
+name: a wide-times-wide product, the one primitive in the system
+capable of superlinear work. Measured behavior there is still held by an
 enforced ceiling — accumulator digit touches per packed input byte,
 pinned flat across size doublings on the committed families — but the
 derivation above does not cover the shape, and we say so.
@@ -411,7 +437,9 @@ emission and two for lag, every piece linear.
 
 *Minimum ticks.* The fewest tick operations that could have produced
 $v$, over all fork/tick/join histories from the seed, equals the sum
-of the normalized event tree's node values. The sum has a pleasant skyline
+of the normalized event tree's node values. (The measure, the
+identity, and the argument below are this design's own — the paper
+does not define a tick count.) The sum has a pleasant skyline
 form: writing $mu(x)$ for the _absolute_ minimum of the skyline over
 node $x$'s interval — so $mu("leaf") = h$ — the normalized base at
 $x$ is $mu(x) - mu("parent"(x))$, and the sum telescopes:
@@ -484,8 +512,9 @@ funding ledger — and it is the payoff of the whole apparatus.
 
 === The semantics, restated on the skyline <tick-semantics>
 
-The paper's `fill` is worth having at hand verbatim; it is short, and
-@tick-walk maps each arm to a stream action:
+The paper's `fill` is worth having at hand verbatim; it is short,
+@tick-walk maps each arm to a stream action, and the numbering
+(1)–(6) is ours:
 
 $ "fill"(0, e) &= e &&quad (1) \
   "fill"(1, e) &= max(e) &&quad (2) \
@@ -540,7 +569,11 @@ same collapsing builder as join:
 
 Two of the three range quantities are easy. A wholly-owned range's
 max folds as it is consumed (word-or-wide adds, funded by the codes
-read). Verbatim copies cost their own bits. The delicate quantity is
+read) — easy for a structural reason worth naming: arm 2 consumes a
+wholly-owned subtree in one contiguous scan, so owned-range scans
+never nest, and the single live max rides as a bounded gap against
+the running height, dead at its range's close. Open ranges' minima
+nest; consumed ranges' maxima do not. Verbatim copies cost their own bits. The delicate quantity is
 the shortcut arms' _sibling minimum_ — and the two arms differ in a
 way the stream order makes vivid:
 
@@ -674,8 +707,12 @@ costs through @funding's three funding sources:
   fold, priced by the undercut's own delta — whose code the input
   just paid. Without run compression this cascade is
   $Theta("open depth")$ per undercut — the *descending staircase*
-  (@families): unit steps, one full-penetration undercut per level,
-  $Theta(d^2)$ total; with it, each undercut costs its dying
+  (@families) shows why the zero runs are where the danger lives:
+  its first descent drags every open minimum down together, zeroing
+  every enclosing difference, so each further unit step penetrates
+  the full stack of dead frames with no deaths left to fund the
+  walk — $Theta(d^2)$ total; with run compression, each undercut
+  costs its dying
   differences plus $O(1)$. (Both halves measured: the uncompressed
   form's quadratic on the staircase is reproducible, and the
   compressed form holds every family flat.)
@@ -690,7 +727,11 @@ costs through @funding's three funding sources:
   death, funded, which is why one slot suffices); an undercut deep
   enough to reach $r$ annihilates it (a death again); and
   comparisons against the composite gap go through the domination
-  floor, deciding from top digits without touching $r$'s width.
+  floor, deciding from top digits without touching $r$'s width —
+  and where the floors fail to decide, comparable scales, the
+  narrower of the two folds into the wider and dies, a $Phi$ drop
+  funded once by the codes that deposited it (closes cannot re-arm
+  it: they move $r$, never re-spell it).
   The distinction between move and fold is not pedantry:
   fold-on-close re-folds a wide boundary difference on every
   close/reopen cycle, and a comb of sibling sites sharing one
@@ -743,7 +784,10 @@ collapsing builder, so any merge the increment makes reachable _is_
 performed; and on this branch the case is vacuous anyway — a
 wholly-owned leaf sitting one below an equal-able sibling is exactly
 what `fill`'s shortcut arm would have raised, so the flag would have
-tripped and `grow` would never have run.
+tripped and `grow` would never have run — and on arm 3's unchanged
+emission the increment does not fire either: there `grow` expands
+the leaf into fresh nodes rather than raising it, creating no equal
+pair.
 
 The hottest pattern in any real deployment — a participant ticking
 its own version again and again — takes exactly this branch: its
@@ -842,7 +886,8 @@ and once split, the region stays split (a `fill` collapse cannot
 undo a `grow` expansion under the same party, because a
 wholly-owned event _node_ always changes under `fill`, so `grow`
 only ever sees leaves) — so the node budget is
-spent at most once, the lone $4 dot "size"(i)$; and $k$ ticks raise
+spent at most once, the explicit $4 dot "size"(i)$ being slack that
+covers whichever tick spends it; and $k$ ticks raise
 values by at most $k$, so the two re-coded payloads widen by at
 most $2 ceil(log_2 (k + 1))$ code bits apiece — gamma's two bits
 per magnitude bit — the logarithmic term.

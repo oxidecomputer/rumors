@@ -12,7 +12,9 @@ number honest.
 == The framing <ctf>
 
 For each $n$, let $cal(F)(n)$ be the family of versions whose
-canonical stream fits in $n$ bits, and let
+canonical stream fits in $n$ bits (unpadded bits throughout, per
+@canonical — the final byte's up-to-seven padding bits vanish in
+every ratio below), and let
 $H(n) = log_2 |cal(F)(n)|$. _Any_ injective assignment of bit
 strings to the members of $cal(F)(n)$ — ours, or the best
 conceivable replacement, prefix-free or not — must give some member
@@ -90,7 +92,10 @@ singularity, $x_c = 0.514500dots$ (the other branch,
 $1 - 2 x^2 - 2 x^3 + 2 sqrt(2) x^4 = 0$, first vanishes near
 $0.707$) — safely inside $G$'s own radius of
 convergence $1 \/ sqrt(2)$, so the branch point governs. By the
-standard transfer for square-root singularities, the number of
+standard transfer for square-root singularities (applicable because
+the grammar is aperiodic: $V = A + B$ has streams of both parities —
+a lone leaf is even, a node odd — so $x_c$ is the unique dominant
+singularity), the number of
 exactly-$n$-bit canonical streams is $Theta(2^(alpha n) n^(-3\/2))$
 with
 
@@ -221,7 +226,11 @@ one does.
 
 Why accept a code with that exposure? Because the alternative is
 worse where it matters. Integer codes exist whose counting overhead
-is exactly $1 times$ asymptotically — Elias delta and omega. That
+is exactly $1 times$ asymptotically — Elias delta and omega — with
+this section's own caveat applied to them from the start: each
+code's overhead is measured against its _own_ reachable family, so
+the two ratios do not decide between the codes; the family-fixed
+decision is the measured re-coding below. That
 sounds like it contradicts @tax (gamma is Kraft-complete too; the
 tax was "all canonicality"), so the reconciliation deserves a
 sentence. The sibling-merge pruning is the same rule under any

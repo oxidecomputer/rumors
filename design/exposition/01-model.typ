@@ -31,13 +31,15 @@ The construction we develop answers with one representation and one
 piece of arithmetic:
 
 - *The skyline* (@skyline): a clock's event component denotes a step
-  function over the unit interval. Store _that_ — the sequence of
+  function over the unit interval. Store _that_ — the tree's shape
+  as one flag bit per node, and the sequence of
   plateau heights, delta-coded, bit-packed, in one contiguous buffer —
-  rather than the tree that spells it. The representation is canonical
+  rather than the tree's interior numbers. The representation is canonical
   (one bit string per value, so byte equality _is_ semantic equality),
   compact (worst case within $4.3%$ of the information-theoretic
   floor asymptotically and $6.7%$ at hundred-byte sizes, for the
-  family it covers — @ctf fixes the framing precisely), and sweepable: every operation the
+  family it covers — @ctf fixes the framing, @ctf-caveat states its
+  exposure), and sweepable: every operation the
   clock API asks for is computable in a bounded number of
   left-to-right passes — one for most operations, two where a
   lookahead or a measure's pre-pass is inherent.
@@ -51,7 +53,7 @@ piece of arithmetic:
   word-sized update and every sign query amortized constant-time, and
   every wide update linear in its own width, _on every input
   sequence_ (with one restriction, stated and used in @accum: an
-  accumulator that receives writes at large power-of-two scales is
+  accumulator that receives writes at power-of-two scales is
   never asked for its sign — it is written, then read out once at
   the end) — the load-bearing component that lets each sweep's cost
   argument close.
@@ -91,17 +93,18 @@ generators, medians over repeated samples for wall-clock numbers;
 the resource counters (bits scanned, accumulator digit touches, peak
 transient bytes) are deterministic and machine-independent, so
 nanosecond bands indicate a class while counter readings are exact.
-Three
-arguments have known boundaries, each stated where it lives rather
-than smoothed over — one uncertified input shape in rank's funding
+Seven
+concessions, of four kinds, each stated where it lives rather
+than smoothed over. Three boundaries of arguments: one uncertified
+input shape in rank's funding
 argument (@measures), one probabilistic step in the counting bound
 (@nonneg), and one framing choice in what the compactness floor is
-measured against (@ctf-caveat) — plus one machine effect the linear
-bound absorbs rather than eliminates (@words), one clause stated
+measured against (@ctf-caveat). One machine effect the linear
+bound absorbs rather than eliminates (@words). One clause stated
 without proof (join's subadditivity in the minimum-tick floor,
-@measures), and two derivations whose full forms live in our work
+@measures). And two derivations whose full forms live in our work
 with their shapes given here (the join size constant, @join; tick's
-output bounds, @tick-output); @closing collects them all.
+output bounds, @tick-output). @closing re-collects all seven.
 
 *What this document does not cover.* The library around this design
 has concerns this exposition deliberately omits: the API and its
@@ -164,14 +167,19 @@ names of the implementation rather than the paper's, because the
 renaming carries a point of view: we write *version* for the paper's
 event component (it is a causal timestamp — a value in its own right,
 freely copied), *party* for the id component (the participant's
-share of the id space), *clock* for the stamp $(i, e)$ (a party
-paired with its current version), and *tick* for the paper's `event`
+share of the id space), *clock* for the stamp $(i, e)$ — the value,
+a party
+paired with its current version; "ITC" names the scheme — and
+*tick* for the paper's `event`
 operation. "Tree" is reserved for the paper's spelling of these
 values; the whole burden of @skyline is that the tree is not the
 value.
 
-*Symbols.* Recurring symbols, fixed here (a few letters do local
-double duty; each such use is flagged where it occurs):
+*Symbols.* Recurring symbols, fixed here. The table covers symbols
+whose scope crosses a subsection; strictly local ones (a carry $c$,
+gamma's bucket index $b$, a digit's would-be value $q$) are defined
+at use. A few letters do
+double duty; each such use is flagged where it occurs:
 
 #figure(
   table(
@@ -190,8 +198,11 @@ double duty; each such use is flagged where it occurs):
     [$ell$], [the word length of a wide operand],
     [$k$], [a construction's scale parameter (a cliff's width, a
       gamma bucket, an iteration count — local to each use)],
-    [$w$], [a construction's tooth width (@two-zone); in
-      @ctf-caveat, a family's payload width],
+    [$w$], [a width in magnitude bits: a construction's tooth width
+      (@two-zone), a delta's magnitude-bit count (@sign), a family's
+      payload width (@ctf-caveat)],
+    [$v$], [a coded payload value (@coding); also a version, as in
+      $"rank"(v)$ — context separates them],
     [$s$], [a scaled write's power-of-two exponent
       (@accum-contract)],
     [$t$], [double duty, flagged in place: a construction's tooth
