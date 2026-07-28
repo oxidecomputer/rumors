@@ -2462,15 +2462,18 @@ pub fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
 /// each shade is [`hugeleaf`]`(2)` — the constant-3 skyline, one leaf,
 /// 6 packed bits — sitting strictly above the carrier everywhere. The
 /// running meet is therefore the carrier, byte-identical, at every
-/// step: `acc ∧ shade` re-walks the whole carrier per shade (the
-/// emission sweep visits every boundary of the overlay and the
-/// carrier supplies `Θ(d)` of them), so a sequential reduce pays
-/// `Θ(k · d)` on a `Θ(d + k)`-byte population. Neither operand shape
-/// is adversarial alone — both are committed linear families — and no
-/// short-circuit applies: the shade is never byte-equal to the
-/// accumulator, never empty, and the accumulator never empties. The
-/// committed red pin (`meet_all_shade_reads_superlinear` in
-/// `tests/meter.rs`) carries the measured growth; the population's
+/// step: `acc ∧ shade` re-walks the whole carrier (the emission sweep
+/// visits every boundary of the overlay and the carrier supplies
+/// `Θ(d)` of them), and no short-circuit applies — the shade is never
+/// byte-equal to the accumulator, never empty, and the accumulator
+/// never empties. A sequential reduce therefore pays `Θ(k · d)` on a
+/// `Θ(d + k)`-byte population, while the balanced reduction re-walks
+/// the carrier once per counter level, `O(d log k + k)`. Neither
+/// operand shape is adversarial alone — both are committed linear
+/// families. The committed flatness band and the sequential-reduce
+/// adequacy tripwire (`meet_all_shade_is_flat_per_unit` and
+/// `sequential_meet_reduce_reads_superlinear_on_shade` in
+/// `tests/meter.rs`) carry both measured readings; the population's
 /// semantic leg is exactness — the fold returns the carrier.
 ///
 /// # Panics

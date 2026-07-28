@@ -413,15 +413,13 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::meet_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D)` space", "**superlinear**"],
+            tokens: &["`O(D log k)`", "`O(D)`"],
         }],
-        cells: Cells::Uncelled(
-            "no board row: the sequential reduce's worst case — a non-shrinking \
-             accumulator re-walked whole per dominating operand — is committed \
-             as the envelope suite's red pin (`meet_all_shade_reads_superlinear` \
-             on the meet-shade population, `tests/meter.rs`), and the board row \
-             lands with the cure (the board module doc's coverage list)",
-        ),
+        // The join fold's balanced reduction over the meet emitter; the
+        // non-shrinking-accumulator worst case is held flat by the
+        // `meet_fold` band and its sequential-reduce tripwire
+        // (`tests/meter.rs`) on the meet-shade population.
+        cells: Cells::Board(&[("version_meet_all", Class::FoldLog)]),
     },
     Claim {
         op: "Version::encode",

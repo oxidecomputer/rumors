@@ -344,7 +344,8 @@
 //! both sides so an improved kernel forces a deliberate re-declaration,
 //! and tripwired in the test suite by a wrong artifact reading red:
 //!
-//! - **The fold rows** (`version_join_all`, `party_join_all`): the
+//! - **The fold rows** (`version_join_all`, `version_meet_all`,
+//!   `party_join_all`): the
 //!   balanced reduction's documented `O(D log k)` puts a `log2(2k)`
 //!   factor in the deterministic counters that no flat ceiling admits at
 //!   scale. The limb/scan/touch exponent ceilings become the model's own
@@ -424,7 +425,7 @@
 //! boundary-aligned exact-`top` pair) carries its generator pair the same
 //! way; the three fold populations —
 //! `scatter`, `weave`, and `stagger` — carry fold operands alone, so
-//! exactly the two
+//! exactly the three
 //! fold rows run on them; `benign` — a fixed-seed pseudo-random population of forked,
 //! ticked clocks, the control row that keeps the ceilings honest on
 //! organic inputs — carries everything. Where an operation needs a
@@ -499,9 +500,9 @@
 //!   \[measured — limb exponent 1.00, constant within 2% of `dense`, both
 //!   scales\]: the column is the tripwire that goes red under the
 //!   re-shifting genre.
-//! - `scatter`, whose bundle carries fold operands alone, for the two
-//!   fold rows (`version_join_all`,
-//!   `party_join_all`; both also keep a `benign` control cell, folding the
+//! - `scatter`, whose bundle carries fold operands alone, for the three
+//!   fold rows (`version_join_all`, `version_meet_all`,
+//!   `party_join_all`; all also keep a `benign` control cell, folding the
 //!   organic population in construction order): balanced-forked
 //!   single-tick operands ordered evens before odds, so a sequential
 //!   fold's accumulator holds every other leaf and never coalesces — the
@@ -555,22 +556,19 @@
 //!   measures; `Party::tick` is the mirror of `Version::tick` (the
 //!   `tick_adv_party` row); `Debug` for all three types delegates to
 //!   `Display`.
-//! - **Folds over measured operations**: `Version::join_all` has its own
+//! - **Folds over measured operations**: `Version::join_all` and
+//!   `Version::meet_all` each have their own
 //!   row (the `scatter`, `weave`, and `stagger` cells plus the `benign`
-//!   control), and
-//!   `Version::Sum`/`FromIterator` are that
+//!   control) — the two folds share one balanced reduction, so the meet
+//!   row prices the same counter over the meet emitter (its
+//!   non-shrinking-accumulator worst case, the meet-shade population,
+//!   stays an envelope-suite family: the `meet_fold` band and its
+//!   sequential-reduce tripwire in `tests/meter.rs`) — and
+//!   `Version::Sum`/`FromIterator` are the join
 //!   fold by definition; `Party::join_all` likewise (the party fold's
 //!   cells); `Clock::join_all` is the party fold and the version
-//!   fold run side by side, so the two fold rows price both of its
-//!   halves. `Version::meet_all` has no row of its own, and not because
-//!   it is safe: the sequential reduce's every step sweeps both of its
-//!   operands whole, and a meet shrinks the accumulator's *value*,
-//!   never necessarily its packed size, so a population that keeps the
-//!   accumulator full-size re-walks it per operand — the worst case is
-//!   committed as the envelope suite's red pin
-//!   (`meet_all_shade_reads_superlinear` on the meet-shade population,
-//!   `tests/meter.rs`) rather than blessed by a board ceiling, and the
-//!   row lands with the cure.
+//!   fold run side by side, so those two fold rows price both of its
+//!   halves.
 //!   `Party::forks`/`Clock::forks` iterate the measured `fork`, each step
 //!   on the freshly-split half (shrinking operands, same argument); a
 //!   `Forks` iterator dropped mid-run rejoins its unclaimed remainder in
@@ -3601,7 +3599,8 @@ enum OpGroup {
     /// input-denominated on every shape — a comparison never
     /// materializes the projection.
     Projection,
-    /// The fold rows: `version_join_all`, `party_join_all`.
+    /// The fold rows: `version_join_all`, `version_meet_all`,
+    /// `party_join_all`.
     Fold,
     /// Rows over a shape's disjoint party pair.
     Party,
@@ -4012,6 +4011,30 @@ fn ops() -> Vec<Op> {
                 Some(
                     Cell::new(n, walk_floors(n, touch), move || {
                         Version::join_all(versions)
+                    })
+                    .with_fold_arity(arity),
+                )
+            },
+        },
+        Op {
+            name: "version_meet_all",
+            group: OpGroup::Fold,
+            prepare: |f| {
+                // The meet fold: the join fold's balanced reduction over
+                // the meet emitter, so the same declared fold model and
+                // the same first-level touch floor (the fused pair sweep
+                // walks both operands of every first-level merge; later
+                // levels' groups shrink toward the population's meet and
+                // canonical identity answers equal groups before any
+                // sweep).
+                let (versions, _) = f.fold.as_ref()?;
+                let n = versions.iter().map(Vec::len).sum();
+                let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
+                let arity = versions.len() as u64;
+                let touch = touch_fold_first_merges(&versions);
+                Some(
+                    Cell::new(n, walk_floors(n, touch), move || {
+                        Version::meet_all(versions)
                     })
                     .with_fold_arity(arity),
                 )

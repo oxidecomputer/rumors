@@ -36,7 +36,7 @@ const SMOKE_SCALE: f64 = 0.02;
 /// version, its derived pairings, and its rejection rows) supply 43
 /// rows; the id pair (parties only) 38; the cross shapes (version,
 /// mounted party pair, clock, and the id-side rejections) 64; the three
-/// fold-only populations (scatter, weave, stagger) exactly the 2 fold
+/// fold-only populations (scatter, weave, stagger) exactly the 3 fold
 /// rows; and the benign control supplies every row.
 const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
     ("dense", 43),
@@ -46,9 +46,9 @@ const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
     ("id-pair", 38),
     ("comb-scatter", 64),
     ("harmonic", 43),
-    ("scatter", 2),
-    ("weave", 2),
-    ("stagger", 2),
+    ("scatter", 3),
+    ("weave", 3),
+    ("stagger", 3),
     ("nested-full", 64),
     ("nested-wide", 64),
     ("mirror-wide", 64),
@@ -66,7 +66,7 @@ const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
     ("freeze-parade", 43),
     ("concurrent-pair", 43),
     ("tooth-tail", 43),
-    ("benign", 66),
+    ("benign", 67),
 ];
 
 /// The board runs to completion at tiny sizes — every cell prepares,
@@ -217,6 +217,10 @@ const BAND_ONLY: &[(&str, &str)] = &[
     (
         "skyline_distance_dense_suffix_is_flat_per_unit",
         "as the dense-suffix rank band's",
+    ),
+    (
+        "meet_all_shade_is_flat_per_unit",
+        "the meet-shade population is an envelope-suite fold wedge by the FAMILIES roster criterion; the version_meet_all row prices the fold on the rostered fold populations",
     ),
 ];
 
