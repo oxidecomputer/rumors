@@ -3712,7 +3712,7 @@ fn skyline_project_comb_scatter_envelope() {
         "MEASURED skyline_project_comb_scatter: output_bytes={}",
         out.as_raw_slice().len()
     );
-    let expected = meter::skyline::encode(&(&v / &party));
+    let expected = meter::skyline::encode(&(&v / &party).to_version());
     assert_eq!(out, expected, "the kernel must match the packed quotient");
 }
 

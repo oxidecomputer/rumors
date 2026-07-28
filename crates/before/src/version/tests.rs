@@ -297,16 +297,19 @@ proptest! {
 }
 
 proptest! {
-    /// Differential. The impl quotient `v / &p` matches the oracle's projection
-    /// (mask `v` to `p`'s region), over a shared population: arbitrary versions
-    /// and parties drawn from the clocks.
+    /// Differential. The impl projection's materialization
+    /// (`(&v / &p).to_version()`) matches the oracle's projection (mask `v`
+    /// to `p`'s region), over a shared population: arbitrary versions and
+    /// parties drawn from the clocks.
     #[test]
     fn div_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
         let oracle_proj = vs[i % n].clone() / cs[j % n].party();
-        let proj = from_oracle_version(&vs[i % n]) / &from_oracle_party(cs[j % n].party());
+        let v = from_oracle_version(&vs[i % n]);
+        let p = from_oracle_party(cs[j % n].party());
+        let proj = (&v / &p).to_version();
         prop_assert!(proj == from_oracle_version(&oracle_proj));
     }
 }
@@ -1468,8 +1471,8 @@ fn div_decomposes_along_fork() {
     a.sync(&mut b).unwrap(); // both learn the full history
     let v = a.version().clone();
 
-    let from_a = &v / a.party();
-    let from_b = &v / b.party();
+    let from_a = (&v / a.party()).to_version();
+    let from_b = (&v / b.party()).to_version();
 
     assert!(from_a <= v && from_b <= v); // each contribution is a sub-version
     assert_eq!(&from_a | &from_b, v); // and they rejoin to the whole
@@ -1477,23 +1480,22 @@ fn div_decomposes_along_fork() {
     assert_eq!(&v / &Party::seed(), v); // the whole-interval party is the identity
 }
 
-/// `/=` agrees with `/`, and projecting onto a party disjoint from where the
-/// events happened keeps nothing.
+/// The view and its materialization agree, and projecting onto a party
+/// disjoint from where the events happened keeps nothing — lazily and
+/// materialized alike.
 #[test]
-fn div_assign_matches_div() {
+fn div_view_matches_materialization() {
     let mut a = Clock::seed();
     let b = a.fork(); // a: one half, b: the disjoint other
     a.tick();
     let v = a.version().clone();
 
-    let mut w = v.clone();
-    w /= a.party();
-    assert_eq!(w, &v / a.party());
+    let w = (&v / a.party()).to_version();
+    assert_eq!(&v / a.party(), w);
     assert_eq!(w, v); // a's whole version lives in a's region
 
-    let mut z = v.clone();
-    z /= b.party();
-    assert_eq!(z, Version::new()); // none of a's tick lies in b's region
+    assert_eq!(&v / b.party(), Version::new()); // none of a's tick lies in b's region
+    assert_eq!((&v / b.party()).to_version(), Version::new());
 }
 
 /// Projection can *raise* `min_ticks`: it is not monotone under `<=`.
@@ -1515,7 +1517,7 @@ fn div_can_fragment_and_raise_min_ticks() {
     let v = Version::try_from(1).unwrap();
     assert_eq!(v.min_ticks(), Ticks::from(1u64)); // one tick covers the whole interval
 
-    let frag = &v / comb;
+    let frag = (&v / comb).to_version();
     assert!(frag <= v); // still a sub-version
     assert_eq!(frag.min_ticks(), Ticks::from(2u64)); // but now two concurrent peaks
 }

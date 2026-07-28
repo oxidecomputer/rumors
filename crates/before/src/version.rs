@@ -3,12 +3,13 @@
 use core::cmp::Ordering;
 use core::fmt::Display;
 use core::iter::Sum;
-use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
+use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div};
 
 use crate::codec;
 use crate::error::{Decode, Parse};
 use crate::Party;
 
+mod own;
 mod rank;
 mod ranked;
 mod ticks;
@@ -21,6 +22,7 @@ pub mod skyline;
 #[cfg(not(any(test, feature = "meter")))]
 pub(crate) mod skyline;
 
+pub use own::OwnVersion;
 pub use rank::Rank;
 pub use ranked::Ranked;
 pub use ticks::Ticks;
@@ -61,8 +63,10 @@ mod tests;
 /// meet (`&`, `&=`) cell, over owned or borrowed operands,
 /// is `O(|a| + |b|)` time and space, and a join or meet result
 /// is `O(|a| + |b|)` bytes itself. Hashing is `O(|v|)`. The costs that
-/// differ live on their operations: the projection `/` (its result can
-/// outgrow its operands), the n-ary folds
+/// differ live on their operations: the projection `/` (an `O(1)` view
+/// whose explicit materialization,
+/// [`OwnVersion::to_version`](crate::OwnVersion::to_version), can outgrow
+/// its operands), the n-ary folds
 /// ([`join_all`](Version::join_all)), and the text conversions
 /// (`Display` and `FromStr`, documented on their impls).
 ///
@@ -864,33 +868,36 @@ binop_matrix! {
     Version,  &Version, assign;
 }
 
-// ───────────────────── projection onto a party (`/`, `/=`) ───────────────────
+// ─────────────────────── projection onto a party (`/`) ───────────────────────
 //
-// `v / &p` masks `v` to `p`'s id: the value is kept wherever `p` owns the
-// region and zeroed everywhere else ("`p`'s contribution to `v`"). It reads
-// only the party's id bits (`as_bits`), never consuming or cloning the linear
-// `Party`, so it takes `&Party` and leaves it untouched.
+// `&v / &p` names `p`'s contribution to `v`: the value wherever `p` owns
+// the region, zero everywhere else. The operator borrows both operands
+// (never consuming or cloning the linear `Party`) and builds the
+// [`OwnVersion`] view in O(1); comparisons decide against the view
+// directly, and only the explicit [`OwnVersion::to_version`] pays the
+// projection's product-growth materialization.
 //
-// Algebraic shape (exercised by `version::tests`): the projection is a
-// sub-version (`v/p <= v`) and idempotent (`(v/p)/p == v/p`). It is additive
-// across a fork (`v/p == v/p_left | v/p_right` for disjoint halves), and so a
+// Algebraic shape (exercised by `crate::laws`' projection laws): the
+// projection is a sub-version (`v/p <= v`) and idempotent
+// (`(v/p)/p == v/p`). It is additive across a fork
+// (`v/p == v/p_left | v/p_right` for disjoint halves), and so a
 // homomorphism of both join and meet (`(a|b)/p == a/p | b/p`,
 // `(a&b)/p == a/p & b/p`); the whole-interval party leaves `v` unchanged.
 // Projection can still raise `min_ticks` (carving one broad tick into
 // disjoint peaks), so it is not monotone under `<=`.
 
-/// `v / &p` — the part of the [`Version`] `v` contributed within [`Party`]
-/// `p`'s id region (zero everywhere `p` does not own). The party is borrowed,
-/// not consumed.
+/// `&v / &p` — the part of the [`Version`] `v` contributed within
+/// [`Party`] `p`'s id region (zero everywhere `p` does not own), as the
+/// lazy [`OwnVersion`] view. Both operands are borrowed, not consumed.
+///
+/// The view compares directly (against a [`Version`] or another view);
+/// the projected [`Version`] itself exists only through the explicit
+/// [`OwnVersion::to_version`], whose result can outgrow its operands.
 ///
 /// # Complexity
 ///
-/// `O(|v| + |p| + |r|)` time and space, where `|r|` is the result's packed
-/// size. The result is not bounded by a constant factor of the operands:
-/// masking one broad region of a wide value to a party scattered across it
-/// re-codes that width once per kept fragment, so `|r|` can grow as their
-/// product ([`encoded_bits`](Version::encoded_bits) on the result is the
-/// honest measure).
+/// `O(1)` time and space: the view borrows its operands. Every cost lives
+/// on the view's operations ([`OwnVersion`]'s doc carries them).
 ///
 /// ```
 /// use before::Clock;
@@ -902,28 +909,16 @@ binop_matrix! {
 /// a.sync(&mut b).unwrap();
 /// let v = a.version().clone();
 /// // Each half's contribution is a sub-version, and the two rejoin to `v`.
-/// let from_a = &v / a.party();
-/// let from_b = &v / b.party();
-/// assert!(from_a <= v && from_b <= v);
-/// assert_eq!(&from_a | &from_b, v);
+/// assert!(&v / a.party() <= v && &v / b.party() <= v);
+/// assert_eq!((&v / a.party()).to_version() | (&v / b.party()).to_version(), v);
 /// ```
-impl Div<&Party> for &Version {
-    type Output = Version;
-    fn div(self, party: &Party) -> Version {
-        Version::from_bits(skyline::query::project(&self.0, party))
-    }
-}
-
-impl Div<&Party> for Version {
-    type Output = Version;
-    fn div(self, party: &Party) -> Version {
-        &self / party
-    }
-}
-
-impl DivAssign<&Party> for Version {
-    fn div_assign(&mut self, party: &Party) {
-        *self = Version::from_bits(skyline::query::project(&self.0, party));
+impl<'a> Div<&'a Party> for &'a Version {
+    type Output = OwnVersion<'a>;
+    fn div(self, party: &'a Party) -> OwnVersion<'a> {
+        OwnVersion {
+            party,
+            version: self,
+        }
     }
 }
 

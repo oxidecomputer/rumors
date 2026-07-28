@@ -1054,7 +1054,10 @@ fn advance_overlay(
 /// stream bits; exhaustion is therefore tracked by the path's
 /// left-branch count (zero means the current leaf is the preorder last),
 /// not by stream position.
-struct IdLeafCursor<'a> {
+///
+/// Shared with the masked comparison co-walk ([`super::masked`]), which
+/// runs the same overlay bookkeeping against up to two of these cursors.
+pub(super) struct IdLeafCursor<'a> {
     cursor: SliceCursor<'a>,
     /// Root-to-leaf branch directions, root first.
     path: Bits,
@@ -1077,7 +1080,7 @@ impl<'a> IdLeafCursor<'a> {
     /// # Panics
     ///
     /// Panics if the stream is not a canonical packed id.
-    fn open(bits: &'a BitsSlice) -> Self {
+    pub(super) fn open(bits: &'a BitsSlice) -> Self {
         let mut this = IdLeafCursor {
             cursor: SliceCursor::new(bits, 0),
             path: Bits::new(),
@@ -1092,18 +1095,18 @@ impl<'a> IdLeafCursor<'a> {
     }
 
     /// The current region's depth: its interval has width `2^-depth`.
-    fn depth(&self) -> usize {
+    pub(super) fn depth(&self) -> usize {
         self.path.len()
     }
 
     /// Whether the current region is owned by the id.
-    fn owned(&self) -> bool {
+    pub(super) fn owned(&self) -> bool {
         self.owned
     }
 
     /// Whether the current region is the stream's last (its interval
     /// ends at the unit interval's right edge).
-    fn done(&self) -> bool {
+    pub(super) fn done(&self) -> bool {
         self.lefts == 0
     }
 
@@ -1114,7 +1117,7 @@ impl<'a> IdLeafCursor<'a> {
     ///
     /// Panics if the stream is not a canonical packed id. Never called
     /// on a final region (the overlay stops when both cursors are done).
-    fn step(&mut self) -> usize {
+    pub(super) fn step(&mut self) -> usize {
         loop {
             match self.path.pop() {
                 Some(true) => {

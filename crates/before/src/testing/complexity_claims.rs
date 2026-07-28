@@ -500,9 +500,23 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::own_version",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|c| + |r|)`"],
+            tokens: &["`O(1)`"],
         }],
-        cells: Cells::Board(&[("clock_own_version", Class::LinearIo)]),
+        cells: Cells::Uncelled(
+            "view construction: two borrows; the materialization and fused \
+             comparison costs live on the OwnVersion rows",
+        ),
+    },
+    Claim {
+        op: "OwnVersion::to_version",
+        checks: &[Check {
+            site: Site::Fn,
+            tokens: &["`O(|v| + |p| + |r|)`"],
+        }],
+        cells: Cells::Board(&[
+            ("own_version_to_version", Class::LinearIo),
+            ("clock_own_version_to_version", Class::LinearIo),
+        ]),
     },
     Claim {
         op: "Clock::encode",
@@ -615,12 +629,39 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ]),
     },
     Claim {
-        op: "Version / &Party (Div/DivAssign — projection)",
+        op: "&Version / &Party (Div — the lazy projection view)",
         checks: &[Check {
-            site: Site::ImplDoc("src/version.rs", "impl Div<&Party> for &Version"),
+            site: Site::ImplDoc("src/version.rs", "Div<&'a Party> for &'a Version"),
+            tokens: &["`O(1)`"],
+        }],
+        cells: Cells::Uncelled(
+            "view construction: two borrows; the materialization and fused \
+             comparison costs live on the OwnVersion rows",
+        ),
+    },
+    Claim {
+        op: "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
+        checks: &[Check {
+            site: Site::TypeDoc("src/version/own.rs", "OwnVersion"),
+            tokens: &["`O(|v| + |p| + |w|)`"],
+        }],
+        cells: Cells::Board(&[("own_version_cmp", Class::Linear)]),
+    },
+    Claim {
+        op: "OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)",
+        checks: &[Check {
+            site: Site::TypeDoc("src/version/own.rs", "OwnVersion"),
+            tokens: &["`O(|v₁| + |p₁| + |v₂| + |p₂|)`"],
+        }],
+        cells: Cells::Board(&[("own_version_pair_cmp", Class::Linear)]),
+    },
+    Claim {
+        op: "From<OwnVersion> for Version (explicit materialization)",
+        checks: &[Check {
+            site: Site::ImplDoc("src/version/own.rs", "From<OwnVersion<'_>> for Version"),
             tokens: &["`O(|v| + |p| + |r|)`"],
         }],
-        cells: Cells::Board(&[("version_project", Class::LinearIo)]),
+        cells: Cells::Board(&[("own_version_to_version", Class::LinearIo)]),
     },
     Claim {
         op: "Version PartialOrd (the comparison matrix, owned and borrowed)",

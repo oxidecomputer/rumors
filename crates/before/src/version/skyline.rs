@@ -27,7 +27,9 @@
 //! [`Version::encode`] and [`Version::decode`] carry these streams, and
 //! every operation runs on them directly. The [`sweep`] submodule decides
 //! comparisons on skyline streams — the merge form the coding exists to
-//! enable; the [`emit`] submodule runs the same merge as join and meet,
+//! enable — and the [`masked`] submodule decides the same comparisons
+//! over *projected* streams (event × id overlays) without materializing
+//! any projection; the [`emit`] submodule runs the same merge as join and meet,
 //! re-delta-coding pointwise max/min into a canonical stream through the
 //! collapsing output builder; the [`query`] submodule answers the linear
 //! functionals (rank, distance, lag, min_ticks) and projection from the
@@ -150,6 +152,7 @@ mod encode;
 pub mod fill;
 pub mod grow;
 pub mod literal;
+pub mod masked;
 pub mod query;
 pub mod sweep;
 pub mod text;

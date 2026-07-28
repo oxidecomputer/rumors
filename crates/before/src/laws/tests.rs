@@ -18,6 +18,7 @@ fn law_names_are_unique_across_groups() {
         .chain(super::VERSION_PARTY.iter().map(|(name, _)| *name))
         .chain(super::VERSION_PAIR_PARTY.iter().map(|(name, _)| *name))
         .chain(super::VERSION_PARTY_PAIR.iter().map(|(name, _)| *name))
+        .chain(super::VERSION_PAIR_PARTY_PAIR.iter().map(|(name, _)| *name))
         .chain(super::RANK_TRIPLE.iter().map(|(name, _)| *name))
         .chain(super::CLOCK_SOLO.iter().map(|(name, _)| *name))
         .chain(super::CLOCK_VERSION.iter().map(|(name, _)| *name))

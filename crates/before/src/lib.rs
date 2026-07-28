@@ -409,7 +409,7 @@ pub use clock::Clock;
 pub mod causally;
 pub mod error;
 pub use party::Party;
-pub use version::{Rank, Ranked, Ticks, Version};
+pub use version::{OwnVersion, Rank, Ranked, Ticks, Version};
 pub mod iter {
     //! Lazy balanced-fork iterators: [`iter::Party`](Party) and
     //! [`iter::Clock`](Clock).

@@ -433,6 +433,12 @@ pub(crate) const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_fs: Leg::Trans("quotient_realizes_region_mask"),
         tree_fs: Leg::Bound("quotient_realizes_region_mask"),
     },
+    SurfaceRow {
+        op: "OwnVersion::to_version",
+        prod_tree: Leg::Bound("div_matches_oracle"),
+        prod_fs: Leg::Trans("quotient_realizes_region_mask"),
+        tree_fs: Leg::Bound("quotient_realizes_region_mask"),
+    },
     codec_row("Clock::encode"),
     codec_row("Clock::encode_to"),
     codec_row("Clock::decode"),
@@ -513,10 +519,28 @@ pub(crate) const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Bound("meet_realizes_pointwise_min"),
     },
     SurfaceRow {
-        op: "Version / &Party (Div/DivAssign — projection)",
+        op: "&Version / &Party (Div — the lazy projection view)",
         prod_tree: Leg::Bound("div_matches_oracle"),
         prod_fs: Leg::Trans("quotient_realizes_region_mask"),
         tree_fs: Leg::Bound("quotient_realizes_region_mask"),
+    },
+    SurfaceRow {
+        op: "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
+        prod_tree: Leg::Bound("view_cmp_matches_oracle_composed"),
+        prod_fs: Leg::Trans("own_version_cmp_matches_materialized"),
+        tree_fs: Leg::Trans("quotient_realizes_region_mask"),
+    },
+    SurfaceRow {
+        op: "OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)",
+        prod_tree: Leg::Bound("view_pair_cmp_matches_oracle_composed"),
+        prod_fs: Leg::Trans("own_version_pair_cmp_matches_materialized"),
+        tree_fs: Leg::Trans("quotient_realizes_region_mask"),
+    },
+    SurfaceRow {
+        op: "From<OwnVersion> for Version (explicit materialization)",
+        prod_tree: Leg::Trans("from_impl_is_to_version"),
+        prod_fs: Leg::Trans("from_impl_is_to_version"),
+        tree_fs: Leg::Trans("from_impl_is_to_version"),
     },
     SurfaceRow {
         op: "Version PartialOrd (the comparison matrix, owned and borrowed)",
@@ -690,6 +714,11 @@ pub(crate) const SURFACE_SOURCES: &[SourceSpec] = &[
     },
     SourceSpec {
         path: "src/clock.rs",
+        module_prefix: None,
+        type_override: None,
+    },
+    SourceSpec {
+        path: "src/version/own.rs",
         module_prefix: None,
         type_override: None,
     },
