@@ -1579,6 +1579,145 @@ pub fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
     )
 }
 
+/// The masked-comparison correlated triple `MT(k, n)`: a boundary comb, a
+/// mask owning every other tooth, and a wide plateau — the three-stream
+/// fused comparison's adversary, each operand benign alone.
+///
+/// Returns `(event, id, event)`: [`cliff_comb`]`(k, n)` (the masked
+/// operand), [`scattered_id`]`(n / 2)` (the mask, whose owned fragments
+/// sit exactly at the comb's even tooth positions), and a single-leaf
+/// plateau at `2^k` (the unmasked right operand, `2k + 2` bits). The
+/// correlation is the point — every operand is a certified-linear genre
+/// by itself (the comb, the scattered id, a hugeleaf-class plateau), and
+/// the heat exists only in the composition: comparing
+/// `(comb / mask) ⋚ plateau` toggles ownership at every tooth boundary,
+/// so the walk alternates between reading the difference `D = h_comb −
+/// 2^k` inside owned teeth — a near-zero value spelled by cancelling
+/// wide digits, oscillating across the `2^k` carry boundary behind 3-bit
+/// stored deltas — and the zero-check `sign(h_plateau)` on unowned
+/// intervals. An integrator that materializes either read pays `Θ(k)`
+/// limb work per 3-bit code; the balanced signed-digit accumulator
+/// answers both in amortized O(1) touches (the envelope rows and the
+/// flatness band in `tests/meter.rs` hold it there). The verdict is
+/// `Less` — the projected comb sits under the plateau everywhere and
+/// strictly under it outside the mask — so the walk never exits early
+/// and the measurement prices the whole overlay.
+///
+/// # Panics
+///
+/// Panics if `k == 0`, or `n` is not an even count of at least 2 (the
+/// mask owns every other tooth).
+pub fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
+    assert!(k >= 1, "the mask-drift triple needs a nonzero magnitude");
+    assert!(
+        n >= 2 && n % 2 == 0,
+        "the mask-drift triple needs an even tooth count"
+    );
+    let mut plateau = Bits::with_capacity(2 * k + 2);
+    ev_leaf_wide(&mut plateau, &pow2(k));
+    (
+        cliff_comb(k, n),
+        scattered_id(n / 2),
+        Packed::from_bits(plateau),
+    )
+}
+
+/// The masked-comparison correlated quadruple `MQ(k, n)`: two comb/mask
+/// pairs whose ownership parities interleave — the four-stream fused
+/// comparison's adversary, each operand benign alone.
+///
+/// Returns `((event₁, id₁), (event₂, id₂))`: the sparse comb (teeth at
+/// odd levels only, plain zero leaves at even levels,
+/// `(n/2)(2k + 14) + 2` bits) under [`scattered_id`]`(n / 2)` (owning
+/// the even levels — exactly where its event is zero), against the full
+/// [`cliff_comb`]`(k, n)` under the offset mask (owning the odd levels —
+/// exactly where its event's teeth stand). Every tooth boundary is a
+/// double mask toggle with the parities out of phase, so the walk
+/// rotates through its ownership cases: even-level teeth read
+/// `sign(h₁)` — the trichotomy's zero-check on a height that is zero
+/// *semantically* but spelled by cancelling `2^k`-wide digits, each
+/// odd tooth's climb and drop funded by its own wide codes — and
+/// odd-level teeth read `sign(h₂)` mid-oscillation across the carry
+/// boundary. The projected verdict is `Less` (view₁ is semantically
+/// empty; view₂ keeps its teeth), so the walk never exits early. The
+/// envelope rows and the flatness band in `tests/meter.rs` hold the
+/// composition linear.
+///
+/// # Panics
+///
+/// Panics if `k == 0`, or `n` is not an even count of at least 2.
+pub fn mask_drift_quadruple(k: usize, n: usize) -> ((Packed, Packed), (Packed, Packed)) {
+    assert!(k >= 1, "the mask-drift quadruple needs a nonzero magnitude");
+    assert!(
+        n >= 2 && n % 2 == 0,
+        "the mask-drift quadruple needs an even tooth count"
+    );
+    (
+        (sparse_cliff_comb(k, n), scattered_id(n / 2)),
+        (cliff_comb(k, n), scattered_id_offset(n / 2)),
+    )
+}
+
+/// The sparse boundary comb: [`cliff_comb`]'s spine with teeth at odd
+/// levels only and a plain zero leaf at each even level,
+/// `(n/2)(2k + 14) + 2` bits.
+///
+/// Layout per level pair: `"11" · "01"` (even level: spine node,
+/// zero left leaf), then `"11" · "1" · gamma(2^k − 1) · "01" · "0010"`
+/// (odd level: spine node and the comb's tooth), after all `n` levels
+/// `"01"` (the terminal spine leaf). Normal form holds as the comb's:
+/// every spine node's zero-base leaf child carries its subtree minimum,
+/// and the only sibling leaf pairs are the teeth's `(0, 1)`.
+fn sparse_cliff_comb(k: usize, n: usize) -> Packed {
+    debug_assert!(k >= 1 && n >= 2 && n % 2 == 0);
+    let mut bits = Bits::with_capacity((n / 2) * (2 * k + 14) + 2);
+    let tooth = pow2_minus_1(k);
+    for level in 0..n {
+        bits.push(true); // spine node flag
+        codec::encode_int(&mut bits, &Base::ZERO); // gamma(0) = "1"
+        if level % 2 == 1 {
+            bits.push(true); // tooth node flag
+            codec::encode_int(&mut bits, &tooth);
+            ev_leaf(&mut bits, 0); // tooth's left leaf: value 2^k − 1
+            ev_leaf(&mut bits, 1); // tooth's right leaf: value 2^k
+        } else {
+            ev_leaf(&mut bits, 0); // the even level's plain zero leaf
+        }
+    }
+    ev_leaf(&mut bits, 0); // terminal spine leaf
+    Packed::from_bits(bits)
+}
+
+/// The offset scattered id: [`scattered_id`]'s alternation shifted one
+/// level down — a gap level, then an owned left subtree, repeated —
+/// `6e + 4` bits.
+///
+/// Layout, repeated `e` times: `01` (a right-only gap level), `11` (both
+/// children present), `00` (the owned left leaf); terminated by `01 · 00`
+/// (a final gap level whose right child is the owned tip). Owns exactly
+/// the *odd* levels' left subtrees of a right-leaning spine — the
+/// complement, tooth for tooth, of [`scattered_id`]'s even-level
+/// fragments. Normal form: no node has two fully-owned children (each
+/// `11` node's right child is a gap node or the final gap level) and no
+/// node has two absent children.
+fn scattered_id_offset(e: usize) -> Packed {
+    debug_assert!(e >= 1);
+    let mut bits = Bits::with_capacity(6 * e + 4);
+    for _ in 0..e {
+        bits.push(false); // gap node: left child absent ...
+        bits.push(true); // ... the spine continues right
+        bits.push(true); // fragment node: left child present ...
+        bits.push(true); // ... and the spine continues right
+        bits.push(false); // the owned left leaf: terminal tag "00"
+        bits.push(false);
+    }
+    bits.push(false); // a final gap level ...
+    bits.push(true);
+    bits.push(false); // ... whose right child is the owned tip
+    bits.push(false);
+    Packed::from_bits(bits)
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> Base {
     pow2(b) - &Base::from(1u8)

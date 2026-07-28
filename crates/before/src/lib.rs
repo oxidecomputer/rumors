@@ -569,9 +569,15 @@ pub mod implementation {
     //! measures are sweeps of a single stream —
     //! [`rank`](crate::Version::rank) accumulates area,
     //! [`min_ticks`](crate::Version::min_ticks) the fewest events that
-    //! could have built the skyline — and the projection `v / &p` sweeps
-    //! `v`'s stream against party `p`'s, keeping the skyline where `p`
-    //! owns and zeroing it elsewhere.
+    //! could have built the skyline — and the projection view `&v / &p`
+    //! ([`OwnVersion`](crate::OwnVersion)) defers its sweep: comparing
+    //! the view runs one fused walk over the operands' streams, `p`'s
+    //! ownership landscape gating `v`'s heights in flight, while the
+    //! explicit
+    //! [`to_version`](crate::OwnVersion::to_version) materialization —
+    //! the one output that can outgrow its operands — sweeps `v`'s
+    //! stream against `p`'s, keeping the skyline where `p` owns and
+    //! zeroing it elsewhere.
     //!
     //! ```
     //! use before::Version;
