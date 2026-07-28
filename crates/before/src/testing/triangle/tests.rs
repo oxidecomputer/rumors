@@ -53,7 +53,8 @@ fn every_cited_binding_test_exists() {
 }
 
 /// Tamper-hole witness (adversarial review 2026-07-28, task #37): the
-/// citation scan cannot tell binding tests from helper functions, so
+/// citation scan cannot tell binding tests from helper functions.
+///
 /// [`every_cited_binding_test_exists`] is satisfied by ANY same-named
 /// `fn` anywhere under `src/` — a roster row whose cited differential
 /// test was deleted stays green as long as any helper, production

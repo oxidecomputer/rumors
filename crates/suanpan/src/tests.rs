@@ -529,13 +529,14 @@ fn scaled_read_costs_the_written_span() {
 }
 
 /// Red pin (adversarial review 2026-07-28, task #37): an alternating
-/// `sub_wide_shl`/`add_wide_shl` pair of a one-limb operand at digit
-/// position `g` costs `g + 4` digit touches, not O(operand limbs) — the
-/// crate page's `*_shl` cost rows ("independent of the shift") are
-/// refuted at exactly this schedule, and `digit_count`'s "a write that
-/// zeroes the top digit pays the scan down to the next nonzero one
-/// inside that write's own budget" names a budget the write does not
-/// have.
+/// shifted pair costs the zero gap under it, not O(operand limbs).
+///
+/// A `sub_wide_shl`/`add_wide_shl` pair of a one-limb operand at digit
+/// position `g` costs `g + 4` digit touches: the crate page's `*_shl`
+/// cost rows ("independent of the shift") are refuted at exactly this
+/// schedule, and `digit_count`'s "a write that zeroes the top digit
+/// pays the scan down to the next nonzero one inside that write's own
+/// budget" names a budget the write does not have.
 ///
 /// Mechanism: the subtraction zeroes the held value's only nonzero
 /// digit, and `add_at`'s exact-`top` maintenance then walks the zero
