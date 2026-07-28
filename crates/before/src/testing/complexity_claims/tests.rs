@@ -366,52 +366,97 @@ fn claim_rows_are_printable() {
 /// linear in the same change.
 #[test]
 fn linear_claims_cite_no_exponent_red_board_cell() {
-    let exponent_red_ops: BTreeSet<&str> = board::BOARD_EXPECTED_REDS
-        .iter()
-        .filter(|red| red.exponent)
-        .map(|red| red.op)
-        .collect();
+    let exponent_red_ops = exponent_red_ops();
     let mut contradictions = Vec::new();
     for claim in CLAIMS {
         let Cells::Board(cells) = &claim.cells else {
             continue;
         };
         for (op, class) in *cells {
-            match class {
-                // Every class that claims the cell scales as its model
-                // says (linear, linear-I/O, or the declared fold log)
-                // is contradicted by a standing exponent-mechanism red.
-                Class::Linear | Class::LinearIo | Class::FoldLog => {
-                    if exponent_red_ops.contains(*op) {
-                        contradictions.push(format!(
-                            "{}: cites {op} as {class:?}, but the board holds it red on an \
-                             exponent mechanism (BOARD_EXPECTED_REDS)",
-                            claim.op
-                        ));
-                    }
-                }
-                // The counter-superlinear class must keep its witness.
-                Class::SuperlinearCounter => {
-                    if !exponent_red_ops.contains(*op) {
-                        contradictions.push(format!(
-                            "{}: claims {op} SuperlinearCounter with no standing \
-                             exponent-mechanism board red: the class is decoration, move it \
-                             back to a linear class with the cure",
-                            claim.op
-                        ));
-                    }
-                }
-                // Judge-rostered superlinear time: bound by the set
-                // equality above; a deterministic exponent red on the
-                // same operation is consistent with the class.
-                Class::SuperlinearTime => {}
-            }
+            contradictions.extend(class_contradiction(claim.op, op, *class, &exponent_red_ops));
         }
     }
     assert!(
         contradictions.is_empty(),
         "the claims roster contradicts the board's mechanism-tagged red set:\n  {}",
         contradictions.join("\n  ")
+    );
+}
+
+/// The operations [`board::BOARD_EXPECTED_REDS`] holds red on an
+/// exponent mechanism at either acceptance scale.
+fn exponent_red_ops() -> BTreeSet<&'static str> {
+    board::BOARD_EXPECTED_REDS
+        .iter()
+        .filter(|red| red.exponent)
+        .map(|red| red.op)
+        .collect()
+}
+
+/// The class-binding seal's per-cell verdict: the contradiction message,
+/// if the cited class and the board's mechanism-tagged red set disagree.
+fn class_contradiction(
+    claim_op: &str,
+    op: &str,
+    class: Class,
+    exponent_red_ops: &BTreeSet<&str>,
+) -> Option<String> {
+    match class {
+        // Every class that claims the cell scales as its model says
+        // (linear, linear-I/O, or the declared fold log) is contradicted
+        // by a standing exponent-mechanism red.
+        Class::Linear | Class::LinearIo | Class::FoldLog => {
+            exponent_red_ops.contains(op).then(|| {
+                format!(
+                    "{claim_op}: cites {op} as {class:?}, but the board holds it red on an \
+                     exponent mechanism (BOARD_EXPECTED_REDS)"
+                )
+            })
+        }
+        // The counter-superlinear class must keep its witness.
+        Class::SuperlinearCounter => (!exponent_red_ops.contains(op)).then(|| {
+            format!(
+                "{claim_op}: claims {op} SuperlinearCounter with no standing \
+                 exponent-mechanism board red: the class is decoration, move it \
+                 back to a linear class with the cure"
+            )
+        }),
+        // Judge-rostered superlinear time: bound by the set equality
+        // above; a deterministic exponent red on the same operation is
+        // consistent with the class.
+        Class::SuperlinearTime => None,
+    }
+}
+
+/// The seal's reverse leg fires on a constructed decoration claim: a
+/// [`Class::SuperlinearCounter`] cell whose operation has no standing
+/// exponent-mechanism red is named as a contradiction.
+///
+/// This is the committed form of the seal's mutation demonstration (the
+/// doc above): the fixture cites `version_min_ticks` — whose exponent
+/// reds the anchor-web cure removed — under the class that cure retired,
+/// and the seal must flag it. The class stays in the vocabulary as the
+/// designed home for the next counter-witnessed superlinearity finding;
+/// this fixture is its adequacy tripwire while the roster carries no
+/// such claim.
+#[test]
+fn a_witnessless_superlinear_counter_claim_is_flagged_as_decoration() {
+    let exponent_red_ops = exponent_red_ops();
+    let fixture = Claim {
+        op: "Version::min_ticks",
+        checks: &[],
+        cells: Cells::Board(&[("version_min_ticks", Class::SuperlinearCounter)]),
+    };
+    let Cells::Board(cells) = &fixture.cells else {
+        unreachable!("the fixture cites a board cell");
+    };
+    let (op, class) = cells[0];
+    let verdict = class_contradiction(fixture.op, op, class, &exponent_red_ops);
+    assert!(
+        verdict.is_some_and(|msg| msg.contains("decoration")),
+        "the seal's reverse leg did not flag a SuperlinearCounter claim on an \
+         operation with no standing exponent red; if {op} regained an exponent \
+         red, pick a cured operation for the fixture"
     );
 }
 
