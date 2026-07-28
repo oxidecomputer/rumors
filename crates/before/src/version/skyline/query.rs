@@ -139,11 +139,16 @@
 //!   at its watermark span — recorded together as one ledger entry.
 //!   Nothing is ever re-based against an absolute position: the entry
 //!   owes `P · (2^S − position)`, and the ledger settles once, at the
-//!   sweep's close. Suffix masses are assembled newest-first as sparse
-//!   balanced signed digits (each window's digits merged exactly once;
-//!   an all-ones prefix — a long climb's consumed mass — compacts to
-//!   O(1) terms), and each arming pays one charge: its parked width
-//!   times its own suffix's balanced density.
+//!   sweep's close, as one balanced product tree over the entry
+//!   sequence. Each tree node contributes exactly one aggregate
+//!   product — the left half's summed parked masses times the right
+//!   half's summed position windows, parked sums folded digit-wise
+//!   (opposing armings cancel inside the sum before any product reads
+//!   a width) and window sums held as sparse balanced signed digits
+//!   (an all-ones run — a long climb's consumed mass — compacts to
+//!   O(1) terms) — so every arming-window cross term of the debt
+//!   rides exactly one product, and nothing in the ledger is re-read
+//!   more than `⌈log₂ n⌉` times, `n` the arming count.
 //!
 //! A freeze fires by the section-one relative trigger, with one
 //! pair-specific difference of denomination: the check runs once per
@@ -180,34 +185,46 @@
 //!   that armed `P` past the allowance, the window read from the
 //!   watermark span the banked segments' topology deposits cover —
 //!   both once per arming, no product;
-//! - the ledger settle: one charge per arming, the parked width times
-//!   the suffix mass's balanced density, plus each window's digits
-//!   merged into the running suffix exactly once (paid by the window's
-//!   own read).
+//! - the ledger settle: one aggregate product per tree node — the left
+//!   half's parked sum, read once at a width within `⌈log₂ n⌉` bits of
+//!   its widest constituent, times the right half's window sum's
+//!   balanced density — with every window's digits rewritten at most
+//!   `⌈log₂ n⌉` times across all merges (each rewrite paid by the
+//!   window's own read, repeated a factor no input can grow past the
+//!   logarithm of its own arming count).
 //!
 //! A cheap code from one operand can *fire* a freeze, but the work the
 //! freeze performs is bounded by deposits from the codes that built the
 //! state being moved — never by an absolute position the firing operand
-//! chose. The honest residual is the ledger settle's charge: a suffix's
-//! balanced density is deposited once, by the topology whose depth
-//! variation spelled its masses — not once per arming — so a stream
-//! pairing many wide re-arms against a suffix that *stays* dense pays
-//! that density per arming. Each such charge is the cross-term product
-//! the exact total genuinely embeds when the terms do not cancel — the
-//! intrinsic price of an exact integral under per-digit arithmetic —
-//! and reaching it spends a fresh over-allowance arming in the input's
-//! own codes per charge, but the density itself is not spent: the
-//! committed dense-suffix red pins (`ledger_dense_suffix_pin`,
-//! `tests/meter.rs`) hold exactly this construction — a gap spine whose
-//! turns puncture the trailing mass a full digit apart, over `Θ(p)`
-//! re-arm blocks — measured quadratic in both width currencies through
-//! the public `rank`, `distance`, and `lag`, whose `# Complexity`
-//! sections state the superlinear worst case until a settle linear in
-//! arming count and suffix density at once lands (per-arming charging
-//! and window batching are duals; linear in both needs lazy product
-//! trees). On the flatness-band families the suffix compacts to O(1)
-//! terms and the whole ledger reads flat (the `skyline_flatness`
-//! promotion re-arm bands).
+//! chose. **The settle's bound**: the product tree charges every
+//! arming-window cross term of the exact debt `Σ_{i<j} P_i · w_j`
+//! inside exactly one aggregate product, so no accounting direction
+//! exists for an input to load — a shared dense suffix cannot be
+//! re-walked once per arming (the reverse dual's defect), a promoted
+//! prefix cannot be re-read once per window (the forward dual's), and
+//! the repetition of any single width or density is capped at
+//! `⌈log₂ n⌉`. Streams whose parked masses stay `O(1)` digits wide —
+//! every committed board family, and the dense-suffix adversaries of
+//! the `skyline_flatness` dense-suffix bands (a gap spine whose turns
+//! puncture the trailing mass a full digit apart, over `Θ(p)` re-arm
+//! blocks) — therefore settle in `O((n + D) log n)` digit work, `D`
+//! the total window density, and measure flat per byte. The honest
+//! residual is the aggregate product itself: it costs the parked sum's
+//! width times the window sum's density, and cancellation is exploited
+//! only *within* a parked sum, never across a seam — a wide arming
+//! whose cancelling descent lands in a different aggregate (or in the
+//! still-parked component) pays its width times every dense window
+//! between them, once per covering node. The committed wide-arming red
+//! pin (`ledger_wide_arming_pin`, `tests/meter.rs`) holds exactly this
+//! construction — one arming as wide as the input ahead of a suffix as
+//! dense as the input, cancelled only after the sweep — measured
+//! quadratic in both width currencies through the public `rank`, whose
+//! `# Complexity` section (with `distance` and `lag`, one shared
+//! integrator) states the superlinear worst case; a settle that
+//! exploits cancellation across seams is the open cure, and no
+//! arrangement makes the exact answer itself embed such a product
+//! without funding it (a plateau's mass against same-scale punctures
+//! telescopes; keeping it dense costs per-puncture wide codes).
 //!
 //! # Cost
 //!
@@ -220,11 +237,13 @@
 //! by the code that set `L`'s width — plus the co-sweep section's
 //! certified freeze work (a settle per freeze at the parked width times
 //! within-segment depth variation; a ledger entry once per wide arming,
-//! charged once at the sweep's close at the suffix's balanced density —
-//! the funding section's honest residual, superlinear on the committed
-//! dense-suffix pins; the `skyline_flatness` module's freeze-position
-//! and promotion re-arm bands hold the many-freezes and many-armings
-//! genres flat). Distance and lag (the `DISTANCE_*`/`LAG_*`
+//! settled at the sweep's close through the balanced product tree at
+//! `O(log n)` re-reads of any width or density — the funding section's
+//! settle bound, whose aggregate products carry the honest residual,
+//! superlinear on the committed wide-arming pin; the
+//! `skyline_flatness` module's freeze-position, promotion re-arm, and
+//! dense-suffix bands hold the many-freezes and many-armings genres
+//! flat). Distance and lag (the `DISTANCE_*`/`LAG_*`
 //! rows, plus the `skyline_flatness` module's jump-pair and pair
 //! re-arm bands) add, per
 //! boundary, work bounded by the boundary's own folded codes — the
@@ -569,38 +588,36 @@ struct Arming {
     shift: u64,
 }
 
-/// A suffix of the sweep's interval mass as sparse balanced signed
-/// digits, assembled newest-first by the ledger settle.
+/// A run of the sweep's interval mass as sparse balanced signed
+/// digits: the window side of a settle [`Aggregate`].
 ///
 /// Each entry is `(digit index, digit)` with `0 < |digit| ≤ 2^31`,
 /// ascending; the denoted mass is `Σ digit · 2^(32·index)`. The
-/// balanced form is the point: an all-ones prefix — the shape a long
+/// balanced form is the point: an all-ones run — the shape a long
 /// climb's consumed masses sum to — compacts to O(1) entries, so a
-/// charge against the suffix costs the parked width times the suffix's
+/// charge against the mass costs the parked width times the mass's
 /// *density*, never its span, and a merge rewrites only live entries.
-struct SuffixMass {
+struct WindowMass {
     digits: Vec<(u64, i64)>,
 }
 
-impl SuffixMass {
-    /// The empty suffix.
-    fn new() -> SuffixMass {
-        SuffixMass { digits: Vec::new() }
+impl WindowMass {
+    /// The empty mass.
+    fn new() -> WindowMass {
+        WindowMass { digits: Vec::new() }
     }
 
-    /// Add `mass · 2^shift` into the suffix, re-balancing the digits it
+    /// Add `mass · 2^shift` into this mass, re-balancing the digits it
     /// lands on: one pass over the live entries plus the operand's
     /// digits.
     ///
-    /// Each window is merged exactly once, so the operand walk is paid
-    /// by the watermark read that produced it; the live-entry rewrite
-    /// is bounded by the suffix's balanced density, the same quantity
-    /// the charges below are priced in.
+    /// Each window enters the settle through exactly one such merge —
+    /// its 1-entry aggregate's — so the operand walk is paid by the
+    /// watermark read that produced it.
     fn merge(&mut self, mass: &UBig, shift: u64) {
         debug_assert_eq!(shift % 32, 0, "interval masses are digit-aligned");
         let index_base = shift / 32;
-        let mut old = core::mem::take(&mut self.digits).into_iter().peekable();
-        let mut new = Limbs::new(mass)
+        let new = Limbs::new(mass)
             .enumerate()
             .flat_map(|(i, limb)| {
                 [
@@ -608,8 +625,25 @@ impl SuffixMass {
                     (index_base + 2 * i as u64 + 1, (limb >> 32) as i64),
                 ]
             })
-            .filter(|&(_, d)| d != 0)
-            .peekable();
+            .filter(|&(_, d)| d != 0);
+        self.combine(new);
+    }
+
+    /// Fold another balanced mass into this one, re-balancing: one pass
+    /// over both operands' live entries.
+    ///
+    /// The product-tree merge: a mass's digits are rewritten once per
+    /// tree level they survive, which is what bounds every window's
+    /// digits to `O(log n)` rewrites across the whole settle.
+    fn absorb(&mut self, other: WindowMass) {
+        self.combine(other.digits.into_iter());
+    }
+
+    /// The shared re-balancing merge loop over an ascending sparse
+    /// digit stream (each incoming digit within the balanced range).
+    fn combine<I: Iterator<Item = (u64, i64)>>(&mut self, new: I) {
+        let mut old = core::mem::take(&mut self.digits).into_iter().peekable();
+        let mut new = new.peekable();
         let mut out: Vec<(u64, i64)> = Vec::new();
         let mut carry: i64 = 0;
         let mut carry_index: u64 = 0;
@@ -656,9 +690,9 @@ impl SuffixMass {
         self.digits = out;
     }
 
-    /// Debit (or, for a negative `parked`, credit) `parked × suffix`
+    /// Debit (or, for a negative `parked`, credit) `parked × mass`
     /// into the total: one `parked`-wide product per live digit, so the
-    /// charge is the parked width times the suffix's balanced density.
+    /// charge is the parked width times the mass's balanced density.
     fn charge(&self, total: &mut Accumulator, neg: bool, parked: &Base) {
         for &(index, digit) in &self.digits {
             let mut product = parked.clone();
@@ -669,6 +703,46 @@ impl SuffixMass {
                 total.sub_magnitude_shl(&product, 32 * index);
             }
         }
+    }
+}
+
+/// One node's worth of the balanced product-tree settle: a contiguous
+/// run of ledger entries, reduced to the signed sum of its parked
+/// components and the balanced sum of its position windows.
+///
+/// The parked side lives on an [`Accumulator`] so opposing armings
+/// cancel digit-wise inside the sum before any product reads a width;
+/// the window side is a [`WindowMass`] so adjacent windows — contiguous
+/// interval runs — compact as they combine.
+struct Aggregate {
+    /// The ledger entries this aggregate covers: the binary counter's
+    /// rank, a power of two everywhere except the closing drain.
+    entries: usize,
+    /// The signed sum of the run's parked components.
+    parked: Accumulator,
+    /// The balanced sum of the run's position windows.
+    windows: WindowMass,
+}
+
+impl Aggregate {
+    /// Charge this aggregate's parked sum against `mass`, then combine:
+    /// exactly one product-tree node.
+    ///
+    /// `self` is the left (older) half and `right` the newer, so the
+    /// node's product `(Σ parked_left) × (Σ windows_right)` covers
+    /// every arming-window cross pair split by this node's seam — and
+    /// no other node covers any of them, which is what makes the settle
+    /// exact.
+    fn merge(&mut self, right: Aggregate, total: &mut Accumulator) {
+        let (p_sign, p_mag) = self.parked.sign_magnitude();
+        if p_mag != UBig::ZERO {
+            right
+                .windows
+                .charge(total, p_sign == Ordering::Less, &Base::from(p_mag));
+        }
+        self.parked.add_accum(&right.parked);
+        self.windows.absorb(right.windows);
+        self.entries += right.entries;
     }
 }
 
@@ -830,7 +904,7 @@ impl Integrator {
     /// re-open both.
     ///
     /// The entry owes `P · (2^S − position)`, settled once at the
-    /// sweep's close as `P` times its suffix mass
+    /// sweep's close through the balanced product tree
     /// ([`settle_armings`](Self::settle_armings)).
     ///
     /// Sound only immediately after
@@ -864,33 +938,83 @@ impl Integrator {
         self.parked.reset();
     }
 
-    /// Settle the promotion ledger at the sweep's close: each arming
-    /// pays `P · (its suffix mass)`, assembled newest-first so every
-    /// window is merged into the suffix exactly once.
+    /// Settle the promotion ledger at the sweep's close: one balanced
+    /// product-tree reduction over the ledger's entry sequence, so
+    /// every arming-window cross term `P_i · w_j` (`i < j`) rides
+    /// exactly one aggregate product at one tree node.
     ///
-    /// The final window — the mass banked since the last promotion,
-    /// which [`finish`](Self::finish) completed with the final
-    /// segment — opens the suffix; each arming charges against the
-    /// suffix *before* its own window joins, because an arming's tail
-    /// begins at its own freeze. One charge per arming at the parked
-    /// width times the suffix's balanced density: the ledger's whole
-    /// cost, deferred out of the sweep so no promotion ever re-reads
-    /// history the previous armings already paid for.
+    /// The entry sequence is the armings in sweep order — entry `i`
+    /// pairs `P_i` with the window *behind* it, the mass banked between
+    /// the previous promotion and its own — closed by one virtual entry
+    /// carrying no parked mass and the final window (the mass banked
+    /// since the last promotion, which [`finish`](Self::finish)
+    /// completed with the final segment). Entry `i`'s ledger debt
+    /// `P_i · (2^S − position_i)` is then exactly `Σ_{j>i} P_i · w_j`,
+    /// and the reduction — a binary counter, [`Version::join_all`]'s
+    /// fold shape, iterative per the crate's recursion rule — computes
+    /// the double sum as one aggregate product per merge
+    /// ([`Aggregate::merge`]): `(Σ parked of the left half) ×
+    /// (Σ windows of the right half)`, each cross pair covered by the
+    /// one node whose seam splits it. No per-arming walk of the suffix
+    /// and no per-window read of a promoted prefix exists for an input
+    /// to load: a window's digits are rewritten once per tree level,
+    /// and a parked width is read once per node where it is the left
+    /// half's widest — the module doc's cost section carries the
+    /// resulting bound.
+    ///
+    /// [`Version::join_all`]: crate::Version::join_all
     fn settle_armings(&mut self) {
         if self.promotions.is_empty() {
             return;
         }
+        let armings = core::mem::take(&mut self.promotions);
+        let mut stack: Vec<Aggregate> = Vec::new();
         let (t_sign, t_mag, t_shift) = self.pos_local.sign_magnitude_shl();
         debug_assert_ne!(t_sign, Ordering::Less, "interval masses only accumulate");
-        let mut suffix = SuffixMass::new();
-        if t_mag != UBig::ZERO {
-            suffix.merge(&t_mag, t_shift);
+        let closing = core::iter::once(None);
+        for entry in armings.into_iter().map(Some).chain(closing) {
+            let mut parked = Accumulator::new();
+            let mut windows = WindowMass::new();
+            match &entry {
+                Some(arming) => {
+                    if arming.neg {
+                        parked.sub_magnitude(&arming.parked);
+                    } else {
+                        parked.add_magnitude(&arming.parked);
+                    }
+                    windows.merge(&arming.window, arming.shift);
+                }
+                None => {
+                    // The virtual closing entry: the final window with
+                    // no parked mass, so it is charged by every arming
+                    // and charges nothing itself.
+                    if t_mag != UBig::ZERO {
+                        windows.merge(&t_mag, t_shift);
+                    }
+                }
+            }
+            let mut agg = Aggregate {
+                entries: 1,
+                parked,
+                windows,
+            };
+            // The binary counter: merge equal-rank neighbors so the
+            // reduction stays balanced without knowing the entry count
+            // in advance.
+            while stack.last().is_some_and(|top| top.entries == agg.entries) {
+                let mut left = stack.pop().expect("peeked");
+                left.merge(agg, &mut self.total);
+                agg = left;
+            }
+            stack.push(agg);
         }
-        let armings = core::mem::take(&mut self.promotions);
-        for (i, arming) in armings.iter().enumerate().rev() {
-            suffix.charge(&mut self.total, arming.neg, &arming.parked);
-            if i > 0 {
-                suffix.merge(&arming.window, arming.shift);
+        // The closing drain: the stack holds strictly descending ranks,
+        // newest on top, so folding top-down keeps every merge's left
+        // operand older than its right.
+        while let Some(right) = stack.pop() {
+            match stack.last_mut() {
+                Some(left) => left.merge(right, &mut self.total),
+                None => break,
             }
         }
     }
@@ -902,11 +1026,11 @@ impl Integrator {
     /// The parked component's final segment mass is exactly the tail
     /// from its anchor, because the interval masses tile the unit
     /// interval; when the ledger holds armings, the same tiling makes
-    /// the final window plus the banked segments exactly the newest
-    /// arming's suffix, so the final segment is banked (one more
-    /// watermark read, on promoting sweeps only) before the ledger
-    /// settles. The live component owes nothing here: every interval
-    /// already credited it directly.
+    /// the banked windows plus the final segment exactly the interval
+    /// mass behind every arming's debt, so the final segment is banked
+    /// (one more watermark read, on promoting sweeps only) before the
+    /// ledger settles. The live component owes nothing here: every
+    /// interval already credited it directly.
     fn finish(mut self, closing_shift: u64) -> (Ordering, UBig) {
         self.settle();
         if !self.promotions.is_empty() {

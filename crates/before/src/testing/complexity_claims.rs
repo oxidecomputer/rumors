@@ -359,18 +359,24 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             tokens: &["`O(|v|)` space", "**superlinear**"],
         }],
-        // TODO-cure: superlinear on the dense-suffix family
-        // (`ledger_dense_suffix_pin` in tests/meter.rs: the ledger
-        // settle pays each arming's parked width times its suffix's
-        // balanced density, and a gap spine holds that density at
-        // Θ(d) for Θ(p) armings), which is not yet a board family —
-        // the board reads every committed rank row green, so the
+        // Stated residual: superlinear on the wide-arming family
+        // (`ledger_wide_arming_pin` in tests/meter.rs: the ledger
+        // settle's balanced product tree charges each cross term in
+        // exactly one aggregate product, and one arming as wide as
+        // the input ahead of a suffix as dense as the input makes
+        // that product itself quadratic), which is not a board family
+        // — the board reads every committed rank row green, so the
         // class-binding seal (SuperlinearCounter needs a standing
         // exponent-mechanism red in BOARD_EXPECTED_REDS) keeps this
         // row Linear-classed with the rustdoc stating the superlinear
-        // worst case. The cure either makes the settle linear in
-        // arming count and suffix density at once (the pins flip) or
-        // lands the family on the board and moves this class with it.
+        // worst case. FoldLog would be wrong in the other direction:
+        // the settle's log factor is real (each width and density
+        // re-read at most ⌈log₂ n⌉ times) but never dominates a
+        // committed reading — the dense-suffix bands measure flat —
+        // and "linear × log" is not an upper bound while the
+        // wide-arming pin stands. A cure that exploits cancellation
+        // across the ledger's seams flips the pin and revisits this
+        // class.
         cells: Cells::Board(&[("version_rank", Class::Linear)]),
     },
     Claim {
@@ -379,10 +385,10 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             tokens: &["`O(|a| + |b|)` space", "**superlinear**"],
         }],
-        // TODO-cure: the pair form of rank's dense-suffix
-        // superlinearity (`distance_dense_suffix_reads_superlinear`
-        // in tests/meter.rs) — one shared integrator, so the same
-        // constraint and the same cure as Version::rank above.
+        // Stated residual: the pair form of rank's wide-arming
+        // superlinearity — one shared integrator, so the same
+        // constraint, witness, and class reasoning as Version::rank
+        // above.
         cells: Cells::Board(&[("version_distance", Class::Linear)]),
     },
     Claim {
@@ -391,7 +397,8 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             tokens: &["`O(|a| + |b|)` space", "**superlinear**"],
         }],
-        // TODO-cure: as Version::distance above (one shared co-sweep).
+        // Stated residual: as Version::distance above (one shared
+        // co-sweep).
         cells: Cells::Board(&[("version_lag", Class::Linear)]),
     },
     Claim {

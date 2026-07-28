@@ -836,4 +836,376 @@ mod adequacy {
              witness lands"
         );
     }
+    // ── the per-arming suffix-walk settle ──────────────────────────────
+    //
+    // The balanced product-tree settle exists because the ledger's debt
+    // must not be charged by walking a shared suffix once per arming
+    // (the module doc's settle bound). This kernel keeps the refuted
+    // accounting — the ledger assembled newest-first into one running
+    // suffix mass, each arming charged at its parked width times that
+    // suffix's whole balanced density — committed and failing on the
+    // dense-suffix family, through both the single-stream and the pair
+    // integrals, so the green dense-suffix flatness bands
+    // (`skyline_flatness`, `tests/meter.rs`) are never decoration.
+    // Value-exact against the shipped folds: the suffix walk computes
+    // the same cross-term sum, term by term; only its cost class is
+    // not the tree's.
+
+    use crate::meter::{dense_suffix, dense_suffix_mate};
+    use crate::version::skyline::query::{Arming, WindowMass};
+
+    /// The anchored-segment integral with the per-arming suffix-walk
+    /// settle.
+    ///
+    /// Promotions record funded-width ledger entries exactly as the
+    /// shipped integrator does; the close then walks one running
+    /// suffix mass per arming instead of reducing the entries through
+    /// the balanced product tree.
+    struct SuffixWalkIntegrator {
+        total: Accumulator,
+        live: Accumulator,
+        parked: Accumulator,
+        seg: Accumulator,
+        base: Accumulator,
+        pos_local: Accumulator,
+        promotions: Vec<Arming>,
+        one: Base,
+    }
+
+    impl SuffixWalkIntegrator {
+        fn new() -> SuffixWalkIntegrator {
+            SuffixWalkIntegrator {
+                total: Accumulator::new(),
+                live: Accumulator::new(),
+                parked: Accumulator::new(),
+                seg: Accumulator::new(),
+                base: Accumulator::new(),
+                pos_local: Accumulator::new(),
+                promotions: Vec::new(),
+                one: Base::from(1u8),
+            }
+        }
+
+        fn open(&mut self, opening: &Base) {
+            self.base.add_magnitude(opening);
+        }
+
+        fn interval(&mut self, weight_shift: u64) {
+            if !self.live.is_literally_zero() {
+                self.total.add_accum_shl(&self.live, weight_shift);
+            }
+            self.seg.add_magnitude_shl(&self.one, weight_shift);
+        }
+
+        fn jump(&mut self, coefficient: i8, diff: &Accumulator) {
+            let (sign, magnitude) = diff.sign_magnitude();
+            if magnitude == suanpan::UBig::ZERO {
+                return;
+            }
+            let magnitude = Base::from(magnitude);
+            let negative = (coefficient < 0) != (sign == Ordering::Less);
+            let shift = if coefficient.abs() == 2 { 1 } else { 0 };
+            if negative {
+                self.live.sub_magnitude_shl(&magnitude, shift);
+            } else {
+                self.live.add_magnitude_shl(&magnitude, shift);
+            }
+        }
+
+        fn boundary(&mut self, funded_digits: usize) {
+            if self.live.digit_count() > funded_digits + FREEZE_ALLOWANCE_DIGITS {
+                self.freeze();
+            }
+        }
+
+        fn freeze(&mut self) {
+            let (drift_sign, drift) = self.live.sign_magnitude();
+            if drift == suanpan::UBig::ZERO {
+                self.live.reset();
+                return;
+            }
+            let drift = Base::from(drift);
+            self.settle_segment();
+            if self.parked.digit_count()
+                > super::super::base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS
+            {
+                self.promote();
+            }
+            match drift_sign {
+                Ordering::Less => self.parked.sub_magnitude(&drift),
+                _ => self.parked.add_magnitude(&drift),
+            }
+            self.live.reset();
+            self.seg = Accumulator::new();
+        }
+
+        fn settle_segment(&mut self) {
+            let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+            if seg_mag == suanpan::UBig::ZERO {
+                return;
+            }
+            let seg = Base::from(seg_mag);
+            self.pos_local.add_magnitude_shl(&seg, seg_shift);
+            if self.parked.is_literally_zero() {
+                return;
+            }
+            let (p_sign, p_mag) = self.parked.sign_magnitude();
+            if p_mag == suanpan::UBig::ZERO {
+                return;
+            }
+            mul_into(
+                &mut self.total,
+                &Base::from(p_mag),
+                &seg,
+                seg_shift,
+                p_sign == Ordering::Less,
+            );
+        }
+
+        fn settle(&mut self) {
+            if self.parked.is_literally_zero() {
+                return;
+            }
+            let (p_sign, p_mag) = self.parked.sign_magnitude();
+            if p_mag == suanpan::UBig::ZERO {
+                return;
+            }
+            let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+            mul_into(
+                &mut self.total,
+                &Base::from(p_mag),
+                &Base::from(seg_mag),
+                seg_shift,
+                p_sign == Ordering::Less,
+            );
+        }
+
+        fn promote(&mut self) {
+            let (p_sign, p_mag) = self.parked.sign_magnitude();
+            if p_mag != suanpan::UBig::ZERO {
+                let (_, w_mag, w_shift) = self.pos_local.sign_magnitude_shl();
+                self.promotions.push(Arming {
+                    neg: p_sign == Ordering::Less,
+                    parked: Base::from(p_mag),
+                    window: w_mag,
+                    shift: w_shift,
+                });
+                self.pos_local = Accumulator::new();
+            }
+            self.parked.reset();
+        }
+
+        /// The refuted settle: one running suffix mass, assembled
+        /// newest-first, each arming charged at its parked width times
+        /// the suffix's whole balanced density.
+        fn settle_armings(&mut self) {
+            if self.promotions.is_empty() {
+                return;
+            }
+            let (_, t_mag, t_shift) = self.pos_local.sign_magnitude_shl();
+            let mut suffix = WindowMass::new();
+            if t_mag != suanpan::UBig::ZERO {
+                suffix.merge(&t_mag, t_shift);
+            }
+            let armings = core::mem::take(&mut self.promotions);
+            for (i, arming) in armings.iter().enumerate().rev() {
+                suffix.charge(&mut self.total, arming.neg, &arming.parked);
+                if i > 0 {
+                    suffix.merge(&arming.window, arming.shift);
+                }
+            }
+        }
+
+        fn finish(mut self, closing_shift: u64) -> Rank {
+            self.settle();
+            if !self.promotions.is_empty() {
+                let (_, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+                if seg_mag != suanpan::UBig::ZERO {
+                    self.pos_local
+                        .add_magnitude_shl(&Base::from(seg_mag), seg_shift);
+                }
+                self.settle_armings();
+            }
+            if !self.base.is_literally_zero() {
+                self.total.add_accum_shl(&self.base, closing_shift);
+            }
+            let (sign, num) = self.total.sign_magnitude();
+            debug_assert_ne!(sign, Ordering::Less, "the integrands are nonnegative");
+            let scale = u32::try_from(closing_shift).expect("the tripwire streams stay shallow");
+            Rank::from_raw(Base::from(num), scale)
+        }
+    }
+
+    /// The rank fold on the suffix-walk integrator: the shipped
+    /// [`rank`](super::super::rank) loop verbatim, integrator swapped.
+    fn suffix_walk_rank(bits: &BitsSlice) -> Rank {
+        let max_depth = max_depth(bits);
+        let (mut cursor, first) = LeafCursor::open(bits);
+        let mut integral = SuffixWalkIntegrator::new();
+        integral.open(&first);
+        loop {
+            let weight_shift = (max_depth - cursor.depth()) as u64;
+            integral.interval(weight_shift);
+            if cursor.done() {
+                break;
+            }
+            let step = cursor.step(&mut integral.live, Side::A);
+            integral.boundary(super::super::base_digits(&step.magnitude));
+        }
+        integral.finish(max_depth as u64)
+    }
+
+    /// The distance co-sweep on the suffix-walk integrator: the
+    /// shipped pair loop verbatim (distance orientation), integrator
+    /// swapped.
+    fn suffix_walk_distance(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Rank {
+        let orientation = |sign: Ordering| -> i8 {
+            match sign {
+                Ordering::Greater => 1,
+                Ordering::Less => -1,
+                Ordering::Equal => 0,
+            }
+        };
+        let overlay_depth = max_depth(a_bits).max(max_depth(b_bits));
+        let (mut ca, a_first) = LeafCursor::open(a_bits);
+        let (mut cb, b_first) = LeafCursor::open(b_bits);
+        let mut diff = Accumulator::new();
+        diff.add_magnitude(&a_first);
+        diff.sub_magnitude(&b_first);
+        let mut orient = orientation(diff.sign());
+        let mut integral = SuffixWalkIntegrator::new();
+        if orient != 0 {
+            let (_, opening) = diff.sign_magnitude();
+            integral.open(&Base::from(opening));
+        }
+        loop {
+            let weight_shift = (overlay_depth - ca.depth().max(cb.depth())) as u64;
+            integral.interval(weight_shift);
+            if ca.done() && cb.done() {
+                break;
+            }
+            let (da, db) = advance(&mut ca, &mut cb, &mut diff);
+            let new_orient = orientation(diff.sign());
+            if orient != 0 {
+                for (side, step) in [(Side::A, &da), (Side::B, &db)] {
+                    if let Some(step) = step {
+                        let toward = if orient > 0 { side } else { side.other() };
+                        fold(&mut integral.live, toward, step.negative, &step.magnitude);
+                    }
+                }
+            }
+            if new_orient != orient {
+                integral.jump(new_orient - orient, &diff);
+                orient = new_orient;
+            }
+            let funded = da
+                .iter()
+                .chain(db.iter())
+                .map(|step| super::super::base_digits(&step.magnitude))
+                .max()
+                .unwrap_or(1);
+            integral.boundary(funded);
+        }
+        integral.finish(overlay_depth as u64)
+    }
+
+    /// One rank tripwire run over `DS(p, p)`: packed bytes and the
+    /// touch count over the known-bad fold, value-pinned against the
+    /// shipped kernel.
+    fn suffix_walk_rank_run(p: usize) -> (u64, u64) {
+        let v = dense_suffix(p, p).version();
+        let enc = encode(&v);
+        let expected = v.rank();
+        touch_meter::reset();
+        let r = suffix_walk_rank(&enc);
+        let touches = touch_meter::touches();
+        assert_eq!(
+            r, expected,
+            "the known-bad fold must stay value-exact: a wrong demonstrator \
+             proves nothing about the family's coverage"
+        );
+        (enc.len().div_ceil(8) as u64, touches)
+    }
+
+    /// One pair tripwire run over `(DS(p, p), DSM(p, p))`: the pair's
+    /// packed bytes and the touch count over the known-bad co-sweep,
+    /// value-pinned against the shipped kernel.
+    fn suffix_walk_pair_run(p: usize) -> (u64, u64) {
+        let a = dense_suffix(p, p).version();
+        let b = dense_suffix_mate(p, p).version();
+        let ea = encode(&a);
+        let eb = encode(&b);
+        let expected = a.distance(&b);
+        touch_meter::reset();
+        let d = suffix_walk_distance(&ea, &eb);
+        let touches = touch_meter::touches();
+        assert_eq!(
+            d, expected,
+            "the known-bad co-sweep must stay value-exact: a wrong \
+             demonstrator proves nothing about the family's coverage"
+        );
+        ((ea.len() + eb.len()).div_ceil(8) as u64, touches)
+    }
+
+    /// `DS(p, p)` catches the per-arming suffix walk red on the
+    /// single-stream integral: its per-byte touch cost grows across
+    /// the doubling.
+    ///
+    /// A linear fold reads ~x1.00 here; the floor 1.48 sits midway
+    /// between linear and the measured x1.96, while the shipped
+    /// kernel's dense-suffix flatness band holds the same family at
+    /// x1.25.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 3,417,450 -> 13,357,237 across DS(500, 500) -> DS(1,000,
+    /// 1,000), packed 119,593B -> 239,030B: per-byte growth x1.96 —
+    /// the parent fold's own public readings, digit for digit.]
+    #[test]
+    fn suffix_walk_settle_reads_superlinear_on_dense_suffix() {
+        let (small_bytes, small_touches) = suffix_walk_rank_run(500);
+        let (large_bytes, large_touches) = suffix_walk_rank_run(1_000);
+        eprintln!(
+            "MEASURED adequacy_suffix_walk_rank: small={small_touches}/{small_bytes}B \
+             large={large_touches}/{large_bytes}B"
+        );
+        assert!(
+            u128::from(large_touches) * u128::from(small_bytes) * 100
+                >= u128::from(small_touches) * u128::from(large_bytes) * 148,
+            "the per-arming suffix walk reads flat on the dense-suffix family \
+             ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
+             the family no longer catches the mechanism it was built for, so the \
+             flatness band it backs is decoration until a new witness lands"
+        );
+    }
+
+    /// `(DS(p, p), DSM(p, p))` catches the per-arming suffix walk red
+    /// on the pair integral: its per-byte touch cost grows across the
+    /// doubling.
+    ///
+    /// The committed proof that the pair family drives the ledger
+    /// settle through the co-sweep, not just freezes.
+    ///
+    /// [measured 2026-07-28, dev profile, exact counters: touches
+    /// 6,426,091 -> 25,224,970 across p = 500 -> 1,000, packed pair
+    /// 127,033B -> 253,909B: per-byte growth x1.96; the floor 1.48
+    /// sits midway between linear and the measured growth, as the rank
+    /// tripwire's.]
+    #[test]
+    fn suffix_walk_settle_reads_superlinear_on_dense_suffix_pair() {
+        let (small_bytes, small_touches) = suffix_walk_pair_run(500);
+        let (large_bytes, large_touches) = suffix_walk_pair_run(1_000);
+        eprintln!(
+            "MEASURED adequacy_suffix_walk_pair: small={small_touches}/{small_bytes}B \
+             large={large_touches}/{large_bytes}B"
+        );
+        assert!(
+            u128::from(large_touches) * u128::from(small_bytes) * 100
+                >= u128::from(small_touches) * u128::from(large_bytes) * 148,
+            "the per-arming suffix walk reads flat on the dense-suffix pair \
+             ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
+             the pair family no longer drives the ledger settle through the \
+             co-sweep, so the pair flatness band it backs is decoration until \
+             a new witness lands"
+        );
+    }
 }

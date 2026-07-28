@@ -1537,6 +1537,169 @@ pub fn promotion_rearm_mate(p: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// Spine levels per suffix digit in [`dense_suffix`] and
+/// [`wide_arming`].
+///
+/// Each right-descent turn removes one isolated interval from the
+/// trailing run, and a 33-level stride keeps successive gaps more than
+/// a full base-2^32 digit apart, so the balanced signed-digit
+/// compaction (which cancels only ones-runs) can never merge two of
+/// them into one term: the trailing interval mass carries `d`
+/// incompressible digits.
+const DENSE_SUFFIX_DIGIT_STRIDE: usize = 33;
+
+/// The dense-suffix re-arm family `DS(p, d)`: a gap spine of `33d`
+/// levels, then `p` four-node re-arm blocks at its bottom, over a
+/// terminal 1 leaf.
+///
+/// Exactly `134d + 1812p + 4` bits. The spine turns right every 33rd
+/// level — the turn's 1-leaf is swept *before* the blocks, so its
+/// interval is absent from the trailing mass — and left elsewhere,
+/// those right-sibling 0-leaves swept *after* the blocks. The trailing
+/// mass is an all-ones run punctured by `d` isolated gaps a full digit
+/// apart ([`DENSE_SUFFIX_DIGIT_STRIDE`]): the interval mass behind
+/// every block, `Θ(d)` balanced digits however it is assembled. Each
+/// block is [`promotion_rearm`]'s verbatim — a `2^608` climb, a unit
+/// (the freeze that parks the wide drift), a `2^288` climb, and a unit
+/// (the freeze whose promotion arms the query folds' ledger) — one
+/// promotion per block at O(1) stored codes, so `Θ(p)` armings all owe
+/// their debt across the same `Θ(d)`-dense trailing mass: a ledger
+/// settle that walks the suffix once per arming (or re-reads a
+/// promoted prefix once per window) goes quadratic here, and the
+/// balanced product-tree settle reads flat.
+/// `min_ticks(DS(p, d)) = Σ bases = d + p(2^608 + 2^288 + 2) + 1` is
+/// the closed-form semantic leg (the `d` term is the turn leaves, so a
+/// spine-less generator fails it). Normal form: every spine node
+/// reaches its subtree minimum 0 through a trailing 0-leaf, every
+/// block node's minimum is its own 0-leaf, and no sibling leaf pair is
+/// equal.
+///
+/// # Panics
+///
+/// Panics if `p == 0` or `d == 0`.
+pub fn dense_suffix(p: usize, d: usize) -> Packed {
+    assert!(p >= 1, "the dense-suffix family needs at least one block");
+    assert!(d >= 1, "the dense-suffix family needs at least one gap");
+    let arm = pow2(PROMOTION_REARM_ARM_BITS);
+    let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
+    let one = Base::from(1u8);
+    let mut bits = Bits::with_capacity(134 * d + 1812 * p + 4);
+    let trailing = gap_spine(&mut bits, d);
+    for _ in 0..p {
+        for base in [&arm, &one, &settle, &one] {
+            bits.push(true); // block node: 0-leaf left, chain right
+            codec::encode_int(&mut bits, base);
+            ev_leaf(&mut bits, 0);
+        }
+    }
+    ev_leaf(&mut bits, 1); // the block terminal: the last unit climb
+    for _ in 0..trailing {
+        ev_leaf(&mut bits, 0); // the left turns' siblings, innermost first
+    }
+    Packed::from_bits(bits)
+}
+
+/// The dense-suffix mate `DSM(p, d)`: the small twin of
+/// [`dense_suffix`] — the same topology with every block node's base 1.
+///
+/// Exactly `134d + 24p + 4` bits, and
+/// `min_ticks(DSM(p, d)) = d + 4p + 1`. Overlaid against `DS(p, d)`,
+/// heights agree leaf for leaf along the spine and the trailing run
+/// (the difference folds to zero) and every block boundary folds this
+/// operand's unit codes against the other's wide climbs, so the
+/// co-sweep's freezes and promotions fire on drift only the wide
+/// operand deposited — and the ledger's every arming owes its debt
+/// across the same dense trailing mass. `DS(p, d)` dominates it
+/// pointwise (equal outside the blocks, `≥ 2^608` against `≤ 4p`
+/// inside), so the pair measures collapse to exact rank identities.
+/// Normal form: as [`dense_suffix`]'s.
+///
+/// # Panics
+///
+/// Panics if `p == 0` or `d == 0`.
+pub fn dense_suffix_mate(p: usize, d: usize) -> Packed {
+    assert!(p >= 1, "the dense-suffix mate needs at least one block");
+    assert!(d >= 1, "the dense-suffix mate needs at least one gap");
+    let one = Base::from(1u8);
+    let mut bits = Bits::with_capacity(134 * d + 24 * p + 4);
+    let trailing = gap_spine(&mut bits, d);
+    for _ in 0..4 * p {
+        bits.push(true); // block node: 0-leaf left, chain right
+        codec::encode_int(&mut bits, &one);
+        ev_leaf(&mut bits, 0);
+    }
+    ev_leaf(&mut bits, 1); // the block terminal
+    for _ in 0..trailing {
+        ev_leaf(&mut bits, 0);
+    }
+    Packed::from_bits(bits)
+}
+
+/// The wide-arming family `WA(w, d)`: the gap spine of [`dense_suffix`]
+/// over a *single* re-arm block whose arming climb is `2^(32w)` — one
+/// promotion whose parked mass is as wide as the input, owing its debt
+/// across a trailing mass as dense as the input.
+///
+/// Exactly `134d + 64w + 600` bits. The one block climbs `2^(32w)`
+/// (parked at its unit), climbs `2^288` (whose unit's freeze finds the
+/// parked component over-wide and promotes it — the one ledger
+/// arming), and the sweep then consumes the `Θ(d)`-dense trailing mass
+/// and descends, cancelling the plateau only after the ledger entry is
+/// sealed. The exact debt embeds one `Θ(w)`-digit × `Θ(d)`-digit
+/// product whose factors the input funds separately (`w` digits of
+/// arming code, `d` spine turns), so the settle's aggregate product
+/// pays `Θ(w · d)` digit work against a `Θ(w + d)`-bit operand — the
+/// aggregate-product residual the query module doc's funding section
+/// states, quadratic at `w = d` however the armings are associated,
+/// because the cancelling descent lands outside the ledger.
+/// `min_ticks(WA(w, d)) = d + 2^(32w) + 2^288 + 2 + 1` is the
+/// closed-form semantic leg. Normal form: as [`dense_suffix`]'s.
+///
+/// # Panics
+///
+/// Panics if `w < 10` (the parked component must clear the settling
+/// drift's ten digits by more than the freeze allowance) or `d == 0`.
+pub fn wide_arming(w: usize, d: usize) -> Packed {
+    assert!(
+        w >= 10,
+        "the wide arming must out-span the settling drift plus the allowance"
+    );
+    assert!(d >= 1, "the wide-arming family needs at least one gap");
+    let arm = pow2(32 * w);
+    let settle = pow2(PROMOTION_REARM_SETTLE_BITS);
+    let one = Base::from(1u8);
+    let mut bits = Bits::with_capacity(134 * d + 64 * w + 600);
+    let trailing = gap_spine(&mut bits, d);
+    for base in [&arm, &one, &settle, &one] {
+        bits.push(true); // the one block: 0-leaf left, chain right
+        codec::encode_int(&mut bits, base);
+        ev_leaf(&mut bits, 0);
+    }
+    ev_leaf(&mut bits, 1); // the block terminal
+    for _ in 0..trailing {
+        ev_leaf(&mut bits, 0);
+    }
+    Packed::from_bits(bits)
+}
+
+/// Append the dense-suffix gap spine: `33d` zero-base levels turning
+/// right every 33rd (the turn's 1-leaf emitted before the descent) and
+/// left elsewhere, returning the count of trailing 0-leaf siblings the
+/// caller must emit innermost-first after the spine's terminal content.
+fn gap_spine(bits: &mut Bits, d: usize) -> usize {
+    let mut trailing = 0usize;
+    for level in 0..DENSE_SUFFIX_DIGIT_STRIDE * d {
+        bits.push(true); // spine node flag
+        codec::encode_int(bits, &Base::ZERO);
+        if level % DENSE_SUFFIX_DIGIT_STRIDE == 0 {
+            ev_leaf(bits, 1); // the turn: its leaf leads the descent
+        } else {
+            trailing += 1; // the lean: its 0-leaf trails the subtree
+        }
+    }
+    trailing
+}
+
 /// The ascending-cliff id over [`ascend_cliff`]: a right-descent
 /// `(0, ·)` chain bottoming in `(1, 0)` over the cliff, `2k + 4` bits.
 ///
