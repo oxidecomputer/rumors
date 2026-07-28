@@ -17,15 +17,15 @@ static HEAP: PeakAlloc = PeakAlloc;
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The board's exact cell count: 66 operation rows over 21 shapes (1386
-/// combinations) minus the 275 where the shape's bundle supplies no
+/// The board's exact cell count: 66 operation rows over 22 shapes (1452
+/// combinations) minus the 298 where the shape's bundle supplies no
 /// operand for the row's signature.
 ///
 /// Derived per shape from the operand bundles. A version-only shape
-/// (dense, bigroot, hugeleaf, cliff, harmonic, and the two version-pair
-/// shapes jump-pair and concurrent-pair, whose bundles carry their own
-/// comparison counterpart in the same slots) runs the 13 version rows
-/// (8 of them consuming the pair slot),
+/// (dense, bigroot, hugeleaf, cliff, harmonic, freeze-pos, and the two
+/// version-pair shapes jump-pair and concurrent-pair, whose bundles
+/// carry their own comparison counterpart in the same slots) runs the
+/// 13 version rows (8 of them consuming the pair slot),
 /// the 4 linear-functional rows, the 2 rank rows, its tick, ticks,
 /// and 3 projection cells (the materialization row and the two fused
 /// comparison rows), the 11 clock rows, and its 8 rejection rows (the
@@ -43,12 +43,12 @@ const SMOKE_SCALE: f64 = 0.02;
 /// fold rows (its bundle carries fold operands alone, so neither a
 /// projection nor a rejection row applies); benign runs every row (66,
 /// both fold controls included).
-/// 43 x 7 + 38 + 64 x 11 + 2 + 66 = 1111.
+/// 43 x 8 + 38 + 64 x 11 + 2 + 66 = 1154.
 /// The table is fixed and applicability depends on the
 /// family alone (`board::run` enforces this per cell), so the count is
 /// deterministic at every scale; a row added to or dropped from the table
 /// must move this pin.
-const EXPECTED_CELLS: usize = 1111;
+const EXPECTED_CELLS: usize = 1154;
 
 /// The board runs to completion at tiny sizes: every cell prepares,
 /// measures, and renders, and the matrix keeps covering the full operation

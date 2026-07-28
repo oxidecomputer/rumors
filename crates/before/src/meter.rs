@@ -1361,6 +1361,67 @@ fn ascend_spine(k: usize, b: usize, ascend: bool) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The freeze-position exponent of the wide drop in
+/// [`freeze_position`].
+///
+/// `2^288` is a ten-base-2^32-digit value, so a block's drift exceeds
+/// the following unit code's one digit by more than the query folds'
+/// eight-digit freeze allowance, and every block fires one freeze.
+const FREEZE_POSITION_DROP_BITS: usize = 288;
+
+/// The freeze-position spine `FP(k)`: a right spine of `2k` descending
+/// wide left leaves whose consecutive drops alternate `2^288` and one,
+/// over a terminal 0 leaf.
+///
+/// Exactly `4k(L + 2) + 2` bits for the one shared leaf-width band
+/// `L = 289 + bitlen(k)`.
+///
+/// Layout: `2k` spine nodes `1 · γ(0)` leaning right, node `j`'s left
+/// leaf the `j`-th value of the descent from `2^L + k(2^288 + 1)`
+/// (alternately dropping `2^288` and `1`), the deepest node's right
+/// child the terminal `0 · γ(0)`. Each block's wide drop re-arms live
+/// drift over the query folds' freeze allowance and the following unit
+/// code fires the freeze, so a query fold freezes `Θ(k)` times, at
+/// stream positions whose written span grows with every block — the
+/// many-freezes genre: an accounting that reads an absolute position
+/// (or re-reads any whole-history state) per freeze goes quadratic
+/// here, while every committed comb fires O(1) freezes. The descent
+/// consumes `k(2^288 + 1) < 2^L`, so every leaf shares the one
+/// `(L + 1)`-bit width and the size formula is exact.
+/// `min_ticks(FP(k))` is the leaf sum `2k·2^L + k(k−1)(2^288 + 1) + k`
+/// (every node minimum is 0 via the terminal leaf). Normal form:
+/// values strictly descend (no equal siblings), every base is 0, and
+/// every subtree minimum is 0.
+///
+/// # Panics
+///
+/// Panics if `k == 0`.
+pub fn freeze_position(k: usize) -> Packed {
+    assert!(k >= 1, "the freeze-position spine needs at least one block");
+    let band = FREEZE_POSITION_DROP_BITS + 1 + bitlen(k);
+    let wide = suanpan::UBig::ONE << FREEZE_POSITION_DROP_BITS;
+    let unit = suanpan::UBig::ONE;
+    let descent = (&wide + &unit) * suanpan::UBig::from(k as u64);
+    let mut value = (suanpan::UBig::ONE << band) + descent;
+    let mut bits = Bits::with_capacity(4 * k * (band + 2) + 2);
+    for _ in 0..k {
+        for drop in [&wide, &unit] {
+            bits.push(true); // spine node: base 0, leaf left, spine right
+            codec::encode_int(&mut bits, &Base::ZERO);
+            value -= drop;
+            ev_leaf_wide(&mut bits, &Base::from(value.clone()));
+        }
+    }
+    ev_leaf(&mut bits, 0); // the terminal leaf: every ancestor's minimum
+    Packed::from_bits(bits)
+}
+
+/// The bit length of `k` (`k >= 1`): the freeze-position band's
+/// headroom exponent.
+fn bitlen(k: usize) -> usize {
+    (usize::BITS - k.leading_zeros()) as usize
+}
+
 /// The ascending-cliff id over [`ascend_cliff`]: a right-descent
 /// `(0, ·)` chain bottoming in `(1, 0)` over the cliff, `2k + 4` bits.
 ///

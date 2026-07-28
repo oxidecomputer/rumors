@@ -10,7 +10,8 @@
 //!
 //! - [`rank`](fn@rank) integrates the step function: `Σ heightᵢ · 2^(−depthᵢ)`
 //!   over the leaves, telescoped through height *deltas* so no absolute
-//!   height is ever rebuilt per leaf (the frozen/live split below).
+//!   height is ever rebuilt per leaf — the single-stream instance of the
+//!   anchored-segment split below.
 //! - [`distance`](fn@distance) and [`lag`](fn@lag) integrate a directed functional of
 //!   the two operands' height difference in one fused co-sweep —
 //!   distance = `∫ |h_a − h_b|`, lag = `∫ (h_b − h_a)⁺` — on the
@@ -21,11 +22,12 @@
 //! - [`min_ticks`](fn@min_ticks) folds the identity
 //!   `Σ bases = Σ leaf heights − Σ internal-node subtree minima` (each
 //!   normal-form base is its node's subtree minimum less its parent's)
-//!   exactly, at any magnitude, on the same frozen/live split as the
-//!   rank fold: heights and minima enter the total as narrow offsets
-//!   above the frozen component, whose own (wide) contribution arrives
-//!   through counting — a net coefficient of one — rather than through
-//!   per-leaf reads.
+//!   exactly, at any magnitude: heights and minima enter the total as
+//!   narrow epoch-relative offsets, the frozen component arrives
+//!   through counting, and the closing nodes' minima ride a
+//!   range-minimum anchor web whose closes count instead of fold (the
+//!   `web` submodule carries the accounting and its funding
+//!   certificate).
 //! - [`project`](fn@project) overlays the skyline against a packed *id* stream
 //!   and re-emits the masked skyline through the collapsing output
 //!   builder: owned regions keep their plateaus, unowned regions emit
@@ -35,37 +37,27 @@
 //!   cross is Θ(teeth · magnitude) output from linear input, and this
 //!   sweep is I/O-linear on it).
 //!
-//! # The frozen/live height split
+//! # The height split and the freeze allowance
 //!
 //! The rank integral must add `height · 2^(S − depth)` per leaf (`S` the
 //! stream's maximum depth, found by one topology-only pre-scan), but a
 //! per-leaf read of the full height re-imports the quadratic the delta
 //! coding invites: on the boundary comb the height is a `2^k`-scale value
-//! behind 3-bit stored deltas. The sweep therefore splits the height as
-//! `F + L`: `L` (*live*) an accumulator holding the drift since the last
-//! freeze, `F` (*frozen*) the rest — an accumulator touched only when a
-//! freeze evicts `L` into it. Per leaf the sweep adds only `L`'s digits,
-//! and `F` reaches the total through summation by parts rather than
-//! through per-leaf or per-segment products:
+//! behind 3-bit stored deltas. Every fold here therefore splits its
+//! running quantity into anchored components folded narrow — the
+//! anchored-segment split the pair co-sweep section derives, which the
+//! rank fold runs on its one stream, and the epoch-ledger form the
+//! min_ticks fold runs (the `web` submodule) — with one shared trigger:
 //!
-//! `Σᵢ F(i) · massᵢ = F_final · 2^S − Σ_freezes drift · position`
-//!
-//! — one `F_final`-wide shifted add when the stream ends (the leaf
-//! masses tile the interval, so the closing weight is exactly `2^S`)
-//! plus one correction per freeze, priced by the *drift* being evicted:
-//! a drift-wide product per nonzero signed digit of the compacted freeze
-//! position (a ones-run position — every comb's shape — compacts to two
-//! digits) and one position-wide read. Nothing ever multiplies by `F`'s
-//! width, so a wide frozen value set once is never re-read per freeze.
-//!
-//! A freeze fires exactly when a folded delta leaves `L` more than
-//! `FREEZE_ALLOWANCE_DIGITS` digits wider than that delta's own code:
-//! stale wide drift is about to ride under cheaper codes, so the sweep
-//! evicts it once — charged to the codes that built the drift, which the
-//! freeze consumes and resets — and the cheap codes continue on an
-//! emptied `L`. Bounded oscillation at *any* width keeps `L` within its
-//! own codes' width and never freezes: every wide-tooth fold is paid by
-//! the tooth's own code, on either side of any fixed width.
+//! A freeze fires exactly when a folded delta leaves the live component
+//! more than `FREEZE_ALLOWANCE_DIGITS` digits wider than that delta's
+//! own code: stale wide drift is about to ride under cheaper codes, so
+//! the sweep evicts it once — charged to the codes that built the drift,
+//! which the freeze consumes and resets — and the cheap codes continue
+//! on an emptied live component. Bounded oscillation at *any* width
+//! keeps the live component within its own codes' width and never
+//! freezes: every wide-tooth fold is paid by the tooth's own code, on
+//! either side of any fixed width.
 //!
 //! # The pair co-sweep: distance and lag
 //!
@@ -96,22 +88,25 @@
 //!
 //! ## The anchored-segment freeze discipline
 //!
-//! The rank fold's split cannot be reused as-is. Its freeze correction
-//! multiplies each evicted drift by the *absolute* freeze position, and
-//! the overlay lets one operand's cheap boundaries fire freezes of
-//! drift the other operand's wide codes deposited, at positions whose
-//! compacted density neither operand's codes funded: on the two-operand
-//! jump comb — a shared descent spine planting isolated position bits,
-//! then an `m`-level comb where one operand's wide teeth cross the
-//! other's near-flat band — every crest of `|D|` would pay a
+//! A freeze must not settle evicted drift against its *absolute*
+//! position: positions grow arbitrarily dense while the codes at hand
+//! stay cheap. A single stream can alternate isolated wide drops with
+//! unit drops down a spine (the freeze-position board family), firing a
+//! freeze per block at ever-growing written position spans; the overlay
+//! is worse — one operand's cheap boundaries fire freezes of drift the
+//! other operand's wide codes deposited, at positions whose compacted
+//! density neither operand's codes funded (on the two-operand jump comb
+//! — a shared descent spine planting isolated position bits, then an
+//! `m`-level comb where one operand's wide teeth cross the other's
+//! near-flat band — every crest of `|D|` would pay a
 //! drift-width × position-density product, superlinear in the packed
-//! pair while each operand's own rank stays flat. The co-sweep
-//! therefore re-derives the split with *anchored segments*: no
-//! correction in the steady state multiplies by an absolute position.
-//! The integrand splits `h* = B + P + L`:
+//! pair while each operand alone stays flat). The integral therefore
+//! works in *anchored segments*: no correction in the steady state
+//! multiplies by an absolute position. The integrand splits
+//! `h* = B + P + L` (for rank, `h* = h` itself):
 //!
-//! - `L` (*live*): the drift since the last freeze, exactly the rank
-//!   fold's live component. Each elementary interval adds
+//! - `L` (*live*): the drift since the last freeze. Each elementary
+//!   interval adds
 //!   `L · 2^(S − depth)` directly — O(`L`'s digits), bounded by the
 //!   previous boundary's widest folded code plus the freeze allowance,
 //!   and the trigger below empties `L` before a second unfunded
@@ -140,7 +135,7 @@
 //!   within the allowance of the drift the settling freeze itself
 //!   parks.
 //!
-//! A freeze fires by the rank fold's own relative trigger, with one
+//! A freeze fires by the section-one relative trigger, with one
 //! pair-specific difference of denomination: the check runs once per
 //! boundary against the *boundary's* widest folded code, not per folded
 //! delta. The behavior it buys is the same — bounded oscillation at any
@@ -157,9 +152,11 @@
 //! only if no charge draws on the ledger of an operand that did not
 //! deposit — the hole the composed form fell into, where the meet's
 //! emission re-coded one operand's width into switch jumps that the
-//! rank fold then evicted at the other operand's cheap codes, priced by
-//! a position density neither had funded. Every co-sweep charge names
-//! its deposit:
+//! integral then evicted at the other operand's cheap codes, priced by
+//! a position density neither had funded. The rank fold is the
+//! one-ledger, single-stream instance of the same integral (its
+//! orientation is constantly `+1`), so its certificate is this one with
+//! `Φ_b` empty. Every charge names its deposit:
 //!
 //! - folds into `D` and `L`, and the orientation-change read of `D′`:
 //!   this boundary's own deposits (`|D′| ≤ |dD|` caps the read);
@@ -176,13 +173,12 @@
 //! A cheap code from one operand can *fire* a freeze, but the work the
 //! freeze performs is bounded by deposits from the codes that built the
 //! state being moved — never by an absolute position the firing operand
-//! chose. The honest residual is the rank fold's, one factor narrower:
-//! promotion pays position density once per wide re-arm, and a settle
-//! pays within-segment depth variation; in both, the measure's exact
-//! value embeds the product of a genuinely wide plateau and its
-//! genuinely dense mass, so the work is mandatory-class for any exact
-//! evaluation, and reaching it spends the width and the variation in
-//! the input's own codes.
+//! chose. The honest residual: promotion pays position density once per
+//! wide re-arm, and a settle pays within-segment depth variation; in
+//! both, the measure's exact value embeds the product of a genuinely
+//! wide plateau and its genuinely dense mass, so the work is
+//! mandatory-class for any exact evaluation, and reaching it spends the
+//! width and the variation in the input's own codes.
 //!
 //! # Cost
 //!
@@ -192,45 +188,29 @@
 //! and fold bounds are the comparison sweep's; rank adds O(`L` digits)
 //! per leaf — bounded by the freeze allowance plus the width of the
 //! delta folded at the previous boundary, so each per-leaf add is paid
-//! by the code that set `L`'s width — plus the freeze corrections: one
-//! position read and one drift-wide product per nonzero compacted
-//! position digit each, funded by the codes that built the drift
-//! wherever the freeze position compacts to O(1) digits (every comb: its
-//! freeze positions are ones-runs). A stream that re-arms wide drift
-//! under cheap codes *at a dense position* — deep alternating topology
-//! around every freeze — still pays its corrections at position density,
-//! the one shape whose funding the freeze discipline does not certify.
-//! Distance and lag (the `DISTANCE_*`/`LAG_*` rows, plus the
-//! `skyline_flatness` module's jump-pair band) add, per boundary, work
-//! bounded by the boundary's own folded codes — the difference and
-//! integrand folds and the orientation-change read — plus the co-sweep
-//! section's certified freeze work, and two topology-only pre-scans for
-//! the overlay scale; transiently they hold the two cursor paths and
-//! the integrator's accumulators, never an emitted stream.
-//! min_ticks adds one
-//! narrow-offset min-merge per node on an epoch-tagged pending stack
-//! (per level: one `F`-relative offset whose width the freeze allowance
-//! plus its own run's codes bound, against the level's ≥ 3 stream
-//! bits), and its freeze corrections multiply the evicted drift by the
-//! open depth — bounded by the drift's own width times the coefficient's
-//! compacted digits. Each pending entry re-bases at most once (its one
-//! pop, against the cumulative drift its epoch tag indexes). What the
-//! discipline does not certify is circulation *inside* the freeze
-//! allowance: a wide-but-under-allowance offset minted per flip from
-//! 3-bit codes — the close-reveal and undercut-cascade genres — pays
-//! its width per site with no input code funding it, exactly the
-//! circulation the rank fold's reveal rows also read [measured on the
-//! board, 2026-07-27: min_ticks limb/touch exponents 1.5–1.95 on the
-//! reveal combs and the ascending cliffs; the primary families —
-//! dense, the magnitude shapes, harmonic, benign, organic histories —
-//! all read exponent 1.0]. The excess is not contractual: the walk's
-//! watermark anchor-web discipline is the known cure, and a future
-//! release may move this fold onto it. Projection adds
-//! one height materialization
+//! by the code that set `L`'s width — plus the co-sweep section's
+//! certified freeze work (a settle per freeze at the parked width times
+//! within-segment depth variation, a promotion once per wide arming;
+//! the `skyline_flatness` module's freeze-position band holds the
+//! many-freezes genre flat). Distance and lag (the `DISTANCE_*`/`LAG_*`
+//! rows, plus the `skyline_flatness` module's jump-pair band) add, per
+//! boundary, work bounded by the boundary's own folded codes — the
+//! difference and integrand folds and the orientation-change read —
+//! plus the same certified freeze work, and two topology-only pre-scans
+//! for the overlay scale; transiently they hold the two cursor paths
+//! and the integrator's accumulators, never an emitted stream.
+//! min_ticks adds one fold into the range-minimum web's gap per delta,
+//! O(1) web bookkeeping per node (a count bump at each close, a
+//! boundary move at each pop), one settle per reign record at the
+//! record's own funded width, and the epoch ledger's one product per
+//! freeze at the evicted drift's width — the `web` submodule certifies
+//! every charge (the `skyline_flatness` module's pure-comb and
+//! reveal-comb bands hold the close-reveal genre flat in both width
+//! currencies). Projection adds one height materialization
 //! per ownership transition, priced by the code it emits. Transient
-//! state is the cursor paths, the accumulators, min_ticks' offset
-//! stack, and — for projection — the output builder's per-level bit
-//! stacks.
+//! state is the cursor paths, the accumulators, min_ticks' compressed
+//! difference stack, and — for projection — the output builder's
+//! per-level bit stacks.
 //!
 //! # Testing
 //!
@@ -280,8 +260,9 @@ const FREEZE_ALLOWANCE_DIGITS: usize = 8;
 /// The exact causal rank of the version a skyline stream denotes.
 ///
 /// One topology pre-scan for the maximum depth, then one leaf sweep
-/// integrating the step function on the frozen/live height split (the
-/// module doc carries the algebra and the cost argument). Equal to
+/// integrating the step function on the anchored-segment height split
+/// (the module doc's pair-co-sweep section carries the algebra and the
+/// funding certification; rank is its single-stream instance). Equal to
 /// [`Version::rank`](crate::Version::rank) on the decoded version, which
 /// the differential suite pins exactly.
 ///
@@ -296,77 +277,24 @@ pub fn rank(bits: &BitsSlice) -> Rank {
     let scale =
         u32::try_from(max_depth).expect("rank exponent overflows u32: stream deeper than 2^32");
     let (mut cursor, first) = LeafCursor::open(bits);
-    let mut total = Accumulator::new();
-    let mut live_height = Accumulator::new();
-    let mut frozen = Accumulator::new();
-    frozen.add_magnitude(&first);
-    let mut position = Accumulator::new();
-    let one = Base::from(1u8);
+    // The single-stream instance of the anchored-segment integral: the
+    // integrand is the height itself, opened at the first leaf's
+    // absolute (the plateau anchored at position zero) and folded
+    // delta-by-delta thereafter.
+    let mut integral = Integrator::new();
+    integral.open(&first);
     loop {
-        // Per-leaf: the live component's contribution and the leaf's mass.
-        // The zero test is one-sided (true means zero, false means
-        // unknown), which is all this skip needs: a redundantly spelled
-        // zero takes the add and contributes nothing.
         let weight_shift = (max_depth - cursor.depth()) as u64;
-        if !live_height.is_literally_zero() {
-            total.add_accum_shl(&live_height, weight_shift);
-        }
-        position.add_magnitude_shl(&one, weight_shift);
+        integral.interval(weight_shift);
         if cursor.done() {
             break;
         }
-        let step = cursor.step(&mut live_height, Side::A);
-        if live_height.digit_count() > base_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
-            freeze(&mut total, &mut frozen, &mut live_height, &position);
-        }
+        let step = cursor.step(&mut integral.live, Side::A);
+        integral.boundary(base_digits(&step.magnitude));
     }
-    // The closing term: the frozen component weighted by the whole
-    // interval — the leaf masses tile it, so the weight is exactly 2^S.
-    total.add_accum_shl(&frozen, max_depth as u64);
-    let (sign, num) = total.sign_magnitude();
+    let (sign, num) = integral.finish(max_depth as u64);
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
     Rank::from_raw(Base::from(num), scale)
-}
-
-/// Freeze the height split: evict the live drift into the frozen
-/// component and debit the eviction's correction from the total.
-///
-/// The closing `F_final · 2^S` term will credit the evicted drift across
-/// the *whole* interval, but the drift belongs only to the leaves after
-/// this freeze, so the sweep debits `drift · position` here — the
-/// summation-by-parts correction, priced by the drift's own width times
-/// the compacted position's nonzero digits, never by the frozen width.
-fn freeze(
-    total: &mut Accumulator,
-    frozen: &mut Accumulator,
-    live_height: &mut Accumulator,
-    position: &Accumulator,
-) {
-    let (drift_sign, drift) = live_height.sign_magnitude();
-    debug_assert_ne!(
-        drift_sign,
-        Ordering::Equal,
-        "a freeze evicts a nonzero drift: the trigger requires a wide live component"
-    );
-    let (position_sign, position) = position.sign_magnitude();
-    debug_assert_eq!(
-        position_sign,
-        Ordering::Greater,
-        "leaf masses only accumulate"
-    );
-    let drift = Base::from(drift);
-    mul_into(
-        total,
-        &drift,
-        &Base::from(position),
-        0,
-        drift_sign == Ordering::Greater,
-    );
-    match drift_sign {
-        Ordering::Less => frozen.sub_magnitude(&drift),
-        _ => frozen.add_magnitude(&drift),
-    }
-    *live_height = Accumulator::new();
 }
 
 /// Add (or, with `subtract`, remove) `factor · digits · 2^shift` in the
@@ -575,8 +503,12 @@ struct Integrator {
     /// `B`: content anchored at position zero — the opening plateau and
     /// every promotion — closing as `B · 2^S`.
     base: Accumulator,
-    /// The absolute interval mass consumed so far, read only at
-    /// promotions.
+    /// The absolute interval mass consumed through the last settled
+    /// segment, read only at promotions.
+    ///
+    /// Fed one compacted segment mass per freeze — the same watermark
+    /// read the settle already pays — never per interval, so a sweep
+    /// that never freezes never touches it.
     position: Accumulator,
     /// The unit mass every interval deposits at its own scale.
     one: Base,
@@ -601,8 +533,7 @@ impl Integrator {
     }
 
     /// Credit one elementary interval: the live component's contribution
-    /// at the interval's mass, and the mass itself into the segment and
-    /// position sums.
+    /// at the interval's mass, and the mass itself into the segment sum.
     fn interval(&mut self, weight_shift: u64) {
         // The zero test is one-sided (true means zero, false means
         // unknown), which is all this skip needs: a redundantly spelled
@@ -611,7 +542,6 @@ impl Integrator {
             self.total.add_accum_shl(&self.live, weight_shift);
         }
         self.seg.add_magnitude_shl(&self.one, weight_shift);
-        self.position.add_magnitude_shl(&self.one, weight_shift);
     }
 
     /// Fold the orientation-change term `(σ′ − σ) · D′` into the live
@@ -646,9 +576,12 @@ impl Integrator {
         }
     }
 
-    /// Park the live drift: settle the parked component's segment,
-    /// promote it first if the incoming drift runs far narrower, then
-    /// move the drift in and re-anchor.
+    /// Park the live drift, closing the current segment.
+    ///
+    /// Settles the parked component over the segment (banking the
+    /// segment's mass into the absolute position), promotes the parked
+    /// component first if the incoming drift runs far narrower, then
+    /// moves the drift in and re-anchors.
     fn freeze(&mut self) {
         let (drift_sign, drift) = self.live.sign_magnitude();
         if drift == UBig::ZERO {
@@ -659,7 +592,7 @@ impl Integrator {
             return;
         }
         let drift = Base::from(drift);
-        self.settle();
+        self.settle_segment();
         if self.parked.digit_count() > base_digits(&drift) + FREEZE_ALLOWANCE_DIGITS {
             self.promote();
         }
@@ -675,12 +608,44 @@ impl Integrator {
         self.seg = Accumulator::new();
     }
 
-    /// Credit the parked component over the segment since its anchor:
-    /// `total += P · segment`.
+    /// Close the current segment at a freeze: credit the parked
+    /// component over it and bank the segment's mass.
+    ///
+    /// The credit is `total += P · segment`, as [`settle`](Self::settle);
+    /// the banked mass joins the absolute position, read only at
+    /// promotions — one watermark read serving both consumers, priced
+    /// by the segment's depth variation.
+    fn settle_segment(&mut self) {
+        let (seg_sign, seg_mag, seg_shift) = self.seg.sign_magnitude_shl();
+        debug_assert_ne!(seg_sign, Ordering::Less, "interval masses only accumulate");
+        if seg_mag == UBig::ZERO {
+            return;
+        }
+        let seg = Base::from(seg_mag);
+        self.position.add_magnitude_shl(&seg, seg_shift);
+        if self.parked.is_literally_zero() {
+            return;
+        }
+        let (p_sign, p_mag) = self.parked.sign_magnitude();
+        if p_mag == UBig::ZERO {
+            return;
+        }
+        mul_into(
+            &mut self.total,
+            &Base::from(p_mag),
+            &seg,
+            seg_shift,
+            p_sign == Ordering::Less,
+        );
+    }
+
+    /// Credit the parked component over the final segment at the sweep's
+    /// close: `total += P · segment`.
     ///
     /// One compacted product priced by `P`'s width times the segment's
     /// depth variation; the scaled read skips the never-written scale
-    /// prefix under the segment.
+    /// prefix under the segment. No position banking: the sweep is over,
+    /// so no promotion can follow.
     fn settle(&mut self) {
         if self.parked.is_literally_zero() {
             return;
@@ -705,9 +670,11 @@ impl Integrator {
     /// `P × position` — the sweep's one absolute-position product, paid
     /// once per wide arming.
     ///
-    /// Sound only immediately after [`settle`](Self::settle): the
-    /// segment credit covered `P` up to the current position, so its
-    /// remaining tail is `P · (2^S − position) = P · 2^S − P · position`.
+    /// Sound only immediately after
+    /// [`settle_segment`](Self::settle_segment): the segment credit
+    /// covered `P` up to the current position — which the banking has
+    /// just brought current — so its remaining tail is
+    /// `P · (2^S − position) = P · 2^S − P · position`.
     fn promote(&mut self) {
         let (p_sign, p_mag) = self.parked.sign_magnitude();
         if p_mag != UBig::ZERO {
@@ -750,17 +717,14 @@ impl Integrator {
 ///
 /// Folds `Σ leaf heights − Σ internal-node subtree minima` (each
 /// normal-form base is its node's minimum less its parent's, so the sum
-/// telescopes to exactly the stored-base total) over one leaf sweep, on
-/// the same frozen/live height split as [`rank`](fn@rank): heights and
-/// minima enter the running total as narrow offsets above the frozen
-/// component `F`, and `F` itself reaches the total through counting —
-/// one closing `F`-wide add (each leaf adds `F` once and each closing
-/// node removes it once, so the net coefficient is exactly 1) plus one
-/// correction per freeze, a `drift × open-depth` product priced by the
-/// drift being evicted. The pending left-subtree minima ride a stack of
-/// narrow `F`-relative offsets, each tagged with the freeze epoch it was
-/// pushed under and re-based lazily at its one pop, so a freeze never
-/// walks the stack. Equal to
+/// telescopes to exactly the stored-base total) over one leaf sweep.
+/// Heights enter the total as narrow live offsets over a frozen
+/// component that lives entirely in an epoch ledger — one drift per
+/// freeze, settled against per-epoch reference counts once, at the end
+/// — and the closing nodes' minima ride a range-minimum anchor web
+/// whose closes count against reigning value records instead of folding
+/// widths (the `web` submodule carries both structures, the accounting,
+/// and the funding certificate). Equal to
 /// [`Version::min_ticks`](crate::Version::min_ticks) on the decoded
 /// version, which the differential suite pins exactly.
 ///
@@ -771,76 +735,51 @@ impl Integrator {
 pub fn min_ticks(bits: &BitsSlice) -> Base {
     let (mut cursor, first) = LeafCursor::open(bits);
     // The height split: `h = F + L`, with `L` folding every delta and
-    // `F` touched only by freezes (the module doc's discipline, shared
-    // with the rank fold). The first leaf's absolute is all `F`.
-    let mut frozen = Accumulator::new();
-    frozen.add_magnitude(&first);
+    // `F` living entirely in the epoch ledger — one drift per freeze,
+    // settled against per-epoch reference counts once, at the end. The
+    // first leaf's absolute is epoch 0's drift.
     let mut live = Accumulator::new();
-    // The narrow part of the total: `Σ leaf offsets − Σ minima offsets`,
-    // every term `F`-relative at its own accounting instant.
+    // The narrow side of the total: `Σ leaf offsets − Σ minima offsets`,
+    // every term relative to its own epoch's frozen component.
     let mut total = Accumulator::new();
-    // The cumulative signed freeze drift per epoch: entry `e` re-bases a
-    // pending offset pushed under epoch `e` to the current `F`.
-    let mut shifts: Vec<(bool, Base)> = vec![(false, Base::ZERO)];
-    // Pending left-subtree minima as `(negative, |m − F|, epoch)`.
-    let mut pending: Vec<(bool, Base, u32)> = Vec::new();
-    // Leaves accounted minus nodes closed: the freeze correction's
-    // coefficient (each event carries one `F` reference), never above
-    // the open depth plus one.
-    let mut net_f_refs: u64 = 1;
-    // The running merged minimum, `F`-relative: the previous leaf until
-    // a close merges a pending left minimum into it.
-    let mut min_off: (bool, Base) = (false, Base::ZERO);
+    let mut ledger = web::EpochLedger::new(first);
+    // The minima side: subtree spans nest LIFO along the sweep, so each
+    // closing node's minimum is the innermost open range's — the
+    // range-minimum web (the `web` module carries the discipline and
+    // the funding argument).
+    let mut web = web::MinWeb::new();
+    web.open(cursor.depth());
+    ledger.leaf_ref();
+    web.leaf(false, &Base::ZERO, 0, &mut total, &mut ledger);
     while !cursor.done() {
         let depth_before = cursor.depth();
         let step = cursor.step(&mut live, Side::A);
-        // Every popped right-branch level closed one internal node: merge
-        // its pending left minimum with the completed right subtree's,
-        // and subtract the closed node's minimum from the total.
+        web.fold_height(step.negative, &step.magnitude);
+        // Every popped right-branch level closed one internal node:
+        // its subtree minimum folds into the total (a count on the
+        // web's reigning record) and merges into its parent.
         for _ in 0..depth_before - step.flip {
-            let (p_neg, p_mag, epoch) = pending
-                .pop()
-                .expect("every closing node has a pending left minimum");
-            let left = rebase(p_neg, p_mag, epoch, &shifts);
-            if signed_lt(&left, &min_off) {
-                min_off = left;
-            }
-            fold_signed(&mut total, !min_off.0, &min_off.1);
-            net_f_refs = net_f_refs
-                .checked_sub(1)
-                .expect("every closing node follows its own leaves");
+            web.close(&mut total, &mut ledger);
         }
-        // The flip level's left sibling is complete: its minimum waits
-        // for the right subtree that starts here.
-        let epoch = u32::try_from(shifts.len() - 1).expect("freeze count fits u32");
-        pending.push((min_off.0, min_off.1, epoch));
-        // The new leaf: account its offset and start the fresh run's
-        // minimum at it. A stale-wide live component is evicted first,
+        // Every left branch the descent pushed opened one node's range.
+        web.open(cursor.depth() - step.flip);
+        // The new leaf: a stale-wide live component is evicted first,
         // so the offset entering the total is paid by the codes that
         // built it (the freeze discipline's funding argument).
         if live.digit_count() > base_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
-            freeze_min_ticks(&mut total, &mut frozen, &mut live, &mut shifts, net_f_refs);
+            ledger.freeze(&mut live);
         }
         let (l_sign, l_mag) = live.sign_magnitude();
-        let leaf_off = (l_sign == Ordering::Less, Base::from(l_mag));
-        fold_signed(&mut total, leaf_off.0, &leaf_off.1);
-        net_f_refs += 1;
-        min_off = leaf_off;
+        let leaf_off = Base::from(l_mag);
+        let leaf_neg = l_sign == Ordering::Less;
+        fold_signed(&mut total, leaf_neg, &leaf_off);
+        ledger.leaf_ref();
+        web.leaf(leaf_neg, &leaf_off, ledger.epoch(), &mut total, &mut ledger);
     }
-    // The final leaf closes every remaining ancestor from the right.
-    while let Some((p_neg, p_mag, epoch)) = pending.pop() {
-        let left = rebase(p_neg, p_mag, epoch, &shifts);
-        if signed_lt(&left, &min_off) {
-            min_off = left;
-        }
-        fold_signed(&mut total, !min_off.0, &min_off.1);
-        net_f_refs -= 1;
-    }
-    debug_assert_eq!(net_f_refs, 1, "leaves exceed closed nodes by exactly one");
-    // The closing term: every event referenced `F` with net coefficient
-    // one (the freeze corrections re-based the references that predate
-    // each drift).
-    total.add_accum(&frozen);
+    // The final leaf closes every remaining ancestor from the right,
+    // then the ledger folds the frozen component's every reference.
+    web.drain(&mut total, &mut ledger);
+    ledger.settle(&mut total);
     let (sign, magnitude) = total.sign_magnitude();
     debug_assert_ne!(
         sign,
@@ -850,81 +789,12 @@ pub fn min_ticks(bits: &BitsSlice) -> Base {
     Base::from(magnitude)
 }
 
-/// Freeze the min-ticks height split: evict the live drift into the
-/// frozen component, correct the total for the events already accounted
-/// against the smaller `F`, and open a new re-basing epoch.
-///
-/// Every event accounted so far carried one `F` reference (a leaf adds
-/// `F + L`, a closing node removes `F + min_off`), and the closing term
-/// credits the final `F` once per *net* reference — so moving `drift`
-/// from `L` to `F` debits `drift × net_refs` here, a product priced by
-/// the drift's own width times the open depth's compacted digits (the
-/// coefficient is never above the open depth plus one). The pending
-/// stack is untouched: each entry re-bases lazily at its pop, against
-/// the cumulative drift its epoch tag indexes.
-fn freeze_min_ticks(
-    total: &mut Accumulator,
-    frozen: &mut Accumulator,
-    live: &mut Accumulator,
-    shifts: &mut Vec<(bool, Base)>,
-    net_f_refs: u64,
-) {
-    let (drift_sign, drift) = live.sign_magnitude();
-    debug_assert_ne!(
-        drift_sign,
-        Ordering::Equal,
-        "a freeze evicts a nonzero drift: the trigger requires a wide live component"
-    );
-    let drift = Base::from(drift);
-    let negative = drift_sign == Ordering::Less;
-    mul_into(total, &drift, &Base::from(net_f_refs), 0, !negative);
-    if negative {
-        frozen.sub_magnitude(&drift);
-    } else {
-        frozen.add_magnitude(&drift);
-    }
-    let (cum_neg, cum) = shifts.last().expect("the base epoch is always present");
-    let next = signed_sum(*cum_neg, cum.clone(), negative, &drift);
-    shifts.push(next);
-    *live = Accumulator::new();
-}
-
-/// Re-base a pending minimum offset from the `F` of its push epoch to
-/// the current `F`: subtract the cumulative drift between the two.
-///
-/// The common case — no freeze since the push — is a tag comparison and
-/// no arithmetic at all; an entry alive across freezes pays one signed
-/// combination, at most once (its one pop), against at most the open
-/// depth's worth of such entries per freeze.
-fn rebase(neg: bool, mag: Base, epoch: u32, shifts: &[(bool, Base)]) -> (bool, Base) {
-    let current = shifts.len() - 1;
-    if epoch as usize == current {
-        return (neg, mag);
-    }
-    // m − F_now = (m − F_epoch) − (cum_now − cum_epoch).
-    let (now_neg, now_mag) = &shifts[current];
-    let (then_neg, then_mag) = &shifts[epoch as usize];
-    let delta = signed_sum(*now_neg, now_mag.clone(), !*then_neg, then_mag);
-    signed_sum(neg, mag, !delta.0, &delta.1)
-}
-
 /// Fold a signed magnitude into an accumulator.
 fn fold_signed(acc: &mut Accumulator, negative: bool, magnitude: &Base) {
     if negative {
         acc.sub_magnitude(magnitude);
     } else {
         acc.add_magnitude(magnitude);
-    }
-}
-
-/// Strictly-less on signed `(negative, magnitude)` pairs (negative zero
-/// never occurs: the folds produce the positive zero).
-fn signed_lt(a: &(bool, Base), b: &(bool, Base)) -> bool {
-    match (a.0, b.0) {
-        (true, false) => true,
-        (false, true) => false,
-        (false, false) => a.1 < b.1,
-        (true, true) => a.1 > b.1,
     }
 }
 
@@ -1224,6 +1094,8 @@ fn max_depth(bits: &BitsSlice) -> usize {
         }
     }
 }
+
+mod web;
 
 #[cfg(test)]
 mod tests;
