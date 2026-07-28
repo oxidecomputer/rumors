@@ -26,7 +26,10 @@ From the sweeps' side, the accumulator must support:
   can force, materializing storage lanes up to $s$, is paid once per
   high-water mark and funded by the input bits that certified the
   scale — the storage remark in @redundant);
-+ *read the sign* of the held value, in amortized $O(1)$;
++ *read the sign* of the held value, in amortized $O(1)$ — the
+  amortization charged, where the read must descend, to the writes
+  that raised the held top (@sign derives the charge, and the one
+  discipline it imposes on scaled writes);
 + *materialize* the held value as an ordinary integer, in work
   proportional to that value's own width (the operation opens with
   the same collapsing fold the sign query runs — @sign — which
@@ -56,7 +59,8 @@ pending drift — and pay the big carry only when the window overflows.
 Small oscillations then live entirely in the window. The boundary
 comb is absorbed.
 
-It fails to a one-parameter generalization — the *wide-tooth comb* of
+It fails to the boundary comb with one parameter added — a tooth
+width: the *wide-tooth comb* of
 @families. Give the teeth width just beyond the window: deltas of
 $plus.minus 2^192$, say, oscillating across a cliff at $2^k$ with $k$
 much larger still. Each tooth's code
@@ -199,10 +203,29 @@ their exact partial $s$ at the scan's floor (a bounded write: the
 fold's invariant keeps $s$ within two digits' range). The value is
 unchanged; the spelling is now shallow; the next sign query re-reads
 none of it — the fold starts at the tracked top-of-held index, which
-the collapse just lowered. So *each digit is scanned at most once
-per write that raised the held top above it*: sign queries amortize
-against the writes that provoked them, and requirement 3 holds on
-every interleaving.
+the collapse just lowered. So *each held lane is scanned at most
+once per write that raised the held top above it* — zero lanes
+standing between surviving digits included, since the write that
+raised the top past a lane is the write that put it in the fold's
+path. The charge is honest exactly when the write can pay it, and an
+unscaled write can: a delta of $w$ magnitude bits reaches no lane
+above $w\/32 + 1$, a span its own application already touched and
+its own code already funded. Sign queries therefore amortize against
+the writes that provoked them, and requirement 3 holds on every
+interleaving of reads with unscaled writes.
+
+The _scaled_ write of requirement 2 is the stated exception, and it
+carries a discipline. A delta scaled by $2^s$ lands its $ell$ words
+at lane $s\/32$ without spelling the lanes beneath: an $O(ell)$ code
+opens a span no code paid to scan, and a stream alternating cheap
+scaled writes with sign reads would march the fold across that span
+once per round — a quadratic with no payer. The discipline, part of
+the contract: *an accumulator that receives scaled writes is never
+sign-read*. It is write-only until materialized, and each
+materialization must be separately funded — the weighted folds of
+@measures, the only scaled writers in the system, price their
+finished totals against the topology bits that certified the scales,
+and declare the one shape where that pricing is uncertified.
 
 Two consequences deserve a pause. First, _reads mutate_: the sign
 query rewrites the representation (value-preservingly). That is
@@ -216,7 +239,10 @@ deciding at index $i$ means $|s| >= 3$ against under $2.01$ of
 unscanned tail, certifying $|"value"| > 0.99 dot 2^(32 i)$; a
 quantity confined to digits $0 dots f$ is below
 $2.01 dot 2^(32 (f + 1))$; with $i >= f + 2$ the first exceeds the
-second by a factor near $2^31$. Sweeps use this _domination floor_
+second by a factor near $2^31$ — a certified _floor_ under the
+decided value against a certified _ceiling_ over the confined one,
+which is what settles a magnitude comparison between them and not
+merely a sign. Sweeps use this _domination floor_
 constantly: a watermark whose fold decided at digit index 5 stands
 at least $0.99 dot 2^160$; no adjustment confined to digit 0 — any
 machine-word quantity — can bring it near zero, and the comparison
@@ -240,21 +266,26 @@ accumulators, and
 
 #block(inset: (x: 1.5em), [
   _every digit touch is paid for by one of exactly three sources: an
-  input code being consumed (which may also deposit new digits, at
-  most its own width); an output code being emitted (which licenses
-  reads up to its own width); or the death of digits already
-  deposited (each digit dies at most once)._
+  input code being consumed (which may also open new lanes, at most
+  its own width); an output code being emitted (which licenses reads
+  up to its own width); or the death of lanes already paid for (each
+  lane dies at most once per write that opened it)._
 ])
 
-Equivalently, with potential $Phi = $ the number of _nonzero_ digits
-across all live accumulators (storage lanes are never freed; a digit
-_dies_ when a write or a collapse sets it to zero): $Phi$ grows only
-when input codes are consumed, and by at most their width (one
-bookkeeping exception: a collapse zeroes at least as many nonzero
-digits as it deposits — a two-digit deposit needs $|s| >= 2^33$,
-which only two nonzero scanned digits can build — so it never
-increases $Phi$); every touch not covered by a
-consumed or emitted code is covered by a drop in $Phi$. Summing over
+Equivalently, with potential $Phi = $ the number of _held_ lanes
+across all live accumulators — each accumulator counting the lanes
+up to its tracked top, so a lane _dies_ when a collapse or a
+cancelling write lowers the top past it, while allocated storage
+above the top (@redundant's storage remark) counts for nothing:
+$Phi$ grows only when input codes are consumed, and by at most their
+width — the span bound of @sign, an unscaled code funding every lane
+up to the top it can set. A collapse zeroes its scanned span,
+deposits at most two digits at the scan's floor, and lowers the top
+to the deposit, so its touches equal its $Phi$ drop plus a constant
+and it never increases $Phi$. Every touch not covered by a
+consumed or emitted code is covered by a drop in $Phi$ — the scaled
+add stands outside the potential under @sign's discipline, its span
+priced at materialization instead. Summing over
 the sweep, total work is $O("input bits" + "output bits")$.
 
 The discipline has teeth as rules of craft: wide values are _moved_,
