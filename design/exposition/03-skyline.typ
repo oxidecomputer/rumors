@@ -260,8 +260,9 @@ _constant_ $h$ must be a leaf, since an internal node's children
 would spell two constant halves — by induction two equal leaves,
 which the rule forbids. Heights are function-determined; gamma has
 one spelling per natural and zigzag has none to spare. Uniqueness
-is not an aesthetic: it is a load-bearing feature bought deliberately,
-and @compactness prices what it costs in coding room: the
+is not an aesthetic: it is a load-bearing feature bought
+deliberately. @compactness prices what it costs in coding room —
+the
 sibling-merge rule alone carries an asymptotic $4.3%$ worst-case
 tax under this payload code (@tax shows the tax is code-dependent),
 and the
@@ -301,12 +302,13 @@ named the shape; it is the one that matters, since it is the one an
 adversary sends. Depth is paid for
 in bits, honoring @naive-recursion's budget.
 
-Nonnegativity is the interesting one: it needs the running absolute
+Nonnegativity is the interesting one. It needs the running absolute
 height, updated by every delta, sign-checked at every leaf — exactly
-the "running value" @ladder showed to be dangerous, and the boundary
+the "running value" @ladder showed to be dangerous. The boundary
 comb aims straight at it: $plus.minus 1$ deltas, three-bit codes,
 astride $2^k$, so a normalized running height pays a $k$-bit carry
-per three-bit code — $Theta(n^2)$ work in an $n$-bit stream, _in the
+per three-bit code. That is $Theta(n^2)$ work in an $n$-bit
+stream — _in the
 validator_, on arbitrary bytes. (Measured, on a deliberately plain big-integer
 sweep kept as a tripwire: the quadratic is real and reproducible.)
 The skyline's compactness has written a check the representation

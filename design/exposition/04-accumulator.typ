@@ -29,11 +29,11 @@ From the sweeps' side, the accumulator must support:
   unscaled writes that raised the held top (@sign derives the
   charge);
 + *materialize* the held value as an ordinary integer, in work
-  proportional to that value's own width (the operation opens with
-  the same collapsing fold the sign query runs — @sign — which
+  proportional to that value's own width. The operation opens with
+  the same collapsing fold the sign query runs (@sign), which
   brings the held spelling within two digits of the value's width;
   this fold, not a sign query, is also how a scaled-mode
-  accumulator is finally read);
+  accumulator is finally read;
 
 and, for the bookkeeping across a sweep's several live accumulators
 (@tick) and the one width introspection the weighted folds need
@@ -112,15 +112,16 @@ The lesson generalizes and is worth stating as a principle:
   representation._
 ])
 
-The principle is a design heuristic, not a theorem: we do not prove
+The principle is a design heuristic, not a theorem, and a
+motivation rather than a load-bearing step: we do not prove
 that no cleverer boundary exists — a window whose width adapts to
 the widest delta yet seen is the natural candidate, and we know no
-funded form of it. The design therefore takes the one escape that
+funded form of it — and no claim below rests on the principle,
+which is why it does not join @closing's concessions. The design
+takes the one escape that
 needs no such proof — remove the boundary. No digit is ever
 "settled": *no normalized region
-anywhere*. (The principle is a motivation, not a load-bearing step:
-no claim below rests on it, which is why it does not join
-@closing's concessions.)
+anywhere*.
 
 == Balanced redundant digits <redundant>
 
@@ -130,10 +131,9 @@ base, ours runs to twice it, and that extra slack is the
 mechanism.)
 
 Hold the value as digits in base $2^32$, little-endian, each digit a
-_signed_ 64-bit integer kept in the _lazy zone_ $|a_i| < 2^33$ — the
-base's width is half the lane's on purpose, since the spare bits are
-what the
-scheme spends: with digits under $2^33$ over a $2^32$ base, an
+_signed_ 64-bit integer kept in the _lazy zone_ $|a_i| < 2^33$. The
+base's width is half the lane's on purpose: the spare bits are what
+the scheme spends. With digits under $2^33$ over a $2^32$ base, an
 unscaled word
 delta's two halves, a carry, and the recentering all fit the lane's
 own 64-bit arithmetic; a scale-shifted landing (below) runs in the
@@ -182,7 +182,7 @@ funded: a
 digit that carries cannot carry again
 until deltas — or carries, which are just more drift on the same
 ratchet — totalling $3 dot 2^31$ in net movement have landed on
-it, so carries out of a digit number at most its arriving drift
+it, so the carries out of a digit are at most its arriving drift
 divided by $3 dot 2^31$, and a word delta costs amortized $O(1)$
 digit touches on every
 stream. And because _every_ write recenters what it touches, no digit
@@ -382,7 +382,8 @@ priced at materialization.) A lane _dies_ when a collapse or a
 cancelling write lowers the top past it; allocated storage above
 the top (@redundant's storage remark) counts for nothing. $Phi$
 grows only when input codes are consumed, and then by at most one
-lane per code plus one per 32 bits of its width in each — the span
+lane per code, plus one per 32 bits of the code's width, in each
+accumulator the code folds into — the span
 bound of @sign, whose $+1$ is the carry, itself already amortized
 by @redundant's ratchet. Each code folds into $O(1)$ live
 accumulators: a rule every sweep below obeys, and the reason
@@ -396,16 +397,19 @@ and it never increases $Phi$. Every touch not covered by a
 consumed or emitted code is covered by a drop in $Phi$, so total
 work over the sweep is $O("input bits" + "output bits")$.
 
-The discipline has teeth as rules of craft: wide values are _moved_,
-never copied (a move is a buffer swap, $O(1)$, $Phi$-neutral); when
-two accumulators must combine, the narrower is folded into the wider
-and dies (the fold costs the dying side's digits — the $Phi$ drop —
-never the survivor's); a comparison folds nothing until domination
-floors have failed to decide it, and where scales are comparable
-one of two payers steps in — a boundary whose emitted code prices
-the read (join's switch, @join), or the narrower operand folding
-into the wider and dying, the $Phi$ drop paying (@tick's parked
-differences).
+The discipline has teeth. As rules of craft:
+
+- wide values are _moved_, never copied — a move is a buffer swap,
+  $O(1)$, $Phi$-neutral;
+- when two accumulators must combine, the narrower is folded into
+  the wider and dies; the fold costs the dying side's digits — the
+  $Phi$ drop — never the survivor's;
+- a comparison folds nothing until domination floors have failed
+  to decide it. Where scales are comparable, one of two payers
+  steps in: a boundary whose emitted code prices the read (join's
+  switch, @join), or the narrower operand folding into the wider
+  and dying, the $Phi$ drop paying (the parked differences of
+  @tick).
 "Fold in, read the sign, fold back out" is forbidden — restoring
 resurrects digits, and a repeated resurrection is exactly a quadratic
 (we will meet the input family that punishes it in @tick).

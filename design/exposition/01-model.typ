@@ -20,9 +20,8 @@ efficient — and, more demandingly, an implementation whose efficiency
 cannot be revoked by its inputs. The gap is wider than it first
 appears. A faithful, node-for-node transcription of the paper's
 equations inherits four independent cost defects, two of them
-quadratic — plus a fifth amplifier that surfaces only once those
-are repaired (@ladder) — and the quadratics are not exotic: inputs
-of tens of
+quadratic; a fifth amplifier surfaces only once those are repaired
+(@ladder). The quadratics are not exotic. Inputs of tens of
 kilobytes trigger them at observable scale, and a few kilobytes
 already crash the transcription's stack (@naive). A clock library
 sits at a boundary where bytes arrive from other machines. It must
@@ -37,14 +36,15 @@ piece of arithmetic:
   as one flag bit per node, and the sequence of
   plateau heights, delta-coded, bit-packed, in one contiguous buffer —
   rather than the tree's interior numbers. (The id component gets a
-  related but distinct coding — the same step-function reading, one
+  related but distinct coding: the same step-function reading, one
   bit deep, with ownership carried by presence rather than by a
-  stored value — @id-coding.) The representation is canonical
-  (one bit string per value, so byte equality _is_ semantic equality),
-  compact (worst case within $4.3%$ of the information-theoretic
+  stored value. See @id-coding.) The representation is canonical,
+  compact, and sweepable. _Canonical_: one bit string per value, so
+  byte equality _is_ semantic equality. _Compact_: worst case
+  within $4.3%$ of the information-theoretic
   floor asymptotically and $6.7%$ at hundred-byte sizes, for the
-  family it covers — @ctf fixes the framing, @ctf-caveat states its
-  exposure), and sweepable: every operation the
+  family it covers (@ctf fixes the framing, @ctf-caveat states its
+  exposure). _Sweepable_: every operation the
   clock API asks for is computable in a bounded number of
   left-to-right passes — one for most operations, two where a
   lookahead is information-forced (tick) or where the one funded
@@ -104,8 +104,9 @@ generators, medians over repeated samples for wall-clock numbers;
 the resource counters (bits scanned, accumulator digit touches, peak
 transient bytes) are deterministic and machine-independent, so
 nanosecond bands indicate a class while counter readings are exact.
-Seven
-concessions, each stated where it lives rather
+
+*Concessions.* Seven,
+each stated where it lives rather
 than smoothed over. Two boundaries of arguments: one uncertified
 input shape in rank's funding
 argument (@measures) and one probabilistic step in the counting

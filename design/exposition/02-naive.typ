@@ -21,11 +21,10 @@ be $Theta(n)$ on their own:
 
 - *Depth* $d$: a chain of nodes costs a constant number of bits per
   level — about three, in the paper's coding and in the coding of
-  @skyline alike (the paper spends a 3-bit node tag per spine level;
-  the skyline prices the same shape at $3d + O(1)$, with the anatomy
-  made exact in @validation) — so a few tens of kilobytes of input
-  encode a
-  tree a hundred thousand levels deep.
+  @skyline alike — so a few tens of kilobytes of input encode a
+  tree a hundred thousand levels deep. (The paper spends a 3-bit
+  node tag per spine level; the skyline prices the same shape at
+  $3d + O(1)$, with the anatomy made exact in @validation.)
 - *Magnitude width* $W$: a single stored integer can occupy a
   constant fraction of the input — $W = Theta(n)$, a value near
   $2^(n\/2)$ in one leaf, since a self-delimiting code spends about
@@ -35,11 +34,12 @@ be $Theta(n)$ on their own:
 Every cost of the form "per node, work proportional to a magnitude" is
 therefore a latent quadratic: the input can buy $Theta(n)$ nodes and
 $Theta(n)$-bit values *in the same bytes* and make the implementation
-multiply them. @families collects the adversarial constructions this
+multiply them. Validity, not provenance, bounds cost at a byte
+boundary. @families collects the adversarial constructions this
 document builds — each an ordinary, canonical, normal-form value that
 decodes cleanly — with a forward pointer for the ones whose
 construction needs machinery we do not have yet. Each is named once,
-here, and the names are used consistently through @resilience.
+here, and used consistently through @resilience.
 
 #figure(
   table(
@@ -95,8 +95,8 @@ here, and the names are used consistently through @resilience.
     $plus.minus$-steps). `hugeleaf` and
     `bigroot` are unreachable by any honest history at the scales
     that hurt (a height near $2^W$ needs on the order of $2^W$
-    ticks); the others are merely unlikely. Either way the lesson is
-    the same: validity, not provenance, is what bounds cost at a byte
+    ticks); the others are merely unlikely. Either way the lesson
+    is the same: validity, not provenance, bounds cost at a byte
     boundary.],
 ) <families>
 
@@ -119,18 +119,19 @@ Time is $Theta(d dot W)$ bit-operations and transient memory is
 $Theta(d dot W)$ bits, on an input of $Theta(d + W)$ bits. Choosing
 $d approx W approx n\/2$ makes both quadratic: the amplification
 ratio scales as $d W \/ (d + W)$, growing without bound as the
-operand grows. This is not a corner case that needs contriving:
-measured on our direct transcription before any cure, the committed
+operand grows. This is not a corner case that needs contriving. On
+our direct transcription, before any cure, the committed
 `bigroot` regression instance — a $40,000$-bit root value under a
 $10,000$-level spine, a 29-kilobyte operand pair — drove transient
 memory to roughly $6,700 times$ the pair's bytes, approaching two
-hundred megabytes, inside a single comparison. The figure reconciles
-with the formula: our transcription binds each paired node's _four_
+hundred megabytes, inside a single comparison. The figure
+reconciles
+with the formula. Our transcription binds each paired node's _four_
 lifted
-children — both operands', both halves' — before evaluating the
-conjunction, so all four live across the descent (a
+children, both operands' and both halves', before evaluating the
+conjunction, so all four live across the descent; a
 short-circuiting form would halve the constant without changing
-the order), and
+the order. And
 $4 dot d dot W = 1.6 dot 10^9$ bits accounts for the two
 hundred megabytes measured. The ratio kept growing with
 the operand, as the formula says it must.
@@ -199,11 +200,12 @@ has delegated its availability to its callers' inputs.
 
 The cure is as unglamorous as Defect 2's: walks must be iterative,
 with explicit state whose size the implementer chooses. What is worth
-carrying forward is the _budget_: the explicit state can be a few
-*bits* per level (we will see walks that need exactly two), so depth —
-which the input buys at bits per level — must never be paid for in
-words per level, a budget the system holds everywhere but at two
-bounded, priced exceptions stated where they live (@tick-web,
+carrying forward is the _budget_. Explicit state can be a few
+*bits* per level — we will see walks that need exactly two — so
+depth, which the input buys at bits per level, must never be paid
+for in words per level. The system holds that budget everywhere
+but at two
+bounded, priced exceptions, stated where they live (@tick-web,
 @tick-fusion).
 
 == Defect 4: the constant-factor anatomy <naive-constants>

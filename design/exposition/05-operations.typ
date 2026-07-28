@@ -262,9 +262,9 @@ switch consumed, at least one of them nonzero and hence at least
 three bits, that never fund another
 emission — so its code costs at most theirs plus a few bits' slack
 (the zigzag re-fold contributes a constant of its own). The
-per-boundary slack is absorbed by the topology half — boundaries
+topology half absorbs the per-boundary slack: boundaries
 both operands paid for are spelled once, and merges delete flags —
-which the full count shows outweighs it. What we
+savings the full count shows outweigh the slack. What we
 offer here is that shape, not a per-boundary ledger closing to the
 exact constant. The inequality's status, plainly: _derived_ in full
 in our work (the derivation is longer than this section wants), and
@@ -300,38 +300,45 @@ the chain of one-child nodes — to the first node with both children
 the spine prefix, verbatim; a retag of the branch node keeping one
 side; and that side's subtree, verbatim. A terminal splits into the
 pair $((1,0), (0,1))$. One linear pass, at most one fresh node per
-half, no _re-coding_ of the kept subtrees — each is delimited by
-the obligation counter (below) and copied at the cost of its bits —
-forking is cheap at
-_any_ id shape, which a system that forks per request depends on.
+half, and no _re-coding_ of the kept subtrees: each is delimited by
+the obligation counter (the predicates below) and copied at the
+cost of its bits.
+Forking is therefore cheap at
+_any_ id shape — which is what a system that forks per request
+depends on.
 
-*Party join* merges two disjoint id landscapes by union: a lockstep
-walk; where one side is absent, the other's subtree is spliced
-verbatim; where both descend, the walk descends with them; a node
+*Party join* merges two disjoint id landscapes by union, in one
+lockstep
+walk: where one side is absent, the other's subtree is spliced
+verbatim; where both descend, the walk descends with them; and a
+node
 whose two sides become wholly owned collapses to a terminal (the
 coding's $(1,1) -> 1$). Linear, output subadditive.
 
-*Party difference and the predicates.* The difference (given parties
-$p$ and $q$, the regions of $p$ not owned by $q$ — how a share is
-carved when something less than a full retirement moves) is the same
-boolean-skyline sweep, emitting $1$ where $p$ owns and $q$ does not.
+*Party difference and the predicates.* The difference of parties
+$p$ and $q$ — the regions of $p$ not owned by $q$ — is the same
+boolean-skyline sweep, emitting $1$ where $p$ owns and $q$ does
+not. It is how a share is carved when something less than a full
+retirement moves.
 When $"covers"(q, p)$ holds — $q$ owning all of $p$ — the result is
 empty. The API reports that as
 _no party_ rather than spelling it, since a party is nonempty by
 construction (@id-coding); `covers` is therefore the caller's test
 before
 carving.
-The predicates — _covers_, where $"covers"(p, q)$ asks whether
+Two predicates ride the same walk: $"covers"(p, q)$ asks whether
 $q$'s owned region $subset.eq$ $p$'s, and
-_disjoint_ (no owned region shared, the safety condition every join
-checks) — are lockstep verdict walks: no emission, and $O(1)$ state
-in total. The constant deserves its two sentences, since every
+_disjoint_ asks whether no owned region is shared — the safety
+condition every join
+checks. Both are lockstep verdict walks: no emission, and $O(1)$
+state
+in total, where every
 other two-operand walk pays a path bit per level. The paired
 traversal is itself a full binary structure over the union shape,
 so one obligation counter over _paired_ positions replaces the
-stack — a position where both sides descend counts $+1$, one where
+stack: a position where both sides descend counts $+1$, one where
 either side is terminal or absent counts $-1$, and the walk ends
-when the count dies; where one side is absent, the other's whole
+when the count dies. Where one side is absent, the other's whole
 subtree is skipped by its own stream's counter (@coding's
 device transposed: each stored node contributes its child count
 minus one) rather than by
@@ -346,11 +353,13 @@ zero. (What a caller does with it: ask what a share itself has
 witnessed — the slice of history a participant's own region vouches
 for — the question behind auditing a share's contribution or
 splitting responsibility when shares move.) The sweep is the overlay walk of $v$'s stream against $p$'s,
-emitting through the collapsing builder; heights stay relative except
+emitting through the collapsing builder. Heights stay relative
+except
 at ownership transitions, where the output re-enters the skyline at a
 plateau's absolute height — and the emitted code at that transition
-_is_ that absolute: the sweep's running height materializes once per
-transition (requirement 4 of @accum-contract), a wide read priced
+_is_ that absolute. So the sweep's running height materializes once
+per
+transition (requirement 4 of @accum-contract): a wide read priced
 bit-for-bit by the wide code being written.
 
 Projection is the one operation whose output term is not slack — the
@@ -367,10 +376,10 @@ output. The honest claim, and the one our implementation is held
 to,
 is that the sweep is linear in _input plus output_ — and that
 nothing else in this section has an _unbounded_ output ratio.
-Fork's halves each stay within their operand's size plus two bits,
-the fresh node, and the pair within twice that plus four (the
+Fork's halves each stay within their operand's size plus two bits
+(the fresh node), and the pair within twice that plus four; the
 seed's two bits forking to two four-bit halves is where the
-additive term binds). Party difference stays within its operands'
+additive term binds. Party difference stays within its operands'
 sum; tick's
 output can exceed its input by at most a constant factor
 (@tick-output); join's cannot exceed it at all.
@@ -480,17 +489,17 @@ $x$ is $mu(x) - mu("parent"(x))$, and the sum telescopes:
 $ sum_x "base"(x) = sum_("leaves") h - sum_("internal") mu =: M(v). $
 
 Both directions of the identity deserve their sketch, since an API's
-meaning rests on it. _Floor_: $M$ is a functional on versions that
-forks preserve (both halves keep the event component), that joins
-are subadditive in, and that a single tick raises by at most one.
-One honest flag before the clauses are used: these three do not by
-themselves compose over an arbitrary history — after a fork, two
+meaning rests on it. _Floor_: $M$ is a functional on versions —
+forks preserve it (both halves keep the event component), joins
+are subadditive in it, and a single tick raises it by at most one.
+One honest flag before the clauses are used. These three do not by
+themselves compose over an arbitrary history: after a fork, two
 lineages share their prefix ticks, and adding per-lineage bounds at
-a join counts the shared ticks twice — so the floor needs an
+a join counts the shared ticks twice. The floor therefore needs an
 induction over the whole system of live stamps, with the tick
-clause applied to joined state, and that composition (with join
-subadditivity inside it) is the one step this document states
-rather than proves, catalogued at @closing.
+clause applied to joined state. That composition, with join
+subadditivity inside it, is the one step this document states
+rather than proves; it is catalogued at @closing.
 The last is where to look closely. `grow`'s increment raises one
 leaf term by one, and enclosing minima can only rise, which
 subtracts: at most $+1$. A `fill` collapse replaces a subtree's
@@ -556,8 +565,8 @@ funding ledger — with a pair of worked traces between the last two.
 
 === The semantics, restated on the skyline <tick-semantics>
 
-The paper's `fill` is worth having at hand verbatim; it is short,
-@tick-walk maps each arm to a stream action, and the numbering
+The paper's `fill` is short, and worth having at hand verbatim —
+@tick-walk maps each arm to a stream action. The numbering
 (1)–(6) is ours:
 
 $ "fill"(0, e) &= e &&quad (1) \
@@ -574,13 +583,15 @@ maximum (arm 2) — and the two _shortcut arms_ (4 and
 to the minimum of its _filled_ sibling, if that is higher. The rise
 is the profitable move: it merges plateaus across the sibling
 boundary and lets ancestors collapse in turn. The cap at the
-sibling's minimum is _not_ a safety constraint — over its own region
+sibling's minimum is _not_ a safety constraint: over its own region
 a participant may inflate as far as it likes (@model: any inflation
-over the id is a legal successor) — it is parsimony, the paper's own
-"does not dominate more events than needed" desideratum, and it has
-an exact characterization in the minimum-tick measure of @measures:
-up to the sibling's minimum, a raise costs nothing (the leaf term
-and the enclosing minimum rise together); past it, the version would
+over the id is a legal successor). It is parsimony — the paper's
+own
+"does not dominate more events than needed" desideratum — and the
+minimum-tick measure of @measures characterizes it exactly.
+Up to the sibling's minimum, a raise costs nothing, the leaf term
+and the enclosing minimum rising together; past it, the version
+would
 claim events no observation forced. When the filled sibling is
 itself flat, the capped raise moreover merges the pair outright —
 the case the worked trace below exhibits.
@@ -639,12 +650,13 @@ way the stream order makes vivid:
   fill has shortcut arms of its own, each wanting a further
   lookahead — but one lemma flattens it: on either shortcut arm the
   raised child takes the maximum of its own collapsed max and its
-  sibling's filled minimum, so it never undercuts that sibling — a
-  shortcut arm's output minimum is exactly its not-wholly-owned
-  sibling's
-  filled minimum, raise or no raise (and a fully-mixed arm's is the
-  minimum of its two filled halves, a wholly-owned range's its
-  collapsed max). Each
+  sibling's filled minimum, so it never undercuts that sibling. A
+  shortcut arm's output minimum is thus exactly its
+  not-wholly-owned sibling's
+  filled minimum, raise or no raise; a fully-mixed arm's is the
+  minimum of its two filled halves, and a wholly-owned range's is
+  its
+  collapsed max. Each
   quantity the pre-scan needs is therefore a range quantity that
   settles when its range closes, and one left-to-right pass keeping
   a pending minimum per open range computes them all — no nested
@@ -762,12 +774,14 @@ costs through @funding's three funding sources:
   and at the first difference it cannot penetrate, one surviving
   fold, priced by the undercut's own delta — whose code the input
   just paid. Without run compression this cascade is
-  $Theta("open depth")$ per undercut — the *descending staircase*
-  (@families) shows why the zero runs are where the danger lives:
-  its first descent drags every open minimum down together, zeroing
-  every enclosing difference, so each further unit step penetrates
+  $Theta("open depth")$ per undercut, and the *descending
+  staircase*
+  (@families) shows why the zero runs are where the danger lives.
+  Its first descent drags every open minimum down together, zeroing
+  every enclosing difference; each further unit step then
+  penetrates
   the full stack of dead frames with no deaths left to fund the
-  walk — $Theta(d^2)$ total; with run compression, each undercut
+  walk — $Theta(d^2)$ total. With run compression, each undercut
   costs its dying
   differences plus $O(1)$. (Both halves measured: the uncompressed
   form's quadratic on the staircase is reproducible, and the
