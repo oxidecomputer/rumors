@@ -2,7 +2,9 @@ use num_bigint::BigUint;
 
 use crate::enumerate::{party_subtrees, version_subtrees};
 
-use super::{bit_window, PartyCounts, VersionCounts, MIN_PARTY_BITS, MIN_VERSION_BITS};
+use super::{
+    bit_window, PartyCounts, VersionCounts, MIN_PARTY_BITS, MIN_VERSION_BITS, PAR_SPLIT_THRESHOLD,
+};
 
 /// The largest exact bit length the exhaustive cross-checks enumerate.
 /// Chosen by measured runtime: the enumerations stay in the tens of
@@ -64,6 +66,44 @@ fn party_counts_match_exhaustive_enumeration() {
             counts.subtree(n),
             &BigUint::from(party_subtrees(n).len()),
             "id family count diverges from enumeration at {n} bits"
+        );
+    }
+}
+
+/// The parallel build equals the sequential reference, entry for entry.
+///
+/// The parallel path re-associates each entry's split reduction across
+/// worker threads; big-integer addition is associative and commutative,
+/// so every reduction order must produce the identical table. This pin
+/// holds `build` (parallel) equal to `build_sequential` (the reference)
+/// for both grammars, at a span whose top entries reach past the
+/// sequential-fallback threshold — the guard keeps the pin from going
+/// vacuous if the threshold moves.
+#[test]
+fn parallel_build_matches_sequential_reference() {
+    const PIN_BITS: usize = 2048;
+    // A version entry at `j` bits sums `j - 4` splits, a party entry
+    // `j - 5`: the span's top entries must actually take the rayon path.
+    const {
+        assert!(
+            PIN_BITS - 5 >= PAR_SPLIT_THRESHOLD,
+            "pin span too small to exercise the parallel path"
+        )
+    };
+    let version_par = VersionCounts::build(PIN_BITS);
+    let version_seq = VersionCounts::build_sequential(PIN_BITS);
+    let party_par = PartyCounts::build(PIN_BITS);
+    let party_seq = PartyCounts::build_sequential(PIN_BITS);
+    for j in 0..=PIN_BITS {
+        assert_eq!(
+            version_par.subtree(j),
+            version_seq.subtree(j),
+            "version parallel build diverges from the sequential reference at {j} bits"
+        );
+        assert_eq!(
+            party_par.subtree(j),
+            party_seq.subtree(j),
+            "party parallel build diverges from the sequential reference at {j} bits"
         );
     }
 }

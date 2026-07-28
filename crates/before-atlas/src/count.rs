@@ -30,10 +30,19 @@
 //!
 //! Every count here is pinned against ground truth in two independent
 //! ways (`tests.rs`): exhaustive enumeration of the grammar, and the real
-//! decoders' accept sets over all short byte strings.
+//! decoders' accept sets over all short byte strings. The builds run their
+//! per-entry convolutions in parallel; a third pin holds the parallel
+//! build equal, entry for entry, to the sequential reference.
+//!
+//! Not built here: table persistence keyed by (grammar fingerprint, span)
+//! is the long-term fix for routine large-span surveys — a survey would
+//! load its tables instead of reconvolving them.
+
+use std::ops::RangeInclusive;
 
 use num_bigint::BigUint;
 use num_traits::{One, Zero};
+use rayon::prelude::*;
 
 #[cfg(test)]
 mod tests;
@@ -61,6 +70,50 @@ pub fn version_leaf_count(bits: usize) -> BigUint {
     }
 }
 
+/// Split counts below this run the per-entry convolution sequentially;
+/// at or above it the sum fans out over rayon.
+///
+/// Measured (release profile, Apple M4 Max, 16 threads), timing one
+/// entry's split sum both ways over the real version table's operand
+/// sizes: rayon's fan-out costs a fixed ~25–60µs per invocation, so the
+/// parallel path loses below ~1k splits (1020 splits: 49µs sequential vs
+/// 62µs parallel) and wins from ~1.5k up (1532 splits: 122µs vs 84µs,
+/// then 6–9x by 4k–8k splits). 1536 is the smallest measured split count
+/// where parallel wins outright; between the bracketing points the two
+/// paths are within noise of each other, so the exact cut is low-stakes.
+const PAR_SPLIT_THRESHOLD: usize = 1536;
+
+/// The convolution kernel both tables share: the sum of
+/// `subtree[a] * subtree[pair_sum - a]` over each split point `a` in
+/// `splits`, in parallel when the split count reaches
+/// [`PAR_SPLIT_THRESHOLD`].
+///
+/// The parallel reduction is value-deterministic: every split's product
+/// reads only the finished prefix of the table, and big-integer addition
+/// is associative and commutative, so any reduction tree produces the
+/// same total as the sequential fold. The determinism pin in `tests.rs`
+/// holds that equality against [`split_sum_sequential`].
+fn split_sum(subtree: &[BigUint], splits: RangeInclusive<usize>, pair_sum: usize) -> BigUint {
+    if splits.end() - splits.start() + 1 < PAR_SPLIT_THRESHOLD {
+        split_sum_sequential(subtree, splits, pair_sum)
+    } else {
+        splits
+            .into_par_iter()
+            .map(|a| &subtree[a] * &subtree[pair_sum - a])
+            .reduce(BigUint::zero, |x, y| x + y)
+    }
+}
+
+/// The sequential fold of the same convolution sum: the reference
+/// implementation the determinism pin compares [`split_sum`] against.
+fn split_sum_sequential(
+    subtree: &[BigUint],
+    splits: RangeInclusive<usize>,
+    pair_sum: usize,
+) -> BigUint {
+    splits.map(|a| &subtree[a] * &subtree[pair_sum - a]).sum()
+}
+
 /// Per-bit-length subtree counts for the version grammar (sibling rule
 /// and exactness enforced; nonnegativity deliberately not — the module
 /// doc carries the argument).
@@ -70,27 +123,56 @@ pub struct VersionCounts {
 }
 
 impl VersionCounts {
-    /// Build the table for subtree sizes up to `max_bits` inclusive.
+    /// Build the table for subtree sizes up to `max_bits` inclusive,
+    /// each entry's convolution parallelized past the split threshold.
     ///
     /// One quadratic pass of big-integer convolutions: `subtree[j]` sums
     /// the bare leaves of `j` bits plus, per split `(a, b)` with
     /// `a + b = j - 1`, the pairs `subtree[a] * subtree[b]` minus the
     /// excluded (bare left leaf, bare zero right leaf) pairs — the right
     /// zero leaf is the unique 2-bit subtree, so the exclusion at `j` is
-    /// exactly the bare-leaf count at `j - 3`.
+    /// exactly the bare-leaf count at `j - 3`. The pass over `j` is
+    /// sequentially dependent (entry `j` reads every smaller entry), so
+    /// only each entry's split sum fans out.
     pub fn build(max_bits: usize) -> VersionCounts {
+        Self::build_with(max_bits, split_sum, |_, _| {})
+    }
+
+    /// [`build`](Self::build), reporting `(entries done, entries total)`
+    /// after every finished entry so long builds can narrate progress.
+    pub fn build_with_progress(
+        max_bits: usize,
+        progress: impl FnMut(usize, usize),
+    ) -> VersionCounts {
+        Self::build_with(max_bits, split_sum, progress)
+    }
+
+    /// Build the table entirely sequentially: the reference
+    /// implementation, not dead code — the determinism pin in `tests.rs`
+    /// holds [`build`](Self::build)'s parallel reductions equal to this
+    /// fold, entry for entry.
+    pub fn build_sequential(max_bits: usize) -> VersionCounts {
+        Self::build_with(max_bits, split_sum_sequential, |_, _| {})
+    }
+
+    /// The one transcription of the version grammar's recurrence, over a
+    /// caller-chosen convolution strategy (the parallel and sequential
+    /// builds must count the same family, so the grammar lives here once).
+    fn build_with(
+        max_bits: usize,
+        sum: impl Fn(&[BigUint], RangeInclusive<usize>, usize) -> BigUint,
+        mut progress: impl FnMut(usize, usize),
+    ) -> VersionCounts {
         let mut subtree: Vec<BigUint> = Vec::with_capacity(max_bits + 1);
         for j in 0..=max_bits {
             let mut total = version_leaf_count(j);
             // Internal: 1 flag bit, then two subtrees of at least 2 bits.
             if j >= 5 {
-                for a in 2..=(j - 3) {
-                    let b = j - 1 - a;
-                    total += &subtree[a] * &subtree[b];
-                }
+                total += sum(&subtree, 2..=(j - 3), j - 1);
                 total -= version_leaf_count(j - 3);
             }
             subtree.push(total);
+            progress(j + 1, max_bits + 1);
         }
         VersionCounts { subtree }
     }
@@ -120,13 +202,41 @@ pub struct PartyCounts {
 }
 
 impl PartyCounts {
-    /// Build the table for subtree sizes up to `max_bits` inclusive.
+    /// Build the table for subtree sizes up to `max_bits` inclusive,
+    /// each entry's convolution parallelized past the split threshold.
     ///
     /// `subtree[j]` sums the terminal (`j = 2`), the two one-child tags
     /// over a child of `j - 2` bits, and per split `(a, b)` with
     /// `a + b = j - 2` the pairs `subtree[a] * subtree[b]` minus the one
     /// excluded terminal-terminal pair (which exists only at `j = 6`).
+    /// The pass over `j` is sequentially dependent (entry `j` reads every
+    /// smaller entry), so only each entry's split sum fans out.
     pub fn build(max_bits: usize) -> PartyCounts {
+        Self::build_with(max_bits, split_sum, |_, _| {})
+    }
+
+    /// [`build`](Self::build), reporting `(entries done, entries total)`
+    /// after every finished entry so long builds can narrate progress.
+    pub fn build_with_progress(max_bits: usize, progress: impl FnMut(usize, usize)) -> PartyCounts {
+        Self::build_with(max_bits, split_sum, progress)
+    }
+
+    /// Build the table entirely sequentially: the reference
+    /// implementation, not dead code — the determinism pin in `tests.rs`
+    /// holds [`build`](Self::build)'s parallel reductions equal to this
+    /// fold, entry for entry.
+    pub fn build_sequential(max_bits: usize) -> PartyCounts {
+        Self::build_with(max_bits, split_sum_sequential, |_, _| {})
+    }
+
+    /// The one transcription of the party grammar's recurrence, over a
+    /// caller-chosen convolution strategy (the parallel and sequential
+    /// builds must count the same family, so the grammar lives here once).
+    fn build_with(
+        max_bits: usize,
+        sum: impl Fn(&[BigUint], RangeInclusive<usize>, usize) -> BigUint,
+        mut progress: impl FnMut(usize, usize),
+    ) -> PartyCounts {
         let mut subtree: Vec<BigUint> = Vec::with_capacity(max_bits + 1);
         for j in 0..=max_bits {
             let mut total = if j == 2 {
@@ -138,15 +248,13 @@ impl PartyCounts {
                 total += 2u32 * &subtree[j - 2];
             }
             if j >= 6 {
-                for a in 2..=(j - 4) {
-                    let b = j - 2 - a;
-                    total += &subtree[a] * &subtree[b];
-                }
+                total += sum(&subtree, 2..=(j - 4), j - 2);
                 if j == 6 {
                     total -= BigUint::one();
                 }
             }
             subtree.push(total);
+            progress(j + 1, max_bits + 1);
         }
         PartyCounts { subtree }
     }

@@ -187,6 +187,18 @@ impl VersionSampler {
         }
     }
 
+    /// [`new`](Self::new), forwarding the table build's per-entry
+    /// progress `(entries done, entries total)` so long builds can
+    /// narrate.
+    pub fn new_with_progress(
+        max_bytes: usize,
+        progress: impl FnMut(usize, usize),
+    ) -> VersionSampler {
+        VersionSampler {
+            counts: VersionCounts::build_with_progress(8 * max_bytes, progress),
+        }
+    }
+
     /// The count table (for tests and plan-time feasibility checks).
     pub fn counts(&self) -> &VersionCounts {
         &self.counts
@@ -368,6 +380,15 @@ impl PartySampler {
     pub fn new(max_bytes: usize) -> PartySampler {
         PartySampler {
             counts: PartyCounts::build(8 * max_bytes),
+        }
+    }
+
+    /// [`new`](Self::new), forwarding the table build's per-entry
+    /// progress `(entries done, entries total)` so long builds can
+    /// narrate.
+    pub fn new_with_progress(max_bytes: usize, progress: impl FnMut(usize, usize)) -> PartySampler {
+        PartySampler {
+            counts: PartyCounts::build_with_progress(8 * max_bytes, progress),
         }
     }
 

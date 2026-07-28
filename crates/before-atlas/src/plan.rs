@@ -88,12 +88,34 @@ pub struct Samplers {
 }
 
 impl Samplers {
-    /// Build both tables to the plan's span.
+    /// Build both tables to the plan's span, concurrently.
     pub fn build(plan: &Plan) -> Samplers {
-        Samplers {
-            version: VersionSampler::new(plan.max_bytes),
-            party: PartySampler::new(plan.max_bytes),
-        }
+        Self::build_with_progress(plan, |_, _, _| {})
+    }
+
+    /// [`build`](Self::build), reporting `(table, entries done, entries
+    /// total)` after every finished table entry.
+    ///
+    /// The two tables build concurrently, so calls for different tables
+    /// interleave in scheduler order; each table's own call sequence is
+    /// deterministic.
+    pub fn build_with_progress(
+        plan: &Plan,
+        progress: impl Fn(&'static str, usize, usize) + Sync,
+    ) -> Samplers {
+        let (version, party) = rayon::join(
+            || {
+                VersionSampler::new_with_progress(plan.max_bytes, |done, total| {
+                    progress("version", done, total)
+                })
+            },
+            || {
+                PartySampler::new_with_progress(plan.max_bytes, |done, total| {
+                    progress("party", done, total)
+                })
+            },
+        );
+        Samplers { version, party }
     }
 }
 
