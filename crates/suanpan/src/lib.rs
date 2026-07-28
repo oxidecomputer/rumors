@@ -466,7 +466,11 @@ pub struct Accumulator {
     /// [`sign_magnitude_shl`](Accumulator::sign_magnitude_shl) skip the
     /// never-written prefix instead of scanning it. Conservative: a
     /// cancelling write may zero digits at or above it without raising
-    /// it back.
+    /// it back. A collapsing sign read deposits through
+    /// [`add_at`](Accumulator::add_at) too, and its re-deposit index can
+    /// sit below every caller-written position — the fold may overshoot
+    /// the lowest nonzero digit by one level — so sign queries also
+    /// lower this watermark.
     bottom: usize,
 }
 
@@ -940,8 +944,13 @@ impl Accumulator {
     /// reading a narrow value parked at a large scale costs its written
     /// span, not its scale. The magnitude may still carry trailing zeros
     /// when written digits cancelled downward — the skip is exact only
-    /// over the never-written region — and the `(magnitude, shift)` pair
-    /// is therefore one honest spelling of the value, not a normal form.
+    /// over the never-written region — and sign queries count as writers
+    /// here: a collapsing sign read re-deposits its scanned partial
+    /// through the ordinary write path, at an index that can sit below
+    /// every position the caller's own writes touched, so interleaved
+    /// sign reads can lower the returned `shift`. The
+    /// `(magnitude, shift)` pair is therefore one honest spelling of the
+    /// value, not a normal form.
     pub fn sign_magnitude_shl(&self) -> (Ordering, UBig, u64) {
         let start = self.bottom.min(self.top);
         let (sign, magnitude) = self.read_magnitude(start);

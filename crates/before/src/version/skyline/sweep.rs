@@ -125,8 +125,12 @@ use crate::step;
 ///
 /// # Panics
 ///
-/// Panics if either operand is not a canonical skyline stream — run
-/// [`validate`](fn@super::validate) first on untrusted bytes.
+/// Operands must be canonical skyline streams — run
+/// [`validate`](fn@super::validate) first on untrusted bytes. The
+/// violations the walk structurally notices (truncation, malformation)
+/// panic; the rest (a collapsible sibling pair, a delta driving the
+/// running height negative) sweep silently, and the verdict is then
+/// unspecified.
 pub fn causal_cmp(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
     match sweep(a, b, Mode::Order) {
         (true, true) => Some(Ordering::Equal),
@@ -146,7 +150,8 @@ pub fn causal_cmp(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand, exactly as [`causal_cmp`] does.
+/// [`causal_cmp`]'s contract exactly: canonical operands required,
+/// structural violations panic, the rest yield an unspecified verdict.
 ///
 /// Test- and meter-only: production equality is the stored forms' byte
 /// equality (canonical uniqueness makes them the same test).
@@ -165,7 +170,8 @@ pub fn eq(a: &BitsSlice, b: &BitsSlice) -> bool {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand, exactly as [`causal_cmp`] does.
+/// [`causal_cmp`]'s contract exactly: canonical operands required,
+/// structural violations panic, the rest yield an unspecified verdict.
 ///
 /// Test- and meter-only: production concurrency checks go through
 /// [`Version::concurrent`](crate::Version::concurrent) over the same
@@ -183,7 +189,8 @@ pub fn concurrent(a: &BitsSlice, b: &BitsSlice) -> bool {
 ///
 /// # Panics
 ///
-/// Panics on a non-canonical operand, exactly as [`causal_cmp`] does.
+/// [`causal_cmp`]'s contract exactly: canonical operands required,
+/// structural violations panic, the rest yield an unspecified verdict.
 ///
 /// Test- and meter-only: production ordering goes through the
 /// `PartialOrd` surface over [`causal_cmp`].

@@ -60,6 +60,15 @@ use crate::codec::{Bits, BitsSlice, PackedBuilder};
 /// Gamma codes spend `2·floor(log2(m + 1)) + 1` bits on a mapped value
 /// `m`, so one bit is exactly the code for zero — the recognition the
 /// collapse checks ride on.
+///
+/// One other code shares the length: `gamma(0)`, the *absolute* code of
+/// a height-zero first leaf. It never triggers a collapse. The absorb
+/// test reads the incoming code, which is always a delta (the first
+/// leaf returns early from [`leaf`](SkylineBuilder::leaf)); the cascade
+/// test reads the held code, which is the absolute code only while the
+/// first leaf is held — and the first leaf lies on the leftmost,
+/// all-`false` path, so cascade's right-child test fails before the
+/// length is consulted.
 const ZERO_DELTA_CODE_BITS: usize = 1;
 
 /// A canonical-skyline stream builder driven by the output leaf sequence.
