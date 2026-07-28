@@ -36,6 +36,18 @@
 //!
 //! # Pin of record
 //!
+//! Re-pinned 2026-07-28 at the balanced product-tree ledger settle
+//! (same corpus, toolchain, and strategy as the #78 pin below — the
+//! movement is the kernels'): the linear-functional trio moved at the
+//! fourth decimal (`ff_version_rank` slope 1.1291 → 1.1289 with
+//! intercept +0.0006, `ff_version_distance` and `ff_version_lag`
+//! alike) — the corpus's organic draws rarely promote, so the settle's
+//! tree registers only at the margin — and `ff_version_min_ticks`
+//! drifted at the same decimal with them (guest codegen layout from
+//! the query module's new settle code, not a kernel change; the
+//! min_ticks fold does not ride the integrator). No width moved past
+//! the third decimal; the staleness leg stayed green through the cure.
+//!
 //! Re-pinned 2026-07-28 at the cure round #78 merge (same corpus,
 //! toolchain, and strategy as the 2026-07-27 pin below — the movement is
 //! the kernels'): `ff_version_min_ticks` slope 1.123 → 1.098 with
@@ -700,10 +712,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_distance",
         rejected: false,
-        slope: 1.090199,
-        intercept: 2.206480,
-        width_above: 0.342491,
-        width_below: 0.482397,
+        slope: 1.090064,
+        intercept: 2.206996,
+        width_above: 0.342427,
+        width_below: 0.482348,
         min_denom: 128,
         max_denom: 17534,
         samples: 4968,
@@ -760,10 +772,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_lag",
         rejected: false,
-        slope: 1.103574,
-        intercept: 2.154013,
-        width_above: 0.364634,
-        width_below: 0.469781,
+        slope: 1.103431,
+        intercept: 2.154557,
+        width_above: 0.364559,
+        width_below: 0.469737,
         min_denom: 128,
         max_denom: 17534,
         samples: 4968,
@@ -796,10 +808,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_min_ticks",
         rejected: false,
-        slope: 1.097793,
-        intercept: 2.568306,
-        width_above: 0.257648,
-        width_below: 0.454365,
+        slope: 1.097606,
+        intercept: 2.569396,
+        width_above: 0.257439,
+        width_below: 0.454522,
         min_denom: 128,
         max_denom: 8767,
         samples: 3043,
@@ -820,10 +832,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_rank",
         rejected: false,
-        slope: 1.129099,
-        intercept: 2.094343,
-        width_above: 0.327167,
-        width_below: 0.391517,
+        slope: 1.128920,
+        intercept: 2.094988,
+        width_above: 0.327111,
+        width_below: 0.391396,
         min_denom: 128,
         max_denom: 8767,
         samples: 6179,
