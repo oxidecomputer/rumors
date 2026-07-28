@@ -106,7 +106,7 @@ pub fn seed_set() -> Vec<Seed> {
     // 1-byte length prefix, the value bytes, then the op script. The
     // framing and the op indices below are a wire contract with
     // `fuzz/fuzz_targets/fuzz_decode_ops.rs` (its `run` carves the value,
-    // its `drive_clock` op table is the `% 7` dispatch the script bytes
+    // its `drive_clock` op table is the `% 8` dispatch the script bytes
     // select from); a change on either side means regenerating the seeds.
     let mut clock = Clock::seed();
     let mut sibling = clock.fork();
@@ -119,10 +119,10 @@ pub fn seed_set() -> Vec<Seed> {
     let len = u8::try_from(clock_bytes.len()).expect("seed clocks encode within one length byte");
 
     // Flavour 0: drive the clock op set (tick, fork, join, sync, send/recv,
-    // compare — one full lap of the script's op table).
+    // compare, fused multi-tick — one full lap of the script's op table).
     let mut ops = vec![0u8, len];
     ops.extend_from_slice(&clock_bytes);
-    ops.extend_from_slice(&[0, 1, 3, 5, 2, 4, 6]);
+    ops.extend_from_slice(&[0, 1, 3, 5, 2, 4, 6, 7]);
     seeds.push(Seed {
         target: "fuzz_decode_ops",
         name: "clock_then_ops",

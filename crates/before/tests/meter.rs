@@ -437,6 +437,147 @@ fn tick_mirror_wide_envelope() {
     drop(v);
 }
 
+/// The fused multi-tick on the dense spine stays within its envelope:
+/// registering 512 events costs the single tick's walk and splice plus
+/// only the count's gamma-width boundary codes.
+#[test]
+fn ticks_dense_envelope() {
+    let p = meter::dense(DENSE_DEPTH);
+    let mut v = version_of(&p);
+    let seed = Party::seed();
+    query_metered(
+        "ticks_dense",
+        p.bytes.len(),
+        &query_env::TICKS_DENSE,
+        || v.ticks(&seed, TICKS_POINT_LO),
+    );
+    drop(v);
+}
+
+/// The fused multi-tick on the wide right-full chain stays within its
+/// envelope: the `+n` splice compounds at the same site the single
+/// tick's does, and the wide first payload is still touched O(1) times.
+#[test]
+fn ticks_nested_wide_envelope() {
+    let ev = meter::bigroot(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
+    let id = meter::nested_full_id(TICK_CROSS_SCALE);
+    let mut v = version_of(&ev);
+    let p = party_of(&id);
+    let input = ev.bytes.len() + id.bytes.len();
+    query_metered(
+        "ticks_nested_wide",
+        input,
+        &query_env::TICKS_NESTED_WIDE,
+        || v.ticks(&p, TICKS_POINT_LO),
+    );
+    drop(v);
+}
+
+/// The fused multi-tick on the wide memo chain stays within its
+/// envelope: the pre-scan's frame ledger behaves exactly as the single
+/// tick's, count notwithstanding.
+#[test]
+fn ticks_mirror_wide_envelope() {
+    let ev = meter::wide_tail(TICK_CROSS_SCALE, TICK_CROSS_SCALE);
+    let id = meter::nested_left_full_id(TICK_CROSS_SCALE);
+    let mut v = version_of(&ev);
+    let p = party_of(&id);
+    let input = ev.bytes.len() + id.bytes.len();
+    query_metered(
+        "ticks_mirror_wide",
+        input,
+        &query_env::TICKS_MIRROR_WIDE,
+        || v.ticks(&p, TICKS_POINT_LO),
+    );
+    drop(v);
+}
+
+/// The flatness pin: `O(|v| + |p| + log n)` as a committed two-point
+/// check, not prose. On each tick-designated family the whole cost
+/// movement from `ticks(512)` to `ticks(4096)` — three doublings — must
+/// sit inside the boundary codes' gamma-width delta band: the two codes
+/// that carry the count widen by 2 bits per doubling each, and no other
+/// column may move beyond a word of slack. An implementation iterating
+/// any fraction of the count moves every column by ~8x here and cannot
+/// hide in a constant; a dead meter reads zero movement AND a zero
+/// point, which the envelope rows' liveness floors already reject.
+#[test]
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
+fn ticks_flatness_holds_the_log_band() {
+    let cases: Vec<(&str, Version, Party)> = vec![
+        (
+            "dense",
+            version_of(&meter::dense(DENSE_DEPTH)),
+            Party::seed(),
+        ),
+        (
+            "nested-wide",
+            version_of(&meter::bigroot(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
+            party_of(&meter::nested_full_id(TICK_CROSS_SCALE)),
+        ),
+        (
+            "mirror-wide",
+            version_of(&meter::wide_tail(TICK_CROSS_SCALE, TICK_CROSS_SCALE)),
+            party_of(&meter::nested_left_full_id(TICK_CROSS_SCALE)),
+        ),
+    ];
+    for (name, v, p) in &cases {
+        let lo = ticks_counters(v, p, TICKS_POINT_LO);
+        let hi = ticks_counters(v, p, TICKS_POINT_HI);
+        let moved = [
+            ("scan", lo.0, hi.0, TICKS_FLATNESS_SCAN_BAND),
+            ("limb", lo.1, hi.1, TICKS_FLATNESS_LIMB_BAND),
+            ("touch", lo.2, hi.2, TICKS_FLATNESS_TOUCH_BAND),
+        ];
+        for (col, at_lo, at_hi, band) in moved {
+            let delta = at_hi.abs_diff(at_lo);
+            eprintln!("MEASURED ticks_flatness {name}/{col}: lo={at_lo} hi={at_hi} delta={delta}");
+            assert!(
+                delta <= band,
+                "{name}/{col}: ticks({}) -> ticks({}) moved {delta}                  (from {at_lo} to {at_hi}), outside the gamma-width band {band}",
+                TICKS_POINT_LO,
+                TICKS_POINT_HI,
+            );
+        }
+    }
+}
+
+/// One `ticks(n)` run's `(scan bits, limb ops, touches)` on fresh
+/// counters — the flatness pin's probe.
+#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
+fn ticks_counters(v: &Version, p: &Party, n: u64) -> (u64, u64, u64) {
+    let mut v = v.clone();
+    meter::reset_scan_bits();
+    meter::reset_limb_ops();
+    suanpan::touch_meter::reset();
+    v.ticks(p, n);
+    (
+        meter::scan_bits(),
+        meter::limb_ops(),
+        suanpan::touch_meter::touches(),
+    )
+}
+
+/// The flatness pin's two count points: three doublings apart, so the
+/// per-doubling gamma growth (2 bits per count-carrying code) is
+/// legible against the band.
+const TICKS_POINT_LO: u64 = 512;
+/// See [`TICKS_POINT_LO`].
+const TICKS_POINT_HI: u64 = 4_096;
+/// The scan movement band: up to two count-carrying codes x 2 bits per
+/// doubling x 3 doublings [measured 2026-07-27: exactly 6 on all three
+/// families - one code carries the count there; the second code's
+/// budget covers operand shapes where the successor repair carries it
+/// too].
+const TICKS_FLATNESS_SCAN_BAND: u64 = 12;
+/// The limb movement band: the count's arithmetic stays inside one
+/// digit across the band [measured 2026-07-27: exactly 0 on all three
+/// families; a word of slack for a digit-boundary crossing].
+const TICKS_FLATNESS_LIMB_BAND: u64 = 8;
+/// The touch movement band: see the limb band [measured 2026-07-27:
+/// exactly 0 on all three families].
+const TICKS_FLATNESS_TOUCH_BAND: u64 = 8;
+
 // ─── bigroot scenarios ──────────────────────────────────────────────────────
 
 /// Decoding bigroot stays within its envelope (one big-integer base plus the
@@ -3270,6 +3411,9 @@ mod query_env {
     pub const SKYLINE_RANK_HARMONIC: QueryEnvelope        = query_envelope(    71_705,        0,   165_122,   573_454,   248_324, 99_840, 148_994); // 57_364 -> 58_400 (2026-07-24, dashu-int backend), 0, 132_097 -> 133_121 (2026-07-24, metered trailing_zeros), 458_763, 198_659
     pub const SKYLINE_RANK_CLIFF: QueryEnvelope           = query_envelope(     3_075,        0,     7_805,    48_647,     8_008, 4_707, 4_804); // 2_460 -> 2_540 (2026-07-24, dashu-int backend), 0, 6_244 -> 6_277 (2026-07-24, metered trailing_zeros), 38_917, 6_406
     pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_095,        0,    29_552, 2_996_319,    33_580, 17_755, 20_148); // 2_740 -> 2_820 (2026-07-24, dashu-int backend), 0, 23_641 -> 23_674 (2026-07-24, metered trailing_zeros), 2_397_055, 26_864
+    pub const TICKS_DENSE: QueryEnvelope                 = query_envelope(    58_815,        0,   312_525,   468_809,   156_281, 187_515, 93_768); // 47_052, 0, 250_020, 375_047, 125_025 (2026-07-27: the tick row's readings plus the count's gamma codes)
+    pub const TICKS_NESTED_WIDE: QueryEnvelope           = query_envelope(    14_107,        0,    30_350,   150_071,    46_135, 18_210, 27_681); // 11_286, 0, 24_280, 120_057, 36_908 (2026-07-27: the fill branch pays its documented second walk - scan ~2x the tick row's one walk)
+    pub const TICKS_MIRROR_WIDE: QueryEnvelope           = query_envelope(    39_506,        0,    50_725,   230_045,   152_575, 30_435, 91_545); // 31_605, 0, 40_580, 184_036, 122_060 (2026-07-27: second-walk fill branch, as the nested-wide row)
     pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope      = query_envelope(    30_720,        0,   625_003,   468_758,   156_256, 375_001, 93_753); // 24_576, 0, 500_002 (2026-07-27, exact wide fold: one signed offset compare per closing node), 375_006, 125_005
     pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope      = query_envelope(    62_190,        0,    10_323,    17_923,    88_703, 6_193, 53_221); // 49_752, 0, 8_258, 14_338, 70_962 (2026-07-27, exact wide fold: the comb no longer takes the early exit a saturating answer allowed - the sweep reads every leaf, and the pending stack holds F-relative offsets)
     pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // 420_560 -> 420_592 (2026-07-24, dashu-int backend), 0, 92_212, 2_124_806 -> 2_121_732 (2026-07-25, single-record id tags), 35_939

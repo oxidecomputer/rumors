@@ -1029,6 +1029,7 @@ fn trace_ticks(ops: &[Op]) -> u64 {
     ops.iter()
         .map(|op| match op {
             Op::Tick(_) => 1,
+            Op::Ticks(_, k) => u64::from(*k),
             Op::Send(..) => 2,
             Op::Fork(_) | Op::Sync(..) | Op::Join(..) => 0,
         })
