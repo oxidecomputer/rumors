@@ -1380,6 +1380,76 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   round): the recalibration landed with the merge itself — the
   landing entry below carries the numbers, and the committed seed
   prices in-band under the re-pin.
+- **LANDED 2026-07-27 (#77): `OwnVersion`, the lazy projection view
+  — projection is lazy at every spelling, and Θ(|v|·|p|)
+  materialization is only ever the explicit call.** The charter is
+  `design/own-version-view.md` (every DECIDED entry an owner
+  ruling); the landed shape follows it exactly. `&v / &p` and
+  `Clock::own_version()` both return the ref-owning view
+  `OwnVersion<'a>` in O(1); the comparison matrix (vs `Version` in
+  both directions and vs `OwnVersion`, owned and borrowed, `==`
+  semantic, no `Hash`) fuses projection and comparison into one
+  linear co-walk (`skyline::masked`: the pair sweep's overlay
+  bookkeeping at up to four cursors, with the trichotomy's
+  zero-check answered by per-side running-height integrators at
+  amortized O(1) per boundary — measured, not asserted, per the
+  charter's semantic note); `.to_version()` / `From` are the one
+  product-growth path. By-value `Div` and `DivAssign` are dropped
+  (the census found only their own law and tests; those
+  re-denominated through the public composition). Differential
+  laws: `own_version_cmp_matches_materialized` and
+  `own_version_seed_mask_coherence` (three-stream) join
+  `VERSION_PAIR_PARTY`, and the new `VERSION_PAIR_PARTY_PAIR`
+  group carries `own_version_pair_cmp_matches_materialized`
+  (four-stream), all wired to the three law consumers; the
+  projection laws re-denominated along the grain (comparison-shaped
+  laws ride the fused ops lazily, laws about the materialized
+  object grow `.to_version()`), and the public-surface proptests
+  bind both fused walks to the recursive oracle's composed
+  projection-and-compare. Instruments: the board's projection rows
+  re-denominate — `version_project` → `own_version_to_version`,
+  `clock_own_version` → `clock_own_version_to_version` (same
+  bodies under the honest new owner; the ratified doubling-band
+  cells move with them) — and the fused rows `own_version_cmp` /
+  `own_version_pair_cmp` join the Projection group,
+  input-denominated on every shape, the output-domination crosses
+  included (comparing a projection never pays its
+  materialization); smoke pin 1071 → 1111 by its per-shape
+  derivation, bench mirror 1073 → 1113 full / 321 → 335 pinned
+  (320 diagonal + 13 riders + the wide-display pair,
+  `--list`-verified), expected-verdict roster unchanged. The
+  correlated families landed as the charter's relational genre at
+  higher arity: `mask_drift_triple` (cliff comb × scattered id ×
+  wide plateau; owned teeth read the difference mid-cancel,
+  unowned intervals the zero-check on a wide height) and
+  `mask_drift_quadruple` (sparse comb under the even mask vs full
+  comb under the offset mask: the parities interleave tooth for
+  tooth, and the even teeth read the zero-check on a
+  semantically-zero height spelled by cancelling `2^k`-wide
+  digits), both full-walk `Less` by construction (generator-pinned)
+  so no early exit shortens a measurement. Envelope pins
+  [measured 2026-07-27, k=512, n=1024]: the triple reads 1_032
+  heap / 0 segments / 6_187 limb / 16_390 scan / 4_192 touches on
+  2_051 input bytes (~2 touches per stored delta, one pass), the
+  quadruple 2_176 / 0 / 31_778 / 1_073_674 / 67_157 on 134_212
+  bytes (~8 scan bits per input byte); ceilings ×1.25, limb/touch
+  floors ×0.75, plus flatness bands across a tooth doubling
+  (per-delta touches 2.05 → 2.02 and 21.86 → 21.85; per-byte limb
+  3.02 → 3.32 and 0.236 → 0.236) over one-touch-per-delta
+  liveness floors. **No superlinear wedge: both families landed as
+  green pins** — the balanced signed-digit integrators hold the
+  fused walks linear, so there was nothing to red-pin. rumors:
+  `bookmark.rs` moved to the fused comparisons with zero code
+  change — `reclaim`'s `extract_if` predicate
+  (`clock.own_version() <= *version`, the charter's cited seam,
+  verified at src/bookmark.rs:451) and additionally `is_current`'s
+  suppression test (`v / p == version / p`, a second projection
+  comparison the charter did not enumerate — the doc correction of
+  this entry) now fuse, so the reclamation path's product-growth
+  materialization is gone. Eager call sites (the additive/
+  homomorphism/idempotence laws' objects, the `own_version` meet
+  doctest, the oracle differentials) grew `.to_version()`; the
+  paper oracle keeps its eager `Div`, as chartered.
 - **LANDED 2026-07-27 (#72, the merge round): the batch
   elimination is on the tree, with the owner-approved fuzz-fit
   recalibration.** The merge integrated the removal across the
