@@ -152,7 +152,7 @@ proxy can mask no superlinear growth).
 ## 5. Bands: calibration and enforcement
 
 **Calibration** (`just fuzzfit-calibrate`) sweeps a deterministic corpus
-(1536 programs, ~985k steps; proptest's deterministic runner + case-index
+(4096 programs, ~2.64M steps; proptest's deterministic runner + case-index
 seeds; two sweeps are byte-identical) and fits, per *band key* —
 kernel × outcome, so an operation's rejection arm (`ERR_OP`, predicted
 per step by the mirror) is priced separately from its success path,

@@ -24,7 +24,7 @@
 //! `ENFORCE_MARGIN` absorbs) — so a re-pin re-derives the constants'
 //! evidence instead of trusting last time's.
 //!
-//! Usage: `calibrate [programs]` (default 1536, the corpus of record; the
+//! Usage: `calibrate [programs]` (default 4096, the corpus of record; the
 //! committed pins state their corpus size per band).
 
 use std::collections::BTreeMap;
@@ -58,7 +58,7 @@ fn main() {
     let programs: usize = std::env::args()
         .nth(1)
         .map(|s| s.parse().expect("programs must be a number"))
-        .unwrap_or(1536);
+        .unwrap_or(4096);
 
     type Key = (&'static str, bool);
     let mut by_key: BTreeMap<Key, Vec<(u64, u64)>> = BTreeMap::new();
