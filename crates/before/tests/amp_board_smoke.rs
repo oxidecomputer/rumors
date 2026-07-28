@@ -24,8 +24,9 @@ const SMOKE_SCALE: f64 = 0.02;
 /// Derived per shape from the operand bundles. A version-only shape
 /// (dense, bigroot, hugeleaf, cliff, harmonic, and the two version-pair
 /// shapes jump-pair and concurrent-pair, whose bundles carry their own
-/// comparison counterpart in the same slots) runs the 17 version-pair
-/// rows, the 4 linear-functional rows, the 2 rank rows, its tick, ticks,
+/// comparison counterpart in the same slots) runs the 13 version rows
+/// (8 of them consuming the pair slot),
+/// the 4 linear-functional rows, the 2 rank rows, its tick, ticks,
 /// and 3 projection cells (the materialization row and the two fused
 /// comparison rows), the 11 clock rows, and its 8 rejection rows (the
 /// 5 version rejections and the 3 clock rejections): 43 each. The id pair
