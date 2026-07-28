@@ -14,6 +14,13 @@
 //! commit any seed that appears (repo hard rule); it is an
 //! out-of-band-shape finding of record.
 //!
+//! The deterministic corpus prefix rides the same judgment, program by
+//! program, every run: the random draws probe novelty, and the prefix
+//! leg makes every kernel × size-decade region the corpus reaches an
+//! enforced verdict rather than a sampled one (a region a random case
+//! draws with probability `q` slips a 48-case run at `(1 − q)^48`; the
+//! prefix leg reads it red deterministically).
+//!
 //! Standing self-checks ride along: the meter's liveness (`ff_nop`), the
 //! detection path's adequacy (a deliberately quadratic guest burner must
 //! read ABOVE a linear band), the pin's provenance (the building toolchain
@@ -201,26 +208,38 @@ fn building_toolchain_matches_the_pin() {
     );
 }
 
-/// The pin's staleness cross-check: a fresh fit of the deterministic
-/// stream must agree with the committed constants on every band key the
-/// pin-time prefix covered.
+/// The deterministic prefix is total under the sentry's own judgment,
+/// and its fresh fit must agree with the committed constants on every
+/// band key the pin-time prefix covered (the staleness cross-check).
 ///
-/// The bands are computable two ways — the pin and the refit — so the
-/// two get compared, and disagreement beyond the measured tolerance
-/// demands a deliberate re-pin with a movement annotation, never silent
-/// drift.
+/// One pass serves two legs. The totality leg judges every step of all
+/// [`REFIT_PREFIX_PROGRAMS`] programs against the pinned bands — point
+/// and shape, the same judgment the random sentry applies — every run:
+/// the random draws keep probing novel shapes, while this leg makes
+/// every kernel × size-decade region the deterministic corpus reaches
+/// an enforced verdict rather than a sampled one. A region of per-case
+/// draw measure `q` survives a 48-case sentry at `(1 − q)^48` — about
+/// 38% per gate at `q ≈ 2%`, the measure of a kernel × decade region —
+/// so an out-of-band region could pass consecutive gates on luck; under
+/// this leg the same region reads red deterministically. The programs
+/// already execute for the refit, so the leg's cost is the verdict,
+/// not the runtime.
 ///
-/// Refits the first [`REFIT_PREFIX_PROGRAMS`] programs of the calibration
-/// stream and walks the committed [`REFIT_COVERAGE`] list: every listed
-/// key must still have a prefix fit (coverage decay fails by name), must
-/// still match its pin's classification (a constant/linear flip is a
-/// reach regression — the generators stopped placing that key where its
-/// slope is measurable — and fails as a stale pin, never a skip), and
-/// must agree with the pinned line within [`REFIT_TOLERANCE`].
+/// The staleness leg: the bands are computable two ways — the pin and
+/// the refit — so the two get compared, and disagreement beyond the
+/// measured tolerance demands a deliberate re-pin with a movement
+/// annotation, never silent drift. It walks the committed
+/// [`REFIT_COVERAGE`] list: every listed key must still have a prefix
+/// fit (coverage decay fails by name), must still match its pin's
+/// classification (a constant/linear flip is a reach regression — the
+/// generators stopped placing that key where its slope is measurable —
+/// and fails as a stale pin, never a skip), and must agree with the
+/// pinned line within [`REFIT_TOLERANCE`].
 #[test]
-fn refit_of_the_deterministic_prefix_matches_the_pin() {
+fn the_deterministic_prefix_is_judged_total_and_matches_the_pin() {
     let mut by_key: BTreeMap<(&'static str, bool), Vec<(u64, u64)>> = BTreeMap::new();
     for_each_deterministic_program(REFIT_PREFIX_PROGRAMS, |_, _, samples| {
+        judge(samples);
         for s in samples {
             by_key
                 .entry((s.kernel, s.rejected))

@@ -245,9 +245,11 @@ fuzzfit-build:
 # Run the fuzz-fit suites: generator sanity, meter liveness, the judgment
 # and shape-leg tripwires, the quadratic-burner adequacy check, the
 # toolchain-pin and staleness cross-checks, and the enforcement sentry
-# (48 fuzzed programs against the pinned bands, point and shape legs). A
-# failure shrinks to a minimal out-of-band shape and writes a proptest
-# seed file — commit any seed that appears.
+# (48 fuzzed programs against the pinned bands, point and shape legs,
+# plus the whole 256-program deterministic prefix judged step by step:
+# the random draws probe novelty, the prefix leg is total). A failure
+# shrinks to a minimal out-of-band shape and writes a proptest seed
+# file — commit any seed that appears.
 
 # Run the fuzz-fit asymptotics suites against the pinned fuel bands.
 [working-directory("crates/before/fuzzfit")]

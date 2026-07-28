@@ -30,12 +30,16 @@
 //!   and every key's within-case bucket-median trend must not out-climb
 //!   its pinned slope ([`curve`], the shape leg: a mechanism that tilts
 //!   into a wide band keeps its point residuals small, and only the trend
-//!   sees it). A staleness cross-check refits a deterministic prefix of
-//!   the calibration stream and compares lines against the pin on every
-//!   covered key, so calibration drift fails loud instead of silently
-//!   widening the gap between pin and reality. Fuel determinism makes
-//!   replay exact, so a failure shrinks to a minimal out-of-band shape and
-//!   rides along as a committed proptest seed.
+//!   sees it). The same judgment also runs over the whole deterministic
+//!   calibration-stream prefix, program by program, every run: the
+//!   random draws probe shapes nobody chose, and the prefix leg makes
+//!   every kernel × size-decade region the corpus reaches a total,
+//!   deterministic verdict instead of a sampled one. A staleness
+//!   cross-check refits the same prefix and compares lines against the
+//!   pin on every covered key, so calibration drift fails loud instead
+//!   of silently widening the gap between pin and reality. Fuel
+//!   determinism makes replay exact, so a failure shrinks to a minimal
+//!   out-of-band shape and rides along as a committed proptest seed.
 //!
 //! Every program executes twice: natively (the mirror, which computes each
 //! step's denominator from real operand sizes and the expected result bytes)
