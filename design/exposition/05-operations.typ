@@ -73,8 +73,9 @@ numbers entirely:
   coincide, so advance both._
 + *Ties are visible on the path.* (Depth increases downward from the
   root; "shallower" means a smaller depth.) Advancing a cursor pops
-  the trailing "right child" levels off its path and flips the
-  deepest "left child" level to right. The deeper interval's end
+  the trailing "right child" levels off its path, flips the
+  deepest "left child" level to right, then descends leftmost to
+  the next leaf, pushing one path bit per level of descent. The deeper interval's end
   coincides with the shallower's exactly when the flipped level's
   depth is at most the shallower cursor's depth — a stack operation,
   not a comparison of positions — and when it fires, the shallower
@@ -95,8 +96,9 @@ numbers entirely:
   denotes a total function on $[0, 1)$), which is both the loop
   condition and a free structural check.
 
-Each topology bit of either stream is read at most once, each path bit
-is pushed and popped at most once, and each payload is decoded exactly
+Each topology bit of either stream is read at most once, each
+descent pushes one path bit and each advance pops it — one push per
+internal node of either stream — and each payload is decoded exactly
 once. The walk is linear in $n + m$ unconditionally — before any
 payload arithmetic is even mentioned.
 
@@ -111,7 +113,9 @@ $ D = h_a - h_b, $
 updated at each boundary by folding the advancing side's _delta
 codes_ — the numbers the stream itself supplies, at the width the
 stream itself paid for — and consulted once per elementary interval
-for its sign. No absolute height is ever reconstructed. A sign
+for its sign. No absolute height is ever materialized: the two
+leading absolutes fold straight into $D$, and nothing above word
+width is ever reassembled. A sign
 $D > 0$ somewhere refutes $a <= b$; $D < 0$ somewhere refutes
 $b <= a$; the four verdicts are the four subsets of refutations
 accumulated by the end, and each entry point stops early the moment
@@ -148,7 +152,8 @@ output: one plateau per elementary interval, at the depth of the
 deeper cursor (nesting makes that the interval's exact width), with a
 payload delta the walk must produce _without knowing any absolute
 height_ — after the leading plateau, which is the one seeding step:
-both leading codes are read, the larger is emitted, $D$ starts from
+both leading codes are read, the side the operation selects is
+emitted (max's larger, min's smaller), $D$ starts from
 their difference, and no absolute survives past it.
 
 Per elementary interval the output equals one operand — the _side_:
@@ -227,9 +232,10 @@ now equals _its_ pending sibling and merges again — the output is the
 single leaf $0$, two bits, born canonical.
 
 Cost: the walk is linear; folds are funded by input codes; switch
-reads are funded by the boundary's own codes; each output code is
-written once and rolled back at most once (a merge removes only the
-right-edge bits it supersedes). Join and meet are
+reads are funded by the boundary's own codes; each emitted code is
+written once, and a merge cascade deletes at least two codes for
+each one it writes, so the builder's total writes stay within a
+constant factor of the emissions. Join and meet are
 $O(n + m)$, and the output is, too: a canonicality dividend worth
 recording is that for canonical operands,
 
@@ -246,9 +252,11 @@ nearly subadditive,
 
 $ "len"(gamma(v_1 + v_2 + 1)) <= "len"(gamma(v_1 + 1)) + "len"(gamma(v_2 + 1)) + 1 "bit" $
 
-(the zigzagged payloads are what add), because
+for naturals, because
 $(v_1 + 1)(v_2 + 1) >= v_1 + v_2 + 1$ makes the sum's
-logarithm at most the summands' logarithms together. A same-side
+logarithm at most the summands' logarithms together — the signed
+deltas are what add at a boundary, and their zigzags obey the same
+bound with a constant's further slack. A same-side
 output delta _is_ an input delta at its own length; a switch's jump
 is a signed sum of the deltas folded at its own boundary — codes the
 switch consumed, at least one of them nonzero and hence at least
@@ -318,14 +326,15 @@ $q$'s owned region $subset.eq$ $p$'s, and
 _disjoint_ (no owned region shared, the safety condition every join
 checks) — are lockstep verdict walks: no emission, and $O(1)$ state
 in total. The constant deserves its two sentences, since every
-other two-operand walk pays a path bit per level. The walk descends
-only where _both_ streams have structure, so the two preorder
-positions advance in step and no per-level path is needed to keep
-them paired; where one side is terminal or absent, the whole paired
-subtree is settled at once, the skipped side delimited by the id
-grammar's obligation counter (@coding's
+other two-operand walk pays a path bit per level. The paired
+traversal is itself a full binary structure over the union shape,
+so one obligation counter over _paired_ positions replaces the
+stack — a position where both sides descend counts $+1$, one where
+either side is terminal or absent counts $-1$, and the walk ends
+when the count dies; where one side is absent, the other's whole
+subtree is skipped by its own stream's counter (@coding's
 device transposed: each stored node contributes its child count
-minus one, and the subtree ends when the count dies) rather than by
+minus one) rather than by
 anything stacked per level. Early exit at the first refuting
 position.
 
@@ -357,8 +366,10 @@ consumer carrying the mask forever). No algorithm can beat its own
 output; the honest claim, and the one our implementation is held to,
 is that the sweep is linear in _input plus output_ — and that
 nothing else in this section has an _unbounded_ output ratio:
-fork's halves each stay within their operand's size (the pair
-within twice it, sharing the spine), party difference within its
+fork's halves each stay within their operand's size plus two bits —
+the fresh node; the seed's two bits forking to two four-bit halves
+is where the additive term binds — and the pair within twice it
+plus four, party difference within its
 operands' sum, tick's
 output can exceed its input by at most a constant factor
 (@tick-output), join's not at all.
@@ -415,7 +426,7 @@ oscillation at _any_ width keeps $L$ within its own codes' width
 plus the allowance, so it never freezes at all.
 
 One uncertified case, stated rather than smoothed — the first of the
-three boundaries the introduction announced. Each freeze correction
+introduction's two argument boundaries. Each freeze correction
 also multiplies by its freeze _position_ (the prefix mass), and the
 funding argument certifies the product only where the position's
 signed-digit form compacts to $O(1)$ digits — which it does on every
@@ -436,7 +447,9 @@ $ "distance"(a, b) &= integral |h_a - h_b| &&= "rank"(a or b) - "rank"(a and b),
   "lag"(a, b) &= integral (h_b - h_a)^+ &&= "rank"(a or b) - "rank"(a), $
 
 each a difference of linear pieces (the pointwise identities
-$max - min = |a - b|$ and $max - a = (b - a)^+$, integrated).
+$max - min = |a - b|$ and $max - a = (b - a)^+$, integrated; the
+two ranks align their scales before subtracting — one scaled add,
+funded by depth bits already read).
 Distance is a metric on versions — a genuine one, not a
 pseudometric: symmetry and the triangle inequality are inherited
 pointwise from $|dot|$, and distance zero forces equality because
@@ -579,8 +592,8 @@ same collapsing builder as join:
   #h(1.2em) *unowned* (id absent — arm 1): copy the event subtree's
     bits verbatim, after re-coding its first payload against the last
     plateau emitted (one boundary code; everything after it is
-    delta-coded against neighbors inside the copy, which the mask
-    does not disturb). \
+    delta-coded against neighbors inside the copy, which the copy
+    leaves untouched). \
   #h(1.2em) *wholly owned* (id terminal — arm 2): consume the event
     subtree, folding its running max; emit one plateau at that max. \
   #h(1.2em) *event already flat* (id node over an event leaf —
@@ -590,7 +603,9 @@ same collapsing builder as join:
     fill. \
   #h(1.2em) *mixed* (both sides descend — arms 4–6): descend in
     stream order, iteratively, pushing two bits of suspended state
-    per level; on a shortcut arm (4, 5), raise the owned child's
+    per level (plus the two priced wider states this walk builds —
+    @tick-web, @tick-fusion); on a shortcut arm (4, 5), raise the
+    owned child's
     plateau to the sibling's filled minimum where that exceeds its
     max. \
 ]
@@ -622,7 +637,8 @@ way the stream order makes vivid:
   lookahead — but one lemma flattens it: on either shortcut arm the
   raised child takes the maximum of its own collapsed max and its
   sibling's filled minimum, so it never undercuts that sibling — a
-  shortcut arm's output minimum is exactly the non-owned sibling's
+  shortcut arm's output minimum is exactly its not-wholly-owned
+  sibling's
   filled minimum, raise or no raise (and a fully-mixed arm's is the
   minimum of its two filled halves, a wholly-owned range's its
   collapsed max). Each
@@ -637,7 +653,8 @@ way the stream order makes vivid:
   stream position is ever pre-scanned twice. The walk's total read
   budget is at most two passes over each position of either stream,
   id and version alike, flat — tick is the other
-  two-pass operation the introduction owned up to. The memo's
+  two-pass operation the introduction owned up to (the grow branch
+adds a bounded third, the splice). The memo's
   _memory_ obeys the same ledger as its reads: at most one recorded
   entry per left-full site (so no more entries than id bits), each
   held as a bounded difference against a reference the walk still
@@ -723,6 +740,12 @@ costs through @funding's three funding sources:
   move at all: differences between minima are invariant under a
   shift of the current height. This invariance is the reason
   differences are the right coordinates.
+- *A range open* is a move and a zero: the new innermost gap starts
+  at $t = 0$ — the opening plateau is its own minimum so far — and
+  the previous gap parks as the new boundary difference, recycling
+  the one-slot register $r$ where a close just filled it; a zero
+  difference extends the counted run. $O(1)$, nothing wide touched:
+  the opener _creates_ what the three bullets below maintain.
 - *An emitted plateau at or above the innermost minimum* is one
   amortized sign read of $t$.
 - *An emitted plateau _below_ the innermost minimum* — an

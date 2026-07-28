@@ -15,7 +15,8 @@ discipline produced all four.
   value magnitude, any tree depth, any shape; well-formed or
   malformed; crafted or organic — time and transient memory are
   proportional to the bits the operation reads plus the bits its
-  answer mandatorily occupies._
+  answer mandatorily occupies — derived throughout, with one input
+  shape in rank held by a pinned measurement instead (@measures)._
 ])
 
 The word "amortized" in earlier sections needs its scope fixed here,
@@ -101,7 +102,8 @@ unity:
     [denominate against mandatory output; sweep held I/O-linear],
     [tick's emissions (@tick-output)],
     [work priced by output with no output bound],
-    [the output inequality: emitted $<= 2 dot$ input $+ O("id")$],
+    [the output inequality:
+      emitted $<= 2 dot "size"(e) + 4 dot "size"(i) + 32$],
   ),
   caption: [The amplifier genres and their cures. Every cure is the
     funding discipline of @funding instantiated at one seam; the five
@@ -137,7 +139,9 @@ the document's own contents were produced by it:
   recursion, the scattered-party comb for the output-dominated row,
   the duplicated-wide-code instance for tick's emissions — each
   built _to break a candidate
-  design_, and kept forever once it has.
+  design_, and kept because each still reads red against a
+  re-introduction of the design it refuted, which the pinned
+  counters demonstrate.
 - *Deterministic meters, floored as well as ceilinged.* Cost is
   measured in machine-independent counters — bits scanned, digit
   touches, peak transient bytes — with enforced ceilings per input
@@ -234,9 +238,20 @@ Results this document leans on, with their homes:
   varints);
 - *Kraft completeness* — T. M. Cover, J. A. Thomas, _Elements of
   Information Theory_, 2nd ed., Wiley, 2006, §5.2;
+- *the parameterized run-length codes weighed in @ctf-caveat* —
+  S. W. Golomb, "Run-Length Encodings," _IEEE Trans. Information
+  Theory_ IT-12(3), 1966, pp. 399–401; R. F. Rice, "Some Practical
+  Universal Noiseless Coding Techniques," JPL Publication 79-22,
+  1979;
+- *succinct tree encodings* (the preorder-flag spelling of @coding
+  belongs to this literature) — G. Jacobson, "Space-Efficient
+  Static Trees and Graphs," FOCS 1989, pp. 549–554; J. I. Munro,
+  V. Raman, "Succinct Representation of Balanced Parentheses and
+  Static Trees," _SIAM J. Computing_ 31(3), 2001;
 - *singularity analysis and the square-root-branch transfer* —
   P. Flajolet, R. Sedgewick, _Analytic Combinatorics_, Cambridge
-  University Press, 2009, ch. VI–VII;
+  University Press, 2009, ch. VI (the transfer, Thm VI.1) and
+  §VII.6 (algebraic systems);
 - *the nonnegative-walk exponent* — E. Sparre Andersen, "On the
   Fluctuations of Sums of Random Variables" I–II, _Math. Scand._ 1
   (1953), pp. 263–285, and 2 (1954), pp. 195–223.
@@ -245,6 +260,8 @@ The composed contract of @accum — the lazy balanced form with a
 collapsing sign fold and domination floors, as one interface — is,
 to our knowledge, this design's own; so are the minimum-tick
 measure and its identity (@measures), the join size inequality
-(@join), and the counting analysis of the canonical grammar
-(@compactness). Ownership here means only that we know no prior
+(@join), and the count of the _canonical_ grammar under these rules
+and this payload code (@compactness — the preorder-flag encoding
+itself is the classical succinct representation above). Ownership
+here means only that we know no prior
 statement of them, not that a search would find none.

@@ -29,7 +29,9 @@ movement, with each band quoted against the one below it:
   they move or compare bytes.
 - *Validating decode, comparison, the party predicates* sit between
   a few and a few tens of nanoseconds per byte — comparison at the
-  low end, within a small multiple of simply visiting every bit;
+  low end, within a small multiple of simply visiting every bit
+  (it exits early on most organic pairs and re-checks no
+  canonicality: decode already did);
   validating decode toward the high end. This is
   the price of actually decoding every code once,
   plus the canonicality checks.
@@ -54,7 +56,10 @@ same size, with the two bounded exceptions already stated —
 @measures' pinned-counter shape and @words' prediction cost. (All
 per-byte figures are taken over the bench corpus's organic sizes,
 tens to hundreds of bytes, where per-call fixed costs share the
-denominator at the small end.) Flat constants are the resilience thesis made visible at
+denominator at the small end. At the scales where the adversarial
+families actually bite — tens of kilobytes and up — flatness is
+carried by @method's deterministic counters, pinned flat across
+size doublings, not by these wall-clock bands.) Flat constants are the resilience thesis made visible at
 the nanosecond scale; a shape-sensitive constant is a small
 amplifier waiting for a bigger denominator. End to end, against the
 direct transcription running the bench corpus's _organic_ workloads

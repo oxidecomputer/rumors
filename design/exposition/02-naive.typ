@@ -75,8 +75,17 @@ here, and the names are used consistently through @resilience.
       floor, closed and reopened in sequence (attacks @tick-web's
       close rule)],
     [any design that re-touches a wide boundary per region],
+    [_scattered-party comb_$(t, k)$],
+    [a $t$-tooth version riding a $k$-bit base, against a party
+      owning every other tooth (built in @projection)],
+    [any masking that must re-spell absolutes per transition —
+      mandatory output],
+    [_duplicated wide code_$(W)$],
+    [one $W$-bit code that a raise re-codes across a fill boundary
+      (built in @tick-output)],
+    [any additive output bound — one code can be half the stream],
   ),
-  caption: [The adversarial families, all in one place; the last four
+  caption: [The adversarial families, all in one place; the last six
     are constructed where the machinery they attack is built. Each is
     a legal, canonical value the decoder must accept; each is named
     here in the paper's tree vocabulary, and @coding's rules
@@ -136,7 +145,12 @@ children and lifts it into the parent, subtracting it from both
 children — more per-level arbitrary-precision work of exactly the
 path-sum shape. Every two-operand walk in the transcription shares the
 defect, because the paper's equations all reason in _absolute_ values
-which only exist, at a node, as the sum of everything above it.
+which only exist, at a node, as the sum of everything above it. And
+`fill` and `grow` inherit it too: the shortcut arms recompute
+subtree maxima and minima at every level — absolute, $W$-bit
+quantities on `bigroot` — so the transcription's tick is another
+$Theta(d dot W)$ walk, the baseline @tick-output's cure is measured
+against.
 
 == Defect 2: decoding a wide value <naive-decode>
 
@@ -155,9 +169,11 @@ $ sum_(j = 1)^(W) Theta(j) = Theta(W^2) "bit-work — on 64-bit words,"
 On `hugeleaf` this is the whole input, and the arithmetic reconciles
 with the wall clock: at $W = 4 dot 10^6$ bits the buffer grows to
 half a megabyte and each append rewrites it — a quarter-megabyte on
-average, four million times, about a terabyte of memory traffic —
+average, four million times, about a terabyte of write traffic
+(reads ride the cache) —
 which at the bandwidth a half-megabyte, cache-resident working set
-actually sees (tens of gigabytes per second) is the right order for
+actually streams at (tens of gigabytes per second) is the right
+order for
 what the
 measurement showed: over fourteen seconds for one value. The cured
 decoder (accumulate machine words, splice them once) does the same
@@ -214,8 +230,10 @@ linear. It would remain slow by constant factors that compound:
 - *The wire is elsewhere.* At rest the value is a pointer graph; to
   store or send it, a full encode pass; to receive, a full decode and
   rebuild. Every process boundary pays a serialization tax
-  proportional to the whole value even when the consumer needed one
-  comparison.
+  proportional to the whole value even when the consumer needed only
+  an equality check — which @canonical will make a byte comparison.
+  (Strictly this is an architectural cost rather than a constant
+  factor; the representation dissolves it rather than shrinks it.)
 
 Hold the shape of this list. The representation of @skyline is
 designed so that each item becomes structurally impossible rather
@@ -259,11 +277,11 @@ codings store the comb in $Theta(t + k)$ bits — though writing every
 plateau's absolute height out would take $Theta(t dot k)$ — so a walk that
 maintains a normalized running absolute does $Theta(t dot k)$ work
 on a $Theta(t + k)$-bit input, a genuine amplifier over either
-spelling, with no repair available by relocating the boundary: pick
-any fixed boundary a
-normalized representation owns, and an input exists that oscillates
-across exactly that boundary at unit cost per crossing (@two-zone
-takes up the adaptive boundary, and its limit).
+spelling — and not one the obvious next repair escapes: normalize
+everything except a small pending window, and the cliff merely
+moves to the window's edge. @two-zone builds the input that defeats
+any fixed window, weighs the adaptive one, and removes the
+settled/pending split entirely.
 
 So the ladder's lesson is a constraint, not a fix: the efficient
 representation must be paired with arithmetic whose per-update cost is
