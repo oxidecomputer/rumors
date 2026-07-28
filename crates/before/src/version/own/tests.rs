@@ -68,11 +68,12 @@ proptest! {
 }
 
 proptest! {
-    /// Differential. Over organic op-trace populations (live sibling
-    /// parties, causally related versions), both fused walks match the
-    /// oracle's composed verdicts — the value shapes real
-    /// fork/tick/join/sync schedules produce, where domination and
-    /// equality actually occur.
+    /// Differential. Both fused walks match the oracle's composed
+    /// verdicts over organic op-trace populations.
+    ///
+    /// Live sibling parties and causally related versions — the value
+    /// shapes real fork/tick/join/sync schedules produce, where
+    /// domination and equality actually occur.
     #[test]
     fn view_cmp_matches_oracle_on_organic_populations(
         ops in world_strategy(),
@@ -99,9 +100,10 @@ proptest! {
 }
 
 /// Equality on the view is semantic, not representational: `view == w`
-/// requires `w` to be zero outside the party's region, so a version equal
-/// to the projection *inside* the region but live outside it compares
-/// unequal (and strictly greater).
+/// requires `w` to be zero outside the party's region.
+///
+/// A version equal to the projection *inside* the region but live
+/// outside it compares unequal (and strictly greater).
 #[test]
 fn view_equality_requires_zero_outside_the_region() {
     let mut a = Clock::seed();

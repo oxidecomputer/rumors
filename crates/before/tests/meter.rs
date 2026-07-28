@@ -2768,12 +2768,13 @@ mod skyline_flatness {
         run
     }
 
-    /// The fused three-stream comparison's per-delta touches and per-byte
-    /// limb work stay flat across a tooth-count doubling of the
-    /// mask-drift triple: every mask boundary's sign read — the
-    /// difference mid-cancel inside owned teeth, the zero-check on
-    /// unowned intervals — stays amortized O(1) however many boundaries
-    /// the mask plants.
+    /// The fused three-stream comparison's per-delta touches and
+    /// per-byte limb work stay flat across a tooth-count doubling of
+    /// the mask-drift triple.
+    ///
+    /// Every mask boundary's sign read — the difference mid-cancel
+    /// inside owned teeth, the zero-check on unowned intervals — stays
+    /// amortized O(1) however many boundaries the mask plants.
     ///
     /// Each run carries the one-touch-per-delta liveness floor (in
     /// [`masked_cmp_run`]), so flatness is asserted over a meter proven
@@ -2837,11 +2838,13 @@ mod skyline_flatness {
         run
     }
 
-    /// The fused four-stream comparison's per-delta touches and per-byte
-    /// limb work stay flat across a tooth-count doubling of the
-    /// mask-drift quadruple — the zero-check on cancelling wide spellings
-    /// (even teeth) and the mid-oscillation reads (odd teeth) both
-    /// amortized O(1) per boundary.
+    /// The fused four-stream comparison's per-delta touches and
+    /// per-byte limb work stay flat across a tooth-count doubling of
+    /// the mask-drift quadruple.
+    ///
+    /// The zero-check on cancelling wide spellings (even teeth) and the
+    /// mid-oscillation reads (odd teeth) are both amortized O(1) per
+    /// boundary.
     #[test]
     fn masked_pair_cmp_drift_cost_is_flat_per_unit() {
         let small = masked_pair_cmp_run(1_024);
