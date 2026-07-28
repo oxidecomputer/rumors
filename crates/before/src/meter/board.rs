@@ -223,16 +223,11 @@
 //! # Acceptance scales and the profile of record
 //!
 //! Every cell runs at a size scale; the inner loop uses the default
-//! (scale 1, seconds of runtime). Segment counts have a ~1 MiB growth
-//! threshold, so recursion-frame amplifiers whose onset sits above the
-//! default depths read false green there — **campaign acceptance is
-//! therefore all cells green at BOTH the default scale and the record
-//! scale [`RECORD_SCALE`] (`just amp-board-record`), one run each (the
-//! determinism legs above are what prove a reading reproducible), plus
-//! the bench judge green across the same two scales**. Record
-//! runs are acceptance-time only; the enforced
-//! per-operation record remains the process-isolated envelope suite in
-//! `tests/meter.rs`.
+//! (scale 1, seconds of runtime). Acceptance is [`RECORD_SCALE`]'s rule —
+//! that constant owns the ×4 calibration argument and the both-scales
+//! requirement — plus the bench judge green across the same two scales;
+//! the enforced per-operation record remains the process-isolated
+//! envelope suite in `tests/meter.rs` throughout.
 //!
 //! Readings of record come from the **release profile** (the `amp-board*`
 //! recipes): debug assertions perform metered work — `Base` comparisons
@@ -240,7 +235,11 @@
 //! board measures the algorithm plus its verification scaffolding, while
 //! release measures the production work alone, the honest denominator. A
 //! dev run remains a legitimate debugging view (the assertions themselves
-//! are live there); its readings must never be pinned.
+//! are live there); its readings must never be pinned *on this board*.
+//! (The envelope suite pins dev-profile numbers deliberately — the
+//! stricter reading for its scenarios; `tests/meter.rs` argues the
+//! choice. The two profiles of record differ because the two instruments
+//! ask different questions.)
 //!
 //! # Denomination
 //!
@@ -281,7 +280,7 @@
 //!   exactly linear marginal work (log 2 / log 1.2 = 4), so the shape's
 //!   input-denominated cells fit their *exponents* against the bundle's
 //!   value content (the event side's summed leaf-height bits plus the id
-//!   side's packed bytes — §10.6's quantity, the honest scaling axis),
+//!   side's packed bytes — the honest scaling axis),
 //!   disclosed per row as `expd[content ...]`. Constants and floors stay
 //!   per packed byte, the harder reading; I/O-denominated cells keep
 //!   `n_io`, whose output side already scales. The tripwire pair below
@@ -346,9 +345,8 @@
 //! rejection forces no conversion. Overlap operands come from the
 //! overlap-mount adapter, the disjoint-mount adapter's counterpart; its
 //! outputs are semantically void by design (see the adapter's own docs).
-//! The design doc's §13 enumeration is the durable
-//! record of which fallible operations are rowed and which carry a
-//! bounded-or-delegated reason (mirrored in the coverage list below).
+//! The coverage list below is the durable record of which fallible
+//! operations are rowed and which carry a bounded-or-delegated reason.
 //!
 //! # Reading the numbers
 //!
@@ -381,6 +379,11 @@
 //! `Party` and a `Version`, the board crosses adversarial party × small
 //! version, small party × adversarial version, and — on the cross
 //! shapes — the designated adversarial × adversarial pairing.
+//!
+//! This list is deliberately narrower than the generator surface: a shape
+//! earns a board column only as a whole-surface adversary, while
+//! kernel-seam probes live in the envelope suite alone. The criterion and
+//! the add-a-shape touch list sit on the `FAMILIES` roster below.
 //!
 //! Three shapes carry a genre note beyond their variant docs:
 //!
@@ -541,6 +544,14 @@ use crate::error::{Decode, Parse};
 use crate::{causally, Clock, Party, Rank, Version};
 
 // ─── the pinned ceilings ────────────────────────────────────────────────────
+//
+// Several ceilings below argue their calibration from a measured worst
+// honest reader and name it. Those witnesses are load-bearing prose, and
+// nothing mechanical guards them: a new family (or kernel change) that
+// reads heavier than a named witness falsifies the calibration argument
+// while its cell still reads green, since every ceiling sits well above
+// its witness. Whoever lands such a change re-measures and re-words the
+// constants whose witness moved.
 
 /// Green requires every meter's scaling exponent at or below this.
 ///
@@ -614,6 +625,12 @@ pub const SCAN_FLOOR_BITS_PER_INPUT_BYTE: f64 = 1.0;
 /// Scan liveness floor for legitimate early-exit operations: even an
 /// immediate divergence answer reads the operands' root codes.
 pub const SCAN_TOUCH_FLOOR_BITS: u64 = 2;
+
+/// Scan liveness floor for the tick-cross rows: the paired fill walk
+/// examines every topology bit and payload code of both operands at
+/// least once — all 8 bits of every input byte (`WHY_SCAN_TICK_WALK`
+/// carries the row-face wording).
+const TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE: u64 = 8;
 
 /// Magnitudes at most this wide may legitimately be handled in machine
 /// words; wider values force big-integer arithmetic, so limb floors bind
@@ -882,6 +899,15 @@ const BENIGN_BASE_CLOCKS: usize = 256;
 
 /// Floor on every scaled size parameter, so extreme scale-down (the smoke
 /// test) still builds valid shapes and a nonempty benign population.
+///
+/// The floor preserves positivity, never a *relation* between two
+/// parameters (an even count, a width strictly under a depth, an ascent
+/// inside a code band). Shapes whose generator asserts a relation
+/// therefore drive every related parameter from one knob — the
+/// `ascend_cliff(s, s)` / `reveal_comb(s, s)` convention — or repair at
+/// the call site as [`CONCURRENT_BASE_LEAVES`]'s power-of-two rounding
+/// does; a two-knob shape with a floored relation panics in the smoke
+/// test's extreme scale-down.
 const MIN_SIZE_PARAM: usize = 4;
 
 /// Fixed seed for the benign family's pseudo-random construction: the
@@ -1039,6 +1065,22 @@ enum FamilyKind {
 }
 
 /// Every family, in display order.
+///
+/// Adding a shape: the array length and the [`FamilyData::build`] and
+/// [`designed`] match arms are compiler-forced from here.
+/// What the compiler cannot force, in the order it is otherwise found by
+/// luck: the shape's base-size constant (the block above, with its
+/// derivation doc), the module doc's `# Families` prose and any
+/// cardinality it carries, the cell-count pin and its derivation comment
+/// (`tests/amp_board_smoke.rs`), the envelope rows in `tests/meter.rs`
+/// (the enforced record), the ceiling-calibration witnesses (the pinned
+/// ceilings section's header comment), and — only if a cell is expected
+/// red — the rider list ([`BOARD_RED_BENCH_RIDERS`]) plus the roster and
+/// its membership pin (`tools/benchjudge-expected.json`,
+/// `tests/bench_judge_roster.rs`). And not every shape belongs here: a
+/// whole-surface adversary earns a board family, while a kernel-seam
+/// shape lives in the envelope suite alone, as `wide_tooth_comb`,
+/// `alt_spine`, and the `memo_*` shapes do.
 const FAMILIES: [FamilyKind; 21] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
@@ -1952,8 +1994,6 @@ const NA_HEAP_IN_PLACE: &str = "may compute in place or return word-scale result
 const WHY_SCAN_TICK_WALK: &str = "the paired fill walk examines every topology bit and payload \
      code of both operands at least once: 8 bits per input byte, with the measured tick-walk \
      constants 2–5× above";
-/// The tick-cross scan floor: full examination of every input bit.
-const TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE: u64 = 8;
 /// Touch floor (deterministic-liveness): the kernel folds every stored
 /// delta code through the metered accumulator.
 const WHY_TOUCH_DELTA_FOLD: &str = "deterministic-liveness: the kernel folds each stored delta \
@@ -2394,8 +2434,8 @@ fn mandatory_limbs_stream(v: &Version) -> u64 {
 /// A version's value content in bytes: the summed bit widths of its
 /// absolute leaf heights (one bit minimum per leaf), rounded to bytes.
 ///
-/// This is §10.6's quantity — the content that delta coding lets ride
-/// behind asymptotically fewer wire bits — and the scaling denominator of
+/// This is the content that delta coding lets ride behind
+/// asymptotically fewer wire bits, and the scaling denominator of
 /// the flat-denominator shape's exponent fits: the boundary comb at fixed
 /// tooth magnitude doubles its value content (and every operation's honest
 /// per-tooth work) per level while its packed bytes grow only by the unit

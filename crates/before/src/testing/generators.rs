@@ -16,6 +16,11 @@
 //!
 //! All trees are built via the oracle's normalizing constructors (`O(1)` per
 //! node), then lowered to the impl with [`super::bridge`].
+//!
+//! A different instrument entirely from `crate::meter`'s generators: those
+//! are hand-derived worst-case *encodings* with closed-form sizes, built
+//! for the resource-envelope pins and the amplification board; these are
+//! proptest strategies over random inputs.
 
 use proptest::prelude::*;
 
