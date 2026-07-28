@@ -2223,11 +2223,169 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   `metered_partition_point` is `IdIndex`-local, an instrument for
   the one search, not a metered primitive.
 
+- **CURED 2026-07-28 (cure round #81, the round-2 cures; branch
+  `cure81` @ base 2189214d).** Charter: linearize the promotion path
+  (#79 F1), land the re-arm spine as a board family (residual 1) and
+  the pair-form analogue (F2), totalize the fuzzfit sentry over the
+  deterministic prefix (F3), and the F4 hygiene items. All numbers
+  exact deterministic counters (dev for pins, release for boards),
+  every movement attributed at the parent 2189214d on this machine.
+
+  **F1 cured — the promotion ledger, settled once at the sweep's
+  close.** A promotion no longer debits `P × position` against an
+  absolute position accumulator read across its full written span
+  (never reset, `Θ(p)` digits per arming on the re-arm spine). It
+  now performs two funded-width reads and no product — the parked
+  component at the width its arming deposited, and the *position
+  window* (the interval mass banked since the previous promotion,
+  one compacted segment mass per freeze, read at its watermark span)
+  — recorded as one ledger entry; the base keeps only the opening
+  plateau. The ledger settles once, at the close: suffix masses
+  assemble newest-first as sparse balanced signed digits (each
+  window's digits merged exactly once; an all-ones prefix — a long
+  climb's consumed mass — compacts to O(1) terms, exactly the
+  compaction `mul_into`'s per-UBig walk could not exploit), and
+  each arming pays one charge at its parked width times its own
+  suffix's balanced density. Nothing anywhere in the sweep or its
+  close multiplies by an absolute position — the discipline is the
+  epoch ledger's ("no event is ever re-based across a freeze"),
+  with suffix masses where min_ticks has reference counts.
+  `distance`/`lag` ride the same `Integrator`, so one change cures
+  all three claims, which stay `O(|v|)`/`Class::Linear` and are now
+  true of the code as every committed instrument measures it. Every
+  pre-existing envelope and flatness reading is byte-identical at
+  the parent (55 MEASURED lines diffed clean): a non-promoting
+  sweep runs the exact op sequence it ran before.
+
+  **The #79 pin flipped** (same change): rank on PR(1,000 → 2,000)
+  reads touches 1,485,588 → 388,694 at the small scale (3.8×
+  lighter) with per-byte growth ×1.72 → ×1.003, limb ops
+  705,623 → 150,871 (4.7×), ×1.75 → ×1.000 — measured on the pin's
+  own ascending family before the reshape below; the committed band
+  (`skyline_flatness::skyline_rank_promotion_rearm_is_flat_per_unit`)
+  carries the reshaped family's record: 343,864 → 687,739 touches,
+  182,871 → 365,745 limb on 246,501 → 493,001 B, ×1.000/byte both
+  currencies, ×1.25 ceilings, one-touch-per-byte liveness floor,
+  and the `min_ticks` closed form as the semantic leg.
+
+  **The family reshape (a charter deviation, resolved toward the
+  goal and reported).** The #79 pin family's span builder was `32p`
+  unit *climbs*; an ascending right spine arms `Θ(p)` distinct
+  nested minima, so `version_min_ticks × promo-rearm` read RED at
+  40.5 B/B heap (e 1.00) on the first board render — the
+  ascend-cliff stated-band genre on an unrelated row, which would
+  have parked a seventh red the charter forbids. The span builder
+  now alternates leaf heights 1, 0, 1, 0 (base 0, ±1 drift, never
+  freezing): the consumed-mass span the blocks re-arm across is
+  identical (it is depth, not height), the block schedule and
+  promotion count are identical, the span-reading kernel still
+  reads ×1.74/byte red on the reshaped family — and the running
+  minima are all zero, so the min-ticks web rides the prefix as one
+  zero run and the cell reads 5.4 B/B green. The promotion payload
+  is untouched; the ascending prefix survives in git history at the
+  pin commit.
+
+  **PR landed as the board family `promo-rearm`** (FAMILIES 23 →
+  24, cells 1156 → 1199, version-only bundle, designed against the
+  Measure group, `PROMO_REARM_BASE_BLOCKS` = 512 with the `8 | s`
+  remainder-alignment derivation on the constant). All 43 cells
+  GREEN at both scales; boards read **default 1193 + 6, record
+  1193 + 6**, the red set exactly `BOARD_EXPECTED_REDS` at both
+  scales — this closes #79 residual 1: the class-binding seal is
+  live for the promotion mechanism because the column exists.
+  Adequacy per the ratchet: the retired span-reading integrator
+  stays committed and failing
+  (`query::tests::adequacy::span_promotion_accounting_reads_superlinear_on_rearm_spine`,
+  1,440,756 → 5,006,506 touches, ×1.74/byte, floor 1.36),
+  value-exact against the shipped rank.
+
+  **F2 closed — the pair-form family** (#79 residual 2):
+  `skyline_distance_promotion_rearm_is_flat_per_unit` overlays
+  PR(p) against its small twin `PRM(p)` (same 36p-node topology,
+  the 1, 0 alternation running the whole spine): heights agree leaf
+  for leaf on the prefix and every block boundary folds the mate's
+  unit against the other operand's wide climb, so freezes and
+  promotions fire at boundaries where the mate's cheap codes set
+  the funded width — the two-operand arming genre the
+  freeze-position analogue's monotone mate could not reach. Reads
+  975,024 → 1,949,774 touches and 819,783 → 1,639,531 limb on a
+  263 → 525 KiB pair (×1.000/byte both), with exact dominance value
+  legs (distance = rank gap, lag zero/whole) and the touch liveness
+  floor. The committed proof the pair drives promotions is its own
+  tripwire: the span-reading co-sweep reads 1,504,885 → 5,134,635
+  touches (×1.71/byte red) on the same pair, value-exact against
+  the shipped distance.
+
+  **F3 closed — the sentry judges the deterministic prefix, every
+  run.** The enforcement `judge()` now runs over all 256 prefix
+  programs in the same pass as the staleness refit
+  (`the_deterministic_prefix_is_judged_total_and_matches_the_pin`),
+  in addition to the 48 random draws: every kernel × size-decade
+  region the corpus reaches is an enforced verdict, not a sampled
+  one. Gate cost: the shared-pass test reads 2.48 → 2.41 s wall
+  (the judging is arithmetic over samples already collected).
+  Adequacy by documented replay (checked out nothing; the old band
+  inlined as a constant in a scratch test, run once, not
+  committed): under the pre-re-pin bands (`15357855`'s
+  `ff_version_min_ticks`: slope 1.122748, intercept 2.175574,
+  +0.356/−0.404) the prefix holds 101 min_ticks steps in the
+  128–256-bit decade of which **4 judge ABOVE, worst excess 0.205
+  decades** — the two-green-gate escape reads deterministically red
+  under this leg. Kernel fuel did not move past tolerance (the
+  staleness leg and every band stayed green through the cure), so
+  no recalibration rides this round.
+
+  **F4 hygiene**: the seven standing review-number citation halves
+  deleted (each site keeps its constraint inline; the index
+  disposition's design-doc pointer went with it);
+  `Class::SuperlinearCounter`'s stale membership sentence
+  re-denominated to the present (currently unpopulated, seal
+  mutation-tested); `fold_signed` has one home (`query`, the `web`
+  submodule imports it); suanpan's zero-run ledger invariant
+  restated to what the code guarantees — disjointness plus
+  creation-time containment, with unconditional soundness (every
+  digit write crops; other rewrites only zero digits) as the only
+  claim consumers rely on.
+
+  **The residual and the open questions** (for the owner):
+  - *The ledger's honest funding statement* (the re-derived module
+    doc): a suffix's balanced density is deposited once, by the
+    topology whose depth variation spelled its masses — not once
+    per arming — so a stream pairing `Θ(p)` wide re-arms against a
+    suffix that *stays* dense (a deep varied-depth region built
+    once, then cheap re-arm blocks against it) would pay that
+    density per arming: constructible and superlinear in the same
+    genre F1 was, though every committed family and instrument
+    reads flat (dense suffixes on the committed shapes compact to
+    O(1) balanced terms). The forward dual (batching armings into a
+    running promoted sum) trades this for width-per-window
+    re-reads; a scheme linear in both duals needs lazy product
+    trees. Owner to rule: accept as the module doc's stated
+    residual (the doc states it exactly), or commission the
+    dense-suffix family as a committed red pin with the claims
+    moved to a qualified class.
+  - *The suanpan stranding*: this round could not independently
+    reconstruct #79's collapse-strands-a-certificate schedule —
+    every collapse path traced re-establishes `hi ≤ top` through
+    `crop_runs`' remnant logic (a break one step inside a run
+    splits it and drops the upper remnant). If the reviewer's
+    witness exists, one further step looks live: a stranded run
+    plus a later above-top jump write inserts an overlapping
+    (containing) certificate, and `crop_runs`' disjointness-derived
+    early stop could then leave the container stale over a written
+    digit — a soundness question, not a doc question. Owner to
+    request the #79 witness schedule; the doc tightening landed
+    states only what both readings agree on.
+  - Residuals 3 and 4 of #79 (the unmetered `mul_into`/merge walks
+    — the ledger settle's sparse-vec merge sits behind the same
+    boundary, bounded by its metered charges on every family — and
+    the judge's sub-resolution) stand unchanged.
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **1071 cells**,
+public operation surface × §2's families — **1199 cells**,
 membership pinned by the smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
 the **release profile**, the measurement of record (§12's
@@ -2853,17 +3011,23 @@ legs and its resource pin — the representation-pin leg per the
 snapshot-pinned in-crate); the benign rank-pair operand scaling
 if C3 chose that arm; the §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over the 1156 cells)
+### 17.3 Owned-red accounting (current; over the 1199 cells)
 
-Sums [measured 2026-07-28, release renders at the cure-round
-merge — the tree carrying all three #78 tracks (the zero-run
-ledger, the anchor-web min_ticks fold with the anchored-segment
-rank, and Track 3's instruments), with the freeze-pos and weave
-families landed (cells 1071 → 1156); the prior boards of record
-read 1041 + 30 / 1044 + 27 over 1071 cells at the
-`board-merge72-{lo,hi}.txt` renders]:
-**default 1150 + 6 = 1156; record 1150 + 6 = 1156, the red set
-identical at both scales.** Every red is a
+Sums [measured 2026-07-28, release renders at the round-2 cure
+tip (cure81: the promotion ledger, the promo-rearm family, the
+pair analogue, and the sentry totalization), with the promo-rearm
+family landed (cells 1156 → 1199); the prior boards of record
+read 1150 + 6 over 1156 at the cure-round merge renders — the
+three commits between that merge and this round's base touch no
+board-measured code, so those sums are also this round's parent
+baseline — and 1041 + 30 / 1044 + 27 over 1071 at the
+`board-merge72-{lo,hi}.txt` renders before that]:
+**default 1193 + 6 = 1199; record 1193 + 6 = 1199, the red set
+identical at both scales and identical to the parent's six — the
+round's whole board delta is the 43 promo-rearm cells, all
+green (the cure's dev-profile envelope diff read every
+pre-existing query-fold row byte-identical, and no other row's
+code moved).** Every red is a
 `BOARD_EXPECTED_REDS` member with its mechanism tag (the roster
 in `meter/board.rs` is the committed form of this accounting;
 the render's `mech[...]` column is its live disclosure). Every
