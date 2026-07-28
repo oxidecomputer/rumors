@@ -98,7 +98,13 @@ fn roster_schema_carries_expectations_only() {
     assert_eq!(keys, ["boundary", "configuration", "notes", "red"]);
 }
 
-/// The sidecar's text-ceiling set is exactly the wide-display pair.
+/// The sidecar's text-ceiling set is exactly the wide-display pair:
+/// `version_display_wide` and `display_schoolbook`, the judge-only
+/// conversion-class cells.
+///
+/// Distinct from the *hugeleaf display pair* of board rows,
+/// `version_display` and `clock_display`, rostered red above at the
+/// general ceiling — four cell IDs end in `/hugeleaf`, two sets.
 ///
 /// The text ceiling (1.7) exists for conversion-dominated rendering only,
 /// and every other cell must stay judged at the general ceiling — widening

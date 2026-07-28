@@ -140,8 +140,10 @@
 //!   within the allowance of the drift the settling freeze itself
 //!   parks.
 //!
-//! A freeze fires by the rank fold's own relative trigger, denominated
-//! in the *boundary's* widest folded code: bounded oscillation at any
+//! A freeze fires by the rank fold's own relative trigger, with one
+//! pair-specific difference of denomination: the check runs once per
+//! boundary against the *boundary's* widest folded code, not per folded
+//! delta. The behavior it buys is the same — bounded oscillation at any
 //! width never freezes, and wide drift riding under cheaper codes is
 //! parked at the first such code.
 //!
@@ -243,7 +245,10 @@
 //! against the composed forms (the emission sweep's join and meet
 //! re-ranked, subtracted through `Rank::checked_sub`) — the same
 //! identities on a code path the co-sweep shares nothing with past the
-//! cursors; rank additionally against the semantic Riemann-sum oracle,
+//! cursors; that pin lives in this module's own test suite, and the
+//! cross-oracle triple (tree fold and function-space Riemann sums in one
+//! body) is `version/tests.rs`'s `distance_and_lag_realize_both_oracles`.
+//! Rank is additionally pinned against the semantic Riemann-sum oracle,
 //! which shares no structure with the sweep. The resource envelopes are
 //! the meter rows named above.
 

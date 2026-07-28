@@ -60,6 +60,15 @@ use crate::codec::{Bits, BitsSlice, PackedBuilder};
 /// Gamma codes spend `2·floor(log2(m + 1)) + 1` bits on a mapped value
 /// `m`, so one bit is exactly the code for zero — the recognition the
 /// collapse checks ride on.
+///
+/// One other code shares the length: `gamma(0)`, the *absolute* code of
+/// a height-zero first leaf. It never triggers a collapse. The absorb
+/// test reads the incoming code, which is always a delta (the first
+/// leaf returns early from [`leaf`](SkylineBuilder::leaf)); the cascade
+/// test reads the held code, which is the absolute code only while the
+/// first leaf is held — and the first leaf lies on the leftmost,
+/// all-`false` path, so cascade's right-child test fails before the
+/// length is consulted.
 const ZERO_DELTA_CODE_BITS: usize = 1;
 
 /// A canonical-skyline stream builder driven by the output leaf sequence.
@@ -77,8 +86,12 @@ pub(super) struct SkylineBuilder {
     /// `true` inside a right.
     path: Bits,
     /// Parallel to `path`: at a right-branch level, whether the completed
-    /// left sibling is a single leaf (the collapse precondition); a
-    /// placeholder `false` at left-branch levels.
+    /// left sibling is a single leaf (the collapse precondition).
+    ///
+    /// `false` is both the placeholder at left-branch levels and the
+    /// record at right-branch levels
+    /// [`continue_verbatim`](Self::continue_verbatim) splices in, where
+    /// canonicity already rules the merge out.
     left_leaf: Bits,
     /// Code lengths of the left-sibling leaves, one entry per
     /// right-branch level whose `left_leaf` bit is set, deepest last.
@@ -116,10 +129,14 @@ impl SkylineBuilder {
 
         // The incoming leaf is the held leaf's direct right sibling
         // exactly when the held leaf is a left child at the same depth.
-        // A zero delta there is the collapsible pair: absorb the incoming
-        // leaf, truncate the pair's parent flag (the stream's last bit,
-        // since the parent is the held left child's preorder
-        // predecessor), and let the merge cascade.
+        // A zero delta there is the collapsible pair (the module doc's
+        // *absorb*): absorb the incoming leaf, truncate the pair's parent
+        // flag (the stream's last bit, since the parent is the held left
+        // child's preorder predecessor), and let the merge cascade. The
+        // pair's left sibling is the held leaf itself, which is why —
+        // unlike `cascade`'s test, where the held leaf is the pair's
+        // *right* child under an arbitrary completed left sibling — this
+        // test reads `path` alone and never consults `left_leaf`.
         if depth == self.path.len()
             && self.path.last().map(|bit| !*bit).unwrap_or(false)
             && code.len() == ZERO_DELTA_CODE_BITS
@@ -173,6 +190,10 @@ impl SkylineBuilder {
 
     /// Splice the remainder of a canonical multi-leaf subtree verbatim,
     /// holding its last leaf's code per the held-leaf discipline.
+    ///
+    /// Reached from the tick splice ([`grow`](super::grow)) alone; the
+    /// join/meet emission feeds every plateau through
+    /// [`leaf`](Self::leaf) instead.
     ///
     /// The caller has just fed the subtree's *first* leaf through
     /// [`leaf`](Self::leaf) (verbatim or with a repaired code) at depth
@@ -260,6 +281,14 @@ impl SkylineBuilder {
 
     /// Merge the held leaf upward while it is a zero-delta right sibling
     /// of a completed left-sibling leaf (the module doc's *re-anchor*).
+    ///
+    /// Called from the absorb branch alone, and that suffices for
+    /// canonicality: a flush never exposes a collapsible pair. An incoming
+    /// zero-delta leaf that would be the flushed leaf's direct right
+    /// sibling is exactly the absorb condition, so a leaf that reaches the
+    /// flush path with a 1-bit code lands either strictly deeper (a left
+    /// child, no completed sibling) or as the right sibling of a completed
+    /// multi-leaf subtree — a shape canonical form keeps.
     fn cascade(&mut self) {
         loop {
             let held = self.held.as_ref().expect("cascade runs with a held leaf");

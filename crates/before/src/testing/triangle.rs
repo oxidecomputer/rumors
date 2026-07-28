@@ -1,6 +1,11 @@
 //! The triangle suite: one committed roster binding every public operation
 //! to the disposition of each differential leg.
 //!
+//! (*Triangle* names the three-implementation differential below — not the
+//! metric triangle inequality on
+//! [`Version::distance`](crate::Version::distance), whose law pins are
+//! [`crate::laws`]'s business.)
+//!
 //! Three implementations cover the semantic surface: the production packed
 //! implementation (*prod*), the recursive paper-transcription oracle in
 //! [`crate::oracle`] (*tree* — the semantic definition of record), and the
@@ -29,7 +34,10 @@
 //! # Leg vocabulary
 //!
 //! - [`Leg::Bound`]: a direct differential on that leg; the named test
-//!   drives both sides.
+//!   drives both sides. One test may bind several legs when its body
+//!   performs each comparison (the distance/lag triple asserts prod,
+//!   tree, and fs results equal in one proptest); the citation is
+//!   per-leg, the comparisons per-body.
 //! - [`Leg::Law`]: pinned by an algebraic law on production alone (no
 //!   reference on the right-hand side); used where no reference counterpart
 //!   exists or the contract promises only a law.
