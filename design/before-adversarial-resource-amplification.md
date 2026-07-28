@@ -1687,6 +1687,153 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   structure inherits the blind spot until search probes are a
   metered primitive.
 
+- **LANDED 2026-07-28 (cure78-suanpan, the F3 cure): suanpan's
+  cost table stands as written — the zero-run ledger prices top
+  maintenance by the operand, not the gap.** Owner ruling: fix the
+  code so the shifted rows' "amortized O(operand limbs),
+  independent of the shift" is true; weakening the table was
+  rejected. Mechanism: the accumulator keeps a *zero-run ledger*
+  (`BTreeMap<usize, usize>`) of certificates `(lo, hi)`, each
+  stating every digit strictly between is zero — created O(1) by
+  any write landing above `top + 1` (the run it jumps), split by
+  writes whose carries land inside a run, consumed O(1) by the
+  settlement scan and by zero-partial sign folds, which skip a
+  certified run whole for one touch. The third amortization
+  argument (the ledger potential: every position at or below top
+  is certificate-covered or carries one scan credit from the
+  metered write that last touched it) is written in full on the
+  crate page beside the lazy zone and the collapsing fold.
+  **Charter dispute, resolved toward the goal**: the suggested
+  single write-watermark discipline (`bottom`, the
+  `sign_magnitude_shl` precedent) was evaluated and refuted before
+  implementation — park any value on digit 0 and the watermark
+  pins there while the oscillation runs at `shift/32`, leaving the
+  gap walk unfunded — so the mechanism generalizes to one
+  certificate per run; the green pin's second scenario commits
+  that refutation. **A dissolution inside the cure**: the sign
+  collapse's old post-zeroing top-walk was dead work — on the
+  `partial == 0` path it never ran (top is already 0), and on the
+  nonzero path the floor re-deposit always re-raised `top` to at
+  least the walked-from index — so it is deleted, not metered; the
+  one real settlement scan (shared by `add_at` and both folds) is
+  metered with liveness pins. Bookkeeping honesty: ledger upkeep
+  is O(log ledger size) machine-word operations per write, never
+  digit touches; disclosed on the crate page's ledger and metering
+  sections, with memory bounded at one entry per jump-write and
+  half the held digit positions.
+
+  **The pin flip (same commit as the cure)**:
+  `alternating_shifted_writes_pay_the_zero_gap_per_pair` (red:
+  1,000 one-limb pairs cost 1,004,000 touches at shift 32,000,
+  2,004,000 at 64,000 — (s/32 + 4)/pair; word-magnitude path
+  1,002,000 — (s/32 + 2)/pair) is replaced by
+  `alternating_shifted_writes_cost_the_operand_not_the_gap`
+  (green: 5,000 at both shifts — 5/pair, exact: 2 limb reads + 2
+  deposits + 1 certificate skip; identical with digit 0 occupied;
+  word-magnitude 3,000 — 3/pair), value legs retained. The
+  exactness is the skip's liveness floor: an uncounted skip would
+  read 4/pair. New meter-liveness pins:
+  `top_settlement_steps_are_metered` (a sub zeroing digits 6..=10
+  over a never-written prefix costs exactly 16 = 6 limb reads + 5
+  deposits + 5 settlement steps; a scan that stopped counting
+  reads 11) and `sign_fold_skips_certified_runs` (a cancellation
+  spelled across two digits above a 1,000-digit never-written run
+  reads `Equal` in exactly 6 touches and still canonicalizes).
+  New row witnesses: `accumulator_operand_rows_cost_the_operand`
+  (`add_accum`/`sub_accum`/`add_accum_shl`/`merge_into_wider` on a
+  2-digit operand: exactly 4 touches, receiver-width- and
+  shift-independent) and `held_width_rows_cost_the_held_digits`
+  (`negate` 64, `sign_magnitude` 64, `shl` 128, `reset` 65 at 64
+  held digits). New differential proptest:
+  `run_forming_shift_streams_match_the_bigint_oracle` (shifts to
+  4,096 bits, certificate create/split/consume on every drawn
+  schedule, sign read per step). The `is_literally_zero` one-sided
+  contract and its tests are untouched. IBig/UBig differential
+  suites green (27 suanpan tests; full `before` suite 567 green).
+
+  **Cost table verified row by row (witnesses)**:
+  `add_small`/`sub_small`/`add_u64`/`sub_u64` amortized O(1) —
+  `accum_comb_touches_flat` and `accum_static_prefix_touches_flat`
+  (tests/meter.rs, measured per-delta constants unchanged by this
+  cure); `add_wide`/`sub_wide` — `accum_wide_tooth_touches_flat`,
+  `accum_cancelling_touches_flat` (unchanged);
+  `add_wide_shl`/`sub_wide_shl` — the green pin's exact 5/pair at
+  two shifts; `add_magnitude`/`sub_magnitude` — dispatch onto the
+  previous two rows (`magnitude_entry_points_match_the_oracle`
+  value leg); `*_magnitude_shl` — the green pin's word path,
+  3/pair; `add_accum`/`sub_accum`, `*_accum_shl`,
+  `merge_into_wider` — `accumulator_operand_rows_cost_the_operand`
+  exact 4s; `sign`/`is_negative`/`sign_dominates_*` —
+  `accum_static_prefix_touches_flat` (collapse amortization) plus
+  `sign_fold_skips_certified_runs` (zero-run leg);
+  `is_literally_zero`/`digit_count` O(1) — loop-free by
+  inspection, `digit_count` exactness re-derived on the zero-run
+  ledger argument; `shl`/`negate`/`reset`/`sign_magnitude` O(held
+  digits) — `held_width_rows_cost_the_held_digits` exact counts;
+  `sign_magnitude_shl` — `scaled_read_costs_the_written_span`
+  (unchanged).
+
+  **Envelope re-pins (before → after, mechanism per number)**.
+  Touch drops, all one mechanism (certificate skips replace the
+  accumulator's funded-by-nothing zero-run walks):
+  `skyline_rank_wide_tooth` 26,864 → 21,749 (ceiling 33,580 →
+  27,187, floor 20,148 → 16,311); `version_distance_jump_pair`
+  184,494 → 170,128 (230,618 → 212,660, floor 138,370 → 127,596;
+  the two-scale stream ceilings (230,618, 461,198) → (212,660,
+  425,320) on measured 170,128/340,256, 1.37 → 1.26 per byte);
+  `version_lag_jump_pair` 163,509 → 141,463 (204,387 → 176,829,
+  floor 122,631 → 106,097); freeze-band over-threshold touches
+  6,182/12,390 → 5,166/10,350 (ceilings (7,728, 15,488) →
+  (6,458, 12,938)); `ascend_cliff` tick 10,495/20,975 →
+  10,432/20,848 (ceiling 26,219 → 26,060, floor 15,731 → 15,636);
+  `ascend_cliff_plateau` 8,981 → 8,854 (11,227 → 11,068, floor
+  6,735 → 6,640); `min_ticks_pure_comb` 18,210/68,413 →
+  18,180/68,352 (growth ×1.88 unchanged — the F1 red band holds).
+  Heap rises, all one mechanism (the ledger's B-tree map nodes,
+  +96 B to +768 B per scenario): red-and-repinned
+  `skyline_rank_cliff` 2,540 → 3,116 (ceiling 3,075 → 3,895),
+  `skyline_rank_wide_tooth` 2,820 → 3,588 (3,095 → 4,485),
+  `own_version_cmp_mask_drift` 1,032 → 1,384 (1,290 → 1,730),
+  `skyline_cmp_wide_tooth` 1,032 → 1,224 (the deliberate
+  change-detector margin re-tightened 1,050 → 1,250); moved under
+  standing ceilings (records updated, ceilings stand):
+  `own_version_pair_cmp_mask_drift` 2,176 → 2,368,
+  `rank_bigroot`/`skyline_rank_bigroot` 61,516 → 61,708,
+  `rank_sum_mixed` 62,512 → 62,704, `skyline_join_wide_tooth`
+  102,777 → 102,969, `skyline_meet_wide_tooth` 102,249 → 102,441,
+  `skyline_validate_wide_tooth` 1,216 → 1,408,
+  `version_distance/lag_jump_pair` heap 5,008 → 5,776, and the
+  tick rows with pre-existing drift separated at the cure's base
+  (dense 47,052 → 47,084 unowned → 47,180; nested-wide 11,286 →
+  11,350 unowned → 11,542; mirror-wide 31,605 → 31,701 unowned →
+  31,989). All other measured meter rows byte-identical between
+  base and tip (142-line MEASURED sweep diffed at both).
+
+  **Boards (rendered at base 395f0e72 and tip, both scales,
+  diffed)**: not byte-identical — every moved number is one of the
+  two mechanisms above, and no cell's GREEN/RED status flips at
+  either scale (verified column-wise on both diffs). Headline
+  movers: `version_tick`/`version_ticks`/`clock_tick` ascend-cliff
+  heap constant 78.9 → 123.8 B/B (certificates accumulate on
+  monotone climbs until a scan consumes them — the rows were
+  already red on heap constant and stay red); scattered heap
+  constants +0.1 B/B and heap exponents 1.00 → 0.96–0.99 on
+  rank/join/meet/distance families (one-to-few map nodes);
+  scattered touch constants down (e.g. `version_decode`
+  ascend-plateau touch e 0.95 → 0.88, jump-pair touch columns
+  0.3 → 0.2/B) from certificate skips. The F1/F2 board reds are
+  untouched (`version_min_ticks` touch exponents 1.91/1.81/1.88
+  before and after): this cure is F3's, not theirs. Review #37's
+  residual risk (1) — a public-API stream driving a fold
+  accumulator onto the top-gap oscillation — is closed as a
+  genre: the gap walk no longer exists on any schedule. New
+  residual, priced and bounded: certificates on monotone-ascending
+  workloads occupy memory until consumed (at most one entry per
+  jump-write, half the held digit positions; the ascend-cliff heap
+  constant above is the visible price), and ledger upkeep adds
+  unmetered O(log ledger) word work per write — both disclosed on
+  the crate page.
+
 ## 13. The metering gate
 
 The board (`before::meter::board`, `just amp-board`, runner
