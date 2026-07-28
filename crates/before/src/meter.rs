@@ -1610,7 +1610,7 @@ pub fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
 pub fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
     assert!(k >= 1, "the mask-drift triple needs a nonzero magnitude");
     assert!(
-        n >= 2 && n % 2 == 0,
+        n >= 2 && n.is_multiple_of(2),
         "the mask-drift triple needs an even tooth count"
     );
     let mut plateau = Bits::with_capacity(2 * k + 2);
@@ -1649,7 +1649,7 @@ pub fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
 pub fn mask_drift_quadruple(k: usize, n: usize) -> ((Packed, Packed), (Packed, Packed)) {
     assert!(k >= 1, "the mask-drift quadruple needs a nonzero magnitude");
     assert!(
-        n >= 2 && n % 2 == 0,
+        n >= 2 && n.is_multiple_of(2),
         "the mask-drift quadruple needs an even tooth count"
     );
     (
@@ -1669,7 +1669,7 @@ pub fn mask_drift_quadruple(k: usize, n: usize) -> ((Packed, Packed), (Packed, P
 /// every spine node's zero-base leaf child carries its subtree minimum,
 /// and the only sibling leaf pairs are the teeth's `(0, 1)`.
 fn sparse_cliff_comb(k: usize, n: usize) -> Packed {
-    debug_assert!(k >= 1 && n >= 2 && n % 2 == 0);
+    debug_assert!(k >= 1 && n >= 2 && n.is_multiple_of(2));
     let mut bits = Bits::with_capacity((n / 2) * (2 * k + 14) + 2);
     let tooth = pow2_minus_1(k);
     for level in 0..n {
