@@ -230,7 +230,14 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|v|)` time and space.
+    /// `O(|v|)` space. Time is **superlinear** in the worst case: on
+    /// comb shapes whose closing nodes each circulate a wide pending
+    /// minimum (the committed pure-comb and reveal-comb board
+    /// families), the fold's per-node minima merges re-read plateau
+    /// widths the closing codes never paid for, and the excess grows
+    /// without bound. Flat and organic histories measure linear. The
+    /// excess is not contractual: a future release may compute the
+    /// count in amortized `O(|v|)` time.
     ///
     /// ```
     /// use before::{Ticks, Version};
@@ -255,8 +262,15 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|v|)` time and space; the returned rank's numeric size (see
-    /// [`Rank`]) is itself `O(|v|)`.
+    /// `O(|v|)` space; the returned rank's numeric size (see
+    /// [`Rank`]) is itself `O(|v|)`. Time is **superlinear** in the
+    /// worst case: a stream that fires the fold's height-freezes at
+    /// high frequency (isolated wide drops alternating with unit
+    /// drops down a spine) pays a full freeze-position read per
+    /// freeze, quadratic in the stream length, while every committed
+    /// board family — and any stream firing `O(1)` freezes — measures
+    /// linear. The excess is not contractual: a future release may
+    /// compute the rank in amortized `O(|v|)` time.
     ///
     /// ```
     /// use before::Clock;
