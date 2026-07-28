@@ -4331,8 +4331,9 @@ mod quadratic_ceiling {
     }
 
     /// One distance-and-lag run over a version pair: combined operand
-    /// bytes and both counters over the three query bodies together,
-    /// under the one-touch-per-byte liveness floor and the
+    /// bytes and both counters over the three query bodies together.
+    ///
+    /// Enforces the one-touch-per-byte liveness floor and the
     /// halves-sum value leg (`lag(a, b) + lag(b, a) == distance`,
     /// exact `Rank` arithmetic the sweeps share nothing with).
     fn pair_run(a: &before::Version, b: &before::Version) -> (u64, u64, u64) {
