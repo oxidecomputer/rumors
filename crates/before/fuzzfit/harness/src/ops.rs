@@ -638,7 +638,10 @@ impl Mirror {
             Op::VersionMinTicks { src } => {
                 let version = self.version(src).ok_or_else(malformed)?;
                 let denom = version.encoded_bits() as u64;
-                done(denom, version.min_ticks() as i64)
+                // The guest returns the count's decimal digest (the
+                // count is unbounded; the i64 channel carries FNV-1a of
+                // its rendering, computed identically here).
+                done(denom, decimal_digest(&version.min_ticks().to_string()))
             }
             Op::VersionJoinAll { dst, src, n } => {
                 let mut denom = 0u64;
@@ -846,4 +849,16 @@ impl Mirror {
             }
         }
     }
+}
+
+/// A nonnegative FNV-1a digest of a decimal rendering: the `i64`
+/// channel's encoding for unbounded counts, mirrored in the guest's
+/// `ff_version_min_ticks`.
+fn decimal_digest(text: &str) -> i64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in text.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    (h & 0x7fff_ffff_ffff_ffff) as i64
 }

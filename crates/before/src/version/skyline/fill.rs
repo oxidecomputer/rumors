@@ -224,8 +224,8 @@ pub fn tick(ev: &BitsSlice, id: &crate::Party) -> Bits {
 /// changed, else grow`:
 ///
 /// - `fill(i, e) = e` (the steady state): the one walk records the
-///   route, and one `+n` splice ([`grow::emit`](super::grow::emit))
-///   registers all `n` events — a grow never re-opens the fill branch,
+///   route, and one `+n` splice (the [`grow`](super::grow) module's
+///   emit) registers all `n` events — a grow never re-opens the fill branch,
 ///   so ticks 2..n are all grows at the same site (the grow module doc
 ///   carries the compounding argument).
 /// - `fill(i, e) ≠ e`: the first tick is the fill output; the remaining

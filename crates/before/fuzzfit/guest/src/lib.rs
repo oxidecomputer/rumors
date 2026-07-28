@@ -495,14 +495,32 @@ pub extern "C" fn ff_version_lag(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Version::min_ticks`; the count is the `i64` return value itself, so
-/// no staging round-trip is involved.
+/// `Version::min_ticks`; the return value is the count's decimal
+/// digest, with `-1` reserved for a bad register.
+///
+/// The count itself is unbounded, so the `i64` channel carries a
+/// nonnegative FNV-1a of its decimal rendering, computed identically
+/// on the native side.
 #[no_mangle]
 pub extern "C" fn ff_version_min_ticks(src: u32) -> i64 {
     match with_v(src, |v| v.min_ticks()) {
-        Some(n) => n as i64,
+        Some(n) => decimal_digest(&n.to_string()),
         None => -1,
     }
+}
+
+/// A nonnegative FNV-1a digest of a decimal rendering.
+///
+/// The `i64` channel's encoding for unbounded counts: both sides of the
+/// differential compute it, so equality is equality of counts up to a
+/// collision no fuel schedule can steer.
+fn decimal_digest(text: &str) -> i64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in text.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    (h & 0x7fff_ffff_ffff_ffff) as i64
 }
 
 /// `Version::join_all` over registers `src..src + n`, result into `dst`.

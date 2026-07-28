@@ -411,11 +411,13 @@ fn recode(code: &BitsSlice, increment: bool, absolute: bool, k: &Base) -> Bits {
     gamma_code(&stepped)
 }
 
-/// Emit the grown stream: replay `route` along the chosen path, splice
-/// everything off it, register `k` events at the inflation site in one
-/// `+k` compound (the module doc carries why that equals `k` sequential
-/// grows), repair the boundary deltas by `±k`, and let the builder
-/// collapse anything the splice leaves collapsible.
+/// Emit the grown stream: replay `route` along the chosen path and
+/// register `k` events at the inflation site in one `+k` compound.
+///
+/// Everything off the path is spliced verbatim, the boundary deltas
+/// repair by `±k`, and the output runs through the builder, which
+/// collapses anything the splice leaves collapsible; the module doc
+/// carries why one compound equals `k` sequential grows.
 ///
 /// `route` is the fused tick walk's record over exactly this `(ev, id)`
 /// pair, and the pair is one the walk left unchanged — the caller

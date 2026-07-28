@@ -980,9 +980,10 @@ fn party_ticks_matches_version_ticks(a: &Version, p: &Party) -> bool {
 }
 
 /// A fresh line realizes the tick floor exactly: `n` ticks on the empty
-/// version at any one party cost floor `n` — quantified over the wide
-/// counts the version operand's own floor supplies, all fused (no
-/// iteration at any width).
+/// version at any one party cost floor `n`.
+///
+/// Quantified over the wide counts the version operand's own floor
+/// supplies, all fused (no iteration at any width).
 fn ticks_line_realizes_min_ticks(a: &Version, p: &Party) -> bool {
     let n = a.min_ticks();
     let mut line = Version::new();
@@ -1044,9 +1045,11 @@ fn projection_meet_homomorphism(a: &Version, b: &Version, p: &Party) -> bool {
 }
 
 /// `ticks` is a monoid action of the naturals: `ticks(n)` then
-/// `ticks(m)` equals `ticks(n + m)` — quantified over the wide counts
-/// the two version operands' tick floors supply, all fused, so the law
-/// exercises counts no iterated reference could reach.
+/// `ticks(m)` equals `ticks(n + m)`.
+///
+/// Quantified over the wide counts the two version operands' tick
+/// floors supply, all fused, so the law exercises counts no iterated
+/// reference could reach.
 fn ticks_composes(a: &Version, b: &Version, p: &Party) -> bool {
     let (n, m) = (a.min_ticks(), b.min_ticks());
     let mut stepwise = a.clone();

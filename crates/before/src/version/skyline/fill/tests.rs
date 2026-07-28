@@ -240,9 +240,11 @@ fn exhaustive_small_scope_ticks_and_flags_identically() {
 
 /// Exhaustive small scope for the fused multi-tick: `ticks(n)` for
 /// every `n` in 0..=4 equals the iterated public tick on every
-/// normal-form event tree × every owning normal-form id — a total check
-/// on both branches (the fill-changed collapses and the grow splices,
-/// expansion chains included) at the scope where totality is affordable.
+/// normal-form event tree × every owning normal-form id.
+///
+/// A total check on both branches (the fill-changed collapses and the
+/// grow splices, expansion chains included) at the scope where totality
+/// is affordable.
 #[test]
 fn exhaustive_small_scope_ticks_n_matches_iterated() {
     let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
@@ -858,8 +860,9 @@ proptest! {
         check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64]);
     }
 
-    /// The single-tick byte pin: the `k = 1` splice is exactly the
-    /// tick. `ticks(1)`, the public `tick`, and the recursive oracle's
+    /// The single-tick byte pin: the `k = 1` splice is exactly the tick.
+    ///
+    /// `ticks(1)`, the public `tick`, and the recursive oracle's
     /// `event` (the semantic definition of record, untouched by the
     /// `+k` splice generalization) produce one identical stream on a
     /// substantial generated corpus — the committed guard that
@@ -886,10 +889,11 @@ proptest! {
         );
     }
 
-    /// Structural fact: fill is idempotent. Whenever the fused walk
-    /// reports a change, a second walk over its output reports the
-    /// tree unchanged — so at most the first tick of a run takes the
-    /// fill branch, and `ticks` needs at most two walks.
+    /// Structural fact: fill is idempotent.
+    ///
+    /// Whenever the fused walk reports a change, a second walk over its
+    /// output reports the tree unchanged — so at most the first tick of
+    /// a run takes the fill branch, and `ticks` needs at most two walks.
     #[test]
     fn fill_is_idempotent(
         ov in generators::arb_oracle_version(),
@@ -905,11 +909,12 @@ proptest! {
         }
     }
 
-    /// Structural fact: the grow branch is absorbing. Once a pair sits
-    /// on the unchanged branch, ticking never flips the next tick back
-    /// to the fill branch — so one `+k` splice stands in for ticks
-    /// 2..n. (The crux differential covers this too; this pins the
-    /// mechanism at every intermediate step of a short run.)
+    /// Structural fact: the grow branch is absorbing.
+    ///
+    /// Once a pair sits on the unchanged branch, ticking never flips the
+    /// next tick back to the fill branch — so one `+k` splice stands in
+    /// for ticks 2..n. (The crux differential covers this too; this pins
+    /// the mechanism at every intermediate step of a short run.)
     #[test]
     fn grow_branch_is_absorbing(
         ov in generators::arb_oracle_version(),
@@ -931,10 +936,11 @@ proptest! {
 }
 
 /// The shape corpus at depth: the crux differential over the
-/// adversarial deep shapes crossed with the shape parties (single deep
-/// owned regions and bushy multi-region ids), `n` up to 1000 — large
-/// enough that the iterated side pays a thousand walks while the fused
-/// side pays at most two.
+/// adversarial deep shapes crossed with the shape parties, `n` to 1000.
+///
+/// The parties span single deep owned regions and bushy multi-region
+/// ids, and the count runs large enough that the iterated side pays a
+/// thousand walks while the fused side pays at most two.
 #[test]
 fn ticks_matches_iterated_ticks_shapes() {
     use generators::{bushy_expand_party, shape_party, shape_version, Shape};
@@ -962,11 +968,12 @@ fn ticks_matches_iterated_ticks_shapes() {
     }
 }
 
-/// The fill-changed branch, witnessed deterministically (the shape
-/// corpus's parties never own the whole tree, so this pins the branch
-/// the proptests reach only by generator luck): a full owner over a
-/// bushy tree collapses under fill, and `ticks` then routes the
+/// The fill-changed branch, witnessed deterministically: a full owner
+/// over a bushy tree collapses under fill, and `ticks` then routes the
 /// remaining `n − 1` events through the second walk.
+///
+/// The shape corpus's parties never own the whole tree, so this pins
+/// the branch the proptests reach only by generator luck.
 #[test]
 fn ticks_covers_fill_changed_branch() {
     let v = generators::shape_version(generators::Shape::Bushy, 5);
@@ -993,10 +1000,11 @@ fn ticks_from_empty_is_the_counter() {
 }
 
 /// Wide-`n` self-consistency, beyond any iterative reference: `ticks`
-/// is a monoid action — `ticks(a + b) = ticks(b) ∘ ticks(a)` —
-/// exercised at `n` around `2^100`, plus a small-tail cross-check
-/// `ticks(big + 1) = tick ∘ ticks(big)` seaming the wide arm to the
-/// ground-truth single tick.
+/// is a monoid action — `ticks(a + b) = ticks(b) ∘ ticks(a)` — at `n`
+/// around `2^100`.
+///
+/// A small-tail cross-check `ticks(big + 1) = tick ∘ ticks(big)` seams
+/// the wide arm to the ground-truth single tick.
 #[test]
 fn ticks_composes_at_wide_n() {
     use generators::{shape_party, shape_version, Shape};

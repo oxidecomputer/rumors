@@ -87,11 +87,18 @@
 //! bits), and its freeze corrections multiply the evicted drift by the
 //! open depth — bounded by the drift's own width times the coefficient's
 //! compacted digits. Each pending entry re-bases at most once (its one
-//! pop, against the cumulative drift its epoch tag indexes), so the one
-//! shape whose funding this discipline does not certify is a deep open
-//! spine held across a wide freeze — every crossing entry pays that
-//! drift's width at its pop; every committed family and organic history
-//! measures linear, and the excess is not contractual. Projection adds
+//! pop, against the cumulative drift its epoch tag indexes). What the
+//! discipline does not certify is circulation *inside* the freeze
+//! allowance: a wide-but-under-allowance offset minted per flip from
+//! 3-bit codes — the close-reveal and undercut-cascade genres — pays
+//! its width per site with no input code funding it, exactly the
+//! circulation the rank fold's reveal rows also read [measured on the
+//! board, 2026-07-27: min_ticks limb/touch exponents 1.5–1.95 on the
+//! reveal combs and the ascending cliffs; the primary families —
+//! dense, the magnitude shapes, harmonic, benign, organic histories —
+//! all read exponent 1.0]. The excess is not contractual: the walk's
+//! watermark anchor-web discipline is the known cure, and a future
+//! release may move this fold onto it. Projection adds
 //! one height materialization
 //! per ownership transition, priced by the code it emits. Transient
 //! state is the cursor paths, the accumulators, min_ticks' offset
