@@ -467,10 +467,11 @@ mod adequacy {
     }
 
     /// `FP(k)` catches the absolute-position accounting red: its
-    /// per-byte touch cost grows across the doubling (a linear fold
-    /// reads ~x1.00; the floor 1.25 sits midway between linear and the
-    /// measured x1.50), while the shipped kernel's flatness band holds
-    /// the same family at x1.25.
+    /// per-byte touch cost grows across the doubling.
+    ///
+    /// A linear fold reads ~x1.00 here; the floor 1.25 sits midway
+    /// between linear and the measured x1.50, while the shipped
+    /// kernel's flatness band holds the same family at x1.25.
     ///
     /// [measured 2026-07-28, dev profile, exact counters: touches
     /// 124,368 -> 372,859 across FP(1,000) -> FP(2,000), packed

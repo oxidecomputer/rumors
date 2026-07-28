@@ -2707,8 +2707,10 @@ mod skyline_flatness {
         );
     }
 
-    /// One `Version::rank` run over the freeze-position family `FP(k)`,
-    /// with `min_ticks`' closed form as the cross-fold semantic leg
+    /// One `Version::rank` run over the freeze-position family
+    /// `FP(k)`, both counters over the rank body alone.
+    ///
+    /// Carries `min_ticks`' closed form as the cross-fold semantic leg
     /// (proving the generator builds the tree this band reasons about)
     /// and the one-touch-per-operand-byte liveness floor.
     fn rank_freeze_position_run(k: usize) -> QueryRun {

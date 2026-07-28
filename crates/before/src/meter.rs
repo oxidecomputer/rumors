@@ -1362,16 +1362,19 @@ fn ascend_spine(k: usize, b: usize, ascend: bool) -> Packed {
 }
 
 /// The freeze-position exponent of the wide drop in
-/// [`freeze_position`]: `2^288` is a ten-base-2^32-digit value, so a
-/// block's drift exceeds the following unit code's one digit by more
-/// than the query folds' eight-digit freeze allowance, and every block
-/// fires one freeze.
+/// [`freeze_position`].
+///
+/// `2^288` is a ten-base-2^32-digit value, so a block's drift exceeds
+/// the following unit code's one digit by more than the query folds'
+/// eight-digit freeze allowance, and every block fires one freeze.
 const FREEZE_POSITION_DROP_BITS: usize = 288;
 
 /// The freeze-position spine `FP(k)`: a right spine of `2k` descending
 /// wide left leaves whose consecutive drops alternate `2^288` and one,
-/// over a terminal 0 leaf, `4k(L + 2) + 2` bits for the one shared
-/// leaf-width band `L = 289 + bitlen(k)`.
+/// over a terminal 0 leaf.
+///
+/// Exactly `4k(L + 2) + 2` bits for the one shared leaf-width band
+/// `L = 289 + bitlen(k)`.
 ///
 /// Layout: `2k` spine nodes `1 · γ(0)` leaning right, node `j`'s left
 /// leaf the `j`-th value of the descent from `2^L + k(2^288 + 1)`
