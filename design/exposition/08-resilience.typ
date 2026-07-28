@@ -221,7 +221,8 @@ Results this document leans on, with their homes:
   C. Okasaki, _Purely Functional Data Structures_, Cambridge
   University Press, 1998, ch. 9;
 - *exact long accumulation* — U. Kulisch, _Advanced Arithmetic for
-  the Digital Computer_, Springer, 2002;
+  the Digital Computer: Design of Arithmetic Units_, Springer,
+  2002;
 - *amortization and the potential method* — R. E. Tarjan,
   "Amortized Computational Complexity,"
   _SIAM J. Algebraic Discrete Methods_ 6(2), 1985, pp. 306–318;
@@ -245,11 +246,12 @@ Results this document leans on, with their homes:
   belongs to this literature) — G. Jacobson, "Space-Efficient
   Static Trees and Graphs," FOCS 1989, pp. 549–554; J. I. Munro,
   V. Raman, "Succinct Representation of Balanced Parentheses and
-  Static Trees," _SIAM J. Computing_ 31(3), 2001;
+  Static Trees," _SIAM J. Computing_ 31(3), 2001, pp. 762–776;
 - *singularity analysis and the square-root-branch transfer* —
   P. Flajolet, R. Sedgewick, _Analytic Combinatorics_, Cambridge
-  University Press, 2009, ch. VI (the transfer, Thm VI.1) and
-  §VII.6 (algebraic systems);
+  University Press, 2009, ch. VI (the standard function scale and
+  its transfer, Thms VI.1 and VI.3) and §VII.6 (irreducible
+  context-free structures);
 - *the nonnegative-walk exponent* — E. Sparre Andersen, "On the
   Fluctuations of Sums of Random Variables" I–II, _Math. Scand._ 1
   (1953), pp. 263–285, and 2 (1954), pp. 195–223.
