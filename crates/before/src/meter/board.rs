@@ -125,12 +125,21 @@
 //!   not-applicable (machine words suffice), as are operations whose
 //!   contract forces no arithmetic at all.
 //! - **Touch** floors are deterministic-liveness declarations, like the
-//!   fork rows' heap floor, at two derivations. The delta-folding kernels
-//!   (the comparison sweep, the merge emitters, the query rank folds, the
-//!   tick walk, the text parse) land every stored delta in the running
-//!   accumulator, at least one digit touch per stored delta code — the
-//!   same one-per-delta floor the envelope suite's flatness pins
-//!   commit. The validator batches word-scale deltas in the accumulator's
+//!   fork rows' heap floor, at three derivations. The single-operand
+//!   delta-folding kernels (the query rank folds, the tick walk, the
+//!   text parse) land every stored delta of their one stream in the
+//!   running accumulator, at least one digit touch per stored delta
+//!   code — the same one-per-delta floor the envelope suite's flatness
+//!   pins commit. The pair walks (the comparison sweep and the merge
+//!   emitters and pair queries riding it) fold per *overlay boundary*:
+//!   a boundary both operands step lands both step codes in one fold
+//!   of the single running difference, so the honest pair floor is one
+//!   touch per stepping boundary — at least the larger operand's
+//!   stored-delta count, and legitimately half the naive two-stream
+//!   delta sum on a boundary-aligned pair (the tooth-tail family is
+//!   the committed demonstration; `touch_pair_fold` carries the
+//!   derivation, and the n-ary fold row floors what its first-level
+//!   merges alone force under the same premise). The validator batches word-scale deltas in the accumulator's
 //!   lazy zone, so the decode rows floor only what it must fold digit by
 //!   digit: one touch per 64 bits of every stored code wider than the
 //!   machine-word bound (the stream-derived
@@ -145,8 +154,9 @@
 //!   rank pair), the renderer's delta-sized summaries, minimum folds and
 //!   projections (word-scale bookkeeping and verbatim splices force no
 //!   fold), comparisons over concurrent operands (one witness divergence
-//!   per direction decides, so no fold count is forced), and operands
-//!   whose streams store no delta codes.
+//!   per direction decides, so no fold count is forced), operand pairs
+//!   equal byte for byte (canonical identity answers them before any
+//!   sweep), and operands whose streams store no delta codes.
 //! - **Heap** floors bind on the codec and text rows, whose results must
 //!   materialize at least their packed bytes; everywhere else allocation is
 //!   not semantically forced (and the heap meter reads the process
@@ -410,8 +420,11 @@
 //! `concurrent-pair` (the switch-density population) — carry a version
 //! pair of their own construction, so
 //! their comparison rows run the pairing the shape was built around
-//! rather than the ticked counterpart; the two fold populations —
-//! `scatter` and `weave` — carry fold operands alone, so exactly the two
+//! rather than the ticked counterpart, and `tooth-tail` (the
+//! boundary-aligned exact-`top` pair) carries its generator pair the same
+//! way; the three fold populations —
+//! `scatter`, `weave`, and `stagger` — carry fold operands alone, so
+//! exactly the two
 //! fold rows run on them; `benign` — a fixed-seed pseudo-random population of forked,
 //! ticked clocks, the control row that keeps the ceilings honest on
 //! organic inputs — carries everything. Where an operation needs a
@@ -424,7 +437,7 @@
 //! kernel-seam probes live in the envelope suite alone. The criterion and
 //! the add-a-shape touch list sit on the `FAMILIES` roster below.
 //!
-//! Eight shapes carry a genre note beyond their variant docs:
+//! Ten shapes carry a genre note beyond their variant docs:
 //!
 //! - `freeze-pos`, built against the linear-functional rows: `Θ(s)`
 //!   query-fold freezes at ever-deeper stream positions where every
@@ -454,10 +467,21 @@
 //!   ceilings, `tests/meter.rs` — the enforcement stays there; the
 //!   columns exist so the dashboard is never structurally blind to the
 //!   genre, every cell a live verdict over the mechanism that holds it
-//!   flat). The third skip mechanism, exact-`top` maintenance, is
-//!   priced by the `skyline_flatness` tooth-tail band alone; the
-//!   board↔band parity pin (`tests/amp_board_smoke.rs`) records that
-//!   one-sidedness by name.
+//!   flat).
+//!
+//! - `tooth-tail`, the third skip mechanism's family (exact-`top`
+//!   maintenance): the boundary-aligned pair whose cancelled spike
+//!   leaves `Θ(m)` post-cancellation sign reads over a `g`-digit dead
+//!   buffer — flat with the settled top, `Θ(m·g)` with a high-water
+//!   bound (the `skyline_flatness` tooth-tail band carries both
+//!   readings; enforcement stays there). The pair is also the
+//!   committed demonstration behind the comparison rows' per-boundary
+//!   touch floor: same-shape operands share every overlay boundary,
+//!   so the fused sweep honestly folds ~once per boundary against two
+//!   stored deltas, and its parse rows are the board's densest
+//!   node-per-text-byte streams (the family-declared parse heap
+//!   ceiling at [`TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`] carries
+//!   the derivation).
 //!
 //! - `comb-scatter`: the projection cross (boundary-comb version ×
 //!   scattered party) whose mandatory output dominates its input — the
@@ -502,6 +526,18 @@
 //!   accumulator above all — dominate at fixed arity. Scatter's
 //!   single-leaf operands cannot reach the genre and benign reaches it
 //!   only diluted.
+//! - `stagger`, the reduction-loading fold population, also
+//!   fold-rows-only: `n` operands of `m` unit teeth each, every
+//!   operand's teeth in the gaps of every other's, fed in
+//!   bit-reversed order so each binary-counter merge pairs operand
+//!   groups whose slots diverge at the top address bit — every
+//!   internal merge, at every level, swells to near the sum of its
+//!   inputs' sizes, the declared `O(D log k)` model's intermediate-
+//!   swell worst case with no coalescing until the last level.
+//!   Scatter scales arity at single-leaf operands and weave scales
+//!   operand size at fixed arity; this population is the joint axis
+//!   \[measured — scan 8.6 bits/B per reduction level, constant
+//!   across `n` and `m` doublings alike, under the declared 12\].
 //!
 //! # Coverage: the not-applicable list
 //!
@@ -520,15 +556,21 @@
 //!   `tick_adv_party` row); `Debug` for all three types delegates to
 //!   `Display`.
 //! - **Folds over measured operations**: `Version::join_all` has its own
-//!   row (the `scatter` cell plus the `benign` control), and
+//!   row (the `scatter`, `weave`, and `stagger` cells plus the `benign`
+//!   control), and
 //!   `Version::Sum`/`FromIterator` are that
 //!   fold by definition; `Party::join_all` likewise (the party fold's
 //!   cells); `Clock::join_all` is the party fold and the version
 //!   fold run side by side, so the two fold rows price both of its
-//!   halves. `Version::meet_all` stays NA by mechanism: meet only shrinks,
-//!   so its running accumulator is bounded by the *smaller* operand at
-//!   every step — the fold does at most `Σ min(|acc|, |vᵢ|)` work and
-//!   cannot exhibit the growing-accumulator genre the join folds do.
+//!   halves. `Version::meet_all` has no row of its own, and not because
+//!   it is safe: the sequential reduce's every step sweeps both of its
+//!   operands whole, and a meet shrinks the accumulator's *value*,
+//!   never necessarily its packed size, so a population that keeps the
+//!   accumulator full-size re-walks it per operand — the worst case is
+//!   committed as the envelope suite's red pin
+//!   (`meet_all_shade_reads_superlinear` on the meet-shade population,
+//!   `tests/meter.rs`) rather than blessed by a board ceiling, and the
+//!   row lands with the cure.
 //!   `Party::forks`/`Clock::forks` iterate the measured `fork`, each step
 //!   on the freshly-split half (shrinking operands, same argument); a
 //!   `Forks` iterator dropped mid-run rejoins its unclaimed remainder in
@@ -937,6 +979,27 @@ fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f64 {
     1.0 + (levels2 / levels1).log2() / denom_growth + (MAX_SCALING_EXPONENT - 1.0)
 }
 
+/// The tooth-tail parse rows' family-stated heap ceiling, in bytes per
+/// text byte: `version_parse_noncanon` on the tooth-tail column is
+/// judged at this flat constant in place of
+/// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`] (the declared-models section; the
+/// exponent leg stays at the global bound).
+///
+/// Derivation: the tooth-tail pair is the board's densest
+/// node-per-text-byte family — its text spells thousands of
+/// single-digit unit leaves at ~5 text bytes per tree node where every
+/// other committed family's text carries multi-digit values — so the
+/// parser's materialized tree plus its transient scaffolding
+/// legitimately exceeds the global 16 B/B flat allowance at a flat
+/// exponent, and parse paths are not constant-optimized by owner
+/// policy. Measured 2026-07-28 (release, both acceptance scales):
+/// 20.7 → 20.8 B per text byte at heap exponent 1.00 — a constant, not
+/// a class; the ceiling is the worst reading ×1.25 (owner ratification
+/// 2026-07-28, conditional on exactly this flat-constant profile). A
+/// reading over it is a genuine parse-heap regression on the densest
+/// committed stream.
+pub const TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE: f64 = 26.0;
+
 /// The acceptance scale of record: the size multiplier of the record-mode
 /// board run (`just amp-board-record`).
 ///
@@ -1171,6 +1234,33 @@ const FREEZE_PARADE_BASE_BLOCKS: usize = 512;
 /// exactly).
 const CONCURRENT_BASE_LEAVES: usize = 1_024;
 
+/// Tooth-tail boundary count at scale 1.0 (the pair ~3.6 KiB per
+/// operand); the spike width rides the same knob at
+/// [`TOOTH_TAIL_SPIKE_DIVISOR`], the committed flatness band's ratio.
+const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
+
+/// Boundaries per spike digit in the tooth-tail bundle: the committed
+/// flatness band's `g = m/64` ratio, so the board prices the same
+/// spike-to-tail proportion the envelope band holds flat (a spike a
+/// few wide digits under thousands of post-cancellation sign reads —
+/// the exact-top genre needs the tail to dominate the spike).
+const TOOTH_TAIL_SPIKE_DIVISOR: usize = 64;
+
+/// Staggered fold population operand count at scale 1.0, rounded up to
+/// the power of two the slot addressing needs.
+///
+/// 64 operands of [`STAGGER_BASE_BLOCKS`] teeth each keep the
+/// default-scale fold cells seconds-fast while giving the balanced
+/// reduction seven levels of intermediate swell; the level doubling
+/// doubles both knobs, so the two board scales move the arity and the
+/// per-operand size together and the declared fold model's exponent
+/// ceiling is computed from the realized pair.
+const STAGGER_BASE_OPERANDS: usize = 64;
+
+/// Staggered fold population blocks (teeth) per operand at scale 1.0,
+/// rounded up to a power of two (the complete top tree needs it).
+const STAGGER_BASE_BLOCKS: usize = 64;
+
 /// Benign clock population at scale 1.0.
 const BENIGN_BASE_CLOCKS: usize = 256;
 
@@ -1281,6 +1371,24 @@ enum FamilyKind {
     /// both-present richness alone. Its bundle carries fold operands
     /// alone, so only the fold rows apply.
     Weave,
+    /// The staggered fold population `stagger_population(n, m)`: `n`
+    /// operands of `m` unit teeth each, every operand's teeth landing
+    /// in the gaps of every other's, fed in bit-reversed order.
+    ///
+    /// The correlated-population loading of the balanced reduction
+    /// itself: the feed order pairs operands whose slot addresses
+    /// diverge at the top bit, so every internal merge — at every
+    /// level — joins region sets that interleave maximally and swell
+    /// to near the sum of their sizes, the intermediate-swell worst
+    /// case of the declared `O(D log k)` fold model, held until the
+    /// last level (the full union collapses to the constant-1 skyline
+    /// on the version side, the whole seed region on the id side).
+    /// Scatter scales arity at single-leaf operands and weave scales
+    /// operand size at fixed arity; this population scales both, and
+    /// its bit-reversed feed forecloses the adjacent-slot coalescing
+    /// luck index order would hand the counter. Its bundle carries
+    /// fold operands alone, so only the fold rows apply.
+    Stagger,
     /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`.
     ///
     /// Every level a right-full shortcut site, the deepest stacking of
@@ -1438,6 +1546,23 @@ enum FamilyKind {
     /// every one of the `n − 1` overlay boundaries, join and meet alike
     /// — the pairing the ticked counterpart cannot reach.
     ConcurrentPair,
+    /// The tooth-tail pair `tooth_tail(g, m)`: the boundary-aligned
+    /// exact-`top` population.
+    ///
+    /// Two same-shape unit chains whose second leaves spike `2^(32g)`
+    /// in both operands, `b` one tick above `a` everywhere except the
+    /// shared terminal: the pair sweep folds both spikes into one
+    /// cancelling difference at the same boundary, then reads
+    /// `sign(D)` once per remaining boundary with no intervening
+    /// write. Exact-`top` maintenance prices each read at the settled
+    /// value's own width; a high-water bound re-walks the spike's `g`
+    /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the
+    /// `skyline_flatness` tooth-tail band carries both readings).
+    /// Every overlay boundary is shared by both operands, so the pair
+    /// also realizes the aligned-pair minimum the comparison rows'
+    /// touch floor is derived from ([`touch_pair_fold`]): ~one fold
+    /// per boundary against two stored deltas.
+    ToothTail,
     /// The fixed-seed organic control population.
     Benign,
 }
@@ -1459,7 +1584,7 @@ enum FamilyKind {
 /// whole-surface adversary earns a board family, while a kernel-seam
 /// shape lives in the envelope suite alone, as `wide_tooth_comb`,
 /// `alt_spine`, and the `memo_*` shapes do.
-const FAMILIES: [FamilyKind; 26] = [
+const FAMILIES: [FamilyKind; 28] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -1469,6 +1594,7 @@ const FAMILIES: [FamilyKind; 26] = [
     FamilyKind::Harmonic,
     FamilyKind::Scatter,
     FamilyKind::Weave,
+    FamilyKind::Stagger,
     FamilyKind::NestedFull,
     FamilyKind::NestedWide,
     FamilyKind::MirrorWide,
@@ -1485,6 +1611,7 @@ const FAMILIES: [FamilyKind; 26] = [
     FamilyKind::WeightComb,
     FamilyKind::FreezeParade,
     FamilyKind::ConcurrentPair,
+    FamilyKind::ToothTail,
     FamilyKind::Benign,
 ];
 
@@ -1534,8 +1661,8 @@ struct FamilyData {
     /// module doc's Denomination section derives the split).
     content_bytes: Option<usize>,
     /// The packed fold operands (versions, parties), consumed by the two
-    /// fold rows alone: the scatter shape's adversarially ordered
-    /// population and the benign shape's organic control.
+    /// fold rows alone: the scatter, weave, and stagger populations'
+    /// adversarial orderings and the benign shape's organic control.
     #[allow(clippy::type_complexity)]
     fold: Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
     /// An overlapping packed party pair within one universe: the
@@ -1649,6 +1776,10 @@ impl FamilyData {
             ),
             FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
             FamilyKind::Weave => Self::weave(size(WEAVE_BASE_LEAVES)),
+            FamilyKind::Stagger => Self::stagger(
+                size(STAGGER_BASE_OPERANDS).next_power_of_two(),
+                size(STAGGER_BASE_BLOCKS).next_power_of_two(),
+            ),
             FamilyKind::NestedFull => {
                 let d = size(NESTED_BASE_DEPTH);
                 Self::cross_family(
@@ -1800,6 +1931,17 @@ impl FamilyData {
                 data.version2 = Some(w.encode());
                 data
             }
+            FamilyKind::ToothTail => {
+                // One knob: the boundary count, with the spike width
+                // riding it at the committed band ratio (the generator
+                // needs g >= 1 and m >= 2; the size floor guarantees
+                // both).
+                let m = size(TOOTH_TAIL_BASE_BOUNDARIES);
+                let (a, b) = super::tooth_tail((m / TOOTH_TAIL_SPIKE_DIVISOR).max(1), m);
+                let mut data = Self::event(kind, "tooth-tail", a.version().encode());
+                data.version2 = Some(b.version().encode());
+                data
+            }
             FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
         };
         // ── the bundle post-pass: the derived slots, uniform across shapes ──
@@ -1937,6 +2079,20 @@ impl FamilyData {
             .collect();
         let mut data = Self::bare(FamilyKind::Weave, "weave");
         data.fold = Some((versions, parties));
+        data
+    }
+
+    /// Build the staggered fold population: `n` operands of `m` unit
+    /// teeth each, teeth landing in the gaps of every other operand's,
+    /// fed in bit-reversed order (`meter::stagger_population` carries
+    /// both the construction and the feed order's derivation).
+    fn stagger(n: usize, m: usize) -> FamilyData {
+        let (versions, ids) = super::stagger_population(n, m);
+        let mut data = Self::bare(FamilyKind::Stagger, "stagger");
+        data.fold = Some((
+            versions.iter().map(|p| p.version().encode()).collect(),
+            ids.into_iter().map(|p| p.bytes).collect(),
+        ));
         data
     }
 
@@ -2464,6 +2620,29 @@ const WHY_TOUCH_DELTA_FOLD: &str = "deterministic-liveness: the kernel folds eac
      code of its version operands through the metered accumulator today, at least one digit \
      touch per delta; digit state moving to an unmetered representation lowers this floor \
      deliberately";
+/// Touch floor (deterministic-liveness): a pair walk folds per overlay
+/// boundary, and the overlay steps at least as often as the larger
+/// operand's stored-delta count.
+const WHY_TOUCH_PAIR_FOLD: &str = "deterministic-liveness: the fused sweep folds each overlay \
+     boundary's step deltas into the one running difference accumulator today, at least one \
+     digit touch per stepping boundary, and the overlay steps at least as often as the larger \
+     operand stores deltas; digit state moving to an unmetered representation lowers this \
+     floor deliberately";
+/// Touch NA: canonical byte identity answers an equal pair before any
+/// sweep runs.
+const NA_TOUCH_EQUAL_PAIR: &str = "the operands are byte-identical: canonical equality answers \
+     the pair before any sweep, so no accumulator fold is forced";
+/// Touch floor (deterministic-liveness): the n-ary fold's first-level
+/// merges each walk their two input streams' common refinement.
+const WHY_TOUCH_FOLD_MERGES: &str = "deterministic-liveness: the balanced reduction's \
+     first-level merges each emit over their two inputs' common refinement — at least the \
+     larger input's stored-delta count per byte-distinct arrival-adjacent pair, nothing for an \
+     equal pair (canonical equality answers it); later levels merge derived groups and are \
+     deliberately un-floored";
+/// Touch NA: no first-level merge of the reduction is forced into a fold.
+const NA_TOUCH_FOLD_UNFORCED: &str = "no arrival-adjacent input pair is byte-distinct with \
+     stored deltas: the reduction's first level forces no fold, and later levels merge derived \
+     groups the operands do not determine";
 /// Touch floor (deterministic-liveness): the rank fold lands every summand
 /// in the running accumulator.
 const WHY_TOUCH_RANK_SUM: &str = "deterministic-liveness: the fold lands every summand in the \
@@ -2628,7 +2807,8 @@ fn text_rejection_floors(limb: Liveness, touch: Liveness) -> Floors {
 }
 
 /// A delta-fold touch floor over `deltas` stored delta codes, or NA when
-/// the operand streams store none.
+/// the operand streams store none: the single-operand kernels' premise
+/// (every stored delta of the one stream is folded individually).
 fn touch_delta_fold(deltas: u64) -> Liveness {
     if deltas == 0 {
         na(NA_TOUCH_NO_DELTAS)
@@ -2636,6 +2816,70 @@ fn touch_delta_fold(deltas: u64) -> Liveness {
         Liveness::Floor {
             min: deltas,
             why: WHY_TOUCH_DELTA_FOLD,
+        }
+    }
+}
+
+/// The pair-walk touch floor: one accumulator touch per overlay boundary
+/// at which either operand's stream steps.
+///
+/// Derived from the fused sweep's mechanism (every two-operand
+/// comparison, merge emission, and pair query rides it): the walk visits
+/// each boundary of the two streams' common refinement and folds that
+/// boundary's step deltas into the one running difference accumulator,
+/// so a boundary both operands step lands both codes in a single fold.
+/// The naive two-stream delta sum therefore over-counts a
+/// boundary-aligned pair by ×2 — the tooth-tail family is the committed
+/// demonstration (same-shape operands, every boundary shared, measured
+/// ~one touch per boundary) — while the *larger* operand's stored-delta
+/// count is sound for every pair, aligned or not: each of its deltas
+/// marks a distinct stepping boundary of the overlay. The floor stays
+/// strictly positive wherever either operand stores a delta at all, so a
+/// dead touch meter still trips it on every committed pair family. Equal
+/// operands are answered by canonical byte identity before any sweep
+/// runs (`a ∨ a = a`, `a ∧ a = a`, ordering by equality), so they force
+/// no fold and declare NA.
+fn touch_pair_fold(v: &Version, w: &Version) -> Liveness {
+    if v == w {
+        return na(NA_TOUCH_EQUAL_PAIR);
+    }
+    let boundaries = stored_deltas(v).max(stored_deltas(w));
+    if boundaries == 0 {
+        na(NA_TOUCH_NO_DELTAS)
+    } else {
+        Liveness::Floor {
+            min: boundaries,
+            why: WHY_TOUCH_PAIR_FOLD,
+        }
+    }
+}
+
+/// The n-ary join fold's touch floor: what the balanced reduction's
+/// first level alone forces.
+///
+/// The binary-counter reduction merges arrival-adjacent inputs first,
+/// and each such merge is a pair walk over its two input streams
+/// ([`touch_pair_fold`]'s premise): at least the larger input's
+/// stored-delta count for a byte-distinct pair, nothing for an equal
+/// pair (canonical equality answers it without a sweep) or an unpaired
+/// tail input. Later levels merge *derived* groups whose streams the
+/// operands do not determine cheaply, so they are deliberately
+/// un-floored — the declaration is the sound first-level sum, strictly
+/// positive on every committed fold population.
+fn touch_fold_first_merges(versions: &[Version]) -> Liveness {
+    let first_level: u64 = versions
+        .chunks(2)
+        .map(|pair| match pair {
+            [a, b] if a != b => stored_deltas(a).max(stored_deltas(b)),
+            _ => 0,
+        })
+        .sum();
+    if first_level == 0 {
+        na(NA_TOUCH_FOLD_UNFORCED)
+    } else {
+        Liveness::Floor {
+            min: first_level,
+            why: WHY_TOUCH_FOLD_MERGES,
         }
     }
 }
@@ -2782,17 +3026,25 @@ const NA_TOUCH_CONCURRENT_OPERANDS: &str = "the operands are concurrent, so the 
 /// The comparison rows' floors, derived from the operands themselves
 /// (outside any measurement).
 ///
-/// A comparable pair must be walked to the end — certifying dominance
-/// means checking every region — so the full-examination scan floor and
-/// the every-stored-delta touch floor bind; a concurrent pair may be
-/// decided at one witness divergence per direction, so only the
-/// root-codes scan floor does.
+/// A *distinct* comparable pair must be walked to the end — certifying
+/// dominance means checking every region — so the full-examination scan
+/// floor and the per-overlay-boundary touch floor
+/// ([`touch_pair_fold`]'s premise) bind; an equal pair is answered by
+/// canonical byte identity before any sweep, so neither does; a
+/// concurrent pair may be decided at one witness divergence per
+/// direction, so only the root-codes scan floor does.
 fn comparison_floors(v: &Version, w: &Version, packed_bytes: usize) -> Floors {
+    if v == w {
+        return Floors {
+            heap: na(NA_HEAP_IN_PLACE),
+            limb: na(NA_LIMB_NOT_FORCED),
+            segments: seg_ceiling_only(),
+            scan: na(NA_SCAN_EQ_BYTES),
+            touch: na(NA_TOUCH_EQUAL_PAIR),
+        };
+    }
     if v.partial_cmp(w).is_some() {
-        walk_floors(
-            packed_bytes,
-            touch_delta_fold(stored_deltas(v) + stored_deltas(w)),
-        )
+        walk_floors(packed_bytes, touch_pair_fold(v, w))
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
@@ -2809,9 +3061,12 @@ fn comparison_floors(v: &Version, w: &Version, packed_bytes: usize) -> Floors {
 ///
 /// A comparable projected pair must certify dominance over every region,
 /// so the walk consumes both event streams whole: full-examination scan
-/// and one accumulator touch per stored event delta (the id streams store
-/// no deltas). A concurrent pair may exit at its witnessing divergences,
-/// so only the root-code scan floor binds.
+/// and one accumulator touch per overlay boundary at which either event
+/// stream steps ([`touch_pair_fold`]'s premise — the projected sweep
+/// rides the same fused walk, so an aligned pair honestly folds both
+/// step codes per boundary at once; the id streams store no deltas). A
+/// concurrent pair may exit at its witnessing divergences, so only the
+/// root-code scan floor binds.
 fn masked_cmp_floors(
     verdict: &Option<Ordering>,
     v: &Version,
@@ -2819,10 +3074,7 @@ fn masked_cmp_floors(
     packed_bytes: usize,
 ) -> Floors {
     if verdict.is_some() {
-        walk_floors(
-            packed_bytes,
-            touch_delta_fold(stored_deltas(v) + stored_deltas(w)),
-        )
+        walk_floors(packed_bytes, touch_pair_fold(v, w))
     } else {
         Floors {
             heap: na(NA_HEAP_IN_PLACE),
@@ -3086,6 +3338,14 @@ struct Cell {
     /// flat ceiling: the output-dominated projection on the
     /// comb-scatter cross only.
     capacity_model: bool,
+    /// A family-stated flat heap ceiling in bytes per denominator byte,
+    /// judged in place of [`MAX_HEAP_BYTES_PER_INPUT_BYTE`]'s: the
+    /// declared-models mechanism at a flat constant, for the one cell
+    /// class whose honest constant a ratified derivation puts over the
+    /// global allowance ([`TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`]
+    /// carries the derivation). The exponent leg is untouched: the
+    /// declaration buys a constant, never growth.
+    declared_heap: Option<f64>,
     /// The measured body; its result stays alive until the meters are read.
     #[allow(clippy::type_complexity)]
     body: Box<dyn FnOnce() -> Box<dyn Any>>,
@@ -3141,6 +3401,7 @@ impl Cell {
             fold_arity: None,
             fold_search_bits: 0,
             capacity_model: false,
+            declared_heap: None,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -3166,6 +3427,14 @@ impl Cell {
         self
     }
 
+    /// Declare this cell's heap constant judged against a family-stated
+    /// flat ceiling (the declared-models section); the exponent leg
+    /// stays at the global bound.
+    fn with_declared_heap(mut self, bytes_per_denom_byte: f64) -> Cell {
+        self.declared_heap = Some(bytes_per_denom_byte);
+        self
+    }
+
     /// Package an I/O-denominated packed-output body: the output side of
     /// `n_io` is read back from the actual result.
     fn io<R: Any>(
@@ -3184,6 +3453,7 @@ impl Cell {
             fold_arity: None,
             fold_search_bits: 0,
             capacity_model: false,
+            declared_heap: None,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -3207,6 +3477,7 @@ impl Cell {
             fold_arity: None,
             fold_search_bits: 0,
             capacity_model: false,
+            declared_heap: None,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -3354,8 +3625,10 @@ fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         FamilyKind::Harmonic => matches!(group, OpGroup::Measure | OpGroup::Rank),
         // The output-domination cross.
         FamilyKind::CombScatter => group == OpGroup::Projection,
-        // The correlated fold population, built against the fold rows.
-        FamilyKind::Weave => group == OpGroup::Fold,
+        // The correlated fold populations, built against the fold rows:
+        // weave loads the up-front overlap test, stagger the balanced
+        // reduction's intermediate swell.
+        FamilyKind::Weave | FamilyKind::Stagger => group == OpGroup::Fold,
         // The tick-walk crosses.
         FamilyKind::NestedFull
         | FamilyKind::NestedWide
@@ -3373,12 +3646,16 @@ fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         // many-armings spine, the accumulator skip families (the
         // many-jumps and deep-segment-freeze spines), and the
         // switch-density population.
+        // The tooth-tail pair rides the same designation: its genre is
+        // the fused pair sweep, which the distance/lag rows drive (the
+        // cmp row runs the identical walk).
         FamilyKind::JumpPair
         | FamilyKind::FreezePos
         | FamilyKind::PromoRearm
         | FamilyKind::WeightComb
         | FamilyKind::FreezeParade
-        | FamilyKind::ConcurrentPair => group == OpGroup::Measure,
+        | FamilyKind::ConcurrentPair
+        | FamilyKind::ToothTail => group == OpGroup::Measure,
     }
 }
 
@@ -3462,7 +3739,7 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                let touch = touch_pair_fold(&v, &w);
                 Some(Cell::new(n, walk_floors(n, touch), move || (&v | &w, v, w)))
             },
         },
@@ -3471,7 +3748,7 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
-                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                let touch = touch_pair_fold(&v, &w);
                 Some(Cell::new(n, walk_floors(n, touch), move || {
                     v |= &w;
                     (v, w)
@@ -3483,7 +3760,7 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                let touch = touch_pair_fold(&v, &w);
                 Some(Cell::new(n, walk_floors(n, touch), move || (&v & &w, v, w)))
             },
         },
@@ -3492,7 +3769,7 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Version,
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
-                let touch = touch_delta_fold(stored_deltas(&v) + stored_deltas(&w));
+                let touch = touch_pair_fold(&v, &w);
                 Some(Cell::new(n, walk_floors(n, touch), move || {
                     v &= &w;
                     (v, w)
@@ -3679,7 +3956,7 @@ fn ops() -> Vec<Op> {
                     limb: limb_stream(mandatory_limbs_stream(&v) + mandatory_limbs_stream(&w)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_deltas(&v) + stored_deltas(&w)),
+                    touch: touch_pair_fold(&v, &w),
                 };
                 Some(Cell::new(n, floors, move || (v.distance(&w), v, w)))
             },
@@ -3694,7 +3971,7 @@ fn ops() -> Vec<Op> {
                     limb: limb_stream(mandatory_limbs_stream(&v) + mandatory_limbs_stream(&w)),
                     segments: seg_ceiling_only(),
                     scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_deltas(&v) + stored_deltas(&w)),
+                    touch: touch_pair_fold(&v, &w),
                 };
                 Some(Cell::new(n, floors, move || (v.lag(&w), v, w)))
             },
@@ -3725,7 +4002,7 @@ fn ops() -> Vec<Op> {
                 let n = versions.iter().map(Vec::len).sum();
                 let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
                 let arity = versions.len() as u64;
-                let touch = touch_delta_fold(versions.iter().map(stored_deltas).sum());
+                let touch = touch_fold_first_merges(&versions);
                 Some(
                     Cell::new(n, walk_floors(n, touch), move || {
                         Version::join_all(versions)
@@ -4326,8 +4603,7 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Clock,
             prepare: |f| {
                 let (mut a, b, n) = f.clock_pair()?;
-                let touch =
-                    touch_delta_fold(stored_deltas(a.version()) + stored_deltas(b.version()));
+                let touch = touch_pair_fold(a.version(), b.version());
                 Some(Cell::new(n, walk_floors(n, touch), move || {
                     let joined = a.join(b).is_ok();
                     (joined, a)
@@ -4339,8 +4615,7 @@ fn ops() -> Vec<Op> {
             group: OpGroup::Clock,
             prepare: |f| {
                 let (mut a, mut b, n) = f.clock_pair()?;
-                let touch =
-                    touch_delta_fold(stored_deltas(a.version()) + stored_deltas(b.version()));
+                let touch = touch_pair_fold(a.version(), b.version());
                 Some(Cell::new(n, walk_floors(n, touch), move || {
                     let synced = a.sync(&mut b).is_ok();
                     (synced, a, b)
@@ -4584,7 +4859,7 @@ fn ops() -> Vec<Op> {
                 let fed = version_noncanonical_text(&v.to_string());
                 let n = fed.len();
                 let floors = text_rejection_floors(na(NA_LIMB_REJECTION), na(NA_TOUCH_REJECTION));
-                Some(Cell::new(n, floors, move || {
+                let cell = Cell::new(n, floors, move || {
                     let err = fed
                         .parse::<Version>()
                         .expect_err("a non-canonical tail is rejected");
@@ -4593,7 +4868,17 @@ fn ops() -> Vec<Op> {
                         "the placed defect is the equal-sibling tail, not {err:?}"
                     );
                     (err, fed)
-                }))
+                });
+                // The densest node-per-text-byte family carries its
+                // ratified family-stated heap ceiling
+                // (TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE's
+                // derivation); every other family rides the global
+                // flat allowance.
+                Some(if matches!(f.kind, FamilyKind::ToothTail) {
+                    cell.with_declared_heap(TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE)
+                } else {
+                    cell
+                })
             },
         },
         Op {
@@ -4899,6 +5184,9 @@ struct Sample {
     /// ([`capacity_chain_peak`] over the actual input and output bytes),
     /// on the cells that declare it.
     heap_model: Option<f64>,
+    /// The family-stated flat heap ceiling, on the cells that declare
+    /// one (the declared-models section).
+    declared_heap: Option<f64>,
     /// Every currency's counter reading over the body; `None` where the
     /// counter is not compiled in (the feature-gated limb, scan, and
     /// touch columns render `off` and are exempt from judgment).
@@ -4961,6 +5249,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell, content: Option<usize
         fold_arity: cell.fold_arity,
         fold_search_bits: cell.fold_search_bits,
         heap_model,
+        declared_heap: cell.declared_heap,
         readings: ByCurrency {
             heap: Some(peak_heap as u64),
             segments: Some(segments),
@@ -5258,6 +5547,14 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
             }
             continue;
         }
+        // A family-stated flat heap ceiling replaces the global heap
+        // constant on the cells that declare one; the exponent leg is
+        // untouched.
+        if c == Currency::Heap {
+            if let Some(declared) = s2.declared_heap {
+                ceiling = declared;
+            }
+        }
         // The fold rows' declared exponent ceiling (limb, scan, touch)
         // and scan-constant model.
         let exp_ceiling = match (c, fold_exp_ceiling) {
@@ -5397,6 +5694,10 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     // A declared per-cell model is disclosed on the row it judges; the
     // legend above the matrix carries the derivations.
     let decl = match (r.s1.heap_model, r.s2.heap_model, r.s2.fold_arity) {
+        _ if r.s2.declared_heap.is_some() => {
+            let d = r.s2.declared_heap.expect("just matched");
+            format!("  decl[heap {d:.0} B/B family-stated]")
+        }
         (Some(m1), Some(m2), _) => {
             format!("  decl[heap cap-chain {m1:.0}->{m2:.0} B]")
         }
@@ -5540,6 +5841,15 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
              k = ceil(log2(output/(n+m))) - the output builder's doubling chain anchored at \
              the operand-size reserve; readings banded within x{CAPACITY_MODEL_FLOOR} to \
              x{CAPACITY_MODEL_CEILING} of the model at both scales"
+        )?;
+    }
+    if results.iter().any(|r| r.s2.declared_heap.is_some()) {
+        writeln!(
+            out,
+            "  family-stated heap ceilings (decl[heap ... B/B family-stated] rows): the heap \
+             constant is judged at the stated flat ceiling in place of the global \
+             {MAX_HEAP_BYTES_PER_INPUT_BYTE} B/B; the exponent leg stays at the global bound \
+             (each declaration's derivation lives at its constant)"
         )?;
     }
     writeln!(out)?;

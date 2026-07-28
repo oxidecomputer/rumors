@@ -333,6 +333,7 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
             fold_arity: None,
             fold_search_bits: 0,
             heap_model: None,
+            declared_heap: None,
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -434,6 +435,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             fold_arity: None,
             fold_search_bits: 0,
             heap_model: None,
+            declared_heap: None,
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -652,6 +654,7 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
             fold_arity: None,
             fold_search_bits: 0,
             heap_model: None,
+            declared_heap: None,
             readings: ByCurrency {
                 heap: Some(heap),
                 segments: Some(0),
@@ -756,6 +759,7 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
             fold_arity: Some(arity),
             fold_search_bits: 0,
             heap_model: None,
+            declared_heap: None,
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -889,6 +893,7 @@ fn declared_capacity_model_bands_the_projection_peak() {
             fold_arity: None,
             fold_search_bits: 0,
             heap_model: Some(model),
+            declared_heap: None,
             readings: ByCurrency {
                 heap: Some(heap),
                 segments: Some(0),

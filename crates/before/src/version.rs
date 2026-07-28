@@ -426,9 +426,15 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(D)` time and space, the inputs' total packed size: a meet only
-    /// shrinks, so each step of the fold is bounded by its smaller
-    /// operand.
+    /// `O(D)` space, where `D` is the inputs' total packed size. Time is
+    /// **superlinear** in the worst case: the fold is a running meet
+    /// whose every step sweeps both of its operands whole —
+    /// `O(|acc| + |vᵢ|)` — and the meet only shrinks the accumulator's
+    /// *value*, never necessarily its packed size, so a population that
+    /// keeps the accumulator full-size (one deep version followed by
+    /// operands that dominate it) drives the fold to `Θ(k · |v|)` over
+    /// `k` inputs. When the operands are comparably sized — or the
+    /// running meet shrinks along the way — the fold is `O(D)`.
     ///
     /// ```
     /// use before::{Clock, Version};
