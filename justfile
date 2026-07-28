@@ -254,7 +254,7 @@ fuzzfit-build:
 fuzzfit: fuzzfit-build
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --cargo-profile release
 
-# Re-fit the pinned bands from the deterministic corpus of record (1536
+# Re-fit the pinned bands from the deterministic corpus of record (4096
 # programs; byte-reproducible, so any diff is a real change). Rewrites
 # harness/src/bands.rs atomically: review the diff like a snapshot and
 # commit with a dated movement annotation in the module doc.
