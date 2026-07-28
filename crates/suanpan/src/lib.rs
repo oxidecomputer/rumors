@@ -168,7 +168,7 @@
 //! | [`add_accum_shl`](Accumulator::add_accum_shl), [`sub_accum_shl`](Accumulator::sub_accum_shl) | amortized O(operand's held digits), independent of the shift |
 //! | [`merge_into_wider`](Accumulator::merge_into_wider) | amortized O(narrower operand's held digits) |
 //! | [`sign`](Accumulator::sign), [`is_negative`](Accumulator::is_negative), [`sign_dominates_word`](Accumulator::sign_dominates_word), [`sign_dominates_at`](Accumulator::sign_dominates_at) | amortized O(1) |
-//! | [`is_zero`](Accumulator::is_zero), [`digit_count`](Accumulator::digit_count) | O(1) |
+//! | [`is_literally_zero`](Accumulator::is_literally_zero) (one-sided: `true` means zero, `false` means unknown), [`digit_count`](Accumulator::digit_count) | O(1) |
 //! | [`shl`](Accumulator::shl), [`negate`](Accumulator::negate), [`reset`](Accumulator::reset), [`sign_magnitude`](Accumulator::sign_magnitude) | O(held digits) |
 //!
 //! Digit touches are shift-independent; memory is not. A shifted entry
@@ -224,7 +224,7 @@
 //! [`Accumulator`] is `Clone`, `Default`, `Debug`, and `Send + Sync` —
 //! though `Sync` buys less than usual: every amortized-O(1) sign query
 //! takes `&mut self`, so the value reads available behind a shared
-//! reference are [`is_zero`](Accumulator::is_zero),
+//! reference are [`is_literally_zero`](Accumulator::is_literally_zero),
 //! [`digit_count`](Accumulator::digit_count), the O(held digits)
 //! [`sign_magnitude`](Accumulator::sign_magnitude), and a
 //! [`clone`](Clone::clone) — wrap in a lock for shared sign reads. It is deliberately not `PartialEq`: two
@@ -856,13 +856,16 @@ impl Accumulator {
         (partial.cmp(&0), decided)
     }
 
-    /// Whether the held value is *canonically* zero, without any scan or
-    /// rewrite: O(1).
+    /// Whether the held value is *literally* zero — every stored digit
+    /// zero — without any scan or rewrite: O(1).
     ///
-    /// One-sided: `true` guarantees the value is zero, but a zero built
-    /// out of cancelling nonzero digits reads `false` until a sign read
-    /// collapses it — [`sign`](Accumulator::sign)`() == Equal` is the
-    /// exact zero test, and after it this reads `true`:
+    /// **One-sided**: `true` means the value is zero; `false` means
+    /// unknown. A zero built out of cancelling nonzero digits reads
+    /// `false` until a sign read collapses it —
+    /// [`sign`](Accumulator::sign)`() == Equal` is the exact zero test,
+    /// and after it this reads `true`. Use this only where a false
+    /// negative costs nothing (skipping work a literal zero makes
+    /// unnecessary); never gate correctness on the `false` arm:
     ///
     /// ```
     /// use core::cmp::Ordering;
@@ -873,11 +876,11 @@ impl Accumulator {
     /// // The machine-word write lands whole in digit 0, so the two writes
     /// // cancel across two digits instead of clearing one:
     /// acc.sub_small(1 << 32);
-    /// assert!(!acc.is_zero());                 // zero, but spelled redundantly
+    /// assert!(!acc.is_literally_zero());       // zero, but spelled redundantly
     /// assert_eq!(acc.sign(), Ordering::Equal); // the exact test — and it collapses,
-    /// assert!(acc.is_zero());                  // so the spelling is now canonical
+    /// assert!(acc.is_literally_zero());        // so the spelling is now canonical
     /// ```
-    pub fn is_zero(&self) -> bool {
+    pub fn is_literally_zero(&self) -> bool {
         self.top == 0 && self.digits[0] == 0
     }
 
@@ -982,7 +985,7 @@ impl Accumulator {
     /// let (_, magnitude) = sum.sign_magnitude();  // the sum lives in `sum`,
     /// assert_eq!(magnitude, (UBig::from(1u8) << 640usize) + 7u8);
     /// spare.reset();                              // NOT in `spare`: reset it
-    /// assert!(spare.is_zero());                   // before any reuse
+    /// assert!(spare.is_literally_zero());         // before any reuse
     /// ```
     pub fn merge_into_wider(&mut self, other: Accumulator) -> Accumulator {
         let mut other = other;
