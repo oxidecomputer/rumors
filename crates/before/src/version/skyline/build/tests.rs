@@ -288,6 +288,22 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
     assert_eq!(spliced.finish(), per_leaf);
 }
 
+/// The collapse recognition's coupling pin: the zero delta's payload code
+/// is exactly `ZERO_DELTA_CODE_BITS` bits and every nonzero delta's is
+/// wider, so recognizing a zero delta by code length alone is sound. The
+/// recognizer and the coder implement the arithmetic independently; a
+/// different integer code (the `implementation` essay contemplates ζ₂,
+/// whose zero costs two bits) would silently turn every collapse check
+/// into a no-op — this pin turns that into a red test.
+#[test]
+fn zero_delta_has_the_lone_shortest_code() {
+    assert_eq!(delta(false, 0).len(), super::ZERO_DELTA_CODE_BITS);
+    for magnitude in 1..=64u64 {
+        assert!(delta(false, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
+        assert!(delta(true, magnitude).len() > super::ZERO_DELTA_CODE_BITS);
+    }
+}
+
 /// The length stack round-trips arbitrary pushes through pops in LIFO
 /// order, so re-anchor always truncates over exactly the left sibling's
 /// code.

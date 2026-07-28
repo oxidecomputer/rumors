@@ -1,5 +1,13 @@
-//! The comparison sweep over skyline streams: order, equality, domination,
-//! and concurrency from one iterative merge of the two leaf sequences.
+//! The overlay walk over two skyline streams, and the comparison sweeps —
+//! order, equality, domination, concurrency — built on it.
+//!
+//! The walk machinery here ([`LeafCursor`], [`advance`], [`Step`],
+//! [`fold`], [`Side`]) is shared by two clients: this module's own
+//! comparison entry points, which fold heights and discard the steps, and
+//! the join/meet emission ([`emit`](super::emit)), which re-codes them
+//! into an output stream. The boundary bookkeeping below is the shared
+//! correctness argument; the prose reads it through comparison, the
+//! simpler client.
 //!
 //! A skyline stream lists its version's plateaus left to right: a leaf at
 //! depth `d` is a constant run of width `2^-d` over the unit id interval.
@@ -94,7 +102,8 @@
 //! entry points against it over the adversarial generator families,
 //! arbitrary normal-form trees, organic op-trace histories, and the
 //! exhaustive small scope — every ordered pair of normal-form event trees
-//! to the small-scope depth, which reaches every boundary genre (aligned
+//! to the depth bound stated and argued in the test-only
+//! `testing::exhaustive` module, which reaches every boundary genre (aligned
 //! ties, flush-right ties at unequal depths, plateau consumption, zero
 //! deltas across subtree boundaries) by brute force rather than sampling.
 //! The resource envelopes are the meter rows named above.
@@ -251,7 +260,11 @@ pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude
 
 /// One cursor advance: the flip level and the leaf-to-leaf delta folded.
 pub(super) struct Step {
-    /// The flip level's depth, for the boundary tie test.
+    /// The flip level's depth — the path's length *after* the flip, so
+    /// the flipped ancestor itself is counted. The boundary just crossed
+    /// is a multiple of `2^-flip`, which is what the tie test reads: the
+    /// deeper side's plateau end reaches the shallower side's exactly
+    /// when `flip <= other.depth()` (the module doc's bookkeeping).
     pub(super) flip: usize,
     /// Whether the delta lowers this stream's height.
     pub(super) negative: bool,

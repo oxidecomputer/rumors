@@ -7,11 +7,13 @@
 //! bookkeeping): two leaf cursors over the overlay partition, one
 //! running signed difference `D = height_a − height_b` on the
 //! cliff-immune [`Accumulator`]. What emission adds is an output leaf per
-//! elementary interval — depth `max` of the two cursor depths, since
-//! overlapping dyadic intervals nest — delivered to the collapsing
-//! output builder (the crate-private `build` sibling module), which
-//! derives the union topology from the depth sequence and truncates
-//! equal sibling leaves back out. No height is
+//! elementary interval — depth `max` of the two cursor depths: overlapping
+//! dyadic intervals nest, so the elementary interval *is* the deeper
+//! side's leaf. The walk therefore emits a left-to-right dyadic tiling of
+//! the unit interval, which is exactly the preorder leaf sequence the
+//! collapsing output builder (the crate-private `build` sibling module)
+//! demands; the builder derives the union topology from
+//! the depth sequence and truncates equal sibling leaves back out. No height is
 //! ever materialized along the way; the output is delta-coded from
 //! quantities the boundary itself supplies.
 //!
@@ -55,7 +57,8 @@
 //! emitted stream must reproduce the oracle's encoded result byte for
 //! byte (canonical uniqueness makes that the whole contract), over the
 //! adversarial families, arbitrary pairs, organic histories, and the
-//! exhaustive small scope. A three-cursor overlay walk additionally
+//! exhaustive small scope (every ordered pair to the depth bound the
+//! test-only `testing::exhaustive` module states and argues). A three-cursor overlay walk additionally
 //! re-derives every output plateau's absolute height against pointwise
 //! max/min of the inputs' — the direct witness that no side switch was
 //! misread — and the algebraic laws (commutativity, associativity,
@@ -129,8 +132,13 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
     diff.sub_magnitude(&b_first);
 
     // The first interval: the winning side's absolute height opens the
-    // output. Subadditivity caps the output at the inputs' total, so
-    // their combined length is a one-allocation capacity.
+    // output. The inputs' combined length is the capacity *estimate*:
+    // the union topology and the carried-over step codes fit under it,
+    // but a switch code is bounded by the boundary's input codes only up
+    // to a constant, so a pathological switch-heavy pair could outgrow
+    // it — costing one reallocation, never correctness. The envelope
+    // rows (`tests/meter.rs`, `skyline_join_*`/`skyline_meet_*`) pin the
+    // measured peak heap, switch-heavy families included.
     let mut side = op.pick(diff.sign(), Side::A);
     let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
     let first = match side {
