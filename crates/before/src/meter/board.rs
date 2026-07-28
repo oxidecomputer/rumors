@@ -456,7 +456,7 @@
 //!   model are the reduction's own n·log n cost, not the adversarial
 //!   ordering's.
 //! - `weave`, the correlated fold population (the leaves of one balanced
-//!   fork expansion dealt round-robin among [`WEAVE_GROUPS`] parties,
+//!   fork expansion dealt round-robin among 16 group parties,
 //!   one tick each), also fold-rows-only: every operand pair is
 //!   both-present at the whole shared upper skeleton while each operand
 //!   alone is an organic region set, so the per-node fold costs that
@@ -802,10 +802,12 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 /// still reads red.
 pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
 
-/// The scan bits one metered `IdIndex` table probe records (one `u32`
-/// table word per probe): the party fold's declared search allowance is
-/// `32·⌈log2(t+1)⌉` probes' worth per both-present node of each tested
-/// input, `t` the accumulator's table size.
+/// The scan bits one metered `IdIndex` table probe records: one `u32`
+/// table word per probe.
+///
+/// The party fold's declared search allowance is `32·⌈log2(t+1)⌉`
+/// probes' worth per both-present node of each tested input, `t` the
+/// accumulator's table size.
 ///
 /// Derivation: `Party::join_all` overlap-tests every input against the
 /// fixed accumulator through a per-call table of the accumulator's
@@ -855,10 +857,11 @@ pub const CAPACITY_MODEL_CEILING: f64 = 1.10;
 pub const CAPACITY_MODEL_FLOOR: f64 = 0.90;
 
 /// The ratified capacity-chain peak-heap model for the output-dominated
-/// projection's builder: `3·(n+m)·2^(k−1)` bytes, with
-/// `k = ⌈log2(output/(n+m))⌉` (clamped to at least 1; the committed
-/// shapes sit at output ≥ 32× input, so the clamp never binds and exists
-/// only to keep the formula total).
+/// projection's builder: `3·(n+m)·2^(k−1)` bytes.
+///
+/// `k = ⌈log2(output/(n+m))⌉`, clamped to at least 1 — the committed
+/// shapes sit at output ≥ 32× input, so the clamp never binds and
+/// exists only to keep the formula total.
 ///
 /// Derivation: the projection's output is not size-derivable from its
 /// operands (mandatory `Θ(|v|·|p|)` output on `Θ(|v|+|p|)` input), so no
@@ -1686,10 +1689,12 @@ impl FamilyData {
         data
     }
 
-    /// Build the weave fold population: the `leaves` (rounded up to a
-    /// power of two) leaf parties of one balanced fork expansion, dealt
-    /// round-robin into [`WEAVE_GROUPS`] group parties, each group
-    /// carrying its own single-tick version.
+    /// Build the weave fold population.
+    ///
+    /// The `leaves` (rounded up to a power of two) leaf parties of one
+    /// balanced fork expansion are dealt round-robin into
+    /// [`WEAVE_GROUPS`] group parties, each group carrying its own
+    /// single-tick version.
     ///
     /// Dealing leaf `i` to group `i % WEAVE_GROUPS` puts leaves of every
     /// group under every skeleton node above the last `log2(WEAVE_GROUPS)`
@@ -2870,10 +2875,12 @@ struct Cell {
     /// n-ary fold rows only, where it drives the declared `FoldLog`
     /// model (the declared-models section above).
     fold_arity: Option<u64>,
-    /// The party fold's declared search allowance at this scale, in scan
-    /// bits ([`INDEX_PROBE_SCAN_BITS`]'s derivation): added to the
-    /// declared scan ceiling. Zero on the version fold (no overlap test)
-    /// and wherever the operands carry no both-present structure.
+    /// The party fold's declared search allowance at this scale, in
+    /// scan bits ([`INDEX_PROBE_SCAN_BITS`]'s derivation).
+    ///
+    /// Added to the declared scan ceiling; zero on the version fold (no
+    /// overlap test) and wherever the operands carry no both-present
+    /// structure.
     fold_search_bits: u64,
     /// Whether the heap column is judged against the ratified
     /// capacity-chain model ([`capacity_chain_peak`]) instead of the
@@ -5105,11 +5112,12 @@ fn floor_value(liveness: Liveness) -> String {
 }
 
 /// A red cell's mechanism tag: the judgment kinds present on its red
-/// list, in a fixed order. An `exponent` red is a scaling-class finding;
-/// a `constant` red (flat or declared-model ceilings, the segments
-/// count) is a proportionality finding at exponent ~1; a `floor` red is
-/// a liveness vacuity (a meter not watching the work) or a stale
-/// declared model.
+/// list, in a fixed order.
+///
+/// An `exponent` red is a scaling-class finding; a `constant` red (flat
+/// or declared-model ceilings, the segments count) is a proportionality
+/// finding at exponent ~1; a `floor` red is a liveness vacuity (a meter
+/// not watching the work) or a stale declared model.
 fn mechanism(red: &[&'static str]) -> String {
     let mut kinds = Vec::new();
     if red.iter().any(|label| label.contains("exponent")) {

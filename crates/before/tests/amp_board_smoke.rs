@@ -59,9 +59,10 @@ const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
 
 /// The board runs to completion at tiny sizes — every cell prepares,
 /// measures, and renders — and the matrix keeps covering the full
-/// operation sweep, family by family: each shape's cell count matches
-/// its pinned bundle reach (colors are deliberately not asserted; the
-/// board is a dashboard, not a gate).
+/// operation sweep, family by family.
+///
+/// Each shape's cell count must match its pinned bundle reach. Colors
+/// are deliberately not asserted: the board is a dashboard, not a gate.
 #[test]
 fn board_runs_to_completion() {
     let heap = HeapMeter {

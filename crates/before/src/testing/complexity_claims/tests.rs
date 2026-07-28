@@ -415,10 +415,12 @@ fn linear_claims_cite_no_exponent_red_board_cell() {
     );
 }
 
-/// The expected-red roster's own hygiene: every entry names a live board
-/// cell exactly once and carries at least one mechanism, and every bench
-/// rider is a rostered red (a rider exists to keep a standing red's time
-/// leg judged, so an unrostered rider is a stale census).
+/// The expected-red roster's own hygiene: every entry names a live
+/// board cell exactly once and carries at least one mechanism.
+///
+/// Every bench rider must also be a rostered red — a rider exists to
+/// keep a standing red's time leg judged, so an unrostered rider is a
+/// stale census.
 #[test]
 fn expected_red_roster_names_live_cells() {
     let cells: BTreeSet<(String, String)> = board::bench_cells(0.02, BenchMode::Full)

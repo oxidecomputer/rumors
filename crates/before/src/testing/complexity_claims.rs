@@ -60,12 +60,13 @@ pub(crate) enum Class {
     /// projection).
     LinearIo,
     /// Linear in the total packed input times the logarithm of the
-    /// operand count: the balanced n-ary reduction's log factor, visible
-    /// on the fold rows' deterministic exponents and scale-growing
-    /// constants and judged there under the board's declared fold model
-    /// (which, on the party fold, also carries the indexed overlap
-    /// test's per-node search allowance — the `B log |p|` term the fold
-    /// rustdoc states).
+    /// operand count: the balanced n-ary reduction's log factor.
+    ///
+    /// Visible on the fold rows' deterministic exponents and
+    /// scale-growing constants and judged there under the board's
+    /// declared fold model — which, on the party fold, also carries the
+    /// indexed overlap test's per-node search allowance, the
+    /// `B log |p|` term the fold rustdoc states.
     FoldLog,
     /// Linear space, superlinear worst-case time, red on the bench
     /// judge's committed roster.
@@ -73,13 +74,14 @@ pub(crate) enum Class {
     /// The members: the display pair (value conversion plus the render
     /// merge).
     SuperlinearTime,
-    /// Superlinear in the deterministic work counters on committed board
-    /// families — a standing exponent-mechanism red in
-    /// [`board::BOARD_EXPECTED_REDS`] — with the rustdoc stating the
-    /// superlinear worst case, while the operation is not on the bench
-    /// judge's red roster (its wall constant sits under the judge's
-    /// resolution at bench scales; the counter leg is the one that sees
-    /// the class).
+    /// Superlinear in the deterministic work counters on committed
+    /// board families, while absent from the bench judge's red roster.
+    ///
+    /// A standing exponent-mechanism red in
+    /// [`board::BOARD_EXPECTED_REDS`] with the rustdoc stating the
+    /// superlinear worst case; the operation's wall constant sits under
+    /// the judge's resolution at bench scales, so the counter leg is
+    /// the one that sees the class.
     ///
     /// The class-binding tests hold it live in both directions: a claim
     /// in this class must cite at least one exponent-red board cell
