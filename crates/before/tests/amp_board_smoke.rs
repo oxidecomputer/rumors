@@ -54,6 +54,7 @@ const EXPECTED_CELLS_PER_FAMILY: &[(&str, usize)] = &[
     ("ascend-plateau", 64),
     ("jump-pair", 43),
     ("freeze-pos", 43),
+    ("promo-rearm", 43),
     ("concurrent-pair", 43),
     ("benign", 66),
 ];

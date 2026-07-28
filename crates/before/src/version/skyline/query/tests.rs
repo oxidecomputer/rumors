@@ -782,13 +782,12 @@ mod adequacy {
     /// the doubling.
     ///
     /// A linear fold reads ~x1.00 here; the floor 1.36 sits midway
-    /// between linear and the measured x1.72, while the shipped
+    /// between linear and the measured x1.74, while the shipped
     /// kernel's re-arm flatness band holds the same family at x1.25.
     ///
     /// [measured 2026-07-28, dev profile, exact counters: touches
-    /// 1,485,588 -> 5,098,162 across PR(1,000) -> PR(2,000), packed
-    /// 246,501B -> 493,001B: per-byte growth x1.72 — the retired
-    /// mechanism's exact readings, so the copy is faithful.]
+    /// 1,440,756 -> 5,006,506 across PR(1,000) -> PR(2,000), packed
+    /// 246,501B -> 493,001B: per-byte growth x1.74.]
     #[test]
     fn span_promotion_accounting_reads_superlinear_on_rearm_spine() {
         let (small_bytes, small_touches) = span_rank_run(1_000);
@@ -813,8 +812,8 @@ mod adequacy {
     /// promotions through the co-sweep, not just freezes.
     ///
     /// [measured 2026-07-28, dev profile, exact counters: touches
-    /// 1,600,533 -> 5,325,909 across p = 1,000 -> 2,000, packed pair
-    /// 269,001B -> 538,001B: per-byte growth x1.66; the floor 1.36
+    /// 1,504,885 -> 5,134,635 across p = 1,000 -> 2,000, packed pair
+    /// 269,001B -> 538,001B: per-byte growth x1.71; the floor 1.36
     /// sits midway between linear and the measured growth, as the rank
     /// tripwire's.]
     #[test]
