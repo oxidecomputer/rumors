@@ -52,6 +52,32 @@ fn every_cited_binding_test_exists() {
     );
 }
 
+/// Tamper-hole witness (adversarial review 2026-07-28, task #37): the
+/// citation scan cannot tell binding tests from helper functions, so
+/// [`every_cited_binding_test_exists`] is satisfied by ANY same-named
+/// `fn` anywhere under `src/` — a roster row whose cited differential
+/// test was deleted stays green as long as any helper, production
+/// kernel, or unrelated module's test shares the name.
+///
+/// The witness: [`declared_fn_names`] (the scan's haystack) contains
+/// these non-test helpers, so a citation naming either would pass
+/// today. The categorical seal is a scanner that resolves each citation
+/// to a `#[test]`-attributed (or proptest-macro) item, ideally in the
+/// module the row's disposition names; when that seal lands, this
+/// witness flips red and leaves with the hole it documents.
+#[test]
+fn citation_scan_accepts_helper_fns_as_binding_tests() {
+    let declared = declared_fn_names();
+    for helper in ["declared_fn_names", "parse_impl_self_type"] {
+        assert!(
+            declared.contains(helper),
+            "{helper} left the citation haystack: if the scan now separates \
+             tests from helpers, the tamper hole this witness documents is \
+             sealed - delete this test in the same change"
+        );
+    }
+}
+
 /// The family roster's rows are unique by op description (totality over
 /// the operator/trait surface is by review of the file; this pins the
 /// table's internal hygiene).
