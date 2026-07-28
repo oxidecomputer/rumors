@@ -3480,58 +3480,17 @@ mod skyline_flatness {
     // `held_width_rows_cost_the_held_digits`, pin the same three
     // mechanisms crate-locally).
 
-    /// The weight-comb spine `WC(n)`: a depth-`32n` spine of unit
-    /// leaves, then `2n` leaves alternating heights 0 and 2 in one
-    /// complete subtree near the root.
-    ///
-    /// The spine's second leaf drops to 0, parking one digit-0 unit
-    /// under everything that follows. The rank integral deposits the live component at each leaf's
-    /// position weight `2^(S − depth)`, so the shallow block's ±1
-    /// oscillation lands alternating signs at one digit position
-    /// `Θ(n)` digits above the parked unit — for O(1) stored bits per
-    /// leaf, the position weight being topology, not code. Every
-    /// even-numbered block leaf cancels the digit and the accumulator's
-    /// top must settle back across the never-written gap; every
-    /// odd-numbered leaf re-raises it in one write. The parked digit-0
-    /// unit keeps the gap interior (a value-emptiness or watermark
-    /// shortcut cannot stand in for the skip). Returns the version and
-    /// the family's exact tick total (the sum of every printed base).
-    fn weight_comb(n: usize) -> (before::Version, dashu_int::UBig) {
-        use dashu_int::UBig;
-        assert!(n.is_power_of_two(), "the block is one complete subtree");
-        let s = 32 * n;
-        let mut t = String::new();
-        t.push_str("(0, ");
-        for _ in 1..s - 1 {
-            t.push_str("(0, ");
-        }
-        t.push_str("(0, 1, 0)");
-        for _ in 1..s - 1 {
-            t.push_str(", 1)");
-        }
-        t.push_str(", ");
-        // The block: a complete subtree over 2n leaves alternating
-        // 0 and 2, built bottom-up ((0, 0, 2) pairs, then (0, x, x)).
-        let mut block = String::from("(0, 0, 2)");
-        let mut width = 2;
-        while width < 2 * n {
-            block = format!("(0, {block}, {block})");
-            width *= 2;
-        }
-        t.push_str(&block);
-        t.push(')');
-        // Σ printed bases: the spine's unit leaves (one at depth 32n,
-        // one per unwind level) plus the block's n twos.
-        let expected = UBig::from((s - 1 + 2 * n) as u64);
-        (t.parse().expect("the weight comb is canonical"), expected)
-    }
-
-    /// One `Version::rank` run over `WC(n)`, both counters over the
-    /// rank body alone, with the tick total as the semantic leg and a
+    /// One `Version::rank` run over the weight-comb family `WC(n)`
+    /// (`meter::weight_comb`), both counters over the rank body alone,
+    /// with the tick total as the semantic leg and a
     /// one-touch-per-topology-byte liveness floor.
     fn rank_weight_comb_run(n: usize) -> QueryRun {
-        let (v, expected) = weight_comb(n);
+        use dashu_int::UBig;
+        let v = meter::weight_comb(n).version();
         let bytes = v.encode().len() as u64;
+        // Σ stored bases: the spine's 32n − 1 unit leaves plus the
+        // block's n twos.
+        let expected = UBig::from((34 * n - 1) as u64);
         assert_eq!(
             v.min_ticks(),
             expected
@@ -3612,78 +3571,29 @@ mod skyline_flatness {
         );
     }
 
-    /// The freeze parade `FZ(k)`: the `WC` spine at depth `64k`, then
-    /// `k` freeze blocks in one complete subtree near the root.
-    ///
-    /// Each block is a wide leaf pair dropping `2^288` inside the pair
-    /// and 1 across pairs, so each block's cheap cross code fires one
-    /// freeze of the wide drift. Every freeze settles the current segment through the
-    /// accumulator's scaled read (`sign_magnitude_shl`): the segment's
-    /// interval masses sit at the block's position weight, `Θ(k)`
-    /// digits above digit 0, and the write watermark is what lets the
-    /// read start at the written span instead of walking the
-    /// never-written prefix — `Θ(k)` freezes, each `Θ(k)` digits above
-    /// the floor. Returns the version and its exact tick total.
-    fn freeze_parade(k: usize) -> (before::Version, dashu_int::UBig) {
-        use dashu_int::UBig;
-        assert!(k.is_power_of_two(), "the parade is one complete subtree");
-        let s = 64 * k;
-        let wide = UBig::ONE << 288usize;
-        let band = 289 + (usize::BITS - k.leading_zeros()) as usize + 1;
-        // The 2k block heights: descending, alternating a wide drop
-        // inside each pair and a unit drop across pairs.
-        let mut values = Vec::with_capacity(2 * k);
-        let mut v = UBig::ONE << band;
-        for _ in 0..k {
-            values.push(v.clone());
-            v -= &wide;
-            values.push(v.clone());
-            v -= UBig::ONE;
-        }
-        // Min-lifted text for the complete subtree over a strictly
-        // descending run: every node's minimum is its last leaf, so
-        // right children print base 0 and left children print the
-        // difference of the halves' minima. `expected` accumulates
-        // every printed number (min_ticks is exactly that sum).
-        fn sub(vals: &[UBig], parent_min: &UBig, expected: &mut UBig) -> String {
-            if vals.len() == 1 {
-                let rel = &vals[0] - parent_min;
-                *expected += &rel;
-                return rel.to_string();
-            }
-            let my_min = vals.last().expect("nonempty");
-            let rel = my_min - parent_min;
-            *expected += &rel;
-            let (l, r) = vals.split_at(vals.len() / 2);
-            format!(
-                "({}, {}, {})",
-                rel,
-                sub(l, my_min, expected),
-                sub(r, my_min, expected)
-            )
-        }
-        let mut expected = UBig::from((s - 1) as u64);
-        let block = sub(&values, &UBig::ZERO, &mut expected);
-        let mut t = String::new();
-        t.push_str("(0, ");
-        for _ in 1..s - 1 {
-            t.push_str("(0, ");
-        }
-        t.push_str("(0, 1, 0)");
-        for _ in 1..s - 1 {
-            t.push_str(", 1)");
-        }
-        t.push_str(", ");
-        t.push_str(&block);
-        t.push(')');
-        (t.parse().expect("the freeze parade is canonical"), expected)
-    }
-
-    /// One `Version::rank` run over `FZ(k)`: the same harness as the
-    /// weight comb's.
+    /// One `Version::rank` run over the freeze-parade family `FZ(k)`
+    /// (`meter::freeze_parade`): the same harness as the weight
+    /// comb's.
     fn rank_freeze_parade_run(k: usize) -> QueryRun {
-        let (v, expected) = freeze_parade(k);
+        use dashu_int::UBig;
+        let v = meter::freeze_parade(k).version();
         let bytes = v.encode().len() as u64;
+        // Σ printed bases in closed form: the spine's 64k − 1 unit
+        // leaves, the block's k left-leaf wide drops, its internal
+        // left children's half-minima differences (k/2 per level,
+        // each level's difference doubling from the pair stride
+        // 2^288 + 1), and its root's absolute minimum
+        // 2^band − (k − 1)(2^288 + 1) − 2^288.
+        let j = (usize::BITS - k.leading_zeros()) as usize - 1;
+        let band = 290 + (usize::BITS - k.leading_zeros()) as usize;
+        let w = UBig::ONE << 288usize;
+        let stride = &w + UBig::ONE;
+        let expected = UBig::from((64 * k - 1) as u64)
+            + (UBig::ONE << band)
+            + UBig::from(k as u64) * &w
+            + UBig::from((k / 2 * j) as u64) * &stride
+            - UBig::from((k - 1) as u64) * &stride
+            - &w;
         assert_eq!(
             v.min_ticks(),
             expected
@@ -3761,47 +3671,13 @@ mod skyline_flatness {
         );
     }
 
-    /// The tooth-tail pair `TT(g, m)`: two same-shape right spines of
-    /// `m` flat unit leaves over a terminal 0, whose second leaf
-    /// spikes by `2^(32g)` in both operands.
-    ///
-    /// `b` runs one tick above `a` everywhere except the shared
-    /// terminal. The comparison sweep folds both operands' spikes into one
-    /// difference in the same boundary — the spike cancels exactly,
-    /// leaving the difference at −1 spelled in one digit under a
-    /// buffer `g` digits tall — and then reads `sign(D)` once per
-    /// boundary for `m` more boundaries. The settled top is what
-    /// prices each read at the value's own width; a high-water bound
-    /// re-walks the spike's `g` digits per boundary, `Θ(m·g)` for
-    /// `Θ(m + g)` input. Returns the operand pair.
-    fn tooth_tail(g: usize, m: usize) -> (before::Version, before::Version) {
-        use dashu_int::UBig;
-        let spike = UBig::ONE << (32 * g);
-        let build = |base_h: u64| -> before::Version {
-            let mut t = String::new();
-            for i in 0..m {
-                t.push_str("(0, ");
-                if i == 1 {
-                    t.push_str(&(&spike + base_h).to_string());
-                } else {
-                    t.push_str(&base_h.to_string());
-                }
-                t.push_str(", ");
-            }
-            t.push('0');
-            for _ in 0..m {
-                t.push(')');
-            }
-            t.parse().expect("the tooth tail is canonical")
-        };
-        (build(1), build(2))
-    }
-
-    /// One comparison-sweep run over `TT(g, m)`: touches over the
-    /// `causal_cmp` body alone, with the verdict as the semantic leg
-    /// and a one-touch-per-boundary liveness floor.
+    /// One comparison-sweep run over the tooth-tail pair `TT(g, m)`
+    /// (`meter::tooth_tail`): touches over the `causal_cmp` body
+    /// alone, with the verdict as the semantic leg and a
+    /// one-touch-per-boundary liveness floor.
     fn cmp_tooth_tail_run(g: usize, m: usize) -> QueryRun {
-        let (a, b) = tooth_tail(g, m);
+        let (a, b) = meter::tooth_tail(g, m);
+        let (a, b) = (a.version(), b.version());
         let ea = meter::skyline::encode(&a);
         let eb = meter::skyline::encode(&b);
         let bytes = (ea.as_raw_slice().len() + eb.as_raw_slice().len()) as u64;

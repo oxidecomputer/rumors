@@ -1361,8 +1361,8 @@ fn ascend_spine(k: usize, b: usize, ascend: bool) -> Packed {
     Packed::from_bits(bits)
 }
 
-/// The freeze-position exponent of the wide drop in
-/// [`freeze_position`].
+/// The exponent of the wide drop in [`freeze_position`] and of the
+/// in-pair drop in [`freeze_parade`].
 ///
 /// `2^288` is a ten-base-2^32-digit value, so a block's drift exceeds
 /// the following unit code's one digit by more than the query folds'
@@ -1701,6 +1701,200 @@ fn gap_spine(bits: &mut Bits, d: usize) -> usize {
         }
     }
     trailing
+}
+
+/// Append the parked-unit spine shared by [`weight_comb`] and
+/// [`freeze_parade`]: `s` zero-base levels leaning left, with the
+/// *root's* right child left to the caller.
+///
+/// The innermost node is `(0, 1, 0)` and every other level's right
+/// sibling is a unit leaf. The spine's sole job is depth: the caller's block hangs as the
+/// root's right child at position weight `2^(s − 1)`, bought once with
+/// `Θ(s)` one-time topology bits, and the innermost right leaf's 0
+/// drop parks one digit-0 unit under everything that follows, so no
+/// value-emptiness or write-watermark shortcut can stand in for the
+/// gap the block's events must cross. Exactly `6s − 2` bits.
+///
+/// # Panics
+///
+/// Panics if `s < 2` (the innermost node and the root are distinct).
+fn parked_unit_spine(bits: &mut Bits, s: usize) {
+    assert!(s >= 2, "the parked-unit spine needs at least two levels");
+    for _ in 0..s {
+        bits.push(true); // spine node flag, base 0
+        codec::encode_int(bits, &Base::ZERO);
+    }
+    ev_leaf(bits, 1); // the innermost node's left leaf
+    ev_leaf(bits, 0); // its right leaf: the parked digit-0 unit
+    for _ in 0..s - 2 {
+        ev_leaf(bits, 1); // each middle level's right sibling, innermost first
+    }
+}
+
+/// The weight-comb family `WC(n)`: the parked-unit spine at depth
+/// `32n`, then one complete subtree of `2n` leaves alternating heights
+/// 0 and 2 as the root's right child.
+///
+/// Exactly `202n − 4` bits. The rank integral deposits each leaf's
+/// live component at its position weight `2^(S − depth)`, so the
+/// shallow block's ±1 oscillation lands alternating signs at one digit
+/// position `Θ(n)` digits above the spine's parked unit — for O(1)
+/// stored bits per leaf, the position weight being topology, not code.
+/// Every even-numbered block leaf cancels the digit and the
+/// accumulator's top must settle back across the never-written gap;
+/// every odd-numbered leaf re-raises it in one write — the many-jumps
+/// genre: a settlement scan that steps the gap digit by digit pays
+/// `Θ(n)` unfunded touches per event (`Θ(n²)` on linear input), and
+/// the parked digit-0 unit forecloses value-emptiness and
+/// write-watermark shortcuts, so consuming one zero-run certificate
+/// per jumped run is what holds the cost flat (the
+/// `skyline_flatness` weight-comb band in `tests/meter.rs` carries
+/// both readings).
+/// `min_ticks(WC(n))` is the stored-base sum `34n − 1` (the spine's
+/// `32n − 1` unit leaves plus the block's `n` twos). Normal form: the
+/// innermost leaf pair is `(1, 0)`, every block pair is `(0, 2)`, and
+/// every subtree minimum is 0.
+///
+/// # Panics
+///
+/// Panics if `n` is not a power of two (the block is one complete
+/// subtree).
+pub fn weight_comb(n: usize) -> Packed {
+    assert!(
+        n.is_power_of_two(),
+        "the weight-comb block is one complete subtree"
+    );
+    let mut bits = Bits::with_capacity(202 * n - 4);
+    parked_unit_spine(&mut bits, 32 * n);
+    // The block: a complete subtree over 2n leaves alternating 0 and 2,
+    // every internal base 0.
+    fn block(bits: &mut Bits, width: usize) {
+        bits.push(true); // block node flag, base 0
+        codec::encode_int(bits, &Base::ZERO);
+        if width == 2 {
+            ev_leaf(bits, 0);
+            ev_leaf(bits, 2);
+        } else {
+            block(bits, width / 2);
+            block(bits, width / 2);
+        }
+    }
+    block(&mut bits, 2 * n);
+    Packed::from_bits(bits)
+}
+
+/// The freeze-parade family `FZ(k)`: the parked-unit spine at depth
+/// `64k`, then one complete subtree of `k` freeze blocks — wide leaf
+/// pairs dropping `2^288` inside each pair and one across pairs — as
+/// the root's right child.
+///
+/// Exactly `1546k − 2` bits. Each pair's wide in-pair drop re-arms
+/// live drift over the query folds' eight-digit freeze allowance
+/// (`2^288` spans ten base-2^32 digits, the same width argument as
+/// [`freeze_position`]'s drop) and the
+/// cheap cross-pair code fires the freeze, so a query fold freezes
+/// `Θ(k)` times, every freeze settling its segment through the
+/// accumulator's scaled read — and the segment's interval masses sit
+/// at the block's position weight, `Θ(k)` digits above digit 0
+/// (the blocks are shallow; the deep spine only sets the scale). The
+/// write watermark is what lets each scaled read start at the written
+/// span; a read that starts at digit 0 walks the `Θ(k)`-digit
+/// never-written prefix per freeze — `Θ(k²)` touches on linear input,
+/// the zero-padded magnitudes dragging the limb column with it (the
+/// `skyline_flatness` freeze-parade band in `tests/meter.rs` carries
+/// both readings). The block is min-lifted over a strictly descending
+/// run, every node's minimum its last leaf, so right children code
+/// base 0 and left children the difference of the halves' minima;
+/// `min_ticks(FZ(k))` is the printed-base sum, re-derived in closed
+/// form by this module's tests and the band. Normal form: values
+/// strictly descend (no equal siblings) and every subtree minimum is
+/// 0 through the spine's parked unit.
+///
+/// # Panics
+///
+/// Panics if `k` is not a power of two (the parade is one complete
+/// subtree).
+pub fn freeze_parade(k: usize) -> Packed {
+    assert!(
+        k.is_power_of_two(),
+        "the freeze parade is one complete subtree"
+    );
+    let wide = suanpan::UBig::ONE << FREEZE_POSITION_DROP_BITS;
+    // One shared width band for the 2k descending values: the descent
+    // consumes k(2^288 + 1) < 2^(289 + bitlen(k)), so the top value's
+    // width bounds them all.
+    let band = FREEZE_POSITION_DROP_BITS + 2 + bitlen(k);
+    let mut values = Vec::with_capacity(2 * k);
+    let mut v = suanpan::UBig::ONE << band;
+    for _ in 0..k {
+        values.push(v.clone());
+        v -= &wide;
+        values.push(v.clone());
+        v -= suanpan::UBig::ONE;
+    }
+    let mut bits = Bits::with_capacity(1546 * k - 2);
+    parked_unit_spine(&mut bits, 64 * k);
+    // The min-lifted complete subtree over the descending run.
+    fn block(bits: &mut Bits, vals: &[suanpan::UBig], parent_min: &suanpan::UBig) {
+        if let [leaf] = vals {
+            ev_leaf_wide(bits, &Base::from(leaf - parent_min));
+            return;
+        }
+        let my_min = vals.last().expect("the parade block is nonempty");
+        bits.push(true); // block node flag
+        codec::encode_int(bits, &Base::from(my_min - parent_min));
+        let (l, r) = vals.split_at(vals.len() / 2);
+        block(bits, l, my_min);
+        block(bits, r, my_min);
+    }
+    block(&mut bits, &values, &suanpan::UBig::ZERO);
+    Packed::from_bits(bits)
+}
+
+/// The tooth-tail pair `TT(g, m)`: two same-shape right spines of `m`
+/// flat unit leaves over a terminal 0, whose second leaves spike by
+/// `2^(32g)` in both operands.
+///
+/// `b` runs one tick above `a` everywhere except the shared terminal.
+/// Exactly `6m + 64g` bits per operand. The comparison sweep folds
+/// both spikes into one difference at the same boundary — the spike
+/// cancels exactly, leaving the difference at −1 spelled in one digit
+/// under a buffer `g` digits tall — and then reads `sign(D)` once per
+/// boundary for the remaining `Θ(m)` boundaries with no intervening
+/// write. Exact-`top` maintenance prices each read at the value's own
+/// width; a high-water bound re-walks the spike's `g` dead digits per
+/// read — `Θ(m·g)` on `Θ(m + g)` input, the cost the spike's own code
+/// paid once (the `skyline_flatness` tooth-tail band in
+/// `tests/meter.rs` carries both readings).
+/// `min_ticks` is the stored-base sum `m·h + 2^(32g)` per operand
+/// (`h` the operand's unit height, 1 for `a` and 2 for `b`), and `a`
+/// precedes `b` in the causal order. Normal form: every chain node's
+/// subtree minimum is 0 through the terminal, and no sibling leaf
+/// pair is equal.
+///
+/// # Panics
+///
+/// Panics if `g == 0` (no spike) or `m < 2` (the spike rides the
+/// second leaf).
+pub fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
+    assert!(g >= 1, "the tooth-tail spike needs at least one digit");
+    assert!(m >= 2, "the tooth-tail spike rides the second leaf");
+    let spike = pow2(32 * g);
+    let build = |base_h: u64| -> Packed {
+        let mut bits = Bits::with_capacity(6 * m + 64 * g);
+        for i in 0..m {
+            bits.push(true); // chain node: leaf left, chain right, base 0
+            codec::encode_int(&mut bits, &Base::ZERO);
+            if i == 1 {
+                ev_leaf_wide(&mut bits, &(&spike + Base::from(base_h)));
+            } else {
+                ev_leaf(&mut bits, base_h);
+            }
+        }
+        ev_leaf(&mut bits, 0); // the shared terminal: every minimum
+        Packed::from_bits(bits)
+    };
+    (build(1), build(2))
 }
 
 /// The ascending-cliff id over [`ascend_cliff`]: a right-descent

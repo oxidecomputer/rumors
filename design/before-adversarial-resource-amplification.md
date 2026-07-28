@@ -2747,7 +2747,7 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
 
 The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
-public operation surface × §2's families — **1199 cells**,
+public operation surface × §2's families — **1285 cells**,
 membership pinned by the smoke test — judged at two scales
 (default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
 the **release profile**, the measurement of record (§12's
@@ -2777,6 +2777,30 @@ operation programs replayed under wasmtime fuel, deterministic and
 load-independent, judged against pinned per-operation fuel bands);
 its design record, `design/before-fuzzfit-asymptotics.md`, is the
 instrument of record for that claim.
+
+> **Amendment 2026-07-28 (task #86, the skip-mechanism family
+> promotion).** `weight-comb` and `freeze-parade` land as board
+> families (FAMILIES 24 → 26, cells 1199 → 1285, version-only
+> bundles of 43 cells each, designed against the Measure group,
+> bases 512 with power-of-two call-site rounding), consuming the
+> §12 PROBED constructions single-sourced as `meter::weight_comb` /
+> `meter::freeze_parade` — the same generators the
+> `skyline_flatness` bands now consume, with `meter::tooth_tail`
+> single-sourced the same way. All 86 new cells GREEN at both
+> scales; every pre-existing cell byte-identical to the dd206b9d
+> renders at both scales. The `tooth-tail` column is deliberately
+> NOT landed: promoted experimentally, it read 11 red cells at both
+> scales — the comparison rows' stored-delta touch floor is
+> undercut ×2 by a same-shape boundary-aligned pair (the fused
+> sweep folds equal deltas to net zero: 8,195 touches against the
+> 16,384-touch floor), and `version_parse_noncanon` reads 20.7
+> heap B/B against the 16 B/B flat ceiling — so per the red
+> protocol the column was withdrawn, the one-sidedness is recorded
+> by name in the board↔band parity pin
+> (`amp_board_smoke::board_families_and_flatness_bands_stay_paired`,
+> landed in the same change), and floor re-derivation or red
+> ratification is the owner's. Final numbers of record re-render at
+> the next merge.
 
 Ceilings: scaling exponent ≤ 1.15 (per cell, fitted across the
 two scales against the cell's denominator bytes); heap ≤ 16 B per
@@ -3373,23 +3397,24 @@ legs and its resource pin — the representation-pin leg per the
 snapshot-pinned in-crate); the benign rank-pair operand scaling
 if C3 chose that arm; the §14 acceptance entry recorded.
 
-### 17.3 Owned-red accounting (current; over the 1199 cells)
+### 17.3 Owned-red accounting (current; over the 1285 cells)
 
-Sums [measured 2026-07-28, release renders at the round #83 cure
-tip (cure83: the balanced product-tree settle), diffed cell for
-cell against parent renders at 6bb2305e on the same machine; the
-prior boards of record read 1193 + 6 at the cure81 tip (the
-promotion ledger and the promo-rearm family landing, cells
-1156 → 1199), 1150 + 6 over 1156 at the cure-round merge renders
-before that, and 1041 + 30 / 1044 + 27 over 1071 at the
-`board-merge72-{lo,hi}.txt` renders before that]:
-**default 1193 + 6 = 1199; record 1193 + 6 = 1199, the red set
-identical at both scales and identical to the parent's six — the
-round's whole board delta is the three promo-rearm
-linear-functional cells' touch constants (rank 1.4 → 1.6/B,
-distance/lag 2.1 → 2.4/B, exponents 1.00 unchanged: the tree
-settle's per-level window rewrites), every other cell
-byte-identical at both scales.** Every red is a
+Sums [measured 2026-07-28, release renders at the task #86 family
+landing (weight-comb and freeze-parade, cells 1199 → 1285, all 86
+new cells green and every pre-existing cell byte-identical at both
+scales), diffed cell for cell against the dd206b9d renders on the
+same machine; the prior boards of record read 1193 + 6 at the
+round #83 cure tip (cure83: the balanced product-tree settle,
+whose whole board delta against its 6bb2305e parent was the three
+promo-rearm linear-functional cells' touch constants — rank
+1.4 → 1.6/B, distance/lag 2.1 → 2.4/B, exponents 1.00 unchanged:
+the tree settle's per-level window rewrites), 1193 + 6 at the
+cure81 tip (the promotion ledger and the promo-rearm family
+landing, cells 1156 → 1199), 1150 + 6 over 1156 at the cure-round
+merge renders before that, and 1041 + 30 / 1044 + 27 over 1071 at
+the `board-merge72-{lo,hi}.txt` renders before that]:
+**default 1279 + 6 = 1285; record 1279 + 6 = 1285, the red set
+identical at both scales and identical to the parent's six.** Every red is a
 `BOARD_EXPECTED_REDS` member with its mechanism tag (the roster
 in `meter/board.rs` is the committed form of this accounting;
 the render's `mech[...]` column is its live disclosure). Every
