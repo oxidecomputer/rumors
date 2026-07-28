@@ -9,7 +9,8 @@ use suanpan::UBig;
 use super::{
     alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair, dense,
     freeze_position, harmonic, hugeleaf, id_spine, jump_comb, jump_pair, mask_drift_quadruple,
-    mask_drift_triple, scattered_id, wide_tooth_comb, Packed,
+    mask_drift_triple, promotion_rearm, promotion_rearm_mate, scattered_id, wide_tooth_comb,
+    Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -189,6 +190,91 @@ fn freeze_position_decodes_canonically_at_predicted_length() {
             "the leaf-sum closed form is the family's minimum tick count"
         );
     }
+}
+
+/// `promotion_rearm(p)` is canonical normal form at exactly `2004p + 4`
+/// bits, its `min_ticks` is exactly the stored-code sum
+/// `32p + p(2^608 + 2^288 + 2) + 1`, and the built tree is exactly the
+/// nested text form the family reasons about.
+///
+/// The closed form is the family's independent semantic leg: the
+/// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter
+/// scale, so this pin holds it at hand-checkable sizes, and the text
+/// comparison pins the bit-level construction against the readable
+/// spelling (base-1 unit climbs, then `2^608, 1, 2^288, 1` blocks over
+/// the terminal 1).
+#[test]
+fn promotion_rearm_decodes_canonically_at_predicted_length() {
+    for p in [1usize, 5, 200] {
+        check_version(&promotion_rearm(p), 2004 * p + 4);
+        let expected = UBig::from(32 * p as u64)
+            + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
+            + 1u8;
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            promotion_rearm(p).version().min_ticks(),
+            ticks,
+            "the stored-code sum is the family's minimum tick count"
+        );
+    }
+    let p = 2;
+    let arm = (UBig::ONE << 608usize).to_string();
+    let settle = (UBig::ONE << 288usize).to_string();
+    let mut text = String::new();
+    let mut nodes = 0usize;
+    for _ in 0..32 * p {
+        text.push_str("(1, 0, ");
+        nodes += 1;
+    }
+    for _ in 0..p {
+        text.push('(');
+        text.push_str(&arm);
+        text.push_str(", 0, (1, 0, (");
+        text.push_str(&settle);
+        text.push_str(", 0, (1, 0, ");
+        nodes += 4;
+    }
+    text.push('1');
+    for _ in 0..nodes {
+        text.push(')');
+    }
+    let spelled: Version = text.parse().expect("the spelled spine is canonical");
+    assert_eq!(
+        promotion_rearm(p).version(),
+        spelled,
+        "the bit-level construction is the spelled re-arm spine"
+    );
+}
+
+/// `promotion_rearm_mate(p)` is canonical normal form at exactly
+/// `216p + 4` bits, its `min_ticks` is exactly `36p + 1`, and
+/// `promotion_rearm(p)` dominates it pointwise (the pair band's exact
+/// value legs rest on the dominance).
+#[test]
+fn promotion_rearm_mate_decodes_canonically_at_predicted_length() {
+    for p in [1usize, 5, 200] {
+        check_version(&promotion_rearm_mate(p), 216 * p + 4);
+        let ticks: crate::Ticks = (36 * p as u64 + 1).to_string().parse().expect("a count");
+        assert_eq!(
+            promotion_rearm_mate(p).version().min_ticks(),
+            ticks,
+            "the unit spine's stored-code sum is its minimum tick count"
+        );
+    }
+    let a = promotion_rearm(3).version();
+    let b = promotion_rearm_mate(3).version();
+    assert!(
+        a.rank().checked_sub(&b.rank()).is_some(),
+        "the re-arm spine dominates its unit mate"
+    );
+    assert_eq!(
+        a.lag(&b),
+        crate::Rank::ZERO,
+        "the dominating side lags by nothing"
+    );
 }
 
 /// The harmonic spine `H(d)` is canonical normal form at exactly `6d + 2`
