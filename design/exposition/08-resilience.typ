@@ -262,6 +262,36 @@ to our knowledge, this design's own; so are the minimum-tick
 measure and its identity (@measures), the join size inequality
 (@join), and the count of the _canonical_ grammar under these rules
 and this payload code (@compactness — the preorder-flag encoding
-itself is the classical succinct representation above). Ownership
-here means only that we know no prior
-statement of them, not that a search would find none.
+itself is the classical succinct representation above). A
+literature search stands behind that sentence. Its nearest
+findings, and where each differs:
+
+- *compressed causality metadata* — D. Malkhi, D. B. Terry,
+  "Concise Version Vectors in WinFS," _Distributed Computing_
+  20(3), 2007, pp. 209–219; P. S. Almeida, A. Shoker, C. Baquero,
+  "Delta State Replicated Data Types," _J. Parallel and Distributed
+  Computing_ 111, 2018, pp. 162–173. Both compress _which events a
+  peer has seen_ — per-replica counter sets, gaps allowed — over
+  fixed replica identifiers. Neither is a bit-level coding of a
+  tree-structured clock, and neither measures itself against a
+  counting floor or prices adversarial inputs.
+- *tree-shaped clocks* — U. Mathur, A. Pavlogiannis, H. C. Tunç,
+  M. Viswanathan, "A Tree Clock Data Structure for Causal Orderings
+  in Concurrent Executions," ASPLOS 2022, pp. 710–725: a tree over
+  per-thread counters that makes in-memory join and copy sublinear
+  for dynamic race prediction. An operation-cost result on a
+  different clock, with no wire form, no canonical bytes, and no
+  adversarial model.
+- *the sign query* — sign and zero detection for signed-digit
+  operands is treated in depth as a worst-case circuit problem in
+  B. Parhami, "Generalized Signed-Digit Number Systems: A Unifying
+  Framework for Redundant Number Representations," _IEEE Trans.
+  Computers_ 39(1), 1990, pp. 89–98. The search found no amortized,
+  collapse-on-read treatment, and none of the domination-floor
+  comparisons the collapse makes possible.
+
+The ITC implementations the same search surfaced — the paper's
+authors' reference implementations and later independent ones —
+keep the paper's appendix coding, the baseline @naive prices.
+Ownership here still means only that a genuine search found no
+prior statement of these four — not that none exists.
