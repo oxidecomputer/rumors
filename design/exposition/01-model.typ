@@ -11,8 +11,7 @@ _fork_ a new identity out of its own, and a departing participant
 can _join_ its identity and history back into a survivor. The 2008
 paper by Almeida, Baquero, and Fonte defines the mechanism as a pair
 of small tree structures and a handful of recursive equations over
-them. We
-assume you have read that paper, or have it at hand; @model
+them. We assume you have read that paper, or have it at hand; @model
 re-establishes only the notation this document leans on.
 
 This document is about what happens _after_ the paper: the distance
