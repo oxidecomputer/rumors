@@ -256,20 +256,35 @@ impl Version {
     /// # Complexity
     ///
     /// `O(|v|)` space; the returned rank's numeric size (see
-    /// [`Rank`]) is itself `O(|v|)`. Time is **superlinear** in the
-    /// worst case: one re-arming of the fold's parked drift as wide as
-    /// the stream, ahead of a trailing region whose interval masses
-    /// stay as dense (the committed wide-arming family: a gap spine
-    /// over one wide re-arm block), pays the arming's width times that
-    /// density — quadratic in the stream length — while every
-    /// committed board family, and any stream whose parked drifts stay
-    /// a bounded number of digits wide (dense trailing regions and
-    /// many re-armings included), measures within `O(|v| log |v|)`:
-    /// the fold settles its re-armings once, through a balanced
-    /// product tree that re-reads no width or density more than
-    /// `⌈log₂ n⌉` times, `n` the re-arming count. The excess is not
-    /// contractual: a future release may compute the rank in amortized
-    /// `O(|v|)` time.
+    /// [`Rank`]) is itself `O(|v|)`. Time, in three parts:
+    ///
+    /// - `Θ(|v|²)` in the worst case — a schoolbook wide × dense
+    ///   product at either of the fold's two settle sites, each
+    ///   witnessed tight by a committed family: the ledger settle's
+    ///   aggregate product (one re-arming of the fold's parked drift
+    ///   as wide as the stream, ahead of a trailing region whose
+    ///   interval masses stay as dense — the wide-arming family), and
+    ///   the close-time settle of parked drift over its final segment,
+    ///   which needs no re-arming at all (the plateau-puncture family,
+    ///   whose punctured plateau makes the exact rank a wide × dense
+    ///   integer product). Quadratic is also the ceiling: every
+    ///   committed superlinear family stays within `O(|v|²)` across
+    ///   its doublings.
+    /// - `Ω(M(|v|))` on adversarial inputs, `M` the
+    ///   integer-multiplication bound: the plateau-puncture answer
+    ///   *embeds* the product, so no fold computes it below the cost
+    ///   of one multiplication — the worst case cannot reach
+    ///   `O(|v|)` while integer multiplication is superlinear.
+    /// - `O(|v| log |v|)` for streams whose parked drifts stay a
+    ///   bounded number of digits wide — every committed board family,
+    ///   dense trailing regions and many re-armings included: the fold
+    ///   settles its re-armings once, through a balanced product tree
+    ///   that re-reads no width or density more than `⌈log₂ n⌉` times,
+    ///   `n` the re-arming count.
+    ///
+    /// The gap between `Θ(|v|²)` and `Ω(M(|v|))` is not contractual: a
+    /// future release may compute the rank in `O(M(|v|))` time, and
+    /// none may do better on the embedded-product inputs.
     ///
     /// ```
     /// use before::Clock;
@@ -302,15 +317,20 @@ impl Version {
     ///
     /// `O(|a| + |b|)` space: one fused sweep over the two packed
     /// streams integrates the height difference directly, each step
-    /// paid for by the codes it consumes. Time is **superlinear** in
-    /// the worst case, exactly [`rank`](Self::rank)'s (the sweeps
-    /// share one integral): a pair arming the fold's parked drift as
-    /// wide as the operands ahead of a trailing region as dense pays
-    /// their product, while every committed board family — and any
-    /// pair whose parked drifts stay a bounded number of digits wide —
-    /// measures within `O((|a| + |b|) log (|a| + |b|))`. The excess is
-    /// not contractual: a future release may compute the distance in
-    /// amortized `O(|a| + |b|)` time.
+    /// paid for by the codes it consumes. Time is exactly
+    /// [`rank`](Self::rank)'s, in its three parts (the sweeps share
+    /// one integral): `Θ((|a| + |b|)²)` in the worst case — a
+    /// schoolbook wide × dense settle product, from a pair arming the
+    /// fold's parked drift as wide as the operands ahead of a trailing
+    /// region as dense, or from a punctured plateau whose exact answer
+    /// embeds the product with no arming at all; `Ω(M(|a| + |b|))` on
+    /// adversarial inputs, `M` the integer-multiplication bound (the
+    /// answer-embedded product floors every fold); and
+    /// `O((|a| + |b|) log (|a| + |b|))` for every committed board
+    /// family and any pair whose parked drifts stay a bounded number
+    /// of digits wide. The gap above `Ω(M(|a| + |b|))` is not
+    /// contractual: a future release may compute the distance in
+    /// `O(M(|a| + |b|))` time.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};
@@ -341,10 +361,14 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|a| + |b|)` space. Time is **superlinear** in the worst
-    /// case, exactly [`distance`](Self::distance)'s (one shared
-    /// co-sweep integrates both measures' functionals); the same
-    /// excess is likewise not contractual.
+    /// `O(|a| + |b|)` space. Time is exactly
+    /// [`distance`](Self::distance)'s, in its three parts (one shared
+    /// co-sweep integrates both measures' functionals):
+    /// `Θ((|a| + |b|)²)` in the worst case, `Ω(M(|a| + |b|))` on
+    /// adversarial inputs (`M` the integer-multiplication bound), and
+    /// `O((|a| + |b|) log (|a| + |b|))` when parked drifts stay a
+    /// bounded number of digits wide; the same gap above the
+    /// multiplication bound is likewise not contractual.
     ///
     /// ```
     /// use before::{Clock, Rank, Version};

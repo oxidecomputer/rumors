@@ -357,48 +357,71 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::rank",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v|)` space", "**superlinear**"],
+            tokens: &[
+                "`O(|v|)` space",
+                "`Θ(|v|²)`",
+                "`Ω(M(|v|))`",
+                "`O(|v| log |v|)`",
+            ],
         }],
-        // Stated residual: superlinear on the wide-arming family
-        // (`ledger_wide_arming_pin` in tests/meter.rs: the ledger
-        // settle's balanced product tree charges each cross term in
-        // exactly one aggregate product, and one arming as wide as
-        // the input ahead of a suffix as dense as the input makes
-        // that product itself quadratic), which is not a board family
-        // — the board reads every committed rank row green, so the
-        // class-binding seal (SuperlinearCounter needs a standing
-        // exponent-mechanism red in BOARD_EXPECTED_REDS) keeps this
-        // row Linear-classed with the rustdoc stating the superlinear
-        // worst case. FoldLog would be wrong in the other direction:
-        // the settle's log factor is real (each width and density
-        // re-read at most ⌈log₂ n⌉ times) but never dominates a
-        // committed reading — the dense-suffix bands measure flat —
-        // and "linear × log" is not an upper bound while the
-        // wide-arming pin stands. A cure that exploits cancellation
-        // across the ledger's seams flips the pin and revisits this
-        // class.
+        // The three-part time claim, each part with a committed
+        // witness: Θ(|v|²) worst case is held tight from below by two
+        // red pins in tests/meter.rs — `ledger_wide_arming_pin` (the
+        // ledger settle's aggregate product: one arming as wide as
+        // the input ahead of a suffix as dense) and
+        // `answer_embedded_product` (the close-time settle with zero
+        // armings: the plateau-puncture rank IS a wide × dense
+        // product) — and from above by the `quadratic_ceiling`
+        // probes, whose module doc derives the O(|v|²) ceiling over
+        // every committed superlinear family (each settle product is
+        // charged to the widest arming of its left half; window-sum
+        // density is subadditive over disjoint entry ranges; every
+        // other charge is O(|v| log |v|)). Ω(M(|v|)) is mandatory
+        // because the plateau-puncture answer embeds the product; the
+        // O(|v| log |v|) leg is the dense-suffix/promo-rearm flatness
+        // bands' reading on every O(1)-wide-parked family. Neither
+        // pin family is a board family — the board reads every
+        // committed rank row green, so the class-binding seal
+        // (SuperlinearCounter needs a standing exponent-mechanism red
+        // in BOARD_EXPECTED_REDS) keeps this row Linear-classed with
+        // the rustdoc stating the worst case. FoldLog would be wrong
+        // in the other direction: the settle's log factor is real but
+        // never dominates a committed reading, and "linear × log" is
+        // not an upper bound while the pins stand. A settle reaching
+        // the multiplication bound flips the wide-arming pin and
+        // revisits this class; no cure flips the plateau-puncture pin
+        // below M.
         cells: Cells::Board(&[("version_rank", Class::Linear)]),
     },
     Claim {
         op: "Version::distance",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)` space", "**superlinear**"],
+            tokens: &[
+                "`O(|a| + |b|)` space",
+                "`Θ((|a| + |b|)²)`",
+                "`Ω(M(|a| + |b|))`",
+                "`O((|a| + |b|) log (|a| + |b|))`",
+            ],
         }],
-        // Stated residual: the pair form of rank's wide-arming
-        // superlinearity — one shared integrator, so the same
-        // constraint, witness, and class reasoning as Version::rank
-        // above.
+        // The pair form of rank's three-part claim — one shared
+        // integrator, so the same witnesses, ceiling derivation
+        // (`quadratic_ceiling`, including its pair probe), and class
+        // reasoning as Version::rank above.
         cells: Cells::Board(&[("version_distance", Class::Linear)]),
     },
     Claim {
         op: "Version::lag",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)` space", "**superlinear**"],
+            tokens: &[
+                "`O(|a| + |b|)` space",
+                "`Θ((|a| + |b|)²)`",
+                "`Ω(M(|a| + |b|))`",
+                "`O((|a| + |b|) log (|a| + |b|))`",
+            ],
         }],
-        // Stated residual: as Version::distance above (one shared
-        // co-sweep).
+        // As Version::distance above (one shared co-sweep).
         cells: Cells::Board(&[("version_lag", Class::Linear)]),
     },
     Claim {

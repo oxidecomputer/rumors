@@ -209,22 +209,34 @@
 //! puncture the trailing mass a full digit apart, over `Θ(p)` re-arm
 //! blocks) — therefore settle in `O((n + D) log n)` digit work, `D`
 //! the total window density, and measure flat per byte. The honest
-//! residual is the aggregate product itself: it costs the parked sum's
-//! width times the window sum's density, and cancellation is exploited
-//! only *within* a parked sum, never across a seam — a wide arming
-//! whose cancelling descent lands in a different aggregate (or in the
+//! residual is the wide × dense settle product itself, at two sites.
+//! In the ledger, an aggregate product costs the parked sum's width
+//! times the window sum's density, and cancellation is exploited only
+//! *within* a parked sum, never across a seam — a wide arming whose
+//! cancelling descent lands in a different aggregate (or in the
 //! still-parked component) pays its width times every dense window
-//! between them, once per covering node. The committed wide-arming red
+//! between them, once per covering node; the committed wide-arming red
 //! pin (`ledger_wide_arming_pin`, `tests/meter.rs`) holds exactly this
 //! construction — one arming as wide as the input ahead of a suffix as
 //! dense as the input, cancelled only after the sweep — measured
-//! quadratic in both width currencies through the public `rank`, whose
-//! `# Complexity` section (with `distance` and `lag`, one shared
-//! integrator) states the superlinear worst case; a settle that
-//! exploits cancellation across seams is the open cure, and no
-//! arrangement makes the exact answer itself embed such a product
-//! without funding it (a plateau's mass against same-scale punctures
-//! telescopes; keeping it dense costs per-puncture wide codes).
+//! quadratic in both width currencies through the public `rank`. And
+//! the close-time settle `P · segment` pays the same product with the
+//! ledger never armed: the committed plateau-puncture red pin
+//! (`answer_embedded_product`, `tests/meter.rs`) parks one wide
+//! plateau drift whose final segment the punctures keep dense, fires
+//! zero promotions, and the exact rank numerator is the plateau times
+//! the punctured turn mass — the answer itself embeds a funded
+//! wide × dense product, so `Ω(M(|v|))` digit work (`M` the
+//! integer-multiplication bound) is mandatory there for any fold that
+//! answers exactly. The public `# Complexity` sections (`rank`,
+//! `distance`, `lag` — one shared integrator) state the resulting
+//! three-part claim, and the `quadratic_ceiling` probes
+//! (`tests/meter.rs`) hold every committed superlinear family within
+//! the quadratic ceiling their module doc derives. A settle that
+//! exploits cancellation across seams (or multiplies
+//! subquadratically) is the open cure for the accounting excess; no
+//! cure goes below the multiplication bound while the answer embeds
+//! the product.
 //!
 //! # Cost
 //!
@@ -239,8 +251,9 @@
 //! within-segment depth variation; a ledger entry once per wide arming,
 //! settled at the sweep's close through the balanced product tree at
 //! `O(log n)` re-reads of any width or density — the funding section's
-//! settle bound, whose aggregate products carry the honest residual,
-//! superlinear on the committed wide-arming pin; the
+//! settle bound, whose aggregate products and close-time `P · segment`
+//! settle carry the honest residual, superlinear on the committed
+//! wide-arming and plateau-puncture pins; the
 //! `skyline_flatness` module's freeze-position, promotion re-arm, and
 //! dense-suffix bands hold the many-freezes and many-armings genres
 //! flat). Distance and lag (the `DISTANCE_*`/`LAG_*`
