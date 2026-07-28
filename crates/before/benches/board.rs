@@ -192,8 +192,11 @@ impl WideDisplay {
     /// decimal band, so the text side of `n_io` cannot be padded.
     fn build(scale: f64) -> WideDisplay {
         let bits = ((WIDE_DISPLAY_BASE_MAGNITUDE_BITS as f64) * scale).round() as usize;
-        let packed = meter::hugeleaf(bits);
-        let version = Version::decode(&packed.bytes[..]).expect("hugeleaf is strict normal form");
+        // Through the construction-language bridge, like every other
+        // consumer of a generator shape: a `Packed` stream is not the
+        // wire coding, so the version's own canonical bytes are what
+        // the denominator's packed side must count.
+        let version = meter::hugeleaf(bits).version();
         let text = version.to_string();
         // A b-bit magnitude spells ~0.301·b decimal digits (log10 2); the
         // band [b/4, b/2] brackets that with room for the leaf syntax.
@@ -208,7 +211,7 @@ impl WideDisplay {
             text,
             "the schoolbook renderer spells the hugeleaf value exactly"
         );
-        let n_io = packed.bytes.len() + text.len();
+        let n_io = version.as_bytes().len() + text.len();
         WideDisplay {
             version,
             limbs,
