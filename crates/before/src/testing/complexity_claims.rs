@@ -21,6 +21,14 @@
 //!   red set (`tools/benchjudge-expected.json`, itself membership-pinned
 //!   by `tests/bench_judge_roster.rs`) — both directions, so curing a red
 //!   or flipping a class reaches the rustdoc through a failing name here.
+//! - **Roster ↔ mechanism-tagged reds** (the class-binding seal): no
+//!   linear-class claim (`Linear`, `LinearIo`, `FoldLog`) may cite an
+//!   operation with a standing exponent-mechanism red in
+//!   [`board::BOARD_EXPECTED_REDS`], and every [`Class::SuperlinearCounter`]
+//!   claim must keep one — the judge's red set binds wall time only, and
+//!   this leg binds the deterministic counters' verdicts, so a
+//!   counter-superlinear kernel whose wall constant hides under the
+//!   judge's resolution can no longer keep a linear claim.
 //! - **Class liveness**: every non-linear class keeps a deterministic
 //!   growth pin proving the documented behavior still exists — the
 //!   render merge's superlinear limb growth on the wide left-full shape
@@ -62,6 +70,21 @@ pub(crate) enum Class {
     /// The members: the display pair (value conversion plus the render
     /// merge).
     SuperlinearTime,
+    /// Superlinear in the deterministic work counters on committed board
+    /// families — a standing exponent-mechanism red in
+    /// [`board::BOARD_EXPECTED_REDS`] — with the rustdoc stating the
+    /// superlinear worst case, while the operation is not on the bench
+    /// judge's red roster (its wall constant sits under the judge's
+    /// resolution at bench scales; the counter leg is the one that sees
+    /// the class).
+    ///
+    /// The class-binding tests hold it live in both directions: a claim
+    /// in this class must cite at least one exponent-red board cell
+    /// (else the class is decoration and the claim flips to a linear
+    /// one), and no linear claim may cite any. The member: `min_ticks`
+    /// (the pending-minima merge's allowance-uncapped width circulation,
+    /// review #37 F1), until its cure flips the board pins.
+    SuperlinearCounter,
 }
 
 /// Where an operation's `# Complexity` section lives.
@@ -322,16 +345,13 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             tokens: &["`O(|v|)` space", "**superlinear**"],
         }],
-        // TODO-cure(review #37, F1): the board reads this row red with
-        // an exponent mechanism on pure-comb/reveal-comb (the
-        // `query_superlinearity_pins` in tests/meter.rs), and the
-        // rustdoc states the superlinear worst case, but the class
-        // cannot move to `SuperlinearTime` until the op joins the
-        // bench judge's red roster (the set-equality test binds the
-        // two): counter reds do not yet bind claim classes. The cure
-        // either linearizes the fold (the pins flip) or lands the
-        // judge kernels and moves this class with the roster.
-        cells: Cells::Board(&[("version_min_ticks", Class::Linear)]),
+        // TODO-cure(review #37, F1): the anchor-web cure linearizes the
+        // pending-minima fold; when it lands, the board's exponent reds
+        // leave BOARD_EXPECTED_REDS, the query_superlinearity_pins in
+        // tests/meter.rs flip, and this class moves back to Linear with
+        // the `# Complexity` section in the same change (the
+        // class-binding tests force every leg of that move).
+        cells: Cells::Board(&[("version_min_ticks", Class::SuperlinearCounter)]),
     },
     Claim {
         op: "Version::rank",
@@ -342,10 +362,11 @@ pub(crate) const CLAIMS: &[Claim] = &[
         // TODO-cure(review #37, F2): superlinear on the freeze-position
         // family (`rank_freeze_position_touches_read_superlinear` in
         // tests/meter.rs), which is not yet a board family — the board
-        // reads every committed rank row green. Same class-binding
-        // constraint as min_ticks above; the cure either funds the
-        // freeze-position read or lands FP on the board and the judge
-        // roster and moves this class with it.
+        // reads every committed rank row green, so no exponent-red cell
+        // exists for a SuperlinearCounter class to cite and the claim
+        // stays Linear carried by the pin. The cure either funds the
+        // freeze-position read or lands FP on the board (whose exponent
+        // red then forces this class over through the binding tests).
         cells: Cells::Board(&[("version_rank", Class::Linear)]),
     },
     Claim {
