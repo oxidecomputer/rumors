@@ -4330,6 +4330,59 @@ mod quadratic_ceiling {
         rank_run(&v)
     }
 
+    /// One distance-and-lag run over a version pair: combined operand
+    /// bytes and both counters over the three query bodies together,
+    /// under the one-touch-per-byte liveness floor and the
+    /// halves-sum value leg (`lag(a, b) + lag(b, a) == distance`,
+    /// exact `Rank` arithmetic the sweeps share nothing with).
+    fn pair_run(a: &before::Version, b: &before::Version) -> (u64, u64, u64) {
+        let bytes = (a.encode().len() + b.encode().len()) as u64;
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let d = a.distance(b);
+        let forward = a.lag(b);
+        let backward = b.lag(a);
+        let touches = touch_meter::touches();
+        let limb_ops = meter::limb_ops();
+        assert_eq!(
+            forward + backward,
+            d,
+            "the directed halves must sum to the symmetric distance"
+        );
+        assert!(
+            touches >= bytes,
+            "pair queries at {bytes} operand bytes: {touches} digit touches \
+             under the one-per-byte floor: the co-sweep's difference state is \
+             not running on the metered accumulator",
+        );
+        (bytes, touches, limb_ops)
+    }
+
+    /// The plateau-puncture × arming-train pair stays within the
+    /// quadratic ceiling through the public distance and lag entry
+    /// points: the shared-integrator argument measured on the pair
+    /// co-sweep, not inferred from rank alone.
+    ///
+    /// The pair drives both settle genres in one co-sweep — the
+    /// plateau side parks one wide drift whose final segment stays
+    /// dense (the close-time answer-embedded product) while the train
+    /// side arms the promotion ledger repeatedly (the aggregate
+    /// products) — so a pair-only regression in either site, or in
+    /// their interaction through the shared difference integrator,
+    /// reads here even while every rank-only probe stays green.
+    #[test]
+    fn pair_queries_stay_within_the_quadratic_ceiling() {
+        let small = pair_run(
+            &meter::plateau_puncture(400, 400).version(),
+            &meter::arming_train(8, TRAIN_WIDTH, TRAIN_GAPS, false).version(),
+        );
+        let large = pair_run(
+            &meter::plateau_puncture(800, 800).version(),
+            &meter::arming_train(16, TRAIN_WIDTH, TRAIN_GAPS, false).version(),
+        );
+        assert_within_quadratic("pair_plateau_train", small, large);
+    }
+
     /// Multi-arming trains stay within the quadratic ceiling across an
     /// arming-count doubling, and the sign schedule is load-bearing:
     /// the alternating train reads strictly cheaper than the same-sign

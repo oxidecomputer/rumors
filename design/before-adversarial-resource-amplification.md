@@ -2690,7 +2690,32 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   same-scale punctures telescopes to compact terms; keeping the mass
   dense at the plateau's own scale costs per-puncture wide codes) —
   so every superlinear reading is accounting overhead on cancelling
-  arrangements, none of it mandatory. The claims therefore state, no
+  arrangements, none of it mandatory. \[AMENDED 2026-07-28 (fix
+  round #94): finding 2 is retracted — the committed
+  plateau-puncture family (`meter::plateau_puncture`; red pin
+  `answer_embedded_product`, `tests/meter.rs`) constructs exactly
+  the embedding it argued away. Every turn leaf sits *on* the
+  plateau `H = 2^(32w)`, so nothing telescopes, and the turn masses
+  are `d` digits a full digit apart (incompressible in balanced
+  form), bought by per-turn topology bits: the exact rank numerator
+  is `H · M + 1`, a `Θ(w)`-digit × `Θ(d)`-digit product from
+  `Θ(w + d)` input bits, measured quadratic on the diagonal with
+  zero promotions — the excess sits in the close-time settle
+  `P · segment`, outside the ledger entirely. Consequences, landed
+  with the amendment: `Ω(M(|v|))` time is mandatory on adversarial
+  inputs (`M` the integer-multiplication bound; the superlinear
+  excess is not all accounting overhead), the mechanism prose
+  re-attributes to both settle sites (ledger aggregate products and
+  the close-time settle), and the rank/distance/lag claims upgrade
+  to the three-part form — `Θ(|v|²)` worst case, witnessed tight by
+  the wide-arming and plateau-puncture pins and bounded above by the
+  committed `quadratic_ceiling` derivation; `Ω(M(|v|))` mandatory;
+  `O(|v| log |v|)` on streams whose parked masses stay `O(1)` digits
+  wide. The "future release may compute the rank in amortized
+  `O(|v|)` time" rider is weakened to `O(M(|v|))` accordingly. The
+  claim-form sentence that follows this amendment records the #83
+  decision and is superseded by the three-part form.\] The claims
+  therefore state, no
   stronger and no weaker: worst-case **superlinear** time (mechanism:
   the aggregate product, family named), `O(|v| log |v|)` whenever
   parked masses stay `O(1)` digits wide (every committed family, the
