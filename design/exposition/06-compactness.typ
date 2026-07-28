@@ -190,8 +190,8 @@ $ell approx 100$ plateaus, and $1\/2 dot log_2 100 approx 3.3$.
 
 Asymptotics flatter every code; a version is typically tens to a few
 hundred bytes. The exact census machinery gives the finite-$n$
-picture (bracketed by rigorous over- and under-counting families
-where the exact count is out of computational reach):
+picture — rigorous brackets from over- and under-counting families
+through $n = 800$, derived error bars beyond:
 
 #figure(
   table(
@@ -202,16 +202,23 @@ where the exact count is out of computational reach):
     table.header([*stream budget*], [*bits* $n$], [*overhead* $n \/ H(n)$]),
     [50 bytes], [400], [$1.0863 dash 1.0865$],
     [100 bytes], [800], [$1.0669 dash 1.0673$],
-    [200 bytes], [1600], [$approx 1.056$],
-    [2 kilobytes], [16 384], [$approx 1.045$],
+    [200 bytes], [1600], [$1.0538 dash 1.0566$],
+    [2 kilobytes], [16 384], [$1.0444 dash 1.0448$],
     [asymptotic], [—], [$1.043017$],
   ),
   caption: [Worst-case overhead against the counting floor, by stream
-    size. Rows quoted as ranges are rigorously bracketed by the over-
-    and under-counting families, whose computation reaches through
-    $n = 800$; the "$approx$" rows beyond extrapolate by
-    the validated closed form, the "$approx$" marking its unpinned
-    $O(1)$ term. At 100 bytes — a realistic version under heavy history —
+    size. The 50- and 100-byte ranges are rigorously bracketed by the
+    over- and under-counting families, whose computation reaches
+    through $n = 800$. The two rows beyond carry derived error bars
+    instead: each range runs from $n \/ H_0 (n)$ — the
+    sibling-merge-only count, exact at every tabulated $n$ by the
+    census's scaled series, and a floor on the overhead since
+    nonnegativity's pruning only lowers $H$ — up to
+    $n \/ (H_0 (n) - delta_max (n))$, where $delta_max$ caps that
+    pruning at its rigorous 800-bit ceiling of $3.29$ bits plus
+    $0.7$ bits per doubling of $n$, a slope above both the census's
+    fitted growth ($0.47$ bits per doubling) and the $1\/2$ the
+    universality rate predicts. At 100 bytes — a realistic version under heavy history —
     the coding is within $6.7%$ of the floor: $4.3$ points of
     sibling-merge tax, about $2.0$ of finite-size effect (the
     count's universal $n^(-3\/2)$ factor puts the floor
