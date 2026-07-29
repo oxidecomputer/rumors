@@ -406,7 +406,13 @@ pub use peer::{
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
 pub use snapshot::{Messages, Snapshot};
-pub use store::{Kv, KvBackend, Memory, OpenError};
+#[cfg(any(feature = "conformance", feature = "test-internals"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "conformance", feature = "test-internals")))
+)]
+pub use store::Memory;
+pub use store::{Kv, KvBackend, OpenError};
 pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;
 pub use tree::mirror::streaming::stats::SessionStats;

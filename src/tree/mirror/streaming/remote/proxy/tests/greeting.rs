@@ -258,9 +258,7 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
         // S1's counterparty: converged at T0, then redacted the leaf at
         // `k` (a local act rebuilds its own fans afresh; the sharing that
         // matters is created by our install below, not here).
-        let mut twin = Tree {
-            root: t0.root.clone(),
-        };
+        let mut twin = Tree::resume(Local, t0.root.clone());
         twin.act(&nth_party(1), [Action::Forget(*k)]);
 
         // S1's session and install: reconcile T0 against the redacting
@@ -268,24 +266,18 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
         // Deletion honoring drops radix `r_h`: the live tree's root fan is
         // now a clone-derived sibling of M0 missing one radix.
         let (s1_reconciled, _) = wire_reconcile(t0.root.clone(), twin.root.clone());
-        let mut live = Tree {
-            root: t0.root.clone(),
-        };
-        live.join(Tree {
-            root: s1_reconciled,
-        });
+        let mut live = Tree::resume(Local, t0.root.clone());
+        live.join_now(Tree::resume(Local, s1_reconciled));
         let expected = live.hash();
 
         // S2's install, after S1's: joining our own causal past must be an
         // identity on the tree.
-        live.join(Tree {
-            root: s2_reconciled.clone(),
-        });
+        live.join_now(Tree::resume(Local, s2_reconciled.clone()));
 
         if live.hash() != expected {
             let missing: Vec<_> = keys
                 .iter()
-                .filter(|k2| *k2 != k && live.get(k2).is_none())
+                .filter(|k2| *k2 != k && live.get_now(k2).is_none())
                 .copied()
                 .collect();
             lost.push((*k, missing));

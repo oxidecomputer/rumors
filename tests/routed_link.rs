@@ -224,9 +224,9 @@ async fn mesh_converges_beside_a_stalled_header() {
         let b = bootstrap_fork_async(&a).await;
         let c = bootstrap_fork_async(&a).await;
         for payload in 0..MESH_PAYLOADS {
-            a.send(payload);
-            b.send(100 + payload);
-            c.send(200 + payload);
+            a.send(payload).await.expect("in-memory send");
+            b.send(100 + payload).await.expect("in-memory send");
+            c.send(200 + payload).await.expect("in-memory send");
         }
 
         // Two rounds, each running all three pairwise sessions

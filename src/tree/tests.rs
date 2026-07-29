@@ -223,13 +223,16 @@ fn single_value_hash_matches_reference() {
 /// unchanged. Fresh, independently built maps with the same content diff
 /// correctly.
 ///
-/// [`Children::diff_owned`](super::typed::node::Children::diff_owned) states
-/// the provenance constraint this imposes on its callers. The assertions
-/// here pin the *defect*: when an `imbl` upgrade makes this test fail, the
-/// bug is fixed upstream, and the constraint (and this pin) can be lifted.
-/// The key set is the minimal shrunk shape that first exposed the skip (a
-/// 27-key map gaining 11 keys plus one update).
+/// The defect is why no production code touches imbl at all (the tree's
+/// child table is the crate's own radix fan), why imbl rides only the
+/// test-and-conformance features, and why `clippy.toml` disallows the
+/// diff entry points even there. The assertions here pin the *defect*:
+/// when an `imbl` upgrade makes this test fail, the bug is fixed
+/// upstream, and the deny-list (and this pin) can be lifted. The key set
+/// is the minimal shrunk shape that first exposed the skip (a 27-key map
+/// gaining 11 keys plus one update).
 #[test]
+#[allow(clippy::disallowed_methods)] // the sanctioned use: pinning the defect itself
 fn imbl_diff_skips_updates_between_clone_derived_maps() {
     use imbl::OrdMap;
     let base_keys: [u8; 27] = [
@@ -259,7 +262,7 @@ fn imbl_diff_skips_updates_between_clone_derived_maps() {
     assert_eq!(derived, fresh);
 
     let update_yielded = |ours: &OrdMap<u8, u64>, theirs: &OrdMap<u8, u64>| {
-        ours.diff(theirs)
+        ours.diff(theirs) // denylist: allow — the pin exercises the banned entry point itself
             .any(|item| matches!(item, imbl::ordmap::DiffItem::Update { old: (&93, _), .. }))
     };
     assert!(
@@ -270,7 +273,7 @@ fn imbl_diff_skips_updates_between_clone_derived_maps() {
         !update_yielded(&a, &derived),
         "the upstream defect: diff against a clone-derived map skips the \
          update; if this assertion fails, imbl fixed it upstream, and the \
-         provenance constraint on `Children::diff_owned` can be lifted",
+         diff deny-list (clippy.toml) and this pin can be lifted",
     );
 }
 

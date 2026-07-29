@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+# denylist — token-level dependency bans, one rule per entry.
+#
+# Why this exists: `clippy.toml`'s `disallowed-methods` bans `.diff(…)` on
+# imbl maps by def-path, but clippy lints only the cfg combinations a given
+# run compiles. This scan is total across the source tree: any `.diff(` or
+# `.diff_owned(` token in a Rust file that mentions imbl is flagged,
+# whatever cfg gates it. (Operator equality between imbl maps inherits the
+# same upstream defect but is deliberately NOT a rule here: a textual scan
+# cannot see types, and the probed heuristics failed their witness tests —
+# see clippy.toml for the stated residual.)
+#
+# An intentional exception carries `denylist: allow` on the offending line,
+# with its reason alongside.
+#
+# Usage:
+#   denylist PATH...       # scan every .rs file under each PATH
+#
+# Exits non-zero on any finding, printing `file:line: rule` the way the
+# rest of the gate names its failures.
+
+import re
+import sys
+from pathlib import Path
+
+# Rules: (name, file-gate regex, line regex, rationale).
+RULES = [
+    (
+        "imbl-diff",
+        re.compile(r"\bimbl\b"),
+        re.compile(r"\.diff(_owned)?\s*\("),
+        "imbl's diff drops differences between clone-derived maps (jneem/imbl#161)",
+    ),
+]
+
+ALLOW = "denylist: allow"
+
+
+def scan(path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    findings = []
+    for name, file_gate, line_re, why in RULES:
+        if not file_gate.search(text):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if line.strip().startswith("//"):
+                continue
+            if line_re.search(line) and ALLOW not in line:
+                findings.append(f"{path}:{n}: [{name}] {why}")
+    return findings
+
+
+def main(argv: list[str]) -> int:
+    findings = []
+    for arg in argv[1:]:
+        root = Path(arg)
+        files = [root] if root.is_file() else sorted(root.rglob("*.rs"))
+        for f in files:
+            findings.extend(scan(f))
+    for f in findings:
+        print(f)
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1048,10 +1048,9 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
         // follow the build with no intervening await, in the same poll (a
         // future is only dropped between polls, so "built → published"
         // stays indivisible under cancellation). Swapping rather than
-        // re-joining also keeps every `OrdMap` diff on this path between a
-        // live tree and a wire-materialized counterpart — never between a
-        // map and its own clone-derived build (`Children::diff_owned`
-        // states that provenance constraint).
+        // re-joining also means no walk on this path ever compares a tree
+        // against its own clone-derived build: the merge already happened
+        // off the watch, against the wire-materialized counterpart.
         //
         // The reconciled tree's frontier is the converged version: what both
         // replicas hold the instant this commits, *before* the join below

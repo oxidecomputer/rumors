@@ -126,6 +126,12 @@ fmt-check:
 doclint:
     ./tools/doclint benches crates examples src tests
 
+# Token-level dependency bans clippy's def-path lint can't make total:
+# `.diff(` on imbl maps is banned in every cfg combination (jneem/imbl#161;
+# clippy.toml carries the def-path form and the stated `==` residual).
+denylist:
+    ./tools/denylist benches crates examples src tests
+
 # Require every Rust test to document the behavior and invariant it protects.
 testdoc:
     ./tools/testdoc --self-test
@@ -192,7 +198,7 @@ supply-chain:
 # nightly rustdoc JSON, held total against the operation roster).
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check supply-chain clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism amp-board-shard-pin worst-cases-pin surface-totality
+gate: fmt-check doclint denylist testdoc readme-check supply-chain clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism amp-board-shard-pin worst-cases-pin surface-totality
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only

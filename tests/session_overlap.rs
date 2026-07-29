@@ -29,7 +29,7 @@ use rumors::{Key, Rumors};
 fn converged_trio(n: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
     let a = rumors::Peer::seed().into_rumors();
     for v in 0..n {
-        a.send(v);
+        pollster::block_on(a.send(v)).expect("the in-memory backend is infallible");
     }
     let b = bootstrap_fork(&a);
     let c = bootstrap_fork(&a);
@@ -91,6 +91,21 @@ fn overlapped_install_never_loses_innocent_messages() {
         }
         polls
     };
+    // Liveness floor on the calibration itself: the instrument's reach is
+    // the parked states strictly inside a session, so a session that
+    // completes in a handful of polls has no interior to park in and the
+    // sweep would pass vacuously. The floor is mechanism-derived, not
+    // typical-case: one converged session must at least move its greeting
+    // both ways through the 48-byte link, and a 25-leaf tree's greeting
+    // alone spans several link-buffer fills, each of which is at least one
+    // alternation round. A calibration below this reads as the harness
+    // losing its poll granularity (e.g. a roomier link or joined polling),
+    // which is exactly the silent-decoration failure this floor flags.
+    assert!(
+        session_polls >= 8,
+        "calibration collapsed to {session_polls} polls: the parking sweep \
+         has lost its interior (link buffer or polling granularity changed?)",
+    );
 
     let keys: Vec<Key> = {
         let (a, _, _) = converged_trio(MESSAGES);
@@ -104,7 +119,7 @@ fn overlapped_install_never_loses_innocent_messages() {
             let mut expected = readout(&a.snapshot());
             expected.remove(&redacted);
 
-            b.redact(redacted);
+            pollster::block_on(b.redact(redacted)).expect("the in-memory backend is infallible");
             // S2 (A <-> C, both still converged at fork time) opens
             // first and parks after `n` polls...
             let s2 = {

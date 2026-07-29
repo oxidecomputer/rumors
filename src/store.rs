@@ -25,10 +25,19 @@
 
 mod backend;
 pub mod kv;
+/// The reference store rides the same features that carry its imbl
+/// dependency: the crate's own tests (via `test-internals`) and the
+/// public conformance surface. Production builds compile no imbl.
+#[cfg(any(feature = "conformance", feature = "test-internals"))]
 mod memory;
 
 pub use backend::{KvBackend, OpenError};
 pub use kv::{Kv, ReadTxn, Table, WriteTxn};
+#[cfg(any(feature = "conformance", feature = "test-internals"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "conformance", feature = "test-internals")))
+)]
 pub use memory::{Memory, MemoryError};
 
 pub(crate) mod refcount;

@@ -159,9 +159,8 @@ impl<'a, T: Send + Sync + 'static, S: Store<T>> Batch<'a, T, S> {
         // only dropped between polls, so "built → published" is indivisible
         // under cancellation. The lock guarantees the published root is
         // still the one the build started from, making the swap a plain
-        // replacement — never a merge, and in particular never an
-        // `OrdMap::diff` between a map and its own clone-derived build
-        // (`Children::diff_owned` states that provenance constraint).
+        // replacement — never a merge, so no walk on this path ever
+        // compares a tree against its own clone-derived build.
         inner.send_if_modified(move |inner| {
             debug_assert!(
                 inner.tree == base,
