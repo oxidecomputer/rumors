@@ -294,6 +294,7 @@ mod protocol;
 pub mod reconciliation;
 mod rumors;
 mod snapshot;
+pub mod store;
 #[cfg(any(test, feature = "test-internals"))]
 #[doc(hidden)]
 pub mod testing;
@@ -323,6 +324,7 @@ pub use peer::{
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
 pub use snapshot::{Messages, Snapshot};
+pub use store::{Kv, Memory};
 pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;
 pub use tree::mirror::streaming::stats::SessionStats;
