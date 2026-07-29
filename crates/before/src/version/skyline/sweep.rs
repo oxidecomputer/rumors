@@ -436,8 +436,8 @@ pub(super) fn advance_diff(
 /// [`fold`] applies to every later crossing — has one home. The opening
 /// heights ride along for the clients that consume an absolute opening
 /// (the emission sweep's first output leaf, the masked walk's height
-/// integrators); the seeded difference already holds them, so the
-/// comparison sweep and the pair integrals drop them unread.
+/// integrators); the seeded difference already carries their values, so
+/// the comparison sweep and the pair integrals drop them unread.
 pub(super) struct OpenedPair<'a> {
     /// The left operand's cursor, at its first leaf.
     pub(super) a: LeafCursor<'a>,
