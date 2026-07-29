@@ -122,6 +122,55 @@ fn board_runs_to_completion() {
     );
 }
 
+/// The worst-case map folds totally over the board's sweep at any scale:
+/// every operation row renders exactly one line per mapped currency
+/// (heap, limb, scan, touch), so a row can neither drop out of the map
+/// nor render twice.
+///
+/// Rankings are deliberately not asserted: they are scale- and
+/// profile-dependent readings, and the map of record is the
+/// release-profile entry-compare against the committed pin
+/// (`just worst-cases-pin`).
+#[test]
+fn worst_map_covers_every_operation_row() {
+    let heap = HeapMeter {
+        reset_peak: || HEAP.reset_peak_usage(),
+        peak: || HEAP.peak_usage(),
+        current: || HEAP.current_usage(),
+    };
+    let mut rendered = Vec::new();
+    board::worst_map("smoke", SMOKE_SCALE, &heap, &mut rendered)
+        .expect("writing to a Vec succeeds");
+    let text = String::from_utf8(rendered).expect("the map renders UTF-8");
+    let mut per_op: BTreeMap<&str, usize> = BTreeMap::new();
+    for line in text.lines() {
+        let mut cols = line.split_whitespace();
+        let (Some(op), Some(currency), Some(marker)) = (cols.next(), cols.next(), cols.next())
+        else {
+            continue;
+        };
+        if marker != "worst" || !matches!(currency, "heap" | "limb" | "scan" | "touch") {
+            continue;
+        }
+        *per_op.entry(op).or_default() += 1;
+    }
+    // The benign control supplies every operation row (the cell-count
+    // pin above), so its count is the operation axis's length.
+    let (_, ops_total) = EXPECTED_CELLS_PER_FAMILY
+        .iter()
+        .find(|(family, _)| *family == "benign")
+        .expect("the benign control is on the roster");
+    assert_eq!(
+        per_op.len(),
+        *ops_total,
+        "the map must carry every operation row exactly once"
+    );
+    assert!(
+        per_op.values().all(|&rows| rows == 4),
+        "every operation renders one row per mapped currency: {per_op:?}"
+    );
+}
+
 // ─── the board↔band parity pin ──────────────────────────────────────────────
 
 /// Each flatness/adequacy band's board family: the envelope-suite test
