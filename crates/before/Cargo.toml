@@ -104,7 +104,7 @@ oracle = []
 # (`src/meter.rs`) as `before::meter`, so the metering test binaries can build
 # worst-case inputs and read the counters they envelope, and the public
 # operation surface roster (`src/surface.rs`) as `before::surface`, so
-# external instrument crates can bind their coverage to the rows the triangle
+# external instrument crates can bind their coverage to the rows the surface-coverage
 # suite enforces totality over. Bench/test-only.
 meter = []
 # Exposes the named algebraic-law predicates (`src/laws.rs`) as `before::laws`,

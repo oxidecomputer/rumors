@@ -68,6 +68,8 @@ use crate::codec::Base;
 /// binary-to-decimal conversion of the numerator, superlinear (though
 /// subquadratic) in its width past a machine word.
 ///
+/// **Complexity**: comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display` superlinear in the numerator width (decimal conversion).
+///
 /// ```
 /// use before::Version;
 /// let half: Version = "(0, 1, 0)".parse().unwrap(); // height 1 over half the interval
@@ -118,6 +120,8 @@ impl Rank {
     /// `O(‖a‖ + ‖b‖)` time and space in the operands' numeric size (see
     /// [the type's note](Rank#complexity)); a [`None`] or zero result costs
     /// only the comparison, which allocates nothing.
+    ///
+    /// **Complexity**: `O(‖a‖ + ‖b‖)`, the operands' numeric sizes.
     ///
     /// ```
     /// use before::Version;

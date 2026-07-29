@@ -15,7 +15,7 @@
 //!
 //! The target honors the same knobs as `benches/board.rs`, shared and
 //! documented in `common::sidecar`: `BOARD_BENCH_SCALE` sizes the probe
-//! (`record` maps to the board's ×4) and `BOARD_BENCH_DENOMS` writes the
+//! (`acceptance` maps to the board's ×4) and `BOARD_BENCH_DENOMS` writes the
 //! stamped denominator sidecar the judge divides by (here the probe's
 //! size parameter: its work is `n²` in it).
 

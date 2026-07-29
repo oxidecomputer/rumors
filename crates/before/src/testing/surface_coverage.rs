@@ -1,17 +1,13 @@
-//! The triangle suite: one committed roster binding every public operation
-//! to the disposition of each differential leg.
-//!
-//! (*Triangle* names the three-implementation differential below — not the
-//! metric triangle inequality on
-//! [`Version::distance`](crate::Version::distance), whose law pins are
-//! [`crate::laws`]'s business.)
+//! The public-surface coverage suite: one committed roster binding every
+//! public operation to the disposition of each differential leg.
 //!
 //! Three implementations cover the semantic surface: the production packed
 //! implementation (*prod*), the recursive paper-transcription oracle in
 //! [`crate::oracle`] (*tree* — the semantic definition of record), and the
 //! function-space semantic oracle in [`super::semantic_oracle`] (*fs*). Three
-//! legs connect them — prod↔tree, prod↔fs, tree↔fs — and this module holds
-//! the *roster*: one row per public operation naming, for each leg, either
+//! legs connect them — prod↔tree, prod↔fs, tree↔fs — and the *roster*
+//! ([`crate::surface`], re-exported below) holds one row per public
+//! operation naming, for each leg, either
 //! the primary test that binds it or the reason it is excluded. The roster
 //! indexes the differentials that live beside the code they test; it never
 //! re-implements one.

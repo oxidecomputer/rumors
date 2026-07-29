@@ -84,6 +84,8 @@ impl ExactSizeIterator for Split {}
 /// path to its share. Dropping the iterator early rejoins the unclaimed
 /// remainder as at most one coarse region per remaining level of the
 /// split — `O(log n)` joins on the pending regions, never a re-split.
+///
+/// **Complexity**: a full drain `O(S)`, `S` the shares' total packed size; an early drop rejoins in `O(log n)` joins.
 pub struct Forks<'a> {
     /// The borrowed party: keeps the residual share and reabsorbs unconsumed
     /// shares on drop.
@@ -153,6 +155,8 @@ impl Drop for Forks<'_> {
 ///
 /// `O(S)` time and space, where `S` is the total packed size of the `N`
 /// shares.
+///
+/// **Complexity**: `O(S)`, `S` the shares' total packed size.
 ///
 /// ```
 /// use before::Party;

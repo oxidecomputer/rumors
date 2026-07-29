@@ -1,8 +1,9 @@
 //! The complexity-claims binding tests.
 //!
-//! They hold the roster total over the public surface, the prose tokens
-//! present, the cited board rows alive, the superlinear claims equal to
-//! the bench judge's red set, and the non-linear classes' liveness pins
+//! They hold the roster total over the public surface, every site's
+//! `# Complexity` section ending with its bound's rendered line, the
+//! cited board rows alive, the superlinear claims equal to the bench
+//! judge's red set, and the non-linear classes' liveness pins
 //! red-on-cure (the render merge's growth, the fold's log factor, and
 //! the `MulBound` claims' answer-embedded product with its named
 //! witness tests). The roster and the scanner live in the parent
@@ -10,9 +11,9 @@
 
 use std::collections::BTreeSet;
 
-use super::{doc_index, Cells, Claim, Class, DocIndex, RedStance, CLAIMS, NON_OPERATIONS};
+use super::{doc_index, Bound, Cells, Claim, Class, DocIndex, RedStance, CLAIMS, NON_OPERATIONS};
 use crate::meter::board::{self, BenchMode};
-use crate::testing::triangle;
+use crate::testing::surface_coverage;
 
 /// Every board operation name, from the board's own axis declarations at
 /// a tiny build-only scale.
@@ -39,14 +40,18 @@ fn judge_roster() -> serde_json::Value {
 
 /// The claims roster is total over the public surface, exactly.
 ///
-/// Every mechanically extracted `pub fn` and every triangle family row
+/// Every mechanically extracted `pub fn` and every coverage family row
 /// has one claim (or a place in the pinned non-operation list), and
 /// nothing else does. A new public operation fails here until its
 /// documented class is pinned; a removed one orphans its claim.
 #[test]
 fn claims_are_total_over_the_public_surface() {
-    let mut surface: BTreeSet<String> = triangle::extract_public_fns();
-    surface.extend(triangle::FAMILY_SURFACE.iter().map(|row| row.op.to_owned()));
+    let mut surface: BTreeSet<String> = surface_coverage::extract_public_fns();
+    surface.extend(
+        surface_coverage::FAMILY_SURFACE
+            .iter()
+            .map(|row| row.op.to_owned()),
+    );
     let mut claimed = BTreeSet::new();
     for claim in CLAIMS {
         assert!(
@@ -67,25 +72,40 @@ fn claims_are_total_over_the_public_surface() {
 }
 
 /// Every claim's `# Complexity` section exists at its recorded site and
-/// carries its pinned Big-O tokens verbatim, so a class edit in the
-/// rustdoc that skips this roster (or vice versa) is a named failure.
+/// ends with the roster bound's rendered `**Complexity**:` line, byte
+/// for byte — so a class edit in the rustdoc that skips this roster (or
+/// vice versa) is a named failure, and every site's normative claim is
+/// the roster's own rendering, never hand-drifted prose.
+///
+/// Custom bounds must also state a non-empty reason: the escape hatch
+/// is a documented decision, never a bare opt-out.
 #[test]
-fn complexity_sections_carry_their_pinned_tokens() {
+fn complexity_sections_end_with_their_rendered_lines() {
     let index = doc_index();
     let mut errors = Vec::new();
     for claim in CLAIMS {
         for check in claim.checks {
+            if let Bound::Custom { reason, .. } = check.bound {
+                if reason.trim().len() < 20 {
+                    errors.push(format!(
+                        "{}: a Custom bound must state a substantial reason",
+                        claim.op
+                    ));
+                }
+            }
             match index.section(claim.op, check.site) {
                 Err(err) => errors.push(err),
                 Ok(section) => {
-                    for token in check.tokens {
-                        if !section.contains(token) {
-                            errors.push(format!(
-                                "{}: the `# Complexity` section at {:?} lost its pinned \
-                                 token {token}",
-                                claim.op, check.site
-                            ));
-                        }
+                    let want = check.bound.render();
+                    let got = section.lines().rev().find(|l| !l.trim().is_empty());
+                    if got != Some(want.as_str()) {
+                        errors.push(format!(
+                            "{}: the `# Complexity` section at {:?} does not end with the \
+                             rendered bound\n    want: {want}\n    got:  {}",
+                            claim.op,
+                            check.site,
+                            got.unwrap_or("<empty section>")
+                        ));
                     }
                 }
             }
@@ -114,7 +134,7 @@ fn cited_board_rows_exist() {
                 }
             }
             // Uncelled rows carry their reason as data, mirroring the
-            // board module doc's coverage list; hold it non-empty.
+            // board's coverage table; hold it non-empty.
             Cells::Uncelled(reason) => {
                 assert!(
                     !reason.is_empty(),
@@ -144,9 +164,10 @@ fn cited_board_rows_exist() {
 ///   bench judge's committed red set exactly, and no other class cites
 ///   a rostered row — curing a display red (or rostering a new one)
 ///   must reach the documentation through this name.
-/// - **tokens**: a claim citing a class pins the class's defining
-///   token, and an exclusive token appears only on claims citing its
-///   class, so the prose and the class cannot drift apart.
+/// - **tokens**: a claim citing a class renders the class's defining
+///   token in a terminal line, and an exclusive token appears only on
+///   claims citing its class, so the prose and the class cannot drift
+///   apart.
 /// - **witnesses**: every class's named committed witnesses exist in
 ///   the tree, so deleting or renaming a measurement pin or adequacy
 ///   kernel fails a reviewed name here, never silently.
@@ -442,8 +463,9 @@ fn mul_bound_embedding_is_alive() {
 }
 
 /// The tripwire the roster's own vocabulary rests on: a doc block whose
-/// `# Complexity` section is missing, or whose section lost a pinned
-/// token, is detected — the scanner is not vacuously green.
+/// `# Complexity` section is missing, or whose section does not end
+/// where the scanner thinks, is detected — the scanner is not vacuously
+/// green.
 #[test]
 fn scanner_detects_missing_sections_and_tokens() {
     assert_eq!(
@@ -466,6 +488,45 @@ fn scanner_detects_missing_sections_and_tokens() {
 fn claim_rows_are_printable() {
     let row: &Claim = &CLAIMS[0];
     assert!(!format!("{:?}", row.checks[0].site).is_empty());
+}
+
+/// The rendered-line vocabulary is fixed: each template renders exactly
+/// its documented line, so a template edit is a reviewed diff here
+/// before it fans out into every doc site.
+#[test]
+fn bound_templates_render_their_documented_lines() {
+    assert_eq!(Bound::Constant.render(), "**Complexity**: `O(1)`.");
+    assert_eq!(Bound::Linear.render(), "**Complexity**: `O(n)`.");
+    assert_eq!(Bound::LinearPair.render(), "**Complexity**: `O(a + b)`.");
+    assert_eq!(Bound::TextRender.render(), "**Complexity**: `O(n + t)`.");
+    assert_eq!(Bound::TextParse.render(), "**Complexity**: `O(t + n)`.");
+    assert_eq!(
+        Bound::Fold.render(),
+        "**Complexity**: `O(D log k)` time, `O(D)` space."
+    );
+    assert_eq!(
+        Bound::FoldSearch.render(),
+        "**Complexity**: `O(D log k + B log n)` time, `O(D)` space."
+    );
+    assert_eq!(
+        Bound::MulBound.render(),
+        "**Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, \
+         `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts."
+    );
+    assert_eq!(
+        Bound::MulBoundPair.render(),
+        "**Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst \
+         case, `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with \
+         width-bounded parked drifts."
+    );
+    assert_eq!(
+        Bound::Custom {
+            line: "priced elsewhere.",
+            reason: "fixture",
+        }
+        .render(),
+        "**Complexity**: priced elsewhere."
+    );
 }
 
 /// The operations [`board::BOARD_EXPECTED_REDS`] holds red on an
@@ -514,17 +575,17 @@ fn test_fns(source: &str) -> BTreeSet<String> {
 ///
 /// The class-binding seal's kernel, enforced uniformly inside
 /// `classes_satisfy_their_contracts`. The bench judge's red set binds
-/// only wall time, and the `version_min_ticks` time legs sit under the
-/// judge's resolution at bench scales — so before this seal, a
-/// counter-superlinear kernel could keep a `Linear` rustdoc claim with
-/// every gate green: at `395f0e72` the min_ticks claim read
-/// `Class::Linear` while its pure-comb, reveal-comb, and ascend-cliff
-/// board cells read touch/limb exponents 1.58–1.98 on the release
-/// boards of record — verified by mutation before the seal landed. The
-/// `Required` stance is the reverse leg: a class whose whole evidence
-/// is a standing exponent red is decoration without one, so the cure
-/// that flips the board pins must move the class in the same change
-/// (the fixture below keeps that leg firing).
+/// only wall time, and an operation's time legs can sit under the
+/// judge's resolution at bench scales — so without this seal a
+/// counter-superlinear kernel keeps a `Linear` rustdoc claim with every
+/// gate green. The seal's adequacy was verified by mutation: a claim
+/// pinned `Class::Linear` while citing board cells whose committed
+/// mechanism tags read `exponent` passes every other gate, and this
+/// stance names the contradiction. The `Required` stance is the reverse
+/// leg: a class whose whole evidence is a standing exponent red is
+/// decoration without one, so the cure that flips the board pins must
+/// move the class in the same change (the fixture below keeps that leg
+/// firing).
 fn stance_contradiction(
     claim_op: &str,
     op: &str,
@@ -550,24 +611,24 @@ fn stance_contradiction(
 }
 
 /// One claim's token legs against the class contracts: the citing
-/// direction over the roster's pinned tokens, the exclusive direction
-/// over both the pinned tokens and the live `# Complexity` section
+/// direction over the roster's rendered lines, the exclusive direction
+/// over both the rendered lines and the live `# Complexity` section
 /// text at every check site.
 ///
-/// The section text is the exclusive leg's ground truth — the pinned
-/// list is the producer's own declaration, so a claim re-cited under
-/// a weaker class with its pinned tokens trimmed would pass a
-/// pinned-only scan while the rustdoc still carries an exclusive
-/// token. (The citing direction may stay on the pinned list: the
-/// pinned-tokens test holds every pinned token verbatim in its
-/// section, so a pinned class token is a section-carried one.) The
-/// downgrade guard below keeps the exclusive leg firing on exactly
-/// the trimmed-pin artifact.
+/// The section text is the exclusive leg's ground truth — the rendered
+/// lines are the producer's own declaration, so a claim re-cited under
+/// a weaker class with its bound swapped would pass a roster-only scan
+/// while the rustdoc still carries an exclusive token. (The citing
+/// direction may stay on the rendered lines: the terminal-line test
+/// holds every rendered line verbatim in its section, so a rendered
+/// class token is a section-carried one.) The downgrade guard below
+/// keeps the exclusive leg firing on exactly the swapped-bound
+/// artifact.
 fn token_problems(claim: &Claim, index: &DocIndex) -> Vec<String> {
-    let pinned: Vec<&str> = claim
+    let rendered: Vec<String> = claim
         .checks
         .iter()
-        .flat_map(|check| check.tokens.iter().copied())
+        .map(|check| check.bound.render())
         .collect();
     let cited: Vec<Class> = match &claim.cells {
         Cells::Board(cells) => cells.iter().map(|(_, class)| *class).collect(),
@@ -580,22 +641,22 @@ fn token_problems(claim: &Claim, index: &DocIndex) -> Vec<String> {
             continue;
         };
         if cited.contains(&class) {
-            if !pinned.iter().any(|t| t.contains(token)) {
+            if !rendered.iter().any(|line| line.contains(token)) {
                 problems.push(format!(
-                    "{}: cites a {class:?} cell but pins no token containing `{token}`",
+                    "{}: cites a {class:?} cell but renders no line containing `{token}`",
                     claim.op
                 ));
             }
         } else if contract.token_exclusive {
-            if pinned.iter().any(|t| t.contains(token)) {
+            if rendered.iter().any(|line| line.contains(token)) {
                 problems.push(format!(
-                    "{}: pins a token containing `{token}` without citing a {class:?} cell: \
-                     the token is that class's alone",
+                    "{}: renders a line containing `{token}` without citing a {class:?} \
+                     cell: the token is that class's alone",
                     claim.op
                 ));
             }
             for check in claim.checks {
-                // A missing section is the pinned-tokens test's
+                // A missing section is the terminal-line test's
                 // finding, not this leg's; scan what exists.
                 let Ok(section) = index.section(claim.op, check.site) else {
                     continue;
@@ -646,18 +707,19 @@ fn a_witnessless_superlinear_counter_claim_is_flagged_as_decoration() {
     );
 }
 
-/// The token-exclusivity leg catches a downgraded claim whose pinned
-/// tokens were trimmed: the section text is the leg's ground truth.
+/// The token-exclusivity leg catches a downgraded claim whose bound was
+/// swapped for a weaker template: the section text is the leg's ground
+/// truth.
 ///
 /// The adequacy tripwire for [`token_problems`]'s section scan,
 /// holding the cheapest wrong artifact the leg must keep rejecting:
 /// `Version::rank` re-cited as `Linear` (its counters *are* flat, so
 /// no exponent-red stance objects; `version_rank` is not
-/// judge-rostered) with the pinned tokens trimmed to the space claim
-/// alone — every roster-side check blesses it, and only the live
+/// judge-rostered) with its bound swapped to the plain linear template
+/// — every roster-side check blesses it, and only the live
 /// `# Complexity` section still carrying the MulBound class's
 /// exclusive `Ω(M(` token convicts it. A revert of the leg to
-/// pinned-list scanning reads red here. The preconditions keep the
+/// roster-only scanning reads red here. The preconditions keep the
 /// fixture meaningful: the real section must still carry the token
 /// (if MulBound legitimately dissolves, re-point the fixture at a
 /// live exclusive-token section), and the stance and judge legs must
@@ -669,12 +731,12 @@ fn a_downgraded_mul_bound_claim_is_convicted_by_its_section_text() {
         op: "Version::rank",
         checks: &[super::Check {
             site: super::Site::Fn,
-            tokens: &["`O(|v|)` space"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("version_rank", Class::Linear)]),
     };
     // Precondition: the real rustdoc section still carries the
-    // exclusive token the fixture's pinned list dropped.
+    // exclusive token the fixture's swapped bound dropped.
     let index = doc_index();
     let section = index
         .section("Version::rank", super::Site::Fn)
@@ -703,19 +765,114 @@ fn a_downgraded_mul_bound_claim_is_convicted_by_its_section_text() {
             .iter()
             .any(|p| p.contains("section") && p.contains("Ω(M(")),
         "the downgraded claim slipped the token-exclusivity leg \
-         ({problems:?}): the leg is reading the producer's pinned list \
+         ({problems:?}): the leg is reading the roster's rendered lines \
          instead of the rustdoc section text"
     );
 }
 
-/// The expected-red roster's own hygiene: every entry names a live
-/// board cell exactly once and carries at least one mechanism.
+/// The board tiling: every public-surface row either is priced by at
+/// least one live board row (its claim's cited cells) or appears in the
+/// board's not-applicable table with a mechanism-based reason — both
+/// directions, sets disjoint, and every board row witnesses some public
+/// claim.
 ///
-/// Every bench rider must also be a rostered red — a rider exists to
-/// keep a standing red's time leg judged, so an unrostered rider is a
-/// stale census.
+/// Combined with `claims_are_total_over_the_public_surface` (one claim
+/// per surface row) and `cited_board_rows_exist` (cited rows are live),
+/// this closes the tiling: an operation is priced or excused, never
+/// both, never neither, and the board carries no orphan row.
 #[test]
-fn expected_red_roster_names_live_cells() {
+fn board_coverage_tiles_the_public_surface() {
+    let mut surface: BTreeSet<String> = surface_coverage::extract_public_fns();
+    surface.extend(
+        surface_coverage::FAMILY_SURFACE
+            .iter()
+            .map(|row| row.op.to_owned()),
+    );
+    let mut na = std::collections::BTreeMap::new();
+    for (op, reason) in board::BOARD_NOT_APPLICABLE {
+        assert!(
+            surface.contains(*op),
+            "BOARD_NOT_APPLICABLE names {op:?}, which is no public-surface row: \
+             remove or rename the entry"
+        );
+        assert!(
+            reason.len() >= 20,
+            "{op}: the not-applicable reason is too thin to be a mechanism: {reason:?}"
+        );
+        assert!(
+            na.insert(*op, *reason).is_none(),
+            "{op} appears twice in BOARD_NOT_APPLICABLE"
+        );
+    }
+    let mut cited_rows: BTreeSet<&str> = BTreeSet::new();
+    for claim in CLAIMS {
+        match &claim.cells {
+            Cells::Board(cells) => {
+                assert!(
+                    !cells.is_empty(),
+                    "{}: a board-celled claim must cite at least one row",
+                    claim.op
+                );
+                assert!(
+                    !na.contains_key(claim.op),
+                    "{}: priced by board rows AND excused in BOARD_NOT_APPLICABLE — \
+                     the tiling sides must stay disjoint; remove one",
+                    claim.op
+                );
+                cited_rows.extend(cells.iter().map(|(row, _)| *row));
+            }
+            Cells::Uncelled(_) => {
+                assert!(
+                    na.contains_key(claim.op),
+                    "{}: cites no board row and is missing from BOARD_NOT_APPLICABLE — \
+                     add the table entry with its mechanism, or cell the claim",
+                    claim.op
+                );
+            }
+        }
+    }
+    for op in NON_OPERATIONS {
+        assert!(
+            na.contains_key(*op),
+            "{op}: a non-operation family row must still appear in \
+             BOARD_NOT_APPLICABLE with its disposition"
+        );
+    }
+    let uncelled = CLAIMS
+        .iter()
+        .filter(|claim| matches!(claim.cells, Cells::Uncelled(_)))
+        .count();
+    assert_eq!(
+        na.len(),
+        uncelled + NON_OPERATIONS.len(),
+        "BOARD_NOT_APPLICABLE carries entries beyond the uncelled claims and \
+         the non-operation rows: the tiling sides must stay disjoint"
+    );
+    // The reverse leg: every board operation row witnesses some public
+    // claim, so the board carries no orphan row a rename could strand.
+    let orphans: Vec<String> = board_ops()
+        .into_iter()
+        .filter(|op| !cited_rows.contains(op.as_str()))
+        .collect();
+    assert!(
+        orphans.is_empty(),
+        "board rows cited by no complexity claim (name the public operation \
+         each prices, or retire the row): {orphans:?}"
+    );
+}
+
+/// The red-triage buffer is empty at acceptance, and any in-flight
+/// entry names a live board cell, exactly once, with a mechanism tag
+/// and a live-task reference.
+///
+/// Red means untriaged, nothing else: every dashboard contradiction
+/// resolves to a cure or an owner-declared model at the cell, so
+/// [`board::BOARD_EXPECTED_REDS`] may hold an entry only while its
+/// triage is in flight (the `task` field names the work), and this
+/// assertion is the acceptance teeth — a red that persists across
+/// commits is a process failure, not a status.
+#[test]
+fn expected_red_buffer_is_an_empty_triage_buffer() {
     let cells: BTreeSet<(String, String)> = board::bench_cells(0.02, BenchMode::Full)
         .into_iter()
         .map(|cell| (cell.op.to_owned(), cell.family.to_owned()))
@@ -735,18 +892,27 @@ fn expected_red_roster_names_live_cells() {
             red.family
         );
         assert!(
+            !red.task.trim().is_empty(),
+            "{}/{} carries no live-task reference: an untriaged red may sit in \
+             the buffer only while someone owns its triage",
+            red.op,
+            red.family
+        );
+        assert!(
             seen.insert((red.op, red.family)),
             "{}/{} appears twice in BOARD_EXPECTED_REDS",
             red.op,
             red.family
         );
     }
-    for (op, family) in board::BOARD_RED_BENCH_RIDERS {
-        assert!(
-            board::BOARD_EXPECTED_REDS
-                .iter()
-                .any(|red| red.op == *op && red.family == *family),
-            "rider {op}/{family} is not a rostered standing red: re-realize the census"
-        );
-    }
+    assert!(
+        board::BOARD_EXPECTED_REDS.is_empty(),
+        "the red-triage buffer is not empty: every entry is an untriaged \
+         contradiction whose resolution (a cure, or an owner-declared model \
+         at the cell) must land before acceptance: {:?}",
+        board::BOARD_EXPECTED_REDS
+            .iter()
+            .map(|red| format!("{}/{} ({})", red.op, red.family, red.task))
+            .collect::<Vec<_>>()
+    );
 }

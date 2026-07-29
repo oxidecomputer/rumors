@@ -41,6 +41,8 @@ mod tests;
 /// operand streams, allocation-free but for the walk's transient
 /// cursors. Construction and [`Clone`]/[`Copy`] are `O(1)`.
 ///
+/// **Complexity**: construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs view `O(|v₁| + |p₁| + |v₂| + |p₂|)`.
+///
 /// ```
 /// use before::Clock;
 /// let mut a = Clock::seed();
@@ -81,6 +83,8 @@ impl OwnVersion<'_> {
     /// `O(|v| + |p| + |r|)` time and space, where `|r|` is the result's
     /// packed size (not bounded by a constant factor of the operands).
     ///
+    /// **Complexity**: `O(|v| + |p| + |r|)`, `|r|` the result's packed size.
+    ///
     /// ```
     /// use before::{Clock, Version};
     /// let mut a = Clock::seed();
@@ -100,6 +104,8 @@ impl OwnVersion<'_> {
 /// `O(|v| + |p| + |r|)` time and space, as
 /// [`to_version`](OwnVersion::to_version) — `|r|` the result's packed
 /// size, not bounded by a constant factor of the operands.
+///
+/// **Complexity**: `O(|v| + |p| + |r|)`, `|r|` the result's packed size.
 ///
 /// ```
 /// use before::{Clock, Version};

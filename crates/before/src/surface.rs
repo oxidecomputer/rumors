@@ -1,7 +1,7 @@
 //! The public operation surface, as data: one row per public operation,
 //! with each differential leg's disposition.
 //!
-//! This module is the machine-readable roster the triangle suite (the
+//! This module is the machine-readable roster the surface-coverage suite (the
 //! crate's test-only differential architecture) enforces totality over:
 //! its tests hold
 //! [`METHOD_SURFACE`](crate::surface::METHOD_SURFACE) equal, name for
@@ -11,12 +11,12 @@
 //! here, outside the test-only tree, so external instrument crates can
 //! bind their own coverage to the same roster — a coverage table keyed by
 //! these row names is total over the public surface exactly as far as the
-//! triangle suite's totality pins reach, with no second hand-maintained
+//! coverage suite's totality pins reach, with no second hand-maintained
 //! enumeration to drift. Public under the `meter` feature (the instrument
 //! crates' feature) and never part of a production build.
 //!
 //! Leg vocabulary, exclusion families, and the adequacy tripwires are the
-//! triangle suite's business and are documented there; a row's
+//! coverage suite's business and are documented there; a row's
 //! dispositions are carried here verbatim as the suite's committed record.
 
 /// One leg's disposition: how (or whether) two of the three
@@ -55,7 +55,7 @@ impl Leg {
 /// One row of the roster: a public operation and its three leg
 /// dispositions.
 pub struct SurfaceRow {
-    /// The operation, named as the triangle suite's extractor names it
+    /// The operation, named as the coverage suite's extractor names it
     /// (`Type::fn`, `module::fn`) for [`METHOD_SURFACE`], or as a family
     /// description for [`FAMILY_SURFACE`].
     pub op: &'static str,
@@ -108,7 +108,7 @@ const HANDBACK: &str = "hand-back value identity and order against the fixed acc
      2026-07-26";
 
 /// The roster over the mechanically-extracted inherent `pub fn` surface.
-/// The triangle suite's `roster_is_total_over_the_public_fn_surface` holds
+/// The surface-coverage suite's `roster_is_total_over_the_public_fn_surface` holds
 /// this equal, name for name, to its extractor's listing.
 pub const METHOD_SURFACE: &[SurfaceRow] = &[
     // ───────────────────────────── Party ─────────────────────────────

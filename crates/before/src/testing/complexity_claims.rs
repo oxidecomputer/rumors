@@ -2,33 +2,35 @@
 //! asymptotic class, bound to the amplification board's verdicts.
 //!
 //! The public rustdoc states each operation's cost in a uniform
-//! `# Complexity` section whose lead is a Big-O token over user-held
-//! denominators (packed sizes, text bytes, result sizes). Prose cannot be
-//! checked; tokens can — so the roster here pins, per operation, the exact
-//! token strings its section must carry and the board rows whose verdicts
-//! witness the claimed class, and the tests hold three legs together:
+//! `# Complexity` section. Prose cannot be checked; a rendered line can —
+//! so the roster here pins, per operation, a structured [`Bound`] whose
+//! rendering must appear **verbatim as the terminal line** of the
+//! section at each recorded site, plus the board rows whose verdicts
+//! witness the claimed class, and the tests hold the legs together:
 //!
 //! - **Prose ↔ roster** ([`doc_index`]): a source scan over the same files
-//!   the triangle suite pins ([`triangle::SURFACE_SOURCES`]) locates each
-//!   operation's `# Complexity` section — on the `pub fn`, the type doc,
-//!   the module doc, or a documented trait impl, as the roster's
-//!   [`Site`] records — and requires the pinned tokens verbatim. Editing a
-//!   section's class without this roster is a named failure; the sentences
-//!   after the tokens are explanation, uniformly non-normative.
+//!   the surface-coverage suite pins
+//!   ([`surface_coverage::SURFACE_SOURCES`]) locates each operation's
+//!   `# Complexity` section — on the `pub fn`, the type doc, the module
+//!   doc, or a documented trait impl, as the roster's [`Site`] records —
+//!   and byte-compares its last line against the roster's rendered
+//!   `**Complexity**:` line. Editing a section's class without this
+//!   roster is a named failure; the prose above the terminal line is
+//!   explanation, uniformly non-normative.
 //! - **Roster ↔ board**: every cited board row must exist in the board's
 //!   own operation axis ([`board::bench_cells`]).
 //! - **Class ↔ evidence** (the class contracts): every [`Class`] variant
-//!   declares one [`ClassContract`] — its stance toward the board's
-//!   exponent-mechanism reds ([`board::BOARD_EXPECTED_REDS`]), whether it
-//!   claims a bench-judge-rostered time leg
-//!   (`tools/benchjudge-expected.json`, membership-pinned by
-//!   `tests/bench_judge_roster.rs`), its defining prose token, and its
-//!   named witness tests — and one test enforces every contract the same
-//!   way, so curing a red, flipping a class, or retiring a witness
-//!   reaches the rustdoc through a failing name here. The exhaustive
-//!   match in [`Class::contract`] makes a contract-less class a compile
-//!   error; the judge's red set binds wall time, the exponent-red
-//!   stances bind the deterministic counters' verdicts, so a
+//!   declares one [`ClassContract`] — its stance toward exponent-mechanism
+//!   entries in the board's red-triage buffer
+//!   ([`board::BOARD_EXPECTED_REDS`]), whether it claims a
+//!   bench-judge-rostered time leg (`tools/benchjudge-expected.json`,
+//!   membership-pinned by `tests/bench_judge_roster.rs`), its defining
+//!   rendered token, and its named witness tests — and one test enforces
+//!   every contract the same way, so curing a red, flipping a class, or
+//!   retiring a witness reaches the rustdoc through a failing name here.
+//!   The exhaustive match in [`Class::contract`] makes a contract-less
+//!   class a compile error; the judge's red set binds wall time, the
+//!   exponent-red stances bind the deterministic counters' verdicts, so a
 //!   counter-superlinear kernel whose wall constant hides under the
 //!   judge's resolution cannot keep a flat-counter class.
 //! - **Class liveness**: every non-linear class's contract names a
@@ -42,16 +44,33 @@
 //!   the pin red, forcing roster and rustdoc to move in the same
 //!   change.
 //!
-//! Totality rides the triangle surface: every name in
-//! [`triangle::extract_public_fns`] and [`triangle::FAMILY_SURFACE`] has
-//! exactly one claim row (or a place in [`NON_OPERATIONS`], the family
-//! rows that are dispositions rather than operations), so a new public
-//! operation fails this roster until its documented class is pinned.
+//! Totality rides the coverage surface: every name in
+//! [`surface_coverage::extract_public_fns`] and
+//! [`surface_coverage::FAMILY_SURFACE`] has exactly one claim row (or a
+//! place in [`NON_OPERATIONS`], the family rows that are dispositions
+//! rather than operations), so a new public operation fails this roster
+//! until its documented class is pinned.
+//!
+//! # The rendered line
+//!
+//! [`Bound::render`] emits the one normative sentence per site, in a
+//! uniform vocabulary: `n` is the operation's packed input size (`a`/`b`
+//! for a pair's), `t` text bytes, `S` an n-ary hand-out's total share
+//! size, `D`/`k` a fold's total packed input and operand count (`B` its
+//! both-present node count), `M(·)` the arithmetic backend's
+//! integer-multiplication bound, and `‖·‖` a value's numeric size where
+//! no packed encoding exists. A bare `O(...)` covers time and space;
+//! forms that split the two say so. [`Bound::Custom`] is the escape
+//! hatch for a row whose honest bound fits no template — every use
+//! states its reason beside the line. Rows sharing one doc site (a type
+//! doc pricing a whole operator matrix, the `causally` module doc) share
+//! one `Bound`, so the shared section carries one line and the binding
+//! test holds every such row to it.
 
 use std::collections::BTreeMap;
 use std::fs;
 
-use super::triangle;
+use super::surface_coverage;
 
 #[cfg(test)]
 mod tests;
@@ -83,7 +102,7 @@ pub(crate) enum Class {
     /// Superlinear in the deterministic work counters on committed
     /// board families, while absent from the bench judge's red roster.
     ///
-    /// A standing exponent-mechanism red in
+    /// A standing exponent-mechanism entry in
     /// [`board::BOARD_EXPECTED_REDS`] with the rustdoc stating the
     /// superlinear worst case; the operation's wall constant sits under
     /// the judge's resolution at bench scales, so the counter leg is
@@ -146,11 +165,11 @@ pub(crate) struct ClassContract {
     /// judge roster's red set exactly, and no other class may cite a
     /// rostered row.
     pub(crate) judge_red: bool,
-    /// The class-defining prose token: every claim citing the class
-    /// must pin a `# Complexity` token containing it.
+    /// The class-defining token: every claim citing the class must
+    /// render a `**Complexity**:` line containing it.
     pub(crate) token: Option<&'static str>,
     /// Whether the defining token is exclusive to the class: a claim
-    /// pinning it without citing the class is unclassed prose.
+    /// rendering it without citing the class is unclassed prose.
     pub(crate) token_exclusive: bool,
     /// Committed witnesses that must exist in the tree by name, as
     /// `(manifest-relative file, test fn name)`.
@@ -261,7 +280,7 @@ impl Class {
 /// Where an operation's `# Complexity` section lives.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Site {
-    /// The doc block of the `pub fn` the triangle extractor names; the
+    /// The doc block of the `pub fn` the surface extractor names; the
     /// operation's own name locates it.
     Fn,
     /// The doc block of a `pub struct` — `(file, local type name)`.
@@ -273,15 +292,87 @@ pub(crate) enum Site {
     ImplDoc(&'static str, &'static str),
 }
 
-/// One prose check: a site that must carry a `# Complexity` section
-/// containing every listed token verbatim.
+/// One operation's structured bound: the data behind the rendered
+/// `**Complexity**:` terminal line.
+///
+/// The vocabulary is uniform across the whole roster (the module doc's
+/// "rendered line" section defines it); a bare `O(...)` covers time and
+/// space. The rendering is pure data-to-text, with nothing read from the
+/// crate, so another crate's claims roster can consume the same enum and
+/// renderer unchanged.
+// The variant deliberately carries the class's own name (`MulBound` is
+// the claims vocabulary's multiplication-bound class), so the lint's
+// suffix rule loses to the one-name-per-concept rule here.
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Bound {
+    /// Word-scale work: `O(1)`.
+    Constant,
+    /// Linear in the packed input: `O(n)`.
+    Linear,
+    /// Linear in a packed operand pair: `O(a + b)`.
+    LinearPair,
+    /// A text rendering: packed input `n` plus mandatory text output
+    /// `t`.
+    TextRender,
+    /// A text parse: text input `t` plus mandatory packed output `n`.
+    TextParse,
+    /// The balanced n-ary reduction: `O(D log k)` time, `O(D)` space.
+    Fold,
+    /// The indexed fold: [`Bound::Fold`] plus the per-node search
+    /// allowance over the accumulator (`B log n`).
+    FoldSearch,
+    /// The multiplication-bound three-part time claim on one operand,
+    /// exactly the shape the settle claims landed as: the worst case,
+    /// the mandatory floor, the width-bounded regime.
+    MulBound,
+    /// [`Bound::MulBound`] over an operand pair.
+    MulBoundPair,
+    /// The escape hatch: the honest bound fits no template. `line` is
+    /// rendered verbatim after the `**Complexity**:` lead; `reason`
+    /// states, as committed data, why no template fits.
+    Custom {
+        line: &'static str,
+        reason: &'static str,
+    },
+}
+
+impl Bound {
+    /// The rendered terminal line: the one normative sentence the
+    /// binding test byte-compares against the section's last line.
+    pub(crate) fn render(self) -> String {
+        let body = match self {
+            Bound::Constant => "`O(1)`.",
+            Bound::Linear => "`O(n)`.",
+            Bound::LinearPair => "`O(a + b)`.",
+            Bound::TextRender => "`O(n + t)`.",
+            Bound::TextParse => "`O(t + n)`.",
+            Bound::Fold => "`O(D log k)` time, `O(D)` space.",
+            Bound::FoldSearch => "`O(D log k + B log n)` time, `O(D)` space.",
+            Bound::MulBound => {
+                "`O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, \
+                 `O(n log n)` with width-bounded parked drifts."
+            }
+            Bound::MulBoundPair => {
+                "`O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, \
+                 `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with width-bounded \
+                 parked drifts."
+            }
+            Bound::Custom { line, .. } => line,
+        };
+        format!("**Complexity**: {body}")
+    }
+}
+
+/// One prose check: a site whose `# Complexity` section must end with
+/// the bound's rendered line, verbatim.
 pub(crate) struct Check {
     pub(crate) site: Site,
-    pub(crate) tokens: &'static [&'static str],
+    pub(crate) bound: Bound,
 }
 
 /// The board leg of one claim: the rows witnessing the class, or the
-/// reason none exists (mirroring the board module doc's coverage list).
+/// reason none exists (mirroring the board's coverage table).
 pub(crate) enum Cells {
     /// `(board operation name, the class its verdict witnesses)`.
     Board(&'static [(&'static str, Class)]),
@@ -291,13 +382,13 @@ pub(crate) enum Cells {
 
 /// One public operation's pinned complexity claim.
 pub(crate) struct Claim {
-    /// The operation, named exactly as the triangle surface names it.
+    /// The operation, named exactly as the coverage surface names it.
     pub(crate) op: &'static str,
     pub(crate) checks: &'static [Check],
     pub(crate) cells: Cells,
 }
 
-/// Triangle family rows that are coverage dispositions, not operations:
+/// Surface family rows that are coverage dispositions, not operations:
 /// they carry no cost contract of their own, so they have no claim row.
 pub(crate) const NON_OPERATIONS: &[&str] = &[
     "unbounded depth (beyond the differential grids)",
@@ -311,24 +402,95 @@ const fn constant(op: &'static str) -> Claim {
         op,
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(1)`"],
+            bound: Bound::Constant,
         }],
         cells: Cells::Uncelled("word-scale: no input axis to measure against"),
     }
 }
 
+/// The `causally` module doc's shared line: thirteen rows price the same
+/// two facts, so they share one bound at one site.
+const CAUSALLY_BOUND: Bound = Bound::Custom {
+    line: "constructors `O(1)`; each validating or membership comparison `O(a + b)`.",
+    reason: "one module-doc section prices every constructor and predicate together",
+};
+
 /// Shorthand for a causally-module operation: the module doc carries one
-/// note for all of them.
+/// note (and one rendered line) for all of them.
 const fn causally(op: &'static str, cells: Cells) -> Claim {
     Claim {
         op,
         checks: &[Check {
             site: Site::ModuleDoc("src/causally.rs"),
-            tokens: &["`O(1)`", "`O(|a| + |b|)`"],
+            bound: CAUSALLY_BOUND,
         }],
         cells,
     }
 }
+
+/// The tick-count bounds: a pair (or single) packed operand plus the
+/// count's width. No template names a count axis, so the ticks trio
+/// carries the count term as a stated custom line.
+const TICKS_PAIR_BOUND: Bound = Bound::Custom {
+    line: "`O(a + b + log m)`, `m` the tick count.",
+    reason: "the fused multi-tick adds only the count's width; no template names a count axis",
+};
+
+/// [`TICKS_PAIR_BOUND`]'s single-operand form, for the clock spelling.
+const TICKS_SINGLE_BOUND: Bound = Bound::Custom {
+    line: "`O(n + log m)`, `m` the tick count.",
+    reason: "the fused multi-tick adds only the count's width; no template names a count axis",
+};
+
+/// The party split's hand-out bound, shared by `Party::forks`'s own doc
+/// and the consuming array split: the denominator is the shares
+/// produced, not a packed operand.
+const PARTY_SPLIT_BOUND: Bound = Bound::Custom {
+    line: "`O(S)`, `S` the shares' total packed size.",
+    reason: "an n-ary hand-out is denominated in its produced shares, not one packed operand",
+};
+
+/// The party `Forks` iterator's type-doc bound: the drain plus the
+/// early-drop rejoin.
+const PARTY_FORKS_TYPE_BOUND: Bound = Bound::Custom {
+    line: "a full drain `O(S)`, `S` the shares' total packed size; an early drop rejoins in \
+           `O(log n)` joins.",
+    reason: "an n-ary hand-out is denominated in its produced shares, not one packed operand",
+};
+
+/// The clock split's bound, shared by `Clock::forks`'s own doc and the
+/// clock `Forks` iterator's type doc: the party split plus one version
+/// clone per child.
+const CLOCK_SPLIT_BOUND: Bound = Bound::Custom {
+    line: "`O(S + n·|v|)`: the party split plus one version clone per child.",
+    reason: "an n-ary hand-out denominated in its shares and per-child clones, not one \
+             packed operand",
+};
+
+/// The explicit projection materialization's bound, shared by
+/// `OwnVersion::to_version` and the `From` impl: the output is not
+/// bounded by a constant factor of the operands.
+const PROJECTION_BOUND: Bound = Bound::Custom {
+    line: "`O(|v| + |p| + |r|)`, `|r|` the result's packed size.",
+    reason: "output-dominated: the result's size is not derivable from the operands, so the \
+             honest denominator names it",
+};
+
+/// The `Version` type doc's shared line: four family rows (the join and
+/// meet operators, the comparison matrix, `Eq`/`Hash`) price one
+/// section.
+const VERSION_TYPE_BOUND: Bound = Bound::Custom {
+    line: "every comparison, join, and meet `O(a + b)`; hashing `O(n)`.",
+    reason: "one type-doc section prices the whole operator matrix",
+};
+
+/// The `OwnVersion` type doc's shared line: both fused-comparison
+/// family rows price one section.
+const OWN_VERSION_TYPE_BOUND: Bound = Bound::Custom {
+    line: "construction `O(1)`; view vs version `O(|v| + |p| + |w|)`; view vs view \
+           `O(|v₁| + |p₁| + |v₂| + |p₂|)`.",
+    reason: "one type-doc section prices both fused co-walks and the O(1) construction",
+};
 
 /// The reason the causally constructors cite no board row.
 const CAUSALLY_CONSTRUCTOR: &str =
@@ -342,8 +504,9 @@ const CAUSALLY_COMPOSITION: &str =
      identical comparison the causally_contains row prices";
 
 /// The claims roster of record. One row per public operation, named as
-/// the triangle surface names it; the tests hold it total, its sites
-/// carrying the pinned tokens, and its cited cells alive on the board.
+/// the coverage surface names it; the tests hold it total, its sites'
+/// terminal lines byte-equal to the rendered bounds, and its cited cells
+/// alive on the board.
 pub(crate) const CLAIMS: &[Claim] = &[
     // ───────────────────────────── Party ─────────────────────────────
     constant("Party::seed"),
@@ -352,7 +515,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::tick",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v| + |p|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[
             ("version_tick", Class::Linear),
@@ -363,7 +526,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::ticks",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v| + |p| + log n)`"],
+            bound: TICKS_PAIR_BOUND,
         }],
         cells: Cells::Board(&[("version_ticks", Class::Linear)]),
     },
@@ -371,7 +534,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::fork",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|p|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("party_fork", Class::Linear)]),
     },
@@ -380,23 +543,23 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[
             Check {
                 site: Site::Fn,
-                tokens: &["`O(S)`"],
+                bound: PARTY_SPLIT_BOUND,
             },
             Check {
                 site: Site::TypeDoc("src/party/forks.rs", "Forks"),
-                tokens: &["`O(S)`", "`O(log n)`"],
+                bound: PARTY_FORKS_TYPE_BOUND,
             },
         ],
         cells: Cells::Uncelled(
             "iterates the measured fork on shrinking operands; no board row of \
-             its own (the board module doc's coverage list)",
+             its own (the board's coverage table)",
         ),
     },
     Claim {
         op: "Party::join",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[
             ("party_join", Class::Linear),
@@ -407,7 +570,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::join_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D log k + B log |p|)`", "`O(D)`"],
+            bound: Bound::FoldSearch,
         }],
         cells: Cells::Board(&[
             ("party_join_all", Class::FoldLog),
@@ -418,7 +581,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::is_disjoint",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[("party_disjoint", Class::Linear)]),
     },
@@ -426,7 +589,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::covers",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[("party_covers", Class::Linear)]),
     },
@@ -434,7 +597,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::without",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[
             ("party_without", Class::Linear),
@@ -445,15 +608,15 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::dangerously_alias",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|p|)`"],
+            bound: Bound::Linear,
         }],
-        cells: Cells::Uncelled("one byte copy (the board module doc's coverage list)"),
+        cells: Cells::Uncelled("one byte copy (the board's coverage table)"),
     },
     Claim {
         op: "Party::encode",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|p|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("party_encode", Class::Linear)]),
     },
@@ -461,7 +624,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::encode_to",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|p|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("party_encode", Class::Linear)]),
     },
@@ -470,7 +633,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party::decode",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(n)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[
             ("party_decode", Class::Linear),
@@ -487,7 +650,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::tick",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v| + |p|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[
             ("version_tick", Class::Linear),
@@ -498,7 +661,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::ticks",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v| + |p| + log n)`"],
+            bound: TICKS_PAIR_BOUND,
         }],
         cells: Cells::Board(&[("version_ticks", Class::Linear)]),
     },
@@ -506,7 +669,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::concurrent",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[("version_concurrent", Class::Linear)]),
     },
@@ -514,7 +677,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::min_ticks",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("version_min_ticks", Class::Linear)]),
     },
@@ -522,12 +685,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::rank",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &[
-                "`O(|v|)` space",
-                "`O(M(|v|) · log |v|)`",
-                "`Ω(M(|v|))`",
-                "`O(|v| log |v|)`",
-            ],
+            bound: Bound::MulBound,
         }],
         // The three-part time claim, each part with a committed
         // witness: the O(M(|v|) · log |v|) worst case is the settle's
@@ -554,7 +712,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         // the class carries exactly this structure (rustdoc worst
         // case at the multiplication bound, flat counters, the
         // embedding held alive by mul_bound_embedding_is_alive), so
-        // neither Linear (a false token against a proven Ω(M(|v|))
+        // neither Linear (a false claim against a proven Ω(M(|v|))
         // worst case) nor SuperlinearCounter/SuperlinearTime (their
         // seals demand reds that cannot honestly exist here) fits.
         cells: Cells::Board(&[("version_rank", Class::MulBound)]),
@@ -563,12 +721,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::distance",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &[
-                "`O(|a| + |b|)` space",
-                "`O(M(|a| + |b|) · log (|a| + |b|))`",
-                "`Ω(M(|a| + |b|))`",
-                "`O((|a| + |b|) log (|a| + |b|))`",
-            ],
+            bound: Bound::MulBoundPair,
         }],
         // The pair form of rank's three-part claim — one shared
         // integrator, so the same witnesses (plus the settle_flatness
@@ -581,12 +734,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::lag",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &[
-                "`O(|a| + |b|)` space",
-                "`O(M(|a| + |b|) · log (|a| + |b|))`",
-                "`Ω(M(|a| + |b|))`",
-                "`O((|a| + |b|) log (|a| + |b|))`",
-            ],
+            bound: Bound::MulBoundPair,
         }],
         // As Version::distance above (one shared co-sweep).
         cells: Cells::Board(&[("version_lag", Class::MulBound)]),
@@ -595,7 +743,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::join_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D log k)`", "`O(D)`"],
+            bound: Bound::Fold,
         }],
         cells: Cells::Board(&[("version_join_all", Class::FoldLog)]),
     },
@@ -603,7 +751,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::meet_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D log k)`", "`O(D)`"],
+            bound: Bound::Fold,
         }],
         // The join fold's balanced reduction over the meet emitter; the
         // non-shrinking-accumulator worst case is held flat by the
@@ -615,7 +763,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::encode",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("version_encode", Class::Linear)]),
     },
@@ -623,7 +771,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::encode_to",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("version_encode", Class::Linear)]),
     },
@@ -631,7 +779,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version::decode",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(n)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[
             ("version_decode", Class::Linear),
@@ -648,7 +796,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::tick",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|c|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("clock_tick", Class::Linear)]),
     },
@@ -656,7 +804,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::ticks",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|c| + log n)`"],
+            bound: TICKS_SINGLE_BOUND,
         }],
         cells: Cells::Board(&[("version_ticks", Class::Linear)]),
     },
@@ -664,7 +812,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::fork",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|c|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("clock_fork", Class::Linear)]),
     },
@@ -673,24 +821,24 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[
             Check {
                 site: Site::Fn,
-                tokens: &["`O(S + n·|v|)`"],
+                bound: CLOCK_SPLIT_BOUND,
             },
             Check {
                 site: Site::TypeDoc("src/clock/forks.rs", "Forks"),
-                tokens: &["`O(S + n·|v|)`"],
+                bound: CLOCK_SPLIT_BOUND,
             },
         ],
         cells: Cells::Uncelled(
             "iterates the measured fork on shrinking operands, one version \
-             clone per child; no board row of its own (the board module doc's \
-             coverage list)",
+             clone per child; no board row of its own (the board's coverage \
+             table)",
         ),
     },
     Claim {
         op: "Clock::join",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[
             ("clock_join", Class::Linear),
@@ -701,7 +849,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::join_all",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(D log k + B log |c|)`", "`O(D)`"],
+            bound: Bound::FoldSearch,
         }],
         cells: Cells::Board(&[
             ("version_join_all", Class::FoldLog),
@@ -712,7 +860,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::sync",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|a| + |b|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[
             ("clock_sync", Class::Linear),
@@ -723,7 +871,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::send",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|c|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("clock_tick", Class::Linear)]),
     },
@@ -731,7 +879,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::recv",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|c| + |v|)`"],
+            bound: Bound::LinearPair,
         }],
         cells: Cells::Board(&[("clock_recv", Class::Linear)]),
     },
@@ -743,7 +891,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::own_version",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(1)`"],
+            bound: Bound::Constant,
         }],
         cells: Cells::Uncelled(
             "view construction: two borrows; the materialization and fused \
@@ -754,7 +902,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "OwnVersion::to_version",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|v| + |p| + |r|)`"],
+            bound: PROJECTION_BOUND,
         }],
         cells: Cells::Board(&[
             ("own_version_to_version", Class::LinearIo),
@@ -765,7 +913,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::encode",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|c|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("clock_encode", Class::Linear)]),
     },
@@ -773,7 +921,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::encode_to",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|c|)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[("clock_encode", Class::Linear)]),
     },
@@ -781,7 +929,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::decode",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(n)`"],
+            bound: Bound::Linear,
         }],
         cells: Cells::Board(&[
             ("clock_decode", Class::Linear),
@@ -794,16 +942,19 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock::dangerously_alias",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(|c|)`"],
+            bound: Bound::Linear,
         }],
-        cells: Cells::Uncelled("one byte copy per part (the board module doc's coverage list)"),
+        cells: Cells::Uncelled("one byte copy per part (the board's coverage table)"),
     },
     // ───────────────────────────── Rank / Ranked ─────────────────────────────
     Claim {
         op: "Rank::checked_sub",
         checks: &[Check {
             site: Site::Fn,
-            tokens: &["`O(‖a‖ + ‖b‖)`"],
+            bound: Bound::Custom {
+                line: "`O(‖a‖ + ‖b‖)`, the operands' numeric sizes.",
+                reason: "Rank has no packed encoding; costs are value-content-denominated",
+            },
         }],
         cells: Cells::Board(&[("rank_pair_ops", Class::Linear)]),
     },
@@ -853,7 +1004,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version | Version (BitOr/BitOrAssign, owned and borrowed)",
         checks: &[Check {
             site: Site::TypeDoc("src/version.rs", "Version"),
-            tokens: &["`O(|a| + |b|)`"],
+            bound: VERSION_TYPE_BOUND,
         }],
         cells: Cells::Board(&[
             ("version_join", Class::Linear),
@@ -864,7 +1015,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version & Version (BitAnd/BitAndAssign, owned and borrowed)",
         checks: &[Check {
             site: Site::TypeDoc("src/version.rs", "Version"),
-            tokens: &["`O(|a| + |b|)`"],
+            bound: VERSION_TYPE_BOUND,
         }],
         cells: Cells::Board(&[
             ("version_meet", Class::Linear),
@@ -875,7 +1026,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "&Version / &Party (Div — the lazy projection view)",
         checks: &[Check {
             site: Site::ImplDoc("src/version.rs", "Div<&'a Party> for &'a Version"),
-            tokens: &["`O(1)`"],
+            bound: Bound::Constant,
         }],
         cells: Cells::Uncelled(
             "view construction: two borrows; the materialization and fused \
@@ -886,7 +1037,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "OwnVersion vs Version comparisons (PartialEq/PartialOrd, both directions, owned and borrowed)",
         checks: &[Check {
             site: Site::TypeDoc("src/version/own.rs", "OwnVersion"),
-            tokens: &["`O(|v| + |p| + |w|)`"],
+            bound: OWN_VERSION_TYPE_BOUND,
         }],
         cells: Cells::Board(&[("own_version_cmp", Class::Linear)]),
     },
@@ -894,7 +1045,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "OwnVersion vs OwnVersion comparisons (the four-stream co-walk, owned and borrowed)",
         checks: &[Check {
             site: Site::TypeDoc("src/version/own.rs", "OwnVersion"),
-            tokens: &["`O(|v₁| + |p₁| + |v₂| + |p₂|)`"],
+            bound: OWN_VERSION_TYPE_BOUND,
         }],
         cells: Cells::Board(&[("own_version_pair_cmp", Class::Linear)]),
     },
@@ -902,7 +1053,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "From<OwnVersion> for Version (explicit materialization)",
         checks: &[Check {
             site: Site::ImplDoc("src/version/own.rs", "From<OwnVersion<'_>> for Version"),
-            tokens: &["`O(|v| + |p| + |r|)`"],
+            bound: PROJECTION_BOUND,
         }],
         cells: Cells::Board(&[("own_version_to_version", Class::LinearIo)]),
     },
@@ -910,7 +1061,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version PartialOrd (the comparison matrix, owned and borrowed)",
         checks: &[Check {
             site: Site::TypeDoc("src/version.rs", "Version"),
-            tokens: &["`O(|a| + |b|)`"],
+            bound: VERSION_TYPE_BOUND,
         }],
         cells: Cells::Board(&[("version_cmp", Class::Linear)]),
     },
@@ -919,22 +1070,22 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[
             Check {
                 site: Site::ImplDoc("src/version.rs", "impl Sum<Version> for Version"),
-                tokens: &["`O(D log k)`", "`O(D)`"],
+                bound: Bound::Fold,
             },
             Check {
                 site: Site::ImplDoc("src/version.rs", "impl<'a> Sum<&'a Version> for Version"),
-                tokens: &["`O(D log k)`", "`O(D)`"],
+                bound: Bound::Fold,
             },
             Check {
                 site: Site::ImplDoc("src/version.rs", "impl FromIterator<Version> for Version"),
-                tokens: &["`O(D log k)`", "`O(D)`"],
+                bound: Bound::Fold,
             },
             Check {
                 site: Site::ImplDoc(
                     "src/version.rs",
                     "impl<'a> FromIterator<&'a Version> for Version",
                 ),
-                tokens: &["`O(D log k)`", "`O(D)`"],
+                bound: Bound::Fold,
             },
         ],
         cells: Cells::Board(&[("version_join_all", Class::FoldLog)]),
@@ -943,7 +1094,7 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Version Eq / Hash (canonical byte compare)",
         checks: &[Check {
             site: Site::TypeDoc("src/version.rs", "Version"),
-            tokens: &["`O(|v|)`"],
+            bound: VERSION_TYPE_BOUND,
         }],
         cells: Cells::Board(&[
             ("version_eq", Class::Linear),
@@ -954,7 +1105,10 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Party Eq / Hash (canonical byte compare)",
         checks: &[Check {
             site: Site::TypeDoc("src/party.rs", "Party"),
-            tokens: &["`O(|p|)`"],
+            bound: Bound::Custom {
+                line: "`==` and hashing `O(n)`; every other cost is on its operation.",
+                reason: "one type-doc section prices the derived byte-compare surface",
+            },
         }],
         cells: Cells::Board(&[("party_hash", Class::Linear)]),
     },
@@ -962,19 +1116,26 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Clock | Version and Version | Clock (heterogeneous joins, |=)",
         checks: &[Check {
             site: Site::TypeDoc("src/clock.rs", "Clock"),
-            tokens: &["`O(|c| + |v|)`"],
+            bound: Bound::Custom {
+                line: "the heterogeneous joins `O(a + b)`; `==` and hashing `O(n)`.",
+                reason: "one type-doc section prices the operator matrix and the \
+                         byte-compare surface together",
+            },
         }],
-        cells: Cells::Board(&[("clock_recv", Class::Linear)]),
+        cells: Cells::Board(&[
+            ("clock_recv", Class::Linear),
+            ("clock_hash", Class::Linear),
+        ]),
     },
     Claim {
         op: "From<Party> for [Party; N] (consuming balanced split)",
         checks: &[Check {
             site: Site::ImplDoc("src/party/forks.rs", "From<Party> for [Party; N]"),
-            tokens: &["`O(S)`"],
+            bound: PARTY_SPLIT_BOUND,
         }],
         cells: Cells::Uncelled(
             "the forks machinery consuming its operand; no board row of its own \
-             (the board module doc's coverage list)",
+             (the board's coverage table)",
         ),
     },
     Claim {
@@ -982,16 +1143,16 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[
             Check {
                 site: Site::TypeDoc("src/party/forks.rs", "Forks"),
-                tokens: &["`O(S)`", "`O(log n)`"],
+                bound: PARTY_FORKS_TYPE_BOUND,
             },
             Check {
                 site: Site::TypeDoc("src/clock/forks.rs", "Forks"),
-                tokens: &["`O(S + n·|v|)`"],
+                bound: CLOCK_SPLIT_BOUND,
             },
         ],
         cells: Cells::Uncelled(
             "iterates the measured fork on shrinking operands; no board row of \
-             its own (the board module doc's coverage list)",
+             its own (the board's coverage table)",
         ),
     },
     Claim {
@@ -999,23 +1160,23 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[
             Check {
                 site: Site::ImplDoc("src/party.rs", "impl core::fmt::Display for Party"),
-                tokens: &["`O(|p| + t)`"],
+                bound: Bound::TextRender,
             },
             Check {
                 site: Site::ImplDoc("src/party.rs", "impl core::str::FromStr for Party"),
-                tokens: &["`O(t + |p|)`"],
+                bound: Bound::TextParse,
             },
             Check {
                 site: Site::ImplDoc("src/party.rs", "impl TryFrom<u8> for Party"),
-                tokens: &["`O(1)`"],
+                bound: Bound::Constant,
             },
             Check {
                 site: Site::ImplDoc("src/party.rs", "impl TryFrom<bool> for Party"),
-                tokens: &["`O(1)`"],
+                bound: Bound::Constant,
             },
             Check {
                 site: Site::ImplDoc("src/party.rs", "TryFrom<(T, S)> for Party"),
-                tokens: &["`O(|p|)`"],
+                bound: Bound::Linear,
             },
         ],
         cells: Cells::Board(&[
@@ -1030,19 +1191,29 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[
             Check {
                 site: Site::ImplDoc("src/version.rs", "impl core::fmt::Display for Version"),
-                tokens: &["`O(|v| + t)`", "superlinear"],
+                bound: Bound::Custom {
+                    line: "`O(n + t)` space; time superlinear in the spelled value widths \
+                           (decimal conversion plus the render merge).",
+                    reason: "the honest time class is superlinear; no linear template may \
+                             carry it",
+                },
             },
             Check {
                 site: Site::ImplDoc("src/version.rs", "impl core::str::FromStr for Version"),
-                tokens: &["`O(t + |v|)`", "superlinear"],
+                bound: Bound::Custom {
+                    line: "`O(t + n)` space; time superlinear in the spelled value widths \
+                           (decimal-to-binary conversion).",
+                    reason: "the honest time class is superlinear; no linear template may \
+                             carry it",
+                },
             },
             Check {
                 site: Site::ImplDoc("src/version.rs", "impl TryFrom<u64> for Version"),
-                tokens: &["`O(1)`"],
+                bound: Bound::Constant,
             },
             Check {
                 site: Site::ImplDoc("src/version.rs", "TryFrom<(u64, T, S)> for Version"),
-                tokens: &["`O(|v|)`"],
+                bound: Bound::Linear,
             },
         ],
         cells: Cells::Board(&[
@@ -1057,15 +1228,25 @@ pub(crate) const CLAIMS: &[Claim] = &[
         checks: &[
             Check {
                 site: Site::ImplDoc("src/clock.rs", "impl core::fmt::Display for Clock"),
-                tokens: &["`O(|c| + t)`", "superlinear"],
+                bound: Bound::Custom {
+                    line: "`O(n + t)` space; time superlinear on the version side (as \
+                           `Version`'s `Display`).",
+                    reason: "the honest time class is superlinear; no linear template may \
+                             carry it",
+                },
             },
             Check {
                 site: Site::ImplDoc("src/clock.rs", "impl core::str::FromStr for Clock"),
-                tokens: &["`O(t + |c|)`", "superlinear"],
+                bound: Bound::Custom {
+                    line: "`O(t + n)` space; time superlinear in the spelled value widths \
+                           (decimal-to-binary conversion).",
+                    reason: "the honest time class is superlinear; no linear template may \
+                             carry it",
+                },
             },
             Check {
                 site: Site::ImplDoc("src/clock.rs", "TryFrom<(I, E)> for Clock"),
-                tokens: &["`O(|c|)`"],
+                bound: Bound::Linear,
             },
         ],
         cells: Cells::Board(&[
@@ -1090,7 +1271,12 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Rank ZERO / Add / AddAssign / Sum / Ord / Eq / Hash / Display",
         checks: &[Check {
             site: Site::TypeDoc("src/version/rank.rs", "Rank"),
-            tokens: &["`O(‖a‖ + ‖b‖)`", "`O(N)`", "superlinear"],
+            bound: Bound::Custom {
+                line: "comparison and addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; `Display` \
+                       superlinear in the numerator width (decimal conversion).",
+                reason: "Rank has no packed encoding; one type-doc section prices its \
+                         value-content-denominated surface",
+            },
         }],
         cells: Cells::Board(&[
             ("rank_pair_ops", Class::Linear),
@@ -1101,13 +1287,13 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Ticks ZERO / From / FromStr / Display / Add / Sum / Ord / Eq / Hash",
         checks: &[Check {
             site: Site::TypeDoc("src/version/ticks.rs", "Ticks"),
-            tokens: &[
-                "`O(1)`",
-                "`O(‖n‖)`",
-                "`O(‖a‖ + ‖b‖)`",
-                "`O(N)`",
-                "superlinear",
-            ],
+            bound: Bound::Custom {
+                line: "construction `O(1)`; comparison and hashing `O(‖n‖)`; addition \
+                       `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; text superlinear in the count's \
+                       width (decimal conversion).",
+                reason: "Ticks has no packed encoding; one type-doc section prices its \
+                         value-content-denominated surface",
+            },
         }],
         cells: Cells::Uncelled(
             "an opaque count carrier: construction and arithmetic are \
@@ -1120,14 +1306,19 @@ pub(crate) const CLAIMS: &[Claim] = &[
         op: "Ranked Ord / From<Version> (byte tiebreak)",
         checks: &[Check {
             site: Site::TypeDoc("src/version/ranked.rs", "Ranked"),
-            tokens: &["`O(|v|)`", "`O(1)`"],
+            bound: Bound::Custom {
+                line: "construction `O(n)` (the rank fold); comparison as `Rank` — `O(1)` \
+                       across scales, linear on ties.",
+                reason: "one type-doc section prices construction and the tiebroken order \
+                         together",
+            },
         }],
         cells: Cells::Board(&[("version_rank", Class::Linear)]),
     },
 ];
 
 /// The `# Complexity` sections the surface files carry, scanned from
-/// source with the triangle extractor's line discipline.
+/// source with the surface extractor's line discipline.
 pub(crate) struct DocIndex {
     /// `Type::fn` / `module::fn` name → its doc block's Complexity
     /// section, if the block has one.
@@ -1179,14 +1370,14 @@ impl DocIndex {
     }
 }
 
-/// Scan every triangle surface file for doc blocks and their
+/// Scan every coverage surface file for doc blocks and their
 /// `# Complexity` sections.
 ///
 /// The same rustfmt-normalized line discipline as
-/// [`triangle::extract_public_fns`]: column-0 `impl` headers open inherent
-/// or trait impls, `pub fn` appears at column 0 (module level) or one
-/// indent (inherent methods), and a doc block is the contiguous `///` run
-/// (attributes transparent) directly above its item.
+/// [`surface_coverage::extract_public_fns`]: column-0 `impl` headers open
+/// inherent or trait impls, `pub fn` appears at column 0 (module level)
+/// or one indent (inherent methods), and a doc block is the contiguous
+/// `///` run (attributes transparent) directly above its item.
 pub(crate) fn doc_index() -> DocIndex {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut index = DocIndex {
@@ -1195,7 +1386,7 @@ pub(crate) fn doc_index() -> DocIndex {
         impls: Vec::new(),
         modules: BTreeMap::new(),
     };
-    for spec in triangle::SURFACE_SOURCES {
+    for spec in surface_coverage::SURFACE_SOURCES {
         let path = root.join(spec.path);
         let text =
             fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
@@ -1227,7 +1418,7 @@ pub(crate) fn doc_index() -> DocIndex {
                         .push((spec.path.to_owned(), line.to_owned(), section_of(&doc)));
                     current_type = None;
                 } else {
-                    current_type = triangle::parse_impl_self_type(rest);
+                    current_type = surface_coverage::parse_impl_self_type(rest);
                 }
                 doc.clear();
                 continue;
@@ -1235,7 +1426,7 @@ pub(crate) fn doc_index() -> DocIndex {
             if let Some(rest) = line.strip_prefix("    pub fn ") {
                 if let Some(ty) = current_type.as_deref() {
                     let ty = spec.type_override.unwrap_or(ty);
-                    let name = format!("{ty}::{}", triangle::fn_name(rest));
+                    let name = format!("{ty}::{}", surface_coverage::fn_name(rest));
                     index.fns.insert(name, section_of(&doc));
                 }
                 doc.clear();
@@ -1243,7 +1434,7 @@ pub(crate) fn doc_index() -> DocIndex {
             }
             if let Some(rest) = line.strip_prefix("pub fn ") {
                 if let Some(prefix) = spec.module_prefix {
-                    let name = format!("{prefix}::{}", triangle::fn_name(rest));
+                    let name = format!("{prefix}::{}", surface_coverage::fn_name(rest));
                     index.fns.insert(name, section_of(&doc));
                 }
                 doc.clear();

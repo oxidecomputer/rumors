@@ -42,6 +42,8 @@
 //! comparison is `O(|a| + |b|)` in the operands' packed sizes (see
 //! [`Version`]).
 //!
+//! **Complexity**: constructors `O(1)`; each validating or membership comparison `O(a + b)`.
+//!
 //! ```
 //! use before::{Clock, causally};
 //!

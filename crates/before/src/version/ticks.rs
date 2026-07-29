@@ -49,6 +49,8 @@ use crate::error::Parse;
 /// pays decimal↔binary conversion, superlinear (though subquadratic) in
 /// the count's width past a machine word.
 ///
+/// **Complexity**: construction `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ + ‖b‖)`, `Sum` `O(N)`; text superlinear in the count's width (decimal conversion).
+///
 /// ```
 /// use before::{Clock, Ticks};
 /// let mut clock = Clock::seed();

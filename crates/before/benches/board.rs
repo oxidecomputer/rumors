@@ -30,7 +30,7 @@
 //!
 //! Full sampling (plain `just bench board <filter>`) is criterion's default
 //! 100-sample regime over this file's committed measurement windows, and is
-//! required for any number quoted as a result of record. Quick mode
+//! required for any quoted number. Quick mode
 //! (`just bench-quick`, criterion `--sample-size 10 --measurement-time 1`)
 //! is for agent iteration only.
 //!
@@ -106,7 +106,7 @@ const MEASUREMENT: Duration = Duration::from_secs(2);
 ///
 /// Wide enough that binary→decimal conversion dominates the render, so the
 /// fitted exponent reads the conversion's class rather than the walk's
-/// linear overhead; the scale knob (×4 at `record`) supplies the second
+/// linear overhead; the scale knob (×4 at `acceptance`) supplies the second
 /// width point, so the judge fits across a 128k→512k-bit span.
 const WIDE_DISPLAY_BASE_MAGNITUDE_BITS: usize = 128_000;
 

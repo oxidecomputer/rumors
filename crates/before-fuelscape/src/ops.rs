@@ -4,7 +4,7 @@
 //! One table row per operation — adding an operation is one [`OpSpec`]
 //! entry. Each row names its input space (which picks the samplers and
 //! the size measure — the row's `size_measure` string is stamped on its
-//! render), the triangle roster rows it covers, and a `measure` function
+//! render), the coverage roster rows it covers, and a `measure` function
 //! that stages the sampled packed inputs into the guest and runs exactly
 //! one measured kernel, returning that call's fuel. Register loading and
 //! all other staging happen before the measured call, so a reading prices
@@ -13,7 +13,7 @@
 //!
 //! # Totality over the public surface
 //!
-//! Coverage is bound to the triangle suite's committed roster
+//! Coverage is bound to the surface-coverage suite's committed roster
 //! (`before::surface`): every roster row is either claimed by a panel's
 //! `covers` list or carries a one-line reason in [`EXEMPTIONS`], and the
 //! parity test in `tests.rs` holds both directions mechanically — a new
@@ -85,7 +85,7 @@ pub struct OpSpec {
     pub name: &'static str,
     /// The input space the row samples.
     pub inputs: Inputs,
-    /// The triangle roster rows (`before::surface` op names) this panel
+    /// The coverage roster rows (`before::surface` op names) this panel
     /// prices; the parity test holds panels ∪ exemptions total over the
     /// roster.
     pub covers: &'static [&'static str],
@@ -653,7 +653,7 @@ pub const ROSTER: &[OpSpec] = &[
     },
 ];
 
-/// The triangle roster rows deliberately without a panel, each with its
+/// The coverage roster rows deliberately without a panel, each with its
 /// one-line reason.
 ///
 /// The reviewed half of the totality binding: the parity test in

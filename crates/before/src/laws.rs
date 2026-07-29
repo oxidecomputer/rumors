@@ -68,7 +68,7 @@ pub type Law<F> = (&'static str, F);
 ///
 /// The collection read from the tables themselves — the same entries the
 /// algebraic-laws drivers execute — so anything that consumes law names
-/// (the uniqueness pin, the triangle roster's citation check) resolves
+/// (the uniqueness pin, the coverage roster's citation check) resolves
 /// against what actually runs, never against a text scan that a stray
 /// same-named `fn` could satisfy.
 #[cfg(test)]

@@ -1,4 +1,4 @@
-//! The triangle roster's enforcement: totality against the extracted
+//! The coverage roster's enforcement: totality against the extracted
 //! public surface, liveness of every cited binding test, and the
 //! committed-seed tripwire.
 
@@ -29,7 +29,7 @@ fn roster_is_total_over_the_public_fn_surface() {
     let orphaned: Vec<&String> = rostered.difference(&extracted).collect();
     assert!(
         missing.is_empty() && orphaned.is_empty(),
-        "the triangle roster and the public surface disagree.\n\
+        "the coverage roster and the public surface disagree.\n\
          public ops without a roster row (add one, naming each leg's \
          disposition): {missing:?}\n\
          roster rows without a public op (remove or rename): {orphaned:?}"

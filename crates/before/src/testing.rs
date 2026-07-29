@@ -13,9 +13,9 @@
 //! a thin binding; the named law predicates are [`crate::laws`]'s, shared
 //! with the fuzz targets), representation compactness ([`compactness`]),
 //! documentation snapshots ([`snapshots`]), the complexity-claims doc gate
-//! ([`complexity_claims`]), and the differential-leg roster ([`triangle`]
-//! — the committed prod↔tree↔fs coverage map; "which suite covers
-//! operation X" starts there).
+//! ([`complexity_claims`]), and the public-surface coverage suite
+//! ([`surface_coverage`] — the committed prod↔tree↔fs differential-leg
+//! roster; "which suite covers operation X" starts there).
 //!
 //! Part of the same architecture, outside this module: the recursive
 //! reference implementation the legs compare against ([`crate::oracle`]),
@@ -23,7 +23,9 @@
 //! tests in their `*/tests.rs` siblings, and the out-of-process suites in
 //! `tests/` (the resource-envelope pins, the board smoke test, the
 //! bench-judge membership pins, the fuzz seed corpus). Compiled only under
-//! `cfg(test)`; never part of the shipped crate.
+//! `cfg(test)`; never part of the shipped crate. The map of how every
+//! validation instrument — in this module and out of it — fits together,
+//! written for a maintainer orienting cold, is [`validation_index`].
 
 // The scaffolding.
 pub(crate) mod bridge;
@@ -41,4 +43,5 @@ pub(crate) mod complexity_claims;
 pub(crate) mod exhaustive;
 pub(crate) mod semantic_oracle;
 mod snapshots;
-pub(crate) mod triangle;
+pub(crate) mod surface_coverage;
+pub mod validation_index;
