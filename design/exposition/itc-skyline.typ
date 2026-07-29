@@ -46,9 +46,11 @@
   representation under which every primitive clock operation runs
   as a bounded number of linear passes over its packed operands and
   its mandatory output: one pass for most, two where a lookahead or
-  a pre-pass earns its keep, and for the composites the sum of
-  their parts. One derivational gap remains; it is stated where it
-  lives, and held by a pinned measurement in place of a proof.
+  a pre-pass earns its keep. One family of operations is honestly
+  priced above the reading floor: the exact area measures, whose
+  answer can embed the product of two arbitrary integers — a
+  reduction proves one integer multiplication mandatory — and whose
+  worst case is held within one logarithmic factor of that floor.
 
   The representation is the *skyline*, a delta-coded spelling of
   the step function a clock's event component denotes, paired with
@@ -70,7 +72,9 @@
   implementation not just fast on friendly inputs but *resilient
   to arbitrary adverse inputs*: no input, of any magnitude, depth,
   or shape, costs more than a fixed multiple of the bits the
-  operation reads plus the bits it must write. Every known boundary
+  operation reads plus the bits it must write — and where an answer
+  is provably as hard as a multiplication, no more than the
+  multiplication bound the reduction demands. Every known boundary
   of the argument lives where it binds; all seven are collected at
   the close.
 ])
