@@ -274,9 +274,10 @@ impl<'a> Walk<'a> {
     /// intervals nest, so the deepest cursor's plateau ends first, and a
     /// shallower cursor's end ties exactly when the flip level rises to
     /// or above its depth (tied sides close to one shared flip level,
-    /// debug-asserted here exactly as there). The n-ary loop is the
-    /// law's own; only the arity — and the slot dispatch below, a static
-    /// match over the concrete cursor types — is this walk's. A cursor
+    /// debug-asserted here exactly as there). The loop below restates
+    /// the law at this arity — the advance rule and its tie assert are
+    /// the law's; only the arity, and the slot dispatch below (a static
+    /// match over the concrete cursor types), are this walk's. A cursor
     /// at depth zero (a single-leaf stream, or no mask at all) never
     /// steps: a flip level is at least one.
     fn advance(&mut self) {
