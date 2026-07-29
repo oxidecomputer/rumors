@@ -13,7 +13,11 @@
 //! fold heights and discard the steps; the join/meet emission
 //! ([`emit`](super::emit)), which re-codes them into an output stream;
 //! and the pair integrals ([`query`](super::query)'s distance and lag),
-//! which re-fold them into a directed integrand. The boundary bookkeeping
+//! which re-fold them into a directed integrand. The single-cursor folds
+//! ([`query`](super::query)'s rank and min_ticks) consume [`LeafCursor`]
+//! and [`fold`] without the pair walk, and the projection overlay and the
+//! [`masked`](super::masked) walk state the advance law over their own
+//! cursor mixes on the same step vocabulary. The boundary bookkeeping
 //! below is the shared correctness argument; the prose reads it through
 //! comparison, the simplest client.
 //!

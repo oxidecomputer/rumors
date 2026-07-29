@@ -48,15 +48,19 @@
 //! change moved 15 bands, all at the third decimal or below — the
 //! largest is the comparison pair's intercept (+0.005 decades, ~1.1%
 //! fuel at the fit line: `ff_version_cmp` 1.7557 → 1.7606,
-//! `ff_version_concurrent` 1.7579 → 1.7627, both at slope −0.0009),
-//! with the other sweep-riding kernels (join, meet, distance, lag,
-//! rank, min_ticks, project, and the clock compositions) at the
-//! fourth decimal or below. The diff on top of the committed pin is
-//! larger than that: 24 bands carried pre-existing drift from the
-//! rounds since the first-freeze pin below, which held enforcement
-//! green without recalibrating (largest `ff_version_encode`
-//! width_above +0.099 and `ff_version_fromstr` intercept +0.024,
-//! none of them sweep kernels) — this re-pin absorbs that drift, and
+//! `ff_version_concurrent` 1.7579 → 1.7627, at slopes −0.0009 and
+//! −0.0008), then the pair integrals' intercepts
+//! (`ff_version_distance` +0.0022, `ff_version_lag` +0.0024), with
+//! every other movement — join, meet, rank, min_ticks, project, and
+//! the clock compositions — at ±0.0015 or below (largest
+//! `ff_version_meet` intercept −0.0014). The diff on top of the
+//! committed pin is larger than that: 24 bands carried pre-existing
+//! drift from the rounds since the first-freeze pin below, which held
+//! enforcement green without recalibrating (largest
+//! `ff_version_encode` width_above +0.099 and `ff_version_fromstr`
+//! intercept +0.024, neither a sweep kernel; the sweep kernels' own
+//! drift tops out at ±0.0016, `ff_version_min_ticks`
+//! width_below) — this re-pin absorbs that drift, and
 //! the numbers above are this change's own movement only. The
 //! enforcement leg held green at the previous pin before the re-fit.
 //!

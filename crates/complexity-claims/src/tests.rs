@@ -16,7 +16,13 @@ use super::{doc_index, extract_public_fns, section_of, test_fns, Bound, Site, So
 /// Write `content` as a scratch source file and return the directory to
 /// scan as a crate root, so the file-reading scanners run on fixtures.
 fn fixture(name: &str, content: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("complexity-claims-fixture-{name}"));
+    // Keyed by test name and process id: the machine's temp dir is shared
+    // across checkouts, so a fixed path lets one session's fixture rewrite
+    // race another session's scan in the same suite.
+    let dir = std::env::temp_dir().join(format!(
+        "complexity-claims-fixture-{name}-{}",
+        std::process::id()
+    ));
     fs::create_dir_all(&dir).expect("creating the fixture dir");
     fs::write(dir.join("lib.rs"), content).expect("writing the fixture");
     dir
