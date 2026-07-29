@@ -143,7 +143,7 @@ fn local_backend_conforms() {
 /// and anything less underprices — what the lying tests opt into
 /// through the knob's guard.
 #[derive(Clone, Copy, Debug)]
-struct Materializing;
+pub(crate) struct Materializing;
 
 /// The header bytes [`Materializing::node_bytes`] prices: honest at the
 /// real [`ROW_HEADER`], lying below it.
@@ -192,7 +192,7 @@ const MATERIALIZING_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
 #[derive(Clone, Debug)]
-struct MaterializedNode<N> {
+pub(crate) struct MaterializedNode<N> {
     inner: N,
     row: Vec<u8>,
 }

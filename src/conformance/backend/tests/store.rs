@@ -13,13 +13,27 @@
 //! this suite pins the trait seam itself rather than a public operation —
 //! the seam *is* the surface a backend implements.
 //!
-//! Not yet covered here: [`Store::commit`]'s sequencing law (invoked once
-//! per root-replacing commit, before the publish, with the built root and
-//! the identity clock) and the handle-custody contract. Both are no-ops
-//! for every backend this suite can currently instantiate, so a law here
-//! would pass vacuously; they gain their teeth alongside the first
-//! persistent backend's conformance run, whose store both records commits
-//! and reclaims storage.
+//! Not yet covered here, deferred to the first persistent backend's
+//! conformance run (every law below is vacuous while every instantiable
+//! backend's `commit` is a no-op):
+//!
+//! - [`Store::commit`]'s sequencing law: invoked once per root-replacing
+//!   commit, before the publish, with the built root and the identity
+//!   clock.
+//! - The handle-custody contract (a live handle's storage is never
+//!   reclaimed).
+//! - The [`PERSISTS`](Store::PERSISTS)↔[`commit`](Store::commit)
+//!   coherence coupling: a backend that overrides `commit` while leaving
+//!   `PERSISTS = false` is handed `clock: None` on every commit — the
+//!   stale-identity-record catastrophe `commit`'s own docs warn about —
+//!   so the suite must reject an override without the const.
+//! - The durable-identity shrink law: a party *shrink* (serving a
+//!   bootstrap's fork donation; retire's whole-party donation) reaches
+//!   the store's identity record before the donation crosses the wire,
+//!   and `clock: None` at a root flip *clears* the record rather than
+//!   retaining it — a restarted retiree must never resurrect a donated
+//!   party. The record may lag growth-ward only (see `commit`'s
+//!   subset-staleness contract).
 
 use std::ops::Bound;
 

@@ -195,6 +195,21 @@ pub trait Store<T: Send + Sync + 'static>: Backend<T, Node<Z>: Leaf<T>> {
     /// nothing, and [`PERSISTS`](Self::PERSISTS) tells committers so: a
     /// backend whose tree lives and dies with the process has nothing to
     /// flip.
+    ///
+    /// The backend must only *serialize* the received clock — never tick
+    /// it, join it with another record, or otherwise treat it as a live
+    /// identity. It is an alias of the committing party, and the aliasing
+    /// contract tolerates exactly one live copy; recording is the one
+    /// sanctioned use.
+    ///
+    /// The recorded clock may lag the live party *subset-ward*: party
+    /// growth (reclaiming a bookmarked region, recovering an absorbed
+    /// donation) is deliberately lock-free and can land between a
+    /// commit's clock capture and its transaction. That lag is an
+    /// invariant, not a defect — a crash then costs a benignly leaked
+    /// region, never a duplicated one — and the next root flip records
+    /// the grown identity. An implementation must not compensate by
+    /// consulting or merging any other identity record.
     fn commit(
         &self,
         root: &Root<Self, T>,

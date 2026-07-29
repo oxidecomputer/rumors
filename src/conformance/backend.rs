@@ -766,5 +766,8 @@ where
     }
 }
 
+// `pub(crate)`: the V1 protocol-gate tests borrow [`tests::Materializing`]
+// as the crate's one storage-owning backend, rather than minting a second
+// backend type (each new backend instantiation costs rustc dearly).
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

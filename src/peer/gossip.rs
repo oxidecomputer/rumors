@@ -245,6 +245,14 @@ impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
+            // Decline an unsupported protocol/backend pairing before any
+            // wire traffic (see `gossip_inner`'s twin gate).
+            #[cfg(any(test, feature = "protocol-v1"))]
+            if config.protocol == Protocol::V1 && !v1::supported::<T, S>() {
+                return Err(Error::ProtocolUnsupported {
+                    protocol: Protocol::V1,
+                });
+            }
             // Magic/version/network/intent preamble first, before either protocol
             // is allowed to trust peer-declared frame lengths.
             let mut staged = handshake::Staged::new();
@@ -321,11 +329,12 @@ impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
                 }),
                 #[cfg(any(test, feature = "protocol-v1"))]
                 Protocol::V1 => Box::pin(async move {
-                    // V1 runs only on the in-memory backend: the identity
-                    // downcast below is the stable-Rust gate that keeps the
-                    // alternating towers instantiating at `Local`'s node
-                    // types alone, and declines a storage-backed peer
-                    // before any wire traffic.
+                    // V1 runs only on the in-memory backend. The entry gate
+                    // above already declined any other pairing before the
+                    // preamble; this re-check keeps the arm total rather
+                    // than panicking, and the identity downcasts below keep
+                    // the alternating towers instantiating at `Local`'s
+                    // node types alone.
                     if !v1::supported::<T, S>() {
                         return Err(Error::ProtocolUnsupported {
                             protocol: Protocol::V1,
@@ -357,15 +366,6 @@ impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
                 return Ok(None);
             };
             let party = party::receive(&mut read).await?;
-            // Our absorption of the received identity completes with the
-            // in-memory `Peer` construction below, which cannot fail: certify
-            // completion now, and require the provider's certificate so `Ok`
-            // means it committed its donation. (V2 only; the V1 wire is
-            // frozen.) On `Err` the received fork is dropped — its region
-            // leaks, benignly, like any fork lost in flight.
-            if config.protocol == Protocol::V2 {
-                epilogue(&mut read, &mut write).await?;
-            }
             // The install here is plain construction, not a commit: the
             // `watch` channel is created around the reconciled tree, so no
             // concurrent handle exists yet and no commit lock is needed.
@@ -381,6 +381,19 @@ impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
             }))
             .await
             .map_err(|e| Error::Storage(StorageError(e)))?;
+            // Our absorption is now durable to whatever standard the
+            // backend keeps, and the `Peer` construction below cannot
+            // fail: certify completion, and require the provider's
+            // certificate so `Ok` means it committed its donation. (V2
+            // only; the V1 wire is frozen.) The order matters for a
+            // persisting backend: certifying before the persist could
+            // hand the provider a certificate for an absorption that
+            // never landed. On `Err` anywhere here the received fork is
+            // dropped — its region leaks, benignly, like any fork lost
+            // in flight.
+            if config.protocol == Protocol::V2 {
+                epilogue(&mut read, &mut write).await?;
+            }
             let peer = Self {
                 network: remote.network,
                 protocol: config.protocol,
@@ -675,6 +688,20 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
         T: BorshDeserialize + BorshSerialize,
     {
         let (read, write, connector, acceptor, epoch) = link;
+        // Decline an unsupported protocol/backend pairing before any wire
+        // traffic: the selection and the backend are both known here, so a
+        // storage-backed peer with V1 selected fails fast with nothing
+        // written and nothing read — the counterparty sees a dead session,
+        // never a mid-protocol failure.
+        #[cfg(any(test, feature = "protocol-v1"))]
+        if self.protocol == Protocol::V1 && !v1::supported::<T, S>() {
+            return (
+                Intent::Remain,
+                Err(Error::ProtocolUnsupported {
+                    protocol: Protocol::V1,
+                }),
+            );
+        }
         // The session's stats recorder: under V2, both protocol
         // participants below share it (the walk counts disputes, gains,
         // sheds, and the window grant; the proxy's codec seam counts
@@ -840,10 +867,12 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
             }),
             #[cfg(any(test, feature = "protocol-v1"))]
             Protocol::V1 => Box::pin(async move {
-                // V1 runs only on the in-memory backend; the downcast gate
-                // (see `v1_root`) declines a storage-backed peer before any
-                // wire traffic and keeps the alternating towers
-                // instantiating at `Local`'s node types alone.
+                // V1 runs only on the in-memory backend. The entry gate
+                // above already declined any other pairing before the
+                // preamble; the downcast keeps the alternating towers
+                // instantiating at `Local`'s node types alone, and its
+                // `None` arm keeps this re-check total rather than
+                // panicking.
                 let Some(prior_root) = v1::root::<T, S>(prior_tree.root) else {
                     return Err(Error::ProtocolUnsupported {
                         protocol: Protocol::V1,
@@ -1379,8 +1408,11 @@ struct PartyGuard<T: Send + Sync + 'static, S: Store<T>> {
 impl<T: Send + Sync + 'static, S: Store<T>> Drop for PartyGuard<T, S> {
     fn drop(&mut self) {
         if let Some(party) = self.party.take() {
-            self.recover
-                .send_modify(|inner| match inner.party.as_mut() {
+            // Party motion only: the tree is untouched, so no observer
+            // wakeup is due — `false` here, as in the bookmark reclaim,
+            // keeps "wake exactly once per committed change" exact.
+            self.recover.send_if_modified(|inner| {
+                match inner.party.as_mut() {
                     // Re-joining a fork we split off this very party: disjoint by
                     // construction, so the join cannot fail in a well-formed
                     // universe. The join must run unconditionally (it is the
@@ -1393,7 +1425,9 @@ impl<T: Send + Sync + 'static, S: Store<T>> Drop for PartyGuard<T, S> {
                     // We took the whole party (a retire that failed before the
                     // hand-off): put it back.
                     None => inner.party = Some(party),
-                });
+                }
+                false
+            });
         }
     }
 }
@@ -1511,8 +1545,11 @@ struct AbsorbGuard<T: Send + Sync + 'static, S: Store<T>> {
 impl<T: Send + Sync + 'static, S: Store<T>> Drop for AbsorbGuard<T, S> {
     fn drop(&mut self) {
         if let Some(party) = self.party.take() {
-            self.recover
-                .send_modify(|inner| match inner.party.as_mut() {
+            // Party motion only: the tree is untouched, so no observer
+            // wakeup is due — `false` here, as in the bookmark reclaim,
+            // keeps "wake exactly once per committed change" exact.
+            self.recover.send_if_modified(|inner| {
+                match inner.party.as_mut() {
                     // A donated party overlapping ours is a protocol
                     // violation the install path surfaces as
                     // [`Error::PartyOverlap`]; on this recovery path there
@@ -1526,7 +1563,9 @@ impl<T: Send + Sync + 'static, S: Store<T>> Drop for AbsorbGuard<T, S> {
                     // non-retiring `Peer`, so its party is present.
                     // Adopting keeps the arm total without a panic path.
                     None => inner.party = Some(party),
-                });
+                }
+                false
+            });
         }
     }
 }
