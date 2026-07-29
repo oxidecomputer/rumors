@@ -259,19 +259,24 @@ impl<'a> Walk<'a> {
     fn done(&self) -> bool {
         self.a.done()
             && self.b.done()
-            && self.am.as_ref().is_none_or(IdLeafCursor::done)
-            && self.bm.as_ref().is_none_or(IdLeafCursor::done)
+            && self.am.as_ref().is_none_or(PlateauCursor::done)
+            && self.bm.as_ref().is_none_or(PlateauCursor::done)
     }
 
     /// Advance the overlay one boundary: the deepest cursor steps, and
     /// every other cursor whose depth reaches the flip level steps in the
     /// same round (its boundary tied).
     ///
-    /// The pair sweep's tie rule at full arity: overlapping dyadic
+    /// The overlay-advance law ([`super::sweep::advance`]) at full
+    /// arity, stated over [`PlateauCursor`]: overlapping dyadic
     /// intervals nest, so the deepest cursor's plateau ends first, and a
     /// shallower cursor's end ties exactly when the flip level rises to
-    /// or above its depth. A cursor at depth zero (a single-leaf stream,
-    /// or no mask at all) never steps: a flip level is at least one.
+    /// or above its depth (tied sides close to one shared flip level,
+    /// debug-asserted here exactly as there). The n-ary loop is the
+    /// law's own; only the arity — and the slot dispatch below, a static
+    /// match over the concrete cursor types — is this walk's. A cursor
+    /// at depth zero (a single-leaf stream, or no mask at all) never
+    /// steps: a flip level is at least one.
     fn advance(&mut self) {
         let depths = self.depths();
         let deepest = (0..4)
@@ -291,9 +296,9 @@ impl<'a> Walk<'a> {
     fn depths(&self) -> [usize; 4] {
         [
             self.a.depth(),
-            self.am.as_ref().map_or(0, IdLeafCursor::depth),
+            self.am.as_ref().map_or(0, PlateauCursor::depth),
             self.b.depth(),
-            self.bm.as_ref().map_or(0, IdLeafCursor::depth),
+            self.bm.as_ref().map_or(0, PlateauCursor::depth),
         ]
     }
 
@@ -310,11 +315,13 @@ impl<'a> Walk<'a> {
                 }
                 flip
             }
-            1 => self
-                .am
-                .as_mut()
-                .expect("slot 1 is the present a-mask")
-                .step(),
+            1 => {
+                self.am
+                    .as_mut()
+                    .expect("slot 1 is the present a-mask")
+                    .step()
+                    .0
+            }
             2 => {
                 let (flip, step) = self.b.step();
                 fold(&mut self.diff, Side::B, step.negative, &step.magnitude);
@@ -325,11 +332,13 @@ impl<'a> Walk<'a> {
                 }
                 flip
             }
-            3 => self
-                .bm
-                .as_mut()
-                .expect("slot 3 is the present b-mask")
-                .step(),
+            3 => {
+                self.bm
+                    .as_mut()
+                    .expect("slot 3 is the present b-mask")
+                    .step()
+                    .0
+            }
             _ => unreachable!("four cursor slots"),
         }
     }

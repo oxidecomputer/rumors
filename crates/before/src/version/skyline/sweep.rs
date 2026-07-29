@@ -15,9 +15,10 @@
 //! and the pair integrals ([`query`](super::query)'s distance and lag),
 //! which re-fold them into a directed integrand. The single-cursor folds
 //! ([`query`](super::query)'s rank and min_ticks) consume [`LeafCursor`]
-//! and [`fold`] without the pair walk, and the projection overlay and the
-//! [`masked`](super::masked) walk state the advance law over their own
-//! cursor mixes on the same step vocabulary. The boundary bookkeeping
+//! and [`fold`] without the pair walk; the projection overlay
+//! ([`query`](super::query)'s project) runs [`advance`] over the
+//! skyline × id cursor mix; and the [`masked`](super::masked) walk runs
+//! the law at full arity on the trait. The boundary bookkeeping
 //! below is the shared correctness argument; the prose reads it through
 //! comparison, the simplest client.
 //!
@@ -291,8 +292,10 @@ pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude
 /// stepping past it crosses a boundary that carries the cursor's own
 /// payload. The overlay-advance law is stated once over this trait
 /// ([`advance`]); what a crossing means — a skyline's signed height
-/// delta ([`Step`]) — stays with the cursor, and the traversal folds
-/// nothing itself: the crossing is yielded for the caller's algebra.
+/// delta ([`Step`]), or nothing at all for a cursor whose payload is
+/// per-region state read between boundaries (the id cursors) — stays
+/// with the cursor, and the traversal folds nothing itself: the
+/// crossing is yielded for the caller's algebra.
 pub(super) trait PlateauCursor {
     /// What crossing a boundary carries, for the caller's algebra to
     /// fold.

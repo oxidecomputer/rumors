@@ -354,7 +354,7 @@ use crate::Rank;
 
 use super::build::SkylineBuilder;
 use super::emit::signed_sum;
-use super::sweep::{advance_diff, fold, LeafCursor, PlateauCursor, Side, Step};
+use super::sweep::{advance, advance_diff, fold, Crossed, LeafCursor, PlateauCursor, Side};
 use super::{gamma_code, zigzag_signed};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32
@@ -1456,7 +1456,15 @@ pub fn project(ev_bits: &BitsSlice, id: &crate::Party) -> Bits {
     let opening = if owned { first } else { Base::ZERO };
     out.leaf(sc.depth().max(ic.depth()), gamma_code(&opening));
     while !(sc.done() && ic.done()) {
-        let ev_step = advance_overlay(&mut sc, &mut ic, &mut height);
+        // The overlay-advance law drives the skyline × id cursor mix; an
+        // id crossing carries nothing, so the fold sees exactly the
+        // skyline's deltas, each folded into the running height as it is
+        // consumed.
+        let (ev_step, _) = advance(&mut sc, &mut ic, |crossing| {
+            if let Crossed::A(step) = crossing {
+                fold(&mut height, Side::A, step.negative, &step.magnitude);
+            }
+        });
         let now_owned = ic.owned();
         let (negative, magnitude) = match (owned, now_owned) {
             // Inside an owned run the output moves with the skyline; a
@@ -1504,69 +1512,22 @@ fn absolute_height(height: &mut Accumulator) -> Base {
     Base::from(magnitude)
 }
 
-/// Advance the skyline × id overlay one boundary.
-///
-/// The deeper cursor steps, and the other in the same step on a tie
-/// (the comparison sweep's bookkeeping, with the id side's flip levels
-/// playing the same role); the skyline's delta folds into `height` as
-/// it is consumed. Returns that delta when the skyline side stepped.
-fn advance_overlay(
-    sc: &mut LeafCursor<'_>,
-    ic: &mut IdLeafCursor<'_>,
-    height: &mut Accumulator,
-) -> Option<Step> {
-    match sc.depth().cmp(&ic.depth()) {
-        Ordering::Greater => {
-            let (ev_flip, step) = sc.step();
-            fold(height, Side::A, step.negative, &step.magnitude);
-            if ev_flip <= ic.depth() {
-                let flip = ic.step();
-                debug_assert_eq!(
-                    ev_flip, flip,
-                    "tied boundaries close to one shared flip level"
-                );
-            }
-            Some(step)
-        }
-        Ordering::Less => {
-            let flip = ic.step();
-            (flip <= sc.depth()).then(|| {
-                let (ev_flip, step) = sc.step();
-                fold(height, Side::A, step.negative, &step.magnitude);
-                debug_assert_eq!(
-                    flip, ev_flip,
-                    "tied boundaries close to one shared flip level"
-                );
-                step
-            })
-        }
-        Ordering::Equal => {
-            let (ev_flip, step) = sc.step();
-            fold(height, Side::A, step.negative, &step.magnitude);
-            let flip = ic.step();
-            debug_assert_eq!(
-                ev_flip, flip,
-                "equal-depth leaves share their whole path, so their flip levels agree"
-            );
-            Some(step)
-        }
-    }
-}
-
 /// A cursor at the current constant-ownership region of a packed id
 /// stream.
 ///
 /// The id-side mirror of the skyline [`LeafCursor`]: the same
-/// root-to-leaf path bits and the same flip bookkeeping, with a 1-bit
-/// payload (owned or not) instead of a height delta. Absent children in
-/// the packed form are unowned regions, so the cursor synthesizes an
-/// empty leaf wherever a present-child flag is clear without consuming
-/// stream bits; exhaustion is therefore tracked by the path's
-/// left-branch count (zero means the current leaf is the preorder last),
-/// not by stream position.
+/// root-to-leaf path bits and the same flip bookkeeping, entering every
+/// overlay through [`PlateauCursor`] with a state payload (owned or
+/// not, read between boundaries) instead of a height delta. Absent
+/// children in the packed form are unowned regions, so the cursor
+/// synthesizes an empty leaf wherever a present-child flag is clear
+/// without consuming stream bits; exhaustion is therefore tracked by
+/// the path's left-branch count (zero means the current leaf is the
+/// preorder last), not by stream position.
 ///
 /// Shared with the masked comparison co-walk ([`super::masked`]), which
-/// runs the same overlay bookkeeping against up to two of these cursors.
+/// runs the advance law at full arity against up to two of these
+/// cursors.
 pub(super) struct IdLeafCursor<'a> {
     cursor: SliceCursor<'a>,
     /// Root-to-leaf branch directions, root first.
@@ -1604,57 +1565,9 @@ impl<'a> IdLeafCursor<'a> {
         this
     }
 
-    /// The current region's depth: its interval has width `2^-depth`.
-    pub(super) fn depth(&self) -> usize {
-        self.path.len()
-    }
-
     /// Whether the current region is owned by the id.
     pub(super) fn owned(&self) -> bool {
         self.owned
-    }
-
-    /// Whether the current region is the stream's last (its interval
-    /// ends at the unit interval's right edge).
-    pub(super) fn done(&self) -> bool {
-        self.lefts == 0
-    }
-
-    /// Advance past the current region to the next, returning the flip
-    /// level's depth for the caller's tie test.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the stream is not a canonical packed id. Never called
-    /// on a final region (the overlay stops when both cursors are done).
-    pub(super) fn step(&mut self) -> usize {
-        loop {
-            match self.path.pop() {
-                Some(true) => {
-                    self.right_present.pop();
-                    continue;
-                }
-                Some(false) => break,
-                None => unreachable!(
-                    "the advanced cursor is never at its final region: an all-right path means the stream is consumed"
-                ),
-            }
-        }
-        self.lefts -= 1;
-        self.path.push(true);
-        let flip = self.path.len();
-        if *self
-            .right_present
-            .last()
-            .expect("a flipped level recorded its right-child flag")
-        {
-            self.descend();
-        } else {
-            // The absent right child: one synthetic unowned region at the
-            // flip level itself.
-            self.owned = false;
-        }
-        flip
     }
 
     /// Descend from the cursor to the next stored region in preorder,
@@ -1685,6 +1598,61 @@ impl<'a> IdLeafCursor<'a> {
                 return;
             }
         }
+    }
+}
+
+impl PlateauCursor for IdLeafCursor<'_> {
+    /// An id boundary carries no payload: ownership is the *current*
+    /// region's state, read between boundaries
+    /// ([`owned`](IdLeafCursor::owned)), never a crossing delta.
+    type Crossing = ();
+
+    /// The current region's depth: its interval has width `2^-depth`.
+    fn depth(&self) -> usize {
+        self.path.len()
+    }
+
+    /// Whether the current region is the stream's last (its interval
+    /// ends at the unit interval's right edge).
+    fn done(&self) -> bool {
+        self.lefts == 0
+    }
+
+    /// Advance past the current region to the next: the flip level's
+    /// depth for the law's tie test, and the empty crossing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stream is not a canonical packed id. Never called
+    /// on a final region (the overlay stops when both cursors are done).
+    fn step(&mut self) -> (usize, ()) {
+        loop {
+            match self.path.pop() {
+                Some(true) => {
+                    self.right_present.pop();
+                    continue;
+                }
+                Some(false) => break,
+                None => unreachable!(
+                    "the advanced cursor is never at its final region: an all-right path means the stream is consumed"
+                ),
+            }
+        }
+        self.lefts -= 1;
+        self.path.push(true);
+        let flip = self.path.len();
+        if *self
+            .right_present
+            .last()
+            .expect("a flipped level recorded its right-child flag")
+        {
+            self.descend();
+        } else {
+            // The absent right child: one synthetic unowned region at the
+            // flip level itself.
+            self.owned = false;
+        }
+        (flip, ())
     }
 }
 
