@@ -33,9 +33,12 @@ folds need (@measures) — four housekeeping ones:
 + *materialize* the held value as an ordinary integer, in work
   proportional to that value's own width. The operation opens with
   the same collapsing fold the sign query runs (@sign), which
-  brings the held spelling within two digits of the value's width;
-  this fold, not a sign query, is also how a scaled-mode
-  accumulator is finally read;
+  brings the held spelling within two digits of the value's width.
+  A scaled-mode accumulator is instead read out through its _write
+  watermark_: the value returns as a magnitude and a power-of-two
+  scale, priced by the span from the lowest position written since
+  the accumulator last emptied up to its top — the untouched scale
+  prefix beneath the writes is never spelled and never walked;
 + *move* a held value between slots, $O(1)$ — a buffer swap (a
   walk parking a boundary quantity aside rather than folding it);
 + *fold* one accumulator into another, at the cost of the _dying_
@@ -212,6 +215,29 @@ materialization starts at the tracked top index and is denominated
 in _held_ lanes, so lanes above the held value, zeroed or never
 touched, are never scanned again.
 
+Keeping that top index _exact_ has a cost of its own, and it is the
+one place a scan with no funding source could hide. When a write
+cancels the highest nonzero digit, the new top is the next nonzero
+digit below — and between a scaled write's landing site and the
+digits beneath it lies a run of never-written zeros that no code
+ever paid to walk. An alternating pair of far-apart scaled writes
+would make a naive settling scan walk that run again and again,
+forever, at a price that grows with the scale. The accumulator
+instead keeps a ledger of _zero-run certificates_: a write that
+lands above the current top records the run it jumped as one entry,
+$O(1)$ whatever the run's width; a scan that reaches a certified
+run consumes the certificate and crosses the run whole, one touch;
+a write whose carries land inside a certified run splits the entry
+around the digits actually written. Each certificate is created
+once, by the write that jumped the run, and consumed at most once,
+so top maintenance never exceeds the metered work that funded it —
+amortized $O(1)$ per write beyond the write's own deposits, at any
+scale, on any schedule. The alternative — tracking the top as a
+high-water mark that only rises — silently re-prices every later
+read at the highest lane ever touched, long after a cancellation
+emptied it; @sign constructs the input pair that punishes exactly
+that substitution.
+
 #figure(
   {
     lanes((
@@ -295,10 +321,22 @@ digit 0 with $sigma = 1$ — the value, exactly. The collapse zeroes
 the four scanned lanes, deposits $1$ at lane 0, and lowers the
 held top to 0: the vector now reads $(0, 0, 0, 1)$, and the next
 sign query costs one touch. So *each held lane is scanned at most
-once per write that raised the held top above it* — zero lanes
-standing between surviving digits included, since the write that
-raised the top past a lane is the write that put it in the fold's
-path. The charge is honest exactly when the write can pay it, and an
+once per write that raised the held top above it* — and a run of
+never-written lanes is not scanned even once: the fold with a
+nonzero partial decides within a step of entering one, and a fold
+or settling scan carrying a zero partial consumes the run's
+certificate (@redundant's storage remark) and crosses it whole.
+The exactness of the top matters as much as the collapse. Consider
+two long unit-step streams whose second codes both spike $2^(32 g)$:
+the comparison sweep folds the two spikes into its running
+difference at one boundary — they cancel, leaving a value of one
+digit under a buffer $g$ digits tall — and then reads the sign once
+per remaining boundary, thousands of reads with no intervening
+write. With the top settled at the surviving digit, each read is
+one touch; with a high-water top, each read re-walks the spike's
+$g$ dead digits — $Theta(m dot g)$ on a $Theta(m + g)$-bit pair,
+the cost the spike's own code paid exactly once.
+The charge is honest exactly when the write can pay it, and an
 unscaled write can: a delta of $w$ magnitude bits places its own
 digits no higher than lane $w\/32 + 1$, a span its application
 already touched and its code already funded — and it raises the top

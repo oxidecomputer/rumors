@@ -52,9 +52,10 @@ the bands' edges overlap only because each aggregates several
 operations.) And the values
 are _flat across input shapes_: the adversarial families of the
 previous sections land in the same bands as organic values of the
-same size, with the two bounded exceptions already stated —
-the pinned-counter shape of @measures and the prediction cost of
-@words. All
+same size, with the two priced exceptions already stated — the
+area measures' settle products, which run at the multiplication
+bound their floor proves mandatory (@measures), and the prediction
+cost of @words. All
 per-byte figures are taken over the bench corpus's organic sizes,
 tens to hundreds of bytes, where per-call fixed costs share the
 denominator at the small end. At the scales where the adversarial
