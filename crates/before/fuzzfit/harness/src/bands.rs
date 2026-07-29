@@ -49,7 +49,12 @@
 //! flips, and the worst-case pin clean. Attribution is parent-measured,
 //! fit against fit (a fresh parent calibration reproduced the committed
 //! pin byte-identically before the change): 29 of 49 band keys moved,
-//! all at the third decimal or below. The walk kernels' constants:
+//! every slope and intercept at the third decimal or below, and every
+//! width leg likewise except the comparison pair's below-line widths,
+//! which narrowed (`ff_version_cmp` −0.0115, `ff_version_concurrent`
+//! −0.0116: the re-fit's one-sided residual cloud pulled in from
+//! below, tightening the liveness allowance). The walk kernels'
+//! constants:
 //! `ff_version_cmp`/`ff_version_concurrent` intercepts
 //! +0.0053/+0.0052 (~1.2% fuel at the fit line, slopes −0.0014),
 //! `ff_version_project` +0.0047, `ff_version_lag` +0.0032,
@@ -57,12 +62,12 @@
 //! +0.0019 to +0.0028, `ff_party_without` +0.0011 (its rejection arm
 //! +0.0002), with `ff_version_rank`, `ff_version_min_ticks`, and
 //! `ff_version_tick` unmoved past the fourth decimal. The single
-//! largest movement is an untouched kernel — `ff_rank_add` intercept
-//! +0.0099 at slope −0.0034, Rank addition, which shares nothing with
-//! the walk seam — so that scale of residue is guest code layout from
-//! the recompile, and the walk kernels' own movement sits at or under
-//! the ~1.2% pair. The enforcement leg held green at the previous pin
-//! before the re-fit.
+//! largest constant movement is an untouched kernel — `ff_rank_add`
+//! intercept +0.0099 at slope −0.0034, Rank addition, which shares
+//! nothing with the walk seam — so that scale of residue is guest code
+//! layout from the recompile, and the walk kernels' own constant
+//! movement sits at or under the ~1.2% pair. The enforcement leg held
+//! green at the previous pin before the re-fit.
 //!
 //! Re-pinned 2026-07-29 at the overlay-advance unification (the
 //! plateau-cursor trait and the one generic binary `advance` in
