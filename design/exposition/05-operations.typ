@@ -1434,6 +1434,77 @@ way the stream order makes vivid:
   nested sites sharing one wide minimum store its width once, not
   $k$ times.
 
+#figure(
+  attack(
+    [nested raises$(d, W)$],
+    [the right-full arm's deferred bookkeeping],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([id], codestrip((
+        ([site], 26pt, "t"), ([site], 26pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([site], 26pt, "t"), ([full], 26pt, "t"),
+      ))),
+      oprow([version], codestrip((
+        ([$W$-bit root], 64pt, "w"), ([level], 24pt, "t"),
+        ([level], 24pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([level], 24pt, "t"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [a right-full shortcut site at every one of $d$ id levels —
+         the deepest stacking of deferred raise decisions — with a
+         wide variant putting the root's $W$ bits into every
+         level's net movement]),
+    ),
+    [bookkeeping that carries an absolute quantity per open site
+     pays width $times$ depth through the right-full arm — the
+     path-sum defect reborn in the walk's suspended state.],
+    cure: [watermarks as differences (@tick-web) and raises funded
+      at the range's close: the narrow variant reads flat, and the
+      wide variant's one wide quantity rides a single accumulator,
+      never the stack.],
+  ),
+  kind: image,
+  caption: [The nested raises attack card: every level a shortcut
+    site, aimed at the walk's suspended state — narrow and wide
+    variants.],
+) <fig-attack-nested>
+
+#figure(
+  attack(
+    [mirrored nesting$(d, W)$],
+    [the memoized pre-scan],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([id], codestrip((
+        ([left-full site], 48pt, "t"), ([left-full site], 48pt, "t"),
+        ([$dots.c$], 14pt, "x"), ([left-full site], 48pt, "t"),
+      ))),
+      oprow([version], codestrip((
+        ([level], 24pt, "t"), ([level], 24pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([level], 24pt, "t"), ([$W$-bit tail], 60pt, "w"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [the mirror image: a left-full site at every level, so
+         every raise needs a _future_ range's minimum; a comb
+         variant makes consumption order run $Theta(d)$ apart from
+         recording order, and a wide tail puts $W$ bits into every
+         net movement]),
+    ),
+    [an unmemoized pre-scan re-reads shared subranges once per
+     enclosing site — quadratic; records resolved by walking the
+     recorded differences between consecutively consumed sites
+     re-read $Theta(d)$ of them per consume.],
+    cure: [one fresh scan per uncovered range, with per-site
+      records held as bounded differences against the walk's own
+      live state — consumed in $O(1)$ each, wherever the
+      consumption order lands. A raise-ordering variant, whose
+      every consume moves the tracked minimum, pins the
+      decide-then-emit ordering the records must survive.],
+  ),
+  kind: image,
+  caption: [The mirrored nesting attack card: the left-full memo
+    family — chains, combs, fanouts, and churn variants all land
+    on the same two disciplines.],
+) <fig-attack-memo>
+
 === The watermark web <tick-web>
 
 Open ranges nest, so the walk needs a LIFO stack of range minima
@@ -1578,6 +1649,97 @@ costs through @funding's three funding sources:
 The same difference discipline runs inside the memoized pre-scan, as
 @tick-walk already noted for its memory; the pre-scan is a second
 instance of the web, not a second mechanism.
+
+#figure(
+  attack(
+    [descending staircase$(d)$],
+    [the watermark stack's undercut cascade],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 7), (0.125, 6), (0.125, 5), (0.125, 4),
+         (0.125, 3), (0.125, 2), (0.125, 1), (0.125, 0)),
+        w: 210pt, unit: 9pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [unit steps descending a $d$-level spine: the first descent
+         drags every open minimum down together, zeroing every
+         enclosing difference — and each further step undercuts the
+         whole stack again]),
+    ),
+    [with one frame per open range, each unit step penetrates the
+     full stack of dead frames with no deaths left to fund the
+     walk: $Theta(d^2)$ on unit-scale values.],
+    cure: [zero-run compression: frames sharing one minimum are one
+      counted entry, penetrated all or none, so each undercut costs
+      its _dying_ differences plus $O(1)$ — both halves measured,
+      the uncompressed quadratic reproducible.],
+  ),
+  kind: image,
+  caption: [The descending staircase attack card: every level
+    undercut at once, aimed at per-frame cascade work.],
+) <fig-attack-staircase>
+
+#figure(
+  attack(
+    [ascending cliff$(s)$],
+    [the undercut's fold direction],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 1), (0.125, 2), (0.125, 3), (0.125, 4),
+         (0.125, 5), (0.125, 6), (0.125, 7), (0.125, 0)),
+        w: 210pt, unit: 9pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$s$ ascending wide leaves arm $s - 1$ nonzero unit
+         boundary differences, then a terminal cliff to zero drives
+         one $s$-scale residue outward through all of them]),
+    ),
+    [per hop, the residue meets a narrow difference: a fold that
+     always subtracts the residue _into_ the survivor re-writes the
+     residue's width at every hop — $Theta(s^2)$ — where the dying
+     side's width is $O(1)$.],
+    cure: [domination decides each hop's direction before any fold
+      (@sign's floors), so the dying side always funds the fold
+      that consumes it; a leveled control with the same hop
+      schedule passes the whole stack as one zero run, isolating
+      the genre.],
+  ),
+  kind: image,
+  caption: [The ascending cliff attack card: a wide residue driven
+    through narrow boundaries, aimed at fold-direction mistakes.],
+) <fig-attack-ascend>
+
+#figure(
+  attack(
+    [reveal comb$(t, k)$],
+    [the close rule — move versus fold],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.11, 0), (0.127, 5), (0.127, 6), (0.127, 5), (0.127, 6),
+         (0.127, 5), (0.127, 6), (0.128, 5)),
+        w: 210pt, unit: 9pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$t$ sibling sites sharing one $2^k$-scale minimum over a
+         zero floor (the sliver at the left), the walk closing each
+         site's range back into the floor's between consecutive
+         visits: a $k$-wide boundary difference is minted and
+         popped once per site]),
+    ),
+    [fold-on-close re-folds the wide boundary difference on every
+     close/reopen cycle — sites $times$ scale work on sites $+$
+     scale input, with no code funding any crossing.],
+    cure: [the close _moves_ the difference into the one-slot
+      register, $O(1)$; only deaths fold, and each is funded once.
+      A bare variant with no shortcut site isolates the stack's own
+      arm/close cycle, and a raised-floor control shrinks the
+      circulated width to $O(1)$ — the gap control.],
+  ),
+  kind: image,
+  caption: [The reveal comb attack card (with its bare and
+    raised-floor kin): the close/reopen cycle that refuted an
+    earlier design of this walk.],
+) <fig-attack-reveal>
 
 === The changed flag, and the fused `grow` <tick-fusion>
 
