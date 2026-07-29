@@ -29,17 +29,16 @@
 //!   peak by powers of two, so a probe pair straddling a `k` step
 //!   manufactures an exponent out of exactly the profile the model
 //!   prices.
-//! - **Family-stated heap ceilings** (the tooth-tail parse cell, the
-//!   ascend-cliff tick trio, and the ascend-cliff `version_min_ticks`
-//!   cell): honest flat-exponent work state a ratified derivation puts
-//!   over the global heap allowance — the densest committed
-//!   node-per-text-byte parse stream, the zero-run ledger's certificate
-//!   memory on the one shape that defeats consumption, and the anchor
-//!   web's `Θ(k)` live reign records on the one shape that defeats
-//!   batching. The heap *constant* is judged at the stated ceiling
-//!   (each declaring constant carries its derivation and measured
-//!   profile); the exponent leg stays at the global bound, so a
-//!   flat-constant declaration can never absorb growth.
+//! - **Family-stated heap ceilings** (the ascend-cliff tick trio and
+//!   the ascend-cliff `version_min_ticks` cell): honest flat-exponent
+//!   work state a ratified derivation puts over the global heap
+//!   allowance — the zero-run ledger's certificate memory on the one
+//!   shape that defeats consumption, and the anchor web's `Θ(k)` live
+//!   reign records on the one shape that defeats batching. The heap
+//!   *constant* is judged at the stated ceiling (each declaring
+//!   constant carries its derivation and measured profile); the
+//!   exponent leg stays at the global bound, so a flat-constant
+//!   declaration can never absorb growth.
 //! - **The mirror-wide display pair** (`version_display`,
 //!   `clock_display` on the mirror-wide cross): the render merge's
 //!   documented superlinear time class, judge-rostered on the wall leg,
@@ -365,29 +364,6 @@ pub(super) fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f
     let denom_growth = (n2 as f64 / n1 as f64).log2();
     1.0 + (levels2 / levels1).log2() / denom_growth + (MAX_SCALING_EXPONENT - 1.0)
 }
-
-/// The tooth-tail parse rows' family-stated heap ceiling, in bytes per
-/// text byte.
-///
-/// `version_parse_noncanon` on the tooth-tail column is judged at this
-/// flat constant in place of [`MAX_HEAP_BYTES_PER_INPUT_BYTE`] (the
-/// declared-models section; the exponent leg stays at the global
-/// bound).
-///
-/// Derivation: the tooth-tail pair is the board's densest
-/// node-per-text-byte family — its text spells thousands of
-/// single-digit unit leaves at ~5 text bytes per tree node where every
-/// other committed family's text carries multi-digit values — so the
-/// parser's materialized tree plus its transient scaffolding
-/// legitimately exceeds the global 16 B/B flat allowance at a flat
-/// exponent, and parse paths are not constant-optimized by owner
-/// policy. Measured 2026-07-28 (release, both acceptance scales):
-/// 20.7 → 20.8 B per text byte at heap exponent 1.00 — a constant, not
-/// a class; the ceiling is the worst reading ×1.25 (owner ratification
-/// 2026-07-28, conditional on exactly this flat-constant profile). A
-/// reading over it is a genuine parse-heap regression on the densest
-/// committed stream.
-pub const TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE: f64 = 26.0;
 
 /// The ascending-cliff tick trio's family-stated heap ceiling, in bytes
 /// per packed input byte.

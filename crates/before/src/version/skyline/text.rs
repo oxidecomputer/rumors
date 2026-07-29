@@ -22,7 +22,15 @@
 //!   base joins the accumulator on descent and leaves it on ascent (each
 //!   base charged at most twice), and at each leaf the accumulator holds
 //!   exactly the leaf-to-leaf delta the skyline payload codes — extracted,
-//!   zigzag-coded, and fed to the collapsing output builder. The
+//!   zigzag-coded, fed to the collapsing output builder, and *reset*.
+//!   The reset settles the digit buffer's top back to zero, so every
+//!   extraction pays the span written since the previous leaf and a
+//!   trailing run of zero-delta leaves after one wide swing stays O(1)
+//!   each — the exact-`top` discipline, held by the wide-arming flatness
+//!   band in `tests/meter.rs` and the committed schoolbook kernel beside
+//!   this module's tests (which preserves the compensating-subtraction
+//!   read, whose value-zero re-zero parks the top at the swing's width
+//!   and re-walks its dead digits once per later leaf). The
 //!   accumulator is the cliff-immune [`Accumulator`]: a plain big-integer running
 //!   value re-imports the boundary comb's quadratic carry genre. The ≤2×
 //!   charge is enforced structurally (one join, one leave per base) plus,
@@ -34,9 +42,11 @@
 //!   beside it, so accumulator work cannot migrate between the two text
 //!   directions without moving a committed number.
 //!
-//! Both walks are iterative — explicit frame vectors and a phase bit
-//! stack, never the call stack — so depth grows no stack segments at any
-//! input size.
+//! Both walks are iterative — parallel open-node stacks (one phase bit
+//! per open node, with the per-level state in chunked side stacks) and
+//! never the call stack — so depth grows no stack segments at any input
+//! size, and a deep spine's transient is priced per open node without
+//! enum padding or a doubling buffer's realloc coexistence.
 //!
 //! The kernels are module-private to the skyline codec (test- and
 //! meter-visible) and *are* the production text path: `Display` routes to
@@ -79,6 +89,19 @@ const INTERNAL_SYNTAX_BYTES: usize = 2 + 2 * SEP.len();
 /// One phase bit per open node on the emit pass's pending stack; a full
 /// binary tree needs no presence bits beside it.
 const LEFT_PHASE: bool = true;
+
+/// The widest path-sum digit buffer the parse's per-leaf re-zeroing
+/// keeps pooled, in accumulator digits.
+///
+/// A machine-word delta deposits across at most two base-2^32 digits;
+/// four is double that span, so every word-scale schedule reuses one
+/// pooled buffer and never allocates per leaf. A wider buffer means a
+/// wide swing just extracted — work funded by the swing's own spelled
+/// digits, as the next wide leaf's will be — and keeping it would pin
+/// swing-sized capacity under everything the rest of the parse
+/// allocates: the high-water genre in the memory denomination, so the
+/// parse drops the buffer whole instead.
+const PATH_SUM_KEEP_DIGITS: usize = 4;
 
 /// What a completed subtree contributes to its parent's merge, all in
 /// coordinates relative to the subtree's own entry (first) leaf.
@@ -125,39 +148,42 @@ struct StoredLeft {
     incoming: (bool, Base),
 }
 
-/// How many parked summaries one [`ParkedStack`] chunk holds: small
-/// enough that a shallow render's single chunk sits inside the board's
+/// How many parked entries one [`ParkedStack`] chunk holds: small
+/// enough that a shallow walk's single chunk sits inside the board's
 /// flat heap allowance, large enough that the chunk spine stays
 /// negligible.
 const PARKED_CHUNK: usize = 64;
 
-/// A LIFO of parked left summaries in fixed-size chunks.
+/// A LIFO in fixed-size chunks: both text walks' open-node side
+/// stacks.
 ///
-/// One summary is parked per open node past its left phase, so on a
-/// right-descending spine this stack holds one entry per level — the
-/// render's dominant transient. Chunking bounds the live slack to one
-/// chunk and, unlike a doubling `Vec`, never holds an old and a new
-/// buffer at once during growth: that realloc coexistence spike is
-/// exactly what pushed the deep left-full shapes over the board's heap
-/// ceiling, and a chunk never moves once allocated.
-struct ParkedStack {
+/// The render parks one left-child summary per open node past its left
+/// phase; the parse parks each open node's written base and its left
+/// summary the same way — so on a deep spine these stacks hold one
+/// entry per level, the walks' dominant transient. Chunking bounds the
+/// live slack to one chunk and, unlike a doubling `Vec`, never holds
+/// an old and a new buffer at once during growth: that realloc
+/// coexistence spike is exactly what pushed the deep left-full shapes
+/// over the board's heap ceiling, and a chunk never moves once
+/// allocated.
+struct ParkedStack<T> {
     /// The stack's chunks, oldest first; every chunk but the last is
     /// full, and no empty chunk is kept.
-    chunks: Vec<Vec<StoredLeft>>,
+    chunks: Vec<Vec<T>>,
     /// One drained chunk cached across a boundary, so a push/pop
     /// oscillation at a chunk edge does not thrash the allocator.
-    spare: Option<Vec<StoredLeft>>,
+    spare: Option<Vec<T>>,
 }
 
-impl ParkedStack {
-    fn new() -> ParkedStack {
+impl<T> ParkedStack<T> {
+    fn new() -> ParkedStack<T> {
         ParkedStack {
             chunks: Vec::new(),
             spare: None,
         }
     }
 
-    fn push(&mut self, summary: StoredLeft) {
+    fn push(&mut self, entry: T) {
         if self.chunks.last().is_none_or(|c| c.len() == PARKED_CHUNK) {
             let chunk = self
                 .spare
@@ -168,16 +194,16 @@ impl ParkedStack {
         self.chunks
             .last_mut()
             .expect("a chunk with room is on top")
-            .push(summary);
+            .push(entry);
     }
 
-    fn pop(&mut self) -> Option<StoredLeft> {
+    fn pop(&mut self) -> Option<T> {
         let chunk = self.chunks.last_mut()?;
-        let summary = chunk.pop().expect("no empty chunk is kept");
+        let entry = chunk.pop().expect("no empty chunk is kept");
         if chunk.is_empty() {
             self.spare = self.chunks.pop();
         }
-        Some(summary)
+        Some(entry)
     }
 
     fn is_empty(&self) -> bool {
@@ -453,19 +479,21 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
         base: Base,
         is_leaf: bool,
     }
-    /// While parsing an open node's text, what the stream still owes it.
-    enum EvFrame {
-        /// Consumed `(`, the base, and the first separator; the left
-        /// child's text is next.
-        NeedLeft { base: Base },
-        /// Consumed the left child and the second separator; the right
-        /// child's text is next.
-        NeedRight { base: Base, left: Child },
-    }
 
     let mut cur = Cur::new(s);
     let mut builder = SkylineBuilder::with_capacity(s.len());
-    let mut frames: Vec<EvFrame> = Vec::new();
+    // The open-node stacks, innermost last — the render's parallel-stack
+    // discipline: `phase` holds one bit per open node ([`LEFT_PHASE`]
+    // while it awaits its left child), `bases` the node's own written
+    // base, and `lefts` the parked left-child summary of each open node
+    // past its left phase. An enum-of-frames layout would pad every
+    // open level to its widest variant, and a flat `Vec` of frames
+    // holds an old and a new buffer at once while it doubles — on a
+    // deep spine that padded coexistence alone is most of the parse's
+    // transient.
+    let mut phase = Bits::new();
+    let mut bases: ParkedStack<Base> = ParkedStack::new();
+    let mut lefts: ParkedStack<Child> = ParkedStack::new();
     // The signed height movement since the last emitted leaf.
     let mut delta = Accumulator::new();
     let mut emitted_first = false;
@@ -482,7 +510,8 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
                     return Err(Parse::Syntax);
                 }
                 delta.add_magnitude(&base);
-                frames.push(EvFrame::NeedLeft { base });
+                phase.push(LEFT_PHASE);
+                bases.push(base);
                 continue 'nodes;
             }
             Some(c) if c.is_ascii_digit() => {}
@@ -492,25 +521,39 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
         delta.add_magnitude(&base);
 
         // Emit the leaf's plateau: the accumulated movement is exactly the
-        // leaf-to-leaf delta (absolute for the first leaf), and extracting
-        // it re-zeroes the accumulator for the next one.
+        // leaf-to-leaf delta (absolute for the first leaf), and the
+        // re-zeroing below readies the accumulator for the next one. The
+        // re-zeroing is a reset — not a compensating subtraction of the
+        // extracted magnitude — which is what keeps the walk linear: it
+        // settles the digit buffer's top back to zero, so the next
+        // extraction pays the span written since *this* leaf, never a
+        // stale wide spelling left cancelling above it (a value-zero
+        // subtraction can leave the top parked at the widest swing, and
+        // every later leaf would re-walk those dead digits — the
+        // exact-`top` genre the wide-arming pins hold).
         let (sign, magnitude) = delta.sign_magnitude();
+        if delta.digit_count() > PATH_SUM_KEEP_DIGITS {
+            // The same genre in the memory denomination: a reset keeps
+            // the buffer's capacity, so one wide swing would otherwise
+            // pin a swing-sized buffer under everything the rest of the
+            // parse allocates. A wide extraction was funded by its own
+            // spelled digits, and so is the next one — drop the buffer
+            // whole and let the pool hold word-scale buffers only.
+            delta = Accumulator::new();
+        } else {
+            delta.reset();
+        }
         let code = if emitted_first {
             gamma_code(&zigzag_signed(
                 sign == Ordering::Less,
-                Base::from(magnitude.clone()),
+                Base::from(magnitude),
             ))
         } else {
             emitted_first = true;
             debug_assert_ne!(sign, Ordering::Less, "a path sum of naturals is a natural");
-            gamma_code(&Base::from(magnitude.clone()))
+            gamma_code(&Base::from(magnitude))
         };
-        match sign {
-            Ordering::Greater => delta.sub_wide(&magnitude),
-            Ordering::Less => delta.add_wide(&magnitude),
-            Ordering::Equal => {}
-        }
-        builder.leaf(frames.len(), code);
+        builder.leaf(phase.len(), code);
         delta.sub_magnitude(&base); // the leaf's base exits the path
 
         // Close every node the leaf completes.
@@ -520,22 +563,24 @@ pub fn parse(s: &str) -> Result<Bits, Parse> {
         };
         loop {
             step!();
-            match frames.pop() {
+            match phase.pop() {
                 None => break 'nodes,
-                Some(EvFrame::NeedLeft { base }) => {
+                Some(LEFT_PHASE) => {
                     if cur.bump() != Some(b',') {
                         return Err(Parse::Syntax);
                     }
-                    frames.push(EvFrame::NeedRight {
-                        base,
-                        left: summary,
-                    });
+                    phase.push(!LEFT_PHASE);
+                    lefts.push(summary);
                     continue 'nodes;
                 }
-                Some(EvFrame::NeedRight { base, left }) => {
+                Some(_) => {
                     if cur.bump() != Some(b')') {
                         return Err(Parse::Syntax);
                     }
+                    let left = lefts
+                        .pop()
+                        .expect("a node past its left phase parked a summary");
+                    let base = bases.pop().expect("an open node owns this phase bit");
                     // Normal form: a zero-base child under every node, and
                     // no equal sibling leaves (which the builder collapses
                     // rather than stores, so the flag is the only witness).

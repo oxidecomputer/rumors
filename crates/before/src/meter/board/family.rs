@@ -16,7 +16,10 @@
 //! `freeze-parade` (the deep-segment freeze spine, one scaled segment
 //! read per block), `plateau-puncture` (the answer-embedded product:
 //! the exact rank is
-//! one wide × dense multiplication), and `lone-freeze` (the
+//! one wide × dense multiplication), `wide-arming` (the single-arming
+//! wide × dense sentinel: one `2^(32s)` ledger arming over a
+//! `Θ(s)`-dense trailing mass, whose rendered text is the parse seam's
+//! exact-`top` shape), and `lone-freeze` (the
 //! first-freeze gate straddle, a never-freezing plateau prefix and a
 //! frozen tail on one knob) — carry a version; the diverted id-spine
 //! pair carries a
@@ -42,7 +45,7 @@
 //! shapes — the designated adversarial × adversarial pairing.
 //!
 //! The recurring carrier classes, named here because no single
-//! declaration spells them out: the 27
+//! declaration spells them out: the 28
 //! version-carrying shapes (all but `id-pair` and the three fold
 //! populations) run every version row; the party-pair carriers
 //! (`id-pair`, `comb-scatter`, the ten tick crosses, `benign`) run the
@@ -57,7 +60,7 @@
 //! kernel-seam probes live in the envelope suite alone. The criterion and
 //! the add-a-shape touch list sit on the `FAMILIES` roster below.
 //!
-//! Ten shapes carry a genre note beyond their variant docs:
+//! Eleven shapes carry a genre note beyond their variant docs:
 //!
 //! - `freeze-pos`, built against the linear-functional rows: `Θ(s)`
 //!   query-fold freezes at ever-deeper stream positions where every
@@ -99,9 +102,20 @@
 //!   touch floor: same-shape operands share every overlay boundary,
 //!   so the fused sweep honestly folds ~once per boundary against two
 //!   stored deltas, and its parse rows are the board's densest
-//!   node-per-text-byte streams (the family-declared parse heap
-//!   ceiling at [`TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`](super::ceilings::TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE) carries
-//!   the derivation).
+//!   node-per-text-byte streams — the parse heap argmax, priced by the
+//!   materialized tree itself under the global flat allowance.
+//!
+//! - `wide-arming`, the settle's wide × dense product genre and the
+//!   parse's exact-`top` genre on one shape: one `2^(32s)` arming
+//!   ahead of a `Θ(s)`-dense trailing mass. The ledger settle rides
+//!   the cross term through one backend multiplication and reads flat
+//!   (the `ledger_wide_arming` band; the committed schoolbook settle
+//!   kernel keeps the per-digit charge failing here), and the text
+//!   parse's per-leaf delta extraction resets to the settled top and
+//!   reads flat (the `parse_wide_arming` band; the committed
+//!   schoolbook parse kernel keeps the high-water read failing here) —
+//!   so the column's query and text-parse cells are live verdicts over
+//!   both mechanisms, on the shape both schoolbook kernels fail.
 //!
 //! - `comb-scatter`: the projection cross (boundary-comb version ×
 //!   scattered party) whose mandatory output dominates its input — the
@@ -177,7 +191,19 @@ const BIGROOT_BASE_MAGNITUDE_BITS: usize = 8_000;
 const BIGROOT_BASE_DEPTH: usize = 2_000;
 
 /// Hugeleaf magnitude in bits at scale 1.0 (packed size ~4 KiB).
-const HUGELEAF_BASE_MAGNITUDE_BITS: usize = 16_000;
+///
+/// Sized so the level doubling stays inside one backend
+/// decimal-conversion regime: the backend's divide-and-conquer parser
+/// switches algorithm between 16,000 and 20,000 value bits (its parse
+/// transient steps from ~1× to ~4× the value bytes there, measured
+/// 2026-07-29), and a probe pair straddling that switch reads the
+/// step as a heap exponent — a 16,000-bit base fits e 1.41 on the
+/// noncanon parse cell from a flat 2 B/B constant, while this base's
+/// pair and every deeper one fit e ≤ 1.0. A two-point fit prices
+/// scaling only with both probes on one side of the backend's own
+/// threshold, and the larger base is strictly more adversarial for
+/// the shape's purpose (maximal bits per node).
+const HUGELEAF_BASE_MAGNITUDE_BITS: usize = 32_000;
 
 /// Id spine depth at scale 1.0 (packed pair ~6 KiB).
 const ID_BASE_DEPTH: usize = 12_000;
@@ -404,6 +430,26 @@ const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 /// keeps any integer-linear exponent's remainder fixed across the
 /// level doubling, so the exponent leg compares like against like.
 const DENSE_SUFFIX_BASE_BLOCKS: usize = 512;
+
+/// Wide-arming digits (arming digits and gap digits together: the
+/// `WA(w, d)` diagonal at `w = d`) at scale 1.0 (packed version
+/// ~13 KiB).
+///
+/// The scale sits beside the two committed bands that price the
+/// family's seams (`ledger_wide_arming`'s small run is 500, the
+/// `parse_wide_arming` band's 256): the committed schoolbook settle
+/// reads ~×1.9 per byte and the committed schoolbook parse ×2.00 per
+/// byte across those regimes' doublings (the query fold's and the
+/// text kernel's committed tripwires), so the board's default pair
+/// straddles what the family exists to catch on both seams. No
+/// remainder alignment is needed: the family's rank exponent is
+/// `32s`, a multiple of 32 at every knob, so `rank_sum` lands its
+/// small summands at bit remainder 0 at both scales (the
+/// freeze-position base's derivation carries the mechanism). The
+/// build arm floors the knob at the generator's minimum width (the
+/// parked component must clear the settling drift's ten digits),
+/// which binds only under extreme scale-down.
+const WIDE_ARMING_BASE_DIGITS: usize = 512;
 
 /// Plateau-puncture digits (plateau digits and turn count together:
 /// the `PP(w, d)` diagonal at `w = d`) at scale 1.0 (packed version
@@ -734,6 +780,27 @@ pub(super) enum FamilyKind {
     /// rank and distance bands carry the enforcement). Designed
     /// against the linear-functional query rows.
     DenseSuffix,
+    /// The wide-arming family `wide_arming(s, s)`: the single-arming
+    /// wide × dense sentinel, both factors on one knob.
+    ///
+    /// The gap spine holds the trailing interval mass at `Θ(s)`
+    /// isolated digits and the one re-arm block parks a `2^(32s)`
+    /// drift and promotes it — one ledger arming as wide as the input
+    /// owing its debt across a trailing mass as dense as the input,
+    /// so the settle's one aggregate product is the wide × dense
+    /// cross term at its purest, undodgeable by seam cancellation
+    /// (the `ledger_wide_arming` band in `tests/meter.rs` carries the
+    /// enforcement; the committed schoolbook settle kernel keeps the
+    /// per-digit charge failing on this family). Its rendered text is
+    /// the same shape at the parse seam: one wide swing ahead of
+    /// `Θ(s)` trailing zero-delta leaves, where a per-leaf delta
+    /// extraction that pays a stale high-water span instead of the
+    /// settled top reads `Θ(w·d)` touches on `Θ(w + d)` text (the
+    /// `parse_wide_arming` band and the committed schoolbook parse
+    /// kernel carry both readings), so the column's five text-parse
+    /// cells are the standing watch on the exact-`top` genre at the
+    /// text seam. Designed against the linear-functional query rows.
+    WideArming,
     /// The plateau-puncture family `plateau_puncture(s, s)`: the
     /// answer-embedded-product sentinel, and the floor under every
     /// settle.
@@ -818,7 +885,7 @@ pub(super) enum FamilyKind {
 /// whole-surface adversary earns a board family, while a kernel-seam
 /// shape lives in the envelope suite alone, as `wide_tooth_comb`,
 /// `alt_spine`, and the `memo_*` shapes do.
-pub(super) const FAMILIES: [FamilyKind; 31] = [
+pub(super) const FAMILIES: [FamilyKind; 32] = [
     FamilyKind::Dense,
     FamilyKind::Bigroot,
     FamilyKind::Hugeleaf,
@@ -845,6 +912,7 @@ pub(super) const FAMILIES: [FamilyKind; 31] = [
     FamilyKind::WeightComb,
     FamilyKind::FreezeParade,
     FamilyKind::DenseSuffix,
+    FamilyKind::WideArming,
     FamilyKind::PlateauPuncture,
     FamilyKind::LoneFreeze,
     FamilyKind::ConcurrentPair,
@@ -1174,6 +1242,18 @@ impl FamilyData {
                 );
                 data.version2 = Some(meter::dense_suffix_mate(p, p).version().encode());
                 data
+            }
+            FamilyKind::WideArming => {
+                // One knob drives the arming width and the gap-digit
+                // count (the bands' WA(s, s) diagonal), floored at the
+                // generator's minimum width; the floor binds only under
+                // extreme scale-down (the base constant's rustdoc).
+                let s = size(WIDE_ARMING_BASE_DIGITS).max(10);
+                Self::event(
+                    kind,
+                    "wide-arming",
+                    meter::wide_arming(s, s).version().encode(),
+                )
             }
             FamilyKind::PlateauPuncture => {
                 // One knob drives the plateau width and the turn count
