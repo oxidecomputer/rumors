@@ -220,13 +220,17 @@ than they prepaid; unmarked rows are worst-case per call.
 | `sign`, `is_negative`, `sign_dominates_word`, `sign_dominates_at` | amortized O(1) |
 | `is_literally_zero` (one-sided: `true` means zero, `false` means unknown), `digit_count` | O(1) |
 | `shl`, `negate`, `reset`, `sign_magnitude` | O(held digits) |
-| `sign_magnitude_shl` | O(digits written since the last reset) |
+| `sign_magnitude_shl` | O(the written span since the last reset) |
 
 Digit touches are shift-independent; memory is not. A shifted entry
 point grows the digit buffer to cover the shifted position, so memory
 is O(shift / 32) plus the operand's own digits (the zero-run ledger
 adds at most one entry per write that lands above the held top,
-bounded by half the held digit positions).
+bounded by half the held digit positions). The *written span* is
+every digit from the lowest position written since the last reset up
+to the top, never-written gaps between writes included: parking one
+value far above another prices the scaled read at the distance
+between them, however few digits the writes themselves touched.
 
 The `*_magnitude` entry points are generic over `Magnitude`, the seam
 for a caller's own stored-magnitude type: the operand reports whether
