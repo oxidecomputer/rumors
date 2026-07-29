@@ -450,6 +450,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     causally_row("causally::Range::before"),
     causally_row("causally::Range::contains"),
     causally_row("causally::Range::placement_of"),
+    causally_row("causally::Range::bounded"),
 ];
 
 /// The roster over the operator/trait surface the `pub fn` scan cannot
