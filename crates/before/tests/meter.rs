@@ -3036,6 +3036,266 @@ mod skyline_flatness {
         );
     }
 
+    /// One public `Version::rank` run over the lone-freeze spine
+    /// `LF(pre, post)` (`meter::lone_freeze`), both counters over the
+    /// rank body alone.
+    ///
+    /// Carries `min_ticks`' closed form as the cross-fold semantic leg
+    /// (proving the generator builds the spine this band reasons
+    /// about) and the one-touch-per-operand-byte liveness floor.
+    fn rank_lone_freeze_run(pre: usize, post: usize) -> QueryRun {
+        use dashu_int::UBig;
+        let v = meter::lone_freeze(pre, post).version();
+        let bytes = v.encode().len() as u64;
+        let expected = UBig::from(pre as u64) * ((UBig::ONE << 288usize) + UBig::from(2u8))
+            + UBig::from((pre / 2) as u64)
+            + UBig::from((3 * post / 2) as u64)
+            + UBig::from(3u8);
+        assert_eq!(
+            v.min_ticks(),
+            expected
+                .to_string()
+                .parse::<before::Ticks>()
+                .expect("the closed form parses"),
+            "the family's leaf sum disagrees with min_ticks: the generator \
+             does not build the tree this band reasons about"
+        );
+        touch_meter::reset();
+        meter::reset_limb_ops();
+        let rank = v.rank();
+        std::hint::black_box(rank);
+        let run = QueryRun {
+            bytes,
+            touches: touch_meter::touches(),
+            limb_ops: meter::limb_ops(),
+        };
+        assert!(
+            run.touches >= run.bytes,
+            "rank at {bytes} operand bytes: {} digit touches under the \
+             one-per-byte floor: the fold's accumulator work is not metered",
+            run.touches,
+        );
+        run
+    }
+
+    /// Oscillation pairs of the lone-freeze bands' doubled axis (the
+    /// large runs double it; the off-axis dial stays at the generator
+    /// minimum so the doubled axis dominates the stored bytes).
+    const LONE_FREEZE_SMALL: usize = 2_000;
+
+    /// Absolute two-scale (touch, limb) ceilings for rank on the
+    /// lone-freeze late axis, measured 2026-07-29 ×1.25.
+    ///
+    /// The record: 4,186 → 8,249 touches and 6,118 → 12,182 limb ops
+    /// across LF(2,000, 2) → LF(4,000, 2) on 1,397 B → 2,647 B (~3.0
+    /// touches per packed byte, flat across the doubling): the gate
+    /// holds the segment feed shut across the whole never-freezing
+    /// prefix.
+    const RANK_LONE_FREEZE_LATE_CEILINGS: [(u64, u64); 2] = [(5_233, 7_648), (10_312, 15_228)];
+
+    /// rank is linear on the lone-freeze spine's late axis: per-byte
+    /// touch and limb work stay flat (×1.25) across a doubling of the
+    /// never-freezing plateau prefix, under absolute two-scale
+    /// ceilings.
+    ///
+    /// `LF(pre, 2)`'s whole prefix runs strictly before the sweep's
+    /// one freeze — the first-freeze gate holds the segment feed shut
+    /// for `pre` oscillation pairs, and the one settle that eventually
+    /// runs never reads mass from that span — so any per-interval
+    /// deposit toward the settle machinery made before drift exists to
+    /// settle scales with the prefix here while the family's funded
+    /// wide codes stay O(1). The unit oscillation itself must ride the
+    /// live component without freezing (the trigger is relative to
+    /// each boundary's own code).
+    #[test]
+    fn skyline_rank_lone_freeze_late_is_flat_per_unit() {
+        let small = rank_lone_freeze_run(LONE_FREEZE_SMALL, 2);
+        let large = rank_lone_freeze_run(2 * LONE_FREEZE_SMALL, 2);
+        assert_ceilings(
+            "skyline_rank_lone_freeze_late",
+            &small,
+            &large,
+            RANK_LONE_FREEZE_LATE_CEILINGS,
+        );
+        assert_flat(
+            "rank_lone_freeze_late_touches",
+            "byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+        assert_flat(
+            "rank_lone_freeze_late_limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
+
+    /// Absolute two-scale (touch, limb) ceilings for rank on the
+    /// lone-freeze frozen-tail axis, measured 2026-07-29 ×1.25.
+    ///
+    /// The record: 6,246 → 12,372 touches and 6,118 → 12,182 limb ops
+    /// across LF(2, 2,000) → LF(2, 4,000) on 1,397 B → 2,647 B (~4.5
+    /// touches per packed byte, flat across the doubling). The tail
+    /// axis reads ~one touch per interval above the late axis at the
+    /// same bytes — exactly the open-gate segment feed, amortized O(1)
+    /// per interval — and the close's one settle reads the whole
+    /// tail's banked mass without moving the per-byte cost.
+    const RANK_LONE_FREEZE_TAIL_CEILINGS: [(u64, u64); 2] = [(7_808, 7_648), (15_465, 15_228)];
+
+    /// rank is linear on the lone-freeze spine's frozen-tail axis:
+    /// per-byte touch and limb work stay flat (×1.25) across a
+    /// doubling of the tail behind the sweep's one freeze, under
+    /// absolute two-scale ceilings.
+    ///
+    /// `LF(2, post)`'s whole tail runs with the first-freeze gate open
+    /// and a ten-digit drift parked: every tail interval feeds the
+    /// segment mass, and the close's one `P · segment` settle reads
+    /// that mass at its watermark across the tail's whole depth
+    /// variation — so a segment feed that is not amortized O(1) per
+    /// interval, or a close read priced by anything but the written
+    /// span and the mass's compacted density, scales with the tail
+    /// against O(1) funded wide codes. This is the frozen-path cost
+    /// the gate must not regress: the segment machinery a
+    /// never-freezing sweep skips runs here over the whole stream.
+    #[test]
+    fn skyline_rank_lone_freeze_tail_is_flat_per_unit() {
+        let small = rank_lone_freeze_run(2, LONE_FREEZE_SMALL);
+        let large = rank_lone_freeze_run(2, 2 * LONE_FREEZE_SMALL);
+        assert_ceilings(
+            "skyline_rank_lone_freeze_tail",
+            &small,
+            &large,
+            RANK_LONE_FREEZE_TAIL_CEILINGS,
+        );
+        assert_flat(
+            "rank_lone_freeze_tail_touches",
+            "byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+        assert_flat(
+            "rank_lone_freeze_tail_limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
+
+    /// Absolute two-scale (touch, limb) ceilings for min_ticks on the
+    /// freeze-position spine, measured 2026-07-29 ×1.25.
+    ///
+    /// The record: 103,990 → 207,990 touches and 35,019 → 70,019 limb
+    /// ops across FP(1,000) → FP(2,000) on 73,328 B → 146,579 B (~1.4
+    /// touches per packed byte, flat across the doubling): `Θ(k)`
+    /// epochs settle at one funded-width product each.
+    const MIN_TICKS_FREEZE_POSITION_CEILINGS: [(u64, u64); 2] =
+        [(129_988, 43_774), (259_988, 87_524)];
+
+    /// min_ticks is linear on the freeze-position family: per-byte
+    /// touch and limb work stay flat (×1.25) across a block-count
+    /// doubling, under absolute two-scale ceilings.
+    ///
+    /// `FP(k)` fires one freeze per block — `Θ(k)` epochs in the
+    /// min_ticks fold's ledger, where every committed comb's epoch
+    /// count is O(1) — so the epoch ledger's settle runs its
+    /// summation-by-parts over `Θ(k)` wide drifts here: an accounting
+    /// that re-reads whole-history state per epoch (or re-bases any
+    /// recorded offset across a freeze) goes quadratic while each
+    /// drift's one settle product stays priced by the drift's own
+    /// funded width times an O(1)-digit suffix count. The rank-side
+    /// band prices the same schedule through the anchored-segment
+    /// integral; this one prices the epoch ledger, min_ticks' own
+    /// frozen-component accounting.
+    #[test]
+    fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
+        use dashu_int::UBig;
+        let expected = |k: usize| {
+            let band = 289 + (usize::BITS - k.leading_zeros()) as usize;
+            (UBig::from(2 * k as u64) << band)
+                + UBig::from((k * (k - 1)) as u64) * ((UBig::ONE << 288usize) + UBig::ONE)
+                + UBig::from(k as u64)
+        };
+        let k = RANK_FREEZE_POSITION_SMALL;
+        let small = min_ticks_family_run(meter::freeze_position(k), &expected(k));
+        let large = min_ticks_family_run(meter::freeze_position(2 * k), &expected(2 * k));
+        assert_ceilings(
+            "skyline_min_ticks_freeze_position",
+            &small,
+            &large,
+            MIN_TICKS_FREEZE_POSITION_CEILINGS,
+        );
+        assert_flat(
+            "min_ticks_freeze_position_touches",
+            "byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+        assert_flat(
+            "min_ticks_freeze_position_limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
+
+    /// Absolute two-scale (touch, limb) ceilings for min_ticks on the
+    /// promotion re-arm spine, measured 2026-07-29 ×1.25.
+    ///
+    /// The record: 516,060 → 1,032,060 touches and 212,012 → 424,012
+    /// limb ops across PR(1,000) → PR(2,000) on 246,501 B → 493,001 B
+    /// (~2.1 touches per packed byte, flat across the doubling):
+    /// `Θ(p)` wide-drift epochs in both directions settle at one
+    /// funded-width product each.
+    const MIN_TICKS_PROMOTION_REARM_CEILINGS: [(u64, u64); 2] =
+        [(645_075, 265_015), (1_290_075, 530_015)];
+
+    /// min_ticks is linear on the promotion re-arm spine: per-byte
+    /// touch and limb work stay flat (×1.25) across a block-count
+    /// doubling, under absolute two-scale ceilings.
+    ///
+    /// `PR(p)` alternates 20-digit and 10-digit climbs through its
+    /// blocks — `Θ(p)` freezes whose evicted drifts are wide in both
+    /// directions — so the epoch ledger holds `Θ(p)` wide drifts whose
+    /// reference counts the reign records must resolve against the
+    /// right epoch: the settle's one `drift × suffix-count` product
+    /// per epoch stays priced by each drift's own funded width, and
+    /// any per-epoch re-read of whole-history state goes quadratic.
+    /// The rank-side band prices this schedule through the promotion
+    /// ledger; min_ticks has no promotion ledger — the epoch ledger is
+    /// its entire frozen-component accounting, and this band is its
+    /// many-epochs coverage.
+    #[test]
+    fn skyline_min_ticks_promotion_rearm_is_flat_per_unit() {
+        use dashu_int::UBig;
+        let expected = |p: usize| {
+            UBig::from(16 * p as u64)
+                + UBig::from(p as u64) * ((UBig::ONE << 608usize) + (UBig::ONE << 288usize) + 2u8)
+                + 1u8
+        };
+        let p = PROMOTION_REARM_SMALL;
+        let small = min_ticks_family_run(meter::promotion_rearm(p), &expected(p));
+        let large = min_ticks_family_run(meter::promotion_rearm(2 * p), &expected(2 * p));
+        assert_ceilings(
+            "skyline_min_ticks_promotion_rearm",
+            &small,
+            &large,
+            MIN_TICKS_PROMOTION_REARM_CEILINGS,
+        );
+        assert_flat(
+            "min_ticks_promotion_rearm_touches",
+            "byte",
+            (small.touches, small.bytes),
+            (large.touches, large.bytes),
+        );
+        assert_flat(
+            "min_ticks_promotion_rearm_limb_ops",
+            "byte",
+            (small.limb_ops, small.bytes),
+            (large.limb_ops, large.bytes),
+        );
+    }
+
     /// One public distance-and-lag run over the two-operand promotion
     /// re-arm analogue `(PR(p), PRM(p))`: both counters over the three
     /// query bodies together, with the pair's packed bytes as the
