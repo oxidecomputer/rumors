@@ -1,7 +1,7 @@
 use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use imbl::{OrdMap, ordmap};
+use imbl::OrdMap;
 
 use crate::{Version, message::Message};
 
@@ -74,36 +74,16 @@ impl<T, H: Height> Children<T, H> {
         self.inner.remove(radix).map(Node::from_untyped)
     }
 
-    /// Walk this map and `other` in lockstep, yielding only the radixes
-    /// whose children differ, as `(radix, ours, theirs)` with `None` for an
-    /// absent side.
+    /// The children in ascending radix order, as owned handles (each a
+    /// cheap reference bump into the shared structure).
     ///
-    /// Spans that are pointer-equal — the shared backing a
-    /// fork leaves behind — prune wholesale without being probed, so a
-    /// small delta against a large shared map costs work proportional to
-    /// the delta. The engine of [`Tree::join`](crate::tree::Tree::join)'s
-    /// recursion.
-    #[allow(clippy::type_complexity)]
-    pub fn diff_owned<'a>(
-        &'a self,
-        other: &'a Self,
-    ) -> impl Iterator<Item = (u8, Option<Node<T, H>>, Option<Node<T, H>>)> + 'a {
-        self.inner.diff(&other.inner).map(|item| match item {
-            ordmap::DiffItem::Add(&radix, theirs) => {
-                (radix, None, Some(Node::from_untyped(theirs.clone())))
-            }
-            ordmap::DiffItem::Remove(&radix, ours) => {
-                (radix, Some(Node::from_untyped(ours.clone())), None)
-            }
-            ordmap::DiffItem::Update {
-                old: (&radix, ours),
-                new: (_, theirs),
-            } => (
-                radix,
-                Some(Node::from_untyped(ours.clone())),
-                Some(Node::from_untyped(theirs.clone())),
-            ),
-        })
+    /// The engine of [`Tree::join`](crate::tree::Tree::join)'s recursion:
+    /// the merge walk pairs two of these streams by radix and prunes equal
+    /// pairs by [`Node`]'s pointer-or-hash equality before descending.
+    pub fn iter(&self) -> impl Iterator<Item = (u8, Node<T, H>)> + '_ {
+        self.inner
+            .iter()
+            .map(|(radix, child)| (*radix, Node::from_untyped(child.clone())))
     }
 }
 

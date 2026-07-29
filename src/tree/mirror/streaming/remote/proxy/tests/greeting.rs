@@ -199,3 +199,90 @@ fn mixed_empty_and_populated_converges() {
     assert_eq!(hash_of(&left), expected);
     assert_eq!(hash_of(&right), expected);
 }
+/// WITNESS (reachability of the `imbl` `OrdMap::diff` defect,
+/// <https://github.com/jneem/imbl/issues/161>, at the gossip install):
+///
+/// Two honest, overlapping sessions at one peer silently delete a message
+/// nobody redacted.
+///
+/// The shape: session S2 (with a peer converged at T0) forks at T0; equal
+/// handshake versions resolve without opening the descent, so S2's
+/// reconciled root is the fork-time root handle itself — its children map
+/// is the very `OrdMap` object M0. Meanwhile session S1 (with a peer that
+/// redacted one message whose root radix `r_h` heads M0's second imbl
+/// chunk) installs first: the install's `Tree::join` builds its merged map
+/// as `ours.clone()` + `remove(r_h)` — a copy-on-write descendant M1
+/// sharing M0's first chunk. S2's install then joins M1 against M0. A
+/// diff-backed walk over that clone-derived pair is exactly what imbl's
+/// `OrdMap::diff` mishandles (issue #161: the cursor over-advances after a
+/// pointer-shared run, swallowing the uncompared boundary pair and
+/// desyncing onto *neighboring, unchanged* radixes, which version
+/// dominance then redacts as phantom deletions).
+///
+/// T0 is S2's causal past, so S2's install must be an identity on the
+/// tree: the assertion is total (post-install hash equals pre-install
+/// hash), swept over the redaction of each leaf in turn so the
+/// chunk-boundary radix is hit whichever radix heads the second chunk.
+/// `Tree::join` therefore merge-walks the radix fans itself and never
+/// hands imbl's diff a clone-derived pair; this witness holds the join to
+/// that, and fails if a diff-backed walk ever returns.
+#[test]
+fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
+    use crate::tree::Action;
+
+    // T0: 25 unit messages. Hash-uniform keys give the root ~25 children,
+    // more than one imbl chunk (16), with every radix holding one leaf, so
+    // honoring one leaf's redaction empties its root radix.
+    let p = nth_party(0);
+    let mut t0 = Tree::new();
+    t0.act(&p, (0..25).map(|_| Action::Insert(Message::new(()))));
+    let keys: Vec<_> = t0.iter().map(|(k, _, _)| k).collect();
+
+    // S2's wire session against a peer converged at T0, forked at T0:
+    // equal versions resolve to the fork-time root.
+    let (s2_reconciled, _) = wire_reconcile(t0.root.clone(), t0.root.clone());
+
+    let mut lost = Vec::new();
+    for k in &keys {
+        // S1's counterparty: converged at T0, then redacted the leaf at
+        // `k` (a local act rebuilds its own maps afresh; the sharing that
+        // matters is created by our install below, not here).
+        let mut twin = Tree {
+            root: t0.root.clone(),
+        };
+        twin.act(&nth_party(1), [Action::Forget(*k)]);
+
+        // S1's session and install: reconcile T0 against the redacting
+        // twin over the wire, then join the result into the live tree.
+        // Deletion honoring drops radix `r_h`: the live tree's root map is
+        // now a copy-on-write descendant of M0 missing one radix.
+        let (s1_reconciled, _) = wire_reconcile(t0.root.clone(), twin.root.clone());
+        let mut live = Tree {
+            root: t0.root.clone(),
+        };
+        live.join(Tree {
+            root: s1_reconciled,
+        });
+        let expected = live.hash();
+
+        // S2's install, after S1's: joining our own causal past must be an
+        // identity on the tree.
+        live.join(Tree {
+            root: s2_reconciled.clone(),
+        });
+
+        if live.hash() != expected {
+            let missing: Vec<_> = keys
+                .iter()
+                .filter(|k2| *k2 != k && live.get(k2).is_none())
+                .copied()
+                .collect();
+            lost.push((*k, missing));
+        }
+    }
+    assert!(
+        lost.is_empty(),
+        "S2's install lost innocent leaves after S1 honored a redaction \
+         (redacted key, innocent leaves missing): {lost:#?}",
+    );
+}

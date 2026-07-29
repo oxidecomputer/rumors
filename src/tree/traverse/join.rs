@@ -21,12 +21,18 @@
 //! - **both have it, hashes equal**: the subtrees are identical (content
 //!   addressing makes equal hash ⟹ equal content, versions included), so keep
 //!   one verbatim.
-//! - **both have it, hashes differ**: explode both one level and recurse only
-//!   into the radixes whose child subtrees differ (an [`OrdMap::diff`] that
-//!   prunes the shared ones by pointer), reassembling with [`Node::branch`]
-//!   (which re-compresses singletons and recomputes the joined branch version).
+//! - **both have it, hashes differ**: explode both one level and merge-walk
+//!   the two ascending radix fans in lockstep, recursing only into the
+//!   radixes whose child subtrees differ — children equal by pointer or by
+//!   content hash carry over verbatim through the shared structure — and
+//!   reassembling with [`Node::branch`] (which re-compresses singletons and
+//!   recomputes the joined branch version).
 //!
-//! [`OrdMap::diff`]: imbl::OrdMap::diff
+//! The merge walk enumerates each *divergent* branch's full fan (≤ 256
+//! entries) rather than only its changed radixes; equal subtrees still
+//! prune by pointer-or-hash before any descent, so a small delta against a
+//! large shared tree costs work proportional to the delta at the tree
+//! level, with a per-divergent-node constant bounded by the fan.
 
 use crate::Version;
 
@@ -95,30 +101,52 @@ where
                     return Some(ours);
                 }
 
-                // Differing subtrees: descend one level, but only into the
-                // radixes that actually diverge. `OrdMap::diff` walks both
-                // persistent B-trees in lockstep and prunes whole spans that are
-                // pointer-equal — the shared backing a fork leaves behind — so it
-                // yields exactly the changed children, in ascending-radix order,
-                // without enumerating the full radix union or probing the
-                // unchanged children. A small delta against a large shared tree
-                // therefore costs work proportional to the delta, not to the
-                // fan-out. (`diff` classifies a child as unchanged via `Node`'s
-                // `PartialEq`, which is the same `ptr_eq`-or-hash short-circuit
-                // the node-level equality above uses: nothing is learned across
-                // an equal subtree, so it carries over verbatim.)
+                // Differing subtrees: descend one level, merge-walking the
+                // two ascending radix fans in lockstep and recursing only
+                // into the radixes that actually diverge. A child equal on
+                // both sides — by `Node`'s `ptr_eq`-or-hash equality, the
+                // same short-circuit the node-level check above uses —
+                // carries over verbatim: nothing is learned across an equal
+                // subtree. One-sided radixes recurse too: the asymmetric
+                // arms above filter them against the absent side's version,
+                // which is where deletion honoring drops what that side
+                // redacted.
                 //
-                // Collect the divergent radixes first — cloning only those few
-                // children — so we don't hold `diff`'s borrow of `ours` /
-                // `theirs` across the recursive rewrite of the merged map.
+                // The walk reads both fans directly rather than diffing the
+                // two maps against each other: the merged map starts from
+                // *ours* and only divergent radixes are rewritten, so every
+                // shared child persists by structural sharing.
                 let ours = ours.into_children();
                 let theirs = theirs.into_children();
 
-                // Start the merged map from *ours* (moved — `diff`'s borrow has
-                // ended) and rewrite only the divergent radixes; every shared
-                // child carries over verbatim by structural sharing.
                 let mut merged = ours.clone();
-                for (radix, our_child, their_child) in ours.diff_owned(&theirs) {
+                let mut ours = ours.iter().peekable();
+                let mut theirs = theirs.iter().peekable();
+                loop {
+                    let (radix, our_child, their_child) = match (ours.peek(), theirs.peek()) {
+                        (None, None) => break,
+                        (Some((radix, _)), None) => {
+                            (*radix, ours.next().map(|(_, child)| child), None)
+                        }
+                        (None, Some((radix, _))) => {
+                            (*radix, None, theirs.next().map(|(_, child)| child))
+                        }
+                        (Some((ours_radix, _)), Some((theirs_radix, _))) => {
+                            let radix = (*ours_radix).min(*theirs_radix);
+                            (
+                                radix,
+                                ours.next_if(|(r, _)| *r == radix).map(|(_, child)| child),
+                                theirs.next_if(|(r, _)| *r == radix).map(|(_, child)| child),
+                            )
+                        }
+                    };
+
+                    if let (Some(our_child), Some(their_child)) = (&our_child, &their_child)
+                        && our_child == their_child
+                    {
+                        continue;
+                    }
+
                     match Join::join(our_child, their_child, a_version, b_version) {
                         Some(child) => {
                             merged.insert(radix, child);
