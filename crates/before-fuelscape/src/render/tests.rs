@@ -23,7 +23,7 @@ fn pipeline_smoke_samples_measures_and_renders() {
         base_seed: plan.base_seed,
         samples_per_column: plan.samples_per_column,
     };
-    let out = std::env::temp_dir().join(format!("before-atlas-smoke-{}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("before-fuelscape-smoke-{}", std::process::id()));
     std::fs::create_dir_all(&out).expect("temp output dir");
     let samplers = Samplers::build(&plan);
 

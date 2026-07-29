@@ -29,7 +29,7 @@ mod tests;
 
 /// Provenance drawn into every output.
 pub struct RenderMeta {
-    /// The commit the run measured (from the recipe's `ATLAS_TIP`).
+    /// The commit the run measured (from the recipe's `FUELSCAPE_TIP`).
     pub commit: String,
     /// The base seed every cell derived from.
     pub base_seed: u64,

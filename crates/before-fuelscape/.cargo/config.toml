@@ -4,4 +4,4 @@
 # would otherwise land inside this tree and fail it. The repo root target/
 # is outside every gate sweep.
 [build]
-target-dir = "../../target/before-atlas"
+target-dir = "../../target/before-fuelscape"
