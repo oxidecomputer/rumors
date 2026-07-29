@@ -541,35 +541,11 @@ fn exponent_red_ops() -> BTreeSet<&'static str> {
         .collect()
 }
 
-/// Every `#[test]`-attributed function name in a source file.
-///
-/// The witness scanner behind the class contracts: attribute-gated
-/// exactly as the board↔band parity pin's, so a prose mention of a
-/// deleted test never counts as its existence, and cfg attributes
-/// between `#[test]` and the fn keep the arming.
-fn test_fns(source: &str) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
-    let mut armed = false;
-    for line in source.lines() {
-        let t = line.trim();
-        if t == "#[test]" {
-            armed = true;
-            continue;
-        }
-        if t.starts_with("#[") || t.is_empty() {
-            continue;
-        }
-        if armed {
-            if let Some(rest) = t.strip_prefix("fn ") {
-                if let Some(name) = rest.split('(').next() {
-                    names.insert(name.to_string());
-                }
-            }
-            armed = false;
-        }
-    }
-    names
-}
+// The witness scanner behind the class contracts is the shared machinery's
+// `test_fns`: attribute-gated exactly as the board↔band parity pin's, so a
+// prose mention of a deleted test never counts as its existence, and cfg
+// attributes between `#[test]` and the fn keep the arming.
+use ::complexity_claims::test_fns;
 
 /// One cell's exponent-red stance verdict, from the class's contract:
 /// the contradiction message, if the cited class and the board's

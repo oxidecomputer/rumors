@@ -115,19 +115,11 @@ pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     ),
 ];
 
-/// A public-API source file the extractor scans, with the naming context
-/// the file cannot carry itself.
-pub(crate) struct SourceSpec {
-    /// Path relative to the crate root.
-    pub(crate) path: &'static str,
-    /// Namespace for module-level `pub fn`s (`None`: the file must have
-    /// none).
-    pub(crate) module_prefix: Option<&'static str>,
-    /// Override for the inherent-impl type name — for files whose local
-    /// type name is not its public path (the two `Forks` iterators) or
-    /// whose type lives under a public module.
-    pub(crate) type_override: Option<&'static str>,
-}
+// The extractor, the doc-section scanner, and their line discipline are
+// the workspace-shared claims machinery (the `complexity-claims` crate);
+// this module supplies before's source list and naming context and keeps
+// the callers' entry points.
+pub(crate) use ::complexity_claims::{fn_name, SourceSpec};
 
 /// The public-API source files of record. A new public module with
 /// inherent methods must be added here (and the roster test's coverage
@@ -194,90 +186,12 @@ fn crate_root() -> PathBuf {
 /// as the roster names it (`Type::fn` inside an inherent impl block,
 /// `module::fn` at file top level).
 ///
-/// A line scan, not a parser, resting on rustfmt-normalized shape: impl
-/// headers at column 0 (trait impls contain ` for ` and cannot hold
-/// `pub fn`s), inherent methods at one indent level. `pub fn` at an
-/// unexpected position panics rather than silently vanishing from the
-/// listing — the scan must never under-report the surface it exists to
-/// pin.
+/// The shared extractor's line discipline (see
+/// [`complexity_claims::extract_public_fns`]'s docs): a line scan resting
+/// on rustfmt-normalized shape, panicking on any `pub fn` it cannot name
+/// rather than silently under-reporting the surface it exists to pin.
 pub(crate) fn extract_public_fns() -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for spec in SURFACE_SOURCES {
-        let path = crate_root().join(spec.path);
-        let text =
-            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
-        // The public name of the current inherent impl block, if inside one.
-        let mut current_type: Option<String> = None;
-        for line in text.lines() {
-            if let Some(rest) = line.strip_prefix("impl") {
-                if line.contains(" for ") {
-                    current_type = None; // trait impl: cannot hold `pub fn`
-                } else {
-                    current_type = parse_impl_self_type(rest)
-                        .map(|name| spec.type_override.map(str::to_owned).unwrap_or(name));
-                }
-                continue;
-            }
-            if line == "}" {
-                current_type = None;
-                continue;
-            }
-            if let Some(rest) = line.strip_prefix("    pub fn ") {
-                let name = fn_name(rest);
-                let ty = current_type.as_deref().unwrap_or_else(|| {
-                    panic!(
-                        "{}: `pub fn {name}` outside an inherent impl block",
-                        spec.path
-                    )
-                });
-                out.insert(format!("{ty}::{name}"));
-                continue;
-            }
-            if let Some(rest) = line.strip_prefix("pub fn ") {
-                let name = fn_name(rest);
-                let prefix = spec.module_prefix.unwrap_or_else(|| {
-                    panic!("{}: unexpected module-level `pub fn {name}`", spec.path)
-                });
-                out.insert(format!("{prefix}::{name}"));
-            }
-        }
-    }
-    out
-}
-
-/// The self-type name from an impl header's remainder (after `impl`):
-/// skip a balanced generics list, then read the first identifier.
-/// Shared with the complexity-claims scanner, which walks the same files.
-pub(crate) fn parse_impl_self_type(rest: &str) -> Option<String> {
-    let mut chars = rest.chars().peekable();
-    if chars.peek() == Some(&'<') {
-        let mut depth = 0usize;
-        for c in chars.by_ref() {
-            match c {
-                '<' => depth += 1,
-                '>' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    let name: String = chars
-        .skip_while(|c| c.is_whitespace())
-        .take_while(|c| c.is_alphanumeric() || *c == '_')
-        .collect();
-    (!name.is_empty()).then_some(name)
-}
-
-/// The function name from the remainder after `pub fn `.
-/// Shared with the complexity-claims scanner, which walks the same files.
-pub(crate) fn fn_name(rest: &str) -> &str {
-    rest.split(|c: char| !c.is_alphanumeric() && c != '_')
-        .next()
-        .unwrap_or("")
+    ::complexity_claims::extract_public_fns(&crate_root(), SURFACE_SOURCES)
 }
 
 /// Every test name the roster and tripwires cite.
