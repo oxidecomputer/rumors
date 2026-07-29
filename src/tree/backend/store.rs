@@ -214,11 +214,54 @@ pub trait Store<T: Send + Sync + 'static>: Backend<T, Node<Z>: Leaf<T>> {
         &self,
         root: &Root<Self, T>,
         clock: Option<before::Clock>,
+        network: crate::Network,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send
     where
         Self: Sized,
     {
-        let _ = (root, clock);
+        let _ = (root, clock, network);
+        async { Ok(()) }
+    }
+
+    /// Record the identity clock alone, leaving the stored tree untouched:
+    /// the party-*shrink* write.
+    ///
+    /// A replica donating identity (serving a bootstrap's fork, retiring
+    /// its whole party) calls this with the post-shrink clock **before the
+    /// donation crosses the wire** — the storage analog of slicing the
+    /// donation out of the bookmark. Once the donated region is in the
+    /// counterparty's hands, no crash of this process may resurrect it; a
+    /// record that still contained the donation would do exactly that on
+    /// restart. `None` records that the replica holds no identity (a
+    /// retirement's whole-party donation is about to ship); an aborted
+    /// donation then re-joins the party *in memory* and the record lags
+    /// subset-ward until the next write — the sanctioned direction (see
+    /// [`commit`](Self::commit)).
+    ///
+    /// The alias and staleness obligations of [`commit`](Self::commit)
+    /// apply verbatim; the default does nothing, which
+    /// [`PERSISTS`](Self::PERSISTS) licenses.
+    fn record(
+        &self,
+        clock: Option<before::Clock>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        let _ = clock;
+        async { Ok(()) }
+    }
+
+    /// A durability barrier: resolves when every acknowledged
+    /// [`commit`](Self::commit) and [`record`](Self::record) is as durable
+    /// as this backend gets.
+    ///
+    /// A replica calls this before *transmitting* own-party versions to a
+    /// counterparty: the identity record covering a version must survive a
+    /// crash once some other replica holds messages stamped with it, or a
+    /// restart could re-mint the coordinate (the record's durability
+    /// policy is the backend's — see the transaction contract it builds
+    /// on — and this barrier is how a session waits it out). The default
+    /// does nothing, correct wherever `commit` is (the in-memory backend,
+    /// or a store whose commits are durable when acknowledged).
+    fn barrier(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async { Ok(()) }
     }
 }

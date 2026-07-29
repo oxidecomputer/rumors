@@ -205,6 +205,12 @@ impl<T: Send + Sync + 'static, S: Store<T>> Tree<T, S> {
         Self::new_in(S::default())
     }
 
+    /// Assemble a tree around a root the backend already holds: what
+    /// resuming a stored replica hands back.
+    pub(crate) fn resume(backend: S, root: Root<T, S>) -> Self {
+        Tree { backend, root }
+    }
+
     /// Returns the latest version for the tree.
     pub fn latest(&self) -> &Version {
         &self.root.ceiling
@@ -527,8 +533,25 @@ impl<T: Send + Sync + 'static, S: Store<T>> Tree<T, S> {
     /// Persist the canonical root and identity clock through the backend's
     /// [`Store::commit`] seam: the step a root-replacing committer runs
     /// after its build and before its publish.
-    pub(crate) async fn persist(&self, clock: Option<before::Clock>) -> Result<(), S::Error> {
-        self.backend.commit(&self.root, clock).await
+    pub(crate) async fn persist(
+        &self,
+        clock: Option<before::Clock>,
+        network: crate::Network,
+    ) -> Result<(), S::Error> {
+        self.backend.commit(&self.root, clock, network).await
+    }
+
+    /// Record the identity clock alone through the backend's
+    /// [`Store::record`] seam: the party-shrink write a donation runs
+    /// before its party crosses the wire.
+    pub(crate) async fn record(&self, clock: Option<before::Clock>) -> Result<(), S::Error> {
+        self.backend.record(clock).await
+    }
+
+    /// The backend's durability barrier ([`Store::barrier`]): what a
+    /// session awaits before transmitting own-party versions.
+    pub(crate) async fn barrier(&self) -> Result<(), S::Error> {
+        self.backend.barrier().await
     }
 }
 

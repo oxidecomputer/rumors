@@ -16,6 +16,12 @@ use crate::store::schema::{IDS_KEY, IdAllocator, META, NodeBody, ROOT_KEY};
 use crate::store::{Kv, Memory, Table};
 use crate::tree::typed::Hash;
 
+/// Any network identifier: the custody layer stores it opaquely, so one
+/// fresh draw serves every test here.
+fn test_network() -> crate::Network {
+    crate::Network::from_rng(&mut rand::rngs::OsRng)
+}
+
 /// A distinct, inert identity record for model comparison: the encoding
 /// of `n`+1 ticks of a fresh party. Stored and compared as bytes, never
 /// decoded back to a live clock, so the one-universe safety rule is
@@ -296,7 +302,7 @@ proptest! {
                         });
                         let record = identity.clone();
                         store
-                            .write(move |txn| flip_root(txn, root, Version::new(), record.clone()))
+                            .write(move |txn| flip_root(txn, test_network(), root, Version::new(), record.clone()))
                             .await
                             .unwrap();
                     }
@@ -436,7 +442,13 @@ async fn recovery_is_idempotent_and_spares_the_root() {
         .write(move |txn| {
             install(txn, kept, kept_pin, &kept_record)?;
             install(txn, stranded, stranded_pin, &stranded_record)?;
-            flip_root(txn, Some(kept), Version::new(), Some(clock_tag(1)))
+            flip_root(
+                txn,
+                test_network(),
+                Some(kept),
+                Version::new(),
+                Some(clock_tag(1)),
+            )
         })
         .await
         .unwrap();
@@ -475,7 +487,7 @@ async fn ambiguous_release_reapplies_harmlessly() {
     store
         .write(move |txn| {
             install(txn, node, pin, &record)?;
-            flip_root(txn, Some(node), Version::new(), None)
+            flip_root(txn, test_network(), Some(node), Version::new(), None)
         })
         .await
         .unwrap();
@@ -502,7 +514,15 @@ async fn ambiguous_release_reapplies_harmlessly() {
 async fn canonical_root_row_lives_in_meta() {
     let store = Memory::new();
     store
-        .write(|txn| flip_root(txn, None, Version::new(), Some(clock_tag(1))))
+        .write(|txn| {
+            flip_root(
+                txn,
+                test_network(),
+                None,
+                Version::new(),
+                Some(clock_tag(1)),
+            )
+        })
         .await
         .unwrap();
     let raw = store.read(|txn| txn.get(META, ROOT_KEY)).await.unwrap();

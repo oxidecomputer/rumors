@@ -35,14 +35,20 @@ use crate::{Inner, Key, StorageError};
 pub struct Batch<'a, T: Send + Sync + 'static, S: Store<T> = Local> {
     inner: &'a watch::Sender<Inner<T, S>>,
     commit: &'a Arc<Mutex<()>>,
+    network: crate::Network,
     actions: Vec<Action<T>>,
 }
 
 impl<'a, T: Send + Sync + 'static, S: Store<T>> Batch<'a, T, S> {
-    pub(crate) fn new(inner: &'a watch::Sender<Inner<T, S>>, commit: &'a Arc<Mutex<()>>) -> Self {
+    pub(crate) fn new(
+        inner: &'a watch::Sender<Inner<T, S>>,
+        commit: &'a Arc<Mutex<()>>,
+        network: crate::Network,
+    ) -> Self {
         Self {
             inner,
             commit,
+            network,
             actions: Vec::new(),
         }
     }
@@ -91,6 +97,7 @@ impl<'a, T: Send + Sync + 'static, S: Store<T>> Batch<'a, T, S> {
         let Self {
             inner,
             commit,
+            network,
             actions,
         } = self;
         if actions.is_empty() {
@@ -140,7 +147,10 @@ impl<'a, T: Send + Sync + 'static, S: Store<T>> Batch<'a, T, S> {
         // hold a tree whose minted coordinates its recorded identity does
         // not dominate. The in-memory backend's `commit` is a no-op.
         built
-            .persist(alias.map(|alias| Clock::from_parts(alias, built.latest().clone())))
+            .persist(
+                alias.map(|alias| Clock::from_parts(alias, built.latest().clone())),
+                network,
+            )
             .await
             .map_err(StorageError)?;
 

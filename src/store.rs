@@ -23,16 +23,13 @@
 //! docs](crate); implementor documentation for the storage contract lives
 //! in [`kv`].
 
+mod backend;
 pub mod kv;
 mod memory;
 
+pub use backend::{KvBackend, OpenError};
 pub use kv::{Kv, ReadTxn, Table, WriteTxn};
 pub use memory::{Memory, MemoryError};
 
-// Consumed today only by their own test surfaces; the persistent tree
-// backend that drives them from the library proper is the next unit of
-// this campaign, and these expectations retire with it.
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) mod refcount;
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) mod schema;

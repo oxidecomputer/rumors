@@ -260,6 +260,62 @@ impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
     }
 }
 
+impl<T, K> Peer<T, NoBookmark, crate::store::KvBackend<K, T>>
+where
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    K: crate::store::Kv,
+{
+    /// Resume the replica stored in `kv`: recover the store, then
+    /// reconstruct the peer — network, identity, and tree — from its
+    /// canonical record alone.
+    ///
+    /// The counterpart of [`seed_in`](Peer::seed_in) and
+    /// [`Bootstrap::backend`](crate::Bootstrap::backend) for a store that
+    /// already holds a replica: those create, this resumes. Recovery
+    /// releases every registration the previous process held (a crash and
+    /// a clean shutdown are deliberately indistinguishable) and lets
+    /// deferred reclamation drain, so an `open` after any interruption
+    /// starts from a consistent store.
+    ///
+    /// The peer resumes with default settings; select
+    /// [`protocol`](Peer::protocol),
+    /// [`sync_memory_budget`](Peer::sync_memory_budget), and
+    /// [`target_message_size`](Peer::target_message_size) afterwards as
+    /// at any construction. No bookmark is attached: the store's own
+    /// identity record made the bookmark's job part of every commit.
+    ///
+    /// # Errors
+    ///
+    /// [`OpenError::Empty`](crate::store::OpenError::Empty) when no peer
+    /// ever committed to this store (seed or bootstrap into it instead);
+    /// [`OpenError::Retired`](crate::store::OpenError::Retired) when the
+    /// stored replica donated its identity away (the store is an archive,
+    /// not a resumable peer);
+    /// [`OpenError::Storage`](crate::store::OpenError::Storage) when the
+    /// store itself failed.
+    pub async fn open(kv: K) -> Result<Self, crate::store::OpenError<K::Error>> {
+        let backend = crate::store::KvBackend::new(kv);
+        let (network, clock, root) = backend.open_replica().await?;
+        // The stored clock is the one live copy of this identity: the
+        // process that recorded it is gone, and recovery just made its
+        // residue unreachable, so resuming the party here re-establishes
+        // exactly one live holder.
+        let (party, _) = clock.into_parts();
+        Ok(Self {
+            network,
+            protocol: Protocol::default(),
+            window: WindowConfig::default(),
+            run_budget: RunBudget::default(),
+            inner: watch::Sender::new(Inner {
+                party: Some(party),
+                tree: Tree::resume(backend, root),
+            }),
+            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            commit: Arc::new(Mutex::new(())),
+        })
+    }
+}
+
 impl<T: Send + Sync + 'static> Peer<T> {
     /// Begin joining an existing universe: the [`Bootstrap`] configuration
     /// for one session against an established provider.
@@ -613,7 +669,7 @@ impl<T: Send + Sync + 'static, B: BookmarkError, S: Store<T>> Peer<T, B, S> {
     }
 
     pub(crate) fn batch(&self) -> Batch<'_, T, S> {
-        Batch::new(&self.inner, &self.commit)
+        Batch::new(&self.inner, &self.commit, self.network)
     }
 
     pub(crate) fn snapshot(&self) -> Snapshot<T, S> {

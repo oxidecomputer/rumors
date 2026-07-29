@@ -376,9 +376,12 @@ impl<T: Send + Sync + 'static, S: Store<T>> Peer<T, NoBookmark, S> {
                 backend: store,
                 root,
             };
-            tree.persist(S::PERSISTS.then(|| {
-                before::Clock::from_parts(party.dangerously_alias(), tree.latest().clone())
-            }))
+            tree.persist(
+                S::PERSISTS.then(|| {
+                    before::Clock::from_parts(party.dangerously_alias(), tree.latest().clone())
+                }),
+                remote.network,
+            )
             .await
             .map_err(|e| Error::Storage(StorageError(e)))?;
             // Our absorption is now durable to whatever standard the
@@ -820,6 +823,18 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
             }
         }
         let prior_tree = prior_tree.expect("set in closure");
+        // For a persisting backend, wait out the store's durability policy
+        // before transmitting: every own version the snapshot can ship is
+        // covered by a committed root flip (the flip records the identity
+        // clock beside the root, in one transaction), and the barrier makes
+        // those flips crash-proof. Without it, a flip that evaporated with
+        // its record would let a restart re-mint coordinates some
+        // counterparty already holds.
+        if S::PERSISTS
+            && let Err(e) = prior_tree.barrier().await
+        {
+            return (Intent::Remain, Err(Error::Storage(StorageError(e))));
+        }
         // The event floor this side's handshake declares: `prior_tree` is
         // exactly the root the local protocol participant starts from, so
         // its frontier is the version the greeting carries.
@@ -945,6 +960,36 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
                 return (Intent::Remain, Err(Error::Bookmark(e)));
             }
 
+            // The storage analog of the bookmark slice above: record the
+            // post-shrink identity — the live party already excludes the
+            // donation, taken in the fork section — and wait out the
+            // store's durability policy, all before the party crosses the
+            // wire. Once the counterparty may hold the donation, no crash
+            // of this process is allowed to resurrect it. A retiring
+            // donation records `None`: the whole party is about to ship,
+            // so at rest this replica holds nothing. An abort on failure
+            // re-joins the donation in memory via the guard; the record
+            // then lags subset-ward until the next write — the sanctioned
+            // direction ([`Store::record`] states both obligations).
+            if S::PERSISTS {
+                let (tree, clock) = {
+                    let inner = self.inner.borrow();
+                    let clock = inner.party.as_ref().map(|party| {
+                        before::Clock::from_parts(
+                            party.dangerously_alias(),
+                            inner.tree.latest().clone(),
+                        )
+                    });
+                    (inner.tree.clone(), clock)
+                };
+                if let Err(e) = tree.record(clock).await {
+                    return (Intent::Remain, Err(Error::Storage(StorageError(e))));
+                }
+                if let Err(e) = tree.barrier().await {
+                    return (Intent::Remain, Err(Error::Storage(StorageError(e))));
+                }
+            }
+
             // Now take it out of the guard, defusing drop-recovery: from here
             // the peer may hold the party even if the send errors, so it can
             // never be safely re-joined.
@@ -1031,7 +1076,10 @@ impl<T: Send + Sync + 'static, B: Persist, S: Store<T>> Peer<T, B, S> {
         // records the merged root and the identity clock atomically. The
         // in-memory backend's `commit` is a no-op.
         if let Err(e) = built
-            .persist(alias.map(|a| before::Clock::from_parts(a, built.latest().clone())))
+            .persist(
+                alias.map(|a| before::Clock::from_parts(a, built.latest().clone())),
+                self.network,
+            )
             .await
         {
             return (Intent::Remain, Err(Error::Storage(StorageError(e))));

@@ -82,6 +82,7 @@ proptest! {
             Clock::from_parts(party, version).encode()
         });
         let record = CanonicalRoot {
+            network: Some(crate::Network::from_rng(&mut rand::rngs::OsRng)),
             ceiling: Version::new(),
             root: root.map(NodeId),
             identity,

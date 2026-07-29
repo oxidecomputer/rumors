@@ -24,11 +24,11 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
 /// The in-memory backend's stream items are all immediately ready and its
 /// error is uninhabited, so suites can compare snapshot contents without
 /// carrying an executor. Order is the stream's own (unspecified).
-pub fn collect<T: Send + Sync>(
-    snapshot: &crate::Snapshot<T>,
+pub fn collect<T: Send + Sync + 'static, S: crate::tree::backend::Store<T>>(
+    snapshot: &crate::Snapshot<T, S>,
 ) -> Vec<(crate::Key, crate::Version, std::sync::Arc<T>)> {
     use futures::TryStreamExt;
-    pollster::block_on(snapshot.iter().try_collect()).expect("the in-memory backend is infallible")
+    pollster::block_on(snapshot.iter().try_collect()).expect("the backend answered every item")
 }
 
 /// Chainable form of [`collect`]: drain a snapshot's stream into an owned
@@ -38,7 +38,9 @@ pub trait SnapshotCollect<T> {
     fn collected(&self) -> std::vec::IntoIter<(crate::Key, crate::Version, std::sync::Arc<T>)>;
 }
 
-impl<T: Send + Sync> SnapshotCollect<T> for crate::Snapshot<T> {
+impl<T: Send + Sync + 'static, S: crate::tree::backend::Store<T>> SnapshotCollect<T>
+    for crate::Snapshot<T, S>
+{
     fn collected(&self) -> std::vec::IntoIter<(crate::Key, crate::Version, std::sync::Arc<T>)> {
         collect(self).into_iter()
     }
@@ -49,13 +51,17 @@ impl<T: Send + Sync> SnapshotCollect<T> for crate::Snapshot<T> {
 ///
 /// The range-filtered sibling of [`collect`], with
 /// [`Snapshot::range`](crate::Snapshot::range)'s bound semantics.
-pub fn collect_range<T: Send + Sync, R: std::ops::RangeBounds<crate::Version>>(
-    snapshot: &crate::Snapshot<T>,
+pub fn collect_range<
+    T: Send + Sync + 'static,
+    S: crate::tree::backend::Store<T>,
+    R: std::ops::RangeBounds<crate::Version>,
+>(
+    snapshot: &crate::Snapshot<T, S>,
     range: R,
 ) -> Vec<(crate::Key, crate::Version, std::sync::Arc<T>)> {
     use futures::TryStreamExt;
     pollster::block_on(snapshot.range(range).try_collect())
-        .expect("the in-memory backend is infallible")
+        .expect("the backend answered every item")
 }
 
 /// Commit a [`Batch`](crate::Batch), synchronously.

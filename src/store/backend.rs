@@ -1,0 +1,1132 @@
+//! The persistent tree backend: [`KvBackend`], a [`Store`] over any [`Kv`].
+//!
+//! One decoded record per resident node, shared through a weak dedup map;
+//! thin height-typed views over it; custody riding inside every handle.
+//! The layers below ([`schema`](super::schema), [`refcount`](super::refcount))
+//! own the rows; this module owns what a *handle* is.
+//!
+//! # Views and virtual levels
+//!
+//! A stored record materializes a whole compressed span: its prefix bytes
+//! are the single-child levels path compression elides. A node handle is a
+//! view of one record at one height — an `Arc` of the decoded record plus
+//! an *offset* counting how many span bytes the view has consumed — so
+//! exploding through a compressed span mints views of the same allocation
+//! with zero I/O, exactly as the in-memory backend re-wraps one node. Each
+//! view carries its own position-relative hash, derived at mint time from
+//! the record alone (the remaining span, and for a branch the stored child
+//! edges — fat `(radix, id, hash)` entries exist precisely so no child is
+//! fetched to re-derive a hash).
+//!
+//! # Pending nodes
+//!
+//! [`Leaf::leaf`] constructs without a backend value in scope, and every
+//! rebuilt spine passes through one [`Backend::parent`] call per level —
+//! so construction stages *pending* nodes in memory and installs a record
+//! only when something durable references one: a multi-child branch
+//! installs its children (and itself) eagerly, and [`Store::commit`]
+//! installs the root it flips to. A chain of single-child extensions
+//! therefore collapses to exactly one record per compressed span, the
+//! same shape the in-memory tree holds, and the store never writes a row
+//! that no surviving tree references. Two invariants make pending nodes
+//! sound:
+//!
+//! - **Every child edge in any body is already installed.** A branch
+//!   assembles only after its children persist, so a pending body — always
+//!   a single-child *extension* of some base — copies edges that are
+//!   already durable, kept alive by the stored base record's own edges.
+//! - **The custody chain bottoms at durability.** A pending handle keeps
+//!   its base handle alive; the chain ends at a stored record (whose
+//!   registration the chain holds, and whose edges keep everything beneath
+//!   it) or a pending leaf (which owns its payload outright). Dropping the
+//!   chain drops, at worst, unreferenced staged memory.
+//!
+//! # Custody
+//!
+//! A handle minted from storage registers in the held table (or rides an
+//! ancestor's registration — fetching children through an exploded parent
+//! shares the entry handle's row). `Drop` cannot await, so a dropped
+//! registration queues its release; every write transaction the backend
+//! runs piggybacks a bounded flush of that queue and a bounded reclamation
+//! step, and [`vacuum`](KvBackend::vacuum) drains both to empty. Recovery
+//! on open sweeps the whole held table: single-process ownership makes
+//! every held row dead process state by definition.
+//!
+//! # Corruption
+//!
+//! Per the [schema policy](super::schema), a record that fails to decode —
+//! or a child edge pointing at an absent row — panics: the backend is the
+//! only writer of its tables, so both are invariant violations, not
+//! recoverable storage errors.
+
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
+
+use borsh::BorshDeserialize;
+use bytes::Bytes;
+use futures::future;
+
+use before::Version;
+
+use crate::{
+    Network,
+    message::Message,
+    tree::{
+        backend::{Backend, Leaf, Node, NodeStream, Root, Store},
+        typed::{
+            Hash, Prefix,
+            height::{Height, S, Z},
+        },
+    },
+};
+
+use super::kv::{Kv, WriteTxn};
+use super::refcount::{self, ReleaseQueue};
+use super::schema::{CanonicalRoot, IdAllocator, NodeBody, NodeId, NodeRecord, PinId};
+
+/// The persistent tree backend: a cheap cloneable handle over one [`Kv`]
+/// store's tables.
+///
+/// Construct one with [`new`](Self::new) around any conforming store, then
+/// hand it to [`Peer::seed_in`](crate::Peer::seed_in),
+/// [`Bootstrap::backend`](crate::Bootstrap::backend), or — for a store that
+/// already holds a replica — [`Peer::open`](crate::Peer::open). The backend
+/// owns its tables outright (see [`Kv`] on single-process ownership) and
+/// delegates durability to the store: an acknowledged commit is as durable
+/// as the store's own commits are, and the crate awaits the store's
+/// [`sync`](Kv::sync) barrier wherever durability is load-bearing (before
+/// identity leaves the replica). Call [`vacuum`](Self::vacuum) in
+/// maintenance windows to drain deferred reclamation eagerly; an active
+/// replica converges without it, one bounded step per write.
+pub struct KvBackend<K: Kv, T: Send + Sync + 'static> {
+    shared: Arc<Shared<K, T>>,
+}
+
+impl<K: Kv, T: Send + Sync + 'static> Clone for KvBackend<K, T> {
+    fn clone(&self) -> Self {
+        Self {
+            shared: self.shared.clone(),
+        }
+    }
+}
+
+impl<K: Kv, T: Send + Sync + 'static> std::fmt::Debug for KvBackend<K, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KvBackend").finish_non_exhaustive()
+    }
+}
+
+/// The backend's shared state: the store handle, the ID allocator, the
+/// deferred-release queue, and the resident-node dedup map.
+struct Shared<K: Kv, T: Send + Sync + 'static> {
+    kv: K,
+    ids: IdAllocator,
+    releases: ReleaseQueue,
+    /// One resident allocation per node: stored-record fetches funnel
+    /// through here, so every traversal holding a node shares one
+    /// [`Fetched`].
+    dedup: Mutex<HashMap<u64, Weak<Fetched<K, T>>>>,
+}
+
+/// One resident node: the decoded record (or staged pending body) plus
+/// its custody.
+struct Fetched<K: Kv, T: Send + Sync + 'static> {
+    body: Body<T>,
+    provenance: Provenance<K, T>,
+}
+
+/// What a resident node is backed by.
+enum Provenance<K: Kv, T: Send + Sync + 'static> {
+    /// A stored record, with whatever keeps this handle's view of it
+    /// registered.
+    Stored {
+        id: NodeId,
+        /// Held for its `Drop`: what keeps the registration (own or an
+        /// ancestor's) alive as long as this node is resident.
+        #[allow(dead_code)]
+        custody: Custody<K, T>,
+    },
+    /// A staged construction: installed on first
+    /// [`persisted`](Fetched::persisted), memoized here. `base` is the
+    /// custody chain (see the module docs); `None` only for a staged
+    /// leaf, which owns its payload outright.
+    Pending {
+        /// Held for its `Drop`: the custody chain (module docs) that
+        /// keeps everything this staged body references alive.
+        #[allow(dead_code)]
+        base: Option<Arc<Fetched<K, T>>>,
+        installed: OnceLock<(NodeId, Registration<K, T>)>,
+    },
+}
+
+/// What keeps a stored node registered in the held table.
+enum Custody<K: Kv, T: Send + Sync + 'static> {
+    /// This handle's own `(node, pin)` row.
+    Registered(#[allow(dead_code)] Registration<K, T>),
+    /// An ancestor entry handle's registration: children fetched through
+    /// an exploded parent stay alive through the entry that reached them
+    /// (records are immutable, so every durable edge beneath a registered
+    /// entry persists while the registration does).
+    Under(#[allow(dead_code)] Arc<Fetched<K, T>>),
+}
+
+/// One held-table registration; dropping it queues the release (`Drop`
+/// cannot await, so deregistration is deferred to the backend's next
+/// write transaction or vacuum).
+struct Registration<K: Kv, T: Send + Sync + 'static> {
+    node: NodeId,
+    pin: PinId,
+    shared: Arc<Shared<K, T>>,
+}
+
+impl<K: Kv, T: Send + Sync + 'static> Drop for Registration<K, T> {
+    fn drop(&mut self) {
+        self.shared.releases.push(self.node, self.pin);
+    }
+}
+
+/// A node's decoded structure, resident in the handle.
+///
+/// The prefix rides in the record's own order (deepest byte at index 0,
+/// the in-memory node's convention) so hash preimages feed the shared
+/// digests byte-for-byte.
+enum Body<T> {
+    Leaf {
+        prefix: Vec<u8>,
+        version: Version,
+        message: Message<T>,
+    },
+    Branch {
+        prefix: Vec<u8>,
+        /// The record's hash at offset zero (its full stored prefix).
+        hash: Hash,
+        ceiling: Version,
+        floor: Version,
+        leaves: u64,
+        version_bytes: u64,
+        /// Ascending radix, ≥ 2 entries; hashes stored fat per edge.
+        children: Vec<(u8, NodeId, Hash)>,
+    },
+}
+
+impl<T: Send + Sync + 'static> Body<T> {
+    /// The stored span (deepest byte first).
+    fn prefix(&self) -> &[u8] {
+        match self {
+            Body::Leaf { prefix, .. } | Body::Branch { prefix, .. } => prefix,
+        }
+    }
+
+    /// The position-relative hash of the view that has consumed `offset`
+    /// span bytes: the leaf preimage over the remaining span, or the
+    /// branch preimage over the remaining span and the stored edges. The
+    /// offset-zero branch hash is the stored field.
+    ///
+    /// Preimages take the span in *path order* (shallowest byte first)
+    /// while storage is shallowest-last, exactly as the in-memory node
+    /// hashes; [`path_order`] is the shared reversal.
+    fn view_hash(&self, offset: usize) -> Hash {
+        match self {
+            Body::Leaf { prefix, .. } => Hash::leaf(&path_order(&prefix[..prefix.len() - offset])),
+            Body::Branch {
+                prefix,
+                hash,
+                children,
+                ..
+            } => {
+                if offset == 0 {
+                    *hash
+                } else {
+                    Hash::branch(
+                        &path_order(&prefix[..prefix.len() - offset]),
+                        children.iter().map(|&(radix, _, hash)| (radix, hash)),
+                    )
+                }
+            }
+        }
+    }
+
+    /// Decode a stored record body.
+    ///
+    /// # Panics
+    ///
+    /// On an undecodable payload (corruption; module docs).
+    fn decode(body: NodeBody) -> Self
+    where
+        T: BorshDeserialize,
+    {
+        match body {
+            NodeBody::Leaf {
+                prefix,
+                version,
+                payload,
+            } => Body::Leaf {
+                prefix,
+                version,
+                message: Message::from_bytes(Bytes::from(payload)).expect("corrupt leaf payload"),
+            },
+            NodeBody::Branch {
+                prefix,
+                hash,
+                ceiling,
+                floor,
+                leaves,
+                version_bytes,
+                children,
+            } => Body::Branch {
+                prefix,
+                hash,
+                ceiling,
+                floor,
+                leaves,
+                version_bytes,
+                children,
+            },
+        }
+    }
+
+    /// Encode this body as its stored record form.
+    fn encode(&self) -> NodeBody {
+        match self {
+            Body::Leaf {
+                prefix,
+                version,
+                message,
+            } => NodeBody::Leaf {
+                prefix: prefix.clone(),
+                version: version.clone(),
+                payload: message.bytes().to_vec(),
+            },
+            Body::Branch {
+                prefix,
+                hash,
+                ceiling,
+                floor,
+                leaves,
+                version_bytes,
+                children,
+            } => NodeBody::Branch {
+                prefix: prefix.clone(),
+                hash: *hash,
+                ceiling: ceiling.clone(),
+                floor: floor.clone(),
+                leaves: *leaves,
+                version_bytes: *version_bytes,
+                children: children.clone(),
+            },
+        }
+    }
+
+    /// This body extended one level upward: the same structure with
+    /// `radix` as its new shallowest span byte, re-hashed at the new
+    /// position. Cheap: the payload and edge vector are shared or small.
+    fn extend(&self, radix: u8) -> Self {
+        match self {
+            Body::Leaf {
+                prefix,
+                version,
+                message,
+            } => {
+                let mut prefix = prefix.clone();
+                prefix.push(radix);
+                Body::Leaf {
+                    prefix,
+                    version: version.clone(),
+                    message: message.clone(),
+                }
+            }
+            Body::Branch {
+                prefix,
+                ceiling,
+                floor,
+                leaves,
+                version_bytes,
+                children,
+                ..
+            } => {
+                let mut prefix = prefix.clone();
+                prefix.push(radix);
+                let hash = Hash::branch(
+                    &path_order(&prefix),
+                    children.iter().map(|&(r, _, h)| (r, h)),
+                );
+                Body::Branch {
+                    prefix,
+                    hash,
+                    ceiling: ceiling.clone(),
+                    floor: floor.clone(),
+                    leaves: *leaves,
+                    version_bytes: *version_bytes,
+                    children: children.clone(),
+                }
+            }
+        }
+    }
+}
+
+/// A stored span reversed into path order (shallowest byte first): the
+/// order every hash preimage takes, per the in-memory node's convention.
+/// A span never exceeds the 32-byte path.
+fn path_order(stored: &[u8]) -> tinyvec::ArrayVec<[u8; 32]> {
+    stored.iter().rev().copied().collect()
+}
+
+impl<K: Kv, T: Send + Sync + 'static> Fetched<K, T>
+where
+    T: BorshDeserialize,
+{
+    /// The installed record ID of this node's offset-zero view, installing
+    /// a pending body on first need.
+    ///
+    /// Installation is one bounded transaction: the record, its fresh
+    /// held-table registration, and one strong increment per child edge.
+    /// Concurrent callers may race to install; the loser's registration
+    /// drops into the release queue and its duplicate record is reclaimed
+    /// — wasted bytes, never a dangling reference.
+    async fn persisted(self: &Arc<Self>, backend: &KvBackend<K, T>) -> Result<NodeId, K::Error> {
+        match &self.provenance {
+            Provenance::Stored { id, .. } => Ok(*id),
+            Provenance::Pending { installed, .. } => {
+                if let Some((id, _)) = installed.get() {
+                    return Ok(*id);
+                }
+                let shared = &backend.shared;
+                let node = NodeId(shared.ids.allocate(&shared.kv).await?);
+                let pin = PinId(shared.ids.allocate(&shared.kv).await?);
+                // Arm the registration before the transaction: dropped at
+                // any await point below, it queues a release that is a
+                // no-op if the install never committed and reclaims the
+                // orphan if it did.
+                let registration = Registration {
+                    node,
+                    pin,
+                    shared: shared.clone(),
+                };
+                let record = NodeRecord {
+                    strong: 0,
+                    body: self.body.encode(),
+                };
+                let children: Vec<NodeId> = record.children().collect();
+                backend
+                    .write_upkeep(move |txn| {
+                        refcount::install(txn, node, pin, &record)?;
+                        for &child in &children {
+                            refcount::adjust_strong(txn, child, 1)?;
+                        }
+                        Ok(())
+                    })
+                    .await?;
+                // A concurrent install may have won; either way the
+                // memoized entry is what every later caller reads, and a
+                // losing registration drops here, queuing its duplicate
+                // for reclamation.
+                let _ = installed.set((node, registration));
+                let (id, _) = installed.get().expect("just set");
+                shared
+                    .dedup
+                    .lock()
+                    .expect("dedup lock poisoned")
+                    .insert(id.0, Arc::downgrade(self));
+                Ok(*id)
+            }
+        }
+    }
+}
+
+/// A height-typed view of one resident node.
+///
+/// `offset` counts consumed span bytes; views along one compressed span
+/// share the [`Fetched`] allocation. The hash is derived at mint time
+/// (see the module docs), so every summary accessor answers without I/O.
+pub struct KvNode<K: Kv, T: Send + Sync + 'static, H: Height> {
+    inner: Arc<Fetched<K, T>>,
+    offset: usize,
+    hash: Hash,
+    height: PhantomData<fn() -> H>,
+}
+
+impl<K: Kv, T: Send + Sync + 'static, H: Height> Clone for KvNode<K, T, H> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            offset: self.offset,
+            hash: self.hash,
+            height: PhantomData,
+        }
+    }
+}
+
+impl<K: Kv, T: Send + Sync + 'static, H: Height> std::fmt::Debug for KvNode<K, T, H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KvNode")
+            .field("height", &H::HEIGHT)
+            .field("offset", &self.offset)
+            .field("hash", &self.hash)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<K: Kv, T: Send + Sync + 'static, H: Height> KvNode<K, T, H> {
+    /// Mint the view of `inner` that has consumed `offset` span bytes.
+    fn view(inner: Arc<Fetched<K, T>>, offset: usize) -> Self
+    where
+        T: BorshDeserialize,
+    {
+        let hash = inner.body.view_hash(offset);
+        Self {
+            inner,
+            offset,
+            hash,
+            height: PhantomData,
+        }
+    }
+
+    /// How many span bytes remain below this view.
+    fn remaining(&self) -> usize {
+        self.inner.body.prefix().len() - self.offset
+    }
+
+    /// The next radix along the span, when any span remains: the byte an
+    /// explosion at this view descends through.
+    fn span_radix(&self) -> Option<u8> {
+        let prefix = self.inner.body.prefix();
+        (self.remaining() > 0).then(|| prefix[prefix.len() - 1 - self.offset])
+    }
+}
+
+impl<K: Kv, T: Send + Sync + 'static, H: Height> Node<T> for KvNode<K, T, H>
+where
+    T: BorshDeserialize,
+{
+    type Backend = KvBackend<K, T>;
+    type Height = H;
+
+    fn ceiling(&self) -> &Version {
+        match &self.inner.body {
+            Body::Leaf { version, .. } => version,
+            Body::Branch { ceiling, .. } => ceiling,
+        }
+    }
+
+    fn floor(&self) -> &Version {
+        match &self.inner.body {
+            Body::Leaf { version, .. } => version,
+            Body::Branch { floor, .. } => floor,
+        }
+    }
+
+    fn hash(&self) -> Hash {
+        self.hash
+    }
+
+    fn len(&self) -> usize {
+        match &self.inner.body {
+            Body::Leaf { .. } => 1,
+            Body::Branch { leaves, .. } => *leaves as usize,
+        }
+    }
+
+    fn version_bytes(&self) -> usize {
+        match &self.inner.body {
+            Body::Leaf { version, .. } => version.as_bytes().len(),
+            Body::Branch { version_bytes, .. } => *version_bytes as usize,
+        }
+    }
+}
+
+impl<K: Kv, T: Send + Sync + 'static> Leaf<T> for KvNode<K, T, Z>
+where
+    T: BorshDeserialize,
+{
+    fn message(&self) -> &Message<T> {
+        match &self.inner.body {
+            Body::Leaf { message, .. } => message,
+            // A height-zero view has consumed its whole span, and a branch
+            // record never spans to height zero: reaching this is a
+            // corrupt record or a construction bug (module docs).
+            Body::Branch { .. } => unreachable!("height-zero view over a branch record"),
+        }
+    }
+
+    fn leaf(
+        version: Version,
+        message: Message<T>,
+    ) -> impl Future<Output = Result<Self, K::Error>> + Send {
+        // No backend value is in scope, so the leaf stages as a pending
+        // body — the write-behind shape this method's contract sanctions —
+        // and installs when a branch or root flip links it. A session
+        // dropped mid-decode drops staged memory and nothing else; a
+        // meanwhile-redacted message correctly never re-arrives. Staged
+        // handles are priced through `node_bytes` at `children = 0`.
+        future::ready(Ok(KvNode::view(
+            Arc::new(Fetched {
+                body: Body::Leaf {
+                    prefix: Vec::new(),
+                    version,
+                    message,
+                },
+                provenance: Provenance::Pending {
+                    base: None,
+                    installed: OnceLock::new(),
+                },
+            }),
+            0,
+        )))
+    }
+}
+
+impl<K: Kv, T: Send + Sync + 'static> KvBackend<K, T>
+where
+    T: BorshDeserialize,
+{
+    /// Wrap a conforming store.
+    ///
+    /// Cheap and non-destructive: nothing is read or written until the
+    /// backend is used ([`Peer::open`](crate::Peer::open) is what runs
+    /// recovery against a store holding an earlier replica).
+    pub fn new(kv: K) -> Self {
+        Self {
+            shared: Arc::new(Shared {
+                kv,
+                ids: IdAllocator::default(),
+                releases: ReleaseQueue::default(),
+                dedup: Mutex::new(HashMap::new()),
+            }),
+        }
+    }
+
+    /// Flush queued handle releases and drain deferred reclamation until
+    /// both are empty.
+    ///
+    /// Maintenance, never required for correctness: every write
+    /// transaction piggybacks one bounded step of each, so an active
+    /// replica converges on its own, and recovery on open reclaims
+    /// whatever a crash left. Run it in idle windows to return space
+    /// eagerly, or in tests to reach the quiescent state audits expect.
+    pub async fn vacuum(&self) -> Result<(), K::Error> {
+        refcount::vacuum(&self.shared.kv, &self.shared.releases).await
+    }
+
+    /// One write transaction with the custody upkeep every backend write
+    /// piggybacks: a bounded flush of queued releases and one bounded
+    /// reclamation step.
+    ///
+    /// The taken release batch is re-queued unless the transaction
+    /// positively committed — releases are idempotent, so re-applying a
+    /// batch whose fate was never learned is safe, while forgetting one
+    /// would leak until recovery.
+    async fn write_upkeep<R, F>(&self, mut f: F) -> Result<R, K::Error>
+    where
+        R: Send + 'static,
+        F: FnMut(&mut dyn WriteTxn<Error = K::Error>) -> Result<R, K::Error> + Send + 'static,
+    {
+        /// Re-queues a taken batch on drop unless defused: covers the
+        /// `Err` return and the dropped-mid-await (committed-or-not)
+        /// case in one place.
+        struct Requeue<'q> {
+            queue: &'q ReleaseQueue,
+            batch: Option<Vec<(NodeId, PinId)>>,
+        }
+        impl Drop for Requeue<'_> {
+            fn drop(&mut self) {
+                if let Some(batch) = self.batch.take() {
+                    self.queue.requeue(batch);
+                }
+            }
+        }
+
+        let batch = self.shared.releases.take();
+        let mut guard = Requeue {
+            queue: &self.shared.releases,
+            batch: Some(batch.clone()),
+        };
+        let result = self
+            .shared
+            .kv
+            .write(move |txn| {
+                let result = f(txn)?;
+                refcount::release(txn, &batch)?;
+                refcount::reclaim_step(txn)?;
+                Ok(result)
+            })
+            .await;
+        if result.is_ok() {
+            guard.batch = None;
+        }
+        result
+    }
+
+    /// Fetch one stored record as a resident node, through the dedup
+    /// funnel; `custody` is what keeps the returned node registered.
+    ///
+    /// # Panics
+    ///
+    /// If the record is absent: every caller resolves an ID out of a
+    /// strong edge or a registration, so absence is corruption.
+    async fn fetch(
+        &self,
+        id: NodeId,
+        custody: impl FnOnce() -> Custody<K, T>,
+    ) -> Result<Arc<Fetched<K, T>>, K::Error> {
+        if let Some(resident) = self
+            .shared
+            .dedup
+            .lock()
+            .expect("dedup lock poisoned")
+            .get(&id.0)
+            .and_then(Weak::upgrade)
+        {
+            return Ok(resident);
+        }
+        let record = self
+            .shared
+            .kv
+            .read(move |txn| refcount::read_node(txn, id))
+            .await?
+            .expect("dangling child edge or registration: custody accounting bug");
+        let fetched = Arc::new(Fetched {
+            body: Body::decode(record.body),
+            provenance: Provenance::Stored {
+                id,
+                custody: custody(),
+            },
+        });
+        // A concurrent fetch may have inserted first; prefer the resident
+        // one so every holder shares a single allocation.
+        let mut dedup = self.shared.dedup.lock().expect("dedup lock poisoned");
+        if let Some(resident) = dedup.get(&id.0).and_then(Weak::upgrade) {
+            return Ok(resident);
+        }
+        dedup.insert(id.0, Arc::downgrade(&fetched));
+        Ok(fetched)
+    }
+
+    /// Register a fresh held-table row on `id` and fetch it as an entry
+    /// handle: how a root enters the process from storage.
+    async fn fetch_entry(&self, id: NodeId) -> Result<Arc<Fetched<K, T>>, K::Error> {
+        let pin = PinId(self.shared.ids.allocate(&self.shared.kv).await?);
+        let registration = Registration {
+            node: id,
+            pin,
+            shared: self.shared.clone(),
+        };
+        self.write_upkeep(move |txn| refcount::register(txn, id, pin))
+            .await?;
+        self.fetch(id, move || Custody::Registered(registration))
+            .await
+    }
+}
+
+impl<K: Kv, T> Backend<T> for KvBackend<K, T>
+where
+    T: BorshDeserialize + Send + Sync + 'static,
+{
+    type Node<H: Height> = KvNode<K, T, H>;
+    type Error = K::Error;
+
+    fn node_bytes(children: usize, version_bound: usize) -> usize {
+        // What one view keeps resident: the view itself, its share of the
+        // decoded record (counted once per handle, an upper bound over
+        // span-sharing), the span capacity, the stored hash, the bounds'
+        // encodings, and the fat child table. Leaf payloads are priced by
+        // `target_message_size` (custody happens at `Leaf::leaf`), not
+        // here — the contract's `children = 0` clause. Constant slack
+        // covers the dedup entry and one queued release. Monotone in both
+        // arguments by construction.
+        const SPAN_CAPACITY: usize = 32;
+        const SLACK: usize = 64;
+        std::mem::size_of::<KvNode<K, T, Z>>()
+            + std::mem::size_of::<Fetched<K, T>>()
+            + SPAN_CAPACITY
+            + std::mem::size_of::<Hash>()
+            + version_bound
+            + children * std::mem::size_of::<(u8, NodeId, Hash)>()
+            + SLACK
+    }
+
+    async fn parent<H>(
+        self,
+        _prefix: Prefix<S<H>>,
+        children: Vec<(u8, Option<Self::Node<H>>)>,
+    ) -> Result<Option<Self::Node<S<H>>>, Self::Error>
+    where
+        H: Height,
+        S<H>: Height,
+    {
+        {
+            let mut survivors: Vec<(u8, KvNode<K, T, H>)> = children
+                .into_iter()
+                .filter_map(|(radix, child)| Some((radix, child?)))
+                .collect();
+            match survivors.len() {
+                // Every child deleted (or the group was empty): the
+                // deletion cascades one level up. Reclamation of what the
+                // dropped children stored is the custody layer's, keyed on
+                // the last reference — never this call's.
+                0 => Ok(None),
+                // One survivor: the parent is the child one level up —
+                // path compression. A mid-span view un-consumes one byte
+                // with zero I/O; a whole view extends its body in memory,
+                // staying pending until something durable links it.
+                1 => {
+                    let (radix, child) = survivors.pop().expect("one survivor");
+                    if child.offset > 0 {
+                        debug_assert_eq!(
+                            child.span_radix_above(),
+                            radix,
+                            "a mid-span child reassembles at the radix it exploded from"
+                        );
+                        Ok(Some(KvNode::view(child.inner, child.offset - 1)))
+                    } else {
+                        let body = child.inner.body.extend(radix);
+                        Ok(Some(KvNode::view(
+                            Arc::new(Fetched {
+                                body,
+                                provenance: Provenance::Pending {
+                                    base: Some(child.inner),
+                                    installed: OnceLock::new(),
+                                },
+                            }),
+                            0,
+                        )))
+                    }
+                }
+                // A real branch: persist the children (each install is its
+                // own bounded transaction), then install the branch record
+                // with one strong edge per child.
+                _ => {
+                    let mut edges = Vec::with_capacity(survivors.len());
+                    let mut ceilings = Vec::with_capacity(survivors.len());
+                    let mut floors = Vec::with_capacity(survivors.len());
+                    let mut leaves: u64 = 0;
+                    let mut version_bytes: usize = 0;
+                    // Guards from mid-span reifications, held until the
+                    // branch install below commits the edges that keep
+                    // their records alive.
+                    let mut guards = Vec::new();
+                    for (radix, child) in &survivors {
+                        let (id, guard) = child.reified(&self).await?;
+                        guards.extend(guard);
+                        edges.push((*radix, id, child.hash()));
+                        ceilings.push(child.ceiling().clone());
+                        floors.push(child.floor().clone());
+                        leaves += child.len() as u64;
+                        version_bytes = version_bytes.max(child.version_bytes());
+                    }
+                    let ceiling = Version::join_all(ceilings);
+                    let floor = Version::meet_all(floors).expect("at least two children");
+                    version_bytes = version_bytes
+                        .max(ceiling.as_bytes().len())
+                        .max(floor.as_bytes().len());
+                    let hash = Hash::branch(&[], edges.iter().map(|&(r, _, h)| (r, h)));
+                    let body = Body::Branch {
+                        prefix: Vec::new(),
+                        hash,
+                        ceiling,
+                        floor,
+                        leaves,
+                        version_bytes: version_bytes as u64,
+                        children: edges,
+                    };
+                    let fetched = Arc::new(Fetched {
+                        body,
+                        provenance: Provenance::Pending {
+                            base: None,
+                            installed: OnceLock::new(),
+                        },
+                    });
+                    // Install eagerly: the branch's children are durable,
+                    // and linking them under a durable parent is what
+                    // frees their staged custody to unwind. The children's
+                    // handles (`survivors`) and the reification guards
+                    // keep every edge registered until this commits.
+                    fetched.persisted(&self).await?;
+                    drop(guards);
+                    Ok(Some(KvNode::view(fetched, 0)))
+                }
+            }
+        }
+    }
+
+    fn children<H>(
+        self,
+        prefix: Prefix<S<H>>,
+        parent: Self::Node<S<H>>,
+    ) -> impl NodeStream<Self, T, H>
+    where
+        H: Height,
+        S<H>: Height,
+    {
+        async_stream::try_stream! {
+            if let Some(radix) = parent.span_radix() {
+                // Mid-span: one virtual child, same allocation, zero I/O.
+                let child = KvNode::view(parent.inner.clone(), parent.offset + 1);
+                yield (prefix.push(radix), child);
+                return;
+            }
+            let edges = match &parent.inner.body {
+                Body::Leaf { .. } => unreachable!(
+                    "a leaf record's span ends at height zero, where nothing explodes"
+                ),
+                Body::Branch { children, .. } => children.clone(),
+            };
+            for (radix, id, _) in edges {
+                let child = self
+                    .fetch(id, || Custody::Under(parent.inner.clone()))
+                    .await?;
+                yield (prefix.push(radix), KvNode::view(child, 0));
+            }
+        }
+    }
+}
+
+impl<K: Kv, T: Send + Sync + 'static, H: Height> KvNode<K, T, H>
+where
+    T: BorshDeserialize,
+{
+    /// The byte one level above a mid-span view: what
+    /// [`Backend::parent`]'s compression case asserts against.
+    fn span_radix_above(&self) -> u8 {
+        let prefix = self.inner.body.prefix();
+        prefix[prefix.len() - self.offset]
+    }
+
+    /// The installed record ID for this view's position, plus the guard
+    /// that keeps it registered.
+    ///
+    /// An offset-zero view persists its own record (a no-op when already
+    /// stored); the caller's handle keeps it registered, so the guard is
+    /// empty. A mid-span view names a *position* inside a record, which
+    /// no edge can reference — so it reifies: a fresh record holding the
+    /// remaining span, its edges re-counted (or its payload shared), the
+    /// analog of the in-memory backend's copy-on-write span split. The
+    /// returned guard carries that fresh record's registration, and the
+    /// caller **must hold it across the transaction that links the ID**:
+    /// dropped earlier, the release can ride an intermediate
+    /// transaction's upkeep and reclaim the record before anything
+    /// references it.
+    async fn reified(
+        &self,
+        backend: &KvBackend<K, T>,
+    ) -> Result<(NodeId, Option<Arc<Fetched<K, T>>>), K::Error> {
+        if self.offset == 0 {
+            return Ok((self.inner.persisted(backend).await?, None));
+        }
+        let body = match &self.inner.body {
+            Body::Leaf {
+                prefix,
+                version,
+                message,
+            } => Body::Leaf {
+                prefix: prefix[..prefix.len() - self.offset].to_vec(),
+                version: version.clone(),
+                message: message.clone(),
+            },
+            Body::Branch {
+                prefix,
+                ceiling,
+                floor,
+                leaves,
+                version_bytes,
+                children,
+                ..
+            } => {
+                let prefix = prefix[..prefix.len() - self.offset].to_vec();
+                let hash = Hash::branch(
+                    &path_order(&prefix),
+                    children.iter().map(|&(r, _, h)| (r, h)),
+                );
+                Body::Branch {
+                    prefix,
+                    hash,
+                    ceiling: ceiling.clone(),
+                    floor: floor.clone(),
+                    leaves: *leaves,
+                    version_bytes: *version_bytes,
+                    children: children.clone(),
+                }
+            }
+        };
+        let split = Arc::new(Fetched {
+            body,
+            provenance: Provenance::Pending {
+                base: Some(self.inner.clone()),
+                installed: OnceLock::new(),
+            },
+        });
+        let id = split.persisted(backend).await?;
+        Ok((id, Some(split)))
+    }
+}
+
+impl<K: Kv, T> Store<T> for KvBackend<K, T>
+where
+    T: BorshDeserialize + Send + Sync + 'static,
+{
+    /// Every root flip records durably; committers prepare the identity
+    /// clock.
+    const PERSISTS: bool = true;
+
+    fn same<H: Height>(a: &Self::Node<H>, b: &Self::Node<H>) -> bool {
+        // One resident allocation per node (the dedup funnel), so shared
+        // structure is shared `Fetched`s; the offset distinguishes views
+        // along one span. `false` falls back to the hash, as the contract
+        // requires.
+        Arc::ptr_eq(&a.inner, &b.inner) && a.offset == b.offset
+    }
+
+    async fn child<H>(
+        self,
+        _prefix: Prefix<S<H>>,
+        parent: Self::Node<S<H>>,
+        radix: u8,
+    ) -> Result<Option<Self::Node<H>>, Self::Error>
+    where
+        H: Height,
+        S<H>: Height,
+    {
+        {
+            if let Some(span) = parent.span_radix() {
+                // Mid-span: the single virtual child either matches the
+                // requested radix or nothing does.
+                return Ok(
+                    (span == radix).then(|| KvNode::view(parent.inner.clone(), parent.offset + 1))
+                );
+            }
+            let edge = match &parent.inner.body {
+                Body::Leaf { .. } => {
+                    unreachable!("a leaf record's span ends at height zero, where nothing explodes")
+                }
+                Body::Branch { children, .. } => children
+                    .binary_search_by_key(&radix, |&(r, _, _)| r)
+                    .ok()
+                    .map(|found| children[found].1),
+            };
+            match edge {
+                None => Ok(None),
+                Some(id) => {
+                    let child = self
+                        .fetch(id, || Custody::Under(parent.inner.clone()))
+                        .await?;
+                    Ok(Some(KvNode::view(child, 0)))
+                }
+            }
+        }
+    }
+
+    async fn commit(
+        &self,
+        root: &Root<Self, T>,
+        clock: Option<before::Clock>,
+        network: Network,
+    ) -> Result<(), Self::Error> {
+        {
+            // Persist the root's record first (a no-op when it is already
+            // stored); a crash between the two transactions leaves an
+            // orphan the recovery sweep reclaims, never a flip naming an
+            // absent record.
+            let (id, guard) = match &root.root {
+                None => (None, None),
+                Some(node) => {
+                    let (id, guard) = node.reified(self).await?;
+                    (Some(id), guard)
+                }
+            };
+            let ceiling = root.ceiling.clone();
+            // The one sanctioned use of the alias: serialization. The
+            // record layer stores bytes it structurally cannot tick or
+            // join.
+            let identity =
+                clock.map(|clock| borsh::to_vec(&clock).expect("clock encoding is infallible"));
+            let flipped = self
+                .write_upkeep(move |txn| {
+                    refcount::flip_root(txn, network, id, ceiling.clone(), identity.clone())
+                })
+                .await;
+            // The reification guard held the root's fresh record
+            // registered through the flip that just linked it.
+            drop(guard);
+            flipped
+        }
+    }
+
+    fn record(
+        &self,
+        clock: Option<before::Clock>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        let identity =
+            clock.map(|clock| borsh::to_vec(&clock).expect("clock encoding is infallible"));
+        self.write_upkeep(move |txn| refcount::record_identity(txn, identity.clone()))
+    }
+
+    fn barrier(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        self.shared.kv.sync()
+    }
+}
+
+/// Why a store could not be [opened](crate::Peer::open) as a peer.
+#[derive(Debug, thiserror::Error)]
+pub enum OpenError<E> {
+    /// The store holds no replica: no peer has ever committed to it.
+    ///
+    /// Seed or bootstrap into the store instead
+    /// ([`Peer::seed_in`](crate::Peer::seed_in),
+    /// [`Bootstrap::backend`](crate::Bootstrap::backend)); opening is for
+    /// resuming a replica that already lives there.
+    #[error("the store holds no replica: seed or bootstrap into it first")]
+    Empty,
+
+    /// The replica in this store retired: it donated its whole identity
+    /// away, so no peer can resume from it.
+    ///
+    /// The stored content is an archive of what the replica held when it
+    /// left the universe; a new participant joins by bootstrapping from a
+    /// live peer, never by resurrecting a retiree.
+    #[error("the stored replica retired; its identity lives elsewhere")]
+    Retired,
+
+    /// The store itself failed.
+    #[error(transparent)]
+    Storage(#[from] E),
+}
+
+impl<K: Kv, T> KvBackend<K, T>
+where
+    T: BorshDeserialize + Send + Sync + 'static,
+{
+    /// Recover this store and load the replica it holds: the pieces
+    /// [`Peer::open`](crate::Peer::open) assembles.
+    ///
+    /// Runs the recovery sweep (every held row is dead process state),
+    /// then reads the canonical record: the network, the identity clock,
+    /// and the tree root as a freshly registered entry handle.
+    pub(crate) async fn open_replica(
+        &self,
+    ) -> Result<(Network, before::Clock, Root<Self, T>), OpenError<K::Error>> {
+        refcount::recover(&self.shared.kv).await?;
+        let record = self.shared.kv.read(|txn| CanonicalRoot::read(txn)).await?;
+        let Some(network) = record.network else {
+            return Err(OpenError::Empty);
+        };
+        let Some(identity) = record.identity else {
+            return Err(OpenError::Retired);
+        };
+        let clock: before::Clock = borsh::from_slice(&identity).expect("corrupt identity record");
+        let root = match record.root {
+            None => None,
+            Some(id) => Some(KvNode::view(self.fetch_entry(id).await?, 0)),
+        };
+        Ok((
+            network,
+            clock,
+            Root {
+                ceiling: record.ceiling,
+                root,
+            },
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests;

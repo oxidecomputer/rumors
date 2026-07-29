@@ -155,14 +155,21 @@ pub(crate) fn register<W: WriteTxn + ?Sized>(
 /// Adjusts a node's strong count by `delta`, queuing it for reclamation
 /// if it drops to zero with no registrations.
 ///
-/// A decrement against an already-reclaimed node is a no-op: IDs are
-/// never reused, so the absent row means the work is already done.
+/// A *decrement* against an already-reclaimed node is a no-op: IDs are
+/// never reused, so the absent row means the work is already done. An
+/// *increment* against one is a custody bug — something is linking a
+/// record it failed to keep registered — and panics rather than
+/// installing a dangling edge.
 pub(crate) fn adjust_strong<W: WriteTxn + ?Sized>(
     txn: &mut W,
     node: NodeId,
     delta: i64,
 ) -> Result<(), W::Error> {
     let Some(mut record) = read_node(txn, node)? else {
+        assert!(
+            delta < 0,
+            "linking a reclaimed record: custody accounting bug"
+        );
         return Ok(());
     };
     record.strong = record
@@ -195,12 +202,14 @@ pub(crate) fn release<W: WriteTxn + ?Sized>(
 /// clears it (retirement) — never "retain".
 pub(crate) fn flip_root<W: WriteTxn + ?Sized>(
     txn: &mut W,
+    network: crate::Network,
     root: Option<NodeId>,
     ceiling: before::Version,
     identity: Option<Vec<u8>>,
 ) -> Result<(), W::Error> {
     let previous = CanonicalRoot::read(txn)?;
     CanonicalRoot {
+        network: Some(network),
         ceiling,
         root,
         identity,
