@@ -4110,22 +4110,29 @@ mod ledger_wide_arming {
 // The close-time settle's wide × dense genre — and the floor under
 // every settle. The plateau-puncture family `PP(w, d)`
 // (`meter::plateau_puncture`) embeds its excess in the exact answer,
-// not in any ledger accounting: every turn leaf sits on the plateau
-// `H = 2^(32w)` and the turn masses `M` are d incompressible digits,
-// so the rank numerator is exactly `H · M + 1` — a Θ(w)-digit ×
-// Θ(d)-digit integer product bought with Θ(w + d) input bits. No
-// promotion ever fires (the one wide plunge parks once and no later
-// freeze arrives), so the cost sits in the close-time settle
-// `P · segment`, outside the promotion ledger and its product tree
-// entirely: computing the answer *is* one wide × dense multiplication,
-// which the shipped settle delegates whole to the backend at its
-// multiplication bound `M(|v|)` — mandatory here for any fold that
-// answers exactly, so `Ω(M(|v|))` floors every settle and the
+// not in any ledger accounting: every turn leaf sits on one
+// incompressible pseudorandom plateau `x` of `w` digits, the turn
+// positions spell a jittered mass `y` of `d` isolated digits, and
+// the rank numerator is exactly `2·x·y + 1` — a Θ(w)-digit ×
+// Θ(d)-term integer product bought with Θ(w + d) input bits, both
+// factors' content beyond the settle's own balanced-digit compaction
+// (`mul_bound_embedding_is_alive` pins exactly that). No promotion
+// ever fires (the one wide plunge parks once and no later freeze
+// arrives), so the cost sits in the close-time settle `P · segment`,
+// outside the promotion ledger and its product tree entirely:
+// computing the answer *is* one wide × dense multiplication, which
+// the shipped settle delegates whole to the backend at its
+// multiplication bound `M(|v|)`. The floor is a reduction, not a
+// bet on this instance: the same constructor embeds `2·x·y + 1` for
+// arbitrary factors (`meter::puncture_product`; the query fold's
+// `arbitrary_factors_embed_their_product_in_exact_rank` proptest
+// pins it), so any fold that answers exactly multiplies arbitrary
+// input-funded integers — `Ω(M(|v|))` floors every settle and the
 // `# Complexity` claims' worst case can never reach `O(|v|)` while
-// integer multiplication is superlinear. The fold's own deterministic
-// counters price its traffic — operand reads, the compacted segment,
-// the product's width — and read flat per byte; the committed
-// schoolbook kernel
+// integer multiplication is superlinear. The fold's own
+// deterministic counters price its traffic — operand reads, the
+// compacted segment, the product's width — and read flat per byte;
+// the committed schoolbook kernel
 // (`schoolbook_settle_reads_superlinear_on_plateau_puncture`, the
 // query fold's test suite) keeps the per-digit charge failing on this
 // family, value-exact, so this band is never decoration.
@@ -4137,15 +4144,17 @@ mod answer_embedded_product {
     /// One public `Version::rank` run over `PP(s, s)`: packed bytes and
     /// both counters over the rank body alone.
     ///
-    /// Carries the `min_ticks` closed form (`s · 2^(32s) + 1`) as the
-    /// generator's semantic leg, the exact-rank leg (the answer is the
-    /// product `H · M + 1` — the `Ω(M(|v|))` mandate's witness), and
-    /// the one-touch-per-operand-byte liveness floor.
+    /// Carries the `min_ticks` closed form (`s · x + 1` over the
+    /// committed factors) as the generator's semantic leg, the
+    /// exact-rank leg (the answer is the product `2·x·y + 1` — the
+    /// `Ω(M(|v|))` mandate's witness), and the
+    /// one-touch-per-operand-byte liveness floor.
     fn run(s: usize) -> (u64, u64, u64) {
         use dashu_int::UBig;
         let v = meter::plateau_puncture(s, s).version();
         let bytes = v.encode().len() as u64;
-        let expected = UBig::from(s as u64) * (UBig::ONE << (32 * s)) + 1u8;
+        let (x, y) = meter::plateau_puncture_factors(s, s);
+        let expected = UBig::from(s as u64) * &x + 1u8;
         assert_eq!(
             v.min_ticks(),
             expected
@@ -4162,12 +4171,10 @@ mod answer_embedded_product {
         let touches = touch_meter::touches();
         let limb_ops = meter::limb_ops();
         // The answer itself is the product: the band is honest only
-        // while the measured body computes H · M + 1 exactly.
-        let h = UBig::ONE << (32 * s);
-        let m: UBig = (1..=s).map(|i| UBig::ONE << (33 * i - 1)).sum();
+        // while the measured body computes 2·x·y + 1 exactly.
         assert_eq!(
             rank.to_string(),
-            format!("{}/2^{}", &h * &m + 1u8, 33 * s),
+            format!("{}/2^{}", ((&x * &y) << 1usize) + 1u8, 66 * s),
             "the exact rank is the plateau times the punctured turn mass"
         );
         assert!(
@@ -4186,15 +4193,15 @@ mod answer_embedded_product {
     /// Absolute two-scale (touch, limb) ceilings for rank on the
     /// plateau-puncture family, measured 2026-07-28 ×1.25.
     ///
-    /// The record: 25,585 → 51,157 touches and 37,825 → 75,639 limb
-    /// ops across PP(500, 500) → PP(1,000, 1,000) on 14,188 B →
-    /// 28,376 B packed operands (~1.8 touches per packed byte, flat
-    /// across the doubling), tightened in the cure's own commit from
-    /// the schoolbook settle's red reading of 154,100 → 566,188
-    /// touches and 165,566 → 589,122 limb ops (×1.84 and ×1.78 per
-    /// byte: the close-time settle paid the parked plateau's width
-    /// once per trailing-mass digit).
-    const PLATEAU_PUNCTURE_CEILINGS: [(u64, u64); 2] = [(31_981, 47_281), (63_946, 94_548)];
+    /// The record: 48,420 → 96,847 touches and 72,883 → 145,758 limb
+    /// ops across PP(500, 500) → PP(1,000, 1,000) on 20,376 B →
+    /// 40,751 B packed operands (~2.4 touches per packed byte, flat
+    /// across the doubling), while the committed schoolbook kernel
+    /// reads the same family red at 485,517 → 1,848,277 touches and
+    /// 198,320 → 653,131 limb ops (×1.90 and ×1.65 per byte: the
+    /// close-time settle paying the parked plateau's width once per
+    /// trailing-mass digit).
+    const PLATEAU_PUNCTURE_CEILINGS: [(u64, u64); 2] = [(60_525, 91_103), (121_058, 182_197)];
 
     /// rank is flat per byte on the plateau-puncture family: per-byte
     /// touch and limb work stay within ×1.25 across a `PP(s, s)`
@@ -4412,14 +4419,13 @@ mod settle_flatness {
     /// Absolute two-scale (touch, limb) ceilings for the pair probe,
     /// measured 2026-07-28 ×1.25.
     ///
-    /// The record: 300,683 → 624,005 touches and 287,608 → 582,772
-    /// limb ops across the committed doubling on 25,851 B → 50,897 B
-    /// packed pairs (×1.04 per byte), tightened in the cure's own
-    /// commit from the schoolbook settle's reading of 2,120,117 →
-    /// 8,053,927 touches and 858,583 → 2,753,108 limb ops (×1.93 and
-    /// ×1.63 per byte — the plateau side's close-time settle
-    /// dominated).
-    const PAIR_PLATEAU_TRAIN_CEILINGS: [(u64, u64); 2] = [(375_853, 359_510), (780_006, 728_465)];
+    /// The record: 406,244 → 815,755 touches and 369,661 → 745,682
+    /// limb ops across the committed doubling on 30,801 B → 60,797 B
+    /// packed pairs (×1.02 per byte); the committed schoolbook
+    /// kernel keeps the plateau side's close-time settle — the site
+    /// that dominates this pair — red on the same family in the
+    /// query fold's test suite.
+    const PAIR_PLATEAU_TRAIN_CEILINGS: [(u64, u64); 2] = [(507_805, 462_076), (1_019_693, 932_102)];
 
     /// The plateau-puncture × arming-train pair is flat per byte
     /// through the public distance and lag entry points: the

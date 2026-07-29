@@ -273,12 +273,14 @@ impl Version {
     ///   `O(M(|v|))`, as does an input of any size that re-arms the
     ///   fold's parked drift `O(1)` times (both committed wide × dense
     ///   witness families are single re-armings).
-    /// - `Ω(M(|v|))` on adversarial inputs: the plateau-puncture
-    ///   family's exact rank *embeds* a wide × dense integer product
-    ///   whose factors the input funds separately, so no fold that
-    ///   answers exactly goes below the cost of one multiplication —
-    ///   the worst case cannot reach `O(|v|)` while integer
-    ///   multiplication is superlinear.
+    /// - `Ω(M(|v|))` on adversarial inputs: a version of
+    ///   `Θ(bits(x) + bits(y))` stored bits can *embed* the product
+    ///   of two arbitrary integers in its exact rank (numerator
+    ///   `2·x·y + 1`), so a fold that answers exactly multiplies two
+    ///   input-funded factors at linear overhead, and no fold goes
+    ///   below the cost of one multiplication — the worst case
+    ///   cannot reach `O(|v|)` while integer multiplication is
+    ///   superlinear.
     /// - `O(|v| log |v|)` for streams whose parked drifts stay a
     ///   bounded number of digits wide — every committed board family,
     ///   dense trailing regions and many re-armings included: the fold
