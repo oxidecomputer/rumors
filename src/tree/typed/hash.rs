@@ -156,7 +156,7 @@ impl Hash {
         // branch, and never slower at the hot small nodes (short prefix,
         // small fan), whose whole preimage fits one 64-byte block and costs
         // a single compression. `size_hint` sizes the buffer exactly for
-        // the `OrdMap`/array/empty callers (all exact).
+        // the fan/array/empty callers (all exact).
         let prefix_len =
             u8::try_from(prefix.len()).expect("a compressed span fits in one length byte");
         let children = children.into_iter();
@@ -175,9 +175,11 @@ impl Hash {
             count = count
                 .checked_add(1)
                 .expect("branch fan-out is bounded by the 256-way radix");
-            // The convention requires ascending radix order, but only the
-            // `OrdMap` caller guarantees it structurally: trip at the
-            // violation site rather than as a cross-peer hash desync.
+            // The convention requires ascending radix order. The fan caller
+            // guarantees it structurally (the fan's sorted invariant is
+            // private, and every constructor preserves it); for direct and
+            // test callers, trip at the violation site rather than as a
+            // cross-peer hash desync.
             debug_assert!(
                 previous.is_none_or(|previous| previous < radix),
                 "branch children must arrive in strictly ascending radix order",
