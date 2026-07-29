@@ -49,10 +49,11 @@
 //! `measure` (the metering engine), `judge` (scoring and verdicts),
 //! `render` (the driver and the printed matrix), `worst` (the worst-case
 //! map: the argmax fold over the same judged cells, and its committed
-//! ranking pin), `shard` (process-sharded parallelism: the family axis
-//! split across child processes, each owning its own allocator, merged
-//! back byte-identically), `export` (the bench mirror), and `coverage`
-//! (the tiling table and the red-triage buffer).
+//! ranking pin), `shard` (process-sharded parallelism: the operation ×
+//! family grid split across child processes, each owning its own
+//! allocator, merged back byte-identically), `export` (the bench
+//! mirror), and `coverage` (the tiling table and the red-triage
+//! buffer).
 //!
 //! # The criterion
 //!
@@ -308,6 +309,7 @@ pub use export::{bench_cells, BenchCell, BenchMode, BOARD_DECLARED_BENCH_RIDERS}
 pub use measure::HeapMeter;
 pub use render::{run, Summary};
 pub use shard::{
-    check_worst_map_sharded, emit_shard, run_sharded, worst_map_sharded, ShardSpawner,
+    check_worst_map_sharded, emit_shard, max_useful_shards, run_sharded, worst_map_sharded,
+    ShardSpawner,
 };
 pub use worst::{check_worst_map, worst_map, NEAR_TIE_RATIO, WORST_MAP_SCALES};
