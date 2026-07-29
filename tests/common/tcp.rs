@@ -16,9 +16,9 @@
 //! Per-stream flow control and half-close come from TCP itself, one socket
 //! per stream, which is exactly what the contract's independence clause
 //! asks for. A production deployment would keep one listener per *process*
-//! and route by connect header instead (see the `link` module docs); the
-//! per-session listener here trades that machinery for obviousness, which
-//! is the right trade in a test.
+//! and route by connect header instead ([`rumors::link::routed`] is that
+//! shape); the per-session listener here trades that machinery for
+//! obviousness, which is the right trade in a test.
 
 use std::io;
 use std::net::SocketAddr;
