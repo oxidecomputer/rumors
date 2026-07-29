@@ -8,9 +8,12 @@
 //! mirrors [`crate::tree::traverse::unknown`] — and the
 //! crate's backend conformance suite pins the agreement by differential
 //! proptest. The in-memory [`Local`](crate::tree::backend::Local) backend
-//! never runs these: it overrides every [`Store`](crate::tree::backend::Store)
-//! seam with the synchronous engines, so the towers monomorphize only for
-//! backends that own storage of their own.
+//! overrides every [`Store`](crate::tree::backend::Store) seam with the
+//! synchronous engines, so the [`mod@act`], [`mod@join`], [`mod@get`], and
+//! [`mod@walk`] towers monomorphize only for backends that own storage of
+//! their own. The [`mod@unknown`] tower is the exception: it is also the
+//! streaming mirror's deletion-honoring filter, so it runs for every
+//! session backend — [`Local`](crate::tree::backend::Local) included.
 //!
 //! Every level returns a [`BoxFuture`](futures::future::BoxFuture) (or a
 //! boxed stream): an `impl Future` return would nest each level's `async`

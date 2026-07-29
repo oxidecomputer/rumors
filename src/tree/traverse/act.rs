@@ -16,10 +16,13 @@ pub enum Action<T> {
 
 /// Performs a sequence of actions (insertions or deletions) on `node`.
 ///
-/// `on_action` fires once per *effectual* action — a leaf inserted, replaced,
-/// or removed — with that action's version. A forget of a leaf that never
-/// existed observes nothing, which is what lets the caller join versions only
-/// for actions that changed the tree.
+/// `on_action` fires at most once per *leaf path* the batch touches, with
+/// the join of every version aimed at that path — skipped versions
+/// included. It fires whenever the path held a leaf before or holds one
+/// after (so an existing leaf whose actions were all causally skipped still
+/// observes); only a path that never existed and stayed empty — a forget of
+/// a leaf that was never there — observes nothing, which is what lets the
+/// caller join versions only for batches that touched the tree.
 ///
 /// `actions` is consumed lazily: the only materialization is the radix sort
 /// at each branch level, so callers can feed a `map` chain straight in.

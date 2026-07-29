@@ -29,9 +29,12 @@ use crate::{
 /// Apply one action batch to the (possibly absent) root, rebuilding through
 /// the backend; the entry point of the tower.
 ///
-/// `on_action` fires once per *effectual* action — a leaf inserted,
-/// replaced, or removed — with that action's version, exactly as the
-/// synchronous tower observes them.
+/// `on_action` fires at most once per *leaf path* the batch touches, with
+/// the join of every version aimed at that path — skipped versions
+/// included. It fires whenever the path held a leaf before or holds one
+/// after (so an existing leaf whose actions were all causally skipped still
+/// observes); only a path that never existed and stayed empty observes
+/// nothing. Exactly the synchronous tower's contract.
 pub async fn act<B, T, F>(
     backend: &B,
     root: Option<B::Node<height::Root>>,

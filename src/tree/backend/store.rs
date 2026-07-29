@@ -88,10 +88,13 @@ where
     /// Apply one action batch to the (possibly absent) root, returning the
     /// rebuilt root.
     ///
-    /// `on_action` fires once per *effectual* action — a leaf inserted,
-    /// replaced, or removed — with that action's version, which is what
-    /// lets the caller join versions only for actions that changed the
-    /// tree.
+    /// `on_action` fires at most once per *leaf path* the batch touches,
+    /// with the join of every version aimed at that path — skipped versions
+    /// included. It fires whenever the path held a leaf before or holds one
+    /// after; only a path that never existed and stayed empty observes
+    /// nothing. The caller joins the observed versions into its causal
+    /// ceiling, so a batch whose every action lands on never-existed paths
+    /// and deletes nothing advances nothing.
     fn act<F>(
         self,
         root: Option<Self::Node<height::Root>>,
