@@ -1927,7 +1927,7 @@ pub fn lone_freeze(pre: usize, post: usize) -> Packed {
     );
     let plateau = (suanpan::UBig::ONE << LONE_FREEZE_PLATEAU_BITS) + suanpan::UBig::from(2u8);
     let mut bits = Bits::with_capacity(580 * pre + 6 * post + 14);
-    let mut leaf = |bits: &mut Bits, value: suanpan::UBig| {
+    let leaf = |bits: &mut Bits, value: suanpan::UBig| {
         bits.push(true); // spine node: base 0, leaf left, spine right
         codec::encode_int(bits, &Base::ZERO);
         ev_leaf_wide(bits, &Base::from(value));
