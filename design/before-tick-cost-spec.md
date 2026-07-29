@@ -17,7 +17,10 @@ here as a dated amendment — the formal campaign's Phase 0
 (`design/before-formal-tick.md`) schedules the ratification read.
 Spec-first: this is the English statement of record the kernel
 implements against; deviations get dated amendments, never silent
-drift. Statement-faithfulness governs every claim below — never
+drift. Amendment (2026-07-28, ratified by Finch, #84): the cost
+unit's name reads **Accumulator digit touch** throughout — the
+accumulator type's own name — a one-word naming amendment with no
+semantic change to any clause, bound, or measurement. Statement-faithfulness governs every claim below — never
 weaker than stated, never stronger than proven; each clause carries
 its epistemic tag: **[measured]** (instrumented kernel run),
 **[measured-on-model]** (the executable discipline model, not the
@@ -119,7 +122,7 @@ under the campaign's §6 invariant, not a hostile-peer exploit.
 ## 3. The theorem and its decomposition
 
 > **T-tick.** `tick` (hence `fill` and `grow`) is computable over
-> skyline streams in amortized **O(n + m) Accum digit touches** in
+> skyline streams in amortized **O(n + m) Accumulator digit touches** in
 > the two packed operands' bits, with no bound on value magnitude,
 > tree depth, or encoded size — alongside the already-achieved
 > O(n + m) scan bits.
@@ -436,7 +439,7 @@ stream), so the same watermark web applies. Normative clauses:
   (asserted).
 
 **L5 (auxiliary space) [derived + measured]**: heap = O(paired
-depth) frames plus total live Accum digits ≤ O(digits ever placed) =
+depth) frames plus total live Accumulator digits ≤ O(digits ever placed) =
 O(content folded) = O(n + m); the memo holds ≤ one entry per
 left-full site, each priced by its disjoint fresh-scan range;
 zero-run compression only removes stack entries; the diff-coded memo
@@ -729,7 +732,7 @@ FALSIFIED twice + one prose gap):
   L5 (strengthened by both fixes), L6, the fusion's equivalence
   both directions. Advisories integrated: the first-leaf absolute
   flag case (§6), the route-fold × word-scale-skip interaction
-  (§4), Accum pooling (§6), the model's sparse-wide undercount
+  (§4), Accumulator pooling (§6), the model's sparse-wide undercount
   (resolved by round 2's limb-faithful model).
 
 **Round 2** (2026-07-25, spec tier — HOLDS; convergence declared at

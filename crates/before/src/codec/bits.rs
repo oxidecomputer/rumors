@@ -1,3 +1,4 @@
+use bitvec::domain::Domain;
 use bitvec::prelude::*;
 
 use crate::error::Decode;
@@ -88,6 +89,33 @@ pub(crate) fn dead_bits_are_zero(bits: &Bits) -> bool {
             .as_raw_slice()
             .last()
             .is_none_or(|last| last & (0xFF >> live_in_last) == 0)
+}
+
+/// The direct byte view of a bit slice that starts on a byte boundary of
+/// its backing store: the whole body bytes plus the masked partial tail
+/// byte, if any.
+///
+/// `None` for the one shape with no direct byte view — a slice whose
+/// backing-store offset puts live bits behind a partial head element.
+/// Every stored stream starts on a byte boundary (offsets travel as bit
+/// positions, never as re-sliced heads), so the `None` arm is a caller
+/// policy decision, not a reachable production state: the gamma window
+/// loader degrades to its bit-addressed fallback, the dsi cursor treats
+/// it as a violated precondition. The destructuring lives here once so
+/// the two callers cannot drift on the byte-alignment invariant while
+/// keeping their deliberately different failure policies.
+pub(crate) fn byte_view(bits: &BitsSlice) -> Option<(&[u8], Option<u8>)> {
+    match bits.domain() {
+        Domain::Region {
+            head: None,
+            body,
+            tail,
+        } => Some((body, tail.map(|elem| elem.load_value()))),
+        Domain::Enclave(elem) if elem.head().into_inner() == 0 => {
+            Some((&[], Some(elem.load_value())))
+        }
+        Domain::Region { head: Some(_), .. } | Domain::Enclave(_) => None,
+    }
 }
 
 /// Require that the bits from `pos` onward are exactly the canonical padding: a

@@ -30,7 +30,6 @@
 //! word sink, and adapting the byte-backed stores to one is a separate
 //! trade this module does not make.
 
-use bitvec::domain::Domain;
 use dashu_int::UBig;
 use dsi_bitstream::codes::gamma_tables;
 use dsi_bitstream::impls::BufBitReader;
@@ -82,18 +81,8 @@ impl<'a> DsiCursor<'a> {
     /// `Version` stream does.
     pub(crate) fn new_at(bits: &'a BitsSlice, pos: usize) -> Self {
         assert!(pos <= bits.len(), "cursor opened past the stream's end");
-        let (body, tail): (&[u8], Option<u8>) = match bits.domain() {
-            Domain::Region {
-                head: None,
-                body,
-                tail,
-            } => (body, tail.map(|elem| elem.load_value())),
-            Domain::Enclave(elem) if elem.head().into_inner() == 0 => {
-                (&[], Some(elem.load_value()))
-            }
-            Domain::Region { head: Some(_), .. } | Domain::Enclave(_) => {
-                unreachable!("stored streams start on a byte boundary")
-            }
+        let Some((body, tail)) = super::byte_view(bits) else {
+            unreachable!("stored streams start on a byte boundary")
         };
         let mut reader = BufBitReader::new(ByteWords::new(body, tail, pos / 8));
         let skip = pos % 8;
