@@ -74,6 +74,11 @@ impl<T, H: Height> Children<T, H> {
         self.inner.remove(radix).map(Node::from_untyped)
     }
 
+    /// The child at `radix`, if any, as an owned handle (a cheap clone).
+    pub fn get(&self, radix: u8) -> Option<Node<T, H>> {
+        self.inner.get(radix).cloned().map(Node::from_untyped)
+    }
+
     /// The children in ascending radix order, as owned handles (each a
     /// cheap reference bump into the shared structure).
     ///
@@ -215,6 +220,13 @@ impl<T, H: Height> Node<T, H> {
     #[cfg(any(test, feature = "test-internals"))]
     pub fn max_bound_bytes(&self) -> usize {
         self.inner.max_bound_bytes()
+    }
+
+    /// Whether two handles share the same backing allocation: a sufficient
+    /// (not necessary) test for structural equality that touches no hash
+    /// (see [`untyped::Node::ptr_eq`]).
+    pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+        self.inner.ptr_eq(&other.inner)
     }
 
     /// Whether this node's content is a single leaf, regardless of any
@@ -361,6 +373,11 @@ impl<T> Node<T, Z> {
             .as_leaf()
             .expect("typed leaf failed to be a leaf")
     }
+
+    /// View an owned bare leaf from the untyped walk at its typed height.
+    pub(crate) fn from_walk(leaf: untyped::Leaf<T>) -> Self {
+        Self::from_untyped(leaf.into_node())
+    }
 }
 
 impl<T> Node<T, height::Root> {
@@ -376,6 +393,13 @@ impl<T> Node<T, height::Root> {
     /// `O(depth)` descent.
     pub fn get(&self, path: &[u8]) -> Option<(&Version, &Message<T>)> {
         self.inner.get(path)
+    }
+
+    /// Look up the live leaf at `path` as an owned, bare height-zero
+    /// handle: the same descent as [`get`](Self::get), yielding the shape
+    /// [`leaves`](Node::leaves) mints.
+    pub fn get_leaf(&self, path: &[u8]) -> Option<Node<T, Z>> {
+        self.inner.get_leaf(path).map(Node::from_untyped)
     }
 
     /// Lazily iterate every live leaf in this root subtree as

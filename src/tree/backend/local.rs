@@ -3,18 +3,20 @@ use std::mem;
 use std::pin::pin;
 
 use async_stream::try_stream;
-use futures::{StreamExt, future, stream};
+use futures::{Stream, StreamExt, future, stream};
 
 use crate::{
     Version, causally,
     message::Message,
     tree::{
         self,
+        backend::Store,
         mirror::streaming::{
             Backend, Leaf, Node, Root,
             backend::{BoxNodeStream, NodeStream},
             convert::Convert,
         },
+        traverse::store::walk::VersionBounds,
         typed::{
             self, Path, Prefix,
             height::{Height, S, Z},
@@ -200,6 +202,82 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
         #[cfg(not(test))]
         assembled
     }
+}
+
+impl<T: Send + Sync + 'static> Store<T> for Local {
+    // Identity is the handle's own allocation: forked trees share their
+    // unchanged subtrees by `Arc`.
+    fn same<H: Height>(a: &typed::Node<T, H>, b: &typed::Node<T, H>) -> bool {
+        a.ptr_eq(b)
+    }
+
+    // Every seam below overrides its generic default with the synchronous
+    // in-memory engine wrapped in an immediately-ready future or iterator
+    // stream: the tree is resident, so nothing awaits, and the generic
+    // towers never monomorphize for `Local`.
+
+    fn child<H>(
+        self,
+        _prefix: Prefix<S<H>>,
+        parent: typed::Node<T, S<H>>,
+        radix: u8,
+    ) -> impl Future<Output = Result<Option<typed::Node<T, H>>, Infallible>> + Send
+    where
+        H: Height,
+        S<H>: Height,
+    {
+        future::ready(Ok(parent.into_children().get(radix)))
+    }
+
+    fn act<F>(
+        self,
+        root: Option<typed::Node<T, typed::height::Root>>,
+        actions: Vec<(Path, Version, tree::traverse::Action<T>)>,
+        on_action: F,
+    ) -> impl Future<Output = Result<Option<typed::Node<T, typed::height::Root>>, Infallible>> + Send
+    where
+        F: FnMut(&Version) + Send,
+    {
+        future::ready(Ok(tree::traverse::act(root, actions, on_action)))
+    }
+
+    fn join(
+        self,
+        a: Option<typed::Node<T, typed::height::Root>>,
+        b: Option<typed::Node<T, typed::height::Root>>,
+        a_version: &Version,
+        b_version: &Version,
+        changed: &mut bool,
+    ) -> impl Future<Output = Result<Option<typed::Node<T, typed::height::Root>>, Infallible>> + Send
+    {
+        future::ready(Ok(tree::traverse::join(
+            a, b, a_version, b_version, changed,
+        )))
+    }
+
+    fn get(
+        self,
+        root: Option<typed::Node<T, typed::height::Root>>,
+        path: Path,
+    ) -> impl Future<Output = Result<Option<typed::Node<T, Z>>, Infallible>> + Send {
+        let path = <[u8; 32]>::from(path);
+        future::ready(Ok(root.and_then(|node| node.get_leaf(&path))))
+    }
+
+    fn range(
+        self,
+        root: Option<typed::Node<T, typed::height::Root>>,
+        bounds: VersionBounds,
+    ) -> impl Stream<Item = Result<(crate::tree::Key, typed::Node<T, Z>), Infallible>> + Send {
+        let mut walk = typed::node::Root::range_owned(root.as_ref(), (bounds.start, bounds.end));
+        stream::iter(std::iter::from_fn(move || {
+            walk.next()
+                .map(|(key, leaf)| Ok((key, typed::Node::from_walk(leaf))))
+        }))
+    }
+
+    // `commit` keeps its no-op default: the resident tree has nothing to
+    // flip.
 }
 
 // `tree::Root` is exactly the `Local` instance of the session's generic

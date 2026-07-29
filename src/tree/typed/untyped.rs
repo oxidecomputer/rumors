@@ -389,6 +389,46 @@ impl<T> Node<T> {
         }
     }
 
+    /// Look up the live leaf at `path` as an owned, bare (prefix-free)
+    /// height-zero handle; `None` when no live leaf sits there.
+    ///
+    /// The point-lookup counterpart of the owned walk's leaf minting
+    /// ([`iter::Leaf::into_node`]): a height-zero view must shed any
+    /// compressed spine stored above the leaf (its hash commits an empty
+    /// suffix, not the stored prefix), so the stored handle is reused only
+    /// when it is already bare, and otherwise a fresh prefix-free leaf is
+    /// built around the same version and message handles.
+    pub(crate) fn get_leaf(&self, mut path: &[u8]) -> Option<Node<T>> {
+        let mut node = self;
+        loop {
+            // The same descent as `get`: consume the compressed prefix
+            // shallowest byte first, exiting on any divergence.
+            for &byte in node.inner.prefix.iter().rev() {
+                match path.split_first() {
+                    Some((&next, rest)) if next == byte => path = rest,
+                    _ => return None,
+                }
+            }
+            match &node.inner.children {
+                Children::Leaf { version, message } => {
+                    if !path.is_empty() {
+                        return None;
+                    }
+                    return Some(if node.inner.prefix.is_empty() {
+                        node.clone()
+                    } else {
+                        Node::leaf(version.clone(), message.clone())
+                    });
+                }
+                Children::Branch { children, .. } => {
+                    let (radix, rest) = path.split_first()?;
+                    node = children.get(*radix)?;
+                    path = rest;
+                }
+            }
+        }
+    }
+
     /// Get the number of leaves under a node.
     pub fn len(&self) -> usize {
         match self.inner.children {

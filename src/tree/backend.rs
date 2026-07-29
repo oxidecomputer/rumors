@@ -19,9 +19,9 @@
 //! this crate's own test gate; see [`crate::conformance`]) is how an
 //! implementation proves its account.
 
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 
-use futures::{Stream, stream};
+use futures::{Stream, StreamExt as _, stream};
 
 use crate::{
     Version, causally,
@@ -40,6 +40,9 @@ mod local;
 pub use local::Local;
 #[cfg(test)]
 pub(super) use local::with_schedule as with_local_schedule;
+
+mod store;
+pub use store::Store;
 
 /// A backend value is a cheap cloneable *handle* to its storage.
 pub trait Backend<T: Send + Sync + 'static>: Clone + Send + Sync + 'static
@@ -89,8 +92,12 @@ where
     ///
     /// The group is the parent's entire child set, in strictly increasing radix
     /// order. A `None` entry is an explicit child *deletion*: the child does
-    /// not join the parent, and the backend may drop whatever it stores beneath
-    /// that radix. A `None` return means no child survived and should propagate
+    /// not join the parent. A backend materializing a session's incoming
+    /// tree may drop whatever it stores beneath that radix; a backend whose
+    /// nodes are shared copy-on-write across live tree versions must not —
+    /// the deleted child's old parents remain reachable, and reclamation
+    /// belongs to the backend's own garbage collection, keyed on the last
+    /// reference, never to this call. A `None` return means no child survived and should propagate
     /// as a `None` entry one level up, cascading deletion to parents whose
     /// entire child set was deleted. The group may also be empty outright — a
     /// scope that resolved to nothing at all, such as the pruned-to-nothing
@@ -205,6 +212,11 @@ pub trait Node<T: Send + Sync + 'static> {
     fn span(&self) -> causally::Span<'_>;
 
     /// The merkle hash of this node.
+    ///
+    /// Must answer without I/O: either stored in the node record or
+    /// computable from state the handle keeps resident. Traversals prune
+    /// agreement by comparing hashes *before* fetching children, so a
+    /// hash behind a fetch would defeat the pruning it exists to serve.
     fn hash(&self) -> Hash;
 
     /// The number of live leaves under this node, exact.
@@ -279,6 +291,32 @@ pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
         Self: Sized;
 }
 
+/// Collect one node's children, addressed by radix.
+///
+/// The materialization every level-wise traversal shares: one
+/// [`Backend::children`] stream, drained into the radix-keyed fan a caller
+/// rebuilds through [`Backend::parent`].
+pub async fn children_of<B, T, H>(
+    backend: &B,
+    prefix: Prefix<S<H>>,
+    node: B::Node<S<H>>,
+) -> Result<Vec<(u8, B::Node<H>)>, B::Error>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    H: Height,
+    S<H>: Height,
+{
+    let mut children = pin!(backend.clone().children(prefix, node));
+    let mut fan = Vec::new();
+    while let Some(item) = children.next().await {
+        let (prefix, child) = item?;
+        let (_, radix) = prefix.pop();
+        fan.push((radix, child));
+    }
+    Ok(fan)
+}
+
 /// Type synonym for a fallible [`Stream`] of prefix-keyed nodes represented by
 /// a given backend.
 pub trait NodeStream<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>:
@@ -295,10 +333,13 @@ where
 /// A [`NodeStream`] erased to one level of type depth.
 pub(crate) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
 
-/// A backend's whole tree at rest: what a mirror session consumes and produces.
+/// A backend's whole tree at rest: the node structure (absent when empty)
+/// and the causal ceiling that rides *outside* it.
 ///
-/// This is the backend-generic form of [`tree::Root`](crate::tree::Root); the
-/// `Local` backend converts between the two with [`From`].
+/// The ceiling outlives the nodes — it advances on effectual redactions and
+/// survives a tree emptying out — which is exactly what deletion honoring
+/// compares against. What a replica holds between mutations, and what a
+/// mirror session consumes and produces.
 #[derive(Debug)]
 pub struct Root<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
     /// The maximum version this tree has incorporated.
@@ -306,6 +347,33 @@ pub struct Root<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
     /// The root node, or nothing when the tree is empty.
     pub root: Option<B::Node<height::Root>>,
 }
+
+/// The empty root: the empty [`Version`] over no nodes. Lets callers
+/// `mem::take` a root out of a `&mut` borrow (e.g. to move it into a mirror
+/// exchange and write the merged result back) without an interim clone.
+impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Default for Root<B, T> {
+    fn default() -> Self {
+        Root {
+            ceiling: Version::new(),
+            root: None,
+        }
+    }
+}
+
+impl<B: Store<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> PartialEq for Root<B, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ceiling == other.ceiling
+            && match (&self.root, &other.root) {
+                (None, None) => true,
+                (Some(ours), Some(theirs)) => {
+                    crate::tree::traverse::store::join::equivalent::<B, T, _>(ours, theirs)
+                }
+                _ => false,
+            }
+    }
+}
+
+impl<B: Store<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Eq for Root<B, T> {}
 
 // Manual because the derive would demand `T: Clone`; nodes are cloneable
 // handles regardless of the message type they carry.
