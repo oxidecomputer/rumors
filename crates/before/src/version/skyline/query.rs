@@ -259,7 +259,9 @@
 //! carries *arbitrary* factors — the puncture-product construction
 //! stores `Θ(bits(x) + bits(y))` bits and its exact rank numerator
 //! is `2·x·y + 1` (the committed proptest constructs it for
-//! arbitrary positive factors) — so a fold that answers exactly
+//! arbitrary positive factors and pins the stored size linear in
+//! their widths, so the floor's denominator cannot drift) — so a
+//! fold that answers exactly
 //! multiplies two input-funded integers at linear overhead, and
 //! `Ω(M(|v|))` digit work is mandatory for any fold that answers
 //! exactly: no settle goes below the multiplication bound. The public
