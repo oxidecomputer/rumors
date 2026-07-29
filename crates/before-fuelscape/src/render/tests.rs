@@ -13,10 +13,12 @@ use super::{render_gallery, render_op, RenderMeta};
 /// builds first (`just fuzzfit-build`).
 #[test]
 fn pipeline_smoke_samples_measures_and_renders() {
+    // The grid top must reach every row's minimum total size (the widest
+    // signature, five one-byte operands, needs a 5-byte column to exist).
     let plan = Plan {
         base_seed: 0x5eed,
         samples_per_column: 3,
-        max_bytes: 4,
+        max_bytes: 8,
     };
     let meta = RenderMeta {
         commit: "smoke".into(),

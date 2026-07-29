@@ -159,6 +159,61 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
                 ])
             }));
         }
+        // The masked three-stream comparison row: the projected version
+        // and its mask crossed with a compared version of the same shape.
+        [Operand::Version, Operand::Party, Operand::Version] => {
+            out.extend(ramp("dense × scattered_id × dense", max_bytes, |t| {
+                Some(vec![
+                    version_bytes(&dense(t)),
+                    party_bytes(&scattered_id(t)),
+                    version_bytes(&dense(t)),
+                ])
+            }));
+            out.extend(ramp("hugeleaf × id_spine × hugeleaf", max_bytes, |t| {
+                Some(vec![
+                    version_bytes(&hugeleaf(8 * t)),
+                    party_bytes(&id_spine(t, false)),
+                    version_bytes(&hugeleaf(8 * t)),
+                ])
+            }));
+        }
+        // The masked four-stream comparison row: two full views, each an
+        // event family under an id-family mask.
+        [Operand::Version, Operand::Party, Operand::Version, Operand::Party] => {
+            out.extend(ramp("(dense / scattered_id) × self", max_bytes, |t| {
+                Some(vec![
+                    version_bytes(&dense(t)),
+                    party_bytes(&scattered_id(t)),
+                    version_bytes(&dense(t)),
+                    party_bytes(&scattered_id(t)),
+                ])
+            }));
+            out.extend(ramp("(hugeleaf / id_spine) × self", max_bytes, |t| {
+                Some(vec![
+                    version_bytes(&hugeleaf(8 * t)),
+                    party_bytes(&id_spine(t, false)),
+                    version_bytes(&hugeleaf(8 * t)),
+                    party_bytes(&id_spine(t, false)),
+                ])
+            }));
+        }
+        // The clock fold row (one party fork-split over four version
+        // riders): the committed stagger population adapted to the fold's
+        // version halves — arity fixed at the row's four clocks, feed
+        // order preserved through the operand order — plus the composed
+        // clock families' cross as the non-stagger shape.
+        [Operand::Party, Operand::Version, Operand::Version, Operand::Version, Operand::Version] => {
+            out.extend(ramp("scattered_id × stagger (n=4)", max_bytes, |t| {
+                let mut inputs = vec![party_bytes(&scattered_id(t))];
+                inputs.extend(stagger_versions(4, t));
+                Some(inputs)
+            }));
+            out.extend(ramp("id_spine × hugeleaf⁴", max_bytes, |t| {
+                let mut inputs = vec![party_bytes(&id_spine(t, false))];
+                inputs.extend(std::iter::repeat_with(|| version_bytes(&hugeleaf(8 * t))).take(4));
+                Some(inputs)
+            }));
+        }
         [Operand::Party] => {
             out.extend(ramp("scattered_id", max_bytes, |t| {
                 Some(vec![party_bytes(&scattered_id(t))])
