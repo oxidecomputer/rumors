@@ -27,33 +27,35 @@ fn pipeline_smoke_samples_measures_and_renders() {
     std::fs::create_dir_all(&out).expect("temp output dir");
     let samplers = Samplers::build(&plan);
 
-    // One unary version row, one binary party row: together they exercise
-    // both samplers, both operand arities, the split rule, the overlay
-    // generators for two signatures, and the version rejection path.
+    // Every roster row at tiny sizes: every input space's draw, every
+    // measured kernel name, every overlay mapping, and every render run
+    // once, so a row that cannot sample, measure, or draw fails the gate
+    // here rather than in a full survey.
     let mut rendered = Vec::new();
-    for name in ["version_rank", "party_covers"] {
-        let op = ROSTER
-            .iter()
-            .find(|op| op.name == name)
-            .expect("smoke ops are roster rows");
+    for op in ROSTER {
         let atlas = run_op(&plan, &samplers, op);
         assert!(
             atlas.samples.iter().all(|s| s.fuel > 0),
-            "a measured kernel call cannot consume zero fuel"
+            "{}: a measured kernel call cannot consume zero fuel",
+            op.name
         );
         let path = render_op(&atlas, &meta, &out).expect("render must succeed");
         let svg = std::fs::read_to_string(&path).expect("rendered SVG exists");
         assert!(
             svg.contains("commit smoke") && svg.contains("seed 0x5eed"),
-            "the provenance stamp must be drawn into the image"
+            "{}: the provenance stamp must be drawn into the image",
+            op.name
         );
-        rendered.push((name.to_string(), path));
+        rendered.push((op.name.to_string(), path));
     }
     let gallery = render_gallery(&rendered, &meta, &out).expect("gallery must render");
     let html = std::fs::read_to_string(&gallery).expect("gallery exists");
-    assert!(
-        html.contains("version_rank.svg") && html.contains("party_covers.svg"),
-        "the gallery must link every rendered operation"
-    );
+    for op in ROSTER {
+        assert!(
+            html.contains(&format!("{}.svg", op.name)),
+            "the gallery must link every rendered operation ({} missing)",
+            op.name
+        );
+    }
     std::fs::remove_dir_all(&out).expect("smoke output cleans up");
 }
