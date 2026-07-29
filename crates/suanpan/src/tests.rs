@@ -1006,6 +1006,33 @@ fn magnitude_dispatch_costs_its_width_path() {
     }
 }
 
+/// A floor within 2 of `usize::MAX` never certifies domination: the
+/// decision index saturates instead of wrapping.
+///
+/// The witness input: a value whose sign fold decides at digit index 63
+/// (`2^2048`), probed at `floor = usize::MAX - 1`. The contract requires
+/// `decided = false` — no held value dominates every adjustment fitting
+/// in digits `0..=usize::MAX - 1` — and a wrapping `floor + 2` computes
+/// 0, so an unsaturated decision index either panics the debug build
+/// (the add overflows) or certifies domination from 64 digits in
+/// release: this test is the committed witness that the index
+/// saturates.
+#[test]
+fn domination_floor_near_usize_max_never_decides() {
+    let mut acc = Accumulator::new();
+    acc.add_wide(&(UBig::from(1u8) << 2_048usize));
+    let (sign, decided) = acc.sign_dominates_at(usize::MAX - 1);
+    assert_eq!(sign, Ordering::Greater, "the sign is exact at any floor");
+    assert!(
+        !decided,
+        "no value dominates an adjustment bound wider than the address space"
+    );
+    // The same value still certifies every in-range floor its decision
+    // index covers: the saturation changes nothing below the overflow
+    // boundary.
+    assert_eq!(acc.sign_dominates_at(61), (Ordering::Greater, true));
+}
+
 /// Domination certificates are amortized O(1): the first read may
 /// collapse, every later read is a single touch, and the certificate
 /// stays decided.
