@@ -3,11 +3,11 @@
 # of the parent workspace, so ordinary workspace builds never compile it and
 # wasmtime (pulled in through the fuzzfit harness, whose wasm driver this
 # crate reuses) stays out of the production crates' dependency graph. The
-# gate reaches it only through the `just atlas-*` recipes by name.
+# gate reaches it only through the `just fuelscape-*` recipes by name.
 [workspace]
 
 [package]
-name = "before-atlas"
+name = "before-fuelscape"
 version = "0.0.0"
 publish = false
 edition = "2021"

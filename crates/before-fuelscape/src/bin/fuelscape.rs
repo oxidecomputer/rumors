@@ -1,13 +1,13 @@
-//! The atlas runner: sample every roster operation over the size grid,
+//! The fuelscape runner: sample every roster operation over the size grid,
 //! measure fuel in the fuzz-fit guest, render the per-op heatmaps and the
 //! gallery.
 //!
 //! Flags (all optional): `--samples <n>` per column (default 300),
 //! `--max-bytes <n>` grid top (default 256), `--seed <u64>` base seed
 //! (default 0xa71a5), `--out <dir>` output directory (default
-//! `target/atlas` under the current directory). Provenance: the `ATLAS_TIP`
-//! environment variable (the recipe passes `git rev-parse HEAD`) is
-//! stamped into every render; runs without it stamp `untracked`.
+//! `target/fuelscape` under the current directory). Provenance: the
+//! `FUELSCAPE_TIP` environment variable (the recipe passes `git rev-parse
+//! HEAD`) is stamped into every render; runs without it stamp `untracked`.
 //!
 //! The run is a pure function of (guest wasm, plan): every cell's RNG is
 //! seeded from its coordinates, so two runs of the same plan on the same
@@ -20,9 +20,9 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use before_atlas::ops::ROSTER;
-use before_atlas::plan::{run_op, Plan, Samplers};
-use before_atlas::render::{render_gallery, render_op, RenderMeta};
+use before_fuelscape::ops::ROSTER;
+use before_fuelscape::plan::{run_op, Plan, Samplers};
+use before_fuelscape::render::{render_gallery, render_op, RenderMeta};
 use fuzzfit_harness::wasm::Guest;
 
 fn main() {
@@ -31,7 +31,7 @@ fn main() {
         samples_per_column: 300,
         max_bytes: 256,
     };
-    let mut out = PathBuf::from("target/atlas");
+    let mut out = PathBuf::from("target/fuelscape");
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         let mut value = || {
@@ -47,7 +47,7 @@ fn main() {
         }
     }
     let meta = RenderMeta {
-        commit: std::env::var("ATLAS_TIP").unwrap_or_else(|_| "untracked".into()),
+        commit: std::env::var("FUELSCAPE_TIP").unwrap_or_else(|_| "untracked".into()),
         base_seed: plan.base_seed,
         samples_per_column: plan.samples_per_column,
     };
