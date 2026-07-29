@@ -142,10 +142,10 @@ readme-check:
 # deliberate path is a `just fuzzfit-calibrate` re-pin riding the same
 # commit), then fuelscape's sampler pins and pipeline smoke (which reuse
 # the guest fuzzfit just built), then the board's cross-process
-# determinism tripwire.
+# determinism tripwire and the sharded-render byte-identity pin.
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
-gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism worst-cases-pin
+gate: fmt-check doclint testdoc readme-check clippy clippy-default docs docs-internal test-all doctest fuzzfit-build fuzzfit fuelscape-test amp-board-determinism amp-board-shard-pin worst-cases-pin
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -426,6 +426,14 @@ bench-judge-tripwire:
 # verification scaffolding while release measures the production work
 # alone. A dev run (`cargo run -p before --example amp_board ...`) remains
 # a legitimate debugging view; its numbers must never be pinned anywhere.
+#
+# Every mode parallelizes by process sharding: the peak-heap column reads
+# the process-global allocator, so the sweep stays single-threaded inside
+# each process and the runner spawns one child per family slice instead,
+# merging the measured samples back in board order. Sharding must not move
+# a reading (the amp-board-shard-pin recipe holds the sharded render
+# byte-identical to the serial one); AMP_BOARD_SHARDS overrides the shard
+# count, and AMP_BOARD_SHARDS=1 is the direct in-process serial path.
 
 # Run the amplification board: the red-green resource-proportionality matrix over before's public operations.
 amp-board *args:
@@ -447,7 +455,9 @@ amp-board-acceptance:
 # machine load; any diff is a nondeterminism bug in a meter or a measured
 # body. This is the cross-process leg of the board's determinism tripwire
 # (the in-process leg is the runner itself, which measures every cell twice
-# and panics on any counter disagreement, at every scale on every run). The
+# and panics on any counter disagreement, at every scale on every run, in
+# every shard child). Both renders take the default sharded path, so the
+# comparison also holds the shard spawn/merge pipeline reproducible. The
 # reduced default scale keeps the gate fast; the runner's leg covers the
 # acceptance scales. Runs at release, the board's profile of record.
 
@@ -460,6 +470,28 @@ amp-board-determinism scale="0.25":
     cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$a"
     cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- {{ scale }} > "$b"
     cmp "$a" "$b"
+
+# Process sharding must not move a single reading: the sharded render (the
+# default path: one child process per family slice, each owning its own
+# global allocator) is byte-compared against the serial in-process render
+# (AMP_BOARD_SHARDS=1, the reference path) at both scales of record. Any
+# diff is a finding to investigate — a reading that depends on which
+# process measured it (one-time lazy initialization is the known genre) —
+# never an accepted delta. On a single-core machine the default path is
+# already serial and the comparison is vacuous; the machines of record are
+# multi-core. Runs at release, the board's profile of record.
+
+# Byte-compare the sharded board render against the serial reference at both scales of record.
+amp-board-shard-pin:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    a=$(mktemp) && b=$(mktemp)
+    trap 'rm -f "$a" "$b"' EXIT
+    for scale in 1 acceptance; do
+        AMP_BOARD_SHARDS=1 cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- "$scale" > "$a"
+        cargo run -q --release -p before --example amp_board --features limb-meter,scan-meter -- "$scale" > "$b"
+        cmp "$a" "$b"
+    done
 
 # The worst-case map answers "which committed shape is worst for operation
 # X" mechanically: for every operation x currency it takes the argmax over
