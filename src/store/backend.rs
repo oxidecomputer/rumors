@@ -99,6 +99,19 @@ use super::schema::{CanonicalRoot, IdAllocator, NodeBody, NodeId, NodeRecord, Pi
 /// identity leaves the replica). Call [`vacuum`](Self::vacuum) in
 /// maintenance windows to drain deferred reclamation eagerly; an active
 /// replica converges without it, one bounded step per write.
+///
+/// # Space
+///
+/// Redacted and superseded content is reclaimed by reference counting,
+/// and every live in-process handle is a reference: a long-held
+/// [`Snapshot`](crate::Snapshot) (or an observer parked mid-walk) keeps
+/// its whole tree version registered in the store, so the space of
+/// everything that version reaches waits on the handle's release. Hold
+/// snapshots for as long as you need them — the cost is storage, never
+/// correctness — but a deployment sizing its store should count the
+/// oldest snapshot it keeps alive, not just the live set. Releases queue
+/// when handles drop and settle into the store one bounded step per
+/// write; [`vacuum`](Self::vacuum) is the eager drain.
 pub struct KvBackend<K: Kv, T: Send + Sync + 'static> {
     shared: Arc<Shared<K, T>>,
 }
@@ -634,6 +647,27 @@ where
     /// replica converges on its own, and recovery on open reclaims
     /// whatever a crash left. Run it in idle windows to return space
     /// eagerly, or in tests to reach the quiescent state audits expect.
+    ///
+    /// Keep a clone of the backend you constructed the peer with — the
+    /// handle is cheap, and it is the vacuum entry point:
+    ///
+    /// ```
+    /// use rumors::{KvBackend, Memory, Peer};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let store = KvBackend::new(Memory::default());
+    /// let peer: Peer<String, _, _> = Peer::seed_in(store.clone());
+    /// let rumors = peer.into_rumors();
+    ///
+    /// rumors.send("here today".to_string()).await?;
+    /// // Snapshots taken along the way register what they reach; space
+    /// // for anything later redacted returns after they drop.
+    ///
+    /// // An idle window: drain queued releases and reclamation to empty.
+    /// store.vacuum().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn vacuum(&self) -> Result<(), K::Error> {
         refcount::vacuum(&self.shared.kv, &self.shared.releases).await
     }

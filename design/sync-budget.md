@@ -580,6 +580,12 @@ crate's own gate — its entry point goes public together with the
 storage-backend boundary, the way `conformance::link` shipped with
 `Link`. Accounting premise stated in its module docs: leaf values
 charge nothing (leaf payloads belong to `target_message_size`).
+(Amendment 2026-07-29: the storage boundary landed as the `Kv`
+transactional contract — the caller-implementable seam one layer
+beneath `Backend` — so the public suite that shipped with it is
+`conformance::kv`, while `Backend` and `conformance::backend` remain
+crate-internal, per the same rule: a suite is caller-visible exactly
+where its boundary is caller-implementable.)
 
 ### 2.6 Acceptance
 
