@@ -3156,8 +3156,8 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   mechanism carries `O(M(|v|) · log a)` in exactly one corner —
   armings numerous enough and parked sums/window masses wide
   enough that the tree's products engage the backend's quasilinear
-  tier (≥ 4,000-word smaller sides, i.e. quarter-megabyte parked
-  sums) at Ω(log a) levels simultaneously. Below that corner the
+  tier (≥ 4,000-word smaller sides, i.e. ~32 KiB parked sums per
+  side) at Ω(log a) levels simultaneously. Below that corner the
   bound is clean `O(M(|v|))` [derived, module doc; measured flat
   through every committed family]. No fixed decomposition known to
   us removes the last log over a quasilinear `M` (the prefix-
@@ -3187,7 +3187,12 @@ below); realistic gossip median 0.9888, skyline smaller on 61.6%.
   mass terms; the conditioned `O((n + D) log n)` claim on
   `O(1)`-wide parked masses survives through the entropy bound
   (heavy windows sit shallow: mass-weighted traffic stays under
-  total mass × log(entry count)).\]
+  total mass × log(entry count)). The paragraph above also carried
+  a unit error, corrected in place: 4,000 64-bit words is ~32 KiB
+  per operand side (a quarter megaBIT, not megabyte) — version.rs's
+  "~64 KiB packed" is the consistent two-sided reading, verified
+  against dashu-int 0.5.0's THRESHOLD constants (simple ≤ 24,
+  Karatsuba ≤ 96, NTT at 4,000 words).\]
 
   **Board and instruments:** fresh release renders at both scales
   read **1328 + 6 (1334 cells)**, the red set exactly the six

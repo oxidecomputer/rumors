@@ -240,7 +240,7 @@
 //! split would add), and the mass balance makes node products shrink
 //! geometrically down the tree, telescoping their costs into the
 //! root's. The shipped backend dispatches power-law tiers up to
-//! 4,000-word operand sides (quarter-megabyte parked sums); past
+//! 4,000-word operand sides (~32 KiB parked sums per side); past
 //! that its quasilinear tier's per-level costs stop telescoping and
 //! the settle pays at most one extra tree-depth factor,
 //! `O(M(|v|) · log |v|)` — and the log factor is tight there
