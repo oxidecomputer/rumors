@@ -312,6 +312,7 @@ dependencies = [
  "bitvec",
  "borsh",
  "ciborium",
+ "complexity-claims",
  "criterion",
  "dashu-int",
  "dsi-bitstream",
@@ -682,6 +683,10 @@ dependencies = [
  "ryu",
  "static_assertions",
 ]
+
+[[package]]
+name = "complexity-claims"
+version = "0.1.0"
 
 [[package]]
 name = "console"

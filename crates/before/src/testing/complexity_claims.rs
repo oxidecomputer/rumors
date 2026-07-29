@@ -67,10 +67,13 @@
 //! one `Bound`, so the shared section carries one line and the binding
 //! test holds every such row to it.
 
-use std::collections::BTreeMap;
-use std::fs;
-
 use super::surface_coverage;
+
+// The bound vocabulary, its renderer, the doc-section scanner, and the
+// witness scanner are the workspace-shared claims machinery (the
+// `complexity-claims` crate); the roster rows, the class contracts, and
+// the board/judge bindings below are before's own.
+pub(crate) use ::complexity_claims::{section_of, Bound, Check, DocIndex, Site};
 
 #[cfg(test)]
 mod tests;
@@ -275,100 +278,6 @@ impl Class {
             },
         }
     }
-}
-
-/// Where an operation's `# Complexity` section lives.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Site {
-    /// The doc block of the `pub fn` the surface extractor names; the
-    /// operation's own name locates it.
-    Fn,
-    /// The doc block of a `pub struct` — `(file, local type name)`.
-    TypeDoc(&'static str, &'static str),
-    /// The module doc (`//!`) of the named file.
-    ModuleDoc(&'static str),
-    /// The doc block of a trait/operator impl — `(file, a substring of
-    /// the impl header line)`.
-    ImplDoc(&'static str, &'static str),
-}
-
-/// One operation's structured bound: the data behind the rendered
-/// `**Complexity**:` terminal line.
-///
-/// The vocabulary is uniform across the whole roster (the module doc's
-/// "rendered line" section defines it); a bare `O(...)` covers time and
-/// space. The rendering is pure data-to-text, with nothing read from the
-/// crate, so another crate's claims roster can consume the same enum and
-/// renderer unchanged.
-// The variant deliberately carries the class's own name (`MulBound` is
-// the claims vocabulary's multiplication-bound class), so the lint's
-// suffix rule loses to the one-name-per-concept rule here.
-#[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Bound {
-    /// Word-scale work: `O(1)`.
-    Constant,
-    /// Linear in the packed input: `O(n)`.
-    Linear,
-    /// Linear in a packed operand pair: `O(a + b)`.
-    LinearPair,
-    /// A text rendering: packed input `n` plus mandatory text output
-    /// `t`.
-    TextRender,
-    /// A text parse: text input `t` plus mandatory packed output `n`.
-    TextParse,
-    /// The balanced n-ary reduction: `O(D log k)` time, `O(D)` space.
-    Fold,
-    /// The indexed fold: [`Bound::Fold`] plus the per-node search
-    /// allowance over the accumulator (`B log n`).
-    FoldSearch,
-    /// The multiplication-bound three-part time claim on one operand,
-    /// exactly the shape the settle claims landed as: the worst case,
-    /// the mandatory floor, the width-bounded regime.
-    MulBound,
-    /// [`Bound::MulBound`] over an operand pair.
-    MulBoundPair,
-    /// The escape hatch: the honest bound fits no template. `line` is
-    /// rendered verbatim after the `**Complexity**:` lead; `reason`
-    /// states, as committed data, why no template fits.
-    Custom {
-        line: &'static str,
-        reason: &'static str,
-    },
-}
-
-impl Bound {
-    /// The rendered terminal line: the one normative sentence the
-    /// binding test byte-compares against the section's last line.
-    pub(crate) fn render(self) -> String {
-        let body = match self {
-            Bound::Constant => "`O(1)`.",
-            Bound::Linear => "`O(n)`.",
-            Bound::LinearPair => "`O(a + b)`.",
-            Bound::TextRender => "`O(n + t)`.",
-            Bound::TextParse => "`O(t + n)`.",
-            Bound::Fold => "`O(D log k)` time, `O(D)` space.",
-            Bound::FoldSearch => "`O(D log k + B log n)` time, `O(D)` space.",
-            Bound::MulBound => {
-                "`O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, \
-                 `O(n log n)` with width-bounded parked drifts."
-            }
-            Bound::MulBoundPair => {
-                "`O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, \
-                 `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with width-bounded \
-                 parked drifts."
-            }
-            Bound::Custom { line, .. } => line,
-        };
-        format!("**Complexity**: {body}")
-    }
-}
-
-/// One prose check: a site whose `# Complexity` section must end with
-/// the bound's rendered line, verbatim.
-pub(crate) struct Check {
-    pub(crate) site: Site,
-    pub(crate) bound: Bound,
 }
 
 /// The board leg of one claim: the rows witnessing the class, or the
@@ -1329,160 +1238,13 @@ pub(crate) const CLAIMS: &[Claim] = &[
     },
 ];
 
-/// The `# Complexity` sections the surface files carry, scanned from
-/// source with the surface extractor's line discipline.
-pub(crate) struct DocIndex {
-    /// `Type::fn` / `module::fn` name → its doc block's Complexity
-    /// section, if the block has one.
-    pub(crate) fns: BTreeMap<String, Option<String>>,
-    /// `(file, local type name)` → the `pub struct`'s section.
-    pub(crate) structs: BTreeMap<(String, String), Option<String>>,
-    /// `(file, impl header line)` → the impl's section, for every
-    /// documented column-0 impl.
-    pub(crate) impls: Vec<(String, String, Option<String>)>,
-    /// file → the module doc's section.
-    pub(crate) modules: BTreeMap<String, Option<String>>,
-}
-
-impl DocIndex {
-    /// The section at `site`, or an error naming what is missing.
-    pub(crate) fn section(&self, op: &str, site: Site) -> Result<&str, String> {
-        let found = match site {
-            Site::Fn => self
-                .fns
-                .get(op)
-                .ok_or_else(|| format!("{op}: no `pub fn` doc block found by the scanner"))?,
-            Site::TypeDoc(file, ty) => self
-                .structs
-                .get(&(file.to_owned(), ty.to_owned()))
-                .ok_or_else(|| format!("{op}: no `pub struct {ty}` found in {file}"))?,
-            Site::ModuleDoc(file) => self
-                .modules
-                .get(file)
-                .ok_or_else(|| format!("{op}: no module doc found in {file}"))?,
-            Site::ImplDoc(file, header) => {
-                let mut matches = self
-                    .impls
-                    .iter()
-                    .filter(|(f, h, _)| f == file && h.contains(header));
-                let (_, _, section) = matches.next().ok_or_else(|| {
-                    format!("{op}: no impl header containing `{header}` in {file}")
-                })?;
-                if matches.next().is_some() {
-                    return Err(format!(
-                        "{op}: impl header substring `{header}` is ambiguous in {file}"
-                    ));
-                }
-                section
-            }
-        };
-        found.as_deref().ok_or_else(|| {
-            format!("{op}: the doc block at its roster site has no `# Complexity` section")
-        })
-    }
-}
-
 /// Scan every coverage surface file for doc blocks and their
 /// `# Complexity` sections.
 ///
-/// The same rustfmt-normalized line discipline as
-/// [`surface_coverage::extract_public_fns`]: column-0 `impl` headers open
-/// inherent or trait impls, `pub fn` appears at column 0 (module level)
-/// or one indent (inherent methods), and a doc block is the contiguous
-/// `///` run (attributes transparent) directly above its item.
+/// The shared scanner over [`surface_coverage::SURFACE_SOURCES`], with
+/// the same rustfmt-normalized line discipline as the surface extractor
+/// (see [`complexity_claims::doc_index`]'s docs).
 pub(crate) fn doc_index() -> DocIndex {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut index = DocIndex {
-        fns: BTreeMap::new(),
-        structs: BTreeMap::new(),
-        impls: Vec::new(),
-        modules: BTreeMap::new(),
-    };
-    for spec in surface_coverage::SURFACE_SOURCES {
-        let path = root.join(spec.path);
-        let text =
-            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
-        let mut module_doc = String::new();
-        let mut doc = String::new();
-        let mut current_type: Option<String> = None;
-        for line in text.lines() {
-            let trimmed = line.trim_start();
-            if let Some(rest) = trimmed.strip_prefix("//!") {
-                module_doc.push_str(rest.strip_prefix(' ').unwrap_or(rest));
-                module_doc.push('\n');
-                continue;
-            }
-            if let Some(rest) = trimmed.strip_prefix("///") {
-                doc.push_str(rest.strip_prefix(' ').unwrap_or(rest));
-                doc.push('\n');
-                continue;
-            }
-            // Attributes and plain comments sit between a doc block and
-            // its item without detaching it (rustc ignores both), so the
-            // scan treats them as transparent.
-            if trimmed.starts_with("#[") || trimmed.starts_with("#!") || trimmed.starts_with("//") {
-                continue;
-            }
-            if let Some(rest) = line.strip_prefix("impl") {
-                if line.contains(" for ") {
-                    index
-                        .impls
-                        .push((spec.path.to_owned(), line.to_owned(), section_of(&doc)));
-                    current_type = None;
-                } else {
-                    current_type = surface_coverage::parse_impl_self_type(rest);
-                }
-                doc.clear();
-                continue;
-            }
-            if let Some(rest) = line.strip_prefix("    pub fn ") {
-                if let Some(ty) = current_type.as_deref() {
-                    let ty = spec.type_override.unwrap_or(ty);
-                    let name = format!("{ty}::{}", surface_coverage::fn_name(rest));
-                    index.fns.insert(name, section_of(&doc));
-                }
-                doc.clear();
-                continue;
-            }
-            if let Some(rest) = line.strip_prefix("pub fn ") {
-                if let Some(prefix) = spec.module_prefix {
-                    let name = format!("{prefix}::{}", surface_coverage::fn_name(rest));
-                    index.fns.insert(name, section_of(&doc));
-                }
-                doc.clear();
-                continue;
-            }
-            if let Some(rest) = line.strip_prefix("pub struct ") {
-                let name: String = rest
-                    .chars()
-                    .take_while(|c| c.is_alphanumeric() || *c == '_')
-                    .collect();
-                index
-                    .structs
-                    .insert((spec.path.to_owned(), name), section_of(&doc));
-                doc.clear();
-                continue;
-            }
-            if line == "}" {
-                current_type = None;
-            }
-            doc.clear();
-        }
-        index
-            .modules
-            .insert(spec.path.to_owned(), section_of(&module_doc));
-    }
-    index
-}
-
-/// The `# Complexity` section of one doc block: the lines from its
-/// heading to the next heading or example fence. [`None`] when the block
-/// has no such section.
-fn section_of(doc: &str) -> Option<String> {
-    let mut lines = doc.lines();
-    lines.by_ref().find(|l| l.trim() == "# Complexity")?;
-    let section: Vec<&str> = lines
-        .take_while(|l| !l.trim_start().starts_with("# ") && !l.trim_start().starts_with("```"))
-        .collect();
-    Some(section.join("\n"))
+    ::complexity_claims::doc_index(&root, surface_coverage::SURFACE_SOURCES)
 }

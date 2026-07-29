@@ -2,6 +2,7 @@
 members = [
     "crates/before",
     "crates/before-viz",
+    "crates/complexity-claims",
     "crates/rumormill",
     "crates/suanpan",
 ]

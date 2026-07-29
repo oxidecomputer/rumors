@@ -89,6 +89,11 @@ indicatif = "0.17"
 # `--features`. Dev-dependency cycles are explicitly allowed, and
 # dev-dependencies never affect a normal `cargo build`, so production stays clean.
 before = { path = ".", features = ["oracle", "meter"] }
+# The workspace-shared complexity-claims machinery: the bound vocabulary and
+# its renderer, the doc-section scanner, and the surface extractor behind the
+# claims roster (`src/testing/complexity_claims.rs`) and the coverage roster
+# (`src/testing/surface_coverage.rs`).
+complexity-claims = { path = "../complexity-claims" }
 
 [features]
 default = []
