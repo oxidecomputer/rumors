@@ -1,7 +1,8 @@
-//! The operation axis: the board's row table. Each row declares the
-//! bundle slots its signature consumes and prepares its cell from them
-//! alone — never from the shape's identity — so a row reaches every shape
-//! that supplies its operands.
+//! The operation axis: the board's row table.
+//!
+//! Each row declares the bundle slots its signature consumes and prepares
+//! its cell from them alone — never from the shape's identity — so a row
+//! reaches every shape that supplies its operands.
 
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
