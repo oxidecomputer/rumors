@@ -4,7 +4,8 @@
 //! This module is the machine-readable roster the triangle suite (the
 //! crate's test-only differential architecture) enforces totality over:
 //! its tests hold
-//! [`METHOD_SURFACE`] equal, name for name, to the inherent `pub fn`
+//! [`METHOD_SURFACE`](crate::surface::METHOD_SURFACE) equal, name for
+//! name, to the inherent `pub fn`
 //! surface extracted from the public-API source files, and hold every
 //! cited test name resolvable to an executable binding. The rows live
 //! here, outside the test-only tree, so external instrument crates can
