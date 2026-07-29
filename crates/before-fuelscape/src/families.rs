@@ -11,11 +11,8 @@
 //! size lands inside the plotted span; the x-coordinate is the same
 //! measure as the cloud's (total packed input bytes).
 
-use before::meter::{
-    concurrent_pair, dense, dense_suffix, freeze_parade, harmonic, hugeleaf, id_spine, jump_pair,
-    meet_shade, memo_chain_id, nested_left_full_id, plateau_puncture, scattered_id,
-    stagger_population, staircase, tooth_tail, weight_comb, wide_arming, Packed,
-};
+use before::meter::registry::Shape;
+use before::meter::Packed;
 use before::Party;
 
 use crate::ops::{Inputs, OpSpec, Operand};
@@ -71,7 +68,7 @@ fn ramp(
 /// committed bit-reversed feed order (the order is load-bearing: it is
 /// what realizes the intermediate swell at every reduction level).
 fn stagger_versions(n: usize, m: usize) -> Vec<Vec<u8>> {
-    let (versions, _) = stagger_population(n, m);
+    let (versions, _) = Shape::StaggerPopulation.population(n, m);
     versions.iter().map(version_bytes).collect()
 }
 
@@ -96,66 +93,66 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
     match operands {
         [Operand::Version] => {
             out.extend(ramp("dense", max_bytes, |t| {
-                Some(vec![version_bytes(&dense(t))])
+                Some(vec![version_bytes(&Shape::Dense.packed1(t))])
             }));
             out.extend(ramp("harmonic", max_bytes, |t| {
-                Some(vec![version_bytes(&harmonic(t))])
+                Some(vec![version_bytes(&Shape::Harmonic.packed1(t))])
             }));
             out.extend(ramp("staircase", max_bytes, |t| {
-                Some(vec![version_bytes(&staircase(t))])
+                Some(vec![version_bytes(&Shape::Staircase.packed1(t))])
             }));
             out.extend(ramp("hugeleaf", max_bytes, |t| {
-                Some(vec![version_bytes(&hugeleaf(8 * t))])
+                Some(vec![version_bytes(&Shape::Hugeleaf.packed1(8 * t))])
             }));
             out.extend(ramp("wide_arming", max_bytes, |t| {
-                Some(vec![version_bytes(&wide_arming(10, t))])
+                Some(vec![version_bytes(&Shape::WideArming.packed2(10, t))])
             }));
             out.extend(ramp("dense_suffix", max_bytes, |t| {
-                Some(vec![version_bytes(&dense_suffix(t, t))])
+                Some(vec![version_bytes(&Shape::DenseSuffix.packed2(t, t))])
             }));
             out.extend(ramp("weight_comb", max_bytes, |t| {
-                Some(vec![version_bytes(&weight_comb(t))])
+                Some(vec![version_bytes(&Shape::WeightComb.packed1(t))])
             }));
             out.extend(ramp("freeze_parade", max_bytes, |t| {
-                Some(vec![version_bytes(&freeze_parade(t))])
+                Some(vec![version_bytes(&Shape::FreezeParade.packed1(t))])
             }));
             out.extend(ramp("plateau_puncture", max_bytes, |t| {
-                Some(vec![version_bytes(&plateau_puncture(10, t))])
+                Some(vec![version_bytes(&Shape::PlateauPuncture.packed2(10, t))])
             }));
         }
         [Operand::Version, Operand::Version] => {
             out.extend(ramp("jump_pair", max_bytes, |t| {
-                let (a, b) = jump_pair(8, t, 1);
+                let (a, b) = Shape::JumpPair.packed_pair3(8, t, 1);
                 Some(vec![version_bytes(&a), version_bytes(&b)])
             }));
             out.extend(ramp("tooth_tail", max_bytes, |t| {
-                let (a, b) = tooth_tail(t, 2 * t.max(1));
+                let (a, b) = Shape::ToothTail.packed_pair(t, 2 * t.max(1));
                 Some(vec![version_bytes(&a), version_bytes(&b)])
             }));
             out.extend(ramp("concurrent_pair", max_bytes, |t| {
-                let (a, b) = concurrent_pair(2 * t);
+                let (a, b) = Shape::ConcurrentPair.version_pair(2 * t);
                 Some(vec![a.encode(), b.encode()])
             }));
             out.extend(ramp("dense × self", max_bytes, |t| {
-                let v = version_bytes(&dense(t));
+                let v = version_bytes(&Shape::Dense.packed1(t));
                 Some(vec![v.clone(), v])
             }));
             out.extend(ramp("hugeleaf × self", max_bytes, |t| {
-                let v = version_bytes(&hugeleaf(8 * t));
+                let v = version_bytes(&Shape::Hugeleaf.packed1(8 * t));
                 Some(vec![v.clone(), v])
             }));
         }
         [Operand::Version, Operand::Party] => {
             out.extend(ramp("dense × scattered_id", max_bytes, |t| {
                 Some(vec![
-                    version_bytes(&dense(t)),
-                    party_bytes(&scattered_id(t)),
+                    version_bytes(&Shape::Dense.packed1(t)),
+                    party_bytes(&Shape::ScatteredId.packed1(t)),
                 ])
             }));
             out.extend(ramp("hugeleaf × id_spine", max_bytes, |t| {
                 Some(vec![
-                    version_bytes(&hugeleaf(8 * t)),
-                    party_bytes(&id_spine(t, false)),
+                    version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
+                    party_bytes(&Shape::IdSpine.packed_flagged(t, false)),
                 ])
             }));
         }
@@ -164,16 +161,16 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
         [Operand::Version, Operand::Party, Operand::Version] => {
             out.extend(ramp("dense × scattered_id × dense", max_bytes, |t| {
                 Some(vec![
-                    version_bytes(&dense(t)),
-                    party_bytes(&scattered_id(t)),
-                    version_bytes(&dense(t)),
+                    version_bytes(&Shape::Dense.packed1(t)),
+                    party_bytes(&Shape::ScatteredId.packed1(t)),
+                    version_bytes(&Shape::Dense.packed1(t)),
                 ])
             }));
             out.extend(ramp("hugeleaf × id_spine × hugeleaf", max_bytes, |t| {
                 Some(vec![
-                    version_bytes(&hugeleaf(8 * t)),
-                    party_bytes(&id_spine(t, false)),
-                    version_bytes(&hugeleaf(8 * t)),
+                    version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
+                    party_bytes(&Shape::IdSpine.packed_flagged(t, false)),
+                    version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
                 ])
             }));
         }
@@ -182,18 +179,18 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
         [Operand::Version, Operand::Party, Operand::Version, Operand::Party] => {
             out.extend(ramp("(dense / scattered_id) × self", max_bytes, |t| {
                 Some(vec![
-                    version_bytes(&dense(t)),
-                    party_bytes(&scattered_id(t)),
-                    version_bytes(&dense(t)),
-                    party_bytes(&scattered_id(t)),
+                    version_bytes(&Shape::Dense.packed1(t)),
+                    party_bytes(&Shape::ScatteredId.packed1(t)),
+                    version_bytes(&Shape::Dense.packed1(t)),
+                    party_bytes(&Shape::ScatteredId.packed1(t)),
                 ])
             }));
             out.extend(ramp("(hugeleaf / id_spine) × self", max_bytes, |t| {
                 Some(vec![
-                    version_bytes(&hugeleaf(8 * t)),
-                    party_bytes(&id_spine(t, false)),
-                    version_bytes(&hugeleaf(8 * t)),
-                    party_bytes(&id_spine(t, false)),
+                    version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
+                    party_bytes(&Shape::IdSpine.packed_flagged(t, false)),
+                    version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
+                    party_bytes(&Shape::IdSpine.packed_flagged(t, false)),
                 ])
             }));
         }
@@ -204,28 +201,31 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
         // clock families' cross as the non-stagger shape.
         [Operand::Party, Operand::Version, Operand::Version, Operand::Version, Operand::Version] => {
             out.extend(ramp("scattered_id × stagger (n=4)", max_bytes, |t| {
-                let mut inputs = vec![party_bytes(&scattered_id(t))];
+                let mut inputs = vec![party_bytes(&Shape::ScatteredId.packed1(t))];
                 inputs.extend(stagger_versions(4, t));
                 Some(inputs)
             }));
             out.extend(ramp("id_spine × hugeleaf⁴", max_bytes, |t| {
-                let mut inputs = vec![party_bytes(&id_spine(t, false))];
-                inputs.extend(std::iter::repeat_with(|| version_bytes(&hugeleaf(8 * t))).take(4));
+                let mut inputs = vec![party_bytes(&Shape::IdSpine.packed_flagged(t, false))];
+                inputs.extend(
+                    std::iter::repeat_with(|| version_bytes(&Shape::Hugeleaf.packed1(8 * t)))
+                        .take(4),
+                );
                 Some(inputs)
             }));
         }
         [Operand::Party] => {
             out.extend(ramp("scattered_id", max_bytes, |t| {
-                Some(vec![party_bytes(&scattered_id(t))])
+                Some(vec![party_bytes(&Shape::ScatteredId.packed1(t))])
             }));
             out.extend(ramp("id_spine", max_bytes, |t| {
-                Some(vec![party_bytes(&id_spine(t, false))])
+                Some(vec![party_bytes(&Shape::IdSpine.packed_flagged(t, false))])
             }));
             out.extend(ramp("memo_chain_id", max_bytes, |t| {
-                Some(vec![party_bytes(&memo_chain_id(t))])
+                Some(vec![party_bytes(&Shape::MemoChainId.packed1(t))])
             }));
             out.extend(ramp("nested_left_full_id", max_bytes, |t| {
-                Some(vec![party_bytes(&nested_left_full_id(t))])
+                Some(vec![party_bytes(&Shape::NestedLeftFullId.packed1(t))])
             }));
         }
         // A distinct-pair row cannot take the self pairs (its draw
@@ -233,8 +233,8 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
         [Operand::Party, Operand::Party] if distinct => {
             out.extend(ramp("scattered_id × id_spine", max_bytes, |t| {
                 Some(vec![
-                    party_bytes(&scattered_id(t)),
-                    party_bytes(&id_spine(t, false)),
+                    party_bytes(&Shape::ScatteredId.packed1(t)),
+                    party_bytes(&Shape::IdSpine.packed_flagged(t, false)),
                 ])
             }));
             out.extend(ramp(
@@ -242,19 +242,19 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
                 max_bytes,
                 |t| {
                     Some(vec![
-                        party_bytes(&memo_chain_id(t)),
-                        party_bytes(&nested_left_full_id(t)),
+                        party_bytes(&Shape::MemoChainId.packed1(t)),
+                        party_bytes(&Shape::NestedLeftFullId.packed1(t)),
                     ])
                 },
             ));
         }
         [Operand::Party, Operand::Party] => {
             out.extend(ramp("scattered_id × self", max_bytes, |t| {
-                let p = party_bytes(&scattered_id(t));
+                let p = party_bytes(&Shape::ScatteredId.packed1(t));
                 Some(vec![p.clone(), p])
             }));
             out.extend(ramp("id_spine × self", max_bytes, |t| {
-                let p = party_bytes(&id_spine(t, false));
+                let p = party_bytes(&Shape::IdSpine.packed_flagged(t, false));
                 Some(vec![p.clone(), p])
             }));
         }
@@ -263,14 +263,14 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
         [Operand::Party, Operand::Version] => {
             out.extend(ramp("scattered_id × dense", max_bytes, |t| {
                 Some(vec![
-                    party_bytes(&scattered_id(t)),
-                    version_bytes(&dense(t)),
+                    party_bytes(&Shape::ScatteredId.packed1(t)),
+                    version_bytes(&Shape::Dense.packed1(t)),
                 ])
             }));
             out.extend(ramp("id_spine × hugeleaf", max_bytes, |t| {
                 Some(vec![
-                    party_bytes(&id_spine(t, false)),
-                    version_bytes(&hugeleaf(8 * t)),
+                    party_bytes(&Shape::IdSpine.packed_flagged(t, false)),
+                    version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
                 ])
             }));
         }
@@ -279,16 +279,16 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
         [Operand::Party, Operand::Version, Operand::Version] => {
             out.extend(ramp("scattered_id × dense × dense", max_bytes, |t| {
                 Some(vec![
-                    party_bytes(&scattered_id(t)),
-                    version_bytes(&dense(t)),
-                    version_bytes(&dense(t)),
+                    party_bytes(&Shape::ScatteredId.packed1(t)),
+                    version_bytes(&Shape::Dense.packed1(t)),
+                    version_bytes(&Shape::Dense.packed1(t)),
                 ])
             }));
             out.extend(ramp("id_spine × hugeleaf × hugeleaf", max_bytes, |t| {
                 Some(vec![
-                    party_bytes(&id_spine(t, false)),
-                    version_bytes(&hugeleaf(8 * t)),
-                    version_bytes(&hugeleaf(8 * t)),
+                    party_bytes(&Shape::IdSpine.packed_flagged(t, false)),
+                    version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
+                    version_bytes(&Shape::Hugeleaf.packed1(8 * t)),
                 ])
             }));
         }
@@ -324,7 +324,13 @@ fn slice_overlays(name: &str, max_bytes: usize) -> Vec<FamilyInput> {
         }
         "version_meet_all" => ramp("meet_shade (d=k)", max_bytes, |t| {
             let d = 2 * t;
-            Some(meet_shade(d, d).iter().map(|v| v.encode()).collect())
+            Some(
+                Shape::MeetShade
+                    .versions(d, d)
+                    .iter()
+                    .map(|v| v.encode())
+                    .collect(),
+            )
         }),
         other => panic!("no committed slice families for {other}"),
     }

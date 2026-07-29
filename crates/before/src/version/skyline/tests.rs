@@ -16,11 +16,9 @@ use proptest::prelude::*;
 
 use crate::codec::{self, Base, Bits};
 use crate::error::Decode;
+use crate::meter::registry::Shape;
 use crate::meter::tier2::tier2_size;
-use crate::meter::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, hugeleaf, wide_tooth_comb,
-    Packed,
-};
+use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, packed_bits_of, to_oracle_version};
 use crate::testing::compactness::{arb_comb_params, comb};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
@@ -157,10 +155,10 @@ fn rejects_negative_height_midstream() {
 fn rejects_every_truncation() {
     let shapes: Vec<Version> = vec![
         Version::new(),
-        version_of(&dense(3)),
-        version_of(&cliff_comb(4, 3)),
-        version_of(&hugeleaf(9)),
-        version_of(&alt_spine(4)),
+        version_of(&Shape::Dense.packed1(3)),
+        version_of(&Shape::CliffComb.packed2(4, 3)),
+        version_of(&Shape::Hugeleaf.packed1(9)),
+        version_of(&Shape::AltSpine.packed1(4)),
     ];
     for v in &shapes {
         let bits = stream_of(v);
@@ -179,7 +177,7 @@ fn rejects_every_truncation() {
 /// tree.
 #[test]
 fn rejects_trailing_bits() {
-    let v = version_of(&dense(3));
+    let v = version_of(&Shape::Dense.packed1(3));
     let clean = stream_of(&v);
     for extra in [false, true] {
         let mut bits = clean.clone();
@@ -311,14 +309,14 @@ fn assert_flag_bijection(t: &oracle::Version) {
 #[test]
 fn topology_flag_bijection_on_generator_families() {
     for p in [
-        dense(1),
-        dense(1_000),
-        bigroot(1_000, 200),
-        hugeleaf(5_000),
-        cliff_comb(64, 64),
-        wide_tooth_comb(512, 192, 64),
-        alt_spine(64),
-        cancelling_chain(64, 64),
+        Shape::Dense.packed1(1),
+        Shape::Dense.packed1(1_000),
+        Shape::Bigroot.packed2(1_000, 200),
+        Shape::Hugeleaf.packed1(5_000),
+        Shape::CliffComb.packed2(64, 64),
+        Shape::WideToothComb.packed3(512, 192, 64),
+        Shape::AltSpine.packed1(64),
+        Shape::CancellingChain.packed2(64, 64),
     ] {
         assert_flag_bijection(&to_oracle_version(&version_of(&p)));
     }
@@ -424,30 +422,30 @@ fn assert_agreement(v: &Version) {
 #[test]
 fn generator_families_agree_and_round_trip() {
     let shapes: Vec<Packed> = vec![
-        dense(1),
-        dense(2),
-        dense(64),
-        dense(1_000),
-        bigroot(7, 3),
-        bigroot(200, 50),
-        bigroot(1_000, 200),
-        hugeleaf(1),
-        hugeleaf(64),
-        hugeleaf(5_000),
-        cliff_comb(3, 2),
-        cliff_comb(64, 64),
-        cliff_comb(512, 512),
-        wide_tooth_comb(64, 8, 16),
-        wide_tooth_comb(512, 192, 64),
-        cliff_fan(64, 64),
-        cliff_fan(512, 128),
-        cancelling_chain(64, 64),
-        cancelling_chain(512, 128),
-        alt_spine(1),
-        alt_spine(2),
-        alt_spine(3),
-        alt_spine(64),
-        alt_spine(1_001),
+        Shape::Dense.packed1(1),
+        Shape::Dense.packed1(2),
+        Shape::Dense.packed1(64),
+        Shape::Dense.packed1(1_000),
+        Shape::Bigroot.packed2(7, 3),
+        Shape::Bigroot.packed2(200, 50),
+        Shape::Bigroot.packed2(1_000, 200),
+        Shape::Hugeleaf.packed1(1),
+        Shape::Hugeleaf.packed1(64),
+        Shape::Hugeleaf.packed1(5_000),
+        Shape::CliffComb.packed2(3, 2),
+        Shape::CliffComb.packed2(64, 64),
+        Shape::CliffComb.packed2(512, 512),
+        Shape::WideToothComb.packed3(64, 8, 16),
+        Shape::WideToothComb.packed3(512, 192, 64),
+        Shape::CliffFan.packed2(64, 64),
+        Shape::CliffFan.packed2(512, 128),
+        Shape::CancellingChain.packed2(64, 64),
+        Shape::CancellingChain.packed2(512, 128),
+        Shape::AltSpine.packed1(1),
+        Shape::AltSpine.packed1(2),
+        Shape::AltSpine.packed1(3),
+        Shape::AltSpine.packed1(64),
+        Shape::AltSpine.packed1(1_001),
     ];
     for p in &shapes {
         assert_agreement(&version_of(p));

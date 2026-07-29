@@ -9,6 +9,7 @@
 //! witness tests). The roster and the scanner live in the parent
 //! module.
 
+use crate::meter::registry::Shape;
 use std::collections::BTreeSet;
 
 use super::{doc_index, Bound, Cells, Claim, Class, DocIndex, RedStance, CLAIMS, NON_OPERATIONS};
@@ -255,7 +256,7 @@ fn classes_satisfy_their_contracts() {
 /// (the board's mirror-wide event side) at spine scale `s`.
 #[cfg(feature = "limb-meter")]
 fn render_limb_ops(s: usize) -> u64 {
-    let version = crate::meter::wide_tail(s, s).version();
+    let version = Shape::WideTail.packed2(s, s).version();
     crate::meter::reset_limb_ops();
     std::hint::black_box(version.to_string());
     crate::meter::limb_ops()
@@ -419,7 +420,7 @@ fn mul_bound_embedding_is_alive() {
     }
 
     let (w, d) = (64usize, 48usize);
-    let v = crate::meter::plateau_puncture(w, d).version();
+    let v = Shape::PlateauPuncture.packed2(w, d).version();
     let (x, y) = crate::meter::plateau_puncture_factors(w, d);
     assert_eq!(
         (x.bit_len(), y.bit_len()),

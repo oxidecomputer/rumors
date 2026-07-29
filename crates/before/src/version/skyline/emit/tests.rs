@@ -20,10 +20,8 @@ use suanpan::Accumulator;
 
 use crate::codec::Base;
 use crate::codec::{Bits, BitsSlice};
-use crate::meter::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    wide_tooth_comb, Packed,
-};
+use crate::meter::registry::Shape;
+use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
@@ -167,21 +165,21 @@ fn fold_signed(diff: &mut Accumulator, subtract: bool, step: &Step) {
 fn family_pool() -> Vec<Version> {
     vec![
         Version::new(),
-        version_of(&dense(1)),
-        version_of(&dense(2)),
-        version_of(&dense(64)),
-        version_of(&bigroot(7, 3)),
-        version_of(&bigroot(64, 16)),
-        version_of(&hugeleaf(1)),
-        version_of(&hugeleaf(64)),
-        version_of(&cliff_comb(3, 2)),
-        version_of(&cliff_comb(16, 16)),
-        version_of(&wide_tooth_comb(16, 8, 8)),
-        version_of(&cliff_fan(16, 8)),
-        version_of(&cancelling_chain(16, 8)),
-        version_of(&alt_spine(3)),
-        version_of(&alt_spine(64)),
-        version_of(&harmonic(16)),
+        version_of(&Shape::Dense.packed1(1)),
+        version_of(&Shape::Dense.packed1(2)),
+        version_of(&Shape::Dense.packed1(64)),
+        version_of(&Shape::Bigroot.packed2(7, 3)),
+        version_of(&Shape::Bigroot.packed2(64, 16)),
+        version_of(&Shape::Hugeleaf.packed1(1)),
+        version_of(&Shape::Hugeleaf.packed1(64)),
+        version_of(&Shape::CliffComb.packed2(3, 2)),
+        version_of(&Shape::CliffComb.packed2(16, 16)),
+        version_of(&Shape::WideToothComb.packed3(16, 8, 8)),
+        version_of(&Shape::CliffFan.packed2(16, 8)),
+        version_of(&Shape::CancellingChain.packed2(16, 8)),
+        version_of(&Shape::AltSpine.packed1(3)),
+        version_of(&Shape::AltSpine.packed1(64)),
+        version_of(&Shape::Harmonic.packed1(16)),
     ]
 }
 
@@ -213,8 +211,8 @@ fn family_pairs_emit_identically() {
 /// would go quadratic.
 #[test]
 fn flat_over_deep_collapses_totally() {
-    let deep = version_of(&dense(512));
-    let flat = version_of(&hugeleaf(600));
+    let deep = version_of(&Shape::Dense.packed1(512));
+    let flat = version_of(&Shape::Hugeleaf.packed1(600));
     assert_emits(&deep, &flat);
     let joined = join(&encode(&deep), &encode(&flat));
     assert_eq!(

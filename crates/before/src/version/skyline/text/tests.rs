@@ -11,10 +11,8 @@
 use proptest::prelude::*;
 
 use crate::error::Parse;
-use crate::meter::{
-    alt_spine, bigroot, cancelling_chain, cliff_comb, cliff_fan, dense, harmonic, hugeleaf,
-    jump_comb, wide_arming, wide_tooth_comb, Packed,
-};
+use crate::meter::registry::Shape;
+use crate::meter::Packed;
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
@@ -54,40 +52,40 @@ fn assert_text_kernels_agree(v: &Version) {
 #[test]
 fn generator_families_render_and_parse_identically() {
     let shapes: Vec<Packed> = vec![
-        dense(1),
-        dense(2),
-        dense(64),
-        dense(1_000),
-        bigroot(7, 3),
-        bigroot(200, 50),
-        bigroot(1_000, 200),
-        hugeleaf(1),
-        hugeleaf(64),
-        hugeleaf(5_000),
-        cliff_comb(3, 2),
-        cliff_comb(64, 64),
-        cliff_comb(512, 512),
-        wide_tooth_comb(64, 8, 16),
-        wide_tooth_comb(512, 192, 64),
-        cliff_fan(64, 64),
-        cliff_fan(512, 128),
-        cancelling_chain(64, 64),
-        cancelling_chain(512, 128),
-        jump_comb(1, 2),
-        jump_comb(64, 64),
-        jump_comb(512, 128),
-        harmonic(1),
-        harmonic(64),
-        harmonic(1_000),
-        alt_spine(1),
-        alt_spine(2),
-        alt_spine(3),
-        alt_spine(64),
-        alt_spine(1_001),
-        wide_arming(10, 1),
-        wide_arming(16, 8),
-        wide_arming(64, 64),
-        wide_arming(256, 256),
+        Shape::Dense.packed1(1),
+        Shape::Dense.packed1(2),
+        Shape::Dense.packed1(64),
+        Shape::Dense.packed1(1_000),
+        Shape::Bigroot.packed2(7, 3),
+        Shape::Bigroot.packed2(200, 50),
+        Shape::Bigroot.packed2(1_000, 200),
+        Shape::Hugeleaf.packed1(1),
+        Shape::Hugeleaf.packed1(64),
+        Shape::Hugeleaf.packed1(5_000),
+        Shape::CliffComb.packed2(3, 2),
+        Shape::CliffComb.packed2(64, 64),
+        Shape::CliffComb.packed2(512, 512),
+        Shape::WideToothComb.packed3(64, 8, 16),
+        Shape::WideToothComb.packed3(512, 192, 64),
+        Shape::CliffFan.packed2(64, 64),
+        Shape::CliffFan.packed2(512, 128),
+        Shape::CancellingChain.packed2(64, 64),
+        Shape::CancellingChain.packed2(512, 128),
+        Shape::JumpComb.packed2(1, 2),
+        Shape::JumpComb.packed2(64, 64),
+        Shape::JumpComb.packed2(512, 128),
+        Shape::Harmonic.packed1(1),
+        Shape::Harmonic.packed1(64),
+        Shape::Harmonic.packed1(1_000),
+        Shape::AltSpine.packed1(1),
+        Shape::AltSpine.packed1(2),
+        Shape::AltSpine.packed1(3),
+        Shape::AltSpine.packed1(64),
+        Shape::AltSpine.packed1(1_001),
+        Shape::WideArming.packed2(10, 1),
+        Shape::WideArming.packed2(16, 8),
+        Shape::WideArming.packed2(64, 64),
+        Shape::WideArming.packed2(256, 256),
     ];
     for p in &shapes {
         assert_text_kernels_agree(&version_of(p));
@@ -173,14 +171,14 @@ const MUTATION_ALPHABET: &[u8] = b"0123456789(), x";
 #[test]
 fn mutated_texts_hold_reject_parity_through_the_public_entry() {
     let seeds: Vec<String> = [
-        dense(3),
-        bigroot(7, 3),
-        hugeleaf(64),
-        cliff_comb(3, 2),
-        jump_comb(1, 2),
-        harmonic(2),
-        alt_spine(2),
-        wide_arming(10, 2),
+        Shape::Dense.packed1(3),
+        Shape::Bigroot.packed2(7, 3),
+        Shape::Hugeleaf.packed1(64),
+        Shape::CliffComb.packed2(3, 2),
+        Shape::JumpComb.packed2(1, 2),
+        Shape::Harmonic.packed1(2),
+        Shape::AltSpine.packed1(2),
+        Shape::WideArming.packed2(10, 2),
     ]
     .iter()
     .map(|p| version_of(p).to_string())
@@ -259,7 +257,7 @@ proptest! {
 /// the subtraction of a normalized magnitude from a redundant spelling
 /// leaves nonzero digits cancelling across the whole span, so the top
 /// stays parked at the widest swing and every later extraction
-/// re-walks its dead digits. `wide_arming(w, w)` separates the two:
+/// re-walks its dead digits. `Shape::WideArming.packed2(w, w)` separates the two:
 /// after its single `2^(32w)` swing, the `Θ(w)` trailing zero-delta
 /// leaves cost the schoolbook kernel `Θ(w²)` touches on `Θ(w)` text
 /// (the exact-`top` genre at the text seam) while the shipped reset
@@ -278,7 +276,7 @@ mod parse_schoolbook {
     use crate::codec::text::{parse_base, Cur};
     use crate::codec::{Base, Bits};
     use crate::error::Parse;
-    use crate::meter::wide_arming;
+    use crate::meter::registry::Shape;
     use crate::step;
     use crate::version::skyline::build::SkylineBuilder;
     use crate::version::skyline::{encode, gamma_code, validate_bits, zigzag_signed};
@@ -404,11 +402,11 @@ mod parse_schoolbook {
         Ok(bits)
     }
 
-    /// One kernel run over `wide_arming(s, s)`'s rendered text: text
+    /// One kernel run over `Shape::WideArming.packed2(s, s)`'s rendered text: text
     /// bytes and accumulator touches over the parse body alone,
     /// value-pinned against the stored stream.
     fn run(s: usize, kernel: fn(&str) -> Result<Bits, Parse>) -> (u64, u64) {
-        let v = wide_arming(s, s).version();
+        let v = Shape::WideArming.packed2(s, s).version();
         let enc = encode(&v);
         let text = render(&enc);
         let bytes = text.len() as u64;

@@ -6,7 +6,8 @@
 //! on a worst-case shape visible in `cargo bench`, complementing the
 //! deterministic envelopes in `tests/meter.rs`.
 
-use before::{meter, Party, Version};
+use before::meter::registry::Shape;
+use before::{Party, Version};
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 
 /// Magnitudes (bits) of the hugeleaf rows: one gamma code as wide as the
@@ -29,7 +30,7 @@ fn bench_decode_hugeleaf(c: &mut Criterion) {
     for &b in HUGELEAF_BITS {
         // The generator's construction language is transcoded to the stored
         // coding by `Packed::version`; decode times its packed bytes.
-        let bytes = meter::hugeleaf(b).version().encode();
+        let bytes = Shape::Hugeleaf.packed1(b).version().encode();
         g.bench_with_input(BenchmarkId::new("before", b), &bytes, |bench, bytes| {
             bench.iter(|| black_box(Version::decode(&bytes[..]).unwrap()));
         });
@@ -42,7 +43,7 @@ fn bench_decode_hugeleaf(c: &mut Criterion) {
 fn bench_join_bigroot(c: &mut Criterion) {
     let mut g = c.benchmark_group("amplify/version_join_bigroot");
     for &(b, d) in BIGROOT_SIZES {
-        let bytes = meter::bigroot(b, d).version().encode();
+        let bytes = Shape::Bigroot.packed2(b, d).version().encode();
         let one = Version::try_from(1u64).expect("a one-tick version is valid");
         g.bench_with_input(
             BenchmarkId::new("before", format!("{b}x{d}")),
@@ -69,7 +70,7 @@ fn bench_join_bigroot(c: &mut Criterion) {
 fn bench_without_spine(c: &mut Criterion) {
     let mut g = c.benchmark_group("amplify/party_without_spine");
     for &d in ID_SPINE_DEPTH {
-        let p = meter::id_spine(d, true);
+        let p = Shape::IdSpine.packed_flagged(d, true);
         let spine = Party::decode(&p.bytes[..]).expect("generated shape is strict normal form");
         g.bench_with_input(BenchmarkId::new("before", d), &spine, |bench, spine| {
             bench.iter_batched(

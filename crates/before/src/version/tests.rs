@@ -5,6 +5,7 @@
 //! optimality against the brute-force reference, `min_ticks`, and
 //! projection (`/`).
 
+use crate::meter::registry::Shape;
 use std::cmp::Ordering;
 
 use proptest::prelude::*;
@@ -1423,7 +1424,7 @@ proptest! {
 #[test]
 fn meet_all_returns_the_carrier_on_the_shade_population() {
     for (d, k) in [(1, 2), (3, 5), (8, 16), (16, 9), (33, 64)] {
-        let population = crate::meter::meet_shade(d, k);
+        let population = Shape::MeetShade.versions(d, k);
         let carrier = population[0].clone();
         let sequential = population
             .iter()
