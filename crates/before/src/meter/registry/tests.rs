@@ -96,11 +96,12 @@ fn family_names_are_unique() {
     );
 }
 
-/// Every shape constructor is cited by at least one family's spec — the
-/// named parity survivor for shape citation: membership of a [`Shape`]
-/// in a family's `shapes` row is data, not types, so this pin is what
-/// keeps a constructor from riding the registry door with no family
-/// answering for it.
+/// Every shape constructor is cited by at least one family's spec.
+///
+/// The named parity survivor for shape citation: membership of a
+/// [`Shape`] in a family's `shapes` row is data, not types, so this pin
+/// is what keeps a constructor from riding the registry door with no
+/// family answering for it.
 #[test]
 fn every_shape_is_cited_by_a_family() {
     let cited: BTreeSet<Shape> = FamilyId::ALL
@@ -157,9 +158,10 @@ fn band_citations_are_unique_and_nonempty() {
     }
 }
 
-/// The board roster is exactly the families answering `Board`, its
-/// declared bundle reach is nonzero everywhere, and the roster is
-/// nonempty — the filter every board sweep derives its family axis
+/// The board roster is exactly the families answering `Board`.
+///
+/// Its declared bundle reach is nonzero everywhere and the roster is
+/// nonempty: the filter every board sweep derives its family axis
 /// from cannot silently go empty or carry a zero-reach column.
 #[test]
 fn board_roster_derives_from_coverage_answers() {
