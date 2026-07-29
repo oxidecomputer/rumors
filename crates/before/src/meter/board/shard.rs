@@ -1,17 +1,18 @@
-//! Process sharding: the family axis split across child processes, so
-//! the board parallelizes without changing what any cell measures.
+//! Process sharding: the operation × family grid split across child
+//! processes, so the board parallelizes without changing what any cell
+//! measures.
 //!
 //! The board's sweep is single-threaded by design: the peak-heap column
 //! reads the process-global counting allocator, so cells measured on
 //! concurrent threads would blend live sets and destroy the reading's
 //! meaning. Parallelism therefore comes from *processes*: the runner
 //! spawns copies of itself, each child owns its own global allocator and
-//! sweeps one slice of the family roster under exactly the serial
-//! discipline — one cell at a time, reset-peak per cell, the in-process
-//! determinism self-verification included
-//! ([`sweep_families`]) — and the parent merges the
-//! measured samples back into board row order and judges and renders
-//! them itself.
+//! measures one slice of the operation × family grid under exactly the
+//! serial discipline — one cell at a time, reset-peak per cell, the
+//! in-process determinism self-verification included ([`measure_cell`],
+//! the same function the serial sweep drives) — and the parent merges
+//! the measured samples back into board row order and judges and
+//! renders them itself.
 //!
 //! # The seam
 //!
@@ -31,18 +32,33 @@
 //! declarations (floats as bit patterns, so nothing rounds), and one
 //! trailing `end` count line guarding truncation. The parent refuses any
 //! mismatch — a header that is not byte-for-byte the one it commissioned,
-//! an unknown operation or family name, a family outside the child's
+//! an unknown operation or family name, a cell outside the child's
 //! slice, a duplicate cell, or a count that disagrees with the lines
 //! received. The protocol is internal to the runner (parent and children
 //! are the same binary), not a stable format.
 //!
 //! # Slicing
 //!
-//! Families are dealt round-robin over the registry's board roster
-//! ([`FamilyId::board`]), so the shards partition the roster by
-//! construction — coverage cannot drift with the shard count — and the
-//! costliest shapes (roster neighbors are unrelated) spread across
-//! children without a cost model.
+//! The shard unit is one cell of the operation × family grid: the
+//! grid's family-outer linearization — the registry's board roster
+//! ([`FamilyId::board`]) against the operation table — is dealt
+//! round-robin over the shards ([`owns`]), so the shards partition the
+//! grid by construction (coverage cannot drift with the shard count)
+//! and, family cost being operand-size cost, the axis that dominates a
+//! cell's price can never concentrate: one family's cells sit at
+//! consecutive deal positions, so they spread evenly across the shards
+//! whatever the tables' lengths share with the shard count. The
+//! orientation is load-bearing — an op-outer deal aliases whenever the
+//! family count and the shard count share a factor (at a roster length
+//! the shard count divides, every cell of a family lands in one shard
+//! and the deal degenerates to a family deal). The residual alias runs
+//! the other way — a shard count dividing the operation count parks an
+//! operation's column on few shards — and is accepted: operation
+//! columns do not own operand size. The price of the per-cell deal is
+//! that every child rebuilds each family it touches — cheap beside the
+//! cells themselves, which measure every body four times per level pair
+//! — and a child builds one family at a time, in roster order, so its
+//! live set stays one operand-bundle pair wide.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
@@ -52,14 +68,15 @@ use super::currency::{ByCurrency, Liveness};
 use super::judge::{evaluate, CellResult};
 use super::measure::{HeapMeter, Sample};
 use super::ops::ops;
-use super::render::{render_results, sweep_families, Summary};
+use super::render::{assert_scale, build_pair, measure_cell, render_results, Summary};
 use super::worst::{check_with, render_map};
 use crate::meter::registry::FamilyId;
 
 /// The wire header's protocol tag; bumped with any change to the cell
-/// line's field order or encoding, so a stale child binary can never be
-/// merged as current.
-const PROTOCOL: &str = "amp-board-shard v1";
+/// line's field order or encoding, or to the slice deal the ownership
+/// check enforces, so a stale child binary can never be merged as
+/// current.
+const PROTOCOL: &str = "amp-board-shard v2";
 
 /// Runs every shard child at one scale and returns their raw stdout
 /// captures in shard-index order.
@@ -69,27 +86,48 @@ const PROTOCOL: &str = "amp-board-shard v1";
 /// captures feed the merge, which validates each child's stamps.
 pub type ShardSpawner<'a> = &'a dyn Fn(f64) -> io::Result<Vec<Vec<u8>>>;
 
-/// The families shard `index` of `count` owns: the board roster dealt
-/// round-robin, so the shards partition the roster by construction.
+/// Whether shard `index` of `count` owns the grid cell at
+/// (`op_position`, `family_position`): the family-outer linearization
+/// of the operation × family grid, dealt round-robin.
+///
+/// The one deal, shared by the emitter and the merge's ownership check
+/// (`op_count` is the operation table's length, so both sides derive
+/// the deal from the same tables). Family-outer keeps one family's
+/// cells at consecutive deal positions — the module doc's aliasing
+/// argument.
 ///
 /// # Panics
 ///
 /// Panics unless `index < count`.
-fn slice(index: usize, count: usize) -> Vec<FamilyId> {
+fn owns(
+    index: usize,
+    count: usize,
+    op_position: usize,
+    family_position: usize,
+    op_count: usize,
+) -> bool {
     assert!(
         index < count,
         "amp-board shard: index {index} out of range for {count} shards"
     );
-    FamilyId::board()
-        .enumerate()
-        .filter(|(position, _)| position % count == index)
-        .map(|(_, family)| family)
-        .collect()
+    (family_position * op_count + op_position) % count == index
 }
 
-/// Child mode: sweep shard `index` of `count`'s family slice at `scale`
-/// under the serial measurement discipline and emit the measured samples
-/// to `out` in the shard wire form.
+/// The largest shard count that can still receive work: the size of the
+/// operation × family grid (a larger count would only spawn children
+/// with empty slices).
+pub fn max_useful_shards() -> usize {
+    ops().len() * FamilyId::board().count()
+}
+
+/// Child mode: measure shard `index` of `count`'s slice of the
+/// operation × family grid at `scale` under the serial measurement
+/// discipline and emit the measured samples to `out` in the shard wire
+/// form.
+///
+/// Cells are grouped family-outer so each owned family's operand
+/// bundles are built once and dropped before the next family's; the
+/// parent restores board row order.
 ///
 /// # Panics
 ///
@@ -104,20 +142,42 @@ pub fn emit_shard(
     heap: &HeapMeter,
     out: &mut dyn Write,
 ) -> io::Result<()> {
-    let families = slice(index, count);
+    assert_scale(scale);
+    let table = ops();
+    let families: Vec<FamilyId> = FamilyId::board().collect();
+    // The emission is staged in memory and written only after the last
+    // cell is measured: `out` is typically a pipe the parent drains in
+    // shard order, and a child that writes between measurements stalls
+    // mid-sweep the moment the pipe's buffer fills, serializing the
+    // shards against the parent's drain order.
+    let mut staged = Vec::new();
+    let mut emitted = 0usize;
+    for (family_position, &family) in families.iter().enumerate() {
+        let owned: Vec<usize> = (0..table.len())
+            .filter(|&op_position| owns(index, count, op_position, family_position, table.len()))
+            .collect();
+        if owned.is_empty() {
+            continue;
+        }
+        let pair = build_pair(family, scale);
+        for op_position in owned {
+            let Some(r) = measure_cell(heap, &table[op_position], &pair) else {
+                continue;
+            };
+            write!(staged, "cell\t{op}\t{family}", op = r.op, family = r.family)?;
+            emit_sample(&mut staged, &r.s1)?;
+            emit_sample(&mut staged, &r.s2)?;
+            writeln!(staged)?;
+            emitted += 1;
+        }
+    }
     writeln!(
         out,
         "{PROTOCOL} shard {index}/{count} scale {bits:016x}",
         bits = scale.to_bits()
     )?;
-    let results = sweep_families(scale, heap, &families);
-    for r in &results {
-        write!(out, "cell\t{op}\t{family}", op = r.op, family = r.family)?;
-        emit_sample(out, &r.s1)?;
-        emit_sample(out, &r.s2)?;
-        writeln!(out)?;
-    }
-    writeln!(out, "end {count}", count = results.len())
+    out.write_all(&staged)?;
+    writeln!(out, "end {emitted}")
 }
 
 /// An `f64` as its IEEE-754 bit pattern, so the parent reconstructs the
@@ -354,10 +414,6 @@ fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
             header, expected_header,
             "amp-board shard merge: shard {index}/{count} stamp mismatch: refused"
         );
-        let owned: BTreeSet<&'static str> = slice(index, count)
-            .into_iter()
-            .map(FamilyId::name)
-            .collect();
         let mut emitted = 0usize;
         let mut ended = false;
         for line in lines {
@@ -391,8 +447,8 @@ fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
                     panic!("amp-board shard merge: unknown family {family_name:?} in {line:?}")
                 });
             assert!(
-                owned.contains(family),
-                "amp-board shard merge: shard {index}/{count} emitted {family}, a family \
+                owns(index, count, op_position, family_position, op_order.len()),
+                "amp-board shard merge: shard {index}/{count} emitted {op} x {family}, a cell \
                  outside its slice"
             );
             let s1 = parse_sample(&mut fields, line);
