@@ -26,14 +26,16 @@
 //!   belong to the caller's [`Listen`]/[`Conn`](super::Conn) wrappers,
 //!   where a runtime's clock lives.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::{AbortHandle, Abortable};
 use futures::stream::{FuturesUnordered, StreamExt};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, split};
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 
 use super::endpoint::{Arrival, LinkInfo};
 use super::header::{self, Header, Token};
@@ -58,7 +60,7 @@ pub(super) type Table<C> = Arc<Mutex<HashMap<Token, mpsc::Sender<C>>>>;
 /// cascade.
 fn entries<C>(
     table: &Mutex<HashMap<Token, mpsc::Sender<C>>>,
-) -> std::sync::MutexGuard<'_, HashMap<Token, mpsc::Sender<C>>> {
+) -> MutexGuard<'_, HashMap<Token, mpsc::Sender<C>>> {
     table
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -98,8 +100,8 @@ pub(super) fn register<C>(table: &Table<C>) -> (Token, Registration<C>, mpsc::Re
     let (sender, receiver) = mpsc::channel(STREAM_COUNT);
     let mut sender = Some(sender);
     let token = loop {
-        let token = Token::mint();
-        if let std::collections::hash_map::Entry::Vacant(vacancy) = entries(table).entry(token) {
+        let token = Token::new();
+        if let Entry::Vacant(vacancy) = entries(table).entry(token) {
             vacancy.insert(sender.take().expect("the loop ends at the first vacancy"));
             break token;
         }
@@ -199,13 +201,13 @@ async fn deliver<D: Dial>(
                 // holds one): evict the link so its owner sees a
                 // transport error instead of silently losing this
                 // stream and hanging its session.
-                Err(mpsc::error::TrySendError::Full(overflow)) => {
+                Err(TrySendError::Full(overflow)) => {
                     drop(overflow);
                     entries(table).remove(&token);
                 }
                 // The acceptor is already gone; its registration is
                 // being (or has been) revoked with it.
-                Err(mpsc::error::TrySendError::Closed(orphan)) => drop(orphan),
+                Err(TrySendError::Closed(orphan)) => drop(orphan),
             }
         }
         Header::Link { token, peer } => {
@@ -230,7 +232,7 @@ async fn deliver<D: Dial>(
                 return Ok(());
             };
             conn.write_all(&[header::ACK]).await?;
-            let (control_read, control_write) = tokio::io::split(conn);
+            let (control_read, control_write) = split(conn);
             let link = Link::new(
                 control_read,
                 control_write,

@@ -3,12 +3,12 @@ use std::io;
 use std::pin::pin;
 
 use futures::FutureExt;
-use futures::future::Either;
+use futures::future::{Either, select, try_join};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::header::{self, Token};
-use super::{Config, Dial, Endpoint, Incoming, LinkError, RoutedLink};
-use crate::link::{Acceptor, Connector, STREAM_COUNT};
+use super::{Config, Dial, Endpoint, Incoming, LinkError, LinkInfo, RoutedLink};
+use crate::link::{Acceptor, Connector, Link, STREAM_COUNT};
 use crate::testing::{MemoryDial, MemoryName, MemoryNet};
 
 /// One endpoint on `net`, listening at (and advertising) `name`.
@@ -33,7 +33,7 @@ async fn drive<T>(
     routers: impl Future<Output = io::Result<()>>,
     scenario: impl Future<Output = T>,
 ) -> T {
-    match futures::future::select(pin!(scenario), pin!(routers)).await {
+    match select(pin!(scenario), pin!(routers)).await {
         Either::Left((value, _)) => value,
         Either::Right((outcome, _)) => {
             panic!("a router resolved mid-scenario: {outcome:?}")
@@ -46,7 +46,7 @@ async fn routers(
     a: impl Future<Output = io::Result<()>>,
     b: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
-    futures::future::try_join(a, b).await.map(|_| ())
+    try_join(a, b).await.map(|_| ())
 }
 
 /// Establish one link from `from` toward the peer named `name`,
@@ -57,7 +57,7 @@ async fn establish(
     incoming: &mut Incoming<MemoryDial>,
 ) -> (
     RoutedLink<MemoryDial>,
-    super::LinkInfo<MemoryName>,
+    LinkInfo<MemoryName>,
     RoutedLink<MemoryDial>,
 ) {
     let (linked, arrival) = futures::join!(from.link(MemoryName::new(name)), incoming.accept());
@@ -70,8 +70,8 @@ async fn establish(
 /// it, close by drop, and require the receiver to observe exactly the
 /// payload then end-of-stream.
 async fn transfer<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
-    opener: &crate::link::Link<CRa, CWa, Ca, Aa>,
-    acceptor: &mut crate::link::Link<CRb, CWb, Cb, Ab>,
+    opener: &Link<CRa, CWa, Ca, Aa>,
+    acceptor: &mut Link<CRb, CWb, Cb, Ab>,
     payload: &[u8],
 ) where
     Ca: Connector,
@@ -151,7 +151,7 @@ fn unknown_token_is_dropped() {
         let (_a, _a_incoming, a_router) = endpoint(&net, "a", Config::default());
         drive(a_router, async {
             let mut conn = net.dial().dial(&MemoryName::new("a")).await.expect("dial");
-            conn.write_all(&header::stream_header(&Token::mint()))
+            conn.write_all(&header::stream_header(&Token::new()))
                 .await
                 .expect("header writes");
             let mut drained = Vec::new();
