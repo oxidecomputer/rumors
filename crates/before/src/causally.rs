@@ -97,6 +97,7 @@ use std::ops::{Bound, RangeBounds};
 
 pub use crate::error::Crossed;
 
+use crate::version::skyline::bounded;
 use crate::Version;
 
 /// A causal version range: a pair of [`Bound`]s.
@@ -365,9 +366,16 @@ impl<'a> Range<'a> {
     /// unreachable: no start bound rules out [`Before`](Bounded::Before)
     /// and [`AtStart`](Bounded::AtStart); no end bound rules out
     /// [`AtEnd`](Bounded::AtEnd), [`After`](Bounded::After), and
-    /// [`Concurrent`](Bounded::Concurrent). The `bounded_matches_bound_relations`
-    /// law in [`laws`](crate::laws) pins the verdict to the two
-    /// comparisons, and `bounded_coarsens_to_placement` pins the
+    /// [`Concurrent`](Bounded::Concurrent).
+    ///
+    /// One comparison pass answers both relations: the version and the
+    /// bound versions are walked simultaneously, each decoded once —
+    /// against two for the version when the comparisons are composed —
+    /// with the composition's early exits preserved (a version
+    /// concurrent to a bound is decided at the first opposing interval).
+    /// The `bounded_matches_bound_relations` law in [`laws`](crate::laws)
+    /// pins the fused verdict to the two comparisons on every law
+    /// consumer, and `bounded_coarsens_to_placement` pins the
     /// coarsening.
     ///
     /// ```
@@ -391,21 +399,17 @@ impl<'a> Range<'a> {
     /// assert_eq!(wide.bounded(&b1), Bounded::Between);
     /// ```
     pub fn bounded(&self, version: &Version) -> Bounded {
-        if let Bound::Included(start) | Bound::Excluded(start) = self.start {
-            match version.partial_cmp(start) {
-                Some(Ordering::Less) => return Bounded::Before,
-                Some(Ordering::Equal) => return Bounded::AtStart,
-                Some(Ordering::Greater) | None => {}
-            }
-        }
-        match self.end {
-            Bound::Unbounded => Bounded::Between,
-            Bound::Included(end) | Bound::Excluded(end) => match version.partial_cmp(end) {
-                Some(Ordering::Less) => Bounded::Between,
-                Some(Ordering::Equal) => Bounded::AtEnd,
-                Some(Ordering::Greater) => Bounded::After,
-                None => Bounded::Concurrent,
-            },
+        let stream = |bound: Bound<&'a Version>| match bound {
+            Bound::Included(v) | Bound::Excluded(v) => Some(&**v.view()),
+            Bound::Unbounded => None,
+        };
+        match bounded::place(version.view(), stream(self.start), stream(self.end)) {
+            bounded::Placement::BelowStart => Bounded::Before,
+            bounded::Placement::AtStart => Bounded::AtStart,
+            bounded::Placement::Inside => Bounded::Between,
+            bounded::Placement::AtEnd => Bounded::AtEnd,
+            bounded::Placement::AboveEnd => Bounded::After,
+            bounded::Placement::ConcurrentToEnd => Bounded::Concurrent,
         }
     }
 }

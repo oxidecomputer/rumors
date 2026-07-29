@@ -20,7 +20,9 @@
 //! and [`fold`] without the pair walk; the projection overlay
 //! ([`query`](super::query)'s project) runs [`advance`] over the
 //! skyline × id cursor mix; the [`masked`](super::masked) walk runs
-//! the law at full arity on the trait; and the id difference
+//! the law at full arity on the trait; the range placement walk
+//! ([`bounded`](mod@super::bounded)) restates it at three cursors,
+//! seeding one pair difference per bound; and the id difference
 //! ([`IdReader::diff`](crate::idbits::IdReader::diff)) runs [`advance`]
 //! over its own boolean cursors, settling covered blocks between
 //! boundaries. The boundary bookkeeping

@@ -483,7 +483,7 @@ impl Version {
     }
 
     /// A read-only view of this version's stored skyline stream.
-    fn view(&self) -> &codec::Bits {
+    pub(crate) fn view(&self) -> &codec::Bits {
         &self.0
     }
 
