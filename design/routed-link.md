@@ -198,7 +198,9 @@ path (poison, re-link).
 The drive future resolves `Err` when `Listen::accept` fails, and the
 failure is the caller's to interpret (their `Listen` owns retry policy
 for transient conditions; the adapter treats what it is given as
-fatal). It resolves `Ok(())` only if the endpoint is shut down.
+fatal). It never resolves otherwise: dropping the future is the
+shutdown, and an undriven or dropped router routes nothing — sessions
+on surviving links stall into the caller's timeout.
 
 ## 5. Link establishment
 
