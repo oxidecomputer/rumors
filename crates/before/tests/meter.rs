@@ -6626,6 +6626,133 @@ mod fold_stagger {
     }
 }
 
+// ─── the aliased-rejection fold band ─────────────────────────────────────────
+//
+// The aliased-rejection loading of the n-ary party fold: the one
+// population genre the well-formed fold families (scatter, weave,
+// stagger) cannot reach, because linear parties are pairwise disjoint
+// by construction — aliases arrive only through decode or
+// dangerously_alias, and the fold's contract is to hand them back,
+// dropping nothing. The band holds the hand-back path linear: every
+// rejected alias costs one up-front index test plus one failed counter
+// combine against the weight-0 survivor, each walking at most the
+// alias's own deep overlap path — work the alias's own packed bytes
+// fund — and the binary counter's over-full-slot policy is what keeps
+// a failed group from re-probing a large accumulated group (the popped
+// partner is always the most recent same-weight arrival, never the big
+// old one).
+#[cfg(feature = "scan-meter")]
+mod fold_alias {
+    use before::{meter, Party};
+
+    /// One aliased `Party::join_all` run: `k` aliases of one
+    /// depth-`depth` fragment against the host owning the rest of the
+    /// seed, scan bits over the fold body alone.
+    ///
+    /// Carries three semantic legs — exactly `k − 1` aliases come back,
+    /// each byte-identical to the fragment, and the host ends as the
+    /// whole seed (the one accepted alias reunited it) — and the
+    /// examination liveness floor: every alias's overlap is only
+    /// discoverable by walking its path, so a scan reading under one
+    /// bit per population byte means the id walks left the metered
+    /// primitives.
+    fn alias_run(k: usize, depth: usize) -> (u64, u64) {
+        let mut host = Party::seed();
+        let mut deep = host.fork();
+        for _ in 1..depth {
+            let sibling = deep.fork();
+            host.join(sibling).expect("halves of one seed are disjoint");
+        }
+        let aliases: Vec<Party> = (0..k).map(|_| deep.dangerously_alias()).collect();
+        let bytes = host.encode().len() as u64
+            + aliases.iter().map(|a| a.encode().len() as u64).sum::<u64>();
+        meter::reset_scan_bits();
+        let rejected = host
+            .join_all(aliases)
+            .expect_err("all but the first alias overlap the accumulated group");
+        let scan_bits = meter::scan_bits();
+        assert_eq!(
+            rejected.len(),
+            k - 1,
+            "exactly one alias reunites the seed; the rest come back"
+        );
+        for back in &rejected {
+            assert_eq!(back, &deep, "hand-backs are the fragment, byte for byte");
+        }
+        assert!(host.is_seed(), "the accepted alias reunited the whole seed");
+        assert!(
+            scan_bits >= bytes,
+            "aliased join_all over {k} x depth {depth}: {scan_bits} scanned bits \
+             under the one-bit-per-population-byte floor: the walks are not metered"
+        );
+        (bytes, scan_bits)
+    }
+
+    /// Slack numerator over the small-scale per-byte cost (denominator
+    /// [`SLACK_DEN`]): the ×1.25 flatness convention.
+    const SLACK_NUM: u64 = 5;
+
+    /// Slack denominator for the flatness bound.
+    const SLACK_DEN: u64 = 4;
+
+    /// Assert the per-byte scan cost stays flat (×1.25) across one
+    /// doubling.
+    fn assert_flat(name: &str, small: (u64, u64), large: (u64, u64)) {
+        let (b1, s1) = small;
+        let (b2, s2) = large;
+        eprintln!(
+            "MEASURED fold_alias_{name}: small={s1}/{b1}B large={s2}/{b2}B \
+             milli_per_byte={} -> {}",
+            s1 * 1000 / b1,
+            s2 * 1000 / b2,
+        );
+        assert!(
+            u128::from(s2) * u128::from(b1) * u128::from(SLACK_DEN)
+                <= u128::from(s1) * u128::from(b2) * u128::from(SLACK_NUM),
+            "fold_alias_{name}: per-byte scan cost grew more than x1.25 across \
+             the doubling: {s1}/{b1}B -> {s2}/{b2}B"
+        );
+    }
+
+    /// Aliases of the alias-count axis' small run (the large run
+    /// doubles the count at the same fragment depth).
+    const ALIAS_COUNT_SMALL: usize = 512;
+
+    /// Fragment depth of the depth axis' small run (the large run
+    /// doubles the depth at the same alias count).
+    const ALIAS_DEPTH_SMALL: usize = 256;
+
+    /// The hand-back path is flat per population byte across an
+    /// alias-count doubling: each rejected alias pays its own test and
+    /// one weight-0 failed combine, never a re-probe of the group.
+    #[test]
+    fn party_fold_alias_rejection_is_flat_across_count() {
+        let small = alias_run(ALIAS_COUNT_SMALL, ALIAS_DEPTH_SMALL);
+        let large = alias_run(2 * ALIAS_COUNT_SMALL, ALIAS_DEPTH_SMALL);
+        assert_flat("count_scan_bits", small, large);
+    }
+
+    /// The hand-back path stays inside the declared fold model across
+    /// a fragment-depth doubling: the overlap witness sits at the
+    /// bottom of every alias's path, each rejection's walk to it is
+    /// paid by that alias's own packed bytes, and the up-front test's
+    /// per-node table search contributes the model's `log |p|` factor
+    /// and nothing more.
+    ///
+    /// The per-byte reading legitimately moves by the log factor here
+    /// (measured +16% across the doubling, the `O(B log |p|)` model's
+    /// own growth — 204 → 239 scanned bits per shared path level), so
+    /// the ×1.25 band is the model bound per doubling, not a flatness
+    /// claim: a hand-back that re-walked the accumulated group per
+    /// alias would read ×2 and cannot hide inside it.
+    #[test]
+    fn party_fold_alias_rejection_is_flat_across_depth() {
+        let small = alias_run(ALIAS_COUNT_SMALL, ALIAS_DEPTH_SMALL);
+        let large = alias_run(ALIAS_COUNT_SMALL, 2 * ALIAS_DEPTH_SMALL);
+        assert_flat("depth_scan_bits", small, large);
+    }
+}
+
 // ─── the meet-fold shade band ────────────────────────────────────────────────
 //
 // The n-ary meet fold's non-shrinking-accumulator band. The shade
