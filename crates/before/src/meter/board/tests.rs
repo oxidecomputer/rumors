@@ -15,18 +15,19 @@
 use crate::meter::{bigroot, cliff_comb, dense, hugeleaf, reveal_comb, Packed};
 use crate::{Party, Version};
 
-use super::{
-    assert_honest_text, exponent, mandatory_limbs_stream, mandatory_limbs_version,
-    radix_units_party, radix_units_version, value_content_bytes, MAX_SCALING_EXPONENT,
-    TEXT_BYTES_PER_RADIX_UNIT,
+use super::cell::assert_honest_text;
+use super::judge::exponent;
+use super::operand::{
+    mandatory_limbs_stream, mandatory_limbs_version, radix_units_party, radix_units_version,
+    value_content_bytes,
 };
+use super::{MAX_SCALING_EXPONENT, TEXT_BYTES_PER_RADIX_UNIT};
 // The limb-priced tripwires read the touch counter, so they compile only
 // with the `limb-meter` feature; these names have no ungated user.
 #[cfg(feature = "limb-meter")]
-use super::{
-    stored_bases, version_output_bytes, MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT,
-    TEXT_PIPELINE_LIMB_OPS_PER_VALUE,
-};
+use super::operand::{stored_bases, version_output_bytes};
+#[cfg(feature = "limb-meter")]
+use super::{MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, TEXT_PIPELINE_LIMB_OPS_PER_VALUE};
 
 /// Lift a meter-generated packed event shape into a [`Version`].
 fn version_of(p: &Packed) -> Version {
@@ -300,7 +301,10 @@ fn schoolbook_limb_ops(text: &str, chunk_digits: usize) -> u64 {
 #[cfg(feature = "limb-meter")]
 #[test]
 fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
-    use super::{evaluate, na, ByCurrency, Floors, Sample};
+    use super::floors::na;
+    use super::judge::evaluate;
+    use super::measure::Sample;
+    use super::{ByCurrency, Floors};
 
     let measure = |packed: &Packed| -> Sample {
         let v = version_of(packed);
@@ -400,7 +404,10 @@ fn bypass_walk(v: &Version) -> usize {
 #[cfg(feature = "scan-meter")]
 #[test]
 fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
-    use super::{evaluate, na, walk_floors, ByCurrency, Floors, Sample, SCAN_FLOOR_TRIP};
+    use super::floors::{na, walk_floors};
+    use super::judge::{evaluate, SCAN_FLOOR_TRIP};
+    use super::measure::Sample;
+    use super::{ByCurrency, Floors};
 
     const PROBE_NA: &str = "probe: the ceilings-alone leg declares no floors";
     fn na_floors(_packed_bytes: usize) -> Floors {
@@ -499,7 +506,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
 #[cfg(feature = "scan-meter")]
 #[test]
 fn join_all_overlap_upfront_test_reads_flat() {
-    use super::{decode_party, overlap_fold_probe, overlap_mounted_pair};
+    use super::family::{decode_party, overlap_fold_probe, overlap_mounted_pair};
     /// Ceiling on scan growth across the joint doubling: measured ×2.00
     /// (deterministic meter), with headroom for rounding only — a
     /// per-input accumulator re-walk reads ~×4.
@@ -638,7 +645,10 @@ fn quadratic_in_teeth_work_reads_red_against_the_content_denominator() {
 /// neither guard can silently widen into an exemption hole.
 #[test]
 fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
-    use super::{evaluate, na, ByCurrency, Floors, Sample, HEAP_FLAT_ALLOWANCE_BYTES};
+    use super::floors::na;
+    use super::judge::evaluate;
+    use super::measure::Sample;
+    use super::{ByCurrency, Floors, HEAP_FLAT_ALLOWANCE_BYTES};
     const PROBE_NA: &str = "probe: the exponent guards alone are under test";
     let sample = |denom: usize, heap: u64, limb: u64| -> Sample {
         Sample {
@@ -741,10 +751,11 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
 #[cfg(feature = "scan-meter")]
 #[test]
 fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
-    use super::{
-        evaluate, fold_exponent_ceiling, na, ByCurrency, Floors, Sample,
-        FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
-    };
+    use super::ceilings::fold_exponent_ceiling;
+    use super::floors::na;
+    use super::judge::evaluate;
+    use super::measure::Sample;
+    use super::{ByCurrency, Floors, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL};
     const PROBE_NA: &str = "probe: the declared fold model alone is under test";
     let sample = |denom: usize, arity: u64, scan: u64| -> Sample {
         Sample {
@@ -879,7 +890,10 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
 /// straddle can re-manufacture the old exponent red.
 #[test]
 fn declared_capacity_model_bands_the_projection_peak() {
-    use super::{evaluate, na, ByCurrency, Floors, Sample};
+    use super::floors::na;
+    use super::judge::evaluate;
+    use super::measure::Sample;
+    use super::{ByCurrency, Floors};
     const PROBE_NA: &str = "probe: the declared capacity model alone is under test";
     let sample = |denom: usize, model: f64, heap: u64| -> Sample {
         Sample {
@@ -960,7 +974,8 @@ fn declared_capacity_model_bands_the_projection_peak() {
 /// the same change, and a rider can never point at an undeclared cell.
 #[test]
 fn bench_riders_name_declared_model_cells() {
-    use super::{bench_cells, BenchMode, FamilyData, BOARD_DECLARED_BENCH_RIDERS, FAMILIES};
+    use super::family::{FamilyData, FAMILIES};
+    use super::{bench_cells, BenchMode, BOARD_DECLARED_BENCH_RIDERS};
     let cells: std::collections::BTreeSet<(String, String)> = bench_cells(0.02, BenchMode::Full)
         .into_iter()
         .map(|cell| (cell.op.to_owned(), cell.family.to_owned()))
@@ -976,7 +991,7 @@ fn bench_riders_name_declared_model_cells() {
             .find(|&kind| FamilyData::build(kind, 0.02, 0).name == *family_name)
             .unwrap_or_else(|| panic!("rider family {family_name} is not on the FAMILIES roster"));
         let family = FamilyData::build(kind, 0.02, 0);
-        let op = super::ops()
+        let op = super::ops::ops()
             .into_iter()
             .find(|op| op.name == *op_name)
             .unwrap_or_else(|| panic!("rider op {op_name} is not a board row"));
