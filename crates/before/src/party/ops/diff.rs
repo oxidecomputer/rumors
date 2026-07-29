@@ -5,8 +5,9 @@
 //! of the unit interval into owned (`1`) and unowned (`0`) plateaus,
 //! listed left to right in preorder, with an absent child standing for an
 //! unowned plateau that occupies no bits. Region difference is pointwise
-//! `a ∧ ¬b` over that interval, so it rides the event side's sweep
-//! discipline (the skyline sweep module carries the boundary
+//! `a ∧ ¬b` over that interval, so it rides the event side's
+//! overlay-advance law itself, through the plateau-cursor trait (the
+//! skyline sweep module states the law once and carries its boundary
 //! bookkeeping): two cursors walk the operands' overlay partition, the
 //! output — owned exactly where `self` is and `other` is not — is
 //! appended item by item at the deeper cursor's depth, and the
@@ -47,11 +48,10 @@
 //! recursion depth tracks the full tree depth — cost bits, not stack
 //! frames or grown segments.
 
-use core::cmp::Ordering;
-
 use crate::codec::{Bits, BitsSlice};
 use crate::idbits::IdReader;
 use crate::step;
+use crate::version::skyline::sweep::{self, PlateauCursor};
 
 use super::build::IdSkylineBuilder;
 
@@ -108,53 +108,28 @@ impl IdReader<'_> {
     }
 }
 
-/// Advance the overlay walk one boundary: step the deeper cursor, and the
-/// other in the same step on a tie, then settle any subtree either cursor
-/// stepped into against the other side.
+/// Advance the overlay walk one boundary — the overlay-advance law
+/// ([`sweep::advance`]) over two boolean cursors — then settle any
+/// subtree either cursor stepped into against the other side.
 ///
-/// The event sweep's `advance` on boolean cursors — overlapping dyadic
-/// intervals nest, so the deeper item ends first or ties, and a tie at
-/// unequal depths is visible as the deeper side's flip level rising to or
-/// above the shallower side's depth (the skyline sweep module derives the
-/// bookkeeping). The two sides of a tie then close to the same flip
-/// level, debug-asserted here exactly as there.
-///
-/// A cursor stepping *alone* lands strictly deeper than the other's
-/// current plateau, so that plateau covers whatever subtree it entered
-/// (dyadic intervals sharing a point nest): the solo arms settle against
-/// it directly. A tie lands both cursors on slots of one shared depth,
+/// The law steps the deeper cursor, and the other in the same round
+/// exactly on a tie (it debug-asserts the shared flip level); each
+/// crossing it yields is that cursor's *entering* flag. A cursor
+/// stepping *alone* lands strictly deeper than the other's current
+/// plateau, so that plateau covers whatever subtree it entered (dyadic
+/// intervals sharing a point nest): the solo arms settle against it
+/// directly. A tie lands both cursors on slots of one shared depth,
 /// settled jointly by [`settle_pair`].
 fn advance(a: &mut IdLeafCursor, b: &mut IdLeafCursor) {
-    match a.depth().cmp(&b.depth()) {
-        Ordering::Greater => {
-            let (fa, a_entering) = a.step();
-            if fa <= b.depth() {
-                let (fb, b_entering) = b.step();
-                debug_assert_eq!(fa, fb, "tied boundaries close to one shared flip level");
-                settle_pair(a, b, a_entering, b_entering);
-            } else if a_entering {
-                settle_a(a, b);
-            }
-        }
-        Ordering::Less => {
-            let (fb, b_entering) = b.step();
-            if fb <= a.depth() {
-                let (fa, a_entering) = a.step();
-                debug_assert_eq!(fb, fa, "tied boundaries close to one shared flip level");
-                settle_pair(a, b, a_entering, b_entering);
-            } else if b_entering {
-                settle_b(a, b);
-            }
-        }
-        Ordering::Equal => {
-            let (fa, a_entering) = a.step();
-            let (fb, b_entering) = b.step();
-            debug_assert_eq!(
-                fa, fb,
-                "equal-depth plateaus share their whole path, so their flip levels agree"
-            );
-            settle_pair(a, b, a_entering, b_entering);
-        }
+    // The crossings settle only after the whole boundary is crossed —
+    // a settle reads and moves *both* cursors — so the fold callback
+    // has nothing to do and the positional returns carry the flags.
+    match sweep::advance(a, b, |_| {}) {
+        (Some(a_entering), Some(b_entering)) => settle_pair(a, b, a_entering, b_entering),
+        (Some(true), None) => settle_a(a, b),
+        (None, Some(true)) => settle_b(a, b),
+        (Some(false), None) | (None, Some(false)) => {}
+        (None, None) => unreachable!("the law steps at least one cursor every boundary"),
     }
 }
 
@@ -323,63 +298,12 @@ impl<'a> IdLeafCursor<'a> {
         }
     }
 
-    /// The current item's depth: its interval has width `2^-depth`.
-    fn depth(&self) -> usize {
-        self.path.len()
-    }
-
-    /// Whether the current item is the tiling's last (it ends at the
-    /// unit interval's right edge).
-    fn done(&self) -> bool {
-        self.open_lefts == 0
-    }
-
     /// Whether the current plateau is owned. Never queried on a spliced
     /// block: the splice's covering side is always a plateau.
     fn owned(&self) -> bool {
         match self.item {
             Item::Plateau { owned } => owned,
             Item::Splice { .. } => unreachable!("a spliced block is never the covering side"),
-        }
-    }
-
-    /// Advance past the current item to the next slot, returning the
-    /// flip level's depth for the caller's tie test.
-    ///
-    /// The second return reports whether the cursor is now unsettled
-    /// atop a present subtree; an absent slot settles immediately as
-    /// the synthetic unowned plateau.
-    ///
-    /// Pops the trailing right-branch levels (each an ancestor whose
-    /// subtree the consumed item completed), then steps the deepest
-    /// left-branch level to its right child slot.
-    ///
-    /// Never called on a final item: a sweep stops when both cursors
-    /// are done, and the skyline sweep module's bookkeeping (which this
-    /// cursor inherits) shows a final item is never the advanced side
-    /// before then.
-    fn step(&mut self) -> (usize, bool) {
-        loop {
-            match self.path.pop() {
-                Some(true) => continue, // this ancestor closed with the item
-                Some(false) => break,   // the flip level: its right slot is next
-                None => unreachable!(
-                    "the advanced cursor is never at its final item: an all-right path means the tiling is consumed"
-                ),
-            }
-        }
-        self.open_lefts -= 1;
-        self.path.push(true);
-        let flip = self.path.len();
-        let right_present = self
-            .pending_right
-            .pop()
-            .expect("every open left branch queues its right slot");
-        if right_present {
-            (flip, true)
-        } else {
-            self.item = Item::Plateau { owned: false };
-            (flip, false)
         }
     }
 
@@ -461,5 +385,60 @@ impl<'a> IdLeafCursor<'a> {
         } else {
             Item::Plateau { owned: false }
         };
+    }
+}
+
+impl PlateauCursor for IdLeafCursor<'_> {
+    /// A step's crossing is its *entering* flag: whether the cursor is
+    /// now unsettled atop a present subtree (an absent slot settles
+    /// immediately as the synthetic unowned plateau). The sweep settles
+    /// every entered subtree against the other operand before emitting.
+    type Crossing = bool;
+
+    /// The current item's depth: its interval has width `2^-depth`.
+    fn depth(&self) -> usize {
+        self.path.len()
+    }
+
+    /// Whether the current item is the tiling's last (it ends at the
+    /// unit interval's right edge).
+    fn done(&self) -> bool {
+        self.open_lefts == 0
+    }
+
+    /// Advance past the current item to the next slot: the flip level's
+    /// depth for the law's tie test, and the entering flag.
+    ///
+    /// Pops the trailing right-branch levels (each an ancestor whose
+    /// subtree the consumed item completed), then steps the deepest
+    /// left-branch level to its right child slot.
+    ///
+    /// Never called on a final item: a sweep stops when both cursors
+    /// are done, and the skyline sweep module's bookkeeping (which this
+    /// cursor inherits) shows a final item is never the advanced side
+    /// before then.
+    fn step(&mut self) -> (usize, bool) {
+        loop {
+            match self.path.pop() {
+                Some(true) => continue, // this ancestor closed with the item
+                Some(false) => break,   // the flip level: its right slot is next
+                None => unreachable!(
+                    "the advanced cursor is never at its final item: an all-right path means the tiling is consumed"
+                ),
+            }
+        }
+        self.open_lefts -= 1;
+        self.path.push(true);
+        let flip = self.path.len();
+        let right_present = self
+            .pending_right
+            .pop()
+            .expect("every open left branch queues its right slot");
+        if right_present {
+            (flip, true)
+        } else {
+            self.item = Item::Plateau { owned: false };
+            (flip, false)
+        }
     }
 }

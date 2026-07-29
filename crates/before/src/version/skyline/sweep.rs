@@ -17,8 +17,11 @@
 //! ([`query`](super::query)'s rank and min_ticks) consume [`LeafCursor`]
 //! and [`fold`] without the pair walk; the projection overlay
 //! ([`query`](super::query)'s project) runs [`advance`] over the
-//! skyline × id cursor mix; and the [`masked`](super::masked) walk runs
-//! the law at full arity on the trait. The boundary bookkeeping
+//! skyline × id cursor mix; the [`masked`](super::masked) walk runs
+//! the law at full arity on the trait; and the id difference
+//! ([`IdReader::diff`](crate::idbits::IdReader::diff)) runs [`advance`]
+//! over its own boolean cursors, settling covered blocks between
+//! boundaries. The boundary bookkeeping
 //! below is the shared correctness argument; the prose reads it through
 //! comparison, the simplest client.
 //!
@@ -296,7 +299,7 @@ pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude
 /// per-region state read between boundaries (the id cursors) — stays
 /// with the cursor, and the traversal folds nothing itself: the
 /// crossing is yielded for the caller's algebra.
-pub(super) trait PlateauCursor {
+pub(crate) trait PlateauCursor {
     /// What crossing a boundary carries, for the caller's algebra to
     /// fold.
     type Crossing;
@@ -322,7 +325,7 @@ pub(super) trait PlateauCursor {
 
 /// One crossing the overlay law consumed, tagged with the cursor that
 /// crossed it: the argument [`advance`] feeds the caller's fold.
-pub(super) enum Crossed<A, B> {
+pub(crate) enum Crossed<A, B> {
     /// The `a` cursor's crossing.
     A(A),
     /// The `b` cursor's crossing.
@@ -346,7 +349,7 @@ pub(super) enum Crossed<A, B> {
 /// readings — depends on the write order. The same crossings come back
 /// positionally (`None` for a side that did not step) for clients that
 /// re-code or re-fold them after the boundary.
-pub(super) fn advance<A: PlateauCursor, B: PlateauCursor>(
+pub(crate) fn advance<A: PlateauCursor, B: PlateauCursor>(
     a: &mut A,
     b: &mut B,
     mut fold: impl FnMut(Crossed<&A::Crossing, &B::Crossing>),
