@@ -604,10 +604,11 @@ fn ticks_counters_wide(v: &Version, p: &Party, n: &before::Ticks) -> (u64, u64, 
 }
 
 /// The wide-count pin's count width in bits (the second wide point
-/// doubles it): far past every machine integer, so the count's own
-/// arithmetic — the splice's site addition, the changed branch's
-/// decrement, the count-carrying gamma codes — runs at genuinely wide
-/// operands.
+/// doubles it): far past every machine integer.
+///
+/// The count's own arithmetic — the splice's site addition, the
+/// changed branch's decrement, the count-carrying gamma codes — runs
+/// at genuinely wide operands here.
 ///
 /// Both wide points sit *above* the crosses' site-value width
 /// ([`TICK_CROSS_SCALE`] bits), because the emitted stream's count
@@ -6733,11 +6734,12 @@ mod fold_alias {
     }
 
     /// The hand-back path stays inside the declared fold model across
-    /// a fragment-depth doubling: the overlap witness sits at the
-    /// bottom of every alias's path, each rejection's walk to it is
-    /// paid by that alias's own packed bytes, and the up-front test's
-    /// per-node table search contributes the model's `log |p|` factor
-    /// and nothing more.
+    /// a fragment-depth doubling.
+    ///
+    /// The overlap witness sits at the bottom of every alias's path,
+    /// each rejection's walk to it is paid by that alias's own packed
+    /// bytes, and the up-front test's per-node table search
+    /// contributes the model's `log |p|` factor and nothing more.
     ///
     /// The per-byte reading legitimately moves by the log factor here
     /// (measured +16% across the doubling, the `O(B log |p|)` model's
