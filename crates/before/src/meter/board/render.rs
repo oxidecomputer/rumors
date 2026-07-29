@@ -157,16 +157,18 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     )
 }
 
-/// Run the whole board and render the matrix to `out`.
+/// Sweep the whole shape × operation product at `scale` and judge every
+/// cell: the one evaluation pass behind both the rendered matrix
+/// ([`run`]) and the worst-case fold ([`worst_map`](super::worst::worst_map)).
 ///
-/// `scale` multiplies every family's base size (1.0 is the seconds-scale
-/// default; the smoke test passes a small fraction). Cells run at the scaled
-/// size and its double. Red rows print first.
+/// Results arrive in board row order (operation outer, family inner),
+/// each cell measured at the scaled size and its double, under the
+/// runner's in-process determinism self-verification.
 ///
 /// # Panics
 ///
 /// Panics if `scale` is not strictly positive.
-pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summary> {
+pub(super) fn sweep(scale: f64, heap: &HeapMeter) -> Vec<CellResult> {
     assert!(
         scale > 0.0 && scale.is_finite(),
         "amp-board: scale must be a positive finite number"
@@ -207,6 +209,20 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
             results.push(evaluate(op.name, small.name, s1, s2));
         }
     }
+    results
+}
+
+/// Run the whole board and render the matrix to `out`.
+///
+/// `scale` multiplies every family's base size (1.0 is the seconds-scale
+/// default; the smoke test passes a small fraction). Cells run at the scaled
+/// size and its double. Red rows print first.
+///
+/// # Panics
+///
+/// Panics if `scale` is not strictly positive.
+pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summary> {
+    let results = sweep(scale, heap);
 
     writeln!(
         out,

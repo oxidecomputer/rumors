@@ -17,6 +17,14 @@
 //! and acceptance scales, one run each under the board's determinism
 //! tripwire. Without the `limb-meter` feature the limb column reads
 //! `off`.
+//!
+//! Two further modes consume the same sweep instead of rendering the
+//! matrix: `worst-cases` renders the worst-case map (the argmax family
+//! per operation × currency) at both scales of record
+//! (`board::WORST_MAP_SCALES`, `just worst-cases`), and
+//! `worst-cases-check` entry-compares the live fold against the
+//! committed ranking pin, exiting nonzero on any drift (`just
+//! worst-cases-pin`).
 
 use before::meter::board::{self, HeapMeter};
 use peak_alloc::PeakAlloc;
@@ -28,17 +36,33 @@ static HEAP: PeakAlloc = PeakAlloc;
 const DEFAULT_SCALE: f64 = 1.0;
 
 fn main() {
-    let scale = match std::env::args().nth(1) {
-        None => DEFAULT_SCALE,
-        Some(arg) if arg == "acceptance" => board::ACCEPTANCE_SCALE,
-        Some(arg) => arg
-            .parse::<f64>()
-            .unwrap_or_else(|_| panic!("amp-board: scale must be a positive number, got {arg:?}")),
-    };
     let heap = HeapMeter {
         reset_peak: || HEAP.reset_peak_usage(),
         peak: || HEAP.peak_usage(),
         current: || HEAP.current_usage(),
     };
-    board::run(scale, &heap, &mut std::io::stdout().lock()).expect("stdout stays writable");
+    let mut out = std::io::stdout().lock();
+    match std::env::args().nth(1).as_deref() {
+        Some("worst-cases") => {
+            for (label, scale) in board::WORST_MAP_SCALES {
+                board::worst_map(label, scale, &heap, &mut out).expect("stdout stays writable");
+            }
+        }
+        Some("worst-cases-check") => {
+            let clean = board::check_worst_map(&heap, &mut out).expect("stdout stays writable");
+            if !clean {
+                std::process::exit(1);
+            }
+        }
+        arg => {
+            let scale = match arg {
+                None => DEFAULT_SCALE,
+                Some("acceptance") => board::ACCEPTANCE_SCALE,
+                Some(arg) => arg.parse::<f64>().unwrap_or_else(|_| {
+                    panic!("amp-board: scale must be a positive number, got {arg:?}")
+                }),
+            };
+            board::run(scale, &heap, &mut out).expect("stdout stays writable");
+        }
+    }
 }

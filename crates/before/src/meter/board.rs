@@ -47,8 +47,10 @@
 //! (the liveness vocabulary), `defect` (the rejection rows' placed
 //! defects), `cell` (one prepared cell and its denomination rule),
 //! `measure` (the metering engine), `judge` (scoring and verdicts),
-//! `render` (the driver and the printed matrix), `export` (the bench
-//! mirror), and `coverage` (the tiling table and the red-triage buffer).
+//! `render` (the driver and the printed matrix), `worst` (the worst-case
+//! map: the argmax fold over the same judged cells, and its committed
+//! ranking pin), `export` (the bench mirror), and `coverage` (the tiling
+//! table and the red-triage buffer).
 //!
 //! # The criterion
 //!
@@ -276,6 +278,7 @@ mod ops;
 mod render;
 #[cfg(test)]
 mod tests;
+mod worst;
 
 pub use ceilings::{
     ACCEPTANCE_SCALE, ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE,
@@ -293,3 +296,4 @@ pub use currency::{ByCurrency, Currency, Floors, Liveness};
 pub use export::{bench_cells, BenchCell, BenchMode, BOARD_DECLARED_BENCH_RIDERS};
 pub use measure::HeapMeter;
 pub use render::{run, Summary};
+pub use worst::{check_worst_map, worst_map, NEAR_TIE_RATIO, WORST_MAP_SCALES};
