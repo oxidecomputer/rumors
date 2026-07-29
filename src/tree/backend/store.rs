@@ -28,11 +28,8 @@ use crate::{
     Version,
     tree::{
         Key,
-        backend::{Backend, Leaf, Root},
-        traverse::{
-            act::Action,
-            store::{self, walk::VersionBounds},
-        },
+        backend::{Action, Backend, Leaf, Root, VersionBounds},
+        traverse::store,
         typed::{
             Path, Prefix,
             height::{self, Height, S, Z},

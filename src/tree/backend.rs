@@ -43,6 +43,11 @@ pub(super) use local::with_schedule as with_local_schedule;
 
 mod store;
 pub use store::Store;
+// The seam vocabulary `Store` speaks — the per-path action of the
+// batch-apply, and the owned causal bounds of the range walk — re-exported
+// where implementors and their conformance checks import the trait.
+pub use super::traverse::act::Action;
+pub use super::traverse::store::walk::VersionBounds;
 
 /// A backend value is a cheap cloneable *handle* to its storage.
 pub trait Backend<T: Send + Sync + 'static>: Clone + Send + Sync + 'static

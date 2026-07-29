@@ -1,6 +1,8 @@
 //! The backend conformance suite, run against this crate's backends and
 //! against reference backends built to prove the suite has teeth.
 
+mod store;
+
 use std::convert::Infallible;
 use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -374,6 +376,23 @@ where
 {
     fn measure<H: Height>(node: &Self::Node<H>) -> usize {
         std::mem::size_of_val(node) + node.row.len()
+    }
+}
+
+impl<T> crate::tree::backend::Store<T> for Materializing
+where
+    T: Send + Sync + 'static,
+{
+    // Deliberately overrides nothing else: every local operation runs the
+    // generic default towers, which is exactly what the differential suite
+    // in [`store`] pins against the synchronous engines.
+    //
+    // A materialized row owns its bytes outright — there is no shared
+    // allocation whose identity `same` could report — so it answers
+    // `false` everywhere and every equality falls back to the hash, the
+    // fallback the contract requires to be always sufficient.
+    fn same<H: Height>(_a: &Self::Node<H>, _b: &Self::Node<H>) -> bool {
+        false
     }
 }
 
