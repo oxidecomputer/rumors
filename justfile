@@ -17,6 +17,15 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 nightly_toolchain := "nightly"
 
+# The triple the fuzz recipes build for. cargo-fuzz defaults `--target` to the
+# triple it was itself built for, not the host's, so a statically linked
+# prebuilt (what the CI installer ships) aims the sanitizer build at
+# `*-linux-musl`: a target whose std is absent, and whose static libc the
+# sanitizer refuses outright. Naming the host keeps the recipes indifferent to
+# how cargo-fuzz arrived.
+
+host_triple := `rustc -vV | sed -n 's/^host: //p'`
+
 # Default fuzz smoke duration per target, in seconds (matches the guidance in
 # crates/before/fuzz/Cargo.toml).
 
@@ -175,7 +184,7 @@ bench-build:
 # Build the libFuzzer targets (nightly).
 [working-directory("crates/before/fuzz")]
 fuzz-build:
-    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build
+    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
 # itself) is asserted inline in the targets, so any hit is a crash.
@@ -183,8 +192,8 @@ fuzz-build:
 # Short fuzz smoke: run each libFuzzer target for `secs` seconds.
 [working-directory("crates/before/fuzz")]
 fuzz secs=fuzz_smoke_secs:
-    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode -- -max_total_time={{ secs }}
-    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} fuzz_decode_ops -- -max_total_time={{ secs }}
 
 # ── the formal tier (formal/lean; needs elan) ────────────────────────────────
 # The proofs are kernel-checked by `lake build` (pins, negative controls,
