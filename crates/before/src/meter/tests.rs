@@ -841,6 +841,21 @@ fn wide_arming_decodes_canonically_at_predicted_length() {
 fn plateau_puncture_decodes_canonically_at_predicted_length() {
     for (w, d) in [(10usize, 1usize), (12, 5), (40, 40)] {
         check_version(&plateau_puncture(w, d), d * (64 * w + 262) + 4);
+        // The reduction's size premise, exact on the committed
+        // instance: the STORED stream is `128w + 198d + 2` bits —
+        // `4·bits(x) + 3·bits(2y) + 5`, the climb and plunge codes at
+        // `2·bits(x)` each plus 3 bits per level — linear in the
+        // factors' widths even though the packed construction above is
+        // `Θ(d·w)` (it spells the plateau per turn). The floor's
+        // funding argument divides the fold's cost by exactly this
+        // stored size, so the premise is pinned beside the length it
+        // must not drift from (the arbitrary-factor proptest beside
+        // the query fold pins the same bound as an inequality).
+        assert_eq!(
+            plateau_puncture(w, d).version().encoded_bits(),
+            128 * w + 198 * d + 2,
+            "the stored stream must stay linear in the factors' widths"
+        );
         let (x, y) = plateau_puncture_factors(w, d);
         let expected = UBig::from(d as u64) * &x + 1u8;
         let ticks: crate::Ticks = expected

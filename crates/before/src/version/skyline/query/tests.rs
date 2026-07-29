@@ -495,6 +495,23 @@ proptest! {
             &v,
             "the constructor's output must be canonical"
         );
+        // The reduction's size premise, pinned where the reduction is
+        // constructed: the STORED stream is Θ(bits(x) + bits(y)) — the
+        // deltas collapse to one climb (≤ 2·bits(x) + 1 code bits) and
+        // one plunge (≤ 2·bits(x) + 3), and each of the `bits(2y)`
+        // levels costs O(1) topology and payload bits — even though
+        // the packed construction spells the plateau per turn. Without
+        // this bound the floor argument would rest on a stored size
+        // nothing checks: a fold could be charged M(|v|) against an
+        // operand secretly as large as the product itself.
+        prop_assert!(
+            v.encoded_bits() <= 4 * x.bit_len() + 4 * (y.bit_len() + 1) + 64,
+            "the stored stream must stay linear in the factors' widths: \
+             {} stored bits against bits(x) = {}, bits(y) = {}",
+            v.encoded_bits(),
+            x.bit_len(),
+            y.bit_len(),
+        );
         let numerator = ((&x * &y) << 1usize) + 1u8;
         prop_assert_eq!(
             v.rank().to_string(),
