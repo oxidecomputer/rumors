@@ -13,27 +13,31 @@
 //! this suite pins the trait seam itself rather than a public operation —
 //! the seam *is* the surface a backend implements.
 //!
-//! Not yet covered here, deferred to the first persistent backend's
-//! conformance run (every law below is vacuous while every instantiable
-//! backend's `commit` is a no-op):
+//! The persistent backend's laws live with the backend
+//! (`crate::store::backend`'s test suite), where the store's committed
+//! history makes each one falsifiable at every crash prefix:
 //!
-//! - [`Store::commit`]'s sequencing law: invoked once per root-replacing
-//!   commit, before the publish, with the built root and the identity
-//!   clock.
-//! - The handle-custody contract (a live handle's storage is never
-//!   reclaimed).
-//! - The [`PERSISTS`](Store::PERSISTS)↔[`commit`](Store::commit)
-//!   coherence coupling: a backend that overrides `commit` while leaving
-//!   `PERSISTS = false` is handed `clock: None` on every commit — the
-//!   stale-identity-record catastrophe `commit`'s own docs warn about —
-//!   so the suite must reject an override without the const.
-//! - The durable-identity shrink law: a party *shrink* (serving a
-//!   bootstrap's fork donation; retire's whole-party donation) reaches
-//!   the store's identity record before the donation crosses the wire,
-//!   and `clock: None` at a root flip *clears* the record rather than
-//!   retaining it — a restarted retiree must never resurrect a donated
-//!   party. The record may lag growth-ward only (see `commit`'s
-//!   subset-staleness contract).
+//! - The durable-identity shrink law (`donation_is_recorded_before_it_ships`,
+//!   `retirement_clears_the_record_before_it_ships`): a party shrink
+//!   reaches the identity record in a transaction strictly before the
+//!   donation's wire crossing, `clock: None` clears rather than retains,
+//!   and no later prefix resurrects a donated region.
+//! - Handle custody and reclamation exactness
+//!   (`quiesced_store_is_exactly_the_reachable_set`,
+//!   `every_crash_prefix_reopens_consistently`): live handles never lose
+//!   their storage, and a quiesced or recovered store holds exactly the
+//!   canonical root's closure.
+//! - Commit-before-publish sequencing rides the crash battery (every
+//!   reopened prefix is a state the live run published) together with the
+//!   `debug_assert`-pinned swap-publish protocol at the commit sites.
+//!
+//! Remaining documented obligation, structural rather than testable from
+//! outside: the [`PERSISTS`](Store::PERSISTS)↔[`commit`](Store::commit)
+//! coherence coupling — a backend that overrides `commit` while leaving
+//! `PERSISTS = false` is handed `clock: None` on every commit, the
+//! stale-identity-record catastrophe `commit`'s own docs warn about.
+//! Rust offers no way to detect an override, so the coupling stays a
+//! stated contract at both sites.
 
 use std::ops::Bound;
 
@@ -41,6 +45,7 @@ use futures::StreamExt as _;
 use proptest::prelude::*;
 
 use super::Materializing;
+use crate::store::{KvBackend, Memory};
 use crate::{
     Version,
     message::Message,
@@ -223,9 +228,14 @@ proptest! {
 
         let mut local = Replica::new(Local);
         let mut towered = Replica::new(Materializing);
+        // The persistent backend runs the same defaults over real stored
+        // records (only `child` and construction differ), so the one
+        // differential run pins both non-Local backends.
+        let mut kv = Replica::new(KvBackend::<Memory, u64>::new(Memory::default()));
 
         let actions = resolve(&first, &mut clock, &mut inserted);
         local.act(duplicate(&actions));
+        kv.act(duplicate(&actions));
         towered.act(actions);
 
         // Fork before the remaining batches: the second batch advances the
@@ -236,9 +246,17 @@ proptest! {
         for (steps, clock) in [(&second, &mut clock), (&forked, &mut fork)] {
             let actions = resolve(steps, clock, &mut inserted);
             local.act(duplicate(&actions));
+            kv.act(duplicate(&actions));
             towered.act(actions);
         }
 
+        prop_assert_eq!(local.hash(), kv.hash());
+        prop_assert_eq!(
+            local.root.as_ref().map(Node::len),
+            kv.root.as_ref().map(|node| node.len()),
+        );
+        prop_assert_eq!(&local.ceiling, &kv.ceiling);
+        prop_assert_eq!(&local.observed, &kv.observed);
         prop_assert_eq!(local.hash(), towered.hash());
         prop_assert_eq!(
             local.root.as_ref().map(Node::len),
@@ -259,10 +277,18 @@ proptest! {
             let theirs = pollster::block_on(Materializing.get(towered.root.clone(), path))
                 .expect("the generic tower is infallible");
             prop_assert_eq!(ours.is_some(), theirs.is_some());
-            if let (Some(ours), Some(theirs)) = (ours, theirs) {
+            if let (Some(ours), Some(theirs)) = (&ours, &theirs) {
                 prop_assert_eq!(ours.ceiling(), theirs.ceiling());
                 prop_assert_eq!(ours.hash(), theirs.hash());
                 prop_assert_eq!(ours.message().bytes(), theirs.message().bytes());
+            }
+            let stored = pollster::block_on(kv.backend.clone().get(kv.root.clone(), path))
+                .expect("the persistent walk answered");
+            prop_assert_eq!(ours.is_some(), stored.is_some());
+            if let (Some(ours), Some(stored)) = (&ours, &stored) {
+                prop_assert_eq!(ours.ceiling(), stored.ceiling());
+                prop_assert_eq!(ours.hash(), stored.hash());
+                prop_assert_eq!(ours.message().bytes(), stored.message().bytes());
             }
         }
 
@@ -295,16 +321,27 @@ proptest! {
         );
         let theirs: Vec<_> = pollster::block_on(
             Materializing
-                .range(towered.root.clone(), bounds)
+                .range(towered.root.clone(), bounds.clone())
+                .collect::<Vec<_>>(),
+        );
+        let stored: Vec<_> = pollster::block_on(
+            kv.backend
+                .clone()
+                .range(kv.root.clone(), bounds)
                 .collect::<Vec<_>>(),
         );
         prop_assert_eq!(ours.len(), theirs.len());
-        for (ours, theirs) in ours.into_iter().zip(theirs) {
+        prop_assert_eq!(ours.len(), stored.len());
+        for (ours, (theirs, stored)) in ours.into_iter().zip(theirs.into_iter().zip(stored)) {
             let (our_key, our_leaf) = ours.expect("the in-memory walk is infallible");
             let (their_key, their_leaf) = theirs.expect("the generic walk is infallible");
+            let (stored_key, stored_leaf) = stored.expect("the persistent walk answered");
             prop_assert_eq!(our_key, their_key);
+            prop_assert_eq!(our_key, stored_key);
             prop_assert_eq!(our_leaf.ceiling(), their_leaf.ceiling());
+            prop_assert_eq!(our_leaf.ceiling(), stored_leaf.ceiling());
             prop_assert_eq!(our_leaf.hash(), their_leaf.hash());
+            prop_assert_eq!(our_leaf.hash(), stored_leaf.hash());
         }
     }
 
@@ -356,6 +393,25 @@ proptest! {
             })
             .collect();
 
+        // The persistent pair shares one store: `join` is a same-store
+        // operation by contract.
+        let backend = KvBackend::<Memory, u64>::new(Memory::default());
+        let mut stored_a = Replica::new(backend.clone());
+        let mut stored_b = Replica::new(backend.clone());
+        stored_a.act(duplicate(&shared));
+        stored_a.act(duplicate(&ours_resolved));
+        stored_b.act(duplicate(&shared));
+        stored_b.act(duplicate(&theirs_resolved));
+        let stored_merge = pollster::block_on(backend.join(
+            stored_a.root.clone(),
+            stored_b.root.clone(),
+            &stored_a.ceiling,
+            &stored_b.ceiling,
+        ))
+        .expect("the persistent join answered")
+        .map(|node| node.hash())
+        .unwrap_or_else(Hash::empty_root);
+
         let mut a = Replica::new(Local);
         let mut b = Replica::new(Local);
         a.act(duplicate(&shared));
@@ -375,6 +431,7 @@ proptest! {
 
         prop_assert_eq!(merged[0], oracle);
         prop_assert_eq!(merged[1], oracle);
+        prop_assert_eq!(stored_merge, oracle);
     }
 
     /// `same` is sound: any two handles it unifies carry equal subtree

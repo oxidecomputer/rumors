@@ -409,6 +409,33 @@ fn materializing_backend_conforms() {
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
 }
 
+impl<T> Measure<T> for crate::store::KvBackend<crate::store::Memory, T>
+where
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+{
+    fn measure<H: Height>(node: &Self::Node<H>) -> usize {
+        node.resident_bytes()
+    }
+}
+
+/// The persistent backend's session account is honest.
+///
+/// `node_bytes` bounds each measured handle pointwise, and the window's
+/// measured admittance stays inside the stated budget, over the same
+/// controlled-divergence reconciliation every backend runs.
+///
+/// Payload bytes appear on neither side of the comparison, per the
+/// `node_bytes` contract's `children = 0` clause (custody happens at
+/// `Leaf::leaf`; in-flight payload is priced by `target_message_size`).
+#[test]
+fn kv_backend_conforms() {
+    let _serial = serialized();
+    pollster::block_on(check(
+        crate::store::KvBackend::<crate::store::Memory, u64>::new(crate::store::Memory::default()),
+        MATERIALIZING_BUDGET,
+    ));
+}
+
 /// An underpricing cost function fails the run by name.
 ///
 /// The same backend with a header priced below the row's real header

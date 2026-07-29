@@ -136,9 +136,11 @@ pub(crate) struct PinId(pub(crate) u64);
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Default)]
 pub(crate) struct CanonicalRoot {
     /// The universe this replica belongs to, written by every root flip;
-    /// `None` only in a store no peer has ever committed to. What lets a
-    /// reopened store reconstruct the peer's network identity without a
-    /// side channel that could disagree with the tree.
+    /// `None` only in a store no peer has ever committed to.
+    ///
+    /// What lets a reopened store reconstruct the peer's network
+    /// identity without a side channel that could disagree with the
+    /// tree.
     pub(crate) network: Option<crate::Network>,
     /// The tree's incorporated ceiling (rides outside the nodes, exactly
     /// as in the in-memory root).
@@ -168,11 +170,13 @@ pub(crate) struct NodeRecord {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub(crate) enum NodeBody {
     Leaf {
-        /// The compressed span above the leaf, **deepest byte at index
-        /// 0** — the in-memory node's own order, kept so hash preimages
-        /// feed [`Hash::leaf`]/[`Hash::branch`] byte-for-byte without a
-        /// reversal (hash agreement across backends is what session
-        /// pruning rests on).
+        /// The compressed span above the leaf, **deepest byte at
+        /// index 0** — the in-memory node's own storage order.
+        ///
+        /// Kept that way so hash preimages derive by one reversal into
+        /// path order, exactly as the in-memory node hashes (hash
+        /// agreement across backends is what session pruning rests
+        /// on).
         prefix: Vec<u8>,
         version: Version,
         /// The message's exact serialized bytes (the borsh passthrough
