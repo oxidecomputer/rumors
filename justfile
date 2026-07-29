@@ -98,7 +98,11 @@ testdoc:
 # derived, never hand-edited: after editing crate-level rustdoc, run
 # `just readme`. `readme-check` re-derives the READMEs into scratch copies
 # and diffs, the same no-rot contract as fmt-check, so a rustdoc edit can't
-# silently desync the README. Needs cargo-rdme: `cargo install cargo-rdme`.
+# silently desync the README. It leads with the stripper's own self-test, which
+# pins the link forms rewritten and the forms preserved: a stripping bug then
+# names itself here instead of arriving as unexplained drift in a derived file,
+# or as corruption that a regeneration quietly commits.
+# Needs cargo-rdme: `cargo install cargo-rdme`.
 
 # Regenerate every crate's README from its crate-level rustdoc.
 readme:
@@ -106,6 +110,7 @@ readme:
 
 # Verify every README is in sync with its rustdoc (the gate variant of `readme`).
 readme-check:
+    ./tools/readme self-test
     ./tools/readme check
 
 # The dependency list is the ordering: build-free lints first for fast
