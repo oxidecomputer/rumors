@@ -13,12 +13,17 @@
 //! `testing::generators` module; the shapes here are hand-derived
 //! worst cases.)
 //!
+//! The generators themselves are private: every instrument mints its
+//! shapes through the family registry ([`registry`](crate::meter::registry)), whose roster is
+//! the single source of truth for adversarial families — the registry
+//! module doc states the invariant and the compiler ties that hold it.
 //! A shape lands in one of two enforcement homes, and most take only one:
 //! every shape gets its envelope rows in `tests/meter.rs` — the enforced
 //! per-operation record — and a shape additionally earns a column on the
 //! amplification board ([`board`](crate::meter::board)) only when it is a whole-surface
-//! adversary rather than a kernel-seam probe (the criterion, and the
-//! luck-proof touch list, sit on the board's `FAMILIES` roster).
+//! adversary rather than a kernel-seam probe (the criterion, each
+//! family's coverage answer, and the luck-proof touch list sit on the
+//! registry's [`FamilyId`](crate::meter::registry::FamilyId)).
 //!
 //! Every generator output is strict normal form: it round-trips through
 //! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
@@ -27,8 +32,8 @@
 //! this module's tests). Normal form is also the one shaping constraint —
 //! equal sibling leaves collapse, so a plateau is never spelled as an
 //! equal leaf pair: the shapes spell one as unit-apart leaf values
-//! ([`reveal_comb`](crate::meter::reveal_comb)) or as bare leaves under internal nodes
-//! ([`pure_comb`](crate::meter::pure_comb)). Event shapes are built in the generators'
+//! ([`Shape::RevealComb`](crate::meter::registry::Shape::RevealComb)) or as bare leaves under internal nodes
+//! ([`Shape::PureComb`](crate::meter::registry::Shape::PureComb)). Event shapes are built in the generators'
 //! construction language — per node, a flag bit (`1` internal, `0` leaf,
 //! this language's own convention) plus the Elias-gamma code of its base
 //! (`gamma(n)` codes `m = n + 1`) — which the skyline transcoder
@@ -40,16 +45,16 @@
 //!
 //! Designing a new shape, two decided axes are worth finding before any
 //! bits: whether the input pays the adversarial width once or per site —
-//! the funding argument, argued at [`memo_fanout`](crate::meter::memo_fanout) versus
-//! [`memo_oscillating`](crate::meter::memo_oscillating) — and, for pair shapes, whether the pair is two
-//! packed streams ([`jump_pair`](crate::meter::jump_pair)) or organically built [`Version`]s
-//! ([`concurrent_pair`](crate::meter::concurrent_pair), which argues the choice).
+//! the funding argument, argued at [`Shape::MemoFanout`](crate::meter::registry::Shape::MemoFanout) versus
+//! [`Shape::MemoOscillating`](crate::meter::registry::Shape::MemoOscillating) — and, for pair shapes, whether the pair is two
+//! packed streams ([`Shape::JumpPair`](crate::meter::registry::Shape::JumpPair)) or organically built [`Version`]s
+//! ([`Shape::ConcurrentPair`](crate::meter::registry::Shape::ConcurrentPair), which argues the choice).
 //!
 //! One construction convention for new families: when a family is a
 //! *geometrically coupled pair* — two operands whose adversarial effect
 //! depends on shared structure (aligned boundaries, mirrored spikes,
 //! lockstep walks) — one generator builds and returns the pair
-//! ([`tooth_tail`](crate::meter::tooth_tail) is the form of record), never two parallel
+//! ([`Shape::ToothTail`](crate::meter::registry::Shape::ToothTail) is the form of record), never two parallel
 //! generators whose coupling is maintained by keeping their bodies in
 //! sync by hand. Existing paired generators keep their committed shapes
 //! as-is: migrating them would churn pinned envelopes and provenance for
@@ -146,7 +151,7 @@ fn ev_spine(bits: &mut Bits, d: usize) {
 /// # Panics
 ///
 /// Panics if `d == 0`: the spine needs at least one internal node.
-pub fn dense(d: usize) -> Packed {
+fn dense(d: usize) -> Packed {
     assert!(d >= 1, "dense spine needs at least one internal node");
     let mut bits = Bits::with_capacity(4 * d + 4);
     ev_spine(&mut bits, d);
@@ -163,7 +168,7 @@ pub fn dense(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `b == 0` or `d == 0`.
-pub fn bigroot(b: usize, d: usize) -> Packed {
+fn bigroot(b: usize, d: usize) -> Packed {
     assert!(b >= 1, "bigroot needs a nonzero root magnitude");
     assert!(d >= 1, "bigroot needs a nonzero spine depth");
     let mut bits = Bits::with_capacity(2 * b + 4 * d + 8);
@@ -183,7 +188,7 @@ pub fn bigroot(b: usize, d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `b == 0`.
-pub fn hugeleaf(b: usize) -> Packed {
+fn hugeleaf(b: usize) -> Packed {
     assert!(b >= 1, "hugeleaf needs a nonzero magnitude");
     let mut bits = Bits::with_capacity(2 * b + 2);
     bits.push(false); // leaf flag
@@ -217,7 +222,7 @@ pub fn hugeleaf(b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `n == 0`.
-pub fn cliff_comb(k: usize, n: usize) -> Packed {
+fn cliff_comb(k: usize, n: usize) -> Packed {
     assert!(k >= 1, "cliff comb needs a nonzero tooth magnitude");
     assert!(n >= 1, "cliff comb needs at least one tooth");
     let mut bits = Bits::with_capacity(n * (2 * k + 10) + 2);
@@ -259,7 +264,7 @@ pub fn cliff_comb(k: usize, n: usize) -> Packed {
 ///
 /// Panics if `k == 0` or `n < 2`: the jump needs a low tooth and at
 /// least one cliff tooth to jump between.
-pub fn jump_comb(k: usize, n: usize) -> Packed {
+fn jump_comb(k: usize, n: usize) -> Packed {
     assert!(k >= 1, "jump comb needs a nonzero cliff magnitude");
     assert!(n >= 2, "jump comb needs a low tooth and a cliff tooth");
     let mut bits = Bits::with_capacity((n - 1) * (2 * k + 10) + 14);
@@ -303,7 +308,7 @@ pub fn jump_comb(k: usize, n: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `w == 0`, `w ≥ k`, or `n == 0`.
-pub fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Packed {
+fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Packed {
     assert!(w >= 1, "wide-tooth comb needs a nonzero tooth width");
     assert!(
         w < k,
@@ -352,7 +357,7 @@ pub fn wide_tooth_comb(k: usize, w: usize, n: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `n == 0`.
-pub fn cliff_fan(k: usize, n: usize) -> Packed {
+fn cliff_fan(k: usize, n: usize) -> Packed {
     assert!(k >= 1, "cliff fan needs a nonzero root magnitude");
     assert!(n >= 1, "cliff fan needs at least one tooth");
     let mut bits = Bits::with_capacity(12 * n + 2 * k + 6);
@@ -400,7 +405,7 @@ pub fn cliff_fan(k: usize, n: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `n == 0`.
-pub fn cancelling_chain(k: usize, n: usize) -> Packed {
+fn cancelling_chain(k: usize, n: usize) -> Packed {
     assert!(k >= 1, "cancelling chain needs a nonzero peak magnitude");
     assert!(n >= 1, "cancelling chain needs at least one tooth");
     let mut bits = Bits::with_capacity(n * (2 * k + 10) + 2);
@@ -441,7 +446,7 @@ pub fn cancelling_chain(k: usize, n: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`: the spine needs at least one internal node.
-pub fn harmonic(d: usize) -> Packed {
+fn harmonic(d: usize) -> Packed {
     assert!(d >= 1, "harmonic spine needs at least one internal node");
     let mut bits = Bits::with_capacity(6 * d + 2);
     for _ in 0..d {
@@ -479,7 +484,7 @@ pub fn harmonic(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`: the spine needs at least one internal node.
-pub fn alt_spine(d: usize) -> Packed {
+fn alt_spine(d: usize) -> Packed {
     assert!(d >= 1, "alternating spine needs at least one internal node");
     let mut bits = Bits::with_capacity(4 * d + 4);
     // Levels 0..d−1 have one internal child each (left at even levels,
@@ -521,7 +526,7 @@ pub fn alt_spine(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `e == 0`.
-pub fn scattered_id(e: usize) -> Packed {
+fn scattered_id(e: usize) -> Packed {
     assert!(e >= 1, "scattered id needs at least one owned fragment");
     let mut bits = Bits::with_capacity(6 * e + 2);
     for _ in 0..e {
@@ -548,7 +553,7 @@ pub fn scattered_id(e: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn id_spine(d: usize, divert: bool) -> Packed {
+fn id_spine(d: usize, divert: bool) -> Packed {
     assert!(d >= 1, "id spine needs at least one unary node");
     let mut bits = Bits::with_capacity(2 * d + 2);
     for _ in 0..d - 1 {
@@ -577,7 +582,7 @@ pub fn id_spine(d: usize, divert: bool) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn nested_full_id(d: usize) -> Packed {
+fn nested_full_id(d: usize) -> Packed {
     assert!(d >= 1, "nested-full id needs at least one shortcut level");
     let mut bits = Bits::with_capacity(4 * d + 4);
     for _ in 0..d {
@@ -611,7 +616,7 @@ pub fn nested_full_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn nested_left_full_id(d: usize) -> Packed {
+fn nested_left_full_id(d: usize) -> Packed {
     assert!(
         d >= 1,
         "nested-left-full id needs at least one shortcut level"
@@ -646,7 +651,7 @@ pub fn nested_left_full_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `b == 0` or `d == 0`.
-pub fn wide_tail(b: usize, d: usize) -> Packed {
+fn wide_tail(b: usize, d: usize) -> Packed {
     assert!(b >= 1, "wide tail needs a nonzero magnitude");
     assert!(d >= 1, "wide tail needs a nonzero spine depth");
     let mut bits = Bits::with_capacity(4 * d + 2 * b + 3);
@@ -677,7 +682,7 @@ pub fn wide_tail(b: usize, d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn staircase(d: usize) -> Packed {
+fn staircase(d: usize) -> Packed {
     assert!(d >= 1, "the staircase needs at least one internal node");
     let mut bits = Bits::with_capacity(5 * d + 8);
     bits.push(true); // the root: base 0 (the whole tree's minimum)
@@ -715,7 +720,7 @@ pub fn staircase(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-pub fn memo_chain(k: usize, distinct: bool) -> Packed {
+fn memo_chain(k: usize, distinct: bool) -> Packed {
     assert!(k >= 1, "the memo chain needs at least one interior site");
     let mut bits = Bits::with_capacity(14 * k + 9);
     bits.push(true); // the root: the covering site's node
@@ -744,7 +749,7 @@ pub fn memo_chain(k: usize, distinct: bool) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-pub fn memo_chain_id(k: usize) -> Packed {
+fn memo_chain_id(k: usize) -> Packed {
     assert!(k >= 1, "the memo-chain id needs at least one interior site");
     let mut bits = Bits::with_capacity(10 * k + 8);
     bits.push(true); // the root: full left child ...
@@ -794,7 +799,7 @@ pub fn memo_chain_id(k: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn memo_comb(d: usize) -> Packed {
+fn memo_comb(d: usize) -> Packed {
     assert!(d >= 1, "the memo comb needs at least one level");
     let mut bits = Bits::with_capacity(20 * d + 24);
     bits.push(true); // the root: the outermost covering site's node
@@ -827,7 +832,7 @@ pub fn memo_comb(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn memo_comb_id(d: usize) -> Packed {
+fn memo_comb_id(d: usize) -> Packed {
     assert!(d >= 1, "the memo-comb id needs at least one level");
     let mut bits = Bits::with_capacity(14 * d + 12);
     bits.push(true); // the root: full left child over the comb
@@ -879,7 +884,7 @@ pub fn memo_comb_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-pub fn memo_fanout(k: usize, b: usize) -> Packed {
+fn memo_fanout(k: usize, b: usize) -> Packed {
     assert!(k >= 1, "the memo fan-out needs at least one site");
     assert!(b >= 1, "the memo fan-out needs a nonzero magnitude");
     let wide = pow2_minus_1(b);
@@ -916,7 +921,7 @@ pub fn memo_fanout(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-pub fn memo_oscillating(k: usize, b: usize) -> Packed {
+fn memo_oscillating(k: usize, b: usize) -> Packed {
     assert!(k >= 1, "the oscillating siblings need at least one site");
     assert!(b >= 1, "the oscillating siblings need a nonzero magnitude");
     let wide = pow2_minus_1(b);
@@ -960,7 +965,7 @@ pub fn memo_oscillating(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn memo_churn(d: usize) -> Packed {
+fn memo_churn(d: usize) -> Packed {
     assert!(d >= 1, "the memo churn needs at least one site");
     let mut bits = Bits::with_capacity(18 * d + 10 * (2 * d) + 20);
     bits.push(true); // the root: the covering site's node
@@ -1005,7 +1010,7 @@ pub fn memo_churn(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn memo_churn_id(d: usize) -> Packed {
+fn memo_churn_id(d: usize) -> Packed {
     assert!(d >= 1, "the memo-churn id needs at least one site");
     let mut bits = Bits::with_capacity(14 * d + 6);
     bits.push(true); // the root: full left child over the carriers
@@ -1046,7 +1051,7 @@ pub fn memo_churn_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn descending_raises(d: usize) -> Packed {
+fn descending_raises(d: usize) -> Packed {
     assert!(d >= 1, "the descending raises need at least one site");
     let mut bits = Bits::with_capacity(13 * d + 30);
     bits.push(true); // the root: the covering site's node
@@ -1079,7 +1084,7 @@ pub fn descending_raises(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `d == 0`.
-pub fn descending_raises_id(d: usize) -> Packed {
+fn descending_raises_id(d: usize) -> Packed {
     assert!(d >= 1, "the descending-raises id needs at least one site");
     let mut bits = Bits::with_capacity(10 * d + 10);
     bits.push(true); // the root: full left child over the rest
@@ -1132,7 +1137,7 @@ pub fn descending_raises_id(d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-pub fn reveal_comb(k: usize, b: usize) -> Packed {
+fn reveal_comb(k: usize, b: usize) -> Packed {
     assert!(k >= 1, "the reveal comb needs at least one site");
     assert!(b >= 1, "the reveal comb needs a nonzero magnitude");
     let wide = pow2(b);
@@ -1170,7 +1175,7 @@ pub fn reveal_comb(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-pub fn reveal_comb_hifloor(k: usize, b: usize) -> Packed {
+fn reveal_comb_hifloor(k: usize, b: usize) -> Packed {
     assert!(k >= 1, "the reveal comb needs at least one site");
     assert!(b >= 1, "the reveal comb needs a nonzero magnitude");
     let wide = pow2(b);
@@ -1208,7 +1213,7 @@ pub fn reveal_comb_hifloor(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-pub fn reveal_comb_id(k: usize) -> Packed {
+fn reveal_comb_id(k: usize) -> Packed {
     assert!(k >= 1, "the reveal-comb id needs at least one site");
     let mut bits = Bits::with_capacity(10 * k + 4);
     bits.push(true); // the root: full left child ...
@@ -1253,7 +1258,7 @@ pub fn reveal_comb_id(k: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0` or `b == 0`.
-pub fn pure_comb(k: usize, b: usize) -> Packed {
+fn pure_comb(k: usize, b: usize) -> Packed {
     assert!(k >= 1, "the pure comb needs at least one level");
     assert!(b >= 1, "the pure comb needs a nonzero magnitude");
     let wide = pow2(b);
@@ -1281,7 +1286,7 @@ pub fn pure_comb(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-pub fn pure_comb_id(k: usize) -> Packed {
+fn pure_comb_id(k: usize) -> Packed {
     assert!(k >= 1, "the pure-comb id needs at least one level");
     let mut bits = Bits::with_capacity(6 * k);
     for _ in 1..k {
@@ -1324,7 +1329,7 @@ pub fn pure_comb_id(k: usize) -> Packed {
 ///
 /// Panics if `k == 0`, `b == 0`, or `k + 2 > 2^b` (the ascent must
 /// stay inside the width-`b` gamma-code band the closed form counts).
-pub fn ascend_cliff(k: usize, b: usize) -> Packed {
+fn ascend_cliff(k: usize, b: usize) -> Packed {
     ascend_spine(k, b, true)
 }
 
@@ -1345,7 +1350,7 @@ pub fn ascend_cliff(k: usize, b: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`, `b == 0`, or `k + 2 > 2^b`.
-pub fn ascend_cliff_plateau(k: usize, b: usize) -> Packed {
+fn ascend_cliff_plateau(k: usize, b: usize) -> Packed {
     ascend_spine(k, b, false)
 }
 
@@ -1407,7 +1412,7 @@ const FREEZE_POSITION_DROP_BITS: usize = 288;
 /// # Panics
 ///
 /// Panics if `k == 0`.
-pub fn freeze_position(k: usize) -> Packed {
+fn freeze_position(k: usize) -> Packed {
     assert!(k >= 1, "the freeze-position spine needs at least one block");
     let band = FREEZE_POSITION_DROP_BITS + 1 + bitlen(k);
     let wide = suanpan::UBig::ONE << FREEZE_POSITION_DROP_BITS;
@@ -1486,7 +1491,7 @@ const PROMOTION_REARM_LEVELS_PER_BLOCK: usize = 32;
 /// # Panics
 ///
 /// Panics if `p == 0`.
-pub fn promotion_rearm(p: usize) -> Packed {
+fn promotion_rearm(p: usize) -> Packed {
     assert!(
         p >= 1,
         "the promotion re-arm spine needs at least one block"
@@ -1532,7 +1537,7 @@ pub fn promotion_rearm(p: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `p == 0`.
-pub fn promotion_rearm_mate(p: usize) -> Packed {
+fn promotion_rearm_mate(p: usize) -> Packed {
     assert!(p >= 1, "the re-arm mate needs at least one block's worth");
     let zero = Base::ZERO;
     // The spine matches PR(p) node for node: 32p span-builder levels
@@ -1588,7 +1593,7 @@ const DENSE_SUFFIX_DIGIT_STRIDE: usize = 33;
 /// # Panics
 ///
 /// Panics if `p == 0` or `d == 0`.
-pub fn dense_suffix(p: usize, d: usize) -> Packed {
+fn dense_suffix(p: usize, d: usize) -> Packed {
     assert!(p >= 1, "the dense-suffix family needs at least one block");
     assert!(d >= 1, "the dense-suffix family needs at least one gap");
     let arm = pow2(PROMOTION_REARM_ARM_BITS);
@@ -1628,7 +1633,7 @@ pub fn dense_suffix(p: usize, d: usize) -> Packed {
 /// # Panics
 ///
 /// Panics if `p == 0` or `d == 0`.
-pub fn dense_suffix_mate(p: usize, d: usize) -> Packed {
+fn dense_suffix_mate(p: usize, d: usize) -> Packed {
     assert!(p >= 1, "the dense-suffix mate needs at least one block");
     assert!(d >= 1, "the dense-suffix mate needs at least one gap");
     let one = Base::from(1u8);
@@ -1675,7 +1680,7 @@ pub fn dense_suffix_mate(p: usize, d: usize) -> Packed {
 ///
 /// Panics if `w < 10` (the parked component must clear the settling
 /// drift's ten digits by more than the freeze allowance) or `d == 0`.
-pub fn wide_arming(w: usize, d: usize) -> Packed {
+fn wide_arming(w: usize, d: usize) -> Packed {
     assert!(
         w >= 10,
         "the wide arming must out-span the settling drift plus the allowance"
@@ -1774,7 +1779,7 @@ fn parked_unit_spine(bits: &mut Bits, s: usize) {
 ///
 /// Panics if `n` is not a power of two (the block is one complete
 /// subtree).
-pub fn weight_comb(n: usize) -> Packed {
+fn weight_comb(n: usize) -> Packed {
     assert!(
         n.is_power_of_two(),
         "the weight-comb block is one complete subtree"
@@ -1829,7 +1834,7 @@ pub fn weight_comb(n: usize) -> Packed {
 ///
 /// Panics if `k` is not a power of two (the parade is one complete
 /// subtree).
-pub fn freeze_parade(k: usize) -> Packed {
+fn freeze_parade(k: usize) -> Packed {
     assert!(
         k.is_power_of_two(),
         "the freeze parade is one complete subtree"
@@ -1917,7 +1922,7 @@ const LONE_FREEZE_PLATEAU_BITS: usize = 288;
 ///
 /// Panics if `pre` or `post` is zero or odd (the closed forms count
 /// whole oscillation pairs).
-pub fn lone_freeze(pre: usize, post: usize) -> Packed {
+fn lone_freeze(pre: usize, post: usize) -> Packed {
     assert!(
         pre >= 2 && pre.is_multiple_of(2),
         "the lone freeze needs a whole-pair plateau prefix"
@@ -1970,7 +1975,7 @@ pub fn lone_freeze(pre: usize, post: usize) -> Packed {
 ///
 /// Panics if `g == 0` (no spike) or `m < 2` (the spike rides the
 /// second leaf).
-pub fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
+fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
     assert!(g >= 1, "the tooth-tail spike needs at least one digit");
     assert!(m >= 2, "the tooth-tail spike rides the second leaf");
     let spike = pow2(32 * g);
@@ -2021,7 +2026,7 @@ pub fn tooth_tail(g: usize, m: usize) -> (Packed, Packed) {
 /// # Panics
 ///
 /// Panics if `x` or `y` is zero.
-pub fn puncture_product(x: &suanpan::UBig, y: &suanpan::UBig) -> Packed {
+fn puncture_product(x: &suanpan::UBig, y: &suanpan::UBig) -> Packed {
     use dashu_int::ops::BitTest;
     assert!(
         *x != suanpan::UBig::ZERO,
@@ -2177,7 +2182,7 @@ pub fn plateau_puncture_factors(w: usize, d: usize) -> (suanpan::UBig, suanpan::
 ///
 /// Panics if `w < 10` (the plunge must trip the freeze allowance past
 /// a unit code) or `d == 0`.
-pub fn plateau_puncture(w: usize, d: usize) -> Packed {
+fn plateau_puncture(w: usize, d: usize) -> Packed {
     assert!(
         w >= 10,
         "the plateau must out-span the freeze allowance past a unit code"
@@ -2220,7 +2225,7 @@ pub fn plateau_puncture(w: usize, d: usize) -> Packed {
 /// Panics if `n == 0` or `g == 0`, or if `w < 19` (an arming must
 /// out-span the `2^288` kicker drift by more than the freeze
 /// allowance, or promotion never fires).
-pub fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
+fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
     assert!(n >= 1, "the arming train needs at least one block");
     assert!(g >= 1, "the arming train needs at least one gap per window");
     assert!(
@@ -2285,7 +2290,7 @@ pub fn arming_train(n: usize, w: usize, g: usize, alternate: bool) -> Packed {
 /// # Panics
 ///
 /// Panics if `k == 0`.
-pub fn ascend_cliff_id(k: usize) -> Packed {
+fn ascend_cliff_id(k: usize) -> Packed {
     assert!(
         k >= 1,
         "the ascending-cliff id needs at least one spine node"
@@ -2378,7 +2383,7 @@ const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 ///
 /// Panics if `k < 3` (the closed form needs `γ(2^k + 3)` at `2k + 1`
 /// bits), `m == 0`, or `d == 0`.
-pub fn jump_pair(k: usize, m: usize, d: usize) -> (Packed, Packed) {
+fn jump_pair(k: usize, m: usize, d: usize) -> (Packed, Packed) {
     (
         jump_pair_operand(k, m, d, false),
         jump_pair_operand(k, m, d, true),
@@ -2470,7 +2475,7 @@ fn jump_pair_operand(k: usize, m: usize, d: usize, band: bool) -> Packed {
 ///
 /// Panics if `n` is not a power of two at least 2 (the balanced fork
 /// and the parity schedule both need it).
-pub fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
+fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
     assert!(
         n >= 2 && n.is_power_of_two(),
         "the concurrent pair needs a power-of-two party count"
@@ -2545,7 +2550,7 @@ pub fn concurrent_pair(n: usize) -> (crate::Version, crate::Version) {
 ///
 /// Panics if `n` is not a power of two at least 2, `m` is not a power
 /// of two, or `i ≥ n`.
-pub fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
+fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
     assert!(
         n >= 2 && n.is_power_of_two(),
         "the staggered comb needs a power-of-two operand count"
@@ -2617,7 +2622,7 @@ pub fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
 ///
 /// Panics if `n` is not a power of two at least 2, `m` is not a power
 /// of two, or `i ≥ n`.
-pub fn stagger_id(n: usize, m: usize, i: usize) -> Packed {
+fn stagger_id(n: usize, m: usize, i: usize) -> Packed {
     assert!(
         n >= 2 && n.is_power_of_two(),
         "the staggered id needs a power-of-two operand count"
@@ -2670,7 +2675,7 @@ pub fn stagger_id(n: usize, m: usize, i: usize) -> Packed {
 /// # Panics
 ///
 /// [`stagger_comb`]'s parameter contract.
-pub fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
+fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
     assert!(
         n >= 2 && n.is_power_of_two(),
         "the staggered population needs a power-of-two operand count"
@@ -2711,7 +2716,7 @@ pub fn stagger_population(n: usize, m: usize) -> (Vec<Packed>, Vec<Packed>) {
 ///
 /// Panics if `d == 0` or `k < 2` (the fold needs the carrier and at
 /// least one shade).
-pub fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
+fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
     assert!(d >= 1, "the meet shade needs a nonzero carrier depth");
     assert!(k >= 2, "the meet shade needs at least one shade");
     let carrier = dense(d).version();
@@ -2750,7 +2755,7 @@ pub fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
 ///
 /// Panics if `k == 0`, or `n` is not an even count of at least 2 (the
 /// mask owns every other tooth).
-pub fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
+fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
     assert!(k >= 1, "the mask-drift triple needs a nonzero magnitude");
     assert!(
         n >= 2 && n.is_multiple_of(2),
@@ -2789,7 +2794,7 @@ pub fn mask_drift_triple(k: usize, n: usize) -> (Packed, Packed, Packed) {
 /// # Panics
 ///
 /// Panics if `k == 0`, or `n` is not an even count of at least 2.
-pub fn mask_drift_quadruple(k: usize, n: usize) -> ((Packed, Packed), (Packed, Packed)) {
+fn mask_drift_quadruple(k: usize, n: usize) -> ((Packed, Packed), (Packed, Packed)) {
     assert!(k >= 1, "the mask-drift quadruple needs a nonzero magnitude");
     assert!(
         n >= 2 && n.is_multiple_of(2),
