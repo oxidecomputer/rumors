@@ -13,7 +13,7 @@ use super::currency::Liveness;
 use super::family::FamilyData;
 use super::judge::{assert_deterministic, evaluate, CellResult, Score};
 use super::measure::{measure, HeapMeter};
-use super::ops::ops;
+use super::ops::{ops, Op};
 use crate::meter::registry::FamilyId;
 
 /// The board's bottom line: how many cells scored green and red.
@@ -170,64 +170,66 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
 ///
 /// Panics if `scale` is not strictly positive.
 pub(super) fn sweep(scale: f64, heap: &HeapMeter) -> Vec<CellResult> {
-    let all: Vec<FamilyId> = FamilyId::board().collect();
-    sweep_families(scale, heap, &all)
-}
-
-/// Sweep one slice of the family axis against the whole operation table
-/// at `scale` and judge every cell.
-///
-/// The measurement discipline is [`sweep`]'s exactly — single-threaded,
-/// operation outer, family inner within the slice, each cell measured at
-/// the scaled size and its double under the in-process determinism
-/// self-verification — so a process-sharded run (the `shard` module) is
-/// the serial sweep partitioned, never a second discipline.
-///
-/// # Panics
-///
-/// Panics if `scale` is not strictly positive.
-pub(super) fn sweep_families(scale: f64, heap: &HeapMeter, slice: &[FamilyId]) -> Vec<CellResult> {
-    assert!(
-        scale > 0.0 && scale.is_finite(),
-        "amp-board: scale must be a positive finite number"
-    );
-
-    let families: Vec<(FamilyData, FamilyData)> = slice
-        .iter()
-        .map(|&kind| {
-            (
-                FamilyData::build(kind, scale, 0),
-                FamilyData::build(kind, scale, 1),
-            )
-        })
+    assert_scale(scale);
+    let families: Vec<(FamilyData, FamilyData)> = FamilyId::board()
+        .map(|kind| build_pair(kind, scale))
         .collect();
 
     let mut results = Vec::new();
     for op in ops() {
-        for (small, large) in &families {
-            let Some(c1) = (op.prepare)(small) else {
-                continue;
-            };
-            let c2 = (op.prepare)(large)
-                .expect("a cell's applicability depends on the family, never the size");
-            let s1 = measure(heap, op.name, c1, small.content_bytes);
-            let s2 = measure(heap, op.name, c2, large.content_bytes);
-            // The runner self-verifies: every cell is measured twice in
-            // process and every counter reading and denominator must
-            // agree exactly — the board's judged quantities are
-            // deterministic domain counters, so any disagreement is a
-            // nondeterminism bug in a meter or a body, stopped here
-            // rather than laundered into a verdict.
-            for (level, first) in [(small, &s1), (large, &s2)] {
-                let again = (op.prepare)(level)
-                    .expect("a cell's applicability depends on the family, never the size");
-                let second = measure(heap, op.name, again, level.content_bytes);
-                assert_deterministic(op.name, small.name, first, &second);
-            }
-            results.push(evaluate(op.name, small.name, s1, s2));
+        for pair in &families {
+            results.extend(measure_cell(heap, &op, pair));
         }
     }
     results
+}
+
+/// The one scale guard, shared by every entry that measures.
+pub(super) fn assert_scale(scale: f64) {
+    assert!(
+        scale > 0.0 && scale.is_finite(),
+        "amp-board: scale must be a positive finite number"
+    );
+}
+
+/// Build one family's operand bundles at both sample levels.
+pub(super) fn build_pair(kind: FamilyId, scale: f64) -> (FamilyData, FamilyData) {
+    (
+        FamilyData::build(kind, scale, 0),
+        FamilyData::build(kind, scale, 1),
+    )
+}
+
+/// Measure and judge one grid cell — or nothing, where the family's
+/// bundle supplies no operand for the operation's signature.
+///
+/// The board's one measurement discipline, behind both the serial sweep
+/// and every shard child (the `shard` module): single-threaded, the cell
+/// at the scaled size and its double, each sample under the in-process
+/// determinism self-verification.
+pub(super) fn measure_cell(
+    heap: &HeapMeter,
+    op: &Op,
+    (small, large): &(FamilyData, FamilyData),
+) -> Option<CellResult> {
+    let c1 = (op.prepare)(small)?;
+    let c2 =
+        (op.prepare)(large).expect("a cell's applicability depends on the family, never the size");
+    let s1 = measure(heap, op.name, c1, small.content_bytes);
+    let s2 = measure(heap, op.name, c2, large.content_bytes);
+    // The runner self-verifies: every cell is measured twice in
+    // process and every counter reading and denominator must
+    // agree exactly — the board's judged quantities are
+    // deterministic domain counters, so any disagreement is a
+    // nondeterminism bug in a meter or a body, stopped here
+    // rather than laundered into a verdict.
+    for (level, first) in [(small, &s1), (large, &s2)] {
+        let again = (op.prepare)(level)
+            .expect("a cell's applicability depends on the family, never the size");
+        let second = measure(heap, op.name, again, level.content_bytes);
+        assert_deterministic(op.name, small.name, first, &second);
+    }
+    Some(evaluate(op.name, small.name, s1, s2))
 }
 
 /// Run the whole board in this process and render the matrix to `out`.
