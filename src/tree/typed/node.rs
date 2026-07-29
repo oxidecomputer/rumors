@@ -1,7 +1,6 @@
 use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use imbl::OrdMap;
 
 use crate::{Version, message::Message};
 
@@ -10,23 +9,24 @@ use super::height::{self, Height, S, Z};
 #[cfg(any(test, feature = "protocol-v1"))]
 use super::levels::{Top, levels};
 use super::untyped;
+use untyped::fan::{self, Fan};
 
 /// The typed node with a height of 32; the root of the tree.
 pub type Root<T> = Node<T, height::Root>;
 
 /// The radix-indexed children of a branch one level above height `H`: a
-/// typed shell over the untyped persistent map, so inserts and removals
-/// stay height-correct at compile time.
+/// typed shell over the untyped radix fan, so inserts and removals stay
+/// height-correct at compile time.
 pub struct Children<T, H: Height> {
     height: PhantomData<fn() -> H>,
-    inner: OrdMap<u8, untyped::Node<T>>,
+    inner: Fan<T>,
 }
 
 impl<T, H: Height> Default for Children<T, H> {
     fn default() -> Self {
         Self {
             height: PhantomData,
-            inner: OrdMap::new(),
+            inner: Fan::new(),
         }
     }
 }
@@ -41,14 +41,14 @@ impl<T, H: Height> Clone for Children<T, H> {
 }
 
 impl<T, H: Height> Children<T, H> {
-    fn from_untyped_map(inner: OrdMap<u8, untyped::Node<T>>) -> Self {
+    fn from_fan(inner: Fan<T>) -> Self {
         Self {
             height: PhantomData,
             inner,
         }
     }
 
-    fn into_untyped_map(self) -> OrdMap<u8, untyped::Node<T>> {
+    fn into_fan(self) -> Fan<T> {
         self.inner
     }
 
@@ -70,7 +70,7 @@ impl<T, H: Height> Children<T, H> {
     }
 
     /// Remove and return the child at `radix`, if any.
-    pub fn remove(&mut self, radix: &u8) -> Option<Node<T, H>> {
+    pub fn remove(&mut self, radix: u8) -> Option<Node<T, H>> {
         self.inner.remove(radix).map(Node::from_untyped)
     }
 
@@ -83,13 +83,13 @@ impl<T, H: Height> Children<T, H> {
     pub fn iter(&self) -> impl Iterator<Item = (u8, Node<T, H>)> + '_ {
         self.inner
             .iter()
-            .map(|(radix, child)| (*radix, Node::from_untyped(child.clone())))
+            .map(|(radix, child)| (radix, Node::from_untyped(child.clone())))
     }
 }
 
 impl<T, H: Height> FromIterator<(u8, Node<T, H>)> for Children<T, H> {
     fn from_iter<I: IntoIterator<Item = (u8, Node<T, H>)>>(iter: I) -> Self {
-        Self::from_untyped_map(
+        Self::from_fan(
             iter.into_iter()
                 .map(|(radix, child)| (radix, child.into_untyped()))
                 .collect(),
@@ -103,10 +103,7 @@ fn typed_child<T, H: Height>((radix, inner): (u8, untyped::Node<T>)) -> (u8, Nod
 
 impl<T, H: Height> IntoIterator for Children<T, H> {
     type Item = (u8, Node<T, H>);
-    type IntoIter = Map<
-        <OrdMap<u8, untyped::Node<T>> as IntoIterator>::IntoIter,
-        fn((u8, untyped::Node<T>)) -> (u8, Node<T, H>),
-    >;
+    type IntoIter = Map<fan::IntoIter<T>, fn((u8, untyped::Node<T>)) -> (u8, Node<T, H>)>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.inner
@@ -120,12 +117,12 @@ impl<T, H: Height> IntoIterator for Children<T, H> {
 ///
 /// The height marker is held as `PhantomData<fn() -> H>` rather than
 /// `PhantomData<H>`. Function pointers are unconditionally `Send + Sync`,
-/// so the auto-trait check on `Node` does not descend into the
-/// `S<S<S<...S<Z>...>>>` peano-style height chain. Without this, the
-/// `SharedPointer<...>: Send` obligation imposed by `imbl` (which
-/// requires its contents to be `Sync`) recursively walks 32 levels of
-/// `S<…>: Sync`, even though the type variable `H` itself is purely phantom
-/// and never constructs anything that could fail to be `Send`/`Sync`.
+/// so any auto-trait obligation on `Node` discharges without descending
+/// the `S<S<S<...S<Z>...>>>` peano-style height chain: a bare
+/// `PhantomData<H>` would send the trait solver walking 32 levels of
+/// `S<…>: Sync` on every `Send`/`Sync` check, even though the type
+/// variable `H` is purely phantom and never constructs anything that
+/// could fail to be `Send`/`Sync`.
 #[repr(transparent)]
 pub struct Node<T, H: Height> {
     height: PhantomData<fn() -> H>,
@@ -300,7 +297,7 @@ where
     pub fn branch(children: Children<T, H>) -> Option<Self> {
         Some(Node {
             height: PhantomData,
-            inner: untyped::Node::branch(children.into_untyped_map())?,
+            inner: untyped::Node::branch(children.into_fan())?,
         })
     }
 
@@ -312,7 +309,7 @@ where
             Err(_) => unreachable!("typed nonzero-height node cannot be an uncompressed leaf"),
         };
 
-        Children::from_untyped_map(children)
+        Children::from_fan(children)
     }
 
     /// Wrap `child` (at height `H`) beneath slot `index` of a virtual branch
@@ -437,9 +434,10 @@ impl<T, H: Height> PartialEq for Node<T, H> {
 // `prefix_len > 0` and reconstruct through [`Node::beneath`].
 //
 // The branch decoder builds a typed [`Children`] through its safe `insert`
-// API rather than transmuting an `OrdMap<u8, Node<T, H>>`: `Node` carries no
-// unsafe code, so the wire decoder stays within the same safe boundary as
-// [`Node::branch`].
+// API rather than transmuting an untyped fan: `Node` carries no unsafe
+// code, so the wire decoder stays within the same safe boundary as
+// [`Node::branch`]. The wire's ascending radix order makes each insert an
+// appending binary-search miss, so the rebuild costs no shifting.
 
 impl<T, H> BorshSerialize for Node<T, H>
 where

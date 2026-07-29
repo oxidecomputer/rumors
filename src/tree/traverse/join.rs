@@ -152,7 +152,7 @@ where
                             merged.insert(radix, child);
                         }
                         None => {
-                            merged.remove(&radix);
+                            merged.remove(radix);
                         }
                     }
                 }

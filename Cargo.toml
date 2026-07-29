@@ -37,7 +37,6 @@ protocol-v1 = []
 
 [dependencies]
 before = { path = "crates/before", features = ["borsh"] }
-imbl = "7"
 bytes = "1"
 blake3 = "1.8"
 static_assertions = "1.1"
