@@ -24,11 +24,15 @@ final codes — the coding is self-delimiting, so nothing short of
 parsing reveals even where the value ends. No algorithm can beat one
 full pass in the worst case, so a bounded number of linear passes is
 optimal up to constants. Each second pass is argued where it occurs:
-tick's lookahead is information-forced, rank's pre-pass is the one
-funded form we know, and @projection argues the one
+tick's lookahead is information-forced, rank's pre-pass is argued
+against its alternative, and @projection argues the one
 output-denominated operation. The early-exit walks — comparison, the
 predicates — beat the floor on favorable inputs without owing
-anything on unfavorable ones.
+anything on unfavorable ones. One family of operations answers to a
+_higher_ floor: the exact area measures (@measures), whose answer
+can embed an arbitrary integer product, so the honest yardstick
+there is the cost of one multiplication — proven mandatory by
+construction — and the walk's own traffic stays linear around it.
 
 == The overlay walk <sweep>
 
@@ -232,6 +236,36 @@ $1, 2, 2$; the two depth-2 siblings merge into a depth-1 leaf, which
 now equals _its_ pending sibling and merges again — the output is the
 single leaf $0$, two bits, born canonical.
 
+#figure(
+  attack(
+    [alternating pair$(t)$],
+    [the emission walk's side switches],
+    stack(dir: ttb, spacing: 4pt,
+      overlay(
+        ((0.125, 3), (0.125, 1), (0.125, 4), (0.125, 2),
+         (0.125, 3), (0.125, 1), (0.125, 4), (0.125, 2)),
+        ((0.125, 1), (0.125, 3), (0.125, 2), (0.125, 4),
+         (0.125, 1), (0.125, 3), (0.125, 2), (0.125, 4)),
+        w: 210pt, unit: 10pt, label-a: $a$, label-b: $b$,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [two organically forked-and-ticked versions whose dominance
+         alternates at every one of the $t - 1$ overlay boundaries
+         — join and meet alike, with no boundary ever collapsing]),
+    ),
+    [a side switch at every boundary: the maximum possible density
+     of the one emission step that must read the running
+     difference's sign and magnitude.],
+    cure: [each switch's read is priced by the boundary's own
+      folded codes ($|D'|$ bounded by the deltas just folded, the
+      collapse having flattened any cancelling prefix), so maximal
+      density buys no amplification — the walk measures flat.],
+  ),
+  kind: image,
+  caption: [The alternating pair attack card: switch density at its
+    ceiling, aimed at the jump read.],
+) <fig-attack-alternating>
+
 Cost: the walk is linear; folds are funded by input codes; switch
 reads are funded by the boundary's own codes; each emitted code is
 written once, and a merge cascade deletes at least two codes for
@@ -276,6 +310,94 @@ roughly
 1.5 million generated operand pairs. Joins never blow up — the inequality is what lets a
 system fold thousands of versions together with a predictable memory
 ceiling.
+
+One more design point closes the lattice story: the _n-ary_ folds.
+Joining or meeting a whole population is not a loop over the binary
+operation in arrival order; it is a *balanced reduction*, pairing
+operands of similar accumulated weight so that every input passes
+through $O(log k)$ two-operand steps — $O(D log k)$ time and $O(D)$
+space over $k$ operands of $D$ total packed bits. The sequential
+left-to-right fold it replaces has a genuine quadratic in each
+direction, and both refuting populations are ordinary values. For
+the meet: an accumulator's _value_ shrinks with every step, but its
+_packed size_ need not — one deep operand among $k$ shallow operands
+that all dominate it leaves the running meet byte-identical to the
+deep operand at every step, and a sequential fold re-walks it once
+per operand, $Theta(k dot d)$ on a $Theta(k + d)$-bit population.
+For the join, the mirror: single-plateau operands ordered so that no
+two consecutive arrivals are adjacent in the id space keep the
+accumulator's plateaus from ever coalescing, and the sequential fold
+re-walks the accumulated result per arrival. The balanced tree walks
+any such stubborn operand once per _level_ instead of once per
+operand; its intermediate results can legitimately swell toward the
+sum of their inputs' sizes at every level (a population of mutually
+interleaved teeth achieves exactly that), which is the $log k$
+factor's honest content, not an accident to engineer away. The party
+side runs the same reduction with one further obligation: the n-ary
+party union is _fallible_ — an operand overlapping the accumulated
+group is rejected and handed back — and each rejection is priced at
+the rejected operand's own bits (its overlap witness sits at the
+bottom of its own path) plus the reduction's logarithmic factor,
+never at a re-probe of the accumulated group.
+
+#figure(
+  attack(
+    [shaded carrier$(d, k)$],
+    [the n-ary meet's accumulator],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([carrier], codestrip((
+        ([a $d$-level dense version, $Theta(d)$ bits], 150pt, "t"),
+      ))),
+      oprow([$k - 1$ shades], codestrip((
+        ([flat 3], 34pt, "p"), ([flat 3], 34pt, "p"),
+        ([$dots.c$], 14pt, "x"), ([flat 3], 34pt, "p"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [every shade dominates the carrier everywhere, so the
+         running meet stays byte-identical to the carrier at every
+         step — never equal to a shade, never empty]),
+    ),
+    [a sequential reduce re-walks the whole carrier per shade:
+     $Theta(k dot d)$ on a $Theta(k + d)$-bit population, with no
+     short-circuit available.],
+    cure: [the balanced reduction: the carrier is walked once per
+      counter level, $O(d log k + k)$ — the committed sequential
+      form survives only as the adequacy tripwire that keeps this
+      cell's verdict live.],
+  ),
+  kind: image,
+  caption: [The shaded carrier attack card: a value that never
+    shrinks, aimed at fold orders that re-walk their
+    accumulator.],
+) <fig-attack-shade>
+
+#figure(
+  attack(
+    [staggered teeth$(k, m)$],
+    [the balanced reduction's intermediate results],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([operand 1], skyline(((0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0)), w: 170pt, unit: 9pt, show-heights: false)),
+      oprow([operand 2], skyline(((0.125, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.065, 0)), w: 170pt, unit: 9pt, show-heights: false)),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$k$ operands of $m$ unit teeth each, every operand's teeth
+         in the gaps of every other's, fed in an order that pairs
+         the least-overlapping groups first at every level]),
+    ),
+    [every internal merge, at every level, swells to near the sum
+     of its inputs' sizes — no coalescing until the last level: the
+     declared $O(D log k)$ model's worst case, realized in full.],
+    cure: [nothing to defeat — the family gauges the model itself:
+      the measured per-level cost holds flat across joint doublings
+      of $k$ and $m$, so the log factor is the reduction's honest
+      price, not a leak. Kin gauge the single axes: single-tick
+      operands ordered never to coalesce (arity), and interleaved
+      region sets under one shared skeleton (operand size).],
+  ),
+  kind: image,
+  caption: [The staggered teeth attack card: the joint
+    arity-times-size loading of the balanced fold, with its
+    single-axis kin in the cure line.],
+) <fig-attack-stagger>
 
 == The party operations <id-ops>
 
@@ -349,6 +471,70 @@ minus one) rather than by
 anything stacked per level. Early exit at the first refuting
 position.
 
+#figure(
+  attack(
+    [lockstep pair$(d)$],
+    [the party predicates' per-level state],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([party $p$], codestrip((
+        ([node], 26pt, "t"), ([node], 26pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([node], 26pt, "t"), ([owned], 34pt, "t"),
+      ))),
+      oprow([party $q$], codestrip((
+        ([node], 26pt, "t"), ([node], 26pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([node], 26pt, "t"), ([owned], 34pt, "t"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [two spines descending in full lockstep for $d$ levels,
+         diverging only at the bottom: every level is a paired
+         descent both walks must suspend]),
+    ),
+    [any predicate that suspends a word per paired level pays
+     $Theta(d)$ words of transient state against $Theta(d)$ _bits_
+     of operand.],
+    cure: [the paired obligation counter: both-descend counts $+1$,
+      terminal-or-absent counts $-1$ — $O(1)$ state in total for
+      `covers` and `disjoint`, with subtree skips priced by the
+      skipped stream's own bits.],
+  ),
+  kind: image,
+  caption: [The lockstep pair attack card: maximal paired depth,
+    aimed at per-level suspension in the verdict walks.],
+) <fig-attack-lockstep>
+
+#figure(
+  attack(
+    [aliased shares$(k, d)$],
+    [the n-ary party union's rejection path],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([host], codestrip((
+        ([owns everything but one depth-$d$ fragment], 170pt, "t"),
+      ))),
+      oprow([$k$ operands], codestrip((
+        ([fragment], 48pt, "t"), ([fragment], 48pt, "t"),
+        ([$dots.c$], 14pt, "x"), ([fragment], 48pt, "t"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$k$ byte-identical spellings of one deep fragment against
+         a host owning the rest: exactly one completes the region,
+         and every other must be rejected and handed back]),
+    ),
+    [a rejection path that re-probes the accumulated group per
+     rejected operand pays the group's size $k$ times; each
+     operand's overlap witness sits at the bottom of its own
+     $d$-level path, so even the honest walk is forced to
+     $Theta(k dot d)$ — the floor the meter's liveness check
+     pins.],
+    cure: [each rejection pays its own path plus one failed
+      lowest-weight combine, never a re-probe: flat per population
+      byte across an arity doubling, and within the reduction's
+      declared log factor across a depth doubling.],
+  ),
+  kind: image,
+  caption: [The aliased shares attack card: mass rejection, aimed
+    at hand-back paths that touch the accumulated group.],
+) <fig-attack-alias>
+
 == Projection: pricing by mandatory output <projection>
 
 The projection $v \/ p$ masks a version's skyline to a party's owned
@@ -374,11 +560,30 @@ scattered party owning every other tooth. Masking breaks every chain
 of cheap deltas with an interleaved zero, so each kept tooth must
 re-spell its full $k$-bit height: the _output_ is
 $Theta(t dot k)$ bits from a $Theta(t + k)$-bit input — mandatory
-given that the result must itself be a canonical stream (a lazy
-"masked view" would dodge it, at the price of every downstream
-consumer carrying the mask forever). No algorithm can beat its own
-output. So we claim only what holds, and hold the implementation to
-it: the sweep is linear in _input plus output_, and
+given that the result must itself be a canonical stream. No
+algorithm can beat its own output — so the design makes sure a
+caller pays it only when a stored value is actually wanted. The
+projection ships in two forms. The primary form is a _view_: a
+borrowed pair (version, party), built in $O(1)$, that never spells
+the masked skyline at all. Comparing a view — against a version, or
+against another view — runs as one fused co-walk over the three or
+four operand streams, the masks folded into the comparison sweep's
+running difference on the fly, priced by the operands' packed sizes
+and never by the projection's; equality on views is semantic, not
+byte-level, precisely because no canonical bytes exist to compare.
+Materializing the projection as a value is a second, explicit
+operation — the emitting sweep above — and the only one that pays
+the output term. The correlated family that stresses the fused walk
+interleaves the amplifiers of everything before: a comb whose teeth
+oscillate across a carry cliff, under a mask owning every other
+tooth, compared against a wide flat plateau — every ownership
+toggle alternates the walk between a sign read of a near-cancelled
+wide difference and a zero test of a masked height, each operand
+harmless alone. The accumulator's collapse and domination floors
+answer every such read in amortized $O(1)$; nothing is
+materialized. So we claim only what holds, and hold the
+implementation to it: the materializing sweep is linear in _input
+plus output_, the view's comparisons are linear in input alone, and
 nothing else in this section has an _unbounded_ output ratio.
 Fork's halves each stay within their operand's size plus two bits
 (the fresh node), and the pair within twice that plus four; the
@@ -388,12 +593,83 @@ sum; tick's
 output can exceed its input by at most a constant factor
 (@tick-output); join's cannot exceed it at all.
 
+#figure(
+  attack(
+    [scattered-party comb$(t, k)$],
+    [projection — through its mandatory output],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([version], skyline(
+        ((0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1),
+         (0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1)),
+        w: 170pt, unit: 10pt, show-heights: false)),
+      oprow([party], codestrip((
+        ([own], 21pt, "t"), ([—], 21pt, "x"), ([own], 21pt, "t"),
+        ([—], 21pt, "x"), ([own], 21pt, "t"), ([—], 21pt, "x"),
+        ([own], 21pt, "t"), ([—], 21pt, "x"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [a comb of $t$ teeth riding a $k$-bit base — cheap deltas —
+         under a party owning every other tooth: masking breaks
+         every chain of cheap deltas with a zero]),
+    ),
+    [every kept tooth re-enters the skyline at its full $k$-bit
+     absolute: $Theta(t dot k)$ bits of _mandatory_ output from a
+     $Theta(t + k)$-bit input.],
+    cure: [no algorithm beats its own output, so the design splits
+      the operation: comparisons run through the lazy view at the
+      operands' size, and the materializing sweep is held linear in
+      input _plus_ output — the honest denominator.],
+  ),
+  kind: image,
+  caption: [The scattered-party comb attack card: the one unbounded
+    output ratio in the system, aimed at any claim that forgot to
+    denominate output.],
+) <fig-attack-scattered>
+
+#figure(
+  attack(
+    [masked drift$(t, k)$],
+    [the view's fused masked comparison],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([version], skyline(
+        ((0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1),
+         (0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1)),
+        w: 170pt, unit: 10pt, show-heights: false)),
+      oprow([mask], codestrip((
+        ([own], 21pt, "t"), ([—], 21pt, "x"), ([own], 21pt, "t"),
+        ([—], 21pt, "x"), ([own], 21pt, "t"), ([—], 21pt, "x"),
+        ([own], 21pt, "t"), ([—], 21pt, "x"),
+      ))),
+      oprow([against], skyline(((1.0, 2),), w: 170pt, unit: 10pt,
+        show-heights: false)),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [the comb's teeth oscillate across a $2^k$ carry cliff
+         behind 3-bit codes; the flat operand stands at $2^k$; the
+         mask toggles at every tooth]),
+    ),
+    [every toggle alternates the walk between the sign of a
+     near-cancelled wide difference and a zero test of a masked
+     height — each operand harmless alone, the composition aiming
+     the carry cliff at both reads at once.],
+    cure: [the collapse and the domination floors answer both reads
+      in amortized $O(1)$ (@sign); nothing is materialized, and the
+      verdict walk stays linear in the three operands. A
+      four-stream variant — two view-against-view masks with
+      interleaved parities — lands on the same machinery.],
+  ),
+  kind: image,
+  caption: [The masked drift attack card: correlated operands
+    aiming an old amplifier at the fused three-stream walk.],
+) <fig-attack-maskdrift>
+
 == The measures <measures>
 
 Four measures ride the same skyline reading: rank is its area,
-distance and lag are areas of differences, and the minimum tick
-count is a telescoped sum of sibling minima. The first is the one
-with machinery.
+distance and lag are areas of a difference, and the minimum tick
+count is a sum of leaf heights less subtree minima. The area
+measures carry this section's deepest machinery — and its one
+honestly superlinear operation, priced against a floor proven by
+construction.
 
 === Rank
 
@@ -419,76 +695,530 @@ operations the introduction owned up to. The pre-pass earns its
 keep: the
 alternative anchors the total at the running maximum depth and
 rescales the held digits whenever it rises, a held-width rewrite
-per rise that a steadily deepening stream turns quadratic. Knowing
-$S$ up front makes every landing final. The naive fold
+per rise that a stream carrying width down every level turns
+quadratic — a one-leaf-per-depth staircase makes the running
+numerator as wide as the depth already walked at _every_ level.
+Knowing $S$ up front makes every landing final. The naive fold
 materializes $h_i$ per leaf — the boundary comb makes that
-$Theta(n dot k)$ again. The cure splits the running height into
-_frozen + live_, $h = F + L$: $L$, an accumulator holding the drift
-since the last _freeze_; $F$, the rest, touched only when a freeze
-evicts $L$ into it. Per leaf the fold adds only $L$'s digits,
-bounded by the codes folded since the freeze and so paid for. The
-scaled add (requirement 2, @accum-contract) lands them at
-the leaf's weight in one pass, into a running total that stays
-write-only until the sweep's single closing materialization, as the
-scaled add's discipline requires (@sign). $F$'s contribution enters
-by summation by parts:
+$Theta(n dot k)$ again. The cure splits the integrand into three
+_anchored_ components, $h = B + P + L$, and the split's governing
+rule is worth stating before its parts: *no correction, at any
+point of the sweep or its close, multiplies by an absolute
+position.* Positions grow arbitrarily dense while the codes at hand
+stay cheap — a spine that plants isolated position bits a full
+digit apart buys, with topology alone, absolute positions whose
+signed-digit spelling no code ever funded — so a design that
+settles evicted drift against "the mass before this point" has a
+quadratic waiting in it. The components:
 
-$ sum_i F_i dot "mass"_i = F_"final" dot 2^S - sum_("freezes" j) Delta F_j dot ("prefix mass before" j) $
+- $L$ (_live_): the drift since the last _freeze_. Each elementary
+  interval adds $L$'s digits at the interval's weight — the scaled
+  add of requirement 2 (@accum-contract), into a running total that
+  stays write-only until the sweep's single closing materialization
+  (@sign) — and the add is bounded by the width of the delta folded
+  at the previous boundary plus a fixed allowance. The freeze
+  trigger keeps that true: a freeze fires when a folded delta finds
+  $L$ wider than that delta's own code by more than the allowance —
+  the signature of stale wide drift about to ride under cheap
+  codes. Bounded oscillation at _any_ width stays within its own
+  codes' width plus the allowance and never freezes.
+- $B$ (_base_): the opening plateau, anchored at position zero,
+  closing in one shifted add $B dot 2^S$.
+- $P$ (_parked_): drift a freeze moved out of $L$, anchored _at
+  that freeze_. A segment-mass accumulator sums the interval masses
+  since $P$'s anchor, and the next freeze (or the stream's end)
+  settles $P dot "segment"$ in one product and re-anchors. The
+  anchoring is the point: the segment mass's nonzero digits span
+  only the _depth variation inside the segment_ — the dyadic
+  positions' shared prefix never appears in it — so a parked crest
+  settled a boundary later costs $P$'s width times $O(1)$ digits
+  however dense the absolute position is. The segment lives in the
+  scaled write-only mode and is read out once, at its own written
+  span (@accum-contract's watermark read), never at its scale.
 
-(the total mass is $2^S sum_i 2^(-d_i) = 2^S$, the leaf widths
-summing to one): one wide shifted add at the end, plus one correction per freeze
-priced by the drift $Delta F_j$ being evicted — which is exactly what
-the codes since the previous freeze paid for. The trigger is
-concrete: a freeze fires when a folded delta finds $L$ wider than
-that delta's own code by more than a fixed allowance of digits — the
-signature of stale wide drift about to ride under cheap codes. The
-trigger buys two things at once: a firing freeze evicts drift
-that the earlier, wider codes funded (they made $L$ wide); and bounded
-oscillation at _any_ width keeps $L$ within its own codes' width
-plus the allowance, so it never freezes at all.
+Two further pieces complete the machinery. First, a gate: the
+segment feed _opens at the first freeze_. Segment mass exists only
+to settle parked drift, and no drift precedes the first freeze, so
+a sweep that never freezes — word-scale heights, the practical
+regime — deposits no interval mass at all and pays nothing for the
+settle machinery's existence. Second, a ledger: when incoming
+drift runs more than the allowance _narrower_ than $P$, settling
+$P$ per freeze would re-read its full width against every later
+narrow-drift freeze, so $P$ is instead _promoted_ — recorded once,
+with the window of interval mass banked since the previous
+promotion, as one ledger entry; two funded-width reads, no
+product. An entry's debt is $P dot (2^S - "position")$, which the
+window decomposition turns into cross terms: entry $i$ owes
+$P_i dot w_j$ against every later window $w_j$. The ledger settles
+once, at the sweep's close, as one product tree over the entry
+sequence, balanced by _mass_ (parked digits plus window density,
+not entry count): each node contributes exactly one aggregate
+product — the left half's summed parked components times the right
+half's summed windows, parked sums folded digit-wise so opposing
+armings cancel before any product reads a width, window sums held
+as sparse balanced signed digits so a long climb's consumed mass
+compacts to $O(1)$ terms — and each product is delegated,
+cluster-wise, to sub-quadratic integer multiplication. Every cross
+term rides exactly one aggregate product; no width or density is
+re-read more times than its node's depth, which the mass balance
+keeps logarithmic; and the geometric shrink of node masses down the
+tree telescopes the products' costs into the root's.
 
-One uncertified case, stated rather than smoothed — the first of the
-introduction's two argument boundaries. Each freeze correction
-also multiplies by its freeze _position_ (the prefix mass), and the
-funding argument certifies the product only where the position's
-signed-digit form compacts to $O(1)$ digits — which it does on every
-adversarial family we construct or have seen (comb positions are
-ones-runs, two signed digits). A stream engineered to re-arm wide
-drift under cheap codes at maximally dense positions sits outside the
-certified argument, and the work it would provoke there deserves its
-plain
-name: a wide-times-wide product, the one primitive in the system
-capable of superlinear work. Measured behavior there is still held by an
-enforced ceiling — accumulator digit touches per packed input byte,
-pinned flat across size doublings on the committed families — but the
-derivation above does not cover the shape, and we say so.
+What may all this cost? Three statements, each with its status. The
+walk's own traffic — scan, decode, folds, the per-freeze and
+per-promotion reads — is linear in the packed input, derived
+through @funding, and streams whose parked drifts stay a bounded
+number of digits wide (every committed adversarial family) run in
+$O(n log n)$ total. The settle products are the honest exception,
+and they are _mandatory_: a version of $Theta("bits"(x) +
+"bits"(y))$ stored bits can embed the product of two arbitrary
+integers in its exact rank. Put the plateau $x$ over a spine whose
+right turns spell the mass $2y$ bit by bit — each turn's interval
+mass is one set bit of $2y$ — and the exact numerator is
+$2 x y + 1$: any fold that answers exactly has multiplied two
+input-funded factors at linear overhead, so $Omega(M(n))$ digit
+work is mandatory, with $M$ the integer-multiplication bound of
+the arithmetic backend. The matching upper bound: the settle runs
+in $O(M(n))$ whenever the products land in a power-law tier of the
+backend's multiplication — cluster splitting keeps every densified
+span funded, and the mass balance telescopes the tree — which
+covers every input whose packed size is under roughly 64 kilobytes
+(no product's factor side clears the backend's quasilinear
+threshold, near 32 kilobytes per side, before that) and every
+input of any size that arms the ledger $O(1)$ times. Past that
+tier the per-level products stop telescoping and the settle pays
+at most one extra tree-depth factor, $O(M(n) dot log n)$ — and the
+log factor is tight there (derived; the witness family needs
+operands past 65 kilobytes, too large to sit in a committed test).
+The gap between $O(M(n) dot log n)$ and $Omega(M(n))$ is not
+contractual: a deeper mechanism change may close the tree-depth
+factor, and nothing may beat one multiplication on the
+answer-embedding inputs. Stating the bound in terms of $M$ is
+deliberate: it is stable under backend swaps, and it names the one
+primitive doing the superlinear work.
+
+The machinery above was not designed in one sitting; each piece is
+the survivor of a construction aimed at its predecessor, and the
+cards below collect the family per piece — in the order the pieces
+appeared.
+
+#figure(
+  attack(
+    [one-leaf ladder$(d)$],
+    [the weighted fold's scale anchor],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.03125, 0), (0.03125, 1), (0.0625, 1), (0.125, 1),
+         (0.25, 1), (0.5, 1)),
+        w: 210pt, unit: 14pt, show-heights: false,
+        ticks: ((0.0, [0]), (0.5, [½]), (1.0, [1])),
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [one unit leaf at every depth: level $i$ contributes area
+         $2^(-i)$, so the running numerator is the all-ones
+         integer as wide as the depth already walked — at every
+         level]),
+    ),
+    [a fold that anchors at the running maximum depth rescales its
+     held numerator at every deepening: $Theta(d^2)$ limb work
+     against $Theta(d)$ input bits.],
+    cure: [the topology-only pre-pass pins $S$ up front; every
+      landing is final, and this family reads the same linear
+      signature as a one-bit-numerator control.],
+  ),
+  kind: image,
+  caption: [The one-leaf ladder attack card: width bought by depth
+    alone, aimed at per-level rescaling.],
+) <fig-attack-ladder-fam>
+
+#figure(
+  attack(
+    [jump comb$(t, k)$],
+    [the live component's width discipline],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 1), (0.125, 2), (0.125, 5), (0.125, 6),
+         (0.125, 5), (0.125, 6), (0.125, 5), (0.125, 6)),
+        w: 210pt, unit: 11pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [a low start, one wide mid-stream jump to a $2^k$-scale
+         band, then 3-bit oscillation: the jump is the one wide
+         code, arriving with only cheap codes behind and ahead of
+         it]),
+    ),
+    [a sweep that keeps the jump in its running state re-reads its
+     $k$-bit width under every later 3-bit code — stale drift
+     riding a cheap-delta path.],
+    cure: [the relative freeze trigger: the first cheap code that
+      finds the live drift over-wide evicts it, once, paid by the
+      jump's own code — while bounded oscillation at any width
+      (the wide-tooth comb) never trips it.],
+  ),
+  kind: image,
+  caption: [The jump comb attack card: eviction priced against
+    residence — the freeze trigger's two-sided witness.],
+) <fig-attack-jumpcomb>
+
+#figure(
+  attack(
+    [lone freeze$("pre", "post")$],
+    [the settle machinery's fixed costs],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.1, 5), (0.1, 6), (0.1, 5), (0.1, 6),
+         (0.15, 2), (0.1125, 1), (0.1125, 2), (0.1125, 1), (0.1125, 2)),
+        w: 210pt, unit: 11pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [a long wide-plateau oscillation (no freeze ever fires),
+         one allowance-clearing drop (the sweep's single freeze),
+         then a long cheap tail with the parked drift live]),
+    ),
+    [a per-interval deposit made _before_ any drift exists to
+     settle scales with the prefix and is never read; a tail feed
+     or close read not amortized $O(1)$ per interval scales with
+     the tail against $O(1)$ funded wide codes.],
+    cure: [the first-freeze gate — the segment feed opens only when
+      parked drift exists — and the watermark segment read: the one
+      settle is priced at the segment's written span. The family
+      dials both axes independently.],
+  ),
+  kind: image,
+  caption: [The lone freeze attack card: the smallest nonempty
+    settle, aimed at costs that should be zero on never-freezing
+    sweeps.],
+) <fig-attack-lonefreeze>
+
+#figure(
+  attack(
+    [freeze staircase$(s)$],
+    [freeze accounting against absolute positions],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 6), (0.125, 5), (0.125, 4), (0.125, 3),
+         (0.125, 2), (0.125, 1), (0.125, 1), (0.125, 0)),
+        w: 210pt, unit: 11pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$2s$ descending leaves alternating a ten-digit drop and a
+         unit drop down a spine: every pair re-arms wide drift and
+         the unit fires a freeze — $Theta(s)$ freezes at ever
+         deeper stream positions]),
+    ),
+    [an accounting that multiplies evicted drift by its absolute
+     position — or re-reads any whole-history state per freeze —
+     goes quadratic while every comb fires $O(1)$ freezes and this
+     family's positions compact to $O(1)$ digits.],
+    cure: [anchored segments: each settle multiplies the parked
+      drift by the interval mass _since its own anchor_, so no
+      absolute position is ever a factor; the committed
+      absolute-position kernel keeps reading superlinear beside
+      the flat pin.],
+  ),
+  kind: image,
+  caption: [The freeze staircase attack card: many freezes, deep
+    positions — the family that forced the anchoring rule.],
+) <fig-attack-freezepos>
+
+#figure(
+  attack(
+    [re-arming spine$(p)$],
+    [the parked component's re-settle width],
+    stack(dir: ttb, spacing: 5pt,
+      codestrip((
+        ([span-building prefix: $32p$ cheap levels], 118pt, "t"),
+        ([climb $2^608$], 52pt, "w"), ([1], 12pt, "p"),
+        ([climb $2^288$], 46pt, "w"), ([1], 12pt, "p"),
+        ([$dots.c times p$], 30pt, "x"),
+      )),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [each block parks a 20-digit drift, then freezes again at a
+         10-digit one: the parked component is over-wide at every
+         second freeze, $Theta(p)$ times, at $O(1)$ stored codes
+         each — over a consumed mass whose written span keeps
+         growing]),
+    ),
+    [a design that re-settles the full parked width at every
+     narrower freeze — or re-reads the whole banked mass per
+     arming — goes quadratic at $O(1)$ codes per block.],
+    cure: [promotion: an over-wide parked component is recorded
+      once, with its banked window, as one ledger entry — two
+      funded-width reads, no product — and settles once, at the
+      close.],
+  ),
+  kind: image,
+  caption: [The re-arming spine attack card: many armings, the
+    family that forced the promotion ledger.],
+) <fig-attack-rearm>
+
+#figure(
+  attack(
+    [punctured tail$(p, d)$],
+    [the ledger settle's re-read discipline],
+    stack(dir: ttb, spacing: 5pt,
+      codestrip((
+        ([gap spine: $d$ turns, one digit apart], 100pt, "t"),
+        ([arming], 34pt, "w"), ([arming], 34pt, "w"),
+        ([$dots.c times p$], 30pt, "x"),
+        ([trailing mass: ones-run punctured $d$ times], 110pt, "p"),
+      )),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$p$ promotions all owing their debt across one trailing
+         interval mass whose punctures sit a full digit apart —
+         $Theta(d)$ balanced digits no compaction can merge]),
+    ),
+    [a settle that walks the suffix once per arming — or re-reads a
+     promoted prefix once per window — pays $Theta(p dot d)$
+     against a $Theta(p + d)$-bit input; the two directions are
+     duals, and each defeats a naive associativity.],
+    cure: [the mass-balanced product tree: every arming-window
+      cross term rides exactly one aggregate product, and no width
+      or density is re-read more times than its node's depth —
+      logarithmic by the mass balance.],
+  ),
+  kind: image,
+  caption: [The punctured tail attack card (with its cheap mate for
+    the pair measures): the shared-suffix loading of the ledger
+    settle.],
+) <fig-attack-densesuffix>
+
+#figure(
+  attack(
+    [arming train$(t, w, g)$],
+    [the product tree's aggregation],
+    stack(dir: ttb, spacing: 5pt,
+      codestrip((
+        ([window 1], 40pt, "t"), ([$+2^(32 w)$], 40pt, "w"),
+        ([window 2], 40pt, "t"), ([$-2^(32 w)$], 40pt, "w"),
+        ([window 3], 40pt, "t"), ([$+2^(32 w)$], 40pt, "w"),
+        ([$dots.c$], 16pt, "x"),
+      )),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$t$ wide armings, each behind its own dense
+         topology-funded window; a sign dial makes consecutive
+         armings alternate or align]),
+    ),
+    [an aggregation that cannot cancel opposing armings before
+     multiplying pays every full width against every window to its
+     right; one that re-reads windows per level without a mass
+     balance stacks a polylog on the multiplication bound.],
+    cure: [aggregate nodes sum parked components digit-wise
+      (opposing armings cancel before any product reads a width)
+      and hold windows as sparse balanced digits; the mass split
+      keeps the per-level products telescoping.],
+  ),
+  kind: image,
+  caption: [The arming train attack card: many wide armings with
+    interleaved windows, aimed at the settle's aggregation
+    algebra.],
+) <fig-attack-armingtrain>
+
+#figure(
+  attack(
+    [wide arming$(w, d)$],
+    [the settle product itself],
+    stack(dir: ttb, spacing: 5pt,
+      codestrip((
+        ([gap spine: $d$ turns], 70pt, "t"),
+        ([one arming, $32 w$ bits — as wide as the input], 130pt, "w"),
+        ([trailing mass: $d$ dense digits], 90pt, "p"),
+      )),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [one promotion whose parked mass is as wide as the input,
+         owing its debt across a trailing mass as dense as the
+         input — the wide $times$ dense product at its purest]),
+    ),
+    [a per-digit schoolbook charge pays $Theta(w dot d)$ digit work
+     against a $Theta(w + d)$-bit operand — quadratic at $w = d$;
+     the committed schoolbook kernel keeps failing exactly here.],
+    cure: [delegation: the product rides one sub-quadratic backend
+      multiplication per dense cluster, so the settle costs the
+      multiplication bound $M$ over its funded factors — which the
+      floor below proves is not overhead but the answer's own
+      price.],
+  ),
+  kind: image,
+  caption: [The wide arming attack card: the product no charge
+    scheme can split, priced at the multiplication bound.],
+) <fig-attack-widearming>
+
+#figure(
+  attack(
+    [puncture product$(x, y)$],
+    [every exact area fold — the floor],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.5, 3), (0.25, 0), (0.125, 3), (0.0625, 3), (0.0625, 0)),
+        w: 210pt, unit: 13pt, show-heights: false,
+        ticks: ((0.0, [0]), (0.5, [½]), (1.0, [1])),
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [a plateau at the arbitrary integer $x$ (drawn as 3) over
+         dyadic turns whose interval masses spell the arbitrary
+         mass $2y$ bit by bit: the exact rank numerator is
+         $2 x y + 1$, and the stored version is
+         $Theta("bits"(x) + "bits"(y))$ bits]),
+    ),
+    [nothing — this family is not defeated. Any fold that answers
+     exactly has computed $x dot y$ from input-funded factors at
+     linear overhead: $Omega(M(n))$ digit work is mandatory, and no
+     future mechanism can go below one multiplication here.],
+  ),
+  kind: image,
+  caption: [The puncture product attack card: the answer-embedding
+    reduction. The committed instance draws both factors from an
+    incompressible digit stream, so neither side compacts and the
+    floor's denominator cannot drift.],
+) <fig-attack-puncture>
+
+#figure(
+  attack(
+    [weight comb$(t)$],
+    [the accumulator's top settlement, through rank's deposits],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.02, 1), (0.02, 0), (0.12, 0), (0.105, 0), (0.105, 2),
+         (0.105, 0), (0.105, 2), (0.105, 0), (0.105, 2),
+         (0.105, 0), (0.105, 2)),
+        w: 210pt, unit: 13pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [one unit parked at depth $32t$ (the sliver at the left,
+         landing at digit 0), then $2t$ shallow leaves oscillating
+         0 and 2, whose deposits land $Theta(t)$ digits above it —
+         position weight is topology, so no code funds the gap]),
+    ),
+    [every cancellation makes the accumulator's top settle back
+     across the never-written run: a scan that steps it digit by
+     digit pays $Theta(t)$ unfunded touches per $O(1)$-bit event.],
+    cure: [the zero-run certificates of @redundant's storage
+      remark: the write that jumps a run records it once, and every
+      settling scan crosses it whole — one touch however wide.],
+  ),
+  kind: image,
+  caption: [The weight comb attack card: topology-funded gaps
+    between deposits, aimed at digit-stepped top scans.],
+) <fig-attack-weightcomb>
+
+#figure(
+  attack(
+    [freeze parade$(t)$],
+    [the scaled segment read, through rank's freezes],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.02, 1), (0.02, 0), (0.12, 0), (0.14, 6), (0.14, 4),
+         (0.14, 4), (0.14, 2), (0.14, 2), (0.14, 0)),
+        w: 210pt, unit: 9pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [the same parked unit at depth $64t$, then $t$ shallow
+         wide-drop pairs, each firing one freeze whose segment
+         masses all sit $Theta(t)$ digits above digit 0]),
+    ),
+    [a segment read-out that starts at digit 0 walks the
+     never-written prefix once per freeze — $Theta(t^2)$ touches on
+     linear input, dragging the wide-operand traffic with it.],
+    cure: [the write watermark (@accum-contract's materialize
+      clause): each read is priced at the segment's written span
+      and returns the scale unspelled — the deep parked unit
+      forecloses every emptiness shortcut that would fake it.],
+  ),
+  kind: image,
+  caption: [The freeze parade attack card: deep-scale segments,
+    aimed at read-outs that walk their scale.],
+) <fig-attack-parade>
 
 === Distance and lag
 
-Distance and lag need no machinery of their own — the lattice
-already paid for them:
+Distance and lag take their _meaning_ from the lattice:
 
 $ "distance"(a, b) &= integral |h_a - h_b| &&= "rank"(a or b) - "rank"(a and b), \
   "lag"(a, b) &= integral (h_b - h_a)^+ &&= "rank"(a or b) - "rank"(a), $
 
-each a difference of linear pieces (the pointwise identities
-$max - min = |a - b|$ and $max - a = (b - a)^+$, integrated; the
-two ranks align their scales before subtracting — one scaled add,
-funded by depth bits already read).
+the pointwise identities $max - min = |a - b|$ and
+$max - a = (b - a)^+$, integrated.
 Distance is a metric on versions — a genuine one, not a
 pseudometric: symmetry and the triangle inequality are inherited
 pointwise from $|dot|$, and distance zero forces equality because
 distinct versions denote distinct functions (@canonical's uniqueness
 argument), which then differ over some plateau of positive width. Lag is the one-sided
 "how much of $b$ have I not seen", the natural backpressure signal
-for anti-entropy protocols. The composite route — emit, then rank —
-is the implementation's, not merely the correctness argument's: it
-reuses two sweeps the system already maintains, at a pass count the
-identities make explicit (two emissions and two rank computations,
-each two passes, for distance; one emission and two for lag; every
-piece linear). A fused single-walk fold of the integrals exists,
-but it would be a third weighted walk to build and hold correct,
-bought only to shave passes whose count is already bounded.
+for anti-entropy protocols.
+
+The identities are the semantics and the differential oracle; they
+are deliberately _not_ the implementation. The composite route —
+emit the join and the meet, rank them, subtract — was refuted by a
+two-operand construction: one operand's wide difference crests
+riding over the other's cheap codes, deep under a spine that makes
+every absolute position dense. There the meet's emission re-codes
+one operand's width into switch jumps, and the ranks' integrals
+then evict that drift at boundaries the _other_ operand's cheap
+codes set, at a position density neither operand funded — each
+operand certified linear alone, the composition superlinear. The
+landed form is a single fused co-sweep: one merge walk over both
+streams maintaining the running difference $D = h_a - h_b$ exactly
+as comparison does, integrating $h^* = sigma dot D$ where
+$sigma in {-1, 0, +1}$ is the measure's _orientation_ at
+$"sign"(D)$ (distance: the sign itself; lag: $-1$ where $D < 0$,
+else $0$), so $h^*$ is the measure's nonnegative integrand by
+construction. Per boundary, with $sigma -> sigma'$ and net folded
+difference $d D$, the integrand moves by
+$(sigma' - sigma) dot D' + sigma dot d D$: the second term re-folds
+the boundary's own codes, and the first materializes $D$ only at
+orientation changes — which require $D$ to have crossed, left, or
+entered zero at this boundary, so $|D'| <= |d D|$ and the read is
+priced by the codes just folded, the same argument as join's
+switch. The integrand runs on the anchored-segment split of the
+rank fold unchanged — rank _is_ this integral's single-stream
+instance, its orientation constantly $+1$ — with one difference of
+funding arity: the potential of @funding splits into one ledger
+per operand, and every charge names the ledger of the operand
+whose codes funded it. A cheap code from one operand can _fire_ a
+freeze, but the work the freeze performs is bounded by deposits
+from the codes that built the state being moved — never by a
+position the firing operand chose. Costs are exactly rank's, in
+the pair denomination $n + m$, floor included: the composed forms
+survive as committed differential pins (digit-exact against the
+co-sweep on every family), not as the shipped path.
+
+#figure(
+  attack(
+    [jump pair$(k, t, d)$],
+    [the pair measures' freeze accounting],
+    stack(dir: ttb, spacing: 4pt,
+      overlay(
+        ((0.0625, 0), (0.0625, 5), (0.0625, 0), (0.0625, 0),
+         (0.0625, 5), (0.0625, 0), (0.0625, 0), (0.0625, 5),
+         (0.0625, 0), (0.0625, 0), (0.0625, 5), (0.0625, 0),
+         (0.0625, 0), (0.0625, 5), (0.0625, 0), (0.0625, 0)),
+        ((1.0, 4),),
+        w: 210pt, unit: 11pt,
+        label-a: [teeth], label-b: [band],
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [one operand's $2^k$-scale teeth against the other's
+         near-flat band, deep under a shared spine that makes every
+         absolute position $d$ incompressible digits: $|D|$ crests
+         wide at every level, and the crest is parked at the
+         _band's_ cheap boundaries]),
+    ),
+    [each operand is certified linear alone; composed, an
+     absolute-position accounting pays crests $times$ positions
+     $times$ width — $Theta(t dot d dot k)$ limb work on a
+     $Theta(t k + d)$-bit pair — and the freezes are fired by the
+     operand that never funded the drift.],
+    cure: [the two-ledger potential plus anchored segments: the
+      work each freeze moves is bounded by the deposits of the
+      codes that built the drift, and each crest settles against
+      its own segment — flat, with the composed emit-then-rank
+      route left behind as the design this family refuted.],
+  ),
+  kind: image,
+  caption: [The jump pair attack card: the two-operand composition
+    that exists in neither operand, aimed at cross-funded freeze
+    work.],
+) <fig-attack-jumppair>
 
 === Minimum ticks
 
@@ -541,29 +1271,40 @@ every tick is a bare increment.)
 The count is an unbounded natural — heights are unbounded, so the
 sum is too — and at first sight it is the one measure the funding
 discipline cannot reach: the formula adds an _absolute_ height at
-every leaf, exactly the naive fold the rank paragraph just rejected.
-One more telescope dissolves the absolutes. Write
-$M'(x) = M(x) - mu(x)$ for a subtree's ticks in excess of its own
-minimum; then $M'("leaf") = 0$, and at a node — since
-$M = M_"left" + M_"right" - mu$ and $mu = min(mu_"left", mu_"right")$
-—
+every leaf, exactly the naive fold the rank paragraph just
+rejected. Two accounting moves dissolve the absolutes, one per sum.
+The heights side splits $h = F + L$ — live drift on an accumulator,
+under the same relative freeze trigger as rank — but $F$ never
+materializes anywhere: an _epoch ledger_ holds one signed drift per
+freeze (epoch 0's "drift" is the first leaf's absolute), each leaf
+folds only its narrow epoch-relative offset into the total and
+counts $+1$ against its epoch, and the frozen component reaches the
+total once, at the end, by summation by parts — one
+$"drift" times "suffix-count"$ product per freeze, priced by the
+drift's own width times the count's $O(1)$ compacted digits. The
+minima side rides a range-minimum web (@tick-web builds the same
+nesting structure for tick, with the boundaries between adjacent
+open minima held as differences, zero runs compressed): the
+innermost minimum's _value_ is always some leaf the sweep already
+paid for, recorded once as a narrow epoch-relative offset when it
+becomes the minimum, and every node that closes while that value
+reigns just _counts_ — $O(1)$, no width read. The record settles
+into the total exactly once, at its death (a lower leaf dethrones
+it, or the stream ends), as one $"offset" times "count"$ product
+priced by the offset's width; an interruption — an inner range
+arming above it — moves the record aside and returns it at the pop
+with its count intact, never re-reading the offset. No event is
+ever re-based across a freeze: an offset keeps its epoch, and the
+ledger's closing settle carries the frozen differences for it.
 
-$ M'("node") = M'_"left" + M'_"right" + |mu_"left" - mu_"right"|, $
-
-which unwinds from the root to
-
-$ M(v) = mu("root") + sum_("internal") |mu_"left" - mu_"right"| : $
-
-one absolute — the root's minimum, funded like any leading code —
-plus a sum of _differences of sibling minima_, precisely the
-vocabulary the machinery already speaks. Pending range minima ride a
-difference-coded stack (@tick-web builds the same structure for
-tick), each sibling difference settles as its node closes, and each
-settled difference dies into the running sum at its own width,
-funded by the codes that separated the two minima. No absolute
-height is ever summed; rank's frozen/live split is not needed, and
-its uncertified boundary is not inherited. The sweep is one
-funded linear pass, exact, on every input.
+Note what this measure does _not_ inherit: rank's multiplication
+floor. Both of the fold's product forms multiply a width by a
+_count_ — closes at a reigning value, leaf references per epoch —
+and a count's digits are logarithmic in the input's node count,
+never input-widened; position never multiplies a value, because the
+count weighs every leaf the same. No answer-embedding construction
+exists here, and the sweep is one funded linear pass, exact at any
+magnitude, on every input.
 
 == Tick: `fill`, `grow`, and the watermark web <tick>
 
@@ -692,6 +1433,77 @@ way the stream order makes vivid:
   holds when the entry is consumed — never an absolute — so $k$
   nested sites sharing one wide minimum store its width once, not
   $k$ times.
+
+#figure(
+  attack(
+    [nested raises$(d, W)$],
+    [the right-full arm's deferred bookkeeping],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([id], codestrip((
+        ([site], 26pt, "t"), ([site], 26pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([site], 26pt, "t"), ([full], 26pt, "t"),
+      ))),
+      oprow([version], codestrip((
+        ([$W$-bit root], 64pt, "w"), ([level], 24pt, "t"),
+        ([level], 24pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([level], 24pt, "t"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [a right-full shortcut site at every one of $d$ id levels —
+         the deepest stacking of deferred raise decisions — with a
+         wide variant putting the root's $W$ bits into every
+         level's net movement]),
+    ),
+    [bookkeeping that carries an absolute quantity per open site
+     pays width $times$ depth through the right-full arm — the
+     path-sum defect reborn in the walk's suspended state.],
+    cure: [watermarks as differences (@tick-web) and raises funded
+      at the range's close: the narrow variant reads flat, and the
+      wide variant's one wide quantity rides a single accumulator,
+      never the stack.],
+  ),
+  kind: image,
+  caption: [The nested raises attack card: every level a shortcut
+    site, aimed at the walk's suspended state — narrow and wide
+    variants.],
+) <fig-attack-nested>
+
+#figure(
+  attack(
+    [mirrored nesting$(d, W)$],
+    [the memoized pre-scan],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([id], codestrip((
+        ([left-full site], 48pt, "t"), ([left-full site], 48pt, "t"),
+        ([$dots.c$], 14pt, "x"), ([left-full site], 48pt, "t"),
+      ))),
+      oprow([version], codestrip((
+        ([level], 24pt, "t"), ([level], 24pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([level], 24pt, "t"), ([$W$-bit tail], 60pt, "w"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [the mirror image: a left-full site at every level, so
+         every raise needs a _future_ range's minimum; a comb
+         variant makes consumption order run $Theta(d)$ apart from
+         recording order, and a wide tail puts $W$ bits into every
+         net movement]),
+    ),
+    [an unmemoized pre-scan re-reads shared subranges once per
+     enclosing site — quadratic; records resolved by walking the
+     recorded differences between consecutively consumed sites
+     re-read $Theta(d)$ of them per consume.],
+    cure: [one fresh scan per uncovered range, with per-site
+      records held as bounded differences against the walk's own
+      live state — consumed in $O(1)$ each, wherever the
+      consumption order lands. A raise-ordering variant, whose
+      every consume moves the tracked minimum, pins the
+      decide-then-emit ordering the records must survive.],
+  ),
+  kind: image,
+  caption: [The mirrored nesting attack card: the left-full memo
+    family — chains, combs, fanouts, and churn variants all land
+    on the same two disciplines.],
+) <fig-attack-memo>
 
 === The watermark web <tick-web>
 
@@ -837,6 +1649,97 @@ costs through @funding's three funding sources:
 The same difference discipline runs inside the memoized pre-scan, as
 @tick-walk already noted for its memory; the pre-scan is a second
 instance of the web, not a second mechanism.
+
+#figure(
+  attack(
+    [descending staircase$(d)$],
+    [the watermark stack's undercut cascade],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 7), (0.125, 6), (0.125, 5), (0.125, 4),
+         (0.125, 3), (0.125, 2), (0.125, 1), (0.125, 0)),
+        w: 210pt, unit: 9pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [unit steps descending a $d$-level spine: the first descent
+         drags every open minimum down together, zeroing every
+         enclosing difference — and each further step undercuts the
+         whole stack again]),
+    ),
+    [with one frame per open range, each unit step penetrates the
+     full stack of dead frames with no deaths left to fund the
+     walk: $Theta(d^2)$ on unit-scale values.],
+    cure: [zero-run compression: frames sharing one minimum are one
+      counted entry, penetrated all or none, so each undercut costs
+      its _dying_ differences plus $O(1)$ — both halves measured,
+      the uncompressed quadratic reproducible.],
+  ),
+  kind: image,
+  caption: [The descending staircase attack card: every level
+    undercut at once, aimed at per-frame cascade work.],
+) <fig-attack-staircase>
+
+#figure(
+  attack(
+    [ascending cliff$(s)$],
+    [the undercut's fold direction],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 1), (0.125, 2), (0.125, 3), (0.125, 4),
+         (0.125, 5), (0.125, 6), (0.125, 7), (0.125, 0)),
+        w: 210pt, unit: 9pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$s$ ascending wide leaves arm $s - 1$ nonzero unit
+         boundary differences, then a terminal cliff to zero drives
+         one $s$-scale residue outward through all of them]),
+    ),
+    [per hop, the residue meets a narrow difference: a fold that
+     always subtracts the residue _into_ the survivor re-writes the
+     residue's width at every hop — $Theta(s^2)$ — where the dying
+     side's width is $O(1)$.],
+    cure: [domination decides each hop's direction before any fold
+      (@sign's floors), so the dying side always funds the fold
+      that consumes it; a leveled control with the same hop
+      schedule passes the whole stack as one zero run, isolating
+      the genre.],
+  ),
+  kind: image,
+  caption: [The ascending cliff attack card: a wide residue driven
+    through narrow boundaries, aimed at fold-direction mistakes.],
+) <fig-attack-ascend>
+
+#figure(
+  attack(
+    [reveal comb$(t, k)$],
+    [the close rule — move versus fold],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.11, 0), (0.127, 5), (0.127, 6), (0.127, 5), (0.127, 6),
+         (0.127, 5), (0.127, 6), (0.128, 5)),
+        w: 210pt, unit: 9pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$t$ sibling sites sharing one $2^k$-scale minimum over a
+         zero floor (the sliver at the left), the walk closing each
+         site's range back into the floor's between consecutive
+         visits: a $k$-wide boundary difference is minted and
+         popped once per site]),
+    ),
+    [fold-on-close re-folds the wide boundary difference on every
+     close/reopen cycle — sites $times$ scale work on sites $+$
+     scale input, with no code funding any crossing.],
+    cure: [the close _moves_ the difference into the one-slot
+      register, $O(1)$; only deaths fold, and each is funded once.
+      A bare variant with no shortcut site isolates the stack's own
+      arm/close cycle, and a raised-floor control shrinks the
+      circulated width to $O(1)$ — the gap control.],
+  ),
+  kind: image,
+  caption: [The reveal comb attack card (with its bare and
+    raised-floor kin): the close/reopen cycle that refuted an
+    earlier design of this walk.],
+) <fig-attack-reveal>
 
 === The changed flag, and the fused `grow` <tick-fusion>
 
@@ -991,7 +1894,13 @@ spent at most once, the explicit $4 dot "size"(i)$ being slack that
 covers whichever tick spends it. And $k$ ticks raise
 values by at most $k$, so the two re-coded payloads widen by at
 most $2 ceil(log_2 (k + 1))$ code bits apiece — gamma's two bits
-per magnitude bit — the logarithmic term.
+per magnitude bit — the logarithmic term. The closed form is
+moreover _constructive_: the implementation offers the $k$-fold
+tick as one operation, byte-identical to $k$ sequential ticks and
+computed in a bounded number of passes — two fused walks and one
+splice at any count, $O(n + m + log k)$ — so a caller skipping a
+history forward pays what one tick costs plus the width of the
+count, never $k$ walks.
 
 Together: every code tick emits is priced by codes tick read, up to
 constants, and the funded-sweep bound $O(n + m)$ holds

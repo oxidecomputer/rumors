@@ -39,7 +39,13 @@ boundary. @families collects the adversarial constructions this
 document builds — each an ordinary, canonical, normal-form value that
 decodes cleanly — with a forward pointer for the ones whose
 construction needs machinery we do not have yet. Each is named once,
-here, and used consistently through @resilience.
+here, and used consistently through @resilience. The table is the
+document's core set, not the whole committed roster: as each later
+mechanism is built, its section constructs the further families
+aimed at it, each presented as an _attack card_ — the input shape,
+the work it extracts from the design it refutes, and the landed
+mechanism that defeats it — in one uniform format from here through
+@resilience.
 
 #figure(
   table(
@@ -134,6 +140,36 @@ $4 dot d dot W = 1.6 dot 10^9$ bits accounts for the two
 hundred megabytes measured. The ratio kept growing with
 the operand, as the formula says it must.
 
+#figure(
+  attack(
+    [bigroot$(d, W)$],
+    [every walk that carries absolute values along paths],
+    stack(dir: ttb, spacing: 6pt,
+      codestrip((
+        ([flag], 18pt, "t"),
+        ([$W$-bit absolute (root value)], 128pt, "w"),
+        ([flag], 18pt, "t"), ([$plus.minus 1$], 20pt, "p"),
+        ([flag], 18pt, "t"), ([$plus.minus 1$], 20pt, "p"),
+        ([$dots.c$], 16pt, "x"),
+        ([flag], 18pt, "t"), ([$plus.minus 1$], 20pt, "p"),
+      )),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [one wide leading code, then $d$ spine levels of cheap
+         codes: $Theta(d + W)$ bits buying depth _and_ width]),
+    ),
+    [$d$ live $W$-bit path sums on one descent —
+     $Theta(d dot W)$ time and transient memory from a
+     $Theta(d + W)$-bit operand pair (measured: $6,700 times$ the
+     input's bytes).],
+    cure: [sweeps that never materialize an absolute: the running
+      quantity is a difference the stream's own deltas update
+      (@cmp), so the width is held once, not per level.],
+  ),
+  kind: image,
+  caption: [The `bigroot` attack card: depth times width bought in
+    the same bytes, aimed at path sums.],
+) <fig-attack-bigroot>
+
 Join has the same skeleton: at every paired node it lifts both of
 one side's children by the base difference, $l_2 arrow.t (n_2 - n_1)$
 and $r_2 arrow.t (n_2 - n_1)$, with the operands ordered so the
@@ -181,6 +217,31 @@ central discipline: the cost of touching a wide value must be charged
 to the bits that spell it — $W$ bits of code license $O(W)$ work, paid
 once, not $W$ payments of growing size.
 
+#figure(
+  attack(
+    [hugeleaf$(W)$],
+    [decoding and re-encoding one wide integer],
+    stack(dir: ttb, spacing: 6pt,
+      codestrip((
+        ([flag], 18pt, "t"),
+        ([one payload of $approx 2W$ code bits (value $2^W - 1$)],
+         240pt, "w"),
+      )),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [the whole input is a single self-delimiting code]),
+    ),
+    [a bit-at-a-time decoder rewrites its growing buffer per
+     appended bit: $Theta(W^2)$ — fourteen seconds for one
+     half-megabyte value, about a terabyte of write traffic.],
+    cure: [word-windowed reads: accumulate machine words, splice
+      once — the same work linearly, in milliseconds (@words runs
+      the instruction-level version).],
+  ),
+  kind: image,
+  caption: [The `hugeleaf` attack card: the whole budget spent on
+    one code, aimed at any per-bit touch of a growing value.],
+) <fig-attack-hugeleaf>
+
 == Defect 3: recursion is a representation choice <naive-recursion>
 
 Every operation in the paper is a structural recursion, and a
@@ -206,6 +267,34 @@ for in words per level. The system holds that budget everywhere
 but at two
 bounded, priced exceptions, stated where they live (@tick-web,
 @tick-fusion).
+
+#figure(
+  attack(
+    [deep spine$(d)$],
+    [recursion itself: frames and stack depth],
+    stack(dir: ttb, spacing: 6pt,
+      codestrip((
+        ([flag], 18pt, "t"), ([leaf], 20pt, "t"), ([$0$], 14pt, "p"),
+        ([flag], 18pt, "t"), ([leaf], 20pt, "t"), ([$1$], 14pt, "p"),
+        ([$dots.c$], 16pt, "x"),
+        ([flag], 18pt, "t"), ([leaf], 20pt, "t"), ([$0$], 14pt, "p"),
+      )),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [an alternating chain: about three bits per level,
+         $d approx 10^5$ levels in a few tens of kilobytes]),
+    ),
+    [one native frame per three-bit level — measured near 300 bytes,
+     an $800 times$ amplification — and a crashed process at
+     $d approx 10^4$: a few kilobytes of valid input overflow a
+     default thread stack.],
+    cure: [iterative walks with explicit packed state, about two
+      _bits_ per suspended level (@depth-machine): the state is
+      smaller than the input's own spelling of the depth.],
+  ),
+  kind: image,
+  caption: [The `deep spine` attack card: depth at three bits per
+    level, aimed at the call stack.],
+) <fig-attack-deepspine>
 
 == Defect 4: the constant-factor anatomy <naive-constants>
 
@@ -279,6 +368,77 @@ everything except a small pending window, and the cliff merely
 moves to the window's edge. @two-zone builds the input that defeats
 any fixed window, weighs the adaptive one, and removes the
 settled/pending split entirely.
+
+#figure(
+  attack(
+    [boundary comb$(t, k)$],
+    [any normalized running quantity],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1),
+         (0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1)),
+        w: 200pt, unit: 16pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$t$ teeth oscillating $2^k - 1 arrow.l.r 2^k$ (drawn as
+         1 and 2): every crossing rewrites $k + 1$ bits of any
+         normalized value, and each tooth costs three stored
+         bits]),
+    ),
+    [$Theta(t dot k)$ bit-work from a $Theta(t + k)$-bit input —
+     in the validator itself, on arbitrary bytes, before any
+     validity judgment.],
+    cure: [the accumulator's lazy zone (@redundant): $2^32$ at
+      digit 0 is a legal spelling of the carried form, so the
+      $k$-bit carry is dissolved, not deferred — $t$ touches
+      total.],
+  ),
+  kind: image,
+  caption: [The boundary comb attack card: three-bit codes astride
+    a carry cliff. It closes the repair ladder, and @accum is built
+    against it.],
+) <fig-attack-comb>
+
+A sibling construction aims the same cliff at a different seam. In
+the paper's tree form an absolute exists at a node only as the sum
+of bases above it, so a walk that maintains a running absolute adds
+each base on entry and subtracts it on exit. The *cliff fan* makes
+that entry/exit itself the amplifier: one $2^k - 1$ base at the
+root, and under it a fan of $t$ cheap teeth whose leaf values never
+cross anything — but the walk's running sum crosses the $2^k$
+boundary _twice per tooth_, funded once by the root's single wide
+code. The excursions are siblings, not nested, so no balancing
+argument caps them.
+
+#figure(
+  attack(
+    [cliff fan$(t, k)$],
+    [running path sums at subtree entry and exit],
+    stack(dir: ttb, spacing: 4pt,
+      codestrip((
+        ([root: $2^k - 1$], 70pt, "w"),
+        ([tooth $+1$], 34pt, "p"), ([tooth $+1$], 34pt, "p"),
+        ([$dots.c$], 16pt, "x"),
+        ([tooth $+1$], 34pt, "p"),
+        ([leaf $0$], 30pt, "p"),
+      )),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [one wide base lifted over $t$ twelve-bit teeth: the
+         running sum sits at $2^k - 1$ and every tooth's entry and
+         exit crosses $2^k$]),
+    ),
+    [$Theta(t dot k)$ carry work from a $Theta(t + k)$-bit input:
+     $2t$ cliff crossings funded by one wide code paid once.],
+    cure: [the same zone (@redundant), reached by never
+      maintaining the absolute at all: the skyline stores leaf
+      heights, and its walks fold only differences (@skyline,
+      @cmp).],
+  ),
+  kind: image,
+  caption: [The cliff fan attack card: entry/exit accumulation
+    priced separately from leaf deltas — the two constructions pin
+    a running-value design from both sides.],
+) <fig-attack-clifffan>
 
 The ladder's lesson, then, is a constraint, not a fix: the efficient
 representation needs arithmetic whose per-update cost is

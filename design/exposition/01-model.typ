@@ -47,9 +47,11 @@ piece of arithmetic:
   exposure). _Sweepable_: every operation the
   clock API asks for is computable in a bounded number of
   left-to-right passes — one for most operations, two where a
-  lookahead is information-forced (tick) or where the one funded
-  form we know needs a pre-pass (rank), and the sum of their parts
-  for the composite measures.
+  lookahead is information-forced (tick) or where a pre-pass pins
+  the weighting scale (the area measures). The area measures add,
+  beside their sweeps, close-time products delegated to integer
+  multiplication; @operations prices them against a floor that
+  proves them mandatory.
 
 - *The accumulator* (@accum): every sweep maintains a running signed
   integer — a running height, a running difference of heights, a
@@ -84,7 +86,10 @@ It is _resilient to arbitrary adverse inputs_: for every operation and
 every well-formed input — any value magnitude, any tree depth, any
 shape, crafted by an adversary or produced by an unlucky workload —
 time and transient memory are proportional to the bits the operation
-reads plus the bits it must write. Every known boundary of the
+reads plus the bits it must write; the one family priced above that
+proportionality, the exact area measures, is priced against a floor
+that proves the excess mandatory (@measures). Every known boundary
+of the
 argument is stated where it lives; the *Concessions* paragraph below
 collects them. Malformed inputs are rejected,
 and rejection obeys the same proportionality. Each section's cost argument is one clause of
@@ -106,8 +111,11 @@ transient bytes) are deterministic and machine-independent, so
 nanosecond bands indicate a class while counter readings are exact.
 
 *Concessions.* Seven, each stated where it lives rather than
-smoothed over: two arguments with stated boundaries — one
-uncertified input shape in rank's funding argument (@measures), one
+smoothed over: two arguments with stated boundaries — one in the
+area measures' pricing, whose worst case sits one logarithmic
+factor above the proven multiplication floor, the factor's
+tightness derived but its witness too large to commit (@measures),
+and one
 probabilistic step in the counting bound (@nonneg); one framing
 every compactness claim must carry (@ctf-caveat); one machine
 effect the linear bound absorbs rather than eliminates (@words);
@@ -232,13 +240,18 @@ double duty; each such use is flagged where it occurs:
     [$ell$ (again)], [in @compactness only: a walk's step count and
       a family's plateau count],
     [$S$], [a stream's maximum leaf depth],
-    [$F$, $L$], [the frozen/live split of a running height,
-      $h = F + L$; $Delta F_j$ is a freeze's evicted drift
-      (@measures)],
+    [$B$, $P$, $L$], [the anchored split of a running integrand
+      into base, parked, and live components (@measures); the
+      minimum-tick fold's frozen/live split $h = F + L$ rides the
+      same trigger],
     [$Phi$], [the funding potential: held lanes across live
       accumulators (@funding)],
     [$mu(x)$, $M(v)$], [a subtree's skyline minimum; the minimum-tick
       measure (@measures)],
+    [$M(n)$ (again)], [in cost bounds only: the
+      integer-multiplication time bound of the arithmetic backend
+      (@measures) — the argument separates it from the measure
+      $M(v)$],
     [$f$], [a domination floor's digit index (@sign)],
     [$r$], [the watermark stack's parked boundary difference
       (@tick-web)],

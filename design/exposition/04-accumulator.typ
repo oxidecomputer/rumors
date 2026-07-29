@@ -33,9 +33,12 @@ folds need (@measures) — four housekeeping ones:
 + *materialize* the held value as an ordinary integer, in work
   proportional to that value's own width. The operation opens with
   the same collapsing fold the sign query runs (@sign), which
-  brings the held spelling within two digits of the value's width;
-  this fold, not a sign query, is also how a scaled-mode
-  accumulator is finally read;
+  brings the held spelling within two digits of the value's width.
+  A scaled-mode accumulator is instead read out through its _write
+  watermark_: the value returns as a magnitude and a power-of-two
+  scale, priced by the span from the lowest position written since
+  the accumulator last emptied up to its top — the untouched scale
+  prefix beneath the writes is never spelled and never walked;
 + *move* a held value between slots, $O(1)$ — a buffer swap (a
   walk parking a boundary quantity aside rather than folding it);
 + *fold* one accumulator into another, at the cost of the _dying_
@@ -97,6 +100,35 @@ word-sized window into the normalized prefix and ripples the full
 $k$-bit carry: work per tooth proportional to $k$, unbounded relative
 to the tooth's own code. Widen the window and the teeth widen past it
 again.
+
+#figure(
+  attack(
+    [wide-tooth comb$(t, w, k)$],
+    [any settled/pending split — the two-zone repair],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1),
+         (0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1)),
+        w: 200pt, unit: 16pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [the boundary comb with a width dial: teeth of
+         $plus.minus 2^w$ astride the $2^k$ cliff, $w$ chosen past
+         whatever window the design fixed]),
+    ),
+    [every tooth punches through the pending window into the
+     normalized prefix: a full $k$-bit carry per
+     $approx 2w$-bit code, at any fixed window width.],
+    cure: [no normalized region anywhere (@redundant): with every
+      digit lazy there is no boundary to widen past, and a
+      $plus.minus 2^w$ tooth costs $O(w\/32)$ touches — its own
+      limbs.],
+  ),
+  kind: image,
+  caption: [The wide-tooth comb attack card: the parameter that
+    kills every windowed repair, forcing the zone to be
+    everything.],
+) <fig-attack-widetooth>
 
 The lesson generalizes and is worth stating as a principle:
 
@@ -212,6 +244,29 @@ materialization starts at the tracked top index and is denominated
 in _held_ lanes, so lanes above the held value, zeroed or never
 touched, are never scanned again.
 
+Keeping that top index _exact_ has a cost of its own, and it is the
+one place a scan with no funding source could hide. When a write
+cancels the highest nonzero digit, the new top is the next nonzero
+digit below — and between a scaled write's landing site and the
+digits beneath it lies a run of never-written zeros that no code
+ever paid to walk. An alternating pair of far-apart scaled writes
+would make a naive settling scan walk that run again and again,
+forever, at a price that grows with the scale. The accumulator
+instead keeps a ledger of _zero-run certificates_: a write that
+lands above the current top records the run it jumped as one entry,
+$O(1)$ whatever the run's width; a scan that reaches a certified
+run consumes the certificate and crosses the run whole, one touch;
+a write whose carries land inside a certified run splits the entry
+around the digits actually written. Each certificate is created
+once, by the write that jumped the run, and consumed at most once,
+so top maintenance never exceeds the metered work that funded it —
+amortized $O(1)$ per write beyond the write's own deposits, at any
+scale, on any schedule. The alternative — tracking the top as a
+high-water mark that only rises — silently re-prices every later
+read at the highest lane ever touched, long after a cancellation
+emptied it; @sign constructs the input pair that punishes exactly
+that substitution.
+
 #figure(
   {
     lanes((
@@ -295,10 +350,57 @@ digit 0 with $sigma = 1$ — the value, exactly. The collapse zeroes
 the four scanned lanes, deposits $1$ at lane 0, and lowers the
 held top to 0: the vector now reads $(0, 0, 0, 1)$, and the next
 sign query costs one touch. So *each held lane is scanned at most
-once per write that raised the held top above it* — zero lanes
-standing between surviving digits included, since the write that
-raised the top past a lane is the write that put it in the fold's
-path. The charge is honest exactly when the write can pay it, and an
+once per write that raised the held top above it* — and a run of
+never-written lanes is not scanned even once: the fold with a
+nonzero partial decides within a step of entering one, and a fold
+or settling scan carrying a zero partial consumes the run's
+certificate (@redundant's storage remark) and crosses it whole.
+The exactness of the top matters as much as the collapse. Consider
+two long unit-step streams whose second codes both spike $2^(32 g)$:
+the comparison sweep folds the two spikes into its running
+difference at one boundary — they cancel, leaving a value of one
+digit under a buffer $g$ digits tall — and then reads the sign once
+per remaining boundary, thousands of reads with no intervening
+write. With the top settled at the surviving digit, each read is
+one touch; with a high-water top, each read re-walks the spike's
+$g$ dead digits — $Theta(m dot g)$ on a $Theta(m + g)$-bit pair,
+the cost the spike's own code paid exactly once.
+
+#figure(
+  attack(
+    [cancelled spike$(g, m)$],
+    [exact-top maintenance under repeated sign reads],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([operand $a$], codestrip((
+        ([1], 16pt, "p"), ([spike $2^(32g) + 1$], 76pt, "w"),
+        ([1], 16pt, "p"), ([1], 16pt, "p"), ([$dots.c$], 14pt, "x"),
+        ([1], 16pt, "p"), ([0], 16pt, "p"),
+      ))),
+      oprow([operand $b$], codestrip((
+        ([2], 16pt, "p"), ([spike $2^(32g) + 2$], 76pt, "w"),
+        ([2], 16pt, "p"), ([2], 16pt, "p"), ([$dots.c$], 14pt, "x"),
+        ([2], 16pt, "p"), ([0], 16pt, "p"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [same shape, same boundaries: the spikes cancel inside
+         $D$ at one boundary, then $Theta(m)$ boundaries of sign
+         reads follow with no intervening write]),
+    ),
+    [under a high-water top, every one of the $Theta(m)$ sign reads
+     re-walks the spike's $g$ dead digits: $Theta(m dot g)$ on a
+     $Theta(m + g)$-bit pair.],
+    cure: [the settled top: the cancelling write's own collapse
+      lowers the top to the surviving digit, so each remaining
+      read is one touch — the spike's width is paid exactly once,
+      by its own code.],
+  ),
+  kind: image,
+  caption: [The cancelled spike attack card: a pair whose one
+    cancellation leaves a tall dead buffer over thousands of
+    reads.],
+) <fig-attack-spike>
+
+The charge is honest exactly when the write can pay it, and an
 unscaled write can: a delta of $w$ magnitude bits places its own
 digits no higher than lane $w\/32 + 1$, a span its application
 already touched and its code already funded — and it raises the top
@@ -308,6 +410,34 @@ top-raising a sweep can buy is therefore $O$(its input bits), sign
 queries amortize against
 the same writes, and requirement 3 holds on every
 interleaving of reads with unscaled writes.
+
+#figure(
+  attack(
+    [cancelling chain$(t, k)$],
+    [the sign read, through cancelling prefixes],
+    stack(dir: ttb, spacing: 4pt,
+      skyline(
+        ((0.125, 2), (0.125, 0), (0.125, 2), (0.125, 0),
+         (0.125, 2), (0.125, 0), (0.125, 2), (0.125, 0)),
+        w: 200pt, unit: 16pt, show-heights: false,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$t$ drops from a $2^k$ peak to $1$ (drawn as 2 and 0):
+         after each wide drop the held value is tiny but spelled
+         by a high digit cancelled by a trail of negatives]),
+    ),
+    [every sign read after a drop must descend the whole cancelling
+     prefix — no fixed number of top digits decides — and a design
+     that re-reads it per query pays the prefix once per read.],
+    cure: [the collapsing fold (@sign): the descent zeroes what it
+      scanned and deposits the exact partial at the floor, so each
+      lane is read once per write that raised the top — here, once
+      per drop, funded by the drop's own wide code.],
+  ),
+  kind: image,
+  caption: [The cancelling chain attack card: wide writes that
+    leave whispers, aimed at repeated sign reads.],
+) <fig-attack-cancelling>
 
 The _scaled_ write of requirement 2 is the stated exception, and it
 carries a discipline. A delta scaled by $2^s$ lands its $ell$ words
@@ -319,11 +449,11 @@ certified the scale fund the once-per-high-water zero-fill of
 @accum-contract — one traversal, not one per read; the per-read
 traversal is exactly what a scaled write cannot pay for.) The discipline, part of
 the contract: *an accumulator that receives scaled writes is never
-sign-read*. It is write-only until materialized, and each
-materialization must be separately funded — the weighted folds of
-@measures, the only scaled writers in the system, price their
-finished totals against the topology bits that certified the scales,
-and declare the one shape where that pricing is uncertified.
+sign-read*. It is write-only until read out through its watermark,
+and each read-out must be separately funded — the weighted folds of
+@measures, the only scaled writers in the system, price every
+read-out against the topology bits that certified the scales and
+the written span the watermark reports.
 
 Two consequences deserve a pause. First, _reads mutate_: the sign
 query rewrites the representation (value-preservingly). That is

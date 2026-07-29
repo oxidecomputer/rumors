@@ -15,14 +15,19 @@ turns out to have produced all four.
   value magnitude, any tree depth, any shape; well-formed or
   malformed; crafted or organic — time and transient memory are
   proportional to the bits the operation reads plus the bits its
-  answer mandatorily occupies._
+  answer mandatorily occupies, plus — for the exact area measures
+  alone — the cost of the integer multiplications their answers
+  provably embed._
 ])
 
-Derived throughout, with one input shape in rank held by a pinned
-measurement instead (@measures). The scope of "amortized", fixed in
+Derived throughout, on both sides where both sides exist: the area
+measures' excess over linear carries a floor proven by reduction
+and a worst case within one logarithmic factor of it, the factor's
+tightness derived with its witness past committed sizes
+(@measures). The scope of "amortized", fixed in
 @accum-contract, strengthens the claim rather than weakening it:
 the amortization is internal to one call, so each individual API
-call is worst-case linear in its own input plus mandatory output,
+call is worst-case bounded on its own input plus mandatory output,
 not merely cheap on average across a sequence. Two bounds whose
 full derivations outgrew this document live in our work, their
 shapes given here (@join's exact constant, @tick-output's
@@ -58,7 +63,7 @@ is also a tax some honest workload eventually pays.
 
 The same move cured every cost defect this document met: _find the
 quantity nothing was paying to maintain, and re-coordinate
-it so that every touch has a payer._ One discipline, nine seams:
+it so that every touch has a payer._ One discipline, twelve seams:
 
 #figure(
   table(
@@ -91,20 +96,37 @@ it so that every touch has a payer._ One discipline, nine seams:
     [close/reopen cycles† (@tick-web)],
     [a boundary difference re-folded per cycle],
     [moves, not folds: wide content shuttles at $O(1)$],
+    [never-written runs† (@redundant)],
+    [a settling scan stepping a gap no code paid to walk],
+    [zero-run certificates consumed whole; scaled reads priced by
+      the write watermark],
+    [position-dense settles† (@measures)],
+    [evicted drift multiplied by absolute positions topology alone
+      can densify],
+    [anchored segments; a promotion ledger settled once through a
+      mass-balanced product tree],
+    [answer-embedded products (@measures)],
+    [an exact answer as hard as an arbitrary integer product],
+    [no cure exists — delegate to sub-quadratic multiplication and
+      prove the floor: the one funded superlinearity],
     [output-dominated ops (@projection)],
     [output the input's size cannot bound],
-    [denominate against mandatory output; sweep held I/O-linear],
+    [denominate against mandatory output; compare through the lazy
+      view; the materializing sweep held I/O-linear],
     [tick's emissions (@tick-output)],
     [work priced by output with no output bound],
     [the output inequality:
       emitted $<= 2 dot "size"(e) + 4 dot "size"(i) + 32$],
   ),
   caption: [The amplifier genres and their cures. Every cure is the
-    funding discipline of @funding instantiated at one seam; the five
+    funding discipline of @funding instantiated at one seam; the
+    seven
     rows marked † bottom out in the accumulator's contract, the
     emissions row is what lets that contract's output-funded clause
-    telescope back to input, and the output-dominated row is the one
-    place the funding source is the output rather than the input.],
+    telescope back to input, the output-dominated row is the one
+    place the funding source is the output rather than the input,
+    and the answer-embedded row is the one place the "cure" is a
+    proof that no cure can exist.],
 ) <fig-genres>
 
 Two structural facts stand out. First, _the accumulator is the
@@ -131,10 +153,24 @@ contents:
   boundary comb, the wide-tooth comb, the descending staircase, the
   reveal comb; `hugeleaf` for wide decode, `deep spine` for
   recursion, the scattered-party comb for the output-dominated row,
-  the duplicated-wide-code instance for tick's emissions — each
+  the duplicated-wide-code instance for tick's emissions; the
+  cancelled spike for exact-top maintenance, the weight comb and
+  the freeze parade for the never-written runs, the freeze
+  staircase, the re-arming spine, the punctured tail, and the jump
+  pair for the position-dense settles, the puncture product for
+  the floor itself — each
   built _to break a candidate
   design_, and kept because each still reads red — on the pinned
   counters — against a re-introduction of the design it refuted.
+  The families sit in one committed roster crossed against the
+  whole operation surface as a standing dashboard: at this
+  writing, twenty-eight families by every operation their operands
+  reach, 1,334 cells, every one green. Green is earned, not
+  granted: red is reserved for _untriaged_ contradictions, a
+  persistent red is a process failure rather than a status, and
+  there is no "accepted red" list — the triage buffer is asserted
+  empty, and a cell whose behavior is intended carries a dated
+  declared model instead.
 - *Deterministic meters, floored as well as ceilinged.* Cost is
   measured in machine-independent counters — bits scanned, digit
   touches, peak transient bytes — with enforced ceilings per input
@@ -146,14 +182,33 @@ contents:
   quadratic measured and committed as a failing threshold — and the
   cure's commit turns exactly that pin green and tightens it. Every
   claim of improvement moves a committed number.
+- *White-box worst-case construction, as the closing audit.* The
+  roster is not grown by sampling but by reading: for each
+  operation, read the implementation, construct the input family
+  that maximizes its work — construct, not argue — and diff the
+  constructed shapes against the committed roster. The negative
+  space is where the blindspots live: the audit's largest catches
+  (unfired promotions, answer-embedded products,
+  non-shrinking fold accumulators) were all inputs whose essence no
+  instrument had generated. Each operation pair also demands its
+  _dual_ family — join against meet, forward against reverse — since
+  a shape that wedges one walk can read benign on its mirror. The
+  final round of that audit constructed nothing that read above its
+  committed band: the clean verdict the board's all-green state
+  summarizes.
 - *The designs in this document are survivors.* The two-zone
   accumulator, the uncompressed watermark stack, fold-on-close, the
-  additive output bound: each was a plausible design refuted by a
-  constructed family — for the tick walk's close rule, only after
-  an earlier design of the walk had already been built
-  (@tick-web) — and each refuting
+  additive output bound, the composed pair measures, freeze
+  accounting against absolute positions, the sequential n-ary
+  folds, the high-water top, the digit-stepped settlement scan, the
+  settle tree balanced by entry count rather than mass: each was a
+  plausible design refuted by a
+  constructed family — for the tick walk's close rule and for the
+  pair measures, only after
+  an earlier design had already been built
+  (@tick-web, @measures) — and each refuting
   family is a permanent regression test. The clean derivations of
-  @accum and @tick were reached by iterated attack.
+  @accum, @measures, and @tick were reached by iterated attack.
 
 == Closing <closing>
 
@@ -162,19 +217,27 @@ accumulator as an
 efficiency story, and they are one. Within $4.3%$ of the counting
 floor asymptotically and $6.7%$ at hundred-byte sizes, against
 the family the coding reaches (the framing @ctf-caveat keeps
-honest). Linear sweeps for every operation. Constants within an
+honest). Linear sweeps for every operation — and for the one
+family of answers provably as hard as integer multiplication,
+sweeps around products priced at the multiplication bound, floor
+and worst case matched to within a logarithm. Constants within an
 order of magnitude of decoding cost, decoding itself a bounded
 factor above
 raw byte movement. All on the access pattern the machine likes
 best. But the deeper claim is about _worst cases as a design
 material_. Every
 structure here — the delta coding, the balanced digits, the
-difference-coded watermarks, the output inequality — was shaped by
+difference-coded watermarks, the mass-balanced settle, the output
+inequality — was shaped by
 asking what the most hostile input could extract, and the finished
 design's answer is: nothing beyond the bits it brought and the bits
-it is owed back. The complete list of concessions, so the sentence
-above cannot be quoted without them: the derivational gap in rank's
-funding argument, held by a pinned measurement instead of a proof
+it is owed back — and, where the answer itself is a product,
+nothing beyond the multiplication it provably contains. The
+complete list of concessions, so the sentence
+above cannot be quoted without them: the area measures' extreme
+tier — the worst case one logarithmic factor above the proven
+multiplication floor, the factor's tightness derived but its
+witness family too large to sit in a committed test
 (@measures); the probabilistic step in the counting bound's
 asymptotic rate (@nonneg); the framing every compactness claim must
 carry (@ctf-caveat); the bounded branch-prediction cost the
