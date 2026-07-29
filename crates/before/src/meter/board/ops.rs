@@ -133,8 +133,10 @@ pub(super) fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         // linear-functional rows: wide difference crests over a
         // dense-position spine, the many-freezes spine, the
         // many-armings spine, the accumulator skip families (the
-        // many-jumps and deep-segment-freeze spines), and the
-        // switch-density population.
+        // many-jumps and deep-segment-freeze spines), the settle
+        // sentinels (the many-armings re-arm spine over its unit mate,
+        // the answer-embedded product, and the first-freeze gate
+        // straddle), and the switch-density population.
         // The tooth-tail pair rides the same designation: its genre is
         // the fused pair sweep, which the distance/lag rows drive (the
         // cmp row runs the identical walk).
@@ -143,6 +145,9 @@ pub(super) fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         | FamilyKind::PromoRearm
         | FamilyKind::WeightComb
         | FamilyKind::FreezeParade
+        | FamilyKind::DenseSuffix
+        | FamilyKind::PlateauPuncture
+        | FamilyKind::LoneFreeze
         | FamilyKind::ConcurrentPair
         | FamilyKind::ToothTail => group == OpGroup::Measure,
     }

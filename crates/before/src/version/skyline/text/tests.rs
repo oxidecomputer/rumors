@@ -241,3 +241,96 @@ proptest! {
         }
     }
 }
+
+/// The parse-side delta accumulator's standing superlinearity, pinned
+/// red on the wide-arming family.
+///
+/// [`parse`] extracts one signed magnitude per leaf from a plain
+/// running accumulator, and that extraction currently pays the
+/// accumulator's *high-water* span, not its settled value: after
+/// `wide_arming(w, w)`'s one `2^(32w)` swing, every one of the `Θ(w)`
+/// trailing zero-delta leaves re-walks the swing's `w` dead digits —
+/// `Θ(w²)` touches on `Θ(w)` text, the exact-`top` genre
+/// (`tooth_tail`'s rustdoc carries the mechanism) at the text seam.
+/// This pin holds the mechanism's measured signature in both
+/// directions: per-byte touch growth at least ×1.5 across the doubling
+/// (a parse that pays the settled top reads ~×1.0 and must retire this
+/// pin deliberately — the cure's commit replaces it with a flatness
+/// band and promotes the wide-arming board column, which is withheld
+/// on exactly this finding), and absolute ceilings at the measured
+/// record ×1.25 (a still-worse regression trips them). The value leg
+/// (the parse lands on the stored stream) anchors both runs.
+#[cfg(feature = "limb-meter")]
+mod parse_accumulator_superlinearity {
+    use suanpan::touch_meter;
+
+    use crate::meter::wide_arming;
+    use crate::version::skyline::encode;
+
+    use super::{parse, render};
+
+    /// One shipped-parse run over `wide_arming(s, s)`'s rendered text:
+    /// text bytes and accumulator touches over the parse body alone,
+    /// value-pinned against the stored stream.
+    fn run(s: usize) -> (u64, u64) {
+        let v = wide_arming(s, s).version();
+        let enc = encode(&v);
+        let text = render(&enc);
+        let bytes = text.len() as u64;
+        touch_meter::reset();
+        let parsed = parse(&text).expect("rendered text parses");
+        let touches = touch_meter::touches();
+        assert_eq!(
+            parsed, enc,
+            "the parse must land on the stored stream byte for byte"
+        );
+        (bytes, touches)
+    }
+
+    /// Digit width (and gap count) of the pin's small run; the large
+    /// run doubles both.
+    const WIDE_ARMING_SMALL: usize = 256;
+
+    /// Absolute two-scale touch ceilings: the measured record ×1.25.
+    ///
+    /// [measured 2026-07-29, dev profile, exact counters: touches
+    /// 2,109,502 → 8,413,246 across WA(256, 256) → WA(512, 512) on
+    /// 70,169 B → 140,219 B of rendered text — 30.1 → 60.0 per byte,
+    /// ×2.00 per byte across the doubling: the high-water walk's
+    /// quadratic signature. The release-profile board reads the same
+    /// mechanism through the public from_str and parse entries at
+    /// touch exponent 2.00 when the wide-arming family is given board
+    /// rows, at both acceptance scales.]
+    const PARSE_WIDE_ARMING_TOUCH_CEILINGS: (u64, u64) = (2_636_877, 10_516_557);
+
+    /// `WA(w, w)` catches the parse accumulator's high-water walk red:
+    /// per-byte touch cost grows across the doubling, under absolute
+    /// pinned ceilings.
+    #[test]
+    fn parse_delta_accumulator_reads_superlinear_on_wide_arming() {
+        let (small_bytes, small_touches) = run(WIDE_ARMING_SMALL);
+        let (large_bytes, large_touches) = run(2 * WIDE_ARMING_SMALL);
+        eprintln!(
+            "MEASURED parse_wide_arming: small={small_touches}/{small_bytes}B \
+             large={large_touches}/{large_bytes}B"
+        );
+        assert!(
+            u128::from(large_touches) * u128::from(small_bytes) * 100
+                >= u128::from(small_touches) * u128::from(large_bytes) * 150,
+            "the parse's delta accumulator reads flat on the wide-arming family \
+             ({small_touches}/{small_bytes}B -> {large_touches}/{large_bytes}B): \
+             the high-water walk is cured — retire this pin into a flatness band \
+             and promote the wide-arming board column (the board-parity roster's \
+             wide-arming entry carries the plan)"
+        );
+        assert!(
+            small_touches <= PARSE_WIDE_ARMING_TOUCH_CEILINGS.0
+                && large_touches <= PARSE_WIDE_ARMING_TOUCH_CEILINGS.1,
+            "the parse's touch cost regressed past the pinned record on the \
+             wide-arming family ({small_touches} / {large_touches} against \
+             {} / {})",
+            PARSE_WIDE_ARMING_TOUCH_CEILINGS.0,
+            PARSE_WIDE_ARMING_TOUCH_CEILINGS.1,
+        );
+    }
+}
