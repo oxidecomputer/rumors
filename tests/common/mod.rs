@@ -34,6 +34,7 @@ pub mod fault;
 pub mod flaky;
 pub mod gossip_snapshot;
 pub mod oracle;
+pub mod overlap;
 pub mod peer;
 pub mod schedule;
 pub mod sim;
