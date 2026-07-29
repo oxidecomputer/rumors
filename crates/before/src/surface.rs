@@ -541,6 +541,15 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded("no oracle n-ary split; see the Party::forks row"),
     },
     SurfaceRow {
+        op: "From<Clock> for [Clock; N] (consuming balanced split)",
+        prod_tree: Leg::Law("clock_forks_matches_from_array"),
+        prod_fs: Leg::Excluded(HANDBACK),
+        tree_fs: Leg::Excluded(
+            "no oracle n-ary split; composition of the party split and a version \
+             clone per share — see the Clock::forks row",
+        ),
+    },
+    SurfaceRow {
         op: "iter::Party / iter::Clock (Forks iterators, drop folds back)",
         prod_tree: Leg::Law("forks_partial_drop_folds_back"),
         prod_fs: Leg::Excluded(HANDBACK),

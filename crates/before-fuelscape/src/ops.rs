@@ -882,6 +882,11 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
         "consuming form of the balanced split the party_forks panel prices",
     ),
     (
+        "From<Clock> for [Clock; N] (consuming balanced split)",
+        "consuming form of the Clock::forks composition: the balanced party split \
+         (party_forks panel) plus one version byte-copy clone per share",
+    ),
+    (
         "iter::Party / iter::Clock (Forks iterators, drop folds back)",
         "hand-out mechanics over the balanced split the party_forks panel prices",
     ),

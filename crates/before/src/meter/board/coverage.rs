@@ -210,6 +210,11 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          shrinking operands plus N moves",
     ),
     (
+        "From<Clock> for [Clock; N] (consuming balanced split)",
+        "the clock forks machinery consuming its operand: the measured fork on \
+         shrinking operands plus one version byte copy per child",
+    ),
+    (
         "iter::Party / iter::Clock (Forks iterators, drop folds back)",
         "iterate the measured fork on shrinking operands (one version clone per \
          clock child); a mid-run drop rejoins in O(log n) measured joins",

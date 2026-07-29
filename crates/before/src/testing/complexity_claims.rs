@@ -1140,6 +1140,17 @@ pub(crate) const CLAIMS: &[Claim] = &[
         ),
     },
     Claim {
+        op: "From<Clock> for [Clock; N] (consuming balanced split)",
+        checks: &[Check {
+            site: Site::ImplDoc("src/clock/forks.rs", "From<Clock> for [Clock; N]"),
+            bound: CLOCK_SPLIT_BOUND,
+        }],
+        cells: Cells::Uncelled(
+            "the clock forks machinery consuming its operand; no board row of its \
+             own (the board's coverage table)",
+        ),
+    },
+    Claim {
         op: "iter::Party / iter::Clock (Forks iterators, drop folds back)",
         checks: &[
             Check {
