@@ -3,12 +3,13 @@ use std::mem;
 use std::sync::{Arc, OnceLock};
 
 use borsh::BorshSerialize;
-use imbl::OrdMap;
 use tinyvec::ArrayVec;
 
 use crate::{Version, message::Message, tree::typed::Hash};
 
+pub mod fan;
 mod iter;
+use fan::Fan;
 pub use iter::{Iter, Leaf, Range, RangeOwned};
 
 /// One storage node — a leaf or a branch behind a shared `Arc`, carrying
@@ -155,7 +156,7 @@ enum Children<T> {
         /// prefix does.
         version_bytes: OnceLock<usize>,
         /// The children of this branch.
-        children: OrdMap<u8, Node<T>>,
+        children: Fan<T>,
     },
 }
 
@@ -200,12 +201,12 @@ impl<T> Node<T> {
 
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
-    pub fn branch(children: OrdMap<u8, Node<T>>) -> Option<Self> {
+    pub fn branch(children: Fan<T>) -> Option<Self> {
         match children.len() {
             0 => None,
             1 => {
                 let Some((index, node)) = children.into_iter().next() else {
-                    unreachable!("a map with 1 element cannot fail to iterate");
+                    unreachable!("a fan with 1 element cannot fail to iterate");
                 };
                 Some(node.beneath(index))
             }
@@ -223,11 +224,11 @@ impl<T> Node<T> {
         }
     }
 
-    /// Convert a node into a map from child index to child node (inverse to
+    /// Convert a node into its radix fan of children (inverse to
     /// [`Node::branch`]).
     ///
     /// If `self` is a leaf node, returns `Err(self)`.
-    pub fn into_children(mut self) -> Result<OrdMap<u8, Node<T>>, Node<T>> {
+    pub fn into_children(mut self) -> Result<Fan<T>, Node<T>> {
         if !self.inner.prefix.is_empty() {
             // Path-compressed: pop the top (shallowest) byte and rewrap self
             // under it. Popping shortens the prefix, so the observable hash
@@ -237,12 +238,12 @@ impl<T> Node<T> {
             let inner = Arc::make_mut(&mut self.inner);
             let index = inner.prefix.pop().expect("non-empty prefix");
             inner.hash = OnceLock::new();
-            Ok(OrdMap::from_iter([(index, self)]))
+            Ok(Fan::unit(index, self))
         } else {
             match &self.inner.children {
                 Children::Leaf { .. } => Err(self),
                 Children::Branch { .. } => {
-                    // Extract the children map; self is dropped, so leaving
+                    // Extract the children fan; self is dropped, so leaving
                     // its precomputed metadata referencing the now-vacated
                     // branch is harmless.
                     let inner = Arc::make_mut(&mut self.inner);
@@ -313,7 +314,7 @@ impl<T> Node<T> {
             .expect("distinct 32-byte paths diverge before the bottom");
 
         let count = leaves.len();
-        let mut children = OrdMap::new();
+        let mut children = Fan::new();
         let mut rest = leaves;
         while let Some(radix) = rest.first().map(|(path, _)| path[branch_at]) {
             let split = rest
@@ -321,7 +322,9 @@ impl<T> Node<T> {
                 .position(|(path, _)| path[branch_at] != radix)
                 .unwrap_or(rest.len());
             let (group, tail) = mem::take(&mut rest).split_at_mut(split);
-            children.insert(radix, Self::from_sorted_leaves(branch_at + 1, group));
+            // Groups peel off in ascending radix order, so each child is an
+            // O(1) append.
+            children.push(radix, Self::from_sorted_leaves(branch_at + 1, group));
             rest = tail;
         }
         debug_assert!(children.len() >= 2, "a branch point separates >= 2 runs");
@@ -382,7 +385,7 @@ impl<T> Node<T> {
                 }
                 Children::Branch { children, .. } => {
                     let (radix, rest) = path.split_first()?;
-                    node = children.get(radix)?;
+                    node = children.get(*radix)?;
                     path = rest;
                 }
             }
@@ -472,7 +475,7 @@ impl<T> Node<T> {
                 Children::Leaf { .. } => Hash::leaf(&prefix),
                 Children::Branch { children, .. } => Hash::branch(
                     &prefix,
-                    children.iter().map(|(radix, child)| (*radix, child.hash())),
+                    children.iter().map(|(radix, child)| (radix, child.hash())),
                 ),
             }
         })
@@ -613,8 +616,8 @@ impl<T> Node<T> {
     /// 3. the body, dispatched on `children`:
     ///    - [`Children::Leaf`]: `version: Version`, then `message: Message<T>`;
     ///    - [`Children::Branch`]: `count_minus_two: u8`, then for each
-    ///      child (in canonical `OrdMap` key order): `radix: u8`,
-    ///      `serialize_to(child)`.
+    ///      child (in ascending radix order, structural in the fan):
+    ///      `radix: u8`, `serialize_to(child)`.
     ///
     /// Leaf-vs-branch is **not** tagged on the wire: at the receiver, the
     /// typed height and the running `prefix_len` together name the body's
@@ -650,7 +653,7 @@ impl<T> Node<T> {
                     )
                 })?;
                 count_minus_two.serialize(writer)?;
-                for (radix, child) in children {
+                for (radix, child) in children.iter() {
                     radix.serialize(writer)?;
                     child.serialize_to(writer)?;
                 }

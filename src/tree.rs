@@ -34,9 +34,11 @@
 //!
 //! # Memos and sharing
 //!
-//! Nodes are persistent (`imbl::OrdMap` children behind `Arc`), so cloning
-//! a tree — every [`Snapshot`](crate::Snapshot), every gossip session's
-//! working copy — is O(1) and shares structure; mutation is copy-on-write.
+//! Every node lives behind an `Arc` (its children a sorted radix fan of
+//! further handles), so cloning a tree — every
+//! [`Snapshot`](crate::Snapshot), every gossip session's working copy — is
+//! O(1) and shares structure; mutation is copy-on-write along the touched
+//! spine.
 //! Each branch lazily memoizes three pure functions of its subtree: the
 //! Merkle **hash** (mirror pruning), and the **ceiling** and **floor** of
 //! its leaves' versions. The version bounds power both deletion honoring

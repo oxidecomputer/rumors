@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 
-use imbl::OrdMap;
 use proptest::collection::{btree_set, vec};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
@@ -8,7 +7,7 @@ use proptest::test_runner::TestCaseError;
 use crate::tree::arb::arb_version;
 use crate::{Version, message::Message};
 
-use super::Node;
+use super::{Node, fan::Fan};
 
 /// Upper bound on the depth of trees generated in property tests.
 ///
@@ -80,7 +79,7 @@ fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node<()>> {
                 (Just(indices), subtrees)
             })
             .prop_map(|(indices, subtrees)| {
-                let children: OrdMap<u8, Node<()>> = indices.into_iter().zip(subtrees).collect();
+                let children: Fan<()> = indices.into_iter().zip(subtrees).collect();
                 Node::branch(children).expect("branch input has >= 1 child")
             })
             .boxed()
@@ -139,7 +138,7 @@ where
             Node::leaf(version, f(leaf))
         }
         Ok(children) => {
-            let rebuilt: OrdMap<u8, Node<()>> = children
+            let rebuilt: Fan<()> = children
                 .into_iter()
                 .map(|(k, v)| (k, rebuild_with(v, f)))
                 .collect();
@@ -156,7 +155,7 @@ where
 /// one-child case is handled by `beneath`-collapse instead.
 #[test]
 fn empty_branch_is_none() {
-    let empty: OrdMap<u8, Node<()>> = OrdMap::new();
+    let empty: Fan<()> = Fan::new();
     assert!(Node::branch(empty).is_none());
 }
 
@@ -257,7 +256,7 @@ proptest! {
 
         let mut wrapped = child;
         for &index in &indices {
-            wrapped = Node::branch(OrdMap::from_iter([(index, wrapped)]))
+            wrapped = Node::branch(Fan::unit(index, wrapped))
                 .expect("one-child branch is non-empty");
         }
 
@@ -285,11 +284,11 @@ proptest! {
         // Build the wrapped node by nesting singleton branches.
         let mut wrapped = child.clone();
         for &index in &indices {
-            wrapped = Node::branch(OrdMap::from_iter([(index, wrapped)]))
+            wrapped = Node::branch(Fan::unit(index, wrapped))
                 .expect("one-child branch is non-empty");
         }
 
-        // Pop the topmost byte. The returned map has exactly one entry
+        // Pop the topmost byte. The returned fan has exactly one entry
         // because `wrapped` was a singleton-branch chain; the entry's
         // key is the popped byte and its value is the same node with a
         // one-shorter prefix.
@@ -298,16 +297,16 @@ proptest! {
         let (popped_byte, popped) = popped_children
             .iter()
             .next()
-            .map(|(k, v)| (*k, v.clone()))
+            .map(|(k, v)| (k, v.clone()))
             .expect("singleton");
-        popped_children.remove(&popped_byte);
+        popped_children.remove(popped_byte);
         prop_assert_eq!(popped_byte, *indices.last().expect("non-empty indices"));
 
         // Build a reference node with the same children but the shortened
         // prefix from scratch.
         let mut reference = child;
         for &index in &indices[..indices.len() - 1] {
-            reference = Node::branch(OrdMap::from_iter([(index, reference)]))
+            reference = Node::branch(Fan::unit(index, reference))
                 .expect("one-child branch is non-empty");
         }
 
@@ -328,7 +327,7 @@ proptest! {
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
         let child_hash = child.hash();
-        let wrapped = Node::branch(OrdMap::from_iter([(index, child)]))
+        let wrapped = Node::branch(Fan::unit(index, child))
             .expect("one-child branch is non-empty");
 
         prop_assert_ne!(wrapped.hash(), child_hash);
@@ -550,4 +549,22 @@ fn small_tree_hash_matches_byte_literal_preimage() {
     preimage.extend_from_slice(leaf_hash(&high[3..]).as_bytes());
 
     assert_eq!(tree.hash(), super::Hash::of(&preimage));
+}
+
+/// Growing the per-node allocation price must be a deliberate, reviewed
+/// decision, never a silent regression.
+///
+/// Every node allocation pays `NodeInner`'s full size: the `Children`
+/// enum takes its largest variant, so leaves (the most numerous nodes)
+/// carry the branch variant's width, fan included.
+///
+/// Measured on 64-bit: `Fan<()>` = 40 (8 capacity + 2 inline 16-byte
+/// entries), `Children<()>` = 136 (three memo cells, the leaf count, and
+/// the fan), `NodeInner<()>` = 184 (prefix `Vec` + hash memo + children).
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn node_inner_stays_within_budget() {
+    assert!(std::mem::size_of::<Fan<()>>() <= 40);
+    assert!(std::mem::size_of::<super::Children<()>>() <= 136);
+    assert!(std::mem::size_of::<super::NodeInner<()>>() <= 184);
 }
