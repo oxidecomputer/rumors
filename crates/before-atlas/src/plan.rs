@@ -128,8 +128,10 @@ impl Samplers {
 }
 
 /// Split `total` uniformly over its compositions into `parts` positive
-/// parts: draw `parts − 1` distinct cut points in `1..total`, sort, and
-/// difference. Redrawing a collided cut is rejection over the cut-point
+/// parts.
+///
+/// The draw is `parts − 1` distinct cut points in `1..total`, sorted and
+/// differenced; redrawing a collided cut is rejection over the cut-point
 /// subsets, which keeps the composition draw exactly uniform.
 ///
 /// For one part this draws nothing; for two it is a single

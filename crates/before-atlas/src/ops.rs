@@ -654,9 +654,11 @@ pub const ROSTER: &[OpSpec] = &[
 ];
 
 /// The triangle roster rows deliberately without a panel, each with its
-/// one-line reason — the reviewed half of the totality binding (the
-/// parity test in `tests.rs` enforces membership both ways; these reasons
-/// are for the owner's eyes).
+/// one-line reason.
+///
+/// The reviewed half of the totality binding: the parity test in
+/// `tests.rs` enforces membership both ways, so these reasons are for
+/// the owner's eyes.
 ///
 /// Three recurring genres: constant-input constructors have no size axis
 /// to plot; O(1)-scale accessors and delegating wrappers are priced at

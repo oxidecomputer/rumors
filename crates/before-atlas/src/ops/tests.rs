@@ -5,13 +5,15 @@ use before::surface::{FAMILY_SURFACE, METHOD_SURFACE};
 use super::{EXEMPTIONS, ROSTER};
 
 /// The atlas's totality binding: panels plus exemptions tile the triangle
-/// roster exactly — every roster row is either claimed by some panel's
-/// `covers` list or carries a committed exemption reason, every claim and
-/// every exemption names a real roster row, and no row is both. The
-/// triangle suite pins the roster to the extracted public `pub fn`
-/// surface, so through this test a new public operation cannot ship
-/// without an atlas panel or a reviewed exemption, and a renamed one
-/// fails here by name (a stale exemption included).
+/// roster exactly.
+///
+/// Every roster row is either claimed by some panel's `covers` list or
+/// carries a committed exemption reason, every claim and every exemption
+/// names a real roster row, and no row is both. The triangle suite pins
+/// the roster to the extracted public `pub fn` surface, so through this
+/// test a new public operation cannot ship without an atlas panel or a
+/// reviewed exemption, and a renamed one fails here by name (a stale
+/// exemption included).
 #[test]
 fn panels_and_exemptions_tile_the_triangle_roster() {
     let surface: BTreeSet<&str> = METHOD_SURFACE
