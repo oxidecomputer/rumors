@@ -34,23 +34,35 @@ impl<'a> IdReader<'a> {
     ///   region set it denotes), so each delegated result equals the
     ///   corresponding range of the built union bit for bit.
     ///
-    /// The one seam `split` sees that this walk does not is the union
-    /// collapsing *at* the branch: when both union children are full, the
-    /// built union's branch node becomes a terminal and `split` lands in
-    /// its terminal arm — which emits per half a one-child node over a
-    /// terminal, exactly the tag-plus-full-child bytes the branch arm
-    /// here emits. The `sum_split_is_sum_then_split` differential holds
-    /// the whole map, `None` arm included, to the composition.
+    /// The branch runs in one of two modes, picked so no bit is ever read
+    /// twice. When the *left* child pair is a genuine merge, positioning
+    /// a both-present operand's right child would mean skipping its left
+    /// child and then reading it again inside the merge — paying more
+    /// than the composition wherever the union collapses — so the walk
+    /// delegates the whole branch subtree pair to `sum` and `split`
+    /// (both cursors still sit at the branch tags, and the branch
+    /// subtrees are suffixes of their streams): the composition's own
+    /// bytes and reads, minus the built union's spine. Everywhere else
+    /// the targeted path runs, and every skip it pays feeds a splice.
+    ///
+    /// The one seam `split` sees that the targeted path does not is the
+    /// union collapsing *at* the branch: when both union children are
+    /// full, the built union's branch node becomes a terminal and `split`
+    /// lands in its terminal arm — which emits per half a one-child node
+    /// over a terminal, exactly the tag-plus-full-child bytes the branch
+    /// arm here emits. The `sum_split_is_sum_then_split` differential
+    /// holds the whole map, `None` arm included, to the composition.
     ///
     /// Overlap is detected exactly as [`sum`](IdReader::sum) detects it —
     /// a full leaf meeting a nonempty region, on the spine or inside a
     /// delegated merge — and nothing is returned partially built.
     ///
-    /// `O(n + m)` worst case (the delegated merges), but sublinear where
-    /// the operands do not interleave: a subtree present on one side
-    /// alone is spliced without reading its nodes, where the composition
-    /// pays two scans of it (`sum`'s copy skip, then `split`'s
-    /// subtree-end scan) plus its bytes in the built union.
+    /// `O(n + m)` worst case, never above the composition's own reads,
+    /// and sublinear where the operands do not interleave: a subtree
+    /// present on one side alone is spliced without reading its nodes,
+    /// where the composition pays two scans of it (`sum`'s copy skip,
+    /// then `split`'s subtree-end scan) plus its bytes in the built
+    /// union.
     pub(crate) fn sum_split(mut self, mut other: IdReader) -> Option<(Bits, Bits)> {
         // An empty operand leaves the union the other operand, whole, so
         // the halves are its plain split. Only the root can be empty:
@@ -78,12 +90,25 @@ impl<'a> IdReader<'a> {
                 IdNode::Internal { left, right } => (left, right),
                 IdNode::Empty => unreachable!("both cursors stay live below the root"),
             };
-            self.read();
-            other.read();
             let (left, right) = (al || bl, ar || br);
             if left && right {
-                // The union's branch: each half keeps the spine, a
+                if al && bl {
+                    // The left pair is a genuine merge: delegate the
+                    // whole branch subtree pair to the composition (the
+                    // method doc's mode argument). The cursors still sit
+                    // at the branch tags, and the branch subtrees are
+                    // suffixes of their streams, so `sum` merges exactly
+                    // them; its root is both-present or full, so `split`
+                    // cuts it exactly where it would cut the built
+                    // union's branch.
+                    let union = self.sum(other)?;
+                    let (keep_child, give_child) = IdReader::root(&union).split();
+                    return Some((splice(&spine, &keep_child), splice(&spine, &give_child)));
+                }
+                // The targeted branch: each half keeps the spine, a
                 // one-child retag, and its own side's union child.
+                self.read();
+                other.read();
                 let (a_left, a_right) = branch_children(&self, al, ar);
                 let (b_left, b_right) = branch_children(&other, bl, br);
                 let keep_child = union_child(a_left, b_left)?;
@@ -95,6 +120,8 @@ impl<'a> IdReader<'a> {
             // A unary union node: both operands are unary in the same
             // direction (the module doc's spine argument), and the tag
             // rides into both halves.
+            self.read();
+            other.read();
             spine.push(left);
             spine.push(right);
         }
@@ -174,5 +201,14 @@ fn half(spine: &BitsSlice, left: bool, right: bool, child: &UnionChild) -> Bits 
     out.push(left);
     out.push(right);
     out.extend_from_bitslice(child.bits());
+    out
+}
+
+/// Assemble one delegated-mode half: the spine, then the composition's
+/// own half of the branch subtree's union.
+fn splice(spine: &BitsSlice, tail: &BitsSlice) -> Bits {
+    let mut out = Bits::with_capacity(spine.len() + tail.len());
+    out.extend_from_bitslice(spine);
+    out.extend_from_bitslice(tail);
     out
 }
