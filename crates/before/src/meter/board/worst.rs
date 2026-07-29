@@ -470,22 +470,46 @@ pub(super) fn render_map(
 ///   promoted families** (both scales): the truncation defect scans
 ///   every byte of every version-carrying family identically, and the
 ///   fold pins the whole tied set.
+///
+/// Movement 2026-07-29 (the plateau-puncture board re-size, 512 → 384
+/// base digits — the calibration argument at
+/// `PLATEAU_PUNCTURE_BASE_DIGITS`; 4 entries re-pinned from the live
+/// release fold, all in plateau-puncture's own rows; every non-PP
+/// cell's reading byte-identical to the parent renders at both
+/// scales):
+///
+/// - **plateau-puncture yields its three default-scale merge heap
+///   argmaxes** (version_join 3.51 → 3.0/B, hugeleaf takes it at
+///   3.37/B over wide-arming ×1.04; version_meet 3.79 → 3.3/B,
+///   wide-arming takes it at 3.61/B over lone-freeze ×1.06;
+///   version_meet_assign 2.95 → 2.5/B, hugeleaf takes it at 2.87/B
+///   over wide-arming ×1.01): the merge cells' heap is the
+///   materialized wide plateau magnitude, whose share of the
+///   per-byte budget moves with the knob, so at the smaller knob PP
+///   drops out of the near-tie band it had led — the same hairline
+///   genre contest the earlier hugeleaf note records, resolved the
+///   other way.
+/// - **plateau-puncture takes the default rank_sum heap argmax**
+///   (0.6531 → 0.8707/B, over hugeleaf's unchanged 0.6826/B, ×1.28):
+///   the sum row's transient is near-flat in absolute terms, so its
+///   share per denominator byte rises as the operand shrinks, lifting
+///   PP's intercept past hugeleaf's reading.
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "version_decode", ["hugeleaf", "dense", "staircase", "staircase"]),
     ("default", "version_encode", ["promo-rearm", "-", "-", "-"]),
     ("default", "version_cmp", ["hugeleaf", "staircase", "staircase", "staircase"]),
     ("default", "version_eq", ["-", "-", "-", "-"]),
     ("default", "version_concurrent", ["hugeleaf", "staircase", "staircase", "staircase"]),
-    ("default", "version_join", ["plateau-puncture", "dense", "mirror-wide", "staircase"]),
+    ("default", "version_join", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
     ("default", "version_join_assign", ["hugeleaf", "dense", "mirror-wide", "staircase"]),
-    ("default", "version_meet", ["plateau-puncture", "dense", "weight-comb", "staircase"]),
-    ("default", "version_meet_assign", ["plateau-puncture", "dense", "weight-comb", "staircase"]),
+    ("default", "version_meet", ["wide-arming", "dense", "weight-comb", "staircase"]),
+    ("default", "version_meet_assign", ["hugeleaf", "dense", "weight-comb", "staircase"]),
     ("default", "version_tick", ["ascend-cliff", "mirror-narrow", "hugeleaf", "mirror-narrow"]),
     ("default", "version_ticks", ["ascend-cliff", "mirror-narrow", "reveal-comb", "mirror-narrow"]),
     ("default", "version_tick_adv_party", ["id-pair", "id-pair", "id-pair", "comb-scatter"]),
     ("default", "version_rank", ["wide-arming", "staircase", "hugeleaf", "harmonic"]),
     ("default", "rank_pair_ops", ["hugeleaf", "concurrent-pair", "-", "-"]),
-    ("default", "rank_sum", ["hugeleaf", "hugeleaf", "-", "freeze-pos"]),
+    ("default", "rank_sum", ["plateau-puncture", "hugeleaf", "-", "freeze-pos"]),
     ("default", "version_distance", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("default", "version_lag", ["wide-arming", "staircase", "hugeleaf", "staircase"]),
     ("default", "version_min_ticks", ["ascend-cliff", "staircase", "staircase", "staircase"]),
