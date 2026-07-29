@@ -449,11 +449,11 @@ certified the scale fund the once-per-high-water zero-fill of
 @accum-contract — one traversal, not one per read; the per-read
 traversal is exactly what a scaled write cannot pay for.) The discipline, part of
 the contract: *an accumulator that receives scaled writes is never
-sign-read*. It is write-only until materialized, and each
-materialization must be separately funded — the weighted folds of
-@measures, the only scaled writers in the system, price their
-finished totals against the topology bits that certified the scales,
-and declare the one shape where that pricing is uncertified.
+sign-read*. It is write-only until read out through its watermark,
+and each read-out must be separately funded — the weighted folds of
+@measures, the only scaled writers in the system, price every
+read-out against the topology bits that certified the scales and
+the written span the watermark reports.
 
 Two consequences deserve a pause. First, _reads mutate_: the sign
 query rewrites the representation (value-preservingly). That is
