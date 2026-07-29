@@ -4048,6 +4048,7 @@ dependencies = [
  "ratatui",
  "rumors",
  "seq-macro",
+ "smallvec",
  "static_assertions",
  "thiserror 2.0.18",
  "tinyvec",

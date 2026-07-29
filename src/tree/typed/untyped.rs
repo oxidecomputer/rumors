@@ -8,6 +8,8 @@ use tinyvec::ArrayVec;
 
 use crate::{Version, message::Message, tree::typed::Hash};
 
+#[cfg_attr(not(test), allow(dead_code))]
+mod fan;
 mod iter;
 pub use iter::{Iter, Leaf, Range, RangeOwned};
 
