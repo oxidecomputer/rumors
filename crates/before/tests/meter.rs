@@ -4047,7 +4047,10 @@ mod ledger_wide_arming {
     /// 28,451 B packed operands (~2.4 touches per packed byte, flat
     /// across the doubling), tightened in the cure's own commit from
     /// the schoolbook settle's red reading of 288,037 → 1,083,963
-    /// touches and 293,651 → 1,095,255 limb ops (×1.89 and ×1.87 per
+    /// touches and 293,651 → 1,095,255 limb ops — measured at the
+    /// parent as one whole fold, so 2 limb ops above the kernel's
+    /// own committed tip record, two measurement harnesses rather
+    /// than drift — (×1.89 and ×1.87 per
     /// byte, local exponent ~1.9: the aggregate product paid the
     /// parked width times the window density one digit at a time).
     const WIDE_ARMING_CEILINGS: [(u64, u64); 2] = [(43_427, 52_427), (86_716, 104_795)];
