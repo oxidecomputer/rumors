@@ -83,13 +83,13 @@ RUST_PATH = r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*"
 # markup (it may be code, *italic*, or plain), so only the link wrapper is
 # removed. A bare in-page anchor (`(#section)`) has no leading path and stays.
 #
-# The link text admits no `[`, so that a half-open interval in the surrounding
-# prose (`{ [0, 1) }`) cannot open a link that closes at a later `](path)`:
-# such a run spans the interval and everything up to the true link's `]`, and
-# substituting the text for it swallows the interval's bracket. Every inline
-# link brings its own `[`, so excluding the character always resettles the
-# match onto the real opening bracket. Newlines remain legal — rustdoc wraps
-# prose, so link text may straddle a line break.
+# The link text excludes `[` so that a half-open interval in the surrounding
+# prose (`{ [0, 1) }`) cannot serve as the opening bracket for a link further
+# on: with `[` allowed, the text run swallows the prose and everything up to
+# the real link's `]`, and the substitution eats the interval's bracket. Every
+# inline link supplies its own `[`, so excluding it always resettles the match
+# onto the true opening bracket. Newlines stay legal — rustdoc wraps prose, so
+# link text may straddle a line break.
 WITH_DEST = re.compile(r"\[([^\][]+)\]\((" + RUST_PATH + r"(?:#[\w.-]+)?)\)")
 
 # `[`code`]` shortcut link not continued by a destination `(` or another
