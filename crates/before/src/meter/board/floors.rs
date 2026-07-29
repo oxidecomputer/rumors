@@ -44,15 +44,17 @@
 //!   plateau-heavy stream legitimately reads near zero — the same
 //!   one-per-nonzero-delta floor the envelope suite's flatness
 //!   pins commit. The pair walks (the comparison sweep and the merge
-//!   emitters and pair queries riding it) fold per *overlay boundary*:
-//!   a boundary both operands step lands both step codes in one fold
-//!   of the single running difference, so the honest pair floor is one
-//!   touch per stepping boundary — at least the larger operand's
-//!   stored-delta count, and legitimately half the naive two-stream
-//!   delta sum on a boundary-aligned pair (the tooth-tail family is
-//!   the committed demonstration; [`touch_pair_fold`] carries the
-//!   derivation, and the n-ary fold row floors what its first-level
-//!   merges alone force under the same premise). The validator batches word-scale deltas in the accumulator's
+//!   emitters and pair queries riding it) land every *nonzero* stored
+//!   delta of either operand in the single running difference — a
+//!   boundary both operands step lands both codes in one fold, so the
+//!   honest pair floor is the larger operand's nonzero-delta count (a
+//!   max, never a sum), and zero deltas fold nothing there exactly as
+//!   they fold nothing for the single-operand kernels: a sweep that
+//!   skips the sign re-read where nothing folded is conforming, so a
+//!   boundary count would read family-typical sign-read traffic as
+//!   mandatory ([`touch_pair_fold`] carries the derivation, and the
+//!   n-ary fold row floors what its first-level merges alone force
+//!   under the same premise). The validator batches word-scale deltas in the accumulator's
 //!   lazy zone, so the decode rows floor only what it must fold digit by
 //!   digit: one touch per 64 bits of every stored code wider than the
 //!   machine-word bound (the stream-derived
@@ -116,7 +118,7 @@ use super::ceilings::{
     SCAN_FLOOR_BITS_PER_INPUT_BYTE, SCAN_TOUCH_FLOOR_BITS, TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE,
 };
 use super::currency::{Floors, Liveness};
-use super::operand::{mandatory_limbs_stream, stored_deltas, stored_nonzero_deltas};
+use super::operand::{mandatory_limbs_stream, stored_nonzero_deltas};
 
 /// Scan floor: the operation must examine its packed operands in full.
 pub(super) const WHY_SCAN_EXAMINES: &str =
@@ -199,14 +201,15 @@ const WHY_TOUCH_DELTA_FOLD: &str = "deterministic-liveness: the kernel folds eac
      one digit touch per nonzero delta (a zero delta folds nothing: an accumulator add of zero \
      is a no-op); digit state moving to an unmetered representation lowers this floor \
      deliberately";
-/// Touch floor (deterministic-liveness): a pair walk folds per overlay
-/// boundary, and the overlay steps at least as often as the larger
-/// operand's stored-delta count.
-const WHY_TOUCH_PAIR_FOLD: &str = "deterministic-liveness: the fused sweep folds each overlay \
-     boundary's step deltas into the one running difference accumulator today, at least one \
-     digit touch per stepping boundary, and the overlay steps at least as often as the larger \
-     operand stores deltas; digit state moving to an unmetered representation lowers this \
-     floor deliberately";
+/// Touch floor (deterministic-liveness): a pair walk lands every nonzero
+/// stored delta of either operand in the one running difference, and
+/// distinct nonzero deltas of one operand step at distinct overlay
+/// boundaries.
+const WHY_TOUCH_PAIR_FOLD: &str = "deterministic-liveness: the fused sweep lands each nonzero \
+     stored delta of either operand in the one running difference accumulator, at least one \
+     digit touch per boundary the larger nonzero-delta count's operand steps (a zero delta \
+     folds nothing, and a sign re-read where nothing folded is not forced); digit state \
+     moving to an unmetered representation lowers this floor deliberately";
 /// Touch NA: canonical byte identity answers an equal pair before any
 /// sweep runs.
 const NA_TOUCH_EQUAL_PAIR: &str = "the operands are byte-identical: canonical equality answers \
@@ -215,9 +218,9 @@ const NA_TOUCH_EQUAL_PAIR: &str = "the operands are byte-identical: canonical eq
 /// merges each walk their two input streams' common refinement.
 const WHY_TOUCH_FOLD_MERGES: &str = "deterministic-liveness: the balanced reduction's \
      first-level merges each emit over their two inputs' common refinement — at least the \
-     larger input's stored-delta count per byte-distinct arrival-adjacent pair, nothing for an \
-     equal pair (canonical equality answers it); later levels merge derived groups and are \
-     deliberately un-floored";
+     larger input's nonzero-stored-delta count per byte-distinct arrival-adjacent pair, \
+     nothing for an equal pair (canonical equality answers it); later levels merge derived \
+     groups and are deliberately un-floored";
 /// Touch NA: no first-level merge of the reduction is forced into a fold.
 const NA_TOUCH_FOLD_UNFORCED: &str = "no arrival-adjacent input pair is byte-distinct with \
      stored deltas: the reduction's first level forces no fold, and later levels merge derived \
@@ -413,34 +416,39 @@ pub(super) fn touch_delta_fold(deltas: u64) -> Liveness {
 }
 
 /// The pair-walk touch floor: one accumulator touch per overlay boundary
-/// at which either operand's stream steps.
+/// at which the operand with more nonzero stored deltas folds one.
 ///
-/// Derived from the fused sweep's mechanism (every two-operand
-/// comparison, merge emission, and pair query rides it): the walk visits
-/// each boundary of the two streams' common refinement and folds that
-/// boundary's step deltas into the one running difference accumulator,
-/// so a boundary both operands step lands both codes in a single fold.
-/// The naive two-stream delta sum therefore over-counts a
-/// boundary-aligned pair by ×2 — the tooth-tail family is the committed
-/// demonstration (same-shape operands, every boundary shared, measured
-/// ~one touch per boundary) — while the *larger* operand's stored-delta
-/// count is sound for every pair, aligned or not: each of its deltas
-/// marks a distinct stepping boundary of the overlay. The floor stays
-/// strictly positive wherever either operand stores a delta at all, so a
-/// dead touch meter still trips it on every committed pair family. Equal
-/// operands are answered by canonical byte identity before any sweep
-/// runs (`a ∨ a = a`, `a ∧ a = a`, ordering by equality), so they force
-/// no fold and declare NA.
+/// Derived from the fused sweep's irreducible work (every two-operand
+/// comparison, merge emission, and pair query rides it), at one
+/// universal premise: the running difference lives on the metered
+/// accumulator, and every *nonzero* stored delta of either operand must
+/// land in it — at least one digit touch each, and distinct nonzero
+/// deltas of one operand step at distinct boundaries of the common
+/// refinement, so the larger operand's nonzero-delta count is sound for
+/// every pair, aligned or not (a shared boundary lands both codes in
+/// one fold, which is why the counts take a max, never a sum). Zero
+/// deltas are excluded because they are honest less-work inputs, not
+/// slack: a zero delta folds nothing (an accumulator add of zero is a
+/// no-op), and a sweep that skips the sign re-read where nothing folded
+/// is conforming — the tooth-tail family's flat unit plateaus are
+/// exactly such a stream, so a floor counting every stored delta would
+/// read family-typical sign-read traffic as mandatory and ban the
+/// efficiency. The floor stays strictly positive wherever either
+/// operand stores a nonzero delta, so a dead touch meter still trips it
+/// on every committed pair family. Equal operands are answered by
+/// canonical byte identity before any sweep runs (`a ∨ a = a`,
+/// `a ∧ a = a`, ordering by equality), so they force no fold and
+/// declare NA.
 pub(super) fn touch_pair_fold(v: &Version, w: &Version) -> Liveness {
     if v == w {
         return na(NA_TOUCH_EQUAL_PAIR);
     }
-    let boundaries = stored_deltas(v).max(stored_deltas(w));
-    if boundaries == 0 {
+    let folds = stored_nonzero_deltas(v).max(stored_nonzero_deltas(w));
+    if folds == 0 {
         na(NA_TOUCH_NO_DELTAS)
     } else {
         Liveness::Floor {
-            min: boundaries,
+            min: folds,
             why: WHY_TOUCH_PAIR_FOLD,
         }
     }
@@ -452,17 +460,17 @@ pub(super) fn touch_pair_fold(v: &Version, w: &Version) -> Liveness {
 /// The binary-counter reduction merges arrival-adjacent inputs first,
 /// and each such merge is a pair walk over its two input streams
 /// ([`touch_pair_fold`]'s premise): at least the larger input's
-/// stored-delta count for a byte-distinct pair, nothing for an equal
-/// pair (canonical equality answers it without a sweep) or an unpaired
-/// tail input. Later levels merge *derived* groups whose streams the
-/// operands do not determine cheaply, so they are deliberately
-/// un-floored — the declaration is the sound first-level sum, strictly
-/// positive on every committed fold population.
+/// nonzero-stored-delta count for a byte-distinct pair, nothing for an
+/// equal pair (canonical equality answers it without a sweep) or an
+/// unpaired tail input. Later levels merge *derived* groups whose
+/// streams the operands do not determine cheaply, so they are
+/// deliberately un-floored — the declaration is the sound first-level
+/// sum, strictly positive on every committed fold population.
 pub(super) fn touch_fold_first_merges(versions: &[Version]) -> Liveness {
     let first_level: u64 = versions
         .chunks(2)
         .map(|pair| match pair {
-            [a, b] if a != b => stored_deltas(a).max(stored_deltas(b)),
+            [a, b] if a != b => stored_nonzero_deltas(a).max(stored_nonzero_deltas(b)),
             _ => 0,
         })
         .sum();
