@@ -545,6 +545,162 @@ proptest! {
     }
 }
 
+/// The clustered charge agrees with the whole-span products at the
+/// backend's own multiplication-tier boundaries, with cluster-edge
+/// cancellation and the balanced range's extreme digits in play.
+///
+/// The committed proptest above samples factors up to 200 bytes (50
+/// base-2^32 digits ≈ 25 dashu words), so on a 64-bit target it never
+/// pushes a settle product past the backend's simple→Karatsuba
+/// dispatch seam, let alone Karatsuba→Toom-3 or Toom-3→NTT. This
+/// deterministic leg holds the value seam at every dispatch boundary
+/// the shipped dashu 0.5 backend has (smaller side 24 / 96 / 4,000
+/// words, one width at and one past each), against the same
+/// un-clustered whole-span oracle, over three mass geometries per
+/// width: a dense run wider than the factor, digits spaced exactly at
+/// the gap limit (one bridged cluster) and exactly past it (split
+/// clusters), and an equal-magnitude ± pair straddling a forced split
+/// so the cancellation happens in the total, never inside one
+/// densified image. Digits include both balanced-range extremes
+/// (`−2^31` and `2^31 − 1`).
+#[test]
+fn clustered_charge_agrees_at_backend_tier_boundaries() {
+    use suanpan::{Accumulator, UBig};
+
+    use crate::codec::Base;
+
+    /// One whole-span differential: `charge_digits` versus two
+    /// un-clustered products (positive and negative sides separately),
+    /// exact to the digit.
+    fn assert_matches(factor: &Base, digits: &[(u64, i64)], neg: bool, label: &str) {
+        let mut clustered = Accumulator::new();
+        super::charge_digits(&mut clustered, neg, factor, digits);
+        let mut positive = UBig::ZERO;
+        let mut negative = UBig::ZERO;
+        for &(i, d) in digits {
+            let term =
+                UBig::from(d.unsigned_abs()) << usize::try_from(32 * i).expect("test spans fit");
+            if d < 0 {
+                negative += term;
+            } else {
+                positive += term;
+            }
+        }
+        let mut expected = Accumulator::new();
+        let (add_side, sub_side) = if neg {
+            (&negative, &positive)
+        } else {
+            (&positive, &negative)
+        };
+        expected.add_wide(&(add_side * &factor.0));
+        expected.sub_wide(&(sub_side * &factor.0));
+        expected.sub_accum(&clustered);
+        assert_eq!(
+            expected.sign(),
+            core::cmp::Ordering::Equal,
+            "clustered charge disagrees with the whole-span products: {label}"
+        );
+    }
+
+    // The balanced range's extremes, alternated so carries propagate
+    // through the densified images in both sign parts.
+    const EXTREMES: [i64; 4] = [-(1i64 << 31), (1i64 << 31) - 1, 1, -1];
+
+    // dashu 0.5 dispatches on the smaller side in 64-bit words:
+    // simple ≤ 24, Karatsuba ≤ 96, Toom-3 ≤ 4,000, NTT above. One
+    // width at each threshold and one past it, in base-2^32 digits.
+    for words in [24usize, 25, 96, 97, 4_000, 4_001] {
+        let width = 2 * words;
+        // A patterned full-width factor (no digit zero, top digit set).
+        let factor_bytes: Vec<u8> = (0..width * 4).map(|i| (i % 251) as u8 + 1).collect();
+        let factor = Base::from(UBig::from_le_bytes(&factor_bytes));
+        let gap_limit = super::base_digits(&factor) as u64;
+        // A dense run wider than the factor: the product's smaller
+        // side is the factor, so the backend engages this width's own
+        // tier.
+        let dense: Vec<(u64, i64)> = (0..width as u64 + 64)
+            .map(|i| (i, EXTREMES[i as usize % EXTREMES.len()]))
+            .collect();
+        assert_matches(&factor, &dense, false, "dense run");
+        assert_matches(&factor, &dense, true, "dense run, credited");
+        // Digits spaced exactly at the gap limit bridge into one
+        // cluster; exactly one position further they split. Both must
+        // spell the same value either way.
+        for (spacing, label) in [
+            (gap_limit + 1, "gaps exactly at the limit (bridged)"),
+            (gap_limit + 2, "gaps exactly past the limit (split)"),
+        ] {
+            let spaced: Vec<(u64, i64)> = (0..6u64)
+                .map(|k| (k * spacing, EXTREMES[k as usize % EXTREMES.len()]))
+                .collect();
+            assert_matches(&factor, &spaced, false, label);
+        }
+        // Equal magnitudes of opposite sign in adjacent clusters
+        // forced apart by an over-limit gap: the value cancels only in
+        // the total, after two independent densified products.
+        let straddle: Vec<(u64, i64)> =
+            vec![(0, (1i64 << 31) - 1), (gap_limit + 2, -((1i64 << 31) - 1))];
+        assert_matches(&factor, &straddle, false, "cancellation across a split");
+    }
+}
+
+/// The mass-balanced split isolates one leaf per level on
+/// exponentially spread masses: the product tree's depth is `n − 1`
+/// there, linear in the entry count, while uniform masses keep it at
+/// `⌈log₂ n⌉`.
+///
+/// A witness for review, not a contract: the split arithmetic below
+/// replicates `Integrator::settle_armings`' inline rule verbatim
+/// (prefix sums, `div_ceil` midpoint, `partition_point`, the
+/// both-halves-nonempty clamp) — keep them in lockstep. What it
+/// demonstrates is the shape the module doc's depth prose must
+/// survive: a leaf's depth is bounded by the *total mass* logarithm
+/// (masses at least double along the isolating path), not by any
+/// function of the entry count alone — with `n` entries of masses
+/// `2^1..2^n` the deepest entry is re-read `n − 1` times, not
+/// `O(log n)`. Every aggregate cost bound absorbs this (heavy leaves
+/// sit shallow, so mass-weighted traffic stays entropy-bounded), but
+/// prose denominating the tree's depth in the arming count alone
+/// does not.
+#[test]
+fn mass_midpoint_split_runs_linear_depth_on_exponential_masses() {
+    /// Depth of the deepest leaf under the settle's split rule.
+    fn split_depth(masses: &[u64]) -> usize {
+        let mut prefix: Vec<u64> = Vec::with_capacity(masses.len() + 1);
+        prefix.push(0);
+        for &m in masses {
+            prefix.push(prefix.last().expect("seeded nonempty") + m.max(1));
+        }
+        let mut deepest = 0;
+        let mut stack = vec![(0usize, masses.len(), 0usize)];
+        while let Some((lo, hi, depth)) = stack.pop() {
+            if hi - lo == 1 {
+                deepest = deepest.max(depth);
+                continue;
+            }
+            let target = (prefix[lo] + prefix[hi]).div_ceil(2);
+            let mid = (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target)).min(hi - 1);
+            stack.push((mid, hi, depth + 1));
+            stack.push((lo, mid, depth + 1));
+        }
+        deepest
+    }
+
+    let n = 16usize;
+    let exponential: Vec<u64> = (1..=n as u32).map(|i| 1u64 << i).collect();
+    assert_eq!(
+        split_depth(&exponential),
+        n - 1,
+        "exponentially spread masses must chain: one isolating split per level"
+    );
+    let uniform: Vec<u64> = vec![8; n];
+    assert_eq!(
+        split_depth(&uniform),
+        4,
+        "uniform masses must balance to ⌈log₂ n⌉ levels"
+    );
+}
+
 /// The committed known-bad freeze accounting: the freeze-position
 /// family's adequacy tripwire.
 ///
