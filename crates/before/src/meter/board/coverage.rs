@@ -25,8 +25,7 @@
 //! operations (so they live here rather than in the table): the
 //! rejection rows price the fallible surface (the board module doc's
 //! rejection section; the `defect` module carries the placed defects),
-//! and **the
-//! rejection surface's bounded-or-delegated remainder** is:
+//! and **the rejection surface's bounded-or-delegated remainder** is:
 //! `Clock::join_all`'s overlap hand-back runs the identical up-front
 //! indexed test against self that `party_join_all_overlap` prices,
 //! inline; clock non-canonicality — packed or text — is the component
