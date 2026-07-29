@@ -25,8 +25,8 @@ use proptest::prelude::*;
 use crate::meter::{
     alt_spine, arming_train, bigroot, cancelling_chain, cliff_comb, cliff_fan, concurrent_pair,
     dense, dense_factor, dense_suffix, dense_suffix_mate, factor_digit, freeze_position, harmonic,
-    hugeleaf, jump_comb, jump_pair, plateau_puncture, promotion_rearm, promotion_rearm_mate,
-    puncture_product, wide_arming, wide_tooth_comb, Packed,
+    hugeleaf, jump_comb, jump_pair, lone_freeze, plateau_puncture, promotion_rearm,
+    promotion_rearm_mate, puncture_product, wide_arming, wide_tooth_comb, Packed,
 };
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
@@ -223,6 +223,14 @@ fn promoting_pool() -> Vec<Version> {
         version_of(&freeze_position(3)),
         version_of(&plateau_puncture(10, 3)),
         version_of(&plateau_puncture(12, 1)),
+        // The first-freeze-gate straddles: the sweep's one freeze fired
+        // arbitrarily late (a long never-freezing plateau prefix) and
+        // fired early ahead of a long never-freezing tail — the settle's
+        // smallest nonempty configuration, one parked drift against one
+        // final segment, from both sides of the gate.
+        version_of(&lone_freeze(2, 2)),
+        version_of(&lone_freeze(6, 2)),
+        version_of(&lone_freeze(2, 6)),
         // The multi-arming trains: same-sign and alternating, so the
         // settle's parked sums are exercised both accumulating and
         // cancelling across aggregate seams.

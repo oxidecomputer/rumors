@@ -9,9 +9,10 @@ use suanpan::UBig;
 use super::{
     alt_spine, arming_train, bigroot, bitlen, cancelling_chain, cliff_comb, cliff_fan,
     concurrent_pair, dense, dense_suffix, dense_suffix_mate, freeze_parade, freeze_position,
-    harmonic, hugeleaf, id_spine, jump_comb, jump_pair, mask_drift_quadruple, mask_drift_triple,
-    plateau_puncture, plateau_puncture_factors, promotion_rearm, promotion_rearm_mate,
-    scattered_id, tooth_tail, weight_comb, wide_arming, wide_tooth_comb, Packed,
+    harmonic, hugeleaf, id_spine, jump_comb, jump_pair, lone_freeze, mask_drift_quadruple,
+    mask_drift_triple, plateau_puncture, plateau_puncture_factors, promotion_rearm,
+    promotion_rearm_mate, scattered_id, tooth_tail, weight_comb, wide_arming, wide_tooth_comb,
+    Packed,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out
@@ -250,6 +251,35 @@ fn promotion_rearm_decodes_canonically_at_predicted_length() {
         spelled,
         "the bit-level construction is the spelled re-arm spine"
     );
+}
+
+/// `lone_freeze(pre, post)` is canonical normal form at exactly
+/// `580·pre + 6·post + 14` bits, and its `min_ticks` is exactly the
+/// leaf-sum closed form `pre·(2^288 + 2) + pre/2 + 3·post/2 + 3`.
+///
+/// The closed form is the family's independent semantic leg: the
+/// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter
+/// scale on both dials, so this pin holds it at hand-checkable sizes
+/// where the tree can also be spot-read (a plateau pair, the drop
+/// block, a tail pair, the terminal zero).
+#[test]
+fn lone_freeze_decodes_canonically_at_predicted_length() {
+    for (pre, post) in [(2usize, 2usize), (2, 6), (6, 2), (40, 40)] {
+        check_version(&lone_freeze(pre, post), 580 * pre + 6 * post + 14);
+        let expected = UBig::from(pre as u64) * ((UBig::ONE << 288usize) + UBig::from(2u8))
+            + UBig::from((pre / 2) as u64)
+            + UBig::from((3 * post / 2) as u64)
+            + UBig::from(3u8);
+        let ticks: crate::Ticks = expected
+            .to_string()
+            .parse()
+            .expect("the closed form renders as a count");
+        assert_eq!(
+            lone_freeze(pre, post).version().min_ticks(),
+            ticks,
+            "the leaf-sum closed form is the family's minimum tick count"
+        );
+    }
 }
 
 /// `promotion_rearm_mate(p)` is canonical normal form at exactly

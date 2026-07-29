@@ -1865,6 +1865,85 @@ pub fn freeze_parade(k: usize) -> Packed {
     Packed::from_bits(bits)
 }
 
+/// The height of the lone-freeze plateau: one freeze-allowance-clearing
+/// drop above the low tail, so the family's single mid-stream drop is
+/// the sweep's one freeze.
+///
+/// `2^288 + 2` (ten base-2^32 digits): the drop from the plateau to the
+/// low block exceeds the query folds' eight-digit freeze allowance over
+/// the following unit code, the same width argument as
+/// [`freeze_position`]'s drop.
+const LONE_FREEZE_PLATEAU_BITS: usize = 288;
+
+/// The lone-freeze spine `LF(pre, post)`: `pre` unit-oscillation levels
+/// on a wide plateau, one freeze-firing drop, then `post`
+/// unit-oscillation levels near the floor, over a terminal 0 leaf.
+///
+/// Exactly `580·pre + 6·post + 14` bits. Layout: a right spine of
+/// `pre + post + 2` nodes `1 · γ(0)`, left leaves in preorder at
+/// heights `H, H + 1, H, H + 1, …` (`pre` leaves, `H = 2^288 + 2`),
+/// then `2` (the drop: one ten-digit delta, within the freeze allowance
+/// of its own code), then `1` (the unit whose fold fires the sweep's
+/// one freeze), then `2, 1, 2, 1, …` (`post` leaves), closing in the
+/// terminal `0 · γ(0)`.
+///
+/// The family straddles the query folds' first-freeze gate from both
+/// sides, one dial per axis:
+///
+/// - **`pre` (the late-freeze axis)**: the whole prefix runs strictly
+///   before the sweep's first freeze — unit drift, no eviction — so
+///   any per-interval deposit toward the settle machinery made before
+///   drift exists to settle (the segment feed the gate holds shut)
+///   scales with `pre` while the family's one settle never reads it.
+/// - **`post` (the frozen-tail axis)**: the whole tail runs with the
+///   gate open and the parked ten-digit drift live — every tail
+///   interval feeds the segment mass the close's one `P · segment`
+///   settle then reads at its watermark — so a tail feed or a close
+///   read that is not amortized O(1) per interval scales with `post`
+///   against O(1) funded wide codes.
+///
+/// Exactly one freeze fires (the tail's oscillation never re-trips the
+/// trigger) and no promotion ever does (nothing is parked before the
+/// one freeze), so the family also pins the settle's smallest
+/// nonempty configuration: one parked drift against one final
+/// segment. `min_ticks(LF(pre, post))` is the leaf sum
+/// `pre·(2^288 + 2) + pre/2 + 3·post/2 + 3` (every node minimum is 0
+/// via the terminal leaf). Normal form: every base is 0, every
+/// subtree reaches the terminal 0, and the only sibling leaf pair is
+/// the deepest `(1, 0)` or `(2, 0)`.
+///
+/// # Panics
+///
+/// Panics if `pre` or `post` is zero or odd (the closed forms count
+/// whole oscillation pairs).
+pub fn lone_freeze(pre: usize, post: usize) -> Packed {
+    assert!(
+        pre >= 2 && pre.is_multiple_of(2),
+        "the lone freeze needs a whole-pair plateau prefix"
+    );
+    assert!(
+        post >= 2 && post.is_multiple_of(2),
+        "the lone freeze needs a whole-pair low tail"
+    );
+    let plateau = (suanpan::UBig::ONE << LONE_FREEZE_PLATEAU_BITS) + suanpan::UBig::from(2u8);
+    let mut bits = Bits::with_capacity(580 * pre + 6 * post + 14);
+    let mut leaf = |bits: &mut Bits, value: suanpan::UBig| {
+        bits.push(true); // spine node: base 0, leaf left, spine right
+        codec::encode_int(bits, &Base::ZERO);
+        ev_leaf_wide(bits, &Base::from(value));
+    };
+    for j in 0..pre {
+        leaf(&mut bits, &plateau + suanpan::UBig::from((j % 2) as u64));
+    }
+    leaf(&mut bits, suanpan::UBig::from(2u8)); // the drop: one wide delta
+    leaf(&mut bits, suanpan::UBig::ONE); // the unit that fires the freeze
+    for i in 0..post {
+        leaf(&mut bits, suanpan::UBig::from((2 - i % 2) as u64)); // 2, 1, …
+    }
+    ev_leaf(&mut bits, 0); // the terminal leaf: every ancestor's minimum
+    Packed::from_bits(bits)
+}
+
 /// The tooth-tail pair `TT(g, m)`: two same-shape right spines of `m`
 /// flat unit leaves over a terminal 0, whose second leaves spike by
 /// `2^(32g)` in both operands.
