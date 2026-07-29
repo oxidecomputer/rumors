@@ -146,11 +146,19 @@ const BAND_TO_FAMILY: &[(&str, &str)] = &[
         "freeze-pos",
     ),
     (
+        "skyline_min_ticks_freeze_position_is_flat_per_unit",
+        "freeze-pos",
+    ),
+    (
         "skyline_distance_freeze_position_is_flat_per_unit",
         "freeze-pos",
     ),
     (
         "skyline_rank_promotion_rearm_is_flat_per_unit",
+        "promo-rearm",
+    ),
+    (
+        "skyline_min_ticks_promotion_rearm_is_flat_per_unit",
         "promo-rearm",
     ),
     (
@@ -189,6 +197,26 @@ const BAND_ONLY: &[(&str, &str)] = &[
     (
         "ticks_flatness_holds_the_log_band",
         "prices the ticks count axis across three already-rostered families, not a shape of its own",
+    ),
+    (
+        "ticks_wide_count_flatness_holds_the_width_band",
+        "prices the ticks count-width axis across the same three rostered families, not a shape of its own",
+    ),
+    (
+        "skyline_rank_lone_freeze_late_is_flat_per_unit",
+        "the lone-freeze spine is a kernel-seam probe of the integrator's first-freeze gate",
+    ),
+    (
+        "skyline_rank_lone_freeze_tail_is_flat_per_unit",
+        "as the lone-freeze late band's",
+    ),
+    (
+        "party_fold_alias_rejection_count_is_flat_per_unit",
+        "the aliased population probes the fold's hand-back seam; the board's fold rows price well-formed populations, and aliases arrive only through decode or dangerously_alias",
+    ),
+    (
+        "party_fold_alias_rejection_depth_is_flat_per_unit",
+        "as the alias-count band's",
     ),
     (
         "skyline_rank_wide_tooth_freeze_band",

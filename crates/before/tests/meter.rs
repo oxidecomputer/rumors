@@ -6726,7 +6726,7 @@ mod fold_alias {
     /// alias-count doubling: each rejected alias pays its own test and
     /// one weight-0 failed combine, never a re-probe of the group.
     #[test]
-    fn party_fold_alias_rejection_is_flat_across_count() {
+    fn party_fold_alias_rejection_count_is_flat_per_unit() {
         let small = alias_run(ALIAS_COUNT_SMALL, ALIAS_DEPTH_SMALL);
         let large = alias_run(2 * ALIAS_COUNT_SMALL, ALIAS_DEPTH_SMALL);
         assert_flat("count_scan_bits", small, large);
@@ -6746,7 +6746,7 @@ mod fold_alias {
     /// claim: a hand-back that re-walked the accumulated group per
     /// alias would read ×2 and cannot hide inside it.
     #[test]
-    fn party_fold_alias_rejection_is_flat_across_depth() {
+    fn party_fold_alias_rejection_depth_is_flat_per_unit() {
         let small = alias_run(ALIAS_COUNT_SMALL, ALIAS_DEPTH_SMALL);
         let large = alias_run(ALIAS_COUNT_SMALL, 2 * ALIAS_DEPTH_SMALL);
         assert_flat("depth_scan_bits", small, large);
