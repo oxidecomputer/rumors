@@ -285,8 +285,8 @@ impl Version {
     ///   bounded number of digits wide — every committed board family,
     ///   dense trailing regions and many re-armings included: the fold
     ///   settles its re-armings once, through the product tree,
-    ///   re-reading no width or density more times than the tree's
-    ///   logarithmic depth.
+    ///   re-reading no width or density more times than the product
+    ///   tree's depth, which stays logarithmic in `|v|`.
     ///
     /// The gap between `O(M(|v|) · log |v|)` and `Ω(M(|v|))` is not
     /// contractual: a future release may close the tree-depth factor,

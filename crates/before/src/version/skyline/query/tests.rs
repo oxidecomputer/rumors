@@ -824,19 +824,21 @@ fn dense_factor_tier_legs() {
 /// there, linear in the entry count, while uniform masses keep it at
 /// `⌈log₂ n⌉`.
 ///
-/// A witness for review, not a contract: the split arithmetic below
-/// replicates `Integrator::settle_armings`' inline rule verbatim
-/// (prefix sums, `div_ceil` midpoint, `partition_point`, the
-/// both-halves-nonempty clamp) — keep them in lockstep. What it
-/// demonstrates is the shape the module doc's depth prose must
-/// survive: a leaf's depth is bounded by the *total mass* logarithm
-/// (masses at least double along the isolating path), not by any
-/// function of the entry count alone — with `n` entries of masses
-/// `2^1..2^n` the deepest entry is re-read `n − 1` times, not
-/// `O(log n)`. Every aggregate cost bound absorbs this (heavy leaves
-/// sit shallow, so mass-weighted traffic stays entropy-bounded), but
-/// prose denominating the tree's depth in the arming count alone
-/// does not.
+/// The committed witness behind the module doc's depth denomination:
+/// the split arithmetic below replicates
+/// `Integrator::settle_armings`' inline rule verbatim (prefix sums,
+/// `div_ceil` midpoint, `partition_point`, the both-halves-nonempty
+/// clamp) — keep them in lockstep. What it demonstrates: a leaf's
+/// depth is bounded by the *total mass* logarithm (masses at least
+/// double along the isolating path), never by any function of the
+/// entry count alone — with `n` entries of masses `2^1..2^n` the
+/// deepest entry is re-read `n − 1` times, not `O(log n)`. Every
+/// aggregate cost bound absorbs this (heavy leaves sit shallow, so
+/// mass-weighted traffic stays entropy-bounded at the total mass
+/// times the entry-count logarithm), which is why the module doc
+/// denominates the tree's depth in settle mass — at most `log |v|`,
+/// the mass being input-funded — and why its `O((n + D) log n)`
+/// claim is conditioned on `O(1)`-wide parked masses.
 #[test]
 fn mass_midpoint_split_runs_linear_depth_on_exponential_masses() {
     /// Depth of the deepest leaf under the settle's split rule.
