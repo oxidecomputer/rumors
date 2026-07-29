@@ -15,26 +15,31 @@
 //!   [`Site`] records — and requires the pinned tokens verbatim. Editing a
 //!   section's class without this roster is a named failure; the sentences
 //!   after the tokens are explanation, uniformly non-normative.
-//! - **Roster ↔ board** : every cited board row must exist in the board's
-//!   own operation axis ([`board::bench_cells`]), and the set of rows
-//!   claimed superlinear-in-time must equal the bench judge's committed
-//!   red set (`tools/benchjudge-expected.json`, itself membership-pinned
-//!   by `tests/bench_judge_roster.rs`) — both directions, so curing a red
-//!   or flipping a class reaches the rustdoc through a failing name here.
-//! - **Roster ↔ mechanism-tagged reds** (the class-binding seal): no
-//!   linear-class claim (`Linear`, `LinearIo`, `FoldLog`) may cite an
-//!   operation with a standing exponent-mechanism red in
-//!   [`board::BOARD_EXPECTED_REDS`], and every [`Class::SuperlinearCounter`]
-//!   claim must keep one — the judge's red set binds wall time only, and
-//!   this leg binds the deterministic counters' verdicts, so a
+//! - **Roster ↔ board**: every cited board row must exist in the board's
+//!   own operation axis ([`board::bench_cells`]).
+//! - **Class ↔ evidence** (the class contracts): every [`Class`] variant
+//!   declares one [`ClassContract`] — its stance toward the board's
+//!   exponent-mechanism reds ([`board::BOARD_EXPECTED_REDS`]), whether it
+//!   claims a bench-judge-rostered time leg
+//!   (`tools/benchjudge-expected.json`, membership-pinned by
+//!   `tests/bench_judge_roster.rs`), its defining prose token, and its
+//!   named witness tests — and one test enforces every contract the same
+//!   way, so curing a red, flipping a class, or retiring a witness
+//!   reaches the rustdoc through a failing name here. The exhaustive
+//!   match in [`Class::contract`] makes a contract-less class a compile
+//!   error; the judge's red set binds wall time, the exponent-red
+//!   stances bind the deterministic counters' verdicts, so a
 //!   counter-superlinear kernel whose wall constant hides under the
-//!   judge's resolution can no longer keep a linear claim.
-//! - **Class liveness**: every non-linear class keeps a deterministic
-//!   growth pin proving the documented behavior still exists — the
-//!   render merge's superlinear limb growth on the wide left-full shape
-//!   and the n-ary fold's log factor on the scatter population live in
-//!   this suite. A cure landing flips the pin red, forcing roster and
-//!   rustdoc to move in the same change.
+//!   judge's resolution cannot keep a flat-counter class.
+//! - **Class liveness**: every non-linear class's contract names a
+//!   deterministic pin proving the documented behavior still exists —
+//!   the render merge's superlinear limb growth on the wide left-full
+//!   shape, the n-ary fold's log factor on the scatter population, and
+//!   the `MulBound` claims' answer-embedded product (the
+//!   plateau-puncture rank equals a wide × dense closed form whose
+//!   factors both scale with the input) live in this suite. A cure
+//!   landing flips the pin red, forcing roster and rustdoc to move in
+//!   the same change.
 //!
 //! Totality rides the triangle surface: every name in
 //! [`triangle::extract_public_fns`] and [`triangle::FAMILY_SURFACE`] has
@@ -91,6 +96,165 @@ pub(crate) enum Class {
     /// counter-superlinear finding, and the mutation tests keep both
     /// directions honest meanwhile.
     SuperlinearCounter,
+    /// Superlinear worst-case time at the arithmetic backend's
+    /// integer-multiplication bound, delegated below every
+    /// deterministic counter: the counters legitimately read flat on
+    /// the very families that witness the worst case.
+    ///
+    /// The members: rank, distance, and lag (one shared integrator,
+    /// whose settle products ride the backend's multiplication). No
+    /// board or judge red can exist for this class — the counters
+    /// price the fold's own traffic, which *is* linear, and the
+    /// multiplication's wall share sits far under the judge's
+    /// resolution at bench scales — so its evidence is structural,
+    /// named by its contract's witnesses: the wide × dense flatness
+    /// bands, the committed schoolbook kernels failing beside them,
+    /// and the answer-embedded-product liveness pin. An answer that
+    /// stops embedding the product dissolves the class back to a
+    /// linear one in the same change.
+    MulBound,
+}
+
+/// A class's stance toward the board's standing exponent-mechanism
+/// reds ([`board::BOARD_EXPECTED_REDS`] entries tagged `exponent`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RedStance {
+    /// A cited cell with a standing exponent red contradicts the
+    /// class: its counters are claimed to scale as the class's model.
+    Forbidden,
+    /// The class exists *because* of a standing exponent red: a claim
+    /// without one is decoration.
+    Required,
+    /// The class makes no counter claim; a standing exponent red on
+    /// the same operation is consistent with it.
+    Allowed,
+}
+
+/// The uniform mechanical bindings of one [`Class`]: what the binding
+/// tests enforce for every claim citing it.
+///
+/// Every variant declares one contract (the exhaustive match in
+/// [`Class::contract`] makes a contract-less class a compile error),
+/// and one test (`classes_satisfy_their_contracts`) enforces all of
+/// them the same way — no class's binding is bespoke machinery.
+pub(crate) struct ClassContract {
+    /// Stance toward the board's exponent-mechanism reds.
+    pub(crate) exponent_reds: RedStance,
+    /// Whether the class claims a bench-judge-rostered superlinear
+    /// time leg: the rows cited under judge-red classes must equal the
+    /// judge roster's red set exactly, and no other class may cite a
+    /// rostered row.
+    pub(crate) judge_red: bool,
+    /// The class-defining prose token: every claim citing the class
+    /// must pin a `# Complexity` token containing it.
+    pub(crate) token: Option<&'static str>,
+    /// Whether the defining token is exclusive to the class: a claim
+    /// pinning it without citing the class is unclassed prose.
+    pub(crate) token_exclusive: bool,
+    /// Committed witnesses that must exist in the tree by name, as
+    /// `(manifest-relative file, test fn name)`.
+    ///
+    /// Measurement pins and adequacy kernels, each required to be a
+    /// `#[test]`-attributed function in its file (a mention in prose
+    /// does not count), so a deletion or rename fails a reviewed name
+    /// here, never silently.
+    pub(crate) witnesses: &'static [(&'static str, &'static str)],
+}
+
+impl Class {
+    /// Every class, for contract iteration (the compiler holds
+    /// [`Class::contract`] total; this list holds the witness sweep
+    /// total — a new variant joins both in one edit).
+    pub(crate) const ALL: &'static [Class] = &[
+        Class::Linear,
+        Class::LinearIo,
+        Class::FoldLog,
+        Class::SuperlinearTime,
+        Class::SuperlinearCounter,
+        Class::MulBound,
+    ];
+
+    /// The class's uniform mechanical binding.
+    pub(crate) fn contract(self) -> ClassContract {
+        match self {
+            // The plain linear classes: flat counters, no judge red,
+            // no defining token beyond the Big-O lead itself.
+            Class::Linear | Class::LinearIo => ClassContract {
+                exponent_reds: RedStance::Forbidden,
+                judge_red: false,
+                token: None,
+                token_exclusive: false,
+                witnesses: &[],
+            },
+            // The fold classes promise the balanced reduction's log
+            // factor: the `log k` token is theirs alone, and the
+            // scatter-population growth pin keeps the factor alive.
+            Class::FoldLog => ClassContract {
+                exponent_reds: RedStance::Forbidden,
+                judge_red: false,
+                token: Some("log k"),
+                token_exclusive: true,
+                witnesses: &[(
+                    "src/testing/complexity_claims/tests.rs",
+                    "fold_log_factor_is_alive",
+                )],
+            },
+            // Judge-rostered superlinear time. The token is not
+            // exclusive: type docs legitimately note superlinear
+            // rendering costs (Rank, Ticks) while their own cells
+            // stay linear.
+            Class::SuperlinearTime => ClassContract {
+                exponent_reds: RedStance::Allowed,
+                judge_red: true,
+                token: Some("superlinear"),
+                token_exclusive: false,
+                witnesses: &[(
+                    "src/testing/complexity_claims/tests.rs",
+                    "render_merge_superlinearity_is_alive",
+                )],
+            },
+            // Counter-witnessed superlinearity: the standing exponent
+            // red is the class's whole evidence (currently
+            // unpopulated; the decoration fixture keeps the stance's
+            // reverse leg honest).
+            Class::SuperlinearCounter => ClassContract {
+                exponent_reds: RedStance::Required,
+                judge_red: false,
+                token: Some("superlinear"),
+                token_exclusive: false,
+                witnesses: &[],
+            },
+            // The multiplication-bound delegation: flat counters by
+            // design (a standing exponent red means the delegation
+            // failed and the honest home is SuperlinearCounter), the
+            // Ω(M(·)) floor token exclusively its own, and the
+            // committed evidence named: both wide × dense flatness
+            // bands, both schoolbook kernels, and the
+            // answer-embedded-product liveness pin.
+            Class::MulBound => ClassContract {
+                exponent_reds: RedStance::Forbidden,
+                judge_red: false,
+                token: Some("Ω(M("),
+                token_exclusive: true,
+                witnesses: &[
+                    ("tests/meter.rs", "rank_wide_arming_is_flat_per_unit"),
+                    ("tests/meter.rs", "rank_plateau_puncture_is_flat_per_unit"),
+                    (
+                        "src/version/skyline/query/tests.rs",
+                        "schoolbook_settle_reads_superlinear_on_wide_arming",
+                    ),
+                    (
+                        "src/version/skyline/query/tests.rs",
+                        "schoolbook_settle_reads_superlinear_on_plateau_puncture",
+                    ),
+                    (
+                        "src/testing/complexity_claims/tests.rs",
+                        "mul_bound_embedding_is_alive",
+                    ),
+                ],
+            },
+        }
+    }
 }
 
 /// Where an operation's `# Complexity` section lives.
@@ -359,39 +523,39 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             tokens: &[
                 "`O(|v|)` space",
-                "`Θ(|v|²)`",
+                "`O(M(|v|) · log |v|)`",
                 "`Ω(M(|v|))`",
                 "`O(|v| log |v|)`",
             ],
         }],
         // The three-part time claim, each part with a committed
-        // witness: Θ(|v|²) worst case is held tight from below by two
-        // red pins in tests/meter.rs — `ledger_wide_arming_pin` (the
-        // ledger settle's aggregate product: one arming as wide as
-        // the input ahead of a suffix as dense) and
-        // `answer_embedded_product` (the close-time settle with zero
-        // armings: the plateau-puncture rank IS a wide × dense
-        // product) — and from above by the `quadratic_ceiling`
-        // probes, whose module doc derives the O(|v|²) ceiling over
-        // every committed superlinear family (each settle product is
-        // charged to the widest arming of its left half; window-sum
-        // density is subadditive over disjoint entry ranges; every
-        // other charge is O(|v| log |v|)). Ω(M(|v|)) is mandatory
-        // because the plateau-puncture answer embeds the product; the
-        // O(|v| log |v|) leg is the dense-suffix/promo-rearm flatness
-        // bands' reading on every O(1)-wide-parked family. Neither
-        // pin family is a board family — the board reads every
-        // committed rank row green, so the class-binding seal
-        // (SuperlinearCounter needs a standing exponent-mechanism red
-        // in BOARD_EXPECTED_REDS) keeps this row Linear-classed with
-        // the rustdoc stating the worst case. FoldLog would be wrong
-        // in the other direction: the settle's log factor is real but
-        // never dominates a committed reading, and "linear × log" is
-        // not an upper bound while the pins stand. A settle reaching
-        // the multiplication bound flips the wide-arming pin and
-        // revisits this class; no cure flips the plateau-puncture pin
-        // below M.
-        cells: Cells::Board(&[("version_rank", Class::Linear)]),
+        // witness: the O(M(|v|) · log |v|) worst case is the settle's
+        // bound (the query module doc derives it: every settle
+        // product delegated cluster-wise to the backend's
+        // multiplication, re-associated through a mass-balanced
+        // product tree whose per-node products telescope under the
+        // backend's power-law tiers — the tree-depth log survives
+        // only past its quasilinear threshold), held from above by
+        // the ledger_wide_arming and answer_embedded_product flatness
+        // bands in tests/meter.rs (both wide × dense families flat
+        // per byte in the fold's own traffic) with the schoolbook
+        // kernel committed and failing beside them (the query fold's
+        // test suite). Ω(M(|v|)) is mandatory because the
+        // plateau-puncture answer embeds the product — its band's
+        // exact-rank leg is the witness; the O(|v| log |v|) leg is
+        // the dense-suffix/promo-rearm flatness bands' reading on
+        // every O(1)-wide-parked family. Neither witness family is a
+        // board family — the board reads every committed rank row
+        // green — legitimately: the multiplication runs inside the
+        // backend, below the limb shim, so no counter or judge red
+        // can witness the worst case. The row is MulBound-classed:
+        // the class carries exactly this structure (rustdoc worst
+        // case at the multiplication bound, flat counters, the
+        // embedding held alive by mul_bound_embedding_is_alive), so
+        // neither Linear (a false token against a proven Ω(M(|v|))
+        // worst case) nor SuperlinearCounter/SuperlinearTime (their
+        // seals demand reds that cannot honestly exist here) fits.
+        cells: Cells::Board(&[("version_rank", Class::MulBound)]),
     },
     Claim {
         op: "Version::distance",
@@ -399,16 +563,17 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             tokens: &[
                 "`O(|a| + |b|)` space",
-                "`Θ((|a| + |b|)²)`",
+                "`O(M(|a| + |b|) · log (|a| + |b|))`",
                 "`Ω(M(|a| + |b|))`",
                 "`O((|a| + |b|) log (|a| + |b|))`",
             ],
         }],
         // The pair form of rank's three-part claim — one shared
-        // integrator, so the same witnesses, ceiling derivation
-        // (`quadratic_ceiling`, including its pair probe), and class
-        // reasoning as Version::rank above.
-        cells: Cells::Board(&[("version_distance", Class::Linear)]),
+        // integrator, so the same witnesses (plus the settle_flatness
+        // pair probe, which drives both settle sites through the
+        // public distance and lag) and class reasoning as
+        // Version::rank above.
+        cells: Cells::Board(&[("version_distance", Class::MulBound)]),
     },
     Claim {
         op: "Version::lag",
@@ -416,13 +581,13 @@ pub(crate) const CLAIMS: &[Claim] = &[
             site: Site::Fn,
             tokens: &[
                 "`O(|a| + |b|)` space",
-                "`Θ((|a| + |b|)²)`",
+                "`O(M(|a| + |b|) · log (|a| + |b|))`",
                 "`Ω(M(|a| + |b|))`",
                 "`O((|a| + |b|) log (|a| + |b|))`",
             ],
         }],
         // As Version::distance above (one shared co-sweep).
-        cells: Cells::Board(&[("version_lag", Class::Linear)]),
+        cells: Cells::Board(&[("version_lag", Class::MulBound)]),
     },
     Claim {
         op: "Version::join_all",

@@ -36,6 +36,18 @@
 //!
 //! # Pin of record
 //!
+//! Re-pinned 2026-07-28 at the cluster-delegated settle (the settle
+//! products through the backend's multiplication, mass-balanced
+//! ledger tree; same corpus, toolchain, and strategy as the meet-fold
+//! pin below — the movement is the kernels'): every enforcement leg
+//! held at the previous pin without a trip, and the re-fit moved one
+//! band at the sixth decimal — `ff_version_min_ticks` slope
+//! 1.097606 → 1.097638 — with the linear-functional trio
+//! byte-identical: the organic corpus rarely arms the ledger, its
+//! settles sit inside the pinned tolerances, and min_ticks' wobble is
+//! code layout alone (its own kernels are untouched; `mul_into` lost
+//! its query-settle callers, which moves inlining, not work).
+//!
 //! Re-pinned 2026-07-28 at the balanced meet fold and the window-digit
 //! combine tap (same corpus, toolchain, and strategy as the
 //! product-tree pin below — the movement is the kernels'):
@@ -827,10 +839,10 @@ pub const BANDS: &[Band] = &[
     Band {
         kernel: "ff_version_min_ticks",
         rejected: false,
-        slope: 1.097606,
-        intercept: 2.569396,
-        width_above: 0.257439,
-        width_below: 0.454522,
+        slope: 1.097638,
+        intercept: 2.569373,
+        width_above: 0.257462,
+        width_below: 0.454535,
         min_denom: 128,
         max_denom: 8767,
         samples: 3043,
