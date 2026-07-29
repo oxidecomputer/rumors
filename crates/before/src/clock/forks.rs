@@ -23,6 +23,8 @@ use crate::{party, Clock, Party, Version};
 /// one clone of the parent version per child. Each `next` pays one
 /// version clone plus its share of the split; an early drop rejoins as
 /// the party iterator does, cloning nothing.
+///
+/// **Complexity**: `O(S + n·|v|)`: the party split plus one version clone per child.
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.
@@ -75,6 +77,8 @@ impl ExactSizeIterator for Forks<'_> {}
 ///
 /// `O(S + N·|v|)` time and space: the party split's total packed share
 /// size `S` plus one clone of the version per child.
+///
+/// **Complexity**: `O(S + n·|v|)`: the party split plus one version clone per child.
 ///
 /// ```
 /// use before::Clock;

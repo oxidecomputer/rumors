@@ -756,7 +756,7 @@ pub mod oracle;
 pub mod meter;
 
 /// The public operation surface as data: the roster of rows the test-only
-/// triangle suite enforces totality over.
+/// surface-coverage suite enforces totality over.
 ///
 /// Public under the `meter` feature (with the other instrument-facing
 /// data) so external instrument crates can bind their coverage tables to

@@ -258,7 +258,7 @@ fuzzfit-build:
 fuzzfit: fuzzfit-build
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --cargo-profile release
 
-# Re-fit the pinned bands from the deterministic corpus of record (4096
+# Re-fit the pinned bands from the committed deterministic corpus (4096
 # programs; byte-reproducible, so any diff is a real change). Rewrites
 # harness/src/bands.rs atomically: review the diff like a snapshot and
 # commit with a dated movement annotation in the module doc.
@@ -350,8 +350,8 @@ window-tradeoff:
     cargo run --example window_tradeoff > src/tree/mirror/streaming/window/tradeoff.md.tmp
     mv src/tree/mirror/streaming/window/tradeoff.md.tmp src/tree/mirror/streaming/window/tradeoff.md
 
-# Full sampling is the mode required for any number quoted as a result of
-# record. The filter matches criterion IDs (`group/function`), so one
+# Full sampling is required for any quoted number. The filter matches
+# criterion IDs (`group/function`), so one
 # operation or one cell is a run: `just bench board version_rank`,
 # `just bench board version_rank/harmonic`, `just bench version merge`,
 # `just bench gossip_grid`. The board target's IDs mirror the amplification
@@ -368,53 +368,37 @@ bench-quick target *filter:
 # The amplification board's time leg: the board itself judges deterministic
 # counters and floors only (its output is byte-identical under any machine
 # load), so the time-exponent judgment runs here, over criterion medians.
-# Each recipe runs the board benches at the default scale and the record
-# scale (x4), saves a criterion baseline and a stamped denominator sidecar
-# per scale (the stamp binds sidecar to run: scale, profile, sampling,
-# git tip — the judge refuses mismatched pairs), and tools/benchjudge fits
-# every cell's exponent across the two (denominated against the board's own
-# per-cell bytes) at the cell's own ceiling — general 1.3 for the board
-# rows, text 1.7 for the wide-display pair, the class declared per cell by
-# the bench sidecar, never by the roster — red/green table. Both judging
-# recipes judge through the committed roster (tools/benchjudge-expected.json:
-# expected reds by cell name — the permanent schoolbook tripwire, required
-# RED at its text ceiling, plus the hugeleaf display pair — and boundary
-# cells by name, that set empty at this tip; tests/bench_judge_roster.rs
-# pins the exact membership), so they pass on the honest tree while the
-# owned reds stand and fail on any unexpected red OR unexpected green.
+# One parameterized recipe names both judge axes at the call site — no
+# implicit default hides in a bare name. `sampling`: "quick" (10 samples x
+# 1 s; the iteration default — like `bench-quick`, never quoted) or
+# "record" (criterion's full sampling, required for any quoted number).
+# `cells`: "pinned" (the rule-derived subset: each shape's designed-stress
+# pairings, the organic control, and the declared-model riders) or "full"
+# (the whole shape x operation product; final verdicts, slow — expect full
+# runs only at acceptance points, at record sampling). Each run benches the
+# board at the default scale and the acceptance scale (x4), saves a
+# criterion baseline and a stamped denominator sidecar per scale (the
+# stamp binds sidecar to run: scale, profile, sampling, git tip — the
+# judge refuses mismatched pairs), and tools/benchjudge fits every cell's
+# exponent across the two (denominated against the board's own per-cell
+# bytes) at the cell's own ceiling — general 1.3 for the board rows, text
+# 1.7 for the wide-display pair, the class declared per cell by the bench
+# sidecar, never by the roster — red/green table. Every run judges through
+# the committed roster (tools/benchjudge-expected.json: expected reds by
+# cell name — the permanent schoolbook tripwire, required RED at its text
+# ceiling, plus the hugeleaf display pair — and boundary cells by name,
+# that set empty at this tip; tests/bench_judge_roster.rs pins the exact
+# membership; the sampling pin covers both modes — the expectations are
+# exponent classes, which hold under either regime), so it passes on the
+# honest tree while the rostered reds stand and fails on any unexpected
+# red OR unexpected green.
 
-# Judge the board bench exponents across both scales through the roster (quick mode: iteration only).
-bench-judge:
+# Judge the board bench exponents across both scales through the roster.
+bench-judge sampling="quick" cells="pinned":
+    @case "{{ sampling }}:{{ cells }}" in (quick:pinned|quick:full|record:pinned|record:full) ;; (*) echo 'bench-judge: sampling is "quick"|"record", cells is "pinned"|"full"' >&2; exit 2;; esac
     ./tools/benchjudge --self-test
-    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- --sample-size 10 --measurement-time 1 --save-baseline board-judge-lo
-    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --sample-size 10 --measurement-time 1 --save-baseline board-judge-hi
-    ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
-
-# Judged through the same roster (its sampling pin covers both modes — the
-# expectations are exponent classes, which hold under either regime), so
-# the posture is identical in both modes: roster-satisfied on the honest
-# tree, red on any unexpected verdict in either direction.
-
-# `bench-judge` at full sampling: the mode required for numbers of record.
-bench-judge-record:
-    ./tools/benchjudge --self-test
-    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- --save-baseline board-judge-lo
-    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --save-baseline board-judge-hi
-    ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
-
-# The bench targets time a BenchMode slice of the board's shape x operation
-# product, both modes derived from the board's own axis declarations: the
-# default pinned subset (each shape's designed-stress pairings, the organic
-# control, and the board-red riders) is what the judging recipes above run;
-# BOARD_BENCH_MODE=full times the whole product and is the mode for final
-# verdicts. Full-product judge runs pair with the same roster; expect them
-# only at acceptance points, at full sampling.
-
-# Judge the WHOLE product's bench exponents across both scales (final verdicts; slow).
-bench-judge-full:
-    ./tools/benchjudge --self-test
-    BOARD_BENCH_MODE=full BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- --save-baseline board-judge-lo
-    BOARD_BENCH_MODE=full BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- --save-baseline board-judge-hi
+    {{ if cells == "full" { "BOARD_BENCH_MODE=full" } else { "" } }} BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-lo.json cargo bench -p before --bench board -- {{ if sampling == "quick" { "--sample-size 10 --measurement-time 1" } else { "" } }} --save-baseline board-judge-lo
+    {{ if cells == "full" { "BOARD_BENCH_MODE=full" } else { "" } }} BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=acceptance BOARD_BENCH_DENOMS={{ criterion_dir }}/board-denoms-hi.json cargo bench -p before --bench board -- {{ if sampling == "quick" { "--sample-size 10 --measurement-time 1" } else { "" } }} --save-baseline board-judge-hi
     ./tools/benchjudge --criterion-dir {{ criterion_dir }} --lo board-judge-lo --hi board-judge-hi --denoms-lo {{ criterion_dir }}/board-denoms-lo.json --denoms-hi {{ criterion_dir }}/board-denoms-hi.json --tip $(git rev-parse HEAD) --roster {{ benchjudge_roster }}
 
 # An unmetered machine-word quadratic (green on every board counter column)
@@ -426,7 +410,7 @@ bench-judge-full:
 bench-judge-tripwire:
     ./tools/benchjudge --self-test
     BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=1 BOARD_BENCH_DENOMS={{ criterion_dir }}/tripwire-denoms-lo.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-lo
-    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=record BOARD_BENCH_DENOMS={{ criterion_dir }}/tripwire-denoms-hi.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-hi
+    BOARD_BENCH_TIP=$(git rev-parse HEAD) BOARD_BENCH_SCALE=acceptance BOARD_BENCH_DENOMS={{ criterion_dir }}/tripwire-denoms-hi.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1 --save-baseline tripwire-judge-hi
     ./tools/benchjudge --expect-red --criterion-dir {{ criterion_dir }} --lo tripwire-judge-lo --hi tripwire-judge-hi --denoms-lo {{ criterion_dir }}/tripwire-denoms-lo.json --denoms-hi {{ criterion_dir }}/tripwire-denoms-hi.json --tip $(git rev-parse HEAD)
 
 # Each board cell judges deterministic work counters (limbs, scans,
@@ -436,7 +420,7 @@ bench-judge-tripwire:
 # (the time leg lives in bench-judge). Optional scale multiplies the input
 # sizes, e.g. `just amp-board 4`.
 #
-# The board runs at the release profile, the measurement of record: debug
+# The board runs at the release profile, the profile of record: debug
 # assertions perform metered work (Base comparisons through the limb shim,
 # metered probe cursors), so a dev board measures algorithm plus
 # verification scaffolding while release measures the production work
@@ -447,15 +431,16 @@ bench-judge-tripwire:
 amp-board *args:
     cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- {{ args }}
 
-# Acceptance is all green at BOTH the default scale and the record scale
-# (board::RECORD_SCALE, the segment-onset witness scale), one run each:
-# the determinism tripwire (the runner's in-process double measurement of
-# every cell, plus this file's cross-process byte-compare) is what proves a
-# reading is reproducible, so acceptance needs no repeated hand runs.
+# Acceptance is all green at BOTH the default scale and the acceptance
+# scale (board::ACCEPTANCE_SCALE, the segment-onset witness scale), one run
+# each: the determinism tripwire (the runner's in-process double
+# measurement of every cell, plus this file's cross-process byte-compare)
+# is what proves a reading is reproducible, so acceptance needs no repeated
+# hand runs.
 
-# Run the amplification board at the acceptance scale of record.
-amp-board-record:
-    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- record
+# Run the amplification board at the acceptance scale.
+amp-board-acceptance:
+    cargo run --release -p before --example amp_board --features limb-meter,scan-meter -- acceptance
 
 # Every quantity the board judges or renders is a deterministic counter, so
 # two whole renders from two processes must be byte-identical under any

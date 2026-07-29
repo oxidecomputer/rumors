@@ -3220,7 +3220,7 @@ The board (`before::meter::board`, `just amp-board`, runner
 `examples/amp_board.rs`): a red-green matrix over the entire
 public operation surface × §2's families — **1334 cells**,
 membership pinned by the smoke test — judged at two scales
-(default; `board::RECORD_SCALE` = ×4, `just amp-board-record`) at
+(default; `board::ACCEPTANCE_SCALE` = ×4, `just amp-board-acceptance`) at
 the **release profile**, the measurement of record (§12's
 ratification), from deterministic meters only: peak heap, grown
 stacker segments, limb ops, scanned/written bits, and accumulator
@@ -3492,13 +3492,13 @@ time leg times them like every row.
 IDs mirror board cells by construction — the pinned mode times
 321 cells: the 319 designed-pairing board cells derived by rule
 from the axes (`board::BenchMode::Pinned`: each shape's
-designed-stress groups, the organic control, and the board-red
-riders; count verified against the criterion `--list`) plus the
-wide-display pair; `BOARD_BENCH_MODE=full`,
-`just bench-judge-full`, times the whole 1071-cell product plus
+designed-stress groups, the organic control, and the
+declared-model riders; count verified against the criterion
+`--list`) plus the wide-display pair; `BOARD_BENCH_MODE=full`,
+`just bench-judge quick full`, times the whole 1071-cell product plus
 the pair for final verdicts): fits each cell's
 wall exponent `ln(median_hi/median_lo) / ln(denom_hi/denom_lo)`
-across two saved criterion baselines (scales 1 and record),
+across two saved criterion baselines (scales 1 and acceptance),
 denominated against the board's per-cell denominator bytes (never
 the scale knob), judging every cell whose hi median reaches the
 resolution-derived 10 µs floor. Ceilings ride the **sidecar**,
@@ -3526,8 +3526,8 @@ verdict-flip/liveness signal and SKIP a drift out of judgment,
 both exit 1; `boundary`: within the band). Any unrostered red
 fails. Membership and the text-class set are pinned by
 `crates/before/tests/bench_judge_roster.rs`, so every edit trips
-a reviewed diff. `bench-judge-record` (full sampling, the mode
-for numbers of record) judges through the same roster — the
+a reviewed diff. `just bench-judge record` (full sampling, required
+for any quoted number) judges through the same roster — the
 expectations are exponent classes, valid under either sampling
 regime. Population at this tip: **the permanent schoolbook
 tripwire, the hugeleaf display pair, and the cross-stream freeze
@@ -3625,7 +3625,9 @@ commits):
   retired, unqualified green since.
 - **Bench-coverage integration** (2026-07-25, `1312fba6`..
   `10232626`): the coverage branch merged (rustdoc-JSON API index,
-  `benches/COVERAGE.md` — the census's living home; `rank_sum`
+  `benches/COVERAGE.md` — the census's home at that landing,
+  retired at #84 into the board module doc's coverage tiling and
+  its machine-readable table; `rank_sum`
   row + fold benign controls; NA-prose repairs), re-adjudicated
   against the flipped tree. Board 188/17 and 187/18 over 205.
 - **Post-flip fix round** (2026-07-25, `606e8f54`..`72f4a780`):

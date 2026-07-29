@@ -46,6 +46,8 @@ mod tests;
 /// `O(|c| + |v|)` time and space, and `==` and hashing are `O(|c|)`; each
 /// remaining cost is on its operation.
 ///
+/// **Complexity**: the heterogeneous joins `O(a + b)`; `==` and hashing `O(n)`.
+///
 /// ```
 /// use before::Clock;
 /// let mut a = Clock::seed();
@@ -71,7 +73,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time and space.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// assert_eq!(before::Clock::seed().to_string(), "(1, 0)");
@@ -87,6 +89,8 @@ impl Clock {
     ///
     /// `O(|c|)` time and space, as [`Version::tick`] on the clock's parts
     /// (see its per-call note on wide values).
+    ///
+    /// **Complexity**: `O(n)`.
     ///
     /// ```
     /// let mut clock = before::Clock::seed();
@@ -112,6 +116,8 @@ impl Clock {
     /// `O(|c| + log n)` time and space, as [`Version::ticks`] on the
     /// clock's parts.
     ///
+    /// **Complexity**: `O(n + log m)`, `m` the tick count.
+    ///
     /// ```
     /// let mut clock = before::Clock::seed();
     /// assert_eq!(clock.ticks(1_000_000u64).to_string(), "1000000");
@@ -135,6 +141,8 @@ impl Clock {
     ///
     /// `O(|c|)` time and space: the party splits and the version is
     /// cloned into the child.
+    ///
+    /// **Complexity**: `O(n)`.
     ///
     /// ```
     /// use before::Clock;
@@ -172,6 +180,8 @@ impl Clock {
     /// the `n` children clones; children are built on demand (see
     /// [`Forks`]).
     ///
+    /// **Complexity**: `O(S + n·|v|)`: the party split plus one version clone per child.
+    ///
     /// ```
     /// use before::Clock;
     /// let mut parent = Clock::seed();
@@ -197,6 +207,8 @@ impl Clock {
     /// # Complexity
     ///
     /// `O(|a| + |b|)` time and space, accepted or rejected.
+    ///
+    /// **Complexity**: `O(a + b)`.
     ///
     /// ```
     /// use before::Clock;
@@ -248,6 +260,8 @@ impl Clock {
     /// halves of each clock, with the same up-front overlap test per
     /// input (`O(input)` node visits plus one `O(log |c|)` table search
     /// per node both sides own).
+    ///
+    /// **Complexity**: `O(D log k + B log n)` time, `O(D)` space.
     ///
     /// ```
     /// use before::Clock;
@@ -308,6 +322,8 @@ impl Clock {
     ///
     /// `O(|a| + |b|)` time and space, accepted or rejected.
     ///
+    /// **Complexity**: `O(a + b)`.
+    ///
     /// ```
     /// use before::Clock;
     /// let mut a = Clock::seed();
@@ -346,6 +362,8 @@ impl Clock {
     ///
     /// `O(|c|)` time and space, as [`tick`](Clock::tick).
     ///
+    /// **Complexity**: `O(n)`.
+    ///
     /// ```
     /// let mut clock = before::Clock::seed();
     /// let msg = clock.send().clone(); // tick, then hand the version to a peer
@@ -366,6 +384,8 @@ impl Clock {
     ///
     /// `O(|c| + |v|)` time and space: one join, then one tick.
     ///
+    /// **Complexity**: `O(a + b)`.
+    ///
     /// ```
     /// use before::Clock;
     /// let mut a = Clock::seed();
@@ -383,7 +403,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time and space: two moves.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::{Clock, Party, Version};
@@ -398,7 +418,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time and space: two moves.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::Clock;
@@ -414,7 +434,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time: a borrow.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// assert_eq!(before::Clock::seed().party().to_string(), "1");
@@ -427,7 +447,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time: a borrow.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// assert_eq!(before::Clock::seed().version().to_string(), "0");
@@ -449,6 +469,8 @@ impl Clock {
     /// `O(1)` time and space: the view borrows the clock's parts. Every
     /// cost lives on the view's operations ([`OwnVersion`]'s doc carries
     /// them).
+    ///
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -479,6 +501,8 @@ impl Clock {
     ///
     /// `O(|c|)` time and space: one copy of each part's stored bytes.
     ///
+    /// **Complexity**: `O(n)`.
+    ///
     /// ```
     /// use before::Clock;
     /// let clock = Clock::seed();
@@ -500,6 +524,8 @@ impl Clock {
     ///
     /// `O(|c|)` time: one write of each part's stored bytes, plus whatever
     /// the writer itself costs.
+    ///
+    /// **Complexity**: `O(n)`.
     ///
     /// ```
     /// use before::Clock;
@@ -525,6 +551,8 @@ impl Clock {
     ///
     /// `O(n)` time and space in the bytes read, accepted or rejected:
     /// strict validation is one pass over each part's stream.
+    ///
+    /// **Complexity**: `O(n)`.
     ///
     /// ```
     /// use before::Clock;
@@ -558,7 +586,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time; no allocation.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::Clock;
@@ -591,6 +619,8 @@ impl Clock {
     ///
     /// `O(|c|)` time and space: one copy of each part's stored bytes.
     ///
+    /// **Complexity**: `O(n)`.
+    ///
     /// ```
     /// use before::Clock;
     /// let c = Clock::seed();
@@ -613,6 +643,8 @@ impl Clock {
 /// time is **superlinear** in the worst case on the version side, which
 /// costs as [`Version`]'s `Display` (value conversion plus the renderer's
 /// summary merge). The party side is linear.
+///
+/// **Complexity**: `O(n + t)` space; time superlinear on the version side (as `Version`'s `Display`).
 ///
 /// ```
 /// assert_eq!(before::Clock::seed().to_string(), "(1, 0)");
@@ -643,6 +675,8 @@ impl core::fmt::Debug for Clock {
 /// than a machine word pays decimal-to-binary conversion, superlinear
 /// (though subquadratic) in that value's width.
 ///
+/// **Complexity**: `O(t + n)` space; time superlinear in the spelled value widths (decimal-to-binary conversion).
+///
 /// ```
 /// use before::Clock;
 /// let clock: Clock = "(1, 0)".parse().unwrap();
@@ -666,6 +700,8 @@ impl core::str::FromStr for Clock {
 /// # Complexity
 ///
 /// `O(|c|)` time and space in the clock built.
+///
+/// **Complexity**: `O(n)`.
 ///
 /// ```
 /// use before::Clock;

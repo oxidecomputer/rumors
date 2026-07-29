@@ -161,7 +161,7 @@ RESOLUTION_DOMINANCE_FACTOR = 100
 # CRITERION_TIMER_ERROR_NANOS x RESOLUTION_DOMINANCE_FACTOR = 10 us.
 MIN_JUDGED_MEDIAN_NANOS = CRITERION_TIMER_ERROR_NANOS * RESOLUTION_DOMINANCE_FACTOR
 
-# The scale pair's nominal denominator span: the record scale is x4, and
+# The scale pair's nominal denominator span: the acceptance scale is x4, and
 # the judged families' denominator bytes grow at least in proportion
 # (most spans measure ~4.0; wider spans — the cliff comb's x15 — only
 # shrink resolution's pull on the fit).

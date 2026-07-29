@@ -334,6 +334,7 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
             fold_search_bits: 0,
             heap_model: None,
             declared_heap: None,
+            declared_limb: None,
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -436,6 +437,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             fold_search_bits: 0,
             heap_model: None,
             declared_heap: None,
+            declared_limb: None,
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -655,6 +657,7 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
             fold_search_bits: 0,
             heap_model: None,
             declared_heap: None,
+            declared_limb: None,
             readings: ByCurrency {
                 heap: Some(heap),
                 segments: Some(0),
@@ -760,6 +763,7 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
             fold_search_bits: 0,
             heap_model: None,
             declared_heap: None,
+            declared_limb: None,
             readings: ByCurrency {
                 heap: Some(0),
                 segments: Some(0),
@@ -894,6 +898,7 @@ fn declared_capacity_model_bands_the_projection_peak() {
             fold_search_bits: 0,
             heap_model: Some(model),
             declared_heap: None,
+            declared_limb: None,
             readings: ByCurrency {
                 heap: Some(heap),
                 segments: Some(0),
@@ -945,4 +950,41 @@ fn declared_capacity_model_bands_the_projection_peak() {
         "a builder under half the model must trip the stale-model floor: {:?}",
         improved.red
     );
+}
+
+/// Every declared-model bench rider names a live board cell that
+/// actually carries a declared model, so the rider census cannot go
+/// stale: a cure that dissolves a cell's model must retire its rider in
+/// the same change, and a rider can never point at an undeclared cell.
+#[test]
+fn bench_riders_name_declared_model_cells() {
+    use super::{bench_cells, BenchMode, FamilyData, BOARD_DECLARED_BENCH_RIDERS, FAMILIES};
+    let cells: std::collections::BTreeSet<(String, String)> = bench_cells(0.02, BenchMode::Full)
+        .into_iter()
+        .map(|cell| (cell.op.to_owned(), cell.family.to_owned()))
+        .collect();
+    for (op_name, family_name) in BOARD_DECLARED_BENCH_RIDERS {
+        assert!(
+            cells.contains(&((*op_name).to_owned(), (*family_name).to_owned())),
+            "rider {op_name}/{family_name} names no live board cell"
+        );
+        let kind = FAMILIES
+            .iter()
+            .copied()
+            .find(|&kind| FamilyData::build(kind, 0.02, 0).name == *family_name)
+            .unwrap_or_else(|| panic!("rider family {family_name} is not on the FAMILIES roster"));
+        let family = FamilyData::build(kind, 0.02, 0);
+        let op = super::ops()
+            .into_iter()
+            .find(|op| op.name == *op_name)
+            .unwrap_or_else(|| panic!("rider op {op_name} is not a board row"));
+        let cell = (op.prepare)(&family)
+            .unwrap_or_else(|| panic!("rider {op_name}/{family_name} does not prepare"));
+        assert!(
+            cell.declared_heap.is_some() || cell.declared_limb.is_some(),
+            "rider {op_name}/{family_name} carries no declared model: a rider exists to \
+             keep a modeled cell's wall leg judged, so either declare the model at the \
+             cell or retire the rider"
+        );
+    }
 }

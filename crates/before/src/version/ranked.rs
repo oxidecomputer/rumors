@@ -33,6 +33,8 @@ use super::{Rank, Version};
 /// — `O(1)` across distinct magnitude scales, linear on ties (the byte
 /// tiebreak included) — and `==` and hashing are `O(|v|)`.
 ///
+/// **Complexity**: construction `O(n)` (the rank fold); comparison as `Rank` — `O(1)` across scales, linear on ties.
+///
 /// ```
 /// use before::{Clock, Ranked};
 /// let mut a = Clock::seed();
@@ -61,7 +63,7 @@ impl Ranked {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time: a borrow.
+    /// **Complexity**: `O(1)`.
     pub fn version(&self) -> &Version {
         &self.version
     }
@@ -70,7 +72,7 @@ impl Ranked {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time: a borrow.
+    /// **Complexity**: `O(1)`.
     pub fn rank(&self) -> &Rank {
         &self.rank
     }
@@ -79,7 +81,7 @@ impl Ranked {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time and space: two moves.
+    /// **Complexity**: `O(1)`.
     pub fn into_parts(self) -> (Version, Rank) {
         (self.version, self.rank)
     }

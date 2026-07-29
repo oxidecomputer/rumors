@@ -70,6 +70,8 @@ mod tests;
 /// ([`join_all`](Version::join_all)), and the text conversions
 /// (`Display` and `FromStr`, documented on their impls).
 ///
+/// **Complexity**: every comparison, join, and meet `O(a + b)`; hashing `O(n)`.
+///
 /// ```
 /// use before::Clock;
 /// let mut a = Clock::seed();
@@ -104,7 +106,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time and space.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// assert_eq!(before::Version::new().to_string(), "0");
@@ -120,7 +122,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time; no allocation.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -147,6 +149,8 @@ impl Version {
     /// recording one event can re-code a value as wide as the operands
     /// spell, but that width arrives in the packed operand carrying it and
     /// is paid at most a constant number of times.
+    ///
+    /// **Complexity**: `O(a + b)`.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -176,6 +180,8 @@ impl Version {
     /// skipping by `n` costs what one tick costs plus the width of `n`,
     /// never `n` walks].
     ///
+    /// **Complexity**: `O(a + b + log m)`, `m` the tick count.
+    ///
     /// ```
     /// use before::{Party, Ticks, Version};
     /// let party = Party::seed();
@@ -197,6 +203,8 @@ impl Version {
     /// # Complexity
     ///
     /// One causal comparison: `O(|a| + |b|)` time and space.
+    ///
+    /// **Complexity**: `O(a + b)`.
     ///
     /// ```
     /// use before::Clock;
@@ -230,7 +238,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(|v|)` time and space.
+    /// **Complexity**: `O(n)`.
     ///
     /// ```
     /// use before::{Ticks, Version};
@@ -293,6 +301,8 @@ impl Version {
     /// and none may do better than one multiplication on the
     /// embedded-product inputs.
     ///
+    /// **Complexity**: `O(n)` space; time `O(M(n) · log n)` worst case, `Ω(M(n))` mandatory, `O(n log n)` with width-bounded parked drifts.
+    ///
     /// ```
     /// use before::Clock;
     /// let mut a = Clock::seed();
@@ -341,6 +351,8 @@ impl Version {
     /// is not contractual: a future release may close the tree-depth
     /// factor.
     ///
+    /// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    ///
     /// ```
     /// use before::{Clock, Rank, Version};
     /// let mut a = Clock::seed();
@@ -382,6 +394,8 @@ impl Version {
     /// gap above the multiplication bound is likewise not
     /// contractual.
     ///
+    /// **Complexity**: `O(a + b)` space; time `O(M(a + b) · log (a + b))` worst case, `Ω(M(a + b))` mandatory, `O((a + b) log (a + b))` with width-bounded parked drifts.
+    ///
     /// ```
     /// use before::{Clock, Rank, Version};
     /// let mut a = Clock::seed();
@@ -416,6 +430,8 @@ impl Version {
     /// so every input passes through `O(log k)` joins of similarly sized
     /// operands.
     ///
+    /// **Complexity**: `O(D log k)` time, `O(D)` space.
+    ///
     /// ```
     /// use before::{Clock, Version};
     /// let mut a = Clock::seed();
@@ -449,6 +465,8 @@ impl Version {
     /// *value*, never necessarily its packed size, so a population that
     /// keeps it full-size (one deep version among operands that dominate
     /// it) re-walks that result once per level, never once per operand.
+    ///
+    /// **Complexity**: `O(D log k)` time, `O(D)` space.
     ///
     /// ```
     /// use before::{Clock, Version};
@@ -537,6 +555,8 @@ impl Version {
     /// ([`as_bytes`](Self::as_bytes) borrows the same bytes without
     /// copying).
     ///
+    /// **Complexity**: `O(n)`.
+    ///
     /// ```
     /// use before::Version;
     /// let v = Version::new();
@@ -552,6 +572,8 @@ impl Version {
     ///
     /// `O(|v|)` time: one write of the stored bytes, plus whatever the
     /// writer itself costs.
+    ///
+    /// **Complexity**: `O(n)`.
     ///
     /// ```
     /// use before::Version;
@@ -570,6 +592,8 @@ impl Version {
     /// `O(n)` time and space in the bytes read, accepted or rejected:
     /// strict validation is one pass over the stream, and the result
     /// reuses the read buffer.
+    ///
+    /// **Complexity**: `O(n)`.
     ///
     /// ```
     /// use before::Version;
@@ -597,7 +621,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time; no allocation.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::Version;
@@ -622,7 +646,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    /// `O(1)` time: a borrow, no copy.
+    /// **Complexity**: `O(1)`.
     ///
     /// ```
     /// use before::Version;
@@ -685,6 +709,8 @@ impl Default for Version {
 ///
 /// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
 /// it is.
+///
+/// **Complexity**: `O(D log k)` time, `O(D)` space.
 impl Sum<Version> for Version {
     fn sum<I: Iterator<Item = Version>>(iter: I) -> Version {
         Version::join_all(iter)
@@ -697,6 +723,8 @@ impl Sum<Version> for Version {
 ///
 /// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], plus one
 /// clone of each element.
+///
+/// **Complexity**: `O(D log k)` time, `O(D)` space.
 impl<'a> Sum<&'a Version> for Version {
     fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
         Version::join_all(iter.cloned())
@@ -709,6 +737,8 @@ impl<'a> Sum<&'a Version> for Version {
 ///
 /// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], the fold
 /// it is.
+///
+/// **Complexity**: `O(D log k)` time, `O(D)` space.
 impl FromIterator<Version> for Version {
     fn from_iter<I: IntoIterator<Item = Version>>(iter: I) -> Version {
         Version::join_all(iter)
@@ -721,6 +751,8 @@ impl FromIterator<Version> for Version {
 ///
 /// `O(D log k)` time and `O(D)` space, as [`Version::join_all`], plus one
 /// clone of each element.
+///
+/// **Complexity**: `O(D log k)` time, `O(D)` space.
 impl<'a> FromIterator<&'a Version> for Version {
     fn from_iter<I: IntoIterator<Item = &'a Version>>(iter: I) -> Version {
         Version::join_all(iter.into_iter().cloned())
@@ -740,6 +772,8 @@ impl<'a> FromIterator<&'a Version> for Version {
 /// format's — parsing the same text back pays only the conversion — and
 /// is not contractual: a future release may render in time linear but
 /// for conversion.
+///
+/// **Complexity**: `O(n + t)` space; time superlinear in the spelled value widths (decimal conversion plus the render merge).
 ///
 /// ```
 /// use before::Version;
@@ -773,6 +807,8 @@ impl core::fmt::Debug for Version {
 /// than a machine word pays decimal-to-binary conversion, superlinear
 /// (though subquadratic) in that value's width.
 ///
+/// **Complexity**: `O(t + n)` space; time superlinear in the spelled value widths (decimal-to-binary conversion).
+///
 /// ```
 /// use before::Version;
 /// let v: Version = "(1, 0, 1)".parse().unwrap();
@@ -789,7 +825,7 @@ impl core::str::FromStr for Version {
 ///
 /// # Complexity
 ///
-/// `O(1)` time and space (the value is word-sized).
+/// **Complexity**: `O(1)`.
 ///
 /// ```
 /// use before::Version;
@@ -809,6 +845,8 @@ impl TryFrom<u64> for Version {
 /// # Complexity
 ///
 /// `O(|v|)` time and space in the version built.
+///
+/// **Complexity**: `O(n)`.
 ///
 /// ```
 /// use before::Version;
@@ -943,6 +981,8 @@ binop_matrix! {
 ///
 /// `O(1)` time and space: the view borrows its operands. Every cost lives
 /// on the view's operations ([`OwnVersion`]'s doc carries them).
+///
+/// **Complexity**: `O(1)`.
 ///
 /// ```
 /// use before::Clock;

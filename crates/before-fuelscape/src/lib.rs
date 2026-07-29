@@ -20,7 +20,7 @@
 //! fuzz-fit bands own enforcement.
 //!
 //! **Totality over the public surface is a chain, not a promise:** the
-//! public API surface is pinned to the triangle roster (`before::surface`,
+//! public API surface is pinned to the coverage roster (`before::surface`,
 //! tamper-evident and total by construction over the extracted `pub fn`
 //! surface), and the roster is pinned to the atlas panels plus the
 //! documented exemption table ([`ops::EXEMPTIONS`]) by the parity test in

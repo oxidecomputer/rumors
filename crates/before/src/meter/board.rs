@@ -233,7 +233,7 @@
 //! # Acceptance scales and the profile of record
 //!
 //! Every cell runs at a size scale; the inner loop uses the default
-//! (scale 1, seconds of runtime). Acceptance is [`RECORD_SCALE`]'s rule —
+//! (scale 1, seconds of runtime). Acceptance is [`ACCEPTANCE_SCALE`]'s rule —
 //! that constant owns the ×4 calibration argument and the both-scales
 //! requirement — plus the bench judge green across the same two scales;
 //! the enforced per-operation record remains the process-isolated
@@ -335,13 +335,19 @@
 //!
 //! # Declared per-cell models
 //!
-//! Two cell classes are judged against a **declared model** — a ratified
-//! cost law derived at the cell — in place of one flat ceiling, because
-//! the flat form is unsatisfiable on work their contracts mandate (the
-//! same reasoning that re-denominates the I/O cells). Each is disclosed
-//! on its row face (`decl[...]`), derived at its constant's definition
-//! site (the declared-models section of the ceilings block), banded on
-//! both sides so an improved kernel forces a deliberate re-declaration,
+//! Some cells are judged against a **declared model** — a ratified
+//! cost law derived at the cell, with a dated owner rationale committed
+//! at the declaring constant — in place of one global ceiling, because
+//! the global form is unsatisfiable on work their contracts mandate (the
+//! same reasoning that re-denominates the I/O cells). A modeled cell
+//! reads green because its behavior is *intended and modeled*; red is
+//! reserved for untriaged contradictions (the red-triage buffer,
+//! [`BOARD_EXPECTED_REDS`], is empty on the settled tree). Each model is
+//! disclosed on its row face (`decl[...]`), derived at its constant's
+//! definition site (the declared-models section of the ceilings block),
+//! and held honest on the under side — banded floors where the model
+//! predicts a quantity, committed liveness pins where it declares a
+//! class — so an improved kernel forces a deliberate re-declaration,
 //! and tripwired in the test suite by a wrong artifact reading red:
 //!
 //! - **The fold rows** (`version_join_all`, `version_meet_all`,
@@ -365,6 +371,27 @@
 //!   peak by powers of two, so a probe pair straddling a `k` step
 //!   manufactures an exponent out of exactly the profile the model
 //!   prices.
+//! - **Family-stated heap ceilings** (the tooth-tail parse cell, the
+//!   ascend-cliff tick trio, and the ascend-cliff `version_min_ticks`
+//!   cell): honest flat-exponent work state a ratified derivation puts
+//!   over the global heap allowance — the densest committed
+//!   node-per-text-byte parse stream, the zero-run ledger's certificate
+//!   memory on the one shape that defeats consumption, and the anchor
+//!   web's `Θ(k)` live reign records on the one shape that defeats
+//!   batching. The heap *constant* is judged at the stated ceiling
+//!   (each declaring constant carries its derivation and measured
+//!   profile); the exponent leg stays at the global bound, so a
+//!   flat-constant declaration can never absorb growth.
+//! - **The mirror-wide display pair** (`version_display`,
+//!   `clock_display` on the mirror-wide cross): the render merge's
+//!   documented superlinear time class, judge-rostered on the wall leg,
+//!   honestly reads a superlinear limb exponent and an over-κ limb
+//!   constant on exactly this cross. Both limb legs are judged at the
+//!   stated ceilings ([`MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING`],
+//!   [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`]); the class's
+//!   liveness is the claims suite's
+//!   `render_merge_superlinearity_is_alive` pin, which forces this
+//!   declaration's re-derivation the day a render-merge cure lands.
 //!
 //! # The rejection surface
 //!
@@ -464,7 +491,7 @@
 //!   watermark's, respectively): each is a public-API stream that
 //!   stays flat only through its mechanism, and each mechanism's
 //!   absence reads ~×2 per byte across the family's doubling (the
-//!   probe-build measurements of record in the `skyline_flatness` band
+//!   committed probe-build measurements in the `skyline_flatness` band
 //!   ceilings, `tests/meter.rs` — the enforcement stays there; the
 //!   columns exist so the dashboard is never structurally blind to the
 //!   genre, every cell a live verdict over the mechanism that holds it
@@ -540,113 +567,83 @@
 //!   \[measured — scan 8.6 bits/B per reduction level, constant
 //!   across `n` and `m` doublings alike, under the declared 12\].
 //!
-//! # Coverage: the not-applicable list
+//! # Coverage: the board tiling
 //!
-//! Every public operation either has a board row or is listed here with the
-//! reason it has no meaningful adversarial operand of its own:
+//! Every public operation — every row of `before::surface`'s method and
+//! family rosters — either is priced by at least one board row (its
+//! claim in the complexity-claims roster cites the rows by name) or
+//! appears in [`BOARD_NOT_APPLICABLE`] with the mechanism-based reason
+//! it has no meaningful adversarial operand of its own. The two sides
+//! are disjoint and jointly total, enforced by the tiling test in the
+//! complexity-claims suite (`board_coverage_tiles_the_public_surface`),
+//! so a new public operation cannot land unpriced and unexcused.
 //!
-//! - **Delegations and aliases**: `Version::concurrent`
-//!   is one `partial_cmp` (the `cmp` row measures the walk; `concurrent`
-//!   still gets its own row since it is the documented entry point);
-//!   the operator matrix (`|`, `&`, and their assign forms, over
-//!   every borrow shape) routes through the same `join_view`/`meet_view`
-//!   emitters and cmp walk the `join`/`meet`/`cmp` rows measure;
-//!   `Clock::send` is `Clock::tick` by definition; `clock | version` and
-//!   `clock |= version` fold through the same join-assign the `recv` row
-//!   measures; `Party::tick` is the mirror of `Version::tick` (the
-//!   `tick_adv_party` row); `Debug` for all three types delegates to
-//!   `Display`.
-//! - **Folds over measured operations**: `Version::join_all` and
-//!   `Version::meet_all` each have their own
-//!   row (the `scatter`, `weave`, and `stagger` cells plus the `benign`
-//!   control) — the two folds share one balanced reduction, so the meet
-//!   row prices the same counter over the meet emitter (its
-//!   non-shrinking-accumulator worst case, the meet-shade population,
-//!   stays an envelope-suite family: the `meet_fold` band and its
-//!   sequential-reduce tripwire in `tests/meter.rs`) — and
-//!   `Version::Sum`/`FromIterator` are the join
-//!   fold by definition; `Party::join_all` likewise (the party fold's
-//!   cells); `Clock::join_all` is the party fold and the version
-//!   fold run side by side, so those two fold rows price both of its
-//!   halves.
-//!   `Party::forks`/`Clock::forks` iterate the measured `fork`, each step
-//!   on the freshly-split half (shrinking operands, same argument); a
-//!   `Forks` iterator dropped mid-run rejoins its unclaimed remainder in
-//!   one `join` per remaining level of the fork tree — O(log n) of the
-//!   measured `join` on shrinking operands.
-//! - **Bounded or trivial inputs**: `Version::new`/`Default`,
-//!   `TryFrom<u64>`/tuple literals (word-sized literals),
-//!   `Party::seed`/`is_seed`, `TryFrom<u8>`/`TryFrom<bool>`,
-//!   `Clock::seed`/`TryFrom<(I, E)>`.
-//! - **Moves, borrows, and byte copies**: `is_empty`, `as_bytes`,
-//!   `encoded_bits`, `encode_to` (the `encode` row's path into a writer),
-//!   `dangerously_alias` (a byte copy), `Clock::from_parts`/`into_parts`,
-//!   `Clock::party`/`version`, the projection view constructors (`&v / &p`
-//!   and `Clock::own_version` build a two-borrow `OwnVersion` in O(1); the
-//!   view's materialization and fused comparisons have their own rows, and
-//!   `From<OwnVersion> for Version` is `to_version` by definition),
-//!   `Ranked::rank`/`version`/`into_parts` (borrows and moves); `Clone`
-//!   (`Version`, `Rank`, `Ranked`) copies the stored bits or value content
-//!   wholesale, with no walk or arithmetic in the contract; `Party`'s and
-//!   `Clock`'s derived `PartialEq`/`Eq` are one bit-slice compare of the
-//!   stored canonical bits (`Version`'s `==` is the same wholesale compare
-//!   — the stored coding is canonical, so byte equality is causal equality
-//!   and no walk is in the contract; it keeps the `version_eq` row because
-//!   its operands grow without bound, the row's time leg holding the
-//!   compare linear); the consuming array splits
-//!   (`From<Party> for [Party; N]`, `From<Clock> for [Clock; N]`) are the
-//!   `forks` machinery above plus `N` moves.
-//! - **Derived pairings**: `Ranked::from` is the `rank` row plus a move; its
-//!   comparisons are `Rank` comparisons plus byte equality; `Rank::cmp`,
-//!   `checked_sub`, and `+` have their own row (`rank_pair_ops`, on the
-//!   mismatched-exponent pair, value-content-denominated per the
-//!   Denomination section); `Rank::AddAssign` is `+` in place, and the
-//!   `Sum` fold has its own row (`rank_sum`, the mixed high-first
-//!   population, denominated the same way); `Rank`'s `Display` (its `Debug` delegates)
-//!   prints the `rank` row's output — a derived value with no packed
-//!   encoding to normalize against, rendered by the same per-`Base` decimal
-//!   print the `version_display` row drives.
-//! - **The same comparisons under another name**: `causally`'s other
-//!   constructors, `Range::placement_of`, and `Range`'s refinement methods
-//!   (whose composition gate is one validating comparison) perform the
-//!   identical causal comparisons the `causally_contains` row measures;
-//!   `Range`'s bound accessors (including its `RangeBounds` view) are
-//!   borrows.
-//! - **Wrappers**: the `serde`/`borsh` impls serialize as the canonical
-//!   encoding and deserialize through the strict decoder — the
-//!   `encode`/`decode` rows.
-//! - **Test support**: `oracle` and the `error`/`iter` modules' data types
-//!   perform no computation over packed inputs; `meter`'s own surface —
-//!   the generators, the counters, this board — is the measurement
-//!   instrument itself, feature-gated out of production builds. The
-//!   `skyline` kernel `meter` re-exports (and the `suanpan` accumulator
-//!   under it) is the implementation
-//!   under every public operation, public only so the envelope suite can
-//!   pin its internals: every cell of this board already times it at
-//!   the public boundary, its resources are pinned by the envelope
-//!   scenarios in `tests/meter.rs`, and its agreement with the
-//!   recursive oracle is pinned by its differential suites.
-//! - **The rejection surface's bounded-or-delegated remainder** (the
-//!   rejection rows above price the rest): `Clock::join_all`'s overlap
-//!   hand-back runs the identical up-front indexed test against self
-//!   that `party_join_all_overlap` prices, inline; clock non-canonicality
-//!   — packed or text — is the component validators on the same streams
-//!   the version and party non-canonical rows drive;
-//!   [`Decode::Anonymous`](crate::error::Decode) is the accepting parse
-//!   of the empty stream (a zero-byte operand, no scaling axis) and
-//!   [`Parse::Anonymous`](crate::error::Parse) the one-token `"0"`;
-//!   [`Decode::Io`](crate::error::Decode) is the caller's reader — a
-//!   failing reader is a truncation carrying an error, priced by the
-//!   truncated rows — and `encode_to`'s error the caller's writer, at
-//!   most the encode row's work before it propagates; the `TryFrom`
-//!   literal rejections have word-scale or type-bounded operands;
-//!   `Version::meet_all`'s `None` is the empty iterator;
-//!   `Rank::checked_sub`'s `None` is measured on the `rank_pair_ops`
-//!   row, which attempts both directions; other decode non-canonicality
-//!   genres (a negative running height, nonzero padding) ride the same
-//!   single validator pass at the same full-parse cost as the committed
-//!   maximally-deferred tails; serde/borsh deserialize errors are the
-//!   strict decoder through the wrappers (the decode rejection rows).
+//! The wall-time mirror rides the same axes: the bench suite's
+//! criterion IDs are exactly the board's op × family cell names
+//! ([`bench_cells`] is the board's own table), so board coverage is
+//! bench coverage cell for cell, with no second enumeration. Wall
+//! benching pays criterion's warmup and sampling per cell, so the judge
+//! cadence times the rule-derived pinned subset (each shape's
+//! designed-stress pairings, the organic control, and the
+//! declared-model riders) while `BOARD_BENCH_MODE=full` times the whole
+//! product for final verdicts — the subset is a rule over the product,
+//! never a hand-maintained cell list.
+//!
+//! Rows price delegations at their shared mechanism, so several surface
+//! rows legitimately cite one row: `Clock::send` is `Clock::tick` by
+//! definition; `clock | version` (either operand order, `|=` included)
+//! folds through the same join-assign the `recv` row measures;
+//! `Party::tick` is `Version::tick`'s mirror (the `tick_adv_party`
+//! row); the operator matrix (`|`, `&`, and their assign forms, over
+//! every borrow shape) routes through the same `join_view`/`meet_view`
+//! emitters and cmp walk the `join`/`meet`/`cmp` rows measure;
+//! `Version::concurrent` is one `partial_cmp` and keeps its own row as
+//! the documented entry point; the serde/borsh wrappers serialize as
+//! the canonical encoding and deserialize through the strict decoder
+//! (the `encode`/`decode` rows); `Party::ticks` and `Clock::ticks` run
+//! the same fused kernel as `version_ticks` through their own
+//! spellings. Derived surfaces with no roster row of their own ride
+//! the same cells: `Clone` copies stored bits or value content
+//! wholesale with no walk in the contract, `Debug` delegates to
+//! `Display`, and the byte-compare `Eq`s are the `eq`/`hash` rows'
+//! wholesale compares.
+//!
+//! Which rows run on which shapes is decided by the operand bundles
+//! (the product section above); the recurring carrier classes, named
+//! here because no single declaration spells them out: the 19
+//! version-carrying shapes (all but `id-pair` and the three fold
+//! populations) run every version row; the party-pair carriers
+//! (`id-pair`, `comb-scatter`, the ten tick crosses, `benign`) run the
+//! party rows; every clock-carrying shape (the version carriers plus
+//! `id-pair`) runs the clock rows; the projection rows add the
+//! output-domination cross; and the three fold populations (`scatter`,
+//! `weave`, `stagger`) plus the `benign` control carry fold operands,
+//! so exactly the fold rows run on them.
+//!
+//! Two coverage notes that are dispositions of *error paths*, not
+//! operations (so they live here rather than in the table): the
+//! rejection rows above price the fallible surface, and **the
+//! rejection surface's bounded-or-delegated remainder** is:
+//! `Clock::join_all`'s overlap hand-back runs the identical up-front
+//! indexed test against self that `party_join_all_overlap` prices,
+//! inline; clock non-canonicality — packed or text — is the component
+//! validators on the same streams the version and party non-canonical
+//! rows drive; [`Decode::Anonymous`](crate::error::Decode) is the
+//! accepting parse of the empty stream (a zero-byte operand, no scaling
+//! axis) and [`Parse::Anonymous`](crate::error::Parse) the one-token
+//! `"0"`; [`Decode::Io`](crate::error::Decode) is the caller's reader —
+//! a failing reader is a truncation carrying an error, priced by the
+//! truncated rows — and `encode_to`'s error the caller's writer, at
+//! most the encode row's work before it propagates; the `TryFrom`
+//! literal rejections have word-scale or type-bounded operands;
+//! `Version::meet_all`'s `None` is the empty iterator;
+//! `Rank::checked_sub`'s `None` is measured on the `rank_pair_ops`
+//! row, which attempts both directions; other decode non-canonicality
+//! genres (a negative running height, nonzero padding) ride the same
+//! single validator pass at the same full-parse cost as the committed
+//! maximally-deferred tails; serde/borsh deserialize errors are the
+//! strict decoder through the wrappers (the decode rejection rows).
+//! `Debug` for all three types delegates to `Display`.
 
 mod currency;
 #[cfg(test)]
@@ -787,7 +784,7 @@ pub const TICKS_BOARD_COUNT: u64 = 512;
 /// stays quadratic in the value bits and reads exponent ~2 against `n_io`
 /// \[measured — the chunked tripwire in the test suite\]; the exponent leg
 /// is what excludes it. What κ excludes is a wasteful constant. It is
-/// pinned from the production kernels' observed meter at record scale
+/// pinned from the production kernels' observed meter at the acceptance scale
 /// (release, the profile of record): the honest cells read at most 0.59
 /// limb per `R` unit (the staircase pipeline, both directions), so κ
 /// leaves the worst honest family ~27% headroom while a digit-by-digit
@@ -851,14 +848,15 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 
 // ─── declared per-cell models ────────────────────────────────────────────────
 //
-// Two cell classes carry a *declared model* in place of one flat ceiling:
-// a ratified cost law, derived and priced at the cell, that the readings
-// must match — the flat ceiling would otherwise be unsatisfiable by
-// construction on work the operation's own contract mandates. A declared
-// model is disclosed on the row face (`decl[...]`), replaces only the
-// legs it names, and is banded on both sides: a reading over the model is
-// the regression the ceiling exists to catch, and a reading under its
-// floor means the model has gone stale against an improved kernel and
+// Some cells carry a *declared model* in place of one global ceiling:
+// a ratified cost law, derived and priced at the cell with a dated owner
+// rationale, that the readings must match — the global ceiling would
+// otherwise be unsatisfiable by construction on work the operation's own
+// contract mandates. A declared model is disclosed on the row face
+// (`decl[...]`) and replaces only the legs it names; its under side is
+// held honest by a banded floor where the model predicts a quantity, or
+// by a committed liveness pin where it declares a class, so a reading
+// under the model means it has gone stale against an improved kernel and
 // must be re-declared in a diff that shows the new derivation (the same
 // ratchet as a liveness floor).
 
@@ -1000,8 +998,90 @@ fn fold_exponent_ceiling(k1: u64, k2: u64, n1: usize, n2: usize) -> f64 {
 /// committed stream.
 pub const TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE: f64 = 26.0;
 
-/// The acceptance scale of record: the size multiplier of the record-mode
-/// board run (`just amp-board-record`).
+/// The ascending-cliff tick trio's family-stated heap ceiling, in bytes
+/// per packed input byte.
+///
+/// `version_tick`, `version_ticks`, and `clock_tick` on the ascend-cliff
+/// cross are judged at this flat constant in place of
+/// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`] (the declared-models section; the
+/// exponent leg stays at the global bound).
+///
+/// Derivation: the ascending cliff is the one committed shape that
+/// defeats certificate consumption — the accumulator's zero-run ledger
+/// certificates on a monotone climb occupy memory until consumed,
+/// bounded at one entry per jump-write (at most half the held digit
+/// positions; the bound verified against the ledger code) — so the tick
+/// walk's live certificate state is honest `Θ(input)` work-state with a
+/// large constant, intended and modeled, not amplification. Measured
+/// 2026-07-28 (release, both acceptance scales): 123.8 → 125.9 B per
+/// input byte at heap exponent 1.00 — a constant, not a class; the
+/// ceiling is the worst reading ×1.25, rounded up (owner ratification
+/// 2026-07-28, conditional on exactly this flat-constant profile). A
+/// reading over it is a genuine certificate-memory regression on the
+/// one shape that defeats consumption.
+pub const ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE: f64 = 158.0;
+
+/// The ascending-cliff `version_min_ticks` cell's family-stated heap
+/// ceiling, in bytes per packed input byte (judged in place of
+/// [`MAX_HEAP_BYTES_PER_INPUT_BYTE`]; the exponent leg stays at the
+/// global bound).
+///
+/// Derivation: the exact fold's anchor web holds one live reign record
+/// per simultaneously-open minimum, and the ascending cliff is the one
+/// committed shape that defeats batching — `Θ(k)` minima stay open at
+/// once, so the fold legitimately holds `Θ(k)` live reign records
+/// (~119 B each, the state that keeps the fold's *exponent* linear) at
+/// a flat per-byte constant: intended and modeled, not amplification.
+/// Measured 2026-07-28 (release, both acceptance scales):
+/// 138.7 → 141.3 B per input byte at heap exponent 1.00 — a constant,
+/// not a class; the ceiling is the worst reading ×1.25, rounded up
+/// (owner ratification 2026-07-28, conditional on exactly this
+/// flat-constant profile). A reading over it is a genuine reign-state
+/// regression on the one shape that defeats batching.
+pub const ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE: f64 = 177.0;
+
+/// The mirror-wide display pair's declared render model: the limb
+/// *exponent* ceiling, judged in place of [`MAX_SCALING_EXPONENT`] on
+/// exactly the `version_display` and `clock_display` mirror-wide cells
+/// (the declared-models section; every other column stays at the global
+/// bounds).
+///
+/// Derivation: the render's summary merge on a deep tree of wide
+/// interior values is the documented `SuperlinearTime` class (the
+/// display impls' `# Complexity` sections; judge-rostered red on the
+/// wall leg), so on the mirror-wide cross the limb column honestly
+/// reads a superlinear exponent against `n_io` — intended and modeled,
+/// not a regression. Measured 2026-07-28 (release, the two acceptance
+/// scales): fitted limb exponents 1.55 → 1.81 (`version_display`) and
+/// 1.56 → 1.81 (`clock_display`). The ceiling is the worst measured
+/// exponent plus the linear cells' slack (1.81 + 0.15, the
+/// [`MAX_SCALING_EXPONENT`] margin), so a genuinely quadratic
+/// conversion (~2.0) still reads red. The model's under-side is not
+/// banded here: the class's liveness floor is the committed
+/// `render_merge_superlinearity_is_alive` pin, which reads red the day
+/// a render-merge cure lands and forces this declaration's
+/// re-derivation in the same change (owner ratification 2026-07-28:
+/// the display pair's superlinearity is the documented, judge-rostered
+/// class).
+pub const MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING: f64 = 1.96;
+
+/// The mirror-wide display pair's declared render model: the limb
+/// *constant* ceiling per radix unit, judged in place of
+/// [`MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT`] on the same two cells.
+///
+/// κ is calibrated on conversion-honest cells; the mirror-wide render
+/// merge re-folds wide summaries beyond conversion, so its per-`R`
+/// constant honestly exceeds κ at the acceptance scales — the same
+/// mechanism as the exponent ceiling above, priced on the constant leg.
+/// Measured 2026-07-28 (release, both acceptance scales): 0.7 → 1.4
+/// (`version_display`) and 0.6 → 1.3 (`clock_display`) limb per `R`
+/// unit; the ceiling is the worst reading ×1.25 (owner ratification
+/// 2026-07-28, conditional on the render-merge mechanism the liveness
+/// pin holds).
+pub const MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT: f64 = 1.75;
+
+/// The acceptance scale: the size multiplier of the acceptance-mode
+/// board run (`just amp-board-acceptance`).
 ///
 /// The default-scale board under-detects segment amplifiers: stacker grows
 /// a segment only past ~1 MiB of frames, so a recursion-frame amplifier
@@ -1009,12 +1089,12 @@ pub const TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE: f64 = 26.0;
 /// ×4 is the witnessed calibration floor — the scale at which every known
 /// segment-onset amplifier read red under pre-fix code — so acceptance runs
 /// pin it. **Campaign acceptance is all cells green at BOTH the default
-/// scale and this one, one run each under the determinism tripwire**; a
-/// record run is
+/// scale and this one, one run each under the determinism tripwire**; an
+/// acceptance-scale run is
 /// acceptance-time only (the inner loop stays at the default scale, and the
 /// enforced per-operation record remains the envelope suite in
 /// `tests/meter.rs` regardless of board onset).
-pub const RECORD_SCALE: f64 = 4.0;
+pub const ACCEPTANCE_SCALE: f64 = 4.0;
 
 // ─── family sizes at scale 1.0 ──────────────────────────────────────────────
 
@@ -1067,7 +1147,7 @@ const SCATTER_BASE_CLOCKS: usize = 1_024;
 ///
 /// Deep enough that a per-level re-scan genre reads its exponent
 /// across the level doubling, small enough that the quadratic pin
-/// stays inside the board's runtime budget at the record scale.
+/// stays inside the board's runtime budget at the acceptance scale.
 const NESTED_BASE_DEPTH: usize = 1_500;
 
 /// Nested-wide depth and root-magnitude bits at scale 1.0 (equal, so
@@ -1075,7 +1155,7 @@ const NESTED_BASE_DEPTH: usize = 1_500;
 /// genre is their product; packed pair ~1.5 KiB).
 ///
 /// Small enough that even a width × depth kernel stays inside the
-/// record-scale runtime budget; the red reading rides the exponent
+/// acceptance-scale runtime budget; the red reading rides the exponent
 /// leg, not the constant ceiling.
 const NESTED_WIDE_BASE: usize = 1_000;
 
@@ -1168,8 +1248,8 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 ///
 /// The scale of the `skyline_flatness` freeze-position band's small
 /// run: the committed known-bad accounting reads ×1.50 per-byte growth
-/// across this regime's doubling (the adequacy tripwire's measurement
-/// of record), so the board's default pair straddles exactly what the
+/// across this regime's doubling (the adequacy tripwire's committed
+/// measurement), so the board's default pair straddles exactly what the
 /// family exists to catch. The base is a multiple of 16 deliberately:
 /// the family's rank exponent is `2s − 1` (one trailing zero strips —
 /// exactly one leaf term, the odd `2^L + 1` at weight `2^1`, has
@@ -1189,8 +1269,8 @@ const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 ///
 /// Half the `skyline_flatness` promotion re-arm band's small run: the
 /// committed span-reading promotion reads ×1.74 per-byte growth across
-/// that regime's doubling (the span-promotion tripwire's measurement
-/// of record), so the board's default pair straddles what the family
+/// that regime's doubling (the span-promotion tripwire's committed
+/// measurement), so the board's default pair straddles what the family
 /// exists to catch. The base is a multiple of 8 deliberately: the
 /// family's rank exponent is `36s`, and `rank_sum` lands its small
 /// summands at bit remainder `exp mod 32` (an honest amortized-O(1)
@@ -1208,7 +1288,7 @@ const PROMO_REARM_BASE_BLOCKS: usize = 512;
 /// The base is the scale of the `skyline_flatness` weight-comb band's small run:
 /// with certificate consumption disabled, rank reads ×1.93 per-byte
 /// growth across this regime's doubling (the band ceiling doc's
-/// probe-build measurement of record), so the board's default pair
+/// committed probe-build measurement), so the board's default pair
 /// straddles exactly what the family exists to catch. Power-of-two `n`
 /// keeps the spine depth `32n ≡ 0 (mod 32)`, so `rank_sum` lands its
 /// small summands at the same bit remainder at both scales and the
@@ -1578,9 +1658,12 @@ enum FamilyKind {
 /// cardinality it carries, the cell-count pin and its derivation comment
 /// (`tests/amp_board_smoke.rs`), the envelope rows in `tests/meter.rs`
 /// (the enforced record), the ceiling-calibration witnesses (the pinned
-/// ceilings section's header comment), and — only if a cell is expected
-/// red — the rider list ([`BOARD_RED_BENCH_RIDERS`]) plus the roster and
-/// its membership pin (`tools/benchjudge-expected.json`,
+/// ceilings section's header comment), and — only if a cell needs a
+/// declared model or turns up red — the declaration site (the
+/// declared-models section), the red-triage buffer
+/// ([`BOARD_EXPECTED_REDS`], with a live task), the rider list
+/// ([`BOARD_DECLARED_BENCH_RIDERS`]), and the judge roster with its
+/// membership pin (`tools/benchjudge-expected.json`,
 /// `tests/bench_judge_roster.rs`). And not every shape belongs here: a
 /// whole-surface adversary earns a board family, while a kernel-seam
 /// shape lives in the envelope suite alone, as `wide_tooth_comb`,
@@ -3343,13 +3426,25 @@ struct Cell {
     /// A family-stated flat heap ceiling in bytes per denominator byte,
     /// judged in place of [`MAX_HEAP_BYTES_PER_INPUT_BYTE`]'s.
     ///
-    /// The declared-models mechanism at a flat constant, for the one
-    /// cell class whose honest constant a ratified derivation puts over
-    /// the global allowance
-    /// ([`TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`] carries the
-    /// derivation). The exponent leg is untouched: the declaration buys
-    /// a constant, never growth.
+    /// The declared-models mechanism at a flat constant, for the cell
+    /// classes whose honest constant a ratified derivation puts over
+    /// the global allowance (each declaring constant —
+    /// [`TOOTH_TAIL_PARSE_HEAP_BYTES_PER_TEXT_BYTE`],
+    /// [`ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE`],
+    /// [`ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE`] — carries
+    /// its derivation). The exponent leg is untouched: the declaration
+    /// buys a constant, never growth.
     declared_heap: Option<f64>,
+    /// A family-stated limb model `(exponent ceiling, per-radix-unit
+    /// constant ceiling)`, judged in place of the global limb legs.
+    ///
+    /// The declared-models mechanism for a documented superlinear time
+    /// class: the display pair's mirror-wide cells only
+    /// ([`MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING`] and
+    /// [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`] carry the
+    /// derivation). Meaningful only on text rows, whose limb constant
+    /// is denominated per `R` unit.
+    declared_limb: Option<(f64, f64)>,
     /// The measured body; its result stays alive until the meters are read.
     #[allow(clippy::type_complexity)]
     body: Box<dyn FnOnce() -> Box<dyn Any>>,
@@ -3406,6 +3501,7 @@ impl Cell {
             fold_search_bits: 0,
             capacity_model: false,
             declared_heap: None,
+            declared_limb: None,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -3439,6 +3535,14 @@ impl Cell {
         self
     }
 
+    /// Declare this cell's limb column judged against a family-stated
+    /// model (the declared-models section): `exponent` replaces the
+    /// global exponent bound, `per_radix_unit` the text ceiling κ.
+    fn with_declared_limb(mut self, exponent: f64, per_radix_unit: f64) -> Cell {
+        self.declared_limb = Some((exponent, per_radix_unit));
+        self
+    }
+
     /// Package an I/O-denominated packed-output body: the output side of
     /// `n_io` is read back from the actual result.
     fn io<R: Any>(
@@ -3458,6 +3562,7 @@ impl Cell {
             fold_search_bits: 0,
             capacity_model: false,
             declared_heap: None,
+            declared_limb: None,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -3482,6 +3587,7 @@ impl Cell {
             fold_search_bits: 0,
             capacity_model: false,
             declared_heap: None,
+            declared_limb: None,
             body: Box::new(move || Box::new(body())),
         }
     }
@@ -3790,10 +3896,18 @@ fn ops() -> Vec<Op> {
                 // seed.
                 if let Some((mut v, party, n)) = f.cross() {
                     let floors = tick_walk_floors(&v, n);
-                    return Some(Cell::new(n, floors, move || {
+                    let cell = Cell::new(n, floors, move || {
                         v.tick(&party);
                         (v, party)
-                    }));
+                    });
+                    // The ascending cliff defeats certificate consumption,
+                    // so its tick cells carry the ratified family-stated
+                    // heap ceiling (the constant's derivation).
+                    return Some(if matches!(f.kind, FamilyKind::AscendCliff) {
+                        cell.with_declared_heap(ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE)
+                    } else {
+                        cell
+                    });
                 }
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
@@ -3819,10 +3933,17 @@ fn ops() -> Vec<Op> {
                 // input axis).
                 if let Some((mut v, party, n)) = f.cross() {
                     let floors = tick_walk_floors(&v, n);
-                    return Some(Cell::new(n, floors, move || {
+                    let cell = Cell::new(n, floors, move || {
                         v.ticks(&party, TICKS_BOARD_COUNT);
                         (v, party)
-                    }));
+                    });
+                    // As the tick cell above: the ascending cliff's
+                    // certificate memory is family-stated.
+                    return Some(if matches!(f.kind, FamilyKind::AscendCliff) {
+                        cell.with_declared_heap(ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE)
+                    } else {
+                        cell
+                    });
                 }
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
@@ -3908,7 +4029,7 @@ fn ops() -> Vec<Op> {
                 // on the spines) summed high-first with one small integer
                 // rank per packed byte of the family's measure operand, so
                 // both sides of the value content scale together. High-first
-                // is the adversarial order of record: `Sum` accepts arbitrary
+                // is the committed adversarial order: `Sum` accepts arbitrary
                 // order, and under a fold that re-normalizes per element it
                 // is the order that makes every later add a full-width
                 // operation. The denominator is the summands' total value
@@ -3996,7 +4117,15 @@ fn ops() -> Vec<Op> {
                     scan: scan_examines(n),
                     touch: touch_delta_fold(stored_deltas(&v)),
                 };
-                Some(Cell::new(n, floors, move || (v.min_ticks(), v)))
+                let cell = Cell::new(n, floors, move || (v.min_ticks(), v));
+                // The ascending cliff defeats reign batching, so this
+                // cell carries the ratified family-stated heap ceiling
+                // (the constant's derivation).
+                Some(if matches!(f.kind, FamilyKind::AscendCliff) {
+                    cell.with_declared_heap(ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE)
+                } else {
+                    cell
+                })
             },
         },
         Op {
@@ -4197,7 +4326,7 @@ fn ops() -> Vec<Op> {
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_RENDER_SUMMARIES),
                 };
-                Some(Cell::text(
+                let cell = Cell::text(
                     n,
                     floors,
                     |r| {
@@ -4208,7 +4337,19 @@ fn ops() -> Vec<Op> {
                     },
                     spec,
                     move || (v.to_string(), v),
-                ))
+                );
+                // The mirror-wide cross realizes the render's documented
+                // superlinear summary-merge class on the limb column, so
+                // that cell is judged under the ratified family-stated
+                // limb model (the constants' derivations).
+                Some(if matches!(f.kind, FamilyKind::MirrorWide) {
+                    cell.with_declared_limb(
+                        MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING,
+                        MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT,
+                    )
+                } else {
+                    cell
+                })
             },
         },
         Op {
@@ -4585,10 +4726,17 @@ fn ops() -> Vec<Op> {
                 if let Some((v, p, n)) = f.cross() {
                     let floors = tick_walk_floors(&v, n);
                     let mut clock = Clock::from_parts(p, v);
-                    return Some(Cell::new(n, floors, move || {
+                    let cell = Cell::new(n, floors, move || {
                         clock.tick();
                         clock
-                    }));
+                    });
+                    // As version_tick: the ascending cliff's certificate
+                    // memory is family-stated.
+                    return Some(if matches!(f.kind, FamilyKind::AscendCliff) {
+                        cell.with_declared_heap(ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE)
+                    } else {
+                        cell
+                    });
                 }
                 let (mut clock, n) = f.clock()?;
                 // A version-bearing shape's clock ticks its seed party (an
@@ -4735,7 +4883,7 @@ fn ops() -> Vec<Op> {
                     scan: scan_examines(n),
                     touch: na(NA_TOUCH_RENDER_SUMMARIES),
                 };
-                Some(Cell::text(
+                let cell = Cell::text(
                     n,
                     floors,
                     |r| {
@@ -4746,7 +4894,17 @@ fn ops() -> Vec<Op> {
                     },
                     spec,
                     move || (clock.to_string(), clock),
-                ))
+                );
+                // As version_display: the mirror-wide render-merge cell
+                // is judged under the family-stated limb model.
+                Some(if matches!(f.kind, FamilyKind::MirrorWide) {
+                    cell.with_declared_limb(
+                        MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING,
+                        MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT,
+                    )
+                } else {
+                    cell
+                })
             },
         },
         Op {
@@ -5216,6 +5374,10 @@ struct Sample {
     /// The family-stated flat heap ceiling, on the cells that declare
     /// one (the declared-models section).
     declared_heap: Option<f64>,
+    /// The family-stated limb model `(exponent ceiling, per-radix-unit
+    /// constant ceiling)`, on the cells that declare one (the
+    /// declared-models section).
+    declared_limb: Option<(f64, f64)>,
     /// Every currency's counter reading over the body; `None` where the
     /// counter is not compiled in (the feature-gated limb, scan, and
     /// touch columns render `off` and are exempt from judgment).
@@ -5279,6 +5441,7 @@ fn measure(heap: &HeapMeter, op: &'static str, cell: Cell, content: Option<usize
         fold_search_bits: cell.fold_search_bits,
         heap_model,
         declared_heap: cell.declared_heap,
+        declared_limb: cell.declared_limb,
         readings: ByCurrency {
             heap: Some(peak_heap as u64),
             segments: Some(segments),
@@ -5584,12 +5747,26 @@ fn evaluate(op: &'static str, family: &'static str, s1: Sample, s2: Sample) -> C
                 ceiling = declared;
             }
         }
+        // A family-stated limb model replaces both limb legs on the
+        // cells that declare one (the declared-models section): the
+        // stated constant in place of the global (or text) ceiling,
+        // the stated exponent below in place of the global bound.
+        if c == Currency::Limb {
+            if let Some((_, per_radix_unit)) = s2.declared_limb {
+                ceiling = per_radix_unit;
+            }
+        }
         // The fold rows' declared exponent ceiling (limb, scan, touch)
         // and scan-constant model.
-        let exp_ceiling = match (c, fold_exp_ceiling) {
+        let mut exp_ceiling = match (c, fold_exp_ceiling) {
             (Currency::Limb | Currency::Scan | Currency::Touch, Some(ceiling)) => ceiling,
             _ => MAX_SCALING_EXPONENT,
         };
+        if c == Currency::Limb {
+            if let Some((exponent, _)) = s2.declared_limb {
+                exp_ceiling = exponent;
+            }
+        }
         if c == Currency::Scan {
             if let Some(k2) = s2.fold_arity {
                 ceiling = FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL * (2.0 * k2 as f64).log2()
@@ -5726,6 +5903,10 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         _ if r.s2.declared_heap.is_some() => {
             let d = r.s2.declared_heap.expect("just matched");
             format!("  decl[heap {d:.0} B/B family-stated]")
+        }
+        _ if r.s2.declared_limb.is_some() => {
+            let (e, k) = r.s2.declared_limb.expect("just matched");
+            format!("  decl[limb e {e:.2} {k:.2}/R family-stated]")
         }
         (Some(m1), Some(m2), _) => {
             format!("  decl[heap cap-chain {m1:.0}->{m2:.0} B]")
@@ -5881,6 +6062,16 @@ pub fn run(scale: f64, heap: &HeapMeter, out: &mut dyn Write) -> io::Result<Summ
              (each declaration's derivation lives at its constant)"
         )?;
     }
+    if results.iter().any(|r| r.s2.declared_limb.is_some()) {
+        writeln!(
+            out,
+            "  family-stated limb models (decl[limb e ... .../R family-stated] rows): the limb \
+             exponent and per-radix-unit constant are judged at the stated ceilings in place \
+             of the global exponent bound and the text ceiling — the documented superlinear \
+             render class, intended and modeled (each declaration's derivation lives at its \
+             constants)"
+        )?;
+    }
     writeln!(out)?;
 
     let red: Vec<&CellResult> = results.iter().filter(|r| !r.red.is_empty()).collect();
@@ -5984,16 +6175,201 @@ impl BenchCell {
 pub enum BenchMode {
     /// The pinned rule-derived subset: every operation on the benign
     /// control, each shape's designed-stress pairings (declared per
-    /// shape on the shape axis), and the board-red riders
-    /// ([`BOARD_RED_BENCH_RIDERS`]).
+    /// shape on the shape axis), and the declared-model riders
+    /// ([`BOARD_DECLARED_BENCH_RIDERS`]).
     Pinned,
     /// The whole product: the mode for final verdicts.
     Full,
 }
 
-/// One standing board red's committed expectation: the cell and the
-/// judgment mechanisms that put it on the red list, unioned over the two
-/// acceptance scales.
+/// The board's not-applicable table: every `before::surface` row (method
+/// or family) with no board row of its own, and the mechanism-based
+/// reason none is meaningful — the machine-readable half of the module
+/// doc's coverage tiling.
+///
+/// The tiling test in the complexity-claims suite
+/// (`board_coverage_tiles_the_public_surface`) holds this table and the
+/// claims roster's board citations disjoint and jointly total over the
+/// public surface: an operation is priced by named rows or excused
+/// here, never both, never neither.
+pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
+    (
+        "Party::seed",
+        "word-scale constructor: no input axis to measure against",
+    ),
+    (
+        "Party::is_seed",
+        "word-scale predicate: one comparison against the two-bit seed form",
+    ),
+    (
+        "Party::forks",
+        "iterates the measured fork (the party_fork row) on shrinking operands; a \
+         mid-run drop rejoins in O(log n) measured joins",
+    ),
+    (
+        "Party::dangerously_alias",
+        "one byte copy of the stored canonical bits",
+    ),
+    (
+        "Party::encoded_bits",
+        "a stored-length read: no walk, no allocation",
+    ),
+    ("Party::as_bytes", "a borrow of the stored canonical bytes"),
+    (
+        "Version::new",
+        "word-scale constructor: the canonical two-bit empty stream",
+    ),
+    (
+        "Version::is_empty",
+        "an O(1) bit test against the canonical empty stream",
+    ),
+    (
+        "Version::encoded_bits",
+        "a stored-length read: no walk, no allocation",
+    ),
+    (
+        "Version::as_bytes",
+        "a borrow of the stored canonical bytes",
+    ),
+    (
+        "Clock::seed",
+        "word-scale constructor: the seed party over the empty version",
+    ),
+    (
+        "Clock::forks",
+        "iterates the measured fork on shrinking operands plus one version clone \
+         (a byte copy) per child",
+    ),
+    (
+        "Clock::from_parts",
+        "two moves of the stored parts: no walk, no allocation",
+    ),
+    (
+        "Clock::into_parts",
+        "two moves of the stored parts: no walk, no allocation",
+    ),
+    (
+        "Clock::party",
+        "a borrow of a stored part: no walk, no allocation",
+    ),
+    (
+        "Clock::version",
+        "a borrow of a stored part: no walk, no allocation",
+    ),
+    (
+        "Clock::own_version",
+        "O(1) view construction (two borrows); the materialization and fused \
+         comparison costs are celled at the OwnVersion rows",
+    ),
+    (
+        "Clock::encoded_bits",
+        "a stored-length read per part: no walk, no allocation",
+    ),
+    ("Clock::dangerously_alias", "one byte copy per part"),
+    (
+        "Ranked::version",
+        "a borrow of a stored part: no walk, no allocation",
+    ),
+    (
+        "Ranked::rank",
+        "a borrow of a stored part: no walk, no allocation",
+    ),
+    (
+        "Ranked::into_parts",
+        "two moves of the stored parts: no walk, no allocation",
+    ),
+    (
+        "causally::all",
+        "stores two borrows; the comparison cost is on the membership predicates \
+         (the causally_contains row)",
+    ),
+    (
+        "causally::since",
+        "stores two borrows; the comparison cost is on the membership predicates \
+         (the causally_contains row)",
+    ),
+    (
+        "causally::not_before",
+        "stores two borrows; the comparison cost is on the membership predicates \
+         (the causally_contains row)",
+    ),
+    (
+        "causally::known_at",
+        "stores two borrows; the comparison cost is on the membership predicates \
+         (the causally_contains row)",
+    ),
+    (
+        "causally::before",
+        "stores two borrows; the comparison cost is on the membership predicates \
+         (the causally_contains row)",
+    ),
+    (
+        "causally::delta",
+        "stores two borrows plus at most one validating causal comparison, the \
+         identical comparison the causally_contains row prices",
+    ),
+    (
+        "causally::delta_before",
+        "stores two borrows plus at most one validating causal comparison, the \
+         identical comparison the causally_contains row prices",
+    ),
+    (
+        "causally::Range::since",
+        "stores two borrows plus at most one validating causal comparison, the \
+         identical comparison the causally_contains row prices",
+    ),
+    (
+        "causally::Range::not_before",
+        "stores two borrows plus at most one validating causal comparison, the \
+         identical comparison the causally_contains row prices",
+    ),
+    (
+        "causally::Range::known_at",
+        "stores two borrows plus at most one validating causal comparison, the \
+         identical comparison the causally_contains row prices",
+    ),
+    (
+        "causally::Range::before",
+        "stores two borrows plus at most one validating causal comparison, the \
+         identical comparison the causally_contains row prices",
+    ),
+    (
+        "&Version / &Party (Div — the lazy projection view)",
+        "O(1) view construction (two borrows); the materialization and fused \
+         comparison costs are celled at the OwnVersion rows",
+    ),
+    (
+        "From<Party> for [Party; N] (consuming balanced split)",
+        "the forks machinery consuming its operand: the measured fork on \
+         shrinking operands plus N moves",
+    ),
+    (
+        "iter::Party / iter::Clock (Forks iterators, drop folds back)",
+        "iterate the measured fork on shrinking operands (one version clone per \
+         clock child); a mid-run drop rejoins in O(log n) measured joins",
+    ),
+    (
+        "Ticks ZERO / From / FromStr / Display / Add / Sum / Ord / Eq / Hash",
+        "an opaque count carrier: word-to-width-scale arithmetic with no \
+         packed-input axis; the operations denominated in it are celled at \
+         their own rows (version_ticks, version_min_ticks)",
+    ),
+    (
+        "unbounded depth (beyond the differential grids)",
+        "a coverage disposition, not an operation: depth safety is pinned by \
+         deep_tree_stack_safety, and every board family already scales depth",
+    ),
+    (
+        "meter / error / iter plumbing",
+        "instrumentation and data plumbing with no packed-input computation; \
+         the meters are the measurement apparatus itself, feature-gated out of \
+         production builds",
+    ),
+];
+
+/// One in-flight triage entry in the red buffer: a board cell reading
+/// red whose triage — a cure, or an owner-declared model at the cell —
+/// someone owns but has not landed yet.
 ///
 /// `exponent` is a scaling-class finding (some counter's growth exceeds
 /// its ceiling — flat or declared); `constant` a proportionality finding
@@ -6001,7 +6377,7 @@ pub enum BenchMode {
 /// declared-model band). The tags are the render's `mech[...]` column as
 /// committed data: the class-binding seal in
 /// `testing::complexity_claims` forbids any linear rustdoc claim from
-/// citing an operation with a standing exponent-mechanism red, and
+/// citing an operation with a standing exponent-mechanism entry, and
 /// requires every counter-superlinear claim to keep one.
 pub struct ExpectedRed {
     /// The board row's operation name.
@@ -6014,86 +6390,44 @@ pub struct ExpectedRed {
     /// Whether the cell reads red on a constant mechanism at either
     /// acceptance scale.
     pub constant: bool,
+    /// The live task that owns this entry's triage. An entry with no
+    /// owner is normalization of deviance; the acceptance assertion
+    /// (`expected_red_buffer_is_an_empty_triage_buffer` in the
+    /// complexity-claims suite) refuses it, and refuses any entry at
+    /// all at acceptance.
+    pub task: &'static str,
 }
 
-/// The board's standing red cells with their mechanism tags: the
-/// committed expectation the acceptance renders are compared against,
-/// and the class-binding seal's data.
+/// The red-triage buffer: board cells currently red whose triage is in
+/// flight — **empty at acceptance, and empty on the settled tree**.
 ///
-/// Realized 2026-07-28 against the release boards of record at both
-/// scales (the render's `mech[...]` tags, unioned across scales). Every
-/// entry names exactly one live board cell; a cured cell leaves this
-/// roster in the same change that cures it, and a new red enters it (or
-/// is cured) before acceptance — the acceptance protocol diffs the
-/// rendered red set against this list.
-pub const BOARD_EXPECTED_REDS: &[ExpectedRed] = &[
-    // The ascending-cliff tick trio's heap constants (the spec's round-7
-    // stated-band residual).
-    ExpectedRed {
-        op: "version_tick",
-        family: "ascend-cliff",
-        exponent: false,
-        constant: true,
-    },
-    ExpectedRed {
-        op: "version_ticks",
-        family: "ascend-cliff",
-        exponent: false,
-        constant: true,
-    },
-    ExpectedRed {
-        op: "clock_tick",
-        family: "ascend-cliff",
-        exponent: false,
-        constant: true,
-    },
-    // The min_ticks anchor-web fold's reign state on the one family
-    // that defeats batching — k simultaneously-open minima force Θ(k)
-    // live records (the accepted stated-band residual; the anchor-web
-    // cure removed this cell's exponent mechanism in the same change).
-    ExpectedRed {
-        op: "version_min_ticks",
-        family: "ascend-cliff",
-        exponent: false,
-        constant: true,
-    },
-    // The render merge's wide-summary re-fold (the display pair's
-    // SuperlinearTime mechanism, held alive by
-    // render_merge_superlinearity_is_alive).
-    ExpectedRed {
-        op: "version_display",
-        family: "mirror-wide",
-        exponent: true,
-        constant: true,
-    },
-    ExpectedRed {
-        op: "clock_display",
-        family: "mirror-wide",
-        exponent: true,
-        constant: true,
-    },
-];
+/// Red means untriaged, nothing else. Every dashboard contradiction
+/// resolves to exactly one of: a cure, or an owner-declared model with
+/// a dated rationale committed at the declaration site (the
+/// declared-models section — the cell then reads green because the
+/// behavior is intended and modeled). This buffer exists only so a
+/// freshly-found red can be committed while its triage is worked; every
+/// entry carries the live task that owns it, and the acceptance
+/// assertion (`expected_red_buffer_is_an_empty_triage_buffer`) holds
+/// the buffer EMPTY, so a red that persists across commits is a process
+/// failure, not a status. The acceptance protocol diffs each rendered
+/// red set against this list: on the settled tree both are empty and
+/// the boards render all-green at both scales.
+pub const BOARD_EXPECTED_REDS: &[ExpectedRed] = &[];
 
-/// Board-red cells outside the designed pairings that the pinned bench
-/// subset must still time: the deterministic board's standing reds each
-/// keep a time leg.
+/// Declared-model board cells outside the designed pairings whose time
+/// leg the pinned bench subset must still cover: a cell judged green
+/// under an owner-declared counter model keeps a wall-clock witness
+/// even where no designed pairing times its shape.
 ///
-/// Membership is by `(operation, family)` cell name, expectations live in
-/// the judge's roster as ever; a red cured on the board leaves this list
-/// in the same change that cures it.
-///
-/// The current membership (the census re-realized 2026-07-28 against
-/// [`BOARD_EXPECTED_REDS`] at the cure-round merge, where the
-/// query-fold and finalize-arena cures land together): every standing
-/// red whose cell the designed pairings do not already time. The
-/// anchor-web cure left `version_min_ticks` red only on the
-/// ascend-cliff cross (a heap-constant stated band, a row that shape
-/// was never designed to stress — the tick trio's ascend-cliff reds
-/// need no rider: the tick group is those crosses' designed diagonal),
-/// and the finalize-arena cure removed the eleven cured display
-/// riders, leaving the mirror-wide display pair (the render merge's
-/// standing SuperlinearTime mechanism) as the display rows' only reds.
-pub const BOARD_RED_BENCH_RIDERS: &[(&str, &str)] = &[
+/// Membership is by `(operation, family)` cell name, expectations live
+/// in the judge's roster as ever; a cell whose declared model dissolves
+/// (a cure landing) leaves this list in the same change. The current
+/// membership: the `version_min_ticks` reign-state cell and the display
+/// pair's render-merge cells. The tick trio's ascend-cliff cells need
+/// no rider — the tick group is those crosses' designed diagonal — and
+/// the tooth-tail parse cell rides its designed pairing likewise.
+pub const BOARD_DECLARED_BENCH_RIDERS: &[(&str, &str)] = &[
     ("version_min_ticks", "ascend-cliff"),
     ("version_display", "mirror-wide"),
     ("clock_display", "mirror-wide"),
@@ -6125,7 +6459,7 @@ pub fn bench_cells(scale: f64, mode: BenchMode) -> Vec<BenchCell> {
                 BenchMode::Full => true,
                 BenchMode::Pinned => {
                     designed(family.kind, op.group)
-                        || BOARD_RED_BENCH_RIDERS.contains(&(op.name, family.name))
+                        || BOARD_DECLARED_BENCH_RIDERS.contains(&(op.name, family.name))
                 }
             };
             if include && (op.prepare)(family).is_some() {
