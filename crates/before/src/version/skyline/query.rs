@@ -354,7 +354,9 @@ use crate::Rank;
 
 use super::build::SkylineBuilder;
 use super::emit::signed_sum;
-use super::sweep::{advance, advance_diff, fold, Crossed, LeafCursor, PlateauCursor, Side};
+use super::sweep::{
+    advance, advance_diff, fold, Crossed, LeafCursor, OpenedPair, PlateauCursor, Side,
+};
 use super::{gamma_code, zigzag_signed};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32
@@ -689,11 +691,12 @@ fn pair_integral(a_bits: &BitsSlice, b_bits: &BitsSlice, measure: Measure) -> Ra
     let overlay_depth = max_depth(a_bits).max(max_depth(b_bits));
     let scale =
         u32::try_from(overlay_depth).expect("rank exponent overflows u32: stream deeper than 2^32");
-    let (mut ca, a_first) = LeafCursor::open(a_bits);
-    let (mut cb, b_first) = LeafCursor::open(b_bits);
-    let mut diff = Accumulator::new();
-    diff.add_magnitude(&a_first);
-    diff.sub_magnitude(&b_first);
+    let OpenedPair {
+        a: mut ca,
+        b: mut cb,
+        mut diff,
+        ..
+    } = OpenedPair::open(a_bits, b_bits);
     let mut orient = measure.orientation(diff.sign());
     let mut integral = Integrator::new();
     if orient != 0 {
