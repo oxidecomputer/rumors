@@ -24,7 +24,7 @@ use super::defect::{
     trailing_text, truncated_bytes, version_noncanonical_bytes, version_noncanonical_text,
 };
 use super::family::{
-    decode_party, decode_version, overlap_fold_probe, FamilyData, FamilyKind, MIN_SIZE_PARAM,
+    decode_party, decode_version, overlap_fold_probe, FamilyData, MIN_SIZE_PARAM,
     OVERLAP_FOLD_INPUT_DIVISOR,
 };
 use super::floors::{
@@ -43,6 +43,7 @@ use super::operand::{
     mandatory_limbs_stream, mandatory_limbs_version, radix_units_clock, radix_units_party,
     radix_units_version, stored_bases, stored_nonzero_deltas, version_output_bytes,
 };
+use crate::meter::registry::FamilyId;
 
 /// One board row: a public operation and how to instantiate it per family.
 pub(super) struct Op {
@@ -100,34 +101,34 @@ pub(super) enum OpGroup {
 /// built against (the exhaustive match), and the subset follows. The
 /// deterministic board itself never consults this: it runs the whole
 /// product.
-pub(super) fn designed(kind: FamilyKind, group: OpGroup) -> bool {
+pub(super) fn designed(kind: FamilyId, group: OpGroup) -> bool {
     match kind {
         // The original full-surface adversaries and the organic control,
         // plus the two population shapes (whose bundles already narrow
         // them to their party/fold rows).
-        FamilyKind::Dense | FamilyKind::Benign | FamilyKind::IdPair | FamilyKind::Scatter => true,
+        FamilyId::Dense | FamilyId::Benign | FamilyId::IdPair | FamilyId::Scatter => true,
         // The magnitude shapes predate the rank rows' mismatch pair and
         // were never its designed adversary.
-        FamilyKind::Bigroot | FamilyKind::Hugeleaf | FamilyKind::Cliff => group != OpGroup::Rank,
+        FamilyId::Bigroot | FamilyId::Hugeleaf | FamilyId::Cliff => group != OpGroup::Rank,
         // The rank fold's wide-numerator adversary.
-        FamilyKind::Harmonic => matches!(group, OpGroup::Measure | OpGroup::Rank),
+        FamilyId::Harmonic => matches!(group, OpGroup::Measure | OpGroup::Rank),
         // The output-domination cross.
-        FamilyKind::CombScatter => group == OpGroup::Projection,
+        FamilyId::CombScatter => group == OpGroup::Projection,
         // The correlated fold populations, built against the fold rows:
         // weave loads the up-front overlap test, stagger the balanced
         // reduction's intermediate swell.
-        FamilyKind::Weave | FamilyKind::Stagger => group == OpGroup::Fold,
+        FamilyId::Weave | FamilyId::Stagger => group == OpGroup::Fold,
         // The tick-walk crosses.
-        FamilyKind::NestedFull
-        | FamilyKind::NestedWide
-        | FamilyKind::MirrorWide
-        | FamilyKind::MirrorNarrow
-        | FamilyKind::Staircase
-        | FamilyKind::RevealComb
-        | FamilyKind::RevealHifloor
-        | FamilyKind::PureComb
-        | FamilyKind::AscendCliff
-        | FamilyKind::AscendPlateau => group == OpGroup::Tick,
+        FamilyId::NestedFull
+        | FamilyId::NestedWide
+        | FamilyId::MirrorWide
+        | FamilyId::MirrorNarrow
+        | FamilyId::Staircase
+        | FamilyId::RevealComb
+        | FamilyId::RevealHifloor
+        | FamilyId::PureComb
+        | FamilyId::AscendCliff
+        | FamilyId::AscendPlateau => group == OpGroup::Tick,
         // The query-fold adversaries, built against the
         // linear-functional rows: wide difference crests over a
         // dense-position spine, the many-freezes spine, the
@@ -143,17 +144,36 @@ pub(super) fn designed(kind: FamilyKind, group: OpGroup) -> bool {
         // cells ride the deterministic board columns and the
         // `parse_wide_arming` envelope band, as tooth-tail's parse
         // cell does.
-        FamilyKind::JumpPair
-        | FamilyKind::FreezePos
-        | FamilyKind::PromoRearm
-        | FamilyKind::WeightComb
-        | FamilyKind::FreezeParade
-        | FamilyKind::DenseSuffix
-        | FamilyKind::WideArming
-        | FamilyKind::PlateauPuncture
-        | FamilyKind::LoneFreeze
-        | FamilyKind::ConcurrentPair
-        | FamilyKind::ToothTail => group == OpGroup::Measure,
+        FamilyId::JumpPair
+        | FamilyId::FreezePos
+        | FamilyId::PromoRearm
+        | FamilyId::WeightComb
+        | FamilyId::FreezeParade
+        | FamilyId::DenseSuffix
+        | FamilyId::WideArming
+        | FamilyId::PlateauPuncture
+        | FamilyId::LoneFreeze
+        | FamilyId::ConcurrentPair
+        | FamilyId::ToothTail => group == OpGroup::Measure,
+        // Envelope-only families never reach the board's product, so
+        // they have no designed diagonal.
+        FamilyId::WideToothComb
+        | FamilyId::JumpComb
+        | FamilyId::CliffFan
+        | FamilyId::CancellingChain
+        | FamilyId::AltSpine
+        | FamilyId::MemoChain
+        | FamilyId::MemoComb
+        | FamilyId::MemoFanout
+        | FamilyId::MemoOscillating
+        | FamilyId::MemoChurn
+        | FamilyId::DescendingRaises
+        | FamilyId::MaskDrift
+        | FamilyId::MeetShade
+        | FamilyId::ArmingTrain => unreachable!(
+            "{kind:?} is envelope-only in the registry: the bench mirror derives its \
+             subset from the board roster alone"
+        ),
     }
 }
 
@@ -291,7 +311,7 @@ pub(super) fn ops() -> Vec<Op> {
                     // The ascending cliff defeats certificate consumption,
                     // so its tick cells carry the ratified family-stated
                     // heap ceiling (the constant's derivation).
-                    return Some(if matches!(f.kind, FamilyKind::AscendCliff) {
+                    return Some(if matches!(f.kind, FamilyId::AscendCliff) {
                         cell.with_declared_heap(ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE)
                     } else {
                         cell
@@ -327,7 +347,7 @@ pub(super) fn ops() -> Vec<Op> {
                     });
                     // As the tick cell above: the ascending cliff's
                     // certificate memory is family-stated.
-                    return Some(if matches!(f.kind, FamilyKind::AscendCliff) {
+                    return Some(if matches!(f.kind, FamilyId::AscendCliff) {
                         cell.with_declared_heap(ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE)
                     } else {
                         cell
@@ -509,7 +529,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // The ascending cliff defeats reign batching, so this
                 // cell carries the ratified family-stated heap ceiling
                 // (the constant's derivation).
-                Some(if matches!(f.kind, FamilyKind::AscendCliff) {
+                Some(if matches!(f.kind, FamilyId::AscendCliff) {
                     cell.with_declared_heap(ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE)
                 } else {
                     cell
@@ -586,7 +606,7 @@ pub(super) fn ops() -> Vec<Op> {
                     // capacity chain (the ceilings module's declared-models
                     // section); the
                     // plateau-comb crosses stay flat-judged and green.
-                    return Some(if matches!(f.kind, FamilyKind::CombScatter) {
+                    return Some(if matches!(f.kind, FamilyId::CombScatter) {
                         cell.with_capacity_model()
                     } else {
                         cell
@@ -731,7 +751,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // superlinear summary-merge class on the limb column, so
                 // that cell is judged under the ratified family-stated
                 // limb model (the constants' derivations).
-                Some(if matches!(f.kind, FamilyKind::MirrorWide) {
+                Some(if matches!(f.kind, FamilyId::MirrorWide) {
                     cell.with_declared_limb(
                         MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING,
                         MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT,
@@ -1121,7 +1141,7 @@ pub(super) fn ops() -> Vec<Op> {
                     });
                     // As version_tick: the ascending cliff's certificate
                     // memory is family-stated.
-                    return Some(if matches!(f.kind, FamilyKind::AscendCliff) {
+                    return Some(if matches!(f.kind, FamilyId::AscendCliff) {
                         cell.with_declared_heap(ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE)
                     } else {
                         cell
@@ -1241,7 +1261,7 @@ pub(super) fn ops() -> Vec<Op> {
                     );
                     // The same ratified capacity chain as the version
                     // spelling of this materialization.
-                    return Some(if matches!(f.kind, FamilyKind::CombScatter) {
+                    return Some(if matches!(f.kind, FamilyId::CombScatter) {
                         cell.with_capacity_model()
                     } else {
                         cell
@@ -1286,7 +1306,7 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 // As version_display: the mirror-wide render-merge cell
                 // is judged under the family-stated limb model.
-                Some(if matches!(f.kind, FamilyKind::MirrorWide) {
+                Some(if matches!(f.kind, FamilyId::MirrorWide) {
                     cell.with_declared_limb(
                         MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING,
                         MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT,

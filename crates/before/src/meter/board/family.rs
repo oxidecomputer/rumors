@@ -1,7 +1,8 @@
-//! The shape axis: every input family and the operand bundle it builds.
+//! The shape axis: every input family's operand bundle.
 //!
-//! Every shape comes from the [`meter`] generators; the
-//! roster is [`FAMILIES`], and the bundle post-pass in
+//! The roster is the registry's ([`FamilyId::board`], the render-order
+//! filter over [`FamilyId::ALL`]); every shape is built through the
+//! registry's [`Shape`] door, and the bundle post-pass in
 //! [`FamilyData::build`] derives uniformly every slot a shape does not
 //! natively fill, so a shape reaches every operation its bundle supplies
 //! (the board module doc's product section) without naming any.
@@ -55,10 +56,11 @@
 //! `weave`, `stagger`) plus the `benign` control carry fold operands,
 //! so exactly the fold rows run on them.
 //!
-//! This list is deliberately narrower than the generator surface: a shape
-//! earns a board column only as a whole-surface adversary, while
-//! kernel-seam probes live in the envelope suite alone. The criterion and
-//! the add-a-shape touch list sit on the `FAMILIES` roster below.
+//! The board's columns are deliberately narrower than the registry's
+//! roster: a family earns a column only as a whole-surface adversary,
+//! while kernel-seam probes live in the envelope suite alone. The
+//! criterion, each family's coverage answer, and the add-a-family touch
+//! list sit on the registry's [`FamilyId`].
 //!
 //! Eleven shapes carry a genre note beyond their variant docs:
 //!
@@ -174,7 +176,7 @@
 //!   across `n` and `m` doublings alike, under the declared 12\].
 
 use crate::codec;
-use crate::meter;
+use crate::meter::registry::{FamilyId, Shape};
 use crate::{Clock, Party, Rank, Version};
 
 use super::operand::value_content_bytes;
@@ -543,383 +545,6 @@ pub(super) const MIN_SIZE_PARAM: usize = 4;
 /// control row must be deterministic run to run.
 const BENIGN_RNG_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
-// ─── input families ─────────────────────────────────────────────────────────
-
-/// The input families, one column group of the matrix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum FamilyKind {
-    /// The dense event spine `S(d)`: node count and depth maximizer.
-    Dense,
-    /// `bigroot(B, d)`: a huge root magnitude over a long spine.
-    Bigroot,
-    /// `hugeleaf(B)`: one node, maximal bits per node.
-    Hugeleaf,
-    /// The boundary comb `C(k, n)` at `k = n`: leaf values oscillating
-    /// across a `2^k` carry cliff, every crossing paid by a stored code.
-    Cliff,
-    /// The diverted id-spine pair `I(d, ·)`: full-lockstep two-party walks.
-    IdPair,
-    /// The output-domination cross: boundary comb × scattered party.
-    CombScatter,
-    /// The harmonic spine `H(d)`: the rank fold's wide-numerator
-    /// adversary, designed against the linear-functional rows and the
-    /// rank pair.
-    Harmonic,
-    /// The scatter-ordered fold population: balanced-forked single-tick
-    /// operands whose join accumulator never coalesces; its bundle
-    /// carries fold operands alone, so only the fold rows apply.
-    Scatter,
-    /// The weave fold population: the leaves of one balanced fork tree
-    /// dealt round-robin among [`WEAVE_GROUPS`] parties, one tick each.
-    ///
-    /// Every operand is individually benign — an organic region set any
-    /// retire/reunite call site could hold — while every internal node
-    /// of the shared upper skeleton is both-present in every operand
-    /// pair, so the fold's per-node costs that scale with the *other*
-    /// operand (the overlap test against the accumulator, the join
-    /// merges over interleaved trees) dominate. Scatter cannot reach
-    /// this genre (its operands are single leaves) and benign reaches
-    /// it only diluted; the arity is fixed so the scaling axis is
-    /// both-present richness alone. Its bundle carries fold operands
-    /// alone, so only the fold rows apply.
-    Weave,
-    /// The staggered fold population `stagger_population(n, m)`: `n`
-    /// operands of `m` unit teeth each, every operand's teeth landing
-    /// in the gaps of every other's, fed in bit-reversed order.
-    ///
-    /// The correlated-population loading of the balanced reduction
-    /// itself: the feed order pairs operands whose slot addresses
-    /// diverge at the top bit, so every internal merge — at every
-    /// level — joins region sets that interleave maximally and swell
-    /// to near the sum of their sizes, the intermediate-swell worst
-    /// case of the declared `O(D log k)` fold model, held until the
-    /// last level (the full union collapses to the constant-1 skyline
-    /// on the version side, the whole seed region on the id side).
-    /// Scatter scales arity at single-leaf operands and weave scales
-    /// operand size at fixed arity; this population scales both, and
-    /// its bit-reversed feed forecloses the adjacent-slot coalescing
-    /// luck index order would hand the counter. Its bundle carries
-    /// fold operands alone, so only the fold rows apply.
-    Stagger,
-    /// The nested-full-sibling cross `N(d)` × the dense spine `S(d)`.
-    ///
-    /// Every level a right-full shortcut site, the deepest stacking of
-    /// the walk's deferred right-full decisions and raise bookkeeping
-    /// on narrow values — the designated cross of the two tick rows.
-    NestedFull,
-    /// The wide right-full cross: `bigroot(b, d)` × `N(d)`.
-    ///
-    /// The stream's first payload is coded absolute, so the deepest
-    /// subtree's net movement carries the root's full magnitude and
-    /// every level's bookkeeping meets it — width × depth through the
-    /// right-full arm. The designated cross of the two tick rows.
-    NestedWide,
-    /// The wide left-full (memo) cross: `wide_tail(b, d)` × `M(d)`.
-    ///
-    /// Every proper subtree nets the tail's full magnitude while every
-    /// level is a memoized pre-scan site — width × depth through the
-    /// left-full arm and the pre-scan's own chains. The designated cross
-    /// of the two tick rows.
-    MirrorWide,
-    /// The narrow left-full (memo) cross: `wide_tail(1, d)` × `M(d)`.
-    ///
-    /// The memoized pre-scan machinery itself, all values word-scale.
-    /// The designated cross of the two tick rows.
-    MirrorNarrow,
-    /// The descending staircase `D(d)` × the unary id spine `I(d)`.
-    ///
-    /// Every consumed leaf undercuts every open range's minimum —
-    /// full-penetration minimum updates at every level, all values
-    /// word-scale. The designated cross of the two tick rows.
-    Staircase,
-    /// The reveal-comb cross: `reveal_comb(s, s)` × its own id.
-    ///
-    /// `s` sibling left-full sites share one `2^s`-wide minimum over a
-    /// zero floor, and the left-leaning spine closes each site's frame
-    /// back into the floor frame between consecutive consumes: the
-    /// width-`s` boundary difference is minted at every consume and
-    /// popped at every close — the unfunded width circulation, in the
-    /// touch currency these columns do not carry (the gate pins in
-    /// `tests/meter.rs` enforce it; the bench mirror's time leg sees
-    /// it). The designated cross of the two tick rows.
-    RevealComb,
-    /// The reveal-comb control: `reveal_comb_hifloor(s, s)` × the
-    /// reveal-comb id.
-    ///
-    /// Identical forest and close-reveal cycle with the floor raised
-    /// to `2^s − 2`, so the circulated boundary difference is O(1)
-    /// wide: the gap control. The designated cross of the two tick rows.
-    RevealHifloor,
-    /// The pure-comb cross: `pure_comb(s, s)` × its own id.
-    ///
-    /// The reveal comb's cycle with no left-full site anywhere — no
-    /// memo, no pre-scan, no site consume: the base watermark stack's
-    /// own arm-move + close-pop width circulation, isolated from the
-    /// frame ledger. The designated cross of the two tick rows.
-    PureComb,
-    /// The ascending-cliff cross: `ascend_cliff(s, s)` × its own id.
-    ///
-    /// `s` ascending wide leaves stack `s − 1` nonzero unit boundary
-    /// differences and a terminal 0-cliff drives one width-`s` undercut
-    /// residue through all of them — the cascade whose per-hop fold
-    /// direction the gate pins in `tests/meter.rs` price in the touch
-    /// currency these columns do not carry. The designated cross of the
-    /// two tick rows.
-    AscendCliff,
-    /// The ascending-cliff control: `ascend_cliff_plateau(s, s)` × the
-    /// ascending-cliff id.
-    ///
-    /// Identical spine, arming schedule, and cliff undercut with every
-    /// leaf leveled, so the difference stack is one compressed zero run
-    /// the residue passes whole in O(1): the hop-schedule control.
-    /// The designated cross of the two tick rows.
-    AscendPlateau,
-    /// The two-operand jump comb `jump_pair(k, m, d)`: wide
-    /// height-difference crests over a dense-position spine.
-    ///
-    /// The overlay interleaves one operand's wide teeth with the
-    /// other's cheap codes, so the pair rows park wide drift at the
-    /// other operand's boundaries `2m` times while every absolute
-    /// position stays `d` digits dense — the shape that separates
-    /// segment-anchored freeze accounting (flat) from absolute-position
-    /// accounting (superlinear), with each operand certified-linear
-    /// alone (the generator doc carries the mechanism).
-    JumpPair,
-    /// The freeze-position spine `freeze_position(s)`: the
-    /// many-freezes sentinel.
-    ///
-    /// `2s` descending wide leaves alternate a ten-digit drop and a
-    /// unit drop down a right spine, so a query fold freezes `Θ(s)`
-    /// times at ever-deeper stream positions — every comb fires O(1)
-    /// freezes, which was exactly the coverage hole — and any freeze
-    /// accounting that reads an absolute position (or any
-    /// whole-history state) per freeze goes quadratic here while the
-    /// family's positions compact to O(1) digits. The committed
-    /// known-bad kernel reads ×1.50 per byte across the doubling on
-    /// this shape (the query fold's adequacy tripwire); the
-    /// anchored-segment discipline reads flat (the `skyline_flatness`
-    /// freeze-position band). Designed against the linear-functional
-    /// query rows.
-    FreezePos,
-    /// The promotion re-arm spine `promotion_rearm(s)`: the
-    /// many-armings sentinel.
-    ///
-    /// `32s` span-building levels grow the consumed mass's written
-    /// span, then `s` four-node blocks each park a wide drift and
-    /// promote it at a narrow one — `Θ(s)` query-fold promotions at
-    /// O(1) stored codes each, where every comb promotes never and the
-    /// freeze-position spine's parked drift is monotone. Any promotion
-    /// accounting that re-reads whole-history state per arming goes
-    /// quadratic here while the family's suffix masses compact to O(1)
-    /// balanced terms. The committed known-bad kernel reads ×1.74 per
-    /// byte across the doubling on this shape (the query fold's
-    /// span-promotion tripwire); the promotion ledger reads flat (the
-    /// `skyline_flatness` promotion re-arm bands). Designed against
-    /// the linear-functional query rows.
-    PromoRearm,
-    /// The weight-comb spine `weight_comb(n)`: the many-jumps
-    /// sentinel.
-    ///
-    /// A depth-`32n` parked-unit spine, then `2n` shallow leaves
-    /// oscillating heights 0 and 2: the rank integral deposits the
-    /// oscillation at one digit position `Θ(n)` digits above the
-    /// parked unit for O(1) stored bits per event — the position
-    /// weight is topology, so no code funds the gap — and every
-    /// cancellation makes the accumulator's top settle back across the
-    /// never-written run. A settlement scan that steps the gap digit
-    /// by digit goes quadratic here (×1.93 per byte across the
-    /// doubling, measured under a probe build with certificate
-    /// consumption disabled); consuming one zero-run certificate per
-    /// jumped run reads flat (the `skyline_flatness` weight-comb
-    /// band). Designed against the linear-functional query rows.
-    WeightComb,
-    /// The freeze-parade spine `freeze_parade(k)`: the deep-segment
-    /// freeze sentinel.
-    ///
-    /// The parked-unit spine at depth `64k`, then `k` shallow freeze
-    /// blocks whose wide in-pair drops each fire one query-fold freeze
-    /// at the block's position weight, `Θ(k)` digits above digit 0, so
-    /// every freeze's scaled segment read starts `Θ(k)` digits up. The
-    /// accumulator's write watermark prices each read at the segment's
-    /// written span; a scaled read that starts at digit 0 walks the
-    /// never-written prefix per freeze and goes quadratic in the touch
-    /// and limb currencies together (×1.91 per byte across the
-    /// doubling, measured under a probe build whose scaled reads start
-    /// at digit 0); the watermark reads flat (the `skyline_flatness`
-    /// freeze-parade band). The freeze-position spine prices the query
-    /// layer's per-freeze accounting; this family prices the
-    /// accumulator's read side under the same schedule. Designed
-    /// against the linear-functional query rows.
-    FreezeParade,
-    /// The concurrent pair `concurrent_pair(n)`: the emit side-switch
-    /// density population.
-    ///
-    /// Organically forked and ticked so the sweep's side switch fires at
-    /// every one of the `n − 1` overlay boundaries, join and meet alike
-    /// — the pairing the ticked counterpart cannot reach.
-    ConcurrentPair,
-    /// The dense-suffix pair `dense_suffix(p, p)` against its unit
-    /// mate `dense_suffix_mate(p, p)`: the many-armings ×
-    /// dense-trailing-mass sentinel.
-    ///
-    /// A gap spine holds the trailing interval mass at `Θ(p)` balanced
-    /// digits, then `p` re-arm blocks each park a wide drift and
-    /// promote it at O(1) stored codes — `Θ(p)` ledger armings all
-    /// owing their debt across the same `Θ(p)`-dense trailing mass, so
-    /// a settle that walks the suffix once per arming (or re-reads a
-    /// promoted prefix once per window) goes quadratic here while the
-    /// mass-balanced product tree charges every arming-window cross
-    /// term inside one aggregate product and reads flat. The committed
-    /// tripwire beside the kernel
-    /// (`suffix_walk_settle_reads_superlinear_on_dense_suffix`, the
-    /// query fold's test suite) keeps the per-arming walk failing on
-    /// this family. The mate is the same topology at unit bases, and
-    /// the wide operand dominates it pointwise, so the pair rows run
-    /// the co-sweep whose freezes and promotions fire on drift only
-    /// the wide operand deposited (the `skyline_flatness` dense-suffix
-    /// rank and distance bands carry the enforcement). Designed
-    /// against the linear-functional query rows.
-    DenseSuffix,
-    /// The wide-arming family `wide_arming(s, s)`: the single-arming
-    /// wide × dense sentinel, both factors on one knob.
-    ///
-    /// The gap spine holds the trailing interval mass at `Θ(s)`
-    /// isolated digits and the one re-arm block parks a `2^(32s)`
-    /// drift and promotes it — one ledger arming as wide as the input
-    /// owing its debt across a trailing mass as dense as the input,
-    /// so the settle's one aggregate product is the wide × dense
-    /// cross term at its purest, undodgeable by seam cancellation
-    /// (the `ledger_wide_arming` band in `tests/meter.rs` carries the
-    /// enforcement; the committed schoolbook settle kernel keeps the
-    /// per-digit charge failing on this family). Its rendered text is
-    /// the same shape at the parse seam: one wide swing ahead of
-    /// `Θ(s)` trailing zero-delta leaves, where a per-leaf delta
-    /// extraction that pays a stale high-water span instead of the
-    /// settled top reads `Θ(w·d)` touches on `Θ(w + d)` text (the
-    /// `parse_wide_arming` band and the committed schoolbook parse
-    /// kernel carry both readings), so the column's five text-parse
-    /// cells are the standing watch on the exact-`top` genre at the
-    /// text seam. Designed against the linear-functional query rows.
-    WideArming,
-    /// The plateau-puncture family `plateau_puncture(s, s)`: the
-    /// answer-embedded-product sentinel, and the floor under every
-    /// settle.
-    ///
-    /// Every turn leaf sits on one incompressible pseudorandom plateau
-    /// `x` of `Θ(s)` digits and the turn positions spell a jittered
-    /// punctured mass `y` of `Θ(s)` isolated digits, so the exact rank
-    /// embeds the integer product `2·x·y + 1` — bought with `Θ(s)`
-    /// input bits, both factors' content beyond the settle's own
-    /// balanced-digit compaction. No promotion ever fires; the cost is
-    /// the close-time settle, one wide × dense multiplication run
-    /// inside the backend at its bound `M(|v|)` — and because the same
-    /// constructor embeds the product of arbitrary factors, any fold
-    /// that answers exactly multiplies arbitrary input-funded
-    /// integers, so `Ω(M(|v|))` floors every settle. The committed
-    /// kernel
-    /// (`schoolbook_settle_reads_superlinear_on_plateau_puncture`, the
-    /// query fold's test suite) keeps the per-digit charge failing on
-    /// this family (the `skyline_flatness` plateau-puncture band
-    /// carries the enforcement). Designed against the
-    /// linear-functional query rows.
-    PlateauPuncture,
-    /// The lone-freeze spine `lone_freeze(s, s)`: the first-freeze
-    /// gate straddle, both sides on one knob.
-    ///
-    /// `s` unit-oscillation pairs ride a wide plateau strictly before
-    /// the sweep's one freeze-firing drop, and `s` more run behind it
-    /// with the gate open and a ten-digit drift parked — so any
-    /// per-interval deposit toward the settle machinery made before
-    /// drift exists to settle scales with the prefix, and a segment
-    /// feed or close read that is not amortized O(1) per interval
-    /// scales with the tail, while the family's funded wide codes stay
-    /// O(1). Exactly one freeze and no promotion ever fires, so the
-    /// column also prices the settle's smallest nonempty
-    /// configuration. The `skyline_flatness` lone-freeze bands isolate
-    /// each axis at the generator minimum and carry the enforcement;
-    /// the column scales both together. Designed against the
-    /// linear-functional query rows.
-    LoneFreeze,
-    /// The tooth-tail pair `tooth_tail(g, m)`: the boundary-aligned
-    /// exact-`top` population.
-    ///
-    /// Two same-shape unit chains whose second leaves spike `2^(32g)`
-    /// in both operands, `b` one tick above `a` everywhere except the
-    /// shared terminal: the pair sweep folds both spikes into one
-    /// cancelling difference at the same boundary, then reads
-    /// `sign(D)` once per remaining boundary with no intervening
-    /// write. Exact-`top` maintenance prices each read at the settled
-    /// value's own width; a high-water bound re-walks the spike's `g`
-    /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the
-    /// `skyline_flatness` tooth-tail band carries both readings).
-    /// Every overlay boundary is shared by both operands and almost
-    /// every stored delta is zero, so the pair is also the touch
-    /// floor's honest-less-work witness
-    /// ([`touch_pair_fold`](super::floors::touch_pair_fold)): a
-    /// conforming sweep is forced to fold only the three nonzero
-    /// deltas per operand, and the measured per-boundary sign-read
-    /// traffic sits far above that floor as implementation, never
-    /// mandate.
-    ToothTail,
-    /// The fixed-seed organic control population.
-    Benign,
-}
-
-/// Every family, in display order.
-///
-/// Adding a shape: the array length and the [`FamilyData::build`] and
-/// [`designed`](super::ops::designed) match arms are compiler-forced from here.
-/// What the compiler cannot force, in the order it is otherwise found by
-/// luck: the shape's base-size constant (the block above, with its
-/// derivation doc), the module doc's family prose and any cardinality
-/// it carries, the cell-count pin and its derivation comment
-/// (`tests/amp_board_smoke.rs`), the envelope rows in `tests/meter.rs`
-/// (the enforced record), the ceiling-calibration witnesses (the
-/// `ceilings` module's header comment), and — only if a cell needs a
-/// declared model or turns up red — the declaration site (the
-/// `ceilings` module's declared-models section), the red-triage buffer
-/// ([`BOARD_EXPECTED_REDS`](super::coverage::BOARD_EXPECTED_REDS), with a live task), the rider list
-/// ([`BOARD_DECLARED_BENCH_RIDERS`](super::export::BOARD_DECLARED_BENCH_RIDERS)), and the judge roster with its
-/// membership pin (`tools/benchjudge-expected.json`,
-/// `tests/bench_judge_roster.rs`). And not every shape belongs here: a
-/// whole-surface adversary earns a board family, while a kernel-seam
-/// shape lives in the envelope suite alone, as `wide_tooth_comb`,
-/// `alt_spine`, and the `memo_*` shapes do.
-pub(super) const FAMILIES: [FamilyKind; 32] = [
-    FamilyKind::Dense,
-    FamilyKind::Bigroot,
-    FamilyKind::Hugeleaf,
-    FamilyKind::Cliff,
-    FamilyKind::IdPair,
-    FamilyKind::CombScatter,
-    FamilyKind::Harmonic,
-    FamilyKind::Scatter,
-    FamilyKind::Weave,
-    FamilyKind::Stagger,
-    FamilyKind::NestedFull,
-    FamilyKind::NestedWide,
-    FamilyKind::MirrorWide,
-    FamilyKind::MirrorNarrow,
-    FamilyKind::Staircase,
-    FamilyKind::RevealComb,
-    FamilyKind::RevealHifloor,
-    FamilyKind::PureComb,
-    FamilyKind::AscendCliff,
-    FamilyKind::AscendPlateau,
-    FamilyKind::JumpPair,
-    FamilyKind::FreezePos,
-    FamilyKind::PromoRearm,
-    FamilyKind::WeightComb,
-    FamilyKind::FreezeParade,
-    FamilyKind::DenseSuffix,
-    FamilyKind::WideArming,
-    FamilyKind::PlateauPuncture,
-    FamilyKind::LoneFreeze,
-    FamilyKind::ConcurrentPair,
-    FamilyKind::ToothTail,
-    FamilyKind::Benign,
-];
-
 /// One shape instantiated at one scale: the operand bundle every row's
 /// `prepare` decodes fresh (outside measurement).
 ///
@@ -931,7 +556,7 @@ pub(super) const FAMILIES: [FamilyKind; 32] = [
 /// `rank_pair`, a cross shape's `version` and `parties`) are filled by
 /// one uniform post-pass in [`FamilyData::build`], never per shape.
 pub(super) struct FamilyData {
-    pub(super) kind: FamilyKind,
+    pub(super) kind: FamilyId,
     pub(super) name: &'static str,
     /// The shape's primary packed version (a cross shape's event side).
     pub(super) version: Option<Vec<u8>>,
@@ -990,11 +615,11 @@ pub(super) struct FamilyData {
 
 impl FamilyData {
     /// A bundle with every slot empty, for a build arm to fill with what
-    /// the shape honestly has.
-    fn bare(kind: FamilyKind, name: &'static str) -> FamilyData {
+    /// the shape honestly has; the name is the registry's name of record.
+    fn bare(kind: FamilyId) -> FamilyData {
         FamilyData {
             kind,
-            name,
+            name: kind.name(),
             version: None,
             version2: None,
             parties: None,
@@ -1017,126 +642,126 @@ impl FamilyData {
     /// counterpart wherever the arm built no pairing of its own), so a
     /// new shape reaches every operation its bundle supplies without
     /// naming any.
-    pub(super) fn build(kind: FamilyKind, scale: f64, level: u32) -> FamilyData {
+    pub(super) fn build(kind: FamilyId, scale: f64, level: u32) -> FamilyData {
         let size = |base: usize| -> usize {
             let scaled = ((base as f64) * scale).round() as usize;
             scaled.max(MIN_SIZE_PARAM) << level
         };
         let mut data = match kind {
-            FamilyKind::Dense => Self::event(
+            FamilyId::Dense => Self::event(
                 kind,
-                "dense",
-                meter::dense(size(DENSE_BASE_DEPTH)).version().encode(),
-            ),
-            FamilyKind::Bigroot => Self::event(
-                kind,
-                "bigroot",
-                meter::bigroot(size(BIGROOT_BASE_MAGNITUDE_BITS), size(BIGROOT_BASE_DEPTH))
+                Shape::Dense
+                    .packed1(size(DENSE_BASE_DEPTH))
                     .version()
                     .encode(),
             ),
-            FamilyKind::Hugeleaf => Self::event(
+            FamilyId::Bigroot => Self::event(
                 kind,
-                "hugeleaf",
-                meter::hugeleaf(size(HUGELEAF_BASE_MAGNITUDE_BITS))
+                Shape::Bigroot
+                    .packed2(size(BIGROOT_BASE_MAGNITUDE_BITS), size(BIGROOT_BASE_DEPTH))
                     .version()
                     .encode(),
             ),
-            FamilyKind::Cliff => {
+            FamilyId::Hugeleaf => Self::event(
+                kind,
+                Shape::Hugeleaf
+                    .packed1(size(HUGELEAF_BASE_MAGNITUDE_BITS))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::Cliff => {
                 let scale = size(CLIFF_BASE_SCALE);
                 Self::event(
                     kind,
-                    "cliff",
-                    meter::cliff_comb(scale, scale).version().encode(),
+                    Shape::CliffComb.packed2(scale, scale).version().encode(),
                 )
             }
-            FamilyKind::IdPair => {
-                let mut data = Self::bare(kind, "id-pair");
+            FamilyId::IdPair => {
+                let mut data = Self::bare(kind);
                 data.parties = Some((
-                    meter::id_spine(size(ID_BASE_DEPTH), false).bytes,
-                    meter::id_spine(size(ID_BASE_DEPTH), true).bytes,
+                    Shape::IdSpine
+                        .packed_flagged(size(ID_BASE_DEPTH), false)
+                        .bytes,
+                    Shape::IdSpine
+                        .packed_flagged(size(ID_BASE_DEPTH), true)
+                        .bytes,
                 ));
                 data
             }
-            FamilyKind::CombScatter => {
+            FamilyId::CombScatter => {
                 let teeth = size(CROSS_BASE_TEETH);
-                let mut data = Self::bare(kind, "comb-scatter");
+                let mut data = Self::bare(kind);
                 data.cross = Some((
-                    meter::cliff_comb(CROSS_TOOTH_MAGNITUDE_BITS, teeth)
+                    Shape::CliffComb
+                        .packed2(CROSS_TOOTH_MAGNITUDE_BITS, teeth)
                         .version()
                         .encode(),
-                    meter::scattered_id(teeth / 2).bytes,
+                    Shape::ScatteredId.packed1(teeth / 2).bytes,
                 ));
                 data.output_dominated = true;
                 let (v, p) = data.cross.as_ref().expect("just set");
                 data.content_bytes = Some(value_content_bytes(&decode_version(v)) + p.len());
                 data
             }
-            FamilyKind::Harmonic => Self::event(
+            FamilyId::Harmonic => Self::event(
                 kind,
-                "harmonic",
-                meter::harmonic(size(HARMONIC_BASE_DEPTH))
+                Shape::Harmonic
+                    .packed1(size(HARMONIC_BASE_DEPTH))
                     .version()
                     .encode(),
             ),
-            FamilyKind::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
-            FamilyKind::Weave => Self::weave(size(WEAVE_BASE_LEAVES)),
-            FamilyKind::Stagger => Self::stagger(
+            FamilyId::Scatter => Self::scatter(size(SCATTER_BASE_CLOCKS)),
+            FamilyId::Weave => Self::weave(size(WEAVE_BASE_LEAVES)),
+            FamilyId::Stagger => Self::stagger(
                 size(STAGGER_BASE_OPERANDS).next_power_of_two(),
                 size(STAGGER_BASE_BLOCKS).next_power_of_two(),
             ),
-            FamilyKind::NestedFull => {
+            FamilyId::NestedFull => {
                 let d = size(NESTED_BASE_DEPTH);
                 Self::cross_family(
                     kind,
-                    "nested-full",
-                    meter::dense(d).version().encode(),
-                    meter::nested_full_id(d).bytes,
+                    Shape::Dense.packed1(d).version().encode(),
+                    Shape::NestedFullId.packed1(d).bytes,
                 )
             }
-            FamilyKind::NestedWide => {
+            FamilyId::NestedWide => {
                 let s = size(NESTED_WIDE_BASE);
                 Self::cross_family(
                     kind,
-                    "nested-wide",
-                    meter::bigroot(s, s).version().encode(),
-                    meter::nested_full_id(s).bytes,
+                    Shape::Bigroot.packed2(s, s).version().encode(),
+                    Shape::NestedFullId.packed1(s).bytes,
                 )
             }
-            FamilyKind::MirrorWide => {
+            FamilyId::MirrorWide => {
                 let s = size(MIRROR_WIDE_BASE);
                 Self::cross_family(
                     kind,
-                    "mirror-wide",
-                    meter::wide_tail(s, s).version().encode(),
-                    meter::nested_left_full_id(s).bytes,
+                    Shape::WideTail.packed2(s, s).version().encode(),
+                    Shape::NestedLeftFullId.packed1(s).bytes,
                 )
             }
-            FamilyKind::MirrorNarrow => {
+            FamilyId::MirrorNarrow => {
                 let d = size(MIRROR_NARROW_BASE_DEPTH);
                 Self::cross_family(
                     kind,
-                    "mirror-narrow",
-                    meter::wide_tail(1, d).version().encode(),
-                    meter::nested_left_full_id(d).bytes,
+                    Shape::WideTail.packed2(1, d).version().encode(),
+                    Shape::NestedLeftFullId.packed1(d).bytes,
                 )
             }
-            FamilyKind::Staircase => {
+            FamilyId::Staircase => {
                 let d = size(STAIRCASE_BASE_DEPTH);
                 Self::cross_family(
                     kind,
-                    "staircase",
-                    meter::staircase(d).version().encode(),
-                    meter::id_spine(d, false).bytes,
+                    Shape::Staircase.packed1(d).version().encode(),
+                    Shape::IdSpine.packed_flagged(d, false).bytes,
                 )
             }
-            FamilyKind::RevealComb => {
+            FamilyId::RevealComb => {
                 let s = size(REVEAL_COMB_BASE);
                 let mut data = Self::cross_family(
                     kind,
-                    "reveal-comb",
-                    meter::reveal_comb(s, s).version().encode(),
-                    meter::reveal_comb_id(s).bytes,
+                    Shape::RevealComb.packed2(s, s).version().encode(),
+                    Shape::RevealCombId.packed1(s).bytes,
                 );
                 // Projecting the shared-wide-plateau event through its
                 // site-owning comb id re-materializes a wide absolute
@@ -1147,13 +772,12 @@ impl FamilyData {
                 data.output_dominated = true;
                 data
             }
-            FamilyKind::RevealHifloor => {
+            FamilyId::RevealHifloor => {
                 let s = size(REVEAL_COMB_BASE);
                 let mut data = Self::cross_family(
                     kind,
-                    "reveal-hifloor",
-                    meter::reveal_comb_hifloor(s, s).version().encode(),
-                    meter::reveal_comb_id(s).bytes,
+                    Shape::RevealCombHifloor.packed2(s, s).version().encode(),
+                    Shape::RevealCombId.packed1(s).bytes,
                 );
                 // The raised floor changes the consume-time gap, not the
                 // projection's re-materialized wide sites: the same
@@ -1161,13 +785,12 @@ impl FamilyData {
                 data.output_dominated = true;
                 data
             }
-            FamilyKind::PureComb => {
+            FamilyId::PureComb => {
                 let s = size(PURE_COMB_BASE);
                 let mut data = Self::cross_family(
                     kind,
-                    "pure-comb",
-                    meter::pure_comb(s, s).version().encode(),
-                    meter::pure_comb_id(s).bytes,
+                    Shape::PureComb.packed2(s, s).version().encode(),
+                    Shape::PureCombId.packed1(s).bytes,
                 );
                 // Bare wide leaves under the site-owning id: the masked
                 // skyline spells a wide code per owned site, the same
@@ -1175,87 +798,78 @@ impl FamilyData {
                 data.output_dominated = true;
                 data
             }
-            FamilyKind::AscendCliff => {
+            FamilyId::AscendCliff => {
                 let s = size(ASCEND_CLIFF_BASE);
                 Self::cross_family(
                     kind,
-                    "ascend-cliff",
-                    meter::ascend_cliff(s, s).version().encode(),
-                    meter::ascend_cliff_id(s).bytes,
+                    Shape::AscendCliff.packed2(s, s).version().encode(),
+                    Shape::AscendCliffId.packed1(s).bytes,
                 )
             }
-            FamilyKind::AscendPlateau => {
+            FamilyId::AscendPlateau => {
                 let s = size(ASCEND_CLIFF_BASE);
                 Self::cross_family(
                     kind,
-                    "ascend-plateau",
-                    meter::ascend_cliff_plateau(s, s).version().encode(),
-                    meter::ascend_cliff_id(s).bytes,
+                    Shape::AscendCliffPlateau.packed2(s, s).version().encode(),
+                    Shape::AscendCliffId.packed1(s).bytes,
                 )
             }
-            FamilyKind::JumpPair => {
+            FamilyId::JumpPair => {
                 let m = size(JUMP_PAIR_BASE_TEETH);
                 let d = (m / JUMP_PAIR_DIGIT_DIVISOR).max(1);
-                let (a, b) = meter::jump_pair(JUMP_PAIR_MAGNITUDE_BITS, m, d);
-                let mut data = Self::event(kind, "jump-pair", a.version().encode());
+                let (a, b) = Shape::JumpPair.packed_pair3(JUMP_PAIR_MAGNITUDE_BITS, m, d);
+                let mut data = Self::event(kind, a.version().encode());
                 data.version2 = Some(b.version().encode());
                 data
             }
-            FamilyKind::FreezePos => Self::event(
+            FamilyId::FreezePos => Self::event(
                 kind,
-                "freeze-pos",
-                meter::freeze_position(size(FREEZE_POS_BASE_BLOCKS))
+                Shape::FreezePosition
+                    .packed1(size(FREEZE_POS_BASE_BLOCKS))
                     .version()
                     .encode(),
             ),
-            FamilyKind::PromoRearm => Self::event(
+            FamilyId::PromoRearm => Self::event(
                 kind,
-                "promo-rearm",
-                meter::promotion_rearm(size(PROMO_REARM_BASE_BLOCKS))
+                Shape::PromotionRearm
+                    .packed1(size(PROMO_REARM_BASE_BLOCKS))
                     .version()
                     .encode(),
             ),
-            FamilyKind::WeightComb => Self::event(
+            FamilyId::WeightComb => Self::event(
                 kind,
-                "weight-comb",
-                meter::weight_comb(size(WEIGHT_COMB_BASE_BLOCKS).next_power_of_two())
+                Shape::WeightComb
+                    .packed1(size(WEIGHT_COMB_BASE_BLOCKS).next_power_of_two())
                     .version()
                     .encode(),
             ),
-            FamilyKind::FreezeParade => Self::event(
+            FamilyId::FreezeParade => Self::event(
                 kind,
-                "freeze-parade",
-                meter::freeze_parade(size(FREEZE_PARADE_BASE_BLOCKS).next_power_of_two())
+                Shape::FreezeParade
+                    .packed1(size(FREEZE_PARADE_BASE_BLOCKS).next_power_of_two())
                     .version()
                     .encode(),
             ),
-            FamilyKind::DenseSuffix => {
+            FamilyId::DenseSuffix => {
                 // One knob drives the block count and the gap-digit
                 // count (the bands' DS(p, p) diagonal); the mate is the
                 // same topology at unit bases, the pair the distance
                 // band prices.
                 let p = size(DENSE_SUFFIX_BASE_BLOCKS);
-                let mut data = Self::event(
-                    kind,
-                    "dense-suffix",
-                    meter::dense_suffix(p, p).version().encode(),
-                );
-                data.version2 = Some(meter::dense_suffix_mate(p, p).version().encode());
+                let mut data =
+                    Self::event(kind, Shape::DenseSuffix.packed2(p, p).version().encode());
+                data.version2 = Some(Shape::DenseSuffixMate.packed2(p, p).version().encode());
                 data
             }
-            FamilyKind::WideArming => {
+            FamilyId::WideArming => {
                 // One knob drives the arming width and the gap-digit
                 // count (the bands' WA(s, s) diagonal), floored at the
                 // generator's minimum width; the floor binds only under
                 // extreme scale-down (the base constant's rustdoc).
                 let s = size(WIDE_ARMING_BASE_DIGITS).max(10);
-                Self::event(
-                    kind,
-                    "wide-arming",
-                    meter::wide_arming(s, s).version().encode(),
-                )
+                Self::event(kind, Shape::WideArming.packed2(s, s).version().encode())
             }
-            FamilyKind::PlateauPuncture => {
+            FamilyId::PlateauPuncture => {
                 // One knob drives the plateau width and the turn count
                 // (the band's PP(s, s) diagonal), floored at the
                 // generator's minimum width; the floor binds only under
@@ -1263,42 +877,54 @@ impl FamilyData {
                 let s = size(PLATEAU_PUNCTURE_BASE_DIGITS).max(10);
                 Self::event(
                     kind,
-                    "plateau-puncture",
-                    meter::plateau_puncture(s, s).version().encode(),
+                    Shape::PlateauPuncture.packed2(s, s).version().encode(),
                 )
             }
-            FamilyKind::LoneFreeze => {
+            FamilyId::LoneFreeze => {
                 // One knob drives the plateau prefix and the frozen
                 // tail (the bands isolate each axis; the column scales
                 // both), kept even at every scale — the generator
                 // counts whole oscillation pairs, and MIN_SIZE_PARAM
                 // keeps the masked value at least 4.
                 let s = size(LONE_FREEZE_BASE_PAIRS) & !1;
-                Self::event(
-                    kind,
-                    "lone-freeze",
-                    meter::lone_freeze(s, s).version().encode(),
-                )
+                Self::event(kind, Shape::LoneFreeze.packed2(s, s).version().encode())
             }
-            FamilyKind::ConcurrentPair => {
+            FamilyId::ConcurrentPair => {
                 let n = size(CONCURRENT_BASE_LEAVES).next_power_of_two();
-                let (v, w) = meter::concurrent_pair(n);
-                let mut data = Self::event(kind, "concurrent-pair", v.encode());
+                let (v, w) = Shape::ConcurrentPair.version_pair(n);
+                let mut data = Self::event(kind, v.encode());
                 data.version2 = Some(w.encode());
                 data
             }
-            FamilyKind::ToothTail => {
+            FamilyId::ToothTail => {
                 // One knob: the boundary count, with the spike width
                 // riding it at the committed band ratio (the generator
                 // needs g >= 1 and m >= 2; the size floor guarantees
                 // both).
                 let m = size(TOOTH_TAIL_BASE_BOUNDARIES);
-                let (a, b) = meter::tooth_tail((m / TOOTH_TAIL_SPIKE_DIVISOR).max(1), m);
-                let mut data = Self::event(kind, "tooth-tail", a.version().encode());
+                let (a, b) = Shape::ToothTail.packed_pair((m / TOOTH_TAIL_SPIKE_DIVISOR).max(1), m);
+                let mut data = Self::event(kind, a.version().encode());
                 data.version2 = Some(b.version().encode());
                 data
             }
-            FamilyKind::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
+            FamilyId::Benign => Self::benign(size(BENIGN_BASE_CLOCKS)),
+            FamilyId::WideToothComb
+            | FamilyId::JumpComb
+            | FamilyId::CliffFan
+            | FamilyId::CancellingChain
+            | FamilyId::AltSpine
+            | FamilyId::MemoChain
+            | FamilyId::MemoComb
+            | FamilyId::MemoFanout
+            | FamilyId::MemoOscillating
+            | FamilyId::MemoChurn
+            | FamilyId::DescendingRaises
+            | FamilyId::MaskDrift
+            | FamilyId::MeetShade
+            | FamilyId::ArmingTrain => unreachable!(
+                "{kind:?} is envelope-only in the registry: it has no operand bundle, \
+                 and the board sweeps FamilyId::board() alone"
+            ),
         };
         // ── the bundle post-pass: the derived slots, uniform across shapes ──
         // A cross shape's primary version is its event side.
@@ -1381,7 +1007,7 @@ impl FamilyData {
                 .collect(),
         );
         let parties = scatter_order(parties.iter().map(Party::encode).collect());
-        let mut data = Self::bare(FamilyKind::Scatter, "scatter");
+        let mut data = Self::bare(FamilyId::Scatter);
         data.fold = Some((versions, parties));
         data
     }
@@ -1433,7 +1059,7 @@ impl FamilyData {
             .into_iter()
             .map(|g| g.expect("every group received leaves").encode())
             .collect();
-        let mut data = Self::bare(FamilyKind::Weave, "weave");
+        let mut data = Self::bare(FamilyId::Weave);
         data.fold = Some((versions, parties));
         data
     }
@@ -1444,8 +1070,8 @@ impl FamilyData {
     /// Fed in bit-reversed order (`meter::stagger_population` carries
     /// both the construction and the feed order's derivation).
     fn stagger(n: usize, m: usize) -> FamilyData {
-        let (versions, ids) = meter::stagger_population(n, m);
-        let mut data = Self::bare(FamilyKind::Stagger, "stagger");
+        let (versions, ids) = Shape::StaggerPopulation.population(n, m);
+        let mut data = Self::bare(FamilyId::Stagger);
         data.fold = Some((
             versions.iter().map(|p| p.version().encode()).collect(),
             ids.into_iter().map(|p| p.bytes).collect(),
@@ -1460,20 +1086,15 @@ impl FamilyData {
     /// operand choice directly; the post-pass derives the shape's version
     /// (the event side) and its disjoint party pair (the mounted id side),
     /// so the shape also reaches every version and party row.
-    fn cross_family(
-        kind: FamilyKind,
-        name: &'static str,
-        version: Vec<u8>,
-        id: Vec<u8>,
-    ) -> FamilyData {
-        let mut data = Self::bare(kind, name);
+    fn cross_family(kind: FamilyId, version: Vec<u8>, id: Vec<u8>) -> FamilyData {
+        let mut data = Self::bare(kind);
         data.cross = Some((version, id));
         data
     }
 
     /// Wrap an event shape's wire bytes.
-    fn event(kind: FamilyKind, name: &'static str, bytes: Vec<u8>) -> FamilyData {
-        let mut data = Self::bare(kind, name);
+    fn event(kind: FamilyId, bytes: Vec<u8>) -> FamilyData {
+        let mut data = Self::bare(kind);
         data.version = Some(bytes);
         data
     }
@@ -1513,7 +1134,7 @@ impl FamilyData {
             let half = if i % 2 == 0 { &mut a } else { &mut b };
             half.join(p).expect("forked parties are pairwise disjoint");
         }
-        let mut data = Self::bare(FamilyKind::Benign, "benign");
+        let mut data = Self::bare(FamilyId::Benign);
         data.version = Some(version.encode());
         data.parties = Some((a.encode(), b.encode()));
         data.fold = fold;

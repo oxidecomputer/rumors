@@ -974,8 +974,9 @@ fn declared_capacity_model_bands_the_projection_peak() {
 /// the same change, and a rider can never point at an undeclared cell.
 #[test]
 fn bench_riders_name_declared_model_cells() {
-    use super::family::{FamilyData, FAMILIES};
+    use super::family::FamilyData;
     use super::{bench_cells, BenchMode, BOARD_DECLARED_BENCH_RIDERS};
+    use crate::meter::registry::FamilyId;
     let cells: std::collections::BTreeSet<(String, String)> = bench_cells(0.02, BenchMode::Full)
         .into_iter()
         .map(|cell| (cell.op.to_owned(), cell.family.to_owned()))
@@ -985,11 +986,11 @@ fn bench_riders_name_declared_model_cells() {
             cells.contains(&((*op_name).to_owned(), (*family_name).to_owned())),
             "rider {op_name}/{family_name} names no live board cell"
         );
-        let kind = FAMILIES
-            .iter()
-            .copied()
-            .find(|&kind| FamilyData::build(kind, 0.02, 0).name == *family_name)
-            .unwrap_or_else(|| panic!("rider family {family_name} is not on the FAMILIES roster"));
+        let kind = FamilyId::board()
+            .find(|&kind| kind.name() == *family_name)
+            .unwrap_or_else(|| {
+                panic!("rider family {family_name} is not on the registry's board roster")
+            });
         let family = FamilyData::build(kind, 0.02, 0);
         let op = super::ops::ops()
             .into_iter()
@@ -1118,13 +1119,11 @@ fn worst_row_flags_near_ties_strictly_under_the_ratio() {
 /// dev readings are never pinned.
 #[test]
 fn worst_rankings_pin_is_well_formed() {
-    use super::family::{FamilyData, FAMILIES};
     use super::worst::WORST_RANKINGS;
+    use crate::meter::registry::FamilyId;
     let ops: Vec<&str> = super::ops::ops().into_iter().map(|op| op.name).collect();
-    let families: std::collections::BTreeSet<&str> = FAMILIES
-        .iter()
-        .map(|&kind| FamilyData::build(kind, 0.02, 0).name)
-        .collect();
+    let families: std::collections::BTreeSet<&str> =
+        FamilyId::board().map(|kind| kind.name()).collect();
     for (label, _) in super::worst::WORST_MAP_SCALES {
         let pinned: Vec<&str> = WORST_RANKINGS
             .iter()
@@ -1159,8 +1158,8 @@ fn worst_rankings_pin_is_well_formed() {
             for name in names {
                 assert!(
                     families.contains(name),
-                    "{op} at the {scale} scale pins {name}, which is not on the FAMILIES \
-                     roster"
+                    "{op} at the {scale} scale pins {name}, which is not on the registry's \
+                     board roster"
                 );
             }
         }

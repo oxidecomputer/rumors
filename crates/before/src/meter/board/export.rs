@@ -16,8 +16,9 @@ use std::any::Any;
 use std::rc::Rc;
 
 use super::cell::{assert_honest_text, Cell, Denom};
-use super::family::{FamilyData, FAMILIES};
+use super::family::FamilyData;
 use super::ops::{designed, ops};
+use crate::meter::registry::FamilyId;
 
 /// One board cell exposed for wall-clock benchmarking.
 ///
@@ -139,9 +140,8 @@ pub fn bench_cells(scale: f64, mode: BenchMode) -> Vec<BenchCell> {
         scale > 0.0 && scale.is_finite(),
         "bench cells: scale must be a positive finite number"
     );
-    let families: Vec<Rc<FamilyData>> = FAMILIES
-        .iter()
-        .map(|&kind| Rc::new(FamilyData::build(kind, scale, 0)))
+    let families: Vec<Rc<FamilyData>> = FamilyId::board()
+        .map(|kind| Rc::new(FamilyData::build(kind, scale, 0)))
         .collect();
     let mut cells = Vec::new();
     for op in ops() {

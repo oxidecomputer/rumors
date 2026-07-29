@@ -10,10 +10,11 @@ use super::ceilings::{
     MAX_TEXT_LIMB_OPS_PER_RADIX_UNIT, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
 };
 use super::currency::Liveness;
-use super::family::{FamilyData, FAMILIES};
+use super::family::FamilyData;
 use super::judge::{assert_deterministic, evaluate, CellResult, Score};
 use super::measure::{measure, HeapMeter};
 use super::ops::ops;
+use crate::meter::registry::FamilyId;
 
 /// The board's bottom line: how many cells scored green and red.
 #[derive(Debug, Clone, Copy)]
@@ -174,9 +175,8 @@ pub(super) fn sweep(scale: f64, heap: &HeapMeter) -> Vec<CellResult> {
         "amp-board: scale must be a positive finite number"
     );
 
-    let families: Vec<(FamilyData, FamilyData)> = FAMILIES
-        .iter()
-        .map(|&kind| {
+    let families: Vec<(FamilyData, FamilyData)> = FamilyId::board()
+        .map(|kind| {
             (
                 FamilyData::build(kind, scale, 0),
                 FamilyData::build(kind, scale, 1),
