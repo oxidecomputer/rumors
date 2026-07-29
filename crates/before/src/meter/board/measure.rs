@@ -57,11 +57,11 @@ pub(super) struct Sample {
     /// on the cells that declare it.
     pub(super) heap_model: Option<f64>,
     /// The family-stated flat heap ceiling, on the cells that declare
-    /// one (the declared-models section).
+    /// one (the `ceilings` module's declared-models section).
     pub(super) declared_heap: Option<f64>,
     /// The family-stated limb model `(exponent ceiling, per-radix-unit
     /// constant ceiling)`, on the cells that declare one (the
-    /// declared-models section).
+    /// `ceilings` module's declared-models section).
     pub(super) declared_limb: Option<(f64, f64)>,
     /// Every currency's counter reading over the body; `None` where the
     /// counter is not compiled in (the feature-gated limb, scan, and

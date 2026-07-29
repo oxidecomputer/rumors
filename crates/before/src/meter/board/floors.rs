@@ -1,6 +1,109 @@
 //! The liveness vocabulary: the floor derivations and not-applicable
 //! reasons every cell commits, shared across rows so the rendered legend
 //! stays small and uniform.
+//!
+//! A floor states the least a watching counter can honestly read,
+//! derived from what the operation must do, never from how it does it;
+//! the board module doc's Liveness floors section carries the criterion
+//! and what a trip means. The conventions, per currency:
+//!
+//! - **Scan** is the universal leg: an operation that must examine its
+//!   packed operands scans at least
+//!   [`SCAN_FLOOR_BITS_PER_INPUT_BYTE`] bit per packed byte (an eighth of
+//!   the stored bits); operations that may legitimately exit at the first
+//!   divergence still read the root codes, floored at
+//!   [`SCAN_TOUCH_FLOOR_BITS`]. Which of the two binds is derived per
+//!   cell from the operands wherever the contract admits an early exit:
+//!   the comparison rows floor at the root codes exactly when their pair
+//!   is concurrent (a comparable pair must certify dominance over every
+//!   region, so it keeps the full floor).
+//!   Not-applicable is reserved for operations
+//!   whose contract is a wholesale byte move or compare (encode, hash,
+//!   same-form equality) or whose operands have no packed stream at all
+//!   (the rank pair).
+//! - **Limb** floors bind where big-integer arithmetic is semantically
+//!   mandatory, at two derivations. The rows that read the stored form
+//!   as-is (decode, the rank/distance/lag folds, and the tick walk)
+//!   floor at the *stream's own codes*: one limb per 64 bits of every
+//!   stored payload code wider than [`MACHINE_WORD_MAGNITUDE_BITS`](super::ceilings::MACHINE_WORD_MAGNITUDE_BITS) — a
+//!   plateau of equal wide leaves stores its width once and steps by
+//!   unit deltas after, and a conforming walk provably need not
+//!   materialize each leaf's absolute value, so a tree-derived floor
+//!   would demand limb work no conforming walk does. The value-
+//!   materializing parse rows (`FromStr` must convert every spelled
+//!   value) floor at the *decoded tree's* stored bases: one limb per
+//!   64 bits of every base wider than the bound. Narrow cells are
+//!   not-applicable (machine words suffice), as are operations whose
+//!   contract forces no arithmetic at all.
+//! - **Touch** floors are deterministic-liveness declarations, like the
+//!   fork rows' heap floor, at three derivations. The single-operand
+//!   delta-folding kernels (the query rank folds, the tick walk, the
+//!   text parse) land every stored delta of their one stream in the
+//!   running accumulator, at least one digit touch per stored delta
+//!   code — the same one-per-delta floor the envelope suite's flatness
+//!   pins commit. The pair walks (the comparison sweep and the merge
+//!   emitters and pair queries riding it) fold per *overlay boundary*:
+//!   a boundary both operands step lands both step codes in one fold
+//!   of the single running difference, so the honest pair floor is one
+//!   touch per stepping boundary — at least the larger operand's
+//!   stored-delta count, and legitimately half the naive two-stream
+//!   delta sum on a boundary-aligned pair (the tooth-tail family is
+//!   the committed demonstration; [`touch_pair_fold`] carries the
+//!   derivation, and the n-ary fold row floors what its first-level
+//!   merges alone force under the same premise). The validator batches word-scale deltas in the accumulator's
+//!   lazy zone, so the decode rows floor only what it must fold digit by
+//!   digit: one touch per 64 bits of every stored code wider than the
+//!   machine-word bound (the stream-derived
+//!   convention the tick rows' limb floor uses). Either floor is what a
+//!   representation change trips deliberately: height or difference state
+//!   moving off the metered accumulator into an unmetered big integer is
+//!   exactly the migration this column exists to catch, so the trip is the
+//!   designed stop-and-look, and an honest re-representation lowers the
+//!   floor in a diff that shows the new derivation. Not-applicable genres:
+//!   id-only walks (no magnitudes, no digit state), wholesale byte moves
+//!   and hashes, plain big-integer arithmetic over decoded values (the
+//!   rank pair), the renderer's delta-sized summaries, minimum folds and
+//!   projections (word-scale bookkeeping and verbatim splices force no
+//!   fold), comparisons over concurrent operands (one witness divergence
+//!   per direction decides, so no fold count is forced), operand pairs
+//!   equal byte for byte (canonical identity answers them before any
+//!   sweep), and operands whose streams store no delta codes.
+//! - **Heap** floors bind on the codec and text rows, whose results must
+//!   materialize at least their packed bytes; everywhere else allocation is
+//!   not semantically forced (and the heap meter reads the process
+//!   allocator, which no re-routing inside the crate can bypass).
+//! - **Segments** is ceiling-only by policy: the target is walks that never
+//!   grow the stack, so its honest floor is zero and a zero floor asserts
+//!   nothing.
+//!
+//! The rejection rows floor scan alone: their committed shapes place the
+//! defect at the stream's end, and a self-delimiting stream's terminal
+//! defect (or an overlap at both operands' preorder ends, under a coding
+//! with no random access) is only discoverable by parsing to it, while
+//! heap, limb, and touch are honestly not-applicable — rejection
+//! materializes no result and forces neither value work nor an
+//! accumulator fold. The text-rejection rows declare no floor on any
+//! column, by the same honest derivation: no deterministic counter
+//! watches text-byte consumption, and a parser may find the defect in
+//! tokenization before any packed or value work — their ceilings judge
+//! live readings (the shipped parsers do metered work greedily) and the
+//! bench mirror times them like every row.
+//!
+//! Four cells are watched by neither leg, an exposure accepted here so it
+//! is stated rather than silent: `version_hash`, `party_hash`,
+//! `clock_hash`, and `version_eq` on the benign family. Hashing folds the
+//! stored canonical bytes wholesale, and same-form equality compares them
+//! wholesale, below every metered primitive — no stream walk, no forced
+//! arithmetic, no forced allocation — so every floor column is honestly
+//! not-applicable, and the benign operands are small enough (a few hundred
+//! packed bytes across both scales) that the body never reaches the bench
+//! judge's 10 µs judgment floor. The exposure is bounded by exactly those
+//! two facts: sub-10 µs of word arithmetic per call over a
+//! few-hundred-byte operand, with the same rows under the time leg on
+//! every larger family. `version_eq`'s exposure differs from the hash
+//! rows' in one respect its NA reason states on the board face: eq
+//! operands grow without bound, so the time leg — under its own sub-floor
+//! discipline — is the one backstop that the compare stays linear.
 
 use std::cmp::Ordering;
 

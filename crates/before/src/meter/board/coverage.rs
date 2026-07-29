@@ -1,11 +1,57 @@
 //! The coverage rosters: the not-applicable half of the board tiling and
 //! the red-triage buffer — committed data the complexity-claims suite
 //! enforces.
+//!
+//! Rows price delegations at their shared mechanism, so several surface
+//! rows legitimately cite one row: `Clock::send` is `Clock::tick` by
+//! definition; `clock | version` (either operand order, `|=` included)
+//! folds through the same join-assign the `recv` row measures;
+//! `Party::tick` is `Version::tick`'s mirror (the `tick_adv_party`
+//! row); the operator matrix (`|`, `&`, and their assign forms, over
+//! every borrow shape) routes through the same `join_view`/`meet_view`
+//! emitters and cmp walk the `join`/`meet`/`cmp` rows measure;
+//! `Version::concurrent` is one `partial_cmp` and keeps its own row as
+//! the documented entry point; the serde/borsh wrappers serialize as
+//! the canonical encoding and deserialize through the strict decoder
+//! (the `encode`/`decode` rows); `Party::ticks` and `Clock::ticks` run
+//! the same fused kernel as `version_ticks` through their own
+//! spellings. Derived surfaces with no roster row of their own ride
+//! the same cells: `Clone` copies stored bits or value content
+//! wholesale with no walk in the contract, `Debug` delegates to
+//! `Display`, and the byte-compare `Eq`s are the `eq`/`hash` rows'
+//! wholesale compares.
+//!
+//! Two coverage notes that are dispositions of *error paths*, not
+//! operations (so they live here rather than in the table): the
+//! rejection rows price the fallible surface (the board module doc's
+//! rejection section; the `defect` module carries the placed defects),
+//! and **the
+//! rejection surface's bounded-or-delegated remainder** is:
+//! `Clock::join_all`'s overlap hand-back runs the identical up-front
+//! indexed test against self that `party_join_all_overlap` prices,
+//! inline; clock non-canonicality — packed or text — is the component
+//! validators on the same streams the version and party non-canonical
+//! rows drive; [`Decode::Anonymous`](crate::error::Decode) is the
+//! accepting parse of the empty stream (a zero-byte operand, no scaling
+//! axis) and [`Parse::Anonymous`](crate::error::Parse) the one-token
+//! `"0"`; [`Decode::Io`](crate::error::Decode) is the caller's reader —
+//! a failing reader is a truncation carrying an error, priced by the
+//! truncated rows — and `encode_to`'s error the caller's writer, at
+//! most the encode row's work before it propagates; the `TryFrom`
+//! literal rejections have word-scale or type-bounded operands;
+//! `Version::meet_all`'s `None` is the empty iterator;
+//! `Rank::checked_sub`'s `None` is measured on the `rank_pair_ops`
+//! row, which attempts both directions; other decode non-canonicality
+//! genres (a negative running height, nonzero padding) ride the same
+//! single validator pass at the same full-parse cost as the committed
+//! maximally-deferred tails; serde/borsh deserialize errors are the
+//! strict decoder through the wrappers (the decode rejection rows).
+//! `Debug` for all three types delegates to `Display`.
 
 /// The board's not-applicable table: every `before::surface` row with
 /// no board row of its own, and the mechanism-based reason why.
 ///
-/// The machine-readable half of the module doc's coverage tiling,
+/// The machine-readable half of the board's coverage tiling,
 /// covering method and family rows alike.
 ///
 /// The tiling test in the complexity-claims suite
@@ -226,8 +272,8 @@ pub struct ExpectedRed {
 ///
 /// Red means untriaged, nothing else. Every dashboard contradiction
 /// resolves to exactly one of: a cure, or an owner-declared model with
-/// a dated rationale committed at the declaration site (the
-/// declared-models section — the cell then reads green because the
+/// a dated rationale committed at the declaration site (the `ceilings`
+/// module's declared-models section — the cell then reads green because the
 /// behavior is intended and modeled). This buffer exists only so a
 /// freshly-found red can be committed while its triage is worked; every
 /// entry carries the live task that owns it, and the acceptance

@@ -2,6 +2,54 @@
 //! parameters, and the declared per-cell models that replace a global leg
 //! where a ratified derivation prices work an operation's own contract
 //! mandates.
+//!
+//! The declared models, disclosed on their row faces (`decl[...]`) and
+//! judged in place of the named global legs (the board module doc's
+//! declared-models section carries the criterion and the honesty
+//! ratchet):
+//!
+//! - **The fold rows** (`version_join_all`, `version_meet_all`,
+//!   `party_join_all`): the
+//!   balanced reduction's documented `O(D log k)` puts a `log2(2k)`
+//!   factor in the deterministic counters that no flat ceiling admits at
+//!   scale. The limb/scan/touch exponent ceilings become the model's own
+//!   predicted exponent plus the linear cells' slack, and the scan
+//!   constant [`FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL`] per reduction
+//!   level; a quadratic left fold still reads ~2 and stays red, and the
+//!   log factor's own liveness is the claims suite's
+//!   `fold_log_factor_is_alive` pin.
+//! - **The comb-scatter projection pair** (`own_version_to_version`,
+//!   `clock_own_version_to_version` on the output-domination cross): peak
+//!   heap is the output builder's doubling chain anchored at the
+//!   operand-size reserve — [`capacity_chain_peak`]'s
+//!   `3·(n+m)·2^(k−1)`, ratified within 2% at every probed point. The
+//!   heap reading is banded around the model at both scales
+//!   ([`CAPACITY_MODEL_FLOOR`], [`CAPACITY_MODEL_CEILING`]) and the heap
+//!   exponent fit is retired as unjudgeable there — the chain quantizes
+//!   peak by powers of two, so a probe pair straddling a `k` step
+//!   manufactures an exponent out of exactly the profile the model
+//!   prices.
+//! - **Family-stated heap ceilings** (the tooth-tail parse cell, the
+//!   ascend-cliff tick trio, and the ascend-cliff `version_min_ticks`
+//!   cell): honest flat-exponent work state a ratified derivation puts
+//!   over the global heap allowance — the densest committed
+//!   node-per-text-byte parse stream, the zero-run ledger's certificate
+//!   memory on the one shape that defeats consumption, and the anchor
+//!   web's `Θ(k)` live reign records on the one shape that defeats
+//!   batching. The heap *constant* is judged at the stated ceiling
+//!   (each declaring constant carries its derivation and measured
+//!   profile); the exponent leg stays at the global bound, so a
+//!   flat-constant declaration can never absorb growth.
+//! - **The mirror-wide display pair** (`version_display`,
+//!   `clock_display` on the mirror-wide cross): the render merge's
+//!   documented superlinear time class, judge-rostered on the wall leg,
+//!   honestly reads a superlinear limb exponent and an over-κ limb
+//!   constant on exactly this cross. Both limb legs are judged at the
+//!   stated ceilings ([`MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING`],
+//!   [`MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT`]); the class's
+//!   liveness is the claims suite's
+//!   `render_merge_superlinearity_is_alive` pin, which forces this
+//!   declaration's re-derivation the day a render-merge cure lands.
 
 use crate::Party;
 
