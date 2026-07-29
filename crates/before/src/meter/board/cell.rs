@@ -112,9 +112,11 @@ pub(super) struct Cell {
     /// structure.
     pub(super) fold_search_bits: u64,
     /// Whether the heap column is judged against the ratified
-    /// capacity-chain model ([`capacity_chain_peak`](super::ceilings::capacity_chain_peak)) instead of the
-    /// flat ceiling: the output-dominated projection on the
-    /// comb-scatter cross only.
+    /// capacity-chain model instead of the flat ceiling.
+    ///
+    /// The output-dominated projection on the comb-scatter cross only;
+    /// [`capacity_chain_peak`](super::ceilings::capacity_chain_peak)
+    /// carries the model.
     pub(super) capacity_model: bool,
     /// A family-stated flat heap ceiling in bytes per denominator byte,
     /// judged in place of [`MAX_HEAP_BYTES_PER_INPUT_BYTE`](super::ceilings::MAX_HEAP_BYTES_PER_INPUT_BYTE)'s.
