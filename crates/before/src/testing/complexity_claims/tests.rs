@@ -73,9 +73,11 @@ fn claims_are_total_over_the_public_surface() {
 
 /// Every claim's `# Complexity` section exists at its recorded site and
 /// ends with the roster bound's rendered `**Complexity**:` line, byte
-/// for byte — so a class edit in the rustdoc that skips this roster (or
-/// vice versa) is a named failure, and every site's normative claim is
-/// the roster's own rendering, never hand-drifted prose.
+/// for byte.
+///
+/// A class edit in the rustdoc that skips this roster (or vice versa)
+/// is a named failure, and every site's normative claim is the
+/// roster's own rendering, never hand-drifted prose.
 ///
 /// Custom bounds must also state a non-empty reason: the escape hatch
 /// is a documented decision, never a bare opt-out.
@@ -612,8 +614,7 @@ fn stance_contradiction(
 
 /// One claim's token legs against the class contracts: the citing
 /// direction over the roster's rendered lines, the exclusive direction
-/// over both the rendered lines and the live `# Complexity` section
-/// text at every check site.
+/// over the rendered lines and the live section text.
 ///
 /// The section text is the exclusive leg's ground truth — the rendered
 /// lines are the producer's own declaration, so a claim re-cited under
@@ -772,9 +773,10 @@ fn a_downgraded_mul_bound_claim_is_convicted_by_its_section_text() {
 
 /// The board tiling: every public-surface row either is priced by at
 /// least one live board row (its claim's cited cells) or appears in the
-/// board's not-applicable table with a mechanism-based reason — both
-/// directions, sets disjoint, and every board row witnesses some public
-/// claim.
+/// board's not-applicable table with a mechanism-based reason.
+///
+/// Both directions, sets disjoint, and every board row witnesses some
+/// public claim.
 ///
 /// Combined with `claims_are_total_over_the_public_surface` (one claim
 /// per surface row) and `cited_board_rows_exist` (cited rows are live),
