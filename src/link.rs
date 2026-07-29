@@ -132,12 +132,15 @@
 //!
 //! [`memory`] builds the in-memory instantiation, both ends at once, for
 //! tests and in-process pairings; it is also the reference implementation
-//! of the contract. No network instantiation ships with the crate (the
-//! core stays free of network dependencies), so a real-network deployment
-//! implements the two traits against its own transport (QUIC connections
-//! mapping streams 1:1, or TCP with one connection per stream behind a
-//! routing listener, are the natural shapes) and validates the result
-//! with the `conformance` feature's link suite.
+//! of the contract. A transport with native substreams implements the two
+//! traits directly (QUIC connections map streams 1:1); an accept/connect
+//! transport with no innate substreams (TCP and everything shaped like
+//! it) gets the [`routed`] adapter, which builds the
+//! one-connection-per-stream shape behind a per-process router from a
+//! caller-supplied dial/listen pair. The core still ships no network
+//! code — the adapter is generic, and its instantiations live with the
+//! caller — so either way a deployment validates its transport with the
+//! `conformance` feature's link suite.
 
 use std::future::Future;
 use std::io;
@@ -574,6 +577,7 @@ impl Acceptor for MemoryAcceptor {
 }
 
 pub(crate) mod erased;
+pub mod routed;
 
 #[cfg(test)]
 mod tests;
