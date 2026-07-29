@@ -1380,8 +1380,9 @@ fn fork_join_restores_the_clock(c: &Clock) -> bool {
 
 /// The two balanced-fork forms agree at the clock level: `From<Clock>`
 /// for `[Clock; N]` equals the residual the borrowing `forks(N - 1)`
-/// keeps, followed by the shares it yields (`[residual] ++ forks`) —
-/// every child pairing its party share with a clone of the parent
+/// keeps, followed by the shares it yields (`[residual] ++ forks`).
+///
+/// Every child pairs its party share with a clone of the parent
 /// version.
 fn clock_forks_matches_from_array(c: &Clock) -> bool {
     const N: usize = 4;

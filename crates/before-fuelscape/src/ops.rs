@@ -79,11 +79,13 @@ pub const SLICE_ARITIES: &[usize] = &[2, 4, 8, 16];
 /// party's packed bytes, the arity a declared constant.
 const FORKS_SHARES: u32 = 8;
 
-/// The tick count the `version_ticks` row drives, a declared constant:
-/// large enough that iterated single ticks could never reach it, so the
-/// panel reads at the fused walk's flat cost, not a count-proportional
-/// one (the walk is at most two fused passes and one splice at any
-/// count; the count itself enters only as its bit width).
+/// The tick count the `version_ticks` row drives, a declared constant
+/// large enough that iterated single ticks could never reach it.
+///
+/// The panel reads at the fused walk's flat cost, not a
+/// count-proportional one: the walk is at most two fused passes and one
+/// splice at any count, and the count itself enters only as its bit
+/// width.
 const TICKS_COUNT: u32 = 1_000_000_000;
 
 /// The share count the `party_join_all` row re-merges: the fold's
