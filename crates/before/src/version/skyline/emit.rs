@@ -74,7 +74,7 @@ use suanpan::Accumulator;
 use crate::codec::{Base, Bits, BitsSlice};
 
 use super::build::SkylineBuilder;
-use super::sweep::{advance, LeafCursor, Side, Step};
+use super::sweep::{advance_diff, LeafCursor, PlateauCursor, Side, Step};
 use super::{gamma_code, zigzag_signed};
 
 /// The join (pointwise max) of the versions two skyline streams denote,
@@ -157,7 +157,7 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, op: Op) -> Bits {
     out.leaf(ca.depth().max(cb.depth()), gamma_code(first));
 
     while !(ca.done() && cb.done()) {
-        let (da, db) = advance(&mut ca, &mut cb, &mut diff);
+        let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
         let new_side = op.pick(diff.sign(), side);
         let (negative, magnitude) = if new_side == side {
             step_delta(side, &da, &db)

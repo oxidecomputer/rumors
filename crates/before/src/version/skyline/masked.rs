@@ -86,7 +86,7 @@ use suanpan::Accumulator;
 use crate::codec::BitsSlice;
 
 use super::query::IdLeafCursor;
-use super::sweep::{fold, LeafCursor, Side};
+use super::sweep::{fold, LeafCursor, PlateauCursor, Side};
 
 /// The causal order of two projected skylines, `None` for concurrent.
 ///
@@ -303,11 +303,12 @@ impl<'a> Walk<'a> {
     fn step(&mut self, slot: usize) -> usize {
         match slot {
             0 => {
-                let step = self.a.step(&mut self.diff, Side::A);
+                let (flip, step) = self.a.step();
+                fold(&mut self.diff, Side::A, step.negative, &step.magnitude);
                 if let Some(ha) = &mut self.ha {
                     fold(ha, Side::A, step.negative, &step.magnitude);
                 }
-                step.flip
+                flip
             }
             1 => self
                 .am
@@ -315,13 +316,14 @@ impl<'a> Walk<'a> {
                 .expect("slot 1 is the present a-mask")
                 .step(),
             2 => {
-                let step = self.b.step(&mut self.diff, Side::B);
+                let (flip, step) = self.b.step();
+                fold(&mut self.diff, Side::B, step.negative, &step.magnitude);
                 if let Some(hb) = &mut self.hb {
                     // `h_b` accumulates positively: the side orientation
                     // belongs to `D` alone.
                     fold(hb, Side::A, step.negative, &step.magnitude);
                 }
-                step.flip
+                flip
             }
             3 => self
                 .bm

@@ -1,13 +1,21 @@
 //! The overlay walk over two skyline streams, and the comparison sweeps —
 //! order, equality, domination, concurrency — built on it.
 //!
-//! The walk machinery here (the crate-private `LeafCursor`, `advance`,
-//! `Step`, `fold`, and `Side`) is shared by two clients: this module's own
-//! comparison entry points, which fold heights and discard the steps, and
-//! the join/meet emission ([`emit`](super::emit)), which re-codes them
-//! into an output stream. The boundary bookkeeping below is the shared
-//! correctness argument; the prose reads it through comparison, the
-//! simpler client.
+//! The walk machinery here is crate-private and shared, in three layers.
+//! [`PlateauCursor`] is the cursor vocabulary: one dyadic tiling of the
+//! unit interval, yielded plateau by plateau, each boundary carrying the
+//! cursor's own crossing payload. The generic [`advance`] is the
+//! overlay-advance law over two such cursors, stated (and debug-asserted)
+//! once. [`LeafCursor`] is the skyline instance — its crossings are
+//! [`Step`]s — and [`Side`], [`fold`], and [`advance_diff`] are the
+//! pair-difference algebra every two-skyline walk folds those crossings
+//! with. The clients: this module's own comparison entry points, which
+//! fold heights and discard the steps; the join/meet emission
+//! ([`emit`](super::emit)), which re-codes them into an output stream;
+//! and the pair integrals ([`query`](super::query)'s distance and lag),
+//! which re-fold them into a directed integrand. The boundary bookkeeping
+//! below is the shared correctness argument; the prose reads it through
+//! comparison, the simplest client.
 //!
 //! A skyline stream lists its version's plateaus left to right: a leaf at
 //! depth `d` is a constant run of width `2^-d` over the unit id interval.
@@ -54,7 +62,7 @@
 //!   above that depth. So the whole rule is: advance the deeper cursor,
 //!   and when its flip level is at or above the other side's depth,
 //!   advance the other side in the same step. The two sides then close to
-//!   the *same* flip level (their paths agree there), which the sweep
+//!   the *same* flip level (their paths agree there), which [`advance`]
 //!   debug-asserts at every tie.
 //! - **The all-right path is the exhausted stream.** A leaf whose path is
 //!   all right-branches is the last leaf in preorder — its plateau ends
@@ -107,6 +115,12 @@
 //! ties, flush-right ties at unequal depths, plateau consumption, zero
 //! deltas across subtree boundaries) by brute force rather than sampling.
 //! The resource envelopes are the meter rows named above.
+
+// The module doc names its crate-private machinery by intra-doc link so
+// a rename cannot rot the prose (the internal doc build resolves every
+// link); on the public build those links render as plain code spans —
+// the items are private — which this allow accepts.
+#![allow(rustdoc::private_intra_doc_links)]
 
 use core::cmp::Ordering;
 
@@ -265,71 +279,140 @@ pub(super) fn fold(diff: &mut Accumulator, side: Side, negative: bool, magnitude
     }
 }
 
-/// One cursor advance: the flip level and the leaf-to-leaf delta folded.
-pub(super) struct Step {
-    /// The flip level's depth — the path's length *after* the flip, so
-    /// the flipped ancestor itself is counted.
+/// A cursor over one dyadic tiling of the unit interval, yielding its
+/// plateaus in preorder.
+///
+/// What every overlay walk rests on: a *plateau* is one maximal constant
+/// run of the cursor's stream — an interval of width `2^-depth` — and
+/// stepping past it crosses a boundary that carries the cursor's own
+/// payload. The overlay-advance law is stated once over this trait
+/// ([`advance`]); what a crossing means — a skyline's signed height
+/// delta ([`Step`]) — stays with the cursor, and the traversal folds
+/// nothing itself: the crossing is yielded for the caller's algebra.
+pub(super) trait PlateauCursor {
+    /// What crossing a boundary carries, for the caller's algebra to
+    /// fold.
+    type Crossing;
+
+    /// The current plateau's depth: its interval has width `2^-depth`.
+    fn depth(&self) -> usize;
+
+    /// Whether the current plateau is the tiling's last (its interval
+    /// ends at the unit interval's right edge).
+    fn done(&self) -> bool;
+
+    /// Advance past the current plateau: the flip level's depth and the
+    /// boundary's crossing.
     ///
-    /// The boundary just crossed is a multiple of `2^-flip`, which is
-    /// what the tie test reads: the deeper side's plateau end reaches
-    /// the shallower side's exactly when `flip <= other.depth()` (the
-    /// module doc's bookkeeping).
-    pub(super) flip: usize,
+    /// The flip level is the path's length *after* the flip, so the
+    /// flipped ancestor itself is counted; the boundary just crossed is
+    /// a multiple of `2^-flip`, which is what the law's tie test reads —
+    /// the deeper side's plateau end reaches the shallower side's
+    /// exactly when `flip <= other.depth()` (the module doc's
+    /// bookkeeping).
+    fn step(&mut self) -> (usize, Self::Crossing);
+}
+
+/// One crossing the overlay law consumed, tagged with the cursor that
+/// crossed it: the argument [`advance`] feeds the caller's fold.
+pub(super) enum Crossed<A, B> {
+    /// The `a` cursor's crossing.
+    A(A),
+    /// The `b` cursor's crossing.
+    B(B),
+}
+
+/// Advance the overlay walk one boundary — the law, stated once: the
+/// deeper cursor steps, and the other steps in the same round exactly
+/// when the flip level rises to or above its depth.
+///
+/// The module doc's boundary bookkeeping is the correctness argument.
+/// Tied sides close to one shared flip level, which is debug-asserted
+/// at every tie.
+///
+/// Traversal and algebra are separate: the cursors yield their
+/// crossings, and `fold` — the caller's algebra — receives each one *as
+/// it is consumed*, in step order (the deeper side's first, `a`'s at
+/// equal depths). The order is contract, not convenience: an algebra
+/// folding both sides into one shared accumulator commits digit writes
+/// whose amortized carry work — and with it the committed touch-meter
+/// readings — depends on the write order. The same crossings come back
+/// positionally (`None` for a side that did not step) for clients that
+/// re-code or re-fold them after the boundary.
+pub(super) fn advance<A: PlateauCursor, B: PlateauCursor>(
+    a: &mut A,
+    b: &mut B,
+    mut fold: impl FnMut(Crossed<&A::Crossing, &B::Crossing>),
+) -> (Option<A::Crossing>, Option<B::Crossing>) {
+    match a.depth().cmp(&b.depth()) {
+        Ordering::Greater => {
+            let (fa, ca) = a.step();
+            fold(Crossed::A(&ca));
+            let cb = (fa <= b.depth()).then(|| {
+                let (fb, cb) = b.step();
+                debug_assert_eq!(fa, fb, "tied boundaries close to one shared flip level");
+                fold(Crossed::B(&cb));
+                cb
+            });
+            (Some(ca), cb)
+        }
+        Ordering::Less => {
+            let (fb, cb) = b.step();
+            fold(Crossed::B(&cb));
+            let ca = (fb <= a.depth()).then(|| {
+                let (fa, ca) = a.step();
+                debug_assert_eq!(fb, fa, "tied boundaries close to one shared flip level");
+                fold(Crossed::A(&ca));
+                ca
+            });
+            (ca, Some(cb))
+        }
+        Ordering::Equal => {
+            let (fa, ca) = a.step();
+            fold(Crossed::A(&ca));
+            let (fb, cb) = b.step();
+            debug_assert_eq!(
+                fa, fb,
+                "equal-depth leaves share their whole path, so their flip levels agree"
+            );
+            fold(Crossed::B(&cb));
+            (Some(ca), Some(cb))
+        }
+    }
+}
+
+/// One boundary crossing on a skyline stream: the leaf-to-leaf delta the
+/// step consumed ([`LeafCursor`]'s
+/// [`Crossing`](PlateauCursor::Crossing)).
+pub(super) struct Step {
     /// Whether the delta lowers this stream's height.
     pub(super) negative: bool,
     /// The delta's absolute value.
     pub(super) magnitude: Base,
 }
 
-/// Advance the overlay walk one boundary: step the deeper cursor, and the
-/// other in the same step on a tie, folding every consumed delta into
-/// `diff`.
+/// Advance the skyline pair overlay one boundary, folding each consumed
+/// delta into the running difference `D = height_a − height_b` as it is
+/// consumed.
 ///
-/// Returns each side's consumed delta (`None` for a side that did not
-/// step), which the emission sweep re-codes and the comparison sweep
-/// discards. The tie rule is the module doc's bookkeeping: the deeper
-/// side's flip level rising to or above the shallower side's depth is the
-/// tie, and the two sides then close to the same flip level.
-pub(super) fn advance(
+/// The one shared algebra over [`advance`]: the comparison sweep, the
+/// join/meet emission, and the pair integrals all maintain exactly this
+/// difference, so its application lives here once. Returns each side's
+/// consumed delta (`None` for a side that did not step), which the
+/// emission sweep re-codes, the pair integrals re-fold into their
+/// integrand, and the comparison sweep discards.
+pub(super) fn advance_diff(
     a: &mut LeafCursor<'_>,
     b: &mut LeafCursor<'_>,
     diff: &mut Accumulator,
 ) -> (Option<Step>, Option<Step>) {
-    match a.depth().cmp(&b.depth()) {
-        Ordering::Greater => {
-            let sa = a.step(diff, Side::A);
-            let sb = (sa.flip <= b.depth()).then(|| {
-                let sb = b.step(diff, Side::B);
-                debug_assert_eq!(
-                    sa.flip, sb.flip,
-                    "tied boundaries close to one shared flip level"
-                );
-                sb
-            });
-            (Some(sa), sb)
-        }
-        Ordering::Less => {
-            let sb = b.step(diff, Side::B);
-            let sa = (sb.flip <= a.depth()).then(|| {
-                let sa = a.step(diff, Side::A);
-                debug_assert_eq!(
-                    sb.flip, sa.flip,
-                    "tied boundaries close to one shared flip level"
-                );
-                sa
-            });
-            (sa, Some(sb))
-        }
-        Ordering::Equal => {
-            let sa = a.step(diff, Side::A);
-            let sb = b.step(diff, Side::B);
-            debug_assert_eq!(
-                sa.flip, sb.flip,
-                "equal-depth leaves share their whole path, so their flip levels agree"
-            );
-            (Some(sa), Some(sb))
-        }
-    }
+    advance(a, b, |crossing| {
+        let (side, step) = match crossing {
+            Crossed::A(step) => (Side::A, step),
+            Crossed::B(step) => (Side::B, step),
+        };
+        fold(diff, side, step.negative, &step.magnitude);
+    })
 }
 
 /// Run the merge, returning the surviving directions `(a <= b, b <= a)`.
@@ -356,7 +439,7 @@ fn sweep(a_bits: &BitsSlice, b_bits: &BitsSlice, mode: Mode) -> (bool, bool) {
         if mode.decided(le, ge) || (a.done() && b.done()) {
             return (le, ge);
         }
-        advance(&mut a, &mut b, &mut diff);
+        advance_diff(&mut a, &mut b, &mut diff);
     }
 }
 
@@ -366,9 +449,10 @@ fn sweep(a_bits: &BitsSlice, b_bits: &BitsSlice, mode: Mode) -> (bool, bool) {
 /// per open ancestor: `false` inside its left child (the right subtree
 /// is still pending in the stream), `true` inside its right. The path is
 /// the only per-depth state; no height, base, or node is retained, which
-/// is what keeps a sweep's transient linear in depth *bits*. The
-/// comparison and emission sweeps share the cursor: both consume decoded
-/// leaf deltas through [`fold`], and emission additionally re-codes
+/// is what keeps a sweep's transient linear in depth *bits*. Every
+/// skyline walk shares the cursor through [`PlateauCursor`]: the
+/// [`Step`]s it yields are folded by each client's own algebra (the
+/// pair clients through [`fold`]), and emission additionally re-codes
 /// them.
 pub(super) struct LeafCursor<'a> {
     cursor: DsiCursor<'a>,
@@ -382,7 +466,7 @@ pub(super) struct LeafCursor<'a> {
 impl<'a> LeafCursor<'a> {
     /// Open a stream at its first leaf, returning the cursor and that
     /// leaf's absolute height (later leaves carry zigzag deltas, which
-    /// [`step`](Self::step) decodes instead).
+    /// [`step`](PlateauCursor::step) decodes instead).
     ///
     /// # Panics
     ///
@@ -395,53 +479,6 @@ impl<'a> LeafCursor<'a> {
         };
         let first = this.descend();
         (this, first)
-    }
-
-    /// The current leaf's depth: its plateau has width `2^-depth`.
-    pub(super) fn depth(&self) -> usize {
-        self.path.len()
-    }
-
-    /// Whether the current leaf is the stream's last (its plateau ends
-    /// at the unit interval's right edge).
-    pub(super) fn done(&self) -> bool {
-        self.cursor.position() == self.len
-    }
-
-    /// Advance past the current leaf to the next, folding the leaf-to-
-    /// leaf zigzag delta into `diff` on `side` and returning it with the
-    /// flip level's depth for the caller's tie test.
-    ///
-    /// Pops the trailing right-branch levels (each ancestor's subtree
-    /// the consumed leaf completed), steps the deepest left-branch
-    /// level to its right child, and descends to the next leaf.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the stream is not a canonical skyline encoding. Never
-    /// called on a final leaf: a sweep stops when both cursors are
-    /// done, and the module doc's bookkeeping shows a final leaf is
-    /// never the advanced side before then.
-    pub(super) fn step(&mut self, diff: &mut Accumulator, side: Side) -> Step {
-        loop {
-            match self.path.pop() {
-                Some(true) => continue, // this ancestor closed with the leaf
-                Some(false) => break,   // the flip level: its right subtree is next
-                None => unreachable!(
-                    "the advanced cursor is never at its final leaf: an all-right path means the stream is consumed"
-                ),
-            }
-        }
-        self.path.push(true);
-        let flip = self.path.len();
-        let code = self.descend();
-        let (negative, magnitude) = super::unzigzag(code);
-        fold(diff, side, negative, &magnitude);
-        Step {
-            flip,
-            negative,
-            magnitude,
-        }
     }
 
     /// Descend from the cursor to the next leaf in preorder, extending
@@ -466,6 +503,58 @@ impl<'a> LeafCursor<'a> {
         // word-parallel fast path; the scan meter records the same
         // `2k + 1` bits either way.
         self.cursor.read_int().expect("canonical skyline bits")
+    }
+}
+
+impl PlateauCursor for LeafCursor<'_> {
+    type Crossing = Step;
+
+    /// The current leaf's depth: its plateau has width `2^-depth`.
+    fn depth(&self) -> usize {
+        self.path.len()
+    }
+
+    /// Whether the current leaf is the stream's last (its plateau ends
+    /// at the unit interval's right edge).
+    fn done(&self) -> bool {
+        self.cursor.position() == self.len
+    }
+
+    /// Advance past the current leaf to the next: the flip level's
+    /// depth for the caller's tie test, and the leaf-to-leaf zigzag
+    /// delta for the caller's fold.
+    ///
+    /// Pops the trailing right-branch levels (each ancestor's subtree
+    /// the consumed leaf completed), steps the deepest left-branch
+    /// level to its right child, and descends to the next leaf.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stream is not a canonical skyline encoding. Never
+    /// called on a final leaf: a sweep stops when both cursors are
+    /// done, and the module doc's bookkeeping shows a final leaf is
+    /// never the advanced side before then.
+    fn step(&mut self) -> (usize, Step) {
+        loop {
+            match self.path.pop() {
+                Some(true) => continue, // this ancestor closed with the leaf
+                Some(false) => break,   // the flip level: its right subtree is next
+                None => unreachable!(
+                    "the advanced cursor is never at its final leaf: an all-right path means the stream is consumed"
+                ),
+            }
+        }
+        self.path.push(true);
+        let flip = self.path.len();
+        let code = self.descend();
+        let (negative, magnitude) = super::unzigzag(code);
+        (
+            flip,
+            Step {
+                negative,
+                magnitude,
+            },
+        )
     }
 }
 
