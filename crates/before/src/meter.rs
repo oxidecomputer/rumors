@@ -56,6 +56,7 @@
 //! no behavioral gain; the convention binds new families.
 
 pub mod board;
+pub mod registry;
 pub mod tier2;
 
 /// The skyline transcoding codec, re-exported so the resource-envelope
