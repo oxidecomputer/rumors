@@ -10,7 +10,7 @@ are inputs, never dependencies of this document's meaning.
 
 The hardest asymptotic argument in the hardening campaign was T-tick: that
 `tick` (the paper's `event` — fill then grow) is computable over skyline
-streams in amortized O(n + m) Accum digit touches. It took seven
+streams in amortized O(n + m) Accumulator digit touches. It took seven
 adversarial specification rounds to reach an implementation for which the
 claim survives attack, and its two refutations were both *missing rows in
 a funding enumeration* — exactly the class of hole a kernel-checked proof
@@ -64,7 +64,7 @@ and sub-obligations:
 > (the anchor web, the frame ledger, the latent register Λ, invariant I4′
 > width conservation, the fold-direction rule) — performs
 > **O(n + m) digit touches per call, amortized within the call**, in a
-> formal cost model whose unit is the Accum digit touch, via the I4′
+> formal cost model whose unit is the Accumulator digit touch, via the I4′
 > digit-count potential.
 
 "Amortized within the call" means what the tick cost spec means: the

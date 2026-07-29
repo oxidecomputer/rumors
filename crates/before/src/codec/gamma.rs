@@ -15,7 +15,6 @@
 //! ([`decode_int_window`]) and emitted with one store, with per-bit loops as
 //! the fallback — and, on decode, the sole arbiter of every reject.
 
-use bitvec::domain::Domain;
 use bitvec::field::BitField;
 use dashu_int::UBig;
 
@@ -132,15 +131,7 @@ pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, us
 /// in a whole stored stream (offsets travel as `pos`), so this fallback is
 /// latent, kept for correctness rather than reached in practice.
 fn load_window(bits: &BitsSlice, pos: usize) -> Option<u64> {
-    let (body, tail): (&[u8], Option<u8>) = match bits.domain() {
-        Domain::Region {
-            head: None,
-            body,
-            tail,
-        } => (body, tail.map(|elem| elem.load_value())),
-        Domain::Enclave(elem) if elem.head().into_inner() == 0 => (&[], Some(elem.load_value())),
-        Domain::Region { head: Some(_), .. } | Domain::Enclave(_) => return None,
-    };
+    let (body, tail) = super::byte_view(bits)?;
     let byte = pos / 8;
     let shift = pos % 8;
     // Gather the (up to) 9 bytes covering bits `pos..pos + 64`: 8 whole bytes

@@ -44,6 +44,16 @@
 //! [`memo_oscillating`](crate::meter::memo_oscillating) — and, for pair shapes, whether the pair is two
 //! packed streams ([`jump_pair`](crate::meter::jump_pair)) or organically built [`Version`]s
 //! ([`concurrent_pair`](crate::meter::concurrent_pair), which argues the choice).
+//!
+//! One construction convention for new families: when a family is a
+//! *geometrically coupled pair* — two operands whose adversarial effect
+//! depends on shared structure (aligned boundaries, mirrored spikes,
+//! lockstep walks) — one generator builds and returns the pair
+//! ([`tooth_tail`](crate::meter::tooth_tail) is the form of record), never two parallel
+//! generators whose coupling is maintained by keeping their bodies in
+//! sync by hand. Existing paired generators keep their committed shapes
+//! as-is: migrating them would churn pinned envelopes and provenance for
+//! no behavioral gain; the convention binds new families.
 
 pub mod board;
 pub mod tier2;
