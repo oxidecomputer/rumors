@@ -24,11 +24,15 @@ final codes — the coding is self-delimiting, so nothing short of
 parsing reveals even where the value ends. No algorithm can beat one
 full pass in the worst case, so a bounded number of linear passes is
 optimal up to constants. Each second pass is argued where it occurs:
-tick's lookahead is information-forced, rank's pre-pass is the one
-funded form we know, and @projection argues the one
+tick's lookahead is information-forced, rank's pre-pass is argued
+against its alternative, and @projection argues the one
 output-denominated operation. The early-exit walks — comparison, the
 predicates — beat the floor on favorable inputs without owing
-anything on unfavorable ones.
+anything on unfavorable ones. One family of operations answers to a
+_higher_ floor: the exact area measures (@measures), whose answer
+can embed an arbitrary integer product, so the honest yardstick
+there is the cost of one multiplication — proven mandatory by
+construction — and the walk's own traffic stays linear around it.
 
 == The overlay walk <sweep>
 
@@ -277,6 +281,35 @@ roughly
 system fold thousands of versions together with a predictable memory
 ceiling.
 
+One more design point closes the lattice story: the _n-ary_ folds.
+Joining or meeting a whole population is not a loop over the binary
+operation in arrival order; it is a *balanced reduction*, pairing
+operands of similar accumulated weight so that every input passes
+through $O(log k)$ two-operand steps — $O(D log k)$ time and $O(D)$
+space over $k$ operands of $D$ total packed bits. The sequential
+left-to-right fold it replaces has a genuine quadratic in each
+direction, and both refuting populations are ordinary values. For
+the meet: an accumulator's _value_ shrinks with every step, but its
+_packed size_ need not — one deep operand among $k$ shallow operands
+that all dominate it leaves the running meet byte-identical to the
+deep operand at every step, and a sequential fold re-walks it once
+per operand, $Theta(k dot d)$ on a $Theta(k + d)$-bit population.
+For the join, the mirror: single-plateau operands ordered so that no
+two consecutive arrivals are adjacent in the id space keep the
+accumulator's plateaus from ever coalescing, and the sequential fold
+re-walks the accumulated result per arrival. The balanced tree walks
+any such stubborn operand once per _level_ instead of once per
+operand; its intermediate results can legitimately swell toward the
+sum of their inputs' sizes at every level (a population of mutually
+interleaved teeth achieves exactly that), which is the $log k$
+factor's honest content, not an accident to engineer away. The party
+side runs the same reduction with one further obligation: the n-ary
+party union is _fallible_ — an operand overlapping the accumulated
+group is rejected and handed back — and each rejection is priced at
+the rejected operand's own bits (its overlap witness sits at the
+bottom of its own path) plus the reduction's logarithmic factor,
+never at a re-probe of the accumulated group.
+
 == The party operations <id-ops>
 
 The party side runs the same machinery with one-bit heights and no
@@ -374,11 +407,30 @@ scattered party owning every other tooth. Masking breaks every chain
 of cheap deltas with an interleaved zero, so each kept tooth must
 re-spell its full $k$-bit height: the _output_ is
 $Theta(t dot k)$ bits from a $Theta(t + k)$-bit input — mandatory
-given that the result must itself be a canonical stream (a lazy
-"masked view" would dodge it, at the price of every downstream
-consumer carrying the mask forever). No algorithm can beat its own
-output. So we claim only what holds, and hold the implementation to
-it: the sweep is linear in _input plus output_, and
+given that the result must itself be a canonical stream. No
+algorithm can beat its own output — so the design makes sure a
+caller pays it only when a stored value is actually wanted. The
+projection ships in two forms. The primary form is a _view_: a
+borrowed pair (version, party), built in $O(1)$, that never spells
+the masked skyline at all. Comparing a view — against a version, or
+against another view — runs as one fused co-walk over the three or
+four operand streams, the masks folded into the comparison sweep's
+running difference on the fly, priced by the operands' packed sizes
+and never by the projection's; equality on views is semantic, not
+byte-level, precisely because no canonical bytes exist to compare.
+Materializing the projection as a value is a second, explicit
+operation — the emitting sweep above — and the only one that pays
+the output term. The correlated family that stresses the fused walk
+interleaves the amplifiers of everything before: a comb whose teeth
+oscillate across a carry cliff, under a mask owning every other
+tooth, compared against a wide flat plateau — every ownership
+toggle alternates the walk between a sign read of a near-cancelled
+wide difference and a zero test of a masked height, each operand
+harmless alone. The accumulator's collapse and domination floors
+answer every such read in amortized $O(1)$; nothing is
+materialized. So we claim only what holds, and hold the
+implementation to it: the materializing sweep is linear in _input
+plus output_, the view's comparisons are linear in input alone, and
 nothing else in this section has an _unbounded_ output ratio.
 Fork's halves each stay within their operand's size plus two bits
 (the fresh node), and the pair within twice that plus four; the
@@ -391,9 +443,11 @@ output can exceed its input by at most a constant factor
 == The measures <measures>
 
 Four measures ride the same skyline reading: rank is its area,
-distance and lag are areas of differences, and the minimum tick
-count is a telescoped sum of sibling minima. The first is the one
-with machinery.
+distance and lag are areas of a difference, and the minimum tick
+count is a sum of leaf heights less subtree minima. The area
+measures carry this section's deepest machinery — and its one
+honestly superlinear operation, priced against a floor proven by
+construction.
 
 === Rank
 
@@ -419,76 +473,160 @@ operations the introduction owned up to. The pre-pass earns its
 keep: the
 alternative anchors the total at the running maximum depth and
 rescales the held digits whenever it rises, a held-width rewrite
-per rise that a steadily deepening stream turns quadratic. Knowing
-$S$ up front makes every landing final. The naive fold
+per rise that a stream carrying width down every level turns
+quadratic — a one-leaf-per-depth staircase makes the running
+numerator as wide as the depth already walked at _every_ level.
+Knowing $S$ up front makes every landing final. The naive fold
 materializes $h_i$ per leaf — the boundary comb makes that
-$Theta(n dot k)$ again. The cure splits the running height into
-_frozen + live_, $h = F + L$: $L$, an accumulator holding the drift
-since the last _freeze_; $F$, the rest, touched only when a freeze
-evicts $L$ into it. Per leaf the fold adds only $L$'s digits,
-bounded by the codes folded since the freeze and so paid for. The
-scaled add (requirement 2, @accum-contract) lands them at
-the leaf's weight in one pass, into a running total that stays
-write-only until the sweep's single closing materialization, as the
-scaled add's discipline requires (@sign). $F$'s contribution enters
-by summation by parts:
+$Theta(n dot k)$ again. The cure splits the integrand into three
+_anchored_ components, $h = B + P + L$, and the split's governing
+rule is worth stating before its parts: *no correction, at any
+point of the sweep or its close, multiplies by an absolute
+position.* Positions grow arbitrarily dense while the codes at hand
+stay cheap — a spine that plants isolated position bits a full
+digit apart buys, with topology alone, absolute positions whose
+signed-digit spelling no code ever funded — so a design that
+settles evicted drift against "the mass before this point" has a
+quadratic waiting in it. The components:
 
-$ sum_i F_i dot "mass"_i = F_"final" dot 2^S - sum_("freezes" j) Delta F_j dot ("prefix mass before" j) $
+- $L$ (_live_): the drift since the last _freeze_. Each elementary
+  interval adds $L$'s digits at the interval's weight — the scaled
+  add of requirement 2 (@accum-contract), into a running total that
+  stays write-only until the sweep's single closing materialization
+  (@sign) — and the add is bounded by the width of the delta folded
+  at the previous boundary plus a fixed allowance. The freeze
+  trigger keeps that true: a freeze fires when a folded delta finds
+  $L$ wider than that delta's own code by more than the allowance —
+  the signature of stale wide drift about to ride under cheap
+  codes. Bounded oscillation at _any_ width stays within its own
+  codes' width plus the allowance and never freezes.
+- $B$ (_base_): the opening plateau, anchored at position zero,
+  closing in one shifted add $B dot 2^S$.
+- $P$ (_parked_): drift a freeze moved out of $L$, anchored _at
+  that freeze_. A segment-mass accumulator sums the interval masses
+  since $P$'s anchor, and the next freeze (or the stream's end)
+  settles $P dot "segment"$ in one product and re-anchors. The
+  anchoring is the point: the segment mass's nonzero digits span
+  only the _depth variation inside the segment_ — the dyadic
+  positions' shared prefix never appears in it — so a parked crest
+  settled a boundary later costs $P$'s width times $O(1)$ digits
+  however dense the absolute position is. The segment lives in the
+  scaled write-only mode and is read out once, at its own written
+  span (@accum-contract's watermark read), never at its scale.
 
-(the total mass is $2^S sum_i 2^(-d_i) = 2^S$, the leaf widths
-summing to one): one wide shifted add at the end, plus one correction per freeze
-priced by the drift $Delta F_j$ being evicted — which is exactly what
-the codes since the previous freeze paid for. The trigger is
-concrete: a freeze fires when a folded delta finds $L$ wider than
-that delta's own code by more than a fixed allowance of digits — the
-signature of stale wide drift about to ride under cheap codes. The
-trigger buys two things at once: a firing freeze evicts drift
-that the earlier, wider codes funded (they made $L$ wide); and bounded
-oscillation at _any_ width keeps $L$ within its own codes' width
-plus the allowance, so it never freezes at all.
+Two further pieces complete the machinery. First, a gate: the
+segment feed _opens at the first freeze_. Segment mass exists only
+to settle parked drift, and no drift precedes the first freeze, so
+a sweep that never freezes — word-scale heights, the practical
+regime — deposits no interval mass at all and pays nothing for the
+settle machinery's existence. Second, a ledger: when incoming
+drift runs more than the allowance _narrower_ than $P$, settling
+$P$ per freeze would re-read its full width against every later
+narrow-drift freeze, so $P$ is instead _promoted_ — recorded once,
+with the window of interval mass banked since the previous
+promotion, as one ledger entry; two funded-width reads, no
+product. An entry's debt is $P dot (2^S - "position")$, which the
+window decomposition turns into cross terms: entry $i$ owes
+$P_i dot w_j$ against every later window $w_j$. The ledger settles
+once, at the sweep's close, as one product tree over the entry
+sequence, balanced by _mass_ (parked digits plus window density,
+not entry count): each node contributes exactly one aggregate
+product — the left half's summed parked components times the right
+half's summed windows, parked sums folded digit-wise so opposing
+armings cancel before any product reads a width, window sums held
+as sparse balanced signed digits so a long climb's consumed mass
+compacts to $O(1)$ terms — and each product is delegated,
+cluster-wise, to sub-quadratic integer multiplication. Every cross
+term rides exactly one aggregate product; no width or density is
+re-read more times than its node's depth, which the mass balance
+keeps logarithmic; and the geometric shrink of node masses down the
+tree telescopes the products' costs into the root's.
 
-One uncertified case, stated rather than smoothed — the first of the
-introduction's two argument boundaries. Each freeze correction
-also multiplies by its freeze _position_ (the prefix mass), and the
-funding argument certifies the product only where the position's
-signed-digit form compacts to $O(1)$ digits — which it does on every
-adversarial family we construct or have seen (comb positions are
-ones-runs, two signed digits). A stream engineered to re-arm wide
-drift under cheap codes at maximally dense positions sits outside the
-certified argument, and the work it would provoke there deserves its
-plain
-name: a wide-times-wide product, the one primitive in the system
-capable of superlinear work. Measured behavior there is still held by an
-enforced ceiling — accumulator digit touches per packed input byte,
-pinned flat across size doublings on the committed families — but the
-derivation above does not cover the shape, and we say so.
+What may all this cost? Three statements, each with its status. The
+walk's own traffic — scan, decode, folds, the per-freeze and
+per-promotion reads — is linear in the packed input, derived
+through @funding, and streams whose parked drifts stay a bounded
+number of digits wide (every committed adversarial family) run in
+$O(n log n)$ total. The settle products are the honest exception,
+and they are _mandatory_: a version of $Theta("bits"(x) +
+"bits"(y))$ stored bits can embed the product of two arbitrary
+integers in its exact rank. Put the plateau $x$ over a spine whose
+right turns spell the mass $2y$ bit by bit — each turn's interval
+mass is one set bit of $2y$ — and the exact numerator is
+$2 x y + 1$: any fold that answers exactly has multiplied two
+input-funded factors at linear overhead, so $Omega(M(n))$ digit
+work is mandatory, with $M$ the integer-multiplication bound of
+the arithmetic backend. The matching upper bound: the settle runs
+in $O(M(n))$ whenever the products land in a power-law tier of the
+backend's multiplication — cluster splitting keeps every densified
+span funded, and the mass balance telescopes the tree — which
+covers every input whose packed size is under roughly 64 kilobytes
+(no product's factor side clears the backend's quasilinear
+threshold, near 32 kilobytes per side, before that) and every
+input of any size that arms the ledger $O(1)$ times. Past that
+tier the per-level products stop telescoping and the settle pays
+at most one extra tree-depth factor, $O(M(n) dot log n)$ — and the
+log factor is tight there (derived; the witness family needs
+operands past 65 kilobytes, too large to sit in a committed test).
+The gap between $O(M(n) dot log n)$ and $Omega(M(n))$ is not
+contractual: a deeper mechanism change may close the tree-depth
+factor, and nothing may beat one multiplication on the
+answer-embedding inputs. Stating the bound in terms of $M$ is
+deliberate: it is stable under backend swaps, and it names the one
+primitive doing the superlinear work.
 
 === Distance and lag
 
-Distance and lag need no machinery of their own — the lattice
-already paid for them:
+Distance and lag take their _meaning_ from the lattice:
 
 $ "distance"(a, b) &= integral |h_a - h_b| &&= "rank"(a or b) - "rank"(a and b), \
   "lag"(a, b) &= integral (h_b - h_a)^+ &&= "rank"(a or b) - "rank"(a), $
 
-each a difference of linear pieces (the pointwise identities
-$max - min = |a - b|$ and $max - a = (b - a)^+$, integrated; the
-two ranks align their scales before subtracting — one scaled add,
-funded by depth bits already read).
+the pointwise identities $max - min = |a - b|$ and
+$max - a = (b - a)^+$, integrated.
 Distance is a metric on versions — a genuine one, not a
 pseudometric: symmetry and the triangle inequality are inherited
 pointwise from $|dot|$, and distance zero forces equality because
 distinct versions denote distinct functions (@canonical's uniqueness
 argument), which then differ over some plateau of positive width. Lag is the one-sided
 "how much of $b$ have I not seen", the natural backpressure signal
-for anti-entropy protocols. The composite route — emit, then rank —
-is the implementation's, not merely the correctness argument's: it
-reuses two sweeps the system already maintains, at a pass count the
-identities make explicit (two emissions and two rank computations,
-each two passes, for distance; one emission and two for lag; every
-piece linear). A fused single-walk fold of the integrals exists,
-but it would be a third weighted walk to build and hold correct,
-bought only to shave passes whose count is already bounded.
+for anti-entropy protocols.
+
+The identities are the semantics and the differential oracle; they
+are deliberately _not_ the implementation. The composite route —
+emit the join and the meet, rank them, subtract — was refuted by a
+two-operand construction: one operand's wide difference crests
+riding over the other's cheap codes, deep under a spine that makes
+every absolute position dense. There the meet's emission re-codes
+one operand's width into switch jumps, and the ranks' integrals
+then evict that drift at boundaries the _other_ operand's cheap
+codes set, at a position density neither operand funded — each
+operand certified linear alone, the composition superlinear. The
+landed form is a single fused co-sweep: one merge walk over both
+streams maintaining the running difference $D = h_a - h_b$ exactly
+as comparison does, integrating $h^* = sigma dot D$ where
+$sigma in {-1, 0, +1}$ is the measure's _orientation_ at
+$"sign"(D)$ (distance: the sign itself; lag: $-1$ where $D < 0$,
+else $0$), so $h^*$ is the measure's nonnegative integrand by
+construction. Per boundary, with $sigma -> sigma'$ and net folded
+difference $d D$, the integrand moves by
+$(sigma' - sigma) dot D' + sigma dot d D$: the second term re-folds
+the boundary's own codes, and the first materializes $D$ only at
+orientation changes — which require $D$ to have crossed, left, or
+entered zero at this boundary, so $|D'| <= |d D|$ and the read is
+priced by the codes just folded, the same argument as join's
+switch. The integrand runs on the anchored-segment split of the
+rank fold unchanged — rank _is_ this integral's single-stream
+instance, its orientation constantly $+1$ — with one difference of
+funding arity: the potential of @funding splits into one ledger
+per operand, and every charge names the ledger of the operand
+whose codes funded it. A cheap code from one operand can _fire_ a
+freeze, but the work the freeze performs is bounded by deposits
+from the codes that built the state being moved — never by a
+position the firing operand chose. Costs are exactly rank's, in
+the pair denomination $n + m$, floor included: the composed forms
+survive as committed differential pins (digit-exact against the
+co-sweep on every family), not as the shipped path.
 
 === Minimum ticks
 
@@ -541,29 +679,40 @@ every tick is a bare increment.)
 The count is an unbounded natural — heights are unbounded, so the
 sum is too — and at first sight it is the one measure the funding
 discipline cannot reach: the formula adds an _absolute_ height at
-every leaf, exactly the naive fold the rank paragraph just rejected.
-One more telescope dissolves the absolutes. Write
-$M'(x) = M(x) - mu(x)$ for a subtree's ticks in excess of its own
-minimum; then $M'("leaf") = 0$, and at a node — since
-$M = M_"left" + M_"right" - mu$ and $mu = min(mu_"left", mu_"right")$
-—
+every leaf, exactly the naive fold the rank paragraph just
+rejected. Two accounting moves dissolve the absolutes, one per sum.
+The heights side splits $h = F + L$ — live drift on an accumulator,
+under the same relative freeze trigger as rank — but $F$ never
+materializes anywhere: an _epoch ledger_ holds one signed drift per
+freeze (epoch 0's "drift" is the first leaf's absolute), each leaf
+folds only its narrow epoch-relative offset into the total and
+counts $+1$ against its epoch, and the frozen component reaches the
+total once, at the end, by summation by parts — one
+$"drift" times "suffix-count"$ product per freeze, priced by the
+drift's own width times the count's $O(1)$ compacted digits. The
+minima side rides a range-minimum web (@tick-web builds the same
+nesting structure for tick, with the boundaries between adjacent
+open minima held as differences, zero runs compressed): the
+innermost minimum's _value_ is always some leaf the sweep already
+paid for, recorded once as a narrow epoch-relative offset when it
+becomes the minimum, and every node that closes while that value
+reigns just _counts_ — $O(1)$, no width read. The record settles
+into the total exactly once, at its death (a lower leaf dethrones
+it, or the stream ends), as one $"offset" times "count"$ product
+priced by the offset's width; an interruption — an inner range
+arming above it — moves the record aside and returns it at the pop
+with its count intact, never re-reading the offset. No event is
+ever re-based across a freeze: an offset keeps its epoch, and the
+ledger's closing settle carries the frozen differences for it.
 
-$ M'("node") = M'_"left" + M'_"right" + |mu_"left" - mu_"right"|, $
-
-which unwinds from the root to
-
-$ M(v) = mu("root") + sum_("internal") |mu_"left" - mu_"right"| : $
-
-one absolute — the root's minimum, funded like any leading code —
-plus a sum of _differences of sibling minima_, precisely the
-vocabulary the machinery already speaks. Pending range minima ride a
-difference-coded stack (@tick-web builds the same structure for
-tick), each sibling difference settles as its node closes, and each
-settled difference dies into the running sum at its own width,
-funded by the codes that separated the two minima. No absolute
-height is ever summed; rank's frozen/live split is not needed, and
-its uncertified boundary is not inherited. The sweep is one
-funded linear pass, exact, on every input.
+Note what this measure does _not_ inherit: rank's multiplication
+floor. Both of the fold's product forms multiply a width by a
+_count_ — closes at a reigning value, leaf references per epoch —
+and a count's digits are logarithmic in the input's node count,
+never input-widened; position never multiplies a value, because the
+count weighs every leaf the same. No answer-embedding construction
+exists here, and the sweep is one funded linear pass, exact at any
+magnitude, on every input.
 
 == Tick: `fill`, `grow`, and the watermark web <tick>
 
@@ -991,7 +1140,13 @@ spent at most once, the explicit $4 dot "size"(i)$ being slack that
 covers whichever tick spends it. And $k$ ticks raise
 values by at most $k$, so the two re-coded payloads widen by at
 most $2 ceil(log_2 (k + 1))$ code bits apiece — gamma's two bits
-per magnitude bit — the logarithmic term.
+per magnitude bit — the logarithmic term. The closed form is
+moreover _constructive_: the implementation offers the $k$-fold
+tick as one operation, byte-identical to $k$ sequential ticks and
+computed in a bounded number of passes — two fused walks and one
+splice at any count, $O(n + m + log k)$ — so a caller skipping a
+history forward pays what one tick costs plus the width of the
+count, never $k$ walks.
 
 Together: every code tick emits is priced by codes tick read, up to
 constants, and the funded-sweep bound $O(n + m)$ holds
