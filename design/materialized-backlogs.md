@@ -1,0 +1,385 @@
+# Materialized backlogs: durable causal subscriptions
+
+*Follow-on to the persistent-storage campaign (branch `persistent-storage`
+@ 7a832183, PR #8). The campaign's decision record is retained as the
+appendix; its rulings continue to govern.*
+
+## Context
+
+`CausalMessages` delivers the message set in causal order by staging each
+ingest pass in an in-memory `BTreeMap<(Rank, Key), (Arc<Version>, Arc<T>)>`
+— the traversal reads from storage incrementally, but the causal buffer
+materializes the whole undelivered delta in memory, payloads included: a
+fresh observer replaying a large persistent store holds the entire set
+resident. No per-node monoidal cache can fix this (rank order is a global
+linearization; any local child ordering is too coarse — Finch's framing),
+so the answer is a *secondary index*: materialized backlogs, stored beside
+the tree in the same KV store, rank-ordered by construction, arbitrary in
+number, independently consumed, resumable across restarts.
+
+## Rulings (Finch, 2026-07-29/30)
+
+1. **`Rank::{encode, decode}` is the canonical wire representation of
+   `Rank`**, added to `before` on the **before-hardening branch** (its
+   eventual state; the addition cherry-picks into persistent-storage's
+   `crates/before` until the branches converge). Laws proptested beside
+   `Ord`: strict canonical decode, round-trip, byte-equality ≡ value
+   equality, **lexicographic order preservation** (x < y ⟺ encode(x) <lex
+   encode(y)), injectivity, **prefix-freeness** (sanctions mid-key
+   embedding). dsi-bitstream (already before-hardening's read-side dep)
+   supplies decode's bit reading (`DsiCursor`); writers stay in-house per
+   the existing pattern. The integer code is the *order-preserving*
+   length-recursive variant, NOT textbook Elias-ω (γ/δ/ω are prefix-free
+   but not memcomparable — ω(3)=110 > ω(4)=101000 bitwise).
+2. **Rows are pin-table references**: a backlog row holds a `NodeId`; a
+   new **unswept** pin table keeps the referenced leaf record alive
+   through tree-side redaction until acknowledged. (Both design slices
+   independently found that rows pin the *underlying record* — a pin is a
+   liveness reference, never a positional edge — so the reification
+   duplication feared at ruling time never occurs: zero payload copies.)
+3. **`Backlogs<T>: Store<T>` subtrait, KV-only.** Local peers keep the
+   in-memory `CausalMessages` (N observers = N volatile backlogs); it
+   remains the delivery-semantics oracle.
+4. **Explicit advance, at-least-once**: `pop` reads without removing;
+   `advance`/`advance_to(cursor)` acknowledges (deletes rows + unpins) in
+   bounded transactions. The opaque `Cursor` is the durable resume token;
+   a consumer persisting it atomically with its own effect gets
+   exactly-once end-to-end.
+5. **Pull-model ingest** (derived, not relitigable without new facts): the
+   gossip install enumerates no delta (`join` has no observer seam), so
+   each backlog ingests from version-bounded walks over published roots,
+   exactly like today's observers.
+
+## Design
+
+### A. `before`: `Rank::{encode, decode}` (branch off before-hardening)
+
+Value model (verified identical on both branches): `Rank { num: Base,
+exp: u32 }`, normalized (`num` odd, or zero with `exp` 0). Derive:
+integer part `I = num >> exp`; fraction bits `F` = the low `exp` bits of
+`num`, MSB-first — canonical: empty, or ending in 1.
+
+- **Integer section** (byte-aligned, self-delimiting, order-preserving):
+  header byte `h = L` for magnitude byte-length `L ≤ 250` (BE, no
+  leading zero byte; `I = 0` ⇒ `L = 0`, no magnitude); headers
+  `251/252/253/254` mean the next `2/3/4/8` bytes are `L` BE (minimal
+  tier required; `255` reserved) — a completeness backstop, ordered
+  correctly since escalated headers sort after every direct `L`.
+- **Fraction section** (prefix-free group coding): F's bits packed 7 per
+  byte, high-to-low, each byte `[payload:7][continuation:1]` with the
+  continuation bit in the LOW bit — payload compares first. Final group
+  zero-padded, continuation 0. **Empty F emits one mandatory `0x00`
+  byte.** Order preservation: differing payload bits decide both orders
+  identically; a proper bit-prefix's final group has continuation 0
+  where the longer (numerically greater — canonical F ends in 1) has
+  continuation 1 or a payload 1 in the shadow. **Prefix-freedom is
+  proven, not assumed**: a proper byte-prefix truncates the integer
+  segment (header demands exact length), ends on a continuation-1 byte
+  (not a valid final group), or omits the mandatory fraction byte —
+  never valid. This is the law that licenses mid-key embedding.
+- **decode**: strict and canonical (house discipline) — reject
+  non-minimal headers/tiers, leading-zero magnitudes, a non-`0x00` final
+  group with all-zero payload; self-delimiting from a reader (no
+  external framing). Reconstruct `exp` from F's final 1; `num =
+  (I << exp) | F`. `Rank::ZERO` = `[0x00, 0x00]`, pinned as a byte
+  literal. dsi-bitstream's `DsiCursor` (already before-hardening's
+  read-side dep) for bit reading; writers in-house per the existing
+  pattern.
+- **API** (matching `Version`'s canonical surface at before-hardening
+  version.rs:565-656): `encode() -> Vec<u8>`, `encode_to<W: Write>`,
+  `decode<R: Read> -> Result<Self, Decode>`, `encoded_len()`. No
+  `as_bytes` (Version caches its bits; Rank is computed — stated as a
+  negative-space clause). Docs headline the ordering law, state
+  prefix-freedom as a guarantee, and carry the representation-
+  independence contract (the encoding is a function of the VALUE — the
+  Bytes repr refactor changes internals under it, law tests as
+  tripwire).
+- **Laws** (proptests beside `Ord`; adversarial `(num, exp)` via
+  pub(crate) `from_raw` + random `Version::rank()`s including forked
+  shapes so equal-rank pairs occur): round-trip both directions, order
+  preservation, injectivity, prefix-freedom, strict-decode rejection
+  witnesses, and **byte-literal pins** for ZERO/small integers/sample
+  dyadics — this is a canonical wire format now; its bytes are pinned
+  like Version's.
+- **Borsh**: yes — `borsh_impls.rs` gains the same transparent
+  passthrough Version uses (serialize = encode_to, deserialize = strict
+  decode; self-delimiting makes it sound). Serde deferred.
+- **Confluence**: one commit chain on a branch off before-hardening
+  (worktree /Users/oxide/src/rumors-before-hardening; verify base),
+  gate-clean there; **cherry-pick onto persistent-storage's
+  `crates/before`** — additive to rank.rs/error.rs/borsh_impls.rs +
+  tests; the byte pins compile identically on both sides, so interregnum
+  divergence is mechanically visible as a pin mismatch, never silent.
+  At branch convergence the duplicates resolve; pins prove
+  byte-identity. Implementer verifies `Decode`'s variant fit (adds one
+  only if none fits) and the law tests' home in before-hardening's
+  layout.
+
+### B. Schema (`src/store/schema.rs`, house conventions: `rumors:` prefix,
+BE keys, panic-on-undecodable)
+
+Four tables:
+
+- `rumors:backlogs` — directory: key = `BacklogId` BE 8; value = borsh
+  `BacklogRecord { frontier: Vec<u8> /* Version::encode: the durable
+  ingested frontier */, visible: u64 /* last COMPLETED pass epoch */,
+  epoch: u64 /* next/current pass; always > visible */, dropping: bool }`.
+- `rumors:backlog-names` — key = name bytes (caller-supplied, opaque);
+  value = `BacklogId` BE 8. Name frees immediately on drop; a re-create
+  mints a fresh never-reused ID, so stray rows can never alias.
+- `rumors:backlog-rows` — key = `BacklogId(8) ‖ epoch(8 BE) ‖
+  Rank::encode(var, prefix-free) ‖ Key(32)`; value = borsh
+  `RowRecord { node: NodeId }`. Composite ordering is sound because
+  `Rank::encode` is prefix-free (law): the first differing position
+  between two rank encodings lies inside both, so the fixed suffix never
+  participates cross-rank; equal ranks compare the 32-byte keys —
+  exactly the `(Rank, Key)` order of today's staged map, a linear
+  extension of causality (equal ranks are never causally ordered; keys
+  are injective over leaves).
+- `rumors:backlog-pins` — key = `NodeId(8) ‖ BacklogId(8)`, presence
+  row: the durable pin. Node-major so GC's liveness probe is the
+  three-line `held()` prefix idiom (refcount.rs:96-106). Within one
+  backlog a node has at most one row (re-appends collide on the
+  identical row key: idempotent puts), so unpin-on-advance is 1:1 with
+  row deletion.
+
+`BacklogId(u64)` mints from the shared `IdAllocator` pre-transaction
+(names-before-writes; uniqueness is all that matters). Key splitters
+follow `held_key`/`split_held_key`.
+
+**Epoch-major visibility**: rows with `epoch > visible` sit beyond the
+delivery horizon with zero marking machinery; the pass-completion txn
+sets `visible = epoch`, `frontier |= ceiling`, `epoch += 1` — the single
+visibility flip. Pop needs no filtering: the least row for a backlog
+either has `epoch ≤ visible` (deliverable) or the backlog is quiet
+pending completion. Epoch-major delivery is semantically faithful to
+today (a pass opens only after staged drains, so delivery is already
+pass-major; the causal sieve means cross-epoch rank interleaving occurs
+only between concurrent stragglers, whose order is documented-arbitrary)
+— and ingest of the next pass may proceed while the consumer drains
+visible epochs.
+
+### C. Custody + GC (`src/store/refcount.rs`)
+
+- `backlog_pinned(txn, node)` prefix probe beside `held()`.
+- `queue_if_dead` and `reclaim_step`'s stale re-check widen to
+  `strong == 0 && !held && !backlog_pinned`. `advance` unpins and
+  immediately `queue_if_dead`s in the same transaction (the one new death
+  edge).
+- **`recover` does not touch the three backlog tables** — module-doc
+  sentence mirroring the canonical-root precedent: backlog pins are
+  durable consumer state, not process state. `recover`/`vacuum` resume
+  any `dropping` backlog's drain.
+- **Audit** (refcount/tests.rs): strong recomputation unchanged (pins are
+  not strong edges); reachable-closure becomes closure(canonical root) ∪
+  nodes named by `backlog-rows`; new clauses — pins ≡ projection of rows
+  on (node, backlog) at every committed prefix (written/deleted in the
+  same transactions); every row's node decodes as a leaf; every row's
+  backlog exists or is dropping; a sealed backlog's frontier dominates
+  its sealed rows' versions. The quiesce clause must NOT demand pins
+  empty — undrained backlogs legitimately hold pins across quiescence.
+
+### D. Transactions (`src/store/backlog.rs`, all through `write_upkeep`;
+manager state on `Shared` beside `dedup`; budgets ≈ RELEASE_BUDGET = 64)
+
+- **Create-or-resume(name)**: allocate `BacklogId` before the txn
+  (names-before-writes); txn adopts an existing row or inserts fresh
+  (burned IDs read as absent forever). Racing creators serialize; loser
+  adopts.
+- **Ingest pass**: freeze walk at `start: Excluded(frontier)` over the
+  published root + capture ceiling (the causal.rs idiom); per budget of
+  ~64 leaves one txn: record id via the new `record_id()` accessor (a
+  lookup — published roots are fully persisted, so walk-yielded leaves
+  have Stored provenance), put row at `(id, epoch, rank-bytes, key)` +
+  pin `(node, id)`; rank encoded ONCE per row (retiring today's
+  per-pass, per-observer recompute). Completion txn: `frontier |=
+  ceiling`, `visible = epoch`, `epoch += 1` (an empty pass still
+  completes — today's empty-ingest checkpoint advance). **Every new pass
+  uses a fresh epoch; crashed-pass debris (visible < epoch_row < epoch)
+  stays invisible and is swept** at pass-start/vacuum/recover (delete +
+  unpin + queue_if_dead) — never resurrected, which is what preserves
+  "pre-ingest redactions never fire" across a crash: crashed-pass rows
+  were never observed, so a redaction racing the crash must win. Walk
+  handles keep records live across each batch (in-process custody;
+  recovery cannot run concurrently — ownership contract).
+- **Pop**: one read txn — least row in sealed epochs after the cursor
+  (prefix probe), fetch the pinned leaf record, decode payload
+  (`T: BorshDeserialize`), yield `(Cursor, Key, Arc<Version>, Arc<T>)`.
+  Read-only ⇒ trivially cancel-safe and repeatable (at-least-once).
+- **Advance_to(cursor)**: bounded txns deleting rows ≤ cursor (the
+  opaque cursor IS a row key), each row's pin deleted + `queue_if_dead`
+  in the same txn. **Deletion is the delivery cursor** — pop-least
+  naturally resumes past deleted rows; no stored cursor row, nothing to
+  keep coherent. A crash acknowledges a prefix (at-least-once
+  preserved); re-advance is idempotent (absent-key deletes no-op;
+  queue_if_dead re-checks).
+- **Drop(name)**: set `dropping`; bounded drain of rows + pins (droplist
+  drained by write_upkeep piggyback and vacuum); final txn deletes the
+  directory row. Durable ⇒ crash resumes at open/vacuum.
+- **Crash table** (each sequence bounded single-purpose txns; prefix
+  consistency does the rest): partial ingest ⇒ invisible rows, justified
+  pins, idempotent re-run; unsealed complete pass ⇒ same; partial advance
+  ⇒ acknowledged prefix, no dangling pin or unpinned row; partial drop ⇒
+  resumed drain; ambiguous create ⇒ adopt-or-insert retry.
+
+### E. Trait + consumer surface
+
+- `src/tree/backend/backlogs.rs` — `trait Backlogs<T>: Store<T>` (RPITIT
+  + Send): `backlog(name, start) -> BacklogState`, `stage(batch)`,
+  `seal(id, epoch, ceiling)`, `pop(id, cursor) -> Option<Popped<T>>`,
+  `advance(id, cursor)`, `drop_backlog(name)`, `backlogs() ->
+  Vec<String>`. The trait is pure storage vocabulary — the walk stays on
+  `Store::range`; pass logic lives in the consumer type. `pop` carries
+  the crate's first read-side `T: BorshDeserialize` bound, confined to
+  backlog methods. Implemented by `KvBackend` only.
+- `src/rumors/backlog.rs` — `pub struct Backlog<T, S: Backlogs<T>>`
+  adapting `CausalMessages`' three-state owned machine (Ready / Waiting
+  on the watch / Ingesting): `async next()`, `try_next()` (TryNext
+  parity: Quiet also means fetch-in-flight), `cursor()`, `async
+  advance()` / `advance_to(Cursor)`, read-only `Stream` face. `Cursor` is
+  an opaque validated newtype over the row key with
+  `as_bytes()/from_bytes()` — the durable resume token.
+- `Rumors` methods bounded `where S: Backlogs<T>` (no existing bound
+  moves): `backlog(name)` / `backlog_since(name, since)` (create-or-
+  resume; on resume the stored state is authoritative and `since` is
+  ignored — documented loudly), `drop_backlog`, `backlogs()`. Reached via
+  the watch-borrow backend-clone idiom — this also closes the
+  `Peer::open`-returns-no-handle gap with zero plumbing.
+- **Single consumer per backlog, enforced in-process**: `Shared` gains an
+  `open_backlogs` set; second open returns Busy; handle Drop releases
+  (sync mutex). Cross-process exclusion is the store-ownership contract.
+- **Quiescence/teardown**: `Backlog` doesn't count against
+  `try_into_peer` (observer parity); after quiescence/retire a live
+  handle can still drain and advance sealed rows (durable data) but
+  ingest ends with the watch; retiring with undrained backlogs strands
+  rows — documented, `drop_backlog` as pre-retire hygiene, a retire-time
+  sweep noted as future hardening.
+- **Semantics parity vs `CausalMessages`** (documented as a decision
+  table): carried — at-least-once + skip-free (now across restarts),
+  per-pass (Rank, Key) order, cross-pass causality,
+  staged-then-redacted-is-still-delivered (via pins: redaction unlinks
+  the record from the tree; the pin holds it; delivery reads it; advance
+  unpins; GC collects). Changed — resume token is a `Cursor` (sharper: a
+  cleanly-advanced row is never redelivered, which the Version
+  checkpoint cannot promise); `T: BorshDeserialize`; delivery pays a KV
+  fetch. NOT promised: identical order across consumers with different
+  pass boundaries (concurrent items may interleave differently — as
+  today across replicas).
+
+### F. Test program (ruling-9 exhaustiveness)
+
+- **Differential oracle**: `Backlog` on `KvBackend<Memory>` vs
+  `CausalMessages` on the same peer, drained in lockstep so pass
+  boundaries coincide ⇒ byte-identical `(Key, Version)` sequences (the
+  replica-independence pin generalized). Proptest over the existing
+  causal action alphabet; committed seeds.
+- **Crash battery**: every `Memory` committed prefix reopens; resume from
+  the stored cursor; laws: delivered ∪ remaining ⊇ final live set;
+  cleanly-advanced rows never redeliver; frontier never regresses;
+  extended storage audit (C) green at every prefix.
+- **Redaction lifecycle**: stage → redact → deliver → advance → quiesce +
+  vacuum → record gone. The pin table earns its existence here. Plus the
+  crash-boundary twin: a redaction after a COMPLETED ingest still
+  delivers (pin holds across restart); a redaction racing a CRASHED pass
+  never delivers (debris swept, not resurrected).
+- **Multi-backlog independence**: N backlogs at staggered cursors;
+  advance/drop on one never perturbs another (a shared record survives
+  until its last pin releases).
+- **Fault/cancellation batteries**: inject_abort / commit-then-error
+  swept over stage/seal/advance positions; futures dropped at every poll
+  depth; the advance-interleaves-ingest schedule swept (disjoint epochs,
+  but the transactions interleave).
+- **Visibility adequacy witness**: a pass whose key order inverts rank
+  order (two-party concurrent sends), paused mid-pass ⇒ pop must be
+  Quiet; mutation-verify by removing the sealed-epoch filter (string
+  swap, restore verified by git diff).
+- **Embedding adequacy**: the composite-key ordering law over generated
+  rank pairs + keys, with the witness that a naive (non-prefix-free)
+  fraction encoding fails it.
+- **before laws** (A) on before-hardening, gated there.
+- **Measurement**: `bench_causal_replay`/`bench_causal_delta` vs a new
+  backlog-drain bench, on ox-east-1 under `pset-run` — the memory claim
+  (peak per pass = one stage budget, not the set) verified with a
+  large-set replay; the KV-fetch delivery cost quantified honestly.
+
+## Deliverable: a design document, not an implementation (Finch,
+2026-07-30)
+
+This design is FILED for later implementation as
+`design/materialized-backlogs.md` on the `persistent-storage` branch,
+joining the design/ corpus (sync-budget, height-erasure,
+node-hash-preimage, streaming-wire-deadlock). The document carries: the
+context (why no node-cached monoid can causally order leaves — the
+secondary-index argument), the five rulings as DECIDED records, the full
+design (sections A–F above, re-edited to the design-doc genre: reads as
+written today, cites code by path, is never cited FROM code per the
+house rule), the implementation phases below as its roadmap section, the
+verification program, costs, and open questions. One commit on
+persistent-storage; `just gate` (doc linters run on prose) before it.
+
+The implementation phases, recorded in the doc for whoever picks it up:
+
+- **B0** — before: `Rank::{encode, decode}` + laws + byte pins on a
+  branch off before-hardening; cherry-pick into persistent-storage's
+  `crates/before`; borsh passthrough. Gates on both.
+- **B1** — schema + custody: four tables, codecs, splitters, round-trip
+  proptests; `pinned` probe, GC widening, recovery/vacuum drains
+  (dropping + invisible epochs), audit extension; raw-schema crash
+  battery.
+- **B2** — the manager + trait: `store/backlog.rs` transactions,
+  `Backlogs` trait, `KvBackend` impl (+ `record_id()` accessor),
+  `open_backlogs`, droplist; fault battery; conformance-law additions.
+- **B3** — consumer + API: `rumors/backlog.rs`, `Rumors` methods, the
+  lockstep differential oracle, crash/cancel batteries, adequacy
+  witnesses (visibility filter, embedding law), multi-backlog
+  independence, redaction lifecycles (both crash-boundary variants).
+- **B4** — docs (crate storage section, trait/type docs, the
+  CausalMessages-vs-Backlog decision table, cross-pointers,
+  `just readme`), benches on ox-east-1 under pset-run, final review
+  round.
+
+## Verification (of this plan's deliverable)
+
+The design doc lands gate-clean (prose linters); its content is the
+synthesis above, reviewed against both design-fork reports for fidelity;
+no code changes. Implementation verification (the batteries, mutation
+checks, gates) is specified inside the doc for the future implementer.
+
+## Risks
+
+- Delivery order is pass-boundary-dependent across consumers (as across
+  replicas today) — docs must not overpromise; the differential oracle
+  controls boundaries explicitly.
+- The `T: BorshDeserialize` read bound is new; the not-chosen fallback
+  (inline payload copies) must not drift back in silently.
+- Rank key length is linear in event-tree depth — a known linear cost,
+  stated in the codec docs, never a surprise.
+- `BacklogRecord` carries no format version (policy parity with
+  `CanonicalRoot`); additive borsh evolution only.
+- Cherry-pick confluence: the before commit exists on two branches until
+  they merge; the rebase that reconciles them must verify the law tests
+  run identically on both (merge-seam discipline).
+- Open pre-merge item from the parent campaign still stands: task #16
+  (A1 interning back-out call) blocks PR #8's merge, not this plan.
+
+---
+
+# Appendix: persistent-storage campaign decision record (2026-07-28/29)
+
+Rulings 1-9c and the campaign close-out record are preserved from the
+original plan. Summary of standing rulings that govern this plan too:
+uniform async API; backend-choice durability above a crash-consistency
+floor; store-allocated node IDs + deferred GC; `node_bytes` excludes
+payloads; party clock lives in the store (shrinks recorded pre-wire,
+clock: None clears, restart never joins two identity records);
+record-decode failures panic; eager child maps in handles; exhaustive
+failure-path testing (fault + cancellation batteries, mutation-verified
+instruments); height erasure deferred; imbl is test-only with its diff
+denylisted (upstream defect #161 pinned, mitigated on both branches);
+A1 version-interning is provisional pending before's Bytes refactor
+(pre-merge call = task #16); the Kv closures-may-rerun clause needs its
+RetryKv ratchet post-merge (task #17). The campaign landed as PR #8
+(20 commits, tip 7a832183): Store/Backlogs-style capability layering,
+commit-lock write protocol, Kv/Memory/conformance::kv, KvBackend with
+pending-node custody and recovery, Peer::seed_in/open, read paths
+recovered to 1.1-1.4x on delta shapes.
