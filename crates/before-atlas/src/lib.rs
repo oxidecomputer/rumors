@@ -14,9 +14,18 @@
 //! axes. One canvas shows the bulk cloud and the adversarial frontier.
 //!
 //! **The atlas is an audit view, not enforcement.** Its committed checks
-//! are the sampler-correctness pins and a pipeline smoke test, nothing
-//! else: no fuel threshold, percentile gate, or band is ever minted from
-//! atlas data — the envelope suite and the fuzz-fit bands own enforcement.
+//! are the sampler-correctness pins, the coverage parity pin, and a
+//! pipeline smoke test, nothing else: no fuel threshold, percentile gate,
+//! or band is ever minted from atlas data — the envelope suite and the
+//! fuzz-fit bands own enforcement.
+//!
+//! **Totality over the public surface is a chain, not a promise:** the
+//! public API surface is pinned to the triangle roster (`before::surface`,
+//! tamper-evident and total by construction over the extracted `pub fn`
+//! surface), and the roster is pinned to the atlas panels plus the
+//! documented exemption table ([`ops::EXEMPTIONS`]) by the parity test in
+//! `ops/tests.rs` — a new public operation cannot ship without a panel or
+//! an explicitly reasoned exemption.
 //!
 //! **The measure, and what it cannot see.** Inputs are drawn uniformly
 //! from the set of canonical inputs whose packed encoding is exactly `n`

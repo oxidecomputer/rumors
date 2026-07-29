@@ -13,8 +13,8 @@
 //!   orange crosses, each family direct-labeled at its largest point.
 //!
 //! Every render carries a provenance stamp drawn into the image: commit,
-//! base seed, samples per column, the size measure (including the binary
-//! split rule), and the fuel currency.
+//! base seed, samples per column, the row's declared size measure
+//! (verbatim from its roster entry), and the fuel currency.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -131,11 +131,11 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
 
     let (chart_area, caption_area) = root.split_vertically(height - 58);
 
-    let binary = atlas.op.operands.len() == 2;
-    let title = format!(
-        "{} — p(fuel | size), uniform over exact-size canonical inputs",
-        atlas.op.name
-    );
+    // One-operand rows take the whole column size; everything else plots
+    // a total (the stamp carries the row's exact measure declaration).
+    let unary =
+        matches!(atlas.op.inputs, crate::ops::Inputs::Packed(operands) if operands.len() == 1);
+    let title = format!("{} — p(fuel | size)", atlas.op.name);
     let mut chart = ChartBuilder::on(&chart_area)
         .caption(title, ("sans-serif", 17).into_font().color(&INK))
         .margin(10)
@@ -149,10 +149,10 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
         .disable_mesh()
         .axis_style(INK_SOFT.stroke_width(1))
         .label_style(("sans-serif", 12).into_font().color(&INK_SOFT))
-        .x_desc(if binary {
-            "total input size (bytes, log scale; split uniform across operands)"
-        } else {
+        .x_desc(if unary {
             "input size (bytes, log scale)"
+        } else {
+            "total input size (bytes, log scale)"
         })
         .y_desc("fuel (wasm instructions, log scale)")
         .x_labels(sizes.len().min(12))
@@ -325,12 +325,8 @@ pub fn render_op(atlas: &OpAtlas, meta: &RenderMeta, dir: &Path) -> io::Result<P
     };
     let key = "▮ bulk density (per-column normalized)   ✕ committed adversarial families   ┄ reference slopes";
     let stamp = format!(
-        "commit {} · seed {:#x} · {} samples/column · measure: exact packed bytes (uniform per size{}){} · fuel: wasmtime instruction metering",
-        meta.commit,
-        meta.base_seed,
-        meta.samples_per_column,
-        if binary { "; binary total split uniform" } else { "" },
-        acceptance,
+        "commit {} · seed {:#x} · {} samples/column · measure: {}{} · fuel: wasmtime instruction metering",
+        meta.commit, meta.base_seed, meta.samples_per_column, atlas.op.size_measure, acceptance,
     );
     caption_area
         .draw_text(

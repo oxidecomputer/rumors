@@ -13,12 +13,12 @@
 
 use before::meter::{
     concurrent_pair, dense, dense_suffix, freeze_parade, harmonic, hugeleaf, id_spine, jump_pair,
-    memo_chain_id, nested_left_full_id, plateau_puncture, scattered_id, staircase, tooth_tail,
-    weight_comb, wide_arming, Packed,
+    meet_shade, memo_chain_id, nested_left_full_id, plateau_puncture, scattered_id,
+    stagger_population, staircase, tooth_tail, weight_comb, wide_arming, Packed,
 };
 use before::Party;
 
-use crate::ops::Operand;
+use crate::ops::{Inputs, OpSpec, Operand};
 
 /// One family's inputs at one ramp point: packed encodings in the op's
 /// operand order.
@@ -67,13 +67,31 @@ fn ramp(
     out
 }
 
-/// The overlay inputs for an operand signature, within the plotted span.
+/// The staggered fold population's version operands, encoded in the
+/// committed bit-reversed feed order (the order is load-bearing: it is
+/// what realizes the intermediate swell at every reduction level).
+fn stagger_versions(n: usize, m: usize) -> Vec<Vec<u8>> {
+    let (versions, _) = stagger_population(n, m);
+    versions.iter().map(version_bytes).collect()
+}
+
+/// The overlay inputs for an operation, within the plotted span: keyed by
+/// the row's operand signature, except the slice rows, whose committed
+/// fold-cure families are per-operation ([`slice_overlays`]).
 ///
 /// Binary rows pair a family with itself (declared by the label) unless a
 /// committed pair generator exists — `jump_pair`, `tooth_tail`, and
 /// `concurrent_pair` are the pair-shaped families and carry both
-/// operands' design in one name.
-pub fn overlay_inputs(operands: &[Operand], max_bytes: usize) -> Vec<FamilyInput> {
+/// operands' design in one name. Rows that draw the same signature share
+/// the same families: each overlay point rides the row's own `measure`,
+/// so the committed shape is pushed through whatever preparation the row
+/// declares (a fork split, a rank derivation, a render round-trip).
+pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
+    let (operands, distinct) = match op.inputs {
+        Inputs::Packed(operands) => (operands, false),
+        Inputs::PackedDistinct(operands) => (operands, true),
+        Inputs::VersionSlice => return slice_overlays(op.name, max_bytes),
+    };
     let mut out = Vec::new();
     match operands {
         [Operand::Version] => {
@@ -155,6 +173,26 @@ pub fn overlay_inputs(operands: &[Operand], max_bytes: usize) -> Vec<FamilyInput
                 Some(vec![party_bytes(&nested_left_full_id(t))])
             }));
         }
+        // A distinct-pair row cannot take the self pairs (its draw
+        // rejects byte-identical operands), so it gets committed crosses.
+        [Operand::Party, Operand::Party] if distinct => {
+            out.extend(ramp("scattered_id × id_spine", max_bytes, |t| {
+                Some(vec![
+                    party_bytes(&scattered_id(t)),
+                    party_bytes(&id_spine(t, false)),
+                ])
+            }));
+            out.extend(ramp(
+                "memo_chain_id × nested_left_full_id",
+                max_bytes,
+                |t| {
+                    Some(vec![
+                        party_bytes(&memo_chain_id(t)),
+                        party_bytes(&nested_left_full_id(t)),
+                    ])
+                },
+            ));
+        }
         [Operand::Party, Operand::Party] => {
             out.extend(ramp("scattered_id × self", max_bytes, |t| {
                 let p = party_bytes(&scattered_id(t));
@@ -165,7 +203,74 @@ pub fn overlay_inputs(operands: &[Operand], max_bytes: usize) -> Vec<FamilyInput
                 Some(vec![p.clone(), p])
             }));
         }
+        // The composed-clock rows: an id family for the party half, an
+        // event family for the version half.
+        [Operand::Party, Operand::Version] => {
+            out.extend(ramp("scattered_id × dense", max_bytes, |t| {
+                Some(vec![
+                    party_bytes(&scattered_id(t)),
+                    version_bytes(&dense(t)),
+                ])
+            }));
+            out.extend(ramp("id_spine × hugeleaf", max_bytes, |t| {
+                Some(vec![
+                    party_bytes(&id_spine(t, false)),
+                    version_bytes(&hugeleaf(8 * t)),
+                ])
+            }));
+        }
+        // The clock-plus-version rows (recv, and the fork-split pair
+        // rows): the composed clock's families with a version rider.
+        [Operand::Party, Operand::Version, Operand::Version] => {
+            out.extend(ramp("scattered_id × dense × dense", max_bytes, |t| {
+                Some(vec![
+                    party_bytes(&scattered_id(t)),
+                    version_bytes(&dense(t)),
+                    version_bytes(&dense(t)),
+                ])
+            }));
+            out.extend(ramp("id_spine × hugeleaf × hugeleaf", max_bytes, |t| {
+                Some(vec![
+                    party_bytes(&id_spine(t, false)),
+                    version_bytes(&hugeleaf(8 * t)),
+                    version_bytes(&hugeleaf(8 * t)),
+                ])
+            }));
+        }
         other => panic!("no overlay mapping for operand signature {other:?}"),
     }
     out
+}
+
+/// The slice rows' committed fold-cure families, per operation: the
+/// whole point of the fold panels is seeing the cured curves against the
+/// uniform frontier.
+///
+/// - `version_join_all` gets the staggered fold populations
+///   ([`stagger_population`], bit-reversed feed order preserved), ramped
+///   along both committed band axes: arity at a fixed block count, and
+///   operand size at a fixed arity.
+/// - `version_meet_all` gets the meet-shade population ([`meet_shade`])
+///   on the committed diagonal `d = k` (one dense carrier, `k − 1`
+///   dominating plateau shades, carrier fed first).
+fn slice_overlays(name: &str, max_bytes: usize) -> Vec<FamilyInput> {
+    match name {
+        "version_join_all" => {
+            let mut out = Vec::new();
+            // The ramp doubles t from 1, so n = 2t and m = t are always
+            // the powers of two the generators require.
+            out.extend(ramp("stagger arity (m=4)", max_bytes, |t| {
+                Some(stagger_versions(2 * t, 4))
+            }));
+            out.extend(ramp("stagger size (n=4)", max_bytes, |t| {
+                Some(stagger_versions(4, t))
+            }));
+            out
+        }
+        "version_meet_all" => ramp("meet_shade (d=k)", max_bytes, |t| {
+            let d = 2 * t;
+            Some(meet_shade(d, d).iter().map(|v| v.encode()).collect())
+        }),
+        other => panic!("no committed slice families for {other}"),
+    }
 }

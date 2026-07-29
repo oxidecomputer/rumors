@@ -1,6 +1,7 @@
 use crate::ops::ROSTER;
+use crate::sample::cell_rng;
 
-use super::{run_op, Plan, Samplers};
+use super::{run_op, split_budget, Plan, Samplers};
 
 /// A run is a pure function of (guest wasm, plan): two executions of the
 /// same plan read byte-identical fuel in the same cell order.
@@ -10,7 +11,11 @@ use super::{run_op, Plan, Samplers};
 /// nothing to perturb — neither a draw, nor a reading, nor the order the
 /// collected samples land in. This is the atlas's stamped determinism
 /// contract; a construction change that leaks state between samples or
-/// re-derives a cell's RNG from execution order fails it.
+/// re-derives a cell's RNG from execution order fails it. The op list
+/// walks every input space: unary and binary packed draws (both
+/// samplers, the split rule, the version rejection path), the slice
+/// arity-and-composition draw, the distinct-pair rejection, and the
+/// three-way split with in-guest fork preparation.
 #[test]
 fn run_op_is_deterministic_and_ordered() {
     let plan = Plan {
@@ -19,9 +24,13 @@ fn run_op_is_deterministic_and_ordered() {
         max_bytes: 8,
     };
     let samplers = Samplers::build(&plan);
-    // One unary version row, one binary party row: both samplers, both
-    // arities, the split rule, and the version rejection path.
-    for name in ["version_rank", "party_covers"] {
+    for name in [
+        "version_rank",
+        "party_covers",
+        "version_join_all",
+        "party_without",
+        "clock_sync",
+    ] {
         let op = ROSTER
             .iter()
             .find(|op| op.name == name)
@@ -58,11 +67,53 @@ fn run_op_is_deterministic_and_ordered() {
         // The collected order is the plan's declared order: columns in
         // grid order, sample indices in sequence within each column.
         let expected: Vec<usize> = plan
-            .columns(op.operands.len())
+            .columns(op.inputs.min_bytes())
             .into_iter()
             .flat_map(|size| std::iter::repeat_n(size, plan.samples_per_column))
             .collect();
         let got: Vec<usize> = a.samples.iter().map(|s| s.size).collect();
         assert_eq!(got, expected, "{name}: samples must land in plan order");
     }
+}
+
+/// The budget split is a composition: `parts` positive part sizes that
+/// sum to the total, for every feasible (total, parts) pair in the small
+/// grid — the invariant every multi-operand draw rests on.
+#[test]
+fn split_budget_yields_positive_compositions() {
+    let mut rng = cell_rng(0xc0de, "split", 0, 0);
+    for total in 1..=24usize {
+        for parts in 1..=total.min(6) {
+            for _ in 0..50 {
+                let sizes = split_budget(total, parts, &mut rng);
+                assert_eq!(sizes.len(), parts, "split into {parts} of {total}");
+                assert_eq!(
+                    sizes.iter().sum::<usize>(),
+                    total,
+                    "parts must sum to the total"
+                );
+                assert!(sizes.iter().all(|&s| s >= 1), "every operand needs a byte");
+            }
+        }
+    }
+}
+
+/// The split reaches every composition: cut-point sampling is uniform
+/// over the compositions, so at (6, 3) all ten compositions of 6 into 3
+/// positive parts appear across a modest draw budget. A split rule that
+/// biased away from an extreme (e.g. never producing (4, 1, 1)) would
+/// silently skew every multi-operand column's measure.
+#[test]
+fn split_budget_reaches_every_composition() {
+    let mut rng = cell_rng(0xc0de, "split-reach", 6, 3);
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..2_000 {
+        seen.insert(split_budget(6, 3, &mut rng));
+    }
+    // C(5, 2) = 10 compositions of 6 into 3 positive parts.
+    assert_eq!(
+        seen.len(),
+        10,
+        "all compositions of 6 into 3 must be reachable"
+    );
 }

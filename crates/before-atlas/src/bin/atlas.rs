@@ -92,7 +92,7 @@ fn main() {
             "{}: {} samples / {} columns, {} overlay points, acceptance {:.1}%, {:.1?} → {}",
             op.name,
             atlas.samples.len(),
-            plan.columns(op.operands.len()).len(),
+            plan.columns(op.inputs.min_bytes()).len(),
             atlas.overlay.len(),
             100.0 * accepted as f64 / (accepted + rejected) as f64,
             measured,

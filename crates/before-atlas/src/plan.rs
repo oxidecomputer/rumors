@@ -8,12 +8,15 @@
 //! of the plan: rayon's execution order cannot change a single draw, and
 //! any cell replays alone.
 //!
-//! **The size measure, declared once.** A unary operation's column at
+//! **The size measure, declared per row.** A unary operation's column at
 //! size `N` draws its one input uniformly from the canonical inputs of
-//! exactly `N` packed bytes. A binary operation's column at *total* size
-//! `N` draws a split `n₁ ∈ {1, …, N−1}` uniformly, then each operand
-//! uniformly at its exact size — so the x-axis is total packed input
-//! bytes everywhere, and every rendered plot carries the declaration.
+//! exactly `N` packed bytes. A k-operand operation's column at *total*
+//! size `N` draws a split uniformly from the compositions of `N` into
+//! `k` positive parts, then each operand uniformly at its exact size; a
+//! slice row first draws its arity from the declared set. So the x-axis
+//! is total packed input bytes everywhere, and every rendered plot
+//! carries its row's exact declaration ([`crate::ops::OpSpec`]'s
+//! `size_measure`).
 
 use rand::Rng;
 use rayon::prelude::*;
@@ -21,7 +24,7 @@ use rayon::prelude::*;
 use fuzzfit_harness::wasm::Guest;
 
 use crate::families::overlay_inputs;
-use crate::ops::{OpSpec, Operand};
+use crate::ops::{Inputs, OpSpec, Operand, SLICE_ARITIES};
 use crate::sample::{cell_rng, PartySampler, VersionSampler};
 
 #[cfg(test)]
@@ -38,11 +41,12 @@ pub struct Plan {
 }
 
 impl Plan {
-    /// The size columns for an operand count: byte doublings from the
-    /// smallest size the signature admits (binary needs 1 byte per side).
-    pub fn columns(&self, operands: usize) -> Vec<usize> {
+    /// The size columns for an input space's minimum total size: byte
+    /// doublings from the smallest size the signature admits (one byte
+    /// per operand).
+    pub fn columns(&self, min_bytes: usize) -> Vec<usize> {
         let mut out = Vec::new();
-        let mut n = operands.max(1);
+        let mut n = min_bytes.max(1);
         while n <= self.max_bytes {
             out.push(n);
             n *= 2;
@@ -57,8 +61,9 @@ pub struct CellSample {
     pub size: usize,
     /// Fuel consumed by the one measured kernel call.
     pub fuel: u64,
-    /// Whole-sample rejections spent drawing the inputs (version
-    /// nonnegativity; zero for party-only rows).
+    /// Whole-sample rejections spent drawing the inputs: version
+    /// nonnegativity redraws, plus whole-pair redraws for rows whose
+    /// input space declares a validity condition.
     pub rejected: u64,
 }
 
@@ -122,29 +127,46 @@ impl Samplers {
     }
 }
 
-/// Draw one operation's packed inputs for a column of total size `size`.
+/// Split `total` uniformly over its compositions into `parts` positive
+/// parts: draw `parts − 1` distinct cut points in `1..total`, sort, and
+/// difference. Redrawing a collided cut is rejection over the cut-point
+/// subsets, which keeps the composition draw exactly uniform.
 ///
-/// Returns the encodings (operand order) and the rejection count spent.
-fn draw_inputs(
-    op: &OpSpec,
+/// For one part this draws nothing; for two it is a single
+/// `gen_range(1..total)` — the binary split rule, unchanged.
+fn split_budget(total: usize, parts: usize, rng: &mut rand_chacha::ChaCha12Rng) -> Vec<usize> {
+    assert!(
+        total >= parts && parts >= 1,
+        "a column of {total} bytes cannot feed {parts} one-byte-minimum operands"
+    );
+    let mut cuts = std::collections::BTreeSet::new();
+    while cuts.len() < parts - 1 {
+        cuts.insert(rng.gen_range(1..total));
+    }
+    let mut out = Vec::with_capacity(parts);
+    let mut prev = 0;
+    for cut in cuts {
+        out.push(cut - prev);
+        prev = cut;
+    }
+    out.push(total - prev);
+    out
+}
+
+/// Draw exact-size members for `operands` over a drawn split of `size`.
+///
+/// The split draw precedes the member draws so the stream is stable
+/// however the samplers consume randomness. Returns the encodings
+/// (operand order) and the version rejections spent.
+fn draw_packed(
+    operands: &[Operand],
     samplers: &Samplers,
     size: usize,
     rng: &mut rand_chacha::ChaCha12Rng,
 ) -> (Vec<Vec<u8>>, u64) {
-    // Split the total uniformly across two operands; a unary op takes it
-    // whole. The split draw precedes the member draws so the stream is
-    // stable however the samplers consume randomness.
-    let sizes: Vec<usize> = match op.operands.len() {
-        1 => vec![size],
-        2 => {
-            let n1 = rng.gen_range(1..size);
-            vec![n1, size - n1]
-        }
-        n => panic!("no split rule for {n}-ary operations"),
-    };
+    let sizes = split_budget(size, operands.len(), rng);
     let mut rejected = 0;
-    let inputs = op
-        .operands
+    let inputs = operands
         .iter()
         .zip(sizes)
         .map(|(operand, n)| match operand {
@@ -168,6 +190,61 @@ fn draw_inputs(
     (inputs, rejected)
 }
 
+/// Draw one operation's packed inputs for a column of total size `size`.
+///
+/// Returns the encodings (operand order) and the rejection count spent.
+fn draw_inputs(
+    op: &OpSpec,
+    samplers: &Samplers,
+    size: usize,
+    rng: &mut rand_chacha::ChaCha12Rng,
+) -> (Vec<Vec<u8>>, u64) {
+    match op.inputs {
+        Inputs::Packed(operands) => draw_packed(operands, samplers, size, rng),
+        Inputs::PackedDistinct(operands) => {
+            // Whole-sample rejection of byte-identical pairs: restricting
+            // the uniform pair measure to the distinct pairs, exactly.
+            let mut rejected = 0;
+            loop {
+                let (inputs, r) = draw_packed(operands, samplers, size, rng);
+                rejected += r;
+                if inputs.iter().any(|i| *i != inputs[0]) {
+                    return (inputs, rejected);
+                }
+                rejected += 1;
+            }
+        }
+        Inputs::VersionSlice => {
+            // Arity first, then the split, then the members, so the
+            // stream is stable however the samplers consume randomness.
+            let allowed: Vec<usize> = SLICE_ARITIES
+                .iter()
+                .copied()
+                .filter(|&k| k <= size)
+                .collect();
+            assert!(
+                !allowed.is_empty(),
+                "slice columns start at the smallest declared arity"
+            );
+            let arity = allowed[rng.gen_range(0..allowed.len())];
+            let sizes = split_budget(size, arity, rng);
+            let mut rejected = 0;
+            let inputs = sizes
+                .into_iter()
+                .map(|n| {
+                    let draw = samplers
+                        .version
+                        .sample_bytes(n, rng)
+                        .expect("every byte size down to 1 has canonical versions");
+                    rejected += draw.rejected;
+                    draw.bytes
+                })
+                .collect();
+            (inputs, rejected)
+        }
+    }
+}
+
 /// Run one operation's whole atlas: every cell in parallel (each sample
 /// instantiates a fresh guest, so no state leaks between measurements),
 /// then the overlay points.
@@ -179,7 +256,7 @@ fn draw_inputs(
 /// worker but one for half of each operation's run.
 pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas {
     let cells: Vec<(usize, usize)> = plan
-        .columns(op.operands.len())
+        .columns(op.inputs.min_bytes())
         .into_iter()
         .flat_map(|size| (0..plan.samples_per_column).map(move |index| (size, index)))
         .collect();
@@ -204,7 +281,7 @@ pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas 
         })
         .collect();
 
-    let overlay = overlay_inputs(op.operands, plan.max_bytes)
+    let overlay = overlay_inputs(op, plan.max_bytes)
         .into_iter()
         .map(|fam| {
             let size = fam.inputs.iter().map(Vec::len).sum();
