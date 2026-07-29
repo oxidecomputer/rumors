@@ -67,6 +67,15 @@ impl<T: Send + Sync> Drop for Batch<'_, T> {
             return;
         }
         let actions = std::mem::take(&mut self.actions);
+        // A root-replacing commit, run entirely inside one critical section.
+        // `Drop` cannot await, so this path cannot take the peer's commit
+        // lock — and it does not need it: the closure is atomic on its own,
+        // and the in-memory build is instantaneous. The body still runs the
+        // commit protocol's phases in order (prep: stamp every action
+        // against the commit-time frontier; build: apply; publish: wake
+        // observers once iff the tree changed), so an explicit async commit
+        // replacing this one only moves the build out of the critical
+        // section, behind the commit lock — the phases themselves stand.
         self.inner.send_if_modified(|inner| {
             // The party is present on every reachable handle: `retire`
             // consumes the `Peer`, and the `Peer`/`Rumors` XOR keeps a
@@ -75,9 +84,14 @@ impl<T: Send + Sync> Drop for Batch<'_, T> {
                 debug_assert!(false, "no party to tick in a `Batch` commit");
                 return false;
             };
-            // Notify observers iff the batch changed the tree, straight from
-            // `act`'s changed flag: no root hash is read inside this critical
-            // section (`Tree::act` states the flag's contract).
+            // Prep, build, and publish in one traversal: `act` is
+            // `assign` (stamp every action against the commit-time
+            // frontier) composed with `react` (apply); its changed flag is
+            // the single observer wakeup, and no root hash is read inside
+            // this critical section (`Tree::act` states the flag's
+            // contract). The explicit async commit calls the two halves
+            // separately, with the build between them run off this
+            // critical section.
             inner.tree.act(party, actions)
         });
     }

@@ -343,6 +343,9 @@ impl<T> Peer<T, NoBookmark> {
             if config.protocol == Protocol::V2 {
                 epilogue(&mut read, &mut write).await?;
             }
+            // The install here is plain construction, not a commit: the
+            // `watch` channel is created around the reconciled tree, so no
+            // concurrent handle exists yet and no commit lock is needed.
             let peer = Self {
                 network: remote.network,
                 protocol: config.protocol,
@@ -353,6 +356,7 @@ impl<T> Peer<T, NoBookmark> {
                     tree: Tree { root },
                 }),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                commit: Arc::new(Mutex::new(())),
             };
             Ok(Some(peer))
         })
@@ -369,6 +373,7 @@ impl<T> Peer<T, NoBookmark> {
             window,
             run_budget,
             inner,
+            commit,
             ..
         } = self;
         let peer = Peer {
@@ -378,6 +383,7 @@ impl<T> Peer<T, NoBookmark> {
             run_budget,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
+            commit,
         };
 
         // A pristine seed has no identity worth recording yet; persisting it
@@ -406,6 +412,7 @@ impl<T> Peer<T, NoBookmark> {
                     run_budget: peer.run_budget,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                    commit: peer.commit,
                 },
                 error,
             }),
@@ -511,7 +518,8 @@ impl<T, B: Persist> Peer<T, B> {
     /// leaves the party exactly as it was. Reclaiming, with its party growth
     /// and the gating that protects it, is left to the first gossip. Holds the
     /// bookmark mutex across a brief `watch` borrow (read-only here) and the
-    /// write; lock order is bookmark-then-`watch`, as everywhere.
+    /// write; lock order is bookmark-then-`watch`, as everywhere (the full
+    /// order, with the commit lock between them, is stated at [`Peer::commit`]).
     async fn bookmark_record(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
         bookmark.ensure_loaded().await?;
@@ -536,8 +544,9 @@ impl<T, B: Persist> Peer<T, B> {
     /// Holds the bookmark mutex across that brief `watch` critical section —
     /// where the party grows atomically with the record — and the persisting
     /// write, so the two stores never diverge. The lock order is always
-    /// bookmark-then-`watch`; no path takes them the other way, so it cannot
-    /// deadlock.
+    /// bookmark-then-`watch` (with the commit lock between them where a path
+    /// takes it; see [`Peer::commit`]); no path takes any pair the other
+    /// way, so it cannot deadlock.
     ///
     /// Suppressed when the live `(party, version)` still matches what was last
     /// persisted: between updates nothing else touches the record, so re-running
@@ -672,10 +681,14 @@ impl<T, B: Persist> Peer<T, B> {
         //   its `gossip_inner` call, so a retiring set is bookmarked before
         //   donating itself.)
         //
-        // The lock order is bookmark-then-`watch`, as everywhere. A failed
-        // record write aborts the session before any wire traffic: dropping
-        // `guarded` re-joins the speculative fork, and the next update
-        // re-records what the reclaim already grew in memory.
+        // The lock order is bookmark-then-`watch`, as everywhere; this
+        // section is party-only plus a root *read*, so the commit lock
+        // (which sits between the two in the full order — see
+        // `Peer::commit`) is deliberately not taken, and a local commit is
+        // never excluded by an in-flight session outside the install. A
+        // failed record write aborts the session before any wire traffic:
+        // dropping `guarded` re-joins the speculative fork, and the next
+        // update re-records what the reclaim already grew in memory.
         let mut guarded = PartyGuard {
             party: None,
             recover: self.inner.clone(),
@@ -857,11 +870,29 @@ impl<T, B: Persist> Peer<T, B> {
         // donated party is a protocol violation: we leave our own party
         // untouched, commit nothing, and abort the session.
         //
+        // The install is the session's root-replacing commit: it acquires the
+        // commit lock (order: bookmark → commit → watch; the bookmark mutex
+        // is not held here — the fork section released it before
+        // reconciling), and the lock spans only this merge, never the wire
+        // session above, so a local commit is excluded for the duration of
+        // an in-memory join, not a network round trip.
+        //
+        // The merge itself still runs *inside* the publish critical section:
+        // `Batch`'s `Drop` commit cannot take the commit lock (`Drop` cannot
+        // await), so a build staged outside the section could not simply be
+        // swapped in over an interleaved batch. Once every root-replacing
+        // writer holds the lock, the build moves out of the section and the
+        // publish becomes a plain swap that must follow the build's last
+        // await within a single poll (a future is only dropped between
+        // polls, so "build observed → watch published" stays indivisible
+        // under cancellation).
+        //
         // The reconciled tree's frontier is the converged version: what both
         // replicas hold the instant this commits, *before* the join below
         // mixes in any commits that ran concurrently with the session.
         let merged = Tree { root };
         let converged = merged.latest().clone();
+        let commit = self.commit.lock().await;
         let mut party_overlap = false;
         self.inner.send_if_modified(|inner| {
             if let Some(party) = absorbed.take() {
@@ -892,6 +923,9 @@ impl<T, B: Persist> Peer<T, B> {
             let tree_changed = inner.tree.join(merged);
             peer_retiring || tree_changed
         });
+        // The root is published: release before the bookmark update below,
+        // preserving the bookmark → commit order for every acquirer.
+        drop(commit);
         if party_overlap {
             return (Intent::Remain, Err(Error::PartyOverlap));
         }

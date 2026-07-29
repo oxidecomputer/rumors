@@ -106,6 +106,7 @@ fn overlapping_retiree_party_is_rejected() {
             },
         }),
         bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+        commit: Arc::new(Mutex::new(())),
     };
 
     // Each side's future owns its link: the absorber rejects the overlap

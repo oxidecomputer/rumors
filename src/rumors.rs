@@ -69,6 +69,7 @@ impl<T, B: BookmarkError> Clone for Rumors<T, B> {
                 run_budget: self.peer.run_budget,
                 inner: self.peer.inner.clone(),
                 bookmark: Arc::clone(&self.peer.bookmark),
+                commit: Arc::clone(&self.peer.commit),
             },
             extant: self.extant.clone(),
         }

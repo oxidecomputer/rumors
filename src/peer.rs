@@ -156,6 +156,28 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// Separate from `inner` because persisting is `async` and the record is
     /// `!Clone`; see [`Bookmarked`].
     pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
+    /// Serializes *root-replacing* commits: writers that publish a new
+    /// content tree acquire this, build the new root off the `watch`, and
+    /// publish in one final `send_if_modified`.
+    ///
+    /// A slow build therefore never blocks readers or observers, and two
+    /// builds never race a publish. The write sites, classified:
+    ///
+    /// - the gossip install (root-replacing: takes this lock, held across
+    ///   the merge);
+    /// - the [`Batch`] `Drop` commit (root-replacing, but `Drop` cannot
+    ///   await: its single sync critical section is atomic on its own, and
+    ///   the install tolerates it by merging inside its own critical
+    ///   section rather than swapping a stale build in — see the install's
+    ///   body for when that changes);
+    /// - the gossip fork section, the bookmark reclaim, and `PartyGuard`
+    ///   recovery (party-only: they never replace the root, so per-closure
+    ///   `watch` atomicity suffices and they stay lock-free).
+    ///
+    /// Lock order: bookmark, then this, then the `watch`'s internal lock.
+    /// No path acquires them in any other order (in particular, nothing
+    /// holds this while taking the bookmark mutex), so no cycle exists.
+    pub(crate) commit: Arc<Mutex<()>>,
 }
 
 /// The replica's shared mutable state, behind the `watch` channel every
@@ -206,6 +228,7 @@ impl<T> Peer<T, NoBookmark> {
                 tree: Tree::new(),
             }),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            commit: Arc::new(Mutex::new(())),
         }
     }
 }

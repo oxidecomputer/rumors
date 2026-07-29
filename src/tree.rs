@@ -404,6 +404,30 @@ impl<T> Tree<T> {
         T: Send + Sync,
         I: IntoIterator<Item = Action<T>>,
     {
+        let reactions = self.assign(party, actions);
+        self.react(reactions)
+    }
+
+    /// Stamps each action with its committed version and key against the
+    /// tree's current frontier: the synchronous *prep* step of a commit.
+    ///
+    /// Split from [`react`](Self::react) (the build step) so a committer
+    /// can run the build outside the critical section that read the
+    /// frontier. [`act`](Self::act) is the two composed; its doc states
+    /// the contract the two steps implement together.
+    ///
+    /// Reads the frontier and the party; mutates nothing. The stamped
+    /// versions are only as fresh as the frontier they were read against:
+    /// the committer must hold the frontier stable (today, by staying inside
+    /// one `watch` critical section) from `assign` through `react`.
+    pub(crate) fn assign<I>(
+        &self,
+        party: &before::Party,
+        actions: I,
+    ) -> Vec<(Key, Version, Option<Message<T>>)>
+    where
+        I: IntoIterator<Item = Action<T>>,
+    {
         // Track the running version across the batch, ticking the owning party
         // once per action so that (a) content-identical messages produce
         // distinct keys even when submitted together, and (b) forgets carry a
@@ -414,29 +438,31 @@ impl<T> Tree<T> {
         // complete no-op.
         // The running version, advanced in place per action; each action
         // clones the post-tick value as the committed version that keys
-        // its leaf. The reactions flow into `react` lazily; the whole
-        // chain materializes only once, at the traversal's radix sort.
+        // its leaf.
         let mut new_version = self.latest().clone();
-        self.react(actions.into_iter().map(|action| {
-            // Advance the version. It must be unique for every action
-            // applied to the tree; otherwise the mirror protocol
-            // wrongly early-aborts when versions compare equal.
-            new_version.tick(party);
-            let version = new_version.clone();
+        actions
+            .into_iter()
+            .map(|action| {
+                // Advance the version. It must be unique for every action
+                // applied to the tree; otherwise the mirror protocol
+                // wrongly early-aborts when versions compare equal.
+                new_version.tick(party);
+                let version = new_version.clone();
 
-            // Convert unversioned, unlocalized actions into reactions
-            // independent of our party and current version. The key is
-            // derived from the post-tick version, which is unique per
-            // insert (see [`typed::Path::for_leaf`]).
-            let (key, value) = match action {
-                Action::Forget(hash) => (hash, None),
-                Action::Insert(value) => {
-                    let key = typed::Path::for_leaf(&version, value.bytes()).into();
-                    (key, Some(value))
-                }
-            };
-            (key, version, value)
-        }))
+                // Convert unversioned, unlocalized actions into reactions
+                // independent of our party and current version. The key is
+                // derived from the post-tick version, which is unique per
+                // insert (see [`typed::Path::for_leaf`]).
+                let (key, value) = match action {
+                    Action::Forget(hash) => (hash, None),
+                    Action::Insert(value) => {
+                        let key = typed::Path::for_leaf(&version, value.bytes()).into();
+                        (key, Some(value))
+                    }
+                };
+                (key, version, value)
+            })
+            .collect()
     }
 
     /// Applies the specified *versioned* actions as a batch to the tree
@@ -455,11 +481,15 @@ impl<T> Tree<T> {
     /// which is more efficient than applying its actions one at a time but
     /// semantically equivalent.
     ///
+    /// The *build* step of a commit; [`assign`](Self::assign) is the prep
+    /// step that stamps the reactions, and states the frontier-stability
+    /// obligation between the two.
+    ///
     /// Returns whether the effectual-action observer fired at all — the
     /// changed flag [`act`](Self::act) hands out, with the contract stated
     /// there. `false` means no observation and therefore no ceiling
     /// movement either: the tree is untouched.
-    fn react<M, I>(&mut self, reactions: I) -> bool
+    pub(crate) fn react<M, I>(&mut self, reactions: I) -> bool
     where
         T: Send + Sync,
         M: Into<Option<Message<T>>>,
