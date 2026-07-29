@@ -53,13 +53,15 @@
 //!
 //! Every constructor in this module is `O(1)` time and space: a [`Range`]
 //! stores two borrows. Pairing a start with an end validates with at most
-//! one causal comparison, and the placement family —
-//! [`bounded`](Range::bounded), [`contains`](Range::contains), and
-//! [`placement_of`](Range::placement_of) — makes at most two; each
-//! comparison is `O(|a| + |b|)` in the operands' packed sizes (see
-//! [`Version`]).
+//! one causal comparison, `O(|s| + |e|)` in the bounds' packed sizes. The
+//! placement family — [`bounded`](Range::bounded),
+//! [`contains`](Range::contains), and
+//! [`placement_of`](Range::placement_of) — runs one fused comparison
+//! pass over the version and the present bound versions, `O(|v| + |s| +
+//! |e|)` in the operands' packed sizes (see [`Version`]), each stream
+//! decoded once.
 //!
-//! **Complexity**: constructors `O(1)`; each validating or membership comparison `O(a + b)`.
+//! **Complexity**: constructors `O(1)`; validation at most one causal comparison; placement one fused pass `O(v + s + e)`.
 //!
 //! ```
 //! use before::{Clock, causally};
@@ -327,32 +329,35 @@ impl<'a> Range<'a> {
     /// that the start bound lies within the end bound (rejecting the pair
     /// with [`Crossed`] otherwise), so everything the start subtracts the
     /// end keeps — no version can fail both bounds.
+    ///
+    /// The trichotomy is [`bounded`](Self::bounded)'s six-way placement
+    /// coarsened by each bound's inclusivity — `Before → Less`;
+    /// `AtStart → Less` under an excluded start, `Equal` under an
+    /// included one; `Between → Equal`; `AtEnd → Equal` under an
+    /// included end, `Greater` under an excluded one; `After` and
+    /// `Concurrent → Greater` — so one fused comparison pass answers it,
+    /// each operand stream decoded once. The
+    /// `bounded_coarsens_to_placement` law in [`laws`](crate::laws) pins
+    /// the table, [`contains`](Self::contains) riding as its `Equal` arm.
     pub fn placement_of(&self, version: &Version) -> Ordering {
-        let past_start = match self.start {
-            Bound::Unbounded => true,
-            // Greater than or concurrent to the bound: not in its causal
-            // past, so not subtracted.
-            Bound::Excluded(start) => {
-                matches!(version.partial_cmp(start), None | Some(Ordering::Greater))
-            }
-            // As above, but the bound itself also survives.
-            Bound::Included(start) => matches!(
-                version.partial_cmp(start),
-                None | Some(Ordering::Equal | Ordering::Greater)
-            ),
-        };
-        if !past_start {
-            return Ordering::Less;
-        }
-        let within_end = match self.end {
-            Bound::Unbounded => true,
-            Bound::Included(end) => version <= end,
-            Bound::Excluded(end) => version < end,
-        };
-        if within_end {
-            Ordering::Equal
-        } else {
-            Ordering::Greater
+        match self.bounded(version) {
+            Bounded::Before => Ordering::Less,
+            // Raw equality to the start: the start kind decides whether
+            // the bound itself is subtracted.
+            Bounded::AtStart => match self.start {
+                Bound::Excluded(_) => Ordering::Less,
+                Bound::Included(_) => Ordering::Equal,
+                Bound::Unbounded => unreachable!("an at-start verdict requires a start bound"),
+            },
+            Bounded::Between => Ordering::Equal,
+            // Raw equality to the end: the end kind decides whether the
+            // bound itself is kept.
+            Bounded::AtEnd => match self.end {
+                Bound::Included(_) => Ordering::Equal,
+                Bound::Excluded(_) => Ordering::Greater,
+                Bound::Unbounded => unreachable!("an at-end verdict requires an end bound"),
+            },
+            Bounded::After | Bounded::Concurrent => Ordering::Greater,
         }
     }
 
