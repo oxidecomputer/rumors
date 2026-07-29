@@ -236,6 +236,36 @@ $1, 2, 2$; the two depth-2 siblings merge into a depth-1 leaf, which
 now equals _its_ pending sibling and merges again — the output is the
 single leaf $0$, two bits, born canonical.
 
+#figure(
+  attack(
+    [alternating pair$(t)$],
+    [the emission walk's side switches],
+    stack(dir: ttb, spacing: 4pt,
+      overlay(
+        ((0.125, 3), (0.125, 1), (0.125, 4), (0.125, 2),
+         (0.125, 3), (0.125, 1), (0.125, 4), (0.125, 2)),
+        ((0.125, 1), (0.125, 3), (0.125, 2), (0.125, 4),
+         (0.125, 1), (0.125, 3), (0.125, 2), (0.125, 4)),
+        w: 210pt, unit: 10pt, label-a: $a$, label-b: $b$,
+      ),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [two organically forked-and-ticked versions whose dominance
+         alternates at every one of the $t - 1$ overlay boundaries
+         — join and meet alike, with no boundary ever collapsing]),
+    ),
+    [a side switch at every boundary: the maximum possible density
+     of the one emission step that must read the running
+     difference's sign and magnitude.],
+    cure: [each switch's read is priced by the boundary's own
+      folded codes ($|D'|$ bounded by the deltas just folded, the
+      collapse having flattened any cancelling prefix), so maximal
+      density buys no amplification — the walk measures flat.],
+  ),
+  kind: image,
+  caption: [The alternating pair attack card: switch density at its
+    ceiling, aimed at the jump read.],
+) <fig-attack-alternating>
+
 Cost: the walk is linear; folds are funded by input codes; switch
 reads are funded by the boundary's own codes; each emitted code is
 written once, and a merge cascade deletes at least two codes for
@@ -310,6 +340,65 @@ the rejected operand's own bits (its overlap witness sits at the
 bottom of its own path) plus the reduction's logarithmic factor,
 never at a re-probe of the accumulated group.
 
+#figure(
+  attack(
+    [shaded carrier$(d, k)$],
+    [the n-ary meet's accumulator],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([carrier], codestrip((
+        ([a $d$-level dense version, $Theta(d)$ bits], 150pt, "t"),
+      ))),
+      oprow([$k - 1$ shades], codestrip((
+        ([flat 3], 34pt, "p"), ([flat 3], 34pt, "p"),
+        ([$dots.c$], 14pt, "x"), ([flat 3], 34pt, "p"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [every shade dominates the carrier everywhere, so the
+         running meet stays byte-identical to the carrier at every
+         step — never equal to a shade, never empty]),
+    ),
+    [a sequential reduce re-walks the whole carrier per shade:
+     $Theta(k dot d)$ on a $Theta(k + d)$-bit population, with no
+     short-circuit available.],
+    cure: [the balanced reduction: the carrier is walked once per
+      counter level, $O(d log k + k)$ — the committed sequential
+      form survives only as the adequacy tripwire that keeps this
+      cell's verdict live.],
+  ),
+  kind: image,
+  caption: [The shaded carrier attack card: a value that never
+    shrinks, aimed at fold orders that re-walk their
+    accumulator.],
+) <fig-attack-shade>
+
+#figure(
+  attack(
+    [staggered teeth$(k, m)$],
+    [the balanced reduction's intermediate results],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([operand 1], skyline(((0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0)), w: 170pt, unit: 9pt, show-heights: false)),
+      oprow([operand 2], skyline(((0.125, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.19, 0), (0.06, 1), (0.065, 0)), w: 170pt, unit: 9pt, show-heights: false)),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$k$ operands of $m$ unit teeth each, every operand's teeth
+         in the gaps of every other's, fed in an order that pairs
+         the least-overlapping groups first at every level]),
+    ),
+    [every internal merge, at every level, swells to near the sum
+     of its inputs' sizes — no coalescing until the last level: the
+     declared $O(D log k)$ model's worst case, realized in full.],
+    cure: [nothing to defeat — the family gauges the model itself:
+      the measured per-level cost holds flat across joint doublings
+      of $k$ and $m$, so the log factor is the reduction's honest
+      price, not a leak. Kin gauge the single axes: single-tick
+      operands ordered never to coalesce (arity), and interleaved
+      region sets under one shared skeleton (operand size).],
+  ),
+  kind: image,
+  caption: [The staggered teeth attack card: the joint
+    arity-times-size loading of the balanced fold, with its
+    single-axis kin in the cure line.],
+) <fig-attack-stagger>
+
 == The party operations <id-ops>
 
 The party side runs the same machinery with one-bit heights and no
@@ -382,6 +471,70 @@ minus one) rather than by
 anything stacked per level. Early exit at the first refuting
 position.
 
+#figure(
+  attack(
+    [lockstep pair$(d)$],
+    [the party predicates' per-level state],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([party $p$], codestrip((
+        ([node], 26pt, "t"), ([node], 26pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([node], 26pt, "t"), ([owned], 34pt, "t"),
+      ))),
+      oprow([party $q$], codestrip((
+        ([node], 26pt, "t"), ([node], 26pt, "t"), ([$dots.c$], 14pt, "x"),
+        ([node], 26pt, "t"), ([owned], 34pt, "t"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [two spines descending in full lockstep for $d$ levels,
+         diverging only at the bottom: every level is a paired
+         descent both walks must suspend]),
+    ),
+    [any predicate that suspends a word per paired level pays
+     $Theta(d)$ words of transient state against $Theta(d)$ _bits_
+     of operand.],
+    cure: [the paired obligation counter: both-descend counts $+1$,
+      terminal-or-absent counts $-1$ — $O(1)$ state in total for
+      `covers` and `disjoint`, with subtree skips priced by the
+      skipped stream's own bits.],
+  ),
+  kind: image,
+  caption: [The lockstep pair attack card: maximal paired depth,
+    aimed at per-level suspension in the verdict walks.],
+) <fig-attack-lockstep>
+
+#figure(
+  attack(
+    [aliased shares$(k, d)$],
+    [the n-ary party union's rejection path],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([host], codestrip((
+        ([owns everything but one depth-$d$ fragment], 170pt, "t"),
+      ))),
+      oprow([$k$ operands], codestrip((
+        ([fragment], 48pt, "t"), ([fragment], 48pt, "t"),
+        ([$dots.c$], 14pt, "x"), ([fragment], 48pt, "t"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [$k$ byte-identical spellings of one deep fragment against
+         a host owning the rest: exactly one completes the region,
+         and every other must be rejected and handed back]),
+    ),
+    [a rejection path that re-probes the accumulated group per
+     rejected operand pays the group's size $k$ times; each
+     operand's overlap witness sits at the bottom of its own
+     $d$-level path, so even the honest walk is forced to
+     $Theta(k dot d)$ — the floor the meter's liveness check
+     pins.],
+    cure: [each rejection pays its own path plus one failed
+      lowest-weight combine, never a re-probe: flat per population
+      byte across an arity doubling, and within the reduction's
+      declared log factor across a depth doubling.],
+  ),
+  kind: image,
+  caption: [The aliased shares attack card: mass rejection, aimed
+    at hand-back paths that touch the accumulated group.],
+) <fig-attack-alias>
+
 == Projection: pricing by mandatory output <projection>
 
 The projection $v \/ p$ masks a version's skyline to a party's owned
@@ -439,6 +592,75 @@ additive term binds. Party difference stays within its operands'
 sum; tick's
 output can exceed its input by at most a constant factor
 (@tick-output); join's cannot exceed it at all.
+
+#figure(
+  attack(
+    [scattered-party comb$(t, k)$],
+    [projection — through its mandatory output],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([version], skyline(
+        ((0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1),
+         (0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1)),
+        w: 170pt, unit: 10pt, show-heights: false)),
+      oprow([party], codestrip((
+        ([own], 21pt, "t"), ([—], 21pt, "x"), ([own], 21pt, "t"),
+        ([—], 21pt, "x"), ([own], 21pt, "t"), ([—], 21pt, "x"),
+        ([own], 21pt, "t"), ([—], 21pt, "x"),
+      ))),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [a comb of $t$ teeth riding a $k$-bit base — cheap deltas —
+         under a party owning every other tooth: masking breaks
+         every chain of cheap deltas with a zero]),
+    ),
+    [every kept tooth re-enters the skyline at its full $k$-bit
+     absolute: $Theta(t dot k)$ bits of _mandatory_ output from a
+     $Theta(t + k)$-bit input.],
+    cure: [no algorithm beats its own output, so the design splits
+      the operation: comparisons run through the lazy view at the
+      operands' size, and the materializing sweep is held linear in
+      input _plus_ output — the honest denominator.],
+  ),
+  kind: image,
+  caption: [The scattered-party comb attack card: the one unbounded
+    output ratio in the system, aimed at any claim that forgot to
+    denominate output.],
+) <fig-attack-scattered>
+
+#figure(
+  attack(
+    [masked drift$(t, k)$],
+    [the view's fused masked comparison],
+    stack(dir: ttb, spacing: 5pt,
+      oprow([version], skyline(
+        ((0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1),
+         (0.125, 2), (0.125, 1), (0.125, 2), (0.125, 1)),
+        w: 170pt, unit: 10pt, show-heights: false)),
+      oprow([mask], codestrip((
+        ([own], 21pt, "t"), ([—], 21pt, "x"), ([own], 21pt, "t"),
+        ([—], 21pt, "x"), ([own], 21pt, "t"), ([—], 21pt, "x"),
+        ([own], 21pt, "t"), ([—], 21pt, "x"),
+      ))),
+      oprow([against], skyline(((1.0, 2),), w: 170pt, unit: 10pt,
+        show-heights: false)),
+      text(size: 7.5pt, fill: gray-line.darken(40%),
+        [the comb's teeth oscillate across a $2^k$ carry cliff
+         behind 3-bit codes; the flat operand stands at $2^k$; the
+         mask toggles at every tooth]),
+    ),
+    [every toggle alternates the walk between the sign of a
+     near-cancelled wide difference and a zero test of a masked
+     height — each operand harmless alone, the composition aiming
+     the carry cliff at both reads at once.],
+    cure: [the collapse and the domination floors answer both reads
+      in amortized $O(1)$ (@sign); nothing is materialized, and the
+      verdict walk stays linear in the three operands. A
+      four-stream variant — two view-against-view masks with
+      interleaved parities — lands on the same machinery.],
+  ),
+  kind: image,
+  caption: [The masked drift attack card: correlated operands
+    aiming an old amplifier at the fused three-stream walk.],
+) <fig-attack-maskdrift>
 
 == The measures <measures>
 
