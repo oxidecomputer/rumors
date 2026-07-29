@@ -98,11 +98,13 @@ fn split_budget_yields_positive_compositions() {
     }
 }
 
-/// The split reaches every composition: cut-point sampling is uniform
-/// over the compositions, so at (6, 3) all ten compositions of 6 into 3
-/// positive parts appear across a modest draw budget. A split rule that
-/// biased away from an extreme (e.g. never producing (4, 1, 1)) would
-/// silently skew every multi-operand column's measure.
+/// The split reaches every composition.
+///
+/// Cut-point sampling is uniform over the compositions, so at (6, 3)
+/// all ten compositions of 6 into 3 positive parts appear across a
+/// modest draw budget. A split rule that biased away from an extreme
+/// (e.g. never producing (4, 1, 1)) would silently skew every
+/// multi-operand column's measure.
 #[test]
 fn split_budget_reaches_every_composition() {
     let mut rng = cell_rng(0xc0de, "split-reach", 6, 3);
