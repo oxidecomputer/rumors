@@ -395,10 +395,12 @@ pub(super) fn text_rejection_floors(limb: Liveness, touch: Liveness) -> Floors {
 
 /// A delta-fold touch floor over `deltas` *nonzero* stored delta codes
 /// (pass [`stored_nonzero_deltas`]), or NA when the operand streams
-/// store none: the single-operand kernels' premise (every nonzero
-/// stored delta of the one stream is folded individually; zero deltas
-/// fold nothing, so a count that included them would demand touch work
-/// no conforming fold does).
+/// store none.
+///
+/// The single-operand kernels' premise: every nonzero stored delta of
+/// the one stream is folded individually. Zero deltas fold nothing, so
+/// a count that included them would demand touch work no conforming
+/// fold does.
 pub(super) fn touch_delta_fold(deltas: u64) -> Liveness {
     if deltas == 0 {
         na(NA_TOUCH_NO_DELTAS)
