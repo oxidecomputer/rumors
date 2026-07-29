@@ -25,7 +25,7 @@ use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
 use crate::testing::{generators, optrace};
-use crate::version::skyline::sweep::{LeafCursor, Side, Step};
+use crate::version::skyline::sweep::{LeafCursor, PlateauCursor, Step};
 use crate::version::skyline::{encode, validate};
 use crate::{Clock, Version};
 
@@ -69,9 +69,7 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
     let (mut cb, hb) = LeafCursor::open(b);
     let (mut co, ho) = LeafCursor::open(out);
     // Signed differences out − a and out − b: the pointwise claim reads
-    // off their signs without materializing any height. The cursors'
-    // built-in folds go to a scratch accumulator.
-    let mut scratch = Accumulator::new();
+    // off their signs without materializing any height.
     let mut oa = Accumulator::new();
     oa.add_magnitude(&ho);
     oa.sub_magnitude(&ha);
@@ -113,28 +111,28 @@ fn assert_pointwise(a: &BitsSlice, b: &BitsSlice, out: &BitsSlice, meet: bool) {
         let mut flip = usize::MAX;
         let (mut so, mut sa, mut sb) = (None, None, None);
         if co.depth() == depth {
-            let step = co.step(&mut scratch, Side::A);
-            flip = flip.min(step.flip);
+            let (f, step) = co.step();
+            flip = flip.min(f);
             so = Some(step);
         }
         if ca.depth() == depth {
-            let step = ca.step(&mut scratch, Side::A);
-            flip = flip.min(step.flip);
+            let (f, step) = ca.step();
+            flip = flip.min(f);
             sa = Some(step);
         }
         if cb.depth() == depth {
-            let step = cb.step(&mut scratch, Side::A);
-            flip = flip.min(step.flip);
+            let (f, step) = cb.step();
+            flip = flip.min(f);
             sb = Some(step);
         }
         if so.is_none() && !co.done() && flip <= co.depth() {
-            so = Some(co.step(&mut scratch, Side::A));
+            so = Some(co.step().1);
         }
         if sa.is_none() && !ca.done() && flip <= ca.depth() {
-            sa = Some(ca.step(&mut scratch, Side::A));
+            sa = Some(ca.step().1);
         }
         if sb.is_none() && !cb.done() && flip <= cb.depth() {
-            sb = Some(cb.step(&mut scratch, Side::A));
+            sb = Some(cb.step().1);
         }
         // Fold the boundary's deltas: the output's raises both
         // differences, an input's lowers its own.

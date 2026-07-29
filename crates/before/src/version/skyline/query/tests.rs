@@ -921,7 +921,7 @@ mod adequacy {
     use crate::codec::{Base, BitsSlice};
     use crate::meter::registry::Shape;
     use crate::version::skyline::encode;
-    use crate::version::skyline::sweep::{LeafCursor, Side};
+    use crate::version::skyline::sweep::{fold, LeafCursor, PlateauCursor, Side};
     use crate::Rank;
 
     use super::super::{base_digits, max_depth, mul_into, FREEZE_ALLOWANCE_DIGITS};
@@ -954,7 +954,8 @@ mod adequacy {
             if cursor.done() {
                 break;
             }
-            let step = cursor.step(&mut live_height, Side::A);
+            let (_, step) = cursor.step();
+            fold(&mut live_height, Side::A, step.negative, &step.magnitude);
             if live_height.digit_count() > base_digits(&step.magnitude) + FREEZE_ALLOWANCE_DIGITS {
                 let (drift_sign, drift) = live_height.sign_magnitude();
                 let (_, position_mag) = position.sign_magnitude();
@@ -1039,7 +1040,7 @@ mod adequacy {
     // `P · (2^S − position) = P · 2^S − P · position` is sound; only
     // its cost class is not.
 
-    use crate::version::skyline::sweep::{advance, fold};
+    use crate::version::skyline::sweep::advance_diff;
 
     /// The anchored-segment integral with the span-reading promotion.
     ///
@@ -1209,7 +1210,8 @@ mod adequacy {
             if cursor.done() {
                 break;
             }
-            let step = cursor.step(&mut integral.live, Side::A);
+            let (_, step) = cursor.step();
+            fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
             integral.boundary(super::super::base_digits(&step.magnitude));
         }
         integral.finish(max_depth as u64)
@@ -1244,7 +1246,7 @@ mod adequacy {
             if ca.done() && cb.done() {
                 break;
             }
-            let (da, db) = advance(&mut ca, &mut cb, &mut diff);
+            let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
             let new_orient = orientation(diff.sign());
             if orient != 0 {
                 for (side, step) in [(Side::A, &da), (Side::B, &db)] {
@@ -1577,7 +1579,8 @@ mod adequacy {
             if cursor.done() {
                 break;
             }
-            let step = cursor.step(&mut integral.live, Side::A);
+            let (_, step) = cursor.step();
+            fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
             integral.boundary(super::super::base_digits(&step.magnitude));
         }
         integral.finish(max_depth as u64)
@@ -1612,7 +1615,7 @@ mod adequacy {
             if ca.done() && cb.done() {
                 break;
             }
-            let (da, db) = advance(&mut ca, &mut cb, &mut diff);
+            let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
             let new_orient = orientation(diff.sign());
             if orient != 0 {
                 for (side, step) in [(Side::A, &da), (Side::B, &db)] {
@@ -1891,7 +1894,8 @@ mod adequacy {
             if cursor.done() {
                 break;
             }
-            let step = cursor.step(&mut integral.live, Side::A);
+            let (_, step) = cursor.step();
+            fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
             integral.boundary(super::super::base_digits(&step.magnitude));
         }
         per_digit_finish(integral, max_depth as u64)
@@ -2116,7 +2120,8 @@ mod adequacy {
             if cursor.done() {
                 break;
             }
-            let step = cursor.step(&mut integral.live, Side::A);
+            let (_, step) = cursor.step();
+            fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
             integral.boundary(super::super::base_digits(&step.magnitude));
         }
         schoolbook_finish(integral, max_depth as u64)

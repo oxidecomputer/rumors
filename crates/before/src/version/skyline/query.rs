@@ -354,7 +354,7 @@ use crate::Rank;
 
 use super::build::SkylineBuilder;
 use super::emit::signed_sum;
-use super::sweep::{advance, fold, LeafCursor, Side, Step};
+use super::sweep::{advance_diff, fold, LeafCursor, PlateauCursor, Side, Step};
 use super::{gamma_code, zigzag_signed};
 
 /// The live accumulator's tolerated width overshoot, in base-2^32
@@ -401,7 +401,8 @@ pub fn rank(bits: &BitsSlice) -> Rank {
         if cursor.done() {
             break;
         }
-        let step = cursor.step(&mut integral.live, Side::A);
+        let (_, step) = cursor.step();
+        fold(&mut integral.live, Side::A, step.negative, &step.magnitude);
         integral.boundary(base_digits(&step.magnitude));
     }
     let (sign, num) = integral.finish(max_depth as u64);
@@ -708,7 +709,7 @@ fn pair_integral(a_bits: &BitsSlice, b_bits: &BitsSlice, measure: Measure) -> Ra
         if ca.done() && cb.done() {
             break;
         }
-        let (da, db) = advance(&mut ca, &mut cb, &mut diff);
+        let (da, db) = advance_diff(&mut ca, &mut cb, &mut diff);
         let new_orient = measure.orientation(diff.sign());
         if orient != 0 {
             // The `σ·dD` term: each side's consumed delta re-folds into
@@ -1383,16 +1384,17 @@ pub fn min_ticks(bits: &BitsSlice) -> Base {
     web.leaf(false, &Base::ZERO, 0, &mut total, &mut ledger);
     while !cursor.done() {
         let depth_before = cursor.depth();
-        let step = cursor.step(&mut live, Side::A);
+        let (flip, step) = cursor.step();
+        fold(&mut live, Side::A, step.negative, &step.magnitude);
         web.fold_height(step.negative, &step.magnitude);
         // Every popped right-branch level closed one internal node:
         // its subtree minimum folds into the total (a count on the
         // web's reigning record) and merges into its parent.
-        for _ in 0..depth_before - step.flip {
+        for _ in 0..depth_before - flip {
             web.close(&mut total, &mut ledger);
         }
         // Every left branch the descent pushed opened one node's range.
-        web.open(cursor.depth() - step.flip);
+        web.open(cursor.depth() - flip);
         // The new leaf: a stale-wide live component is evicted first,
         // so the offset entering the total is paid by the codes that
         // built it (the freeze discipline's funding argument).
@@ -1506,8 +1508,8 @@ fn absolute_height(height: &mut Accumulator) -> Base {
 ///
 /// The deeper cursor steps, and the other in the same step on a tie
 /// (the comparison sweep's bookkeeping, with the id side's flip levels
-/// playing the same role). Returns the skyline's consumed delta when
-/// that side stepped.
+/// playing the same role); the skyline's delta folds into `height` as
+/// it is consumed. Returns that delta when the skyline side stepped.
 fn advance_overlay(
     sc: &mut LeafCursor<'_>,
     ic: &mut IdLeafCursor<'_>,
@@ -1515,11 +1517,12 @@ fn advance_overlay(
 ) -> Option<Step> {
     match sc.depth().cmp(&ic.depth()) {
         Ordering::Greater => {
-            let step = sc.step(height, Side::A);
-            if step.flip <= ic.depth() {
+            let (ev_flip, step) = sc.step();
+            fold(height, Side::A, step.negative, &step.magnitude);
+            if ev_flip <= ic.depth() {
                 let flip = ic.step();
                 debug_assert_eq!(
-                    step.flip, flip,
+                    ev_flip, flip,
                     "tied boundaries close to one shared flip level"
                 );
             }
@@ -1528,19 +1531,21 @@ fn advance_overlay(
         Ordering::Less => {
             let flip = ic.step();
             (flip <= sc.depth()).then(|| {
-                let step = sc.step(height, Side::A);
+                let (ev_flip, step) = sc.step();
+                fold(height, Side::A, step.negative, &step.magnitude);
                 debug_assert_eq!(
-                    flip, step.flip,
+                    flip, ev_flip,
                     "tied boundaries close to one shared flip level"
                 );
                 step
             })
         }
         Ordering::Equal => {
-            let step = sc.step(height, Side::A);
+            let (ev_flip, step) = sc.step();
+            fold(height, Side::A, step.negative, &step.magnitude);
             let flip = ic.step();
             debug_assert_eq!(
-                step.flip, flip,
+                ev_flip, flip,
                 "equal-depth leaves share their whole path, so their flip levels agree"
             );
             Some(step)
